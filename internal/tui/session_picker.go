@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -103,7 +103,7 @@ func (s sessionPickerOverlay) View() string {
 	lines = append(lines, s.Divider(), s.RenderFooter(footerText))
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return s.RenderWithBg(s.styles.PaletteOverlay, body, lipgloss.Color(theme.BgElev))
+	return s.RenderWithBg(s.styles.PaletteOverlay, body, theme.BgElev)
 }
 
 //nolint:dupl // same row-layout algorithm as oneshotResumePickerOverlay.formatRunRow; types differ

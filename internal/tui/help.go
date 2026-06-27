@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -104,5 +104,7 @@ func renderHelp(styles theme.Styles, width int) string {
 		Padding(1, 2).
 		Render(sb.String())
 
-	return theme.WithBg(panel, lipgloss.Color(theme.BgElev))
+	// WithBg is required: glamour/lipgloss resets inside the panel body would
+	// clear cell backgrounds in transparent terminals without it.
+	return theme.WithBg(panel, theme.BgElev)
 }

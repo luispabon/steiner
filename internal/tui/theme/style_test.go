@@ -2,10 +2,11 @@ package theme
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 func styleSnapshot(style lipgloss.Style) string {
@@ -20,21 +21,19 @@ func styleSnapshot(style lipgloss.Style) string {
 	)
 }
 
-func terminalColorSnapshot(color lipgloss.TerminalColor) string {
-	if color == nil {
+func terminalColorSnapshot(c color.Color) string {
+	if c == nil {
 		return ""
 	}
-	r, g, b, a := color.RGBA()
+	r, g, b, a := c.RGBA()
 	if r == 0 && g == 0 && b == 0 && a == 0 {
 		return ""
 	}
-	if snapshot := fmt.Sprint(color); snapshot == "{}" {
+	if snapshot := fmt.Sprint(c); snapshot == "{}" {
 		return ""
 	}
-	if hex, ok := color.(lipgloss.Color); ok {
-		return strings.ToLower(string(hex))
-	}
-	return strings.ToLower(fmt.Sprint(color))
+	// Reconstruct hex from RGBA (values are in [0, 0xffff] range).
+	return strings.ToLower(fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8))
 }
 
 func styleFromMap(styles map[string]lipgloss.Style, key string, fallback lipgloss.Style) lipgloss.Style {
@@ -46,7 +45,7 @@ func styleFromMap(styles map[string]lipgloss.Style, key string, fallback lipglos
 
 func TestWithBg_simpleText(t *testing.T) {
 	s := "hello"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 	if !strings.HasPrefix(result, "\x1b[") {
 		t.Errorf("WithBg should start with ANSI escape, got %q", result)
@@ -58,7 +57,7 @@ func TestWithBg_simpleText(t *testing.T) {
 
 func TestWithBg_multiLine(t *testing.T) {
 	s := "hello\nworld"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 	lines := strings.Split(result, "\n")
 	if len(lines) != 2 {
@@ -73,31 +72,36 @@ func TestWithBg_multiLine(t *testing.T) {
 
 func TestWithBg_resetReplaced(t *testing.T) {
 	s := "before\x1b[0mafter"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
-	// Reset should be followed by bg escape so background is re-applied
 	if !strings.Contains(result, "\x1b[0m\x1b[") {
 		t.Errorf("reset should be followed by bg escape, got %q", result)
 	}
 }
 
+func TestWithBg_shortResetReplaced(t *testing.T) {
+	s := "before\x1b[mafter"
+	bg := BgElev
+	result := WithBg(s, bg)
+	if !strings.Contains(result, "\x1b[m\x1b[") {
+		t.Errorf("short reset should be followed by bg escape, got %q", result)
+	}
+}
+
 func TestWithBg_emptyLine(t *testing.T) {
 	s := "a\n\nb"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
 	lines := strings.Split(result, "\n")
 	if len(lines) != 3 {
 		t.Errorf("expected 3 lines, got %d", len(lines))
 	}
-	// Empty line should have ANSI escape prefix and background active
 	if !strings.HasPrefix(lines[1], "\x1b[") {
 		t.Errorf("empty line (index 1) should start with ANSI escape, got %q", lines[1])
 	}
-	// Empty line should contain at least one bg escape
 	if !strings.Contains(lines[1], "\x1b[48;2;") {
 		t.Errorf("empty line should contain bg escape, got %q", lines[1])
 	}
-	// Non-empty lines should contain their original text
 	if !strings.Contains(lines[0], "a") {
 		t.Errorf("line 0 should contain 'a'")
 	}
@@ -108,13 +112,11 @@ func TestWithBg_emptyLine(t *testing.T) {
 
 func TestWithBg_preservesTrailingNewlines(t *testing.T) {
 	s := "hello\n"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
-
 	if !strings.HasSuffix(result, "\n") {
 		t.Fatalf("WithBg result lost trailing newline: %q", result)
 	}
-
 	lines := strings.Split(result, "\n")
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 lines, got %d", len(lines))
@@ -129,17 +131,15 @@ func TestWithBg_preservesTrailingNewlines(t *testing.T) {
 
 func TestWithBg_visuallyIdempotent(t *testing.T) {
 	s := "hello\nworld"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	first := WithBg(s, bg)
 	second := WithBg(first, bg)
-	// Visually idempotent: second pass must preserve original text and have bg escapes
 	if !strings.Contains(second, "hello") || !strings.Contains(second, "world") {
 		t.Errorf("second application lost original text")
 	}
 	if !strings.HasPrefix(second, "\x1b[") {
 		t.Errorf("second application should start with ANSI escape")
 	}
-	// Both should produce strings starting with the same bg escape
 	if !strings.HasPrefix(first, second[:len(first)-6]) {
 		t.Logf("first and second may differ structurally but are visually equivalent")
 	}
@@ -147,20 +147,28 @@ func TestWithBg_visuallyIdempotent(t *testing.T) {
 
 func TestWithBg_multipleResets(t *testing.T) {
 	s := "a\x1b[0mb\x1b[0mc"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
-	// Count occurrences of reset followed by bg escape
 	count := strings.Count(result, "\x1b[0m\x1b[")
 	if count != 2 {
 		t.Errorf("expected 2 reset+bg pairs, got %d", count)
 	}
 }
 
+func TestWithBg_multipleShortResets(t *testing.T) {
+	s := "a\x1b[mb\x1b[mc"
+	bg := BgElev
+	result := WithBg(s, bg)
+	count := strings.Count(result, "\x1b[m\x1b[")
+	if count != 2 {
+		t.Errorf("expected 2 short reset+bg pairs, got %d", count)
+	}
+}
+
 func TestWithBg_bg49Reset(t *testing.T) {
 	s := "a\x1b[49mb"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
-	// Background reset (\x1b[49m) should be followed by bg escape
 	if !strings.Contains(result, "\x1b[49m\x1b[") {
 		t.Errorf("bg reset (\\x1b[49m) should be followed by bg escape, got %q", result)
 	}
@@ -168,13 +176,11 @@ func TestWithBg_bg49Reset(t *testing.T) {
 
 func TestWithBg_preservesForeground(t *testing.T) {
 	s := "\x1b[31mred\x1b[0mnormal"
-	bg := lipgloss.Color(BgElev)
+	bg := BgElev
 	result := WithBg(s, bg)
-	// Should still have the red ANSI code
 	if !strings.Contains(result, "\x1b[31m") {
 		t.Errorf("WithBg lost foreground color")
 	}
-	// Should have red text
 	if !strings.Contains(result, "red") {
 		t.Errorf("WithBg lost 'red' text")
 	}
@@ -185,7 +191,7 @@ func TestWithBg_preservesForeground(t *testing.T) {
 
 func TestWithBg_differentBg(t *testing.T) {
 	s := "test"
-	bg := lipgloss.Color("#FF0000")
+	bg := "#FF0000"
 	result := WithBg(s, bg)
 	if !strings.HasPrefix(result, "\x1b[") {
 		t.Errorf("WithBg should start with ANSI escape")

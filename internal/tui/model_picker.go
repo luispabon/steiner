@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -83,8 +83,7 @@ func (m modelPickerOverlay) View() string {
 		return ""
 	}
 
-	innerW := m.modelPickerInnerWidth()
-	return m.render(innerW, true)
+	return m.render(m.modelPickerInnerWidth())
 }
 
 func (m modelPickerOverlay) ViewAttached(maxWidth int) string {
@@ -92,10 +91,10 @@ func (m modelPickerOverlay) ViewAttached(maxWidth int) string {
 		return ""
 	}
 
-	return m.render(m.modelPickerAttachedInnerWidth(maxWidth), false)
+	return m.render(m.modelPickerAttachedInnerWidth(maxWidth))
 }
 
-func (m modelPickerOverlay) render(innerW int, withBg bool) string {
+func (m modelPickerOverlay) render(innerW int) string {
 	const selectionPrefix = "> "
 	const idlePrefix = "  "
 
@@ -156,11 +155,10 @@ func (m modelPickerOverlay) render(innerW int, withBg bool) string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := m.styles.PaletteOverlay.Width(innerW+2).Padding(1, 1).Render(body)
-	if withBg {
-		return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
-	}
-	return rendered
+	// WithBg is required: nested lipgloss renders emit ANSI resets that clear
+	// cell backgrounds in transparent terminals; the box Background() does not
+	// re-apply after resets inside the body.
+	return theme.WithBg(m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body), theme.BgElev)
 }
 
 func (m modelPickerOverlay) modelPickerInnerWidth() int {

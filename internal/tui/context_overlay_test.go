@@ -5,23 +5,23 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestContextOverlayRendersMarkdownAndKeepsBaseVisible(t *testing.T) {
+	useTrueColor(t)
 	m := newModel(Config{Model: "gpt-test"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	baseLines := make([]string, m.viewport.Height)
+	baseLines := make([]string, m.viewport.Height())
 	baseLines[0] = "base top"
 	baseLines[len(baseLines)-1] = "base bottom"
 	for i := 1; i < len(baseLines)-1; i++ {
 		baseLines[i] = "base filler"
 	}
 	m.viewport.SetContent(strings.Join(baseLines, "\n"))
-	base := m.View()
+	base := m.View().Content
 
 	report := strings.Join([]string{
 		"# Heading",
@@ -53,19 +53,17 @@ func TestContextOverlayRendersMarkdownAndKeepsBaseVisible(t *testing.T) {
 	if !strings.Contains(strings.Join(m.contextOverlay.renderedLines, "\n"), "\x1b[") {
 		t.Fatalf("rendered markdown = %q, want styled ANSI output", rendered)
 	}
-	titleStyle := lipgloss.NewStyle().
-		Foreground(m.styles.AccentColor).
-		Bold(true).
-		Width(m.contextOverlay.WithDimensions(m.width, m.height).InnerWidth())
-	if !strings.Contains(m.renderContextOverlay(), titleStyle.Render("Context Report")) {
-		t.Fatalf("overlay view = %q, want accent-colored Context Report title", stripANSI(m.renderContextOverlay()))
+	renderedOverlay := stripANSI(m.renderContextOverlay())
+	lines := strings.Split(renderedOverlay, "\n")
+	if len(lines) < 3 || !strings.Contains(lines[2], "Context Report") {
+		t.Fatalf("overlay view = %q, want Context Report title on the title line", renderedOverlay)
 	}
 
-	composed := composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height)
-	if !strings.Contains(composed, "base filler") {
-		t.Fatalf("composed view = %q, want transcript content visible outside overlay", composed)
+	composed := stripANSI(composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height))
+	if !strings.Contains(composed, "base top") || !strings.Contains(composed, "model gpt-test") {
+		t.Fatalf("composed view = %q, want transcript content and sidebar visible outside overlay", composed)
 	}
-	if !strings.Contains(base, "model gpt-test") {
+	if !strings.Contains(stripANSI(base), "model gpt-test") {
 		t.Fatalf("base view = %q, want sidebar content in the underlying screen", base)
 	}
 }
@@ -132,7 +130,7 @@ func TestContextOverlayClosesOnEsc(t *testing.T) {
 		t.Fatal("context overlay = closed, want open after context report")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
 
 	if m.contextOverlay.IsOpen() {
 		t.Fatal("context overlay = open, want closed after Esc")
@@ -159,12 +157,12 @@ func TestContextOverlayScrollsLongRenderedMarkdown(t *testing.T) {
 		t.Fatalf("scrollOffset = %d, want 0 at open", got)
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 	if got := m.contextOverlay.scrollOffset; got != 1 {
 		t.Fatalf("scrollOffset after key down = %d, want 1", got)
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyPgDown})
 	if got := m.contextOverlay.scrollOffset; got != 31 {
 		t.Fatalf("scrollOffset after page down = %d, want 31", got)
 	}

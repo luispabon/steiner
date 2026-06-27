@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -31,9 +31,9 @@ func TestAccentPickerFilter(t *testing.T) {
 	p := newAccentPickerOverlay(styles).Open("")
 
 	// Simulate typing "bl"
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}}
+	msg := tea.KeyPressMsg{Code: 'b', Text: "b"}
 	p, _ = p.Update(msg)
-	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}
+	msg = tea.KeyPressMsg{Code: 'l', Text: "l"}
 	p, _ = p.Update(msg)
 
 	if len(p.candidates) != 1 {
@@ -54,7 +54,7 @@ func TestAccentPickerSelect(t *testing.T) {
 		t.Fatal("violet not found in candidates")
 	}
 	for i := 0; i < idx; i++ {
-		msg := tea.KeyMsg{Type: tea.KeyDown}
+		msg := tea.KeyPressMsg{Code: tea.KeyDown}
 		p, _ = p.Update(msg)
 	}
 

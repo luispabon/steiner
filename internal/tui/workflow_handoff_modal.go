@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
@@ -78,7 +78,7 @@ func (s workflowHandoffModalState) promptText() string {
 func (m *Model) renderWorkflowHandoffModal() string {
 	s := m.workflowHandoff
 	s.OverlayShell = s.WithDimensions(m.width, m.height)
-	contentWidth := max(1, s.InnerWidth()-2)
+	contentWidth := s.InnerWidth()
 
 	title := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.Fg)).
@@ -138,8 +138,7 @@ func (m *Model) renderWorkflowHandoffModal() string {
 
 	sections = append(sections, divider, footer)
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
-	box := m.styles.PaletteOverlay.Width(s.InnerWidth()).Padding(0, 1).Render(content)
-	return theme.WithBg(box, lipgloss.Color(theme.BgElev))
+	return s.RenderWithBg(m.styles.PaletteOverlay, content, theme.BgElev)
 }
 
 func (m Model) renderWorkflowHandoffActionRow(contentWidth int, acceptButton string, changeModelButton string, dismissButton string) string {
@@ -173,8 +172,8 @@ func (s workflowHandoffModalState) planningFolderLine() string {
 	return label + " " + s.target
 }
 
-func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyLeft, tea.KeyUp:
 		m.workflowHandoff = m.workflowHandoff.moveSelection(-1)
 	case tea.KeyRight, tea.KeyDown, tea.KeyTab:

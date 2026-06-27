@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -115,7 +115,7 @@ func TestRenderPendingSteerSegment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lipgloss.SetColorProfile(termenv.Ascii)
+			lipgloss.Writer.Profile = colorprofile.ASCII
 			b := newTestBuffer(t)
 			b.segments = append(b.segments, contentSegment{kind: segmentPendingSteer, text: tt.text})
 			output := b.String(tt.width)

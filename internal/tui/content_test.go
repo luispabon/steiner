@@ -2,13 +2,14 @@ package tui
 
 import (
 	"errors"
+	"image/color"
 	"strconv"
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -1469,7 +1470,7 @@ func TestUserSegmentMargin(t *testing.T) {
 			// Promote "no ┃" helper for blank-line detection.
 			// A background-blank line has lipgloss.Width == 80 and contains no ┃.
 			isBlankLine := func(line string) bool {
-				return !strings.Contains(line, "\u2503") && lipgloss.Width(line) == 80
+				return !strings.Contains(line, "\u2503") && (line == "" || lipgloss.Width(line) == 80)
 			}
 
 			// Margin above the first user segment.
@@ -2056,7 +2057,7 @@ func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
 	tests := []struct {
 		name string
 		tool string
-		want lipgloss.Color
+		want color.Color
 	}{
 		{name: "bash", tool: "bash", want: lipgloss.Color(theme.ToolAmberLine)},
 		{name: "read", tool: "read", want: lipgloss.Color(theme.ToolCyanLine)},
@@ -2272,8 +2273,9 @@ func main() {}
 	}
 
 	got := buffer.String(100)
+	plain := stripANSI(got)
 	for _, want := range []string{"▾", "display file preview", "snippet.go", "package main", "func main()"} {
-		if !strings.Contains(got, want) {
+		if !strings.Contains(plain, want) {
 			t.Fatalf("rendered display preview %q missing %q", got, want)
 		}
 	}
@@ -2472,8 +2474,9 @@ func TestRenderToolPreviewUsesStructuredListViews(t *testing.T) {
 			}
 
 			got := buffer.String(100)
+			plain := stripANSI(got)
 			for _, want := range tt.want {
-				if !strings.Contains(got, want) {
+				if !strings.Contains(plain, want) {
 					t.Fatalf("rendered preview %q missing %q", got, want)
 				}
 			}
@@ -2552,8 +2555,9 @@ func TestRenderToolPreviewUsesStructuredGrepViews(t *testing.T) {
 			}
 
 			got := buffer.String(100)
+			plain := stripANSI(got)
 			for _, want := range tt.want {
-				if !strings.Contains(got, want) {
+				if !strings.Contains(plain, want) {
 					t.Fatalf("rendered preview %q missing %q", got, want)
 				}
 			}
@@ -2610,7 +2614,7 @@ func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
 				},
 			}
 
-			got := buffer.String(100)
+			got := stripANSI(buffer.String(100))
 			for _, want := range tt.want {
 				if !strings.Contains(got, want) {
 					t.Fatalf("rendered preview %q missing %q", got, want)
@@ -2842,10 +2846,14 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(100))
-	for _, want := range []string{"model qwen3-coder-", "30b", "Turns: 5", "Tool Calls: 3", "Tokens: 1234", "Duration:", "Status: complete", "Ctx: 1%"} {
-		if !strings.Contains(rendered, want) {
+	normalized := strings.Join(strings.Fields(rendered), " ")
+	for _, want := range []string{"model qwen3-coder-", "30b", "Turns: 5", "Tool Calls: 3", "Tokens: 1234", "Duration:", "Ctx: 1%"} {
+		if !strings.Contains(normalized, want) {
 			t.Errorf("expanded delegation render missing %q:\n%s", want, rendered)
 		}
+	}
+	if !strings.Contains(normalized, "Status:") || !strings.Contains(normalized, "complete") {
+		t.Errorf("expanded delegation render missing status text:\n%s", rendered)
 	}
 	if !strings.Contains(rendered, "2.4k / 200k") {
 		t.Errorf("expanded delegation render missing context capacity:\n%s", rendered)
@@ -3624,10 +3632,10 @@ func TestFollowUpFallsBackGracefullyWhenChildNotFound(t *testing.T) {
 func useTrueColor(t *testing.T) {
 	t.Helper()
 
-	old := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	old := lipgloss.Writer.Profile
+	lipgloss.Writer.Profile = colorprofile.TrueColor
 	t.Cleanup(func() {
-		lipgloss.SetColorProfile(old)
+		lipgloss.Writer.Profile = old
 	})
 }
 func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {

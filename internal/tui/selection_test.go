@@ -1,31 +1,20 @@
 package tui
 
 import (
-	"io"
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"charm.land/lipgloss/v2"
 )
 
-// testRenderer forces TrueColor output so lipgloss emits ANSI codes in tests
-// (the default renderer detects no terminal and strips all colour).
-var testRenderer = func() *lipgloss.Renderer {
-	r := lipgloss.NewRenderer(io.Discard)
-	r.SetColorProfile(termenv.TrueColor)
-	return r
-}()
-
 // testSelStyle is used as the highlight style in applyScreenHighlight tests.
-var testSelStyle = testRenderer.NewStyle().Background(lipgloss.Color("#3a4a5a"))
+var testSelStyle = lipgloss.NewStyle().Background(lipgloss.Color("#3a4a5a"))
 
 // ---------------------------------------------------------------------------
 // TestExtractText
 // ---------------------------------------------------------------------------
 
 func TestExtractText(t *testing.T) {
-	t.Parallel()
 	plainLines := []string{
 		"hello world",   // 0
 		"foo bar baz",   // 1
@@ -130,7 +119,6 @@ func TestExtractText(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			got := extractText(tc.lines, tc.state)
 			if got != tc.want {
 				t.Errorf("extractText() = %q; want %q", got, tc.want)
@@ -149,8 +137,6 @@ func hasNoANSI(s string) bool {
 }
 
 func TestApplyScreenHighlight(t *testing.T) {
-	t.Parallel()
-
 	frame := "hello world\nfoo bar baz\ngoodbye cruel"
 
 	tests := []struct {
@@ -246,7 +232,7 @@ func TestApplyScreenHighlight(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+			useTrueColor(t)
 			result := applyScreenHighlight(tc.frame, tc.state, testSelStyle)
 			lines := strings.Split(result, "\n")
 			tc.checkFn(t, lines)

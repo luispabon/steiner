@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -73,19 +73,19 @@ func TestSessionPickerOverlayNavigation(t *testing.T) {
 	opened := overlay.Open(entries)
 
 	// Test arrow down
-	updated, _ := opened.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := opened.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if updated.selection != 1 {
 		t.Fatalf("selection after KeyDown = %d, want 1", updated.selection)
 	}
 
 	// Test arrow up
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = updated.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if updated.selection != 0 {
 		t.Fatalf("selection after KeyUp = %d, want 0", updated.selection)
 	}
 
 	// Test boundary: can't go below 0
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = updated.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if updated.selection != 0 {
 		t.Fatalf("selection at boundary = %d, want 0", updated.selection)
 	}
@@ -93,7 +93,7 @@ func TestSessionPickerOverlayNavigation(t *testing.T) {
 	// Test boundary: can't exceed length-1
 	updated = overlay.Open(entries)
 	updated.selection = 2
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = updated.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if updated.selection != 2 {
 		t.Fatalf("selection at upper boundary = %d, want 2", updated.selection)
 	}
@@ -112,7 +112,7 @@ func TestSessionPickerOverlayEscapeCloses(t *testing.T) {
 		t.Fatal("not open after Open()")
 	}
 
-	closed, _ := opened.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	closed, _ := opened.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if closed.IsOpen() {
 		t.Fatal("IsOpen = true after Esc, want false")
 	}
@@ -131,7 +131,7 @@ func TestSessionPickerOverlaySearchFiltering(t *testing.T) {
 	opened := overlay.Open(entries)
 
 	// Filter for "project"
-	filtered, _ := opened.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("project")})
+	filtered, _ := opened.Update(tea.KeyPressMsg{Text: "project"})
 	if len(filtered.candidates) != 1 {
 		t.Fatalf("filtered candidates count = %d, want 1", len(filtered.candidates))
 	}
@@ -141,7 +141,7 @@ func TestSessionPickerOverlaySearchFiltering(t *testing.T) {
 
 	// Filter for "code"
 	filtered = overlay.Open(entries)
-	filtered, _ = filtered.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("code")})
+	filtered, _ = filtered.Update(tea.KeyPressMsg{Text: "code"})
 	if len(filtered.candidates) != 1 {
 		t.Fatalf("code filter count = %d, want 1", len(filtered.candidates))
 	}
@@ -162,7 +162,7 @@ func TestSessionPickerOverlaySearchCaseInsensitive(t *testing.T) {
 	opened := overlay.Open(entries)
 
 	// Filter for lowercase "first"
-	filtered, _ := opened.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("first")})
+	filtered, _ := opened.Update(tea.KeyPressMsg{Text: "first"})
 	if len(filtered.candidates) != 1 {
 		t.Fatalf("lowercase filter count = %d, want 1", len(filtered.candidates))
 	}
@@ -183,13 +183,13 @@ func TestSessionPickerOverlayBackspaceDeletesQuery(t *testing.T) {
 	opened := overlay.Open(entries)
 
 	// Type "project"
-	filtered, _ := opened.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("project")})
+	filtered, _ := opened.Update(tea.KeyPressMsg{Text: "project"})
 	if filtered.query != "project" {
 		t.Fatalf("query = %q, want 'project'", filtered.query)
 	}
 
 	// Backspace
-	filtered, _ = filtered.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	filtered, _ = filtered.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if filtered.query != "projec" {
 		t.Fatalf("query after backspace = %q, want 'projec'", filtered.query)
 	}
@@ -199,7 +199,7 @@ func TestSessionPickerOverlayBackspaceDeletesQuery(t *testing.T) {
 
 	// Backspace all the way
 	for len(filtered.query) > 0 {
-		filtered, _ = filtered.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		filtered, _ = filtered.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
 	if len(filtered.candidates) != 2 {
 		t.Fatalf("candidates after clearing query = %d, want 2", len(filtered.candidates))
@@ -219,14 +219,14 @@ func TestSessionPickerOverlaySelectionResetOnFilter(t *testing.T) {
 	opened := overlay.Open(entries)
 
 	// Move selection to index 2
-	updated, _ := opened.Update(tea.KeyMsg{Type: tea.KeyDown})
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := opened.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	updated, _ = updated.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if updated.selection != 2 {
 		t.Fatalf("selection = %d, want 2", updated.selection)
 	}
 
 	// Type a filter character
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	updated, _ = updated.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 
 	// Selection should reset to 0
 	if updated.selection != 0 {

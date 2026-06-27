@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -98,11 +98,10 @@ func (m accentPickerOverlay) View() string {
 	if !m.IsOpen() {
 		return ""
 	}
-	innerW := m.accentPickerInnerWidth()
-	return m.render(innerW, true)
+	return m.render(m.accentPickerInnerWidth())
 }
 
-func (m accentPickerOverlay) render(innerW int, withBg bool) string {
+func (m accentPickerOverlay) render(innerW int) string {
 	const selectionPrefix = "> "
 	const idlePrefix = "  "
 
@@ -156,11 +155,10 @@ func (m accentPickerOverlay) render(innerW int, withBg bool) string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := m.styles.PaletteOverlay.Width(innerW+2).Padding(1, 1).Render(body)
-	if withBg {
-		return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
-	}
-	return rendered
+	// WithBg is required: nested lipgloss renders emit ANSI resets that clear
+	// cell backgrounds in transparent terminals; the box Background() does not
+	// re-apply after resets inside the body.
+	return theme.WithBg(m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body), theme.BgElev)
 }
 
 // renderSwatch returns a coloured block character for the preset, or a neutral

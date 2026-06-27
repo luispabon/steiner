@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -67,12 +67,12 @@ func (s slashOverlay) Update(msg tea.Msg) (slashOverlay, tea.Cmd) {
 	if !s.IsOpen() {
 		return s, nil
 	}
-	keyMsg, ok := msg.(tea.KeyMsg)
+	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return s, nil
 	}
 
-	switch keyMsg.Type {
+	switch keyMsg.Code {
 	case tea.KeyEsc:
 		return s.Close(), nil
 	case tea.KeyEnter:
@@ -96,13 +96,14 @@ func (s slashOverlay) Update(msg tea.Msg) (slashOverlay, tea.Cmd) {
 			s.filterCandidates()
 		}
 		return s, nil
-	case tea.KeyRunes:
+	}
+	// Handle printable characters (tea.KeyRunes equivalent)
+	if keyMsg.Text != "" {
 		s.query += keyMsg.String()
 		s.filterCandidates()
 		return s, nil
-	default:
-		return s, nil
 	}
+	return s, nil
 }
 
 // filterCandidates updates the list of candidates based on the current query.
@@ -240,8 +241,10 @@ func (s slashOverlay) View() string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := s.styles.PaletteOverlay.Width(innerW+2).Padding(1, 1).Render(body)
-	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
+	// WithBg is required: nested lipgloss renders emit ANSI resets that clear
+	// cell backgrounds in transparent terminals; the overlay box style Background()
+	// does not re-apply after resets inside the body.
+	return theme.WithBg(s.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body), theme.BgElev)
 }
 
 func truncateOverlayText(text string, width int) string {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -121,19 +121,19 @@ func TestOneshotResumePickerOverlayNavigation(t *testing.T) {
 	opened := overlay.Open(runs)
 
 	// Test arrow down
-	updated, _ := opened.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := opened.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if updated.selection != 1 {
 		t.Fatalf("selection after KeyDown = %d, want 1", updated.selection)
 	}
 
 	// Test arrow up
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = updated.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if updated.selection != 0 {
 		t.Fatalf("selection after KeyUp = %d, want 0", updated.selection)
 	}
 
 	// Test boundary: can't go below 0
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = updated.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if updated.selection != 0 {
 		t.Fatalf("selection at boundary = %d, want 0", updated.selection)
 	}
@@ -141,7 +141,7 @@ func TestOneshotResumePickerOverlayNavigation(t *testing.T) {
 	// Test boundary: can't exceed length-1
 	updated = overlay.Open(runs)
 	updated.selection = 2
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = updated.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if updated.selection != 2 {
 		t.Fatalf("selection at upper boundary = %d, want 2", updated.selection)
 	}
@@ -180,7 +180,7 @@ func TestOneshotResumePickerOverlaySelectedRunID(t *testing.T) {
 	}
 
 	// Move to second item
-	updated, _ := opened.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := opened.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if updated.SelectedRunID() != "run-xyz789" {
 		t.Fatalf("SelectedRunID() = %q, want run-xyz789", updated.SelectedRunID())
 	}

@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/tui/prefs"
@@ -44,9 +44,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSyncDebounceFiredMsg(msg)
 	case clipboardImageMsg:
 		return m.handleClipboardImageMsg(msg)
-	case tea.MouseMsg:
-		return m.handleMouseMsg(msg)
-	case tea.KeyMsg:
+	case mouseClickMsg:
+		return m.handleMouseClickMsg(msg)
+	case mouseMotionMsg:
+		return m.handleMouseMotionMsg(msg)
+	case mouseReleaseMsg:
+		return m.handleMouseReleaseMsg(msg)
+	case mouseWheelMsg:
+		return m.handleMouseWheelMsg(msg)
+	case tea.KeyPressMsg:
 		return m.handleKeyMsg(msg)
 	}
 
@@ -201,9 +207,50 @@ func (m Model) handleBridgeClosedMsg(_ bridgeClosedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	cmd := m.handleMouse(msg)
+func (m Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
+	start := selectionPoint{line: msg.y, col: msg.x}
+	m.selection = selectionState{start: start, end: start, active: true}
+	m.mousePressX = msg.x
+	m.mousePressY = msg.y
+	return m, nil
+}
+
+func (m Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
+	if m.mousePressX >= 0 {
+		m.selection.end = selectionPoint{line: msg.y, col: msg.x}
+	}
+	return m, nil
+}
+
+func (m Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
+	m.selection.end = selectionPoint{line: msg.y, col: msg.x}
+	var cmd tea.Cmd
+	if m.mousePressX != msg.x || m.mousePressY != msg.y {
+		m.selection.active = false
+		text := extractText(*m.screenLines, m.selection)
+		if text != "" {
+			m.mousePressX = -1
+			m.mousePressY = -1
+			cmd = copyToClipboard(text)
+		}
+	} else {
+		m.selection = m.selection.clear()
+		m.handleLeftClick(msg.y)
+	}
+	m.mousePressX = -1
+	m.mousePressY = -1
 	return m, cmd
+}
+
+func (m Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
+	m.lastWheelMouseAt = time.Now()
+	switch msg.direction {
+	case "up":
+		m.scrollUp(m.viewport.MouseWheelDelta)
+	case "down":
+		m.scrollDown(m.viewport.MouseWheelDelta)
+	}
+	return m, nil
 }
 
 func (m Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.Cmd) {

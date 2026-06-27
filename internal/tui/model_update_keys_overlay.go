@@ -5,28 +5,31 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
 )
 
-func (m Model) handleExitModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handleExitModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyLeft, tea.KeyUp:
 		m.exitModal = m.exitModal.moveSelection(-1)
 	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
 		m.exitModal = m.exitModal.moveSelection(1)
-	case tea.KeyEnter, tea.KeyCtrlC, tea.KeyCtrlD:
+	case tea.KeyEnter:
 		return m.confirmExitModal()
 	case tea.KeyEsc:
 		m.exitModal = m.exitModal.closeExitModal()
 	}
+	if isCtrl(msg, 'c') || isCtrl(msg, 'd') {
+		return m.confirmExitModal()
+	}
 	return m, nil
 }
 
-func (m Model) handleContextOverlayKey(msg tea.KeyMsg) tea.Model {
-	switch msg.Type {
+func (m Model) handleContextOverlayKey(msg tea.KeyPressMsg) tea.Model {
+	switch msg.Code {
 	case tea.KeyEsc:
 		m.contextOverlay = m.contextOverlay.closeContextOverlay()
 	case tea.KeyUp:
@@ -41,8 +44,8 @@ func (m Model) handleContextOverlayKey(msg tea.KeyMsg) tea.Model {
 	return m
 }
 
-func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handleFilePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyEsc:
 		m.replaceComposerToken('@', "")
 		m.filePicker = m.filePicker.Close()
@@ -65,8 +68,8 @@ func (m Model) handleFilePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handleSessionPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyEsc:
 		m.sessionPicker = m.sessionPicker.Close()
 	case tea.KeyEnter:
@@ -82,7 +85,9 @@ func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-	case tea.KeyRunes:
+	}
+	// Handle printable characters (tea.KeyRunes equivalent)
+	if msg.Text != "" {
 		if msg.String() == "f" {
 			if m.sessionPicker.selection >= 0 && len(m.sessionPicker.candidates) > 0 {
 				selected := m.sessionPicker.candidates[m.sessionPicker.selection]
@@ -101,7 +106,7 @@ func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.sessionPicker, cmd = m.sessionPicker.Update(msg)
 			return m, cmd
 		}
-	default:
+	} else {
 		var cmd tea.Cmd
 		m.sessionPicker, cmd = m.sessionPicker.Update(msg)
 		return m, cmd
@@ -109,8 +114,8 @@ func (m Model) handleSessionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleOneshotResumePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handleOneshotResumePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyEsc:
 		m.oneshotResumePicker = m.oneshotResumePicker.Close()
 	case tea.KeyEnter:
@@ -126,8 +131,8 @@ func (m Model) handleOneshotResumePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
-func (m Model) handlePlanPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handlePlanPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyEsc:
 		m.planPicker = m.planPicker.Close()
 	case tea.KeyEnter:
@@ -144,8 +149,8 @@ func (m Model) handlePlanPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleAccentPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handleAccentPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyEsc:
 		m.accentPicker = m.accentPicker.Close()
 		m.input.Reset()
@@ -165,8 +170,8 @@ func (m Model) handleAccentPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyEsc:
 		m.modelPicker = m.modelPicker.Close()
 		if !m.modelPicker.IsWorkflowHandoff() {
@@ -194,11 +199,11 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleSlashOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeySpace {
-		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+func (m Model) handleSlashOverlayKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.Code == tea.KeySpace {
+		msg = tea.KeyPressMsg{Text: " "}
 	}
-	switch msg.Type {
+	switch msg.Code {
 	case tea.KeyEsc:
 		m.replaceComposerToken('/', "")
 		m.slashOverlay = m.slashOverlay.Close()

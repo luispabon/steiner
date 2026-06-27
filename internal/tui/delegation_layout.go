@@ -2,10 +2,6 @@ package tui
 
 import (
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
-
-	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 type delegationRowKind int
@@ -40,7 +36,7 @@ func (b *contentBuffer) delegationRows(dd *delegationDisplayState, width int) []
 		{kind: delegationRowBorderTop},
 		{
 			kind: delegationRowHeader,
-			text: theme.WithBg(b.renderDelegationHeader(dd, headerWidth), lipgloss.Color(theme.BgElev)),
+			text: b.renderDelegationHeader(dd, headerWidth),
 		},
 	}
 	var promptBodyRows []delegationRow

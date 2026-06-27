@@ -2,12 +2,9 @@ package tui
 
 import (
 	"fmt"
-
 	"strings"
-	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -30,12 +27,12 @@ func (m *Model) layout() {
 	inputRows, activityRows := m.computeInputRows(contentWidth)
 	maxInputRows := max(1, m.height-4-activityRows)
 	inputRows = min(inputRows, maxInputRows)
-	m.viewport.Width = max(1, contentWidth-6)
-	m.viewport.Height = max(1, m.height-3-inputRows-activityRows)
+	m.viewport.SetWidth(max(1, contentWidth-6))
+	m.viewport.SetHeight(max(1, m.height-3-inputRows-activityRows))
 	// Set max delegation body lines: viewport height minus overhead for border/header/stats/hint.
 	// Overhead: lipgloss border (2) + blank after box (1) + hint+newline (2) + header (1) + separator (1) + stats (1) = 8.
 	// Using delegationBodyOverhead leaves one spare row so the box never grazes the viewport edge.
-	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-delegationBodyOverhead)
+	m.content.maxDelegationBodyLines = max(0, m.viewport.Height()-delegationBodyOverhead)
 	m.syncViewport()
 }
 
@@ -48,11 +45,11 @@ func (m *Model) relayoutInput() {
 	maxInputRows := max(1, m.height-4-activityRows)
 	inputRows = min(inputRows, maxInputRows)
 	newHeight := max(1, m.height-3-inputRows-activityRows)
-	if newHeight == m.viewport.Height {
+	if newHeight == m.viewport.Height() {
 		return
 	}
-	m.viewport.Height = newHeight
-	m.content.maxDelegationBodyLines = max(0, m.viewport.Height-delegationBodyOverhead)
+	m.viewport.SetHeight(newHeight)
+	m.content.maxDelegationBodyLines = max(0, m.viewport.Height()-delegationBodyOverhead)
 	m.syncViewport()
 }
 
@@ -65,28 +62,49 @@ func (m *Model) computeInputRows(contentWidth int) (inputRows, activityRows int)
 }
 
 func (m *Model) syncViewport() {
-	rendered := m.content.String(m.viewport.Width)
+	m.vpViewCache = ""
+	rendered := m.content.String(m.viewport.Width())
 	if m.showContextDiagnostics {
-		if header := m.renderContextInfoLine(m.viewport.Width); header != "" {
+		if header := m.renderContextInfoLine(m.viewport.Width()); header != "" {
 			rendered = header + rendered
 		}
 	}
-	rendered = theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
-	rendered = theme.PadLines(rendered, m.viewport.Width, lipgloss.Color(theme.BgElev))
+
+	// WithBg re-inserts the background escape after every ANSI reset in rendered
+	// content. This is necessary because terminals with transparency enabled
+	// composite ANSI resets (\x1b[0m) with their transparency setting, producing
+	// transparent gaps whenever nested lipgloss/glamour renders emit a reset.
+	// lipgloss Background() on a container does NOT fix this — it only fills
+	// padding/border cells. WithBg + PadLines ensures every cell in the viewport
+	// has an explicit SGR 48 background, making content fully opaque.
+	// The cache avoids re-running the O(n) byte scan on scroll-only updates where
+	// content hasn't changed (m.content.String returns the same string value).
+	if rendered != m.fmtBgCacheInput || m.viewport.Width() != m.fmtBgCacheWidth {
+		m.fmtBgCacheInput = rendered
+		m.fmtBgCacheWidth = m.viewport.Width()
+		formatted := theme.WithBg(rendered, theme.BgElev)
+		m.fmtBgCacheOutput = theme.PadLines(formatted, m.viewport.Width(), theme.BgElev)
+	}
+	rendered = m.fmtBgCacheOutput
 
 	contentLines := strings.Count(rendered, "\n") + 1
-	pad := m.viewport.Height - contentLines
+	pad := m.viewport.Height() - contentLines
 	if pad < 0 {
 		pad = 0
 	}
 	m.contentTopPad = pad
 	if pad > 0 {
-		padLine := lipgloss.NewStyle().
-			Background(lipgloss.Color(theme.BgElev)).
-			Render(strings.Repeat(" ", m.viewport.Width))
-		rendered = strings.Repeat(padLine+"\n", pad) + rendered
+		if m.padLineCacheWidth != m.viewport.Width() || m.padLineCacheRendered == "" {
+			m.padLineCacheWidth = m.viewport.Width()
+			m.padLineCacheRendered = lipgloss.NewStyle().
+				Background(lipgloss.Color(theme.BgElev)).
+				Render(strings.Repeat(" ", m.viewport.Width()))
+		}
+		rendered = strings.Repeat(m.padLineCacheRendered+"\n", pad) + rendered
 	}
 	m.viewport.SetContent(rendered)
+	m.viewportLines = strings.Split(rendered, "\n")
+	m.viewportContentLen = len(rendered)
 	if m.autoScroll {
 		m.viewport.GotoBottom()
 	}
@@ -110,56 +128,14 @@ func (m *Model) scrollDown(lines int) {
 	}
 }
 
-func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
-	switch msg.Action {
-	case tea.MouseActionPress:
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			m.lastWheelMouseAt = time.Now()
-			m.scrollUp(m.viewport.MouseWheelDelta)
-		case tea.MouseButtonWheelDown:
-			m.lastWheelMouseAt = time.Now()
-			m.scrollDown(m.viewport.MouseWheelDelta)
-		case tea.MouseButtonLeft:
-			start := selectionPoint{line: msg.Y, col: msg.X}
-			m.selection = selectionState{start: start, end: start, active: true}
-			m.mousePressX = msg.X
-			m.mousePressY = msg.Y
-		}
-	case tea.MouseActionMotion:
-		if m.mousePressX >= 0 {
-			m.selection.end = selectionPoint{line: msg.Y, col: msg.X}
-		}
-	case tea.MouseActionRelease:
-		if msg.Button == tea.MouseButtonLeft {
-			m.selection.end = selectionPoint{line: msg.Y, col: msg.X}
-			if m.mousePressX != msg.X || m.mousePressY != msg.Y {
-				m.selection.active = false
-				text := extractText(*m.screenLines, m.selection)
-				if text != "" {
-					m.mousePressX = -1
-					m.mousePressY = -1
-					return copyToClipboard(text)
-				}
-			} else {
-				m.selection = m.selection.clear()
-				m.handleLeftClick(msg.Y)
-			}
-		}
-		m.mousePressX = -1
-		m.mousePressY = -1
-	}
-	return nil
-}
-
 func (m *Model) handleLeftClick(termY int) {
 	// The viewport content area starts below the status bar and input area.
 	// We need the content-area row. The viewport itself is positioned at
 	// some Y within the terminal — approximate by using termY directly
 	// adjusted for scroll offset.
-	// content line = termY + m.viewport.YOffset
+	// content line = termY + m.viewport.YOffset()
 	// (viewport renders from its YOffset in the scrollable content)
-	contentLine := termY + m.viewport.YOffset - m.contentTopPad - m.viewportContentTopOffset()
+	contentLine := termY + m.viewport.YOffset() - m.contentTopPad - m.viewportContentTopOffset()
 
 	if contentLine < 0 || len(m.content.segmentHeights) == 0 {
 		return
@@ -268,7 +244,7 @@ func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment 
 	if dd == nil || rowInSegment < 0 {
 		return -1
 	}
-	rows := m.content.delegationRows(dd, m.viewport.Width)
+	rows := m.content.delegationRows(dd, m.viewport.Width())
 	if rowInSegment >= len(rows) {
 		return -1
 	}
@@ -287,17 +263,17 @@ func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment 
 
 func (m *Model) renderScrollbar() string {
 	totalContent := m.viewport.TotalLineCount()
-	if totalContent <= m.viewport.Height {
+	if totalContent <= m.viewport.Height() {
 		return ""
 	}
 
-	vh := m.viewport.Height
+	vh := m.viewport.Height()
 	if vh <= 0 {
 		return ""
 	}
 
 	// Check cache before recomputing.
-	cacheKey := scrollbarCacheKey{yOffset: m.viewport.YOffset, height: vh, totalLines: totalContent}
+	cacheKey := scrollbarCacheKey{yOffset: m.viewport.YOffset(), height: vh, totalLines: totalContent}
 	if m.scrollbarCacheKey == cacheKey && m.scrollbarCacheRendered != "" {
 		return m.scrollbarCacheRendered
 	}
@@ -308,7 +284,7 @@ func (m *Model) renderScrollbar() string {
 	scrollRange := totalContent - vh
 	var thumbPos int
 	if scrollRange > 0 && trackH > 0 {
-		thumbPos = int(float64(m.viewport.YOffset) / float64(scrollRange) * float64(trackH))
+		thumbPos = int(float64(m.viewport.YOffset()) / float64(scrollRange) * float64(trackH))
 	}
 	if thumbPos > trackH {
 		thumbPos = trackH
@@ -447,7 +423,7 @@ func (m *Model) handleToolCallGroupClick(seg *contentSegment, rowInSegment int) 
 	if seg.toolGroupData == nil {
 		return
 	}
-	entryIndex := m.content.toolCallGroupEntryAtRow(seg.toolGroupData, rowInSegment, m.viewport.Width)
+	entryIndex := m.content.toolCallGroupEntryAtRow(seg.toolGroupData, rowInSegment, m.viewport.Width())
 	if entryIndex < 0 || entryIndex >= len(seg.toolGroupData.entries) {
 		return
 	}

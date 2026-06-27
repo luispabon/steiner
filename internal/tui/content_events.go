@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -225,11 +225,9 @@ type contentBuffer struct {
 	skillNames              []string       // skill names for command prefix matching
 	maxDelegationBodyLines  int            // max lines for delegation body (transcript + prompt); 0 = uncapped
 
-	// Render caches for width-dependent styles.
-	fillEmptyLinesCacheWidth  int
-	fillEmptyLinesCacheBgLine string
-	stringCacheWidth          int
-	stringCacheRendered       string
+	// Render cache.
+	stringCacheWidth    int
+	stringCacheRendered string
 }
 
 type contentEventHandler func(*contentBuffer, output.Event)

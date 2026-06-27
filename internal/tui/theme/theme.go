@@ -1,26 +1,28 @@
 package theme
 
 import (
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
+	"image/color"
+
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Theme describes the colors and styles needed to render the TUI.
 type Theme interface {
-	Background() lipgloss.Color
-	Foreground() lipgloss.Color
-	Accent() lipgloss.Color
-	Muted() lipgloss.Color
-	Border() lipgloss.Color
-	Error() lipgloss.Color
-	Warning() lipgloss.Color
-	Success() lipgloss.Color
-	SyntaxKeyword() lipgloss.Color
-	SyntaxString() lipgloss.Color
-	SyntaxComment() lipgloss.Color
-	SyntaxFunction() lipgloss.Color
-	SyntaxNumber() lipgloss.Color
-	SyntaxOperator() lipgloss.Color
+	Background() color.Color
+	Foreground() color.Color
+	Accent() color.Color
+	Muted() color.Color
+	Border() color.Color
+	Error() color.Color
+	Warning() color.Color
+	Success() color.Color
+	SyntaxKeyword() color.Color
+	SyntaxString() color.Color
+	SyntaxComment() color.Color
+	SyntaxFunction() color.Color
+	SyntaxNumber() color.Color
+	SyntaxOperator() color.Color
 
 	LipGlossStyles() Styles
 	GlamourStyleSheet() glamour.TermRendererOption
@@ -90,7 +92,7 @@ type Styles struct {
 	// Computed from accent
 	AccentSoft  lipgloss.Style // soft accent fill
 	AccentLine  lipgloss.Style // accent border color
-	AccentColor lipgloss.Color // accent color as raw color value
+	AccentColor color.Color    // accent color as raw color value
 
 	// Status bar key chip
 	KeyChip lipgloss.Style
@@ -112,6 +114,21 @@ type Styles struct {
 	PaletteInput      lipgloss.Style
 	PaletteItem       lipgloss.Style
 	PaletteItemActive lipgloss.Style
+
+	// VDivider is the base style for the vertical divider between main column and sidebar.
+	// Height must be applied per-frame: styles.VDivider.Height(h).Render("").
+	VDivider lipgloss.Style
+
+	// ContentPane variant used when the scrollbar is visible.
+	ContentPaneWithScrollbar lipgloss.Style
+
+	// CommandPrefixStyle highlights the command prefix in the input area.
+	// Rebuilt on accent change.
+	CommandPrefixStyle lipgloss.Style
+
+	// ImageMarkerStyle renders image marker tokens in input lines.
+	// Rebuilt on accent change.
+	ImageMarkerStyle lipgloss.Style
 
 	// Scrollbar
 	Scrollbar      lipgloss.Style
@@ -220,6 +237,25 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		StatusTag: lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)).Bold(true),
 
 		KeyChip: lipgloss.NewStyle().Background(lipgloss.Color(FgFaint)).Foreground(lipgloss.Color(Black)).Padding(0, 1),
+
+		VDivider: lipgloss.NewStyle().
+			Background(lipgloss.Color(BorderSoft)).
+			Width(1),
+
+		ContentPaneWithScrollbar: lipgloss.NewStyle().
+			Background(lipgloss.Color(BgElev)).
+			PaddingLeft(3).
+			PaddingRight(2),
+
+		CommandPrefixStyle: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(accentHex)).
+			Background(lipgloss.Color(UserSoft)),
+
+		ImageMarkerStyle: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(accentHex)).
+			Background(lipgloss.Color(UserSoft)),
 
 		Scrollbar: lipgloss.NewStyle().
 			Background(lipgloss.Color(BgElev)).

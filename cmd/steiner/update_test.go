@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 // assertOrder checks that before appears before after in s.
 func assertOrder(t *testing.T, s, before, after string) {
@@ -24,6 +27,10 @@ func assertOrder(t *testing.T, s, before, after string) {
 	if i >= j {
 		t.Errorf("expected %q before %q in output:\n%s", before, after, s)
 	}
+}
+
+func stripANSI(s string) string {
+	return ansiEscapePattern.ReplaceAllString(s, "")
 }
 
 // setVersion is a helper that sets version and channel together and returns a
@@ -79,7 +86,7 @@ func TestUpdateCommand_DevToStable(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stdout.String()
+	got := stripANSI(stdout.String())
 	if !strings.Contains(got, "checking version") {
 		t.Errorf("stdout = %q, want substring %q", got, "checking version")
 	}
@@ -137,7 +144,7 @@ func TestUpdateCommand_DevBuildWithDevFlag(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stdout.String()
+	got := stripANSI(stdout.String())
 	// No channel switch warning when already on dev channel.
 	if strings.Contains(got, "\u26a0 notice") {
 		t.Errorf("stdout = %q, should not contain channel switch warning", got)
@@ -190,7 +197,7 @@ func TestUpdateCommand_StableToDev(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stdout.String()
+	got := stripANSI(stdout.String())
 	if !strings.Contains(got, "switching from stable to dev") {
 		t.Errorf("stdout = %q, want channel switch warning", got)
 	}
@@ -231,7 +238,7 @@ func TestUpdateCommand_StableUpToDate(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stdout.String()
+	got := stripANSI(stdout.String())
 	if !strings.Contains(got, "Up to date") {
 		t.Errorf("stdout = %q, want 'Up to date'", got)
 	}
@@ -279,7 +286,7 @@ func TestUpdateCommand_StableUpdate(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stdout.String()
+	got := stripANSI(stdout.String())
 	if !strings.Contains(got, "\u2714 updated") {
 		t.Errorf("stdout = %q, want 'updated'", got)
 	}
@@ -331,7 +338,7 @@ func TestUpdateCommand_SpecificVersion(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stdout.String()
+	got := stripANSI(stdout.String())
 	if !strings.Contains(got, "v1.1.0") {
 		t.Errorf("stdout = %q, want version v1.1.0", got)
 	}
@@ -375,7 +382,7 @@ func TestUpdateCommand_SpecificVersionWithoutV(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stdout.String()
+	got := stripANSI(stdout.String())
 	if !strings.Contains(got, "v1.1.0") {
 		t.Errorf("stdout = %q, want version v1.1.0", got)
 	}
@@ -432,7 +439,7 @@ func TestUpdateCommand_RootDevFlag(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stdout.String()
+	got := stripANSI(stdout.String())
 	if !strings.Contains(got, "switching from stable to dev") {
 		t.Errorf("stdout = %q, want channel switch warning", got)
 	}
@@ -460,8 +467,8 @@ func TestUpdateCommand_Help(t *testing.T) {
 	}
 
 	want := "Update steiner to the latest release, or to a specific version"
-	if !strings.Contains(stdout.String(), want) {
-		t.Errorf("stdout = %q, want substring %q", stdout.String(), want)
+	if !strings.Contains(stripANSI(stdout.String()), want) {
+		t.Errorf("stdout = %q, want substring %q", stripANSI(stdout.String()), want)
 	}
 }
 
@@ -494,7 +501,7 @@ func TestUpdateCommand_UpgradeAlias(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stdout.String()
+	got := stripANSI(stdout.String())
 	if !strings.Contains(got, "checking version") {
 		t.Errorf("stdout = %q, want substring %q", got, "checking version")
 	}
@@ -541,7 +548,7 @@ func TestUpdateCommand_NoTTY(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	got := stdout.String()
+	got := stripANSI(stdout.String())
 	// Non-TTY (bytes.Buffer): no \r, no braille glyphs.
 	if strings.Contains(got, "\r") {
 		t.Errorf("non-TTY output should not contain \\r: %q", got)

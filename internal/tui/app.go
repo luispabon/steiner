@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/notify"
@@ -118,12 +118,7 @@ func (a *App) EventSink() output.EventSink {
 
 // NewProgram constructs the Bubble Tea program for the TUI.
 func (a *App) NewProgram(options ...tea.ProgramOption) *tea.Program {
-	opts := []tea.ProgramOption{
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	}
-	opts = append(opts, options...)
-	return tea.NewProgram(newModel(a.cfg, a.bridge.Messages()), opts...)
+	return tea.NewProgram(newModel(a.cfg, a.bridge.Messages()), options...)
 }
 
 // Run starts the TUI program and waits for it to exit.

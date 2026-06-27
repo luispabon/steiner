@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -141,5 +141,5 @@ func (m *Model) renderContextOverlay() string {
 		BorderForeground(lipgloss.Color(theme.BorderSoft)).
 		Padding(1, 2)
 
-	return s.RenderWithBg(boxStyle, full, lipgloss.Color(theme.BgElev))
+	return s.RenderWithBg(boxStyle, full, theme.BgElev)
 }

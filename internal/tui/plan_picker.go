@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -121,8 +121,11 @@ func (m planPickerOverlay) View() string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := m.styles.PaletteOverlay.Width(innerW+2).Padding(1, 1).Render(body)
-	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
+	rendered := m.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body)
+	// WithBg is required: nested lipgloss renders emit ANSI resets that clear
+	// cell backgrounds in transparent terminals; the box Background() does not
+	// re-apply after resets inside the body.
+	return theme.WithBg(rendered, theme.BgElev)
 }
 
 func (m planPickerOverlay) planPickerInnerWidth() int {

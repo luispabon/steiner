@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -61,7 +61,7 @@ func TestFileListOverlay_UpdateEsc(t *testing.T) {
 		t.Fatal("expected overlay to be open")
 	}
 
-	updated, _ := f.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, _ := f.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if updated.IsOpen() {
 		t.Fatal("expected overlay to close on Esc")
 	}
@@ -75,7 +75,7 @@ func TestFileListOverlay_UpdateEnter(t *testing.T) {
 		t.Fatal("expected overlay to be open")
 	}
 
-	updated, _ := f.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := f.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if updated.IsOpen() {
 		t.Fatal("expected overlay to close on Enter")
 	}
@@ -89,7 +89,7 @@ func TestFileListOverlay_UpdateIgnoresOtherKeys(t *testing.T) {
 		t.Fatal("expected overlay to be open")
 	}
 
-	updated, _ := f.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ := f.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if !updated.IsOpen() {
 		t.Fatal("expected overlay to stay open on non-close keys")
 	}
@@ -102,7 +102,7 @@ func TestFileListOverlay_UpdateWhenClosed(t *testing.T) {
 		t.Fatal("expected overlay to start closed")
 	}
 
-	updated, _ := f.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, _ := f.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if updated.IsOpen() {
 		t.Fatal("expected closed overlay to stay closed")
 	}

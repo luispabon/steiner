@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -109,12 +109,15 @@ func (o OverlayShell) RenderFooter(footerText string) string {
 // The caller is responsible for assembling body lines (header, divider, list,
 // footer divider, footer) before calling Render.
 func (o OverlayShell) Render(box lipgloss.Style, body string) string {
-	return box.Width(o.InnerWidth()+2).Padding(1, 1).Render(body)
+	return box.Width(o.overlayWidth()).Padding(1, 1).Render(body)
 }
 
-// RenderWithBg renders the overlay body with the given box style and wraps it
-// with the provided background color.
-func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string, bg lipgloss.Color) string {
+// RenderWithBg renders the overlay body with the given box style and wraps the
+// result in WithBg(bg). The bg pass is required because nested lipgloss renders
+// emit ANSI resets that clear cell backgrounds in transparent terminals; the box
+// style's Background() only fills padding/border cells and does not re-apply
+// after resets inside the body.
+func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string, bg string) string {
 	return theme.WithBg(o.Render(box, body), bg)
 }
 

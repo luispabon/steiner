@@ -2,9 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -48,7 +49,7 @@ func (s statusState) view(width int) string {
 		if s.contextBudget > 0 {
 			pct = (s.promptUsed * 100) / s.contextBudget
 		}
-		var ctxColor lipgloss.Color
+		var ctxColor color.Color
 		switch {
 		case pct > 90:
 			ctxColor = lipgloss.Color(theme.Removed)
@@ -80,8 +81,10 @@ func (s statusState) view(width int) string {
 			}
 		}
 	}
+	// WithBg is required: lipgloss resets inside the status bar content would
+	// clear cell backgrounds in transparent terminals without it.
 	if width > 0 {
-		return theme.WithBg(s.styles.StatusBar.Width(width).Render(text), lipgloss.Color(theme.BgElev))
+		return theme.WithBg(s.styles.StatusBar.Width(width).Render(text), theme.BgElev)
 	}
-	return theme.WithBg(s.styles.StatusBar.Render(text), lipgloss.Color(theme.BgElev))
+	return theme.WithBg(s.styles.StatusBar.Render(text), theme.BgElev)
 }

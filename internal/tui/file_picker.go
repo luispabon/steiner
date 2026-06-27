@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -173,8 +173,11 @@ func (f filePickerOverlay) View() string {
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	rendered := f.styles.PaletteOverlay.Width(innerWidth+2).Padding(1, 1).Render(body)
-	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
+	rendered := f.styles.PaletteOverlay.Width(innerWidth+4).Padding(1, 1).Render(body)
+	// WithBg is required: nested lipgloss renders emit ANSI resets that clear
+	// cell backgrounds in transparent terminals; the box Background() does not
+	// re-apply after resets inside the body.
+	return theme.WithBg(rendered, theme.BgElev)
 }
 
 func (f filePickerOverlay) filePickerInnerWidth() int {
@@ -190,12 +193,12 @@ func (f filePickerOverlay) filePickerInnerWidth() int {
 }
 
 func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int, candidates *[]T, allEntries []T, msg tea.Msg, filter func(string, []T) []T) searchPickerUpdateResult {
-	keyMsg, ok := msg.(tea.KeyMsg)
+	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return searchPickerIgnored
 	}
 
-	switch keyMsg.Type {
+	switch keyMsg.Code {
 	case tea.KeyEsc:
 		return searchPickerClosed
 	case tea.KeyEnter:
@@ -220,15 +223,16 @@ func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int,
 			*scrollOffset = 0
 		}
 		return searchPickerHandled
-	case tea.KeyRunes:
+	}
+	// Handle printable characters (tea.KeyRunes equivalent)
+	if keyMsg.Text != "" {
 		*query += keyMsg.String()
 		*candidates = filter(*query, allEntries)
 		*selection = 0
 		*scrollOffset = 0
 		return searchPickerHandled
-	default:
-		return searchPickerIgnored
 	}
+	return searchPickerIgnored
 }
 
 func scrollSearchPickerIntoView(selection *int, scrollOffset *int) {

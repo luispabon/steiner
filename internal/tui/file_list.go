@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -112,18 +112,18 @@ func (f fileListOverlay) View() string {
 		footerDivider,
 		footer,
 	)
-	return f.RenderWithBg(f.styles.PaletteOverlay, body, lipgloss.Color(theme.BgElev))
+	return f.RenderWithBg(f.styles.PaletteOverlay, body, theme.BgElev)
 }
 
 func (f fileListOverlay) Update(msg tea.Msg) (fileListOverlay, tea.Cmd) {
 	if !f.IsOpen() {
 		return f, nil
 	}
-	keyMsg, ok := msg.(tea.KeyMsg)
+	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return f, nil
 	}
-	switch keyMsg.Type {
+	switch keyMsg.Code {
 	case tea.KeyEsc, tea.KeyEnter:
 		return f.Close(), nil
 	}

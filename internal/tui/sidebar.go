@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -80,9 +80,12 @@ func (s sidebarState) View(width, height int) string {
 	}
 	lines := s.lines(innerWidth, innerHeight)
 	body := strings.Join(lines, "\n")
+	// WithBg(Black) is required: the sidebar uses Black as its background colour.
+	// Nested renders emit ANSI resets that would create transparent gaps in
+	// transparent terminals without the explicit per-cell background pass.
 	return theme.WithBg(
 		s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body),
-		lipgloss.Color(theme.Black),
+		theme.Black,
 	)
 }
 

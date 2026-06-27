@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -142,14 +142,14 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 		contentWidth = 2
 	}
 
-	userBgHex := lipgloss.Color(theme.UserSoft)
+	userBgColor := lipgloss.Color(theme.UserSoft)
 	barStyle := lipgloss.NewStyle().
 		Foreground(b.styles.UserBar.GetForeground()).
-		Background(userBgHex)
+		Background(userBgColor)
 	bar := barStyle.Render("┃")
 	padStyle := lipgloss.NewStyle().
 		Width(contentWidth + 1).
-		Background(userBgHex)
+		Background(userBgColor)
 	pad := padStyle.Render(barStyle.Render("┃"))
 
 	rendered, err := renderMarkdownBlock(segment.text, contentWidth-2, b.styles, b.glamourStyleSheet, &b.renderer, &b.renderWidth)
@@ -166,8 +166,8 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 		if line == "" {
 			continue
 		}
-		wrapped := theme.WithBg(line, userBgHex)
-		padded := theme.PadLines(wrapped, contentWidth, userBgHex)
+		wrapped := theme.WithBg(line, theme.UserSoft)
+		padded := theme.PadLines(wrapped, contentWidth, theme.UserSoft)
 		sb.WriteString(bar + padded + "\n")
 	}
 	sb.WriteString(pad + "\n")
@@ -196,7 +196,7 @@ func (b *contentBuffer) renderUserTimestampLine(timestamp time.Time, width int) 
 	if label == "" {
 		return ""
 	}
-	return theme.WithBg(label, lipgloss.Color(theme.BgElev))
+	return label
 }
 
 func formatContentTimestamp(timestamp time.Time) string {
@@ -273,7 +273,7 @@ func (b *contentBuffer) renderMarkdown(block string, isAssistant bool, width int
 		b.lastRenderErr = fmt.Errorf("render markdown: %w", err)
 		return b.styles.UserBg.Render(label + "> " + block)
 	}
-	return theme.WithBg(rendered, lipgloss.Color(theme.BgElev))
+	return rendered
 }
 
 func renderMarkdownBlock(block string, width int, styles theme.Styles, styleSheet glamour.TermRendererOption, renderer **glamour.TermRenderer, renderWidth *int) (string, error) {

@@ -2,11 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -148,13 +148,13 @@ func delegationHeaderAgentID(dd *delegationDisplayState) string {
 	return agentID
 }
 
-func renderStyledBox(content string, borderColor lipgloss.TerminalColor, bgColor lipgloss.Color, width int) string {
+func renderStyledBox(content string, borderColor color.Color, bgColor color.Color, width int) string {
 	return lipgloss.NewStyle().
 		Background(bgColor).
 		Padding(0, 1).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(borderColor).
-		Width(max(1, width-2)).
+		Width(max(1, width)).
 		Render(content)
 }
 
@@ -364,10 +364,8 @@ func (b *contentBuffer) wrapStyledDelegationLines(text string, width int, style 
 			lines = append(lines, style.Render(""))
 			continue
 		}
-		wrapped := ansi.Hardwrap(ansi.Wordwrap(part, width, ""), width, true)
-		for _, line := range strings.Split(wrapped, "\n") {
-			lines = append(lines, style.Render(line))
-		}
+		wrapped := style.Width(width).Render(part)
+		lines = append(lines, strings.Split(strings.TrimRight(wrapped, "\n"), "\n")...)
 	}
 	return lines
 }

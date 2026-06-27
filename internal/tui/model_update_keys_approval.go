@@ -1,9 +1,9 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import tea "charm.land/bubbletea/v2"
 
-func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m Model) handleApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyLeft, tea.KeyUp:
 		m = m.moveApprovalSelection(-1)
 		m.syncViewport()
@@ -16,9 +16,12 @@ func (m Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.executeApprovalDecision(m.selectedApprovalDecision())
 	case tea.KeyEsc:
 		return m.executeApprovalDecision(ApprovalDecisionDeny)
-	case tea.KeyCtrlC, tea.KeyCtrlD:
+	}
+	if isCtrl(msg, 'c') || isCtrl(msg, 'd') {
 		return m.executeInterruptAction(), nil
-	case tea.KeyRunes:
+	}
+	// Handle printable characters (tea.KeyRunes equivalent)
+	if msg.Text != "" {
 		switch msg.String() {
 		case "y":
 			return m.executeApprovalDecision(ApprovalDecisionAllowOnce)

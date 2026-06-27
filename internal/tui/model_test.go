@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/interactive"
@@ -224,7 +224,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, " world", output.ChunkSourceAssistant)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 164, "ok", false)})
 
-	if got := stripANSI(m.content.String(m.viewport.Width)); !strings.Contains(got, "hello world") {
+	if got := stripANSI(m.content.String(m.viewport.Width())); !strings.Contains(got, "hello world") {
 		t.Fatalf("content = %q, want assistant stream", got)
 	}
 	if got := m.status.model; got != "gpt-test" {
@@ -243,7 +243,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 		t.Fatalf("sidebar.budgetUsed = %d, want 164", got)
 	}
 	lines := m.sidebar.lines(38, 50)
-	joined := strings.Join(lines, "\n")
+	joined := stripANSI(strings.Join(lines, "\n"))
 	for _, want := range []string{
 		"● auto @ 90%",
 		"CONTEXT",
@@ -280,7 +280,7 @@ func TestModelRoutesShortContextReportToTranscript(t *testing.T) {
 	if m.contextOverlay.IsOpen() {
 		t.Fatal("contextOverlay.IsOpen() = true, want overlay closed for short context report")
 	}
-	if got := stripANSI(m.content.String(m.viewport.Width)); !strings.Contains(got, "cave_human mode: on") {
+	if got := stripANSI(m.content.String(m.viewport.Width())); !strings.Contains(got, "cave_human mode: on") {
 		t.Fatalf("content = %q, want context report text in transcript", got)
 	}
 }
@@ -359,13 +359,13 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	}
 
 	m.input.SetValue("fix the bug")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if ctrl.countSubmitPrompt() != 1 {
 		t.Fatalf("submit count = %d, want 1", ctrl.countSubmitPrompt())
 	}
 
 	m.input.SetValue("/skill review")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be enabled")
 	}
@@ -377,7 +377,7 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 	}
 
 	m.input.SetValue("/skill -review")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be disabled")
 	}
@@ -396,7 +396,7 @@ func TestClearResetsActiveSkill(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("/skill review")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be enabled")
 	}
@@ -405,7 +405,7 @@ func TestClearResetsActiveSkill(t *testing.T) {
 	}
 
 	m.input.SetValue("/clear")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be disabled after /clear")
 	}
@@ -424,7 +424,7 @@ func TestSkillExclusivity(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("/skill test")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !m.enabledSkills["test"] {
 		t.Fatal("expected test skill to be enabled")
 	}
@@ -436,7 +436,7 @@ func TestSkillExclusivity(t *testing.T) {
 	}
 
 	m.input.SetValue("/review")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be enabled")
 	}
@@ -448,7 +448,7 @@ func TestSkillExclusivity(t *testing.T) {
 	}
 
 	m.input.SetValue("/skill -review")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.enabledSkills["review"] {
 		t.Fatal("expected review skill to be disabled")
 	}
@@ -562,9 +562,9 @@ func TestModelSlashOverlayTypingUsesComposerText(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Text: "c"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: "o"})
 
 	if got := m.input.Value(); got != "/co" {
 		t.Fatalf("input value = %q, want /co", got)
@@ -594,9 +594,9 @@ func TestModelSlashOverlayEscRemovesActiveToken(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Text: "c"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if m.slashOverlay.IsOpen() {
 		t.Fatal("expected slash overlay to close on Esc")
@@ -615,7 +615,7 @@ func TestModelModifiedEnterInsertsNewline(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("first line")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt})
 
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0 for modified enter", ctrl.countSubmitPrompt())
@@ -634,7 +634,7 @@ func TestModelPlainEnterStillSubmitsPrompt(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("fix the bug")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if ctrl.countSubmitPrompt() != 1 {
 		t.Fatalf("submit count = %d, want 1", ctrl.countSubmitPrompt())
@@ -659,12 +659,12 @@ func TestModelCtrlXTogglesDelegationWhileConversationActive(t *testing.T) {
 		t.Fatal("delegation should start collapsed")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlX})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 
 	if dd.collapsed {
 		t.Fatal("delegation should expand on ctrl+x during active conversation")
 	}
-	rendered := m.content.String(m.viewport.Width)
+	rendered := m.content.String(m.viewport.Width())
 	if !strings.Contains(rendered, "result text") {
 		t.Fatalf("rendered content = %q, want expanded delegation output", rendered)
 	}
@@ -684,20 +684,19 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 		t.Fatal("delegation should start collapsed")
 	}
 
-	m.content.String(m.viewport.Width)
+	m.content.String(m.viewport.Width())
 	m.contentTopPad = 0
-	clickOffset := m.viewportContentTopOffset()
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: clickOffset})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: clickOffset})
+	m = updateModel(t, m, mouseClickMsg{x: 0, y: m.viewportContentTopOffset()})
+	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: m.viewportContentTopOffset()})
 
 	if dd.collapsed {
 		t.Fatal("delegation should expand on mouse click")
 	}
 
-	m.content.String(m.viewport.Width)
+	m.content.String(m.viewport.Width())
 	m.contentTopPad = 0
 	promptHeaderY := -1
-	for i, row := range m.content.delegationRows(dd, m.viewport.Width) {
+	for i, row := range m.content.delegationRows(dd, m.viewport.Width()) {
 		if row.kind == delegationRowPromptHeader {
 			promptHeaderY = i
 			break
@@ -706,8 +705,8 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	if promptHeaderY < 0 {
 		t.Fatal("expected prompt header row")
 	}
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: promptHeaderY + clickOffset})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: promptHeaderY + clickOffset})
+	m = updateModel(t, m, mouseClickMsg{x: 0, y: promptHeaderY})
+	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: promptHeaderY})
 
 	if dd.collapsed {
 		t.Fatal("delegation should stay expanded when prompt header toggles")
@@ -717,7 +716,7 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	}
 
 	nonToggleY := -1
-	for i, row := range m.content.delegationRows(dd, m.viewport.Width) {
+	for i, row := range m.content.delegationRows(dd, m.viewport.Width()) {
 		if row.kind == delegationRowPromptBody || row.kind == delegationRowTranscript || row.kind == delegationRowOutput {
 			nonToggleY = i
 			break
@@ -727,10 +726,10 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 		t.Fatal("expected a non-interactive delegation row to click")
 	}
 
-	m.content.String(m.viewport.Width)
+	m.content.String(m.viewport.Width())
 	m.contentTopPad = 0
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: nonToggleY + clickOffset})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: nonToggleY + clickOffset})
+	m = updateModel(t, m, mouseClickMsg{x: 0, y: nonToggleY})
+	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: nonToggleY})
 
 	if dd.collapsed {
 		t.Fatal("transcript/body click should not collapse delegation")
@@ -754,20 +753,20 @@ func TestModelMouseDragDoesNotToggle(t *testing.T) {
 		t.Fatal("delegation should start collapsed")
 	}
 
-	m.content.String(m.viewport.Width)
+	m.content.String(m.viewport.Width())
 	m.contentTopPad = 0
 
 	// Press at (0,0), release at (10,0) — different X = drag, should NOT toggle
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: 0})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 10, Y: 0})
+	m = updateModel(t, m, mouseClickMsg{x: 0, y: 0})
+	m = updateModel(t, m, mouseReleaseMsg{x: 10, y: 0})
 
 	if !dd.collapsed {
 		t.Fatal("drag (different X) should not toggle collapse")
 	}
 
 	// Press at (0,0), release at (0,2) — different Y = drag, should NOT toggle
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: 0})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: 2})
+	m = updateModel(t, m, mouseClickMsg{x: 0, y: 0})
+	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: 2})
 
 	if !dd.collapsed {
 		t.Fatal("drag (different Y) should not toggle collapse")
@@ -785,14 +784,14 @@ func TestModelMouseClickTargetsGroupedToolRow(t *testing.T) {
 		t.Fatal("toolGroupData = nil, want grouped tool calls")
 	}
 
-	m.content.String(m.viewport.Width)
+	m.content.String(m.viewport.Width())
 	m.contentTopPad = 0
-	m.viewport.YOffset = 0
+	m.viewport.SetYOffset(0)
 
 	rowForSecond := -1
 	dividerRow := -1
 	for row := 1; row < m.content.segmentHeights[0]-1; row++ {
-		switch idx := m.content.toolCallGroupEntryAtRow(group, row, m.viewport.Width); {
+		switch idx := m.content.toolCallGroupEntryAtRow(group, row, m.viewport.Width()); {
 		case idx == 1 && rowForSecond < 0:
 			rowForSecond = row
 		case idx < 0 && dividerRow < 0:
@@ -808,14 +807,14 @@ func TestModelMouseClickTargetsGroupedToolRow(t *testing.T) {
 
 	clickOffset := m.viewportContentTopOffset()
 
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: dividerRow + clickOffset})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: dividerRow + clickOffset})
+	m = updateModel(t, m, mouseClickMsg{x: 0, y: dividerRow + clickOffset})
+	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: dividerRow + clickOffset})
 	if !group.entries[0].collapsed || !group.entries[1].collapsed {
 		t.Fatal("divider click should not toggle any grouped entry")
 	}
 
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: rowForSecond + clickOffset})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: rowForSecond + clickOffset})
+	m = updateModel(t, m, mouseClickMsg{x: 0, y: rowForSecond + clickOffset})
+	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: rowForSecond + clickOffset})
 
 	if !group.entries[0].collapsed {
 		t.Fatal("first grouped entry should remain collapsed")
@@ -838,13 +837,13 @@ func TestModelMouseClickTargetsStandaloneToolRow(t *testing.T) {
 		t.Fatal("standalone tool call should start collapsed")
 	}
 
-	m.content.String(m.viewport.Width)
+	m.content.String(m.viewport.Width())
 	m.contentTopPad = 0
-	m.viewport.YOffset = 0
+	m.viewport.SetYOffset(0)
 
 	clickY := m.viewportContentTopOffset()
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: clickY})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: clickY})
+	m = updateModel(t, m, mouseClickMsg{x: 0, y: clickY})
+	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: clickY})
 
 	if seg.collapsed {
 		t.Fatal("standalone tool call should expand on visible row click")
@@ -865,7 +864,7 @@ func TestModelMouseClickTargetsResumedToolRowAfterUserGap(t *testing.T) {
 		t.Fatal("standalone tool call should start collapsed")
 	}
 
-	rendered := stripANSI(m.content.String(m.viewport.Width))
+	rendered := stripANSI(m.content.String(m.viewport.Width()))
 	lines := strings.Split(rendered, "\n")
 	toolRow := -1
 	for i, line := range lines {
@@ -879,10 +878,10 @@ func TestModelMouseClickTargetsResumedToolRowAfterUserGap(t *testing.T) {
 	}
 
 	m.contentTopPad = 0
-	m.viewport.YOffset = 0
+	m.viewport.SetYOffset(0)
 	clickY := toolRow + m.viewportContentTopOffset()
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 0, Y: clickY})
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, X: 0, Y: clickY})
+	m = updateModel(t, m, mouseClickMsg{x: 0, y: clickY})
+	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: clickY})
 
 	if seg.collapsed {
 		t.Fatal("standalone tool call should expand on visible row click after resumed prompt gap")
@@ -897,7 +896,7 @@ func TestModelHandlesContextKeybindLocally(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlT})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0", ctrl.countSubmitPrompt())
@@ -905,7 +904,7 @@ func TestModelHandlesContextKeybindLocally(t *testing.T) {
 	if ctrl.countRequestContextReport() != 1 {
 		t.Fatalf("context report count = %d, want 1", ctrl.countRequestContextReport())
 	}
-	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
+	if got := strings.TrimSpace(stripANSI(m.content.String(m.viewport.Width()))); got != "" {
 		t.Fatalf("content = %q, want no local echo", got)
 	}
 
@@ -920,12 +919,12 @@ func TestModelHandlesContextKeybindLocally(t *testing.T) {
 	if !strings.Contains(m.contextOverlay.content, "Last Request Context") {
 		t.Fatalf("contextOverlay.content = %q, want report content", m.contextOverlay.content)
 	}
-	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
+	if got := strings.TrimSpace(stripANSI(m.content.String(m.viewport.Width()))); got != "" {
 		t.Fatalf("content = %q, want no transcript insertion for context report", got)
 	}
 
 	// Esc should close the overlay.
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.contextOverlay.IsOpen() {
 		t.Fatal("contextOverlay.IsOpen() = true, want overlay closed after Esc")
 	}
@@ -940,7 +939,7 @@ func TestModelHandlesConfigCommandLocally(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("/config")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0", ctrl.countSubmitPrompt())
@@ -948,7 +947,7 @@ func TestModelHandlesConfigCommandLocally(t *testing.T) {
 	if ctrl.countRequestConfigReport() != 1 {
 		t.Fatalf("config report count = %d, want 1", ctrl.countRequestConfigReport())
 	}
-	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
+	if got := strings.TrimSpace(stripANSI(m.content.String(m.viewport.Width()))); got != "" {
 		t.Fatalf("content = %q, want no local echo", got)
 	}
 
@@ -964,7 +963,7 @@ func TestModelHandlesConfigCommandLocally(t *testing.T) {
 	if !strings.Contains(m.contextOverlay.content, "model:") {
 		t.Fatalf("contextOverlay.content = %q, want yaml content", m.contextOverlay.content)
 	}
-	if got := strings.TrimSpace(m.content.String(m.viewport.Width)); got != "" {
+	if got := strings.TrimSpace(stripANSI(m.content.String(m.viewport.Width()))); got != "" {
 		t.Fatalf("content = %q, want no transcript insertion for config report", got)
 	}
 }
@@ -984,14 +983,14 @@ func main() {}
 	if m.contextOverlay.IsOpen() {
 		t.Fatal("contextOverlay.IsOpen() = true, want no overlay for display_file")
 	}
-	content := m.content.String(m.viewport.Width)
+	content := stripANSI(m.content.String(m.viewport.Width()))
 	for _, want := range []string{"display file preview", "snippet.go", "package main"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("content = %q, want %q", content, want)
 		}
 	}
-	if strings.Contains(m.View(), "file viewer") {
-		t.Fatalf("view = %q, want no file viewer overlay", m.View())
+	if strings.Contains(m.View().Content, "file viewer") {
+		t.Fatalf("view = %q, want no file viewer overlay", m.View().Content)
 	}
 }
 
@@ -1031,7 +1030,7 @@ func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) 
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "stop", "", "", nil)})
 
-	content := m.content.String(m.viewport.Width)
+	content := m.content.String(m.viewport.Width())
 	for _, want := range []string{"compaction", "3 messages summarized into 1"} {
 		if !strings.Contains(strings.ToLower(content), want) {
 			t.Fatalf("content = %q, want compaction banner with %q", content, want)
@@ -1065,11 +1064,11 @@ func TestModelActivityRowReservesLayoutSpace(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
 
-	if got := m.activityRowHeight(m.viewport.Width); got != 1 {
+	if got := m.activityRowHeight(m.viewport.Width()); got != 1 {
 		t.Fatalf("activity row height = %d, want 1", got)
 	}
-	if m.viewport.Height != 5 {
-		t.Fatalf("viewport height = %d, want 5 after reserved activity row", m.viewport.Height)
+	if m.viewport.Height() != 5 {
+		t.Fatalf("viewport height = %d, want 5 after reserved activity row", m.viewport.Height())
 	}
 }
 
@@ -1079,7 +1078,7 @@ func TestModelActivityRowShowsSpinnerAfterApiRequestBeforeFirstChunk(t *testing.
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
 
-	row := m.renderActivityRow(m.viewport.Width)
+	row := m.renderActivityRow(m.viewport.Width())
 	for _, want := range []string{"waiting on model", "gpt-test", "⠋"} {
 		if !strings.Contains(row, want) {
 			t.Fatalf("activity row = %q, want %q", row, want)
@@ -1093,7 +1092,7 @@ func TestModelStatusBarKeepsPrimaryModelDuringOtherRuntimeCalls(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "main-model", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("other-runtime-model", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
 
-	statusLine := stripANSI(m.status.view(m.viewport.Width))
+	statusLine := stripANSI(m.status.view(m.viewport.Width()))
 	if !strings.Contains(statusLine, "model main-model") {
 		t.Fatalf("status line = %q, want primary model badge", statusLine)
 	}
@@ -1109,7 +1108,7 @@ func TestModelTabCompletesModelCommandInPrompt(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 12})
 
 	m.input.SetValue("/model")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 
 	// /model (no args) should be a completion candidate
 	if got, want := m.input.Value(), "/model"; got != want {
@@ -1126,7 +1125,7 @@ func TestModelActivityRowShowsToolPhaseLabel(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"})})
 
-	row := m.renderActivityRow(m.viewport.Width)
+	row := m.renderActivityRow(m.viewport.Width())
 	for _, want := range []string{"running tool", "bash", "⠋"} {
 		if !strings.Contains(row, want) {
 			t.Fatalf("activity row = %q, want %q", row, want)
@@ -1145,7 +1144,7 @@ func TestModelActivityRowShowsCompactionSpinner(t *testing.T) {
 		Turn:            7,
 	})})
 
-	row := m.renderActivityRow(m.viewport.Width)
+	row := m.renderActivityRow(m.viewport.Width())
 	for _, want := range []string{"compacting context", "2 compactions", "turn 7", "⠋"} {
 		if !strings.Contains(row, want) {
 			t.Fatalf("activity row = %q, want %q", row, want)
@@ -1158,7 +1157,7 @@ func TestModelApprovalKeepsReservedRowAndDisablesSpinner(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
 
-	row := m.renderActivityRow(m.viewport.Width)
+	row := m.renderActivityRow(m.viewport.Width())
 	if !strings.Contains(strings.ToLower(row), "approval required") {
 		t.Fatalf("activity row = %q, want approval label", row)
 	}
@@ -1178,7 +1177,7 @@ func TestModelInterruptClearsActivityImmediately(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if ctrl.countInterruptActiveRun() != 1 {
 		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
@@ -1189,7 +1188,7 @@ func TestModelInterruptClearsActivityImmediately(t *testing.T) {
 	if m.activity.label != "" || m.activity.detail != "" {
 		t.Fatalf("activity = %#v, want cleared", m.activity)
 	}
-	if got := strings.ToLower(m.renderActivityRow(m.viewport.Width)); strings.Contains(got, "waiting on model") || strings.Contains(got, "running tool") {
+	if got := strings.ToLower(m.renderActivityRow(m.viewport.Width())); strings.Contains(got, "waiting on model") || strings.Contains(got, "running tool") {
 		t.Fatalf("activity row = %q, want cleared", got)
 	}
 }
@@ -1210,7 +1209,7 @@ func TestModelFinishedCompactionDiagnosticDoesNotForceRunningState(t *testing.T)
 	if got := m.sidebar.compaction.SidebarLabel(); got != "" {
 		t.Fatalf("sidebar.compaction = %q, want cleared for finished compaction diagnostics", got)
 	}
-	if got := m.content.String(m.viewport.Width); !strings.Contains(strings.ToLower(got), "compaction") {
+	if got := m.content.String(m.viewport.Width()); !strings.Contains(strings.ToLower(got), "compaction") {
 		t.Fatalf("content = %q, want compaction banner", got)
 	}
 }
@@ -1259,7 +1258,7 @@ func TestModelSwitchFailureDoesNotUpdateUI(t *testing.T) {
 	m.applyModelSelection("original", "")
 
 	m.input.SetValue("/model unknown")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if got, want := m.status.model, "original"; got != want {
 		t.Fatalf("status.model = %q, want %q", got, want)
@@ -1282,7 +1281,7 @@ func TestModelSwitchUpdatesProviderHost(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("/model large")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if got, want := m.status.model, "large"; got != want {
 		t.Fatalf("status.model = %q, want %q", got, want)
@@ -1311,7 +1310,7 @@ func TestModelPickerEnterSwitchesActiveModel(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 20})
 
 	m.input.SetValue("/model")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if !m.modelPicker.IsOpen() {
 		t.Fatal("modelPicker.IsOpen() = false, want true after /model")
@@ -1320,8 +1319,8 @@ func TestModelPickerEnterSwitchesActiveModel(t *testing.T) {
 		t.Fatal("modelPicker.IsWorkflowHandoff() = true, want false for command picker")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if m.modelPicker.IsOpen() {
 		t.Fatal("modelPicker.IsOpen() = true, want false after selection")
@@ -1340,7 +1339,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(*testing.T) Model
-		key   tea.KeyMsg
+		key   tea.KeyPressMsg
 		check checkFunc
 	}{
 		{
@@ -1352,7 +1351,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.input.CursorEnd()
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if handled {
 					t.Fatal("handled = true, want false with no open overlays")
@@ -1378,7 +1377,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.modelPicker.height = 30
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for workflow handoff model picker")
@@ -1405,7 +1404,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.workflowHandoff = openWorkflowHandoffModal(100, 30, output.WorkflowHandoffEvent{Next: "review", Target: ".steiner/plans/step-3"}, interactive.WorkflowHandoffModelSelection{ModelAlias: "small", SourceLabel: "current session"})
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for workflow handoff modal")
@@ -1426,7 +1425,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.exitModal = openExitModal(100, 30)
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEnter},
+			key: tea.KeyPressMsg{Code: tea.KeyEnter},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for exit modal")
@@ -1451,7 +1450,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.slashOverlay.height = 30
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for slash overlay")
@@ -1479,7 +1478,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.fileList.height = 30
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for file list")
@@ -1500,7 +1499,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.contextOverlay = openContextOverlay("Context Report", strings.Repeat("line\n", 40), 100, 30, m.styles, m.content.glamourStyleSheet)
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for context overlay")
@@ -1525,7 +1524,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.filePicker.height = 30
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for file picker")
@@ -1551,7 +1550,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.sessionPicker.height = 30
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for session picker")
@@ -1574,7 +1573,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.oneshotResumePicker.height = 30
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for oneshot resume picker")
@@ -1597,7 +1596,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.planPicker.height = 30
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for plan picker")
@@ -1622,7 +1621,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				m.modelPicker.height = 30
 				return m
 			},
-			key: tea.KeyMsg{Type: tea.KeyEsc},
+			key: tea.KeyPressMsg{Code: tea.KeyEsc},
 			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for model picker")
@@ -1753,7 +1752,7 @@ func TestModelApprovalModeTransitions(t *testing.T) {
 	}
 
 	m.input.SetValue("yes")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.approval.active {
 		t.Fatal("expected approval mode to clear after decision")
 	}
@@ -1779,13 +1778,13 @@ func TestModelThinkingToggleShowsOnlyAfterToggle(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "normal reasoning", output.ChunkSourceAssistant)})
 
-	if got := m.content.String(m.viewport.Width); strings.Contains(got, "normal reasoning") {
+	if got := m.content.String(m.viewport.Width()); strings.Contains(got, "normal reasoning") {
 		t.Fatalf("content = %q, want no thinking while toggle is off", got)
 	}
 
 	m = updateModel(t, m, toggleThinkingMsg{})
 
-	content := m.content.String(m.viewport.Width)
+	content := m.content.String(m.viewport.Width())
 	if !strings.Contains(content, "normal reasoning") {
 		t.Fatalf("content = %q, want visible normal thinking after toggle", content)
 	}
@@ -1815,7 +1814,7 @@ func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
 
 	m.input.SetValue("yes")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	submissions := ctrl.submitApprovals()
 	if len(submissions) != 1 {
@@ -1841,12 +1840,12 @@ func TestModelApprovalSelectionAndConfirmation(t *testing.T) {
 		t.Fatalf("selectedAction = %d, want %d", got, want)
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 	if got, want := m.approval.selectedAction, 1; got != want {
 		t.Fatalf("selectedAction after tab = %d, want %d", got, want)
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	submissions := ctrl.submitApprovals()
 	if len(submissions) != 1 {
@@ -1872,7 +1871,7 @@ func TestModelApprovalEscDenies(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "prompt", `{"path":"note.txt"}`)})
 	m.input.SetValue("stale text")
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	submissions := ctrl.submitApprovals()
 	if len(submissions) != 1 {
@@ -1890,8 +1889,8 @@ func TestModelApprovalEscDenies(t *testing.T) {
 }
 
 func TestModelApprovalCtrlCInterrupts(t *testing.T) {
-	for _, key := range []tea.KeyType{tea.KeyCtrlC, tea.KeyCtrlD} {
-		t.Run(key.String(), func(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{{Code: 'c', Mod: tea.ModCtrl}, {Code: 'd', Mod: tea.ModCtrl}} {
+		t.Run(key.Keystroke(), func(t *testing.T) {
 			ctrl := &testController{}
 			m := newModel(Config{Controller: ctrl}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
@@ -1901,7 +1900,7 @@ func TestModelApprovalCtrlCInterrupts(t *testing.T) {
 				t.Fatal("approval.active = false, want true")
 			}
 
-			m = updateModel(t, m, tea.KeyMsg{Type: key})
+			m = updateModel(t, m, key)
 
 			if ctrl.countInterruptActiveRun() != 1 {
 				t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
@@ -1976,7 +1975,7 @@ func TestModelEscInterruptsStreaming(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	m.input.SetValue("stale")
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if ctrl.countInterruptActiveRun() != 1 {
 		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
@@ -1990,7 +1989,7 @@ func TestModelEscInterruptsStreaming(t *testing.T) {
 	if m.input.Placeholder != "ask steiner — / for commands, @ for files" {
 		t.Fatalf("input placeholder = %q, want default", m.input.Placeholder)
 	}
-	if !strings.Contains(m.content.String(m.viewport.Width), "interrupted") {
+	if !strings.Contains(m.content.String(m.viewport.Width()), "interrupted") {
 		t.Fatal("expected interrupted marker in content")
 	}
 }
@@ -2004,7 +2003,7 @@ func TestModelIdleCtrlCOpensExitModalInsteadOfQuitting(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	// Idle state: Ctrl+C should open exit modal, not quit.
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	updated, ok := next.(Model)
 	if !ok {
 		t.Fatalf("unexpected model type %T", next)
@@ -2032,7 +2031,7 @@ func TestModelIdleCtrlDOpensExitModalInsteadOfQuitting(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	updated, ok := next.(Model)
 	if !ok {
 		t.Fatalf("unexpected model type %T", next)
@@ -2055,7 +2054,7 @@ func TestModelIdleCtrlCQuitsWhenNoCallbackSet(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if cmd == nil {
 		t.Fatal("expected tea.Quit cmd when no OnExitRequested callback")
 	}
@@ -2068,13 +2067,13 @@ func TestModelExitModalCancelClosesWithoutExiting(t *testing.T) {
 		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if !m.exitModal.IsOpen() {
 		t.Fatal("exitModal.IsOpen() = false, want modal open")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	updated := m
 
 	if updated.exitModal.IsOpen() {
@@ -2092,12 +2091,12 @@ func TestModelExitModalExitRequestsQuit(t *testing.T) {
 		Controller: ctrl,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if !m.exitModal.IsOpen() {
 		t.Fatal("exitModal.IsOpen() = false, want modal open")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	updated := m
 
 	if ctrl.countRequestExit() != 1 {
@@ -2118,7 +2117,7 @@ func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	updated, ok := next.(Model)
 	if !ok {
 		t.Fatalf("unexpected model type %T", next)
@@ -2157,7 +2156,7 @@ func TestModelEscInterruptsActiveRunWithoutStreamingChunks(t *testing.T) {
 		t.Fatalf("status.mode = %q, want %q", got, want)
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if ctrl.countInterruptActiveRun() != 1 {
 		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
@@ -2181,7 +2180,7 @@ func TestModelEscInterruptsToolPhase(t *testing.T) {
 		t.Fatalf("streamingPhase = %q, want tool before interrupt", got)
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if ctrl.countInterruptActiveRun() != 1 {
 		t.Fatalf("interrupt count = %d, want 1", ctrl.countInterruptActiveRun())
@@ -2206,7 +2205,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_0", map[string]any{"command": "git diff"})})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "git status"})})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "bash", "prompt", `{"command":"git status"}`, "approved")})
@@ -2224,7 +2223,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	if got := m.content.streamingPhase; got != "" {
 		t.Fatalf("streamingPhase = %q, want empty while interrupted", got)
 	}
-	if strings.Contains(m.content.String(m.viewport.Width), "running tool") {
+	if strings.Contains(m.content.String(m.viewport.Width()), "running tool") {
 		t.Fatal("expected stale tool activity to be suppressed after interrupt")
 	}
 
@@ -2258,7 +2257,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	}
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "cancelled", "", "", nil)})
-	rendered := m.content.String(m.viewport.Width)
+	rendered := m.content.String(m.viewport.Width())
 	if !strings.Contains(rendered, "cancelled") {
 		t.Fatal("expected cancelled stop reason to remain visible")
 	}
@@ -2284,7 +2283,7 @@ func TestModelStreamingEnterQueuesSteerPrompt(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	m.input.SetValue("steer message")
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	// Enter during streaming must not submit a normal prompt.
 	if ctrl.countSubmitPrompt() != 0 {
@@ -2329,7 +2328,7 @@ func TestModelStreamingEnterRendersSteerImmediately(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	m.input.SetValue("queued steer text")
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	// The viewport content must immediately show the queued steer box.
 	viewportContent := m.viewport.View()
@@ -2349,7 +2348,7 @@ func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	// Leave input empty.
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0 for empty enter while streaming", ctrl.countSubmitPrompt())
@@ -2372,7 +2371,7 @@ func TestModelSteerReceivedEventAppendUserMessage(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	m.input.SetValue("my steer")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if !m.steerQueued {
 		t.Fatal("steerQueued = false before SteerReceivedEvent")
@@ -2419,7 +2418,7 @@ func TestModelAltEnterInsertsNewline(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m.input.SetValue("first line")
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt})
 
 	if got := m.input.Value(); got != "first line\n" {
 		t.Fatalf("input value = %q, want newline inserted", got)
@@ -2437,11 +2436,11 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	}
 	m.syncViewport()
 	m.viewport.GotoBottom()
-	start := m.viewport.YOffset
+	start := m.viewport.YOffset()
 
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
-	if m.viewport.YOffset >= start {
-		t.Fatalf("yOffset = %d, want less than %d after wheel up", m.viewport.YOffset, start)
+	m = updateModel(t, m, mouseWheelMsg{direction: "up"})
+	if m.viewport.YOffset() >= start {
+		t.Fatalf("yOffset = %d, want less than %d after wheel up", m.viewport.YOffset(), start)
 	}
 	if m.autoScroll {
 		t.Fatal("expected autoScroll to disable after upward scroll")
@@ -2450,14 +2449,46 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
 	// ContentPane: PaddingLeft(3)+PaddingRight(3) → viewport.Width = 60-6 = 54
 	// Layout rows: top_pad(1) + viewport + hDivider(1) + input(3, with padding 1) + activity(1) + status(1) → viewport.Height = 12-7 = 5
-	if m.viewport.Width != 54 {
-		t.Fatalf("viewport width = %d, want 54 after pane chrome", m.viewport.Width)
+	if m.viewport.Width() != 54 {
+		t.Fatalf("viewport width = %d, want 54 after pane chrome", m.viewport.Width())
 	}
 	if got := m.input.Width(); got != 99999 {
 		t.Fatalf("input width = %d, want 99999 (no internal textarea wrapping)", got)
 	}
-	if m.viewport.Height != 5 {
-		t.Fatalf("viewport height = %d, want 5 after pane chrome", m.viewport.Height)
+	if m.viewport.Height() != 5 {
+		t.Fatalf("viewport height = %d, want 5 after pane chrome", m.viewport.Height())
+	}
+}
+
+func TestModelOnMouseDispatchesWheelEvents(t *testing.T) {
+	upCmd := classifyMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
+	if upCmd == nil {
+		t.Fatal("upCmd = nil, want wheel dispatch command")
+	}
+	upMsg, ok := upCmd().(mouseWheelMsg)
+	if !ok {
+		t.Fatalf("upCmd() type = %T, want mouseWheelMsg", upCmd())
+	}
+	if upMsg.direction != "up" {
+		t.Fatalf("up direction = %q, want up", upMsg.direction)
+	}
+
+	downCmd := classifyMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
+	if downCmd == nil {
+		t.Fatal("downCmd = nil, want wheel dispatch command")
+	}
+	downMsg, ok := downCmd().(mouseWheelMsg)
+	if !ok {
+		t.Fatalf("downCmd() type = %T, want mouseWheelMsg", downCmd())
+	}
+	if downMsg.direction != "down" {
+		t.Fatalf("down direction = %q, want down", downMsg.direction)
+	}
+}
+
+func TestModelOnMouseIgnoresHoverMotion(t *testing.T) {
+	if cmd := classifyMouse(tea.MouseMotionMsg(tea.Mouse{X: 4, Y: 2})); cmd != nil {
+		t.Fatalf("hover motion cmd = %v, want nil", cmd)
 	}
 }
 
@@ -2477,7 +2508,7 @@ func TestModelIgnoresStructuredMouseLeakRunes(t *testing.T) {
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 			m.input.SetValue("seed")
 
-			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(fragment)})
+			m = updateModel(t, m, tea.KeyPressMsg{Code: rune(fragment[0]), Text: fragment})
 
 			if got := m.input.Value(); got != "seed" {
 				t.Fatalf("input value = %q, want unchanged", got)
@@ -2494,7 +2525,7 @@ func TestModelAllowsNormalRuneInputNearMouseLikeText(t *testing.T) {
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text)})
+			m = updateModel(t, m, tea.KeyPressMsg{Code: rune(text[0]), Text: text})
 
 			if got := m.input.Value(); got != text {
 				t.Fatalf("input value = %q, want %q", got, text)
@@ -2507,8 +2538,8 @@ func TestModelIgnoresBareBracketMousePrefixAfterWheel(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("[[[")})
+	m = updateModel(t, m, mouseWheelMsg{direction: "up"})
+	m = updateModel(t, m, tea.KeyPressMsg{Text: "[[["})
 
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("input value = %q, want empty after wheel leak prefix", got)
@@ -2520,7 +2551,7 @@ func TestModelAllowsBareBracketOutsideRecentWheelWindow(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.lastWheelMouseAt = time.Now().Add(-time.Second)
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("[")})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '[', Text: "["})
 
 	if got := m.input.Value(); got != "[" {
 		t.Fatalf("input value = %q, want [", got)
@@ -2532,7 +2563,7 @@ func TestModelListFilesOpensOverlayWithWorkingDir(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m.input.SetValue("/ls")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to open after /ls")
 	}
@@ -2543,7 +2574,7 @@ func TestModelListFilesOpensOverlayWithWorkingDir(t *testing.T) {
 		t.Fatal("expected non-empty file list")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to close after Esc")
 	}
@@ -2554,7 +2585,7 @@ func TestModelListFilesOpensWithPath(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m.input.SetValue("/ls .")
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to open after /ls .")
 	}
@@ -2562,7 +2593,7 @@ func TestModelListFilesOpensWithPath(t *testing.T) {
 		t.Fatal("expected non-empty file list for .")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.fileList.IsOpen() {
 		t.Fatal("expected file list overlay to close after Enter")
 	}
@@ -2572,12 +2603,12 @@ func TestModelFilePickerOverlayInView(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open after @")
 	}
 
-	view := stripANSI(m.View())
+	view := stripANSI(m.View().Content)
 	// The file picker should appear in the view (not be hidden)
 	if !strings.Contains(view, "@") {
 		t.Fatal("expected file picker content in View()")
@@ -2597,7 +2628,7 @@ func TestModelFilePickerOverlayInView(t *testing.T) {
 func TestModelRenderInputLinesUsesLocalCursor(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m.input.SetValue("asdasd")
-	m.input.SetCursor(len([]rune("asdasd")))
+	m.input.SetCursorColumn(len([]rune("asdasd")))
 
 	lines, placeholder, _ := m.renderInputLines(20)
 
@@ -2641,7 +2672,7 @@ func TestModelCursorInHardwrappedInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m.input.SetCursor(tt.absPos)
+			m.input.SetCursorColumn(tt.absPos)
 			lines, _ := m.renderTypedInputLines(innerWidth)
 
 			cursorRow := -1
@@ -2679,9 +2710,9 @@ func TestModelCursorInHardwrappedInputWithLeftArrow(t *testing.T) {
 	m.input.SetValue(val)
 
 	// After SetValue cursor is at end; press left arrow 3 times via textarea update
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyLeft})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyLeft})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyLeft})
 
 	lines, _ := m.renderTypedInputLines(innerWidth)
 
@@ -2849,7 +2880,7 @@ func TestModelFilePicker_TabInsertsPath(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to open")
 	}
@@ -2859,7 +2890,7 @@ func TestModelFilePicker_TabInsertsPath(t *testing.T) {
 
 	selected := m.filePicker.candidates[m.filePicker.selection]
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close after Tab")
 	}
@@ -2874,7 +2905,7 @@ func TestModelSlashOverlay_TabInsertsCommand(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
 	if !m.slashOverlay.IsOpen() {
 		t.Fatal("expected slash overlay to open")
 	}
@@ -2884,7 +2915,7 @@ func TestModelSlashOverlay_TabInsertsCommand(t *testing.T) {
 
 	selected := m.slashOverlay.candidates[m.slashOverlay.selection]
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 	if m.slashOverlay.IsOpen() {
 		t.Fatal("expected slash overlay to close after Tab")
 	}
@@ -2898,18 +2929,18 @@ func TestModelSlashOverlay_TabInsertsCommand(t *testing.T) {
 func TestModelSlashOverlay_TypedAccentSpaceOpensPicker(t *testing.T) {
 	for _, tt := range []struct {
 		name string
-		key  tea.KeyMsg
+		key  tea.KeyPressMsg
 	}{
-		{name: "rune space", key: tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}},
-		{name: "key space", key: tea.KeyMsg{Type: tea.KeySpace}},
+		{name: "rune space", key: tea.KeyPressMsg{Code: ' ', Text: " "}},
+		{name: "key space", key: tea.KeyPressMsg{Code: tea.KeySpace}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+			m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
 			for _, r := range "accent" {
-				m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+				m = updateModel(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
 			}
 			if !m.slashOverlay.IsOpen() {
 				t.Fatal("expected slash overlay to stay open after /accent")
@@ -2932,18 +2963,18 @@ func TestModelSlashOverlay_TypedAccentSpaceOpensPicker(t *testing.T) {
 func TestModelSlashOverlay_SelectAccentOpensPicker(t *testing.T) {
 	for _, tt := range []struct {
 		name string
-		key  tea.KeyMsg
+		key  tea.KeyPressMsg
 	}{
-		{name: "Tab", key: tea.KeyMsg{Type: tea.KeyTab}},
-		{name: "Enter", key: tea.KeyMsg{Type: tea.KeyEnter}},
+		{name: "Tab", key: tea.KeyPressMsg{Code: tea.KeyTab}},
+		{name: "Enter", key: tea.KeyPressMsg{Code: tea.KeyEnter}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+			m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
 			for _, r := range "accent" {
-				m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+				m = updateModel(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
 			}
 			selected := m.slashOverlay.SelectedItem()
 			if selected == nil || selected.command != "/accent" {
@@ -2968,20 +2999,20 @@ func TestModelFilePicker_ReopensAfterSpaceBackspace(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: "o"})
 
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker open after @go")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: " "})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close after space")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to re-open after backspace")
 	}
@@ -2994,20 +3025,20 @@ func TestModelSlashOverlay_ReopensAfterSpaceBackspace(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Text: "c"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: "o"})
 
 	if !m.slashOverlay.IsOpen() {
 		t.Fatal("expected slash overlay open after /co")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: " "})
 	if m.slashOverlay.IsOpen() {
 		t.Fatal("expected slash overlay to close after space")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if !m.slashOverlay.IsOpen() {
 		t.Fatal("expected slash overlay to re-open after backspace")
 	}
@@ -3017,20 +3048,20 @@ func TestModelFilePicker_ReopensOnLeftArrow(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'o', Text: "o"})
 
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker open after @go")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: " "})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close after space")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyLeft})
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to re-open after left arrow")
 	}
@@ -3040,19 +3071,19 @@ func TestModelFilePicker_NoReopenAfterEsc(t *testing.T) {
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Text: "g"})
 
 	if !m.filePicker.IsOpen() {
 		t.Fatal("expected file picker open after @g")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to close on Esc")
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if m.filePicker.IsOpen() {
 		t.Fatal("expected file picker to NOT re-open after Esc removed the token")
 	}
@@ -3116,7 +3147,7 @@ func TestSelectionSmallHeight(t *testing.T) {
 			// Activate selection so screenLines is populated during View().
 			m.selection.active = true
 
-			_ = m.View()
+			_ = m.View().Content
 
 			if len(*screenLines) != tt.wantScreenLines {
 				t.Fatalf("screenLines count = %d, want exactly %d entries", len(*screenLines), tt.wantScreenLines)
@@ -3179,18 +3210,18 @@ func TestModelPlanPickerOpenClose(t *testing.T) {
 		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 		// Type "/" to open the slash overlay
-		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+		m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
 		if !m.slashOverlay.IsOpen() {
 			t.Fatal("expected slash overlay to open")
 		}
 
 		// Type "implement"
 		for _, r := range "implement" {
-			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			m = updateModel(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
 		}
 
 		// Type space to trigger plan picker
-		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+		m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: " "})
 		if !m.planPicker.IsOpen() {
 			t.Fatal("expected plan picker to open after '/implement '")
 		}
@@ -3202,7 +3233,7 @@ func TestModelPlanPickerOpenClose(t *testing.T) {
 		}
 
 		// Press Esc to close the plan picker
-		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+		m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 		if m.planPicker.IsOpen() {
 			t.Fatal("expected plan picker to close on Esc")
 		}
@@ -3230,18 +3261,18 @@ func TestModelPlanPickerOpenClose(t *testing.T) {
 		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 		// Type "/" to open the slash overlay
-		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+		m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: string('/')})
 		if !m.slashOverlay.IsOpen() {
 			t.Fatal("expected slash overlay to open")
 		}
 
 		// Type "review"
 		for _, r := range "review" {
-			m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			m = updateModel(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
 		}
 
 		// Type space to trigger plan picker
-		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+		m = updateModel(t, m, tea.KeyPressMsg{Code: ' ', Text: string(' ')})
 		if !m.planPicker.IsOpen() {
 			t.Fatal("expected plan picker to open after '/review '")
 		}
@@ -3253,7 +3284,7 @@ func TestModelPlanPickerOpenClose(t *testing.T) {
 		}
 
 		// Press Esc to close the plan picker
-		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+		m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 		if m.planPicker.IsOpen() {
 			t.Fatal("expected plan picker to close on Esc")
 		}
@@ -3379,8 +3410,8 @@ func TestModelWorkflowHandoffChangeModelOpensAttachedPickerAndUpdatesSelection(t
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-3", "handoff now")})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if !m.workflowHandoff.IsOpen() {
 		t.Fatal("workflowHandoff.IsOpen() = false, want true while picker is open")
@@ -3412,8 +3443,8 @@ func TestModelWorkflowHandoffChangeModelOpensAttachedPickerAndUpdatesSelection(t
 		t.Fatalf("rendered modal = %q, want Accept, Change Model, Dismiss in order", rendered)
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if m.modelPicker.IsOpen() {
 		t.Fatal("modelPicker.IsOpen() = true, want false after handoff selection")
@@ -3463,10 +3494,10 @@ func TestModelWorkflowHandoffChangeModelCancelPreservesSelection(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "")})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if m.modelPicker.IsOpen() {
 		t.Fatal("modelPicker.IsOpen() = true, want false after Esc")
@@ -3516,7 +3547,7 @@ func TestModelWorkflowHandoffDismissDeclinesAndKeepsTranscript(t *testing.T) {
 			t.Fatalf("rendered modal = %q, want %q", rendered, want)
 		}
 	}
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if m.workflowHandoff.IsOpen() {
 		t.Fatal("expected workflow handoff modal to close on Esc")
@@ -3525,7 +3556,7 @@ func TestModelWorkflowHandoffDismissDeclinesAndKeepsTranscript(t *testing.T) {
 	if len(decisions) != 1 || decisions[0].Decision != "dismiss" {
 		t.Fatalf("handoff decisions = %#v, want one dismiss", decisions)
 	}
-	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "existing transcript") {
+	if got := m.content.String(m.viewport.Width()); !strings.Contains(got, "existing transcript") {
 		t.Fatalf("content = %q, want transcript retained", got)
 	}
 	if got := ctrl.submitPrompts(); len(got) != 0 {
@@ -3607,7 +3638,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 			t.Fatalf("rendered modal = %q, want %q", rendered, want)
 		}
 	}
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if m.workflowHandoff.IsOpen() {
 		t.Fatal("expected workflow handoff modal to close on accept")
@@ -3616,7 +3647,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	if len(decisions) != 1 || decisions[0].Decision != "accept" {
 		t.Fatalf("handoff decisions = %#v, want one accept", decisions)
 	}
-	if got := m.content.String(m.viewport.Width); strings.Contains(got, "old transcript") {
+	if got := m.content.String(m.viewport.Width()); strings.Contains(got, "old transcript") {
 		t.Fatalf("content = %q, want cleared transcript", got)
 	}
 	if ctrl.countSubmitPrompt() != 0 {
@@ -3676,7 +3707,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	if len(switches) != 1 || switches[0].Name != "review-default" {
 		t.Fatalf("switch model actions = %#v, want one switch to review-default", switches)
 	}
-	if got := m.content.String(m.viewport.Width); !strings.Contains(got, "/review .steiner/plans/step-3") {
+	if got := stripANSI(m.content.String(m.viewport.Width())); !strings.Contains(got, "/review .steiner/plans/step-3") {
 		t.Fatalf("content = %q, want launched workflow command", got)
 	}
 	if !m.enabledSkills["review"] {
@@ -3709,9 +3740,9 @@ func TestModelWorkflowHandoffAcceptSwitchFailureKeepsConversationAndSkipsLaunch(
 	m.syncViewport()
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	rendered := m.content.String(m.viewport.Width)
+	rendered := m.content.String(m.viewport.Width())
 	if !m.workflowHandoff.IsOpen() {
 		t.Fatal("expected workflow handoff modal to stay open on switch failure")
 	}
@@ -3759,7 +3790,7 @@ func TestModelWorkflowHandoffAcceptWithCurrentSessionModelDoesNotSwitch(t *testi
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-4", "")})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("implement", ".steiner/plans/step-4", "")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(1, "", "", 1, 0, nil, 0, 0, 0)})
@@ -3825,7 +3856,7 @@ func TestModelTopLevelTerminalEventsPreserveStatusAndContentWithoutPriorBlur(t *
 			if got, want := m.activity.detail, tc.wantDetail; got != want {
 				t.Fatalf("activity.detail = %q, want %q", got, want)
 			}
-			rendered := m.content.String(m.viewport.Width)
+			rendered := m.content.String(m.viewport.Width())
 			if !strings.Contains(rendered, "existing transcript") {
 				t.Fatalf("content = %q, want existing transcript retained", rendered)
 			}
@@ -3875,12 +3906,12 @@ func TestMultiLineInputViewHeightNeverExceedsTerminal(t *testing.T) {
 				m.input.SetValue(val)
 				m.input.CursorEnd()
 				// Simulate a keystroke to trigger relayoutInput
-				m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+				m = updateModel(t, m, tea.KeyPressMsg{Code: 'a', Text: "a"})
 				// Undo the extra 'a' we just typed
 				m.input.SetValue(val)
 				m.input.CursorEnd()
 
-				view := m.View()
+				view := m.View().Content
 				got := strings.Count(view, "\n") + 1
 				if got > h {
 					t.Fatalf("View() height = %d, want ≤ %d (terminal height), n=%d input lines", got, h, n)
@@ -4006,5 +4037,12 @@ func TestScrollbarCacheInvalidationOnScroll(t *testing.T) {
 	}
 	if scroll1 == scroll2 {
 		t.Fatal("scrollbar rendering should differ after scroll")
+	}
+}
+
+func TestStripTrailingResetSupportsLipglossV2ShortReset(t *testing.T) {
+	input := "styled\x1b[m"
+	if got := stripTrailingReset(input); got != "styled" {
+		t.Fatalf("stripTrailingReset(%q) = %q, want %q", input, got, "styled")
 	}
 }

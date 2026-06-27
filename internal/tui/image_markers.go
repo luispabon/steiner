@@ -174,7 +174,7 @@ func (m *Model) restoreCursorFromRuneOffset(value string, targetRuneOff int) {
 			for i := 0; i < row; i++ {
 				m.input.CursorDown()
 			}
-			m.input.SetCursor(remaining)
+			m.input.SetCursorColumn(remaining)
 			return
 		}
 		remaining -= lineRunes + 1 // +1 for newline

@@ -3,16 +3,16 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/cursor"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // View renders the full TUI frame for the current model state.
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	contentWidth := m.contentWidth()
 	sidebarVisible := m.sidebar.Visible(m.width)
 
@@ -26,7 +26,17 @@ func (m Model) View() string {
 	if m.selection.hasSelection() {
 		result = applyScreenHighlight(result, m.selection, m.styles.SelectionStyle)
 	}
-	return result
+
+	v := tea.View{
+		Content:         result,
+		AltScreen:       true,
+		MouseMode:       tea.MouseModeCellMotion,
+		BackgroundColor: lipgloss.Color(theme.BgElev),
+	}
+	// Attach v2 mouse handler via View.OnMouse callback without capturing the model.
+	v.OnMouse = classifyMouse
+
+	return v
 }
 
 func (m Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
@@ -35,11 +45,7 @@ func (m Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
 		return mainColumn
 	}
 
-	vDivider := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BorderSoft)).
-		Width(1).
-		Height(m.height).
-		Render("")
+	vDivider := m.styles.VDivider.Height(m.height).Render("")
 	if m.sidebarPosition == "right" {
 		return lipgloss.JoinHorizontal(lipgloss.Top, mainColumn, vDivider, m.sidebar.View(m.width, m.height))
 	}
@@ -67,46 +73,108 @@ func (m *Model) renderMainColumn(contentWidth int) string {
 		m.status.view(contentWidth),
 	)
 
-	mainColumn := lipgloss.JoinVertical(lipgloss.Left, mainComponents...)
-	return lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BgElev)).
-		Width(contentWidth).
-		Height(m.height).
-		MaxHeight(m.height).
-		Render(mainColumn)
+	mainColumn := strings.Join(mainComponents, "\n")
+	return theme.TruncateAndPadVertical(mainColumn, contentWidth, m.height, theme.BgElev)
 }
 
-func (m Model) renderViewportView(contentWidth int) string {
-	viewportInner := m.viewport.View()
+func (m *Model) renderViewportView(contentWidth int) string {
+	scrollY := m.viewport.YOffset()
 	scrollbar := m.renderScrollbar()
-	viewportContent := viewportInner
-	paneStyle := m.styles.ContentPane
+	hasScrollbar := scrollbar != ""
 
-	if scrollbar != "" {
-		viewportContent = m.renderViewportWithScrollbar(viewportInner, scrollbar)
-		paneStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(theme.BgElev)).
-			PaddingLeft(3).
-			PaddingRight(2)
+	if m.vpViewCache != "" &&
+		m.vpViewCacheScrollY == scrollY &&
+		m.vpViewCacheWidth == contentWidth &&
+		m.vpViewCacheHasScrollbar == hasScrollbar {
+		return m.vpViewCache
 	}
 
-	viewportView := paneStyle.Width(contentWidth).Render(viewportContent)
+	viewportInner := m.visibleViewportContent()
+	viewportContent := viewportInner
+	if hasScrollbar {
+		viewportContent = m.renderViewportWithScrollbar(viewportInner, scrollbar)
+	}
+
+	viewportView := theme.ApplyPanePadding(viewportContent, contentWidth, hasScrollbar, theme.BgElev)
 	if m.helpVisible {
 		help := renderHelp(m.styles, max(20, contentWidth-4))
 		return composeCenteredOverlay(viewportView, help, contentWidth, lipgloss.Height(viewportView))
 	}
+
+	m.vpViewCache = viewportView
+	m.vpViewCacheScrollY = scrollY
+	m.vpViewCacheWidth = contentWidth
+	m.vpViewCacheHasScrollbar = hasScrollbar
 	return viewportView
 }
 
-func (m Model) renderViewportWithScrollbar(viewportInner, scrollbar string) string {
-	vpLines := strings.Split(viewportInner, "\n")
-	scLines := strings.Split(scrollbar, "\n")
-	merged := make([]string, 0, len(vpLines)+1)
-	merged = append(merged, "")
-	for i := 0; i < len(vpLines) && i < len(scLines); i++ {
-		merged = append(merged, vpLines[i]+scLines[i])
+func (m *Model) visibleViewportContent() string {
+	if len(m.viewport.GetContent()) != m.viewportContentLen {
+		return m.viewport.View()
 	}
-	return strings.Join(merged, "\n")
+	start := m.viewport.YOffset()
+	height := m.viewport.Height()
+	if start < 0 {
+		start = 0
+	}
+	end := start + height
+	if end > len(m.viewportLines) {
+		end = len(m.viewportLines)
+	}
+	if start >= end {
+		return ""
+	}
+	return strings.Join(m.viewportLines[start:end], "\n")
+}
+
+func (m Model) renderViewportWithScrollbar(viewportInner, scrollbar string) string {
+	var b strings.Builder
+	b.Grow(len(viewportInner) + len(scrollbar) + 64)
+
+	b.WriteByte('\n') // leading empty line (top offset)
+
+	// Walk both strings line by line simultaneously, without intermediate slice
+	// allocations. strings.Split always yields at least one element, so the
+	// "done" condition is tracked via a boolean rather than byte-index exhaustion.
+	vpIdx, scIdx := 0, 0
+	vpLen, scLen := len(viewportInner), len(scrollbar)
+	vpDone, scDone := false, false
+	first := true
+	for !vpDone && !scDone {
+		// Consume one viewport line (strings.Split semantics: last segment after
+		// final '\n' is an empty string, not absent).
+		var vpLine string
+		vpLineEnd := strings.IndexByte(viewportInner[vpIdx:], '\n')
+		if vpLineEnd < 0 {
+			vpLine = viewportInner[vpIdx:]
+			vpIdx = vpLen
+			vpDone = true
+		} else {
+			vpLine = viewportInner[vpIdx : vpIdx+vpLineEnd]
+			vpIdx += vpLineEnd + 1
+		}
+
+		// Consume one scrollbar line.
+		var scLine string
+		scLineEnd := strings.IndexByte(scrollbar[scIdx:], '\n')
+		if scLineEnd < 0 {
+			scLine = scrollbar[scIdx:]
+			scIdx = scLen
+			scDone = true
+		} else {
+			scLine = scrollbar[scIdx : scIdx+scLineEnd]
+			scIdx += scLineEnd + 1
+		}
+
+		if !first {
+			b.WriteByte('\n')
+		}
+		first = false
+		b.WriteString(vpLine)
+		b.WriteString(scLine)
+	}
+
+	return b.String()
 }
 
 func (m Model) renderOverlayView(base string, contentWidth int) string {
@@ -127,7 +195,18 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 	}
 }
 
+func (m Model) hasOpenBottomOverlay() bool {
+	return m.slashOverlay.IsOpen() || m.filePicker.IsOpen() ||
+		m.sessionPicker.IsOpen() || m.oneshotResumePicker.IsOpen() ||
+		(m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff()) ||
+		m.planPicker.IsOpen() || m.accentPicker.IsOpen()
+}
+
 func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
+	if !m.hasOpenBottomOverlay() {
+		return base
+	}
+
 	offset := m.bottomChromeHeight(contentWidth)
 
 	// When the sidebar occupies the left side, push the slash overlay right so
@@ -171,7 +250,7 @@ func (m *Model) applyInputStyles() {
 	text := m.styles.UserBg.Foreground(lipgloss.Color(theme.Fg))
 	endOfBuffer := m.styles.UserBg.Foreground(lipgloss.Color(theme.UserSoft))
 
-	style := textarea.Style{
+	style := textarea.StyleState{
 		Base:        base,
 		CursorLine:  base,
 		Placeholder: placeholder,
@@ -179,12 +258,11 @@ func (m *Model) applyInputStyles() {
 		Text:        text,
 		EndOfBuffer: endOfBuffer,
 	}
-	m.input.FocusedStyle = style
-	m.input.BlurredStyle = style
-
-	m.input.Cursor.TextStyle = text
-	m.input.Cursor.Style = text
-	_ = m.input.Cursor.SetMode(cursor.CursorHide)
+	m.input.SetStyles(textarea.Styles{
+		Focused: style,
+		Blurred: style,
+		Cursor:  textarea.CursorStyle{Blink: false},
+	})
 	if m.input.Focused() {
 		m.input.Focus()
 	} else {
@@ -223,7 +301,7 @@ func (m Model) renderPlaceholderInputView(bar string, bodyWidth int, lines []str
 }
 
 func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, innerWidth int, lines []string, cursorRow int) string {
-	maxVisible := max(1, m.height-4-m.activityRowHeight(contentWidth)-2*inputPadY)
+	maxVisible := m.maxVisibleInputLines(contentWidth)
 	if len(lines) > maxVisible {
 		start := max(0, cursorRow-maxVisible/2)
 		if start+maxVisible > len(lines) {
@@ -246,11 +324,7 @@ func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, in
 				if strings.HasPrefix(lineNoCursor, cmdPrefix) {
 					cursorIdx := strings.Index(line, cursorStr)
 					if cursorIdx < 0 || cursorIdx >= len(cmdPrefix) {
-						prefixStyle := lipgloss.NewStyle().
-							Bold(true).
-							Foreground(m.styles.AccentColor).
-							Background(m.styles.UserBg.GetBackground())
-						prefix := prefixStyle.Render(cmdPrefix)
+						prefix := m.styles.CommandPrefixStyle.Render(cmdPrefix)
 
 						restText := line[len(cmdPrefix):]
 						restVisibleWidth := ansi.StringWidth(restText)
@@ -267,7 +341,7 @@ func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, in
 		}
 
 		if renderedLine == line {
-			renderedLine = renderInputLine(line, innerWidth, m.styles.AccentColor, m.styles.UserBg.GetBackground())
+			renderedLine = renderInputLine(line, innerWidth, m.styles.ImageMarkerStyle)
 		}
 		content := m.styles.UserBg.Width(bodyWidth).Render(strings.Repeat(" ", inputPadX) + renderedLine + strings.Repeat(" ", inputPadX))
 		sb.WriteString(bar + content + "\n")
@@ -279,7 +353,13 @@ func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, in
 }
 
 func (m Model) inputChromeHeight(contentWidth int) int {
-	return lipgloss.Height(m.renderInputView(contentWidth))
+	innerWidth := m.inputInnerWidth(contentWidth)
+	lines, isPlaceholder, _ := m.renderInputLines(innerWidth)
+	visibleLines := len(lines)
+	if !isPlaceholder {
+		visibleLines = min(visibleLines, m.maxVisibleInputLines(contentWidth))
+	}
+	return visibleLines + (2 * inputPadY)
 }
 
 func (m Model) bottomChromeHeight(contentWidth int) int {
@@ -291,6 +371,10 @@ func (m Model) bottomChromeHeight(contentWidth int) int {
 
 func (m Model) activityRowHeight(_ int) int {
 	return 1
+}
+
+func (m Model) maxVisibleInputLines(contentWidth int) int {
+	return max(1, m.height-4-m.activityRowHeight(contentWidth)-2*inputPadY)
 }
 
 func (m Model) inputInnerWidth(contentWidth int) int {
@@ -365,7 +449,8 @@ const cursorChar = '█'
 
 // stripTrailingReset removes the trailing ANSI reset sequence added by lipgloss Style.Render.
 func stripTrailingReset(s string) string {
-	return strings.TrimSuffix(s, "\x1b[0m")
+	s = strings.TrimSuffix(s, "\x1b[0m")
+	return strings.TrimSuffix(s, "\x1b[m")
 }
 
 // insertComposerCursorAnsi inserts the cursor character at the given visible column
@@ -405,18 +490,14 @@ func insertComposerCursorAnsi(s string, pos int) string {
 	return result.String()
 }
 
-func styleImageMarkers(line string, accentColor lipgloss.Color, bgColor lipgloss.TerminalColor) string {
-	markerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(accentColor).
-		Background(bgColor)
+func styleImageMarkers(line string, markerStyle lipgloss.Style) string {
 	return imageMarkerPattern.ReplaceAllStringFunc(line, func(match string) string {
 		return markerStyle.Render(match)
 	})
 }
 
-func renderInputLine(line string, width int, accentColor lipgloss.Color, bgColor lipgloss.TerminalColor) string {
-	if styled := styleImageMarkers(line, accentColor, bgColor); styled != line {
+func renderInputLine(line string, width int, markerStyle lipgloss.Style) string {
+	if styled := styleImageMarkers(line, markerStyle); styled != line {
 		return styled
 	}
 	return lipgloss.NewStyle().Width(width).Render(line)

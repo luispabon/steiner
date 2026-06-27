@@ -3,8 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -35,7 +34,7 @@ func (b *contentBuffer) String(width int) string {
 		kinds = append(kinds, contentSegmentKind(-1))
 	}
 
-	result := b.fillEmptyLines(joinWithUserMargin(parts, kinds), width)
+	result := joinWithUserMargin(parts, kinds)
 	b.stringCacheWidth = width
 	b.stringCacheRendered = result
 	return result
@@ -147,27 +146,6 @@ func (b *contentBuffer) skipHiddenSegment(index int) bool {
 	return true
 }
 
-func (b *contentBuffer) fillEmptyLines(s string, width int) string {
-	if width < 1 {
-		width = 1
-	}
-	var bgLine string
-	if b.fillEmptyLinesCacheWidth == width && b.fillEmptyLinesCacheBgLine != "" {
-		bgLine = b.fillEmptyLinesCacheBgLine
-	} else {
-		bgLine = lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(strings.Repeat(" ", width))
-		b.fillEmptyLinesCacheWidth = width
-		b.fillEmptyLinesCacheBgLine = bgLine
-	}
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if line == "" {
-			lines[i] = bgLine
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
 //nolint:gocyclo // dispatch-heavy segment renderer
 func (b *contentBuffer) renderSegment(segment contentSegment, width int) string {
 	switch segment.kind {
@@ -197,19 +175,19 @@ func (b *contentBuffer) renderSegment(segment contentSegment, width int) string 
 func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width int) string {
 	switch segment.kind {
 	case segmentThinkingBlock:
-		return theme.WithBg(b.renderThinkingBlockSegment(segment, width), lipgloss.Color(theme.BgElev))
+		return b.renderThinkingBlockSegment(segment, width)
 	case segmentApprovalPill:
 		return b.renderApprovalPillSegment(segment, width)
 	case segmentCompactionBanner:
-		return theme.WithBg(b.renderCompactionBannerSegment(segment, width), lipgloss.Color(theme.BgElev))
+		return b.renderCompactionBannerSegment(segment, width)
 	case segmentSeparator:
 		return b.renderSeparatorSegment(segment, width)
 	case segmentInterrupted:
-		return theme.WithBg(b.styles.FgMute.Render("interrupted")+"\n\n", lipgloss.Color(theme.BgElev))
+		return b.styles.FgMute.Render("interrupted") + "\n\n"
 	case segmentDelegation:
 		return b.renderDelegationSegment(segment, width)
 	case segmentStatus:
-		return theme.WithBg(b.renderStatusSegment(segment, width), lipgloss.Color(theme.BgElev))
+		return b.renderStatusSegment(segment, width)
 	default:
 		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}
@@ -228,8 +206,7 @@ func (b *contentBuffer) inProgressPreview(width int) string {
 	if b.tickCount%2 == 0 {
 		cursor = "█"
 	}
-	wrapped := ansi.Hardwrap(preview+cursor, max(1, width), true)
-	return b.styles.AssistantProse.Render(wrapped) + "\n"
+	return b.styles.AssistantProse.Width(max(1, width)).Render(preview+cursor) + "\n"
 }
 
 func (b *contentBuffer) baseTextStyle() lipgloss.Style {

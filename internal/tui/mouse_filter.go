@@ -3,14 +3,69 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
-func shouldIgnoreLeakedMouseRunes(msg tea.KeyMsg, recentWheel bool) bool {
-	if msg.Type != tea.KeyRunes || len(msg.Runes) == 0 {
+// Internal mouse message types for v2 dispatch via View.OnMouse.
+type mouseClickMsg struct {
+	x, y int
+}
+
+type mouseMotionMsg struct {
+	x, y int
+}
+
+type mouseReleaseMsg struct {
+	x, y int
+}
+
+type mouseWheelMsg struct {
+	direction string // "up" or "down"
+}
+
+// classifyMouse implements View.OnMouse handler for v2 mouse events.
+// It classifies MouseClickMsg, MouseMotionMsg, MouseReleaseMsg, and MouseWheelMsg,
+// extracting coordinates and emitting internal messages for Update to apply state mutations.
+// Motion events are only forwarded while the left button is held so ordinary
+// pointer movement does not create update churn.
+func classifyMouse(msg tea.MouseMsg) tea.Cmd {
+	switch msg := msg.(type) {
+	case tea.MouseClickMsg:
+		mouse := msg.Mouse()
+		if mouse.Button == tea.MouseLeft {
+			return func() tea.Msg { return mouseClickMsg{x: mouse.X, y: mouse.Y} }
+		}
+
+	case tea.MouseWheelMsg:
+		mouse := msg.Mouse()
+		switch mouse.Button {
+		case tea.MouseWheelUp:
+			return func() tea.Msg { return mouseWheelMsg{direction: "up"} }
+		case tea.MouseWheelDown:
+			return func() tea.Msg { return mouseWheelMsg{direction: "down"} }
+		}
+
+	case tea.MouseMotionMsg:
+		mouse := msg.Mouse()
+		if mouse.Button == tea.MouseLeft {
+			return func() tea.Msg { return mouseMotionMsg{x: mouse.X, y: mouse.Y} }
+		}
+
+	case tea.MouseReleaseMsg:
+		mouse := msg.Mouse()
+		if mouse.Button == tea.MouseLeft {
+			return func() tea.Msg { return mouseReleaseMsg{x: mouse.X, y: mouse.Y} }
+		}
+	}
+
+	return nil
+}
+
+func shouldIgnoreLeakedMouseRunes(msg tea.KeyPressMsg, recentWheel bool) bool {
+	if msg.Text == "" {
 		return false
 	}
-	fragment := string(msg.Runes)
+	fragment := msg.Text
 	return isLeakedMouseFragment(fragment) || (recentWheel && isLeakedMousePrefixFragment(fragment))
 }
 

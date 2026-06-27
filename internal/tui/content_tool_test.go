@@ -3,10 +3,14 @@ package tui
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestSpecializedDelegateToolAccessor(t *testing.T) {
@@ -40,6 +44,25 @@ func TestSpecializedDelegateToolAccessor(t *testing.T) {
 	wantTools := []string{"explore", "research", "code", "plan", "verify", "follow_up"}
 	if got := delegation.AllSpecializedDelegateTools(); !slices.Equal(got, wantTools) {
 		t.Fatalf("delegation.AllSpecializedDelegateTools() = %v, want %v", got, wantTools)
+	}
+}
+
+func TestRenderToolCallBoxKeepsRequestedWidth(t *testing.T) {
+	useTrueColor(t)
+	buffer := &contentBuffer{
+		styles: theme.BuildStyles(theme.AccentAmber),
+	}
+	segment := &toolCallSegment{
+		tool: "bash",
+		args: "printf hello",
+		meta: "✓",
+	}
+
+	rendered := strings.TrimSuffix(buffer.renderToolCall(segment, 50), "\n")
+	for _, line := range strings.Split(rendered, "\n") {
+		if lipgloss.Width(line) != 50 {
+			t.Fatalf("line width = %d, want 50 for line %q", lipgloss.Width(line), stripANSI(line))
+		}
 	}
 }
 
