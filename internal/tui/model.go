@@ -162,6 +162,7 @@ type Model struct {
 	oneshotSteerCh               chan agent.SteerMessage
 	oneshotRunnerFactory         OneshotRunnerFactoryBuilder
 	notifier                     notifier
+	ticking                      bool
 
 	viewportLines      []string
 	viewportContentLen int
@@ -404,4 +405,24 @@ func (m *Model) syncInputChrome() {
 	}
 	m.status.approvalActive = m.approval.active
 	m.status.streaming = m.activity.busy() && !m.approval.active
+}
+
+// needsTicking reports whether the ticker needs to keep firing.
+func (m *Model) needsTicking() bool {
+	return m.activity.spinning ||
+		m.content.streaming ||
+		m.compaction.Active() ||
+		m.content.HasActiveDelegations() ||
+		m.content.HasActiveCompactions() ||
+		m.contentDirty
+}
+
+// ensureTicking restarts the ticker if it is not already running.
+// Returns a tickCmd if the ticker was restarted, nil otherwise.
+func (m *Model) ensureTicking() tea.Cmd {
+	if m.ticking {
+		return nil
+	}
+	m.ticking = true
+	return tickCmd()
 }
