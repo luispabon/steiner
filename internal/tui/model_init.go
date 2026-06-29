@@ -314,6 +314,7 @@ func tickCmd() tea.Cmd {
 
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
+	m.ticking = true
 	cmds := []tea.Cmd{m.input.Focus(), tickCmd()}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))

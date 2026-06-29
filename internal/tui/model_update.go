@@ -162,7 +162,11 @@ func (m Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		m.contentDirty = false
 	}
-	return m, tickCmd()
+	if m.needsTicking() {
+		return m, tickCmd()
+	}
+	m.ticking = false
+	return m, nil
 }
 
 func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
@@ -196,6 +200,9 @@ func (m Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	if eventCmd != nil {
 		cmds = append(cmds, eventCmd)
+	}
+	if tickCmd := m.ensureTicking(); tickCmd != nil {
+		cmds = append(cmds, tickCmd)
 	}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
