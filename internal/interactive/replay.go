@@ -1,17 +1,29 @@
 package interactive
 
 import (
+	"strings"
+
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 )
 
+// delegateToolSet is the set of tool names that emit delegation lifecycle events.
+// It is derived from the canonical source in the delegation package.
+var delegateToolSet = buildDelegateToolSet()
+
+func buildDelegateToolSet() map[string]bool {
+	tools := make(map[string]bool)
+	tools[strings.ToLower(delegation.DelegateToolName)] = true
+	for _, name := range delegation.AllSpecializedDelegateTools() {
+		tools[strings.ToLower(name)] = true
+	}
+	return tools
+}
+
 // isDelegateToolCall returns true if the tool name is a known delegate tool.
 func isDelegateToolCall(name string) bool {
-	switch name {
-	case "delegate", "explore", "research", "code", "plan", "verify":
-		return true
-	}
-	return false
+	return delegateToolSet[strings.ToLower(name)]
 }
 
 // taskFromArgs extracts the "task" string from a tool call arguments map.
