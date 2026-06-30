@@ -50,28 +50,23 @@ func applyModelsPatch(cfg *Config, patch *modelsPatch) {
 		cfg.Models.Advisor = *patch.Advisor
 	}
 	if patch.SubAgents != nil {
-		if cfg.Models.SubAgents == nil {
-			cfg.Models.SubAgents = make(map[string]string)
-		}
-		for name, alias := range *patch.SubAgents {
-			cfg.Models.SubAgents[name] = alias
-		}
+		mergeStringMapPatch(&cfg.Models.SubAgents, *patch.SubAgents)
 	}
 	if patch.OneShot != nil {
-		if cfg.Models.OneShot == nil {
-			cfg.Models.OneShot = make(map[string]string)
-		}
-		for phase, alias := range *patch.OneShot {
-			cfg.Models.OneShot[phase] = alias
-		}
+		mergeStringMapPatch(&cfg.Models.OneShot, *patch.OneShot)
 	}
 	if patch.WorkflowHandoff != nil {
-		if cfg.Models.WorkflowHandoff == nil {
-			cfg.Models.WorkflowHandoff = make(map[string]string)
-		}
-		for name, alias := range *patch.WorkflowHandoff {
-			cfg.Models.WorkflowHandoff[name] = alias
-		}
+		mergeStringMapPatch(&cfg.Models.WorkflowHandoff, *patch.WorkflowHandoff)
+	}
+}
+
+// mergeStringMapPatch merges patch into dst, initializing dst if nil.
+func mergeStringMapPatch(dst *map[string]string, patch map[string]string) {
+	if *dst == nil {
+		*dst = make(map[string]string)
+	}
+	for k, v := range patch {
+		(*dst)[k] = v
 	}
 }
 

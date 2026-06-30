@@ -20,18 +20,20 @@ steiner oneshot --list            # list resumable runs
 
 ## Configuration
 
-The `oneshot` config block controls per-phase model aliases and PR closeout behavior:
+The `oneshot` config block controls PR closeout behavior; per-phase model aliases live under `models.oneshot`:
 
 ```yaml
 oneshot:
   auto_pr: false                  # push branch and open PR/MR on passing review
-  models:
-    plan: ""                       # model alias override for plan phase (empty = default_model)
+
+models:
+  oneshot:
+    plan: ""                       # model alias override for plan phase (empty = models.default)
     implement: ""                  # model alias override for implement phase
     review: ""                     # model alias override for review phase
 ```
 
-- `models.*` are optional; omit to use `default_model` at runtime.
+- `models.oneshot.*` are optional; omit to use `models.default` at runtime.
 - `auto_pr` is optional; defaults to `false`.
 
 ## Listing and Resumable Runs
