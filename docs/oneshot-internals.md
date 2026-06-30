@@ -184,35 +184,6 @@ Unique run IDs ensure that concurrent `oneshot` invocations never share:
 
 Concurrent runs can proceed in parallel without contention.
 
-## Listing and Resumable Runs
-
-`steiner oneshot --list` displays all resumable runs:
-
-```
-  ID          Slug               Status      Phase
-  abc123      refactor-auth      incomplete  implement
-  def456      add-logging        completed   review
-  ghi789      fix-bug-xyz        interrupted implement
-```
-
-A run is resumable if:
-- The manifest exists and is readable
-- The branch exists (remote or local)
-- At least one phase is incomplete
-- The lock is either absent or stalable
-
-A run is listed as `completed` if all three phases are marked complete in the manifest.
-
-## Error Handling and Retries
-
-If a phase fails:
-
-1. The failure is recorded in the manifest with a timestamp.
-2. SIGINT aborts gracefully without re-running previous phases.
-3. The user can inspect the worktree, fix issues, and resume with `--resume <id>`.
-
-If a resume attempt fails (e.g., the worktree path is corrupted), the user receives a clear error message with the run ID and branch name, allowing manual recovery via `git checkout <branch>` and cleanup of the worktree.
-
 ## Testing
 
 Integration tests for oneshot behavior:

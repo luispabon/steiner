@@ -1,14 +1,12 @@
 # Sub-agent delegation
 
-`steiner` exposes six sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. This document covers both user-facing usage (tools, configuration, safety) and the internal delegation machinery.
+`steiner` exposes six sub-agent-as-tool operations that delegate bounded tasks to isolated child agents.
 
 `advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. The advisor lives alongside the delegation tools in the main loop, but it is not a child agent.
 
 ---
 
-## Part 1 — User guide
-
-### Available tools
+## Available tools
 
 Sub-agent delegation is **enabled by default**. When it is, the model sees six additional tools alongside the built-in ones:
 

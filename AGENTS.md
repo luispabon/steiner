@@ -116,6 +116,7 @@ Code changes must update corresponding documentation in a single commit:
 
 3. **`internal/delegation` changes** (add/remove sub-agent type or change tool allowlist):
    * Update the sub-agent types table in docs/sub-agent-delegation.md
+   * Update docs/sub-agent-delegation-internals.md if the architecture, bootstrapping, or tool construction changes
    * Update the sub-agent delegation tool table in README.md
 
 4. **`internal/prompt` changes** (change compaction, budgets, or context management behaviour):
