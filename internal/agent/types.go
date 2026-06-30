@@ -54,6 +54,8 @@ type SteerMessage struct {
 
 // ImageBlock represents an image embedded in a message.
 type ImageBlock struct {
+	ID        string `json:"id,omitempty"`
+	FilePath  string `json:"file_path,omitempty"`
 	MediaType string `json:"media_type,omitempty"`
 	Data      string `json:"data,omitempty"`
 	Width     int    `json:"width,omitempty"`

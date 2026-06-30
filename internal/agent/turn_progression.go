@@ -381,8 +381,23 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 	return assembly, chatRequest, fit, nil
 }
 
+// formatSize returns a human-readable size string like "2KB" or "1.5MB".
+func formatSize(sizeBytes int) string {
+	if sizeBytes <= 0 {
+		return ""
+	}
+	if sizeBytes >= 1024*1024 {
+		return fmt.Sprintf("%.1fMB", float64(sizeBytes)/1024/1024)
+	}
+	return fmt.Sprintf("%dKB", sizeBytes/1024)
+}
+
 // imageBlockPlaceholder returns a compact text token describing an image whose
-// binary data has been stripped, e.g. "[image: 2560x1545 png 478KB]".
+// binary data has been stripped. If ID and FilePath are set, includes a hint
+// about using the vision tool; otherwise uses the legacy format.
+// Examples: "[image img-1: /path/to/img.png 2560x1545 png 478KB — use vision tool with image_id "img-1" or read tool to re-examine]"
+//
+//	"[image: 2560x1545 png 478KB]" (legacy format for backward compat)
 func imageBlockPlaceholder(img ImageBlock) string {
 	var dims string
 	if img.Width > 0 && img.Height > 0 {
@@ -396,14 +411,19 @@ func imageBlockPlaceholder(img ImageBlock) string {
 	} else {
 		fmtStr = mt
 	}
-	var sizeStr string
-	if img.SizeBytes > 0 {
-		if img.SizeBytes >= 1024*1024 {
-			sizeStr = fmt.Sprintf("%.1fMB", float64(img.SizeBytes)/1024/1024)
-		} else {
-			sizeStr = fmt.Sprintf("%dKB", img.SizeBytes/1024)
+	sizeStr := formatSize(img.SizeBytes)
+
+	// New format when ID and FilePath are both set.
+	if img.ID != "" && img.FilePath != "" {
+		if sizeStr != "" {
+			return fmt.Sprintf("[image %s: %s %s %s %s — use vision tool with image_id \"%s\" or read tool to re-examine]",
+				img.ID, img.FilePath, dims, fmtStr, sizeStr, img.ID)
 		}
+		return fmt.Sprintf("[image %s: %s %s %s — use vision tool with image_id \"%s\" or read tool to re-examine]",
+			img.ID, img.FilePath, dims, fmtStr, img.ID)
 	}
+
+	// Legacy format for backward compat (when ID/FilePath are not set).
 	if sizeStr != "" {
 		return fmt.Sprintf("[image: %s %s %s]", dims, fmtStr, sizeStr)
 	}
