@@ -112,7 +112,7 @@ Code changes must update corresponding documentation in a single commit:
    * Update the relevant field entry in docs/configuration.md
    * Update defaults section if default values change
    * Update config examples in README.md if a commonly-used field is affected
-   * If the field is a user-facing prompt-injection toggle (e.g. `cave_human`), also add a feature subsection to README.md mirroring the existing pattern (description and config example)
+   * If the field is a user-facing prompt-injection toggle (e.g. `cave_human`), update the relevant section in docs/optional-features.md and the one-liner in README.md's "Other features" list
 
 3. **`internal/delegation` changes** (add/remove sub-agent type or change tool allowlist):
    * Update the sub-agent types table in docs/sub-agent-delegation.md
@@ -144,8 +144,12 @@ Code changes must update corresponding documentation in a single commit:
    * Update the "Desktop notifications" section in README.md if the high-level description changes
 
 9. **`internal/oauth` changes** (add/change flow, token store, refresh, or PKCE behaviour):
-   * Update the "Codex OAuth" section in README.md if the setup steps or token storage location change
+   * Update the "Codex OAuth" section in docs/optional-features.md if the setup steps or token storage location change
    * Update docs/configuration.md provider types table if authentication behaviour changes
+
+10. **Optional feature changes** (cave_human, accent colour, web search, image paste, conversation forking, code simplification, Codex OAuth):
+   * Update the relevant section in docs/optional-features.md
+   * Update the one-liner in README.md's "Other features" list if the summary changes
 
 ## Built-in tools
 

@@ -13,6 +13,7 @@
 - [Cache Stats](cache-stats)
 - [Desktop Notifications](desktop-notifications)
 - [Image Prompts](image-prompts)
+- [Optional Features](optional-features)
 
 **Internals**
 - [Sub-agent Delegation](sub-agent-delegation-internals)
