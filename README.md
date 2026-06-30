@@ -125,7 +125,7 @@ Configuration is loaded in this precedence order (later overrides earlier):
 4. Environment variables with the `STEINER_` prefix
 5. CLI flags
 
-**Example 1 — local LLM (Ollama or LM Studio)**:
+**Example — local LLM (Ollama or LM Studio)**:
 
 ```yaml
 default_model: local
@@ -139,69 +139,23 @@ models:
     id: qwen2.5-coder:14b
 ```
 
-Use `http://127.0.0.1:1234/v1` as `base_url` for LM Studio.
-
-**Example 2 — cloud provider (Anthropic via OpenRouter)**:
-
-```yaml
-default_model: sonnet
-
-providers:
-  openrouter:
-    type: openrouter
-    api_key_env: OPENROUTER_API_KEY
-
-models:
-  sonnet:
-    provider: openrouter
-    id: anthropic/claude-3.7-sonnet
-```
-
-**Example 3 — one provider with mixed-model transport (OpenCode Go)**:
-
-```yaml
-default_model: kimi
-
-providers:
-  opencode-go:
-    type: openai_compat
-    base_url: https://opencode.ai/zen/go/v1
-    api_key_env: OPENCODE_API_KEY
-
-models:
-  kimi:
-    provider: opencode-go
-    id: kimi-k2.6
-  minimax:
-    provider: opencode-go
-    id: minimax-m3
-```
-
-For the full configuration reference — all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
-
-Workflow handoff defaults live in the `workflow_handoff` block in that reference. If a destination workflow does not have a configured alias, Steiner falls back to the current session model. The handoff model picker can override the pending handoff once without changing config.
+See [Configuration](docs/configuration.md) for all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables.
 
 ## Built-in tools
 
-These built-in tools are available to the model; some are gated by config:
-
 | Tool | Description |
 |------|-------------|
-| `read` | Read files with offset/limit pagination. Detects image files (.png, .jpg, .jpeg, .gif, .webp) by extension, base64-encodes them, and returns a metadata summary (`[image: WxH format size]`) with the image data attached as a content block. The result also carries `resolved_path` — the absolute path actually read — so a relative path that resolved to a different physical file (e.g. across a git worktree boundary) is immediately visible. Max image size: 5MB. |
-| `mutate` | Apply one or more structured file mutations atomically with sequential in-memory matching, initial-snapshot `file_hash` validation on existing targets, post-operation assertions, and bounded verification context (create, write, replace, line_replace, delete_line, delete, move, insert_before, insert_after) |
+| `read` | Read files with offset/limit pagination; detects and base64-encodes images |
+| `mutate` | Apply structured file mutations atomically (create, write, replace, delete, move, insert) |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents with surrounding context |
 | `ls` | List directory contents |
-| `bash` | Run shell commands |
-| `scratchpad` | Record working state (intent, decisions, next action); persists across compaction |
-| `fetch_url` | Fetch a URL and return its content. Web pages are converted to markdown; image URLs (png, jpeg, gif, webp) return image data for vision-capable providers (5MB cap). The uncollapsed view shows a status block (URL, max_size, http code, content length, title, description) above the markdown body. |
-| `display_file` | Show a file in the TUI overlay without adding its contents to the conversation |
-| `advisor` | Ask a stronger-model steering advisor for concise guidance when `advisor.enabled` is true |
-| `workflow_handoff` | Create a workflow handoff request to transition to a different workflow with approved artifacts |
-
-`read`, `glob`, `grep`, `ls`, and other read-only tools are always available. `bash` and subprocess tools run inside a sandbox by default.
-
-`mutate` evaluates operations in order against an in-memory snapshot of earlier edits, then commits the full batch only after planning succeeds. Line-oriented edits can target a single line or a contiguous line range with `line_replace` or `delete_line`. `insert_after` supports appending after the final line even when the file has no trailing newline; in that case the tool synthesizes the file's line ending so the inserted block lands on its own line. Any `file_hash` check compares against the disk state captured at batch start, not against later in-batch changes, and only applies when the target already exists. Missing targets fail explicitly instead of being silently accepted. Successful results also return per-file `file_hashes` plus per-operation `operation_results` with `match_count`, assertion counts, and bounded post-edit `context` so the model can verify edits without an immediate follow-up `read`. `assert_present` and `assert_absent` run against the in-memory post-operation content, and any assertion failure aborts the batch before commit. `move` never overwrites an existing destination; destination collisions fail instead of replacing files. No-match, ambiguous, and `line_replace` mismatch errors include the absolute path the planner resolved on the header line, and each `operation_results` entry carries a `resolved_path` alongside the relative `path` — useful when a relative path resolved to a different physical file (e.g. across a git worktree boundary).
+| `bash` | Run shell commands (sandboxed by default) |
+| `scratchpad` | Record working state; persists across compaction |
+| `fetch_url` | Fetch a URL; web pages converted to markdown, images returned for vision models |
+| `display_file` | Show a file in the TUI overlay without adding to conversation |
+| `advisor` | Ask a stronger-model steering advisor for guidance (requires `advisor.enabled`) |
+| `workflow_handoff` | Transition to a different workflow with approved artifacts |
 
 ## Sandboxing
 
@@ -213,7 +167,7 @@ When a sandboxed tool attempts to write to a file outside the workspace, the use
 
 **Platform support**: Linux only (automatic detection; sandboxing is disabled on macOS and Windows).
 
-For configuration, environment variable filtering, mount layout, and troubleshooting, see [docs/TOOL_SANDBOXING.md](docs/TOOL_SANDBOXING.md).
+For configuration, environment variable filtering, mount layout, and troubleshooting, see [docs/tool-sandboxing.md](docs/tool-sandboxing.md).
 
 ## Context management
 
@@ -223,7 +177,7 @@ Local LLMs have limited context windows — often measured in tens of thousands 
 
 **Per-source byte budgets** cap each context source (preamble, agent summaries, skills, tool results, conversation history) so no single category can crowd out the others. **Compaction** kicks in when estimated prompt tokens reach 70% of the context window: older turns are summarised by the model into a compact durable prefix, then dropped from the live history.
 
-See [docs/CONTEXT_MANAGEMENT.md](docs/CONTEXT_MANAGEMENT.md) for the full reference.
+See [docs/context-management.md](docs/context-management.md) for the full reference.
 
 ## Sub-agent delegation
 
@@ -238,219 +192,65 @@ Delegation is steiner's primary context management strategy. `steiner` exposes s
 | `verify` | Run tests, linters, builds, or other checks and report pass or fail | No |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message | No |
 
-See [docs/SUBAGENT_DELEGATION.md](docs/SUBAGENT_DELEGATION.md) for full documentation, including per-agent tool allowlists and safety restrictions.
+See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
 
 ## Optional features
 
-### `cave_human`
-
-`cave_human` combines terse-output behavior with an anti-AI-writing style instruction. It keeps responses short and direct while avoiding filler, hedging, and common AI-writing tells. The instruction is injected into the system preamble, compaction prompts, and sub-agent prompts so it stays consistent throughout a session.
-
-Disabled by default. Enable via config file only:
-
-```yaml
-# config.yaml
-cave_human: true
-```
-
 ### Advisor
 
-`advisor` is a stronger-model steering pass for the main loop. It reviews the live parent conversation and returns concise guidance, but it does not call tools, mutate state, or spawn a child loop. The advisor tool definition stays static during a run; `max_uses_per_run` is enforced in handler state so prompt-cache state does not churn mid-conversation.
-
-Disabled by default. Enable via config file only:
+A stronger-model steering pass that reviews the live conversation and returns concise guidance. No tools, no mutation, no child loop.
 
 ```yaml
 advisor:
   enabled: true
   model: advisor-model
-  max_uses_per_run: 2
-  max_tokens: 256
 ```
 
-`model` must reference a key in `models` when the feature is enabled. `max_tokens` is optional.
-
-See [docs/ADVISOR_SUBAGENT.md](docs/ADVISOR_SUBAGENT.md) for the full behavior and implementation reference.
+See [Advisor](docs/advisor.md) for configuration options and behavior reference.
 
 ### Cache hit rate tracking
 
-Steiner records prompt-cache token usage on every model response and surfaces a token-weighted cache hit rate. The metric is token counts only — no prompt or completion content is stored. Always-on with no configuration required.
+Token-weighted prompt-cache hit rate, always-on with no configuration. Surfaces in the sidebar and via the `/cache-stats` overlay command.
 
-**The metric**: token-weighted hit rate = `CacheReadInputTokens / total_input`, where `total_input = non_cached_input + cache_read + cache_creation`. For Anthropic, `PromptTokens` already equals that total. Undefined (no cache-capable calls / zero input tokens) renders as `—`, never NaN.
-
-**Fixed windows**: last hour (1h), last 24 hours (24h), last 7 days (7d). Data is stored globally at `$XDG_STATE_HOME/steiner/cache-stats.json` (or `~/.local/state/steiner/cache-stats.json`) with 8-day retention.
-
-**Surfaces**:
-- A live sidebar **cache** section showing the current session hit rate (e.g., `78.2%` or `—` before the first cache-capable call).
-- A `/cache-stats` slash command overlay showing one table per window (Provider, Model, Hit rate, Cached / Total), scrollable and read-only.
-
-See [docs/CACHE_STATS.md](docs/CACHE_STATS.md) for the full metric definition, storage format, concurrency model, and privacy notes.
+See [Cache Stats](docs/cache-stats.md) for the metric definition, storage format, and privacy notes.
 
 ### Oneshot mode
 
-`oneshot` is a headless autonomous orchestration mode. It runs steiner's agent loop three times — plan, implement, and review — each as a fresh agent run with a clean model context against a dedicated git worktree. No user interaction is required after the initial task description.
+Autonomous three-phase orchestration (plan, implement, review). Each phase runs as a sub-agent in an isolated git worktree. Runs are resumable.
 
-**CLI usage**:
-```bash
-steiner oneshot "<task>"          # run end-to-end
-steiner oneshot --resume <id>     # resume an interrupted run
-steiner oneshot --list            # list resumable runs
-```
-
-**TUI usage** (from within `steiner`):
-```
-/oneshot <task>
-/oneshot --resume <id>
-/oneshot --list
-```
-
-**Configuration**:
 ```yaml
 oneshot:
-  auto_pr: false                  # push branch and open PR/MR on passing review
+  auto_pr: false
   models:
-    plan: ""                       # model alias override for plan phase (default: default_model)
-    implement: ""                  # model alias override for implement phase
-    review: ""                     # model alias override for review phase
+    plan: ""
+    implement: ""
+    review: ""
 ```
 
-The three phases run in sequence: the plan phase analyzes the task and produces a structured implementation plan; the implement phase executes that plan and commits changes; the review phase evaluates the implementation against the plan and produces a final report. Results are committed to a feature branch (`oneshot/<slug>-<id>`), and optionally pushed as a pull request if `auto_pr` is enabled.
-
-Each run is resumable — if interrupted, `steiner oneshot --resume <id>` recovers from the last incomplete phase without re-running previous work.
-
-While a oneshot run is active in the TUI, the composer is steering-only: the
-footer shows a `phase · <name>` segment, the sidebar shows an `Oneshot —
-<phase>` section, the phase agent's streaming and tool calls appear live in
-the transcript, and any input other than `/exit`, `/thinking`, or `/accent`
-is sent to the run as a steering message (re-typing `/oneshot …` will not
-launch a second run). See [docs/ONESHOT.md](docs/ONESHOT.md) for the full
-architecture, interactive behaviour, resumption logic, and run manifest
-structure.
-
-### Accent colour
-
-The TUI accent colour can be changed with `/accent`. With no argument it opens a colour picker showing all 13 presets with colour swatches. With a preset name it sets the colour directly:
-
-```
-/accent          # open picker
-/accent violet   # set directly
-```
-
-**Available presets:** `amber` (default), `coral`, `rose`, `magenta`, `gold`, `violet`, `indigo`, `blue`, `cyan`, `teal`, `green`, `mint`, `lime`.
-
-Use `random` to pick a different preset on each startup:
-
-```
-/accent random
-```
-
-The selected preset is saved to `~/.config/steiner/prefs.yaml` and restored on next launch. With `random`, the preference is kept as `random` so a new colour is chosen each time.
+See [Oneshot Mode](docs/oneshot.md) for invocation, configuration, and resume behaviour.
 
 ### Desktop notifications
 
-Steiner can send native desktop notifications when the agent is waiting on user input — including tool-call approvals and workflow handoffs. This lets you step away while the agent runs, then get notified when it needs your attention.
-
-Linux is fully supported via the D-Bus freedesktop notification service. macOS and Windows emit a single startup warning and silently no-op for the session.
-
-On X11, clicking a notification focuses the steiner window (best-effort via xdotool/wmctrl). Wayland has no standard mechanism and silently ignores clicks.
-
-Disabled by default. Enable via config:
+Native notifications when the agent needs approval or handoff. Linux fully supported; macOS and Windows no-op with a startup warning.
 
 ```yaml
 desktop_notifications:
   enabled: true
-  duration: 0  # 0 = permanent (sticky); positive integer = auto-dismiss after N seconds
 ```
 
-See [docs/DESKTOP_NOTIFICATIONS.md](docs/DESKTOP_NOTIFICATIONS.md) for platform support, graceful degradation, and driver extension points.
+See [Desktop Notifications](docs/desktop-notifications.md) for platform support and configuration.
 
-### Web search
+### Other features
 
-The `web_search` tool lets the model search the web and return URL, title, and description results. It is **disabled by default** — it only appears in the tool registry when `search.backend` is set in config.
+These features are documented in [Optional Features](docs/optional-features.md):
 
-| Backend | Config key | Auth |
-|---------|------------|------|
-| Google | `google` | `GOOGLE_SEARCH_CX` + `GOOGLE_SEARCH_API_KEY` |
-| Kagi | `kagi` | `KAGI_API_KEY` |
-| Brave | `brave` | `BRAVE_API_KEY` |
-| SearXNG | `searxng` | `search.searxng_url` (self-hosted, no API key) |
-
-Enable by adding a `search` block to your config:
-
-```yaml
-search:
-  backend: brave   # one of: google, kagi, brave, searxng
-```
-
-When enabled, `web_search` is also added to the `research` sub-agent's tool allowlist automatically.
-
-### Image paste
-
-Paste images directly in the interactive TUI with **Ctrl+V**. Images are read from the clipboard or referenced by file path, resized to a max of 2048px on the longest side, and token-accounted automatically. After the model responds, image data is stripped from the conversation and replaced with a text placeholder, keeping context lean. Models without vision capability have images stripped before sending.
-
-Supported formats: PNG, JPG, JPEG, GIF, WebP. Max size: 5MB.
-
-### Conversation forking
-
-Fork the current conversation or any saved session into a new independent session. The new session carries the full conversation history from the source, allowing you to explore alternative directions without modifying the original.
-
-**In interactive mode**, use `/fork` to fork the current live session:
-
-```
-/fork
-```
-
-**In the session picker**, press `f` on any saved session to fork it. The new session is created with the title "Fork of: <original title>" and can be resumed, edited, or deleted like any other session.
-
-Forks are independent — changes in one session do not affect the source.
-
-### Code simplification
-
-Analyze branch changes for structural and code quality improvements before review. `/simplify` dispatches four parallel `explore` sub-agents — one each for reuse, simplification, efficiency, and altitude — against the changed files on your current branch, refines findings through an advisor sanity check, and presents a consolidated report. On confirmation, it enters a fix/review loop to apply approved improvements.
-
-```
-/simplify          # analyze against main (default)
-/simplify develop  # analyze against a custom base branch
-```
-
-**Categories analyzed:**
-
-- **Reuse** — duplicated logic, extractable helpers, dead code, unused existing utilities
-- **Simplification** — naming clarity, unnecessary nesting, verbose constructs, excess abstraction
-- **Efficiency** — unnecessary allocations, wasteful iteration, hot-path redundancy, unnecessary I/O
-- **Altitude** — logic at the wrong abstraction level, mixed concerns, package boundary violations
-
-`/simplify` does not hunt for bugs — use `/review` for that. All proposed changes preserve existing behavior.
-
-### Codex OAuth
-
-Use your OpenAI Codex subscription (GPT-5.5, GPT-5.4, etc.) with Steiner without a separate API key. Codex providers use the Responses wire format. When login can exchange the ChatGPT ID token for an API-key style credential, Steiner sends requests to `https://api.openai.com/v1/responses`; otherwise it uses the ChatGPT Codex backend at `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and account metadata.
-
-**Setup:**
-
-1. Authenticate with your OpenAI account:
-   ```bash
-   steiner login codex
-   ```
-   This opens a browser for OAuth consent and saves a token to `~/.config/steiner/codex_auth.json`.
-
-2. Check authentication status:
-   ```bash
-   steiner login codex status
-   ```
-
-3. Configure a provider and model:
-   ```yaml
-   providers:
-     codex:
-       type: codex
-
-   models:
-     gpt-5:
-       provider: codex
-       id: gpt-5.5
-   ```
-
-Token storage at `~/.config/steiner/codex_auth.json` is created with `0600` permissions and should be treated as sensitive — the same as API keys and `--log-file` output. Existing token files continue to load, but re-running `steiner login codex` refreshes stored `id_token`, ChatGPT account metadata, and the optional exchanged API credential used for direct OpenAI Responses API calls.
+- [**`cave_human`**](docs/optional-features.md#cave_human) — terse output with anti-AI-writing style instruction
+- [**Accent colour**](docs/optional-features.md#accent-colour) — customizable TUI accent with 13 presets and `/accent` picker
+- [**Web search**](docs/optional-features.md#web-search) — model-facing search tool with Google, Kagi, Brave, and SearXNG backends
+- [**Image paste**](docs/optional-features.md#image-paste) — Ctrl+V image input with auto-resize and token accounting
+- [**Conversation forking**](docs/optional-features.md#conversation-forking) — fork live or saved sessions into independent copies
+- [**Code simplification**](docs/optional-features.md#code-simplification) — parallel sub-agent analysis for reuse, simplification, efficiency, and altitude
+- [**Codex OAuth**](docs/optional-features.md#codex-oauth) — use OpenAI Codex subscription models without a separate API key
 
 ## Self-update
 

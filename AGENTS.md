@@ -106,20 +106,22 @@ Code changes must update corresponding documentation in a single commit:
 
 1. **`internal/tool` changes** (add/remove/rename built-in tool):
    * Update the "Built-in tools" section in README.md
-   * Update sub-agent tool allowlist tables in docs/SUBAGENT_DELEGATION.md if the tool appears in any allowlist
+   * Update sub-agent tool allowlist tables in docs/sub-agent-delegation.md if the tool appears in any allowlist
 
 2. **`internal/config` changes** (add/change/remove Config field or nested struct field):
-   * Update the relevant field entry in docs/CONFIGURATION.md
+   * Update the relevant field entry in docs/configuration.md
    * Update defaults section if default values change
    * Update config examples in README.md if a commonly-used field is affected
-   * If the field is a user-facing prompt-injection toggle (e.g. `cave_human`), also add a feature subsection to README.md mirroring the existing pattern (description and config example)
+   * If the field is a user-facing prompt-injection toggle (e.g. `cave_human`), update the relevant section in docs/optional-features.md and the one-liner in README.md's "Other features" list
 
 3. **`internal/delegation` changes** (add/remove sub-agent type or change tool allowlist):
-   * Update the sub-agent types table in docs/SUBAGENT_DELEGATION.md
+   * Update the sub-agent types table in docs/sub-agent-delegation.md
+   * Update docs/sub-agent-delegation-internals.md if the architecture, bootstrapping, or tool construction changes
    * Update the sub-agent delegation tool table in README.md
 
 4. **`internal/prompt` changes** (change compaction, budgets, or context management behaviour):
-   * Update docs/CONTEXT_MANAGEMENT.md with new or changed behaviour
+   * Update docs/context-management.md if user-facing behaviour changes
+   * Update docs/context-management-internals.md with new or changed internal behaviour
    * Update the "Context management" section in README.md if the high-level description changes
 
 5. **New top-level feature**:
@@ -128,20 +130,26 @@ Code changes must update corresponding documentation in a single commit:
    * Add a rule to this maintenance section
 
 6. **`internal/oneshot` changes** (add/change/remove engine behaviour, phases, manifest fields, lock/resume logic, closeout, reports):
-   * Update `docs/ONESHOT.md` with the changed behaviour
-   * If a config field is added/changed, also update `docs/CONFIGURATION.md` and the `oneshot` config example in README.md
+   * Update docs/oneshot.md if user-facing behaviour changes
+   * Update docs/oneshot-internals.md with new or changed internal behaviour
+   * If a config field is added/changed, also update docs/configuration.md and the `oneshot` config example in README.md
 
 7. **`internal/usagestats` changes** (add/change/remove recorder, bucketing, persistence/schema, retention, windows, surfacing behaviour):
-   * Update `docs/CACHE_STATS.md` with the changed behaviour
+   * Update docs/cache-stats.md with the changed behaviour
    * Update the "Cache hit rate tracking" section in README.md if the high-level behaviour changes
 
 8. **`internal/notify` changes** (add/change platform driver, change Service behaviour):
-   * Update `docs/DESKTOP_NOTIFICATIONS.md` with the changed behaviour
+   * Update docs/desktop-notifications.md if user-facing behaviour changes
+   * Update docs/desktop-notifications-internals.md if driver interface or extension points change
    * Update the "Desktop notifications" section in README.md if the high-level description changes
 
 9. **`internal/oauth` changes** (add/change flow, token store, refresh, or PKCE behaviour):
-   * Update the "Codex OAuth" section in README.md if the setup steps or token storage location change
-   * Update `docs/CONFIGURATION.md` provider types table if authentication behaviour changes
+   * Update the "Codex OAuth" section in docs/optional-features.md if the setup steps or token storage location change
+   * Update docs/configuration.md provider types table if authentication behaviour changes
+
+10. **Optional feature changes** (cave_human, accent colour, web search, image paste, conversation forking, code simplification, Codex OAuth):
+   * Update the relevant section in docs/optional-features.md
+   * Update the one-liner in README.md's "Other features" list if the summary changes
 
 ## Built-in tools
 
@@ -154,7 +162,10 @@ Steiner exposes these model-facing built-in tools:
 - `ls` — list directories
 - `bash` — run shell commands
 - `scratchpad` — record working state (intent, decisions, next action); persists across compaction
+- `fetch_url` — fetch a URL and return its content as markdown or image data
 - `display_file` — show a file in the TUI overlay without adding contents to conversation
+- `advisor` — ask a stronger-model steering advisor for guidance (requires `advisor.enabled`)
+- `workflow_handoff` — transition to a different workflow with approved artifacts
 
 Steiner owns the schemas and result formats. Dive implements the behavior.
 

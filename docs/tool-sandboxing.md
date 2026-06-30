@@ -345,6 +345,6 @@ The following features are deferred to V2:
 
 ---
 
-For configuration details, see [docs/CONFIGURATION.md](CONFIGURATION.md).
+For configuration details, see [docs/configuration.md](configuration.md).
 
-For context management and approval policy, see [docs/SUBAGENT_DELEGATION.md](SUBAGENT_DELEGATION.md).
+For context management and approval policy, see [docs/sub-agent-delegation.md](sub-agent-delegation.md).
