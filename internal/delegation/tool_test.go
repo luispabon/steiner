@@ -596,6 +596,75 @@ func TestDelegateHandlerDeps_SandboxInherited(t *testing.T) {
 	}
 }
 
+func TestToolDef_WorkDirInSchema(t *testing.T) {
+	def := DelegateToolDef(func(_ context.Context, _ map[string]any) (any, error) { return nil, nil })
+	props, ok := def.ParameterSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("properties missing from schema")
+	}
+	if _, exists := props["work_dir"]; !exists {
+		t.Error("work_dir missing from schema properties")
+	}
+}
+
+func TestToolHandler_WorkDirOverride(t *testing.T) {
+	var capturedReq agent.RunRequest
+	firstCall := true
+
+	deps := DelegateHandlerDeps{
+		SubAgentCfg: config.SubAgentConfig{},
+		Provider:    stubProvider{},
+		ParentReg:   tool.NewRegistry(),
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if firstCall {
+				capturedReq = req
+				firstCall = false
+			}
+			return successRunState(), nil
+		}},
+		Events:  noopEventSink{},
+		WorkDir: "/parent/dir",
+	}
+	handler := NewDelegateHandler(deps)
+
+	_, err := handler(context.Background(), map[string]any{
+		"task":     "do something",
+		"work_dir": "/worktree/path",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedReq.Prompt.ProjectRoot != "/worktree/path" {
+		t.Errorf("Prompt.ProjectRoot = %q, want %q", capturedReq.Prompt.ProjectRoot, "/worktree/path")
+	}
+}
+
+func TestToolHandler_WorkDirRelativeRejected(t *testing.T) {
+	deps := DelegateHandlerDeps{
+		SubAgentCfg: config.SubAgentConfig{},
+		Provider:    stubProvider{},
+		ParentReg:   tool.NewRegistry(),
+		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+			t.Error("runner must not be called for relative work_dir")
+			return agent.RunState{}, nil
+		}},
+		Events:  noopEventSink{},
+		WorkDir: "/parent/dir",
+	}
+	handler := NewDelegateHandler(deps)
+
+	_, err := handler(context.Background(), map[string]any{
+		"task":     "do something",
+		"work_dir": "relative/path",
+	})
+	if err == nil {
+		t.Fatal("expected error for relative work_dir, got nil")
+	}
+	if !strings.Contains(err.Error(), "absolute") {
+		t.Errorf("error=%q, want to contain %q", err.Error(), "absolute")
+	}
+}
+
 func TestDelegateHandlerDeps_NilSandboxNotInherited(t *testing.T) {
 	var capturedReq agent.RunRequest
 	firstCall := true
