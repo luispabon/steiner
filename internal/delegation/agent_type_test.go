@@ -16,6 +16,7 @@ func TestValidAgentType(t *testing.T) {
 		{name: "code is valid", input: "code", want: true},
 		{name: "plan is valid", input: "plan", want: true},
 		{name: "verify is valid", input: "verify", want: true},
+		{name: "vision is valid", input: "vision", want: true},
 		{name: "empty string is invalid", input: "", want: false},
 		{name: "unknown type is invalid", input: "debug", want: false},
 		{name: "uppercase is invalid", input: "Explore", want: false},
@@ -33,8 +34,8 @@ func TestValidAgentType(t *testing.T) {
 
 func TestAllAgentTypes(t *testing.T) {
 	types := AllAgentTypes()
-	if len(types) != 5 {
-		t.Fatalf("AllAgentTypes() returned %d types, want 5", len(types))
+	if len(types) != 6 {
+		t.Fatalf("AllAgentTypes() returned %d types, want 6", len(types))
 	}
 	for i, at := range types {
 		if at == "" {
@@ -45,7 +46,7 @@ func TestAllAgentTypes(t *testing.T) {
 
 func TestAllSpecializedDelegateTools(t *testing.T) {
 	tools := AllSpecializedDelegateTools()
-	want := []string{"explore", "research", "code", "plan", "verify", "follow_up"}
+	want := []string{"explore", "research", "code", "plan", "verify", "vision", "follow_up"}
 
 	if !slices.Equal(tools, want) {
 		t.Fatalf("AllSpecializedDelegateTools() = %v, want %v", tools, want)
@@ -164,6 +165,34 @@ func TestAgentAllowedTools(t *testing.T) {
 		second := AgentAllowedTools(AgentTypeExplore)
 		if second[0] == "mutated" {
 			t.Fatal("AgentAllowedTools returned a reference to internal data")
+		}
+	})
+}
+
+func TestAgentTypeVision(t *testing.T) {
+	t.Run("appears in AllAgentTypes", func(t *testing.T) {
+		if !slices.Contains(AllAgentTypes(), AgentTypeVision) {
+			t.Fatal("AgentTypeVision not found in AllAgentTypes()")
+		}
+	})
+
+	t.Run("ValidAgentType returns true", func(t *testing.T) {
+		if !ValidAgentType("vision") {
+			t.Fatal("ValidAgentType(\"vision\") = false, want true")
+		}
+	})
+
+	t.Run("AgentAllowedTools returns read", func(t *testing.T) {
+		tools := AgentAllowedTools(AgentTypeVision)
+		if !slices.Contains(tools, "read") {
+			t.Fatalf("AgentAllowedTools(vision) = %v, want to contain \"read\"", tools)
+		}
+	})
+
+	t.Run("AgentSystemPrompt returns non-empty string", func(t *testing.T) {
+		p := AgentSystemPrompt(AgentTypeVision)
+		if p == "" {
+			t.Fatal("AgentSystemPrompt(vision) returned empty string")
 		}
 	})
 }

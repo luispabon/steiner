@@ -54,6 +54,9 @@ type DelegateDeps struct {
 	// When nil, BuildDelegateRegistry creates a fresh per-call store (backward-compatible).
 	// Callers that need cross-turn follow_up support should provide a long-lived store.
 	SessionStore *SessionStore
+	// ImageStore provides image lookup for the vision sub-agent tool.
+	// When nil or when no vision model is configured, the vision tool is not registered.
+	ImageStore *agent.ImageStore
 }
 
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
@@ -146,13 +149,18 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 
 	// Register a specialized tool for each agent type.
 	// Skip research agent when no search backend is configured.
+	// Skip vision agent when no vision model is configured.
 	specializedDeps := SpecializedToolDeps{
 		DelegateHandlerDeps: delegateDeps,
 		ModelResolver:       modelResolver,
+		ImageStore:          deps.ImageStore,
 	}
 	var excludeTypes []AgentType
 	if deps.Searcher == nil {
-		excludeTypes = []AgentType{AgentTypeResearch}
+		excludeTypes = append(excludeTypes, AgentTypeResearch)
+	}
+	if deps.SubAgentCfg.Agents[string(AgentTypeVision)].Model == "" {
+		excludeTypes = append(excludeTypes, AgentTypeVision)
 	}
 	for _, def := range AllSpecializedToolDefs(specializedDeps, excludeTypes) {
 		cloned.Register(def)

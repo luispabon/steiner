@@ -14,11 +14,13 @@ const (
 	AgentTypePlan AgentType = "plan"
 	// AgentTypeVerify is the agent type for verification tasks.
 	AgentTypeVerify AgentType = "verify"
+	// AgentTypeVision is the agent type for image analysis tasks.
+	AgentTypeVision AgentType = "vision"
 )
 
 // AllAgentTypes returns all valid agent type values.
 func AllAgentTypes() []AgentType {
-	return []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeCode, AgentTypePlan, AgentTypeVerify}
+	return []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeCode, AgentTypePlan, AgentTypeVerify, AgentTypeVision}
 }
 
 // AllSpecializedDelegateTools returns the canonical specialized delegate tool
@@ -106,6 +108,20 @@ How to respond:
 - Quote exact error messages, file paths, and line numbers for failures.
 - Do not suggest or apply fixes.
 - If a check cannot run, say why and what command was attempted.`,
+
+	AgentTypeVision: `You are a vision agent that analyzes images.
+
+Your role: examine the image provided and answer the user's question about it.
+
+How to work:
+- The image is included in your first message. Examine it carefully.
+- Use read to inspect related files if the question requires code context.
+- Be precise about visual details: colors, layout, text, dimensions.
+
+How to respond:
+- Answer the question directly and specifically.
+- Describe relevant visual details that support your answer.
+- If the image is a screenshot of code or UI, quote visible text exactly.`,
 }
 
 var agentAllowlists = map[AgentType][]string{
@@ -114,6 +130,7 @@ var agentAllowlists = map[AgentType][]string{
 	AgentTypeCode:     {"read", "glob", "grep", "ls", "mutate", "bash"},
 	AgentTypePlan:     {"read", "glob", "grep", "ls"},
 	AgentTypeVerify:   {"read", "glob", "grep", "ls", "bash"},
+	AgentTypeVision:   {"read"},
 }
 
 var validAgentTypeSet = map[string]struct{}{
@@ -122,6 +139,7 @@ var validAgentTypeSet = map[string]struct{}{
 	string(AgentTypeCode):     {},
 	string(AgentTypePlan):     {},
 	string(AgentTypeVerify):   {},
+	string(AgentTypeVision):   {},
 }
 
 // AgentSystemPrompt returns the system prompt for the given agent type.

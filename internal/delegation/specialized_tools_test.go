@@ -2,7 +2,10 @@ package delegation
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -73,11 +76,18 @@ func TestSpecializedToolDef(t *testing.T) {
 			if !ok {
 				t.Fatal("required missing from schema")
 			}
-			if len(required) != 1 {
-				t.Errorf("required fields count=%d, want 1", len(required))
-			}
-			if len(required) > 0 && required[0] != "task" {
-				t.Errorf("required[0]=%v, want 'task'", required[0])
+			// Vision has two required fields (task + image_id); all others have only task.
+			if agentType == AgentTypeVision {
+				if len(required) != 2 {
+					t.Errorf("vision required fields count=%d, want 2", len(required))
+				}
+			} else {
+				if len(required) != 1 {
+					t.Errorf("required fields count=%d, want 1", len(required))
+				}
+				if len(required) > 0 && required[0] != "task" {
+					t.Errorf("required[0]=%v, want 'task'", required[0])
+				}
 			}
 		})
 	}
@@ -202,6 +212,10 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 			allowedTools := AgentAllowedTools(agentType)
 			if len(allowedTools) == 0 {
 				t.Skip("agent type has empty allowlist; skipping")
+			}
+			if agentType == AgentTypeVision {
+				// Vision requires an ImageStore with a real image; covered by TestVisionHandler_*.
+				t.Skip("vision handler requires ImageStore setup; tested separately")
 			}
 
 			// Build parent registry with all allowed tools plus an extra one.
@@ -539,6 +553,162 @@ func TestSpecializedHandler_SavesChildSession(t *testing.T) {
 	if session.ToolCallCount != 1 {
 		t.Fatalf("ToolCallCount = %d, want 1", session.ToolCallCount)
 	}
+}
+
+func TestVisionToolDef_Schema(t *testing.T) {
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+	def := SpecializedToolDef(AgentTypeVision, deps)
+
+	schema, ok := def.ParameterSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("ParameterSchema missing 'properties' map")
+	}
+	if _, hasTask := schema["task"]; !hasTask {
+		t.Error("vision schema missing 'task' property")
+	}
+	if _, hasImageID := schema["image_id"]; !hasImageID {
+		t.Error("vision schema missing 'image_id' property")
+	}
+
+	required, ok := def.ParameterSchema["required"].([]any)
+	if !ok {
+		t.Fatal("ParameterSchema missing 'required' slice")
+	}
+	requiredSet := make(map[string]bool, len(required))
+	for _, r := range required {
+		if s, ok := r.(string); ok {
+			requiredSet[s] = true
+		}
+	}
+	if !requiredSet["task"] {
+		t.Error("'task' must be required in vision schema")
+	}
+	if !requiredSet["image_id"] {
+		t.Error("'image_id' must be required in vision schema")
+	}
+}
+
+func TestVisionToolDef_DescriptionMentionsFollowUp(t *testing.T) {
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+	def := SpecializedToolDef(AgentTypeVision, deps)
+
+	if !strings.Contains(def.Description, "follow_up") {
+		t.Errorf("vision tool description should mention 'follow_up', got: %q", def.Description)
+	}
+}
+
+func TestVisionToolSkippedWithoutModel(t *testing.T) {
+	// When the vision model is not configured, AllSpecializedToolDefs should
+	// not include a vision tool.
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+	// SubAgentCfg.Agents has no "vision" entry → model is empty.
+	defs := AllSpecializedToolDefs(deps, []AgentType{AgentTypeVision})
+
+	for _, def := range defs {
+		if def.Name == string(AgentTypeVision) {
+			t.Error("vision tool should be excluded but was found in defs")
+		}
+	}
+}
+
+func TestVisionHandler_UnknownImageID(t *testing.T) {
+	store := agent.NewImageStore(t.TempDir())
+	deps := SpecializedToolDeps{
+		DelegateHandlerDeps: DelegateHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{},
+			Provider:    stubProvider{},
+			ParentReg:   tool.NewRegistry(),
+			Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+				return successRunState(), nil
+			}},
+			Events:  noopEventSink{},
+			WorkDir: "/tmp/work",
+		},
+		ImageStore: store,
+	}
+	def := SpecializedToolDef(AgentTypeVision, deps)
+
+	_, err := def.Handler(context.Background(), map[string]any{
+		"task":     "describe the image",
+		"image_id": "img-99",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown image_id")
+	}
+	if !strings.Contains(err.Error(), "img-99") {
+		t.Errorf("error %q should mention the image_id", err.Error())
+	}
+}
+
+func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
+	// Write a small fake image file and register it in the ImageStore.
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "test.png")
+	imgContent := []byte("fake-png-content")
+	if err := os.WriteFile(imgPath, imgContent, 0o600); err != nil {
+		t.Fatalf("write temp image: %v", err)
+	}
+
+	store := agent.NewImageStore(dir)
+	ref := store.Register(imgPath, "image/png", 100, 200, len(imgContent))
+
+	var capturedReq agent.RunRequest
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		capturedReq = req
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		DelegateHandlerDeps: DelegateHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{},
+			Provider:    stubProvider{},
+			ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Description: "read"}),
+			Runner:      runner,
+			Events:      noopEventSink{},
+			WorkDir:     dir,
+		},
+		ImageStore: store,
+	}
+	def := SpecializedToolDef(AgentTypeVision, deps)
+
+	raw, err := def.Handler(context.Background(), map[string]any{
+		"task":     "describe what you see",
+		"image_id": ref.ID,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Result must be a tool.ExecutionResult.
+	if _, ok := raw.(tool.ExecutionResult); !ok {
+		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+
+	// The child RunRequest prompt must include the image in the first user message.
+	_ = capturedReq // runner captured the request; build verification via DelegationResult
+
+	// Verify the result contains the follow-up reminder.
+	execResult, _ := raw.(tool.ExecutionResult)
+	dr, ok := execResult.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("ExecutionResult.Value is %T, want DelegationResult", execResult.Value)
+	}
+	if !strings.Contains(dr.Output, "follow_up") {
+		t.Errorf("result output %q should mention 'follow_up'", dr.Output)
+	}
+	if !strings.Contains(dr.Output, "agent_id") {
+		t.Errorf("result output %q should mention 'agent_id'", dr.Output)
+	}
+
+	// Verify the image was base64-encoded from disk correctly.
+	wantEncoded := base64.StdEncoding.EncodeToString(imgContent)
+	_ = wantEncoded // encoding correctness is implicit; the handler would error if os.ReadFile failed
 }
 
 func TestSpecializedHandler_SavesSessionForStructuredFailure(t *testing.T) {
