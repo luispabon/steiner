@@ -37,7 +37,7 @@ func (s *Session) saveSession() error {
 		return nil
 	}
 
-	modelID := s.deps.Config.Models[s.deps.Config.DefaultModel].ID
+	modelID := s.deps.Config.Models.Definitions[s.deps.Config.Models.Default].ID
 	var (
 		sess session.Session
 		err  error
@@ -107,7 +107,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 
 	// Emit a context-diagnostics event so the TUI can populate the sidebar
 	// token bar and the status bar with the model's context budget.
-	currentModel := s.deps.Config.Models[s.deps.Config.DefaultModel]
+	currentModel := s.deps.Config.Models.Definitions[s.deps.Config.Models.Default]
 	var promptTokens int
 	for _, msg := range msgs {
 		t, err := provider.EstimateMessageTokens(ctx, currentModel.ID, provider.Message{
@@ -155,7 +155,7 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 	currentSession := session.Session{
 		ID:      s.sessionID,
 		Title:   s.sessionTitle,
-		Model:   s.deps.Config.Models[s.deps.Config.DefaultModel].ID,
+		Model:   s.deps.Config.Models.Definitions[s.deps.Config.Models.Default].ID,
 		Group:   s.sessionGroup,
 		Lineage: s.lineage,
 	}

@@ -63,7 +63,7 @@ type ResolvedModel struct {
 // Resolve builds a ResolvedModel from cfg for the given model alias.
 // It returns an error if the alias is not found or the provider is not found.
 func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
-	modelCfg, ok := cfg.Models[alias]
+	modelCfg, ok := cfg.Models.Definitions[alias]
 	if !ok {
 		return ResolvedModel{}, fmt.Errorf("model alias %q not found", alias)
 	}
@@ -110,7 +110,7 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 		return ResolvedModel{}, err
 	}
 
-	modelCfg := cfg.Models[alias]
+	modelCfg := cfg.Models.Definitions[alias]
 	adv := modelCfg.Advanced.Limits
 
 	// Load models.dev metadata early (needed for reasoning echo back and limits).

@@ -40,9 +40,6 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pr
 		runtime.events = output.NewMultiSink(events, runtime.events)
 	}
 	phaseAdvisor := runtime.cfg.Advisor
-	if advisorCfg.Model != "" {
-		phaseAdvisor.Model = advisorCfg.Model
-	}
 	if advisorCfg.MaxUsesPerRun > 0 {
 		phaseAdvisor.MaxUsesPerRun = advisorCfg.MaxUsesPerRun
 	}

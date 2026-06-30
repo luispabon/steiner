@@ -89,26 +89,26 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 }
 
 func selectedModelConfig(cfg config.Config) config.ModelConfig {
-	return cfg.Models[cfg.DefaultModel]
+	return cfg.Models.Definitions[cfg.Models.Default]
 }
 
 func modelAliasNames(cfg config.Config) []string {
-	if len(cfg.Models) == 0 {
+	if len(cfg.Models.Definitions) == 0 {
 		return nil
 	}
-	names := make([]string, 0, len(cfg.Models))
-	for k := range cfg.Models {
+	names := make([]string, 0, len(cfg.Models.Definitions))
+	for k := range cfg.Models.Definitions {
 		names = append(names, k)
 	}
 	return names
 }
 
 func modelContextSizes(cfg config.Config) map[string]int {
-	if len(cfg.Models) == 0 {
+	if len(cfg.Models.Definitions) == 0 {
 		return nil
 	}
-	sizes := make(map[string]int, len(cfg.Models))
-	for name, model := range cfg.Models {
+	sizes := make(map[string]int, len(cfg.Models.Definitions))
+	for name, model := range cfg.Models.Definitions {
 		if model.Advanced.Limits.ContextWindow > 0 {
 			sizes[name] = model.Advanced.Limits.ContextWindow
 		}
@@ -117,11 +117,11 @@ func modelContextSizes(cfg config.Config) map[string]int {
 }
 
 func modelBaseURLs(cfg config.Config) map[string]string {
-	if len(cfg.Models) == 0 {
+	if len(cfg.Models.Definitions) == 0 {
 		return nil
 	}
-	urls := make(map[string]string, len(cfg.Models))
-	for name, model := range cfg.Models {
+	urls := make(map[string]string, len(cfg.Models.Definitions))
+	for name, model := range cfg.Models.Definitions {
 		if p, ok := cfg.Providers[model.Provider]; ok {
 			urls[name] = p.BaseURL
 		}
@@ -130,11 +130,11 @@ func modelBaseURLs(cfg config.Config) map[string]string {
 }
 
 func modelProviderNames(cfg config.Config) map[string]string {
-	if len(cfg.Models) == 0 {
+	if len(cfg.Models.Definitions) == 0 {
 		return nil
 	}
-	names := make(map[string]string, len(cfg.Models))
-	for name, model := range cfg.Models {
+	names := make(map[string]string, len(cfg.Models.Definitions))
+	for name, model := range cfg.Models.Definitions {
 		if _, ok := cfg.Providers[model.Provider]; ok {
 			names[name] = model.Provider
 		}

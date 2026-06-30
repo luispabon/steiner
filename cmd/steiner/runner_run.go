@@ -101,13 +101,13 @@ func (r cliRunner) selectedAlias() string {
 	if r.currentModel != nil {
 		// Reverse lookup: find the alias whose ModelConfig matches the one returned.
 		selected := r.currentModel()
-		for alias, mc := range r.runtime.cfg.Models {
+		for alias, mc := range r.runtime.cfg.Models.Definitions {
 			if mc.ID == selected.ID && mc.Provider == selected.Provider {
 				return alias
 			}
 		}
 	}
-	return r.runtime.cfg.DefaultModel
+	return r.runtime.cfg.Models.Default
 }
 
 func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider, error) {
