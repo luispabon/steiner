@@ -35,7 +35,7 @@ desktop_notifications:
   duration: 5
 ```
 
-For the complete configuration reference, see [docs/CONFIGURATION.md](CONFIGURATION.md).
+For the complete configuration reference, see [docs/configuration.md](configuration.md).
 
 ## Platform support matrix
 

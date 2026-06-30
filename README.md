@@ -177,7 +177,7 @@ models:
     id: minimax-m3
 ```
 
-For the full configuration reference — all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+For the full configuration reference — all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables — see [docs/configuration.md](docs/configuration.md).
 
 Workflow handoff defaults live in the `workflow_handoff` block in that reference. If a destination workflow does not have a configured alias, Steiner falls back to the current session model. The handoff model picker can override the pending handoff once without changing config.
 
@@ -213,7 +213,7 @@ When a sandboxed tool attempts to write to a file outside the workspace, the use
 
 **Platform support**: Linux only (automatic detection; sandboxing is disabled on macOS and Windows).
 
-For configuration, environment variable filtering, mount layout, and troubleshooting, see [docs/TOOL_SANDBOXING.md](docs/TOOL_SANDBOXING.md).
+For configuration, environment variable filtering, mount layout, and troubleshooting, see [docs/tool-sandboxing.md](docs/tool-sandboxing.md).
 
 ## Context management
 
@@ -223,7 +223,7 @@ Local LLMs have limited context windows — often measured in tens of thousands 
 
 **Per-source byte budgets** cap each context source (preamble, agent summaries, skills, tool results, conversation history) so no single category can crowd out the others. **Compaction** kicks in when estimated prompt tokens reach 70% of the context window: older turns are summarised by the model into a compact durable prefix, then dropped from the live history.
 
-See [docs/CONTEXT_MANAGEMENT.md](docs/CONTEXT_MANAGEMENT.md) for the full reference.
+See [docs/context-management.md](docs/context-management.md) for the full reference.
 
 ## Sub-agent delegation
 
@@ -238,7 +238,7 @@ Delegation is steiner's primary context management strategy. `steiner` exposes s
 | `verify` | Run tests, linters, builds, or other checks and report pass or fail | No |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message | No |
 
-See [docs/SUBAGENT_DELEGATION.md](docs/SUBAGENT_DELEGATION.md) for full documentation, including per-agent tool allowlists and safety restrictions.
+See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
 
 ## Optional features
 
@@ -269,7 +269,7 @@ advisor:
 
 `model` must reference a key in `models` when the feature is enabled. `max_tokens` is optional.
 
-See [docs/ADVISOR_SUBAGENT.md](docs/ADVISOR_SUBAGENT.md) for the full behavior and implementation reference.
+See [docs/advisor.md](docs/advisor.md) for the full behavior and implementation reference.
 
 ### Cache hit rate tracking
 
@@ -283,7 +283,7 @@ Steiner records prompt-cache token usage on every model response and surfaces a 
 - A live sidebar **cache** section showing the current session hit rate (e.g., `78.2%` or `—` before the first cache-capable call).
 - A `/cache-stats` slash command overlay showing one table per window (Provider, Model, Hit rate, Cached / Total), scrollable and read-only.
 
-See [docs/CACHE_STATS.md](docs/CACHE_STATS.md) for the full metric definition, storage format, concurrency model, and privacy notes.
+See [docs/cache-stats.md](docs/cache-stats.md) for the full metric definition, storage format, concurrency model, and privacy notes.
 
 ### Oneshot mode
 
@@ -322,7 +322,7 @@ footer shows a `phase · <name>` segment, the sidebar shows an `Oneshot —
 <phase>` section, the phase agent's streaming and tool calls appear live in
 the transcript, and any input other than `/exit`, `/thinking`, or `/accent`
 is sent to the run as a steering message (re-typing `/oneshot …` will not
-launch a second run). See [docs/ONESHOT.md](docs/ONESHOT.md) for the full
+launch a second run). See [docs/oneshot.md](docs/oneshot.md) for the full
 architecture, interactive behaviour, resumption logic, and run manifest
 structure.
 
@@ -361,7 +361,7 @@ desktop_notifications:
   duration: 0  # 0 = permanent (sticky); positive integer = auto-dismiss after N seconds
 ```
 
-See [docs/DESKTOP_NOTIFICATIONS.md](docs/DESKTOP_NOTIFICATIONS.md) for platform support, graceful degradation, and driver extension points.
+See [docs/desktop-notifications.md](docs/desktop-notifications.md) for platform support, graceful degradation, and driver extension points.
 
 ### Web search
 

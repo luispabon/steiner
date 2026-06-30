@@ -341,7 +341,7 @@ limits:
 
 Controls delegated child-agent execution. For details on what sub-agents can
 do and tool allowlists for each specialised agent type, see
-[docs/SUBAGENT_DELEGATION.md](SUBAGENT_DELEGATION.md).
+[docs/sub-agent-delegation.md](sub-agent-delegation.md).
 
 | Field          | Type                       | Default                                  | Description |
 |----------------|----------------------------|------------------------------------------|-------------|
