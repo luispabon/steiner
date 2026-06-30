@@ -285,17 +285,19 @@ func TestManualCompactionUsesDiscoveryResolvedLimits(t *testing.T) {
 
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			DefaultModel: "test",
 			Providers: map[string]config.ProviderConfig{
 				"openrouter": {
 					Type:    config.ProviderTypeOpenRouter,
 					BaseURL: srv.URL,
 				},
 			},
-			Models: map[string]config.ModelConfig{
-				"test": {
-					Provider: "openrouter",
-					ID:       "openrouter/test-model",
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {
+						Provider: "openrouter",
+						ID:       "openrouter/test-model",
+					},
 				},
 			},
 		},
@@ -385,17 +387,19 @@ func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.
 	prov := &compactionTestProvider{}
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			DefaultModel: "test",
 			Providers: map[string]config.ProviderConfig{
 				"openrouter": {
 					Type:    config.ProviderTypeOpenRouter,
 					BaseURL: srv.URL,
 				},
 			},
-			Models: map[string]config.ModelConfig{
-				"test": {
-					Provider: "openrouter",
-					ID:       modelID,
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {
+						Provider: "openrouter",
+						ID:       modelID,
+					},
 				},
 			},
 		},

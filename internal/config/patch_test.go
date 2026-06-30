@@ -290,148 +290,106 @@ func TestApplyModelPatch(t *testing.T) {
 	}
 }
 
-func TestApplyWorkflowHandoffPatch(t *testing.T) {
+func TestApplyModelsPatch(t *testing.T) {
 	tests := []struct {
 		name    string
-		initial workflowHandoffConfig
-		patch   workflowHandoffPatch
-		want    workflowHandoffConfig
+		initial Config
+		patch   modelsPatch
+		want    ModelsConfig
 	}{
 		{
-			name:    "sets workflow aliases",
-			initial: workflowHandoffConfig{},
-			patch: workflowHandoffPatch{
-				Models: stringMapPtr(map[string]string{
+			name:    "sets default and definitions",
+			initial: Config{},
+			patch: modelsPatch{
+				Default: stringPtr("default"),
+				Definitions: &map[string]modelPatch{
+					"default": {Provider: stringPtr("local"), ID: stringPtr("model-id")},
+				},
+			},
+			want: ModelsConfig{
+				Default: "default",
+				Definitions: map[string]ModelConfig{
+					"default": {Provider: "local", ID: "model-id"},
+				},
+			},
+		},
+		{
+			name:    "sets advisor, sub_agents, oneshot, workflow_handoff aliases",
+			initial: Config{},
+			patch: modelsPatch{
+				Advisor:   stringPtr("careful-model"),
+				SubAgents: stringMapPtr(map[string]string{"code": "fast-model"}),
+				OneShot: stringMapPtr(map[string]string{
+					"plan":      "planner-model",
+					"implement": "implement-model",
+					"review":    "review-model",
+				}),
+				WorkflowHandoff: stringMapPtr(map[string]string{
 					"implement": "fast-model",
 					"review":    "careful-model",
 				}),
 			},
-			want: workflowHandoffConfig{
-				Models: map[string]string{
+			want: ModelsConfig{
+				Advisor:   "careful-model",
+				SubAgents: map[string]string{"code": "fast-model"},
+				OneShot: map[string]string{
+					"plan":      "planner-model",
+					"implement": "implement-model",
+					"review":    "review-model",
+				},
+				WorkflowHandoff: map[string]string{
 					"implement": "fast-model",
 					"review":    "careful-model",
 				},
 			},
 		},
 		{
-			name: "partial override preserves existing entries",
-			initial: workflowHandoffConfig{
-				Models: map[string]string{
-					"implement": "existing-implement",
-					"review":    "existing-review",
+			name: "partial override preserves existing map entries",
+			initial: Config{
+				Models: ModelsConfig{
+					SubAgents: map[string]string{"code": "existing-code", "plan": "existing-plan"},
+					OneShot:   map[string]string{"plan": "existing-plan"},
+					WorkflowHandoff: map[string]string{
+						"implement": "existing-implement",
+						"review":    "existing-review",
+					},
 				},
 			},
-			patch: workflowHandoffPatch{
-				Models: stringMapPtr(map[string]string{
-					"review": "new-review",
-				}),
+			patch: modelsPatch{
+				SubAgents:       stringMapPtr(map[string]string{"code": "new-code"}),
+				OneShot:         stringMapPtr(map[string]string{"review": "new-review"}),
+				WorkflowHandoff: stringMapPtr(map[string]string{"review": "new-review"}),
 			},
-			want: workflowHandoffConfig{
-				Models: map[string]string{
+			want: ModelsConfig{
+				SubAgents: map[string]string{"code": "new-code", "plan": "existing-plan"},
+				OneShot:   map[string]string{"plan": "existing-plan", "review": "new-review"},
+				WorkflowHandoff: map[string]string{
 					"implement": "existing-implement",
 					"review":    "new-review",
 				},
 			},
 		},
 		{
-			name: "nil models leaves value untouched",
-			initial: workflowHandoffConfig{
-				Models: map[string]string{
-					"implement": "existing",
+			name: "nil fields leave values untouched",
+			initial: Config{
+				Models: ModelsConfig{
+					Default: "existing",
+					Advisor: "existing-advisor",
 				},
 			},
-			patch: workflowHandoffPatch{},
-			want: workflowHandoffConfig{
-				Models: map[string]string{
-					"implement": "existing",
-				},
+			patch: modelsPatch{},
+			want: ModelsConfig{
+				Default: "existing",
+				Advisor: "existing-advisor",
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dst := tt.initial
-			applyWorkflowHandoffPatch(&dst, &tt.patch)
-			if !reflect.DeepEqual(dst, tt.want) {
-				t.Fatalf("applyWorkflowHandoffPatch() = %#v, want %#v", dst, tt.want)
-			}
-		})
-	}
-}
-
-func TestApplyOneShotPatch(t *testing.T) {
-	tests := []struct {
-		name    string
-		initial oneshotConfig
-		patch   oneshotPatch
-		want    oneshotConfig
-	}{
-		{
-			name:    "sets models and auto_pr",
-			initial: oneshotConfig{},
-			patch: oneshotPatch{
-				Models: stringMapPtr(map[string]string{
-					"plan":      "planner-model",
-					"implement": "implement-model",
-					"review":    "review-model",
-				}),
-				AutoPR: boolPtr(true),
-			},
-			want: oneshotConfig{
-				Models: map[string]string{
-					"plan":      "planner-model",
-					"implement": "implement-model",
-					"review":    "review-model",
-				},
-				AutoPR: true,
-			},
-		},
-		{
-			name: "partial override preserves existing entries",
-			initial: oneshotConfig{
-				Models: map[string]string{
-					"plan":      "existing-plan",
-					"implement": "existing-implement",
-				},
-				AutoPR: true,
-			},
-			patch: oneshotPatch{
-				Models: stringMapPtr(map[string]string{
-					"review": "new-review",
-				}),
-			},
-			want: oneshotConfig{
-				Models: map[string]string{
-					"plan":      "existing-plan",
-					"implement": "existing-implement",
-					"review":    "new-review",
-				},
-				AutoPR: true,
-			},
-		},
-		{
-			name: "nil fields leave value untouched",
-			initial: oneshotConfig{
-				Models: map[string]string{
-					"plan": "existing",
-				},
-				AutoPR: false,
-			},
-			patch: oneshotPatch{},
-			want: oneshotConfig{
-				Models: map[string]string{
-					"plan": "existing",
-				},
-				AutoPR: false,
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dst := tt.initial
-			applyOneShotPatch(&dst, &tt.patch)
-			if !reflect.DeepEqual(dst, tt.want) {
-				t.Fatalf("applyOneShotPatch() = %#v, want %#v", dst, tt.want)
+			cfg := tt.initial
+			applyModelsPatch(&cfg, &tt.patch)
+			if !reflect.DeepEqual(cfg.Models, tt.want) {
+				t.Fatalf("applyModelsPatch() = %#v, want %#v", cfg.Models, tt.want)
 			}
 		})
 	}
@@ -468,10 +426,6 @@ func pointerProviderType(pt ProviderType) *ProviderType {
 	return &pt
 }
 
-func agentConfigPatchMapPtr(v map[string]agentConfigPatch) *map[string]agentConfigPatch {
-	return &v
-}
-
 func TestApplySubAgentPatch(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -502,70 +456,6 @@ func TestApplySubAgentPatch(t *testing.T) {
 			initial: SubAgentConfig{AllowedTools: []string{"read"}},
 			patch:   subAgentPatch{AllowedTools: &[]string{"read", "bash"}},
 			want:    SubAgentConfig{AllowedTools: []string{"read", "bash"}},
-		},
-		{
-			name:    "adds new agent entry",
-			initial: SubAgentConfig{},
-			patch: subAgentPatch{
-				Agents: agentConfigPatchMapPtr(map[string]agentConfigPatch{
-					"code": {Model: stringPtr("fast-model")},
-				}),
-			},
-			want: SubAgentConfig{
-				Agents: map[string]AgentConfig{
-					"code": {Model: "fast-model"},
-				},
-			},
-		},
-		{
-			name: "updates existing agent model",
-			initial: SubAgentConfig{
-				Agents: map[string]AgentConfig{
-					"explore": {Model: "old-model"},
-				},
-			},
-			patch: subAgentPatch{
-				Agents: agentConfigPatchMapPtr(map[string]agentConfigPatch{
-					"explore": {Model: stringPtr("new-model")},
-				}),
-			},
-			want: SubAgentConfig{
-				Agents: map[string]AgentConfig{
-					"explore": {Model: "new-model"},
-				},
-			},
-		},
-		{
-			name: "nil model in agent patch leaves model untouched",
-			initial: SubAgentConfig{
-				Agents: map[string]AgentConfig{
-					"plan": {Model: "existing-model"},
-				},
-			},
-			patch: subAgentPatch{
-				Agents: agentConfigPatchMapPtr(map[string]agentConfigPatch{
-					"plan": {},
-				}),
-			},
-			want: SubAgentConfig{
-				Agents: map[string]AgentConfig{
-					"plan": {Model: "existing-model"},
-				},
-			},
-		},
-		{
-			name: "nil agents patch leaves agents untouched",
-			initial: SubAgentConfig{
-				Agents: map[string]AgentConfig{
-					"verify": {Model: "verify-model"},
-				},
-			},
-			patch: subAgentPatch{},
-			want: SubAgentConfig{
-				Agents: map[string]AgentConfig{
-					"verify": {Model: "verify-model"},
-				},
-			},
 		},
 	}
 	for _, tt := range tests {

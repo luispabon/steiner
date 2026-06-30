@@ -8,29 +8,30 @@ import (
 
 func TestParseConfigPatchPreservesParamsAndExtraParams(t *testing.T) {
 	patch, err := parseConfigPatch("test.yaml", `models:
-  default:
-    provider: local
-    id: qwen3
-    params:
-      temperature: 0.4
-      top_p: 0.95
-    extra_params:
-      reasoning:
-        enabled: false
-      metadata:
-        tier: offline
-    prompt_suffix: <|think_off|>
+  definitions:
+    default:
+      provider: local
+      id: qwen3
+      params:
+        temperature: 0.4
+        top_p: 0.95
+      extra_params:
+        reasoning:
+          enabled: false
+        metadata:
+          tier: offline
+      prompt_suffix: <|think_off|>
 `)
 	if err != nil {
 		t.Fatalf("parseConfigPatch() error = %v", err)
 	}
-	if patch.Models == nil {
-		t.Fatal("patch.Models = nil, want parsed model patch")
+	if patch.Models == nil || patch.Models.Definitions == nil {
+		t.Fatal("patch.Models.Definitions = nil, want parsed model patch")
 	}
 
-	model, ok := (*patch.Models)["default"]
+	model, ok := (*patch.Models.Definitions)["default"]
 	if !ok {
-		t.Fatal("patch.Models[default] missing")
+		t.Fatal("patch.Models.Definitions[default] missing")
 	}
 	if model.Params == nil {
 		t.Fatal("model.Params = nil, want parsed params")
@@ -76,16 +77,15 @@ func TestParseConfigPatchPreservesParamsAndExtraParams(t *testing.T) {
 	}
 }
 
-func TestParseConfigPatchSubAgentAgents(t *testing.T) {
+func TestParseConfigPatchModelsSubAgents(t *testing.T) {
 	patch, err := parseConfigPatch("test.yaml", `sub_agent:
   enabled: true
   max_turns: 10
   max_tokens: 50000
-  agents:
-    code:
-      model: fast-model
-    explore:
-      model: thorough-model
+models:
+  sub_agents:
+    code: fast-model
+    explore: thorough-model
 `)
 	if err != nil {
 		t.Fatalf("parseConfigPatch() error = %v", err)
@@ -93,32 +93,18 @@ func TestParseConfigPatchSubAgentAgents(t *testing.T) {
 	if patch.SubAgent == nil {
 		t.Fatal("patch.SubAgent = nil, want parsed sub_agent patch")
 	}
-	if patch.SubAgent.Agents == nil {
-		t.Fatal("patch.SubAgent.Agents = nil, want parsed agents map")
+	if patch.Models == nil || patch.Models.SubAgents == nil {
+		t.Fatal("patch.Models.SubAgents = nil, want parsed sub_agents map")
 	}
-	agents := *patch.SubAgent.Agents
+	agents := *patch.Models.SubAgents
 	if got, want := len(agents), 2; got != want {
 		t.Fatalf("len(agents) = %d, want %d", got, want)
 	}
-	codeAgent, ok := agents["code"]
-	if !ok {
-		t.Fatal("agents[code] missing")
+	if got, want := agents["code"], "fast-model"; got != want {
+		t.Fatalf("sub_agents[code] = %q, want %q", got, want)
 	}
-	if codeAgent.Model == nil {
-		t.Fatal("agents[code].model = nil, want parsed model")
-	}
-	if got, want := *codeAgent.Model, "fast-model"; got != want {
-		t.Fatalf("agents[code].model = %q, want %q", got, want)
-	}
-	exploreAgent, ok := agents["explore"]
-	if !ok {
-		t.Fatal("agents[explore] missing")
-	}
-	if exploreAgent.Model == nil {
-		t.Fatal("agents[explore].model = nil, want parsed model")
-	}
-	if got, want := *exploreAgent.Model, "thorough-model"; got != want {
-		t.Fatalf("agents[explore].model = %q, want %q", got, want)
+	if got, want := agents["explore"], "thorough-model"; got != want {
+		t.Fatalf("sub_agents[explore] = %q, want %q", got, want)
 	}
 }
 
@@ -129,29 +115,20 @@ func TestSubAgentConfigYAMLParsing(t *testing.T) {
 		want SubAgentConfig
 	}{
 		{
-			name: "parses agents map",
+			name: "parses scalar fields",
 			yaml: `sub_agent:
   enabled: true
   max_turns: 5
   max_tokens: 10000
-  agents:
-    code:
-      model: code-model
-    verify:
-      model: verify-model
 `,
 			want: SubAgentConfig{
 				Enabled:   true,
 				MaxTurns:  5,
 				MaxTokens: 10000,
-				Agents: map[string]AgentConfig{
-					"code":   {Model: "code-model"},
-					"verify": {Model: "verify-model"},
-				},
 			},
 		},
 		{
-			name: "empty agents map",
+			name: "disabled",
 			yaml: `sub_agent:
   enabled: false
   max_turns: 3
@@ -199,10 +176,11 @@ func TestParseConfigPatchRejectsUnknownFields(t *testing.T) {
 		{
 			name: "nested_unknown",
 			yaml: `models:
-  default:
-    provider: local
-    id: qwen3
-    unexpected_field: value
+  definitions:
+    default:
+      provider: local
+      id: qwen3
+      unexpected_field: value
 `,
 			wantErr: "field unexpected_field not found",
 		},

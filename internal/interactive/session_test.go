@@ -391,9 +391,11 @@ func TestSessionHandleNoop(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			DefaultModel: "gpt-4",
-			Models: map[string]config.ModelConfig{
-				"gpt-4": {ID: "gpt-4"},
+			Models: config.ModelsConfig{
+				Default: "gpt-4",
+				Definitions: map[string]config.ModelConfig{
+					"gpt-4": {ID: "gpt-4"},
+				},
 			},
 		},
 	})
@@ -431,8 +433,10 @@ func TestRotateSession(t *testing.T) {
 		s := testNewSession(t, Dependencies{
 			SessionStore: newMockSessionStore(),
 			Config: config.Config{
-				DefaultModel: "test",
-				Models:       map[string]config.ModelConfig{"test": {ID: "test-model"}},
+				Models: config.ModelsConfig{
+					Default:     "test",
+					Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
+				},
 			},
 		})
 		oldID := s.SessionID()
@@ -455,8 +459,10 @@ func TestRotateSession(t *testing.T) {
 		s := testNewSession(t, Dependencies{
 			SessionStore: mockStore,
 			Config: config.Config{
-				DefaultModel: "test",
-				Models:       map[string]config.ModelConfig{"test": {ID: "test-model"}},
+				Models: config.ModelsConfig{
+					Default:     "test",
+					Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
+				},
 			},
 		})
 		oldID := s.SessionID()
@@ -615,9 +621,11 @@ func TestSubmitPromptSavesSessionOnWorkflowHandoff(t *testing.T) {
 		}),
 		SessionStore: mockStore,
 		Config: config.Config{
-			DefaultModel: "test",
-			Models: map[string]config.ModelConfig{
-				"test": {ID: "test-model"},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
 			},
 		},
 	})
@@ -979,14 +987,16 @@ func TestSwitchModelSuccess(t *testing.T) {
 			events = append(events, event)
 		}),
 		Config: config.Config{
-			DefaultModel: "current",
 			Providers: map[string]config.ProviderConfig{
 				"old": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://old.example/v1"},
 				"new": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://new.example/v1"},
 			},
-			Models: map[string]config.ModelConfig{
-				"current": {Provider: "old", ID: "old-model"},
-				"fast":    {Provider: "new", ID: "new-model"},
+			Models: config.ModelsConfig{
+				Default: "current",
+				Definitions: map[string]config.ModelConfig{
+					"current": {Provider: "old", ID: "old-model"},
+					"fast":    {Provider: "new", ID: "new-model"},
+				},
 			},
 		},
 	})
@@ -996,7 +1006,7 @@ func TestSwitchModelSuccess(t *testing.T) {
 		t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
 	}
 
-	if got, want := s.deps.Config.DefaultModel, "fast"; got != want {
+	if got, want := s.deps.Config.Models.Default, "fast"; got != want {
 		t.Fatalf("config default_model = %q, want %q", got, want)
 	}
 
@@ -1017,8 +1027,10 @@ func TestSwitchModelFailure(t *testing.T) {
 			events = append(events, event)
 		}),
 		Config: config.Config{
-			DefaultModel: "current",
-			Models:       map[string]config.ModelConfig{"current": {ID: "current-id"}},
+			Models: config.ModelsConfig{
+				Default:     "current",
+				Definitions: map[string]config.ModelConfig{"current": {ID: "current-id"}},
+			},
 		},
 	})
 
@@ -1040,7 +1052,7 @@ func TestSwitchModelFailure(t *testing.T) {
 		t.Fatalf("events = %#v, want ContextReportEvent with error", events)
 	}
 
-	if got, want := s.deps.Config.DefaultModel, "current"; got != want {
+	if got, want := s.deps.Config.Models.Default, "current"; got != want {
 		t.Fatalf("config default_model after failed switch = %q, want %q", got, want)
 	}
 }
@@ -1049,9 +1061,11 @@ func TestCurrentModelConfig(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			DefaultModel: "mymodel",
-			Providers:    map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://example/v1"}},
-			Models:       map[string]config.ModelConfig{"mymodel": {Provider: "local", ID: "test-model"}},
+			Models: config.ModelsConfig{
+				Default:     "mymodel",
+				Definitions: map[string]config.ModelConfig{"mymodel": {Provider: "local", ID: "test-model"}},
+			},
+			Providers: map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://example/v1"}},
 		},
 	})
 	got := s.CurrentModelConfig()
@@ -1064,10 +1078,12 @@ func TestCurrentModelAliasTracksSwitchModel(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			DefaultModel: "current",
-			Models: map[string]config.ModelConfig{
-				"current": {Provider: "local", ID: "current-id"},
-				"fast":    {Provider: "local", ID: "fast-id"},
+			Models: config.ModelsConfig{
+				Default: "current",
+				Definitions: map[string]config.ModelConfig{
+					"current": {Provider: "local", ID: "current-id"},
+					"fast":    {Provider: "local", ID: "fast-id"},
+				},
 			},
 		},
 	})
@@ -1087,15 +1103,17 @@ func TestWorkflowHandoffModelSelectionUsesDestinationDefault(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			DefaultModel: "current",
-			Models: map[string]config.ModelConfig{
-				"current":           {Provider: "local", ID: "current-id"},
-				"implement-default": {Provider: "local", ID: "implement-id"},
-				"review-default":    {Provider: "local", ID: "review-id"},
+			Models: config.ModelsConfig{
+				Default: "current",
+				Definitions: map[string]config.ModelConfig{
+					"current":           {Provider: "local", ID: "current-id"},
+					"implement-default": {Provider: "local", ID: "implement-id"},
+					"review-default":    {Provider: "local", ID: "review-id"},
+				},
 			},
 		},
 	})
-	s.deps.Config.WorkflowHandoff.Models = map[string]string{
+	s.deps.Config.Models.WorkflowHandoff = map[string]string{
 		"implement": "implement-default",
 		"review":    "review-default",
 	}
@@ -1121,9 +1139,11 @@ func TestWorkflowHandoffModelSelectionFallsBackToCurrentSession(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
-			DefaultModel: "current",
-			Models: map[string]config.ModelConfig{
-				"current": {Provider: "local", ID: "current-id"},
+			Models: config.ModelsConfig{
+				Default: "current",
+				Definitions: map[string]config.ModelConfig{
+					"current": {Provider: "local", ID: "current-id"},
+				},
 			},
 		},
 	})
@@ -1242,9 +1262,11 @@ func TestSaveSessionPersistsCurrentMetadata(t *testing.T) {
 	s := testNewSession(t, Dependencies{
 		SessionStore: mockStore,
 		Config: config.Config{
-			DefaultModel: "test",
-			Models: map[string]config.ModelConfig{
-				"test": {ID: "test-model"},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
 			},
 		},
 	})
@@ -1425,9 +1447,11 @@ func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
 		}),
 		SessionStore: mockStore,
 		Config: config.Config{
-			DefaultModel: "test",
-			Models: map[string]config.ModelConfig{
-				"test": {ID: "test-model"},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
 			},
 		},
 	})
@@ -1537,9 +1561,11 @@ func TestLoadSessionSkipsOrphanedToolCallWithNoResult(t *testing.T) {
 		}),
 		SessionStore: mockStore,
 		Config: config.Config{
-			DefaultModel: "test",
-			Models: map[string]config.ModelConfig{
-				"test": {ID: "test-model"},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
 			},
 		},
 	})
@@ -1607,9 +1633,11 @@ func TestForkSession(t *testing.T) {
 			}),
 			SessionStore: mockStore,
 			Config: config.Config{
-				DefaultModel: "test",
-				Models: map[string]config.ModelConfig{
-					"test": {ID: "test-model"},
+				Models: config.ModelsConfig{
+					Default: "test",
+					Definitions: map[string]config.ModelConfig{
+						"test": {ID: "test-model"},
+					},
 				},
 			},
 		})
@@ -1716,9 +1744,11 @@ func TestForkSavedSession(t *testing.T) {
 			}),
 			SessionStore: mockStore,
 			Config: config.Config{
-				DefaultModel: "test",
-				Models: map[string]config.ModelConfig{
-					"test": {ID: "test-model"},
+				Models: config.ModelsConfig{
+					Default: "test",
+					Definitions: map[string]config.ModelConfig{
+						"test": {ID: "test-model"},
+					},
 				},
 			},
 		})
@@ -1782,9 +1812,11 @@ func TestForkSavedSession(t *testing.T) {
 			}),
 			SessionStore: mockStore,
 			Config: config.Config{
-				DefaultModel: "test",
-				Models: map[string]config.ModelConfig{
-					"test": {ID: "test-model"},
+				Models: config.ModelsConfig{
+					Default: "test",
+					Definitions: map[string]config.ModelConfig{
+						"test": {ID: "test-model"},
+					},
 				},
 			},
 		})
@@ -1880,9 +1912,11 @@ func TestLoadSessionRestoresDelegationBoxes(t *testing.T) {
 		}),
 		SessionStore: mockStore,
 		Config: config.Config{
-			DefaultModel: "test",
-			Models: map[string]config.ModelConfig{
-				"test": {ID: "test-model"},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
 			},
 		},
 	})
@@ -2023,9 +2057,11 @@ func TestLoadSessionRestoresDelegationBoxesWithoutRetention(t *testing.T) {
 		}),
 		SessionStore: mockStore,
 		Config: config.Config{
-			DefaultModel: "test",
-			Models: map[string]config.ModelConfig{
-				"test": {ID: "test-model"},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
 			},
 		},
 	})
@@ -2138,9 +2174,11 @@ func TestLoadSessionMixesDelegateAndRegularToolCalls(t *testing.T) {
 		}),
 		SessionStore: mockStore,
 		Config: config.Config{
-			DefaultModel: "test",
-			Models: map[string]config.ModelConfig{
-				"test": {ID: "test-model"},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
 			},
 		},
 	})
@@ -2293,9 +2331,11 @@ func TestLoadSessionRestoresDelegationBoxesFromStructuredResult(t *testing.T) {
 		}),
 		SessionStore: mockStore,
 		Config: config.Config{
-			DefaultModel: "test",
-			Models: map[string]config.ModelConfig{
-				"test": {ID: "test-model"},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
 			},
 		},
 	})
@@ -2409,9 +2449,11 @@ func TestLoadSessionRestoresFailedDelegationBoxesFromStructuredResult(t *testing
 		}),
 		SessionStore: mockStore,
 		Config: config.Config{
-			DefaultModel: "test",
-			Models: map[string]config.ModelConfig{
-				"test": {ID: "test-model"},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
 			},
 		},
 	})
@@ -2484,9 +2526,11 @@ func TestLoadSessionRestoresDelegationBoxesWithMalformedStructuredResultFallback
 		}),
 		SessionStore: mockStore,
 		Config: config.Config{
-			DefaultModel: "test",
-			Models: map[string]config.ModelConfig{
-				"test": {ID: "test-model"},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {ID: "test-model"},
+				},
 			},
 		},
 	})

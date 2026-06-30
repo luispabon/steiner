@@ -29,8 +29,8 @@ func TestDefaultConfigRetryDefaults(t *testing.T) {
 		MaxBackoff:     MustDuration("5s"),
 		RetryAfterMax:  MustDuration("60s"),
 	}
-	if !reflect.DeepEqual(cfg.Models["default"].Retry, want) {
-		t.Fatalf("models[default].retry = %#v, want %#v", cfg.Models["default"].Retry, want)
+	if !reflect.DeepEqual(cfg.Models.Definitions["default"].Retry, want) {
+		t.Fatalf("models[default].retry = %#v, want %#v", cfg.Models.Definitions["default"].Retry, want)
 	}
 }
 
@@ -50,8 +50,8 @@ func TestDefaultConfigReadAnnotationsDefaultsToTrue(t *testing.T) {
 
 func TestDefaultConfigWorkflowHandoffDefaultsToEmpty(t *testing.T) {
 	cfg := defaultConfig()
-	if len(cfg.WorkflowHandoff.Models) != 0 {
-		t.Fatalf("workflow_handoff.models = %#v, want empty", cfg.WorkflowHandoff.Models)
+	if len(cfg.Models.WorkflowHandoff) != 0 {
+		t.Fatalf("workflow_handoff.models = %#v, want empty", cfg.Models.WorkflowHandoff)
 	}
 }
 
@@ -67,8 +67,8 @@ func TestDefaultConfigDesktopNotificationsDefaultsToFalseAndZero(t *testing.T) {
 
 func TestDefaultConfigOneShotDefaultsToEmpty(t *testing.T) {
 	cfg := defaultConfig()
-	if len(cfg.OneShot.Models) != 0 {
-		t.Fatalf("oneshot.models = %#v, want empty", cfg.OneShot.Models)
+	if len(cfg.Models.OneShot) != 0 {
+		t.Fatalf("oneshot.models = %#v, want empty", cfg.Models.OneShot)
 	}
 	if cfg.OneShot.AutoPR {
 		t.Fatal("oneshot.auto_pr = true, want false")
@@ -80,8 +80,8 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 	if cfg.Advisor.Enabled {
 		t.Fatal("advisor.enabled = true, want false")
 	}
-	if cfg.Advisor.Model != "" {
-		t.Fatalf("advisor.model = %q, want empty", cfg.Advisor.Model)
+	if cfg.Models.Advisor != "" {
+		t.Fatalf("advisor.model = %q, want empty", cfg.Models.Advisor)
 	}
 	if cfg.Advisor.MaxUsesPerRun != 3 {
 		t.Fatalf("advisor.max_uses_per_run = %d, want 3", cfg.Advisor.MaxUsesPerRun)
@@ -94,9 +94,10 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 func TestAdvisorConfigPatchAndYAMLParsing(t *testing.T) {
 	patch, err := parseConfigPatch("test.yaml", `advisor:
   enabled: true
-  model: advisor-model
   max_uses_per_run: 2
   max_tokens: 512
+models:
+  advisor: advisor-model
 `)
 	if err != nil {
 		t.Fatalf("parseConfigPatch() error = %v", err)
@@ -110,22 +111,29 @@ func TestAdvisorConfigPatchAndYAMLParsing(t *testing.T) {
 
 	want := AdvisorConfig{
 		Enabled:       true,
-		Model:         "advisor-model",
 		MaxUsesPerRun: 2,
 		MaxTokens:     intPtr(512),
 	}
 	if !reflect.DeepEqual(dst, want) {
 		t.Fatalf("applyAdvisorPatch() = %#v, want %#v", dst, want)
 	}
+
+	if patch.Models == nil || patch.Models.Advisor == nil {
+		t.Fatal("patch.Models.Advisor = nil, want parsed models.advisor")
+	}
+	if got, want := *patch.Models.Advisor, "advisor-model"; got != want {
+		t.Fatalf("patch.Models.Advisor = %q, want %q", got, want)
+	}
 }
 
 func TestOneShotConfigPatchAndYAMLParsing(t *testing.T) {
 	patch, err := parseConfigPatch("test.yaml", `oneshot:
-  models:
+  auto_pr: true
+models:
+  oneshot:
     plan: planner-model
     implement: implement-model
     review: review-model
-  auto_pr: true
 `)
 	if err != nil {
 		t.Fatalf("parseConfigPatch() error = %v", err)
@@ -138,15 +146,22 @@ func TestOneShotConfigPatchAndYAMLParsing(t *testing.T) {
 	applyOneShotPatch(&dst, patch.OneShot)
 
 	want := oneshotConfig{
-		Models: map[string]string{
-			"plan":      "planner-model",
-			"implement": "implement-model",
-			"review":    "review-model",
-		},
 		AutoPR: true,
 	}
 	if !reflect.DeepEqual(dst, want) {
 		t.Fatalf("applyOneShotPatch() = %#v, want %#v", dst, want)
+	}
+
+	if patch.Models == nil || patch.Models.OneShot == nil {
+		t.Fatal("patch.Models.OneShot = nil, want parsed models.oneshot")
+	}
+	wantModels := map[string]string{
+		"plan":      "planner-model",
+		"implement": "implement-model",
+		"review":    "review-model",
+	}
+	if !reflect.DeepEqual(*patch.Models.OneShot, wantModels) {
+		t.Fatalf("patch.Models.OneShot = %#v, want %#v", *patch.Models.OneShot, wantModels)
 	}
 }
 
@@ -162,13 +177,11 @@ func TestApplyAdvisorPatch(t *testing.T) {
 			initial: AdvisorConfig{},
 			patch: advisorPatch{
 				Enabled:       boolPtr(true),
-				Model:         stringPtr("advisor"),
 				MaxUsesPerRun: intPtr(3),
 				MaxTokens:     intPtr(256),
 			},
 			want: AdvisorConfig{
 				Enabled:       true,
-				Model:         "advisor",
 				MaxUsesPerRun: 3,
 				MaxTokens:     intPtr(256),
 			},
@@ -177,14 +190,12 @@ func TestApplyAdvisorPatch(t *testing.T) {
 			name: "nil fields leave values untouched",
 			initial: AdvisorConfig{
 				Enabled:       true,
-				Model:         "existing",
 				MaxUsesPerRun: 1,
 				MaxTokens:     intPtr(128),
 			},
 			patch: advisorPatch{},
 			want: AdvisorConfig{
 				Enabled:       true,
-				Model:         "existing",
 				MaxUsesPerRun: 1,
 				MaxTokens:     intPtr(128),
 			},
@@ -215,60 +226,62 @@ func TestLoadPrecedence(t *testing.T) {
 
 	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
   parallelism: 2
-default_model: global
 providers:
   local:
     type: openai_compat
     base_url: http://global.example/v1
 models:
-  global:
-    provider: local
-    id: global-backend
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-  env:
-    provider: local
-    id: env-backend
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
+  default: global
+  definitions:
+    global:
+      provider: local
+      id: global-backend
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+    env:
+      provider: local
+      id: env-backend
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
 limits:
   max_turns: 25
 paths:
   project_root_only: false
 `)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: project
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://project.example/v1
 models:
-  project:
-    provider: local
-    id: project-backend
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-  cli:
-    provider: local
-    id: cli-backend
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
+  default: project
+  definitions:
+    project:
+      provider: local
+      id: project-backend
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+    cli:
+      provider: local
+      id: cli-backend
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
 limits:
   max_turns: 10
 logging:
@@ -303,10 +316,10 @@ logging:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got := cfg.DefaultModel; got != "cli" {
+	if got := cfg.Models.Default; got != "cli" {
 		t.Fatalf("default_model = %q, want %q", got, "cli")
 	}
-	if got := cfg.Models["cli"].ID; got != "cli-backend" {
+	if got := cfg.Models.Definitions["cli"].ID; got != "cli-backend" {
 		t.Fatalf("models[cli].id = %q, want %q", got, "cli-backend")
 	}
 	if got := cfg.Scheduler.Parallelism; got != 4 {
@@ -321,10 +334,10 @@ logging:
 	if got := cfg.Paths.ProjectRootOnly; got {
 		t.Fatalf("paths.project_root_only = %v, want false", got)
 	}
-	if got := cfg.Models["global"].ID; got != "global-backend" {
+	if got := cfg.Models.Definitions["global"].ID; got != "global-backend" {
 		t.Fatalf("models[global].id = %q, want global config", got)
 	}
-	if got := cfg.Models["env"].ID; got != "env-backend" {
+	if got := cfg.Models.Definitions["env"].ID; got != "env-backend" {
 		t.Fatalf("models[env].id = %q, want env config", got)
 	}
 }
@@ -335,30 +348,31 @@ func TestLoadAppliesRetryConfigFromModelBlocks(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: qwen3-35b-a3b
-    retry:
-      enabled: false
-      max_attempts: 5
-      initial_backoff: 500ms
-      max_backoff: 4s
-      retry_after_max: 45s
-  custom:
-    provider: local
-    id: custom-backend
-    retry:
-      enabled: true
-      max_attempts: 9
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: qwen3-35b-a3b
+      retry:
+        enabled: false
+        max_attempts: 5
+        initial_backoff: 500ms
+        max_backoff: 4s
+        retry_after_max: 45s
+    custom:
+      provider: local
+      id: custom-backend
+      retry:
+        enabled: true
+        max_attempts: 9
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
 `)
 
 	cwd, err := os.Getwd()
@@ -380,7 +394,7 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got, want := cfg.Models["default"].Retry, (RetryConfig{
+	if got, want := cfg.Models.Definitions["default"].Retry, (RetryConfig{
 		Enabled:        false,
 		MaxAttempts:    5,
 		InitialBackoff: MustDuration("500ms"),
@@ -389,7 +403,7 @@ models:
 	}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("models[default].retry = %#v, want %#v", got, want)
 	}
-	if got, want := cfg.Models["custom"].Retry, (RetryConfig{
+	if got, want := cfg.Models.Definitions["custom"].Retry, (RetryConfig{
 		Enabled:        true,
 		MaxAttempts:    9,
 		InitialBackoff: MustDuration("250ms"),
@@ -410,48 +424,48 @@ func TestLoadAppliesWorkflowHandoffModelOverrides(t *testing.T) {
 	mustMkdirAll(t, globalDir)
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(globalDir, "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(globalDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: qwen3-35b-a3b
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-  implement:
-    provider: local
-    id: implement-model
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-workflow_handoff:
-  models:
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: qwen3-35b-a3b
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+    implement:
+      provider: local
+      id: implement-model
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+  workflow_handoff:
     implement: implement
 `)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `workflow_handoff:
-  models:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `models:
+  definitions:
+    review:
+      provider: local
+      id: review-model
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+  workflow_handoff:
     review: review
-models:
-  review:
-    provider: local
-    id: review-model
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
 `)
 
 	cwd, err := os.Getwd()
@@ -473,10 +487,10 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got, want := cfg.WorkflowHandoff.Models["implement"], "implement"; got != want {
+	if got, want := cfg.Models.WorkflowHandoff["implement"], "implement"; got != want {
 		t.Fatalf("workflow_handoff.models[implement] = %q, want %q", got, want)
 	}
-	if got, want := cfg.WorkflowHandoff.Models["review"], "review"; got != want {
+	if got, want := cfg.Models.WorkflowHandoff["review"], "review"; got != want {
 		t.Fatalf("workflow_handoff.models[review] = %q, want %q", got, want)
 	}
 }
@@ -487,18 +501,19 @@ func TestLoadNewModelAliasesInheritRetryDefaults(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: qwen3-35b-a3b
-  custom:
-    provider: local
-    id: custom-backend
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: qwen3-35b-a3b
+    custom:
+      provider: local
+      id: custom-backend
 `)
 
 	cwd, err := os.Getwd()
@@ -520,7 +535,7 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got, want := cfg.Models["custom"].Retry, cfg.Models["default"].Retry; !reflect.DeepEqual(got, want) {
+	if got, want := cfg.Models.Definitions["custom"].Retry, cfg.Models.Definitions["default"].Retry; !reflect.DeepEqual(got, want) {
 		t.Fatalf("models[custom].retry = %#v, want %#v", got, want)
 	}
 }
@@ -531,22 +546,23 @@ func TestLoadNewModelAliasesDoNotInheritDefaultTokenLimits(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: custom
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: qwen3-35b-a3b
-    advanced:
-      limits:
-        context_window: 32768
-        max_output_tokens: 8192
-  custom:
-    provider: local
-    id: custom-backend
+  default: custom
+  definitions:
+    default:
+      provider: local
+      id: qwen3-35b-a3b
+      advanced:
+        limits:
+          context_window: 32768
+          max_output_tokens: 8192
+    custom:
+      provider: local
+      id: custom-backend
 `)
 
 	cwd, err := os.Getwd()
@@ -568,7 +584,7 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got := cfg.Models["custom"].Advanced.Limits; got != (AdvancedLimitsConfig{}) {
+	if got := cfg.Models.Definitions["custom"].Advanced.Limits; got != (AdvancedLimitsConfig{}) {
 		t.Fatalf("models[custom].advanced.limits = %#v, want empty for metadata discovery", got)
 	}
 }
@@ -579,17 +595,18 @@ func TestLoadModelAdvancedTransport(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: custom
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  custom:
-    provider: local
-    id: minimax-m3
-    advanced:
-      transport: anthropic
+  default: custom
+  definitions:
+    custom:
+      provider: local
+      id: minimax-m3
+      advanced:
+        transport: anthropic
 `)
 
 	cwd, err := os.Getwd()
@@ -611,7 +628,7 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got, want := cfg.Models["custom"].Advanced.Transport, ModelTransportAnthropic; got != want {
+	if got, want := cfg.Models.Definitions["custom"].Advanced.Transport, ModelTransportAnthropic; got != want {
 		t.Fatalf("models[custom].advanced.transport = %q, want %q", got, want)
 	}
 }
@@ -626,26 +643,28 @@ func TestLoadPrefersExplicitHomeDirOverEnvHome(t *testing.T) {
 	mustMkdirAll(t, filepath.Join(envHomeDir, ".config", "steiner"))
 	mustMkdirAll(t, projectDir)
 
-	writeFile(t, filepath.Join(explicitHomeDir, ".config", "steiner", "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(explicitHomeDir, ".config", "steiner", "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://explicit.example/v1
 models:
-  default:
-    provider: local
-    id: explicit-backend
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: explicit-backend
 `)
 
-	writeFile(t, filepath.Join(envHomeDir, ".config", "steiner", "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(envHomeDir, ".config", "steiner", "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://env.example/v1
 models:
-  default:
-    provider: local
-    id: env-backend
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: env-backend
 `)
 
 	cwd, err := os.Getwd()
@@ -681,15 +700,16 @@ func TestLoadUsesEnvHomeWhenExplicitHomeDirUnset(t *testing.T) {
 
 	mustMkdirAll(t, filepath.Join(envHomeDir, ".config", "steiner"))
 	mustMkdirAll(t, projectDir)
-	writeFile(t, filepath.Join(envHomeDir, ".config", "steiner", "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(envHomeDir, ".config", "steiner", "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://env.example/v1
 models:
-  default:
-    provider: local
-    id: env-backend
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: env-backend
 `)
 
 	cwd, err := os.Getwd()
@@ -768,15 +788,16 @@ func TestLoadExpandsEnvInterpolation(t *testing.T) {
 	homeDir := filepath.Join(tempDir, "home")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: ${STEINER_BASE_URL:-http://localhost:11434/v1}
 models:
-  default:
-    provider: local
-    id: qwen3-35b-a3b
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: qwen3-35b-a3b
 logging:
   file: ~/.local/share/steiner/${STEINER_LOG_FILE:-steiner.log}
 `)
@@ -817,15 +838,16 @@ func TestLoadExpandsUnbracedEnvInterpolation(t *testing.T) {
 
 	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `logging:
   file: "$HOME/steiner.log"
-default_model: default
 providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: qwen3-35b-a3b
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: qwen3-35b-a3b
 `)
 
 	cwd, err := os.Getwd()
@@ -896,15 +918,16 @@ func TestLoadRejectsInvalidModelBlock(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: ""
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: ""
 `)
 
 	cwd, err := os.Getwd()
@@ -956,17 +979,18 @@ func TestLoadRejectsRemovedAdvancedLimitFields(t *testing.T) {
 			projectConfigDir := filepath.Join(projectDir, ".steiner")
 			mustMkdirAll(t, projectConfigDir)
 
-			writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
-providers:
+			writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: qwen3-35b-a3b
-    advanced:
-      limits:
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: qwen3-35b-a3b
+      advanced:
+        limits:
 `+tt.fieldYAML)
 
 			cwd, err := os.Getwd()
@@ -1018,21 +1042,22 @@ func TestLoadSearchConfigEmpty(t *testing.T) {
 
 	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
   parallelism: 1
-default_model: default
 providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: test-model
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
 limits:
   max_turns: 25
 `)
@@ -1076,21 +1101,22 @@ func TestLoadSearchConfigDeserializes(t *testing.T) {
 
 	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
   parallelism: 1
-default_model: default
 providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: test-model
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
 limits:
   max_turns: 25
 search:
@@ -1131,15 +1157,16 @@ func TestModelConfigVisionFieldNil(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: test-model
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
 `)
 
 	cwd, err := os.Getwd()
@@ -1160,8 +1187,8 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.Models["default"].Vision != nil {
-		t.Fatalf("models[default].vision = %v, want nil", cfg.Models["default"].Vision)
+	if cfg.Models.Definitions["default"].Vision != nil {
+		t.Fatalf("models[default].vision = %v, want nil", cfg.Models.Definitions["default"].Vision)
 	}
 }
 
@@ -1171,16 +1198,17 @@ func TestModelConfigVisionFalse(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: test-model
-    vision: false
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+      vision: false
 `)
 
 	cwd, err := os.Getwd()
@@ -1201,11 +1229,11 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.Models["default"].Vision == nil {
+	if cfg.Models.Definitions["default"].Vision == nil {
 		t.Fatal("models[default].vision = nil, want pointer to false")
 	}
-	if *cfg.Models["default"].Vision != false {
-		t.Fatalf("models[default].vision = %v, want false", *cfg.Models["default"].Vision)
+	if *cfg.Models.Definitions["default"].Vision != false {
+		t.Fatalf("models[default].vision = %v, want false", *cfg.Models.Definitions["default"].Vision)
 	}
 }
 
@@ -1215,16 +1243,17 @@ func TestModelConfigVisionTrue(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: test-model
-    vision: true
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+      vision: true
 `)
 
 	cwd, err := os.Getwd()
@@ -1245,11 +1274,11 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.Models["default"].Vision == nil {
+	if cfg.Models.Definitions["default"].Vision == nil {
 		t.Fatal("models[default].vision = nil, want pointer to true")
 	}
-	if *cfg.Models["default"].Vision != true {
-		t.Fatalf("models[default].vision = %v, want true", *cfg.Models["default"].Vision)
+	if *cfg.Models.Definitions["default"].Vision != true {
+		t.Fatalf("models[default].vision = %v, want true", *cfg.Models.Definitions["default"].Vision)
 	}
 }
 
@@ -1259,15 +1288,16 @@ func TestLoadDesktopNotificationsConfig(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: test-model
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
 desktop_notifications:
   enabled: true
   duration: 10
@@ -1305,15 +1335,16 @@ func TestLoadDesktopNotificationsOmitted(t *testing.T) {
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: default
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default:
-    provider: local
-    id: test-model
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
 `)
 
 	cwd, err := os.Getwd()
