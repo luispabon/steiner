@@ -13,8 +13,8 @@ find "$wiki_dir" \
   ! -name ".git" \
   -exec rm -rf {} +
 
-# README becomes Home
-cp README.md "$wiki_dir/Home.md"
+# README becomes Home — strip docs/ prefix from markdown link targets
+sed -E 's/]\(docs\/([^)]+)\)/](\1)/g' README.md > "$wiki_dir/Home.md"
 
 # Copy all docs/*.md (top-level only, not docs/wiki/)
 find docs \
