@@ -125,7 +125,7 @@ Configuration is loaded in this precedence order (later overrides earlier):
 4. Environment variables with the `STEINER_` prefix
 5. CLI flags
 
-**Example 1 — local LLM (Ollama or LM Studio)**:
+**Example — local LLM (Ollama or LM Studio)**:
 
 ```yaml
 default_model: local
@@ -139,69 +139,23 @@ models:
     id: qwen2.5-coder:14b
 ```
 
-Use `http://127.0.0.1:1234/v1` as `base_url` for LM Studio.
-
-**Example 2 — cloud provider (Anthropic via OpenRouter)**:
-
-```yaml
-default_model: sonnet
-
-providers:
-  openrouter:
-    type: openrouter
-    api_key_env: OPENROUTER_API_KEY
-
-models:
-  sonnet:
-    provider: openrouter
-    id: anthropic/claude-3.7-sonnet
-```
-
-**Example 3 — one provider with mixed-model transport (OpenCode Go)**:
-
-```yaml
-default_model: kimi
-
-providers:
-  opencode-go:
-    type: openai_compat
-    base_url: https://opencode.ai/zen/go/v1
-    api_key_env: OPENCODE_API_KEY
-
-models:
-  kimi:
-    provider: opencode-go
-    id: kimi-k2.6
-  minimax:
-    provider: opencode-go
-    id: minimax-m3
-```
-
-For the full configuration reference — all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables — see [docs/configuration.md](docs/configuration.md).
-
-Workflow handoff defaults live in the `workflow_handoff` block in that reference. If a destination workflow does not have a configured alias, Steiner falls back to the current session model. The handoff model picker can override the pending handoff once without changing config.
+See [Configuration](docs/configuration.md) for all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables.
 
 ## Built-in tools
 
-These built-in tools are available to the model; some are gated by config:
-
 | Tool | Description |
 |------|-------------|
-| `read` | Read files with offset/limit pagination. Detects image files (.png, .jpg, .jpeg, .gif, .webp) by extension, base64-encodes them, and returns a metadata summary (`[image: WxH format size]`) with the image data attached as a content block. The result also carries `resolved_path` — the absolute path actually read — so a relative path that resolved to a different physical file (e.g. across a git worktree boundary) is immediately visible. Max image size: 5MB. |
-| `mutate` | Apply one or more structured file mutations atomically with sequential in-memory matching, initial-snapshot `file_hash` validation on existing targets, post-operation assertions, and bounded verification context (create, write, replace, line_replace, delete_line, delete, move, insert_before, insert_after) |
+| `read` | Read files with offset/limit pagination; detects and base64-encodes images |
+| `mutate` | Apply structured file mutations atomically (create, write, replace, delete, move, insert) |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents with surrounding context |
 | `ls` | List directory contents |
-| `bash` | Run shell commands |
-| `scratchpad` | Record working state (intent, decisions, next action); persists across compaction |
-| `fetch_url` | Fetch a URL and return its content. Web pages are converted to markdown; image URLs (png, jpeg, gif, webp) return image data for vision-capable providers (5MB cap). The uncollapsed view shows a status block (URL, max_size, http code, content length, title, description) above the markdown body. |
-| `display_file` | Show a file in the TUI overlay without adding its contents to the conversation |
-| `advisor` | Ask a stronger-model steering advisor for concise guidance when `advisor.enabled` is true |
-| `workflow_handoff` | Create a workflow handoff request to transition to a different workflow with approved artifacts |
-
-`read`, `glob`, `grep`, `ls`, and other read-only tools are always available. `bash` and subprocess tools run inside a sandbox by default.
-
-`mutate` evaluates operations in order against an in-memory snapshot of earlier edits, then commits the full batch only after planning succeeds. Line-oriented edits can target a single line or a contiguous line range with `line_replace` or `delete_line`. `insert_after` supports appending after the final line even when the file has no trailing newline; in that case the tool synthesizes the file's line ending so the inserted block lands on its own line. Any `file_hash` check compares against the disk state captured at batch start, not against later in-batch changes, and only applies when the target already exists. Missing targets fail explicitly instead of being silently accepted. Successful results also return per-file `file_hashes` plus per-operation `operation_results` with `match_count`, assertion counts, and bounded post-edit `context` so the model can verify edits without an immediate follow-up `read`. `assert_present` and `assert_absent` run against the in-memory post-operation content, and any assertion failure aborts the batch before commit. `move` never overwrites an existing destination; destination collisions fail instead of replacing files. No-match, ambiguous, and `line_replace` mismatch errors include the absolute path the planner resolved on the header line, and each `operation_results` entry carries a `resolved_path` alongside the relative `path` — useful when a relative path resolved to a different physical file (e.g. across a git worktree boundary).
+| `bash` | Run shell commands (sandboxed by default) |
+| `scratchpad` | Record working state; persists across compaction |
+| `fetch_url` | Fetch a URL; web pages converted to markdown, images returned for vision models |
+| `display_file` | Show a file in the TUI overlay without adding to conversation |
+| `advisor` | Ask a stronger-model steering advisor for guidance (requires `advisor.enabled`) |
+| `workflow_handoff` | Transition to a different workflow with approved artifacts |
 
 ## Sandboxing
 
