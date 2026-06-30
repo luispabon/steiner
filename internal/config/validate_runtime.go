@@ -22,10 +22,10 @@ var validOneShotPhases = map[string]bool{
 	"review":    true,
 }
 
-func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig) {
-	for name := range cfg.Agents {
+func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, subAgents map[string]string) {
+	for name := range subAgents {
 		if !validAgentTypes[name] {
-			*problems = append(*problems, fmt.Sprintf("sub_agent.agents contains unknown agent type %q", name))
+			*problems = append(*problems, fmt.Sprintf("models.sub_agents contains unknown agent type %q", name))
 		}
 	}
 	if !cfg.Enabled {
@@ -39,15 +39,15 @@ func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig) {
 	}
 }
 
-func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig) {
+func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig, model string) {
 	if !cfg.Enabled {
 		if cfg.MaxTokens != nil && *cfg.MaxTokens < 1 {
 			*problems = append(*problems, "advisor.max_tokens must be greater than zero when set")
 		}
 		return
 	}
-	if strings.TrimSpace(cfg.Model) == "" {
-		*problems = append(*problems, "advisor.model is required when enabled")
+	if strings.TrimSpace(model) == "" {
+		*problems = append(*problems, "models.advisor is required when enabled")
 	}
 	if cfg.MaxUsesPerRun < 1 {
 		*problems = append(*problems, "advisor.max_uses_per_run must be at least 1 when enabled")
@@ -86,14 +86,14 @@ func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 	}
 }
 
-func validateOneShotConfig(problems *[]string, cfg oneshotConfig, models map[string]ModelConfig) {
-	for phase, alias := range cfg.Models {
+func validateOneShotConfig(problems *[]string, oneShot map[string]string, models map[string]ModelConfig) {
+	for phase, alias := range oneShot {
 		if !validOneShotPhases[phase] {
-			*problems = append(*problems, fmt.Sprintf("oneshot.models contains unknown phase %q", phase))
+			*problems = append(*problems, fmt.Sprintf("models.oneshot contains unknown phase %q", phase))
 			continue
 		}
 		if _, ok := models[alias]; !ok {
-			*problems = append(*problems, fmt.Sprintf("oneshot.models[%q] %q is not defined in models", phase, alias))
+			*problems = append(*problems, fmt.Sprintf("models.oneshot[%q] %q is not defined in models.definitions", phase, alias))
 		}
 	}
 }

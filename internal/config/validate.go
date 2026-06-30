@@ -11,12 +11,12 @@ func validate(cfg Config) error {
 	validateDefaultModel(&problems, cfg)
 	validateProvidersConfig(&problems, cfg.Providers)
 	validateSchedulerConfig(&problems, cfg.Scheduler)
-	validateModelsConfig(&problems, cfg.Models, cfg.Providers)
-	validateWorkflowHandoffConfig(&problems, cfg.WorkflowHandoff, cfg.Models)
-	validateOneShotConfig(&problems, cfg.OneShot, cfg.Models)
+	validateModelsConfig(&problems, cfg.Models.Definitions, cfg.Providers)
+	validateWorkflowHandoffConfig(&problems, cfg.Models.WorkflowHandoff, cfg.Models.Definitions)
+	validateOneShotConfig(&problems, cfg.Models.OneShot, cfg.Models.Definitions)
 	validateLimitsConfig(&problems, cfg.Limits)
-	validateSubAgentConfig(&problems, cfg.SubAgent)
-	validateAdvisorConfig(&problems, cfg.Advisor)
+	validateSubAgentConfig(&problems, cfg.SubAgent, cfg.Models.SubAgents)
+	validateAdvisorConfig(&problems, cfg.Advisor, cfg.Models.Advisor)
 	validateProjectContextConfig(&problems, cfg.ProjectContext)
 	validateLoggingConfig(&problems, cfg.Logging)
 	validateToolsConfig(&problems, cfg.Tools)
@@ -30,12 +30,12 @@ func validate(cfg Config) error {
 }
 
 func validateDefaultModel(problems *[]string, cfg Config) {
-	if cfg.DefaultModel == "" {
-		*problems = append(*problems, "default_model is required")
+	if cfg.Models.Default == "" {
+		*problems = append(*problems, "models.default is required")
 		return
 	}
-	if _, ok := cfg.Models[cfg.DefaultModel]; !ok {
-		*problems = append(*problems, fmt.Sprintf("default_model %q is not defined in models", cfg.DefaultModel))
+	if _, ok := cfg.Models.Definitions[cfg.Models.Default]; !ok {
+		*problems = append(*problems, fmt.Sprintf("models.default %q is not defined in models.definitions", cfg.Models.Default))
 	}
 }
 
@@ -44,14 +44,14 @@ var validWorkflowHandoffDestinations = map[string]bool{
 	"review":    true,
 }
 
-func validateWorkflowHandoffConfig(problems *[]string, cfg workflowHandoffConfig, models map[string]ModelConfig) {
-	for destination, alias := range cfg.Models {
+func validateWorkflowHandoffConfig(problems *[]string, workflowHandoff map[string]string, models map[string]ModelConfig) {
+	for destination, alias := range workflowHandoff {
 		if !validWorkflowHandoffDestinations[destination] {
-			*problems = append(*problems, fmt.Sprintf("workflow_handoff.models contains unknown destination %q", destination))
+			*problems = append(*problems, fmt.Sprintf("models.workflow_handoff contains unknown destination %q", destination))
 			continue
 		}
 		if _, ok := models[alias]; !ok {
-			*problems = append(*problems, fmt.Sprintf("workflow_handoff.models[%q] %q is not defined in models", destination, alias))
+			*problems = append(*problems, fmt.Sprintf("models.workflow_handoff[%q] %q is not defined in models.definitions", destination, alias))
 		}
 	}
 }
