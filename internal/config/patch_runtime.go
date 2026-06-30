@@ -13,26 +13,11 @@ func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 	if patch.AllowedTools != nil {
 		dst.AllowedTools = append([]string(nil), (*patch.AllowedTools)...)
 	}
-	if patch.Agents != nil {
-		if dst.Agents == nil {
-			dst.Agents = make(map[string]AgentConfig)
-		}
-		for name, agentPatch := range *patch.Agents {
-			current := dst.Agents[name]
-			if agentPatch.Model != nil {
-				current.Model = *agentPatch.Model
-			}
-			dst.Agents[name] = current
-		}
-	}
 }
 
 func applyAdvisorPatch(dst *AdvisorConfig, patch *advisorPatch) {
 	if patch.Enabled != nil {
 		dst.Enabled = *patch.Enabled
-	}
-	if patch.Model != nil {
-		dst.Model = *patch.Model
 	}
 	if patch.MaxUsesPerRun != nil {
 		dst.MaxUsesPerRun = *patch.MaxUsesPerRun
@@ -46,14 +31,6 @@ func applyAdvisorPatch(dst *AdvisorConfig, patch *advisorPatch) {
 func applyOneShotPatch(dst *oneshotConfig, patch *oneshotPatch) {
 	if patch.AutoPR != nil {
 		dst.AutoPR = *patch.AutoPR
-	}
-	if patch.Models != nil {
-		if dst.Models == nil {
-			dst.Models = make(map[string]string)
-		}
-		for phase, alias := range *patch.Models {
-			dst.Models[phase] = alias
-		}
 	}
 }
 

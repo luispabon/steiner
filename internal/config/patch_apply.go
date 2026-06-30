@@ -14,9 +14,6 @@ func applyCoreConfigPatch(cfg *Config, patch configPatch) {
 	if patch.Scheduler != nil {
 		applySchedulerPatch(&cfg.Scheduler, patch.Scheduler)
 	}
-	if patch.DefaultModel != nil {
-		cfg.DefaultModel = *patch.DefaultModel
-	}
 	if patch.Providers != nil {
 		if cfg.Providers == nil {
 			cfg.Providers = make(map[string]ProviderConfig)
@@ -28,16 +25,52 @@ func applyCoreConfigPatch(cfg *Config, patch configPatch) {
 		}
 	}
 	if patch.Models != nil {
-		if cfg.Models == nil {
-			cfg.Models = make(map[string]ModelConfig)
+		applyModelsPatch(cfg, patch.Models)
+	}
+}
+
+func applyModelsPatch(cfg *Config, patch *modelsPatch) {
+	if patch.Default != nil {
+		cfg.Models.Default = *patch.Default
+	}
+	if patch.Definitions != nil {
+		if cfg.Models.Definitions == nil {
+			cfg.Models.Definitions = make(map[string]ModelConfig)
 		}
-		for name, model := range *patch.Models {
-			current, ok := cfg.Models[name]
+		for name, model := range *patch.Definitions {
+			current, ok := cfg.Models.Definitions[name]
 			if !ok {
 				current = newModelConfigBase(*cfg)
 			}
 			applyModelPatch(&current, &model)
-			cfg.Models[name] = current
+			cfg.Models.Definitions[name] = current
+		}
+	}
+	if patch.Advisor != nil {
+		cfg.Models.Advisor = *patch.Advisor
+	}
+	if patch.SubAgents != nil {
+		if cfg.Models.SubAgents == nil {
+			cfg.Models.SubAgents = make(map[string]string)
+		}
+		for name, alias := range *patch.SubAgents {
+			cfg.Models.SubAgents[name] = alias
+		}
+	}
+	if patch.OneShot != nil {
+		if cfg.Models.OneShot == nil {
+			cfg.Models.OneShot = make(map[string]string)
+		}
+		for phase, alias := range *patch.OneShot {
+			cfg.Models.OneShot[phase] = alias
+		}
+	}
+	if patch.WorkflowHandoff != nil {
+		if cfg.Models.WorkflowHandoff == nil {
+			cfg.Models.WorkflowHandoff = make(map[string]string)
+		}
+		for name, alias := range *patch.WorkflowHandoff {
+			cfg.Models.WorkflowHandoff[name] = alias
 		}
 	}
 }
@@ -54,9 +87,6 @@ func applyRuntimeConfigPatch(cfg *Config, patch configPatch) {
 	}
 	if patch.OneShot != nil {
 		applyOneShotPatch(&cfg.OneShot, patch.OneShot)
-	}
-	if patch.WorkflowHandoff != nil {
-		applyWorkflowHandoffPatch(&cfg.WorkflowHandoff, patch.WorkflowHandoff)
 	}
 	if patch.DesktopNotifications != nil {
 		applyDesktopNotificationsPatch(&cfg.DesktopNotifications, patch.DesktopNotifications)
