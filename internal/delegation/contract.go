@@ -2,6 +2,8 @@ package delegation
 
 import (
 	"time"
+
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 // DelegationStatus represents the lifecycle state of a delegation.
@@ -37,6 +39,9 @@ type DelegationSpec struct {
 
 	// SystemPrompt is an optional override of the system prompt.
 	SystemPrompt string `json:"system_prompt,omitempty"`
+
+	// Images are optional image blocks to include in the first child message.
+	Images []provider.ImageBlock `json:"images,omitempty"`
 
 	// Limits define resource constraints for the child execution.
 	Limits DelegationLimits `json:"limits"`
