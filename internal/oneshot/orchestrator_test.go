@@ -164,17 +164,19 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		DefaultModel: "fallback-model",
-		Models: map[string]config.ModelConfig{
-			"fallback-model": {},
+		Models: config.ModelsConfig{
+			Default: "fallback-model",
+			Definitions: map[string]config.ModelConfig{
+				"fallback-model": {},
+			},
+			Advisor: "advisor-model",
 		},
 		Advisor: config.AdvisorConfig{
-			Model:         "advisor-model",
 			MaxUsesPerRun: 11,
 			Enabled:       false,
 		},
 	}
-	cfg.OneShot.Models = map[string]string{
+	cfg.Models.OneShot = map[string]string{
 		string(PhasePlan):      "plan-model",
 		string(PhaseImplement): "implement-model",
 	}
@@ -314,7 +316,7 @@ func TestOrchestratorStopsOnBoundaryFailure(t *testing.T) {
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
 		Task:          "Build the parser",
-		Config:        config.Config{DefaultModel: "fallback-model"},
+		Config:        config.Config{Models: config.ModelsConfig{Default: "fallback-model"}},
 		SessionStore:  sessionStore,
 		RunnerFactory: runnerFactory,
 		ManifestStore: NewManifestStore(identity.ManifestPath(projectRoot)),
@@ -362,7 +364,7 @@ func TestOrchestratorCancelsAndReleasesLock(t *testing.T) {
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
 		Task:          "Build the parser",
-		Config:        config.Config{DefaultModel: "fallback-model"},
+		Config:        config.Config{Models: config.ModelsConfig{Default: "fallback-model"}},
 		SessionStore:  sessionStore,
 		RunnerFactory: runnerFactory,
 		ManifestStore: NewManifestStore(identity.ManifestPath(projectRoot)),
@@ -432,7 +434,7 @@ func TestOrchestratorConcurrentRunsGetDistinctWorktrees(t *testing.T) {
 			ProjectRoot:  projectRoot,
 			Identity:     identity,
 			Task:         "concurrent task",
-			Config:       config.Config{DefaultModel: "m"},
+			Config:       config.Config{Models: config.ModelsConfig{Default: "m"}},
 			SessionStore: &recordingSessionStore{},
 			RunnerFactory: &recordingRunnerFactory{
 				planningPath: planningPath,
@@ -548,7 +550,7 @@ func TestOrchestratorDrainSteersPreservesImages(t *testing.T) {
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
 		Task:          "Analyze the image",
-		Config:        config.Config{DefaultModel: "fallback-model"},
+		Config:        config.Config{Models: config.ModelsConfig{Default: "fallback-model"}},
 		SessionStore:  sessionStore,
 		RunnerFactory: runnerFactory,
 		ManifestStore: NewManifestStore(identity.ManifestPath(projectRoot)),

@@ -49,9 +49,9 @@ func applyEnvOverrides(cfg *Config, env map[string]string) error {
 	}
 
 	// Expand env vars in model fields
-	for name, m := range cfg.Models {
+	for name, m := range cfg.Models.Definitions {
 		m.ID = expandEnvText(m.ID, lookup)
-		cfg.Models[name] = m
+		cfg.Models.Definitions[name] = m
 	}
 
 	if err := applyEnvIntOverrides(cfg, lookup); err != nil {
@@ -163,8 +163,8 @@ func applyEnvModelOverride(cfg *Config, lookup func(string) (string, bool)) erro
 	if !ok {
 		return nil
 	}
-	if _, ok := cfg.Models[value]; ok {
-		cfg.DefaultModel = value
+	if _, ok := cfg.Models.Definitions[value]; ok {
+		cfg.Models.Default = value
 	}
 	return nil
 }

@@ -4,14 +4,12 @@ package config
 type configPatch struct {
 	CaveHuman            *bool                      `yaml:"cave_human"`
 	Scheduler            *schedulerPatch            `yaml:"scheduler"`
-	DefaultModel         *string                    `yaml:"default_model"`
 	Providers            *map[string]providerPatch  `yaml:"providers"`
-	Models               *map[string]modelPatch     `yaml:"models"`
+	Models               *modelsPatch               `yaml:"models"`
 	Limits               *limitsPatch               `yaml:"limits"`
 	SubAgent             *subAgentPatch             `yaml:"sub_agent"`
 	Advisor              *advisorPatch              `yaml:"advisor"`
 	OneShot              *oneshotPatch              `yaml:"oneshot"`
-	WorkflowHandoff      *workflowHandoffPatch      `yaml:"workflow_handoff"`
 	DesktopNotifications *desktopNotificationsPatch `yaml:"desktop_notifications"`
 	Tools                *map[string]toolPatch      `yaml:"tools"`
 	ProjectContext       *projectContextPatch       `yaml:"project_context"`
@@ -19,6 +17,15 @@ type configPatch struct {
 	Logging              *loggingPatch              `yaml:"logging"`
 	ContextManagement    *contextManagementPatch    `yaml:"context_management"`
 	Search               *searchPatch               `yaml:"search"`
+}
+
+type modelsPatch struct {
+	Default         *string                `yaml:"default"`
+	Definitions     *map[string]modelPatch `yaml:"definitions"`
+	Advisor         *string                `yaml:"advisor"`
+	SubAgents       *map[string]string     `yaml:"sub_agents"`
+	OneShot         *map[string]string     `yaml:"oneshot"`
+	WorkflowHandoff *map[string]string     `yaml:"workflow_handoff"`
 }
 
 type providerPatch struct {
@@ -82,32 +89,21 @@ type limitsPatch struct {
 	ToolOutputMaxBytes *int                 `yaml:"tool_output_max_bytes"`
 }
 
-type agentConfigPatch struct {
-	Model *string `yaml:"model"`
-}
-
 type subAgentPatch struct {
-	Enabled      *bool                        `yaml:"enabled"`
-	MaxTurns     *int                         `yaml:"max_turns"`
-	MaxTokens    *int                         `yaml:"max_tokens"`
-	AllowedTools *[]string                    `yaml:"allowed_tools"`
-	Agents       *map[string]agentConfigPatch `yaml:"agents"`
+	Enabled      *bool     `yaml:"enabled"`
+	MaxTurns     *int      `yaml:"max_turns"`
+	MaxTokens    *int      `yaml:"max_tokens"`
+	AllowedTools *[]string `yaml:"allowed_tools"`
 }
 
 type advisorPatch struct {
-	Enabled       *bool   `yaml:"enabled"`
-	Model         *string `yaml:"model"`
-	MaxUsesPerRun *int    `yaml:"max_uses_per_run"`
-	MaxTokens     *int    `yaml:"max_tokens"`
+	Enabled       *bool `yaml:"enabled"`
+	MaxUsesPerRun *int  `yaml:"max_uses_per_run"`
+	MaxTokens     *int  `yaml:"max_tokens"`
 }
 
 type oneshotPatch struct {
-	Models *map[string]string `yaml:"models"`
-	AutoPR *bool              `yaml:"auto_pr"`
-}
-
-type workflowHandoffPatch struct {
-	Models *map[string]string `yaml:"models"`
+	AutoPR *bool `yaml:"auto_pr"`
 }
 
 type desktopNotificationsPatch struct {

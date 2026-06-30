@@ -140,7 +140,7 @@ func (s *Session) WorkflowHandoffResponder(eventSink output.EventSink) tool.Work
 func (s *Session) CurrentModelAlias() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.deps.Config.DefaultModel
+	return s.deps.Config.Models.Default
 }
 
 // WorkflowHandoffModelSelection returns the configured handoff model for the
@@ -149,7 +149,7 @@ func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHand
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	current := strings.TrimSpace(s.deps.Config.DefaultModel)
+	current := strings.TrimSpace(s.deps.Config.Models.Default)
 	selection := WorkflowHandoffModelSelection{
 		ModelAlias:  current,
 		SourceLabel: "current session",
@@ -160,11 +160,11 @@ func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHand
 		return selection
 	}
 
-	alias := strings.TrimSpace(s.deps.Config.WorkflowHandoff.Models[destination])
+	alias := strings.TrimSpace(s.deps.Config.Models.WorkflowHandoff[destination])
 	if alias == "" {
 		return selection
 	}
-	if _, ok := s.deps.Config.Models[alias]; !ok {
+	if _, ok := s.deps.Config.Models.Definitions[alias]; !ok {
 		return selection
 	}
 
@@ -184,7 +184,7 @@ func (s *Session) CaveHuman() bool {
 func (s *Session) CurrentModelConfig() config.ModelConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.deps.Config.Models[s.deps.Config.DefaultModel]
+	return s.deps.Config.Models.Definitions[s.deps.Config.Models.Default]
 }
 
 // Conversation returns a defensive copy of the current conversation.

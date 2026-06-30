@@ -8,8 +8,8 @@ import (
 // applyCLIOverrides applies command-line overrides to the config.
 func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
 	if cli.Model != "" {
-		if _, ok := cfg.Models[cli.Model]; ok {
-			cfg.DefaultModel = cli.Model
+		if _, ok := cfg.Models.Definitions[cli.Model]; ok {
+			cfg.Models.Default = cli.Model
 		}
 	}
 	if cli.Verbose {

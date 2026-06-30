@@ -14,25 +14,27 @@ func validBase() Config {
 		RetryAfterMax:  MustDuration("30s"),
 	}
 	return Config{
-		Scheduler:    SchedulerConfig{Parallelism: 1},
-		DefaultModel: "default",
+		Scheduler: SchedulerConfig{Parallelism: 1},
+		Models: ModelsConfig{
+			Default: "default",
+			Definitions: map[string]ModelConfig{
+				"default": {
+					Provider: "local",
+					ID:       "qwen3-35b-a3b",
+					Retry:    retry,
+					Advanced: AdvancedConfig{
+						Limits: AdvancedLimitsConfig{
+							ContextWindow:   32768,
+							MaxOutputTokens: 8192,
+						},
+					},
+				},
+			},
+		},
 		Providers: map[string]ProviderConfig{
 			"local": {
 				Type:    ProviderTypeOpenAICompat,
 				BaseURL: "http://localhost:11434/v1",
-			},
-		},
-		Models: map[string]ModelConfig{
-			"default": {
-				Provider: "local",
-				ID:       "qwen3-35b-a3b",
-				Retry:    retry,
-				Advanced: AdvancedConfig{
-					Limits: AdvancedLimitsConfig{
-						ContextWindow:   32768,
-						MaxOutputTokens: 8192,
-					},
-				},
 			},
 		},
 		Limits: LimitsConfig{
@@ -66,24 +68,24 @@ func TestValidate(t *testing.T) {
 		wantErr string
 	}{
 		{name: "valid", cfg: validBase(), wantErr: ""},
-		// Missing default_model, providers, models
+		// Missing models.default, providers, models.definitions
 		{
-			name: "missing default_model",
+			name: "missing models.default",
 			cfg: func() Config {
 				c := validBase()
-				c.DefaultModel = ""
+				c.Models.Default = ""
 				return c
 			}(),
-			wantErr: "default_model is required",
+			wantErr: "models.default is required",
 		},
 		{
-			name: "default_model not in models",
+			name: "models.default not in models.definitions",
 			cfg: func() Config {
 				c := validBase()
-				c.DefaultModel = "missing"
+				c.Models.Default = "missing"
 				return c
 			}(),
-			wantErr: "default_model",
+			wantErr: "models.default",
 		},
 		{
 			name: "missing providers",
@@ -98,7 +100,7 @@ func TestValidate(t *testing.T) {
 			name: "missing models",
 			cfg: func() Config {
 				c := validBase()
-				c.Models = nil
+				c.Models.Definitions = nil
 				return c
 			}(),
 			wantErr: "models is required",
@@ -107,10 +109,10 @@ func TestValidate(t *testing.T) {
 			name: "invalid model transport override",
 			cfg: func() Config {
 				c := validBase()
-				c.Models["default"] = ModelConfig{
+				c.Models.Definitions["default"] = ModelConfig{
 					Provider: "local",
 					ID:       "qwen3-35b-a3b",
-					Retry:    c.Models["default"].Retry,
+					Retry:    c.Models.Definitions["default"].Retry,
 					Advanced: AdvancedConfig{
 						Limits: AdvancedLimitsConfig{
 							ContextWindow:   32768,
@@ -201,9 +203,9 @@ func TestValidate(t *testing.T) {
 			name: "model missing provider",
 			cfg: func() Config {
 				c := validBase()
-				m := c.Models["default"]
+				m := c.Models.Definitions["default"]
 				m.Provider = ""
-				c.Models["default"] = m
+				c.Models.Definitions["default"] = m
 				return c
 			}(),
 			wantErr: "models[\"default\"].provider is required",
@@ -212,9 +214,9 @@ func TestValidate(t *testing.T) {
 			name: "model provider not in providers",
 			cfg: func() Config {
 				c := validBase()
-				m := c.Models["default"]
+				m := c.Models.Definitions["default"]
 				m.Provider = "missing"
-				c.Models["default"] = m
+				c.Models.Definitions["default"] = m
 				return c
 			}(),
 			wantErr: "models[\"default\"].provider",
@@ -223,9 +225,9 @@ func TestValidate(t *testing.T) {
 			name: "model missing id",
 			cfg: func() Config {
 				c := validBase()
-				m := c.Models["default"]
+				m := c.Models.Definitions["default"]
 				m.ID = ""
-				c.Models["default"] = m
+				c.Models.Definitions["default"] = m
 				return c
 			}(),
 			wantErr: "models[\"default\"].id is required",
@@ -234,7 +236,7 @@ func TestValidate(t *testing.T) {
 			name: "empty model alias",
 			cfg: func() Config {
 				c := validBase()
-				c.Models[""] = ModelConfig{
+				c.Models.Definitions[""] = ModelConfig{
 					Provider: "local",
 					ID:       "test-model",
 				}
@@ -304,9 +306,9 @@ func TestValidate(t *testing.T) {
 			name: "zero retry max_attempts",
 			cfg: func() Config {
 				c := validBase()
-				m := c.Models["default"]
+				m := c.Models.Definitions["default"]
 				m.Retry.MaxAttempts = 0
-				c.Models["default"] = m
+				c.Models.Definitions["default"] = m
 				return c
 			}(),
 			wantErr: `models["default"].retry.max_attempts must be at least 1`,
@@ -315,9 +317,9 @@ func TestValidate(t *testing.T) {
 			name: "zero retry duration",
 			cfg: func() Config {
 				c := validBase()
-				m := c.Models["default"]
+				m := c.Models.Definitions["default"]
 				m.Retry.InitialBackoff = Duration{}
-				c.Models["default"] = m
+				c.Models.Definitions["default"] = m
 				return c
 			}(),
 			wantErr: `models["default"].retry.initial_backoff must be greater than zero`,
@@ -326,10 +328,10 @@ func TestValidate(t *testing.T) {
 			name: "retry max_backoff less than initial_backoff",
 			cfg: func() Config {
 				c := validBase()
-				m := c.Models["default"]
+				m := c.Models.Definitions["default"]
 				m.Retry.InitialBackoff = MustDuration("5s")
 				m.Retry.MaxBackoff = MustDuration("1s")
-				c.Models["default"] = m
+				c.Models.Definitions["default"] = m
 				return c
 			}(),
 			wantErr: `models["default"].retry.max_backoff must be greater than or equal to`,
@@ -427,28 +429,28 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: `timeout must be greater than zero`,
 		},
-		// Sub-agent Agents map validation
+		// models.sub_agents map validation
 		{
 			name: "subagent unknown agent type rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.SubAgent.Agents = map[string]AgentConfig{
-					"bogus": {Model: "some-model"},
+				c.Models.SubAgents = map[string]string{
+					"bogus": "some-model",
 				}
 				return c
 			}(),
-			wantErr: `sub_agent.agents contains unknown agent type "bogus"`,
+			wantErr: `models.sub_agents contains unknown agent type "bogus"`,
 		},
 		{
 			name: "subagent known agent types accepted",
 			cfg: func() Config {
 				c := validBase()
-				c.SubAgent.Agents = map[string]AgentConfig{
-					"explore":  {Model: "model-a"},
-					"research": {Model: "model-b"},
-					"code":     {Model: "model-c"},
-					"plan":     {Model: "model-d"},
-					"verify":   {Model: "model-e"},
+				c.Models.SubAgents = map[string]string{
+					"explore":  "model-a",
+					"research": "model-b",
+					"code":     "model-c",
+					"plan":     "model-d",
+					"verify":   "model-e",
 				}
 				return c
 			}(),
@@ -458,11 +460,9 @@ func TestValidate(t *testing.T) {
 			name: "workflow handoff known aliases accepted",
 			cfg: func() Config {
 				c := validBase()
-				c.WorkflowHandoff = workflowHandoffConfig{
-					Models: map[string]string{
-						"implement": "default",
-						"review":    "default",
-					},
+				c.Models.WorkflowHandoff = map[string]string{
+					"implement": "default",
+					"review":    "default",
 				}
 				return c
 			}(),
@@ -472,38 +472,32 @@ func TestValidate(t *testing.T) {
 			name: "workflow handoff unknown alias rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.WorkflowHandoff = workflowHandoffConfig{
-					Models: map[string]string{
-						"implement": "missing-model",
-					},
+				c.Models.WorkflowHandoff = map[string]string{
+					"implement": "missing-model",
 				}
 				return c
 			}(),
-			wantErr: `workflow_handoff.models["implement"] "missing-model" is not defined in models`,
+			wantErr: `models.workflow_handoff["implement"] "missing-model" is not defined in models.definitions`,
 		},
 		{
 			name: "workflow handoff unknown destination rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.WorkflowHandoff = workflowHandoffConfig{
-					Models: map[string]string{
-						"plan": "default",
-					},
+				c.Models.WorkflowHandoff = map[string]string{
+					"plan": "default",
 				}
 				return c
 			}(),
-			wantErr: `workflow_handoff.models contains unknown destination "plan"`,
+			wantErr: `models.workflow_handoff contains unknown destination "plan"`,
 		},
 		{
 			name: "oneshot known aliases accepted",
 			cfg: func() Config {
 				c := validBase()
-				c.OneShot = oneshotConfig{
-					Models: map[string]string{
-						"plan":      "default",
-						"implement": "default",
-						"review":    "default",
-					},
+				c.Models.OneShot = map[string]string{
+					"plan":      "default",
+					"implement": "default",
+					"review":    "default",
 				}
 				return c
 			}(),
@@ -513,39 +507,35 @@ func TestValidate(t *testing.T) {
 			name: "oneshot unknown alias rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.OneShot = oneshotConfig{
-					Models: map[string]string{
-						"plan": "missing-model",
-					},
+				c.Models.OneShot = map[string]string{
+					"plan": "missing-model",
 				}
 				return c
 			}(),
-			wantErr: `oneshot.models["plan"] "missing-model" is not defined in models`,
+			wantErr: `models.oneshot["plan"] "missing-model" is not defined in models.definitions`,
 		},
 		{
 			name: "oneshot unknown phase rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.OneShot = oneshotConfig{
-					Models: map[string]string{
-						"bogus": "default",
-					},
+				c.Models.OneShot = map[string]string{
+					"bogus": "default",
 				}
 				return c
 			}(),
-			wantErr: `oneshot.models contains unknown phase "bogus"`,
+			wantErr: `models.oneshot contains unknown phase "bogus"`,
 		},
 		{
 			name: "subagent agents validated even when disabled",
 			cfg: func() Config {
 				c := validBase()
 				c.SubAgent.Enabled = false
-				c.SubAgent.Agents = map[string]AgentConfig{
-					"unknown": {Model: "some-model"},
+				c.Models.SubAgents = map[string]string{
+					"unknown": "some-model",
 				}
 				return c
 			}(),
-			wantErr: `sub_agent.agents contains unknown agent type "unknown"`,
+			wantErr: `models.sub_agents contains unknown agent type "unknown"`,
 		},
 
 		// Search validation
@@ -614,12 +604,13 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
 			},
-			wantErr: "advisor.model is required when enabled",
+			wantErr: "models.advisor is required when enabled",
 		},
 		{
 			name: "enabled advisor requires max uses",
 			mutate: func(c *Config) {
-				c.Advisor = AdvisorConfig{Enabled: true, Model: "advisor-model"}
+				c.Advisor = AdvisorConfig{Enabled: true}
+				c.Models.Advisor = "advisor-model"
 			},
 			wantErr: "advisor.max_uses_per_run must be at least 1 when enabled",
 		},
@@ -628,10 +619,10 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{
 					Enabled:       true,
-					Model:         "advisor-model",
 					MaxUsesPerRun: 1,
 					MaxTokens:     intPtr(0),
 				}
+				c.Models.Advisor = "advisor-model"
 			},
 			wantErr: "advisor.max_tokens must be greater than zero when set",
 		},
@@ -640,10 +631,10 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{
 					Enabled:       true,
-					Model:         "advisor-model",
 					MaxUsesPerRun: 2,
 					MaxTokens:     intPtr(256),
 				}
+				c.Models.Advisor = "advisor-model"
 			},
 		},
 	}
@@ -739,25 +730,27 @@ func TestSearchConfigValidation(t *testing.T) {
 				RetryAfterMax:  MustDuration("30s"),
 			}
 			cfg := Config{
-				Scheduler:    SchedulerConfig{Parallelism: 1},
-				DefaultModel: "default",
+				Scheduler: SchedulerConfig{Parallelism: 1},
+				Models: ModelsConfig{
+					Default: "default",
+					Definitions: map[string]ModelConfig{
+						"default": {
+							Provider: "local",
+							ID:       "qwen3-35b-a3b",
+							Retry:    retry,
+							Advanced: AdvancedConfig{
+								Limits: AdvancedLimitsConfig{
+									ContextWindow:   32768,
+									MaxOutputTokens: 8192,
+								},
+							},
+						},
+					},
+				},
 				Providers: map[string]ProviderConfig{
 					"local": {
 						Type:    ProviderTypeOpenAICompat,
 						BaseURL: "http://localhost:11434/v1",
-					},
-				},
-				Models: map[string]ModelConfig{
-					"default": {
-						Provider: "local",
-						ID:       "qwen3-35b-a3b",
-						Retry:    retry,
-						Advanced: AdvancedConfig{
-							Limits: AdvancedLimitsConfig{
-								ContextWindow:   32768,
-								MaxOutputTokens: 8192,
-							},
-						},
 					},
 				},
 				Limits: LimitsConfig{

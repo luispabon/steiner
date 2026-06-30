@@ -16,6 +16,8 @@ type SpecializedToolDeps struct {
 	ModelResolver func(alias string) (provider.Provider, provider.ResolvedModel, error)
 	// ImageStore provides image lookup for the vision sub-agent tool.
 	ImageStore *agent.ImageStore
+	// AgentModels maps agent type to an optional model alias override.
+	AgentModels map[string]string
 }
 
 // SpecializedToolDef returns a ToolDef for the given agent type.
@@ -106,10 +108,10 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		resolvedProvider := deps.Provider
 		resolvedModel := deps.ResolvedModel
 		if deps.ModelResolver != nil {
-			if ac, ok := deps.SubAgentCfg.Agents[string(agentType)]; ok && ac.Model != "" {
-				p, rm, err := deps.ModelResolver(ac.Model)
+			if alias, ok := deps.AgentModels[string(agentType)]; ok && alias != "" {
+				p, rm, err := deps.ModelResolver(alias)
 				if err != nil {
-					return nil, fmt.Errorf("%s: resolve model %q: %w", agentType, ac.Model, err)
+					return nil, fmt.Errorf("%s: resolve model %q: %w", agentType, alias, err)
 				}
 				resolvedProvider = p
 				resolvedModel = rm

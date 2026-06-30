@@ -21,16 +21,18 @@ func TestResolve(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1", APIKey: "test-key"},
 		},
-		Models: map[string]config.ModelConfig{
-			"mymodel": {
-				Provider:     "local",
-				ID:           "llama3",
-				ExtraParams:  map[string]any{"temperature": 0.8},
-				PromptSuffix: "nothink",
-				Advanced: config.AdvancedConfig{
-					Limits: config.AdvancedLimitsConfig{
-						ContextWindow:   128000,
-						MaxOutputTokens: 8192,
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"mymodel": {
+					Provider:     "local",
+					ID:           "llama3",
+					ExtraParams:  map[string]any{"temperature": 0.8},
+					PromptSuffix: "nothink",
+					Advanced: config.AdvancedConfig{
+						Limits: config.AdvancedLimitsConfig{
+							ContextWindow:   128000,
+							MaxOutputTokens: 8192,
+						},
 					},
 				},
 			},
@@ -96,8 +98,10 @@ func TestResolve(t *testing.T) {
 			name: "model referencing unknown provider",
 			cfg: config.Config{
 				Providers: map[string]config.ProviderConfig{},
-				Models: map[string]config.ModelConfig{
-					"orphan": {Provider: "missing", ID: "some-model"},
+				Models: config.ModelsConfig{
+					Definitions: map[string]config.ModelConfig{
+						"orphan": {Provider: "missing", ID: "some-model"},
+					},
 				},
 			},
 			alias:       "orphan",
@@ -159,10 +163,12 @@ func TestResolveMinimalConfig(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
-		Models: map[string]config.ModelConfig{
-			"default": {
-				Provider: "local",
-				ID:       "qwen3",
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"default": {
+					Provider: "local",
+					ID:       "qwen3",
+				},
 			},
 		},
 	}
@@ -204,8 +210,10 @@ func TestResolveProviderConfigAppliesOpenRouterDefaults(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"router": {Type: config.ProviderTypeOpenRouter, APIKeyEnv: "OPENROUTER_API_KEY"},
 		},
-		Models: map[string]config.ModelConfig{
-			"sonnet": {Provider: "router", ID: "anthropic/claude-3.7-sonnet"},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"sonnet": {Provider: "router", ID: "anthropic/claude-3.7-sonnet"},
+			},
 		},
 	}
 
@@ -226,8 +234,10 @@ func TestResolveProviderConfigAppliesCodexDefaults(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"codex": {Type: config.ProviderTypeCodex},
 		},
-		Models: map[string]config.ModelConfig{
-			"codex-model": {Provider: "codex", ID: "codex-default"},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"codex-model": {Provider: "codex", ID: "codex-default"},
+			},
 		},
 	}
 
@@ -393,10 +403,12 @@ func TestResolveWithDiscoveryFallbackWarning(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
-		Models: map[string]config.ModelConfig{
-			"unknown": {
-				Provider: "local",
-				ID:       "custom-unknown-model",
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"unknown": {
+					Provider: "local",
+					ID:       "custom-unknown-model",
+				},
 			},
 		},
 	}
@@ -459,10 +471,12 @@ func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
-		Models: map[string]config.ModelConfig{
-			"gpt4o": {
-				Provider: "local",
-				ID:       "gpt-4o",
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"gpt4o": {
+					Provider: "local",
+					ID:       "gpt-4o",
+				},
 			},
 		},
 	}
@@ -511,10 +525,12 @@ func TestResolveWithDiscoveryUsesProviderSpecificModelsDevLimits(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"opencode-go": {Type: config.ProviderTypeOpenAICompat, BaseURL: "https://opencode.ai/zen/go/v1/"},
 		},
-		Models: map[string]config.ModelConfig{
-			"opencode-go/deepseek-v4-flash": {
-				Provider: "opencode-go",
-				ID:       "deepseek-v4-flash",
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"opencode-go/deepseek-v4-flash": {
+					Provider: "opencode-go",
+					ID:       "deepseek-v4-flash",
+				},
 			},
 		},
 	}
@@ -562,8 +578,10 @@ func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
-		Models: map[string]config.ModelConfig{
-			"gpt4o": {Provider: "local", ID: "gpt-4o"},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"gpt4o": {Provider: "local", ID: "gpt-4o"},
+			},
 		},
 	}
 
@@ -602,8 +620,10 @@ func TestResolveWithDiscoveryOfflineUsesStaleModelsDevCache(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
-		Models: map[string]config.ModelConfig{
-			"gpt4o": {Provider: "local", ID: "gpt-4o"},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"gpt4o": {Provider: "local", ID: "gpt-4o"},
+			},
 		},
 	}
 
@@ -652,10 +672,12 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
 		},
-		Models: map[string]config.ModelConfig{
-			"gpt4o": {
-				Provider: "router",
-				ID:       "openai/gpt-4o",
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"gpt4o": {
+					Provider: "router",
+					ID:       "openai/gpt-4o",
+				},
 			},
 		},
 	}
@@ -707,14 +729,16 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
 		},
-		Models: map[string]config.ModelConfig{
-			"gpt4o": {
-				Provider: "router",
-				ID:       "openai/gpt-4o",
-				Advanced: config.AdvancedConfig{
-					Limits: config.AdvancedLimitsConfig{
-						ContextWindow:   200000,
-						MaxOutputTokens: 32000,
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"gpt4o": {
+					Provider: "router",
+					ID:       "openai/gpt-4o",
+					Advanced: config.AdvancedConfig{
+						Limits: config.AdvancedLimitsConfig{
+							ContextWindow:   200000,
+							MaxOutputTokens: 32000,
+						},
 					},
 				},
 			},
@@ -781,11 +805,13 @@ func TestResolveWithDiscoveryReasoningEchoBack(t *testing.T) {
 				Providers: map[string]config.ProviderConfig{
 					"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 				},
-				Models: map[string]config.ModelConfig{
-					"test": {
-						Provider:     "local",
-						ID:           tt.modelID,
-						PromptSuffix: "<|think_off|>",
+				Models: config.ModelsConfig{
+					Definitions: map[string]config.ModelConfig{
+						"test": {
+							Provider:     "local",
+							ID:           tt.modelID,
+							PromptSuffix: "<|think_off|>",
+						},
 					},
 				},
 			}
@@ -841,12 +867,14 @@ func TestResolveReasoningEchoBackConfigOverride(t *testing.T) {
 				Providers: map[string]config.ProviderConfig{
 					"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 				},
-				Models: map[string]config.ModelConfig{
-					"mymodel": {
-						Provider: "local",
-						ID:       "llama3",
-						Advanced: config.AdvancedConfig{
-							ReasoningEchoBack: tt.override,
+				Models: config.ModelsConfig{
+					Definitions: map[string]config.ModelConfig{
+						"mymodel": {
+							Provider: "local",
+							ID:       "llama3",
+							Advanced: config.AdvancedConfig{
+								ReasoningEchoBack: tt.override,
+							},
 						},
 					},
 				},
@@ -908,12 +936,14 @@ func TestResolveWithDiscoveryConfigOverrideWinsOverModelsDevReasoningEchoBack(t 
 				Providers: map[string]config.ProviderConfig{
 					"opencode-go": {Type: config.ProviderTypeOpenAICompat, BaseURL: "https://opencode.ai/zen/go/v1/"},
 				},
-				Models: map[string]config.ModelConfig{
-					"kimi": {
-						Provider: "opencode-go",
-						ID:       "kimi-k2",
-						Advanced: config.AdvancedConfig{
-							ReasoningEchoBack: tt.override,
+				Models: config.ModelsConfig{
+					Definitions: map[string]config.ModelConfig{
+						"kimi": {
+							Provider: "opencode-go",
+							ID:       "kimi-k2",
+							Advanced: config.AdvancedConfig{
+								ReasoningEchoBack: tt.override,
+							},
 						},
 					},
 				},
@@ -1016,12 +1046,14 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 				Providers: map[string]config.ProviderConfig{
 					"opencode-go": {Type: providerType, BaseURL: providerBaseURL},
 				},
-				Models: map[string]config.ModelConfig{
-					"test": {
-						Provider: "opencode-go",
-						ID:       tt.modelID,
-						Advanced: config.AdvancedConfig{
-							Transport: tt.override,
+				Models: config.ModelsConfig{
+					Definitions: map[string]config.ModelConfig{
+						"test": {
+							Provider: "opencode-go",
+							ID:       tt.modelID,
+							Advanced: config.AdvancedConfig{
+								Transport: tt.override,
+							},
 						},
 					},
 				},

@@ -84,13 +84,13 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 
 func (s *Session) handleSwitchModel(name string) error {
 	s.mu.Lock()
-	if _, ok := s.deps.Config.Models[name]; !ok {
+	if _, ok := s.deps.Config.Models.Definitions[name]; !ok {
 		s.mu.Unlock()
 		err := fmt.Errorf("model %q not found in config", name)
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Model switch failed: %v", err)))
 		return err
 	}
-	s.deps.Config.DefaultModel = name
+	s.deps.Config.Models.Default = name
 	s.mu.Unlock()
 	return nil
 }

@@ -69,13 +69,13 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	cloned := deps.BaseRegistry.Clone()
 
 	if deps.AdvisorCfg.Enabled {
-		advisorResolved, err := provider.ResolveWithDiscovery(deps.Config, deps.AdvisorCfg.Model, deps.HTTPClient)
+		advisorResolved, err := provider.ResolveWithDiscovery(deps.Config, deps.Config.Models.Advisor, deps.HTTPClient)
 		if err != nil {
-			return nil, fmt.Errorf("resolve advisor model %q: %w", deps.AdvisorCfg.Model, err)
+			return nil, fmt.Errorf("resolve advisor model %q: %w", deps.Config.Models.Advisor, err)
 		}
 		advisorProvider, err := resolveToolProvider(deps.Provider, deps.ResolvedModel, advisorResolved, deps.ProviderFactory)
 		if err != nil {
-			return nil, fmt.Errorf("build advisor provider for %q: %w", deps.AdvisorCfg.Model, err)
+			return nil, fmt.Errorf("build advisor provider for %q: %w", deps.Config.Models.Advisor, err)
 		}
 		cloned.Register(advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
 			Provider: advisorProvider,
@@ -141,12 +141,13 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		DelegateHandlerDeps: delegateDeps,
 		ModelResolver:       modelResolver,
 		ImageStore:          deps.ImageStore,
+		AgentModels:         deps.Config.Models.SubAgents,
 	}
 	var excludeTypes []AgentType
 	if deps.Searcher == nil {
 		excludeTypes = append(excludeTypes, AgentTypeResearch)
 	}
-	if deps.SubAgentCfg.Agents[string(AgentTypeVision)].Model == "" || deps.ImageStore == nil {
+	if deps.Config.Models.SubAgents[string(AgentTypeVision)] == "" || deps.ImageStore == nil {
 		excludeTypes = append(excludeTypes, AgentTypeVision)
 	}
 	for _, def := range AllSpecializedToolDefs(specializedDeps, excludeTypes) {

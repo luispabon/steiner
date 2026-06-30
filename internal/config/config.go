@@ -93,9 +93,8 @@ type HostMount struct {
 // Config is the complete application configuration.
 type Config struct {
 	Scheduler            SchedulerConfig            `yaml:"scheduler"`
-	DefaultModel         string                     `yaml:"default_model"`
 	Providers            map[string]ProviderConfig  `yaml:"providers"`
-	Models               map[string]ModelConfig     `yaml:"models"`
+	Models               ModelsConfig               `yaml:"models"`
 	Limits               LimitsConfig               `yaml:"limits"`
 	Sandbox              SandboxConfig              `yaml:"sandbox"`
 	Permissions          PermissionsConfig          `yaml:"permissions"`
@@ -103,7 +102,6 @@ type Config struct {
 	SubAgent             SubAgentConfig             `yaml:"sub_agent"`
 	Advisor              AdvisorConfig              `yaml:"advisor"`
 	OneShot              oneshotConfig              `yaml:"oneshot"`
-	WorkflowHandoff      workflowHandoffConfig      `yaml:"workflow_handoff"`
 	DesktopNotifications desktopNotificationsConfig `yaml:"desktop_notifications"`
 	Tools                map[string]ToolConfig      `yaml:"tools"`
 	ProjectContext       ProjectContextConfig       `yaml:"project_context"`
@@ -112,6 +110,17 @@ type Config struct {
 	ContextManagement    ContextManagementConfig    `yaml:"context_management"`
 	CaveHuman            bool                       `yaml:"cave_human"`
 	Search               SearchConfig               `yaml:"search"`
+}
+
+// ModelsConfig consolidates all model configuration: the model definitions
+// themselves and the role-based aliases that reference them.
+type ModelsConfig struct {
+	Default         string                 `yaml:"default"`
+	Definitions     map[string]ModelConfig `yaml:"definitions"`
+	Advisor         string                 `yaml:"advisor"`
+	SubAgents       map[string]string      `yaml:"sub_agents"`
+	OneShot         map[string]string      `yaml:"oneshot"`
+	WorkflowHandoff map[string]string      `yaml:"workflow_handoff"`
 }
 
 // SchedulerConfig controls provider concurrency.
@@ -158,36 +167,23 @@ type LimitsConfig struct {
 	ToolOutputMaxBytes int                 `yaml:"tool_output_max_bytes"`
 }
 
-// AgentConfig holds per-agent-type configuration.
-type AgentConfig struct {
-	// Model is an optional model alias override for this agent type.
-	Model string `yaml:"model"`
-}
-
 // SubAgentConfig controls delegated child-agent execution limits.
 type SubAgentConfig struct {
-	Enabled      bool                   `yaml:"enabled"`
-	MaxTurns     int                    `yaml:"max_turns"`
-	MaxTokens    int                    `yaml:"max_tokens"`
-	AllowedTools []string               `yaml:"allowed_tools"`
-	Agents       map[string]AgentConfig `yaml:"agents"`
+	Enabled      bool     `yaml:"enabled"`
+	MaxTurns     int      `yaml:"max_turns"`
+	MaxTokens    int      `yaml:"max_tokens"`
+	AllowedTools []string `yaml:"allowed_tools"`
 }
 
 // AdvisorConfig controls the optional advisor reasoning pass.
 type AdvisorConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	Model         string `yaml:"model"`
-	MaxUsesPerRun int    `yaml:"max_uses_per_run"`
-	MaxTokens     *int   `yaml:"max_tokens"`
-}
-
-type workflowHandoffConfig struct {
-	Models map[string]string `yaml:"models"`
+	Enabled       bool `yaml:"enabled"`
+	MaxUsesPerRun int  `yaml:"max_uses_per_run"`
+	MaxTokens     *int `yaml:"max_tokens"`
 }
 
 type oneshotConfig struct {
-	Models map[string]string `yaml:"models"`
-	AutoPR bool              `yaml:"auto_pr"`
+	AutoPR bool `yaml:"auto_pr"`
 }
 
 type desktopNotificationsConfig struct {

@@ -129,25 +129,26 @@ func TestVersionShort_PrintsBareVersion(t *testing.T) {
 func TestCommandsConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
-	writeFile(t, configPath, `default_model: test
-providers:
+	writeFile(t, configPath, `providers:
   local:
     type: openai_compat
     base_url: http://example/v1
 models:
-  test:
-    provider: local
-    id: test-model
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-    advanced:
-      limits:
-        max_output_tokens: 64
-        context_window: 4096
+  default: test
+  definitions:
+    test:
+      provider: local
+      id: test-model
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+      advanced:
+        limits:
+          max_output_tokens: 64
+          context_window: 4096
 `)
 	t.Setenv("HOME", filepath.Join(tempDir, "home"))
 
@@ -165,8 +166,8 @@ models:
 	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
 	}
-	if got.Models["test"].ID != "test-model" {
-		t.Fatalf("models[test].ID = %q, want test-model", got.Models["test"].ID)
+	if got.Models.Definitions["test"].ID != "test-model" {
+		t.Fatalf("models[test].ID = %q, want test-model", got.Models.Definitions["test"].ID)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
@@ -176,25 +177,26 @@ models:
 func TestCommandsConfigCaveHumanDefaultFalse(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
-	writeFile(t, configPath, `default_model: test
-providers:
+	writeFile(t, configPath, `providers:
   local:
     type: openai_compat
     base_url: http://example/v1
 models:
-  test:
-    provider: local
-    id: test-model
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-    advanced:
-      limits:
-        max_output_tokens: 64
-        context_window: 4096
+  default: test
+  definitions:
+    test:
+      provider: local
+      id: test-model
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+      advanced:
+        limits:
+          max_output_tokens: 64
+          context_window: 4096
 `)
 	t.Setenv("HOME", filepath.Join(tempDir, "home"))
 
@@ -437,21 +439,22 @@ func TestModelInspectCommand(t *testing.T) {
 		t.Fatalf("WriteFile(meta) error = %v", err)
 	}
 	configPath := filepath.Join(tempDir, "config.yaml")
-	writeFile(t, configPath, `default_model: inspect
-providers:
+	writeFile(t, configPath, `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  inspect:
-    provider: local
-    id: gpt-4o
-    params:
-      temperature: 0.2
-    extra_params:
-      reasoning:
-        effort: medium
-    prompt_suffix: <|think_off|>
+  default: inspect
+  definitions:
+    inspect:
+      provider: local
+      id: gpt-4o
+      params:
+        temperature: 0.2
+      extra_params:
+        reasoning:
+          effort: medium
+      prompt_suffix: <|think_off|>
 `)
 
 	cmd := newRootCommand()

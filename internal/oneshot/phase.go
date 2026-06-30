@@ -110,9 +110,9 @@ type PhaseSpec struct {
 }
 
 func phaseModelAlias(cfg config.Config, phase Phase) string {
-	alias := strings.TrimSpace(cfg.OneShot.Models[string(phase)])
+	alias := strings.TrimSpace(cfg.Models.OneShot[string(phase)])
 	if alias == "" {
-		return strings.TrimSpace(cfg.DefaultModel)
+		return strings.TrimSpace(cfg.Models.Default)
 	}
 	return alias
 }
@@ -128,7 +128,7 @@ func phaseAdvisorConfig(cfg config.Config, phase Phase) config.AdvisorConfig {
 
 func phaseModelSnapshot(cfg config.Config) ModelSnapshot {
 	snapshot := ModelSnapshot{
-		DefaultModel: strings.TrimSpace(cfg.DefaultModel),
+		DefaultModel: strings.TrimSpace(cfg.Models.Default),
 		PhaseModels:  make(map[Phase]string, len(phaseOrder())),
 	}
 	for _, phase := range phaseOrder() {

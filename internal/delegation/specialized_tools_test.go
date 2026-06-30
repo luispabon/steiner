@@ -310,11 +310,6 @@ func TestSpecializedHandler_UsesPerTypeModel(t *testing.T) {
 
 	deps := SpecializedToolDeps{
 		DelegateHandlerDeps: DelegateHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{
-				Agents: map[string]config.AgentConfig{
-					string(agentType): {Model: expectedModelAlias},
-				},
-			},
 			Provider:      stubProvider{},
 			ParentReg:     tool.NewRegistry(),
 			Runner:        runner,
@@ -323,6 +318,9 @@ func TestSpecializedHandler_UsesPerTypeModel(t *testing.T) {
 			ResolvedModel: provider.ResolvedModel{BackendModelID: "parent-model"},
 		},
 		ModelResolver: modelResolver,
+		AgentModels: map[string]string{
+			string(agentType): expectedModelAlias,
+		},
 	}
 
 	def := SpecializedToolDef(agentType, deps)
@@ -364,9 +362,6 @@ func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 
 	deps := SpecializedToolDeps{
 		DelegateHandlerDeps: DelegateHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{
-				Agents: map[string]config.AgentConfig{}, // No entry for agentType
-			},
 			Provider:      stubProvider{},
 			ParentReg:     tool.NewRegistry(),
 			Runner:        runner,
@@ -375,6 +370,7 @@ func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 			ResolvedModel: parentModel,
 		},
 		ModelResolver: modelResolver,
+		AgentModels:   map[string]string{}, // No entry for agentType
 	}
 
 	def := SpecializedToolDef(agentType, deps)
@@ -405,11 +401,6 @@ func TestSpecializedHandler_FallsBackWithNilResolver(t *testing.T) {
 
 	deps := SpecializedToolDeps{
 		DelegateHandlerDeps: DelegateHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{
-				Agents: map[string]config.AgentConfig{
-					string(agentType): {Model: "some-alias"},
-				},
-			},
 			Provider:      stubProvider{},
 			ParentReg:     tool.NewRegistry(),
 			Runner:        runner,
@@ -418,6 +409,9 @@ func TestSpecializedHandler_FallsBackWithNilResolver(t *testing.T) {
 			ResolvedModel: parentModel,
 		},
 		ModelResolver: nil,
+		AgentModels: map[string]string{
+			string(agentType): "some-alias",
+		},
 	}
 
 	def := SpecializedToolDef(agentType, deps)
@@ -448,11 +442,6 @@ func TestSpecializedHandler_ModelResolverError(t *testing.T) {
 
 	deps := SpecializedToolDeps{
 		DelegateHandlerDeps: DelegateHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{
-				Agents: map[string]config.AgentConfig{
-					string(agentType): {Model: expectedAlias},
-				},
-			},
 			Provider:      stubProvider{},
 			ParentReg:     tool.NewRegistry(),
 			Runner:        runner,
@@ -461,6 +450,9 @@ func TestSpecializedHandler_ModelResolverError(t *testing.T) {
 			ResolvedModel: provider.ResolvedModel{BackendModelID: "parent-model"},
 		},
 		ModelResolver: modelResolver,
+		AgentModels: map[string]string{
+			string(agentType): expectedAlias,
+		},
 	}
 
 	def := SpecializedToolDef(agentType, deps)

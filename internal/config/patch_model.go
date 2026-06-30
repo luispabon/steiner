@@ -11,13 +11,13 @@ func applySchedulerPatch(dst *SchedulerConfig, patch *schedulerPatch) {
 }
 
 func newModelConfigBase(cfg Config) ModelConfig {
-	if base, ok := cfg.Models["default"]; ok {
+	if base, ok := cfg.Models.Definitions["default"]; ok {
 		cloned := cloneModelConfig(base)
 		cloned.Advanced.Limits = AdvancedLimitsConfig{}
 		return cloned
 	}
-	if len(cfg.Models) > 0 {
-		for _, m := range cfg.Models {
+	if len(cfg.Models.Definitions) > 0 {
+		for _, m := range cfg.Models.Definitions {
 			cloned := cloneModelConfig(m)
 			cloned.Advanced.Limits = AdvancedLimitsConfig{}
 			return cloned
@@ -82,18 +82,6 @@ func applyModelPromptsPatch(dst *ModelPrompts, patch *modelPromptsPatch) {
 	setIfPresent(&dst.System, patch.System)
 	setIfPresent(&dst.Compaction, patch.Compaction)
 	setIfPresent(&dst.SystemSuffix, patch.SystemSuffix)
-}
-
-func applyWorkflowHandoffPatch(dst *workflowHandoffConfig, patch *workflowHandoffPatch) {
-	if patch.Models == nil {
-		return
-	}
-	if dst.Models == nil {
-		dst.Models = make(map[string]string)
-	}
-	for name, alias := range *patch.Models {
-		dst.Models[name] = alias
-	}
 }
 
 func applyRetryPatch(dst *RetryConfig, patch *retryPatch) {

@@ -45,10 +45,10 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		resolvedProvider := deps.Provider
 		resolvedModel := deps.ResolvedModel
 		if deps.ModelResolver != nil {
-			if ac, ok := deps.SubAgentCfg.Agents[string(AgentTypeVision)]; ok && ac.Model != "" {
-				p, rm, err := deps.ModelResolver(ac.Model)
+			if alias, ok := deps.AgentModels[string(AgentTypeVision)]; ok && alias != "" {
+				p, rm, err := deps.ModelResolver(alias)
 				if err != nil {
-					return nil, fmt.Errorf("vision: resolve model %q: %w", ac.Model, err)
+					return nil, fmt.Errorf("vision: resolve model %q: %w", alias, err)
 				}
 				resolvedProvider = p
 				resolvedModel = rm

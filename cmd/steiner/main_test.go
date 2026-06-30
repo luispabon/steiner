@@ -120,32 +120,32 @@ func TestConfigCommandPrintsResolvedConfig(t *testing.T) {
 
 	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
   parallelism: 2
-default_model: global
 providers:
   global-provider:
     type: openai_compat
     base_url: http://global.example/v1
 models:
-  global:
-    provider: global-provider
-    id: global-backend
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-    advanced:
-      limits:
-        max_output_tokens: 2048
-        context_window: 8192
+  default: global
+  definitions:
+    global:
+      provider: global-provider
+      id: global-backend
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+      advanced:
+        limits:
+          max_output_tokens: 2048
+          context_window: 8192
 limits:
   max_turns: 25
 paths:
   project_root_only: false
 `)
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `default_model: project
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   project-provider:
     type: openai_compat
     base_url: http://project.example/v1
@@ -153,32 +153,34 @@ providers:
     type: openai_compat
     base_url: http://cli.example/v1
 models:
-  project:
-    provider: project-provider
-    id: project-backend
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-    advanced:
-      limits:
-        max_output_tokens: 4096
-        context_window: 32768
-  cli:
-    provider: cli-provider
-    id: cli-backend
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-    advanced:
-      limits:
-        max_output_tokens: 8192
-        context_window: 65536
+  default: project
+  definitions:
+    project:
+      provider: project-provider
+      id: project-backend
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+      advanced:
+        limits:
+          max_output_tokens: 4096
+          context_window: 32768
+    cli:
+      provider: cli-provider
+      id: cli-backend
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+      advanced:
+        limits:
+          max_output_tokens: 8192
+          context_window: 65536
 limits:
   max_turns: 10
 logging:
@@ -211,11 +213,11 @@ logging:
 	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
 	}
-	if got.DefaultModel != "cli" {
-		t.Fatalf("default_model = %q, want cli", got.DefaultModel)
+	if got.Models.Default != "cli" {
+		t.Fatalf("default_model = %q, want cli", got.Models.Default)
 	}
-	if got.Models["cli"].ID != "cli-backend" {
-		t.Fatalf("models[cli].ID = %q, want cli-backend", got.Models["cli"].ID)
+	if got.Models.Definitions["cli"].ID != "cli-backend" {
+		t.Fatalf("models[cli].ID = %q, want cli-backend", got.Models.Definitions["cli"].ID)
 	}
 	if got.Scheduler.Parallelism != 2 {
 		t.Fatalf("scheduler.parallelism = %d, want 2", got.Scheduler.Parallelism)
@@ -248,14 +250,17 @@ func TestBuildActiveRegistryMatchesDelegateRegistry(t *testing.T) {
 				BaseURL: "http://localhost:11434/v1",
 			},
 		},
-		Models: map[string]config.ModelConfig{
-			"advisor-alias": {
-				Provider: "testprov",
-				ID:       "advisor-model",
-				Advanced: config.AdvancedConfig{
-					Limits: config.AdvancedLimitsConfig{
-						ContextWindow:   8192,
-						MaxOutputTokens: 1024,
+		Models: config.ModelsConfig{
+			Advisor: "advisor-alias",
+			Definitions: map[string]config.ModelConfig{
+				"advisor-alias": {
+					Provider: "testprov",
+					ID:       "advisor-model",
+					Advanced: config.AdvancedConfig{
+						Limits: config.AdvancedLimitsConfig{
+							ContextWindow:   8192,
+							MaxOutputTokens: 1024,
+						},
 					},
 				},
 			},
@@ -271,7 +276,6 @@ func TestBuildActiveRegistryMatchesDelegateRegistry(t *testing.T) {
 	}
 	advisorCfg := config.AdvisorConfig{
 		Enabled:       true,
-		Model:         "advisor-alias",
 		MaxUsesPerRun: 2,
 	}
 	resolvedModel := provider.ResolvedModel{
@@ -359,7 +363,6 @@ func TestDefaultBuildRuntimeResolvesSelectedModelAndScheduler(t *testing.T) {
 
 	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `scheduler:
   parallelism: 7
-default_model: slow
 providers:
   fast-provider:
     type: openai_compat
@@ -371,32 +374,34 @@ providers:
       X-Test-Header: slow
     timeout: 45s
 models:
-  fast:
-    provider: fast-provider
-    id: fast-backend
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-    advanced:
-      limits:
-        max_output_tokens: 256
-        context_window: 4096
-  slow:
-    provider: slow-provider
-    id: slow-backend
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-    advanced:
-      limits:
-        max_output_tokens: 512
-        context_window: 8192
+  default: slow
+  definitions:
+    fast:
+      provider: fast-provider
+      id: fast-backend
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+      advanced:
+        limits:
+          max_output_tokens: 256
+          context_window: 4096
+    slow:
+      provider: slow-provider
+      id: slow-backend
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+      advanced:
+        limits:
+          max_output_tokens: 512
+          context_window: 8192
 `)
 
 	cwd, err := os.Getwd()
@@ -442,7 +447,7 @@ models:
 	if gotParallelism != 7 {
 		t.Fatalf("scheduler parallelism = %d, want 7", gotParallelism)
 	}
-	rm, err := provider.Resolve(rt.cfg, rt.cfg.DefaultModel)
+	rm, err := provider.Resolve(rt.cfg, rt.cfg.Models.Default)
 	if err != nil {
 		t.Fatalf("provider.Resolve() error = %v", err)
 	}
@@ -665,7 +670,7 @@ func TestCLIRunnerEmitsFallbackWarningOncePerModel(t *testing.T) {
 
 	var stderr bytes.Buffer
 	cfg := testRuntimeConfig("unknown")
-	cfg.Models["unknown"] = config.ModelConfig{
+	cfg.Models.Definitions["unknown"] = config.ModelConfig{
 		Provider: "local",
 		ID:       "custom-unknown-model",
 	}
@@ -957,11 +962,13 @@ func testRuntimeConfig(alias string) config.Config {
 		Scheduler: config.SchedulerConfig{
 			Parallelism: 1,
 		},
-		DefaultModel: alias,
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
-		Models: map[string]config.ModelConfig{alias: modelCfg},
+		Models: config.ModelsConfig{
+			Default:     alias,
+			Definitions: map[string]config.ModelConfig{alias: modelCfg},
+		},
 		Limits: config.LimitsConfig{
 			MaxTurns:           4,
 			MaxTokens:          64,
@@ -1101,7 +1108,7 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 		},
 	}
 	cfg := testRuntimeConfig("test-model")
-	cfg.Models["test-model"] = modelCfg
+	cfg.Models.Definitions["test-model"] = modelCfg
 
 	runner := cliRunner{
 		runtime: cliRuntime{
@@ -1179,7 +1186,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		},
 	}
 	cfg := testRuntimeConfig("small")
-	cfg.Models = models
+	cfg.Models.Definitions = models
 
 	runner := cliRunner{
 		runtime: cliRuntime{
@@ -1206,7 +1213,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		t.Fatalf("first max completion tokens = %d, want %d", got, want)
 	}
 
-	runner.runtime.cfg.DefaultModel = "large"
+	runner.runtime.cfg.Models.Default = "large"
 	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil, nil); err != nil {
 		t.Fatalf("second Run() error = %v", err)
 	}
@@ -1264,7 +1271,7 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 		runtime: cliRuntime{
 			cfg: func() config.Config {
 				cfg := testRuntimeConfig("small")
-				cfg.Models = models
+				cfg.Models.Definitions = models
 				return cfg
 			}(),
 			provider: providerStub,
@@ -1316,7 +1323,7 @@ func TestCLIRunnerUsesSessionCurrentModelAliasCallback(t *testing.T) {
 	}
 
 	cfg := testRuntimeConfig("small")
-	cfg.Models = map[string]config.ModelConfig{
+	cfg.Models.Definitions = map[string]config.ModelConfig{
 		"small": {
 			Provider: "local",
 			ID:       "gpt-4o-mini",
@@ -1373,7 +1380,7 @@ func TestCLIRunnerUsesSessionCurrentModelAliasCallback(t *testing.T) {
 	if got, want := providerStub.requests[1].Model, "gpt-4o"; got != want {
 		t.Fatalf("second request model = %q, want %q", got, want)
 	}
-	if got, want := cfg.DefaultModel, "small"; got != want {
+	if got, want := cfg.Models.Default, "small"; got != want {
 		t.Fatalf("runtime config default model = %q, want %q", got, want)
 	}
 }
@@ -1400,7 +1407,7 @@ func TestCLIRunnerPropagatesExtraParamsToProvider(t *testing.T) {
 		},
 	}
 	cfg := testRuntimeConfig("test-model")
-	cfg.Models["test-model"] = modelCfg
+	cfg.Models.Definitions["test-model"] = modelCfg
 
 	runner := cliRunner{
 		runtime: cliRuntime{

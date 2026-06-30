@@ -257,13 +257,16 @@ func TestBuildActiveRegistry_DisabledReturnsSamePointer(t *testing.T) {
 
 func TestBuildActiveRegistry_AdvisorPresent_WhenEnabled(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
-	advisorCfg := config.AdvisorConfig{Enabled: true, Model: "advisor-alias", MaxUsesPerRun: 2}
+	advisorCfg := config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 2}
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
 			"testprov": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
-		Models: map[string]config.ModelConfig{
-			"advisor-alias": {Provider: "testprov", ID: "advisor-model"},
+		Models: config.ModelsConfig{
+			Advisor: "advisor-alias",
+			Definitions: map[string]config.ModelConfig{
+				"advisor-alias": {Provider: "testprov", ID: "advisor-model"},
+			},
 		},
 	}
 
@@ -302,7 +305,7 @@ func TestAgentTypesSyncWithValidation(t *testing.T) {
 		if err == nil {
 			t.Fatal("validation should have failed for unknown agent type, but got no error")
 		}
-		if !strings.Contains(err.Error(), `sub_agent.agents contains unknown agent type "unknown_agent"`) {
+		if !strings.Contains(err.Error(), `models.sub_agents contains unknown agent type "unknown_agent"`) {
 			t.Fatalf("error = %v, want unknown agent type validation error", err)
 		}
 	})
@@ -314,11 +317,11 @@ func loadConfigWithSubAgentAgents(t *testing.T, agents map[string]string) (confi
 	dir := t.TempDir()
 	path := filepath.Join(dir, "steiner.yaml")
 	var b strings.Builder
-	b.WriteString("sub_agent:\n  agents:\n")
+	b.WriteString("models:\n  sub_agents:\n")
 	for name, model := range agents {
 		b.WriteString("    ")
 		b.WriteString(name)
-		b.WriteString(":\n      model: ")
+		b.WriteString(": ")
 		b.WriteString(model)
 		b.WriteString("\n")
 	}
@@ -377,15 +380,17 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"testprov": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
-		Models: map[string]config.ModelConfig{
-			"reasoning-alias": {Provider: "testprov", ID: "reasoning-model"},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"reasoning-alias": {Provider: "testprov", ID: "reasoning-model"},
+			},
+			SubAgents: map[string]string{
+				string(delegation.AgentTypeExplore): "reasoning-alias",
+			},
 		},
 	}
 	subAgentCfg := config.SubAgentConfig{
 		Enabled: true,
-		Agents: map[string]config.AgentConfig{
-			string(delegation.AgentTypeExplore): {Model: "reasoning-alias"},
-		},
 	}
 
 	// providerFactory captures the ResolvedModel passed by modelResolver and
@@ -440,15 +445,17 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 		Providers: map[string]config.ProviderConfig{
 			"openrouter": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
 		},
-		Models: map[string]config.ModelConfig{
-			"reasoning-alias": {Provider: "openrouter", ID: "openrouter/reasoning-model"},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"reasoning-alias": {Provider: "openrouter", ID: "openrouter/reasoning-model"},
+			},
+			SubAgents: map[string]string{
+				string(delegation.AgentTypeExplore): "reasoning-alias",
+			},
 		},
 	}
 	subAgentCfg := config.SubAgentConfig{
 		Enabled: true,
-		Agents: map[string]config.AgentConfig{
-			string(delegation.AgentTypeExplore): {Model: "reasoning-alias"},
-		},
 	}
 
 	var capturedModel provider.ResolvedModel

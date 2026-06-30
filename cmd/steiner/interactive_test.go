@@ -136,9 +136,11 @@ func TestInteractiveModeEmitsWarningWhenTUIProgramFails(t *testing.T) {
 	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		return cliRuntime{
 			cfg: config.Config{
-				DefaultModel: "test",
-				Providers:    map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"}},
-				Models:       map[string]config.ModelConfig{"test": {Provider: "local", ID: "test-model"}},
+				Models: config.ModelsConfig{
+					Default:     "test",
+					Definitions: map[string]config.ModelConfig{"test": {Provider: "local", ID: "test-model"}},
+				},
+				Providers: map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"}},
 			},
 			registry: tool.NewRegistry(),
 			workDir:  t.TempDir(),
@@ -188,9 +190,11 @@ func TestInteractiveModeSuppressesProgramKilled(t *testing.T) {
 	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 		return cliRuntime{
 			cfg: config.Config{
-				DefaultModel: "test",
-				Providers:    map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"}},
-				Models:       map[string]config.ModelConfig{"test": {Provider: "local", ID: "test-model"}},
+				Models: config.ModelsConfig{
+					Default:     "test",
+					Definitions: map[string]config.ModelConfig{"test": {Provider: "local", ID: "test-model"}},
+				},
+				Providers: map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"}},
 			},
 			registry: tool.NewRegistry(),
 			workDir:  t.TempDir(),
