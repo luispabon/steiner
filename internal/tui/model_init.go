@@ -84,6 +84,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		mousePressY:          -1,
 		screenLines:          new([]string),
 		oneshotRunnerFactory: cfg.OneshotRunnerFactory,
+		imageStore:           cfg.ImageStore,
 	}
 
 	m.notifier = cfg.Notifier

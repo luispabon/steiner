@@ -78,6 +78,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		tuiCfg.SessionStore = rt.sessionStore
 	}
 	tuiCfg.Recorder = rt.usageRecorder
+	tuiCfg.ImageStore = rt.imageStore
 	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink())
 	tuiCfg.Notifier = notify.New(notify.Options{
 		Enabled:  rt.cfg.DesktopNotifications.Enabled,
