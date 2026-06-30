@@ -1,4 +1,6 @@
-# Context management
+# Context Management — Internals
+
+User-facing documentation: [Context Management](context-management.md).
 
 Every turn in the main conversation accumulates tokens — model output, tool calls, tool results. Long contexts cost more, degrade reasoning quality, and eventually hit provider limits. Steiner counters this in three lines of defense, ordered by effectiveness:
 
