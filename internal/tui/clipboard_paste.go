@@ -70,6 +70,8 @@ func buildClipboardImageMsg(data []byte, mimeType string, store *agent.ImageStor
 		ext := extFromMIME(mimeType)
 		filename := fmt.Sprintf("%s_%s.%s", time.Now().Format("20060102_150405"), randomHex(4), ext)
 		path := filepath.Join(store.Dir(), filename)
+		// Persistence is best-effort: the image works in-session via base64 data
+		// even when disk writes fail; only vision recall (by image ID) is lost.
 		if mkErr := os.MkdirAll(store.Dir(), 0o755); mkErr == nil {
 			if writeErr := os.WriteFile(path, resized, 0o644); writeErr == nil {
 				ref := store.Register(path, mimeType, w, h, len(resized))

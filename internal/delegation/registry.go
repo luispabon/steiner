@@ -146,7 +146,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	if deps.Searcher == nil {
 		excludeTypes = append(excludeTypes, AgentTypeResearch)
 	}
-	if deps.SubAgentCfg.Agents[string(AgentTypeVision)].Model == "" {
+	if deps.SubAgentCfg.Agents[string(AgentTypeVision)].Model == "" || deps.ImageStore == nil {
 		excludeTypes = append(excludeTypes, AgentTypeVision)
 	}
 	for _, def := range AllSpecializedToolDefs(specializedDeps, excludeTypes) {

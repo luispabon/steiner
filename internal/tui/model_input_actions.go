@@ -258,6 +258,8 @@ func (m Model) executeSubmitAction(value string, submitText string, displayText 
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText, Images: images}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.input.Reset()
+			return m, nil
 		}
 	}
 	m.imageMarkers = nil
