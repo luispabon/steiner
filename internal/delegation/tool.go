@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -44,6 +45,7 @@ func DelegateToolDef(handler func(ctx context.Context, input map[string]any) (an
 				"system_prompt": map[string]any{"type": "string", "description": "Optional system prompt override."},
 				"max_turns":     map[string]any{"type": "integer", "description": "Optional max turns (cannot exceed default limit)."},
 				"timeout":       map[string]any{"type": "string", "description": "Optional timeout duration string (e.g. '30s')."},
+				"work_dir":      map[string]any{"type": "string", "description": "Optional absolute path to use as the child agent's working directory. When provided, scopes all file-path resolution for the child agent (read, mutate, glob, grep, bash) to this directory instead of the parent's working directory. Set this when delegating to a sub-agent that will operate inside a git worktree."},
 			},
 			"required": []any{"task"},
 		},
@@ -100,6 +102,11 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			overrides.Timeout = d
 		}
 
+		workDir, err := resolveWorkDir(deps.WorkDir, input)
+		if err != nil {
+			return nil, err
+		}
+
 		agentID := generateAgentID()
 		spec := DelegationSpec{
 			Task: task, Context: contextStr, SystemPrompt: systemPrompt,
@@ -111,7 +118,7 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			ParentReg:            deps.ParentReg,
 			SubAgentCfg:          deps.SubAgentCfg,
 			Events:               deps.Events,
-			WorkDir:              deps.WorkDir,
+			WorkDir:              workDir,
 			HomeDir:              deps.HomeDir,
 			ProjectContextConfig: deps.ProjectContextConfig,
 			ResolvedModel:        deps.ResolvedModel,
@@ -138,6 +145,17 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		}
 		return result, nil
 	}
+}
+
+func resolveWorkDir(defaultDir string, input map[string]any) (string, error) {
+	v, ok := input["work_dir"].(string)
+	if !ok || v == "" {
+		return defaultDir, nil
+	}
+	if !filepath.IsAbs(v) {
+		return "", fmt.Errorf("delegate: work_dir must be an absolute path, got %q", v)
+	}
+	return v, nil
 }
 
 func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunRequest, state agent.RunState) {
