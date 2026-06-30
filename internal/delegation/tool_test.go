@@ -637,6 +637,13 @@ func TestToolHandler_WorkDirOverride(t *testing.T) {
 	if capturedReq.Prompt.ProjectRoot != "/worktree/path" {
 		t.Errorf("Prompt.ProjectRoot = %q, want %q", capturedReq.Prompt.ProjectRoot, "/worktree/path")
 	}
+	exec, ok := capturedReq.Executor.(*tool.Executor)
+	if !ok {
+		t.Fatal("Executor is not *tool.Executor")
+	}
+	if exec.WorkDir() != "/worktree/path" {
+		t.Errorf("Executor.WorkDir() = %q, want %q", exec.WorkDir(), "/worktree/path")
+	}
 }
 
 func TestToolHandler_WorkDirRelativeRejected(t *testing.T) {
