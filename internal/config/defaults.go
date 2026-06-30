@@ -27,12 +27,14 @@ func defaultConfig() Config {
 		Scheduler: SchedulerConfig{
 			Parallelism: 1,
 		},
-		DefaultModel: "default",
 		Providers: map[string]ProviderConfig{
 			"local": defaultProvider,
 		},
-		Models: map[string]ModelConfig{
-			"default": defaultModel,
+		Models: ModelsConfig{
+			Default: "default",
+			Definitions: map[string]ModelConfig{
+				"default": defaultModel,
+			},
 		},
 		Limits: LimitsConfig{
 			MaxTurns:           50,
