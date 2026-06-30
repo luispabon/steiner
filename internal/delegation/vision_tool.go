@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -24,40 +25,23 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		if imageID == "" {
 			return nil, fmt.Errorf("vision: image_id is required")
 		}
-		if deps.ImageStore == nil {
-			return nil, fmt.Errorf("vision: ImageStore is not configured")
-		}
 
-		ref, ok := deps.ImageStore.Get(imageID)
-		if !ok {
-			return nil, fmt.Errorf("vision: unknown image_id %q", imageID)
-		}
-
-		data, err := os.ReadFile(ref.FilePath)
+		imgBlock, err := loadVisionImageBlock(imageID, deps.ImageStore)
 		if err != nil {
-			return nil, fmt.Errorf("vision: read image: %w", err)
+			return nil, err
 		}
-		encoded := base64.StdEncoding.EncodeToString(data)
 
 		agentID := generateAgentID()
 		spec := DelegationSpec{
 			Task:         task,
 			SystemPrompt: AgentSystemPrompt(AgentTypeVision),
 			AgentID:      agentID,
-			Images: []provider.ImageBlock{{
-				MediaType: ref.MediaType,
-				Data:      encoded,
-				Width:     ref.Width,
-				Height:    ref.Height,
-				SizeBytes: ref.SizeBytes,
-			}},
+			Images:       []provider.ImageBlock{imgBlock},
 		}
 
-		// Build a modified SubAgentConfig with the vision tool allowlist.
 		typedCfg := deps.SubAgentCfg
 		typedCfg.AllowedTools = AgentAllowedTools(AgentTypeVision)
 
-		// Resolve per-type model if configured.
 		resolvedProvider := deps.Provider
 		resolvedModel := deps.ResolvedModel
 		if deps.ModelResolver != nil {
@@ -102,7 +86,6 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			return nil, fmt.Errorf("vision failed: %w", err)
 		}
 
-		// Append follow-up guidance so the caller knows how to resume.
 		if dr, ok := result.Value.(DelegationResult); ok {
 			dr.Output += fmt.Sprintf("\n\nTo ask follow-up questions about this image, use follow_up with agent_id: %q", agentID)
 			result.Value = dr
@@ -110,4 +93,27 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 
 		return result, nil
 	}
+}
+
+// loadVisionImageBlock reads the image identified by imageID from the store,
+// base64-encodes it, and returns a provider.ImageBlock ready for sub-agent injection.
+func loadVisionImageBlock(imageID string, store *agent.ImageStore) (provider.ImageBlock, error) {
+	if store == nil {
+		return provider.ImageBlock{}, fmt.Errorf("vision: ImageStore is not configured")
+	}
+	ref, ok := store.Get(imageID)
+	if !ok {
+		return provider.ImageBlock{}, fmt.Errorf("vision: unknown image_id %q", imageID)
+	}
+	data, err := os.ReadFile(ref.FilePath)
+	if err != nil {
+		return provider.ImageBlock{}, fmt.Errorf("vision: read image: %w", err)
+	}
+	return provider.ImageBlock{
+		MediaType: ref.MediaType,
+		Data:      base64.StdEncoding.EncodeToString(data),
+		Width:     ref.Width,
+		Height:    ref.Height,
+		SizeBytes: ref.SizeBytes,
+	}, nil
 }

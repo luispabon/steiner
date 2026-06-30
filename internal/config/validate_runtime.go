@@ -13,6 +13,7 @@ var validAgentTypes = map[string]bool{
 	"code":     true,
 	"plan":     true,
 	"verify":   true,
+	"vision":   true,
 }
 
 var validOneShotPhases = map[string]bool{

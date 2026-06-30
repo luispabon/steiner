@@ -1368,9 +1368,9 @@ func TestStripImagesFromMessages_alreadyStripped(t *testing.T) {
 
 func TestImageBlockPlaceholder_LegacyFormat(t *testing.T) {
 	tests := []struct {
-		name    string
-		img     ImageBlock
-		want    string
+		name string
+		img  ImageBlock
+		want string
 	}{
 		{
 			name: "basic image without size",
@@ -1424,9 +1424,9 @@ func TestImageBlockPlaceholder_LegacyFormat(t *testing.T) {
 
 func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 	tests := []struct {
-		name    string
-		img     ImageBlock
-		want    string
+		name string
+		img  ImageBlock
+		want string
 	}{
 		{
 			name: "image with ID and file path",

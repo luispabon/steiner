@@ -52,7 +52,7 @@ User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 
 ### Tool registration
 
-When `SubAgent.Enabled` is `true`, `cmd/steiner` clones the base registry and registers all five specialised tools. Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a narrower tool allowlist, and a simpler schema (single `task` parameter).
+When `SubAgent.Enabled` is `true`, `cmd/steiner` clones the base registry and registers all six specialised tools. Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a narrower tool allowlist, and a task-oriented schema. The `vision` tool additionally accepts an `image_id` parameter and is only registered when `sub_agent.agents.vision.model` is configured.
 
 `web_search` and `fetch_url` are registered as stub tools with "not yet implemented" handlers. They are included in the research agent's allowlist so the schema is complete from day one. An extended base registry is used as the parent reference for child bootstrapping so these stubs are available for child registry filtering without being exposed in the parent model's tool list.
 
@@ -62,7 +62,7 @@ When `SubAgent.Enabled` is `true`, `cmd/steiner` clones the base registry and re
 
 **1. Derive limits.** `deriveChildLimits()` combines `SubAgentConfig` defaults with spec-level overrides using tighten-only semantics — an override is applied only when it is more restrictive than the configured default. Defaults: `MaxTurns` 15, `MaxTokens` 100,000. `timeout` is accepted as an optional parameter and defaults to no timeout.
 
-**2. Build child prompt.** The child prompt is minimal: either the caller-provided `system_prompt` or a default, plus a single user message containing the task (and optional `context`). The system prompt is passed via `PromptOverrides` so the provider sees exactly one system message.
+**2. Build child prompt.** The child prompt is minimal: either the caller-provided `system_prompt` or a default, plus a single user message containing the task (and optional `context`). The system prompt is passed via `PromptOverrides` so the provider sees exactly one system message. When `DelegationSpec.Images` is non-empty, those images are attached to the first user message so the child model sees them immediately without spending a turn on a `read` call.
 
 **3. Build child registries.** Two registries are built from the parent:
 - **Visible registry** — what the model can see and request: parent base registry tools filtered to `allowed_tools`, always excluding `delegate` and `follow_up`.
@@ -118,6 +118,21 @@ A child "needs extension" when `StopReason == StopReasonMaxTurns` AND the last a
 **Summarisation turn.** After the child completes, a follow-up single-turn (no tools allowed) asks the model to produce a concise summary. If the summarisation turn fails or returns empty, the raw output is truncated to 1000 runes as a fallback.
 
 **Retention path.** The child agent's full transcript is not copied into the parent session. The parent keeps the delegate result plus a bounded summary. Compaction may later summarise older parent conversation state, including delegated work, through the normal baseline path.
+
+### Vision handler
+
+The `vision` tool uses a dedicated handler (`newVisionHandler`) rather than the generic `newSpecializedHandler`. When invoked:
+
+1. Validates `task` and `image_id` inputs.
+2. Looks up the `ImageRef` from `ImageStore` (registered when the image was pasted).
+3. Reads the image file from `.steiner/tmp/images/` and base64-encodes it.
+4. Builds a `DelegationSpec` with `Images` populated — the image is attached to the sub-agent's first conversation message via `buildChildPrompt`.
+5. Resolves the per-type model from `sub_agent.agents.vision.model`.
+6. Calls `BuildChildRun` and `SpawnDelegate` with the vision allowlist (`["read"]`) and vision system prompt.
+7. Saves the child session so the parent model can use `follow_up` for additional questions about the same image without re-uploading it.
+8. Appends a `follow_up` reminder (with `agent_id`) to the returned result.
+
+**ImageStore** is a goroutine-safe session-scoped registry in `internal/agent/image_store.go`. It maps auto-assigned IDs (`img-1`, `img-2`, …) to `ImageRef` values (file path, media type, dimensions, size). Images are saved to `.steiner/tmp/images/` on paste with `YYYYMMDD_HHMMSS_<hex>.ext` filenames and deleted on agent exit (`imageStore.Cleanup()`). `ImageStore` is wired from the composition root through `DelegateDeps.ImageStore` → `SpecializedToolDeps.ImageStore` → vision handler.
 
 ### Event lifecycle
 

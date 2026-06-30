@@ -201,7 +201,7 @@ func TestImageStore_ConcurrentAccess(t *testing.T) {
 
 	// Launch concurrent Register calls.
 	for i := 0; i < numGoroutines; i++ {
-		go func(idx int) {
+		go func(_ int) {
 			for j := 0; j < numRegsPerGoroutine; j++ {
 				store.Register("/tmp/test.png", "image/png", 100, 100, 1000)
 			}

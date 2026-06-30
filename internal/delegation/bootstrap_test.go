@@ -219,10 +219,8 @@ func TestBuildChildPrompt(t *testing.T) {
 							}
 						}
 					}
-				} else {
-					if len(first.Images) != 0 {
-						t.Errorf("Conversation[0].Images = %v, want empty/nil", first.Images)
-					}
+				} else if len(first.Images) != 0 {
+					t.Errorf("Conversation[0].Images = %v, want empty/nil", first.Images)
 				}
 			}
 		})

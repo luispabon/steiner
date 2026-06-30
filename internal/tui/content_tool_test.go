@@ -41,7 +41,7 @@ func TestSpecializedDelegateToolAccessor(t *testing.T) {
 		})
 	}
 
-	wantTools := []string{"explore", "research", "code", "plan", "verify", "follow_up"}
+	wantTools := []string{"explore", "research", "code", "plan", "verify", "vision", "follow_up"}
 	if got := delegation.AllSpecializedDelegateTools(); !slices.Equal(got, wantTools) {
 		t.Fatalf("delegation.AllSpecializedDelegateTools() = %v, want %v", got, wantTools)
 	}

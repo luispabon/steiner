@@ -132,20 +132,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	}
 
 	// Build a model resolver for specialized tools to use per-type model aliases.
-	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
-		resolved, err := provider.ResolveWithDiscovery(deps.Config, alias, deps.HTTPClient)
-		if err != nil {
-			return nil, provider.ResolvedModel{}, err
-		}
-		if deps.ProviderFactory == nil {
-			return deps.Provider, resolved, nil
-		}
-		p, err := deps.ProviderFactory(resolved)
-		if err != nil {
-			return nil, provider.ResolvedModel{}, err
-		}
-		return p, resolved, nil
-	}
+	modelResolver := buildModelResolver(deps)
 
 	// Register a specialized tool for each agent type.
 	// Skip research agent when no search backend is configured.
@@ -167,6 +154,24 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	}
 
 	return cloned, nil
+}
+
+// buildModelResolver returns a function that resolves a model alias to its provider and model metadata.
+func buildModelResolver(deps DelegateDeps) func(string) (provider.Provider, provider.ResolvedModel, error) {
+	return func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+		resolved, err := provider.ResolveWithDiscovery(deps.Config, alias, deps.HTTPClient)
+		if err != nil {
+			return nil, provider.ResolvedModel{}, err
+		}
+		if deps.ProviderFactory == nil {
+			return deps.Provider, resolved, nil
+		}
+		p, err := deps.ProviderFactory(resolved)
+		if err != nil {
+			return nil, provider.ResolvedModel{}, err
+		}
+		return p, resolved, nil
+	}
 }
 
 func resolveToolProvider(current provider.Provider, currentModel provider.ResolvedModel, target provider.ResolvedModel, providerFactory func(provider.ResolvedModel) (provider.Provider, error)) (provider.Provider, error) {
