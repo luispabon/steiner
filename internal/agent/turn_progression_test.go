@@ -1365,3 +1365,138 @@ func TestStripImagesFromMessages_alreadyStripped(t *testing.T) {
 		t.Fatalf("Content changed for already-stripped image: got %q, want %q", got[0].Content, msgs[0].Content)
 	}
 }
+
+func TestImageBlockPlaceholder_LegacyFormat(t *testing.T) {
+	tests := []struct {
+		name string
+		img  ImageBlock
+		want string
+	}{
+		{
+			name: "basic image without size",
+			img: ImageBlock{
+				MediaType: "image/png",
+				Width:     100,
+				Height:    200,
+				SizeBytes: 0,
+			},
+			want: "[image: 100x200 png]",
+		},
+		{
+			name: "image with KB size",
+			img: ImageBlock{
+				MediaType: "image/png",
+				Width:     100,
+				Height:    200,
+				SizeBytes: 2048,
+			},
+			want: "[image: 100x200 png 2KB]",
+		},
+		{
+			name: "image with MB size",
+			img: ImageBlock{
+				MediaType: "image/jpeg",
+				Width:     1920,
+				Height:    1080,
+				SizeBytes: 2097152,
+			},
+			want: "[image: 1920x1080 jpeg 2.0MB]",
+		},
+		{
+			name: "image without dimensions",
+			img: ImageBlock{
+				MediaType: "image/png",
+				SizeBytes: 1024,
+			},
+			want: "[image: ? png 1KB]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := imageBlockPlaceholder(tt.img)
+			if got != tt.want {
+				t.Fatalf("imageBlockPlaceholder() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
+	tests := []struct {
+		name string
+		img  ImageBlock
+		want string
+	}{
+		{
+			name: "image with ID and file path",
+			img: ImageBlock{
+				ID:        "img-1",
+				FilePath:  "/home/user/.steiner/tmp/images/screenshot.png",
+				MediaType: "image/png",
+				Width:     1920,
+				Height:    1080,
+				SizeBytes: 456789,
+			},
+			want: `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use vision tool with image_id "img-1" or read tool to re-examine]`,
+		},
+		{
+			name: "image with ID but no size",
+			img: ImageBlock{
+				ID:        "img-2",
+				FilePath:  "/tmp/test.jpg",
+				MediaType: "image/jpeg",
+				Width:     640,
+				Height:    480,
+				SizeBytes: 0,
+			},
+			want: `[image img-2: /tmp/test.jpg 640x480 jpeg — use vision tool with image_id "img-2" or read tool to re-examine]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := imageBlockPlaceholder(tt.img)
+			if got != tt.want {
+				t.Fatalf("imageBlockPlaceholder() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStripImagesFromMessages_withIDAndFilePath(t *testing.T) {
+	msgs := []Message{
+		{
+			Role:    MessageRoleUser,
+			Content: "look at this image",
+			Images: []ImageBlock{
+				{
+					ID:        "img-1",
+					FilePath:  "/home/user/.steiner/tmp/images/test.png",
+					MediaType: "image/png",
+					Data:      "base64data123",
+					Width:     1920,
+					Height:    1080,
+					SizeBytes: 500000,
+				},
+			},
+		},
+	}
+	got := stripImagesFromMessages(msgs)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Images != nil {
+		t.Fatalf("Images = %v, want nil", got[0].Images)
+	}
+	// Should contain the new format placeholder with the vision tool hint.
+	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB — use vision tool with image_id "img-1" or read tool to re-examine]`
+	wantContent := "look at this image\n" + wantPlaceholder
+	if got[0].Content != wantContent {
+		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
+	}
+	// Original must not be mutated.
+	if msgs[0].Images[0].Data == "" {
+		t.Fatal("original message Data was mutated")
+	}
+}

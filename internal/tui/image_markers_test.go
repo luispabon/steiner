@@ -265,6 +265,71 @@ func TestReconcileMarkers(t *testing.T) {
 	}
 }
 
+func TestTuiFormatSize(t *testing.T) {
+	cases := []struct {
+		sizeBytes int
+		want      string
+	}{
+		{0, "0B"},
+		{512, "512B"},
+		{1024, "1KB"},
+		{2048, "2KB"},
+		{1024 * 1024, "1.0MB"},
+		{1536 * 1024, "1.5MB"},
+	}
+	for _, tc := range cases {
+		got := tuiFormatSize(tc.sizeBytes)
+		if got != tc.want {
+			t.Errorf("tuiFormatSize(%d) = %q, want %q", tc.sizeBytes, got, tc.want)
+		}
+	}
+}
+
+func TestExecuteSubmitActionAppendsImagesAttached(t *testing.T) {
+	inp := newModelInput()
+	inp.SetValue("describe this")
+	m := Model{
+		input: inp,
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+		},
+		imageMarkers: []imageMarker{
+			{
+				label: "[Image 1]",
+				image: agent.ImageBlock{
+					ID:        "img-1",
+					FilePath:  ".steiner/tmp/images/20260630_143052_a7f3.png",
+					MediaType: "image/png",
+					Width:     2560,
+					Height:    1545,
+					SizeBytes: 489472, // ~478KB
+				},
+			},
+		},
+	}
+
+	updated, _ := m.executeSubmitAction("describe this", "describe this", "describe this")
+	got := updated.(Model)
+
+	// Check that imageMarkers were cleared
+	if len(got.imageMarkers) != 0 {
+		t.Errorf("imageMarkers not cleared after submit, got %d", len(got.imageMarkers))
+	}
+
+	// Check that "Images attached:" line was appended to content as a plain segment
+	found := false
+	for _, seg := range got.content.segments {
+		if seg.kind == segmentPlain && seg.text == "  Images attached:" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error(`expected "  Images attached:" plain segment in content, not found`)
+	}
+}
+
 func TestSnapCursorPastMarkers(t *testing.T) {
 	img1 := agent.ImageBlock{MediaType: "image/png", Data: "a"}
 	markers := []imageMarker{{label: "[Image 1]", image: img1}}

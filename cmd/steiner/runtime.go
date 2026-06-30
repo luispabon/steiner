@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/history"
@@ -65,6 +66,7 @@ type cliRuntime struct {
 	streamErrorLog         *provider.StreamErrorLogger
 	compactionLogFile      string
 	usageRecorder          *usagestats.Recorder
+	imageStore             *agent.ImageStore
 }
 
 var buildRuntime = defaultBuildRuntime
@@ -78,6 +80,9 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 }
 
 func closeRuntime(rt *cliRuntime) {
+	if rt.imageStore != nil {
+		_ = rt.imageStore.Cleanup()
+	}
 	if rt.delegationLogger != nil {
 		if err := rt.delegationLogger.Close(); err != nil {
 			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{

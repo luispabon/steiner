@@ -163,6 +163,7 @@ type Model struct {
 	oneshotRunnerFactory         OneshotRunnerFactoryBuilder
 	notifier                     notifier
 	ticking                      bool
+	imageStore                   *agent.ImageStore
 
 	viewportLines      []string
 	viewportContentLen int

@@ -117,7 +117,7 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea
 		m.syncViewport()
 		return true, m, nil
 	case isCtrl(msg, 'v'):
-		return true, m, pasteImageCmd()
+		return true, m, pasteImageCmd(m.imageStore)
 	}
 	switch msg.Code {
 	case tea.KeyTab:

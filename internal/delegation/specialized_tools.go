@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -13,11 +14,36 @@ import (
 type SpecializedToolDeps struct {
 	DelegateHandlerDeps
 	ModelResolver func(alias string) (provider.Provider, provider.ResolvedModel, error)
+	// ImageStore provides image lookup for the vision sub-agent tool.
+	ImageStore *agent.ImageStore
 }
 
 // SpecializedToolDef returns a ToolDef for the given agent type.
-// The tool name matches the agent type string and accepts only a "task" parameter.
+// The tool name matches the agent type string and accepts a "task" parameter.
+// Vision uses an extended schema with an additional required "image_id" parameter
+// and a dedicated handler that reads the image from the ImageStore.
 func SpecializedToolDef(agentType AgentType, deps SpecializedToolDeps) tool.ToolDef {
+	if agentType == AgentTypeVision {
+		return tool.ToolDef{
+			Name:        string(agentType),
+			Description: specializedDescription(agentType),
+			ParameterSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"task": map[string]any{
+						"type":        "string",
+						"description": "What to analyze or describe about the image.",
+					},
+					"image_id": map[string]any{
+						"type":        "string",
+						"description": "Required. The image ID to examine (e.g. 'img-1'). Shown in the image placeholder in the conversation.",
+					},
+				},
+				"required": []any{"task", "image_id"},
+			},
+			Handler: newVisionHandler(deps),
+		}
+	}
 	return tool.ToolDef{
 		Name:        string(agentType),
 		Description: specializedDescription(agentType),
@@ -48,6 +74,8 @@ func specializedDescription(t AgentType) string {
 		return "Spawn an analysis sub-agent to evaluate a sub-problem and produce a structured recommendation."
 	case AgentTypeVerify:
 		return "Spawn a verification sub-agent to run checks, tests, or linters and report pass/fail results."
+	case AgentTypeVision:
+		return "Spawn a vision sub-agent to analyze an image. The sub-agent receives the image directly and describes or answers questions about it. After the initial call, use follow_up with the returned agent_id to ask additional questions about the same image — the image is cached server-side so follow-ups are cheap."
 	default:
 		return "Spawn a specialized sub-agent."
 	}

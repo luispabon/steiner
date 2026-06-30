@@ -88,6 +88,11 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", spec.Task, spec.Context)
 	}
 
+	msg := provider.Message{Role: provider.MessageRoleUser, Content: taskContent}
+	if len(spec.Images) > 0 {
+		msg.Images = spec.Images
+	}
+
 	opts := prompt.AssemblyOptions{
 		HomeDir:                   homeDir,
 		ProjectRoot:               workDir,
@@ -96,7 +101,7 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 		ProjectContextBudgetBytes: pcc.MaxTokens,
 		CaveHuman:                 caveHuman,
 		Conversation: []provider.Message{
-			{Role: provider.MessageRoleUser, Content: taskContent},
+			msg,
 		},
 	}
 	if spec.SystemPrompt != "" {

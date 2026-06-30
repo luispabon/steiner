@@ -1,6 +1,6 @@
 # Sub-agent delegation
 
-`steiner` exposes six sub-agent-as-tool operations that delegate bounded tasks to isolated child agents.
+`steiner` exposes seven sub-agent-as-tool operations that delegate bounded tasks to isolated child agents.
 
 `advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. The advisor lives alongside the delegation tools in the main loop, but it is not a child agent.
 
@@ -8,7 +8,7 @@
 
 ## Available tools
 
-Sub-agent delegation is **enabled by default**. When it is, the model sees six additional tools alongside the built-in ones:
+Sub-agent delegation is **enabled by default**. When it is, the model sees seven additional tools alongside the built-in ones:
 
 | Tool        | What it does                                                                     | Extra params                                               | Can mutate?            |
 |-------------|----------------------------------------------------------------------------------|------------------------------------------------------------|------------------------|
@@ -17,9 +17,10 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees six a
 | `code`      | Implement a scoped change — read relevant files, write changes, run tests        | `task` only                                                | Yes (`mutate`, `bash`) |
 | `plan`      | Analyse a sub-problem, evaluate options, and produce a structured recommendation | `task` only                                                | No                     |
 | `verify`    | Run tests, linters, builds, or other checks and report pass or fail              | `task` only                                                | No                     |
+| `vision`    | Analyze an image by ID — the sub-agent receives the image directly               | `task`, `image_id`                                         | No                     |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
 
-The five specialised tools (`explore`, `research`, `code`, `plan`, `verify`) are hardcoded with purpose-built system prompts and tool allowlists. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
+The six specialised tools (`explore`, `research`, `code`, `plan`, `verify`, `vision`) are hardcoded with purpose-built system prompts and tool allowlists. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
 
 ### Advisor
 
@@ -36,6 +37,7 @@ The `advisor` tool is a pure reasoning pass for the parent agent. It reads the l
 | Understand how a feature works across multiple files   | `explore` — trace the call chain and report                    |
 | Evaluate two approaches to a design problem            | `plan` — analyse tradeoffs and recommend                       |
 | Run broad verification while continuing local work     | `verify` — run checks and summarise exact failures             |
+| Describe or query a pasted image                       | `vision` — the sub-agent receives the image and answers        |
 
 `plan` is for focused sub-problem analysis, **not** overall task planning.
 
@@ -56,7 +58,7 @@ Key behaviours:
 - A sub-agent **cannot delegate further** — `delegate` and `follow_up` tools are always stripped from child registries.
 - The parent-only `workflow_handoff` tool is not included in child allowlists yet.
 - Only the `code` sub-agent has access to file-mutation tools (`mutate`) or `bash`.
-- `explore`, `research`, and `plan` are read-only.
+- `explore`, `research`, `plan`, and `vision` are read-only.
 - `verify` can run commands via `bash` but must not modify files.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
 - The child's full conversation transcript is not copied into the parent session; only a structured result and bounded summary persist.
@@ -70,6 +72,7 @@ Key behaviours:
 | `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`              |
 | `plan`     | `read`, `glob`, `grep`, `ls`                                |
 | `verify`   | `read`, `glob`, `grep`, `ls`, `bash`                        |
+| `vision`   | `read`                                                      |
 
 \* `web_search` and `fetch_url` are not yet implemented. The `research` agent won't be fully available until a `web_search` backend is configured — see the README for details.
 
@@ -96,6 +99,28 @@ sub_agent:
 ```
 
 Each entry under `agents` keyed by agent type name can set `model` to any model alias defined in your `models` configuration. If no override is set, the sub-agent uses the same model as the parent.
+
+### `vision` tool
+
+The `vision` tool requires two parameters:
+
+| Parameter  | Type   | Description |
+|------------|--------|-------------|
+| `task`     | string | What to analyze or describe about the image. |
+| `image_id` | string | The image ID shown in the placeholder (e.g. `img-1`). |
+
+When you paste an image, the TUI displays its assigned ID below the submitted message. Pass that ID to `vision` to examine the image.
+
+After the initial `vision` call, use `follow_up` with the returned `agent_id` to ask additional questions about the same image. The provider's server-side prompt cache makes follow-ups cheap.
+
+The `vision` tool is only registered when `sub_agent.agents.vision.model` is configured. It requires a vision-capable model:
+
+```yaml
+sub_agent:
+  agents:
+    vision:
+      model: claude-sonnet-4
+```
 
 ---
 

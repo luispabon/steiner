@@ -54,6 +54,9 @@ type DelegateDeps struct {
 	// When nil, BuildDelegateRegistry creates a fresh per-call store (backward-compatible).
 	// Callers that need cross-turn follow_up support should provide a long-lived store.
 	SessionStore *SessionStore
+	// ImageStore provides image lookup for the vision sub-agent tool.
+	// When nil or when no vision model is configured, the vision tool is not registered.
+	ImageStore *agent.ImageStore
 }
 
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
@@ -129,7 +132,33 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	}
 
 	// Build a model resolver for specialized tools to use per-type model aliases.
-	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+	modelResolver := buildModelResolver(deps)
+
+	// Register a specialized tool for each agent type.
+	// Skip research agent when no search backend is configured.
+	// Skip vision agent when no vision model is configured.
+	specializedDeps := SpecializedToolDeps{
+		DelegateHandlerDeps: delegateDeps,
+		ModelResolver:       modelResolver,
+		ImageStore:          deps.ImageStore,
+	}
+	var excludeTypes []AgentType
+	if deps.Searcher == nil {
+		excludeTypes = append(excludeTypes, AgentTypeResearch)
+	}
+	if deps.SubAgentCfg.Agents[string(AgentTypeVision)].Model == "" || deps.ImageStore == nil {
+		excludeTypes = append(excludeTypes, AgentTypeVision)
+	}
+	for _, def := range AllSpecializedToolDefs(specializedDeps, excludeTypes) {
+		cloned.Register(def)
+	}
+
+	return cloned, nil
+}
+
+// buildModelResolver returns a function that resolves a model alias to its provider and model metadata.
+func buildModelResolver(deps DelegateDeps) func(string) (provider.Provider, provider.ResolvedModel, error) {
+	return func(alias string) (provider.Provider, provider.ResolvedModel, error) {
 		resolved, err := provider.ResolveWithDiscovery(deps.Config, alias, deps.HTTPClient)
 		if err != nil {
 			return nil, provider.ResolvedModel{}, err
@@ -143,22 +172,6 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		}
 		return p, resolved, nil
 	}
-
-	// Register a specialized tool for each agent type.
-	// Skip research agent when no search backend is configured.
-	specializedDeps := SpecializedToolDeps{
-		DelegateHandlerDeps: delegateDeps,
-		ModelResolver:       modelResolver,
-	}
-	var excludeTypes []AgentType
-	if deps.Searcher == nil {
-		excludeTypes = []AgentType{AgentTypeResearch}
-	}
-	for _, def := range AllSpecializedToolDefs(specializedDeps, excludeTypes) {
-		cloned.Register(def)
-	}
-
-	return cloned, nil
 }
 
 func resolveToolProvider(current provider.Provider, currentModel provider.ResolvedModel, target provider.ResolvedModel, providerFactory func(provider.ResolvedModel) (provider.Provider, error)) (provider.Provider, error) {

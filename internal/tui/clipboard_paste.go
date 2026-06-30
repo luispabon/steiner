@@ -1,11 +1,15 @@
 package tui
 
 import (
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -21,12 +25,12 @@ type clipboardImageMsg struct {
 
 // pasteImageCmd returns a tea.Cmd that reads the clipboard asynchronously.
 // Returns nil (no-op) when no image and no image file path found.
-func pasteImageCmd() tea.Cmd {
+func pasteImageCmd(store *agent.ImageStore) tea.Cmd {
 	return func() tea.Msg {
 		// 1. Try clipboard image
 		data, mimeType, err := ReadClipboardImage()
 		if err == nil && len(data) > 0 {
-			return buildClipboardImageMsg(data, mimeType)
+			return buildClipboardImageMsg(data, mimeType, store)
 		}
 
 		// 2. Try clipboard text as file path
@@ -44,23 +48,59 @@ func pasteImageCmd() tea.Cmd {
 		}
 		// detect MIME from file content
 		mimeType = http.DetectContentType(fileData)
-		return buildClipboardImageMsg(fileData, mimeType)
+		return buildClipboardImageMsg(fileData, mimeType, store)
 	}
 }
 
-func buildClipboardImageMsg(data []byte, mimeType string) tea.Msg {
+func buildClipboardImageMsg(data []byte, mimeType string, store *agent.ImageStore) tea.Msg {
 	resized, w, h, err := builtin.ResizeImageIfNeeded(data)
 	if err != nil {
 		return clipboardImageMsg{err: err}
 	}
 	encoded := base64.StdEncoding.EncodeToString(resized)
-	return clipboardImageMsg{
-		block: agent.ImageBlock{
-			MediaType: mimeType,
-			Data:      encoded,
-			Width:     w,
-			Height:    h,
-			SizeBytes: len(resized),
-		},
+	block := agent.ImageBlock{
+		MediaType: mimeType,
+		Data:      encoded,
+		Width:     w,
+		Height:    h,
+		SizeBytes: len(resized),
+	}
+
+	if store != nil {
+		ext := extFromMIME(mimeType)
+		filename := fmt.Sprintf("%s_%s.%s", time.Now().Format("20060102_150405"), randomHex(4), ext)
+		path := filepath.Join(store.Dir(), filename)
+		// Persistence is best-effort: the image works in-session via base64 data
+		// even when disk writes fail; only vision recall (by image ID) is lost.
+		if mkErr := os.MkdirAll(store.Dir(), 0o755); mkErr == nil {
+			if writeErr := os.WriteFile(path, resized, 0o644); writeErr == nil {
+				ref := store.Register(path, mimeType, w, h, len(resized))
+				block.ID = ref.ID
+				block.FilePath = ref.FilePath
+			}
+		}
+	}
+
+	return clipboardImageMsg{block: block}
+}
+
+// randomHex returns n random bytes hex-encoded (2n characters).
+func randomHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// extFromMIME maps common image MIME types to file extensions.
+func extFromMIME(mimeType string) string {
+	switch mimeType {
+	case "image/jpeg":
+		return "jpg"
+	case "image/gif":
+		return "gif"
+	case "image/webp":
+		return "webp"
+	default:
+		return "png"
 	}
 }

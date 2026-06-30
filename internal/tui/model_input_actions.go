@@ -258,10 +258,21 @@ func (m Model) executeSubmitAction(value string, submitText string, displayText 
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText, Images: images}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.input.Reset()
+			return m, nil
 		}
 	}
 	m.imageMarkers = nil
 	m.content.AppendUser(displayText)
+	if len(images) > 0 {
+		m.content.AppendLine("  Images attached:")
+		for _, img := range images {
+			if img.FilePath != "" {
+				m.content.AppendLine(fmt.Sprintf("    %s  %dx%d %s  %s",
+					img.ID, img.Width, img.Height, tuiFormatSize(img.SizeBytes), img.FilePath))
+			}
+		}
+	}
 	m.input.Reset()
 	m.historyIdx = 0
 	m.relayoutInput()

@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
@@ -67,6 +68,8 @@ type Config struct {
 	Recorder *usagestats.Recorder
 	// Notifier delivers desktop notifications on blocking states; nil disables notifications.
 	Notifier notifier
+	// ImageStore tracks pasted images saved to disk; nil disables disk persistence.
+	ImageStore *agent.ImageStore
 }
 
 // OneshotRunnerFactoryBuilder builds a phase runner factory bound to a specific

@@ -174,11 +174,17 @@ func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 		nameSet[n] = true
 	}
 
-	// Research agent is excluded when no searcher is configured.
+	// Research and vision agents are excluded when not configured.
 	for _, agentType := range delegation.AllAgentTypes() {
 		if agentType == delegation.AgentTypeResearch {
 			if nameSet[string(agentType)] {
 				t.Errorf("research tool should not be in registry when no searcher configured")
+			}
+			continue
+		}
+		if agentType == delegation.AgentTypeVision {
+			if nameSet[string(agentType)] {
+				t.Errorf("vision tool should not be in registry when no vision model configured")
 			}
 			continue
 		}

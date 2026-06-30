@@ -8,6 +8,22 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 )
 
+// tuiFormatSize returns a human-readable size string like "2KB" or "1.5MB".
+func tuiFormatSize(sizeBytes int) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+	)
+	switch {
+	case sizeBytes >= mb:
+		return fmt.Sprintf("%.1fMB", float64(sizeBytes)/mb)
+	case sizeBytes >= kb:
+		return fmt.Sprintf("%dKB", sizeBytes/kb)
+	default:
+		return fmt.Sprintf("%dB", sizeBytes)
+	}
+}
+
 type imageMarker struct {
 	label string
 	image agent.ImageBlock

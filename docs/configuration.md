@@ -349,7 +349,7 @@ do and tool allowlists for each specialised agent type, see
 | `max_turns`    | int                        | `30`                                     | Maximum turns allowed for each child agent run. A floor of 15 turns is enforced internally. |
 | `max_tokens`   | int                        | `100000`                                 | Maximum tokens a child agent may consume. |
 | `allowed_tools`| []string                   | `["read","glob","grep","ls","bash"]`     | Tools available to the generic `delegate` sub-agent (currently disabled). Specialised agents (explore/research/code/plan/verify) use their own hardcoded allowlists and ignore this field. |
-| `agents`       | map[string]AgentConfig     | —                                        | Per-agent-type configuration. Key is the agent type (e.g. `code`, `research`, `explore`). |
+| `agents`       | map[string]AgentConfig     | —                                        | Per-agent-type configuration. Key is the agent type (e.g. `code`, `research`, `explore`, `vision`). |
 
 ### `AgentConfig` fields
 
@@ -373,7 +373,11 @@ sub_agent:
       model: gpt-4o
     research:
       model: claude-sonnet-4
+    vision:
+      model: claude-sonnet-4   # required to enable the vision tool
 ```
+
+The `vision` agent type requires a vision-capable model. When `sub_agent.agents.vision.model` is empty or unset, the `vision` tool is not registered.
 
 ---
 

@@ -129,6 +129,7 @@ func TestBuildChildPrompt(t *testing.T) {
 		wantFirstText string
 		wantSystem    string
 		wantLen       int
+		wantImages    []provider.ImageBlock
 	}{
 		{
 			name: "default system prompt with task only",
@@ -140,6 +141,7 @@ func TestBuildChildPrompt(t *testing.T) {
 			wantFirstText: "do something",
 			wantSystem:    defaultChildSystemPrompt,
 			wantLen:       1,
+			wantImages:    nil,
 		},
 		{
 			name: "custom system prompt",
@@ -152,6 +154,7 @@ func TestBuildChildPrompt(t *testing.T) {
 			wantFirstText: "do something",
 			wantSystem:    "Custom prompt",
 			wantLen:       1,
+			wantImages:    nil,
 		},
 		{
 			name: "task with context formats correctly",
@@ -164,6 +167,24 @@ func TestBuildChildPrompt(t *testing.T) {
 			wantFirstText: "do something\n\nAdditional context:\nrelevant info",
 			wantSystem:    defaultChildSystemPrompt,
 			wantLen:       1,
+			wantImages:    nil,
+		},
+		{
+			name: "task with images included in first message",
+			spec: DelegationSpec{
+				Task:    "analyze this image",
+				AgentID: "test-4",
+				Images: []provider.ImageBlock{
+					{MediaType: "image/jpeg", Data: "test_data"},
+				},
+			},
+			wantFirstRole: provider.MessageRoleUser,
+			wantFirstText: "analyze this image",
+			wantSystem:    defaultChildSystemPrompt,
+			wantLen:       1,
+			wantImages: []provider.ImageBlock{
+				{MediaType: "image/jpeg", Data: "test_data"},
+			},
 		},
 	}
 
@@ -183,6 +204,23 @@ func TestBuildChildPrompt(t *testing.T) {
 				}
 				if first.Content != tt.wantFirstText {
 					t.Errorf("Conversation[0].Content = %q, want %q", first.Content, tt.wantFirstText)
+				}
+				if len(tt.wantImages) > 0 {
+					if len(first.Images) != len(tt.wantImages) {
+						t.Errorf("Conversation[0].Images length = %d, want %d", len(first.Images), len(tt.wantImages))
+					}
+					for i, img := range first.Images {
+						if i < len(tt.wantImages) {
+							if img.MediaType != tt.wantImages[i].MediaType {
+								t.Errorf("Conversation[0].Images[%d].MediaType = %q, want %q", i, img.MediaType, tt.wantImages[i].MediaType)
+							}
+							if img.Data != tt.wantImages[i].Data {
+								t.Errorf("Conversation[0].Images[%d].Data = %q, want %q", i, img.Data, tt.wantImages[i].Data)
+							}
+						}
+					}
+				} else if len(first.Images) != 0 {
+					t.Errorf("Conversation[0].Images = %v, want empty/nil", first.Images)
 				}
 			}
 		})

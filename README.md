@@ -181,7 +181,7 @@ See [docs/context-management.md](docs/context-management.md) for the full refere
 
 ## Sub-agent delegation
 
-Delegation is steiner's primary context management strategy. `steiner` exposes six sub-agent tools that delegate bounded tasks to isolated child agents. Sub-agent delegation is enabled by default — the model sees these tools alongside the built-ins:
+Delegation is steiner's primary context management strategy. `steiner` exposes seven sub-agent tools that delegate bounded tasks to isolated child agents. Sub-agent delegation is enabled by default — the model sees these tools alongside the built-ins:
 
 | Tool | What it does | Can mutate? |
 |------|--------------|-------------|
@@ -190,9 +190,24 @@ Delegation is steiner's primary context management strategy. `steiner` exposes s
 | `code` | Implement a scoped change — read relevant files, write changes, run tests | Yes |
 | `plan` | Analyse a sub-problem, evaluate options, and produce a structured recommendation | No |
 | `verify` | Run tests, linters, builds, or other checks and report pass or fail | No |
+| `vision` | Analyze a pasted image by ID — sub-agent receives the image directly | No |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message | No |
 
 See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
+
+## Image persistence
+
+When you paste an image (Ctrl+V), steiner saves it to `.steiner/tmp/images/` and assigns it a session-unique ID (e.g. `img-1`). The TUI displays the ID, dimensions, size, and file path below the submitted message.
+
+The strip placeholder — shown on subsequent turns when image data is omitted — includes the ID and file path so the model knows where to find the image. To re-examine it, call `vision` with the image ID:
+
+```
+vision(task: "what color is the button?", image_id: "img-1")
+```
+
+For follow-up questions about the same image, use `follow_up` with the `agent_id` returned by the initial `vision` call — the image is already in the sub-agent's history and cached server-side.
+
+The `vision` tool requires a vision-capable model configured under `sub_agent.agents.vision.model`. Image files are deleted automatically when the agent exits.
 
 ## Optional features
 
@@ -247,7 +262,7 @@ These features are documented in [Optional Features](docs/optional-features.md):
 - [**`cave_human`**](docs/optional-features.md#cave_human) — terse output with anti-AI-writing style instruction
 - [**Accent colour**](docs/optional-features.md#accent-colour) — customizable TUI accent with 13 presets and `/accent` picker
 - [**Web search**](docs/optional-features.md#web-search) — model-facing search tool with Google, Kagi, Brave, and SearXNG backends
-- [**Image paste**](docs/optional-features.md#image-paste) — Ctrl+V image input with auto-resize and token accounting
+- [**Image paste and recall**](docs/optional-features.md#image-paste) — Ctrl+V image input with auto-resize, token accounting, and vision sub-agent re-examination
 - [**Conversation forking**](docs/optional-features.md#conversation-forking) — fork live or saved sessions into independent copies
 - [**Code simplification**](docs/optional-features.md#code-simplification) — parallel sub-agent analysis for reuse, simplification, efficiency, and altitude
 - [**Codex OAuth**](docs/optional-features.md#codex-oauth) — use OpenAI Codex subscription models without a separate API key
