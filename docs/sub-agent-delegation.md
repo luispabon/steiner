@@ -89,16 +89,15 @@ sub_agent:
   max_turns: 30
   max_tokens: 100000
 
+models:
   # Per-agent-type model overrides. When set, sub-agents of that type use
   # a different model than the parent agent.
-  agents:
-    code:
-      model: gpt-4o
-    research:
-      model: claude-sonnet-4
+  sub_agents:
+    code: gpt-4o
+    research: claude-sonnet-4
 ```
 
-Each entry under `agents` keyed by agent type name can set `model` to any model alias defined in your `models` configuration. If no override is set, the sub-agent uses the same model as the parent.
+Each entry under `models.sub_agents` keyed by agent type name can set the model alias to any key defined in `models.definitions`. If no override is set, the sub-agent uses the same model as the parent.
 
 ### `vision` tool
 

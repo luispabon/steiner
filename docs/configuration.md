@@ -21,7 +21,7 @@ Key environment variables:
 
 | Variable                      | Maps to                           |
 |-------------------------------|-----------------------------------|
-| `STEINER_MODEL`               | `default_model`                   |
+| `STEINER_MODEL`               | `models.default`                  |
 | `STEINER_SCHEDULER_PARALLELISM` | `scheduler.parallelism`         |
 | `STEINER_MAX_TURNS`           | `limits.max_turns`                |
 | `STEINER_MAX_TOKENS`          | `limits.max_tokens`               |
@@ -35,11 +35,10 @@ Key environment variables:
 
 | Field               | Type     | Default     | Description |
 |---------------------|----------|-------------|-------------|
-| `default_model`     | string   | `"default"` | Name of the model alias to use when none is specified on the command line. Must reference a key in `models`. |
+| `models`            | block    | see below   | Consolidated model configuration: model definitions and all role-based model aliases (default, advisor, sub-agents, oneshot, workflow handoff). |
 | `cave_human`        | bool     | `false`     | When `true`, enables `cave_human` - combines terse output with an "avoid AI-writing tells" instruction that is applied to the system preamble, compaction prompts, and sub-agent prompts. |
 | `advisor`           | block    | see below   | Optional stronger-model steering config. When enabled, the advisor tool is available to the main loop and its per-run cap is enforced in handler state so the tool registry stays static for prompt-cache integrity. |
-| `oneshot`           | block    | empty       | Per-phase model aliases and closeout settings for autonomous oneshot runs. Unset phase aliases fall back to `default_model` at runtime, not during load. |
-| `workflow_handoff`  | block    | empty       | Optional persistent handoff model aliases for destination workflows. If a destination has no valid alias, handoff uses the current session model. |
+| `oneshot`           | block    | empty       | Closeout settings for autonomous oneshot runs. Per-phase model aliases live under `models.oneshot`. |
 | `desktop_notifications` | block | see below | Desktop notification settings for run completion and events. |
 
 ## `advisor` block
@@ -53,38 +52,43 @@ removing or mutating the tool mid-conversation.
 | Field              | Type   | Default | Description |
 |--------------------|--------|---------|-------------|
 | `enabled`          | bool   | `false` | Master switch. Set to `true` to enable the advisor tool and prompt steering. |
-| `model`            | string | `""`    | Model alias used for advisor calls. Must reference a key in `models` when enabled. |
 | `max_uses_per_run` | int    | `3`     | Per-run use cap enforced in handler state. When the cap is exhausted, the handler returns a budget-exhausted result instead of calling the advisor model. |
 | `max_tokens`       | *int   | `nil`   | Optional output-token ceiling for advisor calls. When set, the value is forwarded to the provider request. |
+
+The model alias used for advisor calls is configured via `models.advisor` (see the [`models` block](#models-block)), not under `advisor` itself.
 
 ```yaml
 advisor:
   enabled: true
-  model: advisor-model
   max_uses_per_run: 2
   max_tokens: 256
+
+models:
+  advisor: advisor-model
 ```
 
 ---
 
 ## `oneshot` block
 
-Controls per-phase model aliases and the optional closeout PR flow for the
-autonomous `oneshot` mode. `models` is sparse: omit a phase to let runtime use
-`default_model` when that phase is resolved.
+Controls the optional closeout PR flow for the autonomous `oneshot` mode.
+Per-phase model aliases live under `models.oneshot` (see the
+[`models` block](#models-block)) and are sparse: omit a phase to let runtime
+use `models.default` when that phase is resolved.
 
 | Field     | Type   | Default | Description |
 |-----------|--------|---------|-------------|
-| `models`  | map    | empty   | Per-phase model aliases keyed by `plan`, `implement`, and `review`. Each value must reference a key in `models`. Missing phases fall back to `default_model` at runtime. |
 | `auto_pr` | bool   | `false` | When `true`, oneshot closeout may push the branch and open a PR/MR after a passing review. |
 
 ```yaml
 oneshot:
-  models:
+  auto_pr: false
+
+models:
+  oneshot:
     plan: planner-model
     implement: coder-model
     review: reviewer-model
-  auto_pr: false
 ```
 
 ---
@@ -132,7 +136,8 @@ scheduler:
 ## `providers` block
 
 A map of named provider configurations. Each entry describes how steiner
-connects to a model API. The key is an arbitrary name referenced by `models`.
+connects to a model API. The key is an arbitrary name referenced by
+`models.definitions.*.provider`.
 
 ```yaml
 providers:
@@ -180,15 +185,60 @@ providers:
 
 ## `models` block
 
-A map of named model aliases. Each entry binds a provider to a specific model
-ID and sets request-level parameters.
+Consolidates all model configuration: the named model definitions and every
+role-based alias that references them (the default model, the advisor model,
+sub-agent overrides, oneshot per-phase models, and workflow handoff models).
+
+| Field               | Type                       | Default | Description |
+|---------------------|----------------------------|---------|-------------|
+| `default`           | string                     | `"default"` | Name of the model alias to use when none is specified on the command line. Must reference a key in `definitions`. |
+| `definitions`        | map[string]ModelConfig    | empty   | Named model definitions. Each entry binds a provider to a specific model ID and sets request-level parameters. |
+| `advisor`            | string                    | `""`    | Model alias used for advisor calls. Must reference a key in `definitions` when `advisor.enabled` is `true`. |
+| `sub_agents`         | map[string]string         | empty   | Per-agent-type model alias overrides, keyed by agent type (e.g. `code`, `research`). Each value must reference a key in `definitions`. If an agent type has no entry, the sub-agent uses the same model as the parent. |
+| `oneshot`            | map[string]string         | empty   | Per-phase model aliases for autonomous oneshot runs, keyed by `plan`, `implement`, and `review`. Each value must reference a key in `definitions`. Missing phases fall back to `default` at runtime. |
+| `workflow_handoff`   | map[string]string         | empty   | Persistent handoff model aliases, keyed by destination workflow name (`implement`, `review`). If a destination has no entry, handoff uses the current session model. |
 
 ```yaml
 models:
-  <name>:
-    provider: <provider_name>
-    id: <model_id>
-    ...
+  default: local
+  definitions:
+    local:
+      provider: local
+      id: qwen2.5-coder:14b
+    sonnet:
+      provider: anthropic
+      id: claude-sonnet-4-5
+  advisor: sonnet
+  sub_agents:
+    code: sonnet
+    research: local
+  oneshot:
+    plan: local
+    implement: sonnet
+    review: sonnet
+  workflow_handoff:
+    implement: sonnet
+    review: sonnet
+```
+
+`workflow_handoff` supports destination keys `implement` and `review`. If a
+destination has no entry, handoff uses the current session model. The
+interactive handoff picker can still override the pending model for one
+handoff without changing configuration.
+
+### `definitions` entries
+
+Each key under `models.definitions` is an arbitrary model alias name. Each
+entry binds a provider to a specific model ID and sets request-level
+parameters.
+
+```yaml
+models:
+  definitions:
+    <name>:
+      provider: <provider_name>
+      id: <model_id>
+      ...
 ```
 
 ### `ModelConfig` fields
@@ -349,13 +399,11 @@ do and tool allowlists for each specialised agent type, see
 | `max_turns`    | int                        | `30`                                     | Maximum turns allowed for each child agent run. A floor of 15 turns is enforced internally. |
 | `max_tokens`   | int                        | `100000`                                 | Maximum tokens a child agent may consume. |
 | `allowed_tools`| []string                   | `["read","glob","grep","ls","bash"]`     | Tools available to the generic `delegate` sub-agent (currently disabled). Specialised agents (explore/research/code/plan/verify) use their own hardcoded allowlists and ignore this field. |
-| `agents`       | map[string]AgentConfig     | —                                        | Per-agent-type configuration. Key is the agent type (e.g. `code`, `research`, `explore`, `vision`). |
 
-### `AgentConfig` fields
-
-| Field   | Type   | Default | Description |
-|---------|--------|---------|-------------|
-| `model` | string | —       | Optional model alias override for this agent type. When set, sub-agents of this type use this model instead of the parent's active model. Must reference a key in `models`. |
+Per-agent-type model overrides live under `models.sub_agents` (see the
+[`models` block](#models-block)), keyed by agent type (e.g. `code`,
+`research`, `explore`, `vision`). If an agent type has no entry, the sub-agent uses
+the same model as the parent.
 
 ```yaml
 sub_agent:
@@ -368,45 +416,15 @@ sub_agent:
     - grep
     - ls
     - bash
-  agents:
-    code:
-      model: gpt-4o
-    research:
-      model: claude-sonnet-4
-    vision:
-      model: claude-sonnet-4   # required to enable the vision tool
+
+models:
+  sub_agents:
+    code: gpt-4o
+    research: claude-sonnet-4
+    vision: claude-sonnet-4   # required to enable the vision tool
 ```
 
-The `vision` agent type requires a vision-capable model. When `sub_agent.agents.vision.model` is empty or unset, the `vision` tool is not registered.
-
----
-
-## `workflow_handoff` block
-
-Configures persistent model defaults for destination workflows. Supported
-destination keys are `implement` and `review`.
-
-If a destination workflow does not have a configured alias, Steiner falls back
-to the current session model when the handoff opens. The interactive handoff
-picker can still override the pending model for one handoff without changing
-configuration.
-
-| Field    | Type               | Default | Description |
-|----------|--------------------|---------|-------------|
-| `models` | map[string]string  | —       | Map of workflow destination name to model alias. Each alias must reference a key in `models`. |
-
-```yaml
-workflow_handoff:
-  models:
-    implement: local-fast
-    review: local-accurate
-```
-
-Use partial overrides to change only one destination while preserving existing
-entries from lower-precedence config files.
-
-If the user changes the model in the handoff picker, that selection applies to
-the pending handoff only and does not rewrite this block.
+The `vision` agent type requires a vision-capable model. When `models.sub_agents.vision` is empty or unset, the `vision` tool is not registered.
 
 ---
 
@@ -587,17 +605,17 @@ search:
 ### Example 1: minimal local LLM (Ollama or LM Studio)
 
 ```yaml
-default_model: local
-
 providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 
 models:
-  local:
-    provider: local
-    id: qwen3:14b
+  default: local
+  definitions:
+    local:
+      provider: local
+      id: qwen3:14b
 ```
 
 Use `http://127.0.0.1:1234/v1` as `base_url` for LM Studio. Use `type: ollama`
@@ -609,20 +627,20 @@ native endpoint.
 ### Example 2: cloud provider (Anthropic)
 
 ```yaml
-default_model: sonnet
-
 providers:
   anthropic:
     type: anthropic
     api_key_env: ANTHROPIC_API_KEY
 
 models:
-  sonnet:
-    provider: anthropic
-    id: claude-sonnet-4-5
-  opus:
-    provider: anthropic
-    id: claude-opus-4-5
+  default: sonnet
+  definitions:
+    sonnet:
+      provider: anthropic
+      id: claude-sonnet-4-5
+    opus:
+      provider: anthropic
+      id: claude-opus-4-5
 ```
 
 For OpenAI, replace `type: anthropic` with `type: openai` and set
@@ -633,8 +651,6 @@ For OpenAI, replace `type: anthropic` with `type: openai` and set
 ### Example 3: multi-provider with fallback model selection
 
 ```yaml
-default_model: local-fast
-
 providers:
   local:
     type: ollama
@@ -644,18 +660,20 @@ providers:
     api_key_env: OPENROUTER_API_KEY
 
 models:
-  local-fast:
-    provider: local
-    id: qwen3:14b
-  local-deep:
-    provider: local
-    id: deepseek-r1:32b
-  sonnet:
-    provider: router
-    id: anthropic/claude-3.7-sonnet
-  gpt-4o:
-    provider: router
-    id: openai/gpt-4o
+  default: local-fast
+  definitions:
+    local-fast:
+      provider: local
+      id: qwen3:14b
+    local-deep:
+      provider: local
+      id: deepseek-r1:32b
+    sonnet:
+      provider: router
+      id: anthropic/claude-3.7-sonnet
+    gpt-4o:
+      provider: router
+      id: openai/gpt-4o
 ```
 
 Switch models at runtime with `--model sonnet` without changing config.
@@ -665,8 +683,6 @@ Switch models at runtime with `--model sonnet` without changing config.
 ### Example 4: advanced limits with per-tool timeouts
 
 ```yaml
-default_model: local
-
 providers:
   local:
     type: openai_compat
@@ -674,18 +690,20 @@ providers:
     timeout: 60s
 
 models:
-  local:
-    provider: local
-    id: qwen3-35b-a3b
-    advanced:
-      limits:
-        context_window: 65536
-        max_output_tokens: 16384
-    retry:
-      enabled: true
-      max_attempts: 5
-      initial_backoff: 500ms
-      max_backoff: 10s
+  default: local
+  definitions:
+    local:
+      provider: local
+      id: qwen3-35b-a3b
+      advanced:
+        limits:
+          context_window: 65536
+          max_output_tokens: 16384
+      retry:
+        enabled: true
+        max_attempts: 5
+        initial_backoff: 500ms
+        max_backoff: 10s
 
 limits:
   max_turns: 80
@@ -704,8 +722,6 @@ limits:
 ### Example 5: kitchen-sink — every block populated
 
 ```yaml
-default_model: local-fast
-
 scheduler:
   parallelism: 2
 
@@ -725,42 +741,53 @@ providers:
       X-Title: steiner
 
 models:
-  local-fast:
-    provider: local
-    id: qwen3:14b
-    params:
-      temperature: 0.2
-      top_p: 0.95
-    retry:
-      enabled: true
-      max_attempts: 3
-      initial_backoff: 250ms
-      max_backoff: 5s
-      retry_after_max: 30s
-    advanced:
-      limits:
-        context_window: 32768
-        max_output_tokens: 8192
-      reasoning_echo_back: false
-  sonnet:
-    provider: cloud
-    id: claude-sonnet-4-5
-    extra_params:
-      metadata:
-        user_id: dev
-    advanced:
-      limits:
-        context_window: 200000
-        max_output_tokens: 64000
-  mini:
-    provider: router
-    id: openai/gpt-4o-mini
-    prompt_suffix: " Answer concisely."
-    prompts:
-      system: "You are a concise coding assistant."
-      system_suffix: "Always respond in structured JSON when possible."
-
-default_model: local-fast
+  default: local-fast
+  definitions:
+    local-fast:
+      provider: local
+      id: qwen3:14b
+      params:
+        temperature: 0.2
+        top_p: 0.95
+      retry:
+        enabled: true
+        max_attempts: 3
+        initial_backoff: 250ms
+        max_backoff: 5s
+        retry_after_max: 30s
+      advanced:
+        limits:
+          context_window: 32768
+          max_output_tokens: 8192
+        reasoning_echo_back: false
+    sonnet:
+      provider: cloud
+      id: claude-sonnet-4-5
+      extra_params:
+        metadata:
+          user_id: dev
+      advanced:
+        limits:
+          context_window: 200000
+          max_output_tokens: 64000
+    mini:
+      provider: router
+      id: openai/gpt-4o-mini
+      prompt_suffix: " Answer concisely."
+      prompts:
+        system: "You are a concise coding assistant."
+        system_suffix: "Always respond in structured JSON when possible."
+  advisor: sonnet
+  sub_agents:
+    code: sonnet
+    research: mini
+  oneshot:
+    plan: local-fast
+    implement: sonnet
+    review: sonnet
+  workflow_handoff:
+    implement: sonnet
+    review: sonnet
 
 limits:
   max_turns: 60
@@ -789,11 +816,13 @@ sub_agent:
     - grep
     - ls
     - bash
-  agents:
-    code:
-      model: sonnet
-    research:
-      model: mini
+
+advisor:
+  enabled: true
+  max_uses_per_run: 3
+
+oneshot:
+  auto_pr: false
 
 tools:
   fmt:

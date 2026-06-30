@@ -128,15 +128,16 @@ Configuration is loaded in this precedence order (later overrides earlier):
 **Example — local LLM (Ollama or LM Studio)**:
 
 ```yaml
-default_model: local
 providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  local:
-    provider: local
-    id: qwen2.5-coder:14b
+  default: local
+  definitions:
+    local:
+      provider: local
+      id: qwen2.5-coder:14b
 ```
 
 See [Configuration](docs/configuration.md) for all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables.
@@ -218,7 +219,8 @@ A stronger-model steering pass that reviews the live conversation and returns co
 ```yaml
 advisor:
   enabled: true
-  model: advisor-model
+models:
+  advisor: advisor-model
 ```
 
 See [Advisor](docs/advisor.md) for configuration options and behavior reference.
@@ -236,7 +238,8 @@ Autonomous three-phase orchestration (plan, implement, review). Each phase runs 
 ```yaml
 oneshot:
   auto_pr: false
-  models:
+models:
+  oneshot:
     plan: ""
     implement: ""
     review: ""
