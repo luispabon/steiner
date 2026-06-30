@@ -102,12 +102,9 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 			overrides.Timeout = d
 		}
 
-		workDir := deps.WorkDir
-		if v, ok := input["work_dir"].(string); ok && v != "" {
-			if !filepath.IsAbs(v) {
-				return nil, fmt.Errorf("delegate: work_dir must be an absolute path, got %q", v)
-			}
-			workDir = v
+		workDir, err := resolveWorkDir(deps.WorkDir, input)
+		if err != nil {
+			return nil, err
 		}
 
 		agentID := generateAgentID()
@@ -148,6 +145,17 @@ func NewDelegateHandler(deps DelegateHandlerDeps) func(ctx context.Context, inpu
 		}
 		return result, nil
 	}
+}
+
+func resolveWorkDir(defaultDir string, input map[string]any) (string, error) {
+	v, ok := input["work_dir"].(string)
+	if !ok || v == "" {
+		return defaultDir, nil
+	}
+	if !filepath.IsAbs(v) {
+		return "", fmt.Errorf("delegate: work_dir must be an absolute path, got %q", v)
+	}
+	return v, nil
 }
 
 func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunRequest, state agent.RunState) {
