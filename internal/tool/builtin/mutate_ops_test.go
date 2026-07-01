@@ -82,3 +82,46 @@ func TestMultiOpBatch(t *testing.T) {
 		})
 	}
 }
+
+func TestMutate_EffectivePolicy_AllowsPathOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	tmpDir := t.TempDir()
+	tmpPath := filepath.Join(tmpDir, "outside.txt")
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	env := Env{WorkDir: root, PathPolicy: &policy}
+	toolDef := NewMutateTool(env)
+
+	effectivePolicy := policy.WithoutRoot()
+
+	ctx := context.WithValue(context.Background(), tool.EffectivePolicyKey{}, &effectivePolicy)
+	result, err := toolDef.Handler(ctx, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": tmpPath, "content": "created outside root\n"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("mutate Handler() error = %v", err)
+	}
+
+	mutateResult, ok := result.(*MutateResult)
+	if !ok {
+		t.Fatalf("mutate Handler() result = %T, want *MutateResult", result)
+	}
+
+	if mutateResult.OperationsFailed != 0 {
+		t.Fatalf("OperationsFailed = %d, want 0; output=%q", mutateResult.OperationsFailed, mutateResult.Output)
+	}
+
+	if mutateResult.OperationsApplied != 1 {
+		t.Fatalf("OperationsApplied = %d, want 1", mutateResult.OperationsApplied)
+	}
+
+	content, err := os.ReadFile(tmpPath)
+	if err != nil {
+		t.Fatalf("read created file: %v", err)
+	}
+	if string(content) != "created outside root\n" {
+		t.Fatalf("file content = %q, want 'created outside root\\n'", string(content))
+	}
+}

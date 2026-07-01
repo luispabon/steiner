@@ -578,15 +578,25 @@ func TestNormalizeExecutionInput_PathViolation_ApproverCalled(t *testing.T) {
 
 func TestNormalizeExecutionInput_PathViolation_Allow(t *testing.T) {
 	approver := &mockApprover{response: ApprovalResponse{Allow: true}}
+	workDir := t.TempDir()
 	var handlerInput map[string]any
+	var handlerCalled bool
 	reg := NewRegistry(ToolDef{
 		Name: "mutate",
-		Handler: func(_ context.Context, input map[string]any) (any, error) {
+		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			handlerCalled = true
 			handlerInput = input
+			effectivePolicy, ok := ctx.Value(EffectivePolicyKey{}).(*PathPolicy)
+			if !ok || effectivePolicy == nil {
+				t.Fatal("handler: expected EffectivePolicyKey in context after approval")
+			}
+			_, err := effectivePolicy.ResolvePath("/tmp/test.txt", true)
+			if err != nil {
+				t.Fatalf("handler: resolvePath with effective policy failed: %v", err)
+			}
 			return map[string]any{"ok": true}, nil
 		},
 	})
-	workDir := t.TempDir()
 	executor := NewExecutor(reg, config.Config{}, approver, workDir).WithSandbox(&testSandbox{})
 	result, err := executor.Execute(context.Background(), "mutate", mutateOutsideRoot(workDir))
 	if err != nil {
@@ -595,8 +605,11 @@ func TestNormalizeExecutionInput_PathViolation_Allow(t *testing.T) {
 	if !approver.called {
 		t.Fatal("approver was not called")
 	}
-	if handlerInput == nil {
+	if !handlerCalled {
 		t.Fatal("handler was not called after approval")
+	}
+	if handlerInput == nil {
+		t.Fatal("handler input is nil")
 	}
 	if result == nil {
 		t.Fatal("result is nil, want content")

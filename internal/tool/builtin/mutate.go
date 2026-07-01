@@ -15,13 +15,17 @@ func NewMutateTool(env Env) tool.ToolDef {
 		Name:            "mutate",
 		Description:     "Apply structured file edits via op types: create, write (create or overwrite), replace, line_replace, delete_line, insert_before, insert_after, delete, move. Supports file_hash for staleness detection on existing targets — pass the hash from read/grep to fail fast if the file changed. move rejects destination collisions instead of overwriting. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
 		ParameterSchema: MutateSchema(),
-		Handler: func(_ context.Context, input map[string]any) (any, error) {
+		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[MutateInput](input)
 			if err != nil {
 				return nil, fmt.Errorf("mutate: %w", err)
 			}
+			plannerEnv := env
+			if effectivePolicy, ok := ctx.Value(tool.EffectivePolicyKey{}).(*tool.PathPolicy); ok && effectivePolicy != nil {
+				plannerEnv.PathPolicy = effectivePolicy
+			}
 			planner := &mutatePlanner{
-				env:    env,
+				env:    plannerEnv,
 				states: make(map[string]*mutateFileState),
 				result: MutateResult{DryRun: in.DryRun},
 			}
