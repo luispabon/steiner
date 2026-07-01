@@ -22,7 +22,7 @@ func TestExecutorCapturesTruncatedOutputAndMetadata(t *testing.T) {
 		},
 	}
 
-	result, err := NewExecutor(reg, cfg, nil, t.TempDir()).Execute(context.Background(), "probe", nil)
+	result, err := NewExecutor(reg, cfg, nil, t.TempDir(), "").Execute(context.Background(), "probe", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -53,7 +53,7 @@ func TestExecutorMarksBinaryOutputSafely(t *testing.T) {
 		},
 	}
 
-	_, err := NewExecutor(reg, cfg, nil, t.TempDir()).Execute(context.Background(), "probe", nil)
+	_, err := NewExecutor(reg, cfg, nil, t.TempDir(), "").Execute(context.Background(), "probe", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want binary-output failure")
 	}
@@ -135,7 +135,7 @@ func TestExecutorContextCancellation(t *testing.T) {
 		Subcommand: "sleep",
 	})
 
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -155,7 +155,7 @@ func TestExecutorTimeoutExceeded(t *testing.T) {
 		Timeout:    100 * time.Millisecond,
 	})
 
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	_, err := executor.Execute(context.Background(), "probe", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want DeadlineExceeded")
@@ -173,7 +173,7 @@ func TestExecutorNonZeroExitCode(t *testing.T) {
 		Subcommand: "fail",
 	})
 
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	_, err := executor.Execute(context.Background(), "probe", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want non-zero exit error")
@@ -223,7 +223,7 @@ func TestExecutorWithSandbox(t *testing.T) {
 		Name:    "probe",
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	if executor.sandbox != nil {
 		t.Fatal("sandbox should be nil initially")
 	}

@@ -62,7 +62,7 @@ func NewGrepTool(env Env) tool.ToolDef {
 				showLines = *in.LineNumbers
 			}
 
-			files, err := grepSearch(ctx, absPath, searchPath, in.Pattern, in.CaseInsensitive, in.Multiline, in.Glob, in.Type, env.Excluder)
+			files, err := grepSearch(ctx, absPath, searchPath, in.Pattern, in.CaseInsensitive, in.Multiline, in.Glob, in.Type, env.Excluder, env.PathPolicy)
 			if err != nil {
 				return nil, fmt.Errorf("grep: %w", err)
 			}

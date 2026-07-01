@@ -270,6 +270,30 @@ func (p PathPolicy) rewriteTmpPath(path string) string {
 	return path
 }
 
+// DisplayPath reverses the /tmp rewrite: if resolved is under sandboxTmpDir,
+// replaces that prefix with /tmp to hide the internal sandbox path from the user.
+// Otherwise returns the path unchanged.
+func (p PathPolicy) DisplayPath(resolved string) string {
+	if p.sandboxTmpDir == "" || resolved == "" {
+		return resolved
+	}
+	if resolved == p.sandboxTmpDir {
+		return "/tmp"
+	}
+	if strings.HasPrefix(resolved, p.sandboxTmpDir+string(filepath.Separator)) {
+		return "/tmp" + resolved[len(p.sandboxTmpDir):]
+	}
+	return resolved
+}
+
+// IsSandboxTmpPath reports whether path is under the sandbox tmpDir.
+func (p PathPolicy) IsSandboxTmpPath(path string) bool {
+	if p.sandboxTmpDir == "" || path == "" {
+		return false
+	}
+	return path == p.sandboxTmpDir || strings.HasPrefix(path, p.sandboxTmpDir+string(filepath.Separator))
+}
+
 func normalizePolicyPath(root, raw string) string {
 	if strings.TrimSpace(raw) == "" {
 		return ""

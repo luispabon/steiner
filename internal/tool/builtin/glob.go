@@ -72,7 +72,11 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 			return filepath.SkipDir
 		}
 
-		if excluder.ShouldExclude(path) {
+		excludePath := path
+		if policy != nil {
+			excludePath = policy.DisplayPath(path)
+		}
+		if excluder.ShouldExclude(excludePath) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

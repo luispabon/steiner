@@ -84,7 +84,7 @@ var grepTypeToExt = map[string][]string{
 	"sh":     {".sh", ".bash"},
 }
 
-func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInsens, multiline bool, fileGlob, fileType string, excluder *tool.PathExcluder) ([]grepFileResult, error) {
+func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInsens, multiline bool, fileGlob, fileType string, excluder *tool.PathExcluder, policy *tool.PathPolicy) ([]grepFileResult, error) {
 	re, err := compileGrepPattern(pattern, caseInsens, multiline)
 	if err != nil {
 		return nil, err
@@ -101,18 +101,22 @@ func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInse
 		return nil, fmt.Errorf("stat root: %w", err)
 	}
 
-	if grepRootExcluded(root, displayPath, excluder) {
+	if grepRootExcluded(root, displayPath, excluder, policy) {
 		return nil, nil
 	}
 
 	if !rootInfo.IsDir() {
-		return grepSearchPath(ctx, root, normalizedDisplayPath(root, displayPath), re, multiline, filterGlob, exts, excluder)
+		dp := displayPath
+		if policy != nil && policy.IsSandboxTmpPath(root) {
+			dp = policy.DisplayPath(root)
+		}
+		return grepSearchPath(ctx, root, normalizedDisplayPath(root, dp), re, multiline, filterGlob, exts, excluder)
 	}
 
-	return grepWalkDir(ctx, root, re, multiline, filterGlob, exts, excluder)
+	return grepWalkDir(ctx, root, re, multiline, filterGlob, exts, excluder, policy)
 }
 
-func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder) ([]grepFileResult, error) {
+func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder, policy *tool.PathPolicy) ([]grepFileResult, error) {
 	var results []grepFileResult
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -158,12 +162,16 @@ func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline 
 	return results, nil
 }
 
-func grepRootExcluded(_, displayPath string, excluder *tool.PathExcluder) bool {
+func grepRootExcluded(root, displayPath string, excluder *tool.PathExcluder, policy *tool.PathPolicy) bool {
 	if excluder == nil {
 		return false
 	}
-	cleanDisplayPath := filepath.ToSlash(filepath.Clean(displayPath))
-	if cleanDisplayPath != "." && cleanDisplayPath != "" && excluder.ShouldExclude(cleanDisplayPath) {
+	checkPath := displayPath
+	if policy != nil && policy.IsSandboxTmpPath(root) {
+		checkPath = policy.DisplayPath(root)
+	}
+	cleanPath := filepath.ToSlash(filepath.Clean(checkPath))
+	if cleanPath != "." && cleanPath != "" && excluder.ShouldExclude(cleanPath) {
 		return true
 	}
 	return false

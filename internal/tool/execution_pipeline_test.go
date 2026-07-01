@@ -26,6 +26,7 @@ type testSandbox struct{}
 
 func (s *testSandbox) Enabled() bool                       { return true }
 func (s *testSandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd { return cmd }
+func (s *testSandbox) TmpDir() string                      { return "" }
 
 // mockApprover tracks calls to RequestApproval and sends a preconfigured response.
 type mockApprover struct {
@@ -47,7 +48,7 @@ func (m *mockApprover) RequestApproval(_ context.Context, req ApprovalRequest) e
 
 func TestRunPipelineUnknownTool(t *testing.T) {
 	reg := NewRegistry()
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	_, err := executor.Execute(context.Background(), "nonexistent", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want error")
@@ -62,7 +63,7 @@ func TestRunPipelinePolicyDenied(t *testing.T) {
 		Name:    "mutate",
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	_, err := executor.Execute(context.Background(), "mutate", map[string]any{
 		"operations": []any{
 			map[string]any{"type": "write", "path": "/etc/passwd", "content": "x"},
@@ -86,7 +87,7 @@ func TestRunPipelineResolveAndNormalizeSuccess(t *testing.T) {
 		Name:     "probe",
 		ExecPath: helper,
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	result, err := executor.Execute(context.Background(), "probe", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -107,7 +108,7 @@ func TestExecuteToolHandlerSuccess(t *testing.T) {
 			return map[string]any{"message": "hello"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	result, err := executor.Execute(context.Background(), "greeter", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -127,7 +128,7 @@ func TestExecuteToolSubprocessSuccess(t *testing.T) {
 		Name:     "probe",
 		ExecPath: helper,
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	result, err := executor.Execute(context.Background(), "probe", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -149,7 +150,7 @@ func TestExecuteToolTimeout(t *testing.T) {
 		Subcommand: "sleep",
 		Timeout:    100 * time.Millisecond,
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	_, err := executor.Execute(context.Background(), "probe", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want DeadlineExceeded")
@@ -164,7 +165,7 @@ func TestDecodeExecutionOutputCommandNotFound(t *testing.T) {
 		Name:     "nonexistent",
 		ExecPath: "/path/to/nonexistent/binary",
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	_, err := executor.Execute(context.Background(), "nonexistent", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want subprocess_failed")
@@ -228,7 +229,7 @@ func TestExecuteToolBashCwdOverride(t *testing.T) {
 		ExecPath: helper,
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, nil, workDir)
+	executor := NewExecutor(reg, config.Config{}, nil, workDir, "")
 	result, err := executor.Execute(context.Background(), "bash", map[string]any{
 		"cwd": workDir,
 	})
@@ -271,7 +272,7 @@ func TestRunPipelineInvalidJSON(t *testing.T) {
 		ExecPath:   "echo",
 		Subcommand: "not json",
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	_, err := executor.Execute(context.Background(), "echoer", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want invalid_json")
@@ -289,7 +290,7 @@ func TestRunPipelineInvalidJSON(t *testing.T) {
 }
 
 func TestRunPipelineNilRegistry(t *testing.T) {
-	_, err := NewExecutor(nil, config.Config{}, nil, t.TempDir()).Execute(context.Background(), "test", nil)
+	_, err := NewExecutor(nil, config.Config{}, nil, t.TempDir(), "").Execute(context.Background(), "test", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want error")
 	}
@@ -313,7 +314,7 @@ func TestExecuteTool_BashDenialDetection_ApproverCalled(t *testing.T) {
 			}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir()).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "cat /host/path"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -352,7 +353,7 @@ func TestExecuteTool_BashDenialRetry_AllowRetries(t *testing.T) {
 			return &mockBashResult{exitCode: 1, output: "Permission denied /host/path"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir()).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "cat /host/path"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -381,7 +382,7 @@ func TestExecuteTool_BashDenialNoRetry_Denied(t *testing.T) {
 			return &mockBashResult{exitCode: 1, output: "Permission denied /secret"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir()).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "cat /secret"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -407,7 +408,7 @@ func TestExecuteTool_BashNoDenialPrompt_SandboxNil(t *testing.T) {
 		},
 	})
 	// No sandbox set — unsafe mode.
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir())
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "")
 	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "cat /host/path"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -433,7 +434,7 @@ func TestExecuteTool_BashNoDenialPrompt_ApproverNil(t *testing.T) {
 		},
 	})
 	// Sandbox set but no approver.
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir()).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "").WithSandbox(&testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "cat /host/path"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -460,7 +461,7 @@ func TestExecuteTool_BashSSHConfigDenial_AllowRetriesOutsideSandbox(t *testing.T
 			return &mockBashResult{exitCode: 1, output: "Bad owner or permissions on /etc/ssh/ssh_config.d/10-main.conf"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir()).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "ssh -G github.com"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -497,7 +498,7 @@ func TestExecuteTool_BashSSHConfigDenial_DeniedAppendsExplanation(t *testing.T) 
 			return &mockBashResult{exitCode: 1, output: "Bad owner or permissions on /etc/ssh/ssh_config.d/10-main.conf"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir()).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "ssh -G github.com"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -522,7 +523,7 @@ func TestExecuteTool_BashSSHConfigSyntaxErrorNotClassified(t *testing.T) {
 			return &mockBashResult{exitCode: 1, output: "Bad configuration option: FooBar"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir()).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", map[string]any{"command": "ssh -G github.com"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -556,7 +557,7 @@ func TestNormalizeExecutionInput_PathViolation_ApproverCalled(t *testing.T) {
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, approver, workDir).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, workDir, "").WithSandbox(&testSandbox{})
 	_, err := executor.Execute(context.Background(), "mutate", mutateOutsideRoot(workDir))
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied")
@@ -597,7 +598,7 @@ func TestNormalizeExecutionInput_PathViolation_Allow(t *testing.T) {
 			return map[string]any{"ok": true}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, workDir).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, workDir, "").WithSandbox(&testSandbox{})
 	result, err := executor.Execute(context.Background(), "mutate", mutateOutsideRoot(workDir))
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil on approval", err)
@@ -623,7 +624,7 @@ func TestNormalizeExecutionInput_PathViolation_Deny(t *testing.T) {
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, approver, workDir).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, workDir, "").WithSandbox(&testSandbox{})
 	_, err := executor.Execute(context.Background(), "mutate", mutateOutsideRoot(workDir))
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied after denial")
@@ -645,7 +646,7 @@ func TestNormalizeExecutionInput_PathViolation_ApprovalWithoutSandbox(t *testing
 	})
 	workDir := t.TempDir()
 	// No sandbox — approval must still be requested.
-	executor := NewExecutor(reg, config.Config{}, approver, workDir)
+	executor := NewExecutor(reg, config.Config{}, approver, workDir, "")
 	_, err := executor.Execute(context.Background(), "mutate", mutateOutsideRoot(workDir))
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied")
@@ -672,7 +673,7 @@ func TestNormalizeExecutionInput_NonPromptableError_NoPrompt(t *testing.T) {
 	workDir := t.TempDir()
 	cfg := config.Config{}
 	cfg.Paths.BlockedPaths = []string{workDir + "/secrets"}
-	executor := NewExecutor(reg, cfg, approver, workDir).WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, cfg, approver, workDir, "").WithSandbox(&testSandbox{})
 	_, err := executor.Execute(context.Background(), "read", map[string]any{"path": workDir + "/secrets/key.txt"})
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied")

@@ -52,7 +52,10 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 			if err != nil {
 				return nil, fmt.Errorf("display_file: %w", err)
 			}
-			displayPath := relDisplayPath(env.WorkDir, absPath)
+			displayPath := env.PathPolicy.DisplayPath(absPath)
+			if !strings.HasPrefix(displayPath, "/") || strings.HasPrefix(displayPath, env.WorkDir) {
+				displayPath = relDisplayPath(env.WorkDir, displayPath)
+			}
 
 			if !env.Interactive || env.EventSink == nil {
 				return &DisplayFileResult{

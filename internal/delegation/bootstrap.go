@@ -156,7 +156,11 @@ func buildChildRunRequest(workDir string, agentID string, prov provider.Provider
 	childCfg := config.Config{}
 	scopedEvents := withAgentScope(agentID, events)
 
-	exec := tool.NewExecutor(execReg, childCfg, nil, workDir)
+	sandboxTmpDir := ""
+	if sandbox != nil && sandbox.Enabled() {
+		sandboxTmpDir = sandbox.TmpDir()
+	}
+	exec := tool.NewExecutor(execReg, childCfg, nil, workDir, sandboxTmpDir)
 	if sandbox != nil {
 		exec = exec.WithSandbox(sandbox)
 	}

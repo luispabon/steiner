@@ -546,6 +546,7 @@ type toolTestSandbox struct {
 
 func (s *toolTestSandbox) Enabled() bool                       { return s.enabled }
 func (s *toolTestSandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd { return cmd }
+func (s *toolTestSandbox) TmpDir() string                      { return "" }
 
 func TestDelegateHandlerDeps_SandboxInherited(t *testing.T) {
 	sb := &toolTestSandbox{enabled: true}
