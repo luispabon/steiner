@@ -4,6 +4,8 @@
 
 `cave_human` combines terse-output behavior with an anti-AI-writing style instruction. It keeps responses short and direct while avoiding filler, hedging, and common AI-writing tells. The instruction is injected into the system preamble, compaction prompts, and sub-agent prompts so it stays consistent throughout a session.
 
+When enabled, compaction summaries switch to a denser, purpose-built encoding style instead of reusing the chat-facing voice: articles are dropped where meaning survives, facts use `key=value` shorthand, semicolons replace sentences, and markdown headers are skipped in favor of `label:` prefixes — maximizing information density per token in the handoff summary.
+
 Disabled by default. Enable via config file only:
 
 ```yaml
