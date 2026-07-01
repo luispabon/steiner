@@ -8,7 +8,7 @@ import (
 )
 
 // BuildArgs returns the bwrap argument list (excluding the trailing -- cmd args).
-func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, _ config.PermissionsConfig, hostMounts []config.HostMount, overlayArgs []string) []string {
+func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, _ config.PermissionsConfig, hostMounts []config.HostMount, overlayArgs []string, tmpDir string) []string {
 	var args []string
 
 	// Namespace isolation: unshare all but share network.
@@ -21,8 +21,12 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, _ config.Per
 	args = append(args,
 		"--dev", "/dev",
 		"--proc", "/proc",
-		"--tmpfs", "/tmp",
 	)
+	if tmpDir != "" {
+		args = append(args, "--bind", tmpDir, "/tmp")
+	} else {
+		args = append(args, "--tmpfs", "/tmp")
+	}
 
 	// Project workspace writable at original absolute path.
 	args = append(args, "--bind", writableRoot, writableRoot)

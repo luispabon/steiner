@@ -357,7 +357,7 @@ func buildRuntimeSandbox(cfg config.Config, projectRoot, workDir, userHome strin
 	if err := sandbox.PrereqCheck(); err != nil {
 		return nil, err
 	}
-	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, projectRoot, workDir, userHome)
+	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, projectRoot, workDir, userHome, "")
 	if err := s.EnsureHome(); err != nil {
 		return nil, fmt.Errorf("sandbox setup: %w", err)
 	}

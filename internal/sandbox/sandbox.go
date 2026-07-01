@@ -20,17 +20,19 @@ type Sandbox struct {
 	root        string // absolute project root
 	workDir     string // absolute agent workDir
 	userHome    string // host user home
+	tmpDir      string // session-scoped temp directory
 	hostMounts  []config.HostMount
 	permissions config.PermissionsConfig
 }
 
-// New creates a Sandbox. rootDir, workDir, and userHome must be absolute paths.
-func New(cfg config.SandboxConfig, perms config.PermissionsConfig, hostMounts []config.HostMount, rootDir, workDir, userHome string) *Sandbox {
+// New creates a Sandbox. rootDir, workDir, userHome, and tmpDir must be absolute paths.
+func New(cfg config.SandboxConfig, perms config.PermissionsConfig, hostMounts []config.HostMount, rootDir, workDir, userHome, tmpDir string) *Sandbox {
 	return &Sandbox{
 		cfg:         cfg,
 		root:        rootDir,
 		workDir:     workDir,
 		userHome:    userHome,
+		tmpDir:      tmpDir,
 		hostMounts:  hostMounts,
 		permissions: perms,
 	}
@@ -70,7 +72,7 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 	if overlay != nil {
 		overlayArgs = overlay.bwrapArgs
 	}
-	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.permissions, s.hostMounts, overlayArgs)
+	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.permissions, s.hostMounts, overlayArgs, s.tmpDir)
 
 	// Build the new Args slice: [bwrap, ...bwrap-args..., "--", original-cmd, original-args...]
 	args := make([]string, 0, 1+len(bwrapArgs)+1+len(cmd.Args))
@@ -101,6 +103,39 @@ func (s *Sandbox) EnsureHome() error {
 	sandboxHome := filepath.Join(s.root, ".steiner", "home")
 	if err := os.MkdirAll(sandboxHome, 0o755); err != nil {
 		return fmt.Errorf("create sandbox home dir: %w", err)
+	}
+	return nil
+}
+
+// Cleanup removes the session-scoped tmp directory.
+// No-op when tmpDir is empty.
+func (s *Sandbox) Cleanup() error {
+	if s.tmpDir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(s.tmpDir); err != nil {
+		return fmt.Errorf("remove sandbox tmp dir: %w", err)
+	}
+	return nil
+}
+
+// ResetTmp removes all entries inside tmpDir but keeps the directory.
+// No-op when tmpDir is empty. If tmpDir does not exist, returns nil.
+func (s *Sandbox) ResetTmp() error {
+	if s.tmpDir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(s.tmpDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read sandbox tmp dir: %w", err)
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(s.tmpDir, e.Name())); err != nil {
+			return fmt.Errorf("remove sandbox tmp entry: %w", err)
+		}
 	}
 	return nil
 }
