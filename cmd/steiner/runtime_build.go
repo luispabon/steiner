@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -357,7 +358,52 @@ func buildRuntimeSandbox(cfg config.Config, projectRoot, workDir, userHome strin
 	if err := sandbox.PrereqCheck(); err != nil {
 		return nil, err
 	}
-	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, projectRoot, workDir, userHome, "")
+
+	// Session-scoped tmp directory.
+	parentDir := filepath.Join(projectRoot, ".steiner", "tmp", "sandbox-tmp")
+
+	// Orphan cleanup (best-effort, 48h threshold).
+	cutoff := time.Now().Add(-48 * time.Hour)
+	var oldCount int
+	if entries, err := os.ReadDir(parentDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
+				oldCount++
+			}
+		}
+	}
+	if oldCount > 0 {
+		fmt.Fprintf(os.Stderr, "Cleaning up %d old sandbox tmp directories...\n", oldCount)
+	}
+	if _, err := sandbox.CleanupOrphans(parentDir, 48*time.Hour); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: sandbox tmp orphan cleanup failed: %v\n", err)
+	}
+	if oldCount > 0 {
+		fmt.Fprintf(os.Stderr, "Done.\n")
+	}
+
+	// Generate random 8-byte hex session ID.
+	var idBuf [8]byte
+	if _, err := rand.Read(idBuf[:]); err != nil {
+		return nil, fmt.Errorf("generate sandbox tmp id: %w", err)
+	}
+	id := fmt.Sprintf("%x", idBuf[:])
+	tmpDir := filepath.Join(parentDir, id)
+
+	// Handle the astronomically unlikely ID collision.
+	if _, err := os.Stat(tmpDir); err == nil {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			return nil, fmt.Errorf("remove stale sandbox tmp dir: %w", err)
+		}
+	}
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create sandbox tmp dir: %w", err)
+	}
+
+	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, projectRoot, workDir, userHome, tmpDir)
 	if err := s.EnsureHome(); err != nil {
 		return nil, fmt.Errorf("sandbox setup: %w", err)
 	}
