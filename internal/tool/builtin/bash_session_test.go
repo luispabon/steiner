@@ -2,8 +2,11 @@ package builtin
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -135,6 +138,54 @@ func TestBashSession(t *testing.T) {
 		}
 		if code == 0 {
 			t.Errorf("exit code = 0, want non-zero for 'false'")
+		}
+	})
+
+	t.Run("heredoc command completes without hanging", func(t *testing.T) {
+		s := NewBashSession()
+		if err := s.Start(); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		defer func() { _ = s.Close() }()
+
+		ctx := context.Background()
+		outFile := filepath.Join(t.TempDir(), "heredoc.txt")
+		cmd := fmt.Sprintf("cat > %s << 'EOF'\nline one\nline two\nEOF", outFile)
+
+		stdout, stderr, code, err := s.Execute(ctx, cmd)
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0 (stdout=%q stderr=%q)", code, stdout, stderr)
+		}
+
+		got, err := os.ReadFile(outFile)
+		if err != nil {
+			t.Fatalf("ReadFile: %v", err)
+		}
+		if want := "line one\nline two\n"; string(got) != want {
+			t.Errorf("file contents = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("trailing comment on last line does not hang", func(t *testing.T) {
+		s := NewBashSession()
+		if err := s.Start(); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		defer func() { _ = s.Close() }()
+
+		ctx := context.Background()
+		stdout, _, code, err := s.Execute(ctx, "echo hi # trailing comment")
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0", code)
+		}
+		if !strings.Contains(stdout, "hi") {
+			t.Errorf("stdout = %q, want to contain %q", stdout, "hi")
 		}
 	})
 

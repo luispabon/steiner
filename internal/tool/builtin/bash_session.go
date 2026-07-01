@@ -106,8 +106,11 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	exitMarker := fmt.Sprintf("__STEINER_EXIT_%d__", n)
 
 	// Inject markers: run the user command, then echo markers + exit code on both streams.
+	// The closing brace and marker suffix must be on their own line: appending them via
+	// ";" on the same line as the user's command would corrupt heredocs, here-strings, and
+	// trailing comments, whose terminators must appear alone on their line.
 	script := fmt.Sprintf(
-		"{ %s ; } ; __exit__=$? ; echo %s ; echo %s >&2 ; echo %s:$__exit__ ; unset __exit__\n",
+		"{\n%s\n} ; __exit__=$? ; echo %s ; echo %s >&2 ; echo %s:$__exit__ ; unset __exit__\n",
 		command,
 		stdoutMarker,
 		stderrMarker,
