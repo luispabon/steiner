@@ -97,9 +97,10 @@ type subAgentPatch struct {
 }
 
 type advisorPatch struct {
-	Enabled       *bool `yaml:"enabled"`
-	MaxUsesPerRun *int  `yaml:"max_uses_per_run"`
-	MaxTokens     *int  `yaml:"max_tokens"`
+	Enabled       *bool     `yaml:"enabled"`
+	MaxUsesPerRun *int      `yaml:"max_uses_per_run"`
+	MaxTokens     *int      `yaml:"max_tokens"`
+	Timeout       *Duration `yaml:"timeout"`
 }
 
 type oneshotPatch struct {

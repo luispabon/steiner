@@ -627,12 +627,35 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			wantErr: "advisor.max_tokens must be greater than zero when set",
 		},
 		{
+			name: "advisor timeout must be positive when set",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{
+					Enabled:       true,
+					MaxUsesPerRun: 1,
+					Timeout:       durationPtr(Duration{}),
+				}
+				c.Models.Advisor = "advisor-model"
+			},
+			wantErr: "advisor.timeout must be greater than zero when set",
+		},
+		{
+			name: "advisor timeout rejected when advisor disabled",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{
+					Enabled: false,
+					Timeout: durationPtr(Duration{}),
+				}
+			},
+			wantErr: "advisor.timeout must be greater than zero when set",
+		},
+		{
 			name: "valid advisor config",
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{
 					Enabled:       true,
 					MaxUsesPerRun: 2,
 					MaxTokens:     intPtr(256),
+					Timeout:       durationPtr(MustDuration("240s")),
 				}
 				c.Models.Advisor = "advisor-model"
 			},

@@ -44,6 +44,9 @@ func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig, model string) 
 		if cfg.MaxTokens != nil && *cfg.MaxTokens < 1 {
 			*problems = append(*problems, "advisor.max_tokens must be greater than zero when set")
 		}
+		if cfg.Timeout != nil && cfg.Timeout.IsZero() {
+			*problems = append(*problems, "advisor.timeout must be greater than zero when set")
+		}
 		return
 	}
 	if strings.TrimSpace(model) == "" {
@@ -54,6 +57,9 @@ func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig, model string) 
 	}
 	if cfg.MaxTokens != nil && *cfg.MaxTokens < 1 {
 		*problems = append(*problems, "advisor.max_tokens must be greater than zero when set")
+	}
+	if cfg.Timeout != nil && cfg.Timeout.IsZero() {
+		*problems = append(*problems, "advisor.timeout must be greater than zero when set")
 	}
 }
 

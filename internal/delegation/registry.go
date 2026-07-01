@@ -73,6 +73,9 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		if err != nil {
 			return nil, fmt.Errorf("resolve advisor model %q: %w", deps.Config.Models.Advisor, err)
 		}
+		if deps.AdvisorCfg.Timeout != nil {
+			advisorResolved.ProviderConfig.Timeout = *deps.AdvisorCfg.Timeout
+		}
 		advisorProvider, err := resolveToolProvider(deps.Provider, deps.ResolvedModel, advisorResolved, deps.ProviderFactory)
 		if err != nil {
 			return nil, fmt.Errorf("build advisor provider for %q: %w", deps.Config.Models.Advisor, err)
