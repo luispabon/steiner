@@ -113,10 +113,10 @@ func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInse
 		return grepSearchPath(ctx, root, normalizedDisplayPath(root, dp), re, multiline, filterGlob, exts, excluder)
 	}
 
-	return grepWalkDir(ctx, root, re, multiline, filterGlob, exts, excluder, policy)
+	return grepWalkDir(ctx, root, re, multiline, filterGlob, exts, excluder)
 }
 
-func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder, policy *tool.PathPolicy) ([]grepFileResult, error) {
+func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder) ([]grepFileResult, error) {
 	var results []grepFileResult
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
