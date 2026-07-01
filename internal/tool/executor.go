@@ -15,6 +15,8 @@ type SandboxWrapper interface {
 	Enabled() bool
 	// WrapCommand wraps cmd for sandboxed execution.
 	WrapCommand(cmd *exec.Cmd) *exec.Cmd
+	// TmpDir returns the session-scoped temporary directory for sandbox.
+	TmpDir() string
 }
 
 // Executor runs tool definitions through a resolution, normalization, and dispatch
@@ -29,7 +31,8 @@ type Executor struct {
 }
 
 // NewExecutor creates a new tool executor with the given registry, config, approver, and working directory.
-func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalResponder, workDir string) *Executor {
+// sandboxTmpDir is optional; when non-empty, /tmp paths in tool input are rewritten to sandboxTmpDir.
+func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalResponder, workDir, sandboxTmpDir string) *Executor {
 	root := normalizeExecutionRoot(workDir)
 	outputLimit := cfg.Limits.ToolOutputMaxBytes
 	if outputLimit < 1 {
@@ -39,7 +42,7 @@ func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalRespond
 		registry:    registry,
 		approver:    approver,
 		workDir:     root,
-		pathPolicy:  NewPathPolicy(root, cfg.Paths),
+		pathPolicy:  NewPathPolicyWithSandbox(root, cfg.Paths, sandboxTmpDir),
 		outputLimit: outputLimit,
 	}
 }

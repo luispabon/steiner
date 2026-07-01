@@ -930,6 +930,7 @@ type mockSandbox struct {
 
 func (m *mockSandbox) Enabled() bool                       { return m.enabled }
 func (m *mockSandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd { return cmd }
+func (m *mockSandbox) TmpDir() string                      { return "" }
 
 func TestBuildChildRunInheritsNilSandbox(t *testing.T) {
 	parent := tool.NewRegistry(

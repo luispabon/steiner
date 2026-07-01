@@ -40,9 +40,19 @@ func NewReadTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("read: %w", err)
 			}
 
+			resolvedPath := absPath
+			displayPath := relDisplayPath(env.WorkDir, absPath)
+			if env.PathPolicy != nil {
+				resolvedPath = env.PathPolicy.DisplayPath(absPath)
+				displayPath = resolvedPath
+				if !strings.HasPrefix(displayPath, "/") {
+					displayPath = relDisplayPath(env.WorkDir, displayPath)
+				}
+			}
+
 			// Check if this is an image file and handle it specially.
 			if IsImageExtension(filepath.Ext(absPath)) {
-				return readImageFile(absPath, relDisplayPath(env.WorkDir, absPath))
+				return readImageFile(absPath, displayPath, resolvedPath)
 			}
 
 			diveResult, err := readTool.Call(ctx, &toolkit.ReadFileInput{
@@ -61,8 +71,8 @@ func NewReadTool(env Env) tool.ToolDef {
 
 			if diveResult.IsError {
 				return &ReadResult{
-					Path:         relDisplayPath(env.WorkDir, absPath),
-					ResolvedPath: absPath,
+					Path:         displayPath,
+					ResolvedPath: resolvedPath,
 					Output:       contentText,
 				}, nil
 			}
@@ -97,8 +107,8 @@ func NewReadTool(env Env) tool.ToolDef {
 			}
 
 			result := ReadResult{
-				Path:         relDisplayPath(env.WorkDir, absPath),
-				ResolvedPath: absPath,
+				Path:         displayPath,
+				ResolvedPath: resolvedPath,
 				FileHash:     fileContentHash(data),
 				StartLine:    startLine,
 				EndLine:      endLine,
@@ -121,7 +131,7 @@ func NewReadTool(env Env) tool.ToolDef {
 
 // readImageFile reads an image file, base64-encodes it, detects dimensions,
 // and returns a ReadResult with an embedded ImageBlock.
-func readImageFile(absPath, displayPath string) (*ReadResult, error) {
+func readImageFile(absPath, displayPath, resolvedPath string) (*ReadResult, error) {
 	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil, fmt.Errorf("read image: %w", err)
@@ -172,7 +182,7 @@ func readImageFile(absPath, displayPath string) (*ReadResult, error) {
 
 	return &ReadResult{
 		Path:         displayPath,
-		ResolvedPath: absPath,
+		ResolvedPath: resolvedPath,
 		Output:       summary,
 		Image: &ImageBlock{
 			MediaType: mediaType,

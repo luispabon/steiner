@@ -82,11 +82,24 @@ func rollbackMutate(committed []*mutateFileState, snapshots map[string]*mutateFi
 	return nil
 }
 
-func ensureParentDir(path string) error {
+// ensureParentDirExists is called by the commit phase to verify or create
+// parent directories. For sandbox tmpDir paths, it creates missing parents;
+// for other paths, it only verifies existence. This prevents silent directory
+// tree creation outside the sandbox while allowing full access within it.
+func ensureParentDirExists(path string, isSandboxTmpPath bool) error {
 	parent := filepath.Dir(path)
 	info, err := os.Stat(parent)
 	if err != nil {
-		return fmt.Errorf("parent directory %q: %w", parent, err)
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("parent directory %q: %w", parent, err)
+		}
+		if !isSandboxTmpPath {
+			return fmt.Errorf("parent directory %q: %w", parent, err)
+		}
+		if mkErr := os.MkdirAll(parent, 0o755); mkErr != nil {
+			return fmt.Errorf("create parent directory %q: %w", parent, mkErr)
+		}
+		return nil
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("parent %q is not a directory", parent)

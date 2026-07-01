@@ -21,7 +21,7 @@ func (p *mutatePlanner) planCreate(index int, op MutateOperation) error {
 	if state.exists {
 		return fmt.Errorf("mutate: operation %d create: %s already exists", index, state.displayPath)
 	}
-	if err := ensureParentDir(state.path); err != nil {
+	if err := ensureParentDirExists(state.path, p.isSandboxTmpPath(state.path)); err != nil {
 		return fmt.Errorf("mutate: operation %d create: %w", index, err)
 	}
 	before := string(state.content)
@@ -48,7 +48,7 @@ func (p *mutatePlanner) planWrite(index int, op MutateOperation) error {
 	if state.exists && state.isDir {
 		return fmt.Errorf("mutate: operation %d write: %s is a directory", index, state.displayPath)
 	}
-	if err := ensureParentDir(state.path); err != nil {
+	if err := ensureParentDirExists(state.path, p.isSandboxTmpPath(state.path)); err != nil {
 		return fmt.Errorf("mutate: operation %d write: %w", index, err)
 	}
 	if op.Content == "" && state.exists && len(state.content) > 0 && !op.AllowEmpty {
@@ -286,7 +286,7 @@ func (p *mutatePlanner) planMove(index int, op MutateOperation) error {
 	if to.exists {
 		return fmt.Errorf("mutate: operation %d move: %s already exists", index, to.displayPath)
 	}
-	if err := ensureParentDir(to.path); err != nil {
+	if err := ensureParentDirExists(to.path, p.isSandboxTmpPath(to.path)); err != nil {
 		return fmt.Errorf("mutate: operation %d move: %w", index, err)
 	}
 	to.exists = true

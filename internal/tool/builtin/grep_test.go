@@ -477,7 +477,7 @@ func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {
 		t.Fatalf("write multiline file: %v", err)
 	}
 
-	matches, err := grepSearch(context.Background(), tmpDir, "multiline.txt", "alpha\\nbeta", false, true, "", "", nil)
+	matches, err := grepSearch(context.Background(), tmpDir, "multiline.txt", "alpha\\nbeta", false, true, "", "", nil, nil)
 	if err != nil {
 		t.Fatalf("grepSearch returned error: %v", err)
 	}
@@ -520,7 +520,7 @@ func TestGrepSearch_ReturnsTraversalAndReadErrors(t *testing.T) {
 			t.Skip("filesystem does not deny file reads after chmod 000")
 		}
 
-		_, err := grepSearch(context.Background(), tmpDir, tmpDir, "needle", false, false, "", "", nil)
+		_, err := grepSearch(context.Background(), tmpDir, tmpDir, "needle", false, false, "", "", nil, nil)
 		if err == nil {
 			t.Fatal("expected read error, got nil")
 		}
@@ -553,7 +553,7 @@ func TestGrepSearch_ReturnsTraversalAndReadErrors(t *testing.T) {
 			t.Skip("filesystem does not deny directory traversal after chmod 000")
 		}
 
-		_, err := grepSearch(context.Background(), tmpDir, tmpDir, "needle", false, false, "", "", nil)
+		_, err := grepSearch(context.Background(), tmpDir, tmpDir, "needle", false, false, "", "", nil, nil)
 		if err == nil {
 			t.Fatal("expected traversal error, got nil")
 		}

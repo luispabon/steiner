@@ -144,7 +144,14 @@ func (p *mutatePlanner) stateFor(rawPath string) (*mutateFileState, error) {
 	if state, ok := p.states[absPath]; ok {
 		return state, nil
 	}
-	state := &mutateFileState{path: absPath, displayPath: relDisplayPath(p.env.WorkDir, absPath)}
+	displayPath := relDisplayPath(p.env.WorkDir, absPath)
+	if p.env.PathPolicy != nil {
+		dp := p.env.PathPolicy.DisplayPath(absPath)
+		if dp != absPath {
+			displayPath = dp
+		}
+	}
+	state := &mutateFileState{path: absPath, displayPath: displayPath}
 	info, err := os.Stat(absPath)
 	switch {
 	case err == nil:
@@ -181,6 +188,20 @@ func (p *mutatePlanner) resolvePath(rawPath string) (string, error) {
 	return absWorkspacePath(p.env.WorkDir, rawPath)
 }
 
+func (p *mutatePlanner) resolvedDisplayPath(absPath string) string {
+	if p.env.PathPolicy != nil {
+		return p.env.PathPolicy.DisplayPath(absPath)
+	}
+	return absPath
+}
+
+func (p *mutatePlanner) isSandboxTmpPath(path string) bool {
+	if p.env.PathPolicy == nil {
+		return false
+	}
+	return p.env.PathPolicy.IsSandboxTmpPath(path)
+}
+
 func (p *mutatePlanner) finalizeResult() {
 	for _, state := range p.states {
 		if state.touched {
@@ -208,7 +229,7 @@ func (p *mutatePlanner) recordTextOperation(index int, op MutateOperation, state
 		Index:        index,
 		Type:         op.Type,
 		Path:         state.displayPath,
-		ResolvedPath: state.path,
+		ResolvedPath: p.resolvedDisplayPath(state.path),
 		MatchCount:   matchCount,
 		FileHash:     fileContentHash(state.content),
 		Assertions:   assertions,
@@ -228,7 +249,7 @@ func (p *mutatePlanner) recordMovedOperation(index int, op MutateOperation, stat
 		From:         op.From,
 		To:           op.To,
 		Path:         state.displayPath,
-		ResolvedPath: state.path,
+		ResolvedPath: p.resolvedDisplayPath(state.path),
 		FileHash:     fileContentHash(state.content),
 		Assertions:   assertions,
 		Context:      buildMutateContext(state.content, 1),
