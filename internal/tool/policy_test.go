@@ -589,6 +589,115 @@ func TestPathPolicy_WithoutRoot(t *testing.T) {
 	}
 }
 
+func TestPolicy_ResolvePath_RewritesTompPath(t *testing.T) {
+	sandboxTmpDir := "/var/tmp/steiner-session-123"
+	// Create policy with no root constraint so sandboxTmpDir can be written to
+	policy := NewPathPolicyWithSandbox("", config.PathsConfig{}, sandboxTmpDir)
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "bare /tmp rewrites to sandboxTmpDir",
+			raw:  "/tmp",
+			want: sandboxTmpDir,
+		},
+		{
+			name: "/tmp/file.txt rewrites to sandboxTmpDir/file.txt",
+			raw:  "/tmp/file.txt",
+			want: filepath.Join(sandboxTmpDir, "file.txt"),
+		},
+		{
+			name: "/tmp/subdir/file.txt rewrites to sandboxTmpDir/subdir/file.txt",
+			raw:  "/tmp/subdir/file.txt",
+			want: filepath.Join(sandboxTmpDir, "subdir/file.txt"),
+		},
+		{
+			name: "non-/tmp paths are unaffected",
+			raw:  "/project/file.txt",
+			want: "/project/file.txt",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := policy.ResolvePath(tc.raw, false)
+			if err != nil {
+				t.Fatalf("ResolvePath(%q) error = %v", tc.raw, err)
+			}
+			if got != tc.want {
+				t.Fatalf("ResolvePath(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPolicy_ResolveReadPath_RewritesTompPath(t *testing.T) {
+	sandboxTmpDir := "/var/tmp/steiner-session-456"
+	policy := NewPathPolicyWithSandbox("/project", config.PathsConfig{}, sandboxTmpDir)
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "bare /tmp rewrites to sandboxTmpDir",
+			raw:  "/tmp",
+			want: sandboxTmpDir,
+		},
+		{
+			name: "/tmp/file.txt rewrites to sandboxTmpDir/file.txt",
+			raw:  "/tmp/file.txt",
+			want: filepath.Join(sandboxTmpDir, "file.txt"),
+		},
+		{
+			name: "non-/tmp paths are unaffected",
+			raw:  "/etc/hostname",
+			want: "/etc/hostname",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := policy.ResolveReadPath(tc.raw)
+			if err != nil {
+				t.Fatalf("ResolveReadPath(%q) error = %v", tc.raw, err)
+			}
+			if got != tc.want {
+				t.Fatalf("ResolveReadPath(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPolicy_TmpPath_NoRewriteWhenSandboxTmpDirEmpty(t *testing.T) {
+	// Create policy with no root constraint to test /tmp paths when sandboxTmpDir is empty
+	policy := NewPathPolicy("", config.PathsConfig{})
+
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "bare /tmp unchanged", raw: "/tmp"},
+		{name: "/tmp/file.txt unchanged", raw: "/tmp/file.txt"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := policy.ResolvePath(tc.raw, false)
+			if err != nil {
+				t.Fatalf("ResolvePath(%q) error = %v", tc.raw, err)
+			}
+			if !strings.HasPrefix(got, "/tmp") && got != "/tmp" {
+				t.Fatalf("ResolvePath(%q) = %q, want path starting with /tmp", tc.raw, got)
+			}
+		})
+	}
+}
+
 func TestPolicy_ResolveReadPath_RejectsSpecialFiles(t *testing.T) {
 	policy := NewPathPolicy(t.TempDir(), config.PathsConfig{})
 

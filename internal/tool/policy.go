@@ -24,6 +24,7 @@ func (e *PathPolicyError) Error() string {
 // PathPolicy constrains tool paths relative to the active project root.
 type PathPolicy struct {
 	root            string
+	sandboxTmpDir   string
 	projectRootOnly bool
 	blockedPaths    []string
 	writablePaths   []string
@@ -31,9 +32,16 @@ type PathPolicy struct {
 
 // NewPathPolicy creates a path policy from the working directory and paths configuration.
 func NewPathPolicy(root string, cfg config.PathsConfig) PathPolicy {
+	return NewPathPolicyWithSandbox(root, cfg, "")
+}
+
+// NewPathPolicyWithSandbox creates a path policy with an optional sandbox tmpDir.
+// When sandboxTmpDir is non-empty, /tmp paths are rewritten to sandboxTmpDir.
+func NewPathPolicyWithSandbox(root string, cfg config.PathsConfig, sandboxTmpDir string) PathPolicy {
 	normalizedRoot := normalizePolicyPath(root, root)
 	policy := PathPolicy{
 		root:            normalizedRoot,
+		sandboxTmpDir:   sandboxTmpDir,
 		projectRootOnly: cfg.ProjectRootOnly,
 	}
 	for _, path := range cfg.BlockedPaths {
@@ -59,6 +67,7 @@ func (p PathPolicy) Root() string {
 func (p PathPolicy) WithoutRoot() PathPolicy {
 	return PathPolicy{
 		root:            "",
+		sandboxTmpDir:   p.sandboxTmpDir,
 		projectRootOnly: false,
 		blockedPaths:    p.blockedPaths,
 		writablePaths:   p.writablePaths,
@@ -84,6 +93,7 @@ func (p PathPolicy) ResolveReadPath(raw string) (string, error) {
 	if normalized == "" {
 		return "", fmt.Errorf("path is required")
 	}
+	normalized = p.rewriteTmpPath(normalized)
 	for _, blocked := range p.blockedPaths {
 		if pathWithinRoot(blocked, normalized) {
 			return "", &PathPolicyError{
@@ -109,6 +119,7 @@ func (p PathPolicy) ResolvePath(raw string, writable bool) (string, error) {
 	if normalized == "" {
 		return "", fmt.Errorf("path is required")
 	}
+	normalized = p.rewriteTmpPath(normalized)
 	if err := p.ensureAllowed(normalized, writable); err != nil {
 		return "", err
 	}
@@ -242,6 +253,21 @@ func (p PathPolicy) resolveOptionalPath(value any, writable bool) (string, error
 		return "", nil
 	}
 	return p.ResolvePath(path, writable)
+}
+
+// rewriteTmpPath rewrites /tmp paths to sandboxTmpDir when sandbox is active.
+// If sandboxTmpDir is empty, returns path unchanged.
+func (p PathPolicy) rewriteTmpPath(path string) string {
+	if p.sandboxTmpDir == "" {
+		return path
+	}
+	if path == "/tmp" {
+		return p.sandboxTmpDir
+	}
+	if strings.HasPrefix(path, "/tmp/") {
+		return filepath.Join(p.sandboxTmpDir, path[5:])
+	}
+	return path
 }
 
 func normalizePolicyPath(root, raw string) string {

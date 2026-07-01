@@ -15,7 +15,11 @@ import (
 // interactive should be true only when a TUI is active.
 // sb, if non-nil, provides a CommandWrapper for the bash tool.
 func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox) []tool.ToolDef {
-	pp := tool.NewPathPolicy(workDir, cfg.Paths)
+	var sandboxTmpDir string
+	if sb != nil && sb.Enabled() {
+		sandboxTmpDir = sb.TmpDir()
+	}
+	pp := tool.NewPathPolicyWithSandbox(workDir, cfg.Paths, sandboxTmpDir)
 	excluder := tool.NewPathExcluder(cfg.Paths.ExcludePaths, cfg.Paths.ExcludePatterns)
 	var commandWrapper func(*exec.Cmd) *exec.Cmd
 	if sb != nil {

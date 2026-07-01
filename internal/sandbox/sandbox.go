@@ -43,6 +43,11 @@ func (s *Sandbox) Enabled() bool {
 	return s.cfg.Enabled
 }
 
+// TmpDir returns the session-scoped temporary directory.
+func (s *Sandbox) TmpDir() string {
+	return s.tmpDir
+}
+
 // WrapCommand wraps cmd with bubblewrap. Returns cmd unchanged when sandbox disabled.
 func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 	if !s.cfg.Enabled {
