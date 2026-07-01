@@ -83,6 +83,15 @@ func closeRuntime(rt *cliRuntime) {
 	if rt.imageStore != nil {
 		_ = rt.imageStore.Cleanup()
 	}
+	if rt.sandbox != nil {
+		if err := rt.sandbox.Cleanup(); err != nil {
+			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{fmt.Sprintf("sandbox tmp cleanup: %v", err)},
+			}))
+		}
+	}
 	if rt.delegationLogger != nil {
 		if err := rt.delegationLogger.Close(); err != nil {
 			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
