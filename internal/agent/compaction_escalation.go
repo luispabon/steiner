@@ -223,7 +223,12 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   compactionMaxTokensForMode(maxTokens),
 	}
-	return applyPromptSuffix(req.ResolvedModel.PromptSuffix, request), fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode), nil
+	request = applyPromptSuffix(req.ResolvedModel.PromptSuffix, request)
+	request.IncludeEmptyReasoning = req.ResolvedModel.ReasoningEchoBack
+	if !req.ResolvedModel.ReasoningEchoBack {
+		stripReasoningContent(request.Messages)
+	}
+	return request, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode), nil
 }
 
 func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
