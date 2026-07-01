@@ -8,14 +8,22 @@ import (
 )
 
 const (
-	testTerseMarker = "Be terse."
-	testHumanMarker = "Write like a person"
-	testBodyMarker  = "compact working context for coding agent"
+	testTerseMarker    = "Be terse."
+	testHumanMarker    = "Write like a person"
+	testBodyMarker     = "compact working context for coding agent"
+	testEncodingMarker = "Encoding directives:"
 )
 
 var testAntiTellMarkers = []string{
 	"Banned vocabulary:",
 	"No rule-of-three lists.",
+}
+
+var testEncodingDirectiveMarkers = []string{
+	"Drop articles where meaning survives.",
+	"Use semicolons, not sentences.",
+	"Use key=value notation for config/env/version facts.",
+	"Preserve exact identifiers verbatim",
 }
 
 func TestSystemPreambleCaveHumanEnabledAndDisabled(t *testing.T) {
@@ -98,31 +106,33 @@ func TestRenderConversationCompactionInstructionCaveHuman(t *testing.T) {
 	t.Parallel()
 
 	enabled := RenderConversationCompactionInstruction("", CompactionModeNormal, true)
-	for _, want := range []string{
-		testBodyMarker,
-		testCaveHumanMarker,
-		testTerseMarker,
-		testHumanMarker,
-	} {
+	for _, want := range append([]string{testBodyMarker, testEncodingMarker}, testEncodingDirectiveMarkers...) {
 		if !strings.Contains(enabled, want) {
 			t.Fatalf("enabled compaction instruction missing %q in %q", want, enabled)
 		}
 	}
-	for _, want := range testAntiTellMarkers {
-		if !strings.Contains(enabled, want) {
-			t.Fatalf("enabled compaction instruction missing anti-tell %q in %q", want, enabled)
-		}
-	}
-
-	disabled := RenderConversationCompactionInstruction("", CompactionModeNormal, false)
 	for _, forbidden := range []string{
 		testCaveHumanMarker,
 		testTerseMarker,
 		testHumanMarker,
-		testBodyMarker,
 		testAntiTellMarkers[0],
 		testAntiTellMarkers[1],
 	} {
+		if strings.Contains(enabled, forbidden) {
+			t.Fatalf("enabled compaction instruction unexpectedly contains generic output-voice marker %q in %q", forbidden, enabled)
+		}
+	}
+
+	disabled := RenderConversationCompactionInstruction("", CompactionModeNormal, false)
+	for _, forbidden := range append([]string{
+		testCaveHumanMarker,
+		testTerseMarker,
+		testHumanMarker,
+		testBodyMarker,
+		testEncodingMarker,
+		testAntiTellMarkers[0],
+		testAntiTellMarkers[1],
+	}, testEncodingDirectiveMarkers...) {
 		if strings.Contains(disabled, forbidden) {
 			t.Fatalf("disabled compaction instruction unexpectedly contains %q in %q", forbidden, disabled)
 		}
@@ -142,19 +152,20 @@ func TestBuildConversationCompactionPromptCaveHuman(t *testing.T) {
 		t.Fatal("BuildConversationCompactionPrompt returned empty result")
 	}
 	sysContent := enabled[0].Content
-	for _, want := range []string{
-		testBodyMarker,
-		testCaveHumanMarker,
-		testTerseMarker,
-		testHumanMarker,
-	} {
+	for _, want := range append([]string{testBodyMarker, testEncodingMarker}, testEncodingDirectiveMarkers...) {
 		if !strings.Contains(sysContent, want) {
 			t.Fatalf("enabled compaction prompt missing %q in %q", want, sysContent)
 		}
 	}
-	for _, want := range testAntiTellMarkers {
-		if !strings.Contains(sysContent, want) {
-			t.Fatalf("enabled compaction prompt missing anti-tell %q in %q", want, sysContent)
+	for _, forbidden := range []string{
+		testCaveHumanMarker,
+		testTerseMarker,
+		testHumanMarker,
+		testAntiTellMarkers[0],
+		testAntiTellMarkers[1],
+	} {
+		if strings.Contains(sysContent, forbidden) {
+			t.Fatalf("enabled compaction prompt unexpectedly contains generic output-voice marker %q in %q", forbidden, sysContent)
 		}
 	}
 
@@ -163,14 +174,15 @@ func TestBuildConversationCompactionPromptCaveHuman(t *testing.T) {
 		t.Fatal("BuildConversationCompactionPrompt returned empty result")
 	}
 	sysContent = disabled[0].Content
-	for _, forbidden := range []string{
+	for _, forbidden := range append([]string{
 		testCaveHumanMarker,
 		testTerseMarker,
 		testHumanMarker,
 		testBodyMarker,
+		testEncodingMarker,
 		testAntiTellMarkers[0],
 		testAntiTellMarkers[1],
-	} {
+	}, testEncodingDirectiveMarkers...) {
 		if strings.Contains(sysContent, forbidden) {
 			t.Fatalf("disabled compaction prompt unexpectedly contains %q in %q", forbidden, sysContent)
 		}
