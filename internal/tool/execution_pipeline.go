@@ -31,10 +31,10 @@ func (e *Executor) resolveDefinition(in executionInput) (ToolDef, error) {
 	return def, nil
 }
 
-func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, input map[string]any) (map[string]any, error) {
+func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, input map[string]any) (map[string]any, *PathPolicy, error) {
 	normalizedInput, err := e.pathPolicy.ValidateToolInput(def.Name, input)
 	if err == nil {
-		return normalizedInput, nil
+		return normalizedInput, nil, nil
 	}
 
 	// Check if this is a promptable path policy violation (outside project root).
@@ -51,7 +51,7 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, inp
 			Response:          make(chan ApprovalResponse, 1),
 		}
 		if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr != nil {
-			return nil, &ToolExecutionError{
+			return nil, nil, &ToolExecutionError{
 				Tool:    def.Name,
 				Kind:    "policy_denied",
 				Message: err.Error(),
@@ -62,17 +62,17 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, inp
 			relaxed := e.pathPolicy.WithoutRoot()
 			relaxedInput, relaxedErr := relaxed.ValidateToolInput(def.Name, input)
 			if relaxedErr != nil {
-				return nil, &ToolExecutionError{
+				return nil, nil, &ToolExecutionError{
 					Tool:    def.Name,
 					Kind:    "policy_denied",
 					Message: relaxedErr.Error(),
 				}
 			}
-			return relaxedInput, nil
+			return relaxedInput, &relaxed, nil
 		}
 	}
 
-	return nil, &ToolExecutionError{
+	return nil, nil, &ToolExecutionError{
 		Tool:    def.Name,
 		Kind:    "policy_denied",
 		Message: err.Error(),
@@ -85,9 +85,14 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		return nil, err
 	}
 
-	normalizedInput, err := e.normalizeExecutionInput(ctx, def, in.Input)
+	normalizedInput, effectivePolicy, err := e.normalizeExecutionInput(ctx, def, in.Input)
 	if err != nil {
 		return nil, err
+	}
+
+	toolCtx := ctx
+	if effectivePolicy != nil {
+		toolCtx = context.WithValue(ctx, EffectivePolicyKey{}, effectivePolicy)
 	}
 
 	ec := executionContext{
@@ -95,7 +100,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		NormalizedInput: normalizedInput,
 	}
 
-	return e.executeTool(ctx, &ec)
+	return e.executeTool(toolCtx, &ec)
 }
 
 // isBashDenial reports whether output contains sandbox denial signals.

@@ -5,6 +5,12 @@ package tool
 // Set when the user approves a sandbox boundary violation via the approver.
 type BashUnsandboxedKey struct{}
 
+// EffectivePolicyKey is a context key used to carry the effective (possibly relaxed)
+// PathPolicy through the execution pipeline. Set when the user approves a path
+// policy violation via the approver, so handlers can use the approved policy
+// instead of the original restrictive one.
+type EffectivePolicyKey struct{}
+
 // BashDenialResult is implemented by builtin.BashResult to allow sandbox
 // denial detection in the execution pipeline without an import cycle.
 type BashDenialResult interface {
