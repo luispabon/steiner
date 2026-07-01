@@ -1133,3 +1133,686 @@ func TestCompleteCompactionCallDoesNotRecordOnError(t *testing.T) {
 		t.Errorf("recorded observations = %d, want 0 on error", got)
 	}
 }
+
+func TestBuildCompactionRequestWithMode_ReasoningHandling(t *testing.T) {
+	// Messages with reasoning content on an assistant message to verify
+	// stripReasoningContent behaviour.
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "user query"},
+		{
+			Role:             MessageRoleAssistant,
+			Content:          "assistant answer",
+			ReasoningContent: "step-by-step reasoning",
+		},
+		{Role: MessageRoleUser, Content: "follow-up"},
+	}
+
+	candidate := ConversationCandidate{
+		GenerationID: 1,
+		View:         ConversationViewFull,
+		Messages:     messages,
+	}
+
+	tests := []struct {
+		name                  string
+		reasoningEchoBack     bool
+		wantIncludeEmpty      bool
+		wantReasoningStripped bool
+	}{
+		{
+			name:                  "sets IncludeEmptyReasoning and preserves reasoning when echo-back enabled",
+			reasoningEchoBack:     true,
+			wantIncludeEmpty:      true,
+			wantReasoningStripped: false,
+		},
+		{
+			name:                  "clears IncludeEmptyReasoning and strips reasoning when echo-back disabled",
+			reasoningEchoBack:     false,
+			wantIncludeEmpty:      false,
+			wantReasoningStripped: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := RunRequest{
+				ResolvedModel: provider.ResolvedModel{
+					BackendModelID:    "test-model",
+					ReasoningEchoBack: tt.reasoningEchoBack,
+				},
+				Events: output.NoopSink{},
+			}
+
+			state := RunState{
+				Conversation: messages,
+				Lineage:      newConversationLineage(messages),
+			}
+
+			chatRequest, _, err := buildCompactionRequestWithMode(
+				context.Background(), req, state, candidate,
+				prompt.CompactionModeNormal, 256,
+			)
+			if err != nil {
+				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+			}
+
+			if got, want := chatRequest.IncludeEmptyReasoning, tt.wantIncludeEmpty; got != want {
+				t.Fatalf("IncludeEmptyReasoning = %v, want %v", got, want)
+			}
+
+			hasReasoning := false
+			for _, msg := range chatRequest.Messages {
+				if msg.ReasoningContent != "" {
+					hasReasoning = true
+					break
+				}
+			}
+			if tt.wantReasoningStripped && hasReasoning {
+				t.Fatal("messages have ReasoningContent, want all stripped")
+			}
+			if !tt.wantReasoningStripped && !hasReasoning {
+				t.Fatal("messages have no ReasoningContent, want reasoning preserved")
+			}
+		})
+	}
+}
+
+func TestBuildCompactionRequestWithMode_CacheFields(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "user"},
+		{Role: MessageRoleAssistant, Content: "assistant"},
+	}
+
+	candidate := ConversationCandidate{
+		GenerationID: 1,
+		View:         ConversationViewFull,
+		Messages:     messages,
+	}
+
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		reasoningEchoBack bool
+	}{
+		{name: "echo-back enabled", reasoningEchoBack: true},
+		{name: "echo-back disabled", reasoningEchoBack: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tools := []provider.ToolSpec{
+				{Type: "function", Function: provider.ToolFunctionSpec{Name: "read"}},
+			}
+			params := map[string]any{"temperature": 0.7}
+			extraParams := map[string]any{"foo": "bar"}
+
+			req := RunRequest{
+				ResolvedModel: provider.ResolvedModel{
+					BackendModelID:    "test-model",
+					ReasoningEchoBack: tt.reasoningEchoBack,
+					Params:            params,
+					ExtraParams:       extraParams,
+				},
+				Tools:  tools,
+				Events: output.NoopSink{},
+			}
+
+			state := RunState{
+				Conversation: messages,
+				Lineage:      newConversationLineage(messages),
+			}
+
+			chatRequest, _, err := buildCompactionRequestWithMode(
+				context.Background(), req, state, candidate,
+				prompt.CompactionModeNormal, 128,
+			)
+			if err != nil {
+				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+			}
+
+			// Model
+			if got, want := chatRequest.Model, req.ResolvedModel.BackendModelID; got != want {
+				t.Fatalf("Model = %q, want %q", got, want)
+			}
+
+			// Tools (deep equal, not pointer)
+			if !reflect.DeepEqual(chatRequest.Tools, req.Tools) {
+				t.Fatalf("Tools = %#v, want %#v", chatRequest.Tools, req.Tools)
+			}
+
+			// Params pointer identity
+			if reflect.ValueOf(chatRequest.Params).Pointer() != reflect.ValueOf(req.ResolvedModel.Params).Pointer() {
+				t.Fatal("Params not shared (pointer identity)")
+			}
+			if !reflect.DeepEqual(chatRequest.Params, req.ResolvedModel.Params) {
+				t.Fatalf("Params value = %#v, want %#v", chatRequest.Params, req.ResolvedModel.Params)
+			}
+
+			// ExtraParams pointer identity
+			if reflect.ValueOf(chatRequest.ExtraParams).Pointer() != reflect.ValueOf(req.ResolvedModel.ExtraParams).Pointer() {
+				t.Fatal("ExtraParams not shared (pointer identity)")
+			}
+			if !reflect.DeepEqual(chatRequest.ExtraParams, req.ResolvedModel.ExtraParams) {
+				t.Fatalf("ExtraParams value = %#v, want %#v", chatRequest.ExtraParams, req.ResolvedModel.ExtraParams)
+			}
+
+			// IncludeEmptyReasoning
+			if got, want := chatRequest.IncludeEmptyReasoning, tt.reasoningEchoBack; got != want {
+				t.Fatalf("IncludeEmptyReasoning = %v, want %v", got, want)
+			}
+
+			// Messages: at least system preamble + compaction instruction
+			if len(chatRequest.Messages) < 2 {
+				t.Fatalf("Messages count = %d, want >= 2", len(chatRequest.Messages))
+			}
+
+			// Last message is user role with compaction instruction
+			lastMsg := chatRequest.Messages[len(chatRequest.Messages)-1]
+			if lastMsg.Role != provider.MessageRoleUser {
+				t.Fatalf("last message role = %q, want %q", lastMsg.Role, provider.MessageRoleUser)
+			}
+			if !strings.Contains(lastMsg.Content, "You are compacting the current working context for a coding agent.") {
+				t.Fatalf("last message content = %q, want compaction instruction", lastMsg.Content)
+			}
+
+			// Prefix messages match expected assembly from same candidate
+			expectedAssembly, err := prompt.Assemble(context.Background(),
+				assemblyOptions(prepareBasePrompt(req), state.WithConversation(candidate.Messages)))
+			if err != nil {
+				t.Fatalf("Assemble() error = %v", err)
+			}
+			prefix := chatRequest.Messages[:len(chatRequest.Messages)-1]
+			if !reflect.DeepEqual(prefix, expectedAssembly.Messages) {
+				t.Fatal("prefix messages do not match expected assembly")
+			}
+		})
+	}
+}
+
+func TestBuildCompactionRequestWithMode_MaxTokens(t *testing.T) {
+	t.Parallel()
+
+	candidate := ConversationCandidate{
+		GenerationID: 1,
+		View:         ConversationViewFull,
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: "hi"},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		maxTokens int
+		wantNil   bool
+	}{
+		{name: "positive sets max_tokens", maxTokens: 128, wantNil: false},
+		{name: "zero yields nil", maxTokens: 0, wantNil: true},
+		{name: "negative yields nil", maxTokens: -1, wantNil: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := RunRequest{
+				ResolvedModel: provider.ResolvedModel{
+					BackendModelID: "test-model",
+				},
+				Events: output.NoopSink{},
+			}
+
+			state := RunState{
+				Conversation: candidate.Messages,
+				Lineage:      newConversationLineage(candidate.Messages),
+			}
+
+			chatRequest, _, err := buildCompactionRequestWithMode(
+				context.Background(), req, state, candidate,
+				prompt.CompactionModeNormal, tt.maxTokens,
+			)
+			if err != nil {
+				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+			}
+
+			if tt.wantNil {
+				if chatRequest.MaxTokens != nil {
+					t.Fatalf("MaxTokens = %d, want nil", *chatRequest.MaxTokens)
+				}
+			} else {
+				if chatRequest.MaxTokens == nil {
+					t.Fatal("MaxTokens = nil, want non-nil")
+				}
+				if *chatRequest.MaxTokens != tt.maxTokens {
+					t.Fatalf("MaxTokens = %d, want %d", *chatRequest.MaxTokens, tt.maxTokens)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildCompactionRequestWithMode_PromptSuffix(t *testing.T) {
+	t.Parallel()
+
+	candidate := ConversationCandidate{
+		GenerationID: 1,
+		View:         ConversationViewFull,
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+			{Role: MessageRoleAssistant, Content: "world"},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		suffix     string
+		wantDouble bool // whether suffix would be duplicated if de-dup didn't work
+	}{
+		{name: "appends suffix to compaction instruction", suffix: "Be concise.", wantDouble: false},
+		{name: "does not duplicate suffix", suffix: "You are compacting", wantDouble: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := RunRequest{
+				ResolvedModel: provider.ResolvedModel{
+					BackendModelID: "test-model",
+					PromptSuffix:   tt.suffix,
+				},
+				Events: output.NoopSink{},
+			}
+
+			state := RunState{
+				Conversation: candidate.Messages,
+				Lineage:      newConversationLineage(candidate.Messages),
+			}
+
+			chatRequest, _, err := buildCompactionRequestWithMode(
+				context.Background(), req, state, candidate,
+				prompt.CompactionModeNormal, 128,
+			)
+			if err != nil {
+				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+			}
+
+			if len(chatRequest.Messages) < 2 {
+				t.Fatalf("Messages count = %d, want >= 2", len(chatRequest.Messages))
+			}
+
+			// Expected prefix (same as normal assembly from candidate)
+			expectedAssembly, err := prompt.Assemble(context.Background(),
+				assemblyOptions(prepareBasePrompt(req), state.WithConversation(candidate.Messages)))
+			if err != nil {
+				t.Fatalf("Assemble() error = %v", err)
+			}
+
+			// Prefix messages must match the expected assembly unchanged
+			prefix := chatRequest.Messages[:len(chatRequest.Messages)-1]
+			if !reflect.DeepEqual(prefix, expectedAssembly.Messages) {
+				t.Fatal("prefix messages changed, want identical to normal turn assembly")
+			}
+
+			// Final message is the compaction instruction with suffix appended
+			lastMsg := chatRequest.Messages[len(chatRequest.Messages)-1]
+			if lastMsg.Role != provider.MessageRoleUser {
+				t.Fatalf("last message role = %q, want %q", lastMsg.Role, provider.MessageRoleUser)
+			}
+			if !strings.Contains(lastMsg.Content, "You are compacting the current working context for a coding agent.") {
+				t.Fatalf("last message missing compaction instruction: %q", lastMsg.Content)
+			}
+			if !strings.Contains(lastMsg.Content, tt.suffix) {
+				t.Fatalf("last message missing suffix %q: %q", tt.suffix, lastMsg.Content)
+			}
+
+			// Verify no duplication: count occurrences of suffix in last message
+			if count := strings.Count(lastMsg.Content, tt.suffix); count != 1 {
+				t.Fatalf("suffix %q appears %d times in last message, want 1", tt.suffix, count)
+			}
+		})
+	}
+}
+
+func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
+	t.Parallel()
+
+	// Subtest 1: simplest baseline — empty suffix, echo-back false, no tools.
+	t.Run("empty suffix echo-back false no tools", func(t *testing.T) {
+		conversation := []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+			{Role: MessageRoleAssistant, Content: "world"},
+		}
+
+		state := RunState{
+			Conversation: conversation,
+			Lineage:      newConversationLineage(conversation),
+		}
+
+		req := RunRequest{
+			ResolvedModel: provider.ResolvedModel{
+				BackendModelID: "test-model",
+			},
+			ModelBudget: prompt.ModelTokenBudget{
+				ContextSize:         100000,
+				MaxCompletionTokens: 256,
+				SafetyMarginTokens:  0,
+				SummaryMaxTokens:    128,
+			},
+			Events: output.NoopSink{},
+		}
+
+		candidate := ConversationCandidate{
+			GenerationID: 1,
+			View:         ConversationViewFull,
+			Messages:     conversation,
+		}
+
+		// Normal turn
+		p := newTurnProgressor(req, prepareBasePrompt(req), nil)
+		_, normalReq, _, err := p.prepareTurn(context.Background(), state)
+		if err != nil {
+			t.Fatalf("prepareTurn() error = %v", err)
+		}
+
+		// Compaction request
+		compactionReq, _, err := buildCompactionRequestWithMode(
+			context.Background(), req, state, candidate,
+			prompt.CompactionModeNormal, 128,
+		)
+		if err != nil {
+			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+		}
+
+		// Length: compaction has one extra message (the instruction)
+		if got, want := len(compactionReq.Messages), len(normalReq.Messages)+1; got != want {
+			t.Fatalf("compaction Messages count = %d, want normal %d + 1", got, want)
+		}
+
+		// Core fields match
+		if compactionReq.Model != normalReq.Model {
+			t.Fatalf("Model = %q, want %q", compactionReq.Model, normalReq.Model)
+		}
+		if !reflect.DeepEqual(compactionReq.Tools, normalReq.Tools) {
+			t.Fatalf("Tools mismatch")
+		}
+		if reflect.ValueOf(compactionReq.Params).Pointer() != reflect.ValueOf(normalReq.Params).Pointer() {
+			t.Fatal("Params pointer mismatch")
+		}
+		if reflect.ValueOf(compactionReq.ExtraParams).Pointer() != reflect.ValueOf(normalReq.ExtraParams).Pointer() {
+			t.Fatal("ExtraParams pointer mismatch")
+		}
+		if compactionReq.IncludeEmptyReasoning != normalReq.IncludeEmptyReasoning {
+			t.Fatalf("IncludeEmptyReasoning = %v, want %v", compactionReq.IncludeEmptyReasoning, normalReq.IncludeEmptyReasoning)
+		}
+
+		// MaxTokens: normal is nil, compaction is set
+		if normalReq.MaxTokens != nil {
+			t.Fatal("normal MaxTokens = non-nil, want nil")
+		}
+		if compactionReq.MaxTokens == nil {
+			t.Fatal("compaction MaxTokens = nil, want non-nil")
+		}
+		if *compactionReq.MaxTokens != 128 {
+			t.Fatalf("compaction MaxTokens = %d, want 128", *compactionReq.MaxTokens)
+		}
+
+		// Prefix messages must be identical
+		prefix := compactionReq.Messages[:len(normalReq.Messages)]
+		if !reflect.DeepEqual(prefix, normalReq.Messages) {
+			t.Fatal("compaction prefix messages differ from normal turn messages")
+		}
+	})
+
+	// Subtest 2: non-empty suffix lands on different final messages.
+	t.Run("non-empty suffix", func(t *testing.T) {
+		conversation := []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+			{Role: MessageRoleAssistant, Content: "world"},
+		}
+
+		state := RunState{
+			Conversation: conversation,
+			Lineage:      newConversationLineage(conversation),
+		}
+
+		req := RunRequest{
+			ResolvedModel: provider.ResolvedModel{
+				BackendModelID: "test-model",
+				PromptSuffix:   "Be concise.",
+			},
+			ModelBudget: prompt.ModelTokenBudget{
+				ContextSize:         100000,
+				MaxCompletionTokens: 256,
+				SafetyMarginTokens:  0,
+				SummaryMaxTokens:    128,
+			},
+			Events: output.NoopSink{},
+		}
+
+		candidate := ConversationCandidate{
+			GenerationID: 1,
+			View:         ConversationViewFull,
+			Messages:     conversation,
+		}
+
+		p := newTurnProgressor(req, prepareBasePrompt(req), nil)
+		_, normalReq, _, err := p.prepareTurn(context.Background(), state)
+		if err != nil {
+			t.Fatalf("prepareTurn() error = %v", err)
+		}
+
+		compactionReq, _, err := buildCompactionRequestWithMode(
+			context.Background(), req, state, candidate,
+			prompt.CompactionModeNormal, 128,
+		)
+		if err != nil {
+			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+		}
+
+		if got, want := len(compactionReq.Messages), len(normalReq.Messages)+1; got != want {
+			t.Fatalf("compaction Messages count = %d, want normal %d + 1", got, want)
+		}
+
+		// Core fields match
+		if compactionReq.Model != normalReq.Model {
+			t.Fatalf("Model = %q, want %q", compactionReq.Model, normalReq.Model)
+		}
+		if !reflect.DeepEqual(compactionReq.Tools, normalReq.Tools) {
+			t.Fatalf("Tools mismatch")
+		}
+		if reflect.ValueOf(compactionReq.Params).Pointer() != reflect.ValueOf(normalReq.Params).Pointer() {
+			t.Fatal("Params pointer mismatch")
+		}
+		if reflect.ValueOf(compactionReq.ExtraParams).Pointer() != reflect.ValueOf(normalReq.ExtraParams).Pointer() {
+			t.Fatal("ExtraParams pointer mismatch")
+		}
+
+		// The prefix (all messages except the final compaction instruction) consists of
+		// the assembly messages without the suffix. The normal messages have the suffix
+		// appended to their last user message. So prefix and normal differ only on the
+		// user message that carries the suffix. Verify all non-user messages match.
+		prefix := compactionReq.Messages[:len(compactionReq.Messages)-1]
+		for i := range prefix {
+			if prefix[i].Role == provider.MessageRoleUser {
+				// Skip the user message — it differs because suffix is not applied
+				// to the compaction prefix.
+				continue
+			}
+			if !reflect.DeepEqual(prefix[i], normalReq.Messages[i]) {
+				t.Fatalf("prefix[%d] mismatch: %#v vs %#v", i, prefix[i], normalReq.Messages[i])
+			}
+		}
+
+		// Verify suffix is present in the last compaction message
+		lastMsg := compactionReq.Messages[len(compactionReq.Messages)-1]
+		if !strings.Contains(lastMsg.Content, "Be concise.") {
+			t.Fatalf("compaction last message missing suffix: %q", lastMsg.Content)
+		}
+
+		// Verify the suffix did NOT get appended to the prefix user messages
+		for _, msg := range prefix {
+			if msg.Role == provider.MessageRoleUser {
+				if strings.Contains(msg.Content, "Be concise.") {
+					t.Fatalf("prefix user message has suffix when it should not: %q", msg.Content)
+				}
+			}
+		}
+	})
+
+	// Subtest 3: echo-back true preserves reasoning identically.
+	t.Run("echo-back true", func(t *testing.T) {
+		conversation := []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+			{Role: MessageRoleAssistant, Content: "world", ReasoningContent: "thinking step by step"},
+		}
+
+		state := RunState{
+			Conversation: conversation,
+			Lineage:      newConversationLineage(conversation),
+		}
+
+		req := RunRequest{
+			ResolvedModel: provider.ResolvedModel{
+				BackendModelID:    "test-model",
+				ReasoningEchoBack: true,
+			},
+			ModelBudget: prompt.ModelTokenBudget{
+				ContextSize:         100000,
+				MaxCompletionTokens: 256,
+				SafetyMarginTokens:  0,
+				SummaryMaxTokens:    128,
+			},
+			Events: output.NoopSink{},
+		}
+
+		candidate := ConversationCandidate{
+			GenerationID: 1,
+			View:         ConversationViewFull,
+			Messages:     conversation,
+		}
+
+		p := newTurnProgressor(req, prepareBasePrompt(req), nil)
+		_, normalReq, _, err := p.prepareTurn(context.Background(), state)
+		if err != nil {
+			t.Fatalf("prepareTurn() error = %v", err)
+		}
+
+		compactionReq, _, err := buildCompactionRequestWithMode(
+			context.Background(), req, state, candidate,
+			prompt.CompactionModeNormal, 128,
+		)
+		if err != nil {
+			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+		}
+
+		// Verify reasoning preserved identically
+		if !compactionReq.IncludeEmptyReasoning {
+			t.Fatal("compaction IncludeEmptyReasoning = false, want true")
+		}
+		if !normalReq.IncludeEmptyReasoning {
+			t.Fatal("normal IncludeEmptyReasoning = false, want true")
+		}
+
+		if got, want := len(compactionReq.Messages), len(normalReq.Messages)+1; got != want {
+			t.Fatalf("compaction Messages count = %d, want normal %d + 1", got, want)
+		}
+
+		// Prefix messages must be identical (including reasoning content)
+		prefix := compactionReq.Messages[:len(normalReq.Messages)]
+		if !reflect.DeepEqual(prefix, normalReq.Messages) {
+			t.Fatal("compaction prefix messages differ from normal turn messages")
+		}
+
+		// Normal turn messages should contain the reasoning
+		hasReasoning := false
+		for _, msg := range normalReq.Messages {
+			if msg.ReasoningContent != "" {
+				hasReasoning = true
+				break
+			}
+		}
+		if !hasReasoning {
+			t.Fatal("normal turn messages missing reasoning content")
+		}
+	})
+
+	// Subtest 4: conversation with tool calls and tool results.
+	t.Run("conversation with tool calls and tool results", func(t *testing.T) {
+		conversation := []Message{
+			{Role: MessageRoleUser, Content: "list files"},
+			{
+				Role:    MessageRoleAssistant,
+				Content: "",
+				ToolCalls: []ToolCall{
+					{ID: "call_1", Name: "read"},
+				},
+			},
+			{Role: MessageRoleTool, Content: "file1.txt", ToolCallID: "call_1"},
+			{Role: MessageRoleUser, Content: "summarize"},
+		}
+
+		state := RunState{
+			Conversation: conversation,
+			Lineage:      newConversationLineage(conversation),
+		}
+
+		req := RunRequest{
+			ResolvedModel: provider.ResolvedModel{
+				BackendModelID: "test-model",
+			},
+			ModelBudget: prompt.ModelTokenBudget{
+				ContextSize:         100000,
+				MaxCompletionTokens: 256,
+				SafetyMarginTokens:  0,
+				SummaryMaxTokens:    128,
+			},
+			Events: output.NoopSink{},
+		}
+
+		candidate := ConversationCandidate{
+			GenerationID: 1,
+			View:         ConversationViewFull,
+			Messages:     conversation,
+		}
+
+		p := newTurnProgressor(req, prepareBasePrompt(req), nil)
+		_, normalReq, _, err := p.prepareTurn(context.Background(), state)
+		if err != nil {
+			t.Fatalf("prepareTurn() error = %v", err)
+		}
+
+		compactionReq, _, err := buildCompactionRequestWithMode(
+			context.Background(), req, state, candidate,
+			prompt.CompactionModeNormal, 128,
+		)
+		if err != nil {
+			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+		}
+
+		if got, want := len(compactionReq.Messages), len(normalReq.Messages)+1; got != want {
+			t.Fatalf("compaction Messages count = %d, want normal %d + 1", got, want)
+		}
+
+		// Core fields match
+		if compactionReq.Model != normalReq.Model {
+			t.Fatalf("Model = %q, want %q", compactionReq.Model, normalReq.Model)
+		}
+		if !reflect.DeepEqual(compactionReq.Tools, normalReq.Tools) {
+			t.Fatalf("Tools mismatch")
+		}
+		if reflect.ValueOf(compactionReq.Params).Pointer() != reflect.ValueOf(normalReq.Params).Pointer() {
+			t.Fatal("Params pointer mismatch")
+		}
+		if reflect.ValueOf(compactionReq.ExtraParams).Pointer() != reflect.ValueOf(normalReq.ExtraParams).Pointer() {
+			t.Fatal("ExtraParams pointer mismatch")
+		}
+
+		// Prefix messages must be identical after ReplaySafeConversation sanitization
+		prefix := compactionReq.Messages[:len(normalReq.Messages)]
+		if !reflect.DeepEqual(prefix, normalReq.Messages) {
+			t.Fatal("compaction prefix messages differ from normal turn messages")
+		}
+
+		// Verify tool messages made it through identically on both paths
+		if !messageContentsContain(normalReq.Messages, "file1.txt") {
+			t.Fatal("normal turn messages missing tool result content")
+		}
+	})
+}
