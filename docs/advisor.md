@@ -35,6 +35,7 @@ advisor:
   model: advisor-model
   max_uses_per_run: 2
   max_tokens: 256
+  timeout: 5m
 ```
 
 Fields:
@@ -45,6 +46,7 @@ Fields:
 | `model` | `""` | Model alias used for advisor calls. Required when enabled, and must exist in `models`. |
 | `max_uses_per_run` | `3` | Per-run call cap. Required to be at least `1` when enabled. |
 | `max_tokens` | `nil` | Optional output-token limit forwarded to the advisor provider request. |
+| `timeout` | `180s` | Optional HTTP timeout override applied only to advisor calls. Overrides `providers.<name>.timeout` for the advisor's provider only, leaving the main chat model and other models unaffected. The default `180s` is higher than the typical 30s provider default because advisor calls send a large parent-conversation prompt. |
 
 The advisor model is resolved through the same model configuration and provider discovery path as other runtime models.
 

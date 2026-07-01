@@ -26,6 +26,10 @@ func applyAdvisorPatch(dst *AdvisorConfig, patch *advisorPatch) {
 		value := *patch.MaxTokens
 		dst.MaxTokens = &value
 	}
+	if patch.Timeout != nil {
+		value := *patch.Timeout
+		dst.Timeout = &value
+	}
 }
 
 func applyOneShotPatch(dst *oneshotConfig, patch *oneshotPatch) {

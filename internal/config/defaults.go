@@ -1,5 +1,7 @@
 package config
 
+var advisorTimeout = MustDuration("180s")
+
 func defaultConfig() Config {
 	defaultProvider := ProviderConfig{
 		Type:    ProviderTypeOpenAICompat,
@@ -60,6 +62,7 @@ func defaultConfig() Config {
 		Advisor: AdvisorConfig{
 			Enabled:       false,
 			MaxUsesPerRun: 3,
+			Timeout:       &advisorTimeout,
 		},
 		OneShot: oneshotConfig{
 			AutoPR: false,

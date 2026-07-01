@@ -89,6 +89,11 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 	if cfg.Advisor.MaxTokens != nil {
 		t.Fatalf("advisor.max_tokens = %#v, want nil", cfg.Advisor.MaxTokens)
 	}
+	if cfg.Advisor.Timeout == nil {
+		t.Fatal("advisor.timeout = nil, want 180s default")
+	} else if got, want := cfg.Advisor.Timeout.Duration(), int64(180*1_000_000_000); got != want {
+		t.Fatalf("advisor.timeout = %d ns, want %d ns", got, want)
+	}
 }
 
 func TestAdvisorConfigPatchAndYAMLParsing(t *testing.T) {
@@ -96,6 +101,7 @@ func TestAdvisorConfigPatchAndYAMLParsing(t *testing.T) {
   enabled: true
   max_uses_per_run: 2
   max_tokens: 512
+  timeout: 90s
 models:
   advisor: advisor-model
 `)
@@ -113,6 +119,7 @@ models:
 		Enabled:       true,
 		MaxUsesPerRun: 2,
 		MaxTokens:     intPtr(512),
+		Timeout:       durationPtr(MustDuration("90s")),
 	}
 	if !reflect.DeepEqual(dst, want) {
 		t.Fatalf("applyAdvisorPatch() = %#v, want %#v", dst, want)
@@ -179,11 +186,13 @@ func TestApplyAdvisorPatch(t *testing.T) {
 				Enabled:       boolPtr(true),
 				MaxUsesPerRun: intPtr(3),
 				MaxTokens:     intPtr(256),
+				Timeout:       durationPtr(MustDuration("45s")),
 			},
 			want: AdvisorConfig{
 				Enabled:       true,
 				MaxUsesPerRun: 3,
 				MaxTokens:     intPtr(256),
+				Timeout:       durationPtr(MustDuration("45s")),
 			},
 		},
 		{
@@ -192,12 +201,14 @@ func TestApplyAdvisorPatch(t *testing.T) {
 				Enabled:       true,
 				MaxUsesPerRun: 1,
 				MaxTokens:     intPtr(128),
+				Timeout:       durationPtr(MustDuration("30s")),
 			},
 			patch: advisorPatch{},
 			want: AdvisorConfig{
 				Enabled:       true,
 				MaxUsesPerRun: 1,
 				MaxTokens:     intPtr(128),
+				Timeout:       durationPtr(MustDuration("30s")),
 			},
 		},
 	}
