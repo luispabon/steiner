@@ -456,8 +456,8 @@ func TestRenderConversationCompactionInstructionPreservesOverrideAndCaveHuman(t 
 	if !strings.Contains(caveHuman, "compact working context for coding agent") {
 		t.Fatalf("cave-human compaction instruction = %q, want cave-human body", caveHuman)
 	}
-	if !strings.Contains(caveHuman, "## Output voice") {
-		t.Fatalf("cave-human compaction instruction = %q, want output voice block", caveHuman)
+	if !strings.Contains(caveHuman, "Encoding directives:") {
+		t.Fatalf("cave-human compaction instruction = %q, want encoding directives block", caveHuman)
 	}
 }
 
