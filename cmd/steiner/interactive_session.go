@@ -85,6 +85,12 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		Duration: time.Duration(rt.cfg.DesktopNotifications.Duration) * time.Second,
 		AppName:  "steiner",
 	})
+	if rt.sandbox != nil {
+		sb := rt.sandbox
+		tuiCfg.SessionResetCleanup = func() {
+			_ = sb.ResetTmp()
+		}
+	}
 	return tui.NewApp(tuiCfg)
 }
 

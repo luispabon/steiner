@@ -164,6 +164,7 @@ type Model struct {
 	notifier                     notifier
 	ticking                      bool
 	imageStore                   *agent.ImageStore
+	sessionResetCleanup          func()
 
 	viewportLines      []string
 	viewportContentLen int

@@ -16,7 +16,7 @@ import (
 
 func TestWrapCommand_Disabled(t *testing.T) {
 	cfg := config.SandboxConfig{Enabled: false}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/workspace", "/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/workspace", "/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -35,7 +35,7 @@ func TestWrapCommand_Enabled_NoBwrap(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -54,7 +54,7 @@ func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar")
 	wrapped := s.WrapCommand(original)
@@ -69,6 +69,9 @@ func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 		t.Errorf("wrapped.Args[0] = %q, want \"bwrap\"", wrapped.Args[0])
 	}
 
+	if !containsSeq(wrapped.Args, "--bind", "/tmp/sandbox-tmp", "/tmp") {
+		t.Errorf("expected --bind /tmp/sandbox-tmp /tmp in args: %v", wrapped.Args)
+	}
 	lastSep := -1
 	for i, a := range wrapped.Args {
 		if a == "--" {
@@ -94,7 +97,7 @@ func TestWrapCommand_Enabled_InheritsStreams(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "ls")
 	wrapped := s.WrapCommand(original)
@@ -143,7 +146,7 @@ func TestWrapCommand_AppendsSSHOverlayFiles(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "ssh", "example.com")
 	original.ExtraFiles = []*os.File{os.Stdout}
@@ -181,7 +184,7 @@ func TestWrapCommand_OverlayFailureFallsBack(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -211,7 +214,7 @@ func TestWrapCommand_BwrapLookupFailureClosesOverlay(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user")
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -270,7 +273,7 @@ func TestWrapCommand_AllowsGitCommitInWorktreeSubdir(t *testing.T) {
 	}
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, repoRoot, worktreeDir, t.TempDir())
+	s := New(cfg, config.PermissionsConfig{}, nil, repoRoot, worktreeDir, t.TempDir(), t.TempDir())
 	if err := s.EnsureHome(); err != nil {
 		t.Fatalf("ensure sandbox home: %v", err)
 	}
@@ -368,7 +371,7 @@ func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
 
 	cfg := config.SandboxConfig{Enabled: true}
 	rootDir := t.TempDir()
-	s := New(cfg, config.PermissionsConfig{}, nil, rootDir, rootDir, t.TempDir())
+	s := New(cfg, config.PermissionsConfig{}, nil, rootDir, rootDir, t.TempDir(), t.TempDir())
 	if err := s.EnsureHome(); err != nil {
 		t.Fatalf("ensure sandbox home: %v", err)
 	}
@@ -396,6 +399,63 @@ func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "compression yes") {
 		t.Fatalf("stdout = %q, want overlay include from synthetic SSH config", stdout.String())
+	}
+}
+
+func TestCleanup(t *testing.T) {
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(file, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	s := &Sandbox{tmpDir: tmpDir}
+	if err := s.Cleanup(); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(tmpDir); !os.IsNotExist(err) {
+		t.Fatalf("expected tmpDir to be removed, stat: %v", err)
+	}
+}
+
+func TestCleanup_EmptyTmpDir(t *testing.T) {
+	s := &Sandbox{tmpDir: ""}
+	if err := s.Cleanup(); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+}
+
+func TestResetTmp(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+	subDir := filepath.Join(tmpDir, "sub")
+	if err := os.Mkdir(subDir, 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "b.txt"), []byte("b"), 0o644); err != nil {
+		t.Fatalf("write b.txt: %v", err)
+	}
+	s := &Sandbox{tmpDir: tmpDir}
+	if err := s.ResetTmp(); err != nil {
+		t.Fatalf("ResetTmp: %v", err)
+	}
+	if _, err := os.Stat(tmpDir); os.IsNotExist(err) {
+		t.Fatal("expected tmpDir to still exist")
+	}
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected empty tmpDir, got %d entries", len(entries))
+	}
+}
+
+func TestResetTmp_EmptyTmpDir(t *testing.T) {
+	s := &Sandbox{tmpDir: ""}
+	if err := s.ResetTmp(); err != nil {
+		t.Fatalf("ResetTmp: %v", err)
 	}
 }
 

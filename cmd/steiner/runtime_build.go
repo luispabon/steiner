@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -347,6 +348,55 @@ func buildRuntimeInputs(stdin io.Reader) (*bufio.Reader, *bufio.Reader, func() e
 	return sharedInput, approvalInput, approvalClose
 }
 
+// cleanupSandboxTmpOrphans removes stale per-session sandbox tmp directories
+// older than maxAge from parentDir. Best-effort: logs warnings on error and
+// never fails the caller. Status messages are emitted to stderr when work
+// is performed.
+func cleanupSandboxTmpOrphans(parentDir string, maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	var oldCount int
+	if entries, err := os.ReadDir(parentDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
+				oldCount++
+			}
+		}
+	}
+	if oldCount > 0 {
+		fmt.Fprintf(os.Stderr, "Cleaning up %d old sandbox tmp directories...\n", oldCount)
+	}
+	if _, err := sandbox.CleanupOrphans(parentDir, maxAge); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: sandbox tmp orphan cleanup failed: %v\n", err)
+	}
+	if oldCount > 0 {
+		fmt.Fprintf(os.Stderr, "Done.\n")
+	}
+}
+
+// createSandboxTmpDir generates a random 8-byte hex ID and creates a fresh
+// session-scoped directory at parentDir/<id>. If a directory with the
+// generated ID already exists (collision), it is removed and recreated.
+func createSandboxTmpDir(parentDir string) (string, error) {
+	var idBuf [8]byte
+	if _, err := rand.Read(idBuf[:]); err != nil {
+		return "", fmt.Errorf("generate sandbox tmp id: %w", err)
+	}
+	id := fmt.Sprintf("%x", idBuf[:])
+	tmpDir := filepath.Join(parentDir, id)
+	if _, err := os.Stat(tmpDir); err == nil {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			return "", fmt.Errorf("remove stale sandbox tmp dir: %w", err)
+		}
+	}
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return "", fmt.Errorf("create sandbox tmp dir: %w", err)
+	}
+	return tmpDir, nil
+}
+
 // buildRuntimeSandbox creates a Sandbox when sandboxing is enabled. Returns nil
 // when cfg.Sandbox.Enabled is false (e.g. --unsafe flag was set). Returns an
 // error when bwrap is required but not found on PATH.
@@ -357,7 +407,17 @@ func buildRuntimeSandbox(cfg config.Config, projectRoot, workDir, userHome strin
 	if err := sandbox.PrereqCheck(); err != nil {
 		return nil, err
 	}
-	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, projectRoot, workDir, userHome)
+
+	// Session-scoped tmp directory.
+	parentDir := filepath.Join(projectRoot, ".steiner", "tmp", "sandbox-tmp")
+
+	cleanupSandboxTmpOrphans(parentDir, 48*time.Hour)
+	tmpDir, err := createSandboxTmpDir(parentDir)
+	if err != nil {
+		return nil, err
+	}
+
+	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, projectRoot, workDir, userHome, tmpDir)
 	if err := s.EnsureHome(); err != nil {
 		return nil, fmt.Errorf("sandbox setup: %w", err)
 	}

@@ -70,6 +70,9 @@ func (m Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, 
 }
 
 func (m Model) clearConversationState() (tea.Model, tea.Cmd) {
+	if m.sessionResetCleanup != nil {
+		m.sessionResetCleanup()
+	}
 	m.content.Clear()
 	m.imageMarkers = nil
 	m.sidebar.promptUsed = 0

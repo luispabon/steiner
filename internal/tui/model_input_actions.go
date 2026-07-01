@@ -238,6 +238,9 @@ func (m Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
+	if m.sessionResetCleanup != nil {
+		m.sessionResetCleanup()
+	}
 	if m.controller != nil {
 		ctrl := m.controller
 		return m, func() tea.Msg {

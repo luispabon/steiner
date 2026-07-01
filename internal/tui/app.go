@@ -70,6 +70,10 @@ type Config struct {
 	Notifier notifier
 	// ImageStore tracks pasted images saved to disk; nil disables disk persistence.
 	ImageStore *agent.ImageStore
+	// SessionResetCleanup is called before the session is reset (clear, resume, fork, handoff).
+	// Must reset session-scoped sandbox state (e.g., empty /tmp contents) without
+	// tearing down the sandbox itself. May be nil.
+	SessionResetCleanup func()
 }
 
 // OneshotRunnerFactoryBuilder builds a phase runner factory bound to a specific

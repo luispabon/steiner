@@ -76,6 +76,9 @@ func (m Model) handleSessionPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		if m.sessionPicker.selection >= 0 && len(m.sessionPicker.candidates) > 0 {
 			selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 			m.sessionPicker = m.sessionPicker.Close()
+			if m.sessionResetCleanup != nil {
+				m.sessionResetCleanup()
+			}
 			if m.controller != nil {
 				ctrl := m.controller
 				sid := selected.ID
@@ -92,6 +95,9 @@ func (m Model) handleSessionPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 			if m.sessionPicker.selection >= 0 && len(m.sessionPicker.candidates) > 0 {
 				selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 				m.sessionPicker = m.sessionPicker.Close()
+				if m.sessionResetCleanup != nil {
+					m.sessionResetCleanup()
+				}
 				if m.controller != nil {
 					ctrl := m.controller
 					sid := selected.ID

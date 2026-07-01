@@ -23,7 +23,7 @@ For `ssh` commands, Steiner can create an ephemeral in-memory OpenSSH client-con
 - **Write isolation**: Code run by the model cannot write to any path outside the workspace root
 - **Env var filtering**: Credential-bearing environment variables are blocked by an allowlist
 - **Process isolation**: Fresh PID namespace prevents interference with host processes
-- **Temp file isolation**: `/tmp` is a private tmpfs; sandbox writes cannot affect host temp files
+- **Temp file isolation**: `/tmp` inside the sandbox is bind-mounted from a session-scoped directory under `.steiner/tmp/sandbox-tmp/<id>/`. Sandbox writes cannot affect the host's `/tmp`, and files persist across tool invocations within a single session (cleared on `/clear`, `/resume`, `/fork`, or process exit).
 
 ### What sandboxing does NOT protect against
 
@@ -118,7 +118,7 @@ This strategy ensures:
 | `--bind <sandbox-home>` | same as host | rw | `.steiner/home/` — sandbox state directory |
 | `--dev /dev` | `/dev` | minimal | Device nodes (devtmpfs) |
 | `--proc /proc` | `/proc` | fresh | Process information (ProcFS) |
-| `--tmpfs /tmp` | `/tmp` | rw | Private temporary files |
+| `--bind .steiner/tmp/sandbox-tmp/<id>` | `/tmp` | rw | Session-scoped temporary files (persists across tool invocations) |
 | `--chdir <workspace>` | — | — | Sets initial working directory |
 | `host_mounts` (config) | same as host | ro/rw | Additional paths from `host_mounts:` config |
 
