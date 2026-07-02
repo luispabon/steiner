@@ -217,36 +217,67 @@ func (m Model) handleBridgeClosedMsg(_ bridgeClosedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// nextClickCount returns the click count for a click at clickPos/clickTime,
+// cycling 1->2->3->1 when it falls within 500ms and ±1 cell of the model's
+// last recorded click, or resetting to 1 otherwise.
+func (m Model) nextClickCount(clickPos selectionPoint, clickTime time.Time) int {
+	timeDiff := clickTime.Sub(m.lastClickTime)
+	const clickTimeout = 500 * time.Millisecond
+	isWithinTime := timeDiff <= clickTimeout && timeDiff >= 0
+	if !isWithinTime {
+		return 1
+	}
+
+	colDiff := m.lastClickPos.col - clickPos.col
+	lineDiff := m.lastClickPos.line - clickPos.line
+	if colDiff < 0 {
+		colDiff = -colDiff
+	}
+	if lineDiff < 0 {
+		lineDiff = -lineDiff
+	}
+	if colDiff > 1 || lineDiff > 1 {
+		return 1
+	}
+
+	count := m.clickCount + 1
+	if count > 3 {
+		count = 1
+	}
+	return count
+}
+
+// handleMultiClickSelection completes a double- or triple-click word/line
+// selection at the clamped viewport coordinates and queues a clipboard copy.
+func (m Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, tea.Cmd) {
+	m.populateScreenLines()
+	lines := *m.screenLines
+	var startCol, endCol int
+	if m.clickCount == 2 {
+		if clampedY >= 0 && clampedY < len(lines) {
+			startCol, endCol = wordBoundsAt(lines[clampedY], clampedX)
+		}
+	} else {
+		startCol, endCol = lineBoundsAt(lines, clampedY)
+	}
+	m.selection = selectionState{
+		start: selectionPoint{line: clampedY, col: startCol},
+		end:   selectionPoint{line: clampedY, col: endCol},
+	}
+	m.mousePressX = -1
+	m.mousePressY = -1
+	text := extractText(lines, m.selection)
+	if text != "" {
+		return m, copyToClipboard(text)
+	}
+	return m, nil
+}
+
 func (m Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 	clickPos := selectionPoint{line: msg.y, col: msg.x}
 	clickTime := time.Now()
 
-	timeDiff := clickTime.Sub(m.lastClickTime)
-	const clickTimeout = 500 * time.Millisecond
-	isWithinTime := timeDiff <= clickTimeout && timeDiff >= 0
-
-	isWithinDelta := false
-	if isWithinTime {
-		colDiff := m.lastClickPos.col - clickPos.col
-		lineDiff := m.lastClickPos.line - clickPos.line
-		if colDiff < 0 {
-			colDiff = -colDiff
-		}
-		if lineDiff < 0 {
-			lineDiff = -lineDiff
-		}
-		isWithinDelta = colDiff <= 1 && lineDiff <= 1
-	}
-
-	if isWithinTime && isWithinDelta {
-		m.clickCount++
-		if m.clickCount > 3 {
-			m.clickCount = 1
-		}
-	} else {
-		m.clickCount = 1
-	}
-
+	m.clickCount = m.nextClickCount(clickPos, clickTime)
 	m.lastClickTime = clickTime
 	m.lastClickPos = clickPos
 	m.activeRegion = m.detectRegion(msg.x, msg.y)
@@ -261,27 +292,7 @@ func (m Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 	clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
 
 	if m.activeRegion == regionViewport && (m.clickCount == 2 || m.clickCount == 3) {
-		m.populateScreenLines()
-		lines := *m.screenLines
-		var startCol, endCol int
-		if m.clickCount == 2 {
-			if clampedY >= 0 && clampedY < len(lines) {
-				startCol, endCol = wordBoundsAt(lines[clampedY], clampedX)
-			}
-		} else {
-			startCol, endCol = lineBoundsAt(lines, clampedY)
-		}
-		m.selection = selectionState{
-			start: selectionPoint{line: clampedY, col: startCol},
-			end:   selectionPoint{line: clampedY, col: endCol},
-		}
-		m.mousePressX = -1
-		m.mousePressY = -1
-		text := extractText(lines, m.selection)
-		if text != "" {
-			return m, copyToClipboard(text)
-		}
-		return m, nil
+		return m.handleMultiClickSelection(clampedX, clampedY)
 	}
 
 	start := selectionPoint{line: clampedY, col: clampedX}

@@ -143,21 +143,9 @@ func (m Model) detectRegion(x, y int) selectionRegion {
 		return regionNone
 	}
 
-	statusRow := m.height - 1
-	if y == statusRow {
-		return regionNone
-	}
-
-	inputChromeH := m.inputChromeHeight(contentWidth)
-	inputStartRow := statusRow - inputChromeH
-	if y >= inputStartRow {
-		return regionInput
-	}
-
-	if y >= inputStartRow-1 {
-		return regionNone
-	}
-
+	// The sidebar and its divider column span the full screen height
+	// (including the input and status rows), so an x-based sidebar/divider
+	// hit must be classified before any row-based (status/input) check.
 	if sidebarVisible {
 		if m.sidebarPosition == "right" {
 			dividerStartX := m.width - sidebarWidth - 1
@@ -175,6 +163,21 @@ func (m Model) detectRegion(x, y int) selectionRegion {
 				return regionNone
 			}
 		}
+	}
+
+	statusRow := m.height - 1
+	if y == statusRow {
+		return regionNone
+	}
+
+	inputChromeH := m.inputChromeHeight(contentWidth)
+	inputStartRow := statusRow - inputChromeH
+	if y >= inputStartRow {
+		return regionInput
+	}
+
+	if y >= inputStartRow-1 {
+		return regionNone
 	}
 
 	return regionViewport
@@ -204,8 +207,8 @@ func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
 			}
 		}
 
-		left = left + 3
-		right = right - 3
+		left += 3
+		right -= 3
 		if left > right {
 			left = right
 		}
@@ -310,6 +313,8 @@ func wordBoundsAt(line string, col int) (startCol, endCol int) {
 // lineBoundsAt returns the full visual column range [0, width) of
 // lines[lineIdx], ANSI-stripped before measuring width. Returns a zero-width
 // range for an out-of-range lineIdx or an empty line.
+//
+//nolint:unparam // startCol is always 0 by design; kept for symmetry with wordBoundsAt's (startCol, endCol) signature.
 func lineBoundsAt(lines []string, lineIdx int) (startCol, endCol int) {
 	if lineIdx < 0 || lineIdx >= len(lines) {
 		return 0, 0
