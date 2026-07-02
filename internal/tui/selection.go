@@ -103,7 +103,11 @@ func truncateByWidth(s string, start, end int) string {
 }
 
 // applyScreenHighlight applies selStyle highlight to screen-space coordinates.
-func applyScreenHighlight(frame string, state selectionState, selStyle lipgloss.Style) string {
+// regionLeft and regionRight constrain intermediate (fully-selected) lines to
+// the active region's content bounds, preventing the highlight from bleeding
+// into the sidebar, divider, or padding columns. Pass 0, 0 to disable
+// constraining (matches the un-clamped legacy behaviour).
+func applyScreenHighlight(frame string, state selectionState, selStyle lipgloss.Style, regionLeft, regionRight int) string {
 	if !state.hasSelection() {
 		return frame
 	}
@@ -120,6 +124,10 @@ func applyScreenHighlight(frame string, state selectionState, selStyle lipgloss.
 		}
 		if i == end.line {
 			endCol = end.col
+		}
+		if regionRight > 0 {
+			startCol = max(regionLeft, startCol)
+			endCol = min(regionRight, endCol)
 		}
 		if startCol >= endCol {
 			continue
@@ -176,11 +184,18 @@ func (m Model) detectRegion(x, y int) selectionRegion {
 		return regionInput
 	}
 
-	if y >= inputStartRow-1 {
+	if y >= inputStartRow-2 {
 		return regionNone
 	}
 
 	return regionViewport
+}
+
+// hasScrollbar reports whether the viewport currently renders a scrollbar,
+// i.e. its content exceeds the visible height. This is a cheap check against
+// already-computed line counts and does not trigger a render.
+func (m Model) hasScrollbar() bool {
+	return m.viewport.TotalLineCount() > m.viewport.Height()
 }
 
 // clampToRegion clamps screen coordinates (x, y) to the content bounds of a
@@ -208,13 +223,17 @@ func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
 		}
 
 		left += 3
-		right -= 3
+		if m.hasScrollbar() {
+			right -= 2
+		} else {
+			right -= 3
+		}
 		if left > right {
 			left = right
 		}
 
 		x = max(left, min(right-1, x))
-		y = max(0, min(inputStartRow-2, y))
+		y = max(0, min(inputStartRow-3, y))
 		return x, y
 
 	case regionInput:
@@ -244,6 +263,64 @@ func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
 
 	default:
 		return x, y
+	}
+}
+
+// selectionHighlightBounds returns the [left, right) screen-column bounds of
+// the currently active selection region's content area, for use by
+// applyScreenHighlight to keep intermediate multi-line selection highlight
+// out of the sidebar, dividers, and padding. It mirrors the viewport/input
+// x-bound computation in clampToRegion, including the scrollbar-aware right
+// padding. Returns (0, 0) for regionNone, regionSidebar, or when no region
+// is active, which preserves the legacy unconstrained behaviour.
+func (m Model) selectionHighlightBounds() (left, right int) {
+	contentWidth := m.contentWidth()
+	sidebarVisible := m.sidebar.Visible(m.width)
+
+	switch m.activeRegion {
+	case regionViewport:
+		left = 0
+		right = m.width
+
+		if sidebarVisible {
+			if m.sidebarPosition == "right" {
+				right = m.width - sidebarWidth - 1
+			} else {
+				left = sidebarWidth + 1
+			}
+		}
+
+		left += 3
+		if m.hasScrollbar() {
+			right -= 2
+		} else {
+			right -= 3
+		}
+		if left > right {
+			left = right
+		}
+		return left, right
+
+	case regionInput:
+		sidebarOffset := 0
+
+		if sidebarVisible {
+			if m.sidebarPosition == "right" {
+				sidebarOffset = 0
+			} else {
+				sidebarOffset = sidebarWidth + 1
+			}
+		}
+
+		left = sidebarOffset + inputRailWidth + inputPadX
+		right = sidebarOffset + contentWidth - 1
+		if left > right {
+			right = left
+		}
+		return left, right
+
+	default:
+		return 0, 0
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // testSelStyle is used as the highlight style in applyScreenHighlight tests.
@@ -139,14 +140,42 @@ func hasNoANSI(s string) bool {
 	return !strings.ContainsRune(s, '\x1b')
 }
 
+// highlightVisualRange locates the single testSelStyle-painted span in line
+// and returns its visual column range [start, end). If no visible characters
+// carry the highlight, ok is false — this distinguishes an actually-painted
+// span from a bare zero-width style transition that ansi.Cut can leave at a
+// slice boundary.
+func highlightVisualRange(line string) (start, end int, ok bool) {
+	const openSeq = "\x1b[48;2;58;74;90m"
+	const closeSeq = "\x1b[m"
+	openIdx := strings.Index(line, openSeq)
+	if openIdx == -1 {
+		return 0, 0, false
+	}
+	contentStart := openIdx + len(openSeq)
+	closeIdx := strings.Index(line[contentStart:], closeSeq)
+	if closeIdx == -1 {
+		return 0, 0, false
+	}
+	content := line[contentStart : contentStart+closeIdx]
+	if content == "" {
+		return 0, 0, false
+	}
+	start = ansi.StringWidth(line[:openIdx])
+	end = start + ansi.StringWidth(content)
+	return start, end, true
+}
+
 func TestApplyScreenHighlight(t *testing.T) {
 	frame := "hello world\nfoo bar baz\ngoodbye cruel"
 
 	tests := []struct {
-		name    string
-		frame   string
-		state   selectionState
-		checkFn func(t *testing.T, lines []string)
+		name        string
+		frame       string
+		state       selectionState
+		regionLeft  int
+		regionRight int
+		checkFn     func(t *testing.T, lines []string)
 	}{
 		{
 			name:  "no selection returns frame unchanged",
@@ -231,12 +260,61 @@ func TestApplyScreenHighlight(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "intermediate lines constrained to region bounds",
+			// Each line simulates [sidebar][divider][pad][content][pad] laid
+			// out across the full terminal width; only columns [40, 100)
+			// belong to the viewport content region.
+			frame: strings.Join([]string{
+				strings.Repeat("s", 40) + "|" + strings.Repeat("c", 59) + strings.Repeat("p", 20),
+				strings.Repeat("s", 40) + "|" + strings.Repeat("c", 59) + strings.Repeat("p", 20),
+				strings.Repeat("s", 40) + "|" + strings.Repeat("c", 59) + strings.Repeat("p", 20),
+			}, "\n"),
+			state:       selectionState{start: selectionPoint{0, 45}, end: selectionPoint{2, 50}},
+			regionLeft:  40,
+			regionRight: 100,
+			checkFn: func(t *testing.T, lines []string) {
+				t.Helper()
+				// The intermediate line (index 1) is fully selected by
+				// canonical range, so its highlight must be clamped to
+				// [40, 100).
+				mid := lines[1]
+				start, end, ok := highlightVisualRange(mid)
+				if !ok {
+					t.Fatalf("expected a highlighted span in intermediate line, got %q", mid)
+				}
+				if start != 40 || end != 100 {
+					t.Errorf("intermediate line highlight range = [%d, %d); want [40, 100)", start, end)
+				}
+			},
+		},
+		{
+			name: "end line constrained to region right bound",
+			frame: strings.Join([]string{
+				strings.Repeat("s", 40) + "|" + strings.Repeat("c", 59) + strings.Repeat("p", 20),
+				strings.Repeat("s", 40) + "|" + strings.Repeat("c", 59) + strings.Repeat("p", 20),
+			}, "\n"),
+			state:       selectionState{start: selectionPoint{0, 45}, end: selectionPoint{1, 999}},
+			regionLeft:  40,
+			regionRight: 100,
+			checkFn: func(t *testing.T, lines []string) {
+				t.Helper()
+				last := lines[1]
+				start, end, ok := highlightVisualRange(last)
+				if !ok {
+					t.Fatalf("expected a highlighted span in end line, got %q", last)
+				}
+				if start != 40 || end != 100 {
+					t.Errorf("end line highlight range = [%d, %d); want [40, 100) (clamped to regionRight)", start, end)
+				}
+			},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			useTrueColor(t)
-			result := applyScreenHighlight(tc.frame, tc.state, testSelStyle)
+			result := applyScreenHighlight(tc.frame, tc.state, testSelStyle, tc.regionLeft, tc.regionRight)
 			lines := strings.Split(result, "\n")
 			tc.checkFn(t, lines)
 		})
@@ -571,6 +649,24 @@ func TestDetectRegion(t *testing.T) {
 			wantRegion: regionInput,
 		},
 		{
+			name:       "activity row above input is regionNone",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     50,
+			clickY:     25,
+			wantRegion: regionNone,
+		},
+		{
+			name:       "hDivider row above activity row is regionNone",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     50,
+			clickY:     24,
+			wantRegion: regionNone,
+		},
+		{
 			name:       "sidebar left takes priority over input row",
 			width:      100,
 			height:     30,
@@ -882,7 +978,7 @@ func TestClampToRegion(t *testing.T) {
 			x:          50,
 			y:          29,
 			wantX:      50,
-			wantY:      24,
+			wantY:      23,
 		},
 		{
 			name:       "viewport no sidebar above viewport clamp",
@@ -1127,5 +1223,32 @@ func TestClampToRegion(t *testing.T) {
 					tc.x, tc.y, tc.region, gotX, gotY, tc.wantX, tc.wantY)
 			}
 		})
+	}
+}
+
+// TestClampToRegionScrollbar verifies that the viewport right-edge clamp
+// accounts for the narrower (2-column) padding ApplyPanePadding uses when a
+// scrollbar is present, versus the 3-column padding used otherwise.
+func TestClampToRegionScrollbar(t *testing.T) {
+	m := buildTestModel(100, 30, false, false)
+	if m.hasScrollbar() {
+		t.Fatalf("expected no scrollbar before content overflow")
+	}
+	gotX, _ := m.clampToRegion(99, 15, regionViewport)
+	if gotX != 96 {
+		t.Errorf("without scrollbar: clampToRegion x = %d; want 96", gotX)
+	}
+
+	lines := make([]string, m.viewport.Height()+10)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	m.viewport.SetContentLines(lines)
+	if !m.hasScrollbar() {
+		t.Fatalf("expected scrollbar after content overflow")
+	}
+	gotX, _ = m.clampToRegion(99, 15, regionViewport)
+	if gotX != 97 {
+		t.Errorf("with scrollbar: clampToRegion x = %d; want 97", gotX)
 	}
 }
