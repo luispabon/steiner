@@ -207,6 +207,38 @@ func TestCodexResponsesBuildResponsesPayload_OpenAIHostSetsStoreFalse(t *testing
 	if got, want := payload["prompt_cache_key"], "session-123"; got != want {
 		t.Fatalf("prompt_cache_key = %v, want %v", got, want)
 	}
+	if got, want := payload["prompt_cache_retention"], "24h"; got != want {
+		t.Fatalf("prompt_cache_retention = %v, want %v", got, want)
+	}
+}
+
+func TestCodexResponsesBuildResponsesPayload_OmitsEmptyPromptCacheKey(t *testing.T) {
+	parsed, err := url.Parse("https://api.openai.com/v1")
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	prov := &CodexResponses{OpenAICompat: &OpenAICompat{
+		baseURL: parsed,
+		model:   "gpt-5.5",
+	}}
+
+	data, err := prov.buildResponsesPayload(ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	}, false)
+	if err != nil {
+		t.Fatalf("buildResponsesPayload() error = %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if _, ok := payload["prompt_cache_key"]; ok {
+		t.Fatal("prompt_cache_key present in payload, want absent when empty")
+	}
+	if got, want := payload["prompt_cache_retention"], "24h"; got != want {
+		t.Fatalf("prompt_cache_retention = %v, want %v", got, want)
+	}
 }
 
 func newTestCodexResponses(t *testing.T, baseURL string, client *http.Client) *CodexResponses {
