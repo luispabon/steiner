@@ -30,102 +30,247 @@ func TestExtractText(t *testing.T) {
 	}
 
 	tests := []struct {
-		name  string
-		lines []string
-		state selectionState
-		want  string
+		name        string
+		lines       []string
+		state       selectionState
+		regionLeft  int
+		regionRight int
+		want        string
 	}{
 		{
-			name:  "empty selection returns empty string",
-			lines: plainLines,
-			state: selectionState{},
+			name:        "empty selection returns empty string",
+			lines:       plainLines,
+			state:       selectionState{},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "",
+		},
+		{
+			name:        "active flag but same point still returns empty (no content span)",
+			lines:       plainLines,
+			state:       selectionState{start: selectionPoint{0, 2}, end: selectionPoint{0, 2}, active: true},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "",
+		},
+		{
+			name:        "single line partial",
+			lines:       plainLines,
+			state:       selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "hello",
+		},
+		{
+			name:        "single line full",
+			lines:       plainLines,
+			state:       selectionState{start: selectionPoint{1, 0}, end: selectionPoint{1, 11}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "foo bar baz",
+		},
+		{
+			name:        "multi-line",
+			lines:       plainLines,
+			state:       selectionState{start: selectionPoint{0, 6}, end: selectionPoint{1, 3}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "world\nfoo",
+		},
+		{
+			name:        "reversed start/end (end before start) is normalised",
+			lines:       plainLines,
+			state:       selectionState{start: selectionPoint{1, 3}, end: selectionPoint{0, 6}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "world\nfoo",
+		},
+		{
+			name:        "out-of-range lines are skipped",
+			lines:       plainLines,
+			state:       selectionState{start: selectionPoint{-1, 0}, end: selectionPoint{10, 5}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "hello world\nfoo bar baz\ngoodbye cruel",
+		},
+		{
+			name:        "col beyond line length clamps to end of line",
+			lines:       plainLines,
+			state:       selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 999}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "hello world",
+		},
+		{
+			name:        "startCol beyond line length returns empty segment",
+			lines:       plainLines,
+			state:       selectionState{start: selectionPoint{0, 999}, end: selectionPoint{0, 999}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "",
+		},
+		{
+			name:        "ANSI sequences are stripped from extracted text",
+			lines:       ansiLines,
+			state:       selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 8}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "red text",
+		},
+		{
+			name:        "ANSI multi-line extraction",
+			lines:       ansiLines,
+			state:       selectionState{start: selectionPoint{0, 4}, end: selectionPoint{1, 5}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "text\ngreen",
+		},
+		{
+			name:        "empty lines slice",
+			lines:       []string{},
+			state:       selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "",
+		},
+		{
+			name:        "multi-byte characters use visual column positions",
+			lines:       []string{"│ The user just said hello"},
+			state:       selectionState{start: selectionPoint{0, 16}, end: selectionPoint{0, 20}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "said",
+		},
+		{
+			name:        "em dash is single visual column",
+			lines:       []string{"foo — bar"},
+			state:       selectionState{start: selectionPoint{0, 6}, end: selectionPoint{0, 9}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "bar",
+		},
+		{
+			name: "intermediate lines clamped to region bounds",
+			lines: []string{
+				"   hello world   ",   // 0
+				"   foo bar baz   ",   // 1
+				"   goodbye cruel   ", // 2
+			},
+			state:       selectionState{start: selectionPoint{0, 3}, end: selectionPoint{2, 16}},
+			regionLeft:  3,
+			regionRight: 16,
+			want:        "hello world\nfoo bar baz\ngoodbye cruel",
+		},
+		{
+			name:  "box chrome stripped from tool output",
+			lines: []string{"│ content │"},
+			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 11}},
+			want:  "content",
+		},
+		{
+			name:  "nested box borders stripped",
+			lines: []string{"│ ─── │"},
+			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 7}},
 			want:  "",
 		},
 		{
-			name:  "active flag but same point still returns empty (no content span)",
-			lines: plainLines,
-			state: selectionState{start: selectionPoint{0, 2}, end: selectionPoint{0, 2}, active: true},
-			want:  "",
+			name:  "intentional indentation preserved",
+			lines: []string{"│   indented code │"},
+			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 19}},
+			want:  "  indented code",
 		},
 		{
-			name:  "single line partial",
-			lines: plainLines,
-			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}},
-			want:  "hello",
-		},
-		{
-			name:  "single line full",
-			lines: plainLines,
-			state: selectionState{start: selectionPoint{1, 0}, end: selectionPoint{1, 11}},
-			want:  "foo bar baz",
-		},
-		{
-			name:  "multi-line",
-			lines: plainLines,
-			state: selectionState{start: selectionPoint{0, 6}, end: selectionPoint{1, 3}},
-			want:  "world\nfoo",
-		},
-		{
-			name:  "reversed start/end (end before start) is normalised",
-			lines: plainLines,
-			state: selectionState{start: selectionPoint{1, 3}, end: selectionPoint{0, 6}},
-			want:  "world\nfoo",
-		},
-		{
-			name:  "out-of-range lines are skipped",
-			lines: plainLines,
-			state: selectionState{start: selectionPoint{-1, 0}, end: selectionPoint{10, 5}},
-			want:  "hello world\nfoo bar baz\ngoodbye cruel",
-		},
-		{
-			name:  "col beyond line length clamps to end of line",
-			lines: plainLines,
-			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 999}},
-			want:  "hello world",
-		},
-		{
-			name:  "startCol beyond line length returns empty segment",
-			lines: plainLines,
-			state: selectionState{start: selectionPoint{0, 999}, end: selectionPoint{0, 999}},
-			want:  "",
-		},
-		{
-			name:  "ANSI sequences are stripped from extracted text",
-			lines: ansiLines,
-			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 8}},
-			want:  "red text",
-		},
-		{
-			name:  "ANSI multi-line extraction",
-			lines: ansiLines,
-			state: selectionState{start: selectionPoint{0, 4}, end: selectionPoint{1, 5}},
-			want:  "text\ngreen",
-		},
-		{
-			name:  "empty lines slice",
-			lines: []string{},
-			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}},
-			want:  "",
-		},
-		{
-			name:  "multi-byte characters use visual column positions",
-			lines: []string{"│ The user just said hello"},
-			state: selectionState{start: selectionPoint{0, 16}, end: selectionPoint{0, 20}},
-			want:  "said",
-		},
-		{
-			name:  "em dash is single visual column",
-			lines: []string{"foo — bar"},
-			state: selectionState{start: selectionPoint{0, 6}, end: selectionPoint{0, 9}},
-			want:  "bar",
+			name:        "region bounds zero disables clamping",
+			lines:       []string{"   hello world   "},
+			state:       selectionState{start: selectionPoint{0, 3}, end: selectionPoint{0, 14}},
+			regionLeft:  0,
+			regionRight: 0,
+			want:        "hello world",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := extractText(tc.lines, tc.state)
+			got := extractText(tc.lines, tc.state, tc.regionLeft, tc.regionRight)
 			if got != tc.want {
 				t.Errorf("extractText() = %q; want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestStripBoxChrome
+// ---------------------------------------------------------------------------
+
+func TestStripBoxChrome(t *testing.T) {
+	tests := []struct {
+		name string
+		s    string
+		want string
+	}{
+		{
+			name: "plain text unchanged",
+			s:    "hello world",
+			want: "hello world",
+		},
+		{
+			name: "leading border and padding stripped",
+			s:    "│ content",
+			want: "content",
+		},
+		{
+			name: "trailing border and padding stripped",
+			s:    "content │",
+			want: "content",
+		},
+		{
+			name: "both sides stripped",
+			s:    "│ content │",
+			want: "content",
+		},
+		{
+			name: "empty string",
+			s:    "",
+			want: "",
+		},
+		{
+			name: "only borders returns empty",
+			s:    "│ │",
+			want: "",
+		},
+		{
+			name: "CJK content preserved",
+			s:    "│ 你好 │",
+			want: "你好",
+		},
+		{
+			name: "intentional leading spaces preserved",
+			s:    "│   indented code │",
+			want: "  indented code",
+		},
+		{
+			name: "mixed box characters",
+			s:    "┌─ content ─┐",
+			want: "content",
+		},
+		{
+			name: "multiple border runs at edges only",
+			s:    "││ content ││",
+			want: "content",
+		},
+		{
+			name: "spaces in middle preserved",
+			s:    "│ hello   world │",
+			want: "hello   world",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := stripBoxChrome(tc.s)
+			if got != tc.want {
+				t.Errorf("stripBoxChrome(%q) = %q; want %q", tc.s, got, tc.want)
 			}
 		})
 	}

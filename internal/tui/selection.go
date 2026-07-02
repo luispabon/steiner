@@ -54,7 +54,9 @@ func (s selectionState) clear() selectionState {
 // extractText extracts plain text from lines for the given selection state.
 // Lines may be pre-stripped or contain ANSI sequences (stripped internally).
 // Column values are visual column positions (terminal cells), not byte offsets.
-func extractText(lines []string, state selectionState) string {
+// regionLeft and regionRight constrain intermediate lines to the active region's
+// content bounds when regionRight > 0. Pass 0, 0 to disable constraining.
+func extractText(lines []string, state selectionState, regionLeft, regionRight int) string {
 	if !state.hasSelection() {
 		return ""
 	}
@@ -73,7 +75,14 @@ func extractText(lines []string, state selectionState) string {
 		if i == end.line {
 			ec = end.col
 		}
-		parts = append(parts, truncateByWidth(raw, sc, ec))
+		if regionRight > 0 {
+			sc = max(regionLeft, sc)
+			ec = min(regionRight, ec)
+		}
+		extracted := truncateByWidth(raw, sc, ec)
+		extracted = stripBoxChrome(extracted)
+		extracted = strings.TrimRight(extracted, " ")
+		parts = append(parts, extracted)
 	}
 	return strings.Join(parts, "\n")
 }
@@ -100,6 +109,64 @@ func truncateByWidth(s string, start, end int) string {
 		byteStart = byteEnd
 	}
 	return s[byteStart:byteEnd]
+}
+
+// isBoxDrawing reports whether r is a box-drawing character from the set
+// │┌┐└┘─├┤╭╮╯╰.
+func isBoxDrawing(r rune) bool {
+	switch r {
+	case '│', '┌', '┐', '└', '┘', '─', '├', '┤', '╭', '╮', '╯', '╰':
+		return true
+	}
+	return false
+}
+
+// stripBoxChrome removes leading and trailing box-drawing characters and
+// adjacent spaces from a string. Only one run of adjacent spaces touching
+// each border is consumed as "padding"; interior intentional indentation
+// is preserved. Empty string in produces empty string out; a string of only
+// border chars/spaces produces empty string out.
+func stripBoxChrome(s string) string {
+	if s == "" {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return ""
+	}
+
+	// Strip leading box-drawing characters.
+	left := 0
+	for left < len(runes) && isBoxDrawing(runes[left]) {
+		left++
+	}
+	// Strip at most one space after leading box-drawing.
+	if left < len(runes) && runes[left] == ' ' {
+		left++
+	}
+
+	// Strip trailing box-drawing characters.
+	right := len(runes) - 1
+	for right >= left && isBoxDrawing(runes[right]) {
+		right--
+	}
+	// Strip at most one space before trailing box-drawing.
+	if right >= left && runes[right] == ' ' {
+		right--
+	}
+
+	if left > right {
+		return ""
+	}
+
+	result := runes[left : right+1]
+	// If the result contains only box-drawing characters and spaces, return empty.
+	for _, r := range result {
+		if !isBoxDrawing(r) && r != ' ' {
+			return string(result)
+		}
+	}
+	return ""
 }
 
 // applyScreenHighlight applies selStyle highlight to screen-space coordinates.

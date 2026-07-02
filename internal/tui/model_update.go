@@ -266,7 +266,8 @@ func (m Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, tea
 	}
 	m.mousePressX = -1
 	m.mousePressY = -1
-	text := extractText(lines, m.selection)
+	left, right := m.selectionHighlightBounds()
+	text := extractText(lines, m.selection, left, right)
 	if text != "" {
 		return m, copyToClipboard(text)
 	}
@@ -322,7 +323,8 @@ func (m Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if m.mousePressX != msg.x || m.mousePressY != msg.y {
 		m.selection.active = false
-		text := extractText(*m.screenLines, m.selection)
+		left, right := m.selectionHighlightBounds()
+		text := extractText(*m.screenLines, m.selection, left, right)
 		if text != "" {
 			m.mousePressX = -1
 			m.mousePressY = -1
