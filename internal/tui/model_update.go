@@ -218,7 +218,47 @@ func (m Model) handleBridgeClosedMsg(_ bridgeClosedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
-	start := selectionPoint{line: msg.y, col: msg.x}
+	clickPos := selectionPoint{line: msg.y, col: msg.x}
+	clickTime := time.Now()
+
+	timeDiff := clickTime.Sub(m.lastClickTime)
+	const clickTimeout = 500 * time.Millisecond
+	isWithinTime := timeDiff <= clickTimeout && timeDiff >= 0
+
+	isWithinDelta := false
+	if isWithinTime {
+		colDiff := m.lastClickPos.col - clickPos.col
+		lineDiff := m.lastClickPos.line - clickPos.line
+		if colDiff < 0 {
+			colDiff = -colDiff
+		}
+		if lineDiff < 0 {
+			lineDiff = -lineDiff
+		}
+		isWithinDelta = colDiff <= 1 && lineDiff <= 1
+	}
+
+	if isWithinTime && isWithinDelta {
+		m.clickCount++
+		if m.clickCount > 3 {
+			m.clickCount = 1
+		}
+	} else {
+		m.clickCount = 1
+	}
+
+	m.lastClickTime = clickTime
+	m.lastClickPos = clickPos
+	m.activeRegion = m.detectRegion(msg.x, msg.y)
+
+	if m.activeRegion == regionNone || m.activeRegion == regionSidebar {
+		m.selection = m.selection.clear()
+		m.mousePressX = -1
+		m.mousePressY = -1
+		return m, nil
+	}
+
+	start := clickPos
 	m.selection = selectionState{start: start, end: start, active: true}
 	m.mousePressX = msg.x
 	m.mousePressY = msg.y

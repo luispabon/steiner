@@ -18,6 +18,15 @@ type selectionPoint struct {
 	line, col int
 }
 
+type selectionRegion int
+
+const (
+	regionNone selectionRegion = iota
+	regionViewport
+	regionInput
+	regionSidebar
+)
+
 type selectionState struct {
 	start, end selectionPoint
 	active     bool
@@ -120,6 +129,54 @@ func applyScreenHighlight(frame string, state selectionState, selStyle lipgloss.
 		lines[i] = before + mid + after
 	}
 	return strings.Join(lines, "\n")
+}
+
+// detectRegion classifies a screen coordinate (x, y) into a UI region.
+// Returns regionNone for dividers and status bar, regionSidebar for sidebar,
+// regionInput for the input area, and regionViewport for viewport content.
+func (m Model) detectRegion(x, y int) selectionRegion {
+	contentWidth := m.contentWidth()
+	sidebarVisible := m.sidebar.Visible(m.width)
+
+	if x < 0 || y < 0 || x >= m.width || y >= m.height {
+		return regionNone
+	}
+
+	statusRow := m.height - 1
+	if y == statusRow {
+		return regionNone
+	}
+
+	inputChromeH := m.inputChromeHeight(contentWidth)
+	inputStartRow := statusRow - inputChromeH
+	if y >= inputStartRow {
+		return regionInput
+	}
+
+	if y >= inputStartRow-1 {
+		return regionNone
+	}
+
+	if sidebarVisible {
+		if m.sidebarPosition == "right" {
+			dividerStartX := m.width - sidebarWidth - 1
+			if x >= m.width-sidebarWidth {
+				return regionSidebar
+			}
+			if x == dividerStartX {
+				return regionNone
+			}
+		} else {
+			if x < sidebarWidth {
+				return regionSidebar
+			}
+			if x == sidebarWidth {
+				return regionNone
+			}
+		}
+	}
+
+	return regionViewport
 }
 
 // copyToClipboard returns a tea.Cmd that writes text to the system clipboard.

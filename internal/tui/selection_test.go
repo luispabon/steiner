@@ -3,7 +3,10 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 )
 
@@ -236,6 +239,369 @@ func TestApplyScreenHighlight(t *testing.T) {
 			result := applyScreenHighlight(tc.frame, tc.state, testSelStyle)
 			lines := strings.Split(result, "\n")
 			tc.checkFn(t, lines)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestDetectRegion
+// ---------------------------------------------------------------------------
+
+// buildTestModel creates a minimal Model for region detection tests.
+func buildTestModel(width, height int, sidebarVisible, sidebarRight bool) Model {
+	vp := viewport.New()
+	vp.SetWidth(width - 6)
+	vp.SetHeight(max(1, height-5))
+
+	m := Model{
+		width:    width,
+		height:   height,
+		viewport: vp,
+		sidebar:  sidebarState{expanded: sidebarVisible},
+		input:    textarea.New(),
+	}
+	if sidebarRight {
+		m.sidebarPosition = "right"
+	}
+	return m
+}
+
+func TestDetectRegion(t *testing.T) {
+	tests := []struct {
+		name       string
+		width      int
+		height     int
+		sidebarVis bool
+		sidebarPos string
+		clickX     int
+		clickY     int
+		wantRegion selectionRegion
+	}{
+		{
+			name:       "viewport center without sidebar",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     50,
+			clickY:     15,
+			wantRegion: regionViewport,
+		},
+		{
+			name:       "viewport left edge without sidebar",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     0,
+			clickY:     15,
+			wantRegion: regionViewport,
+		},
+		{
+			name:       "sidebar left position",
+			width:      100,
+			height:     30,
+			sidebarVis: true,
+			sidebarPos: "left",
+			clickX:     20,
+			clickY:     15,
+			wantRegion: regionSidebar,
+		},
+		{
+			name:       "divider column when sidebar left",
+			width:      100,
+			height:     30,
+			sidebarVis: true,
+			sidebarPos: "left",
+			clickX:     36,
+			clickY:     15,
+			wantRegion: regionNone,
+		},
+		{
+			name:       "viewport after sidebar left",
+			width:      100,
+			height:     30,
+			sidebarVis: true,
+			sidebarPos: "left",
+			clickX:     50,
+			clickY:     15,
+			wantRegion: regionViewport,
+		},
+		{
+			name:       "sidebar right position",
+			width:      100,
+			height:     30,
+			sidebarVis: true,
+			sidebarPos: "right",
+			clickX:     90,
+			clickY:     15,
+			wantRegion: regionSidebar,
+		},
+		{
+			name:       "divider column when sidebar right",
+			width:      100,
+			height:     30,
+			sidebarVis: true,
+			sidebarPos: "right",
+			clickX:     63,
+			clickY:     15,
+			wantRegion: regionNone,
+		},
+		{
+			name:       "viewport before sidebar right",
+			width:      100,
+			height:     30,
+			sidebarVis: true,
+			sidebarPos: "right",
+			clickX:     40,
+			clickY:     15,
+			wantRegion: regionViewport,
+		},
+		{
+			name:       "status bar at bottom",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     50,
+			clickY:     29,
+			wantRegion: regionNone,
+		},
+		{
+			name:       "input area near bottom",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     50,
+			clickY:     26,
+			wantRegion: regionInput,
+		},
+		{
+			name:       "out of bounds negative x",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     -1,
+			clickY:     15,
+			wantRegion: regionNone,
+		},
+		{
+			name:       "out of bounds negative y",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     50,
+			clickY:     -1,
+			wantRegion: regionNone,
+		},
+		{
+			name:       "out of bounds x >= width",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     100,
+			clickY:     15,
+			wantRegion: regionNone,
+		},
+		{
+			name:       "out of bounds y >= height",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     50,
+			clickY:     30,
+			wantRegion: regionNone,
+		},
+		{
+			name:       "sidebar hidden, all content",
+			width:      100,
+			height:     30,
+			sidebarVis: false,
+			clickX:     30,
+			clickY:     15,
+			wantRegion: regionViewport,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildTestModel(tc.width, tc.height, tc.sidebarVis, tc.sidebarPos == "right")
+			got := m.detectRegion(tc.clickX, tc.clickY)
+			if got != tc.wantRegion {
+				t.Errorf("detectRegion(%d, %d) = %v; want %v", tc.clickX, tc.clickY, got, tc.wantRegion)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestClickCount
+// ---------------------------------------------------------------------------
+
+func TestClickCount(t *testing.T) {
+	tests := []struct {
+		name   string
+		clicks []struct {
+			delay time.Duration
+			x     int
+			y     int
+		}
+		wantCounts []int
+	}{
+		{
+			name: "single click sets count to 1",
+			clicks: []struct {
+				delay time.Duration
+				x     int
+				y     int
+			}{
+				{0, 50, 15},
+			},
+			wantCounts: []int{1},
+		},
+		{
+			name: "double click increments to 2",
+			clicks: []struct {
+				delay time.Duration
+				x     int
+				y     int
+			}{
+				{0, 50, 15},
+				{100 * time.Millisecond, 50, 15},
+			},
+			wantCounts: []int{1, 2},
+		},
+		{
+			name: "triple click increments to 3",
+			clicks: []struct {
+				delay time.Duration
+				x     int
+				y     int
+			}{
+				{0, 50, 15},
+				{100 * time.Millisecond, 50, 15},
+				{100 * time.Millisecond, 50, 15},
+			},
+			wantCounts: []int{1, 2, 3},
+		},
+		{
+			name: "fourth click cycles back to 1",
+			clicks: []struct {
+				delay time.Duration
+				x     int
+				y     int
+			}{
+				{0, 50, 15},
+				{100 * time.Millisecond, 50, 15},
+				{100 * time.Millisecond, 50, 15},
+				{100 * time.Millisecond, 50, 15},
+			},
+			wantCounts: []int{1, 2, 3, 1},
+		},
+		{
+			name: "click timeout resets to 1",
+			clicks: []struct {
+				delay time.Duration
+				x     int
+				y     int
+			}{
+				{0, 50, 15},
+				{600 * time.Millisecond, 50, 15},
+			},
+			wantCounts: []int{1, 1},
+		},
+		{
+			name: "position drift resets to 1",
+			clicks: []struct {
+				delay time.Duration
+				x     int
+				y     int
+			}{
+				{0, 50, 15},
+				{100 * time.Millisecond, 53, 15},
+			},
+			wantCounts: []int{1, 1},
+		},
+		{
+			name: "position within ±1 cell accepted",
+			clicks: []struct {
+				delay time.Duration
+				x     int
+				y     int
+			}{
+				{0, 50, 15},
+				{100 * time.Millisecond, 51, 15},
+				{100 * time.Millisecond, 50, 16},
+			},
+			wantCounts: []int{1, 2, 3},
+		},
+		{
+			name: "mixed sequence with reset",
+			clicks: []struct {
+				delay time.Duration
+				x     int
+				y     int
+			}{
+				{0, 50, 15},
+				{100 * time.Millisecond, 50, 15},
+				{600 * time.Millisecond, 50, 15},
+				{100 * time.Millisecond, 50, 15},
+			},
+			wantCounts: []int{1, 2, 1, 2},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildTestModel(100, 30, false, false)
+			var gotCounts []int
+
+			for i, click := range tc.clicks {
+				if i > 0 {
+					time.Sleep(click.delay)
+				}
+
+				clickPos := selectionPoint{line: click.y, col: click.x}
+				clickTime := time.Now()
+
+				timeDiff := clickTime.Sub(m.lastClickTime)
+				const clickTimeout = 500 * time.Millisecond
+				isWithinTime := timeDiff <= clickTimeout && timeDiff >= 0
+
+				isWithinDelta := false
+				if isWithinTime {
+					colDiff := m.lastClickPos.col - clickPos.col
+					lineDiff := m.lastClickPos.line - clickPos.line
+					if colDiff < 0 {
+						colDiff = -colDiff
+					}
+					if lineDiff < 0 {
+						lineDiff = -lineDiff
+					}
+					isWithinDelta = colDiff <= 1 && lineDiff <= 1
+				}
+
+				if isWithinTime && isWithinDelta {
+					m.clickCount++
+					if m.clickCount > 3 {
+						m.clickCount = 1
+					}
+				} else {
+					m.clickCount = 1
+				}
+
+				m.lastClickTime = clickTime
+				m.lastClickPos = clickPos
+				gotCounts = append(gotCounts, m.clickCount)
+			}
+
+			if len(gotCounts) != len(tc.wantCounts) {
+				t.Errorf("got %d counts, want %d", len(gotCounts), len(tc.wantCounts))
+				return
+			}
+
+			for i, got := range gotCounts {
+				if got != tc.wantCounts[i] {
+					t.Errorf("click %d: got count %d, want %d", i, got, tc.wantCounts[i])
+				}
+			}
 		})
 	}
 }

@@ -8,7 +8,8 @@ import (
 
 // Internal mouse message types for v2 dispatch via View.OnMouse.
 type mouseClickMsg struct {
-	x, y int
+	x, y       int
+	clickCount int
 }
 
 type mouseMotionMsg struct {
