@@ -361,11 +361,12 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 	slog.Debug("prompt zones", "turn", turn, "system_bytes", systemBytes, "conversation_bytes", conversationBytes)
 
 	chatRequest := provider.ChatRequest{
-		Model:       p.request.ResolvedModel.BackendModelID,
-		Messages:    assembly.Messages,
-		Tools:       provider.CloneTools(p.request.Tools),
-		Params:      p.request.ResolvedModel.Params,
-		ExtraParams: p.request.ResolvedModel.ExtraParams,
+		Model:          p.request.ResolvedModel.BackendModelID,
+		Messages:       assembly.Messages,
+		Tools:          provider.CloneTools(p.request.Tools),
+		PromptCacheKey: fmt.Sprintf("%p", p),
+		Params:         p.request.ResolvedModel.Params,
+		ExtraParams:    p.request.ResolvedModel.ExtraParams,
 	}
 	chatRequest = applyPromptSuffix(p.request.ResolvedModel.PromptSuffix, chatRequest)
 	chatRequest.IncludeEmptyReasoning = p.request.ResolvedModel.ReasoningEchoBack

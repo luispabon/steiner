@@ -85,6 +85,7 @@ type ChatRequest struct {
 	MaxTokens             *int           `json:"max_tokens,omitempty"`
 	Stream                bool           `json:"stream,omitempty"`
 	Tools                 []ToolSpec     `json:"tools,omitempty"`
+	PromptCacheKey        string         `json:"-"`
 	Params                map[string]any `json:"-"` // Normalized generation params (temperature, top_p, etc.)
 	ExtraParams           map[string]any `json:"-"` // Raw provider-specific passthrough
 	IncludeEmptyReasoning bool           `json:"-"` // Fill empty reasoning_content on assistant messages before sending
