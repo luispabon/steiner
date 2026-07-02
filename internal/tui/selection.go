@@ -466,6 +466,50 @@ func lineBoundsAt(lines []string, lineIdx int) (startCol, endCol int) {
 	return 0, ansi.StringWidth(ansi.Strip(lines[lineIdx]))
 }
 
+// logicalLineBounds returns the screen-line and visual-column bounds of the
+// full logical (pre-wrap) line touching lines[lineIdx], within the content
+// region [regionLeft, regionRight). A screen line is considered "full" (and
+// therefore continues onto the next screen line) when its content-region
+// width is within a 2-cell threshold of the region width, accommodating
+// word-wrap rounding and wide characters. It walks upward and downward from
+// lineIdx across contiguous full lines with non-empty continuations to find
+// the full extent of the wrapped logical line. Returns a zero-width result
+// for an out-of-range lineIdx.
+func logicalLineBounds(lines []string, lineIdx, regionLeft, regionRight int) (startLine, endLine, startCol, endCol int) {
+	if lineIdx < 0 || lineIdx >= len(lines) {
+		return lineIdx, lineIdx, regionLeft, regionLeft
+	}
+
+	threshold := regionRight - regionLeft - 2
+
+	lineWidth := func(i int) int {
+		raw := ansi.Strip(lines[i])
+		segment := truncateByWidth(raw, regionLeft, regionRight)
+		return runewidth.StringWidth(strings.TrimRight(segment, " "))
+	}
+	isFull := func(i int) bool {
+		return lineWidth(i) >= threshold
+	}
+	hasContent := func(i int) bool {
+		return lineWidth(i) > 0
+	}
+
+	startLine = lineIdx
+	for startLine > 0 && isFull(startLine-1) && hasContent(startLine) {
+		startLine--
+	}
+
+	endLine = lineIdx
+	for endLine < len(lines)-1 && isFull(endLine) && hasContent(endLine+1) {
+		endLine++
+	}
+
+	startCol = regionLeft
+	endCol = min(regionRight, regionLeft+lineWidth(endLine))
+
+	return startLine, endLine, startCol, endCol
+}
+
 // populateScreenLines renders the current frame exactly as View() does and
 // stores its ANSI-stripped lines in *m.screenLines. This duplicates the
 // render+strip steps View() performs during an active selection drag,

@@ -664,6 +664,144 @@ func TestLineBoundsAt(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestLogicalLineBounds
+// ---------------------------------------------------------------------------
+
+func TestLogicalLineBounds(t *testing.T) {
+	tests := []struct {
+		name          string
+		lines         []string
+		lineIdx       int
+		regionLeft    int
+		regionRight   int
+		wantStartLine int
+		wantEndLine   int
+		wantStartCol  int
+		wantEndCol    int
+	}{
+		{
+			name:          "single short line selects only that line",
+			lines:         []string{"hello world"},
+			lineIdx:       0,
+			regionLeft:    0,
+			regionRight:   20,
+			wantStartLine: 0,
+			wantEndLine:   0,
+			wantStartCol:  0,
+			wantEndCol:    11,
+		},
+		{
+			name: "wrapped line spans two screen lines",
+			lines: []string{
+				"0123456789012345678", // full 19-wide line (threshold 18)
+				"tail",
+			},
+			lineIdx:       0,
+			regionLeft:    0,
+			regionRight:   20,
+			wantStartLine: 0,
+			wantEndLine:   1,
+			wantStartCol:  0,
+			wantEndCol:    4,
+		},
+		{
+			name: "wrapped line spans three screen lines",
+			lines: []string{
+				"0123456789012345678",
+				"9876543210987654321",
+				"tail",
+			},
+			lineIdx:       1,
+			regionLeft:    0,
+			regionRight:   20,
+			wantStartLine: 0,
+			wantEndLine:   2,
+			wantStartCol:  0,
+			wantEndCol:    4,
+		},
+		{
+			name: "adjacent short lines not merged",
+			lines: []string{
+				"short one",
+				"short two",
+			},
+			lineIdx:       0,
+			regionLeft:    0,
+			regionRight:   20,
+			wantStartLine: 0,
+			wantEndLine:   0,
+			wantStartCol:  0,
+			wantEndCol:    9,
+		},
+		{
+			name: "empty continuation stops walk",
+			lines: []string{
+				"0123456789012345678",
+				"",
+				"unrelated text",
+			},
+			lineIdx:       0,
+			regionLeft:    0,
+			regionRight:   20,
+			wantStartLine: 0,
+			wantEndLine:   0,
+			wantStartCol:  0,
+			wantEndCol:    19,
+		},
+		{
+			name:          "out of range lineIdx returns zero-width (negative)",
+			lines:         []string{"hello"},
+			lineIdx:       -1,
+			regionLeft:    0,
+			regionRight:   20,
+			wantStartLine: -1,
+			wantEndLine:   -1,
+			wantStartCol:  0,
+			wantEndCol:    0,
+		},
+		{
+			name:          "out of range lineIdx returns zero-width (beyond)",
+			lines:         []string{"hello"},
+			lineIdx:       5,
+			regionLeft:    0,
+			regionRight:   20,
+			wantStartLine: 5,
+			wantEndLine:   5,
+			wantStartCol:  0,
+			wantEndCol:    0,
+		},
+		{
+			name: "region bounds correctly scope content width",
+			lines: []string{
+				"  0123456789012345678  ", // gutter padding outside region
+				"  tail                 ",
+			},
+			lineIdx:       0,
+			regionLeft:    2,
+			regionRight:   22,
+			wantStartLine: 0,
+			wantEndLine:   1,
+			wantStartCol:  2,
+			wantEndCol:    6,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotStartLine, gotEndLine, gotStartCol, gotEndCol := logicalLineBounds(
+				tc.lines, tc.lineIdx, tc.regionLeft, tc.regionRight)
+			if gotStartLine != tc.wantStartLine || gotEndLine != tc.wantEndLine ||
+				gotStartCol != tc.wantStartCol || gotEndCol != tc.wantEndCol {
+				t.Errorf("logicalLineBounds(lines, %d, %d, %d) = (%d, %d, %d, %d); want (%d, %d, %d, %d)",
+					tc.lineIdx, tc.regionLeft, tc.regionRight,
+					gotStartLine, gotEndLine, gotStartCol, gotEndCol,
+					tc.wantStartLine, tc.wantEndLine, tc.wantStartCol, tc.wantEndCol)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // TestDetectRegion
 // ---------------------------------------------------------------------------
 

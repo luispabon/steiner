@@ -252,21 +252,22 @@ func (m Model) nextClickCount(clickPos selectionPoint, clickTime time.Time) int 
 func (m Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, tea.Cmd) {
 	m.populateScreenLines()
 	lines := *m.screenLines
-	var startCol, endCol int
+	left, right := m.selectionHighlightBounds()
+	var startLine, endLine, startCol, endCol int
 	if m.clickCount == 2 {
+		startLine, endLine = clampedY, clampedY
 		if clampedY >= 0 && clampedY < len(lines) {
 			startCol, endCol = wordBoundsAt(lines[clampedY], clampedX)
 		}
 	} else {
-		startCol, endCol = lineBoundsAt(lines, clampedY)
+		startLine, endLine, startCol, endCol = logicalLineBounds(lines, clampedY, left, right)
 	}
 	m.selection = selectionState{
-		start: selectionPoint{line: clampedY, col: startCol},
-		end:   selectionPoint{line: clampedY, col: endCol},
+		start: selectionPoint{line: startLine, col: startCol},
+		end:   selectionPoint{line: endLine, col: endCol},
 	}
 	m.mousePressX = -1
 	m.mousePressY = -1
-	left, right := m.selectionHighlightBounds()
 	text := extractText(lines, m.selection, left, right)
 	if text != "" {
 		return m, copyToClipboard(text)
