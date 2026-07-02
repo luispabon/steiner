@@ -2,6 +2,24 @@
 
 Steiner records prompt-cache token usage on every usage-bearing model response and surfaces a token-weighted cache hit rate. The feature is always-on with no configuration required and stores no prompt or completion content — only token counts and model identity.
 
+## Codex cache improvements
+
+Codex Responses requests now send two cache-related fields on every turn:
+
+- `prompt_cache_key`: a session-stable key used for cache shard routing and session affinity. The key keeps related turns on the same cache path so later requests can reuse prior prompt prefixes.
+- `prompt_cache_retention: "24h"`: an explicit retention hint that asks the provider to keep the cache entry available for 24 hours instead of relying on the default in-memory retention. This matches the longer reuse window Codex needs for local sessions and restarts.
+
+The cache hit rate tracking in this repo reflects those request-level improvements, so the sidebar and `/cache-stats` view now measure traffic that is routed with stable cache affinity and 24-hour retention.
+
+## Known upstream limitations
+
+Two upstream issues remain visible in cache behavior:
+
+- Trailing content longer than 500 tokens can still miss cache reuse because of a provider-side bug.
+- `gpt-5.4-nano` has been observed at 0% cache rates, even with stable routing and 24-hour retention.
+
+These are provider limitations, not Steiner accounting bugs.
+
 ## The cache hit rate metric
 
 **Cache hit rate** is calculated as:
