@@ -225,7 +225,7 @@ func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
 		}
 
 		left := sidebarOffset + inputRailWidth + inputPadX
-		right := contentWidth - 1
+		right := sidebarOffset + contentWidth - 1
 		if left > right {
 			right = left
 		}

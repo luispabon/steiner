@@ -838,7 +838,7 @@ func TestClampToRegion(t *testing.T) {
 			region:     regionInput,
 			x:          99,
 			y:          27,
-			wantX:      62,
+			wantX:      99,
 			wantY:      27,
 		},
 		{
