@@ -7,16 +7,17 @@ import (
 )
 
 type responsesRequest struct {
-	Model           string          `json:"model"`
-	Instructions    string          `json:"instructions,omitempty"`
-	Input           []responsesItem `json:"input"`
-	MaxOutputTokens *int            `json:"max_output_tokens,omitempty"`
-	Store           *bool           `json:"store,omitempty"`
-	Stream          bool            `json:"stream,omitempty"`
-	Tools           []responsesTool `json:"tools,omitempty"`
-	PromptCacheKey  string          `json:"-"`
-	Params          map[string]any  `json:"-"`
-	ExtraParams     map[string]any  `json:"-"`
+	Model                string          `json:"model"`
+	Instructions         string          `json:"instructions,omitempty"`
+	Input                []responsesItem `json:"input"`
+	MaxOutputTokens      *int            `json:"max_output_tokens,omitempty"`
+	Store                *bool           `json:"store,omitempty"`
+	Stream               bool            `json:"stream,omitempty"`
+	Tools                []responsesTool `json:"tools,omitempty"`
+	PromptCacheKey       string          `json:"-"`
+	PromptCacheRetention string          `json:"prompt_cache_retention,omitempty"`
+	Params               map[string]any  `json:"-"`
+	ExtraParams          map[string]any  `json:"-"`
 }
 
 func (r responsesRequest) MarshalJSON() ([]byte, error) {
@@ -41,6 +42,9 @@ func (r responsesRequest) MarshalJSON() ([]byte, error) {
 	}
 	if r.PromptCacheKey != "" {
 		base["prompt_cache_key"] = r.PromptCacheKey
+	}
+	if r.PromptCacheRetention != "" {
+		base["prompt_cache_retention"] = r.PromptCacheRetention
 	}
 	return json.Marshal(mergeRequestParams(base, r.Params, r.ExtraParams))
 }
