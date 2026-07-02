@@ -80,6 +80,7 @@ func extractText(lines []string, state selectionState, regionLeft, regionRight i
 			ec = min(regionRight, ec)
 		}
 		extracted := truncateByWidth(raw, sc, ec)
+		extracted = strings.TrimRight(extracted, " ")
 		extracted = stripBoxChrome(extracted)
 		extracted = strings.TrimRight(extracted, " ")
 		parts = append(parts, extracted)
@@ -258,13 +259,6 @@ func (m Model) detectRegion(x, y int) selectionRegion {
 	return regionViewport
 }
 
-// hasScrollbar reports whether the viewport currently renders a scrollbar,
-// i.e. its content exceeds the visible height. This is a cheap check against
-// already-computed line counts and does not trigger a render.
-func (m Model) hasScrollbar() bool {
-	return m.viewport.TotalLineCount() > m.viewport.Height()
-}
-
 // clampToRegion clamps screen coordinates (x, y) to the content bounds of a
 // given selection region (viewport or input), preventing multi-line selection
 // from bleeding into padding, dividers, sidebar, or the other container.
@@ -290,11 +284,7 @@ func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
 		}
 
 		left += 3
-		if m.hasScrollbar() {
-			right -= 2
-		} else {
-			right -= 3
-		}
+		right -= 3
 		if left > right {
 			left = right
 		}
@@ -358,11 +348,7 @@ func (m Model) selectionHighlightBounds() (left, right int) {
 		}
 
 		left += 3
-		if m.hasScrollbar() {
-			right -= 2
-		} else {
-			right -= 3
-		}
+		right -= 3
 		if left > right {
 			left = right
 		}

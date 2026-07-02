@@ -180,6 +180,23 @@ func TestExtractText(t *testing.T) {
 			want:  "  indented code",
 		},
 		{
+			name:  "trailing space after box border stripped",
+			lines: []string{"│ content │ "},
+			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 12}},
+			want:  "content",
+		},
+		{
+			name: "multi-line box with trailing spaces",
+			lines: []string{
+				"   │ line one │    ",
+				"   │ line two │    ",
+			},
+			state:       selectionState{start: selectionPoint{0, 3}, end: selectionPoint{1, 15}},
+			regionLeft:  3,
+			regionRight: 15,
+			want:        "line one\nline two",
+		},
+		{
 			name:        "region bounds zero disables clamping",
 			lines:       []string{"   hello world   "},
 			state:       selectionState{start: selectionPoint{0, 3}, end: selectionPoint{0, 14}},
@@ -1510,13 +1527,10 @@ func TestClampToRegion(t *testing.T) {
 }
 
 // TestClampToRegionScrollbar verifies that the viewport right-edge clamp
-// accounts for the narrower (2-column) padding ApplyPanePadding uses when a
-// scrollbar is present, versus the 3-column padding used otherwise.
+// always excludes 3 columns on the right (matching the combined pane padding
+// and scrollbar column), regardless of whether a scrollbar is visible.
 func TestClampToRegionScrollbar(t *testing.T) {
 	m := buildTestModel(100, 30, false, false)
-	if m.hasScrollbar() {
-		t.Fatalf("expected no scrollbar before content overflow")
-	}
 	gotX, _ := m.clampToRegion(99, 15, regionViewport)
 	if gotX != 96 {
 		t.Errorf("without scrollbar: clampToRegion x = %d; want 96", gotX)
@@ -1527,11 +1541,8 @@ func TestClampToRegionScrollbar(t *testing.T) {
 		lines[i] = "line"
 	}
 	m.viewport.SetContentLines(lines)
-	if !m.hasScrollbar() {
-		t.Fatalf("expected scrollbar after content overflow")
-	}
 	gotX, _ = m.clampToRegion(99, 15, regionViewport)
-	if gotX != 97 {
-		t.Errorf("with scrollbar: clampToRegion x = %d; want 97", gotX)
+	if gotX != 96 {
+		t.Errorf("with scrollbar: clampToRegion x = %d; want 96", gotX)
 	}
 }
