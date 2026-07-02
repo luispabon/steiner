@@ -132,7 +132,13 @@ func (m Model) renderViewportWithScrollbar(viewportInner, scrollbar string) stri
 	var b strings.Builder
 	b.Grow(len(viewportInner) + len(scrollbar) + 64)
 
-	b.WriteByte('\n') // leading empty line (top offset)
+	// Emit a background-filled leading line so transparent terminals don't show
+	// a gap. The viewport content is m.viewport.Width() wide; the scrollbar
+	// occupies one additional column.
+	leadBg := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).
+		Render(strings.Repeat(" ", m.viewport.Width()))
+	leadSc := m.styles.ScrollbarTrack.Render(" ")
+	b.WriteString(leadBg + leadSc + "\n")
 
 	// Walk both strings line by line simultaneously, without intermediate slice
 	// allocations. strings.Split always yields at least one element, so the
@@ -499,7 +505,7 @@ func styleImageMarkers(line string, markerStyle lipgloss.Style) string {
 
 func renderInputLine(line string, width int, markerStyle lipgloss.Style) string {
 	if styled := styleImageMarkers(line, markerStyle); styled != line {
-		return styled
+		return theme.WithBg(lipgloss.NewStyle().Width(width).Render(styled), theme.UserSoft)
 	}
 	return lipgloss.NewStyle().Width(width).Render(line)
 }

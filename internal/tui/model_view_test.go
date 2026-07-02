@@ -3,15 +3,27 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"charm.land/bubbles/v2/viewport"
+	"charm.land/lipgloss/v2"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // renderViewportWithScrollbarOriginal is the pre-optimization reference implementation
 // kept here to validate output parity with the builder-based replacement.
-func renderViewportWithScrollbarOriginal(viewportInner, scrollbar string) string {
+// Updated to include background styling for the leading line.
+func renderViewportWithScrollbarOriginal(viewportInner, scrollbar string, viewportWidth int) string {
 	vpLines := strings.Split(viewportInner, "\n")
 	scLines := strings.Split(scrollbar, "\n")
 	merged := make([]string, 0, len(vpLines)+1)
-	merged = append(merged, "")
+
+	// Add background-filled leading line to match the new implementation.
+	leadBg := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).
+		Render(strings.Repeat(" ", viewportWidth))
+	leadSc := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(" ")
+	merged = append(merged, leadBg+leadSc)
+
 	for i := 0; i < len(vpLines) && i < len(scLines); i++ {
 		merged = append(merged, vpLines[i]+scLines[i])
 	}
@@ -19,7 +31,10 @@ func renderViewportWithScrollbarOriginal(viewportInner, scrollbar string) string
 }
 
 func TestRenderViewportWithScrollbar(t *testing.T) {
-	m := Model{}
+	m := Model{
+		viewport: viewport.New(),
+		styles:   theme.BuildStyles(theme.AccentAmber),
+	}
 
 	cases := []struct {
 		name      string
@@ -83,9 +98,13 @@ func TestRenderViewportWithScrollbar(t *testing.T) {
 		},
 	}
 
+	// Use a fixed viewport width for testing.
+	viewportWidth := 20
+	m.viewport.SetWidth(viewportWidth)
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			want := renderViewportWithScrollbarOriginal(tc.viewport, tc.scrollbar)
+			want := renderViewportWithScrollbarOriginal(tc.viewport, tc.scrollbar, viewportWidth)
 			got := m.renderViewportWithScrollbar(tc.viewport, tc.scrollbar)
 			if got != want {
 				t.Errorf("output mismatch\nwant: %q\n got: %q", want, got)
