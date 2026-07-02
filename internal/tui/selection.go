@@ -179,6 +179,70 @@ func (m Model) detectRegion(x, y int) selectionRegion {
 	return regionViewport
 }
 
+// clampToRegion clamps screen coordinates (x, y) to the content bounds of a
+// given selection region (viewport or input), preventing multi-line selection
+// from bleeding into padding, dividers, sidebar, or the other container.
+// For regionNone and regionSidebar, returns (x, y) unchanged.
+func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
+	contentWidth := m.contentWidth()
+	sidebarVisible := m.sidebar.Visible(m.width)
+	statusRow := m.height - 1
+	inputChromeH := m.inputChromeHeight(contentWidth)
+	inputStartRow := statusRow - inputChromeH
+
+	switch region {
+	case regionViewport:
+		left := 0
+		right := m.width
+
+		if sidebarVisible {
+			if m.sidebarPosition == "right" {
+				right = m.width - sidebarWidth - 1
+			} else {
+				left = sidebarWidth + 1
+			}
+		}
+
+		left = left + 3
+		right = right - 3
+		if left > right {
+			left = right
+		}
+
+		x = max(left, min(right-1, x))
+		y = max(0, min(inputStartRow-2, y))
+		return x, y
+
+	case regionInput:
+		sidebarOffset := 0
+
+		if sidebarVisible {
+			if m.sidebarPosition == "right" {
+				sidebarOffset = 0
+			} else {
+				sidebarOffset = sidebarWidth + 1
+			}
+		}
+
+		left := sidebarOffset + inputRailWidth + inputPadX
+		right := contentWidth - 1
+		if left > right {
+			right = left
+		}
+
+		if sidebarVisible {
+			x = max(left, min(right, x))
+		} else {
+			x = max(left, min(right-1, x))
+		}
+		y = max(inputStartRow, min(statusRow-1, y))
+		return x, y
+
+	default:
+		return x, y
+	}
+}
+
 // copyToClipboard returns a tea.Cmd that writes text to the system clipboard.
 // Tries wl-copy (Wayland), xclip, xsel, then falls back to OSC52.
 func copyToClipboard(text string) tea.Cmd {

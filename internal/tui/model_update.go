@@ -258,7 +258,8 @@ func (m Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	start := clickPos
+	clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
+	start := selectionPoint{line: clampedY, col: clampedX}
 	m.selection = selectionState{start: start, end: start, active: true}
 	m.mousePressX = msg.x
 	m.mousePressY = msg.y
@@ -267,13 +268,15 @@ func (m Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.mousePressX >= 0 {
-		m.selection.end = selectionPoint{line: msg.y, col: msg.x}
+		clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
+		m.selection.end = selectionPoint{line: clampedY, col: clampedX}
 	}
 	return m, nil
 }
 
 func (m Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
-	m.selection.end = selectionPoint{line: msg.y, col: msg.x}
+	clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
+	m.selection.end = selectionPoint{line: clampedY, col: clampedX}
 	var cmd tea.Cmd
 	if m.mousePressX != msg.x || m.mousePressY != msg.y {
 		m.selection.active = false
