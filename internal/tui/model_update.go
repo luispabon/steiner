@@ -259,6 +259,31 @@ func (m Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
+
+	if m.activeRegion == regionViewport && (m.clickCount == 2 || m.clickCount == 3) {
+		m.populateScreenLines()
+		lines := *m.screenLines
+		var startCol, endCol int
+		if m.clickCount == 2 {
+			if clampedY >= 0 && clampedY < len(lines) {
+				startCol, endCol = wordBoundsAt(lines[clampedY], clampedX)
+			}
+		} else {
+			startCol, endCol = lineBoundsAt(lines, clampedY)
+		}
+		m.selection = selectionState{
+			start: selectionPoint{line: clampedY, col: startCol},
+			end:   selectionPoint{line: clampedY, col: endCol},
+		}
+		m.mousePressX = -1
+		m.mousePressY = -1
+		text := extractText(lines, m.selection)
+		if text != "" {
+			return m, copyToClipboard(text)
+		}
+		return m, nil
+	}
+
 	start := selectionPoint{line: clampedY, col: clampedX}
 	m.selection = selectionState{start: start, end: start, active: true}
 	m.mousePressX = msg.x
@@ -275,6 +300,12 @@ func (m Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
+	// mousePressX < 0 means the press was already fully handled at click time
+	// (e.g. word/line selection from a double/triple-click); nothing left to do.
+	if m.mousePressX < 0 {
+		return m, nil
+	}
+
 	clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
 	m.selection.end = selectionPoint{line: clampedY, col: clampedX}
 	var cmd tea.Cmd

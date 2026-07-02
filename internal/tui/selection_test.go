@@ -244,6 +244,203 @@ func TestApplyScreenHighlight(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestWordBoundsAt
+// ---------------------------------------------------------------------------
+
+func TestWordBoundsAt(t *testing.T) {
+	tests := []struct {
+		name         string
+		line         string
+		col          int
+		wantStartCol int
+		wantEndCol   int
+	}{
+		{
+			name:         "middle of an ASCII word",
+			line:         "hello world",
+			col:          2,
+			wantStartCol: 0,
+			wantEndCol:   5,
+		},
+		{
+			name:         "start of a word",
+			line:         "hello world",
+			col:          0,
+			wantStartCol: 0,
+			wantEndCol:   5,
+		},
+		{
+			name:         "end of a word (last char index, not one-past)",
+			line:         "hello world",
+			col:          4,
+			wantStartCol: 0,
+			wantEndCol:   5,
+		},
+		{
+			name:         "second word",
+			line:         "hello world",
+			col:          8,
+			wantStartCol: 6,
+			wantEndCol:   11,
+		},
+		{
+			name:         "underscore is a word character",
+			line:         "foo_bar baz",
+			col:          0,
+			wantStartCol: 0,
+			wantEndCol:   7,
+		},
+		{
+			name:         "digits are word characters",
+			line:         "abc123 def",
+			col:          4,
+			wantStartCol: 0,
+			wantEndCol:   6,
+		},
+		{
+			name:         "col on punctuation selects only that character",
+			line:         "foo, bar",
+			col:          3,
+			wantStartCol: 3,
+			wantEndCol:   4,
+		},
+		{
+			name:         "col on space selects only that character",
+			line:         "foo bar",
+			col:          3,
+			wantStartCol: 3,
+			wantEndCol:   4,
+		},
+		{
+			name:         "empty line",
+			line:         "",
+			col:          0,
+			wantStartCol: 0,
+			wantEndCol:   0,
+		},
+		{
+			name:         "col beyond line length clamps to line width",
+			line:         "hi",
+			col:          50,
+			wantStartCol: 2,
+			wantEndCol:   2,
+		},
+		{
+			name:         "negative col clamps to zero",
+			line:         "hi",
+			col:          -3,
+			wantStartCol: 0,
+			wantEndCol:   2,
+		},
+		{
+			name:         "CJK wide characters counted by visual width",
+			line:         "你好 world",
+			col:          0,
+			wantStartCol: 0,
+			wantEndCol:   4,
+		},
+		{
+			name:         "col inside a CJK word (second wide char)",
+			line:         "你好 world",
+			col:          2,
+			wantStartCol: 0,
+			wantEndCol:   4,
+		},
+		{
+			name:         "col in ASCII word following CJK",
+			line:         "你好 world",
+			col:          5,
+			wantStartCol: 5,
+			wantEndCol:   10,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotStart, gotEnd := wordBoundsAt(tc.line, tc.col)
+			if gotStart != tc.wantStartCol || gotEnd != tc.wantEndCol {
+				t.Errorf("wordBoundsAt(%q, %d) = (%d, %d); want (%d, %d)",
+					tc.line, tc.col, gotStart, gotEnd, tc.wantStartCol, tc.wantEndCol)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestLineBoundsAt
+// ---------------------------------------------------------------------------
+
+func TestLineBoundsAt(t *testing.T) {
+	tests := []struct {
+		name         string
+		lines        []string
+		lineIdx      int
+		wantStartCol int
+		wantEndCol   int
+	}{
+		{
+			name:         "plain line",
+			lines:        []string{"hello world"},
+			lineIdx:      0,
+			wantStartCol: 0,
+			wantEndCol:   11,
+		},
+		{
+			name:         "line with ANSI escape codes measures stripped width",
+			lines:        []string{"\x1b[31mred text\x1b[0m"},
+			lineIdx:      0,
+			wantStartCol: 0,
+			wantEndCol:   8,
+		},
+		{
+			name:         "empty line",
+			lines:        []string{""},
+			lineIdx:      0,
+			wantStartCol: 0,
+			wantEndCol:   0,
+		},
+		{
+			name:         "second of multiple lines",
+			lines:        []string{"foo", "bar baz"},
+			lineIdx:      1,
+			wantStartCol: 0,
+			wantEndCol:   7,
+		},
+		{
+			name:         "negative index out of range",
+			lines:        []string{"foo"},
+			lineIdx:      -1,
+			wantStartCol: 0,
+			wantEndCol:   0,
+		},
+		{
+			name:         "index beyond slice length out of range",
+			lines:        []string{"foo"},
+			lineIdx:      5,
+			wantStartCol: 0,
+			wantEndCol:   0,
+		},
+		{
+			name:         "empty lines slice",
+			lines:        []string{},
+			lineIdx:      0,
+			wantStartCol: 0,
+			wantEndCol:   0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotStart, gotEnd := lineBoundsAt(tc.lines, tc.lineIdx)
+			if gotStart != tc.wantStartCol || gotEnd != tc.wantEndCol {
+				t.Errorf("lineBoundsAt(lines, %d) = (%d, %d); want (%d, %d)",
+					tc.lineIdx, gotStart, gotEnd, tc.wantStartCol, tc.wantEndCol)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // TestDetectRegion
 // ---------------------------------------------------------------------------
 

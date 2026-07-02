@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -241,6 +242,96 @@ func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
 	default:
 		return x, y
 	}
+}
+
+// isWordChar reports whether r is part of a "word" for double-click
+// word-selection purposes: letters, digits, and underscore.
+func isWordChar(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
+// wordBoundsAt returns the visual column range [startCol, endCol) of the word
+// touching visual column col in line (which must already be ANSI-stripped).
+// If col lands on a non-word character, the range covers just that character.
+// If col is at or beyond the line's visual width, it returns a zero-width
+// range at the line's width.
+func wordBoundsAt(line string, col int) (startCol, endCol int) {
+	runes := []rune(line)
+	if len(runes) == 0 {
+		if col < 0 {
+			col = 0
+		}
+		return col, col
+	}
+
+	starts := make([]int, len(runes))
+	widths := make([]int, len(runes))
+	total := 0
+	for i, r := range runes {
+		starts[i] = total
+		w := runewidth.RuneWidth(r)
+		widths[i] = w
+		total += w
+	}
+
+	if col < 0 {
+		col = 0
+	}
+	if col >= total {
+		return total, total
+	}
+
+	idx := -1
+	for i := range runes {
+		if col >= starts[i] && col < starts[i]+widths[i] {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return col, col
+	}
+
+	if !isWordChar(runes[idx]) {
+		return starts[idx], starts[idx] + widths[idx]
+	}
+
+	left := idx
+	for left > 0 && isWordChar(runes[left-1]) {
+		left--
+	}
+	right := idx
+	for right < len(runes)-1 && isWordChar(runes[right+1]) {
+		right++
+	}
+	return starts[left], starts[right] + widths[right]
+}
+
+// lineBoundsAt returns the full visual column range [0, width) of
+// lines[lineIdx], ANSI-stripped before measuring width. Returns a zero-width
+// range for an out-of-range lineIdx or an empty line.
+func lineBoundsAt(lines []string, lineIdx int) (startCol, endCol int) {
+	if lineIdx < 0 || lineIdx >= len(lines) {
+		return 0, 0
+	}
+	return 0, ansi.StringWidth(ansi.Strip(lines[lineIdx]))
+}
+
+// populateScreenLines renders the current frame exactly as View() does and
+// stores its ANSI-stripped lines in *m.screenLines. This duplicates the
+// render+strip steps View() performs during an active selection drag,
+// because click handling runs outside the render cycle and needs a freshly
+// rendered frame on demand; having View() call this instead would double the
+// render cost on every frame with an active selection.
+func (m Model) populateScreenLines() {
+	if m.screenLines == nil {
+		return
+	}
+	contentWidth := m.contentWidth()
+	sidebarVisible := m.sidebar.Visible(m.width)
+	base := m.renderBaseView(contentWidth, sidebarVisible)
+	result := m.renderOverlayView(base, contentWidth)
+	*m.screenLines = strings.Split(ansi.Strip(result), "\n")
 }
 
 // copyToClipboard returns a tea.Cmd that writes text to the system clipboard.
