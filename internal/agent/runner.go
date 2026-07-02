@@ -205,6 +205,7 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 		basePrompt.PromptOverrides.System,
 		basePrompt.DelegationEnabled,
 		basePrompt.AdvisorEnabled,
+		basePrompt.WorkflowMode,
 		basePrompt.CaveHuman,
 		basePrompt.PromptOverrides.SystemSuffix,
 	)

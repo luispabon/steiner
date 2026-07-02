@@ -11,6 +11,8 @@ const (
 	testCoreRulesMarker  = "Core rules:"
 	testWorkflowMarker   = "Before editing:"
 	testCaveHumanMarker  = "## Output voice"
+	parentApprovalLine   = "Ask for user's permission before editing."
+	childApprovalLine    = "Do not ask for permission to proceed or for confirmation before editing."
 )
 
 func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
@@ -113,7 +115,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			content := systemPreambleWithAdvisor(tc.override, tc.delegation, tc.advisor, tc.caveHuman, tc.suffix).Content
+			content := systemPreambleWithAdvisor(tc.override, tc.delegation, tc.advisor, workflowModeParent, tc.caveHuman, tc.suffix).Content
 
 			for _, want := range tc.wantPresent {
 				if !strings.Contains(content, want) {
@@ -238,7 +240,7 @@ func TestSystemPreambleCaveHumanMode(t *testing.T) {
 func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor("", false, true, false, "").Content
+	content := systemPreambleWithAdvisor("", false, true, workflowModeParent, false, "").Content
 	for _, want := range []string{
 		"## Advisor",
 		"If you need a stronger-model strategic check, call `advisor`.",
@@ -307,5 +309,28 @@ func TestSystemPreambleSuffixAfterOverride(t *testing.T) {
 	}
 	if !strings.HasSuffix(strings.TrimSpace(content), suffix) {
 		t.Fatalf("suffix should appear after override")
+	}
+}
+
+func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
+	t.Parallel()
+
+	parent := systemPreambleWithAdvisor("", true, false, workflowModeParent, false, "").Content
+	if !strings.Contains(parent, testWorkflowMarker) {
+		t.Fatalf("parent preamble missing %q in %q", testWorkflowMarker, parent)
+	}
+	if !strings.Contains(parent, parentApprovalLine) {
+		t.Fatalf("parent preamble missing approval line %q in %q", parentApprovalLine, parent)
+	}
+
+	child := systemPreambleWithAdvisor("", true, false, workflowModeDelegatedChild, false, "").Content
+	if !strings.Contains(child, testWorkflowMarker) {
+		t.Fatalf("child preamble missing %q in %q", testWorkflowMarker, child)
+	}
+	if !strings.Contains(child, childApprovalLine) {
+		t.Fatalf("child preamble missing delegated approval line %q in %q", childApprovalLine, child)
+	}
+	if strings.Contains(child, parentApprovalLine) {
+		t.Fatalf("child preamble unexpectedly contains parent approval line %q in %q", parentApprovalLine, child)
 	}
 }

@@ -76,7 +76,7 @@ func preambleStep(opts AssemblyOptions) sourcePlanStep {
 					ByteSize: len(opts.CachedPreamble),
 				}
 			} else {
-				block = systemPreambleWithAdvisor(opts.PromptOverrides.System, opts.DelegationEnabled, opts.AdvisorEnabled, opts.CaveHuman, opts.PromptOverrides.SystemSuffix)
+				block = systemPreambleWithAdvisor(opts.PromptOverrides.System, opts.DelegationEnabled, opts.AdvisorEnabled, opts.WorkflowMode, opts.CaveHuman, opts.PromptOverrides.SystemSuffix)
 			}
 			// Bypass budget: append directly to blocks and messages so the system
 			// preamble is never truncated.

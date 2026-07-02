@@ -100,6 +100,7 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 		ProjectContextIgnoreFiles: pcc.IgnoreFiles,
 		ProjectContextBudgetBytes: pcc.MaxTokens,
 		CaveHuman:                 caveHuman,
+		WorkflowMode:              prompt.DelegatedChildWorkflowMode(),
 		Conversation: []provider.Message{
 			msg,
 		},
