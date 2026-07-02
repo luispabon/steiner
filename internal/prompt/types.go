@@ -141,8 +141,10 @@ type AssemblyOptions struct {
 	ContextState              DurableContextState
 	DelegationEnabled         bool
 	AdvisorEnabled            bool
-	Conversation              []provider.Message
-	ToolResults               []provider.Message
+	// WorkflowMode selects the shared workflow wording for the system preamble.
+	WorkflowMode workflowMode
+	Conversation []provider.Message
+	ToolResults  []provider.Message
 	// CachedPreamble is the pre-built system preamble string. When non-empty it
 	// is used directly, bypassing SystemPreamble. All inputs to SystemPreamble
 	// are session-constants, so caching once per session is safe.

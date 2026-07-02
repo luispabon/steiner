@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 )
 
 func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 	t.Run("cache hit with same parameters", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("alpha", false, false, false, "")
-		second := manager.CachedSystemPreamble("alpha", false, false, false, "")
+		first := manager.CachedSystemPreamble("alpha", false, false, prompt.ParentWorkflowMode(), false, "")
+		second := manager.CachedSystemPreamble("alpha", false, false, prompt.ParentWorkflowMode(), false, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -25,8 +26,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different caveHuman", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", true, false, false, "")
-		second := manager.CachedSystemPreamble("", true, false, true, "")
+		first := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), false, "")
+		second := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), true, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -37,8 +38,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different override", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("alpha", false, false, false, "")
-		second := manager.CachedSystemPreamble("beta", false, false, false, "")
+		first := manager.CachedSystemPreamble("alpha", false, false, prompt.ParentWorkflowMode(), false, "")
+		second := manager.CachedSystemPreamble("beta", false, false, prompt.ParentWorkflowMode(), false, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -49,8 +50,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different systemSuffix", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", false, false, false, "")
-		second := manager.CachedSystemPreamble("", false, false, false, "Extended thinking enabled")
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "")
+		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "Extended thinking enabled")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -65,8 +66,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 	t.Run("cache hit with same systemSuffix", func(t *testing.T) {
 		var manager baseContextManager
 		suffix := "Custom model instruction"
-		first := manager.CachedSystemPreamble("", false, false, false, suffix)
-		second := manager.CachedSystemPreamble("", false, false, false, suffix)
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, suffix)
+		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, suffix)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -77,8 +78,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss when suffix changes from non-empty to empty", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", false, false, false, "Some instruction")
-		second := manager.CachedSystemPreamble("", false, false, false, "")
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "Some instruction")
+		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -92,8 +93,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different caveHuman", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", true, false, false, "")
-		second := manager.CachedSystemPreamble("", true, false, true, "")
+		first := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), false, "")
+		second := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), true, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -104,8 +105,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different advisorEnabled", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", false, false, false, "")
-		second := manager.CachedSystemPreamble("", false, true, false, "")
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "")
+		second := manager.CachedSystemPreamble("", false, true, prompt.ParentWorkflowMode(), false, "")
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -114,6 +115,22 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 		}
 		if !strings.Contains(second, "## Advisor") {
 			t.Fatal("second preamble should contain advisor guidance")
+		}
+	})
+
+	t.Run("cache miss with different workflow mode and hit with same workflow mode", func(t *testing.T) {
+		var manager baseContextManager
+		parent := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "")
+		child := manager.CachedSystemPreamble("", false, false, prompt.DelegatedChildWorkflowMode(), false, "")
+		childAgain := manager.CachedSystemPreamble("", false, false, prompt.DelegatedChildWorkflowMode(), false, "")
+		if parent == "" || child == "" {
+			t.Fatal("cached preamble = empty, want content")
+		}
+		if parent == child {
+			t.Fatal("preambles should differ when workflow mode changes")
+		}
+		if childAgain != child {
+			t.Fatalf("child preamble = %q, want cached %q", childAgain, child)
 		}
 	})
 }

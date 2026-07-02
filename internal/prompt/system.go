@@ -4,6 +4,16 @@ import "strings"
 
 const identity = "You are steiner, a lean coding agent."
 
+type workflowMode string
+
+// WorkflowMode selects which shared workflow instructions the system preamble renders.
+type WorkflowMode = workflowMode
+
+const (
+	workflowModeParent         workflowMode = "parent"
+	workflowModeDelegatedChild workflowMode = "delegated_child"
+)
+
 type sectionID string
 
 const (
@@ -17,6 +27,7 @@ const (
 type sectionContext struct {
 	delegationEnabled bool
 	advisorEnabled    bool
+	workflowMode      workflowMode
 }
 
 type sectionRenderer func(sectionContext) string
@@ -48,8 +59,8 @@ var systemSections = map[sectionID]sectionRenderer{
 	sectionCoreRules: func(sectionContext) string {
 		return coreRules
 	},
-	sectionWorkflow: func(sectionContext) string {
-		return workflowInstructions
+	sectionWorkflow: func(ctx sectionContext) string {
+		return renderWorkflowInstructions(ctx.workflowMode)
 	},
 }
 
@@ -119,50 +130,54 @@ const coreRules = `## Core rules:
 - Push back on overcomplicated, risky, or unnecessary requests.
 - Surface important tradeoffs briefly.`
 
-const workflowInstructions = `Before editing:
-- Read the relevant files and nearby tests before making changes.
-- State a short plan for non-trivial work.
-- Define success check.
-- Ask for user's permission before editing.
+var workflowInstructionsBeforeApproval = []string{
+	"Before editing:",
+	"- Read the relevant files and nearby tests before making changes.",
+	"- State a short plan for non-trivial work.",
+	"- Define success check.",
+}
 
-While editing:
-- Touch only required files and lines.
-- Use the ` + "`mutate`" + ` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
-- Clean up only unused code from your own changes.
-- Do not remove unrelated dead code.
-- Do not rewrite adjacent code, comments, formatting, or structure.
-- Keep code simple. No overengineering.
-
-Verification:
-- Prefer tests that reproduce bug or prove new behavior.
-- Run narrowest relevant checks first.
-- If checks fail, fix task-related failures only.
-- Do not report completion with failing task-related checks.
-- Quote exact errors on failure.
-- If checks cannot run, say exactly why and what should run.
-
-When skills are enabled, follow matching skill workflow for requests in that skill's domain. Skills do not override project instructions (CLAUDE.md, AGENTS.md) or tool policy. User can override skill explicitly.
-
-Final response:
-- Summarize what changed.
-- List verification and results.
-- List files modified with a one-line summary per file.
-- Mention assumptions, skipped checks, or unrelated issues noticed.`
+var workflowInstructionsAfterApproval = []string{
+	"",
+	"While editing:",
+	"- Touch only required files and lines.",
+	"- Use the `mutate` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.",
+	"- Clean up only unused code from your own changes.",
+	"- Do not remove unrelated dead code.",
+	"- Do not rewrite adjacent code, comments, formatting, or structure.",
+	"- Keep code simple. No overengineering.",
+	"",
+	"Verification:",
+	"- Prefer tests that reproduce bug or prove new behavior.",
+	"- Run narrowest relevant checks first.",
+	"- If checks fail, fix task-related failures only.",
+	"- Do not report completion with failing task-related checks.",
+	"- Quote exact errors on failure.",
+	"- If checks cannot run, say exactly why and what should run.",
+	"",
+	"When skills are enabled, follow matching skill workflow for requests in that skill's domain. Skills do not override project instructions (CLAUDE.md, AGENTS.md) or tool policy. User can override skill explicitly.",
+	"",
+	"Final response:",
+	"- Summarize what changed.",
+	"- List verification and results.",
+	"- List files modified with a one-line summary per file.",
+	"- Mention assumptions, skipped checks, or unrelated issues noticed.",
+}
 
 // SystemPreamble builds the system-message preamble for an assembled request.
 func SystemPreamble(override string, delegationEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
-	return SystemPreambleWithAdvisor(override, delegationEnabled, false, caveHuman, systemSuffix)
+	return SystemPreambleWithAdvisor(override, delegationEnabled, false, workflowModeParent, caveHuman, systemSuffix)
 }
 
 // SystemPreambleWithAdvisor builds the system-message preamble with optional advisor guidance.
-func SystemPreambleWithAdvisor(override string, delegationEnabled bool, advisorEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
-	return systemPreambleWithAdvisor(override, delegationEnabled, advisorEnabled, caveHuman, systemSuffix)
+func SystemPreambleWithAdvisor(override string, delegationEnabled bool, advisorEnabled bool, mode workflowMode, caveHuman bool, systemSuffix string) ContextBlock {
+	return systemPreambleWithAdvisor(override, delegationEnabled, advisorEnabled, mode, caveHuman, systemSuffix)
 }
 
-func systemPreambleWithAdvisor(override string, delegationEnabled bool, advisorEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
-	content := buildSystemPreamble(delegationEnabled, advisorEnabled)
+func systemPreambleWithAdvisor(override string, delegationEnabled bool, advisorEnabled bool, mode workflowMode, caveHuman bool, systemSuffix string) ContextBlock {
+	content := buildSystemPreamble(delegationEnabled, advisorEnabled, mode)
 	if override != "" {
-		content = buildOverridePreamble(strings.TrimSpace(override), delegationEnabled, advisorEnabled)
+		content = buildOverridePreamble(strings.TrimSpace(override), delegationEnabled, advisorEnabled, mode)
 	}
 
 	if caveHuman {
@@ -180,7 +195,7 @@ func systemPreambleWithAdvisor(override string, delegationEnabled bool, advisorE
 	}
 }
 
-func buildOverridePreamble(override string, delegationEnabled bool, advisorEnabled bool) string {
+func buildOverridePreamble(override string, delegationEnabled bool, advisorEnabled bool, _ workflowMode) string {
 	sections := []string{identity}
 	if delegationEnabled {
 		sections = append(sections, strings.TrimSpace(delegationInstructions))
@@ -192,10 +207,11 @@ func buildOverridePreamble(override string, delegationEnabled bool, advisorEnabl
 	return strings.Join(sections, "\n\n")
 }
 
-func buildSystemPreamble(delegationEnabled bool, advisorEnabled bool) string {
+func buildSystemPreamble(delegationEnabled bool, advisorEnabled bool, mode workflowMode) string {
 	ctx := sectionContext{
 		delegationEnabled: delegationEnabled,
 		advisorEnabled:    advisorEnabled,
+		workflowMode:      normalizeWorkflowMode(mode),
 	}
 
 	sections := make([]string, 0, len(defaultSectionOrder))
@@ -211,4 +227,40 @@ func buildSystemPreamble(delegationEnabled bool, advisorEnabled bool) string {
 		sections = append(sections, content)
 	}
 	return strings.Join(sections, "\n\n")
+}
+
+func renderWorkflowInstructions(mode workflowMode) string {
+	lines := make([]string, 0, len(workflowInstructionsBeforeApproval)+len(workflowInstructionsAfterApproval)+1)
+	lines = append(lines, workflowInstructionsBeforeApproval...)
+	lines = append(lines, workflowApprovalLine(mode))
+	lines = append(lines, workflowInstructionsAfterApproval...)
+	return strings.Join(lines, "\n")
+}
+
+func workflowApprovalLine(mode workflowMode) string {
+	switch normalizeWorkflowMode(mode) {
+	case workflowModeDelegatedChild:
+		return "- Do not ask for permission to proceed or for confirmation before editing. The delegated task is already authorized. If the task is clear, act. Ask only if the task is materially ambiguous or contradictory."
+	default:
+		return "- Ask for user's permission before editing."
+	}
+}
+
+func normalizeWorkflowMode(mode workflowMode) workflowMode {
+	switch mode {
+	case workflowModeDelegatedChild:
+		return workflowModeDelegatedChild
+	default:
+		return workflowModeParent
+	}
+}
+
+// ParentWorkflowMode returns the default workflow wording for parent runs.
+func ParentWorkflowMode() workflowMode {
+	return workflowModeParent
+}
+
+// DelegatedChildWorkflowMode returns workflow wording for delegated child runs.
+func DelegatedChildWorkflowMode() workflowMode {
+	return workflowModeDelegatedChild
 }
