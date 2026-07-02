@@ -190,7 +190,8 @@ func TestCodexResponsesBuildResponsesPayload_OpenAIHostSetsStoreFalse(t *testing
 	}}
 
 	data, err := prov.buildResponsesPayload(ChatRequest{
-		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Messages:       []Message{{Role: MessageRoleUser, Content: "hello"}},
+		PromptCacheKey: "session-123",
 	}, false)
 	if err != nil {
 		t.Fatalf("buildResponsesPayload() error = %v", err)
@@ -202,6 +203,9 @@ func TestCodexResponsesBuildResponsesPayload_OpenAIHostSetsStoreFalse(t *testing
 	}
 	if got, want := payload["store"], false; got != want {
 		t.Fatalf("store = %v, want %v", got, want)
+	}
+	if got, want := payload["prompt_cache_key"], "session-123"; got != want {
+		t.Fatalf("prompt_cache_key = %v, want %v", got, want)
 	}
 }
 

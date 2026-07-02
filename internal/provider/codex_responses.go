@@ -73,6 +73,7 @@ func (c *CodexResponses) buildResponsesPayload(request ChatRequest, stream bool)
 	if err != nil {
 		return nil, err
 	}
+	wire.PromptCacheKey = request.PromptCacheKey
 	if c.shouldDisableRemoteStorage() {
 		wire.Store = boolValuePtr(false)
 	}
