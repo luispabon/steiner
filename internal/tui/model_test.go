@@ -813,6 +813,8 @@ func TestModelMouseClickTargetsGroupedToolRow(t *testing.T) {
 		t.Fatal("divider click should not toggle any grouped entry")
 	}
 
+	time.Sleep(600 * time.Millisecond)
+
 	m = updateModel(t, m, mouseClickMsg{x: 0, y: rowForSecond + clickOffset})
 	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: rowForSecond + clickOffset})
 

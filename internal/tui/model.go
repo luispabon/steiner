@@ -153,6 +153,10 @@ type Model struct {
 	mousePressX                  int
 	mousePressY                  int
 	selection                    selectionState
+	lastClickTime                time.Time
+	lastClickPos                 selectionPoint
+	clickCount                   int
+	activeRegion                 selectionRegion
 	screenLines                  *[]string
 	lastWheelMouseAt             time.Time
 	primaryModel                 string
