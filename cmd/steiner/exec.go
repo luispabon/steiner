@@ -10,6 +10,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
@@ -38,7 +39,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	if !flags.enableStreaming {
 		rt.human.Printf("Waiting for response…\n")
 	}
-	promptCacheKey, err := generatePromptCacheKey()
+	promptCacheKey, err := provider.NewPromptCacheKey()
 	if err != nil {
 		return err
 	}

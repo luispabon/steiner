@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -17,16 +15,6 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
-
-// generatePromptCacheKey creates a random hex identifier for run modes that
-// have no persisted session ID to reuse as a stable cache-shard key.
-func generatePromptCacheKey() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate prompt cache key: %w", err)
-	}
-	return fmt.Sprintf("%032x", b), nil
-}
 
 type cliRunner struct {
 	runtime            cliRuntime

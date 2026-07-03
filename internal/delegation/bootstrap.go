@@ -2,7 +2,6 @@ package delegation
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -167,6 +166,12 @@ func buildChildRunRequest(workDir string, agentID string, prov provider.Provider
 		exec = exec.WithSandbox(sandbox)
 	}
 
+	// A fresh per-run cache key, distinct from the parent's, keeps sub-agent
+	// traffic off the parent conversation's cache shard. An entropy error leaves
+	// it empty, which simply disables provider-side caching for this child run
+	// rather than failing bootstrap.
+	childCacheKey, _ := provider.NewPromptCacheKey()
+
 	req := agent.RunRequest{
 		Provider:           prov,
 		Executor:           exec,
@@ -179,28 +184,13 @@ func buildChildRunRequest(workDir string, agentID string, prov provider.Provider
 		MaxTokens:          maxTokens,
 		StreamingPreferred: streamingPreferred,
 		CaveHuman:          caveHuman,
-		// PromptCacheKey is a fresh per-run identifier, distinct from the
-		// parent's, so sub-agent traffic does not collide with the parent
-		// conversation's cache shard. A generation failure leaves it empty,
-		// which simply disables provider-side caching for this child run
-		// rather than failing bootstrap.
-		PromptCacheKey: generateChildCacheKey(),
+		PromptCacheKey:     childCacheKey,
 	}
 	if rec != nil {
 		req.UsageRecorder = rec
 	}
 
 	return req
-}
-
-// generateChildCacheKey returns a random hex identifier for a sub-agent run,
-// or the empty string if the entropy source is unavailable.
-func generateChildCacheKey() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return ""
-	}
-	return fmt.Sprintf("%032x", b)
 }
 
 // scopedEventSink tags emitted child-run events with the child agent scope.
