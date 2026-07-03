@@ -366,7 +366,7 @@ func TestAnthropicBuildHTTPRequest(t *testing.T) {
 		},
 	}
 
-	req, err := p.buildHTTPRequest(context.Background(), []byte(`{"model":"claude-3-7-sonnet"}`), false)
+	req, err := p.buildHTTPRequest(context.Background(), ChatRequest{}, []byte(`{"model":"claude-3-7-sonnet"}`), false)
 	if err != nil {
 		t.Fatalf("buildHTTPRequest() error = %v", err)
 	}
@@ -405,7 +405,7 @@ func TestAnthropicBuildHTTPRequest_Stream(t *testing.T) {
 		},
 	}
 
-	req, err := p.buildHTTPRequest(context.Background(), []byte(`{"model":"claude-3-7-sonnet"}`), true)
+	req, err := p.buildHTTPRequest(context.Background(), ChatRequest{}, []byte(`{"model":"claude-3-7-sonnet"}`), true)
 	if err != nil {
 		t.Fatalf("buildHTTPRequest() error = %v", err)
 	}
@@ -435,7 +435,7 @@ func TestAnthropicBuildHTTPRequest_NoAuth(t *testing.T) {
 		},
 	}
 
-	req, err := p.buildHTTPRequest(context.Background(), []byte(`{"model":"claude-3-7-sonnet"}`), false)
+	req, err := p.buildHTTPRequest(context.Background(), ChatRequest{}, []byte(`{"model":"claude-3-7-sonnet"}`), false)
 	if err != nil {
 		t.Fatalf("buildHTTPRequest() error = %v", err)
 	}
@@ -466,7 +466,7 @@ func TestAnthropicBuildHTTPRequest_HeaderOverrides(t *testing.T) {
 		},
 	}
 
-	req, err := p.buildHTTPRequest(context.Background(), []byte(`{"model":"claude-3-7-sonnet"}`), true)
+	req, err := p.buildHTTPRequest(context.Background(), ChatRequest{}, []byte(`{"model":"claude-3-7-sonnet"}`), true)
 	if err != nil {
 		t.Fatalf("buildHTTPRequest() error = %v", err)
 	}

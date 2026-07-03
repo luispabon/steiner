@@ -40,7 +40,7 @@ func TestCompleteModelCallEmitsAssistantChunkSource(t *testing.T) {
 		ModelBudget:        budget,
 		Events:             output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 		StreamingPreferred: true,
-	}, 2, provider.ChatRequest{Model: "test"}, nil, budget)
+	}, 2, provider.ChatRequest{Model: "test"}, nil, budget, nil)
 	if err != nil {
 		t.Fatalf("completeModelCall() error = %v", err)
 	}
@@ -122,7 +122,7 @@ func TestCompleteModelCallRetriesHTTP400WithoutImages(t *testing.T) {
 			Content: "analyze",
 			Images:  []provider.ImageBlock{{MediaType: "image/png", Data: "abc"}},
 		}},
-	}, nil, prompt.ModelTokenBudget{})
+	}, nil, prompt.ModelTokenBudget{}, nil)
 	if err != nil {
 		t.Fatalf("completeModelCall() error = %v", err)
 	}
@@ -164,7 +164,7 @@ func TestCompleteModelCallDoesNotRetryWithoutImages(t *testing.T) {
 			Role:    provider.MessageRoleUser,
 			Content: "analyze",
 		}},
-	}, nil, prompt.ModelTokenBudget{})
+	}, nil, prompt.ModelTokenBudget{}, nil)
 	if err == nil {
 		t.Fatal("completeModelCall() error = nil, want HTTPError")
 	}
@@ -192,7 +192,7 @@ func TestCompleteModelCallDoesNotRetryNon400(t *testing.T) {
 			Content: "analyze",
 			Images:  []provider.ImageBlock{{MediaType: "image/png", Data: "abc"}},
 		}},
-	}, nil, prompt.ModelTokenBudget{})
+	}, nil, prompt.ModelTokenBudget{}, nil)
 	if !errors.Is(err, boom) {
 		t.Fatalf("completeModelCall() error = %v, want %v", err, boom)
 	}
@@ -295,5 +295,118 @@ func TestRecordModelUsage(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestStreamRequiredDetection(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantTrue bool
+	}{
+		{
+			name:     "detects stream required 400",
+			err:      &provider.HTTPError{StatusCode: 400, Body: "Stream must be set to true"},
+			wantTrue: true,
+		},
+		{
+			name:     "detects stream required case insensitive",
+			err:      &provider.HTTPError{StatusCode: 400, Body: "stream is required"},
+			wantTrue: true,
+		},
+		{
+			name:     "ignores non-400 errors",
+			err:      &provider.HTTPError{StatusCode: 401, Body: "Stream must be set to true"},
+			wantTrue: false,
+		},
+		{
+			name:     "ignores 400 without stream message",
+			err:      &provider.HTTPError{StatusCode: 400, Body: "invalid request"},
+			wantTrue: false,
+		},
+		{
+			name:     "ignores nil error",
+			err:      nil,
+			wantTrue: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isStreamRequiredError(tc.err)
+			if got != tc.wantTrue {
+				t.Errorf("isStreamRequiredError() = %v, want %v", got, tc.wantTrue)
+			}
+		})
+	}
+}
+
+func TestAdaptiveStreamFallback(t *testing.T) {
+	var skipNonStream bool
+
+	prov := &fakeProvider{
+		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{}, &provider.HTTPError{
+				StatusCode: 400,
+				Status:     "400 Bad Request",
+				Body:       "Stream must be set to true",
+			}
+		},
+		streamFn: func(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+			chunks := make(chan provider.ChatChunk, 2)
+			chunks <- provider.ChatChunk{Delta: provider.Message{Content: "hello"}}
+			chunks <- provider.ChatChunk{Done: true, FinishReason: "stop"}
+			close(chunks)
+			return chunks, nil
+		},
+	}
+
+	var events []output.Event
+	eventSink := output.SinkFunc(func(event output.Event) { events = append(events, event) })
+
+	// First call should detect the error and set skipNonStream
+	_, _, err := completeModelCall(context.Background(), RunRequest{
+		Provider:           prov,
+		ModelBudget:        prompt.ModelTokenBudget{},
+		Events:             eventSink,
+		StreamingPreferred: false,
+	}, 1, provider.ChatRequest{Model: "test"}, nil, prompt.ModelTokenBudget{}, &skipNonStream)
+
+	if err != nil {
+		t.Fatalf("completeModelCall() error = %v", err)
+	}
+
+	if !skipNonStream {
+		t.Error("skipNonStream flag not set after stream required error")
+	}
+
+	// Check that a diagnostic event was emitted
+	var sawDiagnostic bool
+	for _, event := range events {
+		if payload, ok := event.Payload.(output.ProviderDiagnosticEvent); ok && payload.Kind == "stream_required" {
+			sawDiagnostic = true
+		}
+	}
+	if !sawDiagnostic {
+		t.Error("expected stream_required diagnostic event")
+	}
+
+	// Second call with skipNonStream = true should skip non-stream attempt
+	events = nil
+	prov.requests = nil
+	_, _, err = completeModelCall(context.Background(), RunRequest{
+		Provider:           prov,
+		ModelBudget:        prompt.ModelTokenBudget{},
+		Events:             eventSink,
+		StreamingPreferred: false,
+	}, 2, provider.ChatRequest{Model: "test"}, nil, prompt.ModelTokenBudget{}, &skipNonStream)
+
+	if err != nil {
+		t.Fatalf("completeModelCall() error = %v", err)
+	}
+
+	// Should only have streaming request, not non-stream
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 (streaming only)", len(prov.requests))
 	}
 }

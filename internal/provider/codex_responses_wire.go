@@ -14,6 +14,7 @@ type responsesRequest struct {
 	Store           *bool           `json:"store,omitempty"`
 	Stream          bool            `json:"stream,omitempty"`
 	Tools           []responsesTool `json:"tools,omitempty"`
+	PromptCacheKey  string          `json:"-"`
 	Params          map[string]any  `json:"-"`
 	ExtraParams     map[string]any  `json:"-"`
 }
@@ -37,6 +38,9 @@ func (r responsesRequest) MarshalJSON() ([]byte, error) {
 	}
 	if len(r.Tools) > 0 {
 		base["tools"] = r.Tools
+	}
+	if r.PromptCacheKey != "" {
+		base["prompt_cache_key"] = r.PromptCacheKey
 	}
 	return json.Marshal(mergeRequestParams(base, r.Params, r.ExtraParams))
 }

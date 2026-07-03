@@ -19,7 +19,7 @@ func boolValuePtr(v bool) *bool {
 	return &v
 }
 
-func (p *OpenAICompat) buildHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Request, error) {
+func (p *OpenAICompat) buildHTTPRequest(ctx context.Context, _ ChatRequest, body []byte, stream bool) (*http.Request, error) {
 	return buildJSONPostRequest(ctx, p.chatCompletionsURL(), body, stream, p.apiKey, p.headers)
 }
 

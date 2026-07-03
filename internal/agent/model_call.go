@@ -70,6 +70,7 @@ func executeChatRequest(
 	isCompaction bool,
 	streamingPreferred bool,
 	source output.ChunkSource,
+	skipNonStream *bool,
 ) (provider.ChatResponse, time.Time, error) {
 	if budget.ContextSize > 0 {
 		var fit prompt.RequestTokenBudget
@@ -93,11 +94,23 @@ func executeChatRequest(
 
 	// When streaming is not preferred, try ChatCompletion first and only fall
 	// back to streaming if it is unavailable.
-	if !streamingPreferred {
+	if !streamingPreferred && (skipNonStream == nil || !*skipNonStream) {
 		response, chatErr := prov.ChatCompletion(ctx, req)
 		if chatErr == nil {
 			emitEvent(events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil))
 			return response, time.Time{}, nil
+		}
+		// Detect "stream required" 400 error and mark it for future turns.
+		if isStreamRequiredError(chatErr) {
+			if skipNonStream != nil {
+				*skipNonStream = true
+			}
+			emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+				Turn:     turn,
+				Severity: "warning",
+				Kind:     "stream_required",
+				Message:  fmt.Sprintf("model requires streaming; non-stream requests will be skipped in subsequent turns: %v", chatErr),
+			}))
 		}
 		// Fall through to streaming when ChatCompletion fails.
 	}
@@ -122,9 +135,32 @@ func executeChatRequest(
 	return response, time.Time{}, nil
 }
 
-func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) (provider.ChatResponse, time.Time, error) {
+// isStreamRequiredError reports whether err is the provider's "this model only
+// supports streaming" rejection. Some Codex models (e.g. gpt-5.4-mini) 400 on
+// non-streaming Responses requests with a body like "Stream must be set to
+// true". executeChatRequest uses this to latch skipNonStream so later turns go
+// straight to streaming instead of wasting one failed non-stream request per
+// turn (which also hid the error and hurt cache stats). Keep the match narrow
+// (400 + "stream" + must/required) so unrelated 400s still surface normally.
+func isStreamRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var httpErr *provider.HTTPError
+	if !errors.As(err, &httpErr) {
+		return false
+	}
+	if httpErr.StatusCode != 400 {
+		return false
+	}
+	// Check if the error message indicates streaming is required.
+	return strings.Contains(strings.ToLower(httpErr.Body), "stream") &&
+		(strings.Contains(strings.ToLower(httpErr.Body), "must") || strings.Contains(strings.ToLower(httpErr.Body), "required"))
+}
+
+func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, skipNonStream *bool) (provider.ChatResponse, time.Time, error) {
 	chatRequest.Messages = stripImagesIfVisionDisabled(req.ResolvedModel.Vision, chatRequest.Messages, req.ResolvedModel.Alias, turn, req.Events)
-	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
+	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant, skipNonStream)
 	if err == nil {
 		recordModelUsage(req, response.Usage)
 		return response, firstChunkTime, nil
@@ -144,7 +180,7 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 		Message:  fmt.Sprintf("model %s rejected image attachments with HTTP 400; retrying once without images", req.ResolvedModel.Alias),
 	}))
 	chatRequest.Messages = stripped
-	retryResp, retryFirst, retryErr := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant)
+	retryResp, retryFirst, retryErr := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant, skipNonStream)
 	if retryErr == nil {
 		recordModelUsage(req, retryResp.Usage)
 	}

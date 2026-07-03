@@ -26,8 +26,9 @@ func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 			ContextSize:         4096,
 			MaxCompletionTokens: 256,
 		},
-		Limits: Limits{MaxTurns: 2},
-		Events: output.NoopSink{},
+		Limits:         Limits{MaxTurns: 2},
+		Events:         output.NoopSink{},
+		PromptCacheKey: "test-session-key",
 	}
 	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
@@ -44,11 +45,53 @@ func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 	if chatRequest.Model != "test-model" {
 		t.Fatalf("chatRequest.Model = %q, want %q", chatRequest.Model, "test-model")
 	}
+	if chatRequest.PromptCacheKey == "" {
+		t.Fatal("chatRequest.PromptCacheKey = empty, want stable session key")
+	}
 	if chatRequest.MaxTokens != nil {
 		t.Fatalf("chatRequest.MaxTokens = %v, want nil for normal turns", *chatRequest.MaxTokens)
 	}
 	if fit.ShouldCompact {
 		t.Fatal("fit.ShouldCompact = true, want false for a small prompt")
+	}
+}
+
+func TestPrepareTurn_PromptCacheKeyStableAcrossCalls(t *testing.T) {
+	state := RunState{
+		TurnCount:    0,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	}
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		Limits:         Limits{MaxTurns: 2},
+		Events:         output.NoopSink{},
+		PromptCacheKey: "test-session-key",
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	_, firstRequest, _, err := p.prepareTurn(context.Background(), state)
+	if err != nil {
+		t.Fatalf("prepareTurn() first call error = %v", err)
+	}
+	_, secondRequest, _, err := p.prepareTurn(context.Background(), state)
+	if err != nil {
+		t.Fatalf("prepareTurn() second call error = %v", err)
+	}
+	if firstRequest.PromptCacheKey == "" {
+		t.Fatal("firstRequest.PromptCacheKey = empty, want stable session key")
+	}
+	if secondRequest.PromptCacheKey == "" {
+		t.Fatal("secondRequest.PromptCacheKey = empty, want stable session key")
+	}
+	if firstRequest.PromptCacheKey != secondRequest.PromptCacheKey {
+		t.Fatalf("prompt cache key changed between calls: %q != %q", firstRequest.PromptCacheKey, secondRequest.PromptCacheKey)
 	}
 }
 

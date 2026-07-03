@@ -203,10 +203,11 @@ func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.Provid
 			MaxBackoff:     time.Duration(rm.Retry.MaxBackoff.Duration()),
 			RetryAfterMax:  time.Duration(rm.Retry.RetryAfterMax.Duration()),
 		},
-		ProviderType:   string(providerType),
-		Scheduler:      scheduler,
-		HTTPClient:     httpClient,
-		StreamErrorLog: streamErrorLog,
+		ProviderType:       string(providerType),
+		Scheduler:          scheduler,
+		HTTPClient:         httpClient,
+		StreamErrorLog:     streamErrorLog,
+		MinRequestInterval: time.Duration(rm.ProviderConfig.Codex.MinRequestInterval.Duration()),
 	}
 }
 

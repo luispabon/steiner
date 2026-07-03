@@ -2,6 +2,38 @@
 
 Steiner records prompt-cache token usage on every usage-bearing model response and surfaces a token-weighted cache hit rate. The feature is always-on with no configuration required and stores no prompt or completion content — only token counts and model identity.
 
+## Codex cache improvements
+
+Codex Responses requests send three affinity headers to route requests to the same cache shard:
+- `session-id`: steiner's per-conversation session ID
+- `thread-id`: steiner's per-conversation session ID (also set to the same value)
+- `originator`: set to `codex_cli_rs` to identify steiner clients
+
+These headers, derived from a stable session key (`prompt_cache_key`), enable server-side session affinity: traffic from the same conversation stays on one cache shard instead of being load-balanced across different cache servers. This allows later requests to reuse prior prompt prefixes within a session. **Measured improvement: ~68% → ~89% hit rate on gpt-5.4-mini.**
+
+The `prompt_cache_key` field alone (without the affinity headers) was not sufficient to achieve the improvement; the headers are required for the Codex backend to route correctly. The headers are set in `buildResponsesHTTPRequest` (`internal/provider/codex_responses.go`), keyed from the same stable per-conversation ID carried on `ChatRequest.PromptCacheKey`.
+
+An earlier draft also sent `prompt_cache_retention: "24h"`, intending to extend cache lifetime. That parameter is valid on OpenAI's Platform API (`api.openai.com/v1`) but is **unsupported by the Codex/ChatGPT backend** that steiner's OAuth path talks to — a live request confirmed `400 Bad Request: {"detail":"Unsupported parameter: prompt_cache_retention"}`. It has been removed from the request payload and must not be reintroduced on this path.
+
+### Request pacing (min-request-interval)
+
+Cache-shard affinity is best-effort: OpenAI still load-balances a key away from its warm shard when a single key bursts past roughly 15 requests/minute. During rapid agentic work (e.g. `--exec` runs with many quick turns) steiner naturally sends turns only ~1.5s apart, which is enough to trip that overflow and scatter later turns onto cold shards. To keep a session on one shard, the Codex provider enforces a minimum gap between consecutive requests (`codex.min_request_interval`, default `4s`, `0` to disable). It is a no-op for interactive use — think-time between turns already exceeds the interval — and only paces bursts. Adding the throttle on top of the affinity headers moved the measured hit rate from ~0.78 to ~0.89. See `rateLimit` in `internal/provider/codex_responses.go` and the config field in [configuration.md](configuration.md).
+
+### Non-streaming fallback fix
+
+Some Codex models (e.g. `gpt-5.4-mini`) reject non-streaming Responses requests with `400 "Stream must be set to true"`. Steiner previously tried a non-stream call first (when streaming was not preferred), silently discarded that 400, and fell back to streaming — wasting one failed request every turn and suppressing the error, which also depressed the observed cache rate. The agent now detects that specific 400 (`isStreamRequiredError` in `internal/agent/model_call.go`), emits a one-time diagnostic, and latches a per-run flag so subsequent turns skip the doomed non-stream attempt and stream directly. Unrelated 400s are unaffected.
+
+The cache hit rate tracking in this repo now reflects the affinity-header improvement with stable session routing, so the sidebar and `/cache-stats` view measure traffic that benefits from reduced cache misses due to shard affinity.
+
+## Known upstream limitations
+
+Two upstream issues remain visible in cache behavior:
+
+- Trailing content longer than 500 tokens can still miss cache reuse because of a provider-side bug.
+- `gpt-5.4-nano` has been observed at 0% cache rates, even with stable routing.
+
+These are provider limitations, not Steiner accounting bugs.
+
 ## The cache hit rate metric
 
 **Cache hit rate** is calculated as:

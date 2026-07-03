@@ -10,6 +10,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
@@ -38,6 +39,10 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	if !flags.enableStreaming {
 		rt.human.Printf("Waiting for response…\n")
 	}
+	promptCacheKey, err := provider.NewPromptCacheKey()
+	if err != nil {
+		return err
+	}
 	_, err = cliRunner{
 		runtime: rt,
 		approver: agent.NewEventingApprover(
@@ -47,6 +52,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		maxTurns:           execMaxTurns,
 		runMode:            "exec",
 		streamingPreferred: flags.enableStreaming,
+		promptCacheKey:     promptCacheKey,
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil, nil)
 	if err != nil {
 		return err

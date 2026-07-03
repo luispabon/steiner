@@ -11,10 +11,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -221,6 +223,53 @@ func TestInteractiveModeSuppressesProgramKilled(t *testing.T) {
 	for _, event := range events {
 		if output.ContextDiagnosticSeverity(event.Payload) == "warning" && strings.Contains(strings.Join(output.ContextDiagnosticNotes(event.Payload), " "), "tui runtime failed") {
 			t.Fatalf("events = %#v, want no warning diagnostic for program killed", events)
+		}
+	}
+}
+
+func TestInteractiveRunnerSendsStableSessionPromptCacheKeyAcrossTurns(t *testing.T) {
+	sess, err := interactive.NewSession(interactive.Dependencies{
+		BaseEvents: output.NoopSink{},
+	})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	if sess.SessionID() == "" {
+		t.Fatal("sess.SessionID() = empty, want a generated session ID")
+	}
+
+	prov := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{Message: provider.Message{Content: "first turn"}, FinishReason: "stop"},
+			{Message: provider.Message{Content: "second turn"}, FinishReason: "stop"},
+		},
+	}
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      testRuntimeConfig("test-model"),
+			provider: prov,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   output.NoopSink{},
+		},
+		runMode:        "interactive",
+		promptCacheKey: sess.SessionID(),
+	}
+
+	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first prompt"}}, nil, nil); err != nil {
+		t.Fatalf("Run() turn 1 error = %v", err)
+	}
+	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second prompt"}}, nil, nil); err != nil {
+		t.Fatalf("Run() turn 2 error = %v", err)
+	}
+
+	if len(prov.requests) != 2 {
+		t.Fatalf("captured %d requests, want 2", len(prov.requests))
+	}
+	for i, req := range prov.requests {
+		if req.PromptCacheKey != sess.SessionID() {
+			t.Fatalf("request[%d].PromptCacheKey = %q, want session ID %q", i, req.PromptCacheKey, sess.SessionID())
 		}
 	}
 }

@@ -42,6 +42,14 @@ func (d Duration) IsZero() bool {
 	return !d.set || d.value == 0
 }
 
+// IsUnset reports whether the duration was never explicitly configured, as
+// opposed to being explicitly set to zero. Callers that treat zero as a
+// meaningful value (e.g. "disabled") must use this instead of IsZero to seed
+// a type-based default without clobbering an explicit zero.
+func (d Duration) IsUnset() bool {
+	return !d.set
+}
+
 // String returns the duration as a string.
 func (d Duration) String() string {
 	if !d.set {

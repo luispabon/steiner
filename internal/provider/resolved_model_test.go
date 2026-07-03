@@ -248,6 +248,36 @@ func TestResolveProviderConfigAppliesCodexDefaults(t *testing.T) {
 	if got, want := rm.ProviderConfig.BaseURL, "https://api.openai.com/v1"; got != want {
 		t.Fatalf("ProviderConfig.BaseURL = %q, want %q", got, want)
 	}
+	if got, want := rm.ProviderConfig.Codex.MinRequestInterval.Duration(), config.DefaultCodexMinRequestInterval.Duration(); got != want {
+		t.Fatalf("ProviderConfig.Codex.MinRequestInterval = %v, want %v", got, want)
+	}
+}
+
+// TestResolveProviderConfigPreservesExplicitZeroCodexInterval verifies that a
+// user who explicitly disables the Codex rate limiter (min_request_interval:
+// 0) is not overridden by the type-based default.
+func TestResolveProviderConfigPreservesExplicitZeroCodexInterval(t *testing.T) {
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"codex": {
+				Type:  config.ProviderTypeCodex,
+				Codex: config.CodexConfig{MinRequestInterval: config.MustDuration("0s")},
+			},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"codex-model": {Provider: "codex", ID: "codex-default"},
+			},
+		},
+	}
+
+	rm, err := Resolve(cfg, "codex-model")
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got := rm.ProviderConfig.Codex.MinRequestInterval.Duration(); got != 0 {
+		t.Fatalf("ProviderConfig.Codex.MinRequestInterval = %v, want 0 (explicit disable preserved)", got)
+	}
 }
 
 // TestResolveEffectiveLimits tests derivation logic for missing token limits.

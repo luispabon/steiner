@@ -24,6 +24,7 @@ type cliRunner struct {
 	streamingPreferred bool
 	currentModel       func() config.ModelConfig
 	currentAlias       func() string
+	promptCacheKey     string
 }
 
 type runResult = oneshot.RunResult

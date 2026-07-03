@@ -166,6 +166,12 @@ func buildChildRunRequest(workDir string, agentID string, prov provider.Provider
 		exec = exec.WithSandbox(sandbox)
 	}
 
+	// A fresh per-run cache key, distinct from the parent's, keeps sub-agent
+	// traffic off the parent conversation's cache shard. An entropy error leaves
+	// it empty, which simply disables provider-side caching for this child run
+	// rather than failing bootstrap.
+	childCacheKey, _ := provider.NewPromptCacheKey()
+
 	req := agent.RunRequest{
 		Provider:           prov,
 		Executor:           exec,
@@ -178,6 +184,7 @@ func buildChildRunRequest(workDir string, agentID string, prov provider.Provider
 		MaxTokens:          maxTokens,
 		StreamingPreferred: streamingPreferred,
 		CaveHuman:          caveHuman,
+		PromptCacheKey:     childCacheKey,
 	}
 	if rec != nil {
 		req.UsageRecorder = rec

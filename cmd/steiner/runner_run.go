@@ -193,6 +193,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
 		DrainSteers:        drainSteers,
+		PromptCacheKey:     r.promptCacheKey,
 	}
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder
