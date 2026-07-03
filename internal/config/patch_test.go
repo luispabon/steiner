@@ -468,3 +468,93 @@ func TestApplySubAgentPatch(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyCodexPatch(t *testing.T) {
+	interval4s := MustDuration("4s")
+	interval2s := MustDuration("2s")
+	tests := []struct {
+		name    string
+		initial CodexConfig
+		patch   codexPatch
+		want    CodexConfig
+	}{
+		{
+			name:    "sets min_request_interval",
+			initial: CodexConfig{MinRequestInterval: interval4s},
+			patch:   codexPatch{MinRequestInterval: durationPtr(interval2s)},
+			want:    CodexConfig{MinRequestInterval: interval2s},
+		},
+		{
+			name:    "nil interval leaves value untouched",
+			initial: CodexConfig{MinRequestInterval: interval4s},
+			patch:   codexPatch{},
+			want:    CodexConfig{MinRequestInterval: interval4s},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyCodexPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyCodexPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyProviderPatchWithCodex(t *testing.T) {
+	interval2s := MustDuration("2s")
+	interval4s := MustDuration("4s")
+	tests := []struct {
+		name    string
+		initial ProviderConfig
+		patch   providerPatch
+		want    ProviderConfig
+	}{
+		{
+			name: "applies codex patch",
+			initial: ProviderConfig{
+				Type: ProviderTypeCodex,
+				Codex: CodexConfig{
+					MinRequestInterval: interval4s,
+				},
+			},
+			patch: providerPatch{
+				Codex: &codexPatch{
+					MinRequestInterval: durationPtr(interval2s),
+				},
+			},
+			want: ProviderConfig{
+				Type: ProviderTypeCodex,
+				Codex: CodexConfig{
+					MinRequestInterval: interval2s,
+				},
+			},
+		},
+		{
+			name: "nil codex patch leaves codex config untouched",
+			initial: ProviderConfig{
+				Type: ProviderTypeCodex,
+				Codex: CodexConfig{
+					MinRequestInterval: interval4s,
+				},
+			},
+			patch: providerPatch{},
+			want: ProviderConfig{
+				Type: ProviderTypeCodex,
+				Codex: CodexConfig{
+					MinRequestInterval: interval4s,
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyProviderPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyProviderPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}

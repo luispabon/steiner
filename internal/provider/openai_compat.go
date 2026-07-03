@@ -18,16 +18,17 @@ var defaultHTTPClient = &http.Client{}
 
 // OpenAICompatConfig configures an OpenAI-compatible provider client.
 type OpenAICompatConfig struct {
-	BaseURL        string
-	APIKey         string
-	Headers        map[string]string
-	Model          string
-	Timeout        time.Duration
-	Retry          RetryConfig
-	HTTPClient     *http.Client
-	Scheduler      *Scheduler
-	ProviderType   string
-	StreamErrorLog *StreamErrorLogger
+	BaseURL            string
+	APIKey             string
+	Headers            map[string]string
+	Model              string
+	Timeout            time.Duration
+	Retry              RetryConfig
+	HTTPClient         *http.Client
+	Scheduler          *Scheduler
+	ProviderType       string
+	StreamErrorLog     *StreamErrorLogger
+	MinRequestInterval time.Duration
 }
 
 // RetryConfig controls retry behavior for transient provider failures.
@@ -51,7 +52,7 @@ type OpenAICompat struct {
 	providerType          string
 	streamErrorLog        *StreamErrorLogger
 	requestPayloadFunc    func(ChatRequest, bool) ([]byte, error)
-	requestFunc           func(context.Context, []byte, bool) (*http.Request, error)
+	requestFunc           func(context.Context, ChatRequest, []byte, bool) (*http.Request, error)
 	nonStreamResponseFunc func(*http.Response) (ChatResponse, error)
 	sleep                 func(context.Context, time.Duration) error
 	jitter                func(time.Duration) time.Duration
@@ -158,7 +159,7 @@ func (p *OpenAICompat) ChatCompletion(ctx context.Context, request ChatRequest) 
 
 	var response ChatResponse
 	err = p.withRetry(ctx, func(_ int) (bool, error) {
-		resp, err := p.executeHTTPRequest(ctx, body, false)
+		resp, err := p.executeHTTPRequest(ctx, request, body, false)
 		if err != nil {
 			return false, err
 		}
@@ -234,11 +235,11 @@ func (p *OpenAICompat) requestPayload(request ChatRequest, stream bool) ([]byte,
 	return p.buildRequestPayload(request, stream)
 }
 
-func (p *OpenAICompat) requestHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Request, error) {
+func (p *OpenAICompat) requestHTTPRequest(ctx context.Context, request ChatRequest, body []byte, stream bool) (*http.Request, error) {
 	if p != nil && p.requestFunc != nil {
-		return p.requestFunc(ctx, body, stream)
+		return p.requestFunc(ctx, request, body, stream)
 	}
-	return p.buildHTTPRequest(ctx, body, stream)
+	return p.buildHTTPRequest(ctx, request, body, stream)
 }
 
 func (p *OpenAICompat) normalizeNonStreamResponse(resp *http.Response) (ChatResponse, error) {
@@ -256,8 +257,8 @@ func (p *OpenAICompat) normalizeOpenAIChatResponse(resp *http.Response) (ChatRes
 	return normalizeChatResponse(payload)
 }
 
-func (p *OpenAICompat) executeHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Response, error) {
-	req, err := p.requestHTTPRequest(ctx, body, stream)
+func (p *OpenAICompat) executeHTTPRequest(ctx context.Context, request ChatRequest, body []byte, stream bool) (*http.Response, error) {
+	req, err := p.requestHTTPRequest(ctx, request, body, stream)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +293,7 @@ func (p *OpenAICompat) streamChatCompletionWithHandler(
 	)
 
 	err = p.withRetry(ctx, func(_ int) (bool, error) {
-		resp, err := p.executeHTTPRequest(ctx, body, true)
+		resp, err := p.executeHTTPRequest(ctx, request, body, true)
 		if err != nil {
 			return false, err
 		}

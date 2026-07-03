@@ -35,7 +35,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	emitEvent(p.request.Events, output.NewModelCallStartedEvent(turn, p.request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 
 	startTime := time.Now()
-	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget)
+	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget, &p.skipNonStream)
 	if err != nil {
 		return p.handleModelCallError(ctx, state, turn, err), nil
 	}
@@ -244,6 +244,10 @@ type turnProgressor struct {
 	// initial value from the prompt's durable context state (reserved for
 	// future cross-run persistence; currently always 0).
 	compactionCount int
+	// skipNonStream signals that non-streaming requests should be skipped.
+	// Set to true after detecting a "stream required" error, so subsequent
+	// turns go straight to streaming.
+	skipNonStream bool
 }
 
 func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn compactConversationFn) *turnProgressor {

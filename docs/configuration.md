@@ -158,6 +158,7 @@ providers:
 | `api_key_env` | string                    | —        | Name of an environment variable containing the API key. Loaded at startup. |
 | `headers`     | map[string]string         | —        | Additional HTTP headers sent with every request to this provider. |
 | `timeout`     | duration string           | `"30s"`  | Per-request HTTP timeout. Accepts Go duration strings: `30s`, `2m`, etc. |
+| `codex`       | block                     | see below | Codex-specific configuration (provider type `codex` only). |
 
 ### Provider types
 
@@ -182,6 +183,15 @@ providers:
 | `api_key_env` | optional | — | — | ✓ | ✓ | ✓ | ✓ | optional | — |
 | `headers`     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `timeout`     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `codex`       | — | — | — | — | — | — | — | — | ✓ |
+
+### `codex` sub-block
+
+Codex-specific configuration. Applies only when `type: codex`.
+
+| Field                 | Type          | Default | Description |
+|-----------------------|---------------|---------|-------------|
+| `min_request_interval` | duration string | `"4s"`  | Minimum interval enforced between consecutive Codex requests. Set to `0` to disable rate limiting. Steiner bursts requests during rapid agentic operations (e.g., `--exec` with many turns), and Codex limits cache reuse when too many requests from the same key land on cold cache shards. This interval paces rapid bursts to reduce cold-shard cache misses, improving hit rates for `--exec` runs. Has no effect on interactive use since think-time naturally exceeds the interval. |
 
 ---
 

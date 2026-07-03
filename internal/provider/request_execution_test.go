@@ -159,7 +159,7 @@ func TestBuildHTTPRequest(t *testing.T) {
 	ctx := context.Background()
 	body := []byte(`{"model":"gpt-4"}`)
 
-	req, err := p.buildHTTPRequest(ctx, body, false)
+	req, err := p.buildHTTPRequest(ctx, ChatRequest{}, body, false)
 	if err != nil {
 		t.Fatalf("non-stream buildHTTPRequest error: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestBuildHTTPRequest(t *testing.T) {
 		t.Fatal("Accept header should not be present for non-stream")
 	}
 
-	req, err = p.buildHTTPRequest(ctx, body, true)
+	req, err = p.buildHTTPRequest(ctx, ChatRequest{}, body, true)
 	if err != nil {
 		t.Fatalf("stream buildHTTPRequest error: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestBuildHTTPRequest_NoAuth(t *testing.T) {
 	ctx := context.Background()
 	body := []byte(`{"model":"gpt-4"}`)
 
-	req, err := p.buildHTTPRequest(ctx, body, false)
+	req, err := p.buildHTTPRequest(ctx, ChatRequest{}, body, false)
 	if err != nil {
 		t.Fatalf("buildHTTPRequest error: %v", err)
 	}

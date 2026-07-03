@@ -94,7 +94,7 @@ func (p *Anthropic) StreamChatCompletion(ctx context.Context, request ChatReques
 	return out, nil
 }
 
-func (p *Anthropic) buildHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Request, error) {
+func (p *Anthropic) buildHTTPRequest(ctx context.Context, _ ChatRequest, body []byte, stream bool) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.messagesURL(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
