@@ -26,8 +26,9 @@ func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 			ContextSize:         4096,
 			MaxCompletionTokens: 256,
 		},
-		Limits: Limits{MaxTurns: 2},
-		Events: output.NoopSink{},
+		Limits:         Limits{MaxTurns: 2},
+		Events:         output.NoopSink{},
+		PromptCacheKey: "test-session-key",
 	}
 	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 
@@ -69,8 +70,9 @@ func TestPrepareTurn_PromptCacheKeyStableAcrossCalls(t *testing.T) {
 			ContextSize:         4096,
 			MaxCompletionTokens: 256,
 		},
-		Limits: Limits{MaxTurns: 2},
-		Events: output.NoopSink{},
+		Limits:         Limits{MaxTurns: 2},
+		Events:         output.NoopSink{},
+		PromptCacheKey: "test-session-key",
 	}
 	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 

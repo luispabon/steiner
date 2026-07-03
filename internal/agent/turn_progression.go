@@ -364,7 +364,7 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 		Model:          p.request.ResolvedModel.BackendModelID,
 		Messages:       assembly.Messages,
 		Tools:          provider.CloneTools(p.request.Tools),
-		PromptCacheKey: fmt.Sprintf("%p", p),
+		PromptCacheKey: p.request.PromptCacheKey,
 		Params:         p.request.ResolvedModel.Params,
 		ExtraParams:    p.request.ResolvedModel.ExtraParams,
 	}

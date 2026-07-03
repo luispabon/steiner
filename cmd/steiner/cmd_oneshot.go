@@ -31,7 +31,7 @@ type phaseRunner struct {
 	runner cliRunner
 }
 
-func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig, maxTurns int, runMode string, streamingPreferred bool, events output.EventSink) (oneshot.PhaseRunner, error) {
+func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig, maxTurns int, runMode string, streamingPreferred bool, events output.EventSink, promptCacheKey string) (oneshot.PhaseRunner, error) {
 	runtime, err := buildRuntimeWithRoots(ctx, cmd, flags, projectRoot, workDir, modelAlias)
 	if err != nil {
 		return nil, err
@@ -56,6 +56,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pr
 		maxTurns:           maxTurns,
 		runMode:            runMode,
 		streamingPreferred: streamingPreferred,
+		promptCacheKey:     promptCacheKey,
 	}
 	if alias := strings.TrimSpace(modelAlias); alias != "" {
 		runner.currentAlias = func() string {
@@ -191,7 +192,7 @@ type phaseRunnerFactory struct {
 }
 
 func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, _ oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (oneshot.PhaseRunner, error) {
-	return newPhaseRunner(ctx, f.cmd, f.flags, f.rootDir, f.identity.WorktreePath(f.rootDir), modelAlias, approver, advisorCfg, 0, "oneshot", false, f.events)
+	return newPhaseRunner(ctx, f.cmd, f.flags, f.rootDir, f.identity.WorktreePath(f.rootDir), modelAlias, approver, advisorCfg, 0, "oneshot", false, f.events, f.identity.ID)
 }
 
 func renderOneshotRuns(stream *output.EventStream, runs []oneshot.ResumableRun) {

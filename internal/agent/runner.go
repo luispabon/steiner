@@ -53,6 +53,10 @@ type RunRequest struct {
 	// CaveHuman makes the model speak tersely and avoid AI-writing tells.
 	CaveHuman bool
 
+	// PromptCacheKey is a stable identifier sent to the provider to route
+	// requests to the same cache shard across turns. Empty disables it.
+	PromptCacheKey string
+
 	// CompactionLogPath is an optional file path for logging compaction request/response pairs.
 	// When non-empty, compaction calls write their full API request and final response to this file.
 	CompactionLogPath string
