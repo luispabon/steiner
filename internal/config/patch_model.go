@@ -40,6 +40,13 @@ func applyProviderPatch(dst *ProviderConfig, patch *providerPatch) {
 	setIfPresent(&dst.APIKeyEnv, patch.APIKeyEnv)
 	setIfPresent(&dst.Headers, patch.Headers)
 	setIfPresent(&dst.Timeout, patch.Timeout)
+	if patch.Codex != nil {
+		applyCodexPatch(&dst.Codex, patch.Codex)
+	}
+}
+
+func applyCodexPatch(dst *CodexConfig, patch *codexPatch) {
+	setIfPresent(&dst.MinRequestInterval, patch.MinRequestInterval)
 }
 
 func applyModelPatch(dst *ModelConfig, patch *modelPatch) {

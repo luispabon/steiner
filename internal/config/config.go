@@ -29,6 +29,11 @@ const (
 	ProviderTypeCodex ProviderType = "codex"
 )
 
+// CodexConfig configures Codex OAuth provider-specific behavior.
+type CodexConfig struct {
+	MinRequestInterval Duration `yaml:"min_request_interval"`
+}
+
 // ProviderConfig configures a model provider.
 type ProviderConfig struct {
 	Type      ProviderType      `yaml:"type"`
@@ -37,6 +42,7 @@ type ProviderConfig struct {
 	APIKeyEnv string            `yaml:"api_key_env"`
 	Headers   map[string]string `yaml:"headers"`
 	Timeout   Duration          `yaml:"timeout"`
+	Codex     CodexConfig       `yaml:"codex"`
 }
 
 // AdvancedLimitsConfig defines token limits for model inference.

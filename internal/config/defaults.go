@@ -1,12 +1,18 @@
 package config
 
-var advisorTimeout = MustDuration("180s")
+var (
+	advisorTimeout          = MustDuration("180s")
+	codexMinRequestInterval = MustDuration("4s")
+)
 
 func defaultConfig() Config {
 	defaultProvider := ProviderConfig{
 		Type:    ProviderTypeOpenAICompat,
 		BaseURL: "http://localhost:11434/v1",
 		Timeout: MustDuration("30s"),
+		Codex: CodexConfig{
+			MinRequestInterval: codexMinRequestInterval,
+		},
 	}
 	defaultModel := ModelConfig{
 		Provider: "local",

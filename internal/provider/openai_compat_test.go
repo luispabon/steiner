@@ -461,7 +461,7 @@ func TestOpenAICompatBuildHTTPRequestAppliesConfiguredHeaders(t *testing.T) {
 		},
 	}
 
-	req, err := p.buildHTTPRequest(t.Context(), []byte(`{}`), true)
+	req, err := p.buildHTTPRequest(t.Context(), ChatRequest{}, []byte(`{}`), true)
 	if err != nil {
 		t.Fatalf("buildHTTPRequest() error = %v", err)
 	}

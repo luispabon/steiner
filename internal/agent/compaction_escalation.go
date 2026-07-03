@@ -241,7 +241,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 			defer func() { _ = logger.Close() }()
 		}
 	}
-	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, nil, true, false, output.ChunkSourceAssistant)
+	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, nil, true, false, output.ChunkSourceAssistant, nil)
 	if logger != nil {
 		_ = logger.LogResponse(response) // best effort
 	}

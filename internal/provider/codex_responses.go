@@ -6,12 +6,16 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 // CodexResponses implements Provider for Codex OAuth via OpenAI's Responses API.
 type CodexResponses struct {
 	*OpenAICompat
+	minInterval time.Duration
+	mu          sync.Mutex
+	lastRequest time.Time
 }
 
 // NewCodexResponses creates a Codex Responses API provider client.
@@ -20,17 +24,37 @@ func NewCodexResponses(cfg OpenAICompatConfig) (*CodexResponses, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &CodexResponses{OpenAICompat: base}
+	c := &CodexResponses{
+		OpenAICompat: base,
+		minInterval:  cfg.MinRequestInterval,
+	}
 	base.requestPayloadFunc = c.buildResponsesPayload
 	base.requestFunc = c.buildResponsesHTTPRequest
 	base.nonStreamResponseFunc = c.normalizeResponsesResponse
 	return c, nil
 }
 
-// StreamChatCompletion executes a streaming Codex Responses API request.
+// ChatCompletion executes a non-streaming Codex Responses API request with rate limiting.
+func (c *CodexResponses) ChatCompletion(ctx context.Context, request ChatRequest) (ChatResponse, error) {
+	if c == nil || c.OpenAICompat == nil {
+		return ChatResponse{}, fmt.Errorf("provider is not initialized")
+	}
+	if err := c.rateLimit(ctx); err != nil {
+		return ChatResponse{}, err
+	}
+	return c.OpenAICompat.ChatCompletion(ctx, request)
+}
+
+// StreamChatCompletion executes a streaming Codex Responses API request with rate limiting.
 func (c *CodexResponses) StreamChatCompletion(ctx context.Context, request ChatRequest) (<-chan ChatChunk, error) {
 	if c == nil || c.OpenAICompat == nil {
 		return nil, fmt.Errorf("provider is not initialized")
+	}
+
+	if err := c.rateLimit(ctx); err != nil {
+		ch := make(chan ChatChunk)
+		close(ch)
+		return ch, err
 	}
 
 	out := make(chan ChatChunk)
@@ -58,8 +82,44 @@ func (c *CodexResponses) StreamChatCompletion(ctx context.Context, request ChatR
 	return out, nil
 }
 
-func (c *CodexResponses) buildResponsesHTTPRequest(ctx context.Context, body []byte, stream bool) (*http.Request, error) {
-	return buildJSONPostRequest(ctx, c.responsesURL(), body, stream, c.apiKey, c.headers)
+// rateLimit enforces the minimum interval between consecutive Codex requests.
+// If the elapsed time since the last request is less than minInterval,
+// it sleeps for the remaining duration.
+func (c *CodexResponses) rateLimit(ctx context.Context) error {
+	if c.minInterval <= 0 {
+		return nil
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < c.minInterval {
+		delay := c.minInterval - elapsed
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	c.lastRequest = time.Now()
+	return nil
+}
+
+func (c *CodexResponses) buildResponsesHTTPRequest(ctx context.Context, request ChatRequest, body []byte, stream bool) (*http.Request, error) {
+	req, err := buildJSONPostRequest(ctx, c.responsesURL(), body, stream, c.apiKey, c.headers)
+	if err != nil {
+		return nil, err
+	}
+	if key := request.PromptCacheKey; key != "" {
+		req.Header.Set("session-id", key)
+		req.Header.Set("thread-id", key)
+		req.Header.Set("originator", "codex_cli_rs")
+	}
+	return req, nil
 }
 
 func (c *CodexResponses) responsesURL() string {

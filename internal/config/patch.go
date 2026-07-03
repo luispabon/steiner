@@ -35,6 +35,11 @@ type providerPatch struct {
 	APIKeyEnv *string            `yaml:"api_key_env"`
 	Headers   *map[string]string `yaml:"headers"`
 	Timeout   *Duration          `yaml:"timeout"`
+	Codex     *codexPatch        `yaml:"codex"`
+}
+
+type codexPatch struct {
+	MinRequestInterval *Duration `yaml:"min_request_interval"`
 }
 
 type contextManagementPatch struct {
