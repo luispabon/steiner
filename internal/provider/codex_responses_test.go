@@ -207,8 +207,8 @@ func TestCodexResponsesBuildResponsesPayload_OpenAIHostSetsStoreFalse(t *testing
 	if got, want := payload["prompt_cache_key"], "session-123"; got != want {
 		t.Fatalf("prompt_cache_key = %v, want %v", got, want)
 	}
-	if got, want := payload["prompt_cache_retention"], "24h"; got != want {
-		t.Fatalf("prompt_cache_retention = %v, want %v", got, want)
+	if _, present := payload["prompt_cache_retention"]; present {
+		t.Fatalf("prompt_cache_retention must not be sent to Codex backend (unsupported, causes 400)")
 	}
 }
 
@@ -235,9 +235,6 @@ func TestCodexResponsesBuildResponsesPayload_OmitsEmptyPromptCacheKey(t *testing
 	}
 	if _, ok := payload["prompt_cache_key"]; ok {
 		t.Fatal("prompt_cache_key present in payload, want absent when empty")
-	}
-	if got, want := payload["prompt_cache_retention"], "24h"; got != want {
-		t.Fatalf("prompt_cache_retention = %v, want %v", got, want)
 	}
 }
 

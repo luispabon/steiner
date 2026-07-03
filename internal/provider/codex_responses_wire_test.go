@@ -7,10 +7,9 @@ import (
 
 func TestResponsesRequestMarshalJSONIncludesPromptCacheFields(t *testing.T) {
 	req := responsesRequest{
-		Model:                "gpt-5.5",
-		Input:                []responsesItem{{Type: "message", Role: "user"}},
-		PromptCacheKey:       "session-123",
-		PromptCacheRetention: "24h",
+		Model:          "gpt-5.5",
+		Input:          []responsesItem{{Type: "message", Role: "user"}},
+		PromptCacheKey: "session-123",
 	}
 
 	data, err := json.Marshal(req)
@@ -25,7 +24,7 @@ func TestResponsesRequestMarshalJSONIncludesPromptCacheFields(t *testing.T) {
 	if got, want := payload["prompt_cache_key"], "session-123"; got != want {
 		t.Fatalf("prompt_cache_key = %v, want %v", got, want)
 	}
-	if got, want := payload["prompt_cache_retention"], "24h"; got != want {
-		t.Fatalf("prompt_cache_retention = %v, want %v", got, want)
+	if _, present := payload["prompt_cache_retention"]; present {
+		t.Fatalf("prompt_cache_retention must not be sent to Codex backend (unsupported, causes 400)")
 	}
 }

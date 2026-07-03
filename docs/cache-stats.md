@@ -4,19 +4,18 @@ Steiner records prompt-cache token usage on every usage-bearing model response a
 
 ## Codex cache improvements
 
-Codex Responses requests now send two cache-related fields on every turn:
+Codex Responses requests send `prompt_cache_key` on every turn: a session-stable key (steiner's per-conversation session ID) used for cache shard routing and session affinity. Sending the same key on every turn of a conversation keeps that session's traffic on one cache shard instead of being load-balanced across different cache servers, which improves hit rates by letting later requests reuse prior prompt prefixes.
 
-- `prompt_cache_key`: a session-stable key used for cache shard routing and session affinity. The key keeps related turns on the same cache path so later requests can reuse prior prompt prefixes.
-- `prompt_cache_retention: "24h"`: an explicit retention hint that asks the provider to keep the cache entry available for 24 hours instead of relying on the default in-memory retention. This matches the longer reuse window Codex needs for local sessions and restarts.
+An earlier draft also sent `prompt_cache_retention: "24h"`, intending to extend cache lifetime. That parameter is valid on OpenAI's Platform API (`api.openai.com/v1`) but is **unsupported by the Codex/ChatGPT backend** that steiner's OAuth path talks to — a live request confirmed `400 Bad Request: {"detail":"Unsupported parameter: prompt_cache_retention"}`. It has been removed from the request payload and must not be reintroduced on this path.
 
-The cache hit rate tracking in this repo reflects those request-level improvements, so the sidebar and `/cache-stats` view now measure traffic that is routed with stable cache affinity and 24-hour retention.
+The cache hit rate tracking in this repo reflects the `prompt_cache_key` improvement, so the sidebar and `/cache-stats` view now measure traffic that is routed with stable cache affinity.
 
 ## Known upstream limitations
 
 Two upstream issues remain visible in cache behavior:
 
 - Trailing content longer than 500 tokens can still miss cache reuse because of a provider-side bug.
-- `gpt-5.4-nano` has been observed at 0% cache rates, even with stable routing and 24-hour retention.
+- `gpt-5.4-nano` has been observed at 0% cache rates, even with stable routing.
 
 These are provider limitations, not Steiner accounting bugs.
 
