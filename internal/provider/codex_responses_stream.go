@@ -133,6 +133,9 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 		state.sawToolCall = true
 	}
 	state.usage = resp.Usage
+	if resp.Usage != nil {
+		cacheDebug("usage input=%d cached=%d", resp.Usage.PromptTokens, resp.Usage.CacheReadInputTokens)
+	}
 	state.finishReason = resp.FinishReason
 	return true, nil
 }
