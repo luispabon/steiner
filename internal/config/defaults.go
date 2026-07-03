@@ -1,8 +1,14 @@
 package config
 
 var (
-	advisorTimeout          = MustDuration("180s")
-	codexMinRequestInterval = MustDuration("4s")
+	advisorTimeout = MustDuration("180s")
+
+	// DefaultCodexMinRequestInterval is the minimum gap enforced between
+	// consecutive Codex requests when a provider omits
+	// codex.min_request_interval. Exported so internal/provider can seed it
+	// for user-declared providers with type: codex, which do not go through
+	// defaultConfig.
+	DefaultCodexMinRequestInterval = MustDuration("4s")
 )
 
 func defaultConfig() Config {
@@ -11,7 +17,7 @@ func defaultConfig() Config {
 		BaseURL: "http://localhost:11434/v1",
 		Timeout: MustDuration("30s"),
 		Codex: CodexConfig{
-			MinRequestInterval: codexMinRequestInterval,
+			MinRequestInterval: DefaultCodexMinRequestInterval,
 		},
 	}
 	defaultModel := ModelConfig{

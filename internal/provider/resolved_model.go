@@ -217,6 +217,9 @@ func resolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
 		}
 		resolved.Headers = cloned
 	}
+	if resolved.Type == config.ProviderTypeCodex && resolved.Codex.MinRequestInterval.IsUnset() {
+		resolved.Codex.MinRequestInterval = config.DefaultCodexMinRequestInterval
+	}
 	return resolved
 }
 
