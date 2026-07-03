@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -26,15 +25,6 @@ func NewCodexResponses(cfg OpenAICompatConfig) (*CodexResponses, error) {
 	base.requestFunc = c.buildResponsesHTTPRequest
 	base.nonStreamResponseFunc = c.normalizeResponsesResponse
 	return c, nil
-}
-
-func cacheDebug(format string, args ...any) {
-	f, err := os.OpenFile(".steiner/cache-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	fmt.Fprintf(f, format+"\n", args...)
 }
 
 // StreamChatCompletion executes a streaming Codex Responses API request.
@@ -84,7 +74,6 @@ func (c *CodexResponses) buildResponsesPayload(request ChatRequest, stream bool)
 		return nil, err
 	}
 	wire.PromptCacheKey = request.PromptCacheKey
-	cacheDebug("key=%s", request.PromptCacheKey)
 	if c.shouldDisableRemoteStorage() {
 		wire.Store = boolValuePtr(false)
 	}
