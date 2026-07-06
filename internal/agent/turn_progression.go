@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -37,6 +38,10 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	startTime := time.Now()
 	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget, &p.skipNonStream)
 	if err != nil {
+		// Check for vision capability discovery error; translate to turn-level retry.
+		if errors.Is(err, errRetryTurnForVision) {
+			return turnOutcome{State: state, Retry: true}, nil
+		}
 		return p.handleModelCallError(ctx, state, turn, err), nil
 	}
 
