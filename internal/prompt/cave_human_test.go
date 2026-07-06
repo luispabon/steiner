@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	testTerseMarker    = "Be terse."
-	testHumanMarker    = "Write like a person"
-	testBodyMarker     = "compact working context for coding agent"
-	testEncodingMarker = "Encoding directives:"
+	testTerseMarker     = "Be terse."
+	testHumanMarker     = "Write like a person"
+	testStructureMarker = "Terseness governs prose, not structure."
+	testBodyMarker      = "compact working context for coding agent"
+	testEncodingMarker  = "Encoding directives:"
 )
 
 var testAntiTellMarkers = []string{
@@ -42,6 +43,7 @@ func TestSystemPreambleCaveHumanEnabledAndDisabled(t *testing.T) {
 				testCaveHumanMarker,
 				testTerseMarker,
 				testHumanMarker,
+				testStructureMarker,
 			},
 		},
 		{
@@ -51,6 +53,7 @@ func TestSystemPreambleCaveHumanEnabledAndDisabled(t *testing.T) {
 				testCaveHumanMarker,
 				testTerseMarker,
 				testHumanMarker,
+				testStructureMarker,
 			},
 		},
 	}
