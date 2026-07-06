@@ -60,7 +60,10 @@ func (p *turnProgressor) conversationHasPastedImages(msgs []Message) bool {
 }
 
 // processImagesInMessage processes (routes or strips) all images in a message.
+// Captures the original message content once to avoid subsequent images inheriting
+// earlier images' appended descriptions in the vision task prompt.
 func (p *turnProgressor) processImagesInMessage(ctx context.Context, msg *Message, subAgentConfigured bool) {
+	originalContent := msg.Content
 	newImages := make([]ImageBlock, len(msg.Images))
 	copy(newImages, msg.Images)
 
@@ -70,7 +73,7 @@ func (p *turnProgressor) processImagesInMessage(ctx context.Context, msg *Messag
 		}
 
 		if subAgentConfigured {
-			if err := p.routeImageToVision(ctx, msg, &newImages[j]); err != nil {
+			if err := p.routeImageToVision(ctx, msg, &newImages[j], originalContent); err != nil {
 				p.stripImageFallback(msg, &newImages[j])
 			}
 		} else {
@@ -83,13 +86,13 @@ func (p *turnProgressor) processImagesInMessage(ctx context.Context, msg *Messag
 
 // routeImageToVision calls the vision tool for a single image and appends
 // the result as an inline description block to the message's Content.
-func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, img *ImageBlock) error {
+// originalContent is the message's original content before any images were processed.
+func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, img *ImageBlock, originalContent string) error {
 	if img.ID == "" {
 		return fmt.Errorf("image has no ID")
 	}
 
-	userText := msg.Content
-	task := wrapVisionTask(userText)
+	task := wrapVisionTask(originalContent)
 
 	raw, err := p.request.Executor.Execute(ctx, "vision", map[string]any{
 		"task":     task,

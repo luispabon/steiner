@@ -561,3 +561,101 @@ func contains(text, substring string) bool {
 	}
 	return false
 }
+
+func TestHandleImagesForVision_MultipleImagesInOnceMessage_UncontaminatedText(t *testing.T) {
+	vc := NewVisionCapabilities(true)
+	vc.LatchIncapable("test-model")
+
+	state := RunState{
+		Conversation: []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "what's in these images?",
+				Images: []ImageBlock{
+					{
+						ID:        "img-1",
+						FilePath:  "/path/to/img1.png",
+						MediaType: "image/png",
+						Data:      "base64data1",
+					},
+					{
+						ID:        "img-2",
+						FilePath:  "/path/to/img2.png",
+						MediaType: "image/png",
+						Data:      "base64data2",
+					},
+				},
+			},
+		},
+		Lineage: newConversationLineage([]Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "what's in these images?",
+				Images: []ImageBlock{
+					{
+						ID:        "img-1",
+						FilePath:  "/path/to/img1.png",
+						MediaType: "image/png",
+						Data:      "base64data1",
+					},
+					{
+						ID:        "img-2",
+						FilePath:  "/path/to/img2.png",
+						MediaType: "image/png",
+						Data:      "base64data2",
+					},
+				},
+			},
+		}),
+	}
+
+	var capturedTasks []string
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, input map[string]any) (any, error) {
+			task := input["task"].(string)
+			capturedTasks = append(capturedTasks, task)
+
+			imageID := input["image_id"].(string)
+			result := map[string]any{
+				"agent_id": "vision-" + imageID,
+				"output":   "description for " + imageID,
+			}
+			resultJSON, _ := json.Marshal(result)
+			return string(resultJSON), nil
+		},
+	}
+
+	req := RunRequest{
+		ResolvedModel:      provider.ResolvedModel{BackendModelID: "test-model", Alias: "test-model"},
+		Executor:           executor,
+		VisionCapabilities: vc,
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	mutated := p.handleImagesForVision(context.Background(), &state)
+	if !mutated {
+		t.Fatalf("mutated = false, want true")
+	}
+
+	if len(capturedTasks) != 2 {
+		t.Fatalf("expected 2 executor calls, got %d", len(capturedTasks))
+	}
+
+	// Both tasks should contain the same original user text, not contaminated by the first image's description
+	expectedSubstring := "what's in these images?"
+	for i, task := range capturedTasks {
+		if !contains(task, expectedSubstring) {
+			t.Fatalf("task[%d] should contain original user text %q, got: %s", i, expectedSubstring, task)
+		}
+	}
+
+	// Verify that task[1] does NOT contain task[0]'s description (which would indicate contamination)
+	if contains(capturedTasks[1], "description for img-1") {
+		t.Fatalf("task[1] is contaminated with task[0]'s output. task[1]: %s", capturedTasks[1])
+	}
+
+	// Both tasks should be identical since they're based on the same original content
+	if capturedTasks[0] != capturedTasks[1] {
+		t.Fatalf("tasks should be identical (same original content), but task[0] != task[1]\ntask[0]: %s\ntask[1]: %s", capturedTasks[0], capturedTasks[1])
+	}
+}
