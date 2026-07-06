@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -560,6 +561,107 @@ func contains(text, substring string) bool {
 		}
 	}
 	return false
+}
+
+func TestRouteImageToVision_EmitsDiagnosticEvent(t *testing.T) {
+	vc := NewVisionCapabilities(true)
+	vc.LatchIncapable("test-model")
+
+	var capturedEvents []output.Event
+	eventSink := output.SinkFunc(func(event output.Event) {
+		capturedEvents = append(capturedEvents, event)
+	})
+
+	state := RunState{
+		Conversation: []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "what is in this image?",
+				Images: []ImageBlock{
+					{
+						ID:        "img-1",
+						FilePath:  "/path/to/img.png",
+						MediaType: "image/png",
+						Data:      "base64data",
+						Width:     800,
+						Height:    600,
+						SizeBytes: 10000,
+					},
+				},
+			},
+		},
+		Lineage: newConversationLineage([]Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "what is in this image?",
+				Images: []ImageBlock{
+					{
+						ID:        "img-1",
+						FilePath:  "/path/to/img.png",
+						MediaType: "image/png",
+						Data:      "base64data",
+						Width:     800,
+						Height:    600,
+						SizeBytes: 10000,
+					},
+				},
+			},
+		}),
+	}
+
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, toolName string, _ map[string]any) (any, error) {
+			if toolName != "vision" {
+				t.Fatalf("unexpected tool: %s", toolName)
+			}
+			result := map[string]any{
+				"agent_id": "vision-sub-1",
+				"output":   "This is a button labeled OK",
+			}
+			resultJSON, _ := json.Marshal(result)
+			return string(resultJSON), nil
+		},
+	}
+
+	req := RunRequest{
+		ResolvedModel:      provider.ResolvedModel{BackendModelID: "test-model", Alias: "test-model"},
+		Executor:           executor,
+		VisionCapabilities: vc,
+		Events:             eventSink,
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	mutated := p.handleImagesForVision(context.Background(), &state)
+	if !mutated {
+		t.Fatalf("mutated = false, want true")
+	}
+
+	// Find the vision_routed diagnostic event
+	var foundEvent *output.ProviderDiagnosticEvent
+	for _, event := range capturedEvents {
+		if payload, ok := event.Payload.(output.ProviderDiagnosticEvent); ok {
+			if payload.Kind == "vision_routed" {
+				foundEvent = &payload
+				break
+			}
+		}
+	}
+
+	if foundEvent == nil {
+		t.Fatalf("no vision_routed diagnostic event found. captured events: %v", capturedEvents)
+	}
+
+	if foundEvent.Severity != "info" {
+		t.Fatalf("event.Severity = %q, want info", foundEvent.Severity)
+	}
+
+	if !contains(foundEvent.Message, "img-1") {
+		t.Fatalf("message should contain image ID, got: %s", foundEvent.Message)
+	}
+
+	if !contains(foundEvent.Message, "This is a button labeled OK") {
+		t.Fatalf("message should contain vision output, got: %s", foundEvent.Message)
+	}
 }
 
 func TestHandleImagesForVision_MultipleImagesInOnceMessage_UncontaminatedText(t *testing.T) {

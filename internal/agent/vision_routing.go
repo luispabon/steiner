@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // handleImagesForVision routes or strips pasted images for a model that
@@ -129,6 +131,12 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	}
 
 	img.Data = ""
+
+	emitEvent(p.request.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+		Severity: "info",
+		Kind:     "vision_routed",
+		Message:  fmt.Sprintf("image %s routed to vision assistant: %s", img.ID, result.Output),
+	}))
 
 	return nil
 }

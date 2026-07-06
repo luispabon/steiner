@@ -117,6 +117,13 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea
 		m.syncViewport()
 		return true, m, nil
 	case isCtrl(msg, 'v'):
+		if m.visionCapabilities != nil &&
+			m.visionCapabilities.Get(m.primaryModel) == agent.VisionIncapable &&
+			!m.visionCapabilities.SubAgentConfigured() {
+			m.content.AppendLine(fmt.Sprintf("  %s can't view images and no vision sub-agent is configured; paste ignored. Configure sub_agent model for the \"vision\" agent type to analyse images.", m.primaryModel))
+			m.syncViewport()
+			return true, m, nil
+		}
 		return true, m, pasteImageCmd(m.imageStore)
 	}
 	switch msg.Code {

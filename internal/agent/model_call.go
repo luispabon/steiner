@@ -192,9 +192,7 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 		if changed := req.VisionCapabilities.LatchIncapable(req.ResolvedModel.Alias); changed {
 			if req.VisionCapabilities.TakeNotify(req.ResolvedModel.Alias) {
 				disposition := "routed"
-				if req.VisionCapabilities.SubAgentConfigured() {
-					disposition = "routed"
-				} else {
+				if !req.VisionCapabilities.SubAgentConfigured() {
 					disposition = "stripped"
 				}
 				emitEvent(req.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
