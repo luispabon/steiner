@@ -15,6 +15,8 @@ type ModelInfo struct {
 	ModelProviderNPM  string
 	ModelProviderAPI  string
 	InterleavedField  string
+	VisionInput       bool
+	Found             bool
 }
 
 // Lookup finds model metadata for the given backend model ID in the cached JSON.
@@ -80,6 +82,9 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) Model
 		Interleaved struct {
 			Field string `json:"field"`
 		} `json:"interleaved"`
+		Modalities struct {
+			Input []string `json:"input"`
+		} `json:"modalities"`
 	}
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		return ModelInfo{}
@@ -93,6 +98,8 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) Model
 		ModelProviderNPM:  entry.Provider.NPM,
 		ModelProviderAPI:  entry.Provider.API,
 		InterleavedField:  entry.Interleaved.Field,
+		VisionInput:       containsFold(entry.Modalities.Input, "image"),
+		Found:             true,
 	}
 }
 
@@ -116,4 +123,15 @@ func CountModels(data []byte) int {
 		}
 	}
 	return len(seen)
+}
+
+// containsFold reports whether ss contains target, using case-insensitive comparison.
+func containsFold(ss []string, target string) bool {
+	target = strings.ToLower(target)
+	for _, s := range ss {
+		if strings.ToLower(s) == target {
+			return true
+		}
+	}
+	return false
 }

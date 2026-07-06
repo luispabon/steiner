@@ -126,6 +126,11 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	if modelCfg.Advanced.ReasoningEchoBack == nil {
 		rm.ReasoningEchoBack = modelsDevInfo.ReasoningEchoBack
 	}
+	// Apply models.dev vision input capability only when config does not override it.
+	if modelCfg.Vision == nil && modelsDevInfo.Found {
+		v := modelsDevInfo.VisionInput
+		rm.Vision = &v
+	}
 
 	if limitsFullyConfigured(adv) {
 		return rm, nil

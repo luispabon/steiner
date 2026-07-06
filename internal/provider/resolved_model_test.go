@@ -1105,3 +1105,97 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveWithDiscoveryVisionCapability(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	// Seed cache with models: one with image modality, one without
+	cacheJSON := `{
+		"openai":{
+			"models":{
+				"gpt-4v":{"limit":{"context":128000,"output":4096},"modalities":{"input":["text","image"]}},
+				"deepseek":{"limit":{"context":64000},"modalities":{"input":["text"]}}
+			}
+		}
+	}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		configVision *bool
+		modelID      string
+		wantVision   *bool
+	}{
+		{
+			name:         "config override true preserved over models.dev false",
+			configVision: boolPtr(true),
+			modelID:      "deepseek",
+			wantVision:   boolPtr(true),
+		},
+		{
+			name:         "config override false preserved over models.dev true",
+			configVision: boolPtr(false),
+			modelID:      "gpt-4v",
+			wantVision:   boolPtr(false),
+		},
+		{
+			name:         "nil adopts models.dev vision true",
+			configVision: nil,
+			modelID:      "gpt-4v",
+			wantVision:   boolPtr(true),
+		},
+		{
+			name:         "nil adopts models.dev vision false",
+			configVision: nil,
+			modelID:      "deepseek",
+			wantVision:   boolPtr(false),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Config{
+				Providers: map[string]config.ProviderConfig{
+					"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
+				},
+				Models: config.ModelsConfig{
+					Definitions: map[string]config.ModelConfig{
+						"test": {
+							Provider: "openai",
+							ID:       tt.modelID,
+							Vision:   tt.configVision,
+						},
+					},
+				},
+			}
+
+			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			if err != nil {
+				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+			}
+
+			if tt.wantVision == nil {
+				if rm.Vision != nil {
+					t.Errorf("Vision = %v, want nil", *rm.Vision)
+				}
+			} else {
+				if rm.Vision == nil {
+					t.Errorf("Vision = nil, want %v", *tt.wantVision)
+				} else if *rm.Vision != *tt.wantVision {
+					t.Errorf("Vision = %v, want %v", *rm.Vision, *tt.wantVision)
+				}
+			}
+		})
+	}
+}

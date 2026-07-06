@@ -225,3 +225,68 @@ func TestCountModels(t *testing.T) {
 		})
 	}
 }
+
+func TestLookup_VisionInput(t *testing.T) {
+	tests := []struct {
+		name            string
+		data            []byte
+		modelID         string
+		wantFound       bool
+		wantVisionInput bool
+	}{
+		{
+			name:            "image modality present",
+			data:            []byte(`{"prov":{"models":{"gpt-4v":{"modalities":{"input":["text","image"]}}}}}`),
+			modelID:         "gpt-4v",
+			wantFound:       true,
+			wantVisionInput: true,
+		},
+		{
+			name:            "image modality absent",
+			data:            []byte(`{"prov":{"models":{"deepseek":{"modalities":{"input":["text"]}}}}}`),
+			modelID:         "deepseek",
+			wantFound:       true,
+			wantVisionInput: false,
+		},
+		{
+			name:            "model not found in dataset",
+			data:            []byte(`{"prov":{"models":{"gpt-4o":{"limit":{"context":128000}}}}}`),
+			modelID:         "unknown-model",
+			wantFound:       false,
+			wantVisionInput: false,
+		},
+		{
+			name:            "case-insensitive image modality matching",
+			data:            []byte(`{"prov":{"models":{"model-x":{"modalities":{"input":["text","IMAGE"]}}}}}`),
+			modelID:         "model-x",
+			wantFound:       true,
+			wantVisionInput: true,
+		},
+		{
+			name:            "no modalities field",
+			data:            []byte(`{"prov":{"models":{"model-y":{"limit":{"context":128000}}}}}`),
+			modelID:         "model-y",
+			wantFound:       true,
+			wantVisionInput: false,
+		},
+		{
+			name:            "empty modalities input array",
+			data:            []byte(`{"prov":{"models":{"model-z":{"modalities":{"input":[]}}}}}`),
+			modelID:         "model-z",
+			wantFound:       true,
+			wantVisionInput: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := Lookup(tt.data, tt.modelID)
+			if info.Found != tt.wantFound {
+				t.Errorf("Found=%v, want %v", info.Found, tt.wantFound)
+			}
+			if info.VisionInput != tt.wantVisionInput {
+				t.Errorf("VisionInput=%v, want %v", info.VisionInput, tt.wantVisionInput)
+			}
+		})
+	}
+}

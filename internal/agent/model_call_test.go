@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -408,5 +409,48 @@ func TestAdaptiveStreamFallback(t *testing.T) {
 	// Should only have streaming request, not non-stream
 	if len(prov.requests) != 1 {
 		t.Fatalf("provider requests = %d, want 1 (streaming only)", len(prov.requests))
+	}
+}
+
+func TestStreamPreservesTypedHTTPError(t *testing.T) {
+	prov := &fakeProvider{
+		streamFn: func(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+			chunks := make(chan provider.ChatChunk, 1)
+			chunks <- provider.ChatChunk{
+				Done:  true,
+				Error: "unknown variant image_url",
+				OriginalError: &provider.HTTPError{
+					StatusCode: 400,
+					Status:     "400 Bad Request",
+					Body:       "unknown variant image_url",
+				},
+			}
+			close(chunks)
+			return chunks, nil
+		},
+	}
+
+	_, _, err := completeModelCall(context.Background(), RunRequest{
+		Provider: prov,
+		ResolvedModel: provider.ResolvedModel{
+			Alias: "test-model",
+		},
+		Events: output.SinkFunc(func(output.Event) {}),
+	}, 1, provider.ChatRequest{Model: "test"}, nil, prompt.ModelTokenBudget{}, nil)
+
+	if err == nil {
+		t.Fatal("completeModelCall() error = nil, want HTTPError")
+	}
+
+	var httpErr *provider.HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("completeModelCall() error type = %T, want *HTTPError", err)
+	}
+
+	if httpErr.StatusCode != 400 {
+		t.Errorf("HTTPError.StatusCode = %d, want 400", httpErr.StatusCode)
+	}
+	if !strings.Contains(httpErr.Body, "image_url") {
+		t.Errorf("HTTPError.Body = %q, want to contain 'image_url'", httpErr.Body)
 	}
 }
