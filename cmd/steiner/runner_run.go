@@ -30,6 +30,9 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 	if err != nil {
 		return runnerSetup{}, err
 	}
+	if r.runtime.visionCapabilities != nil {
+		r.runtime.visionCapabilities.SetDerived(alias, agent.VisionStateFromPtr(rm.Vision))
+	}
 	emitFallbackWarnings(r.runtime.status, rm)
 	emitTransportDiagnostic(r.runtime.events, rm)
 
@@ -194,6 +197,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		CompactionLogPath:  r.runtime.compactionLogFile,
 		DrainSteers:        drainSteers,
 		PromptCacheKey:     r.promptCacheKey,
+		VisionCapabilities: r.runtime.visionCapabilities,
 	}
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder

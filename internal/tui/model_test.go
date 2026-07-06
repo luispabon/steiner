@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
@@ -4046,5 +4047,105 @@ func TestStripTrailingResetSupportsLipglossV2ShortReset(t *testing.T) {
 	input := "styled\x1b[m"
 	if got := stripTrailingReset(input); got != "styled" {
 		t.Fatalf("stripTrailingReset(%q) = %q, want %q", input, got, "styled")
+	}
+}
+
+func TestPasteGate_CapableModel_AllowsPaste(t *testing.T) {
+	vc := agent.NewVisionCapabilities(false)
+	vc.SetDerived("gpt-4", agent.VisionCapable)
+
+	m := newModel(Config{
+		Model:              "gpt-4",
+		ModelNames:         []string{"gpt-4"},
+		Controller:         &testController{},
+		VisionCapabilities: vc,
+	}, nil)
+	m.primaryModel = "gpt-4"
+
+	msg := tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl}
+	_, _, cmd := m.handleNavigationKeyMsg(msg)
+	if cmd == nil {
+		t.Fatal("cmd is nil, want pasteImageCmd")
+	}
+}
+
+func TestPasteGate_UnknownModel_AllowsPaste(t *testing.T) {
+	vc := agent.NewVisionCapabilities(false)
+
+	m := newModel(Config{
+		Model:              "unknown-model",
+		ModelNames:         []string{"unknown-model"},
+		Controller:         &testController{},
+		VisionCapabilities: vc,
+	}, nil)
+	m.primaryModel = "unknown-model"
+
+	msg := tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl}
+	_, _, cmd := m.handleNavigationKeyMsg(msg)
+	if cmd == nil {
+		t.Fatal("cmd is nil, want pasteImageCmd")
+	}
+}
+
+func TestPasteGate_IncapableModelWithSubAgent_AllowsPaste(t *testing.T) {
+	vc := agent.NewVisionCapabilities(true)
+	vc.LatchIncapable("deepseek")
+
+	m := newModel(Config{
+		Model:              "deepseek",
+		ModelNames:         []string{"deepseek"},
+		Controller:         &testController{},
+		VisionCapabilities: vc,
+	}, nil)
+	m.primaryModel = "deepseek"
+
+	msg := tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl}
+	_, _, cmd := m.handleNavigationKeyMsg(msg)
+	if cmd == nil {
+		t.Fatal("cmd is nil, want pasteImageCmd")
+	}
+}
+
+func TestPasteGate_IncapableModelNoSubAgent_BlocksPaste(t *testing.T) {
+	vc := agent.NewVisionCapabilities(false)
+	vc.LatchIncapable("deepseek")
+
+	m := newModel(Config{
+		Model:              "deepseek",
+		ModelNames:         []string{"deepseek"},
+		Controller:         &testController{},
+		VisionCapabilities: vc,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.primaryModel = "deepseek"
+
+	msg := tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl}
+	_, nextModel, cmd := m.handleNavigationKeyMsg(msg)
+	if cmd != nil {
+		t.Fatal("cmd is not nil, want nil (blocked)")
+	}
+	next := nextModel.(Model)
+	content := stripANSI(next.content.String(80))
+	if !strings.Contains(content, "can't view images") {
+		t.Fatalf("content = %q, want message about images not supported", content)
+	}
+	if !strings.Contains(content, "vision") {
+		t.Fatalf("content = %q, want mention of vision sub-agent", content)
+	}
+}
+
+func TestPasteGate_DisabledCapabilities_AllowsPaste(t *testing.T) {
+	m := newModel(Config{
+		Model:              "test-model",
+		ModelNames:         []string{"test-model"},
+		Controller:         &testController{},
+		VisionCapabilities: nil,
+	}, nil)
+	m.primaryModel = "test-model"
+
+	msg := tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl}
+	_, _, cmd := m.handleNavigationKeyMsg(msg)
+	if cmd == nil {
+		t.Fatal("cmd is nil, want pasteImageCmd (gate disabled)")
 	}
 }
