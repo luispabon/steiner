@@ -451,12 +451,6 @@ func TestApplySubAgentPatch(t *testing.T) {
 			patch:   subAgentPatch{},
 			want:    SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 1000},
 		},
-		{
-			name:    "sets allowed_tools",
-			initial: SubAgentConfig{AllowedTools: []string{"read"}},
-			patch:   subAgentPatch{AllowedTools: &[]string{"read", "bash"}},
-			want:    SubAgentConfig{AllowedTools: []string{"read", "bash"}},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

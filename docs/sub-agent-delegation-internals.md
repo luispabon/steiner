@@ -48,11 +48,11 @@ User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 | `internal/prompt`     | Delegation instructions preamble injected when delegation is enabled                                                                         |
 | `internal/output`     | Delegation lifecycle events (started, complete, failed, extension)                                                                           |
 | `internal/tui`        | Rendering of delegation events with spinner, lifecycle tracking, collapsible output                                                          |
-| `cmd/steiner`         | `buildActiveRegistry()` wires delegate tools into the active registry                                                                    |
+| `cmd/steiner`         | `buildActiveRegistry()` wires delegation tools into the active registry                                                                    |
 
 ### Tool registration
 
-When `SubAgent.Enabled` is `true`, `cmd/steiner` clones the base registry and registers all six specialised tools. Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a narrower tool allowlist, and a task-oriented schema. The `vision` tool additionally accepts an `image_id` parameter and is only registered when `sub_agent.agents.vision.model` is configured.
+When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the base registry and registers the `follow_up` tool plus a specialised tool for each agent type (`explore`, `research`, `code`, `plan`, `verify`, and conditionally `vision`). Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a per-type tool allowlist (`AgentAllowedTools`), and a task-oriented schema. The `vision` tool additionally accepts an `image_id` parameter and is only registered when `sub_agent.agents.vision.model` is configured.
 
 `web_search` and `fetch_url` are registered as stub tools with "not yet implemented" handlers. They are included in the research agent's allowlist so the schema is complete from day one. An extended base registry is used as the parent reference for child bootstrapping so these stubs are available for child registry filtering without being exposed in the parent model's tool list.
 
@@ -64,11 +64,11 @@ When `SubAgent.Enabled` is `true`, `cmd/steiner` clones the base registry and re
 
 **2. Build child prompt.** The child prompt is minimal: either the caller-provided `system_prompt` or a default, plus a single user message containing the task (and optional `context`). The system prompt is passed via `PromptOverrides` so the provider sees exactly one system message. When `DelegationSpec.Images` is non-empty, those images are attached to the first user message so the child model sees them immediately without spending a turn on a `read` call.
 
-**3. Build child registries.** Two registries are built from the parent:
-- **Visible registry** — what the model can see and request: parent base registry tools filtered to `allowed_tools`, always excluding `delegate` and `follow_up`.
+**3. Build child registries.** Two registries are built from the parent via `BootstrapDeps.AllowedTools` (populated per agent type from `AgentAllowedTools(agentType)`):
+- **Visible registry** — what the model can see and request: parent base registry tools filtered to `AllowedTools`, always excluding `follow_up` and `workflow_handoff`.
 - **Execution registry** — same filtered tools but with all approval modes forced to `ApprovalModeAuto`.
 
-If `allowed_tools` is empty, no tools are available to the child. This ensures children cannot delegate further, never block on approval, and only access the explicitly permitted tool set.
+If `AllowedTools` is empty, no tools are available to the child. This ensures children cannot delegate further, never block on approval, and only access the explicitly permitted tool set for their agent type.
 
 **4. Assemble RunRequest.** Includes the parent's provider instance, a tool executor wrapping the execution registry, `ExtraParams` and `PromptSuffix` propagated from the parent's model config, and no explicit model override (child uses the parent's provider/model by default, unless a per-type model alias is configured).
 
@@ -153,7 +153,7 @@ When delegation is enabled, the system prompt preamble includes a delegation ins
 
 ### Constraints and invariants
 
-1. **One level only**: children never have access to `delegate` or `follow_up`.
+1. **One level only**: children never have access to `follow_up` or `workflow_handoff`.
 2. **No approval prompts**: child tool execution is auto-approved.
 3. **Default context manager**: children use the same baseline context manager path as the parent.
 4. **Tighten-only overrides**: caller cannot exceed configured limits, only reduce them.
@@ -163,5 +163,5 @@ When delegation is enabled, the system prompt preamble includes a delegation ins
 8. **Extension cap**: maximum 5 auto-extensions to prevent runaway children.
 9. **Summary cap**: retention summaries capped at 1000 runes.
 10. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist.
-11. **Enforced allowlist**: `allowed_tools` is enforced during child registry construction; only listed tools (minus `follow_up`) are visible and executable.
-12. **Specialised tool allowlists**: each specialised type enforces a per-type tool allowlist that is narrower than the global `allowed_tools`.
+11. **Enforced allowlist**: `BootstrapDeps.AllowedTools` is enforced during child registry construction; only listed tools (minus `follow_up` and `workflow_handoff`) are visible and executable.
+12. **Per-type allowlists**: each specialised agent type has its own tool allowlist, resolved via `AgentAllowedTools(agentType)` and passed as `BootstrapDeps.AllowedTools` — there is no user-configurable global allowlist.

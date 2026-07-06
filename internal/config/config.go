@@ -175,10 +175,9 @@ type LimitsConfig struct {
 
 // SubAgentConfig controls delegated child-agent execution limits.
 type SubAgentConfig struct {
-	Enabled      bool     `yaml:"enabled"`
-	MaxTurns     int      `yaml:"max_turns"`
-	MaxTokens    int      `yaml:"max_tokens"`
-	AllowedTools []string `yaml:"allowed_tools"`
+	Enabled   bool `yaml:"enabled"`
+	MaxTurns  int  `yaml:"max_turns"`
+	MaxTokens int  `yaml:"max_tokens"`
 }
 
 // AdvisorConfig controls the optional advisor reasoning pass.

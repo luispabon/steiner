@@ -13,7 +13,7 @@ func TestIsDelegateToolCall(t *testing.T) {
 		toolName string
 		want     bool
 	}{
-		{name: "delegate is delegate tool", toolName: "delegate", want: true},
+		{name: "delegate is no longer a delegate tool", toolName: "delegate", want: false},
 		{name: "explore is delegate tool", toolName: "explore", want: true},
 		{name: "research is delegate tool", toolName: "research", want: true},
 		{name: "code is delegate tool", toolName: "code", want: true},
@@ -23,7 +23,7 @@ func TestIsDelegateToolCall(t *testing.T) {
 		{name: "read is not delegate tool", toolName: "read", want: false},
 		{name: "mutate is not delegate tool", toolName: "mutate", want: false},
 		{name: "bash is not delegate tool", toolName: "bash", want: false},
-		{name: "delegate uppercase", toolName: "DELEGATE", want: true},
+		{name: "delegate uppercase is no longer a delegate tool", toolName: "DELEGATE", want: false},
 		{name: "explore uppercase", toolName: "EXPLORE", want: true},
 		{name: "follow_up uppercase", toolName: "FOLLOW_UP", want: true},
 		{name: "empty string is not delegate tool", toolName: "", want: false},
@@ -48,17 +48,8 @@ func TestIsDelegateToolCallAllSpecializedTools(t *testing.T) {
 	}
 }
 
-func TestIsDelegateToolCallDelegateToolName(t *testing.T) {
-	if !isDelegateToolCall(delegation.DelegateToolName) {
-		t.Errorf("isDelegateToolCall(%q) = false, want true", delegation.DelegateToolName)
-	}
-}
-
 func TestIsDelegateToolCallCaseInsensitive(t *testing.T) {
-	testCases := []string{
-		delegation.DelegateToolName,
-	}
-	testCases = append(testCases, delegation.AllSpecializedDelegateTools()...)
+	testCases := delegation.AllSpecializedDelegateTools()
 
 	for _, toolName := range testCases {
 		lower := strings.ToLower(toolName)

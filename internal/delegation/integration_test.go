@@ -631,102 +631,6 @@ func (r *summaryCtxInspector) Run(ctx context.Context, req agent.RunRequest) (ag
 	return st, err
 }
 
-func TestDelegateHandlerTaskRequired(t *testing.T) {
-	prov := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{Message: provider.Message{Content: "done"}, FinishReason: "stop"},
-		},
-	}
-
-	deps := DelegateHandlerDeps{
-		Provider:    prov,
-		ParentReg:   tool.NewRegistry(),
-		SubAgentCfg: config.SubAgentConfig{MaxTurns: 5, MaxTokens: 10000},
-		Events:      output.NoopSink{},
-		Runner:      agent.NewRunner(),
-		WorkDir:     "/tmp/work",
-	}
-
-	handler := NewDelegateHandler(deps)
-	_, err := handler(context.Background(), map[string]any{})
-	if err == nil {
-		t.Error("expected error when task is missing")
-	}
-}
-
-// TestEndToEndDelegation verifies the full wiring path: parent provider returns
-// a delegate tool_call, child provider completes the sub-task, parent provider
-// produces a final response incorporating the child result. The parent
-// conversation must not contain child internal messages and the DelegationResult
-// fields must be populated correctly.
-func TestEndToEndDelegation(t *testing.T) {
-	childProv := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{Message: provider.Message{Content: "child result"}, FinishReason: "stop"},
-		},
-	}
-
-	deps := DelegateHandlerDeps{
-		Provider:    childProv,
-		ParentReg:   tool.NewRegistry(),
-		SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000},
-		Events:      output.NoopSink{},
-		Runner:      agent.NewRunner(),
-		WorkDir:     "/tmp/work",
-	}
-
-	handler := NewDelegateHandler(deps)
-
-	// Invoke the handler directly — this is what the executor calls when the
-	// parent agent requests the delegate tool.
-	raw, err := handler(context.Background(), map[string]any{
-		"task": "do sub-work",
-	})
-	if err != nil {
-		t.Fatalf("handler error: %v", err)
-	}
-
-	execResult, ok := raw.(tool.ExecutionResult)
-	if !ok {
-		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
-	}
-	result, ok := execResult.Value.(DelegationResult)
-	if !ok {
-		t.Fatalf("handler result.Value type = %T, want DelegationResult", execResult.Value)
-	}
-	if result.Output != "child result" {
-		t.Errorf("Output: got %q, want %q", result.Output, "child result")
-	}
-	if result.Status != StatusComplete {
-		t.Errorf("Status: got %q, want %q", result.Status, StatusComplete)
-	}
-	if result.AgentID == "" {
-		t.Error("AgentID must not be empty")
-	}
-	if result.TurnCount != 1 {
-		t.Errorf("TurnCount: got %d, want 1", result.TurnCount)
-	}
-
-	// Parent conversation must not contain child internal messages.
-	// The child ran its own isolated conversation; the parent only sees the
-	// DelegationResult value. Verify the child provider was called exactly once
-	// (no child internal leakage into the parent call count).
-	if childProv.callCount != 2 {
-		t.Errorf("child provider callCount: got %d, want 2", childProv.callCount)
-	}
-	if len(childProv.requests) != 2 {
-		t.Fatalf("child provider requests: got %d, want 2", len(childProv.requests))
-	}
-	// Child conversation must not include any parent messages — the child
-	// request should only contain the system prompt and the task message.
-	childMsgs := childProv.requests[0].Messages
-	for _, msg := range childMsgs {
-		if strings.Contains(msg.Content, "parent") {
-			t.Errorf("child conversation unexpectedly contains parent-scoped content: %q", msg.Content)
-		}
-	}
-}
-
 // TestNestingPrevention verifies that when the child's provider attempts to
 // call the delegate tool, execution fails because the child registry has no
 // "delegate" entry, and the error propagates correctly.
@@ -812,30 +716,34 @@ func TestParentContextIsolation(t *testing.T) {
 		},
 	}
 
-	deps := DelegateHandlerDeps{
-		Provider:    childProv,
-		ParentReg:   parentReg,
-		SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000, AllowedTools: []string{"helper"}},
-		Events:      output.NoopSink{},
-		Runner:      agent.NewRunner(),
-		WorkDir:     "/tmp/work",
+	deps := BootstrapDeps{
+		Provider:     childProv,
+		ParentReg:    parentReg,
+		SubAgentCfg:  config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000},
+		AllowedTools: []string{"helper"},
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
 	}
 
-	handler := NewDelegateHandler(deps)
-	raw, err := handler(context.Background(), map[string]any{
-		"task": "use the helper tool",
-	})
+	spec := DelegationSpec{
+		Task:    "use the helper tool",
+		AgentID: "parent-isolation",
+		Limits:  DelegationLimits{MaxTurns: 5},
+	}
+
+	req, limits, err := BuildChildRun(context.Background(), deps, spec)
 	if err != nil {
-		t.Fatalf("handler error: %v", err)
+		t.Fatalf("BuildChildRun() error = %v", err)
 	}
+	spec.Limits = limits
 
-	execResult, ok := raw.(tool.ExecutionResult)
-	if !ok {
-		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	execResult, _, err := SpawnDelegate(context.Background(), spec, req, agent.NewRunner(), deps.Events, nil)
+	if err != nil {
+		t.Fatalf("SpawnDelegate error: %v", err)
 	}
 	result, ok := execResult.Value.(DelegationResult)
 	if !ok {
-		t.Fatalf("handler result.Value type = %T, want DelegationResult", execResult.Value)
+		t.Fatalf("execResult.Value type = %T, want DelegationResult", execResult.Value)
 	}
 	if result.Output != "child final answer" {
 		t.Errorf("Output: got %q, want %q", result.Output, "child final answer")
@@ -1514,78 +1422,6 @@ func TestDelegationResultSummaryPopulated(t *testing.T) {
 	}
 }
 
-// buildTestActiveRegistry mirrors the logic of cmd/steiner.buildActiveRegistry
-// so that TestConfigGatingDisabled can stay inside the delegation package.
-func buildTestActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, prov provider.Provider, events output.EventSink) *tool.Registry {
-	if !subAgentCfg.Enabled {
-		return base
-	}
-	cloned := base.Clone()
-	handler := NewDelegateHandler(DelegateHandlerDeps{
-		Provider:    prov,
-		ParentReg:   base,
-		SubAgentCfg: subAgentCfg,
-		Events:      events,
-		Runner:      agent.NewRunner(),
-		WorkDir:     "/tmp/work",
-	})
-	cloned.Register(DelegateToolDef(handler))
-	return cloned
-}
-
-// TestConfigGatingDisabled verifies that when sub_agent.enabled is false the
-// registry does not contain the "delegate" tool, and when it is true the tool
-// is added to a clone without mutating the base registry.
-func TestConfigGatingDisabled(t *testing.T) {
-	base := tool.NewRegistry(
-		tool.ToolDef{
-			Name:        "bash",
-			Description: "run shell commands",
-			Handler: func(_ context.Context, _ map[string]any) (any, error) {
-				return "ok", nil
-			},
-		},
-	)
-
-	prov := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{Message: provider.Message{Content: "done"}, FinishReason: "stop"},
-		},
-	}
-
-	// sub_agent.enabled = false: base registry is returned as-is, no delegate tool.
-	disabledCfg := config.SubAgentConfig{Enabled: false}
-	regDisabled := buildTestActiveRegistry(base, disabledCfg, prov, output.NoopSink{})
-	for _, name := range regDisabled.Names() {
-		if name == DelegateToolName {
-			t.Errorf("delegate tool present in registry when sub_agent.enabled=false")
-		}
-	}
-	if len(regDisabled.Names()) != 1 || regDisabled.Names()[0] != "bash" {
-		t.Errorf("expected only 'bash' tool; got %v", regDisabled.Names())
-	}
-
-	// sub_agent.enabled = true: delegate tool is added to a clone of base.
-	enabledCfg := config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000}
-	regEnabled := buildTestActiveRegistry(base, enabledCfg, prov, output.NoopSink{})
-	var foundDelegate bool
-	for _, name := range regEnabled.Names() {
-		if name == DelegateToolName {
-			foundDelegate = true
-		}
-	}
-	if !foundDelegate {
-		t.Errorf("delegate tool not found in registry when sub_agent.enabled=true; got %v", regEnabled.Names())
-	}
-
-	// Base registry must remain unmodified (clone semantics).
-	for _, name := range base.Names() {
-		if name == DelegateToolName {
-			t.Error("delegate tool leaked into base registry")
-		}
-	}
-}
-
 func TestTruncateTaskPreviewRuneSafe(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1763,7 +1599,7 @@ func TestFollowUpSanitizesSavedDanglingToolCalls(t *testing.T) {
 		},
 	}
 
-	handler := NewFollowUpHandler(DelegateHandlerDeps{
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
 		Provider:     &fakeProvider{},
 		Runner:       runner,
 		SessionStore: store,
@@ -1861,7 +1697,7 @@ func TestCrossTurnSessionStorePreservesSessions(t *testing.T) {
 		states: []agent.RunState{completeState("found 2 more test files")},
 	}
 
-	handler := NewFollowUpHandler(DelegateHandlerDeps{
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
 		Provider:     &fakeProvider{},
 		Runner:       followUpRunner,
 		SessionStore: sharedStore,

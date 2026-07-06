@@ -39,9 +39,6 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			Images:       []provider.ImageBlock{imgBlock},
 		}
 
-		typedCfg := deps.SubAgentCfg
-		typedCfg.AllowedTools = AgentAllowedTools(AgentTypeVision)
-
 		resolvedProvider := deps.Provider
 		resolvedModel := deps.ResolvedModel
 		if deps.ModelResolver != nil {
@@ -58,7 +55,8 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
 			Provider:             resolvedProvider,
 			ParentReg:            deps.ParentReg,
-			SubAgentCfg:          typedCfg,
+			SubAgentCfg:          deps.SubAgentCfg,
+			AllowedTools:         AgentAllowedTools(AgentTypeVision),
 			Events:               deps.Events,
 			WorkDir:              deps.WorkDir,
 			HomeDir:              deps.HomeDir,

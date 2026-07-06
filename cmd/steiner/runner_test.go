@@ -137,7 +137,7 @@ func TestBuildActiveRegistry_DelegateNotRegistered_WhenEnabled(t *testing.T) {
 	found := false
 	foundFollowUp := false
 	for _, n := range reg.Names() {
-		if n == delegation.DelegateToolName {
+		if n == "delegate" {
 			found = true
 		}
 		if n == delegation.FollowUpToolName {
@@ -153,7 +153,7 @@ func TestBuildActiveRegistry_DelegateNotRegistered_WhenEnabled(t *testing.T) {
 
 	// base registry must not be polluted
 	for _, n := range base.Names() {
-		if n == delegation.DelegateToolName || n == delegation.FollowUpToolName {
+		if n == "delegate" || n == delegation.FollowUpToolName {
 			t.Errorf("delegation tool %q leaked into base registry", n)
 		}
 	}
@@ -236,7 +236,7 @@ func TestBuildActiveRegistry_DelegateAbsent_WhenDisabled(t *testing.T) {
 	}
 
 	for _, n := range reg.Names() {
-		if n == delegation.DelegateToolName || n == delegation.FollowUpToolName {
+		if n == "delegate" || n == delegation.FollowUpToolName {
 			t.Errorf("delegation tool %q present in registry when sub_agent.enabled=false", n)
 		}
 	}

@@ -125,16 +125,12 @@ func (b *contentBuffer) renderDelegationHeaderIdentity(dd *delegationDisplayStat
 }
 
 func (b *contentBuffer) delegationHeaderLabel(dd *delegationDisplayState) (string, lipgloss.Style) {
-	switch {
-	case dd.isAdvisor:
+	if dd.isAdvisor {
 		tagStyle, _ := b.delegationStyles("advisor")
 		return "advisor", tagStyle
-	case dd.toolLabel != "":
-		tagStyle, _ := b.delegationStyles(dd.toolLabel)
-		return dd.toolLabel, tagStyle
-	default:
-		return "delegate", b.styles.DelegateTagDefault
 	}
+	tagStyle, _ := b.delegationStyles(dd.toolLabel)
+	return dd.toolLabel, tagStyle
 }
 
 func delegationHeaderAgentID(dd *delegationDisplayState) string {
@@ -162,7 +158,7 @@ func renderStyledBox(content string, borderColor color.Color, bgColor color.Colo
 // agent type label, performing the case-normalisation once for both callers.
 func (b *contentBuffer) delegationStyles(toolLabel string) (tag lipgloss.Style, border lipgloss.Style) {
 	key := strings.ToLower(strings.TrimSpace(toolLabel))
-	return styleByKey(b.styles.DelegateTagStyles, key, b.styles.DelegateTagDefault), styleByKey(b.styles.DelegateBorderStyles, key, b.styles.DelegateBorderDefault)
+	return styleByKey(b.styles.DelegateTagStyles, key, b.styles.ToolTagDefault), styleByKey(b.styles.DelegateBorderStyles, key, b.styles.DelegateBorderDefault)
 }
 
 func (b *contentBuffer) renderDelegationHeaderStatus(dd *delegationDisplayState) (string, int) {

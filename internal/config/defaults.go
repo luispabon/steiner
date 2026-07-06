@@ -66,10 +66,9 @@ func defaultConfig() Config {
 			Enabled: true,
 		},
 		SubAgent: SubAgentConfig{
-			Enabled:      true,
-			MaxTurns:     30,
-			MaxTokens:    100000,
-			AllowedTools: []string{"read", "glob", "grep", "ls", "bash"},
+			Enabled:   true,
+			MaxTurns:  30,
+			MaxTokens: 100000,
 		},
 		Advisor: AdvisorConfig{
 			Enabled:       false,

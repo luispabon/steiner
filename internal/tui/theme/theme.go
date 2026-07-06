@@ -71,8 +71,6 @@ type Styles struct {
 
 	// DelegateTagStyles maps normalized delegate labels to pill styles.
 	DelegateTagStyles map[string]lipgloss.Style
-	// DelegateTagDefault is the fallback pill style for unknown delegates.
-	DelegateTagDefault lipgloss.Style
 
 	// DelegateBorderStyles maps normalized delegate labels to border styles.
 	DelegateBorderStyles map[string]lipgloss.Style
@@ -208,7 +206,6 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 			"plan":     lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)).Bold(true),
 			"verify":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMag)).Bold(true),
 		},
-		DelegateTagDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrn)).Bold(true),
 
 		DelegateBorderStyles: map[string]lipgloss.Style{
 			"explore":  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
