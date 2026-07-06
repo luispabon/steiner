@@ -796,6 +796,9 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 		styles:        theme.BuildStyles(theme.AccentAmber),
 	}
 
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
+		"task": "initial task preview",
+	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "initial task preview"))
 	buffer.AppendEvent(output.WithAgentScope(
 		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
@@ -803,7 +806,7 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 	))
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"delegate", "child-1", "⠋", "read: README.md:1–200", "ctrl+x or click header to expand"} {
+	for _, want := range []string{"explore", "child-1", "⠋", "read: README.md:1–200", "ctrl+x or click header to expand"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("collapsed active delegation render %q missing %q", rendered, want)
 		}
@@ -817,7 +820,7 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 		styles:        theme.BuildStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
 		"task": "inspect docs",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
@@ -834,7 +837,7 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"delegate", "child-1", "prompt", "child assistant reply", "bash", "pwd", "✓", "output", "final child output", "ctrl+x or click header to collapse"} {
+	for _, want := range []string{"explore", "child-1", "prompt", "child assistant reply", "bash", "pwd", "✓", "output", "final child output", "ctrl+x or click header to collapse"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
 		}
@@ -852,7 +855,7 @@ func TestRenderDelegationPromptSubsectionCollapsedAndExpanded(t *testing.T) {
 	}
 
 	prompt := "inspect the prompt layout\nwith a line that wraps nicely"
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
 		"task": prompt,
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", prompt))
@@ -954,7 +957,7 @@ func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
 		styles:        theme.BuildStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
 		"task": "inspect docs",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
@@ -968,7 +971,7 @@ func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
 	}
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"delegate", "child-1", "✓", "complete"} {
+	for _, want := range []string{"explore", "child-1", "✓", "complete"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("delegation lifecycle render %q missing %q", rendered, want)
 		}
@@ -1940,7 +1943,7 @@ func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
 		showThinking:  true,
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
 		"task": "inspect docs",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
@@ -1950,7 +1953,7 @@ func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(80))
-	for _, want := range []string{"delegate", "child-1", "Thinking", "inspect files", "child assistant reply"} {
+	for _, want := range []string{"explore", "child-1", "Thinking", "inspect files", "child assistant reply"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
 		}
@@ -2747,7 +2750,7 @@ func TestDelegationHeaderRendersSpecializedToolLabel(t *testing.T) {
 	}
 }
 
-func TestDelegationHeaderKeepsDelegateLabelForBaseDelegate(t *testing.T) {
+func TestDelegationHeaderLabelHasNoGenericDelegateFallback(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		styles:        theme.BuildStyles(theme.AccentAmber),
@@ -2762,9 +2765,9 @@ func TestDelegationHeaderKeepsDelegateLabelForBaseDelegate(t *testing.T) {
 	if dd.toolLabel != "" {
 		t.Errorf("toolLabel = %q, want empty for base delegate tool", dd.toolLabel)
 	}
-	header := buffer.renderDelegationHeader(dd, 80)
-	if !strings.Contains(header, "delegate") {
-		t.Errorf("delegation header %q missing %q for base delegate", header, "delegate")
+	label, _ := buffer.delegationHeaderLabel(dd)
+	if label != "" {
+		t.Errorf("delegationHeaderLabel = %q, want empty (no generic \"delegate\" fallback)", label)
 	}
 }
 

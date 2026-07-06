@@ -63,7 +63,6 @@ func TestSteinerThemeLipGlossStylesMatchesBuildStyles(t *testing.T) {
 	}{
 		{name: "tool tag default", got: styleSnapshot(steiner.ToolTagDefault), want: styleSnapshot(build.ToolTagDefault)},
 		{name: "tool border default", got: styleSnapshot(steiner.ToolBorderDefault), want: styleSnapshot(build.ToolBorderDefault)},
-		{name: "delegate tag default", got: styleSnapshot(steiner.DelegateTagDefault), want: styleSnapshot(build.DelegateTagDefault)},
 		{name: "delegate border default", got: styleSnapshot(steiner.DelegateBorderDefault), want: styleSnapshot(build.DelegateBorderDefault)},
 		{name: "tool tag grep", got: styleSnapshot(steiner.ToolTagStyles["grep"]), want: styleSnapshot(build.ToolTagStyles["grep"])},
 		{name: "tool border read", got: styleSnapshot(steiner.ToolBorderStyles["read"]), want: styleSnapshot(build.ToolBorderStyles["read"])},
