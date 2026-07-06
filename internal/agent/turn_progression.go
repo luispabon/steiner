@@ -117,8 +117,9 @@ func (p *turnProgressor) finalizeModelCallState(ctx context.Context, state RunSt
 
 func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
 	state.StopReason = StopReasonComplete
-	state.Conversation = stripImagesFromMessages(state.Conversation)
-	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
+	visionState, subAgentConfigured := p.getVisionCapabilityContext()
+	state.Conversation = stripImagesFromMessages(state.Conversation, visionState, subAgentConfigured)
+	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
 	return turnOutcome{State: state, Stop: true}
 }
 
@@ -218,8 +219,8 @@ func (p *turnProgressor) buildToolMessage(turn int, call provider.ToolCall, resu
 }
 
 func (p *turnProgressor) finalizeToolTurn(_ context.Context, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
-
-	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
+	visionState, subAgentConfigured := p.getVisionCapabilityContext()
+	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
 	state.Conversation = state.Lineage.FullMessages()
 	return turnOutcome{State: state}
 }
@@ -271,6 +272,8 @@ func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn co
 // ReasoningEchoBack was not configured, it enables it on the progressor's
 // request so subsequent turns preserve reasoning.
 func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcome {
+	_ = p.handleImagesForVision(ctx, &state)
+
 	assembly, chatRequest, fit, err := p.prepareTurn(ctx, state)
 	if err != nil {
 		return p.handleError(ctx, state, err)
@@ -403,12 +406,10 @@ func formatSize(sizeBytes int) string {
 }
 
 // imageBlockPlaceholder returns a compact text token describing an image whose
-// binary data has been stripped. If ID and FilePath are set, includes a hint
-// about using the vision tool; otherwise uses the legacy format.
-// Examples: "[image img-1: /path/to/img.png 2560x1545 png 478KB — use vision tool with image_id "img-1" or read tool to re-examine]"
-//
-//	"[image: 2560x1545 png 478KB]" (legacy format for backward compat)
-func imageBlockPlaceholder(img ImageBlock) string {
+// binary data has been stripped. Wording adapts based on whether the model can see images.
+// visionState: the capability state for the current alias (Capable/Incapable/Unknown).
+// subAgentConfigured: whether a vision sub-agent is configured (for routing).
+func imageBlockPlaceholder(img ImageBlock, visionState VisionState, subAgentConfigured bool) string {
 	var dims string
 	if img.Width > 0 && img.Height > 0 {
 		dims = fmt.Sprintf("%dx%d", img.Width, img.Height)
@@ -425,12 +426,32 @@ func imageBlockPlaceholder(img ImageBlock) string {
 
 	// New format when ID and FilePath are both set.
 	if img.ID != "" && img.FilePath != "" {
+		descriptive := ""
 		if sizeStr != "" {
-			return fmt.Sprintf("[image %s: %s %s %s %s — use vision tool with image_id \"%s\" or read tool to re-examine]",
-				img.ID, img.FilePath, dims, fmtStr, sizeStr, img.ID)
+			descriptive = fmt.Sprintf("[image %s: %s %s %s %s",
+				img.ID, img.FilePath, dims, fmtStr, sizeStr)
+		} else {
+			descriptive = fmt.Sprintf("[image %s: %s %s %s",
+				img.ID, img.FilePath, dims, fmtStr)
 		}
-		return fmt.Sprintf("[image %s: %s %s %s — use vision tool with image_id \"%s\" or read tool to re-examine]",
-			img.ID, img.FilePath, dims, fmtStr, img.ID)
+
+		// Vision-capable: advertise vision and read tools.
+		if visionState == VisionCapable {
+			return descriptive + fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
+		}
+
+		// Non-vision with sub-agent: advertise follow_up, not read.
+		if visionState == VisionIncapable && subAgentConfigured {
+			return descriptive + " — use follow_up with the agent_id from the image analysis]"
+		}
+
+		// Non-vision without sub-agent: no re-examine hint.
+		if visionState == VisionIncapable {
+			return descriptive + "]"
+		}
+
+		// Unknown (conservative): advertise both tools (backward compat).
+		return descriptive + fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
 	}
 
 	// Legacy format for backward compat (when ID/FilePath are not set).
@@ -444,7 +465,9 @@ func imageBlockPlaceholder(img ImageBlock) string {
 // whose Data is non-empty and appends a placeholder token to the containing
 // message's Content so the model retains awareness of the image without the
 // full base64 payload being re-sent on subsequent turns.
-func stripImagesFromMessages(msgs []Message) []Message {
+// visionState: the capability state for the current alias (Capable/Incapable/Unknown).
+// subAgentConfigured: whether a vision sub-agent is configured (for routing).
+func stripImagesFromMessages(msgs []Message, visionState VisionState, subAgentConfigured bool) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
@@ -457,7 +480,7 @@ func stripImagesFromMessages(msgs []Message) []Message {
 			if imgs[j].Data == "" {
 				continue
 			}
-			placeholder := imageBlockPlaceholder(imgs[j])
+			placeholder := imageBlockPlaceholder(imgs[j], visionState, subAgentConfigured)
 			imgs[j].Data = ""
 			if out[i].Content == "" {
 				out[i].Content = placeholder
@@ -468,4 +491,15 @@ func stripImagesFromMessages(msgs []Message) []Message {
 		out[i].Images = nil
 	}
 	return out
+}
+
+// getVisionCapabilityContext returns the vision state and sub-agent config for the current alias.
+// When VisionCapabilities is nil, returns VisionUnknown and false (preserving old behavior).
+func (p *turnProgressor) getVisionCapabilityContext() (VisionState, bool) {
+	vc := p.request.VisionCapabilities
+	if vc == nil {
+		return VisionUnknown, false
+	}
+	alias := p.request.ResolvedModel.Alias
+	return vc.Get(alias), vc.SubAgentConfigured()
 }
