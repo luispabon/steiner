@@ -410,7 +410,10 @@ do and tool allowlists for each specialised agent type, see
 | `enabled`      | bool                       | `true`                                   | Master switch. Set to `false` to remove all delegation tools from the model. |
 | `max_turns`    | int                        | `30`                                     | Maximum turns allowed for each child agent run. A floor of 15 turns is enforced internally. |
 | `max_tokens`   | int                        | `100000`                                 | Maximum tokens a child agent may consume. |
-| `allowed_tools`| []string                   | `["read","glob","grep","ls","bash"]`     | Tools available to the generic `delegate` sub-agent (currently disabled). Specialised agents (explore/research/code/plan/verify) use their own hardcoded allowlists and ignore this field. |
+
+Each specialised agent type (`explore`, `research`, `code`, `plan`, `verify`,
+`vision`) has its own hardcoded tool allowlist; there is no user-configurable
+tool allowlist field.
 
 Per-agent-type model overrides live under `models.sub_agents` (see the
 [`models` block](#models-block)), keyed by agent type (e.g. `code`,
@@ -422,12 +425,6 @@ sub_agent:
   enabled: true
   max_turns: 30
   max_tokens: 100000
-  allowed_tools:
-    - read
-    - glob
-    - grep
-    - ls
-    - bash
 
 models:
   sub_agents:
@@ -822,12 +819,6 @@ sub_agent:
   enabled: true
   max_turns: 25
   max_tokens: 80000
-  allowed_tools:
-    - read
-    - glob
-    - grep
-    - ls
-    - bash
 
 advisor:
   enabled: true

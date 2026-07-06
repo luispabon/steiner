@@ -55,7 +55,7 @@ Key behaviours:
 
 ### Safety
 
-- A sub-agent **cannot delegate further** — `delegate` and `follow_up` tools are always stripped from child registries.
+- A sub-agent **cannot delegate further** — `follow_up` and `workflow_handoff` tools are always stripped from child registries.
 - The parent-only `workflow_handoff` tool is not included in child allowlists yet.
 - Only the `code` sub-agent has access to file-mutation tools (`mutate`) or `bash`.
 - `explore`, `research`, `plan`, and `vision` are read-only.
