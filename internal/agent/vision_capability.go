@@ -2,8 +2,12 @@ package agent
 
 import "sync"
 
+// VisionState describes whether a model alias is known to support image input.
 type VisionState int
 
+// VisionUnknown means capability has not been derived or latched yet.
+// VisionCapable means the model accepts images. VisionIncapable means the
+// model rejects images, either by config/models.dev or a runtime 400 latch.
 const (
 	VisionUnknown VisionState = iota
 	VisionCapable
