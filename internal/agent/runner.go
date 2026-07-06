@@ -68,6 +68,10 @@ type RunRequest struct {
 	// UsageRecorder records cache-hit-rate observations per usage-bearing model
 	// response. Nil disables recording (tests, unwired paths).
 	UsageRecorder usageRecorder
+
+	// VisionCapabilities tracks per-model vision capability for the session.
+	// Nil disables capability-driven retry logic (tests, unwired paths preserve old behavior).
+	VisionCapabilities *VisionCapabilities
 }
 
 // Runner executes the main turn loop for an agent run.

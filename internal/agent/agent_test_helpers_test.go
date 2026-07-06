@@ -133,3 +133,5 @@ func containsSequence(values, sequence []string) bool {
 }
 
 func intPtr(v int) *int { return &v }
+
+func ptrBool(b bool) *bool { return &b }
