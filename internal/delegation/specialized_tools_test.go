@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -12,16 +13,52 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+type mockRunner struct {
+	runFunc func(context.Context, agent.RunRequest) (agent.RunState, error)
+}
+
+func (m *mockRunner) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
+	return m.runFunc(ctx, req)
+}
+
+type noopEventSink struct{}
+
+func (noopEventSink) Emit(output.Event) {}
+
+type stubProvider struct{}
+
+func (stubProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	return provider.ChatResponse{}, nil
+}
+
+func (stubProvider) StreamChatCompletion(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	return nil, nil
+}
+
+func (stubProvider) SupportsUsageStats() bool { return false }
+
+func successRunState() agent.RunState {
+	return agent.RunState{
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "task result"},
+		},
+		TurnCount:  1,
+		TokenCount: 100,
+		StopReason: agent.StopReasonComplete,
+	}
+}
 
 // minimalDeps returns a SpecializedToolDeps suitable for unit tests.
 // It uses a noop event sink, stub provider, empty registry, and a
 // configurable mock runner.
 func minimalDeps(runner AgentRunner) SpecializedToolDeps {
 	return SpecializedToolDeps{
-		DelegateHandlerDeps: DelegateHandlerDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
 			SubAgentCfg: config.SubAgentConfig{},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
@@ -232,7 +269,7 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 			}}
 
 			deps := SpecializedToolDeps{
-				DelegateHandlerDeps: DelegateHandlerDeps{
+				SubAgentHandlerDeps: SubAgentHandlerDeps{
 					SubAgentCfg: config.SubAgentConfig{},
 					Provider:    stubProvider{},
 					ParentReg:   tool.NewRegistry(allDefs...),
@@ -253,12 +290,6 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 			for _, ts := range capturedReq.Tools {
 				if ts.Function.Name == "not_allowed" {
 					t.Error("child tools contain 'not_allowed' tool")
-				}
-			}
-			// "delegate" must never appear in child tools.
-			for _, ts := range capturedReq.Tools {
-				if ts.Function.Name == DelegateToolName {
-					t.Error("child tools contain delegate tool")
 				}
 			}
 		})
@@ -309,7 +340,7 @@ func TestSpecializedHandler_UsesPerTypeModel(t *testing.T) {
 	}}
 
 	deps := SpecializedToolDeps{
-		DelegateHandlerDeps: DelegateHandlerDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
 			Provider:      stubProvider{},
 			ParentReg:     tool.NewRegistry(),
 			Runner:        runner,
@@ -361,7 +392,7 @@ func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 	}}
 
 	deps := SpecializedToolDeps{
-		DelegateHandlerDeps: DelegateHandlerDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
 			Provider:      stubProvider{},
 			ParentReg:     tool.NewRegistry(),
 			Runner:        runner,
@@ -400,7 +431,7 @@ func TestSpecializedHandler_FallsBackWithNilResolver(t *testing.T) {
 	}}
 
 	deps := SpecializedToolDeps{
-		DelegateHandlerDeps: DelegateHandlerDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
 			Provider:      stubProvider{},
 			ParentReg:     tool.NewRegistry(),
 			Runner:        runner,
@@ -441,7 +472,7 @@ func TestSpecializedHandler_ModelResolverError(t *testing.T) {
 	}}
 
 	deps := SpecializedToolDeps{
-		DelegateHandlerDeps: DelegateHandlerDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
 			Provider:      stubProvider{},
 			ParentReg:     tool.NewRegistry(),
 			Runner:        runner,
@@ -494,7 +525,7 @@ func TestSpecializedHandler_SavesChildSession(t *testing.T) {
 		capturedReqSet bool
 	)
 	deps := SpecializedToolDeps{
-		DelegateHandlerDeps: DelegateHandlerDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
 			SubAgentCfg: config.SubAgentConfig{},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
@@ -612,7 +643,7 @@ func TestVisionToolSkippedWithoutModel(t *testing.T) {
 func TestVisionHandler_UnknownImageID(t *testing.T) {
 	store := agent.NewImageStore(t.TempDir())
 	deps := SpecializedToolDeps{
-		DelegateHandlerDeps: DelegateHandlerDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
 			SubAgentCfg: config.SubAgentConfig{},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
@@ -657,7 +688,7 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 	}}
 
 	deps := SpecializedToolDeps{
-		DelegateHandlerDeps: DelegateHandlerDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
 			SubAgentCfg: config.SubAgentConfig{},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Description: "read"}),
@@ -714,7 +745,7 @@ func TestSpecializedHandler_SavesSessionForStructuredFailure(t *testing.T) {
 		capturedReqSet bool
 	)
 	deps := SpecializedToolDeps{
-		DelegateHandlerDeps: DelegateHandlerDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
 			SubAgentCfg: config.SubAgentConfig{},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
@@ -755,5 +786,108 @@ func TestSpecializedHandler_SavesSessionForStructuredFailure(t *testing.T) {
 	}
 	if session.ToolCallCount != 0 {
 		t.Fatalf("ToolCallCount = %d, want 0", session.ToolCallCount)
+	}
+}
+
+// toolTestSandbox is a test double for tool.SandboxWrapper.
+type toolTestSandbox struct {
+	enabled bool
+}
+
+func (s *toolTestSandbox) Enabled() bool                       { return s.enabled }
+func (s *toolTestSandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd { return cmd }
+func (s *toolTestSandbox) TmpDir() string                      { return "" }
+
+func TestSubAgentHandlerDeps_SandboxInherited(t *testing.T) {
+	sb := &toolTestSandbox{enabled: true}
+	var capturedReq agent.RunRequest
+	firstCall := true
+
+	idGen = func() string { return "child-sandbox-test" }
+	t.Cleanup(func() { idGen = func() string { return fmt.Sprintf("child-%d", agentCounter.Add(1)) } })
+
+	deps := SpecializedToolDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
+			Provider:    stubProvider{},
+			ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }}),
+			SubAgentCfg: config.SubAgentConfig{},
+			Events:      noopEventSink{},
+			WorkDir:     "/tmp/work",
+			Sandbox:     sb,
+			Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+				if firstCall {
+					capturedReq = req
+					firstCall = false
+				}
+				return successRunState(), nil
+			}},
+		},
+	}
+
+	def := SpecializedToolDef(AgentTypeExplore, deps)
+	_, err := def.Handler(context.Background(), map[string]any{"task": "test sandbox inheritance"})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	if capturedReq.Executor == nil {
+		t.Fatal("capturedReq.Executor is nil")
+	}
+	concreteExec, ok := capturedReq.Executor.(*tool.Executor)
+	if !ok {
+		t.Fatalf("child Executor type=%T, want *tool.Executor", capturedReq.Executor)
+	}
+	got := concreteExec.Sandbox()
+	if got == nil {
+		t.Fatal("child Executor.Sandbox() is nil, want parent sandbox")
+	}
+	if got != sb {
+		t.Error("child sandbox is not the same instance as parent sandbox")
+	}
+	if !got.Enabled() {
+		t.Error("child sandbox Enabled()=false, want true")
+	}
+}
+
+func TestSubAgentHandlerDeps_NilSandboxNotInherited(t *testing.T) {
+	var capturedReq agent.RunRequest
+	firstCall := true
+
+	idGen = func() string { return "child-nil-sandbox" }
+	t.Cleanup(func() { idGen = func() string { return fmt.Sprintf("child-%d", agentCounter.Add(1)) } })
+
+	deps := SpecializedToolDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
+			Provider:    stubProvider{},
+			ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }}),
+			SubAgentCfg: config.SubAgentConfig{},
+			Events:      noopEventSink{},
+			WorkDir:     "/tmp/work",
+			Sandbox:     nil, // no sandbox — unsafe mode
+			Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+				if firstCall {
+					capturedReq = req
+					firstCall = false
+				}
+				return successRunState(), nil
+			}},
+		},
+	}
+
+	def := SpecializedToolDef(AgentTypeExplore, deps)
+	_, err := def.Handler(context.Background(), map[string]any{"task": "test nil sandbox"})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	if capturedReq.Executor == nil {
+		t.Fatal("capturedReq.Executor is nil")
+	}
+	concreteExec, ok := capturedReq.Executor.(*tool.Executor)
+	if !ok {
+		t.Fatalf("child Executor type=%T, want *tool.Executor", capturedReq.Executor)
+	}
+	if got := concreteExec.Sandbox(); got != nil {
+		t.Errorf("child Executor.Sandbox()=%v, want nil when parent has no sandbox", got)
 	}
 }

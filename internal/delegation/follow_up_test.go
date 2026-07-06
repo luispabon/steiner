@@ -46,7 +46,7 @@ func TestFollowUpToolDef(t *testing.T) {
 }
 
 func TestFollowUpHandler_UnknownAgentID(t *testing.T) {
-	handler := NewFollowUpHandler(DelegateHandlerDeps{SessionStore: NewSessionStore()})
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{SessionStore: NewSessionStore()})
 
 	_, err := handler(context.Background(), map[string]any{
 		"agent_id": "missing",
@@ -85,7 +85,7 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 	})
 
 	var capturedReq agent.RunRequest
-	handler := NewFollowUpHandler(DelegateHandlerDeps{
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 7, MaxTokens: 77},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -191,7 +191,7 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 	})
 
 	call := 0
-	handler := NewFollowUpHandler(DelegateHandlerDeps{
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -257,7 +257,7 @@ func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 		ToolCallCount: 0,
 	})
 
-	handler := NewFollowUpHandler(DelegateHandlerDeps{
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -370,7 +370,7 @@ func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
 
 	var capturedReq agent.RunRequest
 	runs := 0
-	handler := NewFollowUpHandler(DelegateHandlerDeps{
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 30, MaxTokens: 100000},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {

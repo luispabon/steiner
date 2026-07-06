@@ -10,9 +10,9 @@ import (
 )
 
 // SpecializedToolDeps holds dependencies shared by all specialized delegate tools.
-// It embeds DelegateHandlerDeps and adds a ModelResolver for per-type model resolution.
+// It embeds SubAgentHandlerDeps and adds a ModelResolver for per-type model resolution.
 type SpecializedToolDeps struct {
-	DelegateHandlerDeps
+	SubAgentHandlerDeps
 	ModelResolver func(alias string) (provider.Provider, provider.ResolvedModel, error)
 	// ImageStore provides image lookup for the vision sub-agent tool.
 	ImageStore *agent.ImageStore

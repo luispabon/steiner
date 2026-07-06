@@ -4,7 +4,36 @@ import (
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
+
+// SubAgentHandlerDeps holds dependencies shared by sub-agent tool handlers
+// (specialized tools, vision, and follow_up).
+type SubAgentHandlerDeps struct {
+	Provider             provider.Provider
+	ParentReg            *tool.Registry
+	SubAgentCfg          config.SubAgentConfig
+	Events               output.EventSink
+	Runner               AgentRunner
+	WorkDir              string
+	HomeDir              string
+	ProjectContextConfig config.ProjectContextConfig
+	ResolvedModel        provider.ResolvedModel
+	MaxTokens            *int
+	StreamingPreferred   bool
+	CaveHuman            bool
+	TraceLogger          *TraceLogger
+	SessionStore         *SessionStore
+	// Sandbox is the parent sandbox. Sub-agents inherit it unchanged so that
+	// child sandbox permissions cannot exceed parent permissions.
+	Sandbox tool.SandboxWrapper
+	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
+	UsageRecorder *usagestats.Recorder
+}
 
 // ChildSession tracks persisted state for a delegated child session.
 type ChildSession struct {
@@ -79,4 +108,15 @@ func (s *SessionStore) Count() int {
 	defer s.mu.Unlock()
 
 	return len(s.sessions)
+}
+
+func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunRequest, state agent.RunState) {
+	store.Save(&ChildSession{
+		Spec:          spec,
+		Request:       req,
+		Conversation:  state.Conversation,
+		TurnCount:     state.TurnCount,
+		TokenCount:    state.TokenCount,
+		ToolCallCount: countToolCalls(state.Conversation),
+	})
 }

@@ -108,7 +108,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		extendedBase.Register(builtin.NewWebSearchTool(deps.Searcher))
 	}
 
-	delegateDeps := DelegateHandlerDeps{
+	subAgentDeps := SubAgentHandlerDeps{
 		Provider:             deps.Provider,
 		ParentReg:            extendedBase,
 		SubAgentCfg:          deps.SubAgentCfg,
@@ -127,7 +127,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	}
 
 	// Register the follow_up tool.
-	cloned.Register(FollowUpToolDef(NewFollowUpHandler(delegateDeps)))
+	cloned.Register(FollowUpToolDef(NewFollowUpHandler(subAgentDeps)))
 
 	// Conditionally expose web_search to the parent model.
 	if deps.Searcher != nil {
@@ -141,7 +141,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	// Skip research agent when no search backend is configured.
 	// Skip vision agent when no vision model is configured.
 	specializedDeps := SpecializedToolDeps{
-		DelegateHandlerDeps: delegateDeps,
+		SubAgentHandlerDeps: subAgentDeps,
 		ModelResolver:       modelResolver,
 		ImageStore:          deps.ImageStore,
 		AgentModels:         deps.Config.Models.SubAgents,

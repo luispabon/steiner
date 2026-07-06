@@ -382,10 +382,10 @@ func TestBuildChildRegistries_AllowedTools(t *testing.T) {
 			wantCount:    2,
 		},
 		{
-			name:         "delegate in allow-list is still excluded",
+			name:         "delegate is no longer specially excluded",
 			allowedTools: []string{"read", "delegate"},
-			wantNames:    []string{"read"},
-			wantCount:    1,
+			wantNames:    []string{"delegate", "read"},
+			wantCount:    2,
 		},
 		{
 			name:         "workflow handoff in allow-list is still excluded",
@@ -418,11 +418,6 @@ func TestBuildChildRegistries_AllowedTools(t *testing.T) {
 			execNames := exec.Names()
 			if len(execNames) != tt.wantCount {
 				t.Errorf("exec has %d tools, want %d: %v", len(execNames), tt.wantCount, execNames)
-			}
-			for _, name := range visibleNames {
-				if name == "delegate" {
-					t.Error("visible registry must not contain delegate")
-				}
 			}
 			for i, want := range tt.wantNames {
 				if i >= len(visibleNames) || visibleNames[i] != want {

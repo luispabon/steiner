@@ -30,7 +30,7 @@ func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (an
 }
 
 // NewFollowUpHandler returns the in-process handler for the follow-up tool.
-func NewFollowUpHandler(deps DelegateHandlerDeps) func(ctx context.Context, input map[string]any) (any, error) {
+func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		agentID, _ := input["agent_id"].(string)
 		if agentID == "" {

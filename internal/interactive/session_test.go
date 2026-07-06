@@ -2034,14 +2034,14 @@ func TestLoadSessionRestoresDelegationBoxesWithoutRetention(t *testing.T) {
 						{
 							Role: agent.MessageRoleAssistant,
 							ToolCalls: []agent.ToolCall{
-								{ID: "call_delegate_2", Name: "delegate", Arguments: map[string]any{"task": "handle this"}},
+								{ID: "call_delegate_2", Name: "explore", Arguments: map[string]any{"task": "handle this"}},
 							},
 						},
 						{
 							Role:       agent.MessageRoleTool,
 							Content:    "done",
 							ToolCallID: "call_delegate_2",
-							Name:       "delegate",
+							Name:       "explore",
 							Retention:  nil,
 						},
 					},

@@ -14,7 +14,6 @@ var delegateToolSet = buildDelegateToolSet()
 
 func buildDelegateToolSet() map[string]bool {
 	tools := make(map[string]bool)
-	tools[strings.ToLower(delegation.DelegateToolName)] = true
 	for _, name := range delegation.AllSpecializedDelegateTools() {
 		tools[strings.ToLower(name)] = true
 	}
