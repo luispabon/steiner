@@ -10,9 +10,6 @@ func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 	if patch.MaxTokens != nil {
 		dst.MaxTokens = *patch.MaxTokens
 	}
-	if patch.AllowedTools != nil {
-		dst.AllowedTools = append([]string(nil), (*patch.AllowedTools)...)
-	}
 }
 
 func applyAdvisorPatch(dst *AdvisorConfig, patch *advisorPatch) {

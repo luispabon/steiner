@@ -812,30 +812,34 @@ func TestParentContextIsolation(t *testing.T) {
 		},
 	}
 
-	deps := DelegateHandlerDeps{
-		Provider:    childProv,
-		ParentReg:   parentReg,
-		SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000, AllowedTools: []string{"helper"}},
-		Events:      output.NoopSink{},
-		Runner:      agent.NewRunner(),
-		WorkDir:     "/tmp/work",
+	deps := BootstrapDeps{
+		Provider:     childProv,
+		ParentReg:    parentReg,
+		SubAgentCfg:  config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000},
+		AllowedTools: []string{"helper"},
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
 	}
 
-	handler := NewDelegateHandler(deps)
-	raw, err := handler(context.Background(), map[string]any{
-		"task": "use the helper tool",
-	})
+	spec := DelegationSpec{
+		Task:    "use the helper tool",
+		AgentID: "parent-isolation",
+		Limits:  DelegationLimits{MaxTurns: 5},
+	}
+
+	req, limits, err := BuildChildRun(context.Background(), deps, spec)
 	if err != nil {
-		t.Fatalf("handler error: %v", err)
+		t.Fatalf("BuildChildRun() error = %v", err)
 	}
+	spec.Limits = limits
 
-	execResult, ok := raw.(tool.ExecutionResult)
-	if !ok {
-		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	execResult, _, err := SpawnDelegate(context.Background(), spec, req, agent.NewRunner(), deps.Events, nil)
+	if err != nil {
+		t.Fatalf("SpawnDelegate error: %v", err)
 	}
 	result, ok := execResult.Value.(DelegationResult)
 	if !ok {
-		t.Fatalf("handler result.Value type = %T, want DelegationResult", execResult.Value)
+		t.Fatalf("execResult.Value type = %T, want DelegationResult", execResult.Value)
 	}
 	if result.Output != "child final answer" {
 		t.Errorf("Output: got %q, want %q", result.Output, "child final answer")

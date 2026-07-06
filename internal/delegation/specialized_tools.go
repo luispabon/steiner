@@ -100,10 +100,6 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			AgentID:      agentID,
 		}
 
-		// Build a modified SubAgentConfig with the per-type tool allowlist.
-		typedCfg := deps.SubAgentCfg
-		typedCfg.AllowedTools = AgentAllowedTools(agentType)
-
 		// Resolve per-type model if configured.
 		resolvedProvider := deps.Provider
 		resolvedModel := deps.ResolvedModel
@@ -121,7 +117,8 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
 			Provider:             resolvedProvider,
 			ParentReg:            deps.ParentReg,
-			SubAgentCfg:          typedCfg,
+			SubAgentCfg:          deps.SubAgentCfg,
+			AllowedTools:         AgentAllowedTools(agentType),
 			Events:               deps.Events,
 			WorkDir:              deps.WorkDir,
 			HomeDir:              deps.HomeDir,

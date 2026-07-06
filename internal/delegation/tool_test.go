@@ -559,7 +559,7 @@ func TestDelegateHandlerDeps_SandboxInherited(t *testing.T) {
 	deps := DelegateHandlerDeps{
 		Provider:    stubProvider{},
 		ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }}),
-		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		SubAgentCfg: config.SubAgentConfig{},
 		Events:      noopEventSink{},
 		WorkDir:     "/tmp/work",
 		Sandbox:     sb,
@@ -683,7 +683,7 @@ func TestDelegateHandlerDeps_NilSandboxNotInherited(t *testing.T) {
 	deps := DelegateHandlerDeps{
 		Provider:    stubProvider{},
 		ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }}),
-		SubAgentCfg: config.SubAgentConfig{AllowedTools: []string{"read"}},
+		SubAgentCfg: config.SubAgentConfig{},
 		Events:      noopEventSink{},
 		WorkDir:     "/tmp/work",
 		Sandbox:     nil, // no sandbox — unsafe mode

@@ -22,6 +22,7 @@ type BootstrapDeps struct {
 	Provider             provider.Provider
 	ParentReg            *tool.Registry
 	SubAgentCfg          config.SubAgentConfig
+	AllowedTools         []string
 	Events               output.EventSink
 	WorkDir              string
 	HomeDir              string
@@ -64,7 +65,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 
 	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman)
 
-	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.SubAgentCfg.AllowedTools)
+	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.AllowedTools)
 	req := buildChildRunRequest(deps.WorkDir, spec.AgentID, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox, deps.UsageRecorder)
 	return req, limits, nil
 }
