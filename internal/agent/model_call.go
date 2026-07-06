@@ -289,6 +289,9 @@ func handleDiagnosticChunk(sink output.EventSink, turn int, chunk provider.ChatC
 
 func handleErrorChunk(chunk provider.ChatChunk) (bool, error) {
 	if errText := strings.TrimSpace(chunk.Error); errText != "" {
+		if chunk.OriginalError != nil {
+			return true, chunk.OriginalError
+		}
 		return true, fmt.Errorf("%s", errText)
 	}
 	return false, nil
