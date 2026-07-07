@@ -85,6 +85,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		screenLines:          new([]string),
 		oneshotRunnerFactory: cfg.OneshotRunnerFactory,
 		imageStore:           cfg.ImageStore,
+		visionCapabilities:   cfg.VisionCapabilities,
 		sessionResetCleanup:  cfg.SessionResetCleanup,
 	}
 

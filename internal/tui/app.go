@@ -70,6 +70,8 @@ type Config struct {
 	Notifier notifier
 	// ImageStore tracks pasted images saved to disk; nil disables disk persistence.
 	ImageStore *agent.ImageStore
+	// VisionCapabilities tracks per-model vision capability for the session; nil disables the paste gate.
+	VisionCapabilities *agent.VisionCapabilities
 	// SessionResetCleanup is called before the session is reset (clear, resume, fork, handoff).
 	// Must reset session-scoped sandbox state (e.g., empty /tmp contents) without
 	// tearing down the sandbox itself. May be nil.

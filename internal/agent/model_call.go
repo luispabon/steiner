@@ -13,6 +13,11 @@ import (
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
+// errRetryTurnForVision is a sentinel error returned by completeModelCall when
+// vision capability is discovered to be incapable at runtime and latched.
+// The turn-level retry is triggered in turn_progression.go's executeModelCall.
+var errRetryTurnForVision = errors.New("retry turn for vision capability change")
+
 // recordModelUsage records one observation for a usage-bearing response.
 // No-op when the recorder is unset or the response carried no usage, so each
 // usage-bearing response is recorded exactly once and failed/nil-usage calls
@@ -32,31 +37,42 @@ func recordModelUsage(req RunRequest, usage *provider.UsageStats) {
 	})
 }
 
-func stripImagesIfVisionDisabled(vision *bool, messages []provider.Message, modelAlias string, turn int, events output.EventSink) []provider.Message {
-	if vision != nil && !*vision {
-		hasImages := false
-		for _, msg := range messages {
-			if len(msg.Images) > 0 {
-				hasImages = true
-				break
-			}
-		}
-		if hasImages {
-			stripped := make([]provider.Message, len(messages))
-			for i, msg := range messages {
-				msg.Images = nil
-				stripped[i] = msg
-			}
-			emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
-				Turn:     turn,
-				Severity: "warning",
-				Kind:     "vision_disabled",
-				Message:  fmt.Sprintf("model %s does not support vision; image attachments stripped from request", modelAlias),
-			}))
-			return stripped
+func stripImagesIfVisionDisabled(vision *bool, messages []provider.Message, modelAlias string, turn int, events output.EventSink, capabilities *VisionCapabilities) []provider.Message {
+	shouldStrip := false
+	if capabilities != nil {
+		shouldStrip = capabilities.Get(modelAlias) == VisionIncapable
+	} else {
+		// Fallback to old behavior for backward compatibility when holder is nil
+		shouldStrip = vision != nil && !*vision
+	}
+
+	if !shouldStrip {
+		return messages
+	}
+
+	hasImages := false
+	for _, msg := range messages {
+		if len(msg.Images) > 0 {
+			hasImages = true
+			break
 		}
 	}
-	return messages
+	if !hasImages {
+		return messages
+	}
+
+	stripped := make([]provider.Message, len(messages))
+	for i, msg := range messages {
+		msg.Images = nil
+		stripped[i] = msg
+	}
+	emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+		Turn:     turn,
+		Severity: "warning",
+		Kind:     "vision_disabled",
+		Message:  fmt.Sprintf("model %s does not support vision; image attachments stripped from request", modelAlias),
+	}))
+	return stripped
 }
 
 func executeChatRequest(
@@ -159,7 +175,7 @@ func isStreamRequiredError(err error) bool {
 }
 
 func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, skipNonStream *bool) (provider.ChatResponse, time.Time, error) {
-	chatRequest.Messages = stripImagesIfVisionDisabled(req.ResolvedModel.Vision, chatRequest.Messages, req.ResolvedModel.Alias, turn, req.Events)
+	chatRequest.Messages = stripImagesIfVisionDisabled(req.ResolvedModel.Vision, chatRequest.Messages, req.ResolvedModel.Alias, turn, req.Events, req.VisionCapabilities)
 	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant, skipNonStream)
 	if err == nil {
 		recordModelUsage(req, response.Usage)
@@ -169,6 +185,30 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 		return response, firstChunkTime, err
 	}
 
+	// If we have a capabilities holder and the model is not already known to be incapable,
+	// latch it as incapable and return the sentinel error to trigger a turn-level retry.
+	// This allows the model call to be re-attempted with images pre-stripped based on the latch.
+	if req.VisionCapabilities != nil && req.VisionCapabilities.Get(req.ResolvedModel.Alias) != VisionIncapable {
+		if changed := req.VisionCapabilities.LatchIncapable(req.ResolvedModel.Alias); changed {
+			if req.VisionCapabilities.TakeNotify(req.ResolvedModel.Alias) {
+				disposition := "routed"
+				if !req.VisionCapabilities.SubAgentConfigured() {
+					disposition = "stripped"
+				}
+				emitEvent(req.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+					Turn:     turn,
+					Severity: "info",
+					Kind:     "vision_discovery",
+					Message:  fmt.Sprintf("model %s cannot view images; images will be %s", req.ResolvedModel.Alias, disposition),
+				}))
+			}
+			return provider.ChatResponse{}, time.Time{}, errRetryTurnForVision
+		}
+		// Already latched to incapable; fall through to inline retry below
+	}
+
+	// Fallback inline retry for when capabilities holder is nil or already latched:
+	// strip images and retry the provider call directly.
 	stripped := provider.CloneMessages(chatRequest.Messages)
 	for i := range stripped {
 		stripped[i].Images = nil
@@ -289,6 +329,9 @@ func handleDiagnosticChunk(sink output.EventSink, turn int, chunk provider.ChatC
 
 func handleErrorChunk(chunk provider.ChatChunk) (bool, error) {
 	if errText := strings.TrimSpace(chunk.Error); errText != "" {
+		if chunk.OriginalError != nil {
+			return true, chunk.OriginalError
+		}
 		return true, fmt.Errorf("%s", errText)
 	}
 	return false, nil

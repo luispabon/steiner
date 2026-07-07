@@ -21,7 +21,7 @@ func TestStripImagesIfVisionDisabled_VisionNil(t *testing.T) {
 	var events []output.Event
 	result := stripImagesIfVisionDisabled(nil, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 		events = append(events, e)
-	}))
+	}), nil)
 
 	if len(result) != len(messages) {
 		t.Fatalf("stripImagesIfVisionDisabled with nil vision: returned %d messages, want %d", len(result), len(messages))
@@ -49,7 +49,7 @@ func TestStripImagesIfVisionDisabled_VisionTrue(t *testing.T) {
 	var events []output.Event
 	result := stripImagesIfVisionDisabled(&visionTrue, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 		events = append(events, e)
-	}))
+	}), nil)
 
 	if len(result) != len(messages) {
 		t.Fatalf("stripImagesIfVisionDisabled with vision=true: returned %d messages, want %d", len(result), len(messages))
@@ -75,7 +75,7 @@ func TestStripImagesIfVisionDisabled_VisionFalseNoImages(t *testing.T) {
 	var events []output.Event
 	result := stripImagesIfVisionDisabled(&visionFalse, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 		events = append(events, e)
-	}))
+	}), nil)
 
 	if len(result) != len(messages) {
 		t.Fatalf("stripImagesIfVisionDisabled with vision=false, no images: returned %d messages, want %d", len(result), len(messages))
@@ -105,7 +105,7 @@ func TestStripImagesIfVisionDisabled_VisionFalseWithImages(t *testing.T) {
 	var events []output.Event
 	result := stripImagesIfVisionDisabled(&visionFalse, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 		events = append(events, e)
-	}))
+	}), nil)
 
 	if len(result) != len(messages) {
 		t.Fatalf("stripImagesIfVisionDisabled with vision=false: returned %d messages, want %d", len(result), len(messages))

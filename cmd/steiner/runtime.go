@@ -67,6 +67,7 @@ type cliRuntime struct {
 	compactionLogFile      string
 	usageRecorder          *usagestats.Recorder
 	imageStore             *agent.ImageStore
+	visionCapabilities     *agent.VisionCapabilities
 }
 
 var buildRuntime = defaultBuildRuntime
