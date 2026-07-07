@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -187,8 +188,8 @@ func wrapVisionTask(userText string) string {
 	const template = `The main agent cannot see images and will rely entirely on your description.
 Describe the attached image in full, exact detail — layout, text (quoted verbatim),
 colours, dimensions, and anything notable. The user's request to the main agent was:
-"%s"
+%s
 Bias your detail toward that request, but describe comprehensively.`
 
-	return fmt.Sprintf(template, userText)
+	return fmt.Sprintf(template, strconv.Quote(userText))
 }
