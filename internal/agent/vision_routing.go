@@ -26,6 +26,25 @@ func (p *turnProgressor) handleImagesForVision(ctx context.Context, state *RunSt
 		return false
 	}
 
+	if vc.TakeNotify(alias) {
+		disposition := "routed"
+		if !vc.SubAgentConfigured() {
+			disposition = "stripped"
+		}
+		emitEvent(p.request.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+			Severity: "info",
+			Kind:     "vision_discovery",
+			Message:  fmt.Sprintf("model %s cannot view images; images will be %s", alias, disposition),
+		}))
+	}
+
+	// Deliberately copies state.Conversation rather than following the
+	// SummaryPrefixStrippedMessages() pattern used elsewhere: that path
+	// round-trips messages through provider.Message, which has no ID/FilePath
+	// fields on ImageBlock and would silently drop them before routing/stripping
+	// can use them. This is a fresh user turn, so there is no summary prefix to
+	// worry about double-counting; revisit if images ever need to survive behind
+	// a post-compaction summary.
 	newMessages := make([]Message, len(state.Conversation))
 	copy(newMessages, state.Conversation)
 
@@ -135,10 +154,20 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	emitEvent(p.request.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
 		Severity: "info",
 		Kind:     "vision_routed",
-		Message:  fmt.Sprintf("image %s routed to vision assistant: %s", img.ID, result.Output),
+		Message:  fmt.Sprintf("image %s routed to vision assistant: %s", img.ID, truncateForLog(result.Output, 200)),
 	}))
 
 	return nil
+}
+
+// truncateForLog shortens s to at most max runes for a compact diagnostic
+// line, appending an ellipsis marker when truncated.
+func truncateForLog(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "…"
 }
 
 // stripImageFallback clears the image data and appends a minimal fallback note.

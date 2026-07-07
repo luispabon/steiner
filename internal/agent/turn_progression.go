@@ -299,7 +299,7 @@ func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcom
 		}
 	}
 
-	if modelOutcome.Error != nil || modelOutcome.Stop {
+	if modelOutcome.Error != nil || modelOutcome.Stop || modelOutcome.Retry {
 		return modelOutcome
 	}
 
