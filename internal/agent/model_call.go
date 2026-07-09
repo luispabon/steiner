@@ -117,7 +117,7 @@ func executeChatRequest(
 			return response, time.Time{}, nil
 		}
 		// Detect "stream required" 400 error and mark it for future turns.
-		if isStreamRequiredError(chatErr) {
+		if IsStreamRequiredError(chatErr) {
 			if skipNonStream != nil {
 				*skipNonStream = true
 			}
@@ -151,14 +151,14 @@ func executeChatRequest(
 	return response, time.Time{}, nil
 }
 
-// isStreamRequiredError reports whether err is the provider's "this model only
+// IsStreamRequiredError reports whether err is the provider's "this model only
 // supports streaming" rejection. Some Codex models (e.g. gpt-5.4-mini) 400 on
 // non-streaming Responses requests with a body like "Stream must be set to
 // true". executeChatRequest uses this to latch skipNonStream so later turns go
 // straight to streaming instead of wasting one failed non-stream request per
 // turn (which also hid the error and hurt cache stats). Keep the match narrow
 // (400 + "stream" + must/required) so unrelated 400s still surface normally.
-func isStreamRequiredError(err error) bool {
+func IsStreamRequiredError(err error) bool {
 	if err == nil {
 		return false
 	}
