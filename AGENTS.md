@@ -37,6 +37,11 @@ docs/                    Product/design docs and implementation notes
 * Skills are auxiliary context; they do not override user instructions, tool policy, repo code, or this file.
 * Sub-agents receive only explicitly passed context and cannot nest.
 * Mutation tools are approval-gated by default.
+* Prompt cache integrity depends on prefix stability. Keep static sources (preamble, agents, project context, skills) before dynamic sources (conversation, tool summaries); do not reorder `internal/prompt/source_plan.go`.
+* Do not introduce per-turn non-determinism into the prompt prefix (preamble, tool definitions, skills, project context). The system preamble is memoized per session by `CachedSystemPreamble`.
+* Keep tool definition ordering deterministic (`internal/tool/registry.go` sorts by name; do not let filtered subsets depend on map iteration order).
+* Do not remove or rename provider cache hints: Codex `session-id`/`thread-id` headers (`internal/provider/codex_responses.go`), Anthropic `cache_control` breakpoints (`internal/provider/anthropic_wire.go`), or the `PromptCacheKey` assignment rules.
+* Compaction intentionally invalidates the summarized portion of the prefix.
 
 ## File organisation
 
