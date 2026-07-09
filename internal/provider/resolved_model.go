@@ -38,26 +38,29 @@ const (
 // ResolvedModel is the runtime object combining provider and model config
 // with resolved metadata.
 type ResolvedModel struct {
-	Alias                   string
-	ProviderAlias           string
-	ProviderConfig          config.ProviderConfig
-	BackendModelID          string
-	EffectiveProviderType   config.ProviderType
-	EffectiveTransport      TransportType
-	EffectiveLimits         EffectiveLimits
-	Params                  map[string]any
-	ExtraParams             map[string]any
-	PromptSuffix            string
-	ReasoningEchoBack       bool
-	Prompts                 config.ModelPrompts
-	Retry                   config.RetryConfig
-	MetadataSource          string
-	Confidence              string
-	TokenizerStrategy       string
-	TokenizerConfidence     string
-	TransportOverrideReason string
-	Vision                  *bool
-	Warnings                []string
+	Alias                     string
+	ProviderAlias             string
+	ProviderConfig            config.ProviderConfig
+	BackendModelID            string
+	EffectiveProviderType     config.ProviderType
+	EffectiveTransport        TransportType
+	EffectiveLimits           EffectiveLimits
+	Params                    map[string]any
+	ExtraParams               map[string]any
+	PromptSuffix              string
+	ReasoningEchoBack         bool
+	Prompts                   config.ModelPrompts
+	Retry                     config.RetryConfig
+	MetadataSource            string
+	Confidence                string
+	TokenizerStrategy         string
+	TokenizerConfidence       string
+	TransportOverrideReason   string
+	Vision                    *bool
+	Reasoning                 ReasoningCapabilities
+	ReasoningConfiguredEffort string
+	ReasoningEffectiveEffort  string
+	Warnings                  []string
 }
 
 // Resolve builds a ResolvedModel from cfg for the given model alias.
@@ -75,25 +78,29 @@ func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
 
 	limits := resolveEffectiveLimits(modelCfg.Advanced.Limits)
 	tokenizerStrategy, tokenizerConfidence := resolveTokenizerMetadata(modelCfg.ID)
+	reasoningCaps, reasoningEffectiveEffort := resolveReasoningCapabilities(modelCfg.Advanced.Reasoning, provCfg.Type, modelCfg.ID)
 
 	rm := ResolvedModel{
-		Alias:                 alias,
-		ProviderAlias:         modelCfg.Provider,
-		ProviderConfig:        provCfg,
-		BackendModelID:        modelCfg.ID,
-		EffectiveProviderType: provCfg.Type,
-		EffectiveTransport:    TransportConfigured,
-		EffectiveLimits:       limits,
-		Params:                modelCfg.Params,
-		ExtraParams:           modelCfg.ExtraParams,
-		PromptSuffix:          modelCfg.PromptSuffix,
-		Prompts:               modelCfg.Prompts,
-		Retry:                 modelCfg.Retry,
-		MetadataSource:        "config",
-		Confidence:            "high",
-		TokenizerStrategy:     tokenizerStrategy,
-		TokenizerConfidence:   tokenizerConfidence,
-		Vision:                modelCfg.Vision,
+		Alias:                     alias,
+		ProviderAlias:             modelCfg.Provider,
+		ProviderConfig:            provCfg,
+		BackendModelID:            modelCfg.ID,
+		EffectiveProviderType:     provCfg.Type,
+		EffectiveTransport:        TransportConfigured,
+		EffectiveLimits:           limits,
+		Params:                    modelCfg.Params,
+		ExtraParams:               modelCfg.ExtraParams,
+		PromptSuffix:              modelCfg.PromptSuffix,
+		Prompts:                   modelCfg.Prompts,
+		Retry:                     modelCfg.Retry,
+		MetadataSource:            "config",
+		Confidence:                "high",
+		TokenizerStrategy:         tokenizerStrategy,
+		TokenizerConfidence:       tokenizerConfidence,
+		Vision:                    modelCfg.Vision,
+		Reasoning:                 reasoningCaps,
+		ReasoningConfiguredEffort: strings.TrimSpace(modelCfg.Advanced.Reasoning.Effort),
+		ReasoningEffectiveEffort:  reasoningEffectiveEffort,
 	}
 	if modelCfg.Advanced.ReasoningEchoBack != nil {
 		rm.ReasoningEchoBack = *modelCfg.Advanced.ReasoningEchoBack
