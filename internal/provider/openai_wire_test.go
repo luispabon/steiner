@@ -402,6 +402,102 @@ func TestOpenAIRequestMarshalJSONPreservesReasoningExtraParams(t *testing.T) {
 	}
 }
 
+func TestOpenAIRequestMarshalJSONOmitsReasoningWhenNil(t *testing.T) {
+	req := openAIRequest{
+		Model:    "gpt-4",
+		Messages: []openAIMessage{{Role: "user", Content: "hello"}},
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal error = %v", err)
+	}
+	if _, ok := m["reasoning"]; ok {
+		t.Fatal("reasoning present in JSON, want absent when Reasoning is nil")
+	}
+}
+
+func TestOpenAIRequestMarshalJSONIncludesReasoningEffort(t *testing.T) {
+	req := openAIRequest{
+		Model:     "gpt-4",
+		Messages:  []openAIMessage{{Role: "user", Content: "hello"}},
+		Reasoning: &ReasoningRequest{Effort: "low"},
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal error = %v", err)
+	}
+	reasoning, ok := m["reasoning"].(map[string]any)
+	if !ok {
+		t.Fatalf("reasoning = %#v, want map[string]any", m["reasoning"])
+	}
+	if got, want := reasoning["effort"], "low"; got != want {
+		t.Fatalf("reasoning.effort = %v, want %v", got, want)
+	}
+}
+
+func TestOpenAIRequestMarshalJSONReasoningOverridesParamsAndExtraParams(t *testing.T) {
+	req := openAIRequest{
+		Model:     "gpt-4",
+		Messages:  []openAIMessage{{Role: "user", Content: "hello"}},
+		Reasoning: &ReasoningRequest{Effort: "high"},
+		Params: map[string]any{
+			"reasoning": map[string]any{"effort": "low"},
+		},
+		ExtraParams: map[string]any{
+			"reasoning": map[string]any{"effort": "medium"},
+		},
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal error = %v", err)
+	}
+	reasoning, ok := m["reasoning"].(map[string]any)
+	if !ok {
+		t.Fatalf("reasoning = %#v, want map[string]any", m["reasoning"])
+	}
+	if got, want := reasoning["effort"], "high"; got != want {
+		t.Fatalf("reasoning.effort = %v, want %v (first-class field must win)", got, want)
+	}
+}
+
+func TestChatRequestWire_ThreadsReasoning(t *testing.T) {
+	tests := []struct {
+		name      string
+		reasoning *ReasoningRequest
+	}{
+		{name: "nil reasoning", reasoning: nil},
+		{name: "explicit effort", reasoning: &ReasoningRequest{Effort: "medium"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := ChatRequest{
+				Model:     "test-model",
+				Messages:  []Message{{Role: MessageRoleUser, Content: "hi"}},
+				Reasoning: tt.reasoning,
+			}
+			wire, err := chatRequestWire(req, "test-model", false)
+			if err != nil {
+				t.Fatalf("chatRequestWire() error = %v", err)
+			}
+			if wire.Reasoning != tt.reasoning {
+				t.Fatalf("wire.Reasoning = %v, want %v", wire.Reasoning, tt.reasoning)
+			}
+		})
+	}
+}
+
 func TestNormalizeToolCalls_TrailingCommaInArguments(t *testing.T) {
 	calls := []openAIToolCall{
 		{

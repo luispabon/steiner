@@ -1134,6 +1134,69 @@ func TestCompleteCompactionCallDoesNotRecordOnError(t *testing.T) {
 	}
 }
 
+func TestNormalAndCompactionRequests_ShareResolvedReasoning(t *testing.T) {
+	tests := []struct {
+		name            string
+		effectiveEffort string
+		wantReasoning   *provider.ReasoningRequest
+	}{
+		{name: "no explicit effort omits reasoning on both", effectiveEffort: "", wantReasoning: nil},
+		{name: "explicit effort sets identical reasoning on both", effectiveEffort: "low", wantReasoning: &provider.ReasoningRequest{Effort: "low"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conversation := []Message{
+				{Role: MessageRoleUser, Content: "hello"},
+				{Role: MessageRoleAssistant, Content: "world"},
+			}
+			state := RunState{
+				Conversation: conversation,
+				Lineage:      newConversationLineage(conversation),
+			}
+			req := RunRequest{
+				ResolvedModel: provider.ResolvedModel{
+					BackendModelID:           "test-model",
+					ReasoningEffectiveEffort: tt.effectiveEffort,
+				},
+				ModelBudget: prompt.ModelTokenBudget{
+					ContextSize:         100000,
+					MaxCompletionTokens: 256,
+					SafetyMarginTokens:  0,
+					SummaryMaxTokens:    128,
+				},
+				Events: output.NoopSink{},
+			}
+			candidate := ConversationCandidate{
+				GenerationID: 1,
+				View:         ConversationViewFull,
+				Messages:     conversation,
+			}
+
+			p := newTurnProgressor(req, prepareBasePrompt(req), nil)
+			_, normalReq, _, err := p.prepareTurn(context.Background(), state)
+			if err != nil {
+				t.Fatalf("prepareTurn() error = %v", err)
+			}
+
+			compactionReq, _, err := buildCompactionRequestWithMode(
+				context.Background(), req, state, candidate,
+				prompt.CompactionModeNormal, 128,
+			)
+			if err != nil {
+				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+			}
+
+			if !reflect.DeepEqual(normalReq.Reasoning, tt.wantReasoning) {
+				t.Fatalf("normal Reasoning = %+v, want %+v", normalReq.Reasoning, tt.wantReasoning)
+			}
+			if !reflect.DeepEqual(compactionReq.Reasoning, tt.wantReasoning) {
+				t.Fatalf("compaction Reasoning = %+v, want %+v", compactionReq.Reasoning, tt.wantReasoning)
+			}
+		})
+	}
+}
+
 func TestBuildCompactionRequestWithMode_ReasoningHandling(t *testing.T) {
 	// Messages with reasoning content on an assistant message to verify
 	// stripReasoningContent behaviour.
@@ -1540,6 +1603,9 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 		}
 		if compactionReq.IncludeEmptyReasoning != normalReq.IncludeEmptyReasoning {
 			t.Fatalf("IncludeEmptyReasoning = %v, want %v", compactionReq.IncludeEmptyReasoning, normalReq.IncludeEmptyReasoning)
+		}
+		if !reflect.DeepEqual(compactionReq.Reasoning, normalReq.Reasoning) {
+			t.Fatalf("Reasoning = %+v, want %+v", compactionReq.Reasoning, normalReq.Reasoning)
 		}
 
 		// MaxTokens: normal is nil, compaction is set

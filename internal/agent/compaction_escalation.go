@@ -219,6 +219,7 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    messages,
 		Tools:       provider.CloneTools(req.Tools),
+		Reasoning:   resolvedReasoningRequest(req.ResolvedModel),
 		Params:      req.ResolvedModel.Params,
 		ExtraParams: req.ResolvedModel.ExtraParams,
 		MaxTokens:   compactionMaxTokensForMode(maxTokens),

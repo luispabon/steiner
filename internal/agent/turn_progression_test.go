@@ -1093,6 +1093,64 @@ func TestPrepareTurn_SetsIncludeEmptyReasoningFromResolvedModel(t *testing.T) {
 	}
 }
 
+func TestPrepareTurn_SetsReasoningFromResolvedModel(t *testing.T) {
+	tests := []struct {
+		name            string
+		effectiveEffort string
+		wantReasoning   *provider.ReasoningRequest
+	}{
+		{
+			name:            "nil reasoning when effective effort empty",
+			effectiveEffort: "",
+			wantReasoning:   nil,
+		},
+		{
+			name:            "reasoning set when effective effort explicit",
+			effectiveEffort: "low",
+			wantReasoning:   &provider.ReasoningRequest{Effort: "low"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := RunState{
+				TurnCount:    0,
+				Conversation: []Message{{Role: MessageRoleUser, Content: "hello"}},
+			}
+			req := RunRequest{
+				ResolvedModel: provider.ResolvedModel{
+					BackendModelID:           "test-model",
+					ReasoningEffectiveEffort: tt.effectiveEffort,
+				},
+				Prompt: prompt.AssemblyOptions{
+					Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+				},
+				ModelBudget: prompt.ModelTokenBudget{
+					ContextSize:         4096,
+					MaxCompletionTokens: 256,
+				},
+				Limits: Limits{MaxTurns: 2},
+				Events: output.NoopSink{},
+			}
+			p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+			_, chatRequest, _, err := p.prepareTurn(context.Background(), state)
+			if err != nil {
+				t.Fatalf("prepareTurn() error = %v", err)
+			}
+			if tt.wantReasoning == nil {
+				if chatRequest.Reasoning != nil {
+					t.Fatalf("Reasoning = %+v, want nil", chatRequest.Reasoning)
+				}
+				return
+			}
+			if chatRequest.Reasoning == nil || *chatRequest.Reasoning != *tt.wantReasoning {
+				t.Fatalf("Reasoning = %+v, want %+v", chatRequest.Reasoning, tt.wantReasoning)
+			}
+		})
+	}
+}
+
 func TestConversationSnapshotFromContextReturnsClonedSnapshot(t *testing.T) {
 	original := []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}}
 

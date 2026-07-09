@@ -16,6 +16,7 @@ type openAIRequest struct {
 	Stream        bool                 `json:"stream,omitempty"`
 	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
 	Tools         []openAITool         `json:"tools,omitempty"`
+	Reasoning     *ReasoningRequest    `json:"-"`
 	Params        map[string]any       `json:"-"` // Normalized generation params
 	ExtraParams   map[string]any       `json:"-"` // Raw provider-specific passthrough
 }
@@ -39,6 +40,9 @@ func (r openAIRequest) MarshalJSON() ([]byte, error) {
 	}
 	if len(r.Tools) > 0 {
 		base["tools"] = r.Tools
+	}
+	if r.Reasoning != nil {
+		base["reasoning"] = reasoningWirePayload(r.Reasoning)
 	}
 	m := mergeRequestParams(base, r.Params, r.ExtraParams)
 	return json.Marshal(m)
