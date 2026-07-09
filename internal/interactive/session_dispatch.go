@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 // Handle processes an interactive action. Handles SubmitPrompt, SteerPrompt,
@@ -66,7 +67,7 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		s.handoffCoordinator.Submit(a)
 		return true, nil
 	case SwitchModel:
-		return true, s.handleSwitchModel(a.Name)
+		return true, s.handleSwitchModel(a.Name, a.Reasoning)
 	case LoadSession:
 		return true, s.loadSession(ctx, a.SessionID)
 
@@ -82,7 +83,7 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 	return false, nil
 }
 
-func (s *Session) handleSwitchModel(name string) error {
+func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOverride) error {
 	s.mu.Lock()
 	if _, ok := s.deps.Config.Models.Definitions[name]; !ok {
 		s.mu.Unlock()
@@ -91,6 +92,9 @@ func (s *Session) handleSwitchModel(name string) error {
 		return err
 	}
 	s.deps.Config.Models.Default = name
+	if reasoning != nil {
+		s.reasoningOverrides[name] = *reasoning
+	}
 	s.mu.Unlock()
 	return nil
 }

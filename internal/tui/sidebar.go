@@ -20,6 +20,7 @@ const (
 type sidebarState struct {
 	expanded              bool
 	model                 string
+	reasoning             string
 	version               string
 	quant                 string
 	provider              string

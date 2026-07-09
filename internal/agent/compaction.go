@@ -200,6 +200,9 @@ func fitConversationState(ctx context.Context, req RunRequest, state RunState) (
 		return prompt.RequestTokenBudget{}, err
 	}
 
+	// Reasoning is intentionally omitted here: this request is only used to
+	// estimate token counts against the budget (FitRequest), never sent to a
+	// provider, and reasoning effort does not affect token estimation.
 	chatRequest := provider.ChatRequest{
 		Model:       req.ResolvedModel.BackendModelID,
 		Messages:    assembly.Messages,

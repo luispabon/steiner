@@ -21,6 +21,10 @@ func stringMapPtr(v map[string]string) *map[string]string {
 	return &v
 }
 
+func stringSlicePtr(v []string) *[]string {
+	return &v
+}
+
 func TestApplySchedulerPatch(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -235,6 +239,75 @@ func TestApplyModelPatch(t *testing.T) {
 			},
 		},
 		{
+			name: "applies reasoning_echo_back sub-patch",
+			initial: ModelConfig{
+				Advanced: AdvancedConfig{
+					ReasoningEchoBack: boolPtr(false),
+				},
+			},
+			patch: modelPatch{
+				Advanced: &advancedPatch{
+					ReasoningEchoBack: boolPtr(true),
+				},
+			},
+			want: ModelConfig{
+				Advanced: AdvancedConfig{
+					ReasoningEchoBack: boolPtr(true),
+				},
+			},
+		},
+		{
+			name: "applies reasoning sub-patch",
+			initial: ModelConfig{
+				Advanced: AdvancedConfig{
+					Reasoning: ReasoningConfig{
+						Effort:           "low",
+						SupportedEfforts: []string{"low", "medium"},
+					},
+				},
+			},
+			patch: modelPatch{
+				Advanced: &advancedPatch{
+					Reasoning: &reasoningPatch{
+						Effort:           stringPtr("high"),
+						SupportedEfforts: stringSlicePtr([]string{"low", "medium", "high"}),
+					},
+				},
+			},
+			want: ModelConfig{
+				Advanced: AdvancedConfig{
+					Reasoning: ReasoningConfig{
+						Effort:           "high",
+						SupportedEfforts: []string{"low", "medium", "high"},
+					},
+				},
+			},
+		},
+		{
+			name: "reasoning sub-patch with nil fields leaves existing values untouched",
+			initial: ModelConfig{
+				Advanced: AdvancedConfig{
+					Reasoning: ReasoningConfig{
+						Effort:           "low",
+						SupportedEfforts: []string{"low", "medium"},
+					},
+				},
+			},
+			patch: modelPatch{
+				Advanced: &advancedPatch{
+					Reasoning: &reasoningPatch{},
+				},
+			},
+			want: ModelConfig{
+				Advanced: AdvancedConfig{
+					Reasoning: ReasoningConfig{
+						Effort:           "low",
+						SupportedEfforts: []string{"low", "medium"},
+					},
+				},
+			},
+		},
+		{
 			name: "applies retry sub-patch",
 			initial: ModelConfig{
 				Retry: RetryConfig{
@@ -402,6 +475,12 @@ func TestCloneModelConfig(t *testing.T) {
 		Params:       map[string]any{"key": "value"},
 		ExtraParams:  map[string]any{"extra": "param"},
 		PromptSuffix: "<|think_off|>",
+		Advanced: AdvancedConfig{
+			Reasoning: ReasoningConfig{
+				Effort:           "high",
+				SupportedEfforts: []string{"low", "high"},
+			},
+		},
 	}
 
 	cloned := cloneModelConfig(original)
@@ -419,6 +498,11 @@ func TestCloneModelConfig(t *testing.T) {
 	cloned.ExtraParams["extra"] = "modified"
 	if original.ExtraParams["extra"] == "modified" {
 		t.Fatal("cloneModelConfig() did not copy ExtraParams map separately")
+	}
+
+	cloned.Advanced.Reasoning.SupportedEfforts[0] = "modified"
+	if original.Advanced.Reasoning.SupportedEfforts[0] == "modified" {
+		t.Fatal("cloneModelConfig() did not copy Advanced.Reasoning.SupportedEfforts separately")
 	}
 }
 

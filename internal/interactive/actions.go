@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 // Action is the interface for all interactive-mode user actions.
@@ -91,8 +92,14 @@ type SetSkillEnabled struct {
 func (SetSkillEnabled) isInteractiveAction() {}
 
 // SwitchModel represents a user request to switch the active model during an
-// interactive session.
-type SwitchModel struct{ Name string }
+// interactive session. Reasoning is nil when the switch carries no reasoning
+// selection, leaving any previously stored session override for Name
+// untouched. A non-nil Reasoning sets the session's runtime reasoning
+// override for Name to that value.
+type SwitchModel struct {
+	Name      string
+	Reasoning *provider.ReasoningOverride
+}
 
 func (SwitchModel) isInteractiveAction() {}
 

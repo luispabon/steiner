@@ -59,34 +59,37 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		sidebar:  newSidebarState(),
 		git:      newGitState(cfg.WorkingDir),
 
-		external:             external,
-		autoScroll:           true,
-		skillNames:           append([]string(nil), cfg.SkillNames...),
-		skillDescriptions:    cloneStringMap(cfg.SkillDescriptions),
-		enabledSkills:        enabledSkills,
-		modelNames:           append([]string(nil), cfg.ModelNames...),
-		modelContexts:        cloneModelContexts(cfg.ModelContexts),
-		modelBaseURLs:        cloneModelBaseURLs(cfg.ModelBaseURLs),
-		modelProviderNames:   cloneModelProviderNames(cfg.ModelProviderNames),
-		controller:           cfg.Controller,
-		recorder:             cfg.Recorder,
-		activeTheme:          resolveTheme(cfg.Theme),
-		styles:               theme.BuildStyles(accentHex),
-		inputHistory:         []string{},
-		historyIdx:           0,
-		historyDraft:         "",
-		fileHistory:          []string{},
-		fileHistoryIdx:       -1,
-		showThinking:         cfg.ShowThinking,
-		accentPreset:         cfg.AccentPreset,
-		sidebarPosition:      cfg.SidebarPosition,
-		mousePressX:          -1,
-		mousePressY:          -1,
-		screenLines:          new([]string),
-		oneshotRunnerFactory: cfg.OneshotRunnerFactory,
-		imageStore:           cfg.ImageStore,
-		visionCapabilities:   cfg.VisionCapabilities,
-		sessionResetCleanup:  cfg.SessionResetCleanup,
+		external:                   external,
+		autoScroll:                 true,
+		skillNames:                 append([]string(nil), cfg.SkillNames...),
+		skillDescriptions:          cloneStringMap(cfg.SkillDescriptions),
+		enabledSkills:              enabledSkills,
+		modelNames:                 append([]string(nil), cfg.ModelNames...),
+		modelContexts:              cloneModelContexts(cfg.ModelContexts),
+		modelBaseURLs:              cloneModelBaseURLs(cfg.ModelBaseURLs),
+		modelProviderNames:         cloneModelProviderNames(cfg.ModelProviderNames),
+		modelReasoningCapabilities: cloneModelReasoningCapabilities(cfg.ModelReasoningCapabilities),
+		modelReasoningEfforts:      cloneStringMap(cfg.ModelReasoningEfforts),
+		reasoningLabels:            newReasoningLabels(cfg.ModelReasoningEfforts, cfg.ModelReasoningCapabilities),
+		controller:                 cfg.Controller,
+		recorder:                   cfg.Recorder,
+		activeTheme:                resolveTheme(cfg.Theme),
+		styles:                     theme.BuildStyles(accentHex),
+		inputHistory:               []string{},
+		historyIdx:                 0,
+		historyDraft:               "",
+		fileHistory:                []string{},
+		fileHistoryIdx:             -1,
+		showThinking:               cfg.ShowThinking,
+		accentPreset:               cfg.AccentPreset,
+		sidebarPosition:            cfg.SidebarPosition,
+		mousePressX:                -1,
+		mousePressY:                -1,
+		screenLines:                new([]string),
+		oneshotRunnerFactory:       cfg.OneshotRunnerFactory,
+		imageStore:                 cfg.ImageStore,
+		visionCapabilities:         cfg.VisionCapabilities,
+		sessionResetCleanup:        cfg.SessionResetCleanup,
 	}
 
 	m.notifier = cfg.Notifier
@@ -223,6 +226,14 @@ var overlayKeyHandlers = []overlayKeyHandler{
 			return cmd
 		},
 	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.reasoningPicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			next, cmd := m.handleReasoningPickerKey(msg)
+			*m = next.(Model)
+			return cmd
+		},
+	},
 }
 
 func resolveTheme(name string) theme.Theme {
@@ -242,10 +253,12 @@ func resolveTheme(name string) theme.Theme {
 
 func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.primaryModel = strings.TrimSpace(cfg.Model)
+	m.currentModelAlias = strings.TrimSpace(cfg.CurrentModelAlias)
 	m.status.model = m.primaryModel
 	m.sidebar.model = m.primaryModel
 	m.sidebar.version = cfg.Version
 	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)
+	m.sidebar.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)
 	m.sidebar.providerName = strings.TrimSpace(cfg.ProviderName)
 	m.sidebar.maxTurns = cfg.MaxTurns
@@ -293,6 +306,10 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.modelPicker = newModelPickerOverlay(m.styles)
 	m.modelPicker.width = m.width
 	m.modelPicker.height = m.height
+
+	m.reasoningPicker = newReasoningPickerOverlay(m.styles)
+	m.reasoningPicker.width = m.width
+	m.reasoningPicker.height = m.height
 
 	m.planPicker = newPlanPickerOverlay(m.styles)
 	m.planPicker.width = m.width

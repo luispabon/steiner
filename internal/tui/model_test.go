@@ -20,6 +20,7 @@ import (
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -31,6 +32,14 @@ type testController struct {
 	err                       error
 	switchModelErr            error
 	workflowHandoffSelections map[string]interactive.WorkflowHandoffModelSelection
+	reasoningOverride         provider.ReasoningOverride
+}
+
+// CurrentReasoningOverride implements reasoningOverrideProvider for tests.
+func (c *testController) CurrentReasoningOverride() provider.ReasoningOverride {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reasoningOverride
 }
 
 func (c *testController) Handle(_ context.Context, action interactive.Action) error {

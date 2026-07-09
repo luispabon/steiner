@@ -59,6 +59,9 @@ func (s sidebarState) modelSection(width int) []string {
 		cardLabel("model", s.styles),
 		cardField("name", fgBright, fitText(safeText(s.model), width-7), s.styles),
 	}
+	if r := strings.TrimSpace(s.reasoning); r != "" {
+		lines = append(lines, cardField("reasoning", s.styles.FgDim, fitText(r, width-7), s.styles))
+	}
 	if q := strings.TrimSpace(s.quant); q != "" {
 		lines = append(lines, cardField("quant", s.styles.FgDim, fitText(q, width-7), s.styles))
 	}

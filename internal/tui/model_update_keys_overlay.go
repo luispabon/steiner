@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func (m Model) handleExitModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -193,9 +194,16 @@ func (m Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.workflowHandoff.modelSource = "selected for handoff"
 				return m, nil
 			}
-			m.input.Reset()
-			m.historyIdx = 0
-			return m.executeModelAction(name)
+			caps := m.modelReasoningCapabilities[name]
+			if len(caps.SupportedEfforts) == 0 {
+				m.input.Reset()
+				m.historyIdx = 0
+				return m.executeModelAction(name, nil)
+			}
+			m.reasoningPicker = m.reasoningPicker.Open(name, caps, m.currentReasoningOverrideFor(name), m.modelReasoningEfforts[name])
+			m.reasoningPicker.width = m.width
+			m.reasoningPicker.height = m.height
+			return m, nil
 		}
 	default:
 		var cmd tea.Cmd
@@ -203,6 +211,63 @@ func (m Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m Model) handleReasoningPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
+	case tea.KeyEsc:
+		modelName := m.reasoningPicker.modelName
+		m.reasoningPicker = m.reasoningPicker.Close()
+		m.modelPicker = m.modelPicker.Open(m.modelNames, modelName)
+		m.modelPicker.width = m.width
+		m.modelPicker.height = m.height
+	case tea.KeyEnter:
+		if opt, ok := m.reasoningPicker.SelectedOption(); ok {
+			modelName := m.reasoningPicker.modelName
+			m.reasoningPicker = m.reasoningPicker.Close()
+			m.input.Reset()
+			m.historyIdx = 0
+			override := reasoningOverrideFromOption(opt)
+			return m.executeModelAction(modelName, &override)
+		}
+	default:
+		var cmd tea.Cmd
+		m.reasoningPicker, cmd = m.reasoningPicker.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+// reasoningOverrideProvider is the narrow controller capability
+// currentReasoningOverrideFor needs: reporting the session's active
+// reasoning override.
+type reasoningOverrideProvider interface {
+	CurrentReasoningOverride() provider.ReasoningOverride
+}
+
+// currentReasoningOverrideFor returns the session's stored reasoning
+// override for modelName when it is the currently active model alias. The
+// session only tracks the override for the active alias without an
+// arbitrary-alias getter, so other aliases report the zero value (no
+// override).
+func (m Model) currentReasoningOverrideFor(modelName string) provider.ReasoningOverride {
+	if m.controller == nil || modelName != m.currentModelAlias {
+		return provider.ReasoningOverride{}
+	}
+	sess, ok := m.controller.(reasoningOverrideProvider)
+	if !ok {
+		return provider.ReasoningOverride{}
+	}
+	return sess.CurrentReasoningOverride()
+}
+
+// reasoningOverrideFromOption converts a picker selection into the override
+// value sent to the controller.
+func reasoningOverrideFromOption(opt reasoningEffortOption) provider.ReasoningOverride {
+	if opt.IsProviderDefault {
+		return provider.ReasoningOverride{Kind: provider.ReasoningOverrideProviderDefault}
+	}
+	return provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: opt.Value}
 }
 
 func (m Model) handleSlashOverlayKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

@@ -56,7 +56,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.executeSetAccentAction(action.setAccent)
 	}
 	if action.switchModel != "" {
-		return m.executeModelAction(action.switchModel)
+		return m.executeModelAction(action.switchModel, nil)
 	}
 	if action.listFiles {
 		return m.executeListFilesAction(action.listFilesPath)

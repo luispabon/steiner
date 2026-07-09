@@ -68,6 +68,15 @@ type AdvancedConfig struct {
 	Limits            AdvancedLimitsConfig `yaml:"limits"`
 	ReasoningEchoBack *bool                `yaml:"reasoning_echo_back"`
 	Transport         ModelTransportType   `yaml:"transport"`
+	Reasoning         ReasoningConfig      `yaml:"reasoning"`
+}
+
+// ReasoningConfig configures model reasoning effort. Values are
+// provider/model-native strings (e.g. "low", "high", "xhigh") and are not
+// normalized into a Steiner-owned enum.
+type ReasoningConfig struct {
+	Effort           string   `yaml:"effort"`
+	SupportedEfforts []string `yaml:"supported_efforts"`
 }
 
 // SearchConfig configures web search integration.
@@ -241,5 +250,15 @@ func copyStringAnyMap(src map[string]any) map[string]any {
 	for k, v := range src {
 		dst[k] = v
 	}
+	return dst
+}
+
+// copyStringSlice creates a shallow copy of a []string.
+func copyStringSlice(src []string) []string {
+	if src == nil {
+		return nil
+	}
+	dst := make([]string, len(src))
+	copy(dst, src)
 	return dst
 }

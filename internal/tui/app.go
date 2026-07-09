@@ -12,6 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
@@ -43,11 +44,22 @@ type ApprovalSubmission struct {
 
 // Config holds the runtime configuration for the TUI application.
 type Config struct {
-	Model                string
-	ModelNames           []string
-	ModelContexts        map[string]int
-	ModelBaseURLs        map[string]string
-	ModelProviderNames   map[string]string
+	Model              string
+	ModelNames         []string
+	ModelContexts      map[string]int
+	ModelBaseURLs      map[string]string
+	ModelProviderNames map[string]string
+	// ModelReasoningCapabilities maps model alias to its resolved reasoning
+	// effort capabilities, used by the /model picker's reasoning step. Models
+	// absent from this map, or with no SupportedEfforts, are treated as
+	// having no configurable reasoning effort.
+	ModelReasoningCapabilities map[string]provider.ReasoningCapabilities
+	// ModelReasoningEfforts maps model alias to its config-declared effective
+	// reasoning effort (empty when the model uses the provider default).
+	ModelReasoningEfforts map[string]string
+	// CurrentModelAlias is the alias (not the backend model ID) of the model
+	// active at startup, e.g. cfg.Models.Default.
+	CurrentModelAlias    string
 	ProviderBaseURL      string
 	ProviderName         string
 	HomeDir              string

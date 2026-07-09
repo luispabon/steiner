@@ -30,6 +30,7 @@ func cloneModelConfig(src ModelConfig) ModelConfig {
 	dst := src
 	dst.Params = copyStringAnyMap(src.Params)
 	dst.ExtraParams = copyStringAnyMap(src.ExtraParams)
+	dst.Advanced.Reasoning.SupportedEfforts = copyStringSlice(src.Advanced.Reasoning.SupportedEfforts)
 	return dst
 }
 
@@ -78,11 +79,24 @@ func applyAdvancedPatch(dst *AdvancedConfig, patch *advancedPatch) {
 		applyAdvancedLimitsPatch(&dst.Limits, patch.Limits)
 	}
 	setIfPresent(&dst.Transport, patch.Transport)
+	if patch.ReasoningEchoBack != nil {
+		dst.ReasoningEchoBack = patch.ReasoningEchoBack
+	}
+	if patch.Reasoning != nil {
+		applyReasoningPatch(&dst.Reasoning, patch.Reasoning)
+	}
 }
 
 func applyAdvancedLimitsPatch(dst *AdvancedLimitsConfig, patch *advancedLimitsPatch) {
 	setIfPresent(&dst.ContextWindow, patch.ContextWindow)
 	setIfPresent(&dst.MaxOutputTokens, patch.MaxOutputTokens)
+}
+
+func applyReasoningPatch(dst *ReasoningConfig, patch *reasoningPatch) {
+	setIfPresent(&dst.Effort, patch.Effort)
+	if patch.SupportedEfforts != nil {
+		dst.SupportedEfforts = copyStringSlice(*patch.SupportedEfforts)
+	}
 }
 
 func applyModelPromptsPatch(dst *ModelPrompts, patch *modelPromptsPatch) {

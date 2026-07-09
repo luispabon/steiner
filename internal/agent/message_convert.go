@@ -235,3 +235,13 @@ func applyPromptSuffix(suffix string, req provider.ChatRequest) provider.ChatReq
 	req.Messages = appendPromptSuffix(req.Messages, suffix)
 	return req
 }
+
+// resolvedReasoningRequest builds the provider-facing reasoning request from
+// a resolved model's effective effort. It returns nil when no explicit
+// effort should be sent, so the provider's own default applies.
+func resolvedReasoningRequest(rm provider.ResolvedModel) *provider.ReasoningRequest {
+	if rm.ReasoningEffectiveEffort == "" {
+		return nil
+	}
+	return &provider.ReasoningRequest{Effort: rm.ReasoningEffectiveEffort}
+}

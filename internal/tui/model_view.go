@@ -206,6 +206,7 @@ func (m Model) hasOpenBottomOverlay() bool {
 	return m.slashOverlay.IsOpen() || m.filePicker.IsOpen() ||
 		m.sessionPicker.IsOpen() || m.oneshotResumePicker.IsOpen() ||
 		(m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff()) ||
+		m.reasoningPicker.IsOpen() ||
 		m.planPicker.IsOpen() || m.accentPicker.IsOpen()
 }
 
@@ -237,6 +238,9 @@ func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) strin
 	}
 	if m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff() {
 		base = m.modelPicker.PlaceBottomAnchoredAt(base, m.modelPicker.View(), offset, xOffset)
+	}
+	if m.reasoningPicker.IsOpen() {
+		base = m.reasoningPicker.PlaceBottomAnchoredAt(base, m.reasoningPicker.View(), offset, xOffset)
 	}
 	if m.planPicker.IsOpen() {
 		base = m.planPicker.PlaceBottomAnchoredAt(base, m.planPicker.View(), offset, xOffset)

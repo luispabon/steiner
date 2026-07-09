@@ -95,6 +95,31 @@ func TestModelSectionProviderLabel(t *testing.T) {
 	}
 }
 
+func TestModelSectionReasoningLine(t *testing.T) {
+	cases := []struct {
+		name      string
+		reasoning string
+		wantShown bool
+	}{
+		{"hidden when empty", "", false},
+		{"shows effort", "medium", true},
+		{"shows provider default", "provider default", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := sidebarState{model: "gpt-5", reasoning: tc.reasoning}
+			lines := s.modelSection(32)
+			joined := strings.Join(lines, "\n")
+			if tc.wantShown && !strings.Contains(joined, tc.reasoning) {
+				t.Errorf("modelSection() missing reasoning value %q in %q", tc.reasoning, joined)
+			}
+			if !tc.wantShown && strings.Contains(joined, "reasoning") {
+				t.Errorf("modelSection() should not contain 'reasoning' label, got %q", joined)
+			}
+		})
+	}
+}
+
 func TestPerformanceSection(t *testing.T) {
 	cases := []struct {
 		name           string

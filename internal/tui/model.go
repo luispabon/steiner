@@ -14,6 +14,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tui/theme"
 	"github.com/luispabon/steiner/internal/usagestats"
@@ -126,6 +127,11 @@ type Model struct {
 	sessionPicker                sessionPickerOverlay
 	oneshotResumePicker          oneshotResumePickerOverlay
 	modelPicker                  modelPickerOverlay
+	modelReasoningCapabilities   map[string]provider.ReasoningCapabilities
+	modelReasoningEfforts        map[string]string
+	currentModelAlias            string
+	reasoningPicker              reasoningPickerOverlay
+	reasoningLabels              map[string]string
 	planPicker                   planPickerOverlay
 	accentPicker                 accentPickerOverlay
 	contextOverlay               contextOverlayState
@@ -196,6 +202,7 @@ type scrollbarCacheKey struct {
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 	m.primaryModel = strings.TrimSpace(modelName)
+	m.currentModelAlias = m.primaryModel
 	m.status.model = m.primaryModel
 	m.sidebar.model = modelName
 	m.sidebar.provider = strings.TrimSpace(providerBaseURL)
@@ -203,6 +210,7 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 		m.sidebar.providerName = name
 	}
 	m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
+	m.sidebar.reasoning = m.reasoningLabels[modelName]
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
 	if m.sidebar.contextBudget > 0 {
@@ -320,6 +328,17 @@ func cloneModelBaseURLs(src map[string]string) map[string]string {
 	return dst
 }
 
+func cloneModelReasoningCapabilities(src map[string]provider.ReasoningCapabilities) map[string]provider.ReasoningCapabilities {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]provider.ReasoningCapabilities, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
 func cloneModelContexts(src map[string]int) map[string]int {
 	if len(src) == 0 {
 		return nil
@@ -340,6 +359,34 @@ func cloneStringMap(src map[string]string) map[string]string {
 		dst[k] = v
 	}
 	return dst
+}
+
+// reasoningSidebarLabel derives the sidebar/picker label for a model's
+// reasoning state: the effective effort when set, "provider default" when
+// the model is reasoning-capable but uses no explicit effort, or "" when the
+// model has no reasoning capability at all.
+func reasoningSidebarLabel(effort string, caps provider.ReasoningCapabilities) string {
+	if effort != "" {
+		return effort
+	}
+	if len(caps.SupportedEfforts) > 0 {
+		return "provider default"
+	}
+	return ""
+}
+
+// newReasoningLabels seeds the per-alias sidebar/picker reasoning label from
+// each model's config-declared effective effort and reasoning capabilities,
+// so a configured effort is visible from startup rather than only after a
+// picker selection.
+func newReasoningLabels(efforts map[string]string, caps map[string]provider.ReasoningCapabilities) map[string]string {
+	labels := make(map[string]string, len(caps))
+	for name, c := range caps {
+		if label := reasoningSidebarLabel(efforts[name], c); label != "" {
+			labels[name] = label
+		}
+	}
+	return labels
 }
 
 func (m *Model) contextBudgetForModel(name string) int {

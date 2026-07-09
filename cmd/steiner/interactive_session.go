@@ -19,6 +19,7 @@ import (
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui"
 )
 
@@ -58,21 +59,24 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		selectedProviderName = selected.Provider
 	}
 	tuiCfg := tui.Config{
-		Model:              selected.ID,
-		ModelNames:         modelAliasNames(rt.cfg),
-		ModelContexts:      modelContextSizes(rt.cfg),
-		ModelBaseURLs:      modelBaseURLs(rt.cfg),
-		ModelProviderNames: modelProviderNames(rt.cfg),
-		ProviderBaseURL:    selectedProviderBaseURL,
-		ProviderName:       selectedProviderName,
-		HomeDir:            rt.homeDir,
-		WorkingDir:         rt.workDir,
-		MaxTurns:           0,
-		Version:            version,
-		SkillNames:         rt.skillNames,
-		SkillDescriptions:  rt.skillDescriptions,
-		SkillSources:       rt.skillSources,
-		Controller:         sess,
+		Model:                      selected.ID,
+		ModelNames:                 modelAliasNames(rt.cfg),
+		ModelContexts:              modelContextSizes(rt.cfg),
+		ModelBaseURLs:              modelBaseURLs(rt.cfg),
+		ModelProviderNames:         modelProviderNames(rt.cfg),
+		ModelReasoningCapabilities: modelReasoningCapabilities(rt.cfg),
+		ModelReasoningEfforts:      modelReasoningEfforts(rt.cfg),
+		CurrentModelAlias:          rt.cfg.Models.Default,
+		ProviderBaseURL:            selectedProviderBaseURL,
+		ProviderName:               selectedProviderName,
+		HomeDir:                    rt.homeDir,
+		WorkingDir:                 rt.workDir,
+		MaxTurns:                   0,
+		Version:                    version,
+		SkillNames:                 rt.skillNames,
+		SkillDescriptions:          rt.skillDescriptions,
+		SkillSources:               rt.skillSources,
+		Controller:                 sess,
 	}
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
@@ -136,6 +140,45 @@ func modelBaseURLs(cfg config.Config) map[string]string {
 	return urls
 }
 
+// modelReasoningCapabilities resolves each configured model alias and
+// collects its reasoning effort capabilities for the TUI's /model picker.
+// Resolution failures for a given alias are skipped rather than surfaced, so
+// one misconfigured model does not block the picker for the rest.
+func modelReasoningCapabilities(cfg config.Config) map[string]provider.ReasoningCapabilities {
+	if len(cfg.Models.Definitions) == 0 {
+		return nil
+	}
+	caps := make(map[string]provider.ReasoningCapabilities, len(cfg.Models.Definitions))
+	for name := range cfg.Models.Definitions {
+		rm, err := provider.Resolve(cfg, name)
+		if err != nil {
+			continue
+		}
+		caps[name] = rm.Reasoning
+	}
+	return caps
+}
+
+// modelReasoningEfforts resolves each configured model alias and collects its
+// effective reasoning effort (config-declared effort, or empty for provider
+// default) for the TUI sidebar and reasoning picker. Resolution failures for
+// a given alias are skipped rather than surfaced, so one misconfigured model
+// does not block startup for the rest.
+func modelReasoningEfforts(cfg config.Config) map[string]string {
+	if len(cfg.Models.Definitions) == 0 {
+		return nil
+	}
+	efforts := make(map[string]string, len(cfg.Models.Definitions))
+	for name := range cfg.Models.Definitions {
+		rm, err := provider.Resolve(cfg, name)
+		if err != nil {
+			continue
+		}
+		efforts[name] = rm.ReasoningEffectiveEffort
+	}
+	return efforts
+}
+
 func modelProviderNames(cfg config.Config) map[string]string {
 	if len(cfg.Models.Definitions) == 0 {
 		return nil
@@ -166,11 +209,12 @@ func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, project
 
 func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 	runner := cliRunner{
-		runtime:            rt,
-		runMode:            "interactive",
-		streamingPreferred: true,
-		currentAlias:       sess.CurrentModelAlias,
-		promptCacheKey:     sess.SessionID(),
+		runtime:                  rt,
+		runMode:                  "interactive",
+		streamingPreferred:       true,
+		currentAlias:             sess.CurrentModelAlias,
+		currentReasoningOverride: sess.CurrentReasoningOverride,
+		promptCacheKey:           sess.SessionID(),
 	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})
