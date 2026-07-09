@@ -63,13 +63,20 @@ type modelPatch struct {
 }
 
 type advancedPatch struct {
-	Limits    *advancedLimitsPatch `yaml:"limits"`
-	Transport *ModelTransportType  `yaml:"transport"`
+	Limits            *advancedLimitsPatch `yaml:"limits"`
+	ReasoningEchoBack *bool                `yaml:"reasoning_echo_back"`
+	Transport         *ModelTransportType  `yaml:"transport"`
+	Reasoning         *reasoningPatch      `yaml:"reasoning"`
 }
 
 type advancedLimitsPatch struct {
 	ContextWindow   *int `yaml:"context_window"`
 	MaxOutputTokens *int `yaml:"max_output_tokens"`
+}
+
+type reasoningPatch struct {
+	Effort           *string   `yaml:"effort"`
+	SupportedEfforts *[]string `yaml:"supported_efforts"`
 }
 
 type retryPatch struct {

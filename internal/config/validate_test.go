@@ -125,6 +125,67 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: "models[\"default\"].advanced.transport \"invalid\" is not supported",
 		},
+		{
+			name: "reasoning effort blank after trim",
+			cfg: func() Config {
+				c := validBase()
+				m := c.Models.Definitions["default"]
+				m.Advanced.Reasoning = ReasoningConfig{Effort: "   "}
+				c.Models.Definitions["default"] = m
+				return c
+			}(),
+			wantErr: `models["default"].advanced.reasoning.effort must not be blank`,
+		},
+		{
+			name: "reasoning supported_efforts contains blank value",
+			cfg: func() Config {
+				c := validBase()
+				m := c.Models.Definitions["default"]
+				m.Advanced.Reasoning = ReasoningConfig{SupportedEfforts: []string{"low", "  "}}
+				c.Models.Definitions["default"] = m
+				return c
+			}(),
+			wantErr: `models["default"].advanced.reasoning.supported_efforts must not contain blank values`,
+		},
+		{
+			name: "reasoning supported_efforts contains duplicate value",
+			cfg: func() Config {
+				c := validBase()
+				m := c.Models.Definitions["default"]
+				m.Advanced.Reasoning = ReasoningConfig{SupportedEfforts: []string{"low", "low"}}
+				c.Models.Definitions["default"] = m
+				return c
+			}(),
+			wantErr: `models["default"].advanced.reasoning.supported_efforts contains duplicate value "low"`,
+		},
+		{
+			name: "reasoning effort not present in supported_efforts",
+			cfg: func() Config {
+				c := validBase()
+				m := c.Models.Definitions["default"]
+				m.Advanced.Reasoning = ReasoningConfig{
+					Effort:           "xhigh",
+					SupportedEfforts: []string{"low", "medium", "high"},
+				}
+				c.Models.Definitions["default"] = m
+				return c
+			}(),
+			wantErr: `models["default"].advanced.reasoning.effort "xhigh" is not present in models["default"].advanced.reasoning.supported_efforts`,
+		},
+		{
+			name: "reasoning effort matching supported_efforts is valid",
+			cfg: func() Config {
+				c := validBase()
+				m := c.Models.Definitions["default"]
+				m.Advanced.Reasoning = ReasoningConfig{
+					Effort:           "xhigh",
+					SupportedEfforts: []string{"low", "medium", "high", "xhigh"},
+				}
+				c.Models.Definitions["default"] = m
+				return c
+			}(),
+			wantErr: "",
+		},
 
 		// Provider validation
 		{

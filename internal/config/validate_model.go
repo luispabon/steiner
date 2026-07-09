@@ -38,7 +38,33 @@ func appendModelProblems(problems *[]string, prefix string, model ModelConfig, p
 	default:
 		*problems = append(*problems, fmt.Sprintf("%s.advanced.transport %q is not supported", prefix, model.Advanced.Transport))
 	}
+	appendReasoningProblems(problems, prefix+".advanced.reasoning", model.Advanced.Reasoning)
 	appendRetryProblems(problems, prefix+".retry", model.Retry)
+}
+
+func appendReasoningProblems(problems *[]string, path string, reasoning ReasoningConfig) {
+	effort := strings.TrimSpace(reasoning.Effort)
+	if reasoning.Effort != "" && effort == "" {
+		*problems = append(*problems, fmt.Sprintf("%s.effort must not be blank", path))
+	}
+
+	seen := make(map[string]bool, len(reasoning.SupportedEfforts))
+	for _, raw := range reasoning.SupportedEfforts {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			*problems = append(*problems, fmt.Sprintf("%s.supported_efforts must not contain blank values", path))
+			continue
+		}
+		if seen[trimmed] {
+			*problems = append(*problems, fmt.Sprintf("%s.supported_efforts contains duplicate value %q", path, trimmed))
+			continue
+		}
+		seen[trimmed] = true
+	}
+
+	if effort != "" && len(reasoning.SupportedEfforts) > 0 && !seen[effort] {
+		*problems = append(*problems, fmt.Sprintf("%s.effort %q is not present in %s.supported_efforts", path, reasoning.Effort, path))
+	}
 }
 
 func appendRetryProblems(problems *[]string, path string, retry RetryConfig) {
