@@ -43,8 +43,11 @@ func newReasoningPickerOverlay(styles theme.Styles) reasoningPickerOverlay {
 
 // Open builds the effort option list for modelName from caps: a leading
 // provider-default option followed by each of caps.SupportedEfforts. current
-// marks whichever option matches the caller's current reasoning override.
-func (m reasoningPickerOverlay) Open(modelName string, caps provider.ReasoningCapabilities, current provider.ReasoningOverride) reasoningPickerOverlay {
+// marks whichever option matches the caller's current reasoning override. If
+// current carries no override (ReasoningOverrideNone or the zero value),
+// configuredEffort is used instead: it marks the matching effort option as
+// current, or the provider-default option when configuredEffort is empty.
+func (m reasoningPickerOverlay) Open(modelName string, caps provider.ReasoningCapabilities, current provider.ReasoningOverride, configuredEffort string) reasoningPickerOverlay {
 	m.OverlayShell = m.openShell()
 	m.query = ""
 	m.modelName = modelName
@@ -54,18 +57,28 @@ func (m reasoningPickerOverlay) Open(modelName string, caps provider.ReasoningCa
 		defaultDesc = "provider default (" + caps.ProviderDefaultEffort + ")"
 	}
 
+	hasOverride := current.Kind == provider.ReasoningOverrideProviderDefault || current.Kind == provider.ReasoningOverrideEffort
+	isCurrentDefault := current.Kind == provider.ReasoningOverrideProviderDefault
+	isCurrentEffort := func(effort string) bool {
+		return current.Kind == provider.ReasoningOverrideEffort && current.Effort == effort
+	}
+	if !hasOverride {
+		isCurrentDefault = configuredEffort == ""
+		isCurrentEffort = func(effort string) bool { return configuredEffort == effort }
+	}
+
 	options := make([]reasoningEffortOption, 0, len(caps.SupportedEfforts)+1)
 	options = append(options, reasoningEffortOption{
 		Label:             "provider default",
 		Description:       defaultDesc,
 		IsProviderDefault: true,
-		IsCurrent:         current.Kind == provider.ReasoningOverrideProviderDefault,
+		IsCurrent:         isCurrentDefault,
 	})
 	for _, effort := range caps.SupportedEfforts {
 		options = append(options, reasoningEffortOption{
 			Value:     effort,
 			Label:     effort,
-			IsCurrent: current.Kind == provider.ReasoningOverrideEffort && current.Effort == effort,
+			IsCurrent: isCurrentEffort(effort),
 		})
 	}
 

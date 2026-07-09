@@ -42,7 +42,7 @@ func (r openAIRequest) MarshalJSON() ([]byte, error) {
 		base["tools"] = r.Tools
 	}
 	if r.Reasoning != nil {
-		base["reasoning"] = reasoningWirePayload(r.Reasoning)
+		base["reasoning_effort"] = r.Reasoning.Effort
 	}
 	m := mergeRequestParams(base, r.Params, r.ExtraParams)
 	return json.Marshal(m)

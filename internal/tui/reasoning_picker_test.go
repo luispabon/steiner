@@ -16,7 +16,7 @@ func TestReasoningPickerOpenBuildsOptions(t *testing.T) {
 		ProviderDefaultEffort: "medium",
 	}
 
-	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{})
+	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "")
 
 	if !p.IsOpen() {
 		t.Fatal("expected picker to be open")
@@ -43,7 +43,7 @@ func TestReasoningPickerOmitsUnsupportedEfforts(t *testing.T) {
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"medium", "high"}}
 
-	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{})
+	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "")
 
 	for _, opt := range p.candidates {
 		if opt.Value == "none" {
@@ -57,7 +57,7 @@ func TestReasoningPickerMarksCurrentEffort(t *testing.T) {
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 	current := provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "high"}
 
-	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, current)
+	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, current, "")
 
 	opt, ok := p.SelectedOption()
 	if !ok {
@@ -73,7 +73,7 @@ func TestReasoningPickerMarksCurrentProviderDefault(t *testing.T) {
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium"}}
 	current := provider.ReasoningOverride{Kind: provider.ReasoningOverrideProviderDefault}
 
-	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, current)
+	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, current, "")
 
 	opt, ok := p.SelectedOption()
 	if !ok {
@@ -84,11 +84,57 @@ func TestReasoningPickerMarksCurrentProviderDefault(t *testing.T) {
 	}
 }
 
+func TestReasoningPickerMarksConfiguredEffortCurrentWhenNoOverride(t *testing.T) {
+	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
+
+	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "medium")
+
+	opt, ok := p.SelectedOption()
+	if !ok {
+		t.Fatal("expected a selected option")
+	}
+	if !opt.IsCurrent || opt.Value != "medium" {
+		t.Fatalf("expected selection to land on configured effort 'medium', got %+v", opt)
+	}
+}
+
+func TestReasoningPickerMarksProviderDefaultCurrentWhenNoOverrideAndNoConfiguredEffort(t *testing.T) {
+	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
+
+	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "")
+
+	opt, ok := p.SelectedOption()
+	if !ok {
+		t.Fatal("expected a selected option")
+	}
+	if !opt.IsCurrent || !opt.IsProviderDefault {
+		t.Fatalf("expected selection to land on provider default, got %+v", opt)
+	}
+}
+
+func TestReasoningPickerOverrideWinsOverConfiguredEffort(t *testing.T) {
+	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
+	current := provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "high"}
+
+	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, current, "medium")
+
+	opt, ok := p.SelectedOption()
+	if !ok {
+		t.Fatal("expected a selected option")
+	}
+	if !opt.IsCurrent || opt.Value != "high" {
+		t.Fatalf("expected session override to win over configured effort, got %+v", opt)
+	}
+}
+
 func TestReasoningPickerFilter(t *testing.T) {
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 
-	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{})
+	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "")
 
 	msg := tea.KeyPressMsg{Code: 'h', Text: "h"}
 	p, _ = p.Update(msg)
@@ -105,7 +151,7 @@ func TestReasoningPickerCloseOnEsc(t *testing.T) {
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low"}}
 
-	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{})
+	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "")
 	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if p.IsOpen() {

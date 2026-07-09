@@ -402,7 +402,7 @@ func TestOpenAIRequestMarshalJSONPreservesReasoningExtraParams(t *testing.T) {
 	}
 }
 
-func TestOpenAIRequestMarshalJSONOmitsReasoningWhenNil(t *testing.T) {
+func TestOpenAIRequestMarshalJSONOmitsReasoningEffortWhenNil(t *testing.T) {
 	req := openAIRequest{
 		Model:    "gpt-4",
 		Messages: []openAIMessage{{Role: "user", Content: "hello"}},
@@ -415,8 +415,8 @@ func TestOpenAIRequestMarshalJSONOmitsReasoningWhenNil(t *testing.T) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatalf("Unmarshal error = %v", err)
 	}
-	if _, ok := m["reasoning"]; ok {
-		t.Fatal("reasoning present in JSON, want absent when Reasoning is nil")
+	if _, ok := m["reasoning_effort"]; ok {
+		t.Fatal("reasoning_effort present in JSON, want absent when Reasoning is nil")
 	}
 }
 
@@ -434,25 +434,21 @@ func TestOpenAIRequestMarshalJSONIncludesReasoningEffort(t *testing.T) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatalf("Unmarshal error = %v", err)
 	}
-	reasoning, ok := m["reasoning"].(map[string]any)
-	if !ok {
-		t.Fatalf("reasoning = %#v, want map[string]any", m["reasoning"])
-	}
-	if got, want := reasoning["effort"], "low"; got != want {
-		t.Fatalf("reasoning.effort = %v, want %v", got, want)
+	if got, want := m["reasoning_effort"], "low"; got != want {
+		t.Fatalf("reasoning_effort = %v, want %v", got, want)
 	}
 }
 
-func TestOpenAIRequestMarshalJSONReasoningOverridesParamsAndExtraParams(t *testing.T) {
+func TestOpenAIRequestMarshalJSONReasoningEffortOverridesParamsAndExtraParams(t *testing.T) {
 	req := openAIRequest{
 		Model:     "gpt-4",
 		Messages:  []openAIMessage{{Role: "user", Content: "hello"}},
 		Reasoning: &ReasoningRequest{Effort: "high"},
 		Params: map[string]any{
-			"reasoning": map[string]any{"effort": "low"},
+			"reasoning_effort": "low",
 		},
 		ExtraParams: map[string]any{
-			"reasoning": map[string]any{"effort": "medium"},
+			"reasoning_effort": "medium",
 		},
 	}
 	data, err := json.Marshal(req)
@@ -463,12 +459,8 @@ func TestOpenAIRequestMarshalJSONReasoningOverridesParamsAndExtraParams(t *testi
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatalf("Unmarshal error = %v", err)
 	}
-	reasoning, ok := m["reasoning"].(map[string]any)
-	if !ok {
-		t.Fatalf("reasoning = %#v, want map[string]any", m["reasoning"])
-	}
-	if got, want := reasoning["effort"], "high"; got != want {
-		t.Fatalf("reasoning.effort = %v, want %v (first-class field must win)", got, want)
+	if got, want := m["reasoning_effort"], "high"; got != want {
+		t.Fatalf("reasoning_effort = %v, want %v (first-class field must win)", got, want)
 	}
 }
 

@@ -128,6 +128,8 @@ type Model struct {
 	oneshotResumePicker          oneshotResumePickerOverlay
 	modelPicker                  modelPickerOverlay
 	modelReasoningCapabilities   map[string]provider.ReasoningCapabilities
+	modelReasoningEfforts        map[string]string
+	currentModelAlias            string
 	reasoningPicker              reasoningPickerOverlay
 	reasoningLabels              map[string]string
 	planPicker                   planPickerOverlay
@@ -200,6 +202,7 @@ type scrollbarCacheKey struct {
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 	m.primaryModel = strings.TrimSpace(modelName)
+	m.currentModelAlias = m.primaryModel
 	m.status.model = m.primaryModel
 	m.sidebar.model = modelName
 	m.sidebar.provider = strings.TrimSpace(providerBaseURL)
@@ -356,6 +359,34 @@ func cloneStringMap(src map[string]string) map[string]string {
 		dst[k] = v
 	}
 	return dst
+}
+
+// reasoningSidebarLabel derives the sidebar/picker label for a model's
+// reasoning state: the effective effort when set, "provider default" when
+// the model is reasoning-capable but uses no explicit effort, or "" when the
+// model has no reasoning capability at all.
+func reasoningSidebarLabel(effort string, caps provider.ReasoningCapabilities) string {
+	if effort != "" {
+		return effort
+	}
+	if len(caps.SupportedEfforts) > 0 {
+		return "provider default"
+	}
+	return ""
+}
+
+// newReasoningLabels seeds the per-alias sidebar/picker reasoning label from
+// each model's config-declared effective effort and reasoning capabilities,
+// so a configured effort is visible from startup rather than only after a
+// picker selection.
+func newReasoningLabels(efforts map[string]string, caps map[string]provider.ReasoningCapabilities) map[string]string {
+	labels := make(map[string]string, len(caps))
+	for name, c := range caps {
+		if label := reasoningSidebarLabel(efforts[name], c); label != "" {
+			labels[name] = label
+		}
+	}
+	return labels
 }
 
 func (m *Model) contextBudgetForModel(name string) int {

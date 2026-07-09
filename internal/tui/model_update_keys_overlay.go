@@ -200,7 +200,7 @@ func (m Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.historyIdx = 0
 				return m.executeModelAction(name, nil)
 			}
-			m.reasoningPicker = m.reasoningPicker.Open(name, caps, m.currentReasoningOverrideFor(name))
+			m.reasoningPicker = m.reasoningPicker.Open(name, caps, m.currentReasoningOverrideFor(name), m.modelReasoningEfforts[name])
 			m.reasoningPicker.width = m.width
 			m.reasoningPicker.height = m.height
 			return m, nil
@@ -238,15 +238,23 @@ func (m Model) handleReasoningPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	return m, nil
 }
 
+// reasoningOverrideProvider is the narrow controller capability
+// currentReasoningOverrideFor needs: reporting the session's active
+// reasoning override.
+type reasoningOverrideProvider interface {
+	CurrentReasoningOverride() provider.ReasoningOverride
+}
+
 // currentReasoningOverrideFor returns the session's stored reasoning
-// override for modelName when it is the currently active model. The session
-// only tracks the override for the active alias without an arbitrary-alias
-// getter, so other aliases report the zero value (no override).
+// override for modelName when it is the currently active model alias. The
+// session only tracks the override for the active alias without an
+// arbitrary-alias getter, so other aliases report the zero value (no
+// override).
 func (m Model) currentReasoningOverrideFor(modelName string) provider.ReasoningOverride {
-	if m.controller == nil || modelName != m.primaryModel {
+	if m.controller == nil || modelName != m.currentModelAlias {
 		return provider.ReasoningOverride{}
 	}
-	sess, ok := m.controller.(*interactive.Session)
+	sess, ok := m.controller.(reasoningOverrideProvider)
 	if !ok {
 		return provider.ReasoningOverride{}
 	}

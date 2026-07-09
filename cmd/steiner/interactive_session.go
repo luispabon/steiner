@@ -65,6 +65,8 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		ModelBaseURLs:              modelBaseURLs(rt.cfg),
 		ModelProviderNames:         modelProviderNames(rt.cfg),
 		ModelReasoningCapabilities: modelReasoningCapabilities(rt.cfg),
+		ModelReasoningEfforts:      modelReasoningEfforts(rt.cfg),
+		CurrentModelAlias:          rt.cfg.Models.Default,
 		ProviderBaseURL:            selectedProviderBaseURL,
 		ProviderName:               selectedProviderName,
 		HomeDir:                    rt.homeDir,
@@ -155,6 +157,26 @@ func modelReasoningCapabilities(cfg config.Config) map[string]provider.Reasoning
 		caps[name] = rm.Reasoning
 	}
 	return caps
+}
+
+// modelReasoningEfforts resolves each configured model alias and collects its
+// effective reasoning effort (config-declared effort, or empty for provider
+// default) for the TUI sidebar and reasoning picker. Resolution failures for
+// a given alias are skipped rather than surfaced, so one misconfigured model
+// does not block startup for the rest.
+func modelReasoningEfforts(cfg config.Config) map[string]string {
+	if len(cfg.Models.Definitions) == 0 {
+		return nil
+	}
+	efforts := make(map[string]string, len(cfg.Models.Definitions))
+	for name := range cfg.Models.Definitions {
+		rm, err := provider.Resolve(cfg, name)
+		if err != nil {
+			continue
+		}
+		efforts[name] = rm.ReasoningEffectiveEffort
+	}
+	return efforts
 }
 
 func modelProviderNames(cfg config.Config) map[string]string {

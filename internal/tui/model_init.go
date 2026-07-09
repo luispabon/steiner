@@ -69,7 +69,8 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		modelBaseURLs:              cloneModelBaseURLs(cfg.ModelBaseURLs),
 		modelProviderNames:         cloneModelProviderNames(cfg.ModelProviderNames),
 		modelReasoningCapabilities: cloneModelReasoningCapabilities(cfg.ModelReasoningCapabilities),
-		reasoningLabels:            make(map[string]string),
+		modelReasoningEfforts:      cloneStringMap(cfg.ModelReasoningEfforts),
+		reasoningLabels:            newReasoningLabels(cfg.ModelReasoningEfforts, cfg.ModelReasoningCapabilities),
 		controller:                 cfg.Controller,
 		recorder:                   cfg.Recorder,
 		activeTheme:                resolveTheme(cfg.Theme),
@@ -252,10 +253,12 @@ func resolveTheme(name string) theme.Theme {
 
 func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.primaryModel = strings.TrimSpace(cfg.Model)
+	m.currentModelAlias = strings.TrimSpace(cfg.CurrentModelAlias)
 	m.status.model = m.primaryModel
 	m.sidebar.model = m.primaryModel
 	m.sidebar.version = cfg.Version
 	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)
+	m.sidebar.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)
 	m.sidebar.providerName = strings.TrimSpace(cfg.ProviderName)
 	m.sidebar.maxTurns = cfg.MaxTurns

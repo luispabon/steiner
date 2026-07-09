@@ -54,22 +54,28 @@ type Config struct {
 	// absent from this map, or with no SupportedEfforts, are treated as
 	// having no configurable reasoning effort.
 	ModelReasoningCapabilities map[string]provider.ReasoningCapabilities
-	ProviderBaseURL            string
-	ProviderName               string
-	HomeDir                    string
-	WorkingDir                 string
-	MaxTurns                   int
-	SkillNames                 []string
-	SkillDescriptions          map[string]string // skill name -> short summary
-	SkillSources               map[string]string // skill name -> "project"/"user"/"global"
-	Theme                      string
-	AccentPreset               string
-	ShowThinking               bool
-	SidebarPosition            string
-	Version                    string
-	Controller                 interactive.Controller
-	SessionStore               SessionLister
-	OneshotRunnerFactory       OneshotRunnerFactoryBuilder
+	// ModelReasoningEfforts maps model alias to its config-declared effective
+	// reasoning effort (empty when the model uses the provider default).
+	ModelReasoningEfforts map[string]string
+	// CurrentModelAlias is the alias (not the backend model ID) of the model
+	// active at startup, e.g. cfg.Models.Default.
+	CurrentModelAlias    string
+	ProviderBaseURL      string
+	ProviderName         string
+	HomeDir              string
+	WorkingDir           string
+	MaxTurns             int
+	SkillNames           []string
+	SkillDescriptions    map[string]string // skill name -> short summary
+	SkillSources         map[string]string // skill name -> "project"/"user"/"global"
+	Theme                string
+	AccentPreset         string
+	ShowThinking         bool
+	SidebarPosition      string
+	Version              string
+	Controller           interactive.Controller
+	SessionStore         SessionLister
+	OneshotRunnerFactory OneshotRunnerFactoryBuilder
 	// Recorder is the process-wide usage stats recorder; nil when not wired.
 	Recorder *usagestats.Recorder
 	// Notifier delivers desktop notifications on blocking states; nil disables notifications.
