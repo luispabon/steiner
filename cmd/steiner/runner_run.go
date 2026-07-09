@@ -30,6 +30,12 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 	if err != nil {
 		return runnerSetup{}, err
 	}
+	if r.currentReasoningOverride != nil {
+		rm, err = provider.ApplyReasoningOverride(rm, r.currentReasoningOverride())
+		if err != nil {
+			return runnerSetup{}, err
+		}
+	}
 	if r.runtime.visionCapabilities != nil {
 		r.runtime.visionCapabilities.SetDerived(alias, agent.VisionStateFromPtr(rm.Vision))
 	}

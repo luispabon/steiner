@@ -166,11 +166,12 @@ func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, project
 
 func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 	runner := cliRunner{
-		runtime:            rt,
-		runMode:            "interactive",
-		streamingPreferred: true,
-		currentAlias:       sess.CurrentModelAlias,
-		promptCacheKey:     sess.SessionID(),
+		runtime:                  rt,
+		runMode:                  "interactive",
+		streamingPreferred:       true,
+		currentAlias:             sess.CurrentModelAlias,
+		currentReasoningOverride: sess.CurrentReasoningOverride,
+		promptCacheKey:           sess.SessionID(),
 	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})

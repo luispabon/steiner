@@ -30,6 +30,11 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		s.emitCompactError(fmt.Errorf("resolve model: %w", err))
 		return
 	}
+	rm, err = provider.ApplyReasoningOverride(rm, s.CurrentReasoningOverride())
+	if err != nil {
+		s.emitCompactError(err)
+		return
+	}
 	if rm.EffectiveTransport != provider.TransportConfigured && s.events != nil {
 		s.events.Emit(output.NewTransportDiagnosticEvent(
 			rm.BackendModelID,

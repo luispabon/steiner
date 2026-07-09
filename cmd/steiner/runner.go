@@ -17,14 +17,15 @@ import (
 )
 
 type cliRunner struct {
-	runtime            cliRuntime
-	approver           tool.ApprovalResponder
-	maxTurns           int
-	runMode            string
-	streamingPreferred bool
-	currentModel       func() config.ModelConfig
-	currentAlias       func() string
-	promptCacheKey     string
+	runtime                  cliRuntime
+	approver                 tool.ApprovalResponder
+	maxTurns                 int
+	runMode                  string
+	streamingPreferred       bool
+	currentModel             func() config.ModelConfig
+	currentAlias             func() string
+	currentReasoningOverride func() provider.ReasoningOverride
+	promptCacheKey           string
 }
 
 type runResult = oneshot.RunResult

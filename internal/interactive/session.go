@@ -8,6 +8,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -29,6 +30,7 @@ type Session struct {
 	sessionID           string
 	sessionTitle        string
 	sessionGroup        string
+	reasoningOverrides  map[string]provider.ReasoningOverride
 	done                chan struct{}
 	exitOnce            sync.Once
 }
@@ -63,6 +65,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 		handoffCoordinator:  &WorkflowHandoffCoordinator{},
 		sessionID:           sessionID,
 		lineage:             agent.ConversationLineage{},
+		reasoningOverrides:  make(map[string]provider.ReasoningOverride),
 		done:                make(chan struct{}),
 	}, nil
 }
@@ -185,6 +188,15 @@ func (s *Session) CurrentModelConfig() config.ModelConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.deps.Config.Models.Definitions[s.deps.Config.Models.Default]
+}
+
+// CurrentReasoningOverride returns the session's runtime reasoning override
+// for the currently active model alias, or the zero value (no override) if
+// none has been set for that alias.
+func (s *Session) CurrentReasoningOverride() provider.ReasoningOverride {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.reasoningOverrides[s.deps.Config.Models.Default]
 }
 
 // Conversation returns a defensive copy of the current conversation.
