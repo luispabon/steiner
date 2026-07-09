@@ -292,6 +292,7 @@ models:
 | `limits`             | AdvancedLimitsConfig | see below | Token budget settings for this model. |
 | `reasoning_echo_back`| *bool                | —       | When set, controls whether reasoning tokens are echoed back in the response. Provider-dependent. |
 | `transport`          | string               | `"auto"`| Transport override for request formatting. Supported values: `auto`, `openai_compat`, `anthropic`. `auto` uses models.dev metadata when available and otherwise keeps the configured provider type. |
+| `reasoning`          | ReasoningConfig      | see below | Reasoning effort configuration for this model. Only meaningful for providers that support configurable reasoning effort (currently OpenAI and Codex); unsupported providers ignore it. |
 
 #### Automatic transport resolution
 
@@ -302,6 +303,28 @@ When `transport` is set to `auto` (the default), Steiner resolves the request tr
 3. **Configured provider type** — If neither override nor metadata is available, the transport from the model's configured `provider` entry is used.
 
 This means a single `openai_compat` provider can serve both OpenAI-compatible and Anthropic-native models as long as the metadata is available. Use `steiner model inspect <alias>` to see the resolved `effective_provider_type`, `effective_transport`, and `transport_override_reason` for any model.
+
+### `ReasoningConfig` fields
+
+| Field               | Type     | Default | Description |
+|---------------------|----------|---------|-------------|
+| `effort`            | string   | —       | Reasoning effort to request for this model. This is a provider/model-native string, not a Steiner-owned enum — the accepted values depend entirely on the provider and model. For OpenAI/Codex models this is typically one of `minimal`, `low`, `medium`, `high` (model-dependent). When unset, no `effort` is applied and no request-level reasoning field is sent at all, so the provider's own default behavior applies. |
+| `supported_efforts` | []string | —       | The set of provider/model-native effort values this model accepts, used to validate `effort` and to populate the `/model` reasoning-effort picker in the TUI. When unset, Steiner does not know the model's valid efforts and reasoning effort selection is unavailable in the TUI for that model. |
+
+Example (OpenAI/Codex-style values — other providers may use a different vocabulary, or may not support configurable reasoning effort at all):
+
+```yaml
+models:
+  codex-high:
+    provider: codex
+    id: gpt-5-codex
+    advanced:
+      reasoning:
+        effort: high
+        supported_efforts: [minimal, low, medium, high]
+```
+
+Reasoning effort can also be changed at runtime for the current session via the `/model` command in the interactive TUI (select a model, then a reasoning effort from `supported_efforts`, or "provider default" to omit the field). Runtime `/model` reasoning selections are session-only and never write back to the config file. Use `steiner model inspect <alias>` to see the resolved `supported_efforts`, `provider_default_effort`, `configured_effort`, and `effective_effort` for a model.
 
 ### `AdvancedLimitsConfig` fields
 

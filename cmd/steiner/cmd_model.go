@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -75,6 +76,9 @@ func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 	); err != nil {
 		return err
 	}
+	if err := printModelInspectReasoning(out, rm); err != nil {
+		return err
+	}
 	if len(rm.Warnings) > 0 {
 		if _, err := fmt.Fprint(out, "warnings:\n"); err != nil {
 			return err
@@ -86,6 +90,35 @@ func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 		}
 	}
 	return nil
+}
+
+// printModelInspectReasoning prints a reasoning: diagnostic block describing
+// the resolved reasoning capabilities and effort selection for rm.
+func printModelInspectReasoning(out io.Writer, rm provider.ResolvedModel) error {
+	_, err := fmt.Fprintf(out,
+		"reasoning:\n  supported_efforts: %s\n  provider_default_effort: %s\n  configured_effort: %s\n  effective_effort: %s\n  source: %s\n  confidence: %s\n",
+		formatEffortList(rm.Reasoning.SupportedEfforts),
+		formatOptionalEffort(rm.Reasoning.ProviderDefaultEffort, "unknown"),
+		formatOptionalEffort(rm.ReasoningConfiguredEffort, "none"),
+		formatOptionalEffort(rm.ReasoningEffectiveEffort, "none (provider default applies, reasoning field omitted from requests)"),
+		formatOptionalEffort(rm.Reasoning.Source, "unknown"),
+		formatOptionalEffort(rm.Reasoning.Confidence, "unknown"),
+	)
+	return err
+}
+
+func formatEffortList(efforts []string) string {
+	if len(efforts) == 0 {
+		return "none"
+	}
+	return "[" + strings.Join(efforts, ", ") + "]"
+}
+
+func formatOptionalEffort(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func formatJSONMap(values map[string]any) string {
