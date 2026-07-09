@@ -119,12 +119,26 @@ func advise(ctx context.Context, prov provider.Provider, model string, conversat
 		return provider.ChatResponse{}, fmt.Errorf("advisor: model is required")
 	}
 
-	response, err := prov.ChatCompletion(ctx, provider.ChatRequest{
+	req := provider.ChatRequest{
 		Model:     model,
 		Messages:  buildMessages(conversation),
 		MaxTokens: maxTokens,
-	})
+	}
+
+	response, err := prov.ChatCompletion(ctx, req)
 	if err != nil {
+		// Fall back to streaming if the provider rejects non-stream requests.
+		if agent.IsStreamRequiredError(err) {
+			stream, streamErr := prov.StreamChatCompletion(ctx, req)
+			if streamErr != nil {
+				return provider.ChatResponse{}, fmt.Errorf("advisor: %w", streamErr)
+			}
+			resp, drainErr := drainStream(stream)
+			if drainErr != nil {
+				return provider.ChatResponse{}, fmt.Errorf("advisor: %w", drainErr)
+			}
+			return resp, nil
+		}
 		return provider.ChatResponse{}, fmt.Errorf("advisor: %w", err)
 	}
 	return response, nil

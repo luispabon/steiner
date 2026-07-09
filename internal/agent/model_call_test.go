@@ -334,9 +334,9 @@ func TestStreamRequiredDetection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := isStreamRequiredError(tc.err)
+			got := IsStreamRequiredError(tc.err)
 			if got != tc.wantTrue {
-				t.Errorf("isStreamRequiredError() = %v, want %v", got, tc.wantTrue)
+				t.Errorf("IsStreamRequiredError() = %v, want %v", got, tc.wantTrue)
 			}
 		})
 	}

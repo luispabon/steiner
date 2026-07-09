@@ -10,9 +10,11 @@ import (
 )
 
 type fakeProvider struct {
-	requests []provider.ChatRequest
-	response provider.ChatResponse
-	err      error
+	requests     []provider.ChatRequest
+	response     provider.ChatResponse
+	err          error
+	streamChunks []provider.ChatChunk
+	streamErr    error
 }
 
 func (p *fakeProvider) ChatCompletion(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
@@ -23,7 +25,18 @@ func (p *fakeProvider) ChatCompletion(_ context.Context, req provider.ChatReques
 	return p.response, nil
 }
 
-func (p *fakeProvider) StreamChatCompletion(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+func (p *fakeProvider) StreamChatCompletion(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	if p.streamChunks != nil {
+		ch := make(chan provider.ChatChunk, len(p.streamChunks))
+		for _, c := range p.streamChunks {
+			ch <- c
+		}
+		close(ch)
+		return ch, nil
+	}
+	if p.streamErr != nil {
+		return nil, p.streamErr
+	}
 	return nil, errors.New("unexpected streaming call")
 }
 
@@ -145,6 +158,45 @@ func TestAdviseWrapsProviderErrors(t *testing.T) {
 	}
 	if got := err.Error(); !strings.Contains(got, "advisor: backend failed") {
 		t.Fatalf("advise() error = %q, want wrapped provider error", got)
+	}
+}
+
+func TestAdviseFallsBackToStreamingWhenStreamRequired(t *testing.T) {
+	prov := &fakeProvider{
+		err: &provider.HTTPError{StatusCode: 400, Body: "Stream must be set to true"},
+		streamChunks: []provider.ChatChunk{
+			{Delta: provider.Message{Content: "Hello "}},
+			{Done: true, Delta: provider.Message{Content: "Hello world"}, FinishReason: "stop"},
+		},
+	}
+
+	resp, err := advise(context.Background(), prov, "advisor-model", nil, nil)
+	if err != nil {
+		t.Fatalf("advise() error = %v", err)
+	}
+	if got, want := resp.Message.Content, "Hello world"; got != want {
+		t.Fatalf("response content = %q, want %q", got, want)
+	}
+	if got, want := resp.FinishReason, "stop"; got != want {
+		t.Fatalf("response FinishReason = %q, want %q", got, want)
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("len(requests) = %d, want 1 (ChatCompletion was attempted)", len(prov.requests))
+	}
+}
+
+func TestAdviseStreamRequiredButStreamingFails(t *testing.T) {
+	prov := &fakeProvider{
+		err:       &provider.HTTPError{StatusCode: 400, Body: "Stream must be set to true"},
+		streamErr: errors.New("stream broke"),
+	}
+
+	_, err := advise(context.Background(), prov, "advisor-model", nil, nil)
+	if err == nil {
+		t.Fatal("advise() error = nil, want wrapped error")
+	}
+	if got := err.Error(); !strings.Contains(got, "advisor: stream broke") {
+		t.Fatalf("advise() error = %q, want wrapped streaming error", got)
 	}
 }
 
