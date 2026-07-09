@@ -12,6 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func (m Model) executeInterruptAction() Model {
@@ -135,10 +136,14 @@ func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg { return setAccentMsg{preset: preset} }
 }
 
-func (m Model) executeModelAction(modelName string) (tea.Model, tea.Cmd) {
+// executeModelAction switches the active model, optionally applying a
+// session-time reasoning override. reasoning is nil when the switch carries
+// no reasoning selection, leaving any previously stored override for
+// modelName untouched.
+func (m Model) executeModelAction(modelName string, reasoning *provider.ReasoningOverride) (tea.Model, tea.Cmd) {
 	providerBaseURL := m.sidebar.provider
 	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName}); err != nil {
+		if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName, Reasoning: reasoning}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: model %s is not configured", modelName))
 			m.input.Reset()
 			m.historyIdx = 0
@@ -149,6 +154,9 @@ func (m Model) executeModelAction(modelName string) (tea.Model, tea.Cmd) {
 	}
 	if baseURL, ok := m.modelBaseURLs[modelName]; ok {
 		providerBaseURL = baseURL
+	}
+	if reasoning != nil {
+		m.reasoningLabels[modelName] = reasoningOverrideLabel(*reasoning)
 	}
 	m.applyModelSelection(modelName, providerBaseURL)
 	m.content.AppendLine(fmt.Sprintf("status: model switched to %s", modelName))

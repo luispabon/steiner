@@ -169,6 +169,7 @@ func (m Model) handleSelectionEscKey() (bool, tea.Model, tea.Cmd) {
 
 func (m Model) hasOpenOverlay() bool {
 	return m.modelPicker.IsOpen() ||
+		m.reasoningPicker.IsOpen() ||
 		m.workflowHandoff.IsOpen() ||
 		m.exitModal.IsOpen() ||
 		m.slashOverlay.IsOpen() ||

@@ -14,6 +14,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tui/theme"
 	"github.com/luispabon/steiner/internal/usagestats"
@@ -126,6 +127,9 @@ type Model struct {
 	sessionPicker                sessionPickerOverlay
 	oneshotResumePicker          oneshotResumePickerOverlay
 	modelPicker                  modelPickerOverlay
+	modelReasoningCapabilities   map[string]provider.ReasoningCapabilities
+	reasoningPicker              reasoningPickerOverlay
+	reasoningLabels              map[string]string
 	planPicker                   planPickerOverlay
 	accentPicker                 accentPickerOverlay
 	contextOverlay               contextOverlayState
@@ -203,6 +207,7 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 		m.sidebar.providerName = name
 	}
 	m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
+	m.sidebar.reasoning = m.reasoningLabels[modelName]
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
 	if m.sidebar.contextBudget > 0 {
@@ -314,6 +319,17 @@ func cloneModelBaseURLs(src map[string]string) map[string]string {
 		return nil
 	}
 	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func cloneModelReasoningCapabilities(src map[string]provider.ReasoningCapabilities) map[string]provider.ReasoningCapabilities {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]provider.ReasoningCapabilities, len(src))
 	for k, v := range src {
 		dst[k] = v
 	}

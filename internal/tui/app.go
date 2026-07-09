@@ -12,6 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
@@ -43,27 +44,32 @@ type ApprovalSubmission struct {
 
 // Config holds the runtime configuration for the TUI application.
 type Config struct {
-	Model                string
-	ModelNames           []string
-	ModelContexts        map[string]int
-	ModelBaseURLs        map[string]string
-	ModelProviderNames   map[string]string
-	ProviderBaseURL      string
-	ProviderName         string
-	HomeDir              string
-	WorkingDir           string
-	MaxTurns             int
-	SkillNames           []string
-	SkillDescriptions    map[string]string // skill name -> short summary
-	SkillSources         map[string]string // skill name -> "project"/"user"/"global"
-	Theme                string
-	AccentPreset         string
-	ShowThinking         bool
-	SidebarPosition      string
-	Version              string
-	Controller           interactive.Controller
-	SessionStore         SessionLister
-	OneshotRunnerFactory OneshotRunnerFactoryBuilder
+	Model              string
+	ModelNames         []string
+	ModelContexts      map[string]int
+	ModelBaseURLs      map[string]string
+	ModelProviderNames map[string]string
+	// ModelReasoningCapabilities maps model alias to its resolved reasoning
+	// effort capabilities, used by the /model picker's reasoning step. Models
+	// absent from this map, or with no SupportedEfforts, are treated as
+	// having no configurable reasoning effort.
+	ModelReasoningCapabilities map[string]provider.ReasoningCapabilities
+	ProviderBaseURL            string
+	ProviderName               string
+	HomeDir                    string
+	WorkingDir                 string
+	MaxTurns                   int
+	SkillNames                 []string
+	SkillDescriptions          map[string]string // skill name -> short summary
+	SkillSources               map[string]string // skill name -> "project"/"user"/"global"
+	Theme                      string
+	AccentPreset               string
+	ShowThinking               bool
+	SidebarPosition            string
+	Version                    string
+	Controller                 interactive.Controller
+	SessionStore               SessionLister
+	OneshotRunnerFactory       OneshotRunnerFactoryBuilder
 	// Recorder is the process-wide usage stats recorder; nil when not wired.
 	Recorder *usagestats.Recorder
 	// Notifier delivers desktop notifications on blocking states; nil disables notifications.
