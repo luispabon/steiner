@@ -130,3 +130,47 @@ func TestResponsesRequestWire_ThreadsReasoning(t *testing.T) {
 		})
 	}
 }
+
+func TestResponsesRequestMarshalJSONOmitsMaxOutputTokens(t *testing.T) {
+	tests := []struct {
+		name      string
+		maxTokens *int
+	}{
+		{
+			name:      "omits max_output_tokens when set",
+			maxTokens: intPtr(256),
+		},
+		{
+			name:      "omits max_output_tokens when nil",
+			maxTokens: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := ChatRequest{
+				Model:     "test-model",
+				Messages:  []Message{{Role: MessageRoleUser, Content: "hi"}},
+				MaxTokens: tt.maxTokens,
+			}
+			wire, err := responsesRequestWire(req, "test-model", true)
+			if err != nil {
+				t.Fatalf("responsesRequestWire() error = %v", err)
+			}
+
+			data, err := json.Marshal(wire)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+
+			var payload map[string]any
+			if err := json.Unmarshal(data, &payload); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+
+			if _, present := payload["max_output_tokens"]; present {
+				t.Fatal("max_output_tokens present in JSON, want absent (Codex Responses API does not support it)")
+			}
+		})
+	}
+}

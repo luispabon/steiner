@@ -7,17 +7,16 @@ import (
 )
 
 type responsesRequest struct {
-	Model           string            `json:"model"`
-	Instructions    string            `json:"instructions,omitempty"`
-	Input           []responsesItem   `json:"input"`
-	MaxOutputTokens *int              `json:"max_output_tokens,omitempty"`
-	Store           *bool             `json:"store,omitempty"`
-	Stream          bool              `json:"stream,omitempty"`
-	Tools           []responsesTool   `json:"tools,omitempty"`
-	Reasoning       *ReasoningRequest `json:"-"`
-	PromptCacheKey  string            `json:"-"`
-	Params          map[string]any    `json:"-"`
-	ExtraParams     map[string]any    `json:"-"`
+	Model          string            `json:"model"`
+	Instructions   string            `json:"instructions,omitempty"`
+	Input          []responsesItem   `json:"input"`
+	Store          *bool             `json:"store,omitempty"`
+	Stream         bool              `json:"stream,omitempty"`
+	Tools          []responsesTool   `json:"tools,omitempty"`
+	Reasoning      *ReasoningRequest `json:"-"`
+	PromptCacheKey string            `json:"-"`
+	Params         map[string]any    `json:"-"`
+	ExtraParams    map[string]any    `json:"-"`
 }
 
 func (r responsesRequest) MarshalJSON() ([]byte, error) {
@@ -27,9 +26,6 @@ func (r responsesRequest) MarshalJSON() ([]byte, error) {
 	}
 	if r.Instructions != "" {
 		base["instructions"] = r.Instructions
-	}
-	if r.MaxOutputTokens != nil {
-		base["max_output_tokens"] = *r.MaxOutputTokens
 	}
 	if r.Store != nil {
 		base["store"] = *r.Store
@@ -106,13 +102,12 @@ func (u *responsesUsage) toUsageStats() *UsageStats {
 
 func responsesRequestWire(request ChatRequest, defaultModel string, stream bool) (responsesRequest, error) {
 	wire := responsesRequest{
-		Model:           defaultModel,
-		Input:           make([]responsesItem, 0, len(request.Messages)),
-		MaxOutputTokens: request.MaxTokens,
-		Stream:          stream,
-		Reasoning:       request.Reasoning,
-		Params:          request.Params,
-		ExtraParams:     request.ExtraParams,
+		Model:       defaultModel,
+		Input:       make([]responsesItem, 0, len(request.Messages)),
+		Stream:      stream,
+		Reasoning:   request.Reasoning,
+		Params:      request.Params,
+		ExtraParams: request.ExtraParams,
 	}
 	if strings.TrimSpace(request.Model) != "" {
 		wire.Model = request.Model
