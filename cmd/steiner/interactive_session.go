@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -64,8 +65,8 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		ModelContexts:              modelContextSizes(rt.cfg),
 		ModelBaseURLs:              modelBaseURLs(rt.cfg),
 		ModelProviderNames:         modelProviderNames(rt.cfg),
-		ModelReasoningCapabilities: modelReasoningCapabilities(rt.cfg),
-		ModelReasoningEfforts:      modelReasoningEfforts(rt.cfg),
+		ModelReasoningCapabilities: modelReasoningCapabilities(rt.cfg, rt.httpClient),
+		ModelReasoningEfforts:      modelReasoningEfforts(rt.cfg, rt.httpClient),
 		CurrentModelAlias:          rt.cfg.Models.Default,
 		ProviderBaseURL:            selectedProviderBaseURL,
 		ProviderName:               selectedProviderName,
@@ -142,15 +143,17 @@ func modelBaseURLs(cfg config.Config) map[string]string {
 
 // modelReasoningCapabilities resolves each configured model alias and
 // collects its reasoning effort capabilities for the TUI's /model picker.
-// Resolution failures for a given alias are skipped rather than surfaced, so
-// one misconfigured model does not block the picker for the rest.
-func modelReasoningCapabilities(cfg config.Config) map[string]provider.ReasoningCapabilities {
+// Uses ResolveWithDiscovery so that models.dev per-model reasoning levels are
+// applied when config does not declare supported_efforts. Resolution failures
+// for a given alias are skipped rather than surfaced, so one misconfigured model
+// does not block the picker for the rest.
+func modelReasoningCapabilities(cfg config.Config, httpClient *http.Client) map[string]provider.ReasoningCapabilities {
 	if len(cfg.Models.Definitions) == 0 {
 		return nil
 	}
 	caps := make(map[string]provider.ReasoningCapabilities, len(cfg.Models.Definitions))
 	for name := range cfg.Models.Definitions {
-		rm, err := provider.Resolve(cfg, name)
+		rm, err := provider.ResolveWithDiscovery(cfg, name, httpClient)
 		if err != nil {
 			continue
 		}
@@ -161,16 +164,18 @@ func modelReasoningCapabilities(cfg config.Config) map[string]provider.Reasoning
 
 // modelReasoningEfforts resolves each configured model alias and collects its
 // effective reasoning effort (config-declared effort, or empty for provider
-// default) for the TUI sidebar and reasoning picker. Resolution failures for
-// a given alias are skipped rather than surfaced, so one misconfigured model
-// does not block startup for the rest.
-func modelReasoningEfforts(cfg config.Config) map[string]string {
+// default) for the TUI sidebar and reasoning picker. Uses ResolveWithDiscovery
+// so that models.dev per-model reasoning levels are applied when config does
+// not declare supported_efforts. Resolution failures for a given alias are
+// skipped rather than surfaced, so one misconfigured model does not block
+// startup for the rest.
+func modelReasoningEfforts(cfg config.Config, httpClient *http.Client) map[string]string {
 	if len(cfg.Models.Definitions) == 0 {
 		return nil
 	}
 	efforts := make(map[string]string, len(cfg.Models.Definitions))
 	for name := range cfg.Models.Definitions {
-		rm, err := provider.Resolve(cfg, name)
+		rm, err := provider.ResolveWithDiscovery(cfg, name, httpClient)
 		if err != nil {
 			continue
 		}

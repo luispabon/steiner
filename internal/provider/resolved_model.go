@@ -139,6 +139,17 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 		rm.Vision = &v
 	}
 
+	// Apply models.dev reasoning supported efforts only when config does not
+	// declare supported_efforts. models.dev per-model data is more accurate
+	// than the hardcoded fallback table.
+	if rm.Reasoning.Source != "config" && len(modelsDevInfo.ReasoningSupportedEfforts) > 0 {
+		rm.Reasoning = ReasoningCapabilities{
+			SupportedEfforts: modelsDevInfo.ReasoningSupportedEfforts,
+			Source:           "models.dev",
+			Confidence:       "medium",
+		}
+	}
+
 	if limitsFullyConfigured(adv) {
 		return rm, nil
 	}

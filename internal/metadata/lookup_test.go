@@ -290,3 +290,51 @@ func TestLookup_VisionInput(t *testing.T) {
 		})
 	}
 }
+
+func TestLookup_ReasoningSupportedEfforts(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    []byte
+		modelID string
+		want    []string
+	}{
+		{
+			name:    "reasoning_options with effort type",
+			data:    []byte(`{"openai":{"models":{"gpt-5.4-mini":{"limit":{"context":200000,"output":128000},"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}`),
+			modelID: "gpt-5.4-mini",
+			want:    []string{"none", "low", "medium", "high", "xhigh"},
+		},
+		{
+			name:    "no reasoning_options returns nil",
+			data:    []byte(`{"openai":{"models":{"gpt-4o":{"limit":{"context":128000}}}}}`),
+			modelID: "gpt-4o",
+			want:    nil,
+		},
+		{
+			name:    "reasoning_options without effort type returns nil",
+			data:    []byte(`{"openai":{"models":{"o3":{"limit":{"context":200000},"reasoning_options":[{"type":"budget_tokens","values":["1000","2000"]}]}}}}`),
+			modelID: "o3",
+			want:    nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := Lookup(tt.data, tt.modelID)
+			if !equalStringSlice(info.ReasoningSupportedEfforts, tt.want) {
+				t.Errorf("ReasoningSupportedEfforts=%v, want %v", info.ReasoningSupportedEfforts, tt.want)
+			}
+		})
+	}
+}
+
+func equalStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

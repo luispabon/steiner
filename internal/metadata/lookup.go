@@ -7,16 +7,17 @@ import (
 
 // ModelInfo holds metadata for a single model from the models.dev cache.
 type ModelInfo struct {
-	ContextWindow     int
-	MaxOutputTokens   int
-	ReasoningEchoBack bool
-	ProviderNPM       string
-	ProviderAPI       string
-	ModelProviderNPM  string
-	ModelProviderAPI  string
-	InterleavedField  string
-	VisionInput       bool
-	Found             bool
+	ContextWindow             int
+	MaxOutputTokens           int
+	ReasoningEchoBack         bool
+	ReasoningSupportedEfforts []string
+	ProviderNPM               string
+	ProviderAPI               string
+	ModelProviderNPM          string
+	ModelProviderAPI          string
+	InterleavedField          string
+	VisionInput               bool
+	Found                     bool
 }
 
 // Lookup finds model metadata for the given backend model ID in the cached JSON.
@@ -85,21 +86,33 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) Model
 		Modalities struct {
 			Input []string `json:"input"`
 		} `json:"modalities"`
+		ReasoningOptions []struct {
+			Type   string   `json:"type"`
+			Values []string `json:"values"`
+		} `json:"reasoning_options"`
 	}
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		return ModelInfo{}
 	}
+	var supportedEfforts []string
+	for _, ro := range entry.ReasoningOptions {
+		if ro.Type == "effort" {
+			supportedEfforts = ro.Values
+			break
+		}
+	}
 	return ModelInfo{
-		ContextWindow:     entry.Limit.Context,
-		MaxOutputTokens:   entry.Limit.Output,
-		ReasoningEchoBack: entry.Interleaved.Field == "reasoning_content",
-		ProviderNPM:       providerNPM,
-		ProviderAPI:       providerAPI,
-		ModelProviderNPM:  entry.Provider.NPM,
-		ModelProviderAPI:  entry.Provider.API,
-		InterleavedField:  entry.Interleaved.Field,
-		VisionInput:       containsFold(entry.Modalities.Input, "image"),
-		Found:             true,
+		ContextWindow:             entry.Limit.Context,
+		MaxOutputTokens:           entry.Limit.Output,
+		ReasoningEchoBack:         entry.Interleaved.Field == "reasoning_content",
+		ReasoningSupportedEfforts: supportedEfforts,
+		ProviderNPM:               providerNPM,
+		ProviderAPI:               providerAPI,
+		ModelProviderNPM:          entry.Provider.NPM,
+		ModelProviderAPI:          entry.Provider.API,
+		InterleavedField:          entry.Interleaved.Field,
+		VisionInput:               containsFold(entry.Modalities.Input, "image"),
+		Found:                     true,
 	}
 }
 
