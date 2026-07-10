@@ -127,6 +127,7 @@ const (
 	ToolGrn        = "#87d75f" // write, bash ok
 	ToolMag        = "#d75fd7" // grep
 	DelegateViolet = "#9D8DF1" // research delegate
+	AdvisorGreen   = "#5faf87" // advisor delegate
 	Black          = "#000000" // tag chip foreground
 	SyntaxBlue     = "#5f8fff" // keyword blue (file preview)
 )
@@ -150,6 +151,7 @@ var (
 	WarnLine      = blendHex(Warn, Bg, 0.30)        // 30% todo + 70% bg
 
 	// Muted delegation border colors (blended with Bg, per agent type)
+	AdvisorGreenLine     = blendHex(AdvisorGreen, Bg, 0.30)   // advisor
 	DelegateVioletLine   = blendHex(DelegateViolet, Bg, 0.30) // research
 	DelegateThinkingLine = blendHex(Thinking, Bg, 0.30)       // plan
 )
