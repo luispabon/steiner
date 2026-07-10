@@ -32,6 +32,7 @@ const (
 	segmentDelegation
 	segmentPendingSteer
 	segmentStatus
+	segmentImagesAttached
 )
 
 type thinkingBlockData struct {
@@ -179,17 +180,30 @@ type delegationDisplayState struct {
 	extMax                int
 }
 
+type imagesAttachedRowData struct {
+	id     string
+	width  int
+	height int
+	size   string
+	path   string
+}
+
+type imagesAttachedData struct {
+	rows []imagesAttachedRowData
+}
+
 type contentSegment struct {
-	kind           contentSegmentKind
-	text           string
-	timestamp      time.Time
-	thinkData      *thinkingBlockData      // non-nil only for segmentThinkingBlock
-	toolData       *toolCallSegment        // non-nil only for segmentToolCall
-	toolGroupData  *toolCallGroupSegment   // non-nil only for segmentToolCallGroup
-	approvalData   *approvalPillData       // non-nil only for segmentApprovalPill
-	compactionData *compactionBannerData   // non-nil only for segmentCompactionBanner
-	separatorData  *separatorData          // non-nil only for segmentSeparator
-	delegData      *delegationDisplayState // non-nil only for segmentDelegation
+	kind               contentSegmentKind
+	text               string
+	timestamp          time.Time
+	thinkData          *thinkingBlockData      // non-nil only for segmentThinkingBlock
+	toolData           *toolCallSegment        // non-nil only for segmentToolCall
+	toolGroupData      *toolCallGroupSegment   // non-nil only for segmentToolCallGroup
+	approvalData       *approvalPillData       // non-nil only for segmentApprovalPill
+	compactionData     *compactionBannerData   // non-nil only for segmentCompactionBanner
+	separatorData      *separatorData          // non-nil only for segmentSeparator
+	delegData          *delegationDisplayState // non-nil only for segmentDelegation
+	imagesAttachedData *imagesAttachedData     // non-nil only for segmentImagesAttached
 	// render cache
 	cachedRender      string
 	cachedRenderWidth int
