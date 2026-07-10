@@ -3,7 +3,6 @@ package tui
 import (
 	"strings"
 
-	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -177,47 +176,6 @@ func (b *contentBuffer) AppendPendingSteer(text string) {
 	}
 	b.segments = append(b.segments, contentSegment{kind: segmentPendingSteer, text: text, renderDirty: true})
 	b.collapseState[idx] = false
-}
-
-// AppendImagesAttached appends an images-attached segment with structured display data.
-// Each image with a non-empty FilePath is stored as a display row; images with empty
-// FilePath are skipped. No-op if images is empty.
-func (b *contentBuffer) AppendImagesAttached(images []agent.ImageBlock, workingDir, homeDir string) {
-	b.finishStreaming()
-
-	if len(images) == 0 {
-		return
-	}
-
-	const maxPathWidth = 70
-	var rows []imagesAttachedRowData
-
-	for _, img := range images {
-		if img.FilePath == "" {
-			continue
-		}
-
-		path := shortenAttachedImagePath(img.FilePath, workingDir, homeDir, maxPathWidth)
-		rows = append(rows, imagesAttachedRowData{
-			id:     img.ID,
-			width:  img.Width,
-			height: img.Height,
-			size:   tuiFormatSize(img.SizeBytes),
-			path:   path,
-		})
-	}
-
-	if len(rows) == 0 {
-		return
-	}
-
-	b.segments = append(b.segments, contentSegment{
-		kind: segmentImagesAttached,
-		imagesAttachedData: &imagesAttachedData{
-			rows: rows,
-		},
-		renderDirty: true,
-	})
 }
 
 // PromoteLastPendingSteer upgrades the most recent segmentPendingSteer to segmentUserMarkdown,

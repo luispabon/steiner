@@ -276,7 +276,13 @@ func (m Model) executeSubmitAction(value string, submitText string, displayText 
 	m.imageMarkers = nil
 	m.content.AppendUser(displayText)
 	if len(images) > 0 {
-		m.content.AppendImagesAttached(images, m.sidebar.workingDir, m.sidebar.homeDir)
+		m.content.AppendLine("  Images attached:")
+		for _, img := range images {
+			if img.FilePath != "" {
+				m.content.AppendLine(fmt.Sprintf("    %s  %dx%d %s  %s",
+					img.ID, img.Width, img.Height, tuiFormatSize(img.SizeBytes), img.FilePath))
+			}
+		}
 	}
 	m.input.Reset()
 	m.historyIdx = 0

@@ -188,8 +188,6 @@ func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width 
 		return b.renderDelegationSegment(segment, width)
 	case segmentStatus:
 		return b.renderStatusSegment(segment, width)
-	case segmentImagesAttached:
-		return b.renderImagesAttachedSegment(segment, width)
 	default:
 		return b.styles.AssistantProse.Render(segment.text) + "\n"
 	}

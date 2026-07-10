@@ -294,16 +294,12 @@ func TestExecuteSubmitActionAppendsImagesAttached(t *testing.T) {
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
 		},
-		sidebar: sidebarState{
-			workingDir: "/home/user/project",
-			homeDir:    "/home/user",
-		},
 		imageMarkers: []imageMarker{
 			{
 				label: "[Image 1]",
 				image: agent.ImageBlock{
 					ID:        "img-1",
-					FilePath:  "/home/user/project/.steiner/tmp/images/20260630_143052_a7f3.png",
+					FilePath:  ".steiner/tmp/images/20260630_143052_a7f3.png",
 					MediaType: "image/png",
 					Width:     2560,
 					Height:    1545,
@@ -321,19 +317,16 @@ func TestExecuteSubmitActionAppendsImagesAttached(t *testing.T) {
 		t.Errorf("imageMarkers not cleared after submit, got %d", len(got.imageMarkers))
 	}
 
-	// Check that segmentImagesAttached was appended to content
+	// Check that "Images attached:" line was appended to content as a plain segment
 	found := false
 	for _, seg := range got.content.segments {
-		if seg.kind == segmentImagesAttached && seg.imagesAttachedData != nil && len(seg.imagesAttachedData.rows) == 1 {
-			row := seg.imagesAttachedData.rows[0]
-			if row.id == "img-1" && row.width == 2560 && row.height == 1545 {
-				found = true
-				break
-			}
+		if seg.kind == segmentPlain && seg.text == "  Images attached:" {
+			found = true
+			break
 		}
 	}
 	if !found {
-		t.Error(`expected segmentImagesAttached with correct data in content, not found`)
+		t.Error(`expected "  Images attached:" plain segment in content, not found`)
 	}
 }
 
