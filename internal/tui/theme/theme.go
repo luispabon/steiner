@@ -205,6 +205,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 			"code":     lipgloss.NewStyle().Foreground(lipgloss.Color(AccentAmber)).Bold(true),
 			"plan":     lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)).Bold(true),
 			"verify":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMag)).Bold(true),
+			"vision":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlue)).Bold(true),
 		},
 
 		DelegateBorderStyles: map[string]lipgloss.Style{
@@ -213,6 +214,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 			"code":     lipgloss.NewStyle().Foreground(lipgloss.Color(ToolAmberLine)),
 			"plan":     lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateThinkingLine)),
 			"verify":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
+			"vision":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
 		},
 		DelegateBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
 
