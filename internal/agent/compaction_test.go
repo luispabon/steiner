@@ -1882,3 +1882,55 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 		}
 	})
 }
+
+func TestCompleteCompactionCallUsesStreaming(t *testing.T) {
+	nonStreamingCalled := false
+	streamingCalled := false
+
+	prov := &fakeProvider{
+		chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+			nonStreamingCalled = true
+			return provider.ChatResponse{}, fmt.Errorf("compaction must use streaming, not non-streaming chat")
+		},
+		streamFn: func(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+			streamingCalled = true
+			ch := make(chan provider.ChatChunk, 1)
+			ch <- provider.ChatChunk{
+				Delta: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "compaction summary",
+				},
+				FinishReason: "stop",
+				Done:         true,
+			}
+			close(ch)
+			return ch, nil
+		},
+	}
+
+	_, err := completeCompactionCall(
+		context.Background(),
+		RunRequest{
+			Provider: prov,
+			ResolvedModel: provider.ResolvedModel{
+				ProviderAlias:         "test-provider",
+				EffectiveProviderType: "test",
+				BackendModelID:        "test-model",
+			},
+			Events: output.NoopSink{},
+		},
+		1,
+		provider.ChatRequest{Model: "test-model"},
+		prompt.ModelTokenBudget{},
+	)
+
+	if err != nil {
+		t.Fatalf("completeCompactionCall() error = %v, want nil", err)
+	}
+	if nonStreamingCalled {
+		t.Error("non-streaming chat path was called, want streaming path only")
+	}
+	if !streamingCalled {
+		t.Error("streaming path was not called, want it to be used")
+	}
+}
