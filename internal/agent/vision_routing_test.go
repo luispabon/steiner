@@ -803,7 +803,7 @@ func TestHandleImagesForVision_RoutingError_EmitsDiagnostic(t *testing.T) {
 	}
 
 	executor := &fakeExecutor{
-		execute: func(_ context.Context, _ string, input map[string]any) (any, error) {
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
 			return nil, fmt.Errorf("vision call failed for img-1")
 		},
 	}
