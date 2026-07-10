@@ -1199,3 +1199,95 @@ func TestResolveWithDiscoveryVisionCapability(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveWithDiscoveryUsesModelsDevReasoningEfforts(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	cacheJSON := `{"openai":{"models":{"gpt-5.4-mini":{"limit":{"context":200000,"output":128000},"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"gpt54mini": {
+					Provider: "local",
+					ID:       "gpt-5.4-mini",
+				},
+			},
+		},
+	}
+
+	rm, err := ResolveWithDiscovery(cfg, "gpt54mini", nil)
+	if err != nil {
+		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+	}
+	if got, want := rm.Reasoning.Source, "models.dev"; got != want {
+		t.Fatalf("Reasoning.Source = %q, want %q", got, want)
+	}
+	if !equalStrings(rm.Reasoning.SupportedEfforts, []string{"none", "low", "medium", "high", "xhigh"}) {
+		t.Fatalf("Reasoning.SupportedEfforts = %v, want [none low medium high xhigh]", rm.Reasoning.SupportedEfforts)
+	}
+	if rm.Reasoning.Confidence != "medium" {
+		t.Fatalf("Reasoning.Confidence = %q, want medium", rm.Reasoning.Confidence)
+	}
+}
+
+func TestResolveWithDiscoveryModelsDevReasoningEffortsRespectsConfig(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	cacheJSON := `{"openai":{"models":{"gpt-5.4-mini":{"limit":{"context":200000,"output":128000},"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"gpt54mini": {
+					Provider: "local",
+					ID:       "gpt-5.4-mini",
+					Advanced: config.AdvancedConfig{
+						Reasoning: config.ReasoningConfig{
+							SupportedEfforts: []string{"low", "high"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rm, err := ResolveWithDiscovery(cfg, "gpt54mini", nil)
+	if err != nil {
+		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+	}
+	if got, want := rm.Reasoning.Source, "config"; got != want {
+		t.Fatalf("Reasoning.Source = %q, want %q", got, want)
+	}
+	if !equalStrings(rm.Reasoning.SupportedEfforts, []string{"low", "high"}) {
+		t.Fatalf("Reasoning.SupportedEfforts = %v, want [low high]", rm.Reasoning.SupportedEfforts)
+	}
+}
