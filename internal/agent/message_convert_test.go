@@ -299,6 +299,115 @@ func TestMessageConvert_FromProviderMessages(t *testing.T) {
 	})
 }
 
+func TestImageBlockRoundTrip(t *testing.T) {
+	t.Run("ID and FilePath survive round-trip", func(t *testing.T) {
+		original := []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "look at this image",
+				Images: []ImageBlock{
+					{
+						ID:        "img-1",
+						FilePath:  "/tmp/screenshot.png",
+						MediaType: "image/png",
+						Data:      "base64data",
+						Width:     1920,
+						Height:    1080,
+						SizeBytes: 12345,
+					},
+				},
+			},
+		}
+		providerMsgs := ToProviderMessages(original)
+		if len(providerMsgs) != 1 {
+			t.Fatalf("expected 1 provider message, got %d", len(providerMsgs))
+		}
+		if len(providerMsgs[0].Images) != 1 {
+			t.Fatalf("expected 1 image, got %d", len(providerMsgs[0].Images))
+		}
+		img := providerMsgs[0].Images[0]
+		if img.ID != "img-1" {
+			t.Errorf("ID = %q, want img-1", img.ID)
+		}
+		if img.FilePath != "/tmp/screenshot.png" {
+			t.Errorf("FilePath = %q, want /tmp/screenshot.png", img.FilePath)
+		}
+
+		roundTripped := fromProviderMessages(providerMsgs)
+		if len(roundTripped) != 1 {
+			t.Fatalf("expected 1 round-tripped message, got %d", len(roundTripped))
+		}
+		if len(roundTripped[0].Images) != 1 {
+			t.Fatalf("expected 1 round-tripped image, got %d", len(roundTripped[0].Images))
+		}
+		rt := roundTripped[0].Images[0]
+		if rt.ID != "img-1" {
+			t.Errorf("round-tripped ID = %q, want img-1", rt.ID)
+		}
+		if rt.FilePath != "/tmp/screenshot.png" {
+			t.Errorf("round-tripped FilePath = %q, want /tmp/screenshot.png", rt.FilePath)
+		}
+		if rt.MediaType != "image/png" {
+			t.Errorf("round-tripped MediaType = %q, want image/png", rt.MediaType)
+		}
+		if rt.Data != "base64data" {
+			t.Errorf("round-tripped Data = %q, want base64data", rt.Data)
+		}
+	})
+
+	t.Run("empty ID and FilePath stay empty", func(t *testing.T) {
+		original := []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "look at this image",
+				Images: []ImageBlock{
+					{
+						MediaType: "image/jpeg",
+						Data:      "jpegdata",
+					},
+				},
+			},
+		}
+		providerMsgs := ToProviderMessages(original)
+		img := providerMsgs[0].Images[0]
+		if img.ID != "" {
+			t.Errorf("ID = %q, want empty", img.ID)
+		}
+		if img.FilePath != "" {
+			t.Errorf("FilePath = %q, want empty", img.FilePath)
+		}
+
+		roundTripped := fromProviderMessages(providerMsgs)
+		rt := roundTripped[0].Images[0]
+		if rt.ID != "" {
+			t.Errorf("round-tripped ID = %q, want empty", rt.ID)
+		}
+		if rt.FilePath != "" {
+			t.Errorf("round-tripped FilePath = %q, want empty", rt.FilePath)
+		}
+	})
+
+	t.Run("image with empty Data is skipped in toProviderMessage", func(t *testing.T) {
+		original := []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "look at this image",
+				Images: []ImageBlock{
+					{
+						ID:        "img-2",
+						FilePath:  "/tmp/empty.png",
+						MediaType: "image/png",
+						Data:      "",
+					},
+				},
+			},
+		}
+		providerMsgs := ToProviderMessages(original)
+		if len(providerMsgs[0].Images) != 0 {
+			t.Fatalf("expected 0 images (empty Data skipped), got %d", len(providerMsgs[0].Images))
+		}
+	})
+}
 func TestMessageConvert_ToProviderMessage(t *testing.T) {
 	t.Run("summary role becomes system", func(t *testing.T) {
 		msg := Message{Role: MessageRoleSummary, Content: "summary"}

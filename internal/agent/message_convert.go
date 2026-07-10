@@ -66,6 +66,8 @@ func toProviderMessage(message Message) provider.Message {
 			continue
 		}
 		out.Images = append(out.Images, provider.ImageBlock{
+			ID:        img.ID,
+			FilePath:  img.FilePath,
 			MediaType: img.MediaType,
 			Data:      img.Data,
 			Width:     img.Width,
@@ -101,6 +103,8 @@ func fromProviderMessage(message provider.Message) Message {
 		out.Images = make([]ImageBlock, 0, len(message.Images))
 		for _, img := range message.Images {
 			out.Images = append(out.Images, ImageBlock{
+				ID:        img.ID,
+				FilePath:  img.FilePath,
 				MediaType: img.MediaType,
 				Data:      img.Data,
 				Width:     img.Width,
