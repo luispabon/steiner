@@ -761,3 +761,94 @@ func TestHandleImagesForVision_MultipleImagesInOnceMessage_UncontaminatedText(t 
 		t.Fatalf("tasks should be identical (same original content), but task[0] != task[1]\ntask[0]: %s\ntask[1]: %s", capturedTasks[0], capturedTasks[1])
 	}
 }
+
+func TestHandleImagesForVision_RoutingError_EmitsDiagnostic(t *testing.T) {
+	vc := NewVisionCapabilities(true)
+	vc.LatchIncapable("test-model")
+
+	var capturedEvents []output.Event
+	eventSink := output.SinkFunc(func(event output.Event) {
+		capturedEvents = append(capturedEvents, event)
+	})
+
+	state := RunState{
+		Conversation: []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "what is in this image?",
+				Images: []ImageBlock{
+					{
+						ID:        "img-1",
+						FilePath:  "/path/to/img.png",
+						MediaType: "image/png",
+						Data:      "base64data",
+					},
+				},
+			},
+		},
+		Lineage: newConversationLineage([]Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "what is in this image?",
+				Images: []ImageBlock{
+					{
+						ID:        "img-1",
+						FilePath:  "/path/to/img.png",
+						MediaType: "image/png",
+						Data:      "base64data",
+					},
+				},
+			},
+		}),
+	}
+
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return nil, fmt.Errorf("vision call failed for img-1")
+		},
+	}
+
+	req := RunRequest{
+		ResolvedModel:      provider.ResolvedModel{BackendModelID: "test-model", Alias: "test-model"},
+		Executor:           executor,
+		VisionCapabilities: vc,
+		Events:             eventSink,
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	mutated := p.handleImagesForVision(context.Background(), &state)
+	if !mutated {
+		t.Fatalf("mutated = false, want true")
+	}
+
+	content := state.Conversation[0].Content
+	if !contains(content, "could not be processed") {
+		t.Fatalf("content should indicate fallback, got: %s", content)
+	}
+
+	// Find the vision_routing_failed diagnostic event
+	var foundEvent *output.ProviderDiagnosticEvent
+	for _, event := range capturedEvents {
+		if payload, ok := event.Payload.(output.ProviderDiagnosticEvent); ok {
+			if payload.Kind == "vision_routing_failed" {
+				foundEvent = &payload
+				break
+			}
+		}
+	}
+	if foundEvent == nil {
+		t.Fatalf("no vision_routing_failed diagnostic event found. captured events: %v", capturedEvents)
+	}
+
+	if foundEvent.Severity != "warn" {
+		t.Fatalf("event.Severity = %q, want warn", foundEvent.Severity)
+	}
+
+	if !contains(foundEvent.Message, "img-1") {
+		t.Fatalf("message should contain image ID, got: %s", foundEvent.Message)
+	}
+
+	if !contains(foundEvent.Message, "vision call failed") {
+		t.Fatalf("message should contain error, got: %s", foundEvent.Message)
+	}
+}
