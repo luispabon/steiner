@@ -233,12 +233,14 @@ func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 		{name: "delegate code", got: styleFromMap(styles.DelegateTagStyles, "code", styles.ToolTagDefault), want: "fg=" + strings.ToLower(AccentAmber) + " bg= bold=true italic=false padding=0,0,0,0"},
 		{name: "delegate plan", got: styleFromMap(styles.DelegateTagStyles, "plan", styles.ToolTagDefault), want: "fg=" + strings.ToLower(Thinking) + " bg= bold=true italic=false padding=0,0,0,0"},
 		{name: "delegate verify", got: styleFromMap(styles.DelegateTagStyles, "verify", styles.ToolTagDefault), want: "fg=" + strings.ToLower(ToolMag) + " bg= bold=true italic=false padding=0,0,0,0"},
+		{name: "delegate vision", got: styleFromMap(styles.DelegateTagStyles, "vision", styles.ToolTagDefault), want: "fg=" + strings.ToLower(ToolBlue) + " bg= bold=true italic=false padding=0,0,0,0"},
 		{name: "delegate fallback", got: styleFromMap(styles.DelegateTagStyles, "delegate", styles.ToolTagDefault), want: "fg=" + strings.ToLower(Black) + " bg=" + strings.ToLower(ToolBlue) + " bold=true italic=false padding=0,1,0,1"},
 		{name: "delegate border explore", got: styleFromMap(styles.DelegateBorderStyles, "explore", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolCyanLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border research", got: styleFromMap(styles.DelegateBorderStyles, "research", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(DelegateVioletLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border code", got: styleFromMap(styles.DelegateBorderStyles, "code", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolAmberLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border plan", got: styleFromMap(styles.DelegateBorderStyles, "plan", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(DelegateThinkingLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border verify", got: styleFromMap(styles.DelegateBorderStyles, "verify", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolMagLine) + " bg= bold=false italic=false padding=0,0,0,0"},
+		{name: "delegate border vision", got: styleFromMap(styles.DelegateBorderStyles, "vision", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolBlueLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border fallback", got: styleFromMap(styles.DelegateBorderStyles, "advisor", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolGrnLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 	}
 

@@ -664,6 +664,119 @@ func TestRouteImageToVision_EmitsDiagnosticEvent(t *testing.T) {
 	}
 }
 
+func TestRouteImageToVision_EmitsToolCallEvents(t *testing.T) {
+	vc := NewVisionCapabilities(true)
+	vc.LatchIncapable("test-model")
+
+	var capturedEvents []output.Event
+	eventSink := output.SinkFunc(func(event output.Event) {
+		capturedEvents = append(capturedEvents, event)
+	})
+
+	state := RunState{
+		Conversation: []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "what is in this image?",
+				Images: []ImageBlock{
+					{
+						ID:        "img-1",
+						FilePath:  "/path/to/img.png",
+						MediaType: "image/png",
+						Data:      "base64data",
+						Width:     800,
+						Height:    600,
+						SizeBytes: 10000,
+					},
+				},
+			},
+		},
+		Lineage: newConversationLineage([]Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "what is in this image?",
+				Images: []ImageBlock{
+					{
+						ID:        "img-1",
+						FilePath:  "/path/to/img.png",
+						MediaType: "image/png",
+						Data:      "base64data",
+						Width:     800,
+						Height:    600,
+						SizeBytes: 10000,
+					},
+				},
+			},
+		}),
+	}
+
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, toolName string, _ map[string]any) (any, error) {
+			if toolName != "vision" {
+				t.Fatalf("unexpected tool: %s", toolName)
+			}
+			result := map[string]any{
+				"agent_id": "vision-sub-1",
+				"output":   "This is a button labeled OK",
+			}
+			resultJSON, _ := json.Marshal(result)
+			return string(resultJSON), nil
+		},
+	}
+
+	req := RunRequest{
+		ResolvedModel:      provider.ResolvedModel{BackendModelID: "test-model", Alias: "test-model"},
+		Executor:           executor,
+		VisionCapabilities: vc,
+		Events:             eventSink,
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	mutated := p.handleImagesForVision(context.Background(), &state)
+	if !mutated {
+		t.Fatalf("mutated = false, want true")
+	}
+
+	// Find the ToolCallStartedEvent
+	var startedEvent *output.ToolCallStartedEvent
+	var finishedEvent *output.ToolCallFinishedEvent
+	for _, event := range capturedEvents {
+		switch payload := event.Payload.(type) {
+		case output.ToolCallStartedEvent:
+			if payload.Tool == "vision" {
+				startedEvent = &payload
+			}
+		case output.ToolCallFinishedEvent:
+			if payload.Tool == "vision" {
+				finishedEvent = &payload
+			}
+		}
+	}
+
+	if startedEvent == nil {
+		t.Fatalf("no ToolCallStartedEvent for vision found. captured events: %v", capturedEvents)
+	}
+	if startedEvent.Tool != "vision" {
+		t.Fatalf("startedEvent.Tool = %q, want vision", startedEvent.Tool)
+	}
+	if startedEvent.CallID != "vision-auto-img-1" {
+		t.Fatalf("startedEvent.CallID = %q, want vision-auto-img-1", startedEvent.CallID)
+	}
+
+	if finishedEvent == nil {
+		t.Fatalf("no ToolCallFinishedEvent for vision found. captured events: %v", capturedEvents)
+	}
+	if finishedEvent.Tool != "vision" {
+		t.Fatalf("finishedEvent.Tool = %q, want vision", finishedEvent.Tool)
+	}
+	if finishedEvent.CallID != "vision-auto-img-1" {
+		t.Fatalf("finishedEvent.CallID = %q, want vision-auto-img-1", finishedEvent.CallID)
+	}
+	if finishedEvent.Error != "" {
+		t.Fatalf("finishedEvent.Error = %q, want empty", finishedEvent.Error)
+	}
+}
+
 func TestHandleImagesForVision_MultipleImagesInOnceMessage_UncontaminatedText(t *testing.T) {
 	vc := NewVisionCapabilities(true)
 	vc.LatchIncapable("test-model")

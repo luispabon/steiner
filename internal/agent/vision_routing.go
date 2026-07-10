@@ -122,18 +122,25 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	}
 
 	task := wrapVisionTask(originalContent)
-
-	raw, err := p.request.Executor.Execute(ctx, "vision", map[string]any{
+	args := map[string]any{
 		"task":     task,
 		"image_id": img.ID,
-	})
+	}
+	callID := fmt.Sprintf("vision-auto-%s", img.ID)
+
+	emitEvent(p.request.Events, output.NewToolCallStartedEvent(0, "vision", callID, args))
+
+	raw, err := p.request.Executor.Execute(ctx, "vision", args)
 	if err != nil {
+		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", err))
 		return fmt.Errorf("vision call: %w", err)
 	}
 
 	env := normalizeToolResult(raw)
 	if env.Content == "" {
-		return fmt.Errorf("vision tool returned empty result")
+		emptyErr := fmt.Errorf("vision tool returned empty result")
+		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", emptyErr))
+		return fmt.Errorf("vision call: %w", emptyErr)
 	}
 
 	var result struct {
@@ -141,11 +148,14 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 		Output  string `json:"output"`
 	}
 	if err := json.Unmarshal([]byte(env.Content), &result); err != nil {
+		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", err))
 		return fmt.Errorf("unmarshal vision result: %w", err)
 	}
 
 	if result.Output == "" {
-		return fmt.Errorf("vision tool output is empty")
+		emptyErr := fmt.Errorf("vision tool output is empty")
+		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", emptyErr))
+		return fmt.Errorf("vision call: %w", emptyErr)
 	}
 
 	description := fmt.Sprintf("[Image %s — you cannot view images directly. A vision assistant examined it and reports:\n%s\nFor further detail about this image, call follow_up with agent_id \"%s\".]",
@@ -158,6 +168,8 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	}
 
 	img.Data = ""
+
+	emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, env.Content, nil))
 
 	emitEvent(p.request.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
 		Severity: "info",
