@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -96,6 +97,12 @@ func (p *turnProgressor) processImagesInMessage(ctx context.Context, msg *Messag
 
 		if subAgentConfigured {
 			if err := p.routeImageToVision(ctx, msg, &newImages[j], originalContent); err != nil {
+				slog.Error("vision routing failed", "image_id", newImages[j].ID, "error", err)
+				emitEvent(p.request.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+					Severity: "warn",
+					Kind:     "vision_routing_failed",
+					Message:  fmt.Sprintf("image %s routing failed: %s", newImages[j].ID, err),
+				}))
 				p.stripImageFallback(msg, &newImages[j])
 			}
 		} else {
