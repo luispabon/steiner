@@ -351,9 +351,9 @@ func buildRuntimeInputs(stdin io.Reader) (*bufio.Reader, *bufio.Reader, func() e
 }
 
 // cleanupSandboxTmpOrphans removes stale per-session sandbox tmp directories
-// older than maxAge from parentDir. Best-effort: logs warnings on error and
-// never fails the caller. Status messages are emitted to stderr when work
-// is performed.
+// older than maxAge from parentDir. Best-effort: never fails the caller.
+// Emits start/done status to stderr when there is work to do, since removing
+// large trees (e.g. Go module caches) can take a while.
 func cleanupSandboxTmpOrphans(parentDir string, maxAge time.Duration) {
 	cutoff := time.Now().Add(-maxAge)
 	var oldCount int
@@ -367,15 +367,19 @@ func cleanupSandboxTmpOrphans(parentDir string, maxAge time.Duration) {
 			}
 		}
 	}
-	if oldCount > 0 {
-		fmt.Fprintf(os.Stderr, "Cleaning up %d old sandbox tmp directories...\n", oldCount)
+	if oldCount == 0 {
+		return
 	}
-	if _, err := sandbox.CleanupOrphans(parentDir, maxAge); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: sandbox tmp orphan cleanup failed: %v\n", err)
+	fmt.Fprintf(os.Stderr, "Cleaning up %d old sandbox tmp director%s...\n", oldCount, pluralSuffix(oldCount))
+	sandbox.CleanupOrphans(parentDir, maxAge)
+	fmt.Fprintf(os.Stderr, "Done.\n")
+}
+
+func pluralSuffix(n int) string {
+	if n == 1 {
+		return "y"
 	}
-	if oldCount > 0 {
-		fmt.Fprintf(os.Stderr, "Done.\n")
-	}
+	return "ies"
 }
 
 // createSandboxTmpDir generates a random 8-byte hex ID and creates a fresh
