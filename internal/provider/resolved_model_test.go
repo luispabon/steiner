@@ -1291,3 +1291,231 @@ func TestResolveWithDiscoveryModelsDevReasoningEffortsRespectsConfig(t *testing.
 		t.Fatalf("Reasoning.SupportedEfforts = %v, want [low high]", rm.Reasoning.SupportedEfforts)
 	}
 }
+
+func TestResolveReasoningBatchEmptyConfig(t *testing.T) {
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{},
+		Models:    config.ModelsConfig{Definitions: map[string]config.ModelConfig{}},
+	}
+
+	caps, efforts := ResolveReasoningBatch(cfg, nil)
+	if caps != nil {
+		t.Errorf("caps = %v, want nil", caps)
+	}
+	if efforts != nil {
+		t.Errorf("efforts = %v, want nil", efforts)
+	}
+}
+
+func TestResolveReasoningBatchMultipleAliases(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	cacheJSON := `{
+		"openai":{"models":{
+			"gpt-5.4-mini":{"reasoning_options":[{"type":"effort","values":["none","low","medium","high"]}]},
+			"gpt-4o":{"reasoning_options":[{"type":"effort","values":["low","high"]}]}
+		}},
+		"local":{"models":{
+			"llama3":{"reasoning_options":[{"type":"effort","values":["standard","extended"]}]}
+		}}
+	}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
+			"local":  {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"gpt54mini": {Provider: "openai", ID: "gpt-5.4-mini"},
+				"gpt4o":     {Provider: "openai", ID: "gpt-4o"},
+				"llama":     {Provider: "local", ID: "llama3"},
+			},
+		},
+	}
+
+	caps, efforts := ResolveReasoningBatch(cfg, nil)
+	if len(caps) != 3 {
+		t.Fatalf("caps len = %d, want 3", len(caps))
+	}
+	if len(efforts) != 3 {
+		t.Fatalf("efforts len = %d, want 3", len(efforts))
+	}
+
+	if !equalStrings(caps["gpt54mini"].SupportedEfforts, []string{"none", "low", "medium", "high"}) {
+		t.Errorf("gpt54mini efforts = %v, want [none low medium high]", caps["gpt54mini"].SupportedEfforts)
+	}
+	if caps["gpt54mini"].Source != "models.dev" {
+		t.Errorf("gpt54mini source = %q, want models.dev", caps["gpt54mini"].Source)
+	}
+
+	if !equalStrings(caps["gpt4o"].SupportedEfforts, []string{"low", "high"}) {
+		t.Errorf("gpt4o efforts = %v, want [low high]", caps["gpt4o"].SupportedEfforts)
+	}
+	if caps["gpt4o"].Source != "models.dev" {
+		t.Errorf("gpt4o source = %q, want models.dev", caps["gpt4o"].Source)
+	}
+
+	if !equalStrings(caps["llama"].SupportedEfforts, []string{"standard", "extended"}) {
+		t.Errorf("llama efforts = %v, want [standard extended]", caps["llama"].SupportedEfforts)
+	}
+	if caps["llama"].Source != "models.dev" {
+		t.Errorf("llama source = %q, want models.dev", caps["llama"].Source)
+	}
+}
+
+func TestResolveReasoningBatchSkipsUnknownAlias(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	cacheJSON := `{"openai":{"models":{"gpt-4o":{"reasoning_options":[{"type":"effort","values":["low","high"]}]}}}}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"gpt4o":        {Provider: "openai", ID: "gpt-4o"},
+				"broken-alias": {Provider: "unknown-provider", ID: "some-model"},
+			},
+		},
+	}
+
+	caps, efforts := ResolveReasoningBatch(cfg, nil)
+	if len(caps) != 1 {
+		t.Fatalf("caps len = %d, want 1 (broken alias skipped)", len(caps))
+	}
+	if len(efforts) != 1 {
+		t.Fatalf("efforts len = %d, want 1 (broken alias skipped)", len(efforts))
+	}
+
+	if _, ok := caps["gpt4o"]; !ok {
+		t.Error("gpt4o not found in caps")
+	}
+	if _, ok := efforts["gpt4o"]; !ok {
+		t.Error("gpt4o not found in efforts")
+	}
+	if _, ok := caps["broken-alias"]; ok {
+		t.Error("broken-alias should not be in caps")
+	}
+	if _, ok := efforts["broken-alias"]; ok {
+		t.Error("broken-alias should not be in efforts")
+	}
+}
+
+func TestResolveReasoningBatchConfigOverridesModelsDevReasoning(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	cacheJSON := `{"openai":{"models":{"gpt-5.4-mini":{"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"configured": {
+					Provider: "openai",
+					ID:       "gpt-5.4-mini",
+					Advanced: config.AdvancedConfig{
+						Reasoning: config.ReasoningConfig{
+							SupportedEfforts: []string{"medium", "high"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	caps, _ := ResolveReasoningBatch(cfg, nil)
+	if caps["configured"].Source != "config" {
+		t.Errorf("Source = %q, want config", caps["configured"].Source)
+	}
+	if !equalStrings(caps["configured"].SupportedEfforts, []string{"medium", "high"}) {
+		t.Errorf("SupportedEfforts = %v, want [medium high]", caps["configured"].SupportedEfforts)
+	}
+}
+
+func TestResolveReasoningBatchEffectsLoadedMetadataOnce(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	cacheJSON := `{
+		"openai":{"models":{
+			"model-a":{"reasoning_options":[{"type":"effort","values":["low"]}]},
+			"model-b":{"reasoning_options":[{"type":"effort","values":["high"]}]},
+			"model-c":{"reasoning_options":[{"type":"effort","values":["medium"]}]}
+		}}
+	}`
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"a": {Provider: "openai", ID: "model-a"},
+				"b": {Provider: "openai", ID: "model-b"},
+				"c": {Provider: "openai", ID: "model-c"},
+			},
+		},
+	}
+
+	caps, efforts := ResolveReasoningBatch(cfg, nil)
+	if len(caps) != 3 || len(efforts) != 3 {
+		t.Fatalf("expected 3 entries, got caps=%d efforts=%d", len(caps), len(efforts))
+	}
+
+	if !equalStrings(caps["a"].SupportedEfforts, []string{"low"}) {
+		t.Errorf("a efforts = %v, want [low]", caps["a"].SupportedEfforts)
+	}
+	if !equalStrings(caps["b"].SupportedEfforts, []string{"high"}) {
+		t.Errorf("b efforts = %v, want [high]", caps["b"].SupportedEfforts)
+	}
+	if !equalStrings(caps["c"].SupportedEfforts, []string{"medium"}) {
+		t.Errorf("c efforts = %v, want [medium]", caps["c"].SupportedEfforts)
+	}
+}
