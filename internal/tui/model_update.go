@@ -52,6 +52,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSyncDebounceFiredMsg(msg)
 	case clipboardImageMsg:
 		return m.handleClipboardImageMsg(msg)
+	case mouseClickMsg, mouseMotionMsg, mouseReleaseMsg, mouseWheelMsg:
+		return m.handleMouseEventMsg(msg)
+	case tea.KeyPressMsg:
+		return m.handleKeyMsg(msg)
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// handleMouseEventMsg dispatches the mouse event message subtypes, keeping
+// Update's cyclomatic complexity under the gocyclo threshold.
+func (m Model) handleMouseEventMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
 	case mouseClickMsg:
 		return m.handleMouseClickMsg(msg)
 	case mouseMotionMsg:
@@ -60,13 +75,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouseReleaseMsg(msg)
 	case mouseWheelMsg:
 		return m.handleMouseWheelMsg(msg)
-	case tea.KeyPressMsg:
-		return m.handleKeyMsg(msg)
 	}
-
-	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 func (m Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, tea.Cmd) {
