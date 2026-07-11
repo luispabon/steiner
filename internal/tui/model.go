@@ -132,6 +132,7 @@ type Model struct {
 	currentModelAlias            string
 	reasoningPicker              reasoningPickerOverlay
 	reasoningLabels              map[string]string
+	resolveReasoningFunc         func() (map[string]provider.ReasoningCapabilities, map[string]string)
 	planPicker                   planPickerOverlay
 	accentPicker                 accentPickerOverlay
 	contextOverlay               contextOverlayState

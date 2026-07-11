@@ -57,6 +57,12 @@ type Config struct {
 	// ModelReasoningEfforts maps model alias to its config-declared effective
 	// reasoning effort (empty when the model uses the provider default).
 	ModelReasoningEfforts map[string]string
+	// ResolveReasoningFunc, when non-nil, is invoked asynchronously after the TUI
+	// has rendered to resolve reasoning capabilities/efforts for all configured
+	// models without blocking startup. When set, ModelReasoningCapabilities and
+	// ModelReasoningEfforts may be left unpopulated at Config construction time;
+	// the result of this func populates them once resolution completes.
+	ResolveReasoningFunc func() (map[string]provider.ReasoningCapabilities, map[string]string)
 	// CurrentModelAlias is the alias (not the backend model ID) of the model
 	// active at startup, e.g. cfg.Models.Default.
 	CurrentModelAlias    string

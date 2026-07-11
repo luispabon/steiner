@@ -10,11 +10,17 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 type syncDebounceFiredMsg struct{ seq int }
+
+type modelReasoningResolvedMsg struct {
+	capabilities map[string]provider.ReasoningCapabilities
+	efforts      map[string]string
+}
 
 func syncDebounceCmd(seq int) tea.Cmd {
 	return tea.Tick(50*time.Millisecond, func(_ time.Time) tea.Msg {
@@ -40,6 +46,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gitRefreshDoneMsg:
 		m.syncSidebar()
 		return m, nil
+	case modelReasoningResolvedMsg:
+		return m.handleModelReasoningResolvedMsg(msg)
 	case syncDebounceFiredMsg:
 		return m.handleSyncDebounceFiredMsg(msg)
 	case clipboardImageMsg:
@@ -66,6 +74,15 @@ func (m Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, 
 		m.syncViewport()
 		m.contentDirty = false
 	}
+	return m, nil
+}
+
+func (m Model) handleModelReasoningResolvedMsg(msg modelReasoningResolvedMsg) (tea.Model, tea.Cmd) {
+	m.modelReasoningCapabilities = msg.capabilities
+	m.modelReasoningEfforts = msg.efforts
+	m.reasoningLabels = newReasoningLabels(m.modelReasoningEfforts, m.modelReasoningCapabilities)
+	m.sidebar.reasoning = m.reasoningLabels[m.primaryModel]
+	m.syncSidebar()
 	return m, nil
 }
 

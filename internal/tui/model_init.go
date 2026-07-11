@@ -90,6 +90,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		imageStore:                 cfg.ImageStore,
 		visionCapabilities:         cfg.VisionCapabilities,
 		sessionResetCleanup:        cfg.SessionResetCleanup,
+		resolveReasoningFunc:       cfg.ResolveReasoningFunc,
 	}
 
 	m.notifier = cfg.Notifier
@@ -337,6 +338,13 @@ func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.input.Focus(), tickCmd()}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
+	}
+	if m.resolveReasoningFunc != nil {
+		resolve := m.resolveReasoningFunc
+		cmds = append(cmds, func() tea.Msg {
+			caps, efforts := resolve()
+			return modelReasoningResolvedMsg{capabilities: caps, efforts: efforts}
+		})
 	}
 	return tea.Batch(cmds...)
 }
