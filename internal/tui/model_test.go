@@ -4164,7 +4164,8 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 		name             string
 		initialCaps      map[string]provider.ReasoningCapabilities
 		initialEfforts   map[string]string
-		primaryModel     string
+		primaryModel     string // backend model ID, set via Config.Model
+		modelAlias       string // config alias, set via Config.CurrentModelAlias; keys reasoningLabels
 		resolvedCaps     map[string]provider.ReasoningCapabilities
 		resolvedEfforts  map[string]string
 		wantCapabilities map[string]provider.ReasoningCapabilities
@@ -4172,10 +4173,13 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 		wantSidebarLabel string
 	}{
 		{
+			// primaryModel (backend ID) deliberately differs from modelAlias
+			// to catch indexing reasoningLabels by the wrong field.
 			name:           "empty to populated",
 			initialCaps:    map[string]provider.ReasoningCapabilities{},
 			initialEfforts: map[string]string{},
-			primaryModel:   "gpt4",
+			primaryModel:   "gpt-4-0613",
+			modelAlias:     "gpt4",
 			resolvedCaps: map[string]provider.ReasoningCapabilities{
 				"gpt4": {
 					SupportedEfforts:      []string{"low", "medium", "high"},
@@ -4206,7 +4210,8 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 			initialEfforts: map[string]string{
 				"gpt4": "low",
 			},
-			primaryModel: "gpt4",
+			primaryModel: "gpt-4-0613",
+			modelAlias:   "gpt4",
 			resolvedCaps: map[string]provider.ReasoningCapabilities{
 				"gpt4": {
 					SupportedEfforts:      []string{"low", "medium", "high"},
@@ -4235,7 +4240,8 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 				},
 			},
 			initialEfforts: map[string]string{},
-			primaryModel:   "claude",
+			primaryModel:   "claude-3-opus-20240229",
+			modelAlias:     "claude",
 			resolvedCaps: map[string]provider.ReasoningCapabilities{
 				"claude": {
 					SupportedEfforts:      []string{"low", "medium", "high"},
@@ -4256,7 +4262,8 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 			name:           "no reasoning capability",
 			initialCaps:    map[string]provider.ReasoningCapabilities{},
 			initialEfforts: map[string]string{},
-			primaryModel:   "llama",
+			primaryModel:   "llama-3-70b",
+			modelAlias:     "llama",
 			resolvedCaps: map[string]provider.ReasoningCapabilities{
 				"llama": {
 					SupportedEfforts: []string{},
@@ -4277,7 +4284,8 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 		t.Run(tt.name, func(t *testing.T) {
 			m := newModel(Config{
 				Model:                      tt.primaryModel,
-				ModelNames:                 []string{tt.primaryModel},
+				ModelNames:                 []string{tt.modelAlias},
+				CurrentModelAlias:          tt.modelAlias,
 				ModelReasoningCapabilities: tt.initialCaps,
 				ModelReasoningEfforts:      tt.initialEfforts,
 				Controller:                 &testController{},
@@ -4326,8 +4334,8 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 			}
 
 			// Check reasoning labels were rebuilt
-			if got, want := m.reasoningLabels[tt.primaryModel], tt.wantSidebarLabel; got != want {
-				t.Fatalf("reasoningLabels[%s] = %q, want %q", tt.primaryModel, got, want)
+			if got, want := m.reasoningLabels[tt.modelAlias], tt.wantSidebarLabel; got != want {
+				t.Fatalf("reasoningLabels[%s] = %q, want %q", tt.modelAlias, got, want)
 			}
 
 			// Check sidebar reasoning label was updated

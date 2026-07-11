@@ -90,8 +90,9 @@ func (m Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, 
 func (m Model) handleModelReasoningResolvedMsg(msg modelReasoningResolvedMsg) (tea.Model, tea.Cmd) {
 	m.modelReasoningCapabilities = msg.capabilities
 	m.modelReasoningEfforts = msg.efforts
+	m.reasoningBatchResolved = true
 	m.reasoningLabels = newReasoningLabels(m.modelReasoningEfforts, m.modelReasoningCapabilities)
-	m.sidebar.reasoning = m.reasoningLabels[m.primaryModel]
+	m.sidebar.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.syncSidebar()
 	return m, nil
 }

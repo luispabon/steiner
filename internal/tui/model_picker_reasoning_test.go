@@ -205,6 +205,89 @@ func TestModelPickerWorkflowHandoffSkipsReasoningStep(t *testing.T) {
 	}
 }
 
+func TestModelPickerEnterFallsBackToOnDemandResolveWhenBatchPending(t *testing.T) {
+	ctrl := &testController{}
+	resolveCalls := 0
+
+	m := newModel(Config{
+		Model:      "small",
+		ModelNames: []string{"small", "large"},
+		Controller: ctrl,
+		// ResolveReasoningFunc is set (batch resolution pending) but hasn't
+		// completed yet, so modelReasoningCapabilities starts empty — this
+		// mirrors the real startup window before modelReasoningResolvedMsg
+		// arrives.
+		ResolveReasoningFunc: func() (map[string]provider.ReasoningCapabilities, map[string]string) {
+			return nil, nil
+		},
+		ResolveReasoningForAliasFunc: func(alias string) (provider.ReasoningCapabilities, string) {
+			resolveCalls++
+			if alias == "large" {
+				return provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}, ""
+			}
+			return provider.ReasoningCapabilities{}, ""
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 20})
+
+	if m.reasoningBatchResolved {
+		t.Fatal("reasoningBatchResolved = true, want false before modelReasoningResolvedMsg arrives")
+	}
+
+	m.input.SetValue("/model")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown}) // select "large"
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if resolveCalls != 1 {
+		t.Fatalf("ResolveReasoningForAliasFunc called %d times, want 1", resolveCalls)
+	}
+	if m.modelPicker.IsOpen() {
+		t.Fatal("modelPicker.IsOpen() = true, want false once reasoning step opens")
+	}
+	if !m.reasoningPicker.IsOpen() {
+		t.Fatal("reasoningPicker.IsOpen() = false, want true — on-demand resolve should have found reasoning support")
+	}
+}
+
+func TestModelPickerEnterSkipsOnDemandResolveOnceBatchResolved(t *testing.T) {
+	ctrl := &testController{}
+	resolveCalls := 0
+
+	m := newModel(Config{
+		Model:      "small",
+		ModelNames: []string{"small", "large"},
+		Controller: ctrl,
+		ResolveReasoningFunc: func() (map[string]provider.ReasoningCapabilities, map[string]string) {
+			return nil, nil
+		},
+		ResolveReasoningForAliasFunc: func(_ string) (provider.ReasoningCapabilities, string) {
+			resolveCalls++
+			return provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "high"}}, ""
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 20})
+
+	// Batch resolution completes with no reasoning support for "large" before
+	// the user makes a selection.
+	m = updateModel(t, m, modelReasoningResolvedMsg{
+		capabilities: map[string]provider.ReasoningCapabilities{"large": {}},
+		efforts:      map[string]string{},
+	})
+
+	m.input.SetValue("/model")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown}) // select "large"
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if resolveCalls != 0 {
+		t.Fatalf("ResolveReasoningForAliasFunc called %d times, want 0 once batch has resolved", resolveCalls)
+	}
+	if m.reasoningPicker.IsOpen() {
+		t.Fatal("reasoningPicker.IsOpen() = true, want false — batch resolution already confirmed no reasoning support")
+	}
+}
+
 func lastSwitchModelAction(t *testing.T, ctrl *testController) (interactive.SwitchModel, bool) {
 	t.Helper()
 	for i := len(ctrl.actions) - 1; i >= 0; i-- {

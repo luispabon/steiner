@@ -97,6 +97,13 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	tuiCfg.ResolveReasoningFunc = func() (map[string]provider.ReasoningCapabilities, map[string]string) {
 		return provider.ResolveReasoningBatch(rt.cfg, rt.httpClient)
 	}
+	tuiCfg.ResolveReasoningForAliasFunc = func(alias string) (provider.ReasoningCapabilities, string) {
+		rm, err := provider.ResolveWithDiscovery(rt.cfg, alias, rt.httpClient)
+		if err != nil {
+			return provider.ReasoningCapabilities{}, ""
+		}
+		return rm.Reasoning, rm.ReasoningEffectiveEffort
+	}
 	return tui.NewApp(tuiCfg)
 }
 

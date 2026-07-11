@@ -133,6 +133,8 @@ type Model struct {
 	reasoningPicker              reasoningPickerOverlay
 	reasoningLabels              map[string]string
 	resolveReasoningFunc         func() (map[string]provider.ReasoningCapabilities, map[string]string)
+	resolveReasoningForAliasFunc func(alias string) (provider.ReasoningCapabilities, string)
+	reasoningBatchResolved       bool
 	planPicker                   planPickerOverlay
 	accentPicker                 accentPickerOverlay
 	contextOverlay               contextOverlayState
@@ -388,6 +390,35 @@ func newReasoningLabels(efforts map[string]string, caps map[string]provider.Reas
 		}
 	}
 	return labels
+}
+
+// resolveReasoningForAliasIfPending synchronously resolves reasoning
+// capabilities for a single model alias when the batch resolution fired from
+// Init has not completed yet. This covers the startup window where the user
+// opens the /model picker and selects a model before the async
+// modelReasoningResolvedMsg arrives, so the reasoning picker step is not
+// silently skipped for a model that does support configurable effort. Once
+// the batch resolution completes, this is a no-op.
+func (m Model) resolveReasoningForAliasIfPending(alias string) Model {
+	if m.reasoningBatchResolved || m.resolveReasoningForAliasFunc == nil {
+		return m
+	}
+	caps, effort := m.resolveReasoningForAliasFunc(alias)
+	if m.modelReasoningCapabilities == nil {
+		m.modelReasoningCapabilities = make(map[string]provider.ReasoningCapabilities)
+	}
+	m.modelReasoningCapabilities[alias] = caps
+	if m.modelReasoningEfforts == nil {
+		m.modelReasoningEfforts = make(map[string]string)
+	}
+	m.modelReasoningEfforts[alias] = effort
+	if label := reasoningSidebarLabel(effort, caps); label != "" {
+		if m.reasoningLabels == nil {
+			m.reasoningLabels = make(map[string]string)
+		}
+		m.reasoningLabels[alias] = label
+	}
+	return m
 }
 
 func (m *Model) contextBudgetForModel(name string) int {
