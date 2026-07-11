@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -60,24 +59,22 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		selectedProviderName = selected.Provider
 	}
 	tuiCfg := tui.Config{
-		Model:                      selected.ID,
-		ModelNames:                 modelAliasNames(rt.cfg),
-		ModelContexts:              modelContextSizes(rt.cfg),
-		ModelBaseURLs:              modelBaseURLs(rt.cfg),
-		ModelProviderNames:         modelProviderNames(rt.cfg),
-		ModelReasoningCapabilities: modelReasoningCapabilities(rt.cfg, rt.httpClient),
-		ModelReasoningEfforts:      modelReasoningEfforts(rt.cfg, rt.httpClient),
-		CurrentModelAlias:          rt.cfg.Models.Default,
-		ProviderBaseURL:            selectedProviderBaseURL,
-		ProviderName:               selectedProviderName,
-		HomeDir:                    rt.homeDir,
-		WorkingDir:                 rt.workDir,
-		MaxTurns:                   0,
-		Version:                    version,
-		SkillNames:                 rt.skillNames,
-		SkillDescriptions:          rt.skillDescriptions,
-		SkillSources:               rt.skillSources,
-		Controller:                 sess,
+		Model:              selected.ID,
+		ModelNames:         modelAliasNames(rt.cfg),
+		ModelContexts:      modelContextSizes(rt.cfg),
+		ModelBaseURLs:      modelBaseURLs(rt.cfg),
+		ModelProviderNames: modelProviderNames(rt.cfg),
+		CurrentModelAlias:  rt.cfg.Models.Default,
+		ProviderBaseURL:    selectedProviderBaseURL,
+		ProviderName:       selectedProviderName,
+		HomeDir:            rt.homeDir,
+		WorkingDir:         rt.workDir,
+		MaxTurns:           0,
+		Version:            version,
+		SkillNames:         rt.skillNames,
+		SkillDescriptions:  rt.skillDescriptions,
+		SkillSources:       rt.skillSources,
+		Controller:         sess,
 	}
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
@@ -96,6 +93,9 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		tuiCfg.SessionResetCleanup = func() {
 			_ = sb.ResetTmp()
 		}
+	}
+	tuiCfg.ResolveReasoningFunc = func() (map[string]provider.ReasoningCapabilities, map[string]string) {
+		return provider.ResolveReasoningBatch(rt.cfg, rt.httpClient)
 	}
 	return tui.NewApp(tuiCfg)
 }
@@ -139,49 +139,6 @@ func modelBaseURLs(cfg config.Config) map[string]string {
 		}
 	}
 	return urls
-}
-
-// modelReasoningCapabilities resolves each configured model alias and
-// collects its reasoning effort capabilities for the TUI's /model picker.
-// Uses ResolveWithDiscovery so that models.dev per-model reasoning levels are
-// applied when config does not declare supported_efforts. Resolution failures
-// for a given alias are skipped rather than surfaced, so one misconfigured model
-// does not block the picker for the rest.
-func modelReasoningCapabilities(cfg config.Config, httpClient *http.Client) map[string]provider.ReasoningCapabilities {
-	if len(cfg.Models.Definitions) == 0 {
-		return nil
-	}
-	caps := make(map[string]provider.ReasoningCapabilities, len(cfg.Models.Definitions))
-	for name := range cfg.Models.Definitions {
-		rm, err := provider.ResolveWithDiscovery(cfg, name, httpClient)
-		if err != nil {
-			continue
-		}
-		caps[name] = rm.Reasoning
-	}
-	return caps
-}
-
-// modelReasoningEfforts resolves each configured model alias and collects its
-// effective reasoning effort (config-declared effort, or empty for provider
-// default) for the TUI sidebar and reasoning picker. Uses ResolveWithDiscovery
-// so that models.dev per-model reasoning levels are applied when config does
-// not declare supported_efforts. Resolution failures for a given alias are
-// skipped rather than surfaced, so one misconfigured model does not block
-// startup for the rest.
-func modelReasoningEfforts(cfg config.Config, httpClient *http.Client) map[string]string {
-	if len(cfg.Models.Definitions) == 0 {
-		return nil
-	}
-	efforts := make(map[string]string, len(cfg.Models.Definitions))
-	for name := range cfg.Models.Definitions {
-		rm, err := provider.ResolveWithDiscovery(cfg, name, httpClient)
-		if err != nil {
-			continue
-		}
-		efforts[name] = rm.ReasoningEffectiveEffort
-	}
-	return efforts
 }
 
 func modelProviderNames(cfg config.Config) map[string]string {
