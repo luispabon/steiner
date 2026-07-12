@@ -59,39 +59,42 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		sidebar:  newSidebarState(),
 		git:      newGitState(cfg.WorkingDir),
 
-		external:                   external,
-		autoScroll:                 true,
-		skillNames:                 append([]string(nil), cfg.SkillNames...),
-		skillDescriptions:          cloneStringMap(cfg.SkillDescriptions),
-		enabledSkills:              enabledSkills,
-		modelNames:                 append([]string(nil), cfg.ModelNames...),
-		modelContexts:              cloneModelContexts(cfg.ModelContexts),
-		modelBaseURLs:              cloneModelBaseURLs(cfg.ModelBaseURLs),
-		modelProviderNames:         cloneModelProviderNames(cfg.ModelProviderNames),
-		modelReasoningCapabilities: cloneModelReasoningCapabilities(cfg.ModelReasoningCapabilities),
-		modelReasoningEfforts:      cloneStringMap(cfg.ModelReasoningEfforts),
-		reasoningLabels:            newReasoningLabels(cfg.ModelReasoningEfforts, cfg.ModelReasoningCapabilities),
-		controller:                 cfg.Controller,
-		recorder:                   cfg.Recorder,
-		activeTheme:                resolveTheme(cfg.Theme),
-		styles:                     theme.BuildStyles(accentHex),
-		inputHistory:               []string{},
-		historyIdx:                 0,
-		historyDraft:               "",
-		fileHistory:                []string{},
-		fileHistoryIdx:             -1,
-		showThinking:               cfg.ShowThinking,
-		accentPreset:               cfg.AccentPreset,
-		sidebarPosition:            cfg.SidebarPosition,
-		mousePressX:                -1,
-		mousePressY:                -1,
-		screenLines:                new([]string),
-		oneshotRunnerFactory:       cfg.OneshotRunnerFactory,
-		imageStore:                 cfg.ImageStore,
-		visionCapabilities:         cfg.VisionCapabilities,
-		sessionResetCleanup:        cfg.SessionResetCleanup,
+		external:                     external,
+		autoScroll:                   true,
+		skillNames:                   append([]string(nil), cfg.SkillNames...),
+		skillDescriptions:            cloneStringMap(cfg.SkillDescriptions),
+		enabledSkills:                enabledSkills,
+		modelNames:                   append([]string(nil), cfg.ModelNames...),
+		modelContexts:                cloneModelContexts(cfg.ModelContexts),
+		modelBaseURLs:                cloneModelBaseURLs(cfg.ModelBaseURLs),
+		modelProviderNames:           cloneModelProviderNames(cfg.ModelProviderNames),
+		modelReasoningCapabilities:   cloneModelReasoningCapabilities(cfg.ModelReasoningCapabilities),
+		modelReasoningEfforts:        cloneStringMap(cfg.ModelReasoningEfforts),
+		reasoningLabels:              newReasoningLabels(cfg.ModelReasoningEfforts, cfg.ModelReasoningCapabilities),
+		controller:                   cfg.Controller,
+		recorder:                     cfg.Recorder,
+		activeTheme:                  resolveTheme(cfg.Theme),
+		styles:                       theme.BuildStyles(accentHex),
+		inputHistory:                 []string{},
+		historyIdx:                   0,
+		historyDraft:                 "",
+		fileHistory:                  []string{},
+		fileHistoryIdx:               -1,
+		showThinking:                 cfg.ShowThinking,
+		accentPreset:                 cfg.AccentPreset,
+		sidebarPosition:              cfg.SidebarPosition,
+		mousePressX:                  -1,
+		mousePressY:                  -1,
+		screenLines:                  new([]string),
+		oneshotRunnerFactory:         cfg.OneshotRunnerFactory,
+		imageStore:                   cfg.ImageStore,
+		visionCapabilities:           cfg.VisionCapabilities,
+		sessionResetCleanup:          cfg.SessionResetCleanup,
+		resolveReasoningFunc:         cfg.ResolveReasoningFunc,
+		resolveReasoningForAliasFunc: cfg.ResolveReasoningForAliasFunc,
 	}
 
+	m.reasoningBatchResolved = cfg.ResolveReasoningFunc == nil
 	m.notifier = cfg.Notifier
 	m.configureModelState(cfg, accentHex)
 	return m
@@ -337,6 +340,13 @@ func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.input.Focus(), tickCmd()}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
+	}
+	if m.resolveReasoningFunc != nil {
+		resolve := m.resolveReasoningFunc
+		cmds = append(cmds, func() tea.Msg {
+			caps, efforts := resolve()
+			return modelReasoningResolvedMsg{capabilities: caps, efforts: efforts}
+		})
 	}
 	return tea.Batch(cmds...)
 }

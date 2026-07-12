@@ -130,15 +130,48 @@ func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Clie
 	return rm, nil
 }
 
-// loadAndApplyModelsDevMetadata loads models.dev metadata and applies transport,
-// echo back, vision, and reasoning effort overrides to rm. Returns the loaded
-// metadata for downstream limit resolution.
-func loadAndApplyModelsDevMetadata(rm *ResolvedModel, modelCfg config.ModelConfig, httpClient *http.Client) metadata.ModelInfo {
+// ResolveReasoningBatch resolves reasoning capabilities and effective efforts for
+// every configured model alias in a single pass, loading models.dev metadata once
+// instead of once per alias. Resolution failures for a given alias are skipped
+// rather than surfaced, so one misconfigured model does not block the rest.
+func ResolveReasoningBatch(cfg config.Config, httpClient *http.Client) (
+	map[string]ReasoningCapabilities, map[string]string,
+) {
+	if len(cfg.Models.Definitions) == 0 {
+		return nil, nil
+	}
+
 	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
 	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
 	defer cacheCancel()
+	var data []byte
+	if d, err := cache.LoadBestEffort(cacheCtx); err == nil {
+		data = d
+	}
+
+	caps := make(map[string]ReasoningCapabilities)
+	efforts := make(map[string]string)
+
+	for alias, modelCfg := range cfg.Models.Definitions {
+		rm, err := Resolve(cfg, alias)
+		if err != nil {
+			continue
+		}
+
+		loadAndApplyModelsDevMetadataFromData(&rm, modelCfg, data)
+		caps[alias] = rm.Reasoning
+		efforts[alias] = rm.ReasoningEffectiveEffort
+	}
+
+	return caps, efforts
+}
+
+// loadAndApplyModelsDevMetadataFromData applies transport, echo back, vision,
+// and reasoning effort overrides from already-loaded models.dev data. Returns
+// the looked-up metadata for downstream limit resolution.
+func loadAndApplyModelsDevMetadataFromData(rm *ResolvedModel, modelCfg config.ModelConfig, data []byte) metadata.ModelInfo {
 	var info metadata.ModelInfo
-	if data, err := cache.LoadBestEffort(cacheCtx); err == nil && data != nil {
+	if data != nil {
 		info = metadata.LookupWithProvider(data, rm.ProviderAlias, rm.BackendModelID)
 	}
 	rm.EffectiveProviderType, rm.EffectiveTransport, rm.TransportOverrideReason = resolveEffectiveTransport(
@@ -159,6 +192,20 @@ func loadAndApplyModelsDevMetadata(rm *ResolvedModel, modelCfg config.ModelConfi
 		}
 	}
 	return info
+}
+
+// loadAndApplyModelsDevMetadata loads models.dev metadata and applies transport,
+// echo back, vision, and reasoning effort overrides to rm. Returns the loaded
+// metadata for downstream limit resolution.
+func loadAndApplyModelsDevMetadata(rm *ResolvedModel, modelCfg config.ModelConfig, httpClient *http.Client) metadata.ModelInfo {
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
+	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
+	defer cacheCancel()
+	var data []byte
+	if d, err := cache.LoadBestEffort(cacheCtx); err == nil {
+		data = d
+	}
+	return loadAndApplyModelsDevMetadataFromData(rm, modelCfg, data)
 }
 
 // resolveLimitsFromDiscovery attempts to fill in missing token limits via

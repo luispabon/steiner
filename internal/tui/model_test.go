@@ -4158,3 +4158,190 @@ func TestPasteGate_DisabledCapabilities_AllowsPaste(t *testing.T) {
 		t.Fatal("cmd is nil, want pasteImageCmd (gate disabled)")
 	}
 }
+
+func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testing.T) {
+	tests := []struct {
+		name             string
+		initialCaps      map[string]provider.ReasoningCapabilities
+		initialEfforts   map[string]string
+		primaryModel     string // backend model ID, set via Config.Model
+		modelAlias       string // config alias, set via Config.CurrentModelAlias; keys reasoningLabels
+		resolvedCaps     map[string]provider.ReasoningCapabilities
+		resolvedEfforts  map[string]string
+		wantCapabilities map[string]provider.ReasoningCapabilities
+		wantEfforts      map[string]string
+		wantSidebarLabel string
+	}{
+		{
+			// primaryModel (backend ID) deliberately differs from modelAlias
+			// to catch indexing reasoningLabels by the wrong field.
+			name:           "empty to populated",
+			initialCaps:    map[string]provider.ReasoningCapabilities{},
+			initialEfforts: map[string]string{},
+			primaryModel:   "gpt-4-0613",
+			modelAlias:     "gpt4",
+			resolvedCaps: map[string]provider.ReasoningCapabilities{
+				"gpt4": {
+					SupportedEfforts:      []string{"low", "medium", "high"},
+					ProviderDefaultEffort: "medium",
+				},
+			},
+			resolvedEfforts: map[string]string{
+				"gpt4": "high",
+			},
+			wantCapabilities: map[string]provider.ReasoningCapabilities{
+				"gpt4": {
+					SupportedEfforts:      []string{"low", "medium", "high"},
+					ProviderDefaultEffort: "medium",
+				},
+			},
+			wantEfforts: map[string]string{
+				"gpt4": "high",
+			},
+			wantSidebarLabel: "high",
+		},
+		{
+			name: "override existing",
+			initialCaps: map[string]provider.ReasoningCapabilities{
+				"gpt4": {
+					SupportedEfforts: []string{"low", "high"},
+				},
+			},
+			initialEfforts: map[string]string{
+				"gpt4": "low",
+			},
+			primaryModel: "gpt-4-0613",
+			modelAlias:   "gpt4",
+			resolvedCaps: map[string]provider.ReasoningCapabilities{
+				"gpt4": {
+					SupportedEfforts:      []string{"low", "medium", "high"},
+					ProviderDefaultEffort: "medium",
+				},
+			},
+			resolvedEfforts: map[string]string{
+				"gpt4": "medium",
+			},
+			wantCapabilities: map[string]provider.ReasoningCapabilities{
+				"gpt4": {
+					SupportedEfforts:      []string{"low", "medium", "high"},
+					ProviderDefaultEffort: "medium",
+				},
+			},
+			wantEfforts: map[string]string{
+				"gpt4": "medium",
+			},
+			wantSidebarLabel: "medium",
+		},
+		{
+			name: "provider default (no explicit effort)",
+			initialCaps: map[string]provider.ReasoningCapabilities{
+				"claude": {
+					SupportedEfforts: []string{"low", "high"},
+				},
+			},
+			initialEfforts: map[string]string{},
+			primaryModel:   "claude-3-opus-20240229",
+			modelAlias:     "claude",
+			resolvedCaps: map[string]provider.ReasoningCapabilities{
+				"claude": {
+					SupportedEfforts:      []string{"low", "medium", "high"},
+					ProviderDefaultEffort: "medium",
+				},
+			},
+			resolvedEfforts: map[string]string{},
+			wantCapabilities: map[string]provider.ReasoningCapabilities{
+				"claude": {
+					SupportedEfforts:      []string{"low", "medium", "high"},
+					ProviderDefaultEffort: "medium",
+				},
+			},
+			wantEfforts:      map[string]string{},
+			wantSidebarLabel: "provider default",
+		},
+		{
+			name:           "no reasoning capability",
+			initialCaps:    map[string]provider.ReasoningCapabilities{},
+			initialEfforts: map[string]string{},
+			primaryModel:   "llama-3-70b",
+			modelAlias:     "llama",
+			resolvedCaps: map[string]provider.ReasoningCapabilities{
+				"llama": {
+					SupportedEfforts: []string{},
+				},
+			},
+			resolvedEfforts: map[string]string{},
+			wantCapabilities: map[string]provider.ReasoningCapabilities{
+				"llama": {
+					SupportedEfforts: []string{},
+				},
+			},
+			wantEfforts:      map[string]string{},
+			wantSidebarLabel: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newModel(Config{
+				Model:                      tt.primaryModel,
+				ModelNames:                 []string{tt.modelAlias},
+				CurrentModelAlias:          tt.modelAlias,
+				ModelReasoningCapabilities: tt.initialCaps,
+				ModelReasoningEfforts:      tt.initialEfforts,
+				Controller:                 &testController{},
+			}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+			msg := modelReasoningResolvedMsg{
+				capabilities: tt.resolvedCaps,
+				efforts:      tt.resolvedEfforts,
+			}
+			m = updateModel(t, m, msg)
+
+			// Check capabilities were updated
+			if len(m.modelReasoningCapabilities) != len(tt.wantCapabilities) {
+				t.Fatalf("len(modelReasoningCapabilities) = %d, want %d",
+					len(m.modelReasoningCapabilities), len(tt.wantCapabilities))
+			}
+			for name, want := range tt.wantCapabilities {
+				got, ok := m.modelReasoningCapabilities[name]
+				if !ok {
+					t.Fatalf("modelReasoningCapabilities missing %s", name)
+				}
+				if got.ProviderDefaultEffort != want.ProviderDefaultEffort {
+					t.Fatalf("modelReasoningCapabilities[%s].ProviderDefaultEffort = %q, want %q",
+						name, got.ProviderDefaultEffort, want.ProviderDefaultEffort)
+				}
+				if len(got.SupportedEfforts) != len(want.SupportedEfforts) {
+					t.Fatalf("len(modelReasoningCapabilities[%s].SupportedEfforts) = %d, want %d",
+						name, len(got.SupportedEfforts), len(want.SupportedEfforts))
+				}
+			}
+
+			// Check efforts were updated
+			if len(m.modelReasoningEfforts) != len(tt.wantEfforts) {
+				t.Fatalf("len(modelReasoningEfforts) = %d, want %d",
+					len(m.modelReasoningEfforts), len(tt.wantEfforts))
+			}
+			for name, want := range tt.wantEfforts {
+				got, ok := m.modelReasoningEfforts[name]
+				if !ok {
+					t.Fatalf("modelReasoningEfforts missing %s", name)
+				}
+				if got != want {
+					t.Fatalf("modelReasoningEfforts[%s] = %q, want %q", name, got, want)
+				}
+			}
+
+			// Check reasoning labels were rebuilt
+			if got, want := m.reasoningLabels[tt.modelAlias], tt.wantSidebarLabel; got != want {
+				t.Fatalf("reasoningLabels[%s] = %q, want %q", tt.modelAlias, got, want)
+			}
+
+			// Check sidebar reasoning label was updated
+			if got, want := m.sidebar.reasoning, tt.wantSidebarLabel; got != want {
+				t.Fatalf("sidebar.reasoning = %q, want %q", got, want)
+			}
+		})
+	}
+}

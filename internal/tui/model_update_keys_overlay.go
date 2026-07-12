@@ -196,6 +196,10 @@ func (m Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			caps := m.modelReasoningCapabilities[name]
 			if len(caps.SupportedEfforts) == 0 {
+				m = m.resolveReasoningForAliasIfPending(name)
+				caps = m.modelReasoningCapabilities[name]
+			}
+			if len(caps.SupportedEfforts) == 0 {
 				m.input.Reset()
 				m.historyIdx = 0
 				return m.executeModelAction(name, nil)
