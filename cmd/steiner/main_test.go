@@ -425,12 +425,12 @@ models:
 	})
 
 	var gotParallelism int
-	var gotProviderConfig provider.OpenAICompatConfig
+	var gotProviderConfig provider.ClientConfig
 	newScheduler = func(parallelism int) (*provider.Scheduler, error) {
 		gotParallelism = parallelism
 		return provider.NewScheduler(parallelism)
 	}
-	newOpenAICompat = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+	newOpenAICompat = func(cfg provider.ClientConfig) (provider.Provider, error) {
 		gotProviderConfig = cfg
 		return &fakeProvider{}, nil
 	}

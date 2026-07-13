@@ -314,9 +314,9 @@ func TestOpenAICompatSchedulerSerializesRequests(t *testing.T) {
 	}
 }
 
-func mustTestOpenAICompat(t *testing.T, baseURL string) *OpenAICompat {
+func mustTestOpenAICompat(t *testing.T, baseURL string) *Client {
 	t.Helper()
-	provider, err := NewOpenAICompat(OpenAICompatConfig{
+	provider, err := NewOpenAICompat(ClientConfig{
 		BaseURL:   baseURL + "/v1",
 		Model:     "test-model",
 		Scheduler: mustTestScheduler(t, 1),

@@ -21,7 +21,7 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider, err := NewOpenAICompat(OpenAICompatConfig{
+		provider, err := NewOpenAICompat(ClientConfig{
 			BaseURL:   server.URL + "/v1",
 			APIKey:    "sk-test-key",
 			Model:     "gpt-4",
@@ -77,7 +77,7 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider, err := NewOpenAICompat(OpenAICompatConfig{
+		provider, err := NewOpenAICompat(ClientConfig{
 			BaseURL:   server.URL + "/v1",
 			Model:     "gpt-4",
 			Scheduler: mustTestScheduler(t, 1),
@@ -155,7 +155,7 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 		}))
 		defer server.Close()
 
-		provider, err := NewAnthropic(OpenAICompatConfig{
+		provider, err := NewAnthropic(ClientConfig{
 			BaseURL:   server.URL + "/v1",
 			APIKey:    "sk-ant-test",
 			Model:     "claude-3-7-sonnet",
@@ -406,7 +406,7 @@ func TestIntegrationStreamChatCompletionSendsCorrectRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider, err := NewOpenAICompat(OpenAICompatConfig{
+	provider, err := NewOpenAICompat(ClientConfig{
 		BaseURL:   server.URL + "/v1",
 		APIKey:    "sk-stream-key",
 		Model:     "gpt-4",
@@ -519,7 +519,7 @@ func TestIntegrationH2TimeoutDoesNotBreakTransport(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			provider, err := NewOpenAICompat(OpenAICompatConfig{
+			provider, err := NewOpenAICompat(ClientConfig{
 				BaseURL:    srv.URL + "/v1",
 				APIKey:     "sk-test-key",
 				Model:      "gpt-4",

@@ -6,19 +6,26 @@ import (
 	"strings"
 )
 
+// responsesRequest is serialized exclusively by its MarshalJSON below, which
+// builds the wire object field by field. Struct tags would be dead decoration
+// here, and worse, a trap: adding a tagged field emits nothing, so a change that
+// looks correct silently sends an incomplete payload. Add new fields to
+// MarshalJSON. This type is never unmarshalled.
 type responsesRequest struct {
-	Model          string            `json:"model"`
-	Instructions   string            `json:"instructions,omitempty"`
-	Input          []responsesItem   `json:"input"`
-	Store          *bool             `json:"store,omitempty"`
-	Stream         bool              `json:"stream,omitempty"`
-	Tools          []responsesTool   `json:"tools,omitempty"`
-	Reasoning      *ReasoningRequest `json:"-"`
-	PromptCacheKey string            `json:"-"`
-	Params         map[string]any    `json:"-"`
-	ExtraParams    map[string]any    `json:"-"`
+	Model          string
+	Instructions   string
+	Input          []responsesItem
+	Store          *bool
+	Stream         bool
+	Tools          []responsesTool
+	Reasoning      *ReasoningRequest
+	PromptCacheKey string
+	Params         map[string]any
+	ExtraParams    map[string]any
 }
 
+// MarshalJSON emits the Codex Responses request body. Every field the backend
+// sees is listed here; see the type comment before adding one.
 func (r responsesRequest) MarshalJSON() ([]byte, error) {
 	base := map[string]any{
 		"model": r.Model,

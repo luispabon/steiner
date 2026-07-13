@@ -29,7 +29,7 @@ func TestHTTPErrorErrorFormatting(t *testing.T) {
 }
 
 func TestReadErrorResponseReturnsHTTPError(t *testing.T) {
-	p := &OpenAICompat{}
+	p := &Client{}
 	resp := &http.Response{
 		Status:     "429 Too Many Requests",
 		StatusCode: http.StatusTooManyRequests,

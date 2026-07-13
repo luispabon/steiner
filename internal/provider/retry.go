@@ -21,16 +21,16 @@ type retryAttemptInfo struct {
 	PartialStream bool
 }
 
-func (p *OpenAICompat) withRetry(
+func (c *Client) withRetry(
 	ctx context.Context,
 	operation func(attempt int) (bool, error),
 	classify func(error) retryDecision,
 	onRetry func(retryAttemptInfo),
 ) error {
-	if p == nil {
+	if c == nil {
 		return fmt.Errorf("provider is not initialized")
 	}
-	maxAttempts := p.retryAttempts()
+	maxAttempts := c.retryAttempts()
 	if maxAttempts < 1 {
 		maxAttempts = 1
 	}
@@ -55,7 +55,7 @@ func (p *OpenAICompat) withRetry(
 		if decision.retryAfter > 0 {
 			info.Delay = decision.retryAfter
 		} else {
-			info.Delay = p.retryBackoffDelay(attempt)
+			info.Delay = c.retryBackoffDelay(attempt)
 		}
 
 		if onRetry != nil {
@@ -65,7 +65,7 @@ func (p *OpenAICompat) withRetry(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := p.sleepForRetry(ctx, info.Delay); err != nil {
+		if err := c.sleepForRetry(ctx, info.Delay); err != nil {
 			return err
 		}
 	}
@@ -73,21 +73,21 @@ func (p *OpenAICompat) withRetry(
 	return fmt.Errorf("retry loop exhausted")
 }
 
-func (p *OpenAICompat) retryAttempts() int {
-	if p == nil || !p.retry.Enabled || p.retry.MaxAttempts <= 1 {
+func (c *Client) retryAttempts() int {
+	if c == nil || !c.retry.Enabled || c.retry.MaxAttempts <= 1 {
 		return 1
 	}
-	return p.retry.MaxAttempts
+	return c.retry.MaxAttempts
 }
 
-func (p *OpenAICompat) retryBackoffDelay(attempt int) time.Duration {
-	if p == nil || p.retry.InitialBackoff <= 0 {
+func (c *Client) retryBackoffDelay(attempt int) time.Duration {
+	if c == nil || c.retry.InitialBackoff <= 0 {
 		return 0
 	}
-	cap := p.retry.InitialBackoff
+	cap := c.retry.InitialBackoff
 	for i := 1; i < attempt; i++ {
-		if p.retry.MaxBackoff > 0 && cap >= p.retry.MaxBackoff {
-			cap = p.retry.MaxBackoff
+		if c.retry.MaxBackoff > 0 && cap >= c.retry.MaxBackoff {
+			cap = c.retry.MaxBackoff
 			break
 		}
 		if cap > time.Duration(1<<62) {
@@ -95,24 +95,24 @@ func (p *OpenAICompat) retryBackoffDelay(attempt int) time.Duration {
 		}
 		cap *= 2
 	}
-	if p.retry.MaxBackoff > 0 && cap > p.retry.MaxBackoff {
-		cap = p.retry.MaxBackoff
+	if c.retry.MaxBackoff > 0 && cap > c.retry.MaxBackoff {
+		cap = c.retry.MaxBackoff
 	}
 	if cap <= 0 {
 		return 0
 	}
-	if p.jitter != nil {
-		return p.jitter(cap)
+	if c.jitter != nil {
+		return c.jitter(cap)
 	}
-	return p.fullJitter(cap)
+	return c.fullJitter(cap)
 }
 
-func (p *OpenAICompat) sleepForRetry(ctx context.Context, delay time.Duration) error {
+func (c *Client) sleepForRetry(ctx context.Context, delay time.Duration) error {
 	if delay <= 0 {
 		return nil
 	}
-	if p != nil && p.sleep != nil {
-		return p.sleep(ctx, delay)
+	if c != nil && c.sleep != nil {
+		return c.sleep(ctx, delay)
 	}
 	return defaultRetrySleep(ctx, delay)
 }

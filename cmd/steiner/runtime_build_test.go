@@ -25,6 +25,13 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 
 	const wantParallelism = 7
 	httpClient := &http.Client{}
+	streamErrorLog, err := provider.NewStreamErrorLogger(filepath.Join(t.TempDir(), "stream-errors.log"))
+	if err != nil {
+		t.Fatalf("NewStreamErrorLogger() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = streamErrorLog.Close()
+	})
 	baseRetry := provider.RetryConfig{
 		Enabled:        true,
 		MaxAttempts:    4,
@@ -37,9 +44,9 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 		openAICompatCalls int
 		anthropicCalls    int
 		codexCalls        int
-		openAICompatCfg   provider.OpenAICompatConfig
-		anthropicCfg      provider.OpenAICompatConfig
-		codexCfg          provider.OpenAICompatConfig
+		openAICompatCfg   provider.ClientConfig
+		anthropicCfg      provider.ClientConfig
+		codexCfg          provider.ClientConfig
 	}
 
 	runFactory := func(t *testing.T, rm provider.ResolvedModel, wantErr string, wantProviderKind string) capture {
@@ -52,17 +59,17 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 			}
 			return provider.NewScheduler(parallelism)
 		}
-		newOpenAICompat = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+		newOpenAICompat = func(cfg provider.ClientConfig) (provider.Provider, error) {
 			got.openAICompatCalls++
 			got.openAICompatCfg = cfg
 			return &fakeProvider{}, nil
 		}
-		newAnthropic = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+		newAnthropic = func(cfg provider.ClientConfig) (provider.Provider, error) {
 			got.anthropicCalls++
 			got.anthropicCfg = cfg
 			return &fakeProvider{}, nil
 		}
-		newCodexResponses = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+		newCodexResponses = func(cfg provider.ClientConfig) (provider.Provider, error) {
 			got.codexCalls++
 			got.codexCfg = cfg
 			return &fakeProvider{}, nil
@@ -70,7 +77,7 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 
 		factory, err := buildRuntimeProviderFactory(config.Config{
 			Scheduler: config.SchedulerConfig{Parallelism: wantParallelism},
-		}, httpClient, nil)
+		}, httpClient, streamErrorLog)
 		if err != nil {
 			t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
 		}
@@ -164,6 +171,9 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	if got := gotCompat.openAICompatCfg.ProviderType; got != string(config.ProviderTypeOpenAICompat) {
 		t.Fatalf("openai compat provider type = %q, want %q", got, config.ProviderTypeOpenAICompat)
 	}
+	if got := gotCompat.openAICompatCfg.StreamErrorLog; got != streamErrorLog {
+		t.Fatalf("openai compat stream error log = %p, want %p", got, streamErrorLog)
+	}
 
 	anthropicRM := provider.ResolvedModel{
 		Alias:                 "anthropic",
@@ -206,6 +216,9 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	if got := gotAnthropic.anthropicCfg.ProviderType; got != string(config.ProviderTypeAnthropic) {
 		t.Fatalf("anthropic provider type = %q, want %q", got, config.ProviderTypeAnthropic)
 	}
+	if got := gotAnthropic.anthropicCfg.StreamErrorLog; got != streamErrorLog {
+		t.Fatalf("anthropic stream error log = %p, want %p", got, streamErrorLog)
+	}
 
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
@@ -217,8 +230,13 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 		t.Fatalf("write token: %v", err)
 	}
 	codexRM := provider.ResolvedModel{
-		Alias:                 "codex",
-		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeCodex, BaseURL: "https://api.openai.com/v1", Timeout: config.MustDuration("20s")},
+		Alias: "codex",
+		ProviderConfig: config.ProviderConfig{
+			Type:    config.ProviderTypeCodex,
+			BaseURL: "https://api.openai.com/v1",
+			Timeout: config.MustDuration("20s"),
+			Codex:   config.CodexConfig{MinRequestInterval: config.MustDuration("4s")},
+		},
 		BackendModelID:        "gpt-5.5",
 		EffectiveProviderType: config.ProviderTypeCodex,
 	}
@@ -240,6 +258,15 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	}
 	if gotCodex.codexCfg.HTTPClient != httpClient {
 		t.Fatalf("codex HTTP client = %p, want base runtime client %p", gotCodex.codexCfg.HTTPClient, httpClient)
+	}
+	// Codex pacing is the only per-request interval in the config, and it is the
+	// field that would start pacing every provider if it were ever hoisted out of
+	// NewCodexResponses into the shared client constructor.
+	if got, want := gotCodex.codexCfg.MinRequestInterval, 4*time.Second; got != want {
+		t.Fatalf("codex min request interval = %v, want %v", got, want)
+	}
+	if got := gotCodex.codexCfg.StreamErrorLog; got != streamErrorLog {
+		t.Fatalf("codex stream error log = %p, want %p", got, streamErrorLog)
 	}
 
 	legacyAnthropicRM := provider.ResolvedModel{
@@ -279,10 +306,10 @@ func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKe
 		t.Fatalf("write token: %v", err)
 	}
 
-	var gotCfg provider.OpenAICompatConfig
+	var gotCfg provider.ClientConfig
 	oldNewCodexResponses := newCodexResponses
 	t.Cleanup(func() { newCodexResponses = oldNewCodexResponses })
-	newCodexResponses = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+	newCodexResponses = func(cfg provider.ClientConfig) (provider.Provider, error) {
 		gotCfg = cfg
 		return &fakeProvider{}, nil
 	}

@@ -36,6 +36,10 @@ _Avoid_: executor internals, tool glue, subprocess path
 The provider flow that shapes a model request, performs HTTP execution, decodes provider wire responses, and returns stream or non-stream results with consistent error handling.
 _Avoid_: provider internals, transport glue, stream path
 
+**Provider Wire**:
+The per-provider adapter behind **Provider Request Execution** that owns everything format-specific about one backend: request payload shape, HTTP request construction (URL, auth headers, provider-specific headers), non-stream response decoding, and stream decoding. It owns no retry, scheduling, pacing, or transport policy.
+_Avoid_: driver, backend, codec, provider impl
+
 **Delegate Extension**:
 The bounded re-run policy that grants a delegated child additional turn budget when it stops at its turn cap (`StopReasonMaxTurns`) mid-tool-sequence, repeating up to a fixed maximum so a child isn't cut off in the middle of a tool chain.
 _Avoid_: retry, continuation, more turns
@@ -51,6 +55,8 @@ _Avoid_: retry, continuation, more turns
 - **Prompt Source Planning** decides the ordered context inputs consumed during **Turn Progression**
 - The **Tool Execution Pipeline** executes tool calls consumed during **Turn Progression**
 - **Provider Request Execution** performs the model calls consumed during **Turn Progression**
+- **Provider Request Execution** owns the shared request flow and delegates format-specific work to a **Provider Wire**
+- A **Provider Wire** may refine retry classification for errors only it can interpret (e.g. litellm's 429 body semantics)
 
 ## Example dialogue
 
@@ -71,6 +77,9 @@ _Avoid_: retry, continuation, more turns
 
 > **Dev:** "Should streaming and non-streaming provider calls live in separate architectures?"
 > **Domain expert:** "No, keep them inside **Provider Request Execution** and share one request path unless the wire behavior truly forces divergence."
+
+> **Dev:** "Anthropic needs different headers and a different response shape — new provider type?"
+> **Domain expert:** "No, that's a **Provider Wire**. **Provider Request Execution** stays one path; the wire is the only thing that changes."
 
 ## Flagged ambiguities
 
