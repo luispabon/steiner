@@ -614,7 +614,7 @@ func TestOpenAICompatStreamChatCompletionAfterExhaustionSendsFinalErrorChunk(t *
 	}
 }
 
-func mustRetryTestOpenAICompat(t *testing.T, baseURL string, retry RetryConfig) *OpenAICompat {
+func mustRetryTestOpenAICompat(t *testing.T, baseURL string, retry RetryConfig) *Client {
 	t.Helper()
 	provider := mustTestOpenAICompat(t, baseURL)
 	provider.retry = retry

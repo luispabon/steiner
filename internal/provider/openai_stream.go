@@ -30,17 +30,6 @@ type openAIStreamState struct {
 	sawDone       bool
 }
 
-func decodeChatStream(ctx context.Context, body io.Reader, out chan<- ChatChunk) error {
-	return decodeChatStreamWithHandler(ctx, body, func(chunk ChatChunk) error {
-		select {
-		case out <- chunk:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	})
-}
-
 func decodeChatStreamWithHandler(_ context.Context, body io.Reader, emit func(ChatChunk) error) error {
 	reader := bufio.NewReader(body)
 	state := openAIStreamState{

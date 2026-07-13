@@ -122,15 +122,15 @@ func TestBuildRequestPayload_PreservesEmptyNestedToolSchemaMaps(t *testing.T) {
 		},
 	})
 
-	p := &OpenAICompat{model: "gpt-4"}
+	w := testOpenAIWire(t, "http://localhost:11434/v1", "gpt-4")
 	req := ChatRequest{
 		Messages: []Message{{Role: MessageRoleUser, Content: "hi"}},
 		Tools:    tools,
 	}
 
-	data, err := p.buildRequestPayload(req, false)
+	data, err := w.Payload(req, false)
 	if err != nil {
-		t.Fatalf("buildRequestPayload error: %v", err)
+		t.Fatalf("Payload() error = %v", err)
 	}
 
 	var payload map[string]any

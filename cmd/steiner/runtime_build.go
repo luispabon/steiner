@@ -190,8 +190,8 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, str
 	}, nil
 }
 
-func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, scheduler *provider.Scheduler, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.OpenAICompatConfig {
-	return provider.OpenAICompatConfig{
+func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, scheduler *provider.Scheduler, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.ClientConfig {
+	return provider.ClientConfig{
 		BaseURL: rm.ProviderConfig.BaseURL,
 		APIKey:  rm.ProviderConfig.APIKey,
 		Headers: rm.ProviderConfig.Headers,

@@ -13,13 +13,13 @@ var buildDate = "unknown"
 var goVersion = runtime.Version()
 
 var newScheduler = provider.NewScheduler
-var newOpenAICompat = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+var newOpenAICompat = func(cfg provider.ClientConfig) (provider.Provider, error) {
 	return provider.NewOpenAICompat(cfg)
 }
-var newAnthropic = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+var newAnthropic = func(cfg provider.ClientConfig) (provider.Provider, error) {
 	return provider.NewAnthropic(cfg)
 }
-var newCodexResponses = func(cfg provider.OpenAICompatConfig) (provider.Provider, error) {
+var newCodexResponses = func(cfg provider.ClientConfig) (provider.Provider, error) {
 	return provider.NewCodexResponses(cfg)
 }
 
