@@ -245,6 +245,7 @@ func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 		"## Advisor",
 		"If you need a stronger-model strategic check, call `advisor`.",
 		"It gives steering only; it does not mutate code, run tools, or replace your judgment.",
+		"surface the conflict explicitly rather than silently complying or silently discarding the advice.",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("advisor preamble missing %q in %q", want, content)
