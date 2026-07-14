@@ -17,11 +17,12 @@ const (
 type sectionID string
 
 const (
-	sectionIdentity   sectionID = "identity"
-	sectionDelegation sectionID = "delegation"
-	sectionAdvisor    sectionID = "advisor"
-	sectionCoreRules  sectionID = "core_rules"
-	sectionWorkflow   sectionID = "workflow"
+	sectionIdentity       sectionID = "identity"
+	sectionDelegation     sectionID = "delegation"
+	sectionAdvisor        sectionID = "advisor"
+	sectionCoreRules      sectionID = "core_rules"
+	sectionWorkflow       sectionID = "workflow"
+	sectionExecutionModes sectionID = "execution_modes"
 )
 
 type sectionContext struct {
@@ -38,6 +39,7 @@ var defaultSectionOrder = []sectionID{
 	sectionAdvisor,
 	sectionCoreRules,
 	sectionWorkflow,
+	sectionExecutionModes,
 }
 
 var systemSections = map[sectionID]sectionRenderer{
@@ -61,6 +63,12 @@ var systemSections = map[sectionID]sectionRenderer{
 	},
 	sectionWorkflow: func(ctx sectionContext) string {
 		return renderWorkflowInstructions(ctx.workflowMode)
+	},
+	sectionExecutionModes: func(ctx sectionContext) string {
+		if ctx.workflowMode == workflowModeDelegatedChild {
+			return ""
+		}
+		return executionModeInstructions
 	},
 }
 
@@ -129,6 +137,16 @@ const coreRules = `## Core rules:
 - Do not guess silently. If ambiguity materially changes impl, ask. Else state assumption, continue.
 - Push back on overcomplicated, risky, or unnecessary requests.
 - Surface important tradeoffs briefly.`
+
+const executionModeInstructions = `## Execution modes
+
+Interactive sessions run in ` + "`plan`" + ` or ` + "`build`" + ` mode. The current mode and any change arrive as bracketed notices inside user messages.
+
+In ` + "`plan`" + ` mode, the project is read-only and writes are permitted only under ` + "`.steiner/plans/`" + `. Produce plan artifacts there only when the user asks for a plan; otherwise just discuss.
+
+When a plan is approved, call ` + "`workflow_handoff`" + ` to transition to build mode.
+
+In ` + "`build`" + ` mode, normal editing rules apply.`
 
 var workflowInstructionsBeforeApproval = []string{
 	"Before editing:",

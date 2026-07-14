@@ -335,3 +335,46 @@ func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 		t.Fatalf("child preamble unexpectedly contains parent approval line %q in %q", parentApprovalLine, child)
 	}
 }
+
+func TestSystemPreambleExecutionModesInParent(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor("", false, false, workflowModeParent, false, "").Content
+	for _, want := range []string{
+		"## Execution modes",
+		"Interactive sessions run in `plan` or `build` mode.",
+		"The current mode and any change arrive as bracketed notices inside user messages.",
+		"In `plan` mode, the project is read-only",
+		"writes are permitted only under `.steiner/plans/`",
+		"Produce plan artifacts there only when the user asks for a plan; otherwise just discuss.",
+		"When a plan is approved, call `workflow_handoff`",
+		"In `build` mode, normal editing rules apply.",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("parent preamble missing %q in %q", want, content)
+		}
+	}
+}
+
+func TestSystemPreambleExecutionModesAbsentInDelegatedChild(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor("", false, false, workflowModeDelegatedChild, false, "").Content
+	if strings.Contains(content, "## Execution modes") {
+		t.Fatalf("delegated child preamble should not contain execution modes section in %q", content)
+	}
+}
+
+func TestSystemPreambleByteStable(t *testing.T) {
+	t.Parallel()
+
+	// Call the preamble builder twice with identical inputs and verify byte-identity.
+	// This proves the preamble has no mode variance (since ExecutionMode is not a parameter)
+	// and no per-turn randomness.
+	first := systemPreambleWithAdvisor("", true, false, workflowModeParent, false, "").Content
+	second := systemPreambleWithAdvisor("", true, false, workflowModeParent, false, "").Content
+
+	if first != second {
+		t.Fatalf("preamble not byte-identical across builds:\nfirst:\n%s\n\nsecond:\n%s", first, second)
+	}
+}
