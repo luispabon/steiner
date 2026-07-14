@@ -689,3 +689,151 @@ func TestNormalizeExecutionInput_NonPromptableError_NoPrompt(t *testing.T) {
 		t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
 	}
 }
+
+func TestRunPipeline_ModeGetter_NilGetter_NoModeInContext(t *testing.T) {
+	// With no mode getter, ExecutionModeKey should not be set
+	reg := NewRegistry(ToolDef{
+		Name: "probe",
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+			if _, ok := ctx.Value(ExecutionModeKey{}).(config.ExecutionMode); ok {
+				t.Error("ExecutionModeKey found in context when getter is nil")
+			}
+			return nil, nil
+		},
+	})
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
+	_, err := executor.Execute(context.Background(), "probe", nil)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+}
+
+func TestRunPipeline_ModeGetter_BuildMode_NoRestriction(t *testing.T) {
+	// In build mode, writes should be unrestricted
+	reg := NewRegistry(ToolDef{
+		Name: "probe",
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+			mode, ok := ctx.Value(ExecutionModeKey{}).(config.ExecutionMode)
+			if !ok {
+				t.Error("ExecutionModeKey not found in context")
+				return nil, nil
+			}
+			if mode != config.ExecutionModeBuild {
+				t.Errorf("mode = %q, want build", mode)
+			}
+			return nil, nil
+		},
+	})
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "").
+		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModeBuild })
+	_, err := executor.Execute(context.Background(), "probe", nil)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+}
+
+func TestRunPipeline_ModeGetter_PlanMode_RestrictsWrites(t *testing.T) {
+	// In plan mode, writes outside .steiner should be denied
+	reg := NewRegistry(ToolDef{
+		Name:    "mutate",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
+	})
+	workDir := t.TempDir()
+	executor := NewExecutor(reg, config.Config{}, nil, workDir, "").
+		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModePlan })
+	_, err := executor.Execute(context.Background(), "mutate", map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": "src/main.go", "content": "x"},
+		},
+	})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want policy_denied in plan mode")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "policy_denied" {
+		t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+	}
+	if !strings.Contains(toolErr.Message, "plan mode") {
+		t.Fatalf("error message = %q, want 'plan mode'", toolErr.Message)
+	}
+}
+
+func TestRunPipeline_ModeGetter_PlanMode_AllowsSteinerWrites(t *testing.T) {
+	// In plan mode, writes under .steiner should be allowed
+	var handlerCalled bool
+	reg := NewRegistry(ToolDef{
+		Name: "mutate",
+		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			handlerCalled = true
+			policy, ok := ctx.Value(EffectivePolicyKey{}).(*PathPolicy)
+			if !ok || policy == nil {
+				t.Error("EffectivePolicyKey not in context")
+				return nil, nil
+			}
+			// Verify that the handler sees the restricted policy
+			_, err := policy.ResolvePath(".steiner/plans/test.md", true)
+			if err != nil {
+				t.Errorf("ResolvePath .steiner/plans in plan mode failed: %v", err)
+			}
+			return map[string]any{"ok": true}, nil
+		},
+	})
+	workDir := t.TempDir()
+	executor := NewExecutor(reg, config.Config{}, nil, workDir, "").
+		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModePlan })
+	result, err := executor.Execute(context.Background(), "mutate", map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": ".steiner/plans/test.md", "content": "# Plan"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil for .steiner write in plan mode", err)
+	}
+	if !handlerCalled {
+		t.Error("handler not called")
+	}
+	if result == nil {
+		t.Error("result is nil")
+	}
+}
+
+func TestRunPipeline_ModeGetter_PlanMode_AllowsSteinerSubdirs(t *testing.T) {
+	// In plan mode, writes to any .steiner subdir should be allowed
+	reg := NewRegistry(ToolDef{
+		Name: "mutate",
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+			policy, ok := ctx.Value(EffectivePolicyKey{}).(*PathPolicy)
+			if !ok || policy == nil {
+				t.Error("EffectivePolicyKey not in context")
+				return nil, nil
+			}
+			// Test multiple .steiner subdirectories
+			testPaths := []string{
+				".steiner/home/note.txt",
+				".steiner/bookkeeping/log.txt",
+				".steiner",
+			}
+			for _, path := range testPaths {
+				_, err := policy.ResolvePath(path, true)
+				if err != nil {
+					t.Errorf("ResolvePath %s in plan mode failed: %v", path, err)
+				}
+			}
+			return map[string]any{"ok": true}, nil
+		},
+	})
+	workDir := t.TempDir()
+	executor := NewExecutor(reg, config.Config{}, nil, workDir, "").
+		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModePlan })
+	_, err := executor.Execute(context.Background(), "mutate", map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": ".steiner/home/note.txt", "content": "note"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil for .steiner/* writes in plan mode", err)
+	}
+}

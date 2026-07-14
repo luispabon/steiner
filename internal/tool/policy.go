@@ -9,6 +9,9 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+const planModeWriteDenial = "plan mode: write operations are restricted to `.steiner/plans/` and related planning directories. " +
+	"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready."
+
 // PathPolicyError is returned when a path is rejected by policy.
 type PathPolicyError struct {
 	Path       string
@@ -28,6 +31,7 @@ type PathPolicy struct {
 	projectRootOnly bool
 	blockedPaths    []string
 	writablePaths   []string
+	writeAllowlist  []string
 }
 
 // NewPathPolicy creates a path policy from the working directory and paths configuration.
@@ -71,6 +75,27 @@ func (p PathPolicy) WithoutRoot() PathPolicy {
 		projectRootOnly: false,
 		blockedPaths:    p.blockedPaths,
 		writablePaths:   p.writablePaths,
+		writeAllowlist:  p.writeAllowlist,
+	}
+}
+
+// RestrictWritesTo returns a copy of p with the write allowlist set to the given
+// prefixes. Paths in plan mode are restricted to these prefixes; all other modes
+// are unaffected. The prefixes are normalized relative to the policy root.
+func (p PathPolicy) RestrictWritesTo(prefixes ...string) PathPolicy {
+	normalized := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		if n := normalizePolicyPath(p.root, prefix); n != "" {
+			normalized = append(normalized, n)
+		}
+	}
+	return PathPolicy{
+		root:            p.root,
+		sandboxTmpDir:   p.sandboxTmpDir,
+		projectRootOnly: p.projectRootOnly,
+		blockedPaths:    p.blockedPaths,
+		writablePaths:   p.writablePaths,
+		writeAllowlist:  normalized,
 	}
 }
 
@@ -147,6 +172,18 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 				Reason:     fmt.Sprintf("path %q is blocked by policy", path),
 				Promptable: false,
 			}
+		}
+	}
+	if writable && len(p.writeAllowlist) > 0 {
+		for _, allowed := range p.writeAllowlist {
+			if pathWithinRoot(allowed, path) {
+				return nil
+			}
+		}
+		return &PathPolicyError{
+			Path:       path,
+			Reason:     planModeWriteDenial,
+			Promptable: false,
 		}
 	}
 	if writable && len(p.writablePaths) > 0 {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -88,6 +89,14 @@ func specializedDescription(t AgentType) string {
 // delegation parameters at their configured defaults.
 func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
+		// Deny code agent in plan mode (it can mutate files).
+		if agentType == AgentTypeCode {
+			if mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode); ok && mode == config.ExecutionModePlan {
+				return nil, fmt.Errorf("code: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
+					"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready.")
+			}
+		}
+
 		task, _ := input["task"].(string)
 		if task == "" {
 			return nil, fmt.Errorf("%s: task is required", agentType)

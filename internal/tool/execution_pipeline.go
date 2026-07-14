@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 type executionInput struct {
@@ -85,14 +88,34 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		return nil, err
 	}
 
-	normalizedInput, effectivePolicy, err := e.normalizeExecutionInput(ctx, def, in.Input)
+	// Apply plan mode restriction to the policy before normalizing input.
+	effectivePolicy := (*PathPolicy)(nil)
+	if e.modeGetter != nil && e.modeGetter() == config.ExecutionModePlan {
+		restricted := e.pathPolicy.RestrictWritesTo(filepath.Join(e.pathPolicy.Root(), ".steiner"))
+		effectivePolicy = &restricted
+	}
+
+	// If plan mode restriction was applied, use it for validation.
+	originalPolicy := e.pathPolicy
+	if effectivePolicy != nil {
+		e.pathPolicy = *effectivePolicy
+	}
+	normalizedInput, approvalPolicy, err := e.normalizeExecutionInput(ctx, def, in.Input)
+	e.pathPolicy = originalPolicy
 	if err != nil {
 		return nil, err
 	}
 
 	toolCtx := ctx
-	if effectivePolicy != nil {
+	if approvalPolicy != nil {
+		toolCtx = context.WithValue(ctx, EffectivePolicyKey{}, approvalPolicy)
+	} else if effectivePolicy != nil {
 		toolCtx = context.WithValue(ctx, EffectivePolicyKey{}, effectivePolicy)
+	}
+
+	if e.modeGetter != nil {
+		mode := e.modeGetter()
+		toolCtx = context.WithValue(toolCtx, ExecutionModeKey{}, mode)
 	}
 
 	ec := executionContext{
