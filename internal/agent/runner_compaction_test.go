@@ -216,7 +216,7 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		Provider: providerStub,
 		Executor: executor,
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:               2500,
+			ContextSize:               2535, // Tuned to trigger exactly one compaction cycle; tracks preamble size growth
 			MaxCompletionTokens:       32,
 			SummaryMaxTokens:          32,
 			NormalSummaryMaxTokens:    32,
