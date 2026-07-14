@@ -17,6 +17,7 @@ type configPatch struct {
 	Logging              *loggingPatch              `yaml:"logging"`
 	ContextManagement    *contextManagementPatch    `yaml:"context_management"`
 	Search               *searchPatch               `yaml:"search"`
+	Modes                *modesPatch                `yaml:"modes"`
 }
 
 type modelsPatch struct {
@@ -160,4 +161,8 @@ type searchPatch struct {
 	GoogleAPIKey *string `yaml:"google_api_key"`
 	KagiAPIKey   *string `yaml:"kagi_api_key"`
 	BraveAPIKey  *string `yaml:"brave_api_key"`
+}
+
+type modesPatch struct {
+	Default *ExecutionMode `yaml:"default"`
 }

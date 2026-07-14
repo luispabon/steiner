@@ -36,6 +36,7 @@ Key environment variables:
 | Field               | Type     | Default     | Description |
 |---------------------|----------|-------------|-------------|
 | `models`            | block    | see below   | Consolidated model configuration: model definitions and all role-based model aliases (default, advisor, sub-agents, oneshot, workflow handoff). |
+| `modes`             | block    | see below   | Execution mode configuration. |
 | `cave_human`        | bool     | `false`     | When `true`, enables `cave_human` - combines terse output with an "avoid AI-writing tells" instruction that is applied to the system preamble, compaction prompts, and sub-agent prompts. |
 | `advisor`           | block    | see below   | Optional stronger-model steering config. When enabled, the advisor tool is available to the main loop and its per-run cap is enforced in handler state so the tool registry stays static for prompt-cache integrity. |
 | `oneshot`           | block    | empty       | Closeout settings for autonomous oneshot runs. Per-phase model aliases live under `models.oneshot`. |
@@ -334,6 +335,21 @@ Reasoning effort can also be changed at runtime for the current session via the 
 |--------------------|------|----------|-------------|
 | `context_window`   | int  | `32768`  | Maximum context window size in tokens. Used by the prompt assembler to budget context. |
 | `max_output_tokens`| int  | `8192`   | Maximum tokens the model may generate per response. |
+
+---
+
+## `modes` block
+
+Controls execution mode configuration.
+
+| Field     | Type   | Default | Description |
+|-----------|--------|---------|-------------|
+| `default` | string | `"build"` | Execution mode. Allowed values: `"plan"` or `"build"`. |
+
+```yaml
+modes:
+  default: build
+```
 
 ---
 

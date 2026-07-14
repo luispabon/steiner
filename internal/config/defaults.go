@@ -95,5 +95,8 @@ func defaultConfig() Config {
 			ReadAnnotations: true,
 		},
 		CaveHuman: false,
+		Modes: ModesConfig{
+			Default: ExecutionModeBuild,
+		},
 	}
 }

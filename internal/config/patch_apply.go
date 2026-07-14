@@ -27,6 +27,9 @@ func applyCoreConfigPatch(cfg *Config, patch configPatch) {
 	if patch.Models != nil {
 		applyModelsPatch(cfg, patch.Models)
 	}
+	if patch.Modes != nil {
+		applyModesPatch(&cfg.Modes, patch.Modes)
+	}
 }
 
 func applyModelsPatch(cfg *Config, patch *modelsPatch) {

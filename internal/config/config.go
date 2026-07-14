@@ -1,5 +1,20 @@
 package config
 
+// ExecutionMode defines the execution mode for plan or build behavior.
+type ExecutionMode string
+
+const (
+	// ExecutionModePlan sets execution mode to plan.
+	ExecutionModePlan ExecutionMode = "plan"
+	// ExecutionModeBuild sets execution mode to build.
+	ExecutionModeBuild ExecutionMode = "build"
+)
+
+// ModesConfig holds execution mode configuration.
+type ModesConfig struct {
+	Default ExecutionMode `yaml:"default"`
+}
+
 // ContextManagementConfig holds baseline context management settings.
 type ContextManagementConfig struct {
 	ReadAnnotations bool `yaml:"read_annotations"`
@@ -125,6 +140,7 @@ type Config struct {
 	ContextManagement    ContextManagementConfig    `yaml:"context_management"`
 	CaveHuman            bool                       `yaml:"cave_human"`
 	Search               SearchConfig               `yaml:"search"`
+	Modes                ModesConfig                `yaml:"modes"`
 }
 
 // ModelsConfig consolidates all model configuration: the model definitions

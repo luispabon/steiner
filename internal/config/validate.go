@@ -22,6 +22,7 @@ func validate(cfg Config) error {
 	validateToolsConfig(&problems, cfg.Tools)
 	validateSearchConfig(&problems, cfg.Search)
 	validateDesktopNotificationsConfig(&problems, cfg.DesktopNotifications)
+	validateModesConfig(&problems, cfg.Modes)
 
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid config: %s", strings.Join(problems, "; "))
