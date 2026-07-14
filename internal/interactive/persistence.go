@@ -107,7 +107,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		mode = s.deps.Config.Modes.Default
 	}
 	s.mode = mode
-	s.pendingModeNotice = false
+	s.pendingModeNotice = (mode == config.ExecutionModePlan)
 	msgs := append([]agent.Message(nil), s.conversation...)
 	s.mu.Unlock()
 

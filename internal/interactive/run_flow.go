@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -32,12 +33,13 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 
 		s.mu.Lock()
 		if len(result.Conversation) > 0 {
+			cleanConversation := stripModeNoticeFromConversation(result.Conversation, notice)
 			if result.WorkflowHandoff == nil {
-				s.conversation = result.Conversation
+				s.conversation = cleanConversation
 			}
 			s.lineage = agent.ConversationLineage{
 				Generations: []agent.ConversationGeneration{
-					{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result.Conversation)},
+					{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(cleanConversation)},
 				},
 				NextGenerationID: 2,
 			}
@@ -99,6 +101,29 @@ func cloneMessages(messages []agent.Message) []agent.Message {
 	}
 	out := make([]agent.Message, len(messages))
 	copy(out, messages)
+	return out
+}
+
+// stripModeNoticeFromConversation removes a prepended mode notice from the last
+// user message in the conversation, if present. Returns a copy with the notice
+// removed; if no notice is found or notice is empty, returns the input unchanged.
+func stripModeNoticeFromConversation(messages []agent.Message, notice string) []agent.Message {
+	if notice == "" || len(messages) == 0 {
+		return messages
+	}
+	lastUserIdx := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == agent.MessageRoleUser {
+			lastUserIdx = i
+			break
+		}
+	}
+	if lastUserIdx == -1 || !strings.HasPrefix(messages[lastUserIdx].Content, notice) {
+		return messages
+	}
+	out := make([]agent.Message, len(messages))
+	copy(out, messages)
+	out[lastUserIdx].Content = strings.TrimPrefix(out[lastUserIdx].Content, notice)
 	return out
 }
 

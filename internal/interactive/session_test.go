@@ -1411,6 +1411,52 @@ func TestLoadSessionReplacesConversation(t *testing.T) {
 	}
 }
 
+func TestLoadSessionRearmsModePendingNoticeWhenLoadingPlanMode(t *testing.T) {
+	t.Parallel()
+	mockStore := newMockSessionStore()
+
+	mockSession := session.Session{
+		ID:    "plan-mode-session",
+		Title: "Plan Mode Session",
+		Model: "test-model",
+		Mode:  string(config.ExecutionModePlan),
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID:       1,
+					Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "plan this"}},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+	mockStore.loadedSessions["plan-mode-session"] = mockSession
+
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModeBuild,
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: "plan-mode-session"}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	if got, want := s.Mode(), config.ExecutionModePlan; got != want {
+		t.Fatalf("Mode() after load = %q, want %q", got, want)
+	}
+
+	s.mu.RLock()
+	pending := s.pendingModeNotice
+	s.mu.RUnlock()
+	if !pending {
+		t.Fatal("pendingModeNotice = false after loading plan-mode session, want true")
+	}
+}
+
 func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
 	t.Parallel()
 
@@ -2698,5 +2744,45 @@ func TestSessionSwitchModeAction(t *testing.T) {
 	}
 	if got, want := s.Mode(), config.ExecutionModeBuild; got != want {
 		t.Fatalf("Mode() after SwitchMode action = %q, want %q", got, want)
+	}
+}
+
+func TestSubmitPromptDoesNotLeakModeNoticeIntoStoredConversation(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{
+				Conversation: append(
+					append([]agent.Message(nil), conversation...),
+					agent.Message{Role: agent.MessageRoleAssistant, Content: "assistant response"},
+				),
+			}, nil
+		}),
+	}
+	s := testNewSession(t, deps)
+
+	s.submitPrompt(context.Background(), "user prompt", nil)
+
+	storedConv := s.Conversation()
+	if len(storedConv) < 1 {
+		t.Fatal("expected at least one message in stored conversation")
+	}
+
+	userMsg := storedConv[0]
+	if userMsg.Role != agent.MessageRoleUser {
+		t.Fatalf("first message role = %q, want user", userMsg.Role)
+	}
+
+	if strings.Contains(userMsg.Content, "[execution mode:") {
+		t.Fatalf("stored user message contains mode notice: %q", userMsg.Content)
+	}
+
+	if userMsg.Content != "user prompt" {
+		t.Fatalf("stored user message = %q, want %q", userMsg.Content, "user prompt")
 	}
 }

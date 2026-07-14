@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tool"
@@ -322,6 +323,60 @@ func TestWorkflowHandoffResponderDeclinesDecision(t *testing.T) {
 	}
 	if len(events) != 2 || events[0].Type != output.EventTypeWorkflowHandoffRequested || events[1].Type != output.EventTypeWorkflowHandoffDeclined {
 		t.Fatalf("events = %#v, want requested then declined handoff events", events)
+	}
+}
+
+func TestWorkflowHandoffResponderAcceptanceFlipsSessionModeToBuild(t *testing.T) {
+	coordinator := &WorkflowHandoffCoordinator{}
+	var events []output.Event
+
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+	}
+	s, err := NewSession(deps)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	if got, want := s.Mode(), config.ExecutionModePlan; got != want {
+		t.Fatalf("initial Mode() = %q, want %q", got, want)
+	}
+
+	responder := newWorkflowHandoffResponder(coordinator, output.SinkFunc(func(event output.Event) {
+		events = append(events, event)
+	}), s)
+
+	done := make(chan struct {
+		response tool.WorkflowHandoffResponse
+		err      error
+	}, 1)
+	go func() {
+		response, err := responder.RequestWorkflowHandoff(context.Background(), tool.WorkflowHandoffRequest{
+			Next:   "implement",
+			Target: ".steiner/plans/step-2",
+		})
+		done <- struct {
+			response tool.WorkflowHandoffResponse
+			err      error
+		}{response: response, err: err}
+	}()
+	waitForPendingWorkflowHandoff(t, coordinator)
+
+	coordinator.Submit(SubmitWorkflowHandoff{Decision: "accept"})
+
+	got := <-done
+	if got.err != nil {
+		t.Fatalf("RequestWorkflowHandoff() error = %v", got.err)
+	}
+	if !got.response.Accepted {
+		t.Fatal("Accepted = false, want true")
+	}
+
+	if mode := s.Mode(); mode != config.ExecutionModeBuild {
+		t.Fatalf("Mode() after acceptance = %q, want %q", mode, config.ExecutionModeBuild)
 	}
 }
 
