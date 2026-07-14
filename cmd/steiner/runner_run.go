@@ -184,6 +184,9 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	if r.runtime.sandbox != nil {
 		executor = executor.WithSandbox(r.runtime.sandbox)
 	}
+	if r.modeGetter != nil {
+		executor = executor.WithModeGetter(r.modeGetter)
+	}
 	req := agent.RunRequest{
 		Provider:      setup.provider,
 		Executor:      executor,

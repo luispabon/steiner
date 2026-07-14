@@ -202,7 +202,7 @@ func TestWorkflowHandoffResponderAcceptsDecision(t *testing.T) {
 	var events []output.Event
 	responder := newWorkflowHandoffResponder(coordinator, output.SinkFunc(func(event output.Event) {
 		events = append(events, event)
-	}))
+	}), nil)
 
 	done := make(chan struct {
 		response tool.WorkflowHandoffResponse
@@ -244,7 +244,7 @@ func TestWorkflowHandoffResponderRegistersPendingBeforeRequestedEvent(t *testing
 			pendingObserved <- coordinator.HasPending()
 			coordinator.Submit(SubmitWorkflowHandoff{Decision: "accept"})
 		}
-	}))
+	}), nil)
 
 	done := make(chan struct {
 		response tool.WorkflowHandoffResponse
@@ -293,7 +293,7 @@ func TestWorkflowHandoffResponderDeclinesDecision(t *testing.T) {
 	var events []output.Event
 	responder := newWorkflowHandoffResponder(coordinator, output.SinkFunc(func(event output.Event) {
 		events = append(events, event)
-	}))
+	}), nil)
 
 	done := make(chan struct {
 		response tool.WorkflowHandoffResponse

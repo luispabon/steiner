@@ -23,7 +23,12 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 		drainSteers := func() []agent.SteerMessage {
 			return s.runController.DrainSteers()
 		}
-		result, err := s.deps.Runner.Run(runCtx, s.Conversation(), s.skills.Snapshot(), drainSteers)
+		conversation := s.Conversation()
+		notice := s.consumeModeNotice()
+		if notice != "" && len(conversation) > 0 && conversation[len(conversation)-1].Role == agent.MessageRoleUser {
+			conversation[len(conversation)-1].Content = notice + conversation[len(conversation)-1].Content
+		}
+		result, err := s.deps.Runner.Run(runCtx, conversation, s.skills.Snapshot(), drainSteers)
 
 		s.mu.Lock()
 		if len(result.Conversation) > 0 {

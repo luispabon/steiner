@@ -17,6 +17,7 @@ type Session struct {
 	Title     string                    `json:"title"`
 	Model     string                    `json:"model"`
 	Group     string                    `json:"group,omitempty"`
+	Mode      string                    `json:"mode,omitempty"`
 	Lineage   agent.ConversationLineage `json:"lineage"`
 }
 

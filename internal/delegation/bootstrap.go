@@ -37,6 +37,9 @@ type BootstrapDeps struct {
 	Sandbox tool.SandboxWrapper
 	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
 	UsageRecorder *usagestats.Recorder
+	// ModeGetter returns the current execution mode. When non-nil, child executors
+	// receive this getter via WithModeGetter so they inherit the parent's execution mode.
+	ModeGetter func() config.ExecutionMode
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
@@ -66,7 +69,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec.AgentID, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox, deps.UsageRecorder)
+	req := buildChildRunRequest(deps.WorkDir, spec.AgentID, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox, deps.UsageRecorder, deps.ModeGetter)
 	return req, limits, nil
 }
 
@@ -154,7 +157,9 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 // BuildChildRun) is responsible for registry and prompt assembly.
 // sandbox is the parent's SandboxWrapper; if non-nil it is applied to the child
 // executor unchanged, enforcing child sandbox ≤ parent sandbox.
-func buildChildRunRequest(workDir string, agentID string, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, caveHuman bool, sandbox tool.SandboxWrapper, rec *usagestats.Recorder) agent.RunRequest {
+// modeGetter, when non-nil, is wired into the child executor so it inherits
+// the parent's execution mode.
+func buildChildRunRequest(workDir string, agentID string, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, caveHuman bool, sandbox tool.SandboxWrapper, rec *usagestats.Recorder, modeGetter func() config.ExecutionMode) agent.RunRequest {
 	childCfg := config.Config{}
 	scopedEvents := withAgentScope(agentID, events)
 
@@ -165,6 +170,9 @@ func buildChildRunRequest(workDir string, agentID string, prov provider.Provider
 	exec := tool.NewExecutor(execReg, childCfg, nil, workDir, sandboxTmpDir)
 	if sandbox != nil {
 		exec = exec.WithSandbox(sandbox)
+	}
+	if modeGetter != nil {
+		exec = exec.WithModeGetter(modeGetter)
 	}
 
 	// A fresh per-run cache key, distinct from the parent's, keeps sub-agent

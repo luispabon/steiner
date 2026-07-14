@@ -27,6 +27,7 @@ var (
 	_ Action = RequestExit{}
 	_ Action = SetSkillEnabled{}
 	_ Action = SwitchModel{}
+	_ Action = SwitchMode{}
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
 	_ Action = LoadSession{}
@@ -2569,5 +2570,133 @@ func TestLoadSessionRestoresDelegationBoxesWithMalformedStructuredResultFallback
 	}
 	if got, want := delegationComplete[0].Output, "{not-json"; got != want {
 		t.Fatalf("delegation complete output = %q, want %q", got, want)
+	}
+}
+
+func TestSessionModeDefault(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+	}
+	s := testNewSession(t, deps)
+	if got, want := s.Mode(), config.ExecutionModePlan; got != want {
+		t.Fatalf("Mode() = %q, want %q", got, want)
+	}
+}
+
+func TestSessionModeSet(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+	}
+	s := testNewSession(t, deps)
+
+	var modeChangedEvents []output.ModeChangedEvent
+	deps.BaseEvents = output.SinkFunc(func(e output.Event) {
+		if e.Type == output.EventTypeModeChanged {
+			if payload, ok := e.Payload.(output.ModeChangedEvent); ok {
+				modeChangedEvents = append(modeChangedEvents, payload)
+			}
+		}
+	})
+	s, err := NewSession(deps)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	s.SetMode(config.ExecutionModeBuild)
+	if got, want := s.Mode(), config.ExecutionModeBuild; got != want {
+		t.Fatalf("Mode() after SetMode = %q, want %q", got, want)
+	}
+	if len(modeChangedEvents) == 0 {
+		t.Fatal("expected mode-changed event on SetMode")
+	}
+	if got, want := modeChangedEvents[0].Mode, string(config.ExecutionModeBuild); got != want {
+		t.Fatalf("mode-changed event mode = %q, want %q", got, want)
+	}
+}
+
+func TestSessionModeSetNoOp(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+	}
+	s := testNewSession(t, deps)
+
+	var modeChangedEvents int
+	deps.BaseEvents = output.SinkFunc(func(e output.Event) {
+		if e.Type == output.EventTypeModeChanged {
+			modeChangedEvents++
+		}
+	})
+	s, err := NewSession(deps)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	s.SetMode(config.ExecutionModePlan)
+	if modeChangedEvents != 0 {
+		t.Fatalf("expected no mode-changed event on SetMode to same mode, got %d", modeChangedEvents)
+	}
+}
+
+func TestSessionModePendingNoticeFlag(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		defaultMode  config.ExecutionMode
+		expectNotice bool
+	}{
+		{config.ExecutionModePlan, true},
+		{config.ExecutionModeBuild, false},
+	}
+	for _, tc := range testCases {
+		t.Run(string(tc.defaultMode), func(t *testing.T) {
+			deps := Dependencies{
+				Config: config.Config{
+					Modes: config.ModesConfig{
+						Default: tc.defaultMode,
+					},
+				},
+			}
+			s := testNewSession(t, deps)
+			notice := s.consumeModeNotice()
+			if tc.expectNotice && notice == "" {
+				t.Error("expected pending mode notice for plan mode, got empty")
+			}
+			if !tc.expectNotice && notice != "" {
+				t.Errorf("expected no pending mode notice for build mode, got: %q", notice)
+			}
+		})
+	}
+}
+
+func TestSessionSwitchModeAction(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+	}
+	s := testNewSession(t, deps)
+
+	if err := s.Handle(context.Background(), SwitchMode{Mode: config.ExecutionModeBuild}); err != nil {
+		t.Fatalf("Handle(SwitchMode) = %v, want nil", err)
+	}
+	if got, want := s.Mode(), config.ExecutionModeBuild; got != want {
+		t.Fatalf("Mode() after SwitchMode action = %q, want %q", got, want)
 	}
 }

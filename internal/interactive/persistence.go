@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
@@ -52,6 +53,7 @@ func (s *Session) saveSession() error {
 	}
 
 	sess.ID = s.sessionID
+	sess.Mode = string(s.mode)
 	if s.sessionTitle != "" {
 		sess = sess.WithTitle(s.sessionTitle)
 	}
@@ -100,6 +102,12 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.sessionID = sess.ID
 	s.sessionTitle = sess.Title
 	s.sessionGroup = strings.TrimSpace(sess.Group)
+	mode := config.ExecutionMode(strings.TrimSpace(sess.Mode))
+	if mode == "" {
+		mode = s.deps.Config.Modes.Default
+	}
+	s.mode = mode
+	s.pendingModeNotice = false
 	msgs := append([]agent.Message(nil), s.conversation...)
 	s.mu.Unlock()
 

@@ -396,3 +396,10 @@ func NewPhaseIndicatorEvent(runID, phase, state, message string) Event {
 		Message: strings.TrimSpace(message),
 	})
 }
+
+// NewModeChangedEvent creates a mode_changed event.
+func NewModeChangedEvent(mode string) Event {
+	return newEvent(EventTypeModeChanged, ModeChangedEvent{
+		Mode: strings.TrimSpace(mode),
+	})
+}

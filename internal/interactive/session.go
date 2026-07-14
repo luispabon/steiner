@@ -8,12 +8,13 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
 // Session is an interactive-mode session that owns conversation state,
-// run lifecycle, approvals, model switches, compaction, enabled skills,
+// run lifecycle, approvals, model switches, execution mode, compaction, enabled skills,
 // and the core event bus composition.
 type Session struct {
 	mu                  sync.RWMutex
@@ -31,6 +32,8 @@ type Session struct {
 	sessionTitle        string
 	sessionGroup        string
 	reasoningOverrides  map[string]provider.ReasoningOverride
+	mode                config.ExecutionMode
+	pendingModeNotice   bool
 	done                chan struct{}
 	exitOnce            sync.Once
 }
@@ -54,6 +57,8 @@ func NewSession(deps Dependencies) (*Session, error) {
 		&snapshotSink{store: snaps},
 	)
 
+	mode := deps.Config.Modes.Default
+	pendingNotice := mode == config.ExecutionModePlan
 	return &Session{
 		deps:                deps,
 		events:              events,
@@ -66,6 +71,8 @@ func NewSession(deps Dependencies) (*Session, error) {
 		sessionID:           sessionID,
 		lineage:             agent.ConversationLineage{},
 		reasoningOverrides:  make(map[string]provider.ReasoningOverride),
+		mode:                mode,
+		pendingModeNotice:   pendingNotice,
 		done:                make(chan struct{}),
 	}, nil
 }
@@ -136,7 +143,7 @@ func (s *Session) Approver(eventSink output.EventSink) tool.ApprovalResponder {
 // WorkflowHandoffResponder returns a responder that routes workflow handoff
 // decisions through the session's coordinator.
 func (s *Session) WorkflowHandoffResponder(eventSink output.EventSink) tool.WorkflowHandoffResponder {
-	return newWorkflowHandoffResponder(s.handoffCoordinator, eventSink)
+	return newWorkflowHandoffResponder(s.handoffCoordinator, eventSink, s)
 }
 
 // CurrentModelAlias returns the currently active model alias.
@@ -234,6 +241,39 @@ func (s *Session) SessionTitle() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.sessionTitle
+}
+
+// Mode returns the current execution mode.
+func (s *Session) Mode() config.ExecutionMode {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mode
+}
+
+// SetMode updates the execution mode. If m is the same as the current mode,
+// this is a no-op. Otherwise, it stores m, sets pendingModeNotice=true,
+// and emits a mode-changed event.
+func (s *Session) SetMode(m config.ExecutionMode) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m == s.mode {
+		return
+	}
+	s.mode = m
+	s.pendingModeNotice = true
+	s.events.Emit(output.NewModeChangedEvent(string(m)))
+}
+
+// consumeModeNotice returns the mode notice string if pendingModeNotice is set,
+// then clears the flag. Returns empty string if not set.
+func (s *Session) consumeModeNotice() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.pendingModeNotice {
+		return ""
+	}
+	s.pendingModeNotice = false
+	return prompt.ModeNotice(s.mode) + "\n\n"
 }
 
 func usagePercent(promptTokens, contextWindow int) float64 {
