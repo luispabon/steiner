@@ -126,6 +126,11 @@ func toProviderMessageMetadata(metadata *MessageProviderMetadata) *provider.Mess
 			ThinkingSignature: metadata.Anthropic.ThinkingSignature,
 		}
 	}
+	if metadata.Codex != nil {
+		out.Codex = &provider.CodexMessageMetadata{
+			ReasoningID: metadata.Codex.ReasoningID,
+		}
+	}
 	return out
 }
 
@@ -137,6 +142,11 @@ func fromProviderMessageMetadata(metadata *provider.MessageProviderMetadata) *Me
 	if metadata.Anthropic != nil {
 		out.Anthropic = &AnthropicMessageMetadata{
 			ThinkingSignature: metadata.Anthropic.ThinkingSignature,
+		}
+	}
+	if metadata.Codex != nil {
+		out.Codex = &CodexMessageMetadata{
+			ReasoningID: metadata.Codex.ReasoningID,
 		}
 	}
 	return out

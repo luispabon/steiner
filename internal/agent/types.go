@@ -40,10 +40,17 @@ type AnthropicMessageMetadata struct {
 	ThinkingSignature string `json:"thinking_signature,omitempty"`
 }
 
+// CodexMessageMetadata carries Codex-native replay fields that must be
+// preserved on specific assistant messages.
+type CodexMessageMetadata struct {
+	ReasoningID string `json:"reasoning_id,omitempty"`
+}
+
 // MessageProviderMetadata stores provider-native message fields needed for
 // transport replay without changing prompt assembly semantics.
 type MessageProviderMetadata struct {
 	Anthropic *AnthropicMessageMetadata `json:"anthropic,omitempty"`
+	Codex     *CodexMessageMetadata     `json:"codex,omitempty"`
 }
 
 // SteerMessage carries a between-turn steering message with attached images.

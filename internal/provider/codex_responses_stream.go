@@ -23,12 +23,15 @@ type responsesStreamEvent struct {
 
 type responsesStreamState struct {
 	content      strings.Builder
+	thinking     strings.Builder
 	toolCalls    []ToolCall
 	usage        *UsageStats
 	finishReason string
+	reasoningID  string
 	sawDone      bool
 	sawContent   bool
 	sawToolCall  bool
+	sawThinking  bool
 }
 
 func decodeResponsesStreamWithHandler(_ context.Context, body io.Reader, emit func(ChatChunk) error) error {
@@ -88,6 +91,8 @@ func processResponsesStreamEvent(state *responsesStreamState, event string, emit
 	switch payload.Type {
 	case "response.output_text.delta":
 		return handleResponsesTextDelta(state, payload.Delta, emit)
+	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+		return handleResponsesReasoningDelta(state, payload.Delta, emit)
 	case "response.output_item.done":
 		return handleResponsesOutputItemDone(state, payload.Item)
 	case "response.completed":
@@ -105,7 +110,20 @@ func handleResponsesTextDelta(state *responsesStreamState, delta string, emit fu
 	return false, emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: delta}})
 }
 
+func handleResponsesReasoningDelta(state *responsesStreamState, delta string, emit func(ChatChunk) error) (bool, error) {
+	if delta == "" {
+		return false, nil
+	}
+	state.thinking.WriteString(delta)
+	state.sawThinking = true
+	return false, emit(ChatChunk{Thinking: delta})
+}
+
 func handleResponsesOutputItemDone(state *responsesStreamState, item responsesItem) (bool, error) {
+	if item.Type == "reasoning" {
+		state.reasoningID = item.ID
+		return false, nil
+	}
 	if item.Type != "function_call" {
 		return false, nil
 	}
@@ -138,12 +156,20 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 }
 
 func flushResponsesStreamState(emit func(ChatChunk) error, state responsesStreamState) error {
-	if !state.sawContent && !state.sawToolCall && state.finishReason == "" && state.usage == nil {
+	if !state.sawContent && !state.sawToolCall && !state.sawThinking && state.finishReason == "" && state.usage == nil {
 		return nil
 	}
 	message := Message{Role: MessageRoleAssistant}
 	if state.sawContent {
 		message.Content = state.content.String()
+	}
+	if state.sawThinking {
+		message.ReasoningContent = state.thinking.String()
+	}
+	if state.reasoningID != "" {
+		message.ProviderMetadata = &MessageProviderMetadata{
+			Codex: &CodexMessageMetadata{ReasoningID: state.reasoningID},
+		}
 	}
 	if state.sawToolCall {
 		message.ToolCalls = state.toolCalls

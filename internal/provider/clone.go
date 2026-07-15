@@ -68,6 +68,10 @@ func CloneMessageMetadata(metadata *MessageProviderMetadata) *MessageProviderMet
 		anthropic := *metadata.Anthropic
 		cloned.Anthropic = &anthropic
 	}
+	if metadata.Codex != nil {
+		codex := *metadata.Codex
+		cloned.Codex = &codex
+	}
 	return cloned
 }
 

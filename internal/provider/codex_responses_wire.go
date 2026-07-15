@@ -56,6 +56,7 @@ type responsesItem struct {
 	Type    string                 `json:"type,omitempty"`
 	Role    string                 `json:"role,omitempty"`
 	Content []responsesContentPart `json:"content,omitempty"`
+	Summary []responsesContentPart `json:"summary,omitempty"`
 	ID      string                 `json:"id,omitempty"`
 	CallID  string                 `json:"call_id,omitempty"`
 	Name    string                 `json:"name,omitempty"`
@@ -155,7 +156,22 @@ func messageToResponsesItems(msg Message) ([]responsesItem, error) {
 	case MessageRoleUser:
 		return []responsesItem{messageItem("user", inputContentParts(msg))}, nil
 	case MessageRoleAssistant:
-		items := make([]responsesItem, 0, 1+len(msg.ToolCalls))
+		itemsCap := 1 + len(msg.ToolCalls)
+		if msg.ReasoningContent != "" {
+			itemsCap++
+		}
+		items := make([]responsesItem, 0, itemsCap)
+		if msg.ReasoningContent != "" {
+			var reasoningID string
+			if msg.ProviderMetadata != nil && msg.ProviderMetadata.Codex != nil {
+				reasoningID = msg.ProviderMetadata.Codex.ReasoningID
+			}
+			items = append(items, responsesItem{
+				Type:    "reasoning",
+				ID:      reasoningID,
+				Summary: []responsesContentPart{{Type: "summary_text", Text: msg.ReasoningContent}},
+			})
+		}
 		if msg.Content != "" || len(msg.Images) > 0 {
 			items = append(items, messageItem("assistant", outputContentParts(msg.Content)))
 		}
@@ -219,6 +235,8 @@ func outputContentParts(content string) []responsesContentPart {
 func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error) {
 	message := Message{Role: MessageRoleAssistant}
 	var content strings.Builder
+	var reasoning strings.Builder
+	var reasoningID string
 	for _, item := range payload.Output {
 		switch item.Type {
 		case "message":
@@ -233,9 +251,22 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 				return ChatResponse{}, err
 			}
 			message.ToolCalls = append(message.ToolCalls, call)
+		case "reasoning":
+			for _, part := range item.Summary {
+				if part.Type == "summary_text" {
+					reasoning.WriteString(part.Text)
+				}
+			}
+			reasoningID = item.ID
 		}
 	}
 	message.Content = content.String()
+	if reasoning.Len() > 0 {
+		message.ReasoningContent = reasoning.String()
+		if reasoningID != "" {
+			message.ProviderMetadata = &MessageProviderMetadata{Codex: &CodexMessageMetadata{ReasoningID: reasoningID}}
+		}
+	}
 
 	finish := "stop"
 	if payload.Status == "incomplete" && payload.IncompleteDetail != nil {
