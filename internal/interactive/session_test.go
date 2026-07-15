@@ -2782,3 +2782,90 @@ func TestSubmitPromptDoesNotLeakModeNoticeIntoStoredConversation(t *testing.T) {
 		t.Fatalf("stored user message = %q, want %q", userMsg.Content, "user prompt")
 	}
 }
+
+func TestSubmitPromptStripsNoticeWhenSteerAppendsUserMessage(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+			// Simulate a steer appending a user message after the notice-bearing one.
+			conv := append(append([]agent.Message(nil), conversation...),
+				agent.Message{Role: agent.MessageRoleAssistant, Content: "assistant response"},
+				agent.Message{Role: agent.MessageRoleUser, Content: "steer message"},
+				agent.Message{Role: agent.MessageRoleAssistant, Content: "steered response"},
+			)
+			return RunResult{Conversation: conv}, nil
+		}),
+	}
+	s := testNewSession(t, deps)
+
+	s.submitPrompt(context.Background(), "user prompt", nil)
+
+	storedConv := s.Conversation()
+	for _, msg := range storedConv {
+		if msg.Role == agent.MessageRoleUser && strings.Contains(msg.Content, "[execution mode:") {
+			t.Fatalf("stored user message contains mode notice: %q", msg.Content)
+		}
+	}
+
+	if storedConv[0].Content != "user prompt" {
+		t.Fatalf("first user message = %q, want %q", storedConv[0].Content, "user prompt")
+	}
+}
+
+func TestStripModeNoticeFromConversation(t *testing.T) {
+	t.Parallel()
+	notice := "[execution mode: plan]\n\n"
+	cases := []struct {
+		name     string
+		messages []agent.Message
+		want     []agent.Message
+	}{
+		{
+			name:     "no steer",
+			messages: []agent.Message{{Role: agent.MessageRoleUser, Content: notice + "hello"}, {Role: agent.MessageRoleAssistant, Content: "reply"}},
+			want:     []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}, {Role: agent.MessageRoleAssistant, Content: "reply"}},
+		},
+		{
+			name: "steer after notice",
+			messages: []agent.Message{
+				{Role: agent.MessageRoleUser, Content: notice + "hello"},
+				{Role: agent.MessageRoleAssistant, Content: "reply"},
+				{Role: agent.MessageRoleUser, Content: "steer"},
+				{Role: agent.MessageRoleAssistant, Content: "steered reply"},
+			},
+			want: []agent.Message{
+				{Role: agent.MessageRoleUser, Content: "hello"},
+				{Role: agent.MessageRoleAssistant, Content: "reply"},
+				{Role: agent.MessageRoleUser, Content: "steer"},
+				{Role: agent.MessageRoleAssistant, Content: "steered reply"},
+			},
+		},
+		{
+			name:     "empty notice",
+			messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}},
+			want:     []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := notice
+			if tc.name == "empty notice" {
+				n = ""
+			}
+			got := stripModeNoticeFromConversation(tc.messages, n)
+			if len(got) != len(tc.want) {
+				t.Fatalf("len = %d, want %d", len(got), len(tc.want))
+			}
+			for i := range got {
+				if got[i].Role != tc.want[i].Role || got[i].Content != tc.want[i].Content {
+					t.Errorf("message[%d] = {%s, %q}, want {%s, %q}", i, got[i].Role, got[i].Content, tc.want[i].Role, tc.want[i].Content)
+				}
+			}
+		})
+	}
+}

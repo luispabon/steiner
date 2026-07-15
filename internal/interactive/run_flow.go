@@ -104,27 +104,23 @@ func cloneMessages(messages []agent.Message) []agent.Message {
 	return out
 }
 
-// stripModeNoticeFromConversation removes a prepended mode notice from the last
-// user message in the conversation, if present. Returns a copy with the notice
-// removed; if no notice is found or notice is empty, returns the input unchanged.
+// stripModeNoticeFromConversation removes a prepended mode notice from the
+// first user message that carries it (scanning backward). A mid-turn steer can
+// append additional user messages after the notice-bearing one, so we cannot
+// assume the notice is on the last user message.
 func stripModeNoticeFromConversation(messages []agent.Message, notice string) []agent.Message {
 	if notice == "" || len(messages) == 0 {
 		return messages
 	}
-	lastUserIdx := -1
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == agent.MessageRoleUser {
-			lastUserIdx = i
-			break
+		if messages[i].Role == agent.MessageRoleUser && strings.HasPrefix(messages[i].Content, notice) {
+			out := make([]agent.Message, len(messages))
+			copy(out, messages)
+			out[i].Content = strings.TrimPrefix(out[i].Content, notice)
+			return out
 		}
 	}
-	if lastUserIdx == -1 || !strings.HasPrefix(messages[lastUserIdx].Content, notice) {
-		return messages
-	}
-	out := make([]agent.Message, len(messages))
-	copy(out, messages)
-	out[lastUserIdx].Content = strings.TrimPrefix(out[lastUserIdx].Content, notice)
-	return out
+	return messages
 }
 
 // runWithInterruptOwnership executes a run function with a cancellable context
