@@ -72,6 +72,9 @@ func TestResponsesRequestMarshalJSONIncludesReasoningEffort(t *testing.T) {
 	if got, want := reasoning["effort"], "low"; got != want {
 		t.Fatalf("reasoning.effort = %v, want %v", got, want)
 	}
+	if got, want := reasoning["summary"], "auto"; got != want {
+		t.Fatalf("reasoning.summary = %v, want %v", got, want)
+	}
 }
 
 func TestResponsesRequestMarshalJSONReasoningOverridesParamsAndExtraParams(t *testing.T) {
@@ -102,6 +105,9 @@ func TestResponsesRequestMarshalJSONReasoningOverridesParamsAndExtraParams(t *te
 	}
 	if got, want := reasoning["effort"], "high"; got != want {
 		t.Fatalf("reasoning.effort = %v, want %v (first-class field must win)", got, want)
+	}
+	if got, want := reasoning["summary"], "auto"; got != want {
+		t.Fatalf("reasoning.summary = %v, want %v", got, want)
 	}
 }
 
@@ -172,5 +178,17 @@ func TestResponsesRequestMarshalJSONOmitsMaxOutputTokens(t *testing.T) {
 				t.Fatal("max_output_tokens present in JSON, want absent (Codex Responses API does not support it)")
 			}
 		})
+	}
+}
+
+func TestReasoningWirePayload(t *testing.T) {
+	reasoning := &ReasoningRequest{Effort: "medium"}
+	payload := reasoningWirePayload(reasoning)
+
+	if got, want := payload["effort"], "medium"; got != want {
+		t.Fatalf("payload[\"effort\"] = %v, want %v", got, want)
+	}
+	if got, want := payload["summary"], "auto"; got != want {
+		t.Fatalf("payload[\"summary\"] = %v, want %v", got, want)
 	}
 }
