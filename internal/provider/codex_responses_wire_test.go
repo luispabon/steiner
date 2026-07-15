@@ -181,6 +181,145 @@ func TestResponsesRequestMarshalJSONOmitsMaxOutputTokens(t *testing.T) {
 	}
 }
 
+func TestNormalizeResponsesResponseReasoning(t *testing.T) {
+	payload := responsesResponse{
+		Output: []responsesItem{
+			{
+				Type: "reasoning",
+				ID:   "rs_123",
+				Summary: []responsesContentPart{
+					{Type: "summary_text", Text: "thinking about it"},
+				},
+			},
+			{
+				Type:    "message",
+				Content: []responsesContentPart{{Type: "output_text", Text: "final answer"}},
+			},
+		},
+	}
+
+	resp, err := normalizeResponsesResponse(payload)
+	if err != nil {
+		t.Fatalf("normalizeResponsesResponse() error = %v", err)
+	}
+	if got, want := resp.Message.ReasoningContent, "thinking about it"; got != want {
+		t.Fatalf("ReasoningContent = %q, want %q", got, want)
+	}
+	if resp.Message.ProviderMetadata == nil || resp.Message.ProviderMetadata.Codex == nil {
+		t.Fatal("ProviderMetadata.Codex = nil, want set")
+	}
+	if got, want := resp.Message.ProviderMetadata.Codex.ReasoningID, "rs_123"; got != want {
+		t.Fatalf("ReasoningID = %q, want %q", got, want)
+	}
+	if got, want := resp.Message.Content, "final answer"; got != want {
+		t.Fatalf("Content = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeResponsesResponseNoReasoning(t *testing.T) {
+	payload := responsesResponse{
+		Output: []responsesItem{
+			{
+				Type:    "message",
+				Content: []responsesContentPart{{Type: "output_text", Text: "final answer"}},
+			},
+			{
+				Type:   "function_call",
+				CallID: "call_1",
+				Name:   "tool",
+				Args:   "{}",
+			},
+		},
+	}
+
+	resp, err := normalizeResponsesResponse(payload)
+	if err != nil {
+		t.Fatalf("normalizeResponsesResponse() error = %v", err)
+	}
+	if resp.Message.ReasoningContent != "" {
+		t.Fatalf("ReasoningContent = %q, want empty", resp.Message.ReasoningContent)
+	}
+	if resp.Message.ProviderMetadata != nil {
+		t.Fatalf("ProviderMetadata = %v, want nil", resp.Message.ProviderMetadata)
+	}
+}
+
+func TestMessageToResponsesItemsWithReasoning(t *testing.T) {
+	msg := Message{
+		Role:             MessageRoleAssistant,
+		Content:          "final answer",
+		ReasoningContent: "thinking about it",
+		ProviderMetadata: &MessageProviderMetadata{
+			Codex: &CodexMessageMetadata{ReasoningID: "rs_123"},
+		},
+	}
+
+	items, err := messageToResponsesItems(msg)
+	if err != nil {
+		t.Fatalf("messageToResponsesItems() error = %v", err)
+	}
+	if len(items) < 2 {
+		t.Fatalf("len(items) = %d, want >= 2", len(items))
+	}
+	reasoningItem := items[0]
+	if got, want := reasoningItem.Type, "reasoning"; got != want {
+		t.Fatalf("items[0].Type = %q, want %q", got, want)
+	}
+	if got, want := reasoningItem.ID, "rs_123"; got != want {
+		t.Fatalf("items[0].ID = %q, want %q", got, want)
+	}
+	if len(reasoningItem.Summary) != 1 || reasoningItem.Summary[0].Type != "summary_text" || reasoningItem.Summary[0].Text != "thinking about it" {
+		t.Fatalf("items[0].Summary = %+v, want single summary_text part", reasoningItem.Summary)
+	}
+	if got, want := items[1].Type, "message"; got != want {
+		t.Fatalf("items[1].Type = %q, want %q", got, want)
+	}
+}
+
+func TestMessageToResponsesItemsWithReasoningAndToolCalls(t *testing.T) {
+	msg := Message{
+		Role:             MessageRoleAssistant,
+		ReasoningContent: "thinking about it",
+		ProviderMetadata: &MessageProviderMetadata{
+			Codex: &CodexMessageMetadata{ReasoningID: "rs_123"},
+		},
+		ToolCalls: []ToolCall{
+			{ID: "call_1", Name: "tool", RawArguments: "{}"},
+		},
+	}
+
+	items, err := messageToResponsesItems(msg)
+	if err != nil {
+		t.Fatalf("messageToResponsesItems() error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("len(items) = %d, want 2", len(items))
+	}
+	if got, want := items[0].Type, "reasoning"; got != want {
+		t.Fatalf("items[0].Type = %q, want %q", got, want)
+	}
+	if got, want := items[1].Type, "function_call"; got != want {
+		t.Fatalf("items[1].Type = %q, want %q", got, want)
+	}
+}
+
+func TestMessageToResponsesItemsWithoutReasoning(t *testing.T) {
+	msg := Message{
+		Role:    MessageRoleAssistant,
+		Content: "final answer",
+	}
+
+	items, err := messageToResponsesItems(msg)
+	if err != nil {
+		t.Fatalf("messageToResponsesItems() error = %v", err)
+	}
+	for _, item := range items {
+		if item.Type == "reasoning" {
+			t.Fatalf("unexpected reasoning item: %+v", item)
+		}
+	}
+}
+
 func TestReasoningWirePayload(t *testing.T) {
 	reasoning := &ReasoningRequest{Effort: "medium"}
 	payload := reasoningWirePayload(reasoning)
