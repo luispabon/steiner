@@ -92,6 +92,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		sessionResetCleanup:          cfg.SessionResetCleanup,
 		resolveReasoningFunc:         cfg.ResolveReasoningFunc,
 		resolveReasoningForAliasFunc: cfg.ResolveReasoningForAliasFunc,
+		mode:                         cfg.InitialMode,
 	}
 
 	m.reasoningBatchResolved = cfg.ResolveReasoningFunc == nil
@@ -267,6 +268,8 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.sidebar.maxTurns = cfg.MaxTurns
 	m.sidebar.homeDir = strings.TrimSpace(cfg.HomeDir)
 	m.sidebar.workingDir = strings.TrimSpace(cfg.WorkingDir)
+	m.sidebar.execMode = m.mode
+	m.status.execMode = m.mode
 	m.git.Refresh(context.Background())
 	m.syncSidebar()
 	m.layout()

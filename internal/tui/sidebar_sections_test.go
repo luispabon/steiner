@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestFormatDuration(t *testing.T) {
@@ -115,6 +117,36 @@ func TestModelSectionReasoningLine(t *testing.T) {
 			}
 			if !tc.wantShown && strings.Contains(joined, "reasoning") {
 				t.Errorf("modelSection() should not contain 'reasoning' label, got %q", joined)
+			}
+		})
+	}
+}
+
+func TestSidebarModeRow(t *testing.T) {
+	cases := []struct {
+		name  string
+		mode  string
+		want  string
+		empty bool
+	}{
+		{name: "plan", mode: "plan", want: "⏸ plan"},
+		{name: "build", mode: "build", want: "⏵⏵ build"},
+		{name: "unset", mode: "", empty: true},
+	}
+	styles := theme.BuildStyles(theme.AccentAmber)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := sidebarState{model: "gpt-5", execMode: tc.mode, styles: styles}
+			lines := s.modelSection(32)
+			joined := strings.Join(lines, "\n")
+			if tc.empty {
+				if strings.Contains(joined, "mode") {
+					t.Errorf("modelSection() should not contain mode row when unset, got %q", joined)
+				}
+				return
+			}
+			if !strings.Contains(joined, tc.want) {
+				t.Errorf("modelSection() missing mode row %q in %q", tc.want, joined)
 			}
 		})
 	}

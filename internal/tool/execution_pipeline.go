@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 type executionInput struct {
@@ -31,8 +34,8 @@ func (e *Executor) resolveDefinition(in executionInput) (ToolDef, error) {
 	return def, nil
 }
 
-func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, input map[string]any) (map[string]any, *PathPolicy, error) {
-	normalizedInput, err := e.pathPolicy.ValidateToolInput(def.Name, input)
+func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, input map[string]any, policy PathPolicy) (map[string]any, *PathPolicy, error) {
+	normalizedInput, err := policy.ValidateToolInput(def.Name, input)
 	if err == nil {
 		return normalizedInput, nil, nil
 	}
@@ -43,8 +46,8 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, inp
 		req := ApprovalRequest{
 			Tool:              def,
 			Input:             input,
-			WorkDir:           e.pathPolicy.Root(),
-			Preview:           buildApprovalPreview(def.Name, input, e.pathPolicy),
+			WorkDir:           policy.Root(),
+			Preview:           buildApprovalPreview(def.Name, input, policy),
 			DeniedPath:        policyErr.Path,
 			Reason:            policyErr.Reason,
 			GrantInstructions: "Add a host_mount in .steiner/config.yaml or re-run with --unsafe",
@@ -59,7 +62,7 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, inp
 		}
 		resp := <-req.Response
 		if resp.Allow {
-			relaxed := e.pathPolicy.WithoutRoot()
+			relaxed := policy.WithoutRoot()
 			relaxedInput, relaxedErr := relaxed.ValidateToolInput(def.Name, input)
 			if relaxedErr != nil {
 				return nil, nil, &ToolExecutionError{
@@ -85,14 +88,27 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		return nil, err
 	}
 
-	normalizedInput, effectivePolicy, err := e.normalizeExecutionInput(ctx, def, in.Input)
+	// Compute the effective policy: apply plan mode restriction if needed.
+	effectivePolicy := e.pathPolicy
+	if e.modeGetter != nil && e.modeGetter() == config.ExecutionModePlan {
+		effectivePolicy = e.pathPolicy.RestrictWritesTo(filepath.Join(e.pathPolicy.Root(), ".steiner"))
+	}
+
+	normalizedInput, approvalPolicy, err := e.normalizeExecutionInput(ctx, def, in.Input, effectivePolicy)
 	if err != nil {
 		return nil, err
 	}
 
-	toolCtx := ctx
-	if effectivePolicy != nil {
-		toolCtx = context.WithValue(ctx, EffectivePolicyKey{}, effectivePolicy)
+	var toolCtx context.Context
+	if approvalPolicy != nil {
+		toolCtx = context.WithValue(ctx, EffectivePolicyKey{}, approvalPolicy)
+	} else {
+		toolCtx = context.WithValue(ctx, EffectivePolicyKey{}, &effectivePolicy)
+	}
+
+	if e.modeGetter != nil {
+		mode := e.modeGetter()
+		toolCtx = context.WithValue(toolCtx, ExecutionModeKey{}, mode)
 	}
 
 	ec := executionContext{
@@ -154,11 +170,15 @@ func (e *Executor) handleBashDenial(ctx context.Context, ec *executionContext, r
 }
 
 func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext, br BashDenialResult, output, reason, grantInstructions, denialMessage string) (any, error) {
+	policy, ok := ctx.Value(EffectivePolicyKey{}).(*PathPolicy)
+	if !ok || policy == nil {
+		policy = &e.pathPolicy
+	}
 	req := ApprovalRequest{
 		Tool:              ec.Def,
 		Input:             ec.NormalizedInput,
-		WorkDir:           e.pathPolicy.Root(),
-		Preview:           buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, e.pathPolicy),
+		WorkDir:           policy.Root(),
+		Preview:           buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, *policy),
 		DeniedPath:        extractDeniedPath(output),
 		Reason:            reason,
 		GrantInstructions: grantInstructions,

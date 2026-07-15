@@ -48,8 +48,9 @@ func (s *Sandbox) TmpDir() string {
 	return s.tmpDir
 }
 
-// WrapCommand wraps cmd with bubblewrap. Returns cmd unchanged when sandbox disabled.
-func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
+// WrapCommandMode wraps cmd with bubblewrap, optionally with project read-only mode.
+// Returns cmd unchanged when sandbox disabled or bwrap is unavailable.
+func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd {
 	if !s.cfg.Enabled {
 		return cmd
 	}
@@ -72,12 +73,16 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 		return cmd
 	}
 
+	if readOnlyProject {
+		_ = os.MkdirAll(filepath.Join(s.root, ".steiner"), 0o755) // Best-effort; ro-bind will fail if it still doesn't exist, but create attempt must not block.
+	}
+
 	sandboxHome := filepath.Join(s.root, ".steiner", "home")
 	var overlayArgs []string
 	if overlay != nil {
 		overlayArgs = overlay.bwrapArgs
 	}
-	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.permissions, s.hostMounts, overlayArgs, s.tmpDir)
+	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.permissions, s.hostMounts, overlayArgs, s.tmpDir, readOnlyProject)
 
 	// Build the new Args slice: [bwrap, ...bwrap-args..., "--", original-cmd, original-args...]
 	args := make([]string, 0, 1+len(bwrapArgs)+1+len(cmd.Args))
@@ -101,6 +106,11 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
 		wrapped.ExtraFiles = append(wrapped.ExtraFiles, overlay.memfds...)
 	}
 	return wrapped
+}
+
+// WrapCommand wraps cmd with bubblewrap. Returns cmd unchanged when sandbox disabled.
+func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
+	return s.WrapCommandMode(cmd, false)
 }
 
 // EnsureHome creates .steiner/home/ inside workspaceDir.

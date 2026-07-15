@@ -778,3 +778,173 @@ func TestPolicy_ResolveReadPath_RejectsSpecialFiles(t *testing.T) {
 		})
 	}
 }
+
+func TestPolicy_RestrictWritesTo_AllowsWritesInAllowlist(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(filepath.Join(policy.Root(), ".steiner/plans"))
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "write under .steiner/plans succeeds",
+			path: ".steiner/plans/step1.md",
+			want: "/project/.steiner/plans/step1.md",
+		},
+		{
+			name: "nested write under .steiner/plans succeeds",
+			path: ".steiner/plans/subdir/step2.md",
+			want: "/project/.steiner/plans/subdir/step2.md",
+		},
+		{
+			name: "write at .steiner/plans root succeeds",
+			path: ".steiner/plans",
+			want: "/project/.steiner/plans",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := restricted.ResolvePath(tc.path, true)
+			if err != nil {
+				t.Fatalf("ResolvePath(%q, writable) error = %v", tc.path, err)
+			}
+			if got != tc.want {
+				t.Fatalf("ResolvePath(%q, writable) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPolicy_RestrictWritesTo_DeniesSrcWrites(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(filepath.Join(policy.Root(), ".steiner"))
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{
+			name: "write outside allowlist denied",
+			path: "src/main.go",
+		},
+		{
+			name: "write to project root denied",
+			path: "README.md",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := restricted.ResolvePath(tc.path, true)
+			if err == nil {
+				t.Fatalf("ResolvePath(%q, writable) = nil, want error", tc.path)
+			}
+			var policyErr *PathPolicyError
+			if !errors.As(err, &policyErr) {
+				t.Fatalf("error type = %T, want *PathPolicyError", err)
+			}
+			if !strings.Contains(policyErr.Reason, "plan mode") {
+				t.Fatalf("Reason = %q, want to contain 'plan mode'", policyErr.Reason)
+			}
+		})
+	}
+}
+
+func TestPolicy_RestrictWritesTo_AllowsRootSubtree(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(filepath.Join(policy.Root(), ".steiner"))
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "write at .steiner root succeeds",
+			path: ".steiner",
+			want: "/project/.steiner",
+		},
+		{
+			name: "write to .steiner/home succeeds",
+			path: ".steiner/home/note.txt",
+			want: "/project/.steiner/home/note.txt",
+		},
+		{
+			name: "write to .steiner/plans succeeds",
+			path: ".steiner/plans/plan.md",
+			want: "/project/.steiner/plans/plan.md",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := restricted.ResolvePath(tc.path, true)
+			if err != nil {
+				t.Fatalf("ResolvePath(%q, writable) error = %v", tc.path, err)
+			}
+			if got != tc.want {
+				t.Fatalf("ResolvePath(%q, writable) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPolicy_RestrictWritesTo_ReadUnaffected(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(filepath.Join(policy.Root(), ".steiner/plans"))
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "read from src/main.go succeeds",
+			path: "src/main.go",
+			want: "/project/src/main.go",
+		},
+		{
+			name: "read from README succeeds",
+			path: "README.md",
+			want: "/project/README.md",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := restricted.ResolvePath(tc.path, false)
+			if err != nil {
+				t.Fatalf("ResolvePath(%q, read-only) error = %v", tc.path, err)
+			}
+			if got != tc.want {
+				t.Fatalf("ResolvePath(%q, read-only) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPolicy_RestrictWritesTo_BuildModeUnaffected(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(filepath.Join(policy.Root(), ".steiner/plans"))
+
+	// Clear the write allowlist to simulate build mode behavior (no restriction)
+	unrestricted := PathPolicy{
+		root:            restricted.root,
+		sandboxTmpDir:   restricted.sandboxTmpDir,
+		projectRootOnly: restricted.projectRootOnly,
+		blockedPaths:    restricted.blockedPaths,
+		writablePaths:   restricted.writablePaths,
+		writeAllowlist:  nil, // Empty allowlist = no restriction
+	}
+
+	got, err := unrestricted.ResolvePath("src/main.go", true)
+	if err != nil {
+		t.Fatalf("ResolvePath with no writeAllowlist error = %v", err)
+	}
+	if want := "/project/src/main.go"; got != want {
+		t.Fatalf("ResolvePath() = %q, want %q", got, want)
+	}
+}

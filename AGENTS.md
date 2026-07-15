@@ -156,6 +156,11 @@ Code changes must update corresponding documentation in a single commit:
    * Update the relevant section in docs/optional-features.md
    * Update the one-liner in README.md's "Other features" list if the summary changes
 
+11. **Execution mode changes** (plan/build enforcement, mode-switching UX, `modes.default` semantics):
+   * Update docs/execution-modes.md with the changed mode semantics, enforcement matrix, or persistence behaviour
+   * Update the "Execution modes" section in README.md if the high-level description changes
+   * Update docs/sub-agent-delegation.md's Safety section if the `code`/`follow_up` denial scope changes
+
 ## Built-in tools
 
 Steiner exposes these model-facing built-in tools:

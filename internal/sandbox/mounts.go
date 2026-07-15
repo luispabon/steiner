@@ -8,7 +8,7 @@ import (
 )
 
 // BuildArgs returns the bwrap argument list (excluding the trailing -- cmd args).
-func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, _ config.PermissionsConfig, hostMounts []config.HostMount, overlayArgs []string, tmpDir string) []string {
+func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, _ config.PermissionsConfig, hostMounts []config.HostMount, overlayArgs []string, tmpDir string, readOnlyProject bool) []string {
 	var args []string
 
 	// Namespace isolation: unshare all but share network.
@@ -28,8 +28,13 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, _ config.Per
 		args = append(args, "--tmpfs", "/tmp")
 	}
 
-	// Project workspace writable at original absolute path.
-	args = append(args, "--bind", writableRoot, writableRoot)
+	// Project workspace binding: read-only or writable depending on plan mode.
+	if readOnlyProject {
+		args = append(args, "--ro-bind", writableRoot, writableRoot)
+		args = append(args, "--bind", filepath.Join(writableRoot, ".steiner"), filepath.Join(writableRoot, ".steiner"))
+	} else {
+		args = append(args, "--bind", writableRoot, writableRoot)
+	}
 
 	// Sandbox state directory writable at original absolute path.
 	args = append(args, "--bind", sandboxHome, sandboxHome)

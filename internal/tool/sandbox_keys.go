@@ -11,6 +11,11 @@ type BashUnsandboxedKey struct{}
 // instead of the original restrictive one.
 type EffectivePolicyKey struct{}
 
+// ExecutionModeKey is a context key used to carry the current execution mode
+// (plan or build) through the execution pipeline. Set when a mode getter is
+// configured on the executor, allowing tool handlers to make mode-aware decisions.
+type ExecutionModeKey struct{}
+
 // BashDenialResult is implemented by builtin.BashResult to allow sandbox
 // denial detection in the execution pipeline without an import cycle.
 type BashDenialResult interface {

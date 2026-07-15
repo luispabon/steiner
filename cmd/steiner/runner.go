@@ -26,6 +26,7 @@ type cliRunner struct {
 	currentAlias             func() string
 	currentReasoningOverride func() provider.ReasoningOverride
 	promptCacheKey           string
+	modeGetter               func() config.ExecutionMode
 }
 
 type runResult = oneshot.RunResult

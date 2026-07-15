@@ -175,6 +175,7 @@ type Model struct {
 	oneshotSteerCh               chan agent.SteerMessage
 	oneshotRunnerFactory         OneshotRunnerFactoryBuilder
 	notifier                     notifier
+	mode                         string // current execution mode: "plan" or "build"
 	ticking                      bool
 	imageStore                   *agent.ImageStore
 	visionCapabilities           *agent.VisionCapabilities

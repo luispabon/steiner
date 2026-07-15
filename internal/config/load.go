@@ -66,9 +66,16 @@ func Load(opts LoadOptions) (Config, error) {
 	}
 	applyCLIOverrides(&cfg, opts.CLI)
 	normalizePaths(&cfg, homeDir)
+	normalizeExecutionModes(&cfg)
 	if err := validate(cfg); err != nil {
 		return Config{}, err
 	}
 
 	return cfg, nil
+}
+
+func normalizeExecutionModes(cfg *Config) {
+	if cfg.Modes.Default == "" {
+		cfg.Modes.Default = ExecutionModeBuild
+	}
 }

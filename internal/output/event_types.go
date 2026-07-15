@@ -90,6 +90,8 @@ const (
 	// EventTypeSteerReceived is emitted when the agent loop consumes a queued
 	// steering message and injects it into the conversation.
 	EventTypeSteerReceived = "steer_received"
+	// EventTypeModeChanged is emitted when the execution mode changes.
+	EventTypeModeChanged = "mode_changed"
 )
 
 // Event is the timestamped envelope emitted by the runtime event stream.
@@ -432,4 +434,9 @@ type DisplayFilePayload struct {
 	Offset  int             `json:"offset,omitempty"`
 	Limit   int             `json:"limit,omitempty"`
 	Preview PreviewDocument `json:"preview"`
+}
+
+// ModeChangedEvent is emitted when the execution mode changes.
+type ModeChangedEvent struct {
+	Mode string `json:"mode"`
 }

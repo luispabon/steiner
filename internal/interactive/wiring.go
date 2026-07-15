@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -102,12 +103,14 @@ func approvalResponseForDecision(decision string) tool.ApprovalResponse {
 type workflowHandoffResponder struct {
 	coordinator *WorkflowHandoffCoordinator
 	events      output.EventSink
+	session     *Session
 }
 
-func newWorkflowHandoffResponder(coordinator *WorkflowHandoffCoordinator, events output.EventSink) *workflowHandoffResponder {
+func newWorkflowHandoffResponder(coordinator *WorkflowHandoffCoordinator, events output.EventSink, session *Session) *workflowHandoffResponder {
 	return &workflowHandoffResponder{
 		coordinator: coordinator,
 		events:      events,
+		session:     session,
 	}
 }
 
@@ -130,6 +133,9 @@ func (h *workflowHandoffResponder) RequestWorkflowHandoff(ctx context.Context, r
 		if workflowHandoffAccepted(submission.Decision) {
 			if h.events != nil {
 				h.events.Emit(output.NewWorkflowHandoffAcceptedEvent(req.Next, req.Target, req.Message))
+			}
+			if h.session != nil {
+				h.session.SetMode(config.ExecutionModeBuild)
 			}
 			return tool.WorkflowHandoffResponse{Accepted: true}, nil
 		}

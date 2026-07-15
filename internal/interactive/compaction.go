@@ -114,6 +114,7 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		},
 		NextGenerationID: 2,
 	}
+	s.pendingModeNotice = true
 	s.mu.Unlock()
 
 	if err := s.saveSession(); err != nil {

@@ -27,6 +27,7 @@ var (
 	_ Action = RequestExit{}
 	_ Action = SetSkillEnabled{}
 	_ Action = SwitchModel{}
+	_ Action = SwitchMode{}
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
 	_ Action = LoadSession{}
@@ -1410,6 +1411,52 @@ func TestLoadSessionReplacesConversation(t *testing.T) {
 	}
 }
 
+func TestLoadSessionRearmsModePendingNoticeWhenLoadingPlanMode(t *testing.T) {
+	t.Parallel()
+	mockStore := newMockSessionStore()
+
+	mockSession := session.Session{
+		ID:    "plan-mode-session",
+		Title: "Plan Mode Session",
+		Model: "test-model",
+		Mode:  string(config.ExecutionModePlan),
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID:       1,
+					Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "plan this"}},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+	mockStore.loadedSessions["plan-mode-session"] = mockSession
+
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModeBuild,
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: "plan-mode-session"}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	if got, want := s.Mode(), config.ExecutionModePlan; got != want {
+		t.Fatalf("Mode() after load = %q, want %q", got, want)
+	}
+
+	s.mu.RLock()
+	pending := s.pendingModeNotice
+	s.mu.RUnlock()
+	if !pending {
+		t.Fatal("pendingModeNotice = false after loading plan-mode session, want true")
+	}
+}
+
 func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
 	t.Parallel()
 
@@ -2569,5 +2616,256 @@ func TestLoadSessionRestoresDelegationBoxesWithMalformedStructuredResultFallback
 	}
 	if got, want := delegationComplete[0].Output, "{not-json"; got != want {
 		t.Fatalf("delegation complete output = %q, want %q", got, want)
+	}
+}
+
+func TestSessionModeDefault(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+	}
+	s := testNewSession(t, deps)
+	if got, want := s.Mode(), config.ExecutionModePlan; got != want {
+		t.Fatalf("Mode() = %q, want %q", got, want)
+	}
+}
+
+func TestSessionModeSet(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+	}
+	var modeChangedEvents []output.ModeChangedEvent
+	deps.BaseEvents = output.SinkFunc(func(e output.Event) {
+		if e.Type == output.EventTypeModeChanged {
+			if payload, ok := e.Payload.(output.ModeChangedEvent); ok {
+				modeChangedEvents = append(modeChangedEvents, payload)
+			}
+		}
+	})
+	s, err := NewSession(deps)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	s.SetMode(config.ExecutionModeBuild)
+	if got, want := s.Mode(), config.ExecutionModeBuild; got != want {
+		t.Fatalf("Mode() after SetMode = %q, want %q", got, want)
+	}
+	if len(modeChangedEvents) == 0 {
+		t.Fatal("expected mode-changed event on SetMode")
+	}
+	if got, want := modeChangedEvents[0].Mode, string(config.ExecutionModeBuild); got != want {
+		t.Fatalf("mode-changed event mode = %q, want %q", got, want)
+	}
+}
+
+func TestSessionModeSetNoOp(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+	}
+	var modeChangedEvents int
+	deps.BaseEvents = output.SinkFunc(func(e output.Event) {
+		if e.Type == output.EventTypeModeChanged {
+			modeChangedEvents++
+		}
+	})
+	s, err := NewSession(deps)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	s.SetMode(config.ExecutionModePlan)
+	if modeChangedEvents != 0 {
+		t.Fatalf("expected no mode-changed event on SetMode to same mode, got %d", modeChangedEvents)
+	}
+}
+
+func TestSessionModePendingNoticeFlag(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		defaultMode  config.ExecutionMode
+		expectNotice bool
+	}{
+		{config.ExecutionModePlan, true},
+		{config.ExecutionModeBuild, false},
+	}
+	for _, tc := range testCases {
+		t.Run(string(tc.defaultMode), func(t *testing.T) {
+			deps := Dependencies{
+				Config: config.Config{
+					Modes: config.ModesConfig{
+						Default: tc.defaultMode,
+					},
+				},
+			}
+			s := testNewSession(t, deps)
+			notice := s.consumeModeNotice()
+			if tc.expectNotice && notice == "" {
+				t.Error("expected pending mode notice for plan mode, got empty")
+			}
+			if !tc.expectNotice && notice != "" {
+				t.Errorf("expected no pending mode notice for build mode, got: %q", notice)
+			}
+		})
+	}
+}
+
+func TestSessionSwitchModeAction(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+	}
+	s := testNewSession(t, deps)
+
+	if err := s.Handle(context.Background(), SwitchMode{Mode: config.ExecutionModeBuild}); err != nil {
+		t.Fatalf("Handle(SwitchMode) = %v, want nil", err)
+	}
+	if got, want := s.Mode(), config.ExecutionModeBuild; got != want {
+		t.Fatalf("Mode() after SwitchMode action = %q, want %q", got, want)
+	}
+}
+
+func TestSubmitPromptDoesNotLeakModeNoticeIntoStoredConversation(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{
+				Conversation: append(
+					append([]agent.Message(nil), conversation...),
+					agent.Message{Role: agent.MessageRoleAssistant, Content: "assistant response"},
+				),
+			}, nil
+		}),
+	}
+	s := testNewSession(t, deps)
+
+	s.submitPrompt(context.Background(), "user prompt", nil)
+
+	storedConv := s.Conversation()
+	if len(storedConv) < 1 {
+		t.Fatal("expected at least one message in stored conversation")
+	}
+
+	userMsg := storedConv[0]
+	if userMsg.Role != agent.MessageRoleUser {
+		t.Fatalf("first message role = %q, want user", userMsg.Role)
+	}
+
+	if strings.Contains(userMsg.Content, "[execution mode:") {
+		t.Fatalf("stored user message contains mode notice: %q", userMsg.Content)
+	}
+
+	if userMsg.Content != "user prompt" {
+		t.Fatalf("stored user message = %q, want %q", userMsg.Content, "user prompt")
+	}
+}
+
+func TestSubmitPromptStripsNoticeWhenSteerAppendsUserMessage(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+			// Simulate a steer appending a user message after the notice-bearing one.
+			conv := append(append([]agent.Message(nil), conversation...),
+				agent.Message{Role: agent.MessageRoleAssistant, Content: "assistant response"},
+				agent.Message{Role: agent.MessageRoleUser, Content: "steer message"},
+				agent.Message{Role: agent.MessageRoleAssistant, Content: "steered response"},
+			)
+			return RunResult{Conversation: conv}, nil
+		}),
+	}
+	s := testNewSession(t, deps)
+
+	s.submitPrompt(context.Background(), "user prompt", nil)
+
+	storedConv := s.Conversation()
+	for _, msg := range storedConv {
+		if msg.Role == agent.MessageRoleUser && strings.Contains(msg.Content, "[execution mode:") {
+			t.Fatalf("stored user message contains mode notice: %q", msg.Content)
+		}
+	}
+
+	if storedConv[0].Content != "user prompt" {
+		t.Fatalf("first user message = %q, want %q", storedConv[0].Content, "user prompt")
+	}
+}
+
+func TestStripModeNoticeFromConversation(t *testing.T) {
+	t.Parallel()
+	notice := "[execution mode: plan]\n\n"
+	cases := []struct {
+		name     string
+		messages []agent.Message
+		want     []agent.Message
+	}{
+		{
+			name:     "no steer",
+			messages: []agent.Message{{Role: agent.MessageRoleUser, Content: notice + "hello"}, {Role: agent.MessageRoleAssistant, Content: "reply"}},
+			want:     []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}, {Role: agent.MessageRoleAssistant, Content: "reply"}},
+		},
+		{
+			name: "steer after notice",
+			messages: []agent.Message{
+				{Role: agent.MessageRoleUser, Content: notice + "hello"},
+				{Role: agent.MessageRoleAssistant, Content: "reply"},
+				{Role: agent.MessageRoleUser, Content: "steer"},
+				{Role: agent.MessageRoleAssistant, Content: "steered reply"},
+			},
+			want: []agent.Message{
+				{Role: agent.MessageRoleUser, Content: "hello"},
+				{Role: agent.MessageRoleAssistant, Content: "reply"},
+				{Role: agent.MessageRoleUser, Content: "steer"},
+				{Role: agent.MessageRoleAssistant, Content: "steered reply"},
+			},
+		},
+		{
+			name:     "empty notice",
+			messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}},
+			want:     []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := notice
+			if tc.name == "empty notice" {
+				n = ""
+			}
+			got := stripModeNoticeFromConversation(tc.messages, n)
+			if len(got) != len(tc.want) {
+				t.Fatalf("len = %d, want %d", len(got), len(tc.want))
+			}
+			for i := range got {
+				if got[i].Role != tc.want[i].Role || got[i].Content != tc.want[i].Content {
+					t.Errorf("message[%d] = {%s, %q}, want {%s, %q}", i, got[i].Role, got[i].Content, tc.want[i].Role, tc.want[i].Content)
+				}
+			}
+		})
 	}
 }

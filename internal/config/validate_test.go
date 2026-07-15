@@ -58,6 +58,9 @@ func validBase() Config {
 		ContextManagement: ContextManagementConfig{
 			ReadAnnotations: true,
 		},
+		Modes: ModesConfig{
+			Default: ExecutionModeBuild,
+		},
 	}
 }
 
@@ -627,6 +630,33 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: `search.backend is "searxng" but search.searxng_url is not set`,
 		},
+		{
+			name: "modes.default plan accepted",
+			cfg: func() Config {
+				c := validBase()
+				c.Modes = ModesConfig{Default: ExecutionModePlan}
+				return c
+			}(),
+			wantErr: ``,
+		},
+		{
+			name: "modes.default build accepted",
+			cfg: func() Config {
+				c := validBase()
+				c.Modes = ModesConfig{Default: ExecutionModeBuild}
+				return c
+			}(),
+			wantErr: ``,
+		},
+		{
+			name: "modes.default invalid value rejected",
+			cfg: func() Config {
+				c := validBase()
+				c.Modes = ModesConfig{Default: ExecutionMode("invalid")}
+				return c
+			}(),
+			wantErr: `modes.default "invalid" is not supported (valid: "plan", "build")`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -865,6 +895,9 @@ func TestSearchConfigValidation(t *testing.T) {
 					GoogleAPIKey: tt.googleAPIKey,
 					KagiAPIKey:   tt.kagiAPIKey,
 					BraveAPIKey:  tt.braveAPIKey,
+				},
+				Modes: ModesConfig{
+					Default: ExecutionModeBuild,
 				},
 			}
 

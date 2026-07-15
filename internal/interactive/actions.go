@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -155,3 +156,11 @@ func (ForkSession) isInteractiveAction() {}
 type ForkSavedSession struct{ SessionID string }
 
 func (ForkSavedSession) isInteractiveAction() {}
+
+// SwitchMode represents a user request to switch the execution mode during an
+// interactive session.
+type SwitchMode struct {
+	Mode config.ExecutionMode
+}
+
+func (SwitchMode) isInteractiveAction() {}

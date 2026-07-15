@@ -636,3 +636,38 @@ func TestApplyProviderPatchWithCodex(t *testing.T) {
 		})
 	}
 }
+
+func executionModePtr(v ExecutionMode) *ExecutionMode {
+	return &v
+}
+
+func TestApplyModesPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial ModesConfig
+		patch   modesPatch
+		want    ModesConfig
+	}{
+		{
+			name:    "sets default execution mode",
+			initial: ModesConfig{Default: ExecutionModeBuild},
+			patch:   modesPatch{Default: executionModePtr(ExecutionModePlan)},
+			want:    ModesConfig{Default: ExecutionModePlan},
+		},
+		{
+			name:    "nil patch leaves mode untouched",
+			initial: ModesConfig{Default: ExecutionModeBuild},
+			patch:   modesPatch{},
+			want:    ModesConfig{Default: ExecutionModeBuild},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyModesPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyModesPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}

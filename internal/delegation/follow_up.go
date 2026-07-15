@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -50,6 +51,14 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 		if !ok {
 			return nil, fmt.Errorf("follow_up: no session for agent %q", agentID)
 		}
+
+		// Deny follow_up of code children in plan mode (they can mutate files).
+		if mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode); ok && mode == config.ExecutionModePlan {
+			if childHasMutateTool(session.Request) {
+				return nil, fmt.Errorf("follow_up: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
+					"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
+			}
+		}
 		req := session.Request
 		req.Prompt.Conversation = agent.ToReplaySafeProviderMessages(session.Conversation)
 		req.Prompt.Conversation = append(req.Prompt.Conversation, provider.Message{
@@ -87,4 +96,15 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 
 		return result, nil
 	}
+}
+
+// childHasMutateTool reports whether the child session's request includes the "mutate" tool.
+// Only the code agent has mutate in its allowlist, so this discriminates code children.
+func childHasMutateTool(req agent.RunRequest) bool {
+	for _, toolSpec := range req.Tools {
+		if toolSpec.Function.Name == "mutate" {
+			return true
+		}
+	}
+	return false
 }

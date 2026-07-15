@@ -14,6 +14,7 @@ type statusState struct {
 	model          string
 	context        string
 	mode           string
+	execMode       string // execution mode: "plan" or "build"
 	styles         theme.Styles
 	streaming      bool
 	approvalActive bool
@@ -35,6 +36,11 @@ func (s statusState) view(width int) string {
 	// Segment 1: model (stable left)
 	if s.model != "" {
 		parts = append(parts, renderModelBadge(s.styles, s.model))
+	}
+
+	// Segment 1b: execution mode badge
+	if badge := renderModeBadge(s.styles, s.execMode); badge != "" {
+		parts = append(parts, badge)
 	}
 
 	// Segments 2-5: stable commands and navigation

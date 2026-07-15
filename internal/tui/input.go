@@ -28,6 +28,9 @@ type inputAction struct {
 	invokeSkillArgs            string // optional args to pass with skill invocation
 	launchOneshotTask          string // task for /oneshot <task>
 	resumeOneshotID            string // run id for /oneshot --resume <id>
+	toggleMode                 bool   // true for /mode with no argument
+	setMode                    string // "plan" or "build" for /mode <mode>
+	invalidMode                string // unrecognized /mode argument
 }
 
 func parseInput(value string) inputAction {

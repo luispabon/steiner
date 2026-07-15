@@ -43,7 +43,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 }
 
 func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntime {
-	registry := runtimeRegistryWithSink(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox)
+	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, sess)
 	rt.registry = registry
 	rt.toolNames = registry.Names()
 	rt.events = sess.EventSink()
@@ -65,6 +65,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		ModelBaseURLs:      modelBaseURLs(rt.cfg),
 		ModelProviderNames: modelProviderNames(rt.cfg),
 		CurrentModelAlias:  rt.cfg.Models.Default,
+		InitialMode:        string(sess.Mode()),
 		ProviderBaseURL:    selectedProviderBaseURL,
 		ProviderName:       selectedProviderName,
 		HomeDir:            rt.homeDir,
@@ -184,6 +185,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		currentAlias:             sess.CurrentModelAlias,
 		currentReasoningOverride: sess.CurrentReasoningOverride,
 		promptCacheKey:           sess.SessionID(),
+		modeGetter:               sess.Mode,
 	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})

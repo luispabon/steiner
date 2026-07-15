@@ -25,6 +25,7 @@ type Executor struct {
 	registry    *Registry
 	approver    ApprovalResponder
 	sandbox     SandboxWrapper
+	modeGetter  func() config.ExecutionMode
 	workDir     string
 	pathPolicy  PathPolicy
 	outputLimit int
@@ -57,6 +58,15 @@ func (e *Executor) WithSandbox(s SandboxWrapper) *Executor {
 // A nil return means no sandboxing is active (unsafe mode).
 func (e *Executor) Sandbox() SandboxWrapper {
 	return e.sandbox
+}
+
+// WithModeGetter sets the execution mode getter on the executor and returns it
+// for chaining. The getter is called during execution to determine the current
+// mode (plan or build). When non-nil, the mode is threaded through the execution
+// context for handlers to check.
+func (e *Executor) WithModeGetter(getter func() config.ExecutionMode) *Executor {
+	e.modeGetter = getter
+	return e
 }
 
 // WorkDir returns the resolved working directory root for this executor.

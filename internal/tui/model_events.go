@@ -196,6 +196,11 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return m.handlePhaseTransition(payload)
 	case output.PhaseIndicatorEvent:
 		m.handlePhaseIndicator(payload)
+	case output.ModeChangedEvent:
+		m.mode = strings.TrimSpace(payload.Mode)
+		m.sidebar.execMode = m.mode
+		m.status.execMode = m.mode
+		m.content.AppendLine(fmt.Sprintf("status: mode → %s", m.mode))
 	case output.OneshotFinishedEvent:
 		m.oneshotRunning = false
 		m.oneshotPhase = ""

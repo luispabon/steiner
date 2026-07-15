@@ -11,7 +11,7 @@ import (
 // Handle processes an interactive action. Handles SubmitPrompt, SteerPrompt,
 // InterruptActiveRun, ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
-// SwitchModel, SubmitApproval, SubmitWorkflowHandoff, LoadSession, and requestSessionPicker.
+// SwitchMode, SwitchModel, SubmitApproval, SubmitWorkflowHandoff, LoadSession, and requestSessionPicker.
 func (s *Session) Handle(ctx context.Context, action Action) error {
 	if s.handleImmediateAction(ctx, action) {
 		return nil
@@ -68,6 +68,9 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		return true, nil
 	case SwitchModel:
 		return true, s.handleSwitchModel(a.Name, a.Reasoning)
+	case SwitchMode:
+		s.SetMode(a.Mode)
+		return true, nil
 	case LoadSession:
 		return true, s.loadSession(ctx, a.SessionID)
 
