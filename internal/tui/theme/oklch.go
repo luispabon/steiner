@@ -128,6 +128,7 @@ const (
 	ToolMag        = "#d75fd7" // grep
 	DelegateViolet = "#9D8DF1" // research delegate
 	AdvisorGreen   = "#5faf87" // advisor delegate
+	DelegateReview = "#E36F8E" // review delegate
 	Black          = "#000000" // tag chip foreground
 	SyntaxBlue     = "#5f8fff" // keyword blue (file preview)
 )
@@ -154,6 +155,7 @@ var (
 	AdvisorGreenLine     = blendHex(AdvisorGreen, Bg, 0.30)   // advisor
 	DelegateVioletLine   = blendHex(DelegateViolet, Bg, 0.30) // research
 	DelegateThinkingLine = blendHex(Thinking, Bg, 0.30)       // plan
+	DelegateReviewLine   = blendHex(DelegateReview, Bg, 0.30) // review
 )
 
 // AccentPresets maps accent preset names to their hex values.

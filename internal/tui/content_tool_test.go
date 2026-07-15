@@ -22,11 +22,12 @@ func TestSpecializedDelegateToolAccessor(t *testing.T) {
 		{name: "explore", tool: "explore", want: true},
 		{name: "research", tool: "research", want: true},
 		{name: "code", tool: "code", want: true},
-		{name: "plan", tool: "plan", want: true},
-		{name: "verify", tool: "verify", want: true},
+		{name: "evaluate", tool: "evaluate", want: true},
+		{name: "sanity_check", tool: "sanity_check", want: true},
+		{name: "review", tool: "review", want: true},
 		{name: "follow_up", tool: "follow_up", want: true},
 		{name: "uppercase tool", tool: "Explore", want: true},
-		{name: "trimmed tool", tool: "  verify  ", want: true},
+		{name: "trimmed tool", tool: "  evaluate  ", want: true},
 		{name: "delegate", tool: "delegate", want: false},
 		{name: "read", tool: "read", want: false},
 		{name: "empty", tool: "", want: false},
@@ -41,7 +42,7 @@ func TestSpecializedDelegateToolAccessor(t *testing.T) {
 		})
 	}
 
-	wantTools := []string{"explore", "research", "code", "plan", "verify", "vision", "follow_up"}
+	wantTools := []string{"explore", "research", "code", "evaluate", "sanity_check", "review", "vision", "follow_up"}
 	if got := delegation.AllSpecializedDelegateTools(); !slices.Equal(got, wantTools) {
 		t.Fatalf("delegation.AllSpecializedDelegateTools() = %v, want %v", got, wantTools)
 	}

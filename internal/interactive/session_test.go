@@ -2356,14 +2356,14 @@ func TestLoadSessionRestoresDelegationBoxesFromStructuredResult(t *testing.T) {
 						{
 							Role: agent.MessageRoleAssistant,
 							ToolCalls: []agent.ToolCall{
-								{ID: "call_plan_1", Name: "plan", Arguments: map[string]any{"task": "plan the rollout"}},
+								{ID: "call_evaluate_1", Name: "evaluate", Arguments: map[string]any{"task": "plan the rollout"}},
 							},
 						},
 						{
 							Role:       agent.MessageRoleTool,
-							Content:    `{"agent_id":"agent-plan-1","status":"partial","output":"final prose output","summary":"summary text","turn_count":3,"token_count":456,"tool_call_count":2}`,
-							ToolCallID: "call_plan_1",
-							Name:       "plan",
+							Content:    `{"agent_id":"agent-evaluate-1","status":"partial","output":"final prose output","summary":"summary text","turn_count":3,"token_count":456,"tool_call_count":2}`,
+							ToolCallID: "call_evaluate_1",
+							Name:       "evaluate",
 						},
 					},
 				},
@@ -2420,13 +2420,13 @@ func TestLoadSessionRestoresDelegationBoxesFromStructuredResult(t *testing.T) {
 	if got, want := len(toolStarted), 1; got != want {
 		t.Fatalf("tool started events = %d, want %d", got, want)
 	}
-	if got, want := toolStarted[0].Tool, "plan"; got != want {
+	if got, want := toolStarted[0].Tool, "evaluate"; got != want {
 		t.Fatalf("tool started tool = %q, want %q", got, want)
 	}
 	if got, want := len(delegationStarted), 1; got != want {
 		t.Fatalf("delegation started events = %d, want %d", got, want)
 	}
-	if got, want := delegationStarted[0].AgentID, "agent-plan-1"; got != want {
+	if got, want := delegationStarted[0].AgentID, "agent-evaluate-1"; got != want {
 		t.Fatalf("delegation started agent id = %q, want %q", got, want)
 	}
 	if got, want := delegationStarted[0].TaskPreview, "plan the rollout"; got != want {
@@ -2435,7 +2435,7 @@ func TestLoadSessionRestoresDelegationBoxesFromStructuredResult(t *testing.T) {
 	if got, want := len(delegationComplete), 1; got != want {
 		t.Fatalf("delegation complete events = %d, want %d", got, want)
 	}
-	if got, want := delegationComplete[0].AgentID, "agent-plan-1"; got != want {
+	if got, want := delegationComplete[0].AgentID, "agent-evaluate-1"; got != want {
 		t.Fatalf("delegation complete agent id = %q, want %q", got, want)
 	}
 	if got, want := delegationComplete[0].Status, "partial"; got != want {
@@ -2474,14 +2474,14 @@ func TestLoadSessionRestoresFailedDelegationBoxesFromStructuredResult(t *testing
 						{
 							Role: agent.MessageRoleAssistant,
 							ToolCalls: []agent.ToolCall{
-								{ID: "call_verify_1", Name: "verify", Arguments: map[string]any{"task": "verify the fix"}},
+								{ID: "call_sanity_check_1", Name: "sanity_check", Arguments: map[string]any{"task": "verify the fix"}},
 							},
 						},
 						{
 							Role:       agent.MessageRoleTool,
-							Content:    `{"agent_id":"agent-verify-1","status":"failed","error":"verification failed after tests","turn_count":4,"token_count":789}`,
-							ToolCallID: "call_verify_1",
-							Name:       "verify",
+							Content:    `{"agent_id":"agent-sanity_check-1","status":"failed","error":"verification failed after tests","turn_count":4,"token_count":789}`,
+							ToolCallID: "call_sanity_check_1",
+							Name:       "sanity_check",
 						},
 					},
 				},
@@ -2524,7 +2524,7 @@ func TestLoadSessionRestoresFailedDelegationBoxesFromStructuredResult(t *testing
 	if got, want := len(delegationFailed), 1; got != want {
 		t.Fatalf("delegation failed events = %d, want %d", got, want)
 	}
-	if got, want := delegationFailed[0].AgentID, "agent-verify-1"; got != want {
+	if got, want := delegationFailed[0].AgentID, "agent-sanity_check-1"; got != want {
 		t.Fatalf("delegation failed agent id = %q, want %q", got, want)
 	}
 	if got, want := delegationFailed[0].Error, "verification failed after tests"; got != want {

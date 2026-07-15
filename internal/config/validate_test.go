@@ -510,11 +510,13 @@ func TestValidate(t *testing.T) {
 			cfg: func() Config {
 				c := validBase()
 				c.Models.SubAgents = map[string]string{
-					"explore":  "model-a",
-					"research": "model-b",
-					"code":     "model-c",
-					"plan":     "model-d",
-					"verify":   "model-e",
+					"explore":      "model-a",
+					"research":     "model-b",
+					"code":         "model-c",
+					"evaluate":     "model-d",
+					"sanity_check": "model-e",
+					"review":       "model-f",
+					"vision":       "model-g",
 				}
 				return c
 			}(),
