@@ -210,7 +210,7 @@ func TestSpecializedHandler_UsesTypeSystemPrompt(t *testing.T) {
 	// system prompt for the agent type. Code now uses the shared base prompt,
 	// so this test stays focused on the types that still supply explicit
 	// overrides.
-	for _, agentType := range []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypePlan, AgentTypeVerify} {
+	for _, agentType := range []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeEvaluate, AgentTypeSanityCheck, AgentTypeReview} {
 		agentType := agentType
 		t.Run(string(agentType), func(t *testing.T) {
 			var capturedReq agent.RunRequest
