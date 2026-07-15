@@ -50,6 +50,26 @@ func TestShiftTabTogglesMode(t *testing.T) {
 	}
 }
 
+func TestShiftTabPreservesInput(t *testing.T) {
+	ctrl := &testController{}
+	m := newModel(Config{Controller: ctrl, InitialMode: "build"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.input.SetValue("hello world")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+
+	if got := m.input.Value(); got != "hello world" {
+		t.Errorf("input value = %q, want hello world", got)
+	}
+	actions := ctrl.switchModeActions()
+	if len(actions) != 1 {
+		t.Fatalf("SwitchMode action count = %d, want 1", len(actions))
+	}
+	if actions[0].Mode != config.ExecutionModePlan {
+		t.Errorf("SwitchMode.Mode = %q, want %q", actions[0].Mode, config.ExecutionModePlan)
+	}
+}
+
 func TestShiftTabSuppressedWhenOverlayOpen(t *testing.T) {
 	ctrl := &testController{}
 	m := newModel(Config{Controller: ctrl, InitialMode: "build"}, nil)
