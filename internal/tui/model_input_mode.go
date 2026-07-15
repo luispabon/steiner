@@ -19,10 +19,16 @@ func (m Model) toggledMode() string {
 	return string(config.ExecutionModePlan)
 }
 
-// executeToggleModeAction switches between plan and build mode, used by both
-// the Shift+Tab keybinding and the argument-less /mode command.
-func (m Model) executeToggleModeAction() (tea.Model, tea.Cmd) {
-	return m.executeSetModeAction(m.toggledMode())
+// executeToggleModeAction switches between plan and build mode when Shift+Tab
+// is pressed, without clearing the user's in-progress prompt text.
+func (m Model) executeToggleModeAction() tea.Model {
+	if m.controller != nil {
+		if err := m.controller.Handle(context.Background(), interactive.SwitchMode{Mode: config.ExecutionMode(m.toggledMode())}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
+	}
+	m.syncViewport()
+	return m
 }
 
 // executeSetModeAction dispatches a SwitchMode action for the given mode

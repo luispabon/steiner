@@ -122,31 +122,36 @@ func TestModelSectionReasoningLine(t *testing.T) {
 	}
 }
 
-func TestSidebarModeRow(t *testing.T) {
+func TestSeparatorLineMode(t *testing.T) {
 	cases := []struct {
-		name  string
-		mode  string
-		want  string
-		empty bool
+		name    string
+		mode    string
+		want    string
+		hasMode bool
 	}{
-		{name: "plan", mode: "plan", want: "⏸ plan"},
-		{name: "build", mode: "build", want: "⏵⏵ build"},
-		{name: "unset", mode: "", empty: true},
+		{name: "plan", mode: "plan", want: " plan ", hasMode: true},
+		{name: "build", mode: "build", want: " build ", hasMode: true},
+		{name: "unset", mode: "", hasMode: false},
 	}
 	styles := theme.BuildStyles(theme.AccentAmber)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := sidebarState{model: "gpt-5", execMode: tc.mode, styles: styles}
-			lines := s.modelSection(32)
-			joined := strings.Join(lines, "\n")
-			if tc.empty {
-				if strings.Contains(joined, "mode") {
-					t.Errorf("modelSection() should not contain mode row when unset, got %q", joined)
+			s := sidebarState{execMode: tc.mode, styles: styles}
+			line := s.separatorLine(32)
+			if tc.hasMode {
+				if !strings.Contains(line, tc.want) {
+					t.Errorf("separatorLine() missing %q in %q", tc.want, line)
 				}
-				return
-			}
-			if !strings.Contains(joined, tc.want) {
-				t.Errorf("modelSection() missing mode row %q in %q", tc.want, joined)
+				if !strings.Contains(line, "─") {
+					t.Errorf("separatorLine() missing dashes in %q", line)
+				}
+			} else {
+				if strings.Contains(line, " plan ") || strings.Contains(line, " build ") {
+					t.Errorf("separatorLine() should not contain mode label when mode unset, got %q", line)
+				}
+				if !strings.Contains(line, "─") {
+					t.Errorf("separatorLine() should contain dashes, got %q", line)
+				}
 			}
 		})
 	}

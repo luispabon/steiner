@@ -36,7 +36,7 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 func (s sidebarState) staticLines(width int) []string {
 	lines := append([]string{}, s.brandLines(width)...)
 	lines = append(lines, lipgloss.NewStyle().Background(lipgloss.Color(theme.Black)).Render(""))
-	lines = append(lines, s.styledWithBg(s.styles.FgMute, strings.Repeat("─", max(0, width))))
+	lines = append(lines, s.separatorLine(width))
 	lines = append(lines, s.modelSection(width)...)
 	if strings.TrimSpace(s.activeSkill) != "" {
 		lines = append(lines, s.skillSection(width)...)
@@ -59,9 +59,6 @@ func (s sidebarState) modelSection(width int) []string {
 		cardLabel("model", s.styles),
 		cardField("name", fgBright, fitText(safeText(s.model), width-7), s.styles),
 	}
-	if row := s.modeRow(); row != "" {
-		lines = append(lines, row)
-	}
 	if r := strings.TrimSpace(s.reasoning); r != "" {
 		lines = append(lines, cardField("reasoning", s.styles.FgDim, fitText(r, width-7), s.styles))
 	}
@@ -80,17 +77,40 @@ func (s sidebarState) modelSection(width int) []string {
 	return append(lines, cardField("provider", s.styles.FgDim, providerDisplay, s.styles))
 }
 
-// modeRow renders the "mode" field in the model section using the glyph +
-// text badge, styled per the current execution mode. Returns "" when no mode
-// is set (e.g. before startup seeding).
-func (s sidebarState) modeRow() string {
-	switch strings.TrimSpace(s.execMode) {
+// separatorLine renders the separator line with the mode label centered.
+// When mode is "plan" or "build", renders a width-filling line of dashes
+// with the mode label centered (e.g. "──── plan ────"). Dashes use a muted
+// mode color; the label uses the full mode color. When no mode is set,
+// returns all dashes in mute color.
+func (s sidebarState) separatorLine(width int) string {
+	mode := strings.TrimSpace(s.execMode)
+	switch mode {
 	case "plan":
-		return cardField("mode", s.styles.ModePlanStyle, "⏸ plan", s.styles)
+		label := " plan "
+		dashCount := max(0, width-len(label))
+		left := dashCount / 2
+		right := dashCount - left
+		dashStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.DelegateThinkingLine)).
+			Background(lipgloss.Color(theme.Black))
+		labelStyle := s.styles.ModePlanStyle.Background(lipgloss.Color(theme.Black))
+		return dashStyle.Render(strings.Repeat("─", left)) +
+			labelStyle.Render(label) +
+			dashStyle.Render(strings.Repeat("─", right))
 	case "build":
-		return cardField("mode", s.styles.ModeBuildStyle, "⏵⏵ build", s.styles)
+		label := " build "
+		dashCount := max(0, width-len(label))
+		left := dashCount / 2
+		right := dashCount - left
+		dashStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.ToolGrnLine)).
+			Background(lipgloss.Color(theme.Black))
+		labelStyle := s.styles.ModeBuildStyle.Background(lipgloss.Color(theme.Black))
+		return dashStyle.Render(strings.Repeat("─", left)) +
+			labelStyle.Render(label) +
+			dashStyle.Render(strings.Repeat("─", right))
 	default:
-		return ""
+		return s.styledWithBg(s.styles.FgMute, strings.Repeat("─", max(0, width)))
 	}
 }
 
