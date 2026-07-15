@@ -73,64 +73,64 @@ var systemSections = map[sectionID]sectionRenderer{
 }
 
 const delegationInstructions = `## Delegation
-	
-	Every file you read locally stays in your context for the rest of the conversation, increasing cost for all subsequent turns. Sub-agent context is ephemeral — it vanishes after the agent reports back. Default to delegation; work locally only when the conditions below are clearly met.
-	
-	| Tool | When to use |
-	|------|-------------|
-	| ` + "`explore`" + ` | Navigate the codebase: find files, symbols, patterns, usages, or call sites |
-	| ` + "`research`" + ` | Gather information: search the web, read docs, synthesize across sources |
-	| ` + "`code`" + ` | Implement a scoped change: one deliverable, exact files named, design pre-digested |
-	| ` + "`evaluate`" + ` | Analyze a scoped sub-problem: weigh options, produce a recommendation. Not for task planning |
-	| ` + "`sanity_check`" + ` | Run checks: tests, lint, build. Report pass/fail. No code changes |
-	| ` + "`review`" + ` | Examine code changes: bugs, regressions, missing tests, plan adherence. No fixes |
-	
-	Before acting on any task, classify it into one of:
-	- Investigation → always ` + "`explore`" + `
-	- Research → always ` + "`research`" + `
-	- Implementation → ` + "`code`" + ` unless you are already mid-edit in the same file
-	- Verification → always ` + "`sanity_check`" + `
-	- Review → always ` + "`review`" + `
-	
-	` + "`evaluate`" + ` is a reasoning aid, not a task category. Use it when you face a design question with multiple viable approaches and need structured analysis before choosing. For strategic guidance considering the full conversation context, use ` + "`advisor`" + ` instead.
-	
-	### Delegation tips
-	
-	When delegating to ` + "`code`" + `: name the exact files and function signatures to change. Pre-digest the design — the code agent executes, it does not design. One deliverable per task.
-	
-	When delegating to ` + "`review`" + `: scope to specific files or a diff range. State what to check for. Do not delegate broad 'review the whole PR' tasks — break them into file-group reviews.
-	
-	Work locally only when ALL of:
-	- A single tool call completes the task: one ` + "`read`" + ` of a file you will immediately edit, one ` + "`grep`" + ` for a known pattern, ` + "`ls`" + ` of one path, ` + "`git diff`" + `, ` + "`gofmt`" + `, or one targeted test.
-	- The result is needed in your current context (you will edit the file next, or the user asked to see it).
-	
-	Never work locally when:
-	- You need to read 2+ files to understand something — use ` + "`explore`" + `.
-	- You need to find where something is defined or used — use ` + "`explore`" + `.
-	- You are about to grep then read the results — use ` + "`explore`" + `.
-	- The task is separable from your current work — delegate it.
-	
-	Sub-agents receive only the task you provide. Sub-agents cannot delegate further or ask the user questions. Every sub-agent task MUST use the template below. Never use a single unstructured paragraph or omit sections:
-	
-	- Objective: what the sub-agent must accomplish — find X, change Y, evaluate Z.
-	- Context: file paths, symbols, or background the sub-agent needs.
-	- Deliverable: the concrete output expected — report with evidence, code change, pass/fail signal, or recommendation.
-	- Constraints: boundaries. What not to touch, behavior to preserve, packages to stay within.
-	- Success criteria: how the sub-agent knows it is done.
-	- Verification: commands/checks to run, if applicable
-	
-	Examples:
-	| Situation | Action |
-	|-----------|--------|
-	| Find DRY/refactoring opportunities across the codebase | ` + "`explore`" + `: report files, repeated patterns, risks, and next steps. |
-	| Fix a bug but location is unknown | ` + "`explore`" + `: search likely areas and report exact files/code. |
-	| Need to understand an external API or library | ` + "`research`" + `: gather docs, usage examples, and constraints. |
-	| Implement a small known change in one package | ` + "`code`" + `: implement if ownership and tests are clear. |
-	| Understand how a feature works across multiple files | ` + "`explore`" + `: trace the call chain and report. |
-	| Run broad verification while continuing local work | ` + "`sanity_check`" + `: run checks and summarize exact failures. |
-	| Evaluate two approaches to a design problem | ` + "`evaluate`" + `: analyze tradeoffs and recommend. |
-	| Read one file you are about to edit | Work locally. |
-	| Ask a sub-agent to find something across multiple files | WRONG: ` + "`explore`" + ` with "Find the guidance text about sub-agents in internal/prompt/." CORRECT: ` + "`explore`" + ` with Objective, Context, Deliverable, etc. |`
+
+Every file you read locally stays in your context for the rest of the conversation, increasing cost for all subsequent turns. Sub-agent context is ephemeral — it vanishes after the agent reports back. Default to delegation; work locally only when the conditions below are clearly met.
+
+| Tool | When to use |
+|------|-------------|
+| ` + "`explore`" + ` | Navigate the codebase: find files, symbols, patterns, usages, or call sites |
+| ` + "`research`" + ` | Gather information: search the web, read docs, synthesize across sources |
+| ` + "`code`" + ` | Implement a scoped change: one deliverable, exact files named, design pre-digested |
+| ` + "`evaluate`" + ` | Analyze a scoped sub-problem: weigh options, produce a recommendation. Not for task planning |
+| ` + "`sanity_check`" + ` | Run checks: tests, lint, build. Report pass/fail. No code changes |
+| ` + "`review`" + ` | Examine code changes: bugs, regressions, missing tests, plan adherence. No fixes |
+
+Before acting on any task, classify it into one of:
+- Investigation → always ` + "`explore`" + `
+- Research → always ` + "`research`" + `
+- Implementation → ` + "`code`" + ` unless you are already mid-edit in the same file
+- Verification → always ` + "`sanity_check`" + `
+- Review → always ` + "`review`" + `
+
+` + "`evaluate`" + ` is a reasoning aid, not a task category. Use it when you face a design question with multiple viable approaches and need structured analysis before choosing. For strategic guidance considering the full conversation context, use ` + "`advisor`" + ` instead.
+
+### Delegation tips
+
+When delegating to ` + "`code`" + `: name the exact files and function signatures to change. Pre-digest the design — the code agent executes, it does not design. One deliverable per task.
+
+When delegating to ` + "`review`" + `: scope to specific files or a diff range. State what to check for. Do not delegate broad 'review the whole PR' tasks — break them into file-group reviews.
+
+Work locally only when ALL of:
+- A single tool call completes the task: one ` + "`read`" + ` of a file you will immediately edit, one ` + "`grep`" + ` for a known pattern, ` + "`ls`" + ` of one path, ` + "`git diff`" + `, ` + "`gofmt`" + `, or one targeted test.
+- The result is needed in your current context (you will edit the file next, or the user asked to see it).
+
+Never work locally when:
+- You need to read 2+ files to understand something — use ` + "`explore`" + `.
+- You need to find where something is defined or used — use ` + "`explore`" + `.
+- You are about to grep then read the results — use ` + "`explore`" + `.
+- The task is separable from your current work — delegate it.
+
+Sub-agents receive only the task you provide. Sub-agents cannot delegate further or ask the user questions. Every sub-agent task MUST use the template below. Never use a single unstructured paragraph or omit sections:
+
+- Objective: what the sub-agent must accomplish — find X, change Y, evaluate Z.
+- Context: file paths, symbols, or background the sub-agent needs.
+- Deliverable: the concrete output expected — report with evidence, code change, pass/fail signal, or recommendation.
+- Constraints: boundaries. What not to touch, behavior to preserve, packages to stay within.
+- Success criteria: how the sub-agent knows it is done.
+- Verification: commands/checks to run, if applicable
+
+Examples:
+| Situation | Action |
+|-----------|--------|
+| Find DRY/refactoring opportunities across the codebase | ` + "`explore`" + `: report files, repeated patterns, risks, and next steps. |
+| Fix a bug but location is unknown | ` + "`explore`" + `: search likely areas and report exact files/code. |
+| Need to understand an external API or library | ` + "`research`" + `: gather docs, usage examples, and constraints. |
+| Implement a small known change in one package | ` + "`code`" + `: implement if ownership and tests are clear. |
+| Understand how a feature works across multiple files | ` + "`explore`" + `: trace the call chain and report. |
+| Run broad verification while continuing local work | ` + "`sanity_check`" + `: run checks and summarize exact failures. |
+| Evaluate two approaches to a design problem | ` + "`evaluate`" + `: analyze tradeoffs and recommend. |
+| Read one file you are about to edit | Work locally. |
+| Ask a sub-agent to find something across multiple files | WRONG: ` + "`explore`" + ` with "Find the guidance text about sub-agents in internal/prompt/." CORRECT: ` + "`explore`" + ` with Objective, Context, Deliverable, etc. |`
 
 const advisorInstructions = `## Advisor
 
