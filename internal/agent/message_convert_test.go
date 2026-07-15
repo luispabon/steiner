@@ -177,6 +177,39 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 			t.Fatalf("result[2].ToolCallID = %q, want %q", got, want)
 		}
 	})
+
+	t.Run("replay-safe conversion preserves codex metadata across tool turn", func(t *testing.T) {
+		msgs := []Message{
+			{Role: MessageRoleUser, Content: "investigate"},
+			{
+				Role:             MessageRoleAssistant,
+				Content:          "searching",
+				ReasoningContent: "reasoning",
+				ToolCalls: []ToolCall{
+					{ID: "call-1", Name: "grep", Arguments: map[string]any{"pattern": "foo"}},
+				},
+				ProviderMetadata: &MessageProviderMetadata{
+					Codex: &CodexMessageMetadata{ReasoningID: "reason_xyz"},
+				},
+			},
+			{Role: MessageRoleTool, Content: "match", ToolCallID: "call-1"},
+			{Role: MessageRoleUser, Content: "continue"},
+		}
+
+		result := ToReplaySafeProviderMessages(msgs)
+		if len(result) != 4 {
+			t.Fatalf("len(result) = %d, want 4", len(result))
+		}
+		if result[1].ProviderMetadata == nil || result[1].ProviderMetadata.Codex == nil {
+			t.Fatalf("result[1].ProviderMetadata = %#v, want codex metadata", result[1].ProviderMetadata)
+		}
+		if got, want := result[1].ProviderMetadata.Codex.ReasoningID, "reason_xyz"; got != want {
+			t.Fatalf("result[1] reasoning ID = %q, want %q", got, want)
+		}
+		if got, want := result[2].ToolCallID, "call-1"; got != want {
+			t.Fatalf("result[2].ToolCallID = %q, want %q", got, want)
+		}
+	})
 }
 
 func TestMessageConvert_FromProviderMessages(t *testing.T) {
@@ -294,6 +327,31 @@ func TestMessageConvert_FromProviderMessages(t *testing.T) {
 
 		result[0].ProviderMetadata.Anthropic.ThinkingSignature = "mutated"
 		if got, want := providerMsgs[0].ProviderMetadata.Anthropic.ThinkingSignature, "sig_123"; got != want {
+			t.Fatalf("provider metadata mutated to %q, want %q", got, want)
+		}
+	})
+
+	t.Run("preserves codex provider metadata", func(t *testing.T) {
+		providerMsgs := []provider.Message{
+			{
+				Role:             provider.MessageRoleAssistant,
+				Content:          "answer",
+				ReasoningContent: "reasoning",
+				ProviderMetadata: &provider.MessageProviderMetadata{
+					Codex: &provider.CodexMessageMetadata{ReasoningID: "reason_xyz"},
+				},
+			},
+		}
+		result := fromProviderMessages(providerMsgs)
+		if result[0].ProviderMetadata == nil || result[0].ProviderMetadata.Codex == nil {
+			t.Fatalf("result[0].ProviderMetadata = %#v, want codex metadata", result[0].ProviderMetadata)
+		}
+		if got, want := result[0].ProviderMetadata.Codex.ReasoningID, "reason_xyz"; got != want {
+			t.Fatalf("reasoning ID = %q, want %q", got, want)
+		}
+
+		result[0].ProviderMetadata.Codex.ReasoningID = "mutated"
+		if got, want := providerMsgs[0].ProviderMetadata.Codex.ReasoningID, "reason_xyz"; got != want {
 			t.Fatalf("provider metadata mutated to %q, want %q", got, want)
 		}
 	})
@@ -507,6 +565,24 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 		}
 		if got, want := result.ProviderMetadata.Anthropic.ThinkingSignature, "sig_123"; got != want {
 			t.Fatalf("thinking signature = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("codex metadata reaches provider message", func(t *testing.T) {
+		msg := Message{
+			Role:             MessageRoleAssistant,
+			Content:          "answer",
+			ReasoningContent: "reasoning",
+			ProviderMetadata: &MessageProviderMetadata{
+				Codex: &CodexMessageMetadata{ReasoningID: "reason_xyz"},
+			},
+		}
+		result := toProviderMessage(msg)
+		if result.ProviderMetadata == nil || result.ProviderMetadata.Codex == nil {
+			t.Fatalf("result.ProviderMetadata = %#v, want codex metadata", result.ProviderMetadata)
+		}
+		if got, want := result.ProviderMetadata.Codex.ReasoningID, "reason_xyz"; got != want {
+			t.Fatalf("reasoning ID = %q, want %q", got, want)
 		}
 	})
 }
