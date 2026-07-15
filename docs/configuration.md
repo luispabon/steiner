@@ -207,7 +207,7 @@ sub-agent overrides, oneshot per-phase models, and workflow handoff models).
 | `default`           | string                     | `"default"` | Name of the model alias to use when none is specified on the command line. Must reference a key in `definitions`. |
 | `definitions`        | map[string]ModelConfig    | empty   | Named model definitions. Each entry binds a provider to a specific model ID and sets request-level parameters. |
 | `advisor`            | string                    | `""`    | Model alias used for advisor calls. Must reference a key in `definitions` when `advisor.enabled` is `true`. |
-| `sub_agents`         | map[string]string         | empty   | Per-agent-type model alias overrides, keyed by agent type (e.g. `code`, `research`). Each value must reference a key in `definitions`. If an agent type has no entry, the sub-agent uses the same model as the parent. |
+| `sub_agents`         | map[string]string         | empty   | Per-agent-type model alias overrides, keyed by agent type (e.g. `code`, `evaluate`, `sanity_check`, `review`). Each value must reference a key in `definitions`. If an agent type has no entry, the sub-agent uses the same model as the parent. |
 | `oneshot`            | map[string]string         | empty   | Per-phase model aliases for autonomous oneshot runs, keyed by `plan`, `implement`, and `review`. Each value must reference a key in `definitions`. Missing phases fall back to `default` at runtime. |
 | `workflow_handoff`   | map[string]string         | empty   | Persistent handoff model aliases, keyed by destination workflow name (`implement`, `review`). If a destination has no entry, handoff uses the current session model. |
 
@@ -224,7 +224,8 @@ models:
   advisor: sonnet
   sub_agents:
     code: sonnet
-    research: local
+    evaluate: sonnet
+    sanity_check: local
   oneshot:
     plan: local
     implement: sonnet
@@ -238,6 +239,8 @@ models:
 destination has no entry, handoff uses the current session model. The
 interactive handoff picker can still override the pending model for one
 handoff without changing configuration.
+
+For recommended model tiers per sub-agent type, see [Recommended model tiers](sub-agent-delegation.md#recommended-model-tiers) in the delegation documentation.
 
 ### `definitions` entries
 
@@ -458,7 +461,7 @@ tool allowlist field.
 
 Per-agent-type model overrides live under `models.sub_agents` (see the
 [`models` block](#models-block)), keyed by agent type (e.g. `code`,
-`research`, `explore`, `vision`). If an agent type has no entry, the sub-agent uses
+`evaluate`, `sanity_check`, `explore`, `vision`). If an agent type has no entry, the sub-agent uses
 the same model as the parent.
 
 ```yaml
@@ -830,7 +833,9 @@ models:
   advisor: sonnet
   sub_agents:
     code: sonnet
-    research: mini
+    evaluate: sonnet
+    sanity_check: mini
+    review: sonnet
   oneshot:
     plan: local-fast
     implement: sonnet

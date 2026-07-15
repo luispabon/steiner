@@ -28,6 +28,7 @@ Mode never changes the system preamble, tool schemas, or any other part of the c
 | `mutate` (and other path-writing tools) | Denied outside `.steiner/` at the tool-policy layer | Denied outside `.steiner/` at the tool-policy layer (same as sandboxed) | Allowed |
 | `bash` | Project bind-mounted read-only under bubblewrap, except `.steiner/` which stays writable | Unenforced — the command runs with no sandbox wrapping at all | Allowed, sandboxed as normal |
 | `code` sub-agent tool | Denied | Denied | Allowed |
+| `review` sub-agent tool | Allowed | Allowed | Allowed |
 | `follow_up` targeting a `code`-derived child | Denied | Denied | Allowed |
 
 The `mutate` write restriction and the sub-agent denials are enforced in `internal/tool` and `internal/delegation` regardless of sandbox state — they do not depend on bubblewrap being available. Only `bash`'s filesystem read-only enforcement depends on the sandbox: without a working sandbox (`sandbox.enabled: false`, a non-Linux platform, or `bwrap` missing from `PATH`), a plan-mode `bash` command can still write to the project.

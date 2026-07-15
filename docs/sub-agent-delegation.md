@@ -1,6 +1,6 @@
 # Sub-agent delegation
 
-`steiner` exposes seven sub-agent-as-tool operations that delegate bounded tasks to isolated child agents.
+`steiner` exposes eight sub-agent-as-tool operations that delegate bounded tasks to isolated child agents.
 
 `advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. The advisor lives alongside the delegation tools in the main loop, but it is not a child agent.
 
@@ -8,19 +8,20 @@
 
 ## Available tools
 
-Sub-agent delegation is **enabled by default**. When it is, the model sees seven additional tools alongside the built-in ones:
+Sub-agent delegation is **enabled by default**. When it is, the model sees eight additional tools alongside the built-in ones:
 
 | Tool        | What it does                                                                     | Extra params                                               | Can mutate?            |
 |-------------|----------------------------------------------------------------------------------|------------------------------------------------------------|------------------------|
 | `explore`   | Navigate the codebase to find files, symbols, call sites, and patterns           | `task` only                                                | No                     |
 | `research`  | Gather and synthesise information from the codebase or web                       | `task` only                                                | No                     |
 | `code`      | Implement a scoped change — read relevant files, write changes, run tests        | `task` only                                                | Yes (`mutate`, `bash`) |
-| `plan`      | Analyse a sub-problem, evaluate options, and produce a structured recommendation | `task` only                                                | No                     |
-| `verify`    | Run tests, linters, builds, or other checks and report pass or fail              | `task` only                                                | No                     |
+| `evaluate`    | Analyse a sub-problem, evaluate options, and produce a structured recommendation | `task` only                                                | No                     |
+| `sanity_check`| Run tests, linters, builds, or other checks and report pass or fail              | `task` only                                                | No                     |
+| `review`      | Examine code changes for bugs, regressions, missing tests, or plan adherence     | `task` only                                                | No                     |
 | `vision`    | Analyze an image by ID — the sub-agent receives the image directly               | `task`, `image_id`                                         | No                     |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
 
-The six specialised tools (`explore`, `research`, `code`, `plan`, `verify`, `vision`) are hardcoded with purpose-built system prompts and tool allowlists. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
+The six specialised tools (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `vision`) plus `review` are hardcoded with purpose-built system prompts and tool allowlists. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
 
 ### Advisor
 
@@ -35,11 +36,14 @@ The `advisor` tool is a pure reasoning pass for the parent agent. It reads the l
 | Need to understand an external API or library          | `research` — gather docs, usage examples, and constraints      |
 | Implement a small known change in one package          | `code` — implement if ownership and tests are clear            |
 | Understand how a feature works across multiple files   | `explore` — trace the call chain and report                    |
-| Evaluate two approaches to a design problem            | `plan` — analyse tradeoffs and recommend                       |
-| Run broad verification while continuing local work     | `verify` — run checks and summarise exact failures             |
+| Evaluate two approaches to a design problem            | `evaluate` — analyse tradeoffs and recommend                   |
+| Run broad verification while continuing local work     | `sanity_check` — run checks and summarise exact failures       |
+| Review implemented changes before merge                | `review` — examine code for bugs, regressions, missing tests   |
 | Describe or query a pasted image                       | `vision` — the sub-agent receives the image and answers        |
 
-`plan` is for focused sub-problem analysis, **not** overall task planning.
+`evaluate` is for focused sub-problem analysis, **not** overall task planning.
+
+`review` is for examining implemented changes — it does not plan, implement, or verify.
 
 ### `follow_up`
 
@@ -58,8 +62,8 @@ Key behaviours:
 - A sub-agent **cannot delegate further** — `follow_up` and `workflow_handoff` tools are always stripped from child registries.
 - The parent-only `workflow_handoff` tool is not included in child allowlists yet.
 - Only the `code` sub-agent has access to file-mutation tools (`mutate`) or `bash`.
-- `explore`, `research`, `plan`, and `vision` are read-only.
-- `verify` can run commands via `bash` but must not modify files.
+- `explore`, `research`, `evaluate`, `review`, and `vision` are read-only.
+- `sanity_check` can run commands via `bash` but must not modify files.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
 - The child's full conversation transcript is not copied into the parent session; only a structured result and bounded summary persist.
 - While the parent interactive session is in `plan` execution mode, the `code` sub-agent tool is denied outright, and `follow_up` is denied when it targets a session spawned by `code` — both can mutate files, which plan mode disallows. See [docs/execution-modes.md](execution-modes.md) for the full enforcement matrix.
@@ -71,9 +75,10 @@ Key behaviours:
 | `explore`  | `read`, `glob`, `grep`, `ls`                                |
 | `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url`\* |
 | `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`              |
-| `plan`     | `read`, `glob`, `grep`, `ls`                                |
-| `verify`   | `read`, `glob`, `grep`, `ls`, `bash`                        |
+| `evaluate`    | `read`, `glob`, `grep`, `ls`                                |
+| `sanity_check`| `read`, `glob`, `grep`, `ls`, `bash`                        |
 | `vision`   | `read`                                                      |
+| `review`      | `read`, `glob`, `grep`, `ls`, `bash`                        |
 
 \* `web_search` and `fetch_url` are not yet implemented. The `research` agent won't be fully available until a `web_search` backend is configured — see the README for details.
 
@@ -95,10 +100,22 @@ models:
   # a different model than the parent agent.
   sub_agents:
     code: gpt-4o
-    research: claude-sonnet-4
+    evaluate: claude-sonnet-4
+    sanity_check: gpt-4o-mini
 ```
 
 Each entry under `models.sub_agents` keyed by agent type name can set the model alias to any key defined in `models.definitions`. If no override is set, the sub-agent uses the same model as the parent.
+
+### Recommended model tiers
+
+Model tier recommendations help choose which model to assign to each agent type.
+These are **recommendations, not enforcement** — users configure `models.sub_agents.<type>` freely.
+
+| Tier          | Agent types                             | Rationale                                                                 |
+|---------------|-----------------------------------------|---------------------------------------------------------------------------|
+| **Flash**     | `explore`, `code`, `sanity_check`       | Mechanical tasks — search, implement scoped changes, run checks. Speed matters more than depth. A flash-tier model also works well for the initial `explore` that pre-digests the design during implementation. |
+| **Balanced**  | `research`, `review`, `vision`          | Requires synthesis or judgment — gathering information, reviewing code changes, analyzing images. Needs a model that can weigh context and produce nuanced output. |
+| **Top-thinker** | `evaluate`                           | Deep reasoning on scoped sub-problems — analysing tradeoffs, evaluating approaches. Benefits most from a stronger model's deliberation capacity. |
 
 ### `vision` tool
 
