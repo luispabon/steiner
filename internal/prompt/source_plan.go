@@ -93,6 +93,9 @@ func agentsStep(opts AssemblyOptions) sourcePlanStep {
 		Kind:      plannedSourceAgents,
 		Placement: plannedSourcePlacementCore,
 		Apply: func(_ context.Context, state *assemblyState) error {
+			if opts.SkipProjectContext {
+				return nil
+			}
 			globalAgentsPath, projectAgentsPath := agentPaths(opts)
 
 			agentBlocks, err := loadAgents(globalAgentsPath, projectAgentsPath)
@@ -111,6 +114,9 @@ func projectContextStep(opts AssemblyOptions, policy AssemblyPolicy) sourcePlanS
 		Kind:      plannedSourceProjectContext,
 		Placement: plannedSourcePlacementCore,
 		Apply: func(_ context.Context, state *assemblyState) error {
+			if opts.SkipProjectContext {
+				return nil
+			}
 			projectContext, err := gatherProjectContext(ProjectContextOptions{
 				Root:        opts.ProjectRoot,
 				BudgetBytes: policy.Budgets.ProjectContextBytes,

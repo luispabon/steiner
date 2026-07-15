@@ -140,6 +140,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			CaveHuman:            deps.CaveHuman,
 			Sandbox:              deps.Sandbox,
 			UsageRecorder:        deps.UsageRecorder,
+			SkipProjectContext:   agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)

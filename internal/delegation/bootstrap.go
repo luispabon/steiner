@@ -40,6 +40,11 @@ type BootstrapDeps struct {
 	// ModeGetter returns the current execution mode. When non-nil, child executors
 	// receive this getter via WithModeGetter so they inherit the parent's execution mode.
 	ModeGetter func() config.ExecutionMode
+
+	// SkipProjectContext skips AGENTS.md and project context files in the child
+	// prompt. Used for lean sub-agents (explore, research, sanity_check, vision)
+	// that don't need project-level conventions.
+	SkipProjectContext bool
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
@@ -66,7 +71,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		EmergencySummaryMaxTokens: deps.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 
-	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman)
+	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman, deps.SkipProjectContext)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.AllowedTools)
 	req := buildChildRunRequest(deps.WorkDir, spec.AgentID, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox, deps.UsageRecorder, deps.ModeGetter)
@@ -86,7 +91,7 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 // shared system preamble is left intact. Project context (AGENTS.md,
 // configured extra files) is included so child agents inherit project
 // conventions without the parent forwarding them.
-func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, caveHuman bool) prompt.AssemblyOptions {
+func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, caveHuman bool, skipProjectContext bool) prompt.AssemblyOptions {
 	taskContent := spec.Task
 	if spec.Context != "" {
 		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", spec.Task, spec.Context)
@@ -103,6 +108,7 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 		ProjectContextExtraFiles:  pcc.ExtraFiles,
 		ProjectContextIgnoreFiles: pcc.IgnoreFiles,
 		ProjectContextBudgetBytes: pcc.MaxTokens,
+		SkipProjectContext:        skipProjectContext,
 		CaveHuman:                 caveHuman,
 		WorkflowMode:              prompt.DelegatedChildWorkflowMode(),
 		Conversation: []provider.Message{

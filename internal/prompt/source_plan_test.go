@@ -196,6 +196,63 @@ func TestRenderSourcePlanMatchesAssemble(t *testing.T) {
 	}
 }
 
+func TestPlanSourceAssemblySkipProjectContext(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	projectRoot := t.TempDir()
+
+	mustWrite(t, filepath.Join(homeDir, ".config", "steiner"), "AGENTS.md", "global rules")
+	mustWrite(t, projectRoot, "AGENTS.md", "project rules")
+	mustWrite(t, projectRoot, "README.md", "project readme")
+
+	t.Run("skip=true excludes agents and project context", func(t *testing.T) {
+		assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
+			HomeDir:                   homeDir,
+			ProjectRoot:               projectRoot,
+			ProjectContextBudgetBytes: 1024,
+			ProjectContextExtraFiles:  []string{"README.md"},
+			SkipProjectContext:        true,
+		})
+
+		for _, block := range assembly.Blocks {
+			if block.Source == ContextSourceGlobalAgentsMD ||
+				block.Source == ContextSourceProjectAgentsMD ||
+				block.Source == ContextSourceProjectContext {
+				t.Fatalf("unexpected block with SkipProjectContext=true: source=%q path=%q", block.Source, block.Path)
+			}
+		}
+		if got := messageIndexContaining(assembly.Messages, "global rules"); got >= 0 {
+			t.Fatalf("global agents content found with SkipProjectContext=true at message %d", got)
+		}
+		if got := messageIndexContaining(assembly.Messages, "project rules"); got >= 0 {
+			t.Fatalf("project agents content found with SkipProjectContext=true at message %d", got)
+		}
+		if got := messageIndexContaining(assembly.Messages, "project readme"); got >= 0 {
+			t.Fatalf("project context content found with SkipProjectContext=true at message %d", got)
+		}
+	})
+
+	t.Run("skip=false includes agents and project context", func(t *testing.T) {
+		assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
+			HomeDir:                   homeDir,
+			ProjectRoot:               projectRoot,
+			ProjectContextBudgetBytes: 1024,
+			ProjectContextExtraFiles:  []string{"README.md"},
+			SkipProjectContext:        false,
+		})
+
+		if got := messageIndexContaining(assembly.Messages, "global rules"); got < 0 {
+			t.Fatal("global agents content not found with SkipProjectContext=false")
+		}
+		if got := messageIndexContaining(assembly.Messages, "project rules"); got < 0 {
+			t.Fatal("project agents content not found with SkipProjectContext=false")
+		}
+		if got := messageIndexContaining(assembly.Messages, "project readme"); got < 0 {
+			t.Fatal("project context content not found with SkipProjectContext=false")
+		}
+	})
+}
 func mustRenderPlannedAssembly(t *testing.T, opts AssemblyOptions) Assembly {
 	t.Helper()
 
