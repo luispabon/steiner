@@ -134,6 +134,11 @@ type Styles struct {
 
 	// SelectionStyle is used to highlight mouse-selected text in the viewport.
 	SelectionStyle lipgloss.Style
+
+	// ModePlanStyle renders the "plan" execution mode badge/row.
+	ModePlanStyle lipgloss.Style
+	// ModeBuildStyle renders the "build" execution mode badge/row.
+	ModeBuildStyle lipgloss.Style
 }
 
 // BuildStyles builds a full Styles from an accent hex color string.
@@ -264,6 +269,9 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		ScrollbarTrack: lipgloss.NewStyle().Background(lipgloss.Color(BgElev)),
 
 		SelectionStyle: lipgloss.NewStyle().Background(lipgloss.Color("#3a4a5a")),
+
+		ModePlanStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)).Bold(true),
+		ModeBuildStyle: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrn)).Bold(true),
 
 		InputFocusBorder: lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).

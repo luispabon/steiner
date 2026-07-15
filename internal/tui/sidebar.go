@@ -46,6 +46,7 @@ type sidebarState struct {
 	sessionCacheHitRate   float64
 	sessionCacheHitRateOK bool
 	oneshotPhase          string
+	execMode              string // execution mode: "plan" or "build"
 }
 
 func newSidebarState() sidebarState {

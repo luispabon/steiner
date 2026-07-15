@@ -65,6 +65,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		ModelBaseURLs:      modelBaseURLs(rt.cfg),
 		ModelProviderNames: modelProviderNames(rt.cfg),
 		CurrentModelAlias:  rt.cfg.Models.Default,
+		InitialMode:        string(sess.Mode()),
 		ProviderBaseURL:    selectedProviderBaseURL,
 		ProviderName:       selectedProviderName,
 		HomeDir:            rt.homeDir,

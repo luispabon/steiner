@@ -42,6 +42,40 @@ func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 	}
 }
 
+func TestApplyEventModeChangedUpdatesStateAndTranscript(t *testing.T) {
+	m := Model{
+		mode: "build",
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+		},
+	}
+
+	event := output.NewModeChangedEvent("plan")
+	_ = m.applyEvent(event)
+
+	if m.mode != "plan" {
+		t.Errorf("mode = %q, want %q", m.mode, "plan")
+	}
+	if m.sidebar.execMode != "plan" {
+		t.Errorf("sidebar.execMode = %q, want %q", m.sidebar.execMode, "plan")
+	}
+	if m.status.execMode != "plan" {
+		t.Errorf("status.execMode = %q, want %q", m.status.execMode, "plan")
+	}
+
+	if len(m.content.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(m.content.segments))
+	}
+	seg := m.content.segments[0]
+	if seg.kind != segmentStatus {
+		t.Fatalf("segment kind = %v, want segmentStatus", seg.kind)
+	}
+	if seg.text != "mode → plan" {
+		t.Errorf("segment text = %q, want %q", seg.text, "mode → plan")
+	}
+}
+
 func TestRandomAccentResolves(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})

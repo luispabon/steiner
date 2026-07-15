@@ -105,6 +105,23 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		ID:          "/mode",
+		Name:        "Switch mode",
+		Desc:        "toggle or set plan/build execution mode",
+		ArgVariants: []string{"plan", "build"},
+		HelpKey:     "shift+tab / /mode [plan|build]",
+		Build: func(arg string) inputAction {
+			switch arg {
+			case "":
+				return inputAction{toggleMode: true}
+			case "plan", "build":
+				return inputAction{setMode: arg}
+			default:
+				return inputAction{invalidMode: arg}
+			}
+		},
+	},
+	{
 		ID:   "/oneshot",
 		Name: "Oneshot mode",
 		Desc: "run a headless task",
@@ -304,6 +321,7 @@ var helpOrder = []string{
 	"/resume",
 	"/accent",
 	"/thinking",
+	"/mode",
 	"/exit",
 }
 

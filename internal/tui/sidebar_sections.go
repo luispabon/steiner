@@ -59,6 +59,9 @@ func (s sidebarState) modelSection(width int) []string {
 		cardLabel("model", s.styles),
 		cardField("name", fgBright, fitText(safeText(s.model), width-7), s.styles),
 	}
+	if row := s.modeRow(); row != "" {
+		lines = append(lines, row)
+	}
 	if r := strings.TrimSpace(s.reasoning); r != "" {
 		lines = append(lines, cardField("reasoning", s.styles.FgDim, fitText(r, width-7), s.styles))
 	}
@@ -75,6 +78,20 @@ func (s sidebarState) modelSection(width int) []string {
 		providerDisplay = "n/a"
 	}
 	return append(lines, cardField("provider", s.styles.FgDim, providerDisplay, s.styles))
+}
+
+// modeRow renders the "mode" field in the model section using the glyph +
+// text badge, styled per the current execution mode. Returns "" when no mode
+// is set (e.g. before startup seeding).
+func (s sidebarState) modeRow() string {
+	switch strings.TrimSpace(s.execMode) {
+	case "plan":
+		return cardField("mode", s.styles.ModePlanStyle, "⏸ plan", s.styles)
+	case "build":
+		return cardField("mode", s.styles.ModeBuildStyle, "⏵⏵ build", s.styles)
+	default:
+		return ""
+	}
 }
 
 func (s sidebarState) contextSection(width int) []string {

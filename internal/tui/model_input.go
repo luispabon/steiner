@@ -58,6 +58,15 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.switchModel != "" {
 		return m.executeModelAction(action.switchModel, nil)
 	}
+	if action.toggleMode {
+		return m.executeToggleModeAction()
+	}
+	if action.setMode != "" {
+		return m.executeSetModeAction(action.setMode)
+	}
+	if action.invalidMode != "" {
+		return m.executeInvalidModeAction(action.invalidMode)
+	}
 	if action.listFiles {
 		return m.executeListFilesAction(action.listFilesPath)
 	}
