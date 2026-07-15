@@ -123,8 +123,8 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea
 	switch msg.Code {
 	case tea.KeyTab:
 		if msg.Mod&tea.ModShift != 0 {
-			next, cmd := m.executeToggleModeAction()
-			return true, next, cmd
+			next := m.executeToggleModeAction()
+			return true, next, nil
 		}
 		next, cmd := m.handleTabKey(msg)
 		return true, next, cmd
