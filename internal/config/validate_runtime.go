@@ -8,12 +8,13 @@ import (
 // validAgentTypes mirrors delegation.AllAgentTypes to avoid a circular import
 // (internal/delegation imports internal/config).
 var validAgentTypes = map[string]bool{
-	"explore":  true,
-	"research": true,
-	"code":     true,
-	"plan":     true,
-	"verify":   true,
-	"vision":   true,
+	"explore":      true,
+	"research":     true,
+	"code":         true,
+	"evaluate":     true,
+	"sanity_check": true,
+	"review":       true,
+	"vision":       true,
 }
 
 var validOneShotPhases = map[string]bool{

@@ -14,8 +14,9 @@ func TestValidAgentType(t *testing.T) {
 		{name: "explore is valid", input: "explore", want: true},
 		{name: "research is valid", input: "research", want: true},
 		{name: "code is valid", input: "code", want: true},
-		{name: "plan is valid", input: "plan", want: true},
-		{name: "verify is valid", input: "verify", want: true},
+		{name: "evaluate is valid", input: "evaluate", want: true},
+		{name: "sanity_check is valid", input: "sanity_check", want: true},
+		{name: "review is valid", input: "review", want: true},
 		{name: "vision is valid", input: "vision", want: true},
 		{name: "empty string is invalid", input: "", want: false},
 		{name: "unknown type is invalid", input: "debug", want: false},
@@ -34,8 +35,8 @@ func TestValidAgentType(t *testing.T) {
 
 func TestAllAgentTypes(t *testing.T) {
 	types := AllAgentTypes()
-	if len(types) != 6 {
-		t.Fatalf("AllAgentTypes() returned %d types, want 6", len(types))
+	if len(types) != 7 {
+		t.Fatalf("AllAgentTypes() returned %d types, want 7", len(types))
 	}
 	for i, at := range types {
 		if at == "" {
@@ -46,7 +47,7 @@ func TestAllAgentTypes(t *testing.T) {
 
 func TestAllSpecializedDelegateTools(t *testing.T) {
 	tools := AllSpecializedDelegateTools()
-	want := []string{"explore", "research", "code", "plan", "verify", "vision", "follow_up"}
+	want := []string{"explore", "research", "code", "evaluate", "sanity_check", "review", "vision", "follow_up"}
 
 	if !slices.Equal(tools, want) {
 		t.Fatalf("AllSpecializedDelegateTools() = %v, want %v", tools, want)
@@ -103,23 +104,35 @@ func TestAgentAllowedTools(t *testing.T) {
 		}
 	})
 
-	t.Run("plan has no mutation tools", func(t *testing.T) {
-		tools := AgentAllowedTools(AgentTypePlan)
+	t.Run("evaluate has no mutation tools", func(t *testing.T) {
+		tools := AgentAllowedTools(AgentTypeEvaluate)
 		for _, m := range append(legacyMutationTools, "bash", "mutate") {
 			if slices.Contains(tools, m) {
-				t.Fatalf("AgentAllowedTools(plan) should not contain %q", m)
+				t.Fatalf("AgentAllowedTools(evaluate) should not contain %q", m)
 			}
 		}
 	})
 
-	t.Run("verify has bash but not mutation tools", func(t *testing.T) {
-		tools := AgentAllowedTools(AgentTypeVerify)
+	t.Run("sanity_check has bash but not mutation tools", func(t *testing.T) {
+		tools := AgentAllowedTools(AgentTypeSanityCheck)
 		if !slices.Contains(tools, "bash") {
-			t.Fatal("AgentAllowedTools(verify) missing bash")
+			t.Fatal("AgentAllowedTools(sanity_check) missing bash")
 		}
 		for _, m := range append(legacyMutationTools, "mutate") {
 			if slices.Contains(tools, m) {
-				t.Fatalf("AgentAllowedTools(verify) should not contain %q", m)
+				t.Fatalf("AgentAllowedTools(sanity_check) should not contain %q", m)
+			}
+		}
+	})
+
+	t.Run("review has bash but not mutation tools", func(t *testing.T) {
+		tools := AgentAllowedTools(AgentTypeReview)
+		if !slices.Contains(tools, "bash") {
+			t.Fatal("AgentAllowedTools(review) missing bash")
+		}
+		for _, m := range append(legacyMutationTools, "mutate") {
+			if slices.Contains(tools, m) {
+				t.Fatalf("AgentAllowedTools(review) should not contain %q", m)
 			}
 		}
 	})

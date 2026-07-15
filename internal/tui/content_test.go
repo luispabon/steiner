@@ -2635,14 +2635,15 @@ func TestIsSpecializedDelegateTool(t *testing.T) {
 		{"explore", true},
 		{"research", true},
 		{"code", true},
-		{"plan", true},
-		{"verify", true},
+		{"evaluate", true},
+		{"sanity_check", true},
+		{"review", true},
 		// case-insensitive
 		{"Explore", true},
 		{"RESEARCH", true},
 		{"Code", true},
 		// whitespace trimmed
-		{" plan ", true},
+		{" evaluate ", true},
 		// non-specialized tools
 		{"delegate", false},
 		{"bash", false},
@@ -2678,12 +2679,12 @@ func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
 			want: "implement the retry logic",
 		},
 		{
-			tool: "plan",
+			tool: "evaluate",
 			args: map[string]any{"task": "plan the migration"},
 			want: "plan the migration",
 		},
 		{
-			tool: "verify",
+			tool: "sanity_check",
 			args: map[string]any{"task": "run all tests and confirm green"},
 			want: "run all tests and confirm green",
 		},
@@ -2705,7 +2706,7 @@ func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
 }
 
 func TestSpecializedDelegateToolCallCreatesSingleDelegationSegment(t *testing.T) {
-	tools := []string{"explore", "research", "code", "plan", "verify"}
+	tools := []string{"explore", "research", "code", "evaluate", "sanity_check", "review"}
 	for _, tool := range tools {
 		t.Run(tool, func(t *testing.T) {
 			buffer := &contentBuffer{segments: make([]contentSegment, 0)}
@@ -2778,12 +2779,12 @@ func TestRenderReplayDelegationUsesParentToolStartForPromptAndOutput(t *testing.
 		styles:        theme.BuildStyles(theme.AccentAmber),
 	}
 
-	jsonBlob := `{"agent_id":"agent-plan-1","status":"complete","output":"final prose output","tool_call_count":2}`
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "plan", "call_plan_1", map[string]any{
+	jsonBlob := `{"agent_id":"agent-evaluate-1","status":"complete","output":"final prose output","tool_call_count":2}`
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "evaluate", "call_evaluate_1", map[string]any{
 		"task": "plan the rollout\nwith full prompt text",
 	}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-plan-1", "plan the rollout\nwith full prompt text"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-plan-1", "complete", 3, 456, 2, "final prose output"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-evaluate-1", "plan the rollout\nwith full prompt text"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-evaluate-1", "complete", 3, 456, 2, "final prose output"))
 
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
@@ -2792,7 +2793,7 @@ func TestRenderReplayDelegationUsesParentToolStartForPromptAndOutput(t *testing.
 	if dd == nil {
 		t.Fatal("delegData = nil")
 	}
-	if got, want := dd.toolLabel, "plan"; got != want {
+	if got, want := dd.toolLabel, "evaluate"; got != want {
 		t.Fatalf("toolLabel = %q, want %q", got, want)
 	}
 	if got, want := dd.promptText, "plan the rollout\nwith full prompt text"; got != want {
@@ -2807,7 +2808,7 @@ func TestRenderReplayDelegationUsesParentToolStartForPromptAndOutput(t *testing.
 	buffer.segments[0].renderDirty = true
 
 	rendered := stripANSI(buffer.String(80))
-	for _, want := range []string{"plan", "▾ prompt", "plan the rollout", "with full prompt text", "output", "final prose output"} {
+	for _, want := range []string{"evaluate", "▾ prompt", "plan the rollout", "with full prompt text", "output", "final prose output"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("replay delegation render %q missing %q", rendered, want)
 		}

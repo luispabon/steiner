@@ -210,7 +210,7 @@ func TestSpecializedHandler_UsesTypeSystemPrompt(t *testing.T) {
 	// system prompt for the agent type. Code now uses the shared base prompt,
 	// so this test stays focused on the types that still supply explicit
 	// overrides.
-	for _, agentType := range []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypePlan, AgentTypeVerify} {
+	for _, agentType := range []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeEvaluate, AgentTypeSanityCheck, AgentTypeReview} {
 		agentType := agentType
 		t.Run(string(agentType), func(t *testing.T) {
 			var capturedReq agent.RunRequest
@@ -890,4 +890,58 @@ func TestSubAgentHandlerDeps_NilSandboxNotInherited(t *testing.T) {
 	if got := concreteExec.Sandbox(); got != nil {
 		t.Errorf("child Executor.Sandbox()=%v, want nil when parent has no sandbox", got)
 	}
+}
+
+func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
+	// Agents that should skip project context.
+	skipTypes := []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeSanityCheck}
+	// Vision is excluded because it uses newVisionHandler which requires image_id.
+	// Agents that should receive full project context.
+	keepTypes := []AgentType{AgentTypeCode, AgentTypeReview, AgentTypeEvaluate}
+
+	t.Run("lean agents skip project context", func(t *testing.T) {
+		for _, agentType := range skipTypes {
+			t.Run(string(agentType), func(t *testing.T) {
+				var capturedReq agent.RunRequest
+				runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+					capturedReq = req
+					return successRunState(), nil
+				}}
+				deps := minimalDeps(runner)
+				def := SpecializedToolDef(agentType, deps)
+
+				_, err := def.Handler(context.Background(), map[string]any{"task": "test task"})
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				if !capturedReq.Prompt.SkipProjectContext {
+					t.Errorf("%s: SkipProjectContext = false, want true", agentType)
+				}
+			})
+		}
+	})
+
+	t.Run("full agents keep project context", func(t *testing.T) {
+		for _, agentType := range keepTypes {
+			t.Run(string(agentType), func(t *testing.T) {
+				var capturedReq agent.RunRequest
+				runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+					capturedReq = req
+					return successRunState(), nil
+				}}
+				deps := minimalDeps(runner)
+				def := SpecializedToolDef(agentType, deps)
+
+				_, err := def.Handler(context.Background(), map[string]any{"task": "test task"})
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				if capturedReq.Prompt.SkipProjectContext {
+					t.Errorf("%s: SkipProjectContext = true, want false", agentType)
+				}
+			})
+		}
+	})
 }

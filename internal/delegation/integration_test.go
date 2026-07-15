@@ -111,7 +111,7 @@ func (r *scopedEventRunner) Run(_ context.Context, req agent.RunRequest) (agent.
 
 // testBuildPrompt is a test helper that builds prompt options for a spec.
 func testBuildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
-	return buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false)
+	return buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false)
 }
 
 // testChildRegistries is a test helper that builds visible and execution registries

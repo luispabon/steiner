@@ -192,37 +192,39 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		},
 		ToolTagDefault: lipgloss.NewStyle().Background(lipgloss.Color(ToolBlue)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 
-		ToolBorderStyles: map[string]lipgloss.Style{
-			"bash":      lipgloss.NewStyle().Foreground(lipgloss.Color(ToolAmberLine)),
-			"read":      lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
-			"read_file": lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
-			"mutate":    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
-			"todo":      lipgloss.NewStyle().Foreground(lipgloss.Color(WarnLine)),
-			"search":    lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
-			"glob":      lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
-			"grep":      lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
-		},
+		ToolBorderStyles: fgStyleMap(map[string]string{
+			"bash":      ToolAmberLine,
+			"read":      ToolCyanLine,
+			"read_file": ToolCyanLine,
+			"mutate":    ToolGrnLine,
+			"todo":      WarnLine,
+			"search":    ToolBlueLine,
+			"glob":      ToolBlueLine,
+			"grep":      ToolMagLine,
+		}),
 		ToolBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
 
 		DelegateTagStyles: map[string]lipgloss.Style{
-			"explore":  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyan)).Bold(true),
-			"research": lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateViolet)).Bold(true),
-			"code":     lipgloss.NewStyle().Foreground(lipgloss.Color(AccentAmber)).Bold(true),
-			"plan":     lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)).Bold(true),
-			"verify":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMag)).Bold(true),
-			"vision":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlue)).Bold(true),
-			"advisor":  lipgloss.NewStyle().Foreground(lipgloss.Color(AdvisorGreen)).Bold(true),
+			"explore":      lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyan)).Bold(true),
+			"research":     lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateViolet)).Bold(true),
+			"code":         lipgloss.NewStyle().Foreground(lipgloss.Color(AccentAmber)).Bold(true),
+			"evaluate":     lipgloss.NewStyle().Foreground(lipgloss.Color(Thinking)).Bold(true),
+			"sanity_check": lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMag)).Bold(true),
+			"review":       lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateReview)).Bold(true),
+			"vision":       lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlue)).Bold(true),
+			"advisor":      lipgloss.NewStyle().Foreground(lipgloss.Color(AdvisorGreen)).Bold(true),
 		},
 
-		DelegateBorderStyles: map[string]lipgloss.Style{
-			"explore":  lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyanLine)),
-			"research": lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateVioletLine)),
-			"code":     lipgloss.NewStyle().Foreground(lipgloss.Color(ToolAmberLine)),
-			"plan":     lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateThinkingLine)),
-			"verify":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMagLine)),
-			"vision":   lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
-			"advisor":  lipgloss.NewStyle().Foreground(lipgloss.Color(AdvisorGreenLine)),
-		},
+		DelegateBorderStyles: fgStyleMap(map[string]string{
+			"explore":      ToolCyanLine,
+			"research":     DelegateVioletLine,
+			"code":         ToolAmberLine,
+			"evaluate":     DelegateThinkingLine,
+			"sanity_check": ToolMagLine,
+			"review":       DelegateReviewLine,
+			"vision":       ToolBlueLine,
+			"advisor":      AdvisorGreenLine,
+		}),
 		DelegateBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
 
 		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(Added)),
@@ -285,4 +287,13 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		PaletteItem:       lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),
 		PaletteItemActive: lipgloss.NewStyle().Background(lipgloss.Color(accentSoft)),
 	}
+}
+
+// fgStyleMap builds a map of foreground-only lipgloss styles from color key-value pairs.
+func fgStyleMap(colors map[string]string) map[string]lipgloss.Style {
+	m := make(map[string]lipgloss.Style, len(colors))
+	for k, v := range colors {
+		m[k] = lipgloss.NewStyle().Foreground(lipgloss.Color(v))
+	}
+	return m
 }

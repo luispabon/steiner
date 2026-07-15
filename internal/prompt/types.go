@@ -152,6 +152,10 @@ type AssemblyOptions struct {
 
 	// CaveHuman makes the model speak tersely and avoid AI-writing tells.
 	CaveHuman bool
+
+	// SkipProjectContext skips the agentsStep and projectContextStep during
+	// prompt assembly. Used for lean sub-agents that don't need project context.
+	SkipProjectContext bool
 }
 
 // Assembly is the rendered prompt plus its contributing context blocks.

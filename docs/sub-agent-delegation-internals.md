@@ -9,7 +9,7 @@ User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 │  Parent Agent Loop (internal/agent)         │
 │                                             │
 │  Specialized sub-agent tools (explore,      │
-│  research, code, plan, verify) call into    │
+│  research, code, evaluate, sanity_check, review, vision) call into    │
 │  BuildChildRun() directly.                  │
 │                                             │
 │                 ▼                           │
@@ -52,7 +52,7 @@ User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 
 ### Tool registration
 
-When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the base registry and registers the `follow_up` tool plus a specialised tool for each agent type (`explore`, `research`, `code`, `plan`, `verify`, and conditionally `vision`). Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a per-type tool allowlist (`AgentAllowedTools`), and a task-oriented schema. The `vision` tool additionally accepts an `image_id` parameter and is only registered when `sub_agent.agents.vision.model` is configured.
+When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the base registry and registers the `follow_up` tool plus a specialised tool for each agent type (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, and conditionally `vision`). Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a per-type tool allowlist (`AgentAllowedTools`), and a task-oriented schema. The `vision` tool additionally accepts an `image_id` parameter and is only registered when `sub_agent.agents.vision.model` is configured.
 
 `web_search` and `fetch_url` are registered as stub tools with "not yet implemented" handlers. They are included in the research agent's allowlist so the schema is complete from day one. An extended base registry is used as the parent reference for child bootstrapping so these stubs are available for child registry filtering without being exposed in the parent model's tool list.
 
@@ -71,6 +71,15 @@ When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the
 If `AllowedTools` is empty, no tools are available to the child. This ensures children cannot delegate further, never block on approval, and only access the explicitly permitted tool set for their agent type.
 
 **4. Assemble RunRequest.** Includes the parent's provider instance, a tool executor wrapping the execution registry, `ExtraParams` and `PromptSuffix` propagated from the parent's model config, and no explicit model override (child uses the parent's provider/model by default, unless a per-type model alias is configured).
+
+**5. Skip project context for selected types.** Certain agent types skip the
+project context injection to keep the child prompt focused and cheap:
+
+- **Skip project context:** `explore`, `research`, `sanity_check`, `vision` — these
+  agents navigate the codebase, search, run checks, or analyze images; project
+  context would add noise.
+- **Keep project context:** `code`, `review`, `evaluate` — these agents need full
+  project awareness to implement changes, review code, or evaluate design approaches.
 
 ### Execution: SpawnDelegate
 

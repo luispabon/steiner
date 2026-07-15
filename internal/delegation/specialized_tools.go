@@ -73,15 +73,34 @@ func specializedDescription(t AgentType) string {
 		return "Spawn a research sub-agent to gather and synthesize information from the codebase or web."
 	case AgentTypeCode:
 		return "Spawn a coding sub-agent to implement a scoped change, run tests, and report results."
-	case AgentTypePlan:
-		return "Spawn an analysis sub-agent to evaluate a sub-problem and produce a structured recommendation."
-	case AgentTypeVerify:
-		return "Spawn a verification sub-agent to run checks, tests, or linters and report pass/fail results."
+	case AgentTypeEvaluate:
+		return "Spawn an analysis sub-agent to evaluate a scoped sub-problem and produce a structured recommendation."
+	case AgentTypeSanityCheck:
+		return "Spawn a verification sub-agent to run tests, lint, or build checks and report pass/fail results."
+	case AgentTypeReview:
+		return "Spawn a review sub-agent to examine code changes for bugs, regressions, missing tests, or plan adherence."
 	case AgentTypeVision:
 		return "Spawn a vision sub-agent to analyze an image. The sub-agent receives the image directly and describes or answers questions about it. After the initial call, use follow_up with the returned agent_id to ask additional questions about the same image — the image is cached server-side so follow-ups are cheap."
 	default:
 		return "Spawn a specialized sub-agent."
 	}
+}
+
+// resolveModel resolves the provider and model for a specific agent type,
+// applying per-type model alias overrides when configured.
+func resolveModel(agentType AgentType, deps SpecializedToolDeps) (provider.Provider, provider.ResolvedModel, error) {
+	if deps.ModelResolver == nil {
+		return deps.Provider, deps.ResolvedModel, nil
+	}
+	alias, ok := deps.AgentModels[string(agentType)]
+	if !ok || alias == "" {
+		return deps.Provider, deps.ResolvedModel, nil
+	}
+	p, rm, err := deps.ModelResolver(alias)
+	if err != nil {
+		return nil, provider.ResolvedModel{}, fmt.Errorf("%s: resolve model %q: %w", agentType, alias, err)
+	}
+	return p, rm, nil
 }
 
 // newSpecializedHandler returns a handler for the given agent type.
@@ -110,17 +129,9 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		// Resolve per-type model if configured.
-		resolvedProvider := deps.Provider
-		resolvedModel := deps.ResolvedModel
-		if deps.ModelResolver != nil {
-			if alias, ok := deps.AgentModels[string(agentType)]; ok && alias != "" {
-				p, rm, err := deps.ModelResolver(alias)
-				if err != nil {
-					return nil, fmt.Errorf("%s: resolve model %q: %w", agentType, alias, err)
-				}
-				resolvedProvider = p
-				resolvedModel = rm
-			}
+		resolvedProvider, resolvedModel, err := resolveModel(agentType, deps)
+		if err != nil {
+			return nil, err
 		}
 
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
@@ -138,6 +149,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			CaveHuman:            deps.CaveHuman,
 			Sandbox:              deps.Sandbox,
 			UsageRecorder:        deps.UsageRecorder,
+			SkipProjectContext:   agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)

@@ -194,7 +194,7 @@ func TestBuildChildPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			promptOpts := buildChildPrompt(tt.spec, "/tmp/work", "", config.ProjectContextConfig{}, false)
+			promptOpts := buildChildPrompt(tt.spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false)
 			if len(promptOpts.Conversation) != tt.wantLen {
 				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
 			}
@@ -238,7 +238,7 @@ func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 		Task:         "do something",
 		SystemPrompt: "Custom prompt",
 		AgentID:      "test-single-system",
-	}, "/tmp/work", "", config.ProjectContextConfig{}, false)
+	}, "/tmp/work", "", config.ProjectContextConfig{}, false, false)
 
 	assembly, err := prompt.Assemble(context.Background(), promptOpts)
 	if err != nil {
@@ -274,7 +274,7 @@ func TestBuildChildPromptUsesSharedSystemPreambleWhenOverrideEmpty(t *testing.T)
 	promptOpts := buildChildPrompt(DelegationSpec{
 		Task:    "do something",
 		AgentID: "test-shared-system",
-	}, t.TempDir(), "", config.ProjectContextConfig{}, false)
+	}, t.TempDir(), "", config.ProjectContextConfig{}, false, false)
 
 	if promptOpts.PromptOverrides.System != defaultChildSystemPrompt {
 		t.Fatalf("PromptOverrides.System = %q, want empty shared base", promptOpts.PromptOverrides.System)
@@ -458,9 +458,41 @@ func TestBuildChildRegistriesContainsAllowedTools(t *testing.T) {
 
 func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
 	spec := DelegationSpec{Task: "do something"}
-	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false)
+	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false)
 	if opts.PromptOverrides.System != defaultChildSystemPrompt {
 		t.Errorf("default system prompt = %q, want %q", opts.PromptOverrides.System, defaultChildSystemPrompt)
+	}
+}
+
+func TestBuildChildPromptSkipProjectContext(t *testing.T) {
+	tests := []struct {
+		name               string
+		skipProjectContext bool
+		wantSkip           bool
+	}{
+		{
+			name:               "skip=true sets SkipProjectContext on AssemblyOptions",
+			skipProjectContext: true,
+			wantSkip:           true,
+		},
+		{
+			name:               "skip=false leaves SkipProjectContext unset",
+			skipProjectContext: false,
+			wantSkip:           false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := buildChildPrompt(DelegationSpec{
+				Task:    "do something",
+				AgentID: "test-skip",
+			}, "/tmp/work", "", config.ProjectContextConfig{}, false, tt.skipProjectContext)
+
+			if opts.SkipProjectContext != tt.wantSkip {
+				t.Errorf("SkipProjectContext = %v, want %v", opts.SkipProjectContext, tt.wantSkip)
+			}
+		})
 	}
 }
 

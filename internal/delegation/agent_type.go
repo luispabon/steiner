@@ -10,17 +10,19 @@ const (
 	AgentTypeResearch AgentType = "research"
 	// AgentTypeCode is the agent type for coding tasks.
 	AgentTypeCode AgentType = "code"
-	// AgentTypePlan is the agent type for planning tasks.
-	AgentTypePlan AgentType = "plan"
-	// AgentTypeVerify is the agent type for verification tasks.
-	AgentTypeVerify AgentType = "verify"
+	// AgentTypeEvaluate is the agent type for evaluation/analysis tasks.
+	AgentTypeEvaluate AgentType = "evaluate"
+	// AgentTypeSanityCheck is the agent type for verification tasks.
+	AgentTypeSanityCheck AgentType = "sanity_check"
+	// AgentTypeReview is the agent type for review tasks.
+	AgentTypeReview AgentType = "review"
 	// AgentTypeVision is the agent type for image analysis tasks.
 	AgentTypeVision AgentType = "vision"
 )
 
 // AllAgentTypes returns all valid agent type values.
 func AllAgentTypes() []AgentType {
-	return []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeCode, AgentTypePlan, AgentTypeVerify, AgentTypeVision}
+	return []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeCode, AgentTypeEvaluate, AgentTypeSanityCheck, AgentTypeReview, AgentTypeVision}
 }
 
 // AllSpecializedDelegateTools returns the canonical specialized delegate tool
@@ -69,17 +71,18 @@ General rules:
 Your role: answer a specific question by collecting facts from the codebase, documentation, or the web.
 
 How to work:
+- For questions involving external information, start with web_search to gather facts before examining local files.
 - Use read, glob, grep, and ls to read local sources.
 - Use web_search and fetch_url to gather external information.
 - Distinguish facts from inferences. Flag uncertainties explicitly.
 
 How to respond:
-- Synthesize findings into a structured answer.
+- Lead with the synthesized answer, then provide supporting evidence.
 - Cite sources: file paths with line numbers, or URLs.
 - List any gaps or assumptions clearly.
 - Keep the response focused on what was asked.`,
 
-	AgentTypePlan: `You are an analysis agent producing structured analysis for a scoped sub-problem.
+	AgentTypeEvaluate: `You are an analysis agent producing structured analysis for a scoped sub-problem.
 
 Your role: evaluate options and produce a recommendation. You are not responsible for overall task planning.
 
@@ -94,7 +97,7 @@ How to respond:
 - Keep the analysis bounded to the sub-problem given.
 - Do not implement anything.`,
 
-	AgentTypeVerify: `You are a verification agent running checks and reporting results.
+	AgentTypeSanityCheck: `You are a verification agent running checks and reporting results.
 
 Your role: run specified checks and report their outcome accurately.
 
@@ -108,6 +111,22 @@ How to respond:
 - Quote exact error messages, file paths, and line numbers for failures.
 - Do not suggest or apply fixes.
 - If a check cannot run, say why and what command was attempted.`,
+
+	AgentTypeReview: `You are a review agent examining code changes for correctness.
+
+Your role: inspect a bounded set of changes and report bugs, regressions, missing tests, style violations, or plan adherence issues. You never apply fixes.
+
+How to work:
+- Use bash for git diff, git log, git show to examine changes.
+- Use read, glob, grep, and ls to inspect affected files and their context.
+- Compare changes against the stated intent or plan.
+- Check edge cases, error handling, and test coverage.
+
+How to respond:
+- List each finding with: file path, line number, severity (bug / regression / style / gap), and a one-sentence description.
+- Quote the relevant code for each finding.
+- If no issues found, say so explicitly with a brief summary of what was checked.
+- Do not suggest fixes or rewrite code.`,
 
 	AgentTypeVision: `You are a vision agent that analyzes images.
 
@@ -125,21 +144,23 @@ How to respond:
 }
 
 var agentAllowlists = map[AgentType][]string{
-	AgentTypeExplore:  {"read", "glob", "grep", "ls"},
-	AgentTypeResearch: {"read", "glob", "grep", "ls", "web_search", "fetch_url"},
-	AgentTypeCode:     {"read", "glob", "grep", "ls", "mutate", "bash"},
-	AgentTypePlan:     {"read", "glob", "grep", "ls"},
-	AgentTypeVerify:   {"read", "glob", "grep", "ls", "bash"},
-	AgentTypeVision:   {"read"},
+	AgentTypeExplore:     {"read", "glob", "grep", "ls"},
+	AgentTypeResearch:    {"read", "glob", "grep", "ls", "web_search", "fetch_url"},
+	AgentTypeCode:        {"read", "glob", "grep", "ls", "mutate", "bash"},
+	AgentTypeEvaluate:    {"read", "glob", "grep", "ls"},
+	AgentTypeSanityCheck: {"read", "glob", "grep", "ls", "bash"},
+	AgentTypeReview:      {"read", "glob", "grep", "ls", "bash"},
+	AgentTypeVision:      {"read"},
 }
 
 var validAgentTypeSet = map[string]struct{}{
-	string(AgentTypeExplore):  {},
-	string(AgentTypeResearch): {},
-	string(AgentTypeCode):     {},
-	string(AgentTypePlan):     {},
-	string(AgentTypeVerify):   {},
-	string(AgentTypeVision):   {},
+	string(AgentTypeExplore):     {},
+	string(AgentTypeResearch):    {},
+	string(AgentTypeCode):        {},
+	string(AgentTypeEvaluate):    {},
+	string(AgentTypeSanityCheck): {},
+	string(AgentTypeReview):      {},
+	string(AgentTypeVision):      {},
 }
 
 // AgentSystemPrompt returns the system prompt for the given agent type.
