@@ -130,6 +130,26 @@ func TestModeSlashCommandDispatch(t *testing.T) {
 	}
 }
 
+func TestModeSlashCommandNoArgClearsInput(t *testing.T) {
+	ctrl := &testController{}
+	m := newModel(Config{Controller: ctrl, InitialMode: "build"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/mode")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if got := m.input.Value(); got != "" {
+		t.Errorf("input value = %q, want empty after argument-less /mode", got)
+	}
+	actions := ctrl.switchModeActions()
+	if len(actions) != 1 {
+		t.Fatalf("SwitchMode action count = %d, want 1", len(actions))
+	}
+	if actions[0].Mode != config.ExecutionModePlan {
+		t.Errorf("SwitchMode.Mode = %q, want %q", actions[0].Mode, config.ExecutionModePlan)
+	}
+}
+
 func TestModeSlashCommandInvalidArgReportsStatus(t *testing.T) {
 	ctrl := &testController{}
 	m := newModel(Config{Controller: ctrl, InitialMode: "build"}, nil)

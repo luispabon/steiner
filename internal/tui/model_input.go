@@ -59,7 +59,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.executeModelAction(action.switchModel, nil)
 	}
 	if action.toggleMode {
-		return m.executeToggleModeAction()
+		return m.executeSetModeAction(m.toggledMode())
 	}
 	if action.setMode != "" {
 		return m.executeSetModeAction(action.setMode)
