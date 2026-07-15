@@ -77,22 +77,26 @@ func (s sidebarState) modelSection(width int) []string {
 	return append(lines, cardField("provider", s.styles.FgDim, providerDisplay, s.styles))
 }
 
-// separatorLine renders the separator line with mode badge when a mode is set.
-// When mode is "plan" or "build", renders dashes followed by " >> mode" suffix,
-// both styled entirely in the mode's color. When no mode is set, returns all
-// dashes in mute color.
+// separatorLine renders the separator line with the mode label centered.
+// When mode is "plan" or "build", renders a width-filling line of dashes
+// with the mode label centered (e.g. "──── plan ────"), styled in the
+// mode's color. When no mode is set, returns all dashes in mute color.
 func (s sidebarState) separatorLine(width int) string {
 	mode := strings.TrimSpace(s.execMode)
 	switch mode {
 	case "plan":
-		suffix := " >> plan"
-		dashCount := max(0, width-len(suffix))
-		line := strings.Repeat("─", dashCount) + suffix
+		label := " plan "
+		dashCount := max(0, width-len(label))
+		left := dashCount / 2
+		right := dashCount - left
+		line := strings.Repeat("─", left) + label + strings.Repeat("─", right)
 		return s.styles.ModePlanStyle.Background(lipgloss.Color(theme.Black)).Render(line)
 	case "build":
-		suffix := " >> build"
-		dashCount := max(0, width-len(suffix))
-		line := strings.Repeat("─", dashCount) + suffix
+		label := " build "
+		dashCount := max(0, width-len(label))
+		left := dashCount / 2
+		right := dashCount - left
+		line := strings.Repeat("─", left) + label + strings.Repeat("─", right)
 		return s.styles.ModeBuildStyle.Background(lipgloss.Color(theme.Black)).Render(line)
 	default:
 		return s.styledWithBg(s.styles.FgMute, strings.Repeat("─", max(0, width)))

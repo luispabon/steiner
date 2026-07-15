@@ -129,8 +129,8 @@ func TestSeparatorLineMode(t *testing.T) {
 		want    string
 		hasMode bool
 	}{
-		{name: "plan", mode: "plan", want: ">> plan", hasMode: true},
-		{name: "build", mode: "build", want: ">> build", hasMode: true},
+		{name: "plan", mode: "plan", want: " plan ", hasMode: true},
+		{name: "build", mode: "build", want: " build ", hasMode: true},
 		{name: "unset", mode: "", hasMode: false},
 	}
 	styles := theme.BuildStyles(theme.AccentAmber)
@@ -146,8 +146,8 @@ func TestSeparatorLineMode(t *testing.T) {
 					t.Errorf("separatorLine() missing dashes in %q", line)
 				}
 			} else {
-				if strings.Contains(line, ">>") {
-					t.Errorf("separatorLine() should not contain >> when mode unset, got %q", line)
+				if strings.Contains(line, " plan ") || strings.Contains(line, " build ") {
+					t.Errorf("separatorLine() should not contain mode label when mode unset, got %q", line)
 				}
 				if !strings.Contains(line, "─") {
 					t.Errorf("separatorLine() should contain dashes, got %q", line)
