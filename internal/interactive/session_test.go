@@ -2643,8 +2643,6 @@ func TestSessionModeSet(t *testing.T) {
 			},
 		},
 	}
-	s := testNewSession(t, deps)
-
 	var modeChangedEvents []output.ModeChangedEvent
 	deps.BaseEvents = output.SinkFunc(func(e output.Event) {
 		if e.Type == output.EventTypeModeChanged {
@@ -2679,8 +2677,6 @@ func TestSessionModeSetNoOp(t *testing.T) {
 			},
 		},
 	}
-	s := testNewSession(t, deps)
-
 	var modeChangedEvents int
 	deps.BaseEvents = output.SinkFunc(func(e output.Event) {
 		if e.Type == output.EventTypeModeChanged {

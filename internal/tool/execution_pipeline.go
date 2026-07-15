@@ -99,7 +99,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		return nil, err
 	}
 
-	toolCtx := ctx
+	var toolCtx context.Context
 	if approvalPolicy != nil {
 		toolCtx = context.WithValue(ctx, EffectivePolicyKey{}, approvalPolicy)
 	} else {

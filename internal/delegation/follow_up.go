@@ -56,7 +56,7 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 		if mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode); ok && mode == config.ExecutionModePlan {
 			if childHasMutateTool(session.Request) {
 				return nil, fmt.Errorf("follow_up: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
-					"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready.")
+					"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
 			}
 		}
 		req := session.Request

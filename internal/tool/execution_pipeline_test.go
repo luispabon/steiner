@@ -766,7 +766,7 @@ func TestRunPipeline_ModeGetter_PlanMode_AllowsSteinerWrites(t *testing.T) {
 	var handlerCalled bool
 	reg := NewRegistry(ToolDef{
 		Name: "mutate",
-		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
 			handlerCalled = true
 			policy, ok := ctx.Value(EffectivePolicyKey{}).(*PathPolicy)
 			if !ok || policy == nil {

@@ -62,6 +62,7 @@ Key behaviours:
 - `verify` can run commands via `bash` but must not modify files.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
 - The child's full conversation transcript is not copied into the parent session; only a structured result and bounded summary persist.
+- While the parent interactive session is in `plan` execution mode, the `code` sub-agent tool is denied outright, and `follow_up` is denied when it targets a session spawned by `code` — both can mutate files, which plan mode disallows. See [docs/execution-modes.md](execution-modes.md) for the full enforcement matrix.
 
 ### Default tool allowlists
 

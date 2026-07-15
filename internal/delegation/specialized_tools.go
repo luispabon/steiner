@@ -93,7 +93,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		if agentType == AgentTypeCode {
 			if mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode); ok && mode == config.ExecutionModePlan {
 				return nil, fmt.Errorf("code: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
-					"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready.")
+					"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
 			}
 		}
 
