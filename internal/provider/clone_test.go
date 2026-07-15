@@ -149,3 +149,28 @@ func TestCloneToolsPreserveEmptyNestedSchemaMaps(t *testing.T) {
 		t.Fatalf("len(properties) = %d, want 0", len(properties))
 	}
 }
+
+func TestCloneMessageMetadataPreservesCodexField(t *testing.T) {
+	t.Parallel()
+
+	original := &MessageProviderMetadata{
+		Codex: &CodexMessageMetadata{ReasoningID: "reasoning-123"},
+	}
+
+	cloned := CloneMessageMetadata(original)
+	if cloned == nil {
+		t.Fatal("CloneMessageMetadata() = nil, want non-nil")
+	}
+	if cloned.Codex == nil {
+		t.Fatal("cloned.Codex = nil, want non-nil")
+	}
+	if got, want := cloned.Codex.ReasoningID, "reasoning-123"; got != want {
+		t.Fatalf("cloned.Codex.ReasoningID = %q, want %q", got, want)
+	}
+
+	// Verify deep copy: mutating the clone's Codex.ReasoningID does not affect the original.
+	cloned.Codex.ReasoningID = "reasoning-changed"
+	if got, want := original.Codex.ReasoningID, "reasoning-123"; got != want {
+		t.Fatalf("original.Codex.ReasoningID = %q, want %q (should not be mutated)", got, want)
+	}
+}
