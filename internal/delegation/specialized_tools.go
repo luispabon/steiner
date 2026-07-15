@@ -86,6 +86,23 @@ func specializedDescription(t AgentType) string {
 	}
 }
 
+// resolveModel resolves the provider and model for a specific agent type,
+// applying per-type model alias overrides when configured.
+func resolveModel(agentType AgentType, deps SpecializedToolDeps) (provider.Provider, provider.ResolvedModel, error) {
+	if deps.ModelResolver == nil {
+		return deps.Provider, deps.ResolvedModel, nil
+	}
+	alias, ok := deps.AgentModels[string(agentType)]
+	if !ok || alias == "" {
+		return deps.Provider, deps.ResolvedModel, nil
+	}
+	p, rm, err := deps.ModelResolver(alias)
+	if err != nil {
+		return nil, provider.ResolvedModel{}, fmt.Errorf("%s: resolve model %q: %w", agentType, alias, err)
+	}
+	return p, rm, nil
+}
+
 // newSpecializedHandler returns a handler for the given agent type.
 // It uses the per-type system prompt and allowed-tool list, leaving other
 // delegation parameters at their configured defaults.
@@ -112,17 +129,9 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		// Resolve per-type model if configured.
-		resolvedProvider := deps.Provider
-		resolvedModel := deps.ResolvedModel
-		if deps.ModelResolver != nil {
-			if alias, ok := deps.AgentModels[string(agentType)]; ok && alias != "" {
-				p, rm, err := deps.ModelResolver(alias)
-				if err != nil {
-					return nil, fmt.Errorf("%s: resolve model %q: %w", agentType, alias, err)
-				}
-				resolvedProvider = p
-				resolvedModel = rm
-			}
+		resolvedProvider, resolvedModel, err := resolveModel(agentType, deps)
+		if err != nil {
+			return nil, err
 		}
 
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
