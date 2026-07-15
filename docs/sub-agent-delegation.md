@@ -21,7 +21,7 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees eight
 | `vision`    | Analyze an image by ID — the sub-agent receives the image directly               | `task`, `image_id`                                         | No                     |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
 
-The six specialised tools (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `vision`) plus `review` are hardcoded with purpose-built system prompts and tool allowlists. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
+The seven specialised tools (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`) are hardcoded with purpose-built system prompts and tool allowlists. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
 
 ### Advisor
 
@@ -61,9 +61,9 @@ Key behaviours:
 
 - A sub-agent **cannot delegate further** — `follow_up` and `workflow_handoff` tools are always stripped from child registries.
 - The parent-only `workflow_handoff` tool is not included in child allowlists yet.
-- Only the `code` sub-agent has access to file-mutation tools (`mutate`) or `bash`.
-- `explore`, `research`, `evaluate`, `review`, and `vision` are read-only.
-- `sanity_check` can run commands via `bash` but must not modify files.
+- Only the `code` sub-agent has access to file-mutation tools (`mutate`).
+- `explore`, `research`, `evaluate`, and `vision` are read-only.
+- `sanity_check` and `review` can run commands via `bash` (for tests, `git diff`, `git log`, etc.) but must not modify files.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
 - The child's full conversation transcript is not copied into the parent session; only a structured result and bounded summary persist.
 - While the parent interactive session is in `plan` execution mode, the `code` sub-agent tool is denied outright, and `follow_up` is denied when it targets a session spawned by `code` — both can mutate files, which plan mode disallows. See [docs/execution-modes.md](execution-modes.md) for the full enforcement matrix.
