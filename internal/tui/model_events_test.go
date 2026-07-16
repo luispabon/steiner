@@ -76,6 +76,38 @@ func TestApplyEventModeChangedUpdatesStateAndTranscript(t *testing.T) {
 	}
 }
 
+func TestApplyEventContextCompactionFinishedRefreshesBudget(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.sidebar.promptUsed = 9000
+	m.sidebar.budgetUsed = 9000
+	m.sidebar.contextBudget = 10000
+
+	event := output.Event{
+		Type: output.EventTypeContextDiagnostics,
+		Payload: output.ContextCompactionEvent{
+			Severity:      "done",
+			PromptTokens:  1200,
+			ContextTokens: 10000,
+			TotalTokens:   1200,
+			ContextWindow: 10000,
+			Status:        "ok",
+		},
+	}
+	_ = m.applyEvent(event)
+
+	if m.sidebar.promptUsed != 1200 {
+		t.Errorf("sidebar.promptUsed = %d, want 1200", m.sidebar.promptUsed)
+	}
+	if m.sidebar.budgetUsed != 1200 {
+		t.Errorf("sidebar.budgetUsed = %d, want 1200", m.sidebar.budgetUsed)
+	}
+	if m.sidebar.contextBudget != 10000 {
+		t.Errorf("sidebar.contextBudget = %d, want 10000", m.sidebar.contextBudget)
+	}
+}
+
 func TestRandomAccentResolves(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
