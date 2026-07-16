@@ -86,6 +86,23 @@ type ContextCompactionEvent struct {
 	Notes               []string `json:"notes,omitempty"`
 }
 
+// BudgetSnapshot returns the token-budget fields of a compaction event as a
+// ContextBudgetEvent, so callers can refresh the context counter once
+// compaction finishes.
+func (e ContextCompactionEvent) BudgetSnapshot() ContextBudgetEvent {
+	return ContextBudgetEvent{
+		Turn:                e.Turn,
+		PromptTokens:        e.PromptTokens,
+		ContextTokens:       e.ContextTokens,
+		TotalTokens:         e.TotalTokens,
+		ContextWindow:       e.ContextWindow,
+		ContextUsagePercent: e.ContextUsagePercent,
+		CompactionThreshold: e.CompactionThreshold,
+		EstimatorPadTokens:  e.EstimatorPadTokens,
+		Status:              e.Status,
+	}
+}
+
 // ContextSessionHealthEvent records compaction-count escalation guidance.
 type ContextSessionHealthEvent struct {
 	Scope           string   `json:"scope,omitempty"`
@@ -285,7 +302,7 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			RestartGuidance: payload.RestartGuidance,
 			Notes:           append([]string(nil), payload.Notes...),
 		}
-	case "budget":
+	case "budget", "session_loaded":
 		return ContextBudgetEvent{
 			Scope:               payload.Scope,
 			Turn:                payload.Turn,
@@ -405,7 +422,7 @@ func AsContextBudgetEvent(payload any) (ContextBudgetEvent, bool) {
 		return ContextBudgetEvent{}, false
 	}
 	legacy := diag.toLegacyContextDiagnostics()
-	if legacy.Kind != "budget" {
+	if legacy.Kind != "budget" && legacy.Kind != "session_loaded" {
 		return ContextBudgetEvent{}, false
 	}
 	typed, ok := contextDiagnosticFromLegacy(legacy).(ContextBudgetEvent)
