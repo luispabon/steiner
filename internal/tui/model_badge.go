@@ -18,14 +18,14 @@ func renderModelBadge(styles theme.Styles, model string) string {
 	return label + value
 }
 
-// renderModeBadge renders the execution mode badge with a glyph and label so
-// the mode is distinguishable without relying on colour alone.
+// renderModeBadge renders the execution mode badge with a fixed-width label
+// so the status bar cell stays stable across mode switches.
 func renderModeBadge(styles theme.Styles, mode string) string {
 	switch strings.TrimSpace(mode) {
 	case "plan":
-		return styles.ModePlanStyle.Render("⏸ plan")
+		return styles.ModePlanStyle.Render("plan ")
 	case "build":
-		return styles.ModeBuildStyle.Render("⏵⏵ build")
+		return styles.ModeBuildStyle.Render("build")
 	default:
 		return ""
 	}

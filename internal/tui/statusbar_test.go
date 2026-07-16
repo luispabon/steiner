@@ -30,8 +30,8 @@ func TestRenderModeBadge(t *testing.T) {
 		want  string
 		empty bool
 	}{
-		{name: "plan", mode: "plan", want: "⏸ plan"},
-		{name: "build", mode: "build", want: "⏵⏵ build"},
+		{name: "plan", mode: "plan", want: "plan "},
+		{name: "build", mode: "build", want: "build"},
 		{name: "unset", mode: "", empty: true},
 		{name: "unrecognized", mode: "bogus", empty: true},
 	}
@@ -65,7 +65,10 @@ func TestStatusBarOmitsModeBadgeWhenUnset(t *testing.T) {
 	styles := theme.BuildStyles(theme.AccentAmber)
 	s := statusState{execMode: "", styles: styles}
 	result := s.view(120)
-	if strings.Contains(result, "⏸") || strings.Contains(result, "⏵⏵") {
-		t.Errorf("status bar should not contain mode badge glyphs when unset, got: %s", result)
+	// When execMode is unset, renderModeBadge returns "" so no styled mode
+	// label appears. "plan " (with trailing space) guards against the badge;
+	// the bare word "plan" may legitimately appear in the oneshot phase segment.
+	if strings.Contains(result, "plan ") || strings.Contains(result, "build") {
+		t.Errorf("status bar should not contain mode badge when unset, got: %s", result)
 	}
 }
