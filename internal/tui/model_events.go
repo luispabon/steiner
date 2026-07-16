@@ -105,6 +105,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
 		} else {
 			m.activity = m.activity.static("context compacted", compactedLabel(payload))
+			m.applyContextBudget(payload.BudgetSnapshot())
 		}
 		m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
 		// Append separator + summary text when compaction finishes with a summary.
@@ -131,6 +132,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 				m.activity = m.activity.waiting("compacting context", compactingLabel(compaction))
 			} else {
 				m.activity = m.activity.static("context compacted", compactedLabel(compaction))
+				m.applyContextBudget(compaction.BudgetSnapshot())
 			}
 			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(compaction))
 			if !cs.Active() && compaction.SummaryText != "" {

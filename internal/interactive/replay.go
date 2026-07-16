@@ -55,6 +55,12 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 		case agent.MessageRoleAssistant:
 			s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
 			s.replayAssistantToolCalls(msg.ToolCalls, pendingDelegates, startedToolCalls, paired)
+		case agent.MessageRoleSummary:
+			s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:        "compaction",
+				Severity:    "done",
+				SummaryText: msg.Content,
+			}))
 		case agent.MessageRoleTool:
 			s.replayToolResult(msg, pendingDelegates, startedToolCalls)
 		}
