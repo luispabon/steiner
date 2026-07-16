@@ -13,6 +13,10 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// inlineThreshold is the maximum number of content runes returned inline
+// before content is saved to disk and a preview is returned instead.
+const inlineThreshold = 10000
+
 // FetchURLResult is the result from a fetch_url tool call.
 type FetchURLResult struct {
 	URL           string      `json:"url"`
@@ -22,6 +26,10 @@ type FetchURLResult struct {
 	ContentLength int         `json:"content_length"`
 	StatusCode    int         `json:"status_code,omitempty"`
 	Image         *ImageBlock `json:"image,omitempty"`
+	FilePath      string      `json:"file_path,omitempty"`
+	NextOffset    int         `json:"next_offset,omitempty"`
+	Message       string      `json:"message,omitempty"`
+	Truncated     bool        `json:"truncated,omitempty"`
 }
 
 // FetchURLError is an error result from a fetch_url tool call.
@@ -32,10 +40,10 @@ type FetchURLError struct {
 
 // NewFetchURLTool creates a ToolDef for the fetch_url tool.
 // nolint:gocyclo // handler closure complexity is unavoidable with multi-branch content-type routing and image extension fallback
-func NewFetchURLTool(_ Env) tool.ToolDef {
+func NewFetchURLTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "fetch_url",
-		Description:     "Fetch a URL and return its content as markdown, or as image data (png, jpeg, gif, webp) for vision-capable providers.",
+		Description:     "Fetch a URL and return its content. Supports HTML (converted to markdown), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Large responses are saved to disk — use the read tool to paginate.",
 		ParameterSchema: FetchURLSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[FetchURLInput](input)
@@ -106,6 +114,9 @@ func NewFetchURLTool(_ Env) tool.ToolDef {
 				}
 				// No image extension — fall through to wonton/fetch.
 
+			case isTextLikeContentType(contentType) && !isHTMLContentType(contentType) && contentType != "":
+				return fetchRawText(ctx, httpClient, in, env.WorkDir, contentType)
+
 			case !isTextLikeContentType(contentType):
 				return &FetchURLError{
 					URL:   in.URL,
@@ -132,28 +143,53 @@ func NewFetchURLTool(_ Env) tool.ToolDef {
 				}, nil
 			}
 
-			if resp.StatusCode != 200 {
-				return &FetchURLError{
-					URL:   in.URL,
-					Error: fmt.Sprintf("HTTP %d", resp.StatusCode),
-				}, nil
-			}
-
-			content := resp.Markdown
-			runes := []rune(content)
-			if len(runes) > in.MaxSize {
-				runes = runes[:in.MaxSize]
-				content = string(runes)
-			}
-
-			return &FetchURLResult{
-				URL:           resp.URL,
-				Title:         resp.Metadata.Title,
-				Description:   resp.Metadata.Description,
-				Content:       content,
-				ContentLength: len(runes),
-				StatusCode:    resp.StatusCode,
-			}, nil
+			return buildHTMLResult(in.URL, resp, env.WorkDir, in.MaxSize)
 		},
 	}
+}
+
+// buildHTMLResult converts a successful wonton/fetch response into a
+// fetch_url result, applying max_size truncation and the inline/disk-saved
+// inlineThreshold gate. inURL is the originally requested URL, used for
+// error results (resp.URL reflects the final URL after redirects and is
+// used for success results).
+func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize int) (any, error) {
+	if resp.StatusCode != 200 {
+		return &FetchURLError{
+			URL:   inURL,
+			Error: fmt.Sprintf("HTTP %d", resp.StatusCode),
+		}, nil
+	}
+
+	content := resp.Markdown
+	runes := []rune(content)
+	// maxSize is applied in runes here (decoded markdown text), unlike
+	// fetchRawText which applies it in bytes to the raw HTTP body.
+	truncated := len(runes) > maxSize
+	if truncated {
+		runes = runes[:maxSize]
+		content = string(runes)
+	}
+
+	if len(runes) <= inlineThreshold {
+		return &FetchURLResult{
+			URL:           resp.URL,
+			Title:         resp.Metadata.Title,
+			Description:   resp.Metadata.Description,
+			Content:       content,
+			ContentLength: len(runes),
+			StatusCode:    resp.StatusCode,
+			Truncated:     truncated,
+		}, nil
+	}
+
+	result, err := saveFetchedContent(workDir, content, "text/html", truncated)
+	if err != nil {
+		return nil, fmt.Errorf("fetch_url: %w", err)
+	}
+	result.URL = resp.URL
+	result.Title = resp.Metadata.Title
+	result.Description = resp.Metadata.Description
+	result.StatusCode = resp.StatusCode
+	return result, nil
 }

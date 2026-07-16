@@ -153,7 +153,7 @@ See [Configuration](docs/configuration.md) for all provider types, model fields,
 | `ls` | List directory contents |
 | `bash` | Run shell commands (sandboxed by default) |
 | `scratchpad` | Record working state; persists across compaction |
-| `fetch_url` | Fetch a URL; web pages converted to markdown, images returned for vision models |
+| `fetch_url` | Fetch a URL and return its content: HTML converted to markdown, text formats (JSON, YAML, plain text, CSV, etc.) returned raw, images returned for vision models; large responses saved to disk |
 | `display_file` | Show a file in the TUI overlay without adding to conversation |
 | `advisor` | Ask a stronger-model steering advisor for guidance (requires `advisor.enabled`) |
 | `workflow_handoff` | Transition to a different workflow with approved artifacts |
