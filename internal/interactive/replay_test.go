@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/delegation"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestIsDelegateToolCall(t *testing.T) {
@@ -45,6 +47,36 @@ func TestIsDelegateToolCallAllSpecializedTools(t *testing.T) {
 		if !isDelegateToolCall(toolName) {
 			t.Errorf("isDelegateToolCall(%q) = false, want true (from AllSpecializedDelegateTools)", toolName)
 		}
+	}
+}
+
+func TestReplaySessionMessagesSummaryRole(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+
+	msgs := []agent.Message{
+		{Role: agent.MessageRoleSummary, Content: "compaction summary text"},
+		{Role: agent.MessageRoleUser, Content: "hello"},
+		{Role: agent.MessageRoleAssistant, Content: "hi"},
+	}
+	s.replaySessionMessages(msgs)
+
+	var foundSummary bool
+	for _, e := range events {
+		if e.Type != output.EventTypeContextDiagnostics {
+			continue
+		}
+		if compaction, ok := output.AsContextCompactionEvent(e.Payload); ok {
+			if compaction.SummaryText == "compaction summary text" {
+				foundSummary = true
+			}
+		}
+	}
+	if !foundSummary {
+		t.Fatal("summary message not replayed as compaction diagnostics event")
 	}
 }
 
