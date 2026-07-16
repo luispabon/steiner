@@ -116,6 +116,12 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	// Emit a context-diagnostics event so the TUI can populate the sidebar
 	// token bar and the status bar with the model's context budget.
 	currentModel := s.deps.Config.Models.Definitions[s.deps.Config.Models.Default]
+	contextWindow := currentModel.Advanced.Limits.ContextWindow
+	if contextWindow <= 0 {
+		if rm, err := provider.ResolveWithDiscovery(s.deps.Config, s.CurrentModelAlias(), s.deps.HTTPClient); err == nil {
+			contextWindow = rm.EffectiveLimits.ContextWindow
+		}
+	}
 	var promptTokens int
 	for _, msg := range msgs {
 		t, err := provider.EstimateMessageTokens(ctx, currentModel.ID, provider.Message{
@@ -135,11 +141,11 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}
 	s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 		Kind:                "session_loaded",
-		ContextWindow:       currentModel.Advanced.Limits.ContextWindow,
-		ContextTokens:       currentModel.Advanced.Limits.ContextWindow,
+		ContextWindow:       contextWindow,
+		ContextTokens:       contextWindow,
 		PromptTokens:        promptTokens,
-		ContextUsagePercent: usagePercent(promptTokens, currentModel.Advanced.Limits.ContextWindow),
-		Status:              sessionLoadedStatus(currentModel.Advanced.Limits.ContextWindow),
+		ContextUsagePercent: usagePercent(promptTokens, contextWindow),
+		Status:              sessionLoadedStatus(contextWindow),
 		TotalTokens:         promptTokens,
 		Turn:                turnCount,
 	}))
