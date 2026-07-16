@@ -211,6 +211,169 @@ func TestFetchURLTool(t *testing.T) {
 	})
 }
 
+func TestBuildHTMLResult(t *testing.T) {
+	t.Run("non-200 status returns structured error using the requested URL", func(t *testing.T) {
+		resp := &fetch.Response{
+			URL:        "https://example.com/final",
+			StatusCode: 404,
+		}
+
+		res, err := buildHTMLResult("https://example.com/original", resp, t.TempDir(), 500000)
+		if err != nil {
+			t.Fatalf("buildHTMLResult: %v", err)
+		}
+		fetchErr, ok := res.(*FetchURLError)
+		if !ok {
+			t.Fatalf("expected *FetchURLError, got %T", res)
+		}
+		if fetchErr.URL != "https://example.com/original" {
+			t.Errorf("URL = %q, want the originally requested URL", fetchErr.URL)
+		}
+		if fetchErr.Error != "HTTP 404" {
+			t.Errorf("Error = %q, want %q", fetchErr.Error, "HTTP 404")
+		}
+	})
+
+	t.Run("content under threshold returns inline result", func(t *testing.T) {
+		resp := &fetch.Response{
+			URL:        "https://example.com/page",
+			StatusCode: 200,
+			Markdown:   "# Hello\n\nWorld",
+			Metadata: fetch.Metadata{
+				Title:       "Hello Page",
+				Description: "A test page",
+			},
+		}
+
+		res, err := buildHTMLResult("https://example.com/page", resp, t.TempDir(), 500000)
+		if err != nil {
+			t.Fatalf("buildHTMLResult: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+		if result.Content != resp.Markdown {
+			t.Errorf("Content = %q, want %q", result.Content, resp.Markdown)
+		}
+		if result.Title != "Hello Page" {
+			t.Errorf("Title = %q, want %q", result.Title, "Hello Page")
+		}
+		if result.Description != "A test page" {
+			t.Errorf("Description = %q, want %q", result.Description, "A test page")
+		}
+		if result.URL != resp.URL {
+			t.Errorf("URL = %q, want %q", result.URL, resp.URL)
+		}
+		if result.FilePath != "" {
+			t.Errorf("FilePath = %q, want empty for inline content", result.FilePath)
+		}
+		if result.Truncated {
+			t.Error("Truncated = true, want false")
+		}
+	})
+
+	t.Run("content over threshold is saved to disk", func(t *testing.T) {
+		markdown := strings.Repeat("a", inlineThreshold+500)
+		resp := &fetch.Response{
+			URL:        "https://example.com/big",
+			StatusCode: 200,
+			Markdown:   markdown,
+			Metadata: fetch.Metadata{
+				Title:       "Big Page",
+				Description: "A big test page",
+			},
+		}
+
+		workDir := t.TempDir()
+		res, err := buildHTMLResult("https://example.com/big", resp, workDir, 500000)
+		if err != nil {
+			t.Fatalf("buildHTMLResult: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+		if result.FilePath == "" {
+			t.Error("FilePath is empty, want non-empty for disk-saved content")
+		}
+		if !strings.HasSuffix(result.FilePath, ".md") {
+			t.Errorf("FilePath = %q, want .md extension for HTML-sourced content", result.FilePath)
+		}
+		if len([]rune(result.Content)) != inlineThreshold {
+			t.Errorf("preview length = %d, want %d", len([]rune(result.Content)), inlineThreshold)
+		}
+		if result.URL != resp.URL {
+			t.Errorf("URL = %q, want %q", result.URL, resp.URL)
+		}
+		if result.Title != "Big Page" {
+			t.Errorf("Title = %q, want %q", result.Title, "Big Page")
+		}
+		if result.Description != "A big test page" {
+			t.Errorf("Description = %q, want %q", result.Description, "A big test page")
+		}
+		if result.StatusCode != 200 {
+			t.Errorf("StatusCode = %d, want 200", result.StatusCode)
+		}
+
+		data, err := os.ReadFile(filepath.Join(workDir, result.FilePath))
+		if err != nil {
+			t.Fatalf("read saved file: %v", err)
+		}
+		if string(data) != markdown {
+			t.Errorf("saved file content length = %d, want %d", len(data), len(markdown))
+		}
+	})
+
+	t.Run("content exceeding max_size is truncated before threshold gating", func(t *testing.T) {
+		maxSize := 50
+		resp := &fetch.Response{
+			URL:        "https://example.com/huge",
+			StatusCode: 200,
+			Markdown:   strings.Repeat("x", 200),
+		}
+
+		res, err := buildHTMLResult("https://example.com/huge", resp, t.TempDir(), maxSize)
+		if err != nil {
+			t.Fatalf("buildHTMLResult: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+		if !result.Truncated {
+			t.Error("Truncated = false, want true")
+		}
+		if len([]rune(result.Content)) != maxSize {
+			t.Errorf("Content length = %d, want %d", len([]rune(result.Content)), maxSize)
+		}
+	})
+
+	t.Run("save error is propagated when content exceeds threshold", func(t *testing.T) {
+		workDir := t.TempDir()
+		markdown := strings.Repeat("a", inlineThreshold+500)
+		resp := &fetch.Response{
+			URL:        "https://example.com/blocked",
+			StatusCode: 200,
+			Markdown:   markdown,
+		}
+
+		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(markdown)))
+		fetchedDir := filepath.Join(workDir, ".steiner", "tmp", "fetched")
+		if err := os.MkdirAll(filepath.Join(fetchedDir, hash[:12]+".md"), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		res, err := buildHTMLResult("https://example.com/blocked", resp, workDir, 500000)
+		if err == nil {
+			t.Fatalf("expected error, got result: %+v", res)
+		}
+		if res != nil {
+			t.Errorf("expected nil result on error, got %+v", res)
+		}
+	})
+}
+
 func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
 	// The handler uses toolkit.SafeHTTPClient internally which blocks 127.0.0.1.
 	// Handler-level integration testing with httptest.Server is not possible
