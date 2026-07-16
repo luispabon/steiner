@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -133,6 +134,49 @@ func isTextLikeContentType(contentType string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// isHTMLContentType reports whether contentType indicates HTML content.
+func isHTMLContentType(contentType string) bool {
+	switch cleanContentType(contentType) {
+	case "text/html", "application/xhtml+xml":
+		return true
+	default:
+		return false
+	}
+}
+
+// isBinaryContent reports whether data looks like binary content, based on
+// the presence of a null byte or invalid UTF-8.
+func isBinaryContent(data []byte) bool {
+	return bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data)
+}
+
+// extensionFromContentType maps a Content-Type value to a file extension,
+// including the leading dot.
+func extensionFromContentType(contentType string) string {
+	switch cleanContentType(contentType) {
+	case "application/json":
+		return ".json"
+	case "application/yaml", "application/x-yaml":
+		return ".yaml"
+	case "text/plain":
+		return ".txt"
+	case "text/csv":
+		return ".csv"
+	case "text/markdown":
+		return ".md"
+	case "application/xml", "text/xml":
+		return ".xml"
+	case "application/javascript":
+		return ".js"
+	case "text/html", "application/xhtml+xml":
+		// HTML content is converted to markdown by wonton before being
+		// saved, so it is stored with a .md extension.
+		return ".md"
+	default:
+		return ".txt"
 	}
 }
 

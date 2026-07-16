@@ -512,6 +512,78 @@ func TestFetchImageBytes(t *testing.T) {
 	})
 }
 
+func TestIsHTMLContentType(t *testing.T) {
+	tests := []struct {
+		ct   string
+		want bool
+	}{
+		{"text/html", true},
+		{"application/xhtml+xml", true},
+		{"TEXT/HTML", true},
+		{"text/html; charset=utf-8", true},
+		{"", false},
+		{"application/json", false},
+		{"text/plain", false},
+	}
+	for _, tt := range tests {
+		got := isHTMLContentType(tt.ct)
+		if got != tt.want {
+			t.Errorf("isHTMLContentType(%q) = %v, want %v", tt.ct, got, tt.want)
+		}
+	}
+}
+
+func TestIsBinaryContent(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want bool
+	}{
+		{"nil data", nil, false},
+		{"empty data", []byte{}, false},
+		{"plain ASCII text", []byte("hello world"), false},
+		{"valid UTF-8 multibyte", []byte("héllo wörld 日本語"), false},
+		{"contains null byte", []byte("hello\x00world"), true},
+		{"invalid UTF-8", []byte{0xff, 0xfe, 0xfd}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isBinaryContent(tt.data)
+			if got != tt.want {
+				t.Errorf("isBinaryContent(%v) = %v, want %v", tt.data, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtensionFromContentType(t *testing.T) {
+	tests := []struct {
+		ct   string
+		want string
+	}{
+		{"application/json", ".json"},
+		{"application/yaml", ".yaml"},
+		{"application/x-yaml", ".yaml"},
+		{"text/plain", ".txt"},
+		{"text/csv", ".csv"},
+		{"text/markdown", ".md"},
+		{"application/xml", ".xml"},
+		{"text/xml", ".xml"},
+		{"application/javascript", ".js"},
+		{"text/html", ".md"},
+		{"application/xhtml+xml", ".md"},
+		{"application/octet-stream", ".txt"},
+		{"", ".txt"},
+		{"application/json; charset=utf-8", ".json"},
+	}
+	for _, tt := range tests {
+		got := extensionFromContentType(tt.ct)
+		if got != tt.want {
+			t.Errorf("extensionFromContentType(%q) = %q, want %q", tt.ct, got, tt.want)
+		}
+	}
+}
+
 func TestContentTypeHelpers(t *testing.T) {
 	t.Run("isImageContentType", func(t *testing.T) {
 		tests := []struct {
