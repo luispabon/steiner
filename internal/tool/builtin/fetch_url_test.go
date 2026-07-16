@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/wonton/fetch"
 
@@ -765,6 +766,42 @@ func TestFetchRawText(t *testing.T) {
 		}
 	})
 
+	t.Run("truncation at a multi-byte UTF-8 boundary does not trigger false binary detection", func(t *testing.T) {
+		// Build a JSON body containing multi-byte UTF-8 characters (Japanese
+		// text) padded so that a MaxSize cut is likely to land mid-character.
+		// We try every maxSize in a small range around a padding boundary to
+		// guarantee at least one exercises a genuine mid-rune cut, without
+		// relying on knowing UTF-8 byte-boundary arithmetic in the test itself.
+		japanese := strings.Repeat("日本語のテキストです。", 50) // multi-byte content
+		body := []byte(`{"text":"` + japanese + `"}`)
+
+		for maxSize := len(body) - 20; maxSize < len(body)-1; maxSize++ {
+			t.Run(fmt.Sprintf("maxSize=%d", maxSize), func(t *testing.T) {
+				server := newServer(200, "application/json", body)
+				defer server.Close()
+
+				in := FetchURLInput{URL: server.URL, MaxSize: maxSize}
+				res, err := fetchRawText(ctx, server.Client(), in, t.TempDir(), "application/json")
+				if err != nil {
+					t.Fatalf("fetchRawText: %v", err)
+				}
+				if fetchErr, ok := res.(*FetchURLError); ok {
+					t.Fatalf("got *FetchURLError (false binary-detection positive): %s", fetchErr.Error)
+				}
+				result, ok := res.(*FetchURLResult)
+				if !ok {
+					t.Fatalf("expected *FetchURLResult, got %T", res)
+				}
+				if !result.Truncated {
+					t.Error("Truncated = false, want true")
+				}
+				if !utf8.ValidString(result.Content) {
+					t.Error("result.Content is not valid UTF-8")
+				}
+			})
+		}
+	})
+
 	t.Run("invalid request URL returns error", func(t *testing.T) {
 		in := FetchURLInput{URL: "http://%zz", MaxSize: 500000}
 		_, err := fetchRawText(ctx, http.DefaultClient, in, t.TempDir(), "text/plain")
@@ -1022,6 +1059,8 @@ func TestExtensionFromContentType(t *testing.T) {
 		{"application/xml", ".xml"},
 		{"text/xml", ".xml"},
 		{"application/javascript", ".js"},
+		{"application/typescript", ".ts"},
+		{"text/typescript", ".ts"},
 		{"text/html", ".md"},
 		{"application/xhtml+xml", ".md"},
 		{"application/octet-stream", ".txt"},

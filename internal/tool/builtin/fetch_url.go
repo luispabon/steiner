@@ -163,6 +163,8 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 
 	content := resp.Markdown
 	runes := []rune(content)
+	// maxSize is applied in runes here (decoded markdown text), unlike
+	// fetchRawText which applies it in bytes to the raw HTTP body.
 	truncated := len(runes) > maxSize
 	if truncated {
 		runes = runes[:maxSize]

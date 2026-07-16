@@ -40,6 +40,12 @@ func fetchRawText(ctx context.Context, httpClient *http.Client, in FetchURLInput
 		data = data[:in.MaxSize]
 	}
 
+	// MaxSize is applied in bytes here (raw HTTP body), unlike buildHTMLResult
+	// which applies it in runes to already-decoded markdown text.
+	if truncated {
+		data = trimIncompleteUTF8Suffix(data)
+	}
+
 	if isBinaryContent(data) {
 		return &FetchURLError{
 			URL:   in.URL,

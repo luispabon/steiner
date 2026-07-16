@@ -153,6 +153,21 @@ func isBinaryContent(data []byte) bool {
 	return bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data)
 }
 
+// trimIncompleteUTF8Suffix removes a trailing incomplete UTF-8 rune from
+// data, if present. Truncating a byte slice at an arbitrary byte boundary
+// can cut a multi-byte UTF-8 character in half; this recovers the largest
+// valid-UTF-8 prefix by trimming at most utf8.UTFMax-1 bytes off the end.
+func trimIncompleteUTF8Suffix(data []byte) []byte {
+	for trimmed := 0; trimmed < utf8.UTFMax && len(data) > 0; trimmed++ {
+		r, size := utf8.DecodeLastRune(data)
+		if r != utf8.RuneError || size > 1 {
+			return data
+		}
+		data = data[:len(data)-1]
+	}
+	return data
+}
+
 // extensionFromContentType maps a Content-Type value to a file extension,
 // including the leading dot.
 func extensionFromContentType(contentType string) string {
@@ -171,6 +186,8 @@ func extensionFromContentType(contentType string) string {
 		return ".xml"
 	case "application/javascript":
 		return ".js"
+	case "application/typescript", "text/typescript":
+		return ".ts"
 	case "text/html", "application/xhtml+xml":
 		// HTML content is converted to markdown by wonton before being
 		// saved, so it is stored with a .md extension.
