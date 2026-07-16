@@ -10,6 +10,8 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -687,6 +689,151 @@ func TestContentTypeHelpers(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("mediaTypeFromResponse(%q, %q) = %q, want %q", tt.contentType, tt.url, got, tt.want)
 			}
+		}
+	})
+}
+
+func TestSaveFetchedContent(t *testing.T) {
+	t.Run("creates file at expected path with matching content", func(t *testing.T) {
+		workDir := t.TempDir()
+		content := "hello world"
+
+		result, err := saveFetchedContent(workDir, content, "text/plain", false)
+		if err != nil {
+			t.Fatalf("saveFetchedContent: %v", err)
+		}
+
+		if !strings.HasPrefix(result.FilePath, filepath.Join(".steiner", "tmp", "fetched")+string(filepath.Separator)) {
+			t.Fatalf("FilePath = %q, want prefix %q", result.FilePath, filepath.Join(".steiner", "tmp", "fetched"))
+		}
+		if filepath.IsAbs(result.FilePath) {
+			t.Errorf("FilePath = %q, want relative path", result.FilePath)
+		}
+
+		data, err := os.ReadFile(filepath.Join(workDir, result.FilePath))
+		if err != nil {
+			t.Fatalf("read saved file: %v", err)
+		}
+		if string(data) != content {
+			t.Errorf("saved content = %q, want %q", string(data), content)
+		}
+	})
+
+	t.Run("preview capped at inlineThreshold for long content", func(t *testing.T) {
+		workDir := t.TempDir()
+		content := strings.Repeat("a", inlineThreshold+500)
+
+		result, err := saveFetchedContent(workDir, content, "text/plain", false)
+		if err != nil {
+			t.Fatalf("saveFetchedContent: %v", err)
+		}
+
+		if len([]rune(result.Content)) != inlineThreshold {
+			t.Errorf("preview length = %d, want %d", len([]rune(result.Content)), inlineThreshold)
+		}
+	})
+
+	t.Run("preview equals full content when shorter than threshold", func(t *testing.T) {
+		workDir := t.TempDir()
+		content := "short content"
+
+		result, err := saveFetchedContent(workDir, content, "text/plain", false)
+		if err != nil {
+			t.Fatalf("saveFetchedContent: %v", err)
+		}
+
+		if result.Content != content {
+			t.Errorf("Content = %q, want %q", result.Content, content)
+		}
+	})
+
+	t.Run("next offset matches newline count in preview plus one", func(t *testing.T) {
+		workDir := t.TempDir()
+		var sb strings.Builder
+		for sb.Len() < inlineThreshold+1000 {
+			sb.WriteString("line of text\n")
+		}
+		content := sb.String()
+
+		result, err := saveFetchedContent(workDir, content, "text/plain", false)
+		if err != nil {
+			t.Fatalf("saveFetchedContent: %v", err)
+		}
+
+		preview := string([]rune(content)[:inlineThreshold])
+		want := strings.Count(preview, "\n") + 1
+		if result.NextOffset != want {
+			t.Errorf("NextOffset = %d, want %d", result.NextOffset, want)
+		}
+	})
+
+	t.Run("truncated and non-truncated messages differ", func(t *testing.T) {
+		workDir := t.TempDir()
+		content := "some content"
+
+		truncatedResult, err := saveFetchedContent(workDir, content, "text/plain", true)
+		if err != nil {
+			t.Fatalf("saveFetchedContent: %v", err)
+		}
+		if !strings.Contains(truncatedResult.Message, "truncated") || !strings.Contains(truncatedResult.Message, "saved portion") {
+			t.Errorf("truncated Message = %q, want mentions of truncation and saved portion", truncatedResult.Message)
+		}
+
+		normalResult, err := saveFetchedContent(workDir, content, "text/plain", false)
+		if err != nil {
+			t.Fatalf("saveFetchedContent: %v", err)
+		}
+
+		if truncatedResult.Message == normalResult.Message {
+			t.Errorf("expected differing messages, got same: %q", truncatedResult.Message)
+		}
+	})
+
+	t.Run("creates directory if missing", func(t *testing.T) {
+		workDir := t.TempDir()
+		fetchedDir := filepath.Join(workDir, ".steiner", "tmp", "fetched")
+		if _, err := os.Stat(fetchedDir); !os.IsNotExist(err) {
+			t.Fatalf("expected fetched dir to not exist yet, stat err = %v", err)
+		}
+
+		if _, err := saveFetchedContent(workDir, "content", "text/plain", false); err != nil {
+			t.Fatalf("saveFetchedContent: %v", err)
+		}
+
+		if _, err := os.Stat(fetchedDir); err != nil {
+			t.Errorf("expected fetched dir to exist, stat err = %v", err)
+		}
+	})
+
+	t.Run("identical content and content type produce same file path", func(t *testing.T) {
+		workDir := t.TempDir()
+		content := "identical content"
+
+		first, err := saveFetchedContent(workDir, content, "text/plain", false)
+		if err != nil {
+			t.Fatalf("saveFetchedContent: %v", err)
+		}
+		second, err := saveFetchedContent(workDir, content, "text/plain", false)
+		if err != nil {
+			t.Fatalf("saveFetchedContent: %v", err)
+		}
+
+		if first.FilePath != second.FilePath {
+			t.Errorf("FilePath mismatch: %q vs %q", first.FilePath, second.FilePath)
+		}
+	})
+
+	t.Run("content length reflects full content not preview", func(t *testing.T) {
+		workDir := t.TempDir()
+		content := strings.Repeat("b", inlineThreshold+250)
+
+		result, err := saveFetchedContent(workDir, content, "text/plain", false)
+		if err != nil {
+			t.Fatalf("saveFetchedContent: %v", err)
+		}
+
+		if result.ContentLength != inlineThreshold+250 {
+			t.Errorf("ContentLength = %d, want %d", result.ContentLength, inlineThreshold+250)
 		}
 	})
 }

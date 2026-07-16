@@ -13,6 +13,10 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// inlineThreshold is the maximum number of content runes returned inline
+// before content is saved to disk and a preview is returned instead.
+const inlineThreshold = 10000
+
 // FetchURLResult is the result from a fetch_url tool call.
 type FetchURLResult struct {
 	URL           string      `json:"url"`
@@ -22,6 +26,10 @@ type FetchURLResult struct {
 	ContentLength int         `json:"content_length"`
 	StatusCode    int         `json:"status_code,omitempty"`
 	Image         *ImageBlock `json:"image,omitempty"`
+	FilePath      string      `json:"file_path,omitempty"`
+	NextOffset    int         `json:"next_offset,omitempty"`
+	Message       string      `json:"message,omitempty"`
+	Truncated     bool        `json:"truncated,omitempty"`
 }
 
 // FetchURLError is an error result from a fetch_url tool call.
