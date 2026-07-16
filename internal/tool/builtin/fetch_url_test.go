@@ -284,6 +284,34 @@ func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
 		}
 	})
 
+	t.Run("raw-text routing excludes HTML and empty content types", func(t *testing.T) {
+		// The handler routes to fetchRawText when a content type is text-like,
+		// non-HTML, and non-empty.
+		takesRawText := func(ct string) bool {
+			return isTextLikeContentType(ct) && !isHTMLContentType(ct) && ct != ""
+		}
+		tests := []struct {
+			ct   string
+			want bool
+		}{
+			{"application/json", true},
+			{"application/yaml", true},
+			{"text/plain", true},
+			{"text/csv", true},
+			{"application/javascript", true},
+			{"text/html", false},
+			{"application/xhtml+xml", false},
+			{"", false},
+			{"application/pdf", false},
+			{"image/png", false},
+		}
+		for _, tt := range tests {
+			if got := takesRawText(tt.ct); got != tt.want {
+				t.Errorf("takesRawText(%q) = %v, want %v", tt.ct, got, tt.want)
+			}
+		}
+	})
+
 	t.Run("routing decision logic matches handler switch", func(t *testing.T) {
 		// Replicate the handler's switch/case decision logic to verify
 		// the routing conditions are correct.
@@ -397,6 +425,178 @@ func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
 					t.Errorf("takes error path = %v, want %v", takesErrorPath, tt.wantError)
 				}
 			})
+		}
+	})
+}
+
+func TestFetchRawText(t *testing.T) {
+	ctx := context.Background()
+
+	newServer := func(status int, contentType string, body []byte) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if contentType != "" {
+				w.Header().Set("Content-Type", contentType)
+			}
+			w.WriteHeader(status)
+			_, _ = w.Write(body)
+		}))
+	}
+
+	t.Run("json under threshold returns inline content", func(t *testing.T) {
+		body := []byte(`{"hello":"world"}`)
+		server := newServer(200, "application/json", body)
+		defer server.Close()
+
+		in := FetchURLInput{URL: server.URL, MaxSize: 500000}
+		res, err := fetchRawText(ctx, server.Client(), in, t.TempDir(), "application/json")
+		if err != nil {
+			t.Fatalf("fetchRawText: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+		if result.Content != string(body) {
+			t.Errorf("Content = %q, want %q", result.Content, string(body))
+		}
+		if result.ContentLength != len([]rune(string(body))) {
+			t.Errorf("ContentLength = %d, want %d", result.ContentLength, len([]rune(string(body))))
+		}
+		if result.StatusCode != 200 {
+			t.Errorf("StatusCode = %d, want 200", result.StatusCode)
+		}
+		if result.URL != server.URL {
+			t.Errorf("URL = %q, want %q", result.URL, server.URL)
+		}
+		if result.FilePath != "" {
+			t.Errorf("FilePath = %q, want empty for inline content", result.FilePath)
+		}
+		if result.Truncated {
+			t.Error("Truncated = true, want false")
+		}
+	})
+
+	t.Run("content over threshold is saved to disk", func(t *testing.T) {
+		body := []byte(strings.Repeat("a", inlineThreshold+500))
+		server := newServer(200, "text/plain", body)
+		defer server.Close()
+
+		workDir := t.TempDir()
+		in := FetchURLInput{URL: server.URL, MaxSize: 500000}
+		res, err := fetchRawText(ctx, server.Client(), in, workDir, "text/plain")
+		if err != nil {
+			t.Fatalf("fetchRawText: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+		if result.FilePath == "" {
+			t.Error("FilePath is empty, want non-empty for disk-saved content")
+		}
+		if len([]rune(result.Content)) != inlineThreshold {
+			t.Errorf("preview length = %d, want %d", len([]rune(result.Content)), inlineThreshold)
+		}
+		if result.NextOffset == 0 {
+			t.Error("NextOffset = 0, want non-zero")
+		}
+		if result.Message == "" {
+			t.Error("Message is empty, want non-empty")
+		}
+		if result.URL != server.URL {
+			t.Errorf("URL = %q, want %q", result.URL, server.URL)
+		}
+		if result.StatusCode != 200 {
+			t.Errorf("StatusCode = %d, want 200", result.StatusCode)
+		}
+
+		data, err := os.ReadFile(filepath.Join(workDir, result.FilePath))
+		if err != nil {
+			t.Fatalf("read saved file: %v", err)
+		}
+		if string(data) != string(body) {
+			t.Errorf("saved file content length = %d, want %d", len(data), len(body))
+		}
+	})
+
+	t.Run("binary content returns error", func(t *testing.T) {
+		body := []byte("hello\x00world")
+		server := newServer(200, "text/plain", body)
+		defer server.Close()
+
+		in := FetchURLInput{URL: server.URL, MaxSize: 500000}
+		res, err := fetchRawText(ctx, server.Client(), in, t.TempDir(), "text/plain")
+		if err != nil {
+			t.Fatalf("fetchRawText: %v", err)
+		}
+		fetchErr, ok := res.(*FetchURLError)
+		if !ok {
+			t.Fatalf("expected *FetchURLError, got %T", res)
+		}
+		if !strings.Contains(fetchErr.Error, "binary data") {
+			t.Errorf("Error = %q, want to contain 'binary data'", fetchErr.Error)
+		}
+	})
+
+	t.Run("non-200 status returns error", func(t *testing.T) {
+		server := newServer(404, "text/plain", []byte("not found"))
+		defer server.Close()
+
+		in := FetchURLInput{URL: server.URL, MaxSize: 500000}
+		res, err := fetchRawText(ctx, server.Client(), in, t.TempDir(), "text/plain")
+		if err != nil {
+			t.Fatalf("fetchRawText: %v", err)
+		}
+		fetchErr, ok := res.(*FetchURLError)
+		if !ok {
+			t.Fatalf("expected *FetchURLError, got %T", res)
+		}
+		if fetchErr.Error != "HTTP 404" {
+			t.Errorf("Error = %q, want %q", fetchErr.Error, "HTTP 404")
+		}
+	})
+
+	t.Run("empty body returns inline result with zero length", func(t *testing.T) {
+		server := newServer(200, "text/plain", nil)
+		defer server.Close()
+
+		in := FetchURLInput{URL: server.URL, MaxSize: 500000}
+		res, err := fetchRawText(ctx, server.Client(), in, t.TempDir(), "text/plain")
+		if err != nil {
+			t.Fatalf("fetchRawText: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+		if result.ContentLength != 0 {
+			t.Errorf("ContentLength = %d, want 0", result.ContentLength)
+		}
+		if result.Content != "" {
+			t.Errorf("Content = %q, want empty", result.Content)
+		}
+	})
+
+	t.Run("content exceeding max_size is truncated", func(t *testing.T) {
+		maxSize := 50
+		body := []byte(strings.Repeat("x", 200))
+		server := newServer(200, "text/plain", body)
+		defer server.Close()
+
+		in := FetchURLInput{URL: server.URL, MaxSize: maxSize}
+		res, err := fetchRawText(ctx, server.Client(), in, t.TempDir(), "text/plain")
+		if err != nil {
+			t.Fatalf("fetchRawText: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+		if !result.Truncated {
+			t.Error("Truncated = false, want true")
+		}
+		if len([]rune(result.Content)) != maxSize {
+			t.Errorf("Content length = %d, want %d", len([]rune(result.Content)), maxSize)
 		}
 	})
 }
