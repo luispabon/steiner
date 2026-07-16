@@ -39,7 +39,7 @@ build-binaries-slim:
 				echo "upx not installed; install with 'apt-get install upx-ucl' or 'brew install upx'"; \
 				exit 1; \
 			}; \
-			upx --best $(BIN_DIR)/steiner ;; \
+			upx -7 $(BIN_DIR)/steiner ;; \
 	esac
 
 SHA := $(shell git rev-parse --short HEAD)

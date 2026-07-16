@@ -80,7 +80,7 @@ jobs:
         env:
           BINARY: steiner-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_ext }}
         run: |
-          upx --best "dist/${BINARY}"
+          upx -7 "dist/${BINARY}"
 
       - name: Upload per-platform artifact
         uses: actions/upload-artifact@v7
