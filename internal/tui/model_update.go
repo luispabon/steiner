@@ -56,6 +56,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouseEventMsg(msg)
 	case tea.KeyPressMsg:
 		return m.handleKeyMsg(msg)
+	case tea.PasteMsg:
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.relayoutInput()
+		return m, cmd
 	}
 
 	var cmd tea.Cmd

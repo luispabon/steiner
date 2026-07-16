@@ -4345,3 +4345,25 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 		})
 	}
 }
+
+func TestPasteMsgRelayoutsInput(t *testing.T) {
+	m := newModel(Config{
+		Model:         "test-model",
+		ModelContexts: map[string]int{"test-model": 4096},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	heightBefore := m.viewport.Height()
+
+	multiline := "line1\nline2\nline3\nline4\nline5"
+	m = updateModel(t, m, tea.PasteMsg{Content: multiline})
+
+	if m.input.Value() != multiline {
+		t.Fatalf("input.Value() = %q, want %q", m.input.Value(), multiline)
+	}
+
+	heightAfter := m.viewport.Height()
+	if heightAfter >= heightBefore {
+		t.Fatalf("viewport height should shrink after paste: before=%d after=%d", heightBefore, heightAfter)
+	}
+}
