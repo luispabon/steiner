@@ -3,11 +3,13 @@ package builtin
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -599,6 +601,91 @@ func TestFetchRawText(t *testing.T) {
 			t.Errorf("Content length = %d, want %d", len([]rune(result.Content)), maxSize)
 		}
 	})
+
+	t.Run("invalid request URL returns error", func(t *testing.T) {
+		in := FetchURLInput{URL: "http://%zz", MaxSize: 500000}
+		_, err := fetchRawText(ctx, http.DefaultClient, in, t.TempDir(), "text/plain")
+		if err == nil {
+			t.Fatal("expected error for invalid request URL, got nil")
+		}
+	})
+
+	t.Run("transport error returns structured error result", func(t *testing.T) {
+		server := newServer(200, "text/plain", []byte("hello"))
+		server.Close() // closed before the request so httpClient.Do fails
+
+		in := FetchURLInput{URL: server.URL, MaxSize: 500000}
+		res, err := fetchRawText(ctx, server.Client(), in, t.TempDir(), "text/plain")
+		if err != nil {
+			t.Fatalf("fetchRawText: %v", err)
+		}
+		fetchErr, ok := res.(*FetchURLError)
+		if !ok {
+			t.Fatalf("expected *FetchURLError, got %T", res)
+		}
+		if fetchErr.Error == "" {
+			t.Error("Error is empty, want a transport error message")
+		}
+	})
+
+	t.Run("body read error returns structured error result", func(t *testing.T) {
+		client := &http.Client{Transport: brokenBodyRoundTripper{}}
+		in := FetchURLInput{URL: "http://broken-body.invalid", MaxSize: 500000}
+		res, err := fetchRawText(ctx, client, in, t.TempDir(), "text/plain")
+		if err != nil {
+			t.Fatalf("fetchRawText: %v", err)
+		}
+		fetchErr, ok := res.(*FetchURLError)
+		if !ok {
+			t.Fatalf("expected *FetchURLError, got %T", res)
+		}
+		if !strings.Contains(fetchErr.Error, "broken body") {
+			t.Errorf("Error = %q, want to contain 'broken body'", fetchErr.Error)
+		}
+	})
+
+	t.Run("save error is propagated when content exceeds threshold", func(t *testing.T) {
+		workDir := t.TempDir()
+		body := []byte(strings.Repeat("a", inlineThreshold+500))
+		server := newServer(200, "text/plain", body)
+		defer server.Close()
+
+		// Pre-create the target file path as a directory so saveFetchedContent's
+		// os.WriteFile fails with "is a directory".
+		hash := fmt.Sprintf("%x", sha256.Sum256(body))
+		fetchedDir := filepath.Join(workDir, ".steiner", "tmp", "fetched")
+		if err := os.MkdirAll(filepath.Join(fetchedDir, hash[:12]+".txt"), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		in := FetchURLInput{URL: server.URL, MaxSize: 500000}
+		res, err := fetchRawText(ctx, server.Client(), in, workDir, "text/plain")
+		if err == nil {
+			t.Fatalf("expected error, got result: %+v", res)
+		}
+		if res != nil {
+			t.Errorf("expected nil result on error, got %+v", res)
+		}
+	})
+}
+
+// brokenBodyRoundTripper returns a 200 response whose body errors on Read,
+// to exercise io.ReadAll failure handling.
+type brokenBodyRoundTripper struct{}
+
+func (brokenBodyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: 200,
+		Body:       io.NopCloser(brokenReader{}),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
+}
+
+type brokenReader struct{}
+
+func (brokenReader) Read([]byte) (int, error) {
+	return 0, fmt.Errorf("broken body: simulated read failure")
 }
 
 // newTestPNG returns a PNG-encoded 2x2 test image as bytes and the expected dimensions.
@@ -1034,6 +1121,48 @@ func TestSaveFetchedContent(t *testing.T) {
 
 		if result.ContentLength != inlineThreshold+250 {
 			t.Errorf("ContentLength = %d, want %d", result.ContentLength, inlineThreshold+250)
+		}
+	})
+
+	t.Run("mkdir failure returns wrapped error", func(t *testing.T) {
+		workDir := t.TempDir()
+		// Create a regular file where saveFetchedContent needs to create a
+		// directory (.steiner/tmp/fetched), so os.MkdirAll fails.
+		blocked := filepath.Join(workDir, ".steiner", "tmp")
+		if err := os.MkdirAll(filepath.Dir(blocked), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(blocked, []byte("not a directory"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		_, err := saveFetchedContent(workDir, "content", "text/plain", false)
+		if err == nil {
+			t.Fatal("expected error when directory creation is blocked, got nil")
+		}
+		if !strings.Contains(err.Error(), "save fetched content") {
+			t.Errorf("error = %q, want to contain %q", err.Error(), "save fetched content")
+		}
+	})
+
+	t.Run("write failure returns wrapped error", func(t *testing.T) {
+		workDir := t.TempDir()
+		content := "content"
+		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
+		ext := extensionFromContentType("text/plain")
+
+		// Pre-create the target file path as a directory so os.WriteFile fails.
+		targetAsDir := filepath.Join(workDir, ".steiner", "tmp", "fetched", hash[:12]+ext)
+		if err := os.MkdirAll(targetAsDir, 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		_, err := saveFetchedContent(workDir, content, "text/plain", false)
+		if err == nil {
+			t.Fatal("expected error when write target is a directory, got nil")
+		}
+		if !strings.Contains(err.Error(), "save fetched content") {
+			t.Errorf("error = %q, want to contain %q", err.Error(), "save fetched content")
 		}
 	})
 }
