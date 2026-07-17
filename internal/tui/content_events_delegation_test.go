@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -79,5 +80,111 @@ func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
 		if lipgloss.Width(line) > 50 {
 			t.Fatalf("line width = %d, want <= 50 for line %q", lipgloss.Width(line), stripANSI(line))
 		}
+	}
+}
+
+func TestRemoveFromPendingDelegateParents(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: []int{3, 7, 10},
+	}
+	// Remove an existing element
+	buffer.removeFromPendingDelegateParents(7)
+	if len(buffer.pendingDelegateParents) != 2 {
+		t.Fatalf("len = %d, want 2", len(buffer.pendingDelegateParents))
+	}
+	if buffer.pendingDelegateParents[0] != 3 || buffer.pendingDelegateParents[1] != 10 {
+		t.Fatalf("got %v, want [3, 10]", buffer.pendingDelegateParents)
+	}
+	// Remove a non-existent element — no-op
+	buffer.removeFromPendingDelegateParents(99)
+	if len(buffer.pendingDelegateParents) != 2 {
+		t.Fatalf("len = %d, want 2 after no-op", len(buffer.pendingDelegateParents))
+	}
+	// Remove last element
+	buffer.removeFromPendingDelegateParents(10)
+	if len(buffer.pendingDelegateParents) != 1 || buffer.pendingDelegateParents[0] != 3 {
+		t.Fatalf("got %v, want [3]", buffer.pendingDelegateParents)
+	}
+	// Remove first/only element
+	buffer.removeFromPendingDelegateParents(3)
+	if len(buffer.pendingDelegateParents) != 0 {
+		t.Fatalf("len = %d, want 0", len(buffer.pendingDelegateParents))
+	}
+}
+
+func TestDelegationToolCallFinished_DrainsQueue(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]int, 0),
+		activeDelegations:      make(map[string]int),
+		styles:                 theme.BuildStyles(theme.AccentAmber),
+	}
+	// Simulate a delegate tool call that will fail before spawning
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "do stuff"}))
+
+	if len(buffer.pendingDelegateParents) != 1 {
+		t.Fatalf("pendingDelegateParents len = %d, want 1 after ToolCallStarted", len(buffer.pendingDelegateParents))
+	}
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments len = %d, want 1", len(buffer.segments))
+	}
+	seg := buffer.segments[0]
+	if seg.kind != segmentDelegation || seg.delegData == nil {
+		t.Fatal("expected segmentDelegation with delegData")
+	}
+	if seg.delegData.agentID != "" {
+		t.Fatalf("agentID = %q, want empty", seg.delegData.agentID)
+	}
+
+	// Fire ToolCallFinished with an error — should drain queue and mark failed
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "code", "call_1", "", errors.New("plan mode rejected")))
+
+	if len(buffer.pendingDelegateParents) != 0 {
+		t.Fatalf("pendingDelegateParents len = %d, want 0 after failed ToolCallFinished", len(buffer.pendingDelegateParents))
+	}
+	if seg.delegData.status != "failed" {
+		t.Fatalf("status = %q, want \"failed\"", seg.delegData.status)
+	}
+	if !seg.renderDirty {
+		t.Error("segment should be renderDirty after failure")
+	}
+}
+
+func TestDelegationToolCallFinished_IgnoresSpawned(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]int, 0),
+		activeDelegations:      make(map[string]int),
+		styles:                 theme.BuildStyles(theme.AccentAmber),
+	}
+	// Start the delegate tool
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "do stuff"}))
+	// Delegation spawns
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do stuff"))
+	// Tool finishes (could be with or without error — either way, should not touch the segment)
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "code", "call_1", "some result", nil))
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments len = %d, want 1", len(buffer.segments))
+	}
+	seg := buffer.segments[0]
+	if seg.delegData == nil {
+		t.Fatal("delegData is nil")
+	}
+	// Status should remain "active" (set by DelegationStarted), NOT "failed"
+	if seg.delegData.status != "active" {
+		t.Fatalf("status = %q, want \"active\" (ToolCallFinished should not modify spawned delegation)", seg.delegData.status)
+	}
+	// Queue should be drained by DelegationStarted, but ToolCallFinished should not touch it further
+	if len(buffer.pendingDelegateParents) != 0 {
+		t.Fatalf("pendingDelegateParents len = %d, want 0 (drained by DelegationStarted)", len(buffer.pendingDelegateParents))
+	}
+	// agentID should be set by DelegationStarted
+	if seg.delegData.agentID != "child-1" {
+		t.Fatalf("agentID = %q, want \"child-1\"", seg.delegData.agentID)
 	}
 }
