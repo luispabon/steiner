@@ -52,6 +52,26 @@ func printChannelSwitchWarning(w io.Writer, currentChannel, requestedChannel str
 	)
 }
 
+// resolveUpdateTarget derives the target version and requested release
+// channel for an update run from the command's args and --dev flag,
+// rejecting the combination of a target version with the dev channel.
+func resolveUpdateTarget(cmd *cobra.Command, devFlag bool, args []string) (targetVersion, requestedChannel string, err error) {
+	if len(args) > 0 {
+		targetVersion = args[0]
+	}
+
+	requestedChannel = "stable"
+	if devFlag || devFlagFromCmd(cmd) {
+		requestedChannel = "dev"
+	}
+
+	if targetVersion != "" && requestedChannel == "dev" {
+		return "", "", fmt.Errorf("--dev and a target version cannot be used together")
+	}
+
+	return targetVersion, requestedChannel, nil
+}
+
 func newUpdateCommand() *cobra.Command {
 	var devFlag bool
 
@@ -61,31 +81,18 @@ func newUpdateCommand() *cobra.Command {
 		Aliases: []string{"upgrade"},
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// 1. Extract target version from args.
-			targetVersion := ""
-			if len(args) > 0 {
-				targetVersion = args[0]
+			targetVersion, requestedChannel, err := resolveUpdateTarget(cmd, devFlag, args)
+			if err != nil {
+				return err
 			}
 
-			// 2. Determine requested channel.
-			requestedChannel := "stable"
-			if devFlag || devFlagFromCmd(cmd) {
-				requestedChannel = "dev"
-			}
-
-			// 3. Validate: --dev and target version cannot be used together.
-			if targetVersion != "" && requestedChannel == "dev" {
-				return fmt.Errorf("--dev and a target version cannot be used together")
-			}
-
-			// 4. Channel switch warning.
 			if channel != requestedChannel {
 				printChannelSwitchWarning(cmd.OutOrStdout(), channel, requestedChannel)
 			}
 
 			token := os.Getenv("STEINER_GITHUB_TOKEN")
 
-			// 5. Check phase.
+			// Check phase.
 			sp := NewSpinner(cmd.OutOrStdout(), "checking version")
 			sp.Start()
 			latestVer, needsUpdate, err := checkFunc(cmd.Context(), version, "luispabon", "steiner", token, requestedChannel, targetVersion)
@@ -96,17 +103,15 @@ func newUpdateCommand() *cobra.Command {
 				return err
 			}
 
-			// 6. Print version info.
 			printVersionLine(cmd.OutOrStdout(), "Current:", displayVersion(version))
 			printVersionLine(cmd.OutOrStdout(), "Latest:", displayVersion(latestVer))
 
-			// 7. Already up to date.
 			if !needsUpdate {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  "+checkMark()+" Up to date")
 				return nil
 			}
 
-			// 8. Apply phase.
+			// Apply phase.
 			sp2 := NewSpinner(cmd.OutOrStdout(), "updating...")
 			sp2.Start()
 			_, err = applyFunc(cmd.Context(), version, "luispabon", "steiner", token, requestedChannel, targetVersion)

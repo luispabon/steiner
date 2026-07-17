@@ -58,16 +58,24 @@ func (s *Spinner) Start() {
 	}
 }
 
+// markStopped marks the spinner as no longer running, returning false if it
+// was already stopped.
+func (s *Spinner) markStopped() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.started {
+		return false
+	}
+	s.started = false
+	return true
+}
+
 // Stop terminates the spinner and writes the final line. Call with success=true
 // for a checkmark, success=false for a cross mark.
 func (s *Spinner) Stop(success bool, final string) {
-	s.mu.Lock()
-	if !s.started {
-		s.mu.Unlock()
+	if !s.markStopped() {
 		return
 	}
-	s.started = false
-	s.mu.Unlock()
 
 	if s.tty {
 		close(s.stopCh)
@@ -92,13 +100,9 @@ func (s *Spinner) Stop(success bool, final string) {
 // In TTY mode, it writes a clear escape sequence. In non-TTY mode it is a
 // no-op. Safe to call when not started.
 func (s *Spinner) Clear() {
-	s.mu.Lock()
-	if !s.started {
-		s.mu.Unlock()
+	if !s.markStopped() {
 		return
 	}
-	s.started = false
-	s.mu.Unlock()
 
 	if s.tty {
 		close(s.stopCh)
