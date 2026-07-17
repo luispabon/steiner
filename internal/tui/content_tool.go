@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/color"
-	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -315,11 +314,7 @@ func (b *contentBuffer) renderApprovalPreview(raw string, width int) string {
 	var kvMap map[string]any
 	if err := json.Unmarshal([]byte(raw), &kvMap); err == nil && len(kvMap) > 0 {
 		// JSON: render each key-value pair on its own line, key bold.
-		keys := make([]string, 0, len(kvMap))
-		for k := range kvMap {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := sortedKeys(kvMap)
 		boldStyle := lipgloss.NewStyle().Bold(true)
 		muteStyle := b.styles.FgMute
 		var lines []string

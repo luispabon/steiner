@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/delegation"
@@ -62,11 +61,7 @@ func summarizeArgs(tool string, args map[string]any) string {
 	}
 	// Fallback: value for the lexicographically first key, for deterministic output.
 	if len(args) > 0 {
-		keys := make([]string, 0, len(args))
-		for k := range args {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := sortedKeys(args)
 		return fmt.Sprintf("%v", args[keys[0]])
 	}
 	return tool
@@ -82,11 +77,7 @@ func delegateArgText(args map[string]any) string {
 		}
 	}
 	if len(args) > 0 {
-		keys := make([]string, 0, len(args))
-		for k := range args {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := sortedKeys(args)
 		return fmt.Sprintf("%v", args[keys[0]])
 	}
 	return ""

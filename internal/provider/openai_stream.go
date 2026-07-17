@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 )
 
@@ -202,11 +201,7 @@ func finalizeToolCalls(toolCalls map[int]*openAIToolCallAccumulator) ([]ToolCall
 	if len(toolCalls) == 0 {
 		return nil, nil
 	}
-	indexes := make([]int, 0, len(toolCalls))
-	for index := range toolCalls {
-		indexes = append(indexes, index)
-	}
-	sort.Ints(indexes)
+	indexes := sortedIntKeys(toolCalls)
 
 	calls := make([]ToolCall, 0, len(toolCalls))
 	for _, index := range indexes {

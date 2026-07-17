@@ -87,7 +87,6 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		ModelBudget:        modelBudget,
 		MaxTokens:          deps.MaxTokens,
 		StreamingPreferred: deps.StreamingPreferred,
-		CaveHuman:          deps.CaveHuman,
 		Sandbox:            deps.Sandbox,
 		UsageRecorder:      deps.UsageRecorder,
 		ModeGetter:         deps.ModeGetter,
@@ -192,7 +191,6 @@ type childRunRequestParams struct {
 	ModelBudget        prompt.ModelTokenBudget
 	MaxTokens          *int
 	StreamingPreferred bool
-	CaveHuman          bool
 	Sandbox            tool.SandboxWrapper
 	UsageRecorder      *usagestats.Recorder
 	ModeGetter         func() config.ExecutionMode
@@ -238,7 +236,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		ModelBudget:        p.ModelBudget,
 		MaxTokens:          p.MaxTokens,
 		StreamingPreferred: p.StreamingPreferred,
-		CaveHuman:          p.CaveHuman,
+		CaveHuman:          p.PromptOpts.CaveHuman,
 		PromptCacheKey:     childCacheKey,
 	}
 	if p.UsageRecorder != nil {
