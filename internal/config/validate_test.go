@@ -536,6 +536,17 @@ func TestValidate(t *testing.T) {
 			wantErr: `models.sub_agents["explore"] "missing-model" is not defined in models.definitions`,
 		},
 		{
+			name: "subagent empty alias accepted (disables agent)",
+			cfg: func() Config {
+				c := validBase()
+				c.Models.SubAgents = map[string]string{
+					"vision": "",
+				}
+				return c
+			}(),
+			wantErr: "",
+		},
+		{
 			name: "workflow handoff known aliases accepted",
 			cfg: func() Config {
 				c := validBase()
