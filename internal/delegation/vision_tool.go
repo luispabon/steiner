@@ -67,6 +67,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			CaveHuman:            deps.CaveHuman,
 			Sandbox:              deps.Sandbox,
 			UsageRecorder:        deps.UsageRecorder,
+			SkipProjectContext:   true,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("vision: build child run: %w", err)
