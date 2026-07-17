@@ -101,13 +101,5 @@ func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 }
 
 func validateOneShotConfig(problems *[]string, oneShot map[string]string, models map[string]ModelConfig) {
-	for phase, alias := range oneShot {
-		if !validOneShotPhases[phase] {
-			*problems = append(*problems, fmt.Sprintf("models.oneshot contains unknown phase %q", phase))
-			continue
-		}
-		if _, ok := models[alias]; !ok {
-			*problems = append(*problems, fmt.Sprintf("models.oneshot[%q] %q is not defined in models.definitions", phase, alias))
-		}
-	}
+	validateModelAliasMap(problems, "models.oneshot", "phase", oneShot, validOneShotPhases, models)
 }
