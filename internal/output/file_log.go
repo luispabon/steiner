@@ -16,6 +16,7 @@ type FileLogSink struct {
 	mu            sync.Mutex
 	file          *os.File
 	thinkingChunk bool
+	lastErr       error
 }
 
 // NewFileLogSink creates a new file-based event sink at the given path.
@@ -47,37 +48,55 @@ func (s *FileLogSink) Emit(event Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.lastErr != nil {
+		return
+	}
+
 	if _, err := fmt.Fprintf(s.file, "=== %s %s ===\n", event.Timestamp.UTC().Format(time.RFC3339Nano), event.Type); err != nil {
+		s.lastErr = err
 		return
 	}
 	switch payload := event.Payload.(type) {
 	case UserInputEvent:
 		if payload.Mode != "" {
 			if _, err := fmt.Fprintf(s.file, "mode: %s\n", payload.Mode); err != nil {
+				s.lastErr = err
 				return
 			}
 		}
 		if _, err := io.WriteString(s.file, payload.Content); err != nil {
+			s.lastErr = err
 			return
 		}
 		if _, err := io.WriteString(s.file, "\n\n"); err != nil {
+			s.lastErr = err
 			return
 		}
 	default:
 		data, err := json.MarshalIndent(payload, "", "  ")
 		if err != nil {
 			if _, writeErr := fmt.Fprintf(s.file, "%v\n\n", payload); writeErr != nil {
+				s.lastErr = writeErr
 				return
 			}
 			return
 		}
 		if _, err := s.file.Write(data); err != nil {
+			s.lastErr = err
 			return
 		}
 		if _, err := io.WriteString(s.file, "\n\n"); err != nil {
+			s.lastErr = err
 			return
 		}
 	}
+}
+
+// Err reports the first write error observed by the sink.
+func (s *FileLogSink) Err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastErr
 }
 
 // Close releases the underlying log file handle.

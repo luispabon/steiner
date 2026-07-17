@@ -4,6 +4,7 @@ package notify
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"time"
@@ -75,7 +76,9 @@ func (d *linuxDriver) notify(_ context.Context, payload Notification, dur time.D
 			esnotify.NewDefaultAction("Focus"),
 		},
 	}
-	_, _ = d.notifier.SendNotification(esn)
+	if _, err := d.notifier.SendNotification(esn); err != nil {
+		return fmt.Errorf("send desktop notification: %w", err)
+	}
 	return nil
 }
 
