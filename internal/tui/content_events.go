@@ -226,6 +226,7 @@ type contentBuffer struct {
 	collapseState     map[int]bool    // segment index → collapsed (for tool calls and thinking)
 	segmentHeights    []int           // rendered line count per segment (recomputed in String())
 	showThinking      bool            // from prefs; when false skip thinking segments
+	lastShowThinking  bool            // last showThinking value observed by checkBufferDirty
 	compaction        compactionState // when true skip thinking chunks from compaction
 	streamingPhase    string          // "thinking" | "tool" | "answer" | ""
 	streamingSource   output.ChunkSource
