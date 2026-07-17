@@ -7,7 +7,6 @@ func (s *ContextStateManager) observeToolResult(turn int, toolName string, input
 	base := &s.baseContextManager
 	normalizedToolName := strings.ToLower(strings.TrimSpace(toolName))
 	if normalizedToolName == "read" {
-		base.minVisibleTurn = s.minVisibleTurn
 		return base.observeReadToolResult(turn, content)
 	}
 
