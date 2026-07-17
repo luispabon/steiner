@@ -99,8 +99,16 @@ func (w *Writer) TrimAfterAppend(max int) error {
 	if err := os.Rename(tmpPath, w.path); err != nil {
 		return err
 	}
-	w.file, err = os.OpenFile(w.path, os.O_RDWR|os.O_APPEND, 0o644)
-	return err
+	newFile, err := os.OpenFile(w.path, os.O_RDWR|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	oldFile := w.file
+	w.file = newFile
+	if closeErr := oldFile.Close(); closeErr != nil {
+		return fmt.Errorf("close previous history file handle: %w", closeErr)
+	}
+	return nil
 }
 
 // Close closes the underlying history file.
