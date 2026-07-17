@@ -1,5 +1,7 @@
 package config
 
+import "sort"
+
 func setIfPresent[T any](dst *T, src *T) {
 	if src != nil {
 		*dst = *src
@@ -17,11 +19,14 @@ func newModelConfigBase(cfg Config) ModelConfig {
 		return cloned
 	}
 	if len(cfg.Models.Definitions) > 0 {
-		for _, m := range cfg.Models.Definitions {
-			cloned := cloneModelConfig(m)
-			cloned.Advanced.Limits = AdvancedLimitsConfig{}
-			return cloned
+		names := make([]string, 0, len(cfg.Models.Definitions))
+		for name := range cfg.Models.Definitions {
+			names = append(names, name)
 		}
+		sort.Strings(names)
+		cloned := cloneModelConfig(cfg.Models.Definitions[names[0]])
+		cloned.Advanced.Limits = AdvancedLimitsConfig{}
+		return cloned
 	}
 	return ModelConfig{}
 }

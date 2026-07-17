@@ -510,17 +510,28 @@ func TestValidate(t *testing.T) {
 			cfg: func() Config {
 				c := validBase()
 				c.Models.SubAgents = map[string]string{
-					"explore":      "model-a",
-					"research":     "model-b",
-					"code":         "model-c",
-					"evaluate":     "model-d",
-					"sanity_check": "model-e",
-					"review":       "model-f",
-					"vision":       "model-g",
+					"explore":      "default",
+					"research":     "default",
+					"code":         "default",
+					"evaluate":     "default",
+					"sanity_check": "default",
+					"review":       "default",
+					"vision":       "default",
 				}
 				return c
 			}(),
 			wantErr: ``,
+		},
+		{
+			name: "subagent unknown alias rejected",
+			cfg: func() Config {
+				c := validBase()
+				c.Models.SubAgents = map[string]string{
+					"explore": "missing-model",
+				}
+				return c
+			}(),
+			wantErr: `models.sub_agents["explore"] "missing-model" is not defined in models.definitions`,
 		},
 		{
 			name: "workflow handoff known aliases accepted",
