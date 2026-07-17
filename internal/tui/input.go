@@ -231,7 +231,7 @@ func matchCommandPrefix(text string, skillNames []string, allowlistOnly bool) (s
 
 // buildCompletionCandidates returns all candidates matching the current input prefix.
 // Candidates are built-in slash commands plus "/skill <name>" variants.
-func buildCompletionCandidates(prefix string, skillNames []string, _ []string, allowlistOnly bool) []string {
+func buildCompletionCandidates(prefix string, skillNames []string, allowlistOnly bool) []string {
 	base := projectCompletionCandidates(allowlistOnly, skillNames)
 	var matches []string
 	for _, c := range base {

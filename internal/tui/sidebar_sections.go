@@ -27,7 +27,7 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 	for i := 0; i < displayCount && i < len(sorted); i++ {
 		lines = append(lines, s.modifiedFileLine(sorted[i], width))
 	}
-	if overflow {
+	if overflow && availForFiles > 0 {
 		lines = append(lines, s.styledWithBg(s.styles.FgMute, fmt.Sprintf("↓ %d more", len(sorted)-displayCount)))
 	}
 	return lines

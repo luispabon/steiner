@@ -57,13 +57,13 @@ func linearToSRGB(c float64) float64 {
 	return 1.055*math.Pow(c, 1.0/2.4) - 0.055
 }
 
-// clamp restricts a value to [min, max].
-func clamp(v, min, max float64) float64 {
-	if v < min {
-		return min
+// clamp restricts a value to [lo, hi].
+func clamp(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
 	}
-	if v > max {
-		return max
+	if v > hi {
+		return hi
 	}
 	return v
 }

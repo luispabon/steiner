@@ -47,27 +47,29 @@ func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
 		glyphStyle = s.styles.Warn
 	}
 
-	statsText := ""
 	spaceBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
+
+	var addedText, deletedText string
 	if file.Added > 0 {
-		statsText += s.styledWithBg(s.styles.Added, fmt.Sprintf("+%d", file.Added))
+		addedText = fmt.Sprintf("+%d", file.Added)
 	}
 	if file.Deleted > 0 {
-		if statsText != "" {
-			statsText += spaceBgStyle.Render(" ")
-		}
-		statsText += s.styledWithBg(s.styles.Removed, fmt.Sprintf("-%d", file.Deleted))
+		deletedText = fmt.Sprintf("-%d", file.Deleted)
 	}
 
+	statsText := ""
 	statsLen := 0
-	if file.Added > 0 {
-		statsLen += len(fmt.Sprintf("+%d", file.Added))
+	if addedText != "" {
+		statsText += s.styledWithBg(s.styles.Added, addedText)
+		statsLen += len(addedText)
 	}
-	if file.Deleted > 0 {
-		if file.Added > 0 {
+	if deletedText != "" {
+		if statsText != "" {
+			statsText += spaceBgStyle.Render(" ")
 			statsLen++
 		}
-		statsLen += len(fmt.Sprintf("-%d", file.Deleted))
+		statsText += s.styledWithBg(s.styles.Removed, deletedText)
+		statsLen += len(deletedText)
 	}
 
 	pathWidth := max(1, width-3-statsLen-1)
