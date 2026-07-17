@@ -54,7 +54,7 @@ User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 
 When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the base registry and registers the `follow_up` tool plus a specialised tool for each agent type (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, and conditionally `vision`). Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a per-type tool allowlist (`AgentAllowedTools`), and a task-oriented schema. The `vision` tool additionally accepts an `image_id` parameter and is only registered when `sub_agent.agents.vision.model` is configured.
 
-`web_search` and `fetch_url` are registered as stub tools with "not yet implemented" handlers. They are included in the research agent's allowlist so the schema is complete from day one. An extended base registry is used as the parent reference for child bootstrapping so these stubs are available for child registry filtering without being exposed in the parent model's tool list.
+`fetch_url` is registered unconditionally in the base built-in tool set. `web_search` is registered conditionally — it is added to both the parent registry and the extended base registry (used for child bootstrapping) only when a `web.Searcher` backend is configured. When no search backend is configured, the `research` sub-agent type is excluded from delegation entirely, so no stub or unavailable tool is ever exposed.
 
 ### Bootstrapping a child run
 

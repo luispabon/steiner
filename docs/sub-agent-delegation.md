@@ -80,7 +80,7 @@ Key behaviours:
 | `vision`   | `read`                                                      |
 | `review`      | `read`, `glob`, `grep`, `ls`, `bash`                        |
 
-\* `web_search` and `fetch_url` are not yet implemented. The `research` agent won't be fully available until a `web_search` backend is configured — see the README for details.
+\* `fetch_url` is always available. `web_search` requires a configured search backend (Google, Kagi, Brave, or SearXNG). When no backend is configured, the `research` sub-agent is not exposed to the model.
 
 ### Configuration
 
