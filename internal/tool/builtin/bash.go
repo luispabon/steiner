@@ -108,7 +108,7 @@ func NewBashTool(env Env) tool.ToolDef {
 			// Apply the caller-specified max_output_chars cap on the combined output.
 			combined := output.String()
 			if in.MaxOutputChars > 0 && len(combined) > in.MaxOutputChars {
-				combined = combined[:in.MaxOutputChars]
+				combined = trimIncompleteUTF8SuffixString(combined[:in.MaxOutputChars])
 				truncated = true
 				message = fmt.Sprintf("output truncated at %d characters", in.MaxOutputChars)
 			}

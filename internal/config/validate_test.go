@@ -509,25 +509,50 @@ func TestValidate(t *testing.T) {
 			name: "subagent known agent types accepted",
 			cfg: func() Config {
 				c := validBase()
+				c.Models.Definitions["alt-a"] = c.Models.Definitions["default"]
+				c.Models.Definitions["alt-b"] = c.Models.Definitions["default"]
 				c.Models.SubAgents = map[string]string{
-					"explore":      "model-a",
-					"research":     "model-b",
-					"code":         "model-c",
-					"evaluate":     "model-d",
-					"sanity_check": "model-e",
-					"review":       "model-f",
-					"vision":       "model-g",
+					"explore":      "alt-a",
+					"research":     "default",
+					"code":         "alt-b",
+					"evaluate":     "alt-a",
+					"sanity_check": "default",
+					"review":       "alt-b",
+					"vision":       "alt-a",
 				}
 				return c
 			}(),
 			wantErr: ``,
 		},
 		{
+			name: "subagent unknown alias rejected",
+			cfg: func() Config {
+				c := validBase()
+				c.Models.SubAgents = map[string]string{
+					"explore": "missing-model",
+				}
+				return c
+			}(),
+			wantErr: `models.sub_agents["explore"] "missing-model" is not defined in models.definitions`,
+		},
+		{
+			name: "subagent empty alias accepted (disables agent)",
+			cfg: func() Config {
+				c := validBase()
+				c.Models.SubAgents = map[string]string{
+					"vision": "",
+				}
+				return c
+			}(),
+			wantErr: "",
+		},
+		{
 			name: "workflow handoff known aliases accepted",
 			cfg: func() Config {
 				c := validBase()
+				c.Models.Definitions["alt-a"] = c.Models.Definitions["default"]
 				c.Models.WorkflowHandoff = map[string]string{
-					"implement": "default",
+					"implement": "alt-a",
 					"review":    "default",
 				}
 				return c
@@ -560,10 +585,12 @@ func TestValidate(t *testing.T) {
 			name: "oneshot known aliases accepted",
 			cfg: func() Config {
 				c := validBase()
+				c.Models.Definitions["alt-a"] = c.Models.Definitions["default"]
+				c.Models.Definitions["alt-b"] = c.Models.Definitions["default"]
 				c.Models.OneShot = map[string]string{
-					"plan":      "default",
+					"plan":      "alt-a",
 					"implement": "default",
-					"review":    "default",
+					"review":    "alt-b",
 				}
 				return c
 			}(),

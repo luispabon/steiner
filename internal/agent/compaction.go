@@ -89,22 +89,7 @@ func (s summarizeCompactionStages) run(
 	}
 	if !normalOutcome.Applied {
 		emergencyCandidate := makeCompactionCandidate(candidate, emergencySource, emergencyRetained)
-		emergencyOutcome, emergencyErr := s.stageRunner(ctx, req, state, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
-		if emergencyErr != nil {
-			return CompactionOutcome{}, emergencyErr
-		}
-		if !emergencyOutcome.Applied {
-			return emergencyOutcome, emergencyCompactionError(emergencyOutcome.Fit)
-		}
-		emergencyFit, emergencyErr := s.fitRunner(ctx, req, emergencyOutcome.State)
-		if emergencyErr != nil {
-			return CompactionOutcome{}, emergencyErr
-		}
-		emergencyOutcome.Fit = emergencyFit
-		if needsEmergencyCompaction(emergencyFit) {
-			return emergencyOutcome, emergencyCompactionError(emergencyFit)
-		}
-		return emergencyOutcome, nil
+		return s.runStageAndFit(ctx, req, state, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
 	}
 
 	normalFit, err := s.fitRunner(ctx, req, normalOutcome.State)
@@ -123,24 +108,40 @@ func (s summarizeCompactionStages) run(
 	}
 	emergencySource, emergencyRetained = compactionSourceAndRetention(emergencySource, emergencyRetentionBase, emergencyCompactionRetainTurns)
 	emergencyCandidate := makeCompactionCandidate(normalOutcome.Candidate, emergencySource, emergencyRetained)
-	emergencyOutcome, err := s.stageRunner(ctx, req, normalOutcome.State, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+	return s.runStageAndFit(ctx, req, normalOutcome.State, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+}
+
+// runStageAndFit runs a single compaction stage, verifies it applied, and
+// re-checks the resulting fit for whether emergency compaction is still
+// required.
+func (s summarizeCompactionStages) runStageAndFit(
+	ctx context.Context,
+	req RunRequest,
+	state RunState,
+	turn int,
+	candidate ConversationCandidate,
+	sourceMessages, retainedMessages []Message,
+	mode prompt.CompactionMode,
+	maxTokens int,
+) (CompactionOutcome, error) {
+	outcome, err := s.stageRunner(ctx, req, state, turn, candidate, sourceMessages, retainedMessages, mode, maxTokens)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
-	if !emergencyOutcome.Applied {
-		return emergencyOutcome, emergencyCompactionError(emergencyOutcome.Fit)
+	if !outcome.Applied {
+		return outcome, emergencyCompactionError(outcome.Fit)
 	}
 
-	emergencyFit, err := s.fitRunner(ctx, req, emergencyOutcome.State)
+	fit, err := s.fitRunner(ctx, req, outcome.State)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
-	emergencyOutcome.Fit = emergencyFit
-	if needsEmergencyCompaction(emergencyFit) {
-		return emergencyOutcome, emergencyCompactionError(emergencyFit)
+	outcome.Fit = fit
+	if needsEmergencyCompaction(fit) {
+		return outcome, emergencyCompactionError(fit)
 	}
 
-	return emergencyOutcome, nil
+	return outcome, nil
 }
 
 func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (CompactionOutcome, error) {

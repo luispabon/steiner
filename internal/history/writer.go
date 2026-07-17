@@ -39,6 +39,9 @@ func (w *Writer) Record(prompt string) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.file == nil {
+		return fmt.Errorf("history writer: file handle unavailable, previous trim failed")
+	}
 	escaped := strings.ReplaceAll(prompt, "\t", "\\t")
 	escaped = strings.ReplaceAll(escaped, "\n", "\\n")
 	line := time.Now().Format(time.RFC3339) + "\t" + escaped + "\n"
@@ -99,8 +102,18 @@ func (w *Writer) TrimAfterAppend(max int) error {
 	if err := os.Rename(tmpPath, w.path); err != nil {
 		return err
 	}
-	w.file, err = os.OpenFile(w.path, os.O_RDWR|os.O_APPEND, 0o644)
-	return err
+	newFile, err := os.OpenFile(w.path, os.O_RDWR|os.O_APPEND, 0o644)
+	if err != nil {
+		_ = w.file.Close() // best-effort; this handle now refers to the pre-rename file
+		w.file = nil
+		return fmt.Errorf("reopen history file after trim: %w", err)
+	}
+	oldFile := w.file
+	w.file = newFile
+	if closeErr := oldFile.Close(); closeErr != nil {
+		return fmt.Errorf("close previous history file handle: %w", closeErr)
+	}
+	return nil
 }
 
 // Close closes the underlying history file.

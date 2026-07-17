@@ -74,7 +74,23 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman, deps.SkipProjectContext)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.AllowedTools)
-	req := buildChildRunRequest(deps.WorkDir, spec.AgentID, deps.Provider, visibleReg, execReg, agentLimits, deps.Events, promptOpts, deps.ResolvedModel, modelBudget, deps.MaxTokens, deps.StreamingPreferred, deps.CaveHuman, deps.Sandbox, deps.UsageRecorder, deps.ModeGetter)
+	req := buildChildRunRequest(childRunRequestParams{
+		WorkDir:            deps.WorkDir,
+		AgentID:            spec.AgentID,
+		Provider:           deps.Provider,
+		VisibleReg:         visibleReg,
+		ExecReg:            execReg,
+		BaseLimits:         agentLimits,
+		Events:             deps.Events,
+		PromptOpts:         promptOpts,
+		ResolvedModel:      deps.ResolvedModel,
+		ModelBudget:        modelBudget,
+		MaxTokens:          deps.MaxTokens,
+		StreamingPreferred: deps.StreamingPreferred,
+		Sandbox:            deps.Sandbox,
+		UsageRecorder:      deps.UsageRecorder,
+		ModeGetter:         deps.ModeGetter,
+	})
 	return req, limits, nil
 }
 
@@ -158,27 +174,49 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 	return visible, exec
 }
 
+// childRunRequestParams holds the arguments needed to assemble a child
+// agent.RunRequest. It exists to avoid a long positional parameter list where
+// adjacent same-typed values (e.g. two bools, two *tool.Registry) could be
+// transposed without compiler protection.
+type childRunRequestParams struct {
+	WorkDir            string
+	AgentID            string
+	Provider           provider.Provider
+	VisibleReg         *tool.Registry
+	ExecReg            *tool.Registry
+	BaseLimits         agent.Limits
+	Events             output.EventSink
+	PromptOpts         prompt.AssemblyOptions
+	ResolvedModel      provider.ResolvedModel
+	ModelBudget        prompt.ModelTokenBudget
+	MaxTokens          *int
+	StreamingPreferred bool
+	Sandbox            tool.SandboxWrapper
+	UsageRecorder      *usagestats.Recorder
+	ModeGetter         func() config.ExecutionMode
+}
+
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
 // Registries and prompt must be provided pre-built; the caller (typically
 // BuildChildRun) is responsible for registry and prompt assembly.
-// sandbox is the parent's SandboxWrapper; if non-nil it is applied to the child
+// p.Sandbox is the parent's SandboxWrapper; if non-nil it is applied to the child
 // executor unchanged, enforcing child sandbox ≤ parent sandbox.
-// modeGetter, when non-nil, is wired into the child executor so it inherits
+// p.ModeGetter, when non-nil, is wired into the child executor so it inherits
 // the parent's execution mode.
-func buildChildRunRequest(workDir string, agentID string, prov provider.Provider, visibleReg *tool.Registry, execReg *tool.Registry, baseLimits agent.Limits, events output.EventSink, promptOpts prompt.AssemblyOptions, rm provider.ResolvedModel, modelBudget prompt.ModelTokenBudget, maxTokens *int, streamingPreferred bool, caveHuman bool, sandbox tool.SandboxWrapper, rec *usagestats.Recorder, modeGetter func() config.ExecutionMode) agent.RunRequest {
+func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	childCfg := config.Config{}
-	scopedEvents := withAgentScope(agentID, events)
+	scopedEvents := withAgentScope(p.AgentID, p.Events)
 
 	sandboxTmpDir := ""
-	if sandbox != nil && sandbox.Enabled() {
-		sandboxTmpDir = sandbox.TmpDir()
+	if p.Sandbox != nil && p.Sandbox.Enabled() {
+		sandboxTmpDir = p.Sandbox.TmpDir()
 	}
-	exec := tool.NewExecutor(execReg, childCfg, nil, workDir, sandboxTmpDir)
-	if sandbox != nil {
-		exec = exec.WithSandbox(sandbox)
+	exec := tool.NewExecutor(p.ExecReg, childCfg, nil, p.WorkDir, sandboxTmpDir)
+	if p.Sandbox != nil {
+		exec = exec.WithSandbox(p.Sandbox)
 	}
-	if modeGetter != nil {
-		exec = exec.WithModeGetter(modeGetter)
+	if p.ModeGetter != nil {
+		exec = exec.WithModeGetter(p.ModeGetter)
 	}
 
 	// A fresh per-run cache key, distinct from the parent's, keeps sub-agent
@@ -188,21 +226,21 @@ func buildChildRunRequest(workDir string, agentID string, prov provider.Provider
 	childCacheKey, _ := provider.NewPromptCacheKey()
 
 	req := agent.RunRequest{
-		Provider:           prov,
+		Provider:           p.Provider,
 		Executor:           exec,
-		Tools:              visibleReg.ToProviderSpecs(),
-		Limits:             baseLimits,
+		Tools:              p.VisibleReg.ToProviderSpecs(),
+		Limits:             p.BaseLimits,
 		Events:             scopedEvents,
-		Prompt:             promptOpts,
-		ResolvedModel:      rm,
-		ModelBudget:        modelBudget,
-		MaxTokens:          maxTokens,
-		StreamingPreferred: streamingPreferred,
-		CaveHuman:          caveHuman,
+		Prompt:             p.PromptOpts,
+		ResolvedModel:      p.ResolvedModel,
+		ModelBudget:        p.ModelBudget,
+		MaxTokens:          p.MaxTokens,
+		StreamingPreferred: p.StreamingPreferred,
+		CaveHuman:          p.PromptOpts.CaveHuman,
 		PromptCacheKey:     childCacheKey,
 	}
-	if rec != nil {
-		req.UsageRecorder = rec
+	if p.UsageRecorder != nil {
+		req.UsageRecorder = p.UsageRecorder
 	}
 
 	return req

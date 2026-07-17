@@ -15,7 +15,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 			seg := &b.segments[i]
 			switch seg.kind {
 			case segmentToolCall:
-				if seg.toolData == nil {
+				if seg.toolData == nil || seg.toolData.approvalPending || !callIDsMatch(seg.toolData.callID, payload.CallID) || !strings.EqualFold(normalizeToolName(seg.toolData.tool), normalizeToolName(payload.Tool)) {
 					continue
 				}
 				seg.toolData.approvalPending = true
@@ -31,7 +31,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				}
 				for j := len(seg.toolGroupData.entries) - 1; j >= 0; j-- {
 					entry := seg.toolGroupData.entries[j]
-					if entry == nil || entry.approvalPending {
+					if entry == nil || entry.approvalPending || !callIDsMatch(entry.callID, payload.CallID) || !strings.EqualFold(normalizeToolName(entry.tool), normalizeToolName(payload.Tool)) {
 						continue
 					}
 					entry.approvalPending = true
@@ -62,7 +62,11 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 	b.finishStreaming()
 	accepted := event.Type == output.EventTypeApprovalAccepted
-	if b.resolveEmbeddedApproval(accepted) {
+	var callID string
+	if payload, ok := event.Payload.(output.ApprovalEvent); ok {
+		callID = payload.CallID
+	}
+	if b.resolveEmbeddedApproval(accepted, callID) {
 		return
 	}
 	// Fallback: resolve a standalone approval pill.
@@ -78,12 +82,12 @@ func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 	b.appendStyled(formatApprovalEvent(event), segmentApproval)
 }
 
-func (b *contentBuffer) resolveEmbeddedApproval(accepted bool) bool {
+func (b *contentBuffer) resolveEmbeddedApproval(accepted bool, callID string) bool {
 	for i := len(b.segments) - 1; i >= 0; i-- {
 		seg := &b.segments[i]
 		switch seg.kind {
 		case segmentToolCall:
-			if seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved {
+			if seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved && callIDsMatch(seg.toolData.callID, callID) {
 				seg.toolData.approvalResolved = true
 				seg.toolData.approvalAccepted = accepted
 				seg.renderDirty = true
@@ -95,7 +99,7 @@ func (b *contentBuffer) resolveEmbeddedApproval(accepted bool) bool {
 			}
 			for j := len(seg.toolGroupData.entries) - 1; j >= 0; j-- {
 				entry := seg.toolGroupData.entries[j]
-				if entry != nil && entry.approvalPending && !entry.approvalResolved {
+				if entry != nil && entry.approvalPending && !entry.approvalResolved && callIDsMatch(entry.callID, callID) {
 					entry.approvalResolved = true
 					entry.approvalAccepted = accepted
 					seg.renderDirty = true

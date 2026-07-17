@@ -360,6 +360,62 @@ func TestClose_Idempotent(t *testing.T) {
 	}
 }
 
+func TestTrimAfterAppend_FileHandleValidAndPersistsAfterTrim(t *testing.T) {
+	w := mustOpenWriter(t, t.TempDir())
+	defer closeWriter(t, w)
+
+	for i := 0; i < 10; i++ {
+		if err := w.Record("line"); err != nil {
+			t.Fatalf("Record(%d): %v", i, err)
+		}
+	}
+
+	// Force the actual truncate/rename/reopen path: Record() always calls
+	// TrimAfterAppend(50), which no-ops while under 50 lines, so it alone
+	// never exercises the rename+reopen logic this test targets.
+	if err := w.TrimAfterAppend(3); err != nil {
+		t.Fatalf("TrimAfterAppend(3): %v", err)
+	}
+
+	if w.file == nil {
+		t.Fatal("w.file is nil after successful trim, want valid handle")
+	}
+
+	// Confirm the handle left behind by trim is the live file backing
+	// w.path, not a stale handle to the pre-rename (now unlinked) file.
+	if err := w.Record("post-trim"); err != nil {
+		t.Fatalf("Record after trim: %v", err)
+	}
+
+	prompts, err := w.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(prompts) == 0 || prompts[len(prompts)-1] != "post-trim" {
+		t.Fatalf("post-trim write did not land on disk, got %v", prompts)
+	}
+
+	raw, err := os.ReadFile(w.Path())
+	if err != nil {
+		t.Fatalf("ReadFile(%q): %v", w.Path(), err)
+	}
+	if !strings.Contains(string(raw), "post-trim") {
+		t.Errorf("history file on disk does not contain post-trim write: %q", raw)
+	}
+}
+
+func TestRecord_NilFileHandleReturnsError(t *testing.T) {
+	w := &Writer{path: filepath.Join(t.TempDir(), "history.log")}
+
+	err := w.Record("anything")
+	if err == nil {
+		t.Fatal("Record() with nil file handle: got nil error, want error")
+	}
+	if !strings.Contains(err.Error(), "file handle unavailable") {
+		t.Errorf("Record() error = %q, want mention of unavailable file handle", err.Error())
+	}
+}
+
 func TestClose_ClosesFile(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
 	path := w.Path()

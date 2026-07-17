@@ -81,84 +81,124 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 			return manifest, err
 		}
 
-		modelAlias := phaseModelAlias(o.deps.Config, phase)
-		advisorCfg := phaseAdvisorConfig(o.deps.Config, phase)
-		emitPhaseTransition(o.deps.Events, manifest.RunID, previousPhase, phase, phaseTransitionStarting, modelAlias, "")
-		emitPhaseIndicator(o.deps.Events, manifest.RunID, phase, phaseIndicatorStarting, "phase starting")
-
-		lock.Heartbeat()
-		manifest.CurrentPhase = phase
-		manifest.PhaseStatuses[phase] = PhaseStatusRunning
-		if err := store.Write(manifest); err != nil {
-			manifest.PhaseStatuses[phase] = PhaseStatusFailed
-			return manifest, err
-		}
-
-		phaseCtx, cancel := context.WithCancel(interruptCtx)
-		runner, err := o.deps.RunnerFactory.NewPhaseRunner(phaseCtx, phase, modelAlias, NewWorktreeAutoApprover(worktreePath), advisorCfg)
-		if err != nil {
-			cancel()
-			manifest.PhaseStatuses[phase] = PhaseStatusFailed
-			emitPhaseIndicator(o.deps.Events, manifest.RunID, phase, phaseIndicatorBoundary, err.Error())
-			if writeErr := store.Write(manifest); writeErr != nil {
-				return manifest, writeErr
-			}
-			return manifest, err
-		}
-
-		conversation := phaseConversation(o.deps.Identity, o.deps.Task, phase, worktreePath, planningPath)
-		result, runErr := runner.RunPhase(phaseCtx, conversation, nil, o.deps.DrainSteers)
-
-		sessionID, saveErr := o.persistPhaseSession(phase, modelAlias, result)
-		if saveErr != nil {
-			cancel()
-			manifest.PhaseStatuses[phase] = PhaseStatusFailed
-			if err := store.Write(manifest); err != nil {
-				return manifest, err
-			}
-			emitPhaseIndicator(o.deps.Events, manifest.RunID, phase, phaseIndicatorBoundary, saveErr.Error())
-			return manifest, saveErr
-		}
-		manifest.PhaseSessionIDs[phase] = sessionID
-
-		if runErr != nil {
-			cancel()
-			manifest.PhaseStatuses[phase] = PhaseStatusFailed
-			if err := store.Write(manifest); err != nil {
-				return manifest, err
-			}
-			emitPhaseIndicator(o.deps.Events, manifest.RunID, phase, phaseIndicatorCancelled, runErr.Error())
-			emitPhaseTransition(o.deps.Events, manifest.RunID, phase, phase, phaseTransitionFailed, modelAlias, sessionID)
-			return manifest, runErr
-		}
-
 		// In a fresh run, phases are never resuming; they're all first-time runs.
-		requiredArtifacts := requiredArtifactsForPhase(phase, planningPath, false)
-		if err := CheckBoundary(phaseCtx, phase, worktreePath, requiredArtifacts); err != nil {
-			cancel()
-			manifest.PhaseStatuses[phase] = PhaseStatusFailed
-			if err := store.Write(manifest); err != nil {
-				return manifest, err
-			}
-			emitPhaseIndicator(o.deps.Events, manifest.RunID, phase, phaseIndicatorBoundary, err.Error())
-			emitPhaseTransition(o.deps.Events, manifest.RunID, phase, phase, phaseTransitionFailed, modelAlias, sessionID)
+		if err := o.runPhase(runPhaseParams{
+			InterruptCtx:  interruptCtx,
+			Store:         store,
+			Manifest:      &manifest,
+			Lock:          lock,
+			WorktreePath:  worktreePath,
+			PlanningPath:  planningPath,
+			Phase:         phase,
+			PreviousPhase: previousPhase,
+			Resuming:      false,
+		}); err != nil {
 			return manifest, err
 		}
-
-		cancel()
-		manifest.PhaseStatuses[phase] = PhaseStatusDone
-		manifest.CurrentPhase = phase
-		if err := store.Write(manifest); err != nil {
-			return manifest, err
-		}
-		emitPhaseIndicator(o.deps.Events, manifest.RunID, phase, phaseIndicatorCompleted, "phase complete")
-		emitPhaseTransition(o.deps.Events, manifest.RunID, phase, phase, phaseTransitionCompleted, modelAlias, sessionID)
 		previousPhase = phase
 	}
 
 	o.finalizeRun(ctx, &manifest, planningPath)
 
 	return manifest, nil
+}
+
+// runPhaseParams bundles the arguments to runPhase. worktreePath/planningPath
+// and phase/previousPhase are adjacent same-typed values, so a struct with
+// named fields avoids transposition mistakes at call sites.
+type runPhaseParams struct {
+	InterruptCtx  context.Context
+	Store         *ManifestStore
+	Manifest      *Manifest
+	Lock          *RunLock
+	WorktreePath  string
+	PlanningPath  string
+	Phase         Phase
+	PreviousPhase Phase
+	Resuming      bool
+}
+
+// runPhase executes a single phase: starting events, runner construction, execution, session
+// persistence, boundary checking, and success bookkeeping. It mutates manifest and writes it via
+// store at each state transition, and heartbeats lock at phase start and on successful completion.
+// p.Resuming controls which artifacts are required at the phase boundary check.
+func (o *Orchestrator) runPhase(p runPhaseParams) error {
+	modelAlias := phaseModelAlias(o.deps.Config, p.Phase)
+	advisorCfg := phaseAdvisorConfig(o.deps.Config, p.Phase)
+	emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.PreviousPhase, p.Phase, phaseTransitionStarting, modelAlias, "")
+	emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorStarting, "phase starting")
+
+	p.Lock.Heartbeat()
+	p.Manifest.CurrentPhase = p.Phase
+	p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusRunning
+	if err := p.Store.Write(*p.Manifest); err != nil {
+		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+		return err
+	}
+
+	phaseCtx, cancel := context.WithCancel(p.InterruptCtx)
+	runner, err := o.deps.RunnerFactory.NewPhaseRunner(phaseCtx, p.Phase, modelAlias, NewWorktreeAutoApprover(p.WorktreePath), advisorCfg)
+	if err != nil {
+		cancel()
+		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorBoundary, err.Error())
+		if writeErr := p.Store.Write(*p.Manifest); writeErr != nil {
+			return writeErr
+		}
+		return err
+	}
+
+	conversation := phaseConversation(o.deps.Identity, o.deps.Task, p.Phase, p.WorktreePath, p.PlanningPath)
+	result, runErr := runner.RunPhase(phaseCtx, conversation, nil, o.deps.DrainSteers)
+
+	sessionID, saveErr := o.persistPhaseSession(p.Phase, modelAlias, result)
+	if saveErr != nil {
+		cancel()
+		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+		if err := p.Store.Write(*p.Manifest); err != nil {
+			return err
+		}
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorBoundary, saveErr.Error())
+		return saveErr
+	}
+	p.Manifest.PhaseSessionIDs[p.Phase] = sessionID
+
+	if runErr != nil {
+		cancel()
+		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+		if err := p.Store.Write(*p.Manifest); err != nil {
+			return err
+		}
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCancelled, runErr.Error())
+		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, sessionID)
+		return runErr
+	}
+
+	requiredArtifacts := requiredArtifactsForPhase(p.Phase, p.PlanningPath, p.Resuming)
+	if err := CheckBoundary(phaseCtx, p.Phase, p.WorktreePath, requiredArtifacts); err != nil {
+		cancel()
+		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+		if err := p.Store.Write(*p.Manifest); err != nil {
+			return err
+		}
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorBoundary, err.Error())
+		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, sessionID)
+		return err
+	}
+
+	cancel()
+	p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusDone
+	// Heartbeat again here (in addition to phase start) so the lock stays fresh
+	// across the gap between finishing this phase and starting the next one,
+	// matching resumeFromManifest's original behavior before this loop was unified.
+	p.Lock.Heartbeat()
+	p.Manifest.CurrentPhase = p.Phase
+	if err := p.Store.Write(*p.Manifest); err != nil {
+		return err
+	}
+	emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCompleted, "phase complete")
+	emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionCompleted, modelAlias, sessionID)
+	return nil
 }
 
 func (o *Orchestrator) persistPhaseSession(phase Phase, modelAlias string, result RunResult) (string, error) {

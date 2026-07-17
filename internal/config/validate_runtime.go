@@ -23,10 +23,17 @@ var validOneShotPhases = map[string]bool{
 	"review":    true,
 }
 
-func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, subAgents map[string]string) {
-	for name := range subAgents {
+func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, subAgents map[string]string, models map[string]ModelConfig) {
+	for name, alias := range subAgents {
 		if !validAgentTypes[name] {
 			*problems = append(*problems, fmt.Sprintf("models.sub_agents contains unknown agent type %q", name))
+			continue
+		}
+		if alias == "" {
+			continue // empty alias is the documented "disabled" sentinel for lean/optional sub-agents (see internal/delegation/registry.go)
+		}
+		if _, ok := models[alias]; !ok {
+			*problems = append(*problems, fmt.Sprintf("models.sub_agents[%q] %q is not defined in models.definitions", name, alias))
 		}
 	}
 	if !cfg.Enabled {

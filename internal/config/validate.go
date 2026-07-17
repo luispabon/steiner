@@ -15,7 +15,7 @@ func validate(cfg Config) error {
 	validateWorkflowHandoffConfig(&problems, cfg.Models.WorkflowHandoff, cfg.Models.Definitions)
 	validateOneShotConfig(&problems, cfg.Models.OneShot, cfg.Models.Definitions)
 	validateLimitsConfig(&problems, cfg.Limits)
-	validateSubAgentConfig(&problems, cfg.SubAgent, cfg.Models.SubAgents)
+	validateSubAgentConfig(&problems, cfg.SubAgent, cfg.Models.SubAgents, cfg.Models.Definitions)
 	validateAdvisorConfig(&problems, cfg.Advisor, cfg.Models.Advisor)
 	validateProjectContextConfig(&problems, cfg.ProjectContext)
 	validateLoggingConfig(&problems, cfg.Logging)

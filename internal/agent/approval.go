@@ -30,11 +30,11 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 	if preview == "" && req.Preview.Summary() != "" {
 		preview = req.Preview.Summary()
 	}
-	emitEvent(a.sink, output.NewApprovalRequestedEvent(0, req.Tool.Name, req.Reason, preview))
+	emitEvent(a.sink, output.NewApprovalRequestedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview))
 	if a.inner == nil {
 		response := tool.ApprovalResponse{Allow: false, Message: "approval is required"}
 		req.Response <- response
-		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, req.Reason, preview, response.Message))
+		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, response.Message))
 		return nil
 	}
 	bridge := make(chan tool.ApprovalResponse, 1)
@@ -43,7 +43,7 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 	if err := a.inner.RequestApproval(ctx, innerReq); err != nil {
 		response := tool.ApprovalResponse{Allow: false, Message: err.Error()}
 		req.Response <- response
-		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, req.Reason, preview, response.Message))
+		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, response.Message))
 		return err
 	}
 	go func() {
@@ -54,13 +54,13 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 			response = tool.ApprovalResponse{Allow: false, Message: ctx.Err().Error()}
 		}
 		if response.Allow {
-			emitEvent(a.sink, output.NewApprovalAcceptedEvent(0, req.Tool.Name, req.Reason, preview, response.Message))
+			emitEvent(a.sink, output.NewApprovalAcceptedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, response.Message))
 		} else {
 			message := strings.TrimSpace(response.Message)
 			if message == "" {
 				message = "tool execution denied"
 			}
-			emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, req.Reason, preview, message))
+			emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, message))
 		}
 		req.Response <- response
 	}()

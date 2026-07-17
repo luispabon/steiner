@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 )
 
@@ -263,11 +262,7 @@ func finalizeAnthropicToolUses(toolUses map[int]*anthropicToolUseAccumulator) ([
 		return nil, nil
 	}
 	calls := make([]ToolCall, 0, len(toolUses))
-	indexes := make([]int, 0, len(toolUses))
-	for index := range toolUses {
-		indexes = append(indexes, index)
-	}
-	sort.Ints(indexes)
+	indexes := sortedIntKeys(toolUses)
 	for _, index := range indexes {
 		acc := toolUses[index]
 		arguments := make(map[string]any)

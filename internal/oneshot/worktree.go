@@ -80,7 +80,7 @@ func prepareWorktreePath(ctx context.Context, projectRoot, worktreePath string) 
 	if err := runGit(ctx, projectRoot, "worktree", "prune"); err != nil {
 		return err
 	}
-	if err := removeWorktreeAdminDirFromPath(projectRoot, worktreePath); err != nil {
+	if err := removeWorktreeAdminDirFromPath(ctx, projectRoot, worktreePath); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(worktreePath); err != nil {
@@ -177,10 +177,13 @@ func branchExists(ctx context.Context, projectRoot, branchName string) bool {
 	return false
 }
 
-func removeWorktreeAdminDirFromPath(projectRoot, worktreePath string) error {
+func removeWorktreeAdminDirFromPath(ctx context.Context, projectRoot, worktreePath string) error {
 	id := filepath.Base(worktreePath)
-	commonDir := filepath.Join(projectRoot, ".git")
-	return removeWorktreeAdminDirAt(projectRoot, commonDir, strings.TrimPrefix(id, "oneshot-"))
+	commonDir, err := gitOutput(ctx, projectRoot, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return err
+	}
+	return removeWorktreeAdminDirAt(projectRoot, strings.TrimSpace(commonDir), strings.TrimPrefix(id, "oneshot-"))
 }
 
 func removeWorktreeAdminDirAt(projectRoot, commonDir, id string) error {

@@ -59,9 +59,10 @@ func summarizeArgs(tool string, args map[string]any) string {
 			return fmt.Sprintf("%v", v)
 		}
 	}
-	// Fallback: first value
-	for _, v := range args {
-		return fmt.Sprintf("%v", v)
+	// Fallback: value for the lexicographically first key, for deterministic output.
+	if len(args) > 0 {
+		keys := sortedKeys(args)
+		return fmt.Sprintf("%v", args[keys[0]])
 	}
 	return tool
 }
@@ -75,8 +76,9 @@ func delegateArgText(args map[string]any) string {
 			return fmt.Sprintf("%v", v)
 		}
 	}
-	for _, v := range args {
-		return fmt.Sprintf("%v", v)
+	if len(args) > 0 {
+		keys := sortedKeys(args)
+		return fmt.Sprintf("%v", args[keys[0]])
 	}
 	return ""
 }

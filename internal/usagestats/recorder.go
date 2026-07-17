@@ -1,6 +1,7 @@
 package usagestats
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -89,8 +90,6 @@ func (r *Recorder) Record(obs Observation) {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	b, ok := r.buckets[key]
 	if !ok {
 		b = &bucket{}
@@ -104,6 +103,7 @@ func (r *Recorder) Record(obs Observation) {
 
 	r.sessionCacheRead += int64(obs.CacheReadTokens)
 	r.sessionTotalInput += int64(nonCached + obs.CacheReadTokens + obs.CacheCreateTokens)
+	r.mu.Unlock()
 
 	// Persist this observation's delta. Wrap in a bucket for write path.
 	delta := &bucket{
@@ -113,7 +113,9 @@ func (r *Recorder) Record(obs Observation) {
 		CacheCreateTokens: obs.CacheCreateTokens,
 		CompletionTokens:  obs.CompletionTokens,
 	}
-	_ = r.store.write(delta, key)
+	if err := r.store.write(delta, key); err != nil {
+		slog.Warn("persist usage stats delta", "error", err)
+	}
 }
 
 // Window sums all buckets whose hour falls within [now-d, now] and returns

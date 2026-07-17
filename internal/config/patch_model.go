@@ -17,11 +17,15 @@ func newModelConfigBase(cfg Config) ModelConfig {
 		return cloned
 	}
 	if len(cfg.Models.Definitions) > 0 {
-		for _, m := range cfg.Models.Definitions {
-			cloned := cloneModelConfig(m)
-			cloned.Advanced.Limits = AdvancedLimitsConfig{}
-			return cloned
+		var first string
+		for name := range cfg.Models.Definitions {
+			if first == "" || name < first {
+				first = name
+			}
 		}
+		cloned := cloneModelConfig(cfg.Models.Definitions[first])
+		cloned.Advanced.Limits = AdvancedLimitsConfig{}
+		return cloned
 	}
 	return ModelConfig{}
 }

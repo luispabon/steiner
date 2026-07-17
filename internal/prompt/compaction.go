@@ -198,9 +198,9 @@ func renderRetainedSummaries(state DurableContextState) string {
 	var lines []string
 	lines = append(lines, "retained summaries:")
 	for _, s := range state.RetainedSummaries {
-		text := s.Text
-		if len(text) > 160 {
-			text = text[:160] + "..."
+		text := truncateText(s.Text, 160)
+		if len(text) < len(s.Text) {
+			text += "..."
 		}
 		if s.Title != "" {
 			lines = append(lines, fmt.Sprintf("- %s: %s", s.Title, text))

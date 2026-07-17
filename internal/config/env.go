@@ -206,9 +206,9 @@ func isEnvStart(ch byte) bool {
 
 func isEnvContinue(ch byte, first bool) bool {
 	if first {
-		return ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
+		return isEnvStart(ch)
 	}
-	return ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
+	return isEnvStart(ch) || (ch >= '0' && ch <= '9')
 }
 
 func parseDurationString(value string) (time.Duration, error) {

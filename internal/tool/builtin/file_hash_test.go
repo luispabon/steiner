@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-var hexPattern = regexp.MustCompile(`^[0-9A-F]{4}$`)
+var hexPattern = regexp.MustCompile(`^[0-9A-F]{8}$`)
 
 func TestFileContentHash(t *testing.T) {
 	tests := []struct {
@@ -38,7 +38,7 @@ func TestFileContentHash(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := fileContentHash(tt.input)
 			if !hexPattern.MatchString(got) {
-				t.Fatalf("fileContentHash() = %q, want 4-char uppercase hex", got)
+				t.Fatalf("fileContentHash() = %q, want 8-char uppercase hex", got)
 			}
 			results[tt.name] = got
 		})

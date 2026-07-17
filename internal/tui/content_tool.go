@@ -314,11 +314,13 @@ func (b *contentBuffer) renderApprovalPreview(raw string, width int) string {
 	var kvMap map[string]any
 	if err := json.Unmarshal([]byte(raw), &kvMap); err == nil && len(kvMap) > 0 {
 		// JSON: render each key-value pair on its own line, key bold.
+		keys := sortedKeys(kvMap)
 		boldStyle := lipgloss.NewStyle().Bold(true)
 		muteStyle := b.styles.FgMute
 		var lines []string
 		lines = append(lines, "") // top padding
-		for k, v := range kvMap {
+		for _, k := range keys {
+			v := kvMap[k]
 			key := k
 			if len(key) > 0 {
 				key = strings.ToUpper(key[:1]) + key[1:]

@@ -15,11 +15,13 @@ import (
 
 type executionInput struct {
 	ToolName string
+	CallID   string
 	Input    map[string]any
 }
 
 type executionContext struct {
 	Def             ToolDef
+	CallID          string
 	NormalizedInput map[string]any
 }
 
@@ -34,7 +36,7 @@ func (e *Executor) resolveDefinition(in executionInput) (ToolDef, error) {
 	return def, nil
 }
 
-func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, input map[string]any, policy PathPolicy) (map[string]any, *PathPolicy, error) {
+func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, callID string, input map[string]any, policy PathPolicy) (map[string]any, *PathPolicy, error) {
 	normalizedInput, err := policy.ValidateToolInput(def.Name, input)
 	if err == nil {
 		return normalizedInput, nil, nil
@@ -45,6 +47,7 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, inp
 	if errors.As(err, &policyErr) && policyErr.Promptable && e.approver != nil {
 		req := ApprovalRequest{
 			Tool:              def,
+			CallID:            callID,
 			Input:             input,
 			WorkDir:           policy.Root(),
 			Preview:           buildApprovalPreview(def.Name, input, policy),
@@ -94,7 +97,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		effectivePolicy = e.pathPolicy.RestrictWritesTo(filepath.Join(e.pathPolicy.Root(), ".steiner"))
 	}
 
-	normalizedInput, approvalPolicy, err := e.normalizeExecutionInput(ctx, def, in.Input, effectivePolicy)
+	normalizedInput, approvalPolicy, err := e.normalizeExecutionInput(ctx, def, in.CallID, in.Input, effectivePolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +116,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 
 	ec := executionContext{
 		Def:             def,
+		CallID:          in.CallID,
 		NormalizedInput: normalizedInput,
 	}
 
@@ -176,6 +180,7 @@ func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext
 	}
 	req := ApprovalRequest{
 		Tool:              ec.Def,
+		CallID:            ec.CallID,
 		Input:             ec.NormalizedInput,
 		WorkDir:           policy.Root(),
 		Preview:           buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, *policy),

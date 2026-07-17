@@ -201,12 +201,11 @@ func finalizeToolCalls(toolCalls map[int]*openAIToolCallAccumulator) ([]ToolCall
 	if len(toolCalls) == 0 {
 		return nil, nil
 	}
+	indexes := sortedIntKeys(toolCalls)
+
 	calls := make([]ToolCall, 0, len(toolCalls))
-	for i := 0; i < len(toolCalls); i++ {
-		acc, ok := toolCalls[i]
-		if !ok || acc == nil {
-			continue
-		}
+	for _, index := range indexes {
+		acc := toolCalls[index]
 		arguments := make(map[string]any)
 		rawArgs := strings.TrimSpace(acc.Arguments.String())
 		sanitizedRawArgs := ""
