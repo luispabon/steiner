@@ -29,6 +29,9 @@ func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, subAgents ma
 			*problems = append(*problems, fmt.Sprintf("models.sub_agents contains unknown agent type %q", name))
 			continue
 		}
+		if alias == "" {
+			continue // empty alias is the documented "disabled" sentinel for lean/optional sub-agents (see internal/delegation/registry.go)
+		}
 		if _, ok := models[alias]; !ok {
 			*problems = append(*problems, fmt.Sprintf("models.sub_agents[%q] %q is not defined in models.definitions", name, alias))
 		}
