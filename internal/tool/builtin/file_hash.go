@@ -13,5 +13,5 @@ func fileContentHash(data []byte) string {
 	}
 	normalized := strings.Join(lines, "\n")
 	sum := crc32.ChecksumIEEE([]byte(normalized))
-	return fmt.Sprintf("%04X", sum&0xFFFF)
+	return fmt.Sprintf("%08X", sum)
 }
