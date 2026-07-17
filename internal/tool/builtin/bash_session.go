@@ -314,9 +314,10 @@ func readUntilMarker(r *bufio.Reader, marker string) (string, error) {
 }
 
 // maybeTruncate truncates s to maxBytes and returns whether truncation occurred.
+// The cut is adjusted to avoid splitting a multi-byte UTF-8 rune.
 func maybeTruncate(s string, maxBytes int) (string, bool) {
 	if len(s) <= maxBytes {
 		return s, false
 	}
-	return s[:maxBytes], true
+	return trimIncompleteUTF8SuffixString(s[:maxBytes]), true
 }

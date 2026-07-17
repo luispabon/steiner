@@ -84,36 +84,49 @@ var grepTypeToExt = map[string][]string{
 	"sh":     {".sh", ".bash"},
 }
 
-func grepSearch(ctx context.Context, root, displayPath, pattern string, caseInsens, multiline bool, fileGlob, fileType string, excluder *tool.PathExcluder, policy *tool.PathPolicy) ([]grepFileResult, error) {
-	re, err := compileGrepPattern(pattern, caseInsens, multiline)
+// grepSearchParams holds the parameters for grepSearch.
+type grepSearchParams struct {
+	root        string
+	displayPath string
+	pattern     string
+	caseInsens  bool
+	multiline   bool
+	fileGlob    string
+	fileType    string
+	excluder    *tool.PathExcluder
+	policy      *tool.PathPolicy
+}
+
+func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, error) {
+	re, err := compileGrepPattern(p.pattern, p.caseInsens, p.multiline)
 	if err != nil {
 		return nil, err
 	}
 
-	filterGlob, err := compileGrepGlob(fileGlob)
+	filterGlob, err := compileGrepGlob(p.fileGlob)
 	if err != nil {
 		return nil, err
 	}
-	exts := grepExtensions(fileType)
+	exts := grepExtensions(p.fileType)
 
-	rootInfo, err := os.Stat(root)
+	rootInfo, err := os.Stat(p.root)
 	if err != nil {
 		return nil, fmt.Errorf("stat root: %w", err)
 	}
 
-	if grepRootExcluded(root, displayPath, excluder, policy) {
+	if grepRootExcluded(p.root, p.displayPath, p.excluder, p.policy) {
 		return nil, nil
 	}
 
 	if !rootInfo.IsDir() {
-		dp := displayPath
-		if policy != nil && policy.IsSandboxTmpPath(root) {
-			dp = policy.DisplayPath(root)
+		dp := p.displayPath
+		if p.policy != nil && p.policy.IsSandboxTmpPath(p.root) {
+			dp = p.policy.DisplayPath(p.root)
 		}
-		return grepSearchPath(ctx, root, normalizedDisplayPath(root, dp), re, multiline, filterGlob, exts, excluder)
+		return grepSearchPath(ctx, p.root, normalizedDisplayPath(p.root, dp), re, p.multiline, filterGlob, exts, p.excluder)
 	}
 
-	return grepWalkDir(ctx, root, re, multiline, filterGlob, exts, excluder)
+	return grepWalkDir(ctx, p.root, re, p.multiline, filterGlob, exts, p.excluder)
 }
 
 func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder) ([]grepFileResult, error) {

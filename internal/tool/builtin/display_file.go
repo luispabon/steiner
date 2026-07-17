@@ -79,17 +79,10 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 			switch previewKind {
 			case "image":
 				preview.Language = "plain"
-				preview.Lines = []output.PreviewLine{{
-					Kind:   output.PreviewLineKindText,
-					Spans:  []output.PreviewSpan{{Text: "image preview unavailable in text overlay; use read for visual inspection"}},
-					Prefix: "",
-				}}
+				preview.Lines = plainTextPreviewLines("image preview unavailable in text overlay; use read for visual inspection")
 			case "binary":
 				preview.Language = "plain"
-				preview.Lines = []output.PreviewLine{{
-					Kind:  output.PreviewLineKindText,
-					Spans: []output.PreviewSpan{{Text: "binary file omitted from text preview; use read for content inspection"}},
-				}}
+				preview.Lines = plainTextPreviewLines("binary file omitted from text preview; use read for content inspection")
 			default:
 				preview = output.FormatFilePreviewWithLimit(displayPath, contents, in.Limit)
 				preview.Truncated = truncated
@@ -111,6 +104,14 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 			}, nil
 		},
 	}
+}
+
+// plainTextPreviewLines builds a single-line plain-text preview body carrying msg.
+func plainTextPreviewLines(msg string) []output.PreviewLine {
+	return []output.PreviewLine{{
+		Kind:  output.PreviewLineKindText,
+		Spans: []output.PreviewSpan{{Text: msg}},
+	}}
 }
 
 func readDisplayFilePreview(path string, offset, limit int) (string, bool, string, error) {
