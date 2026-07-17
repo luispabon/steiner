@@ -31,20 +31,33 @@ type phaseRunner struct {
 	runner cliRunner
 }
 
-func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig, maxTurns int, runMode string, streamingPreferred bool, events output.EventSink, promptCacheKey string) (oneshot.PhaseRunner, error) {
-	runtime, err := buildRuntimeWithRoots(ctx, cmd, flags, projectRoot, workDir, modelAlias)
+type phaseRunnerParams struct {
+	ProjectRoot        string
+	WorkDir            string
+	ModelAlias         string
+	Approver           tool.ApprovalResponder
+	AdvisorCfg         config.AdvisorConfig
+	MaxTurns           int
+	RunMode            string
+	StreamingPreferred bool
+	Events             output.EventSink
+	PromptCacheKey     string
+}
+
+func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, params phaseRunnerParams) (oneshot.PhaseRunner, error) {
+	runtime, err := buildRuntimeWithRoots(ctx, cmd, flags, params.ProjectRoot, params.WorkDir, params.ModelAlias)
 	if err != nil {
 		return nil, err
 	}
-	if events != nil {
-		runtime.events = output.NewMultiSink(events, runtime.events)
+	if params.Events != nil {
+		runtime.events = output.NewMultiSink(params.Events, runtime.events)
 	}
 	phaseAdvisor := runtime.cfg.Advisor
-	if advisorCfg.MaxUsesPerRun > 0 {
-		phaseAdvisor.MaxUsesPerRun = advisorCfg.MaxUsesPerRun
+	if params.AdvisorCfg.MaxUsesPerRun > 0 {
+		phaseAdvisor.MaxUsesPerRun = params.AdvisorCfg.MaxUsesPerRun
 	}
-	if advisorCfg.MaxTokens != nil {
-		value := *advisorCfg.MaxTokens
+	if params.AdvisorCfg.MaxTokens != nil {
+		value := *params.AdvisorCfg.MaxTokens
 		phaseAdvisor.MaxTokens = &value
 	}
 	phaseAdvisor.Enabled = true
@@ -52,13 +65,13 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pr
 
 	runner := cliRunner{
 		runtime:            runtime,
-		approver:           approver,
-		maxTurns:           maxTurns,
-		runMode:            runMode,
-		streamingPreferred: streamingPreferred,
-		promptCacheKey:     promptCacheKey,
+		approver:           params.Approver,
+		maxTurns:           params.MaxTurns,
+		runMode:            params.RunMode,
+		streamingPreferred: params.StreamingPreferred,
+		promptCacheKey:     params.PromptCacheKey,
 	}
-	if alias := strings.TrimSpace(modelAlias); alias != "" {
+	if alias := strings.TrimSpace(params.ModelAlias); alias != "" {
 		runner.currentAlias = func() string {
 			return alias
 		}
@@ -192,7 +205,18 @@ type phaseRunnerFactory struct {
 }
 
 func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, _ oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (oneshot.PhaseRunner, error) {
-	return newPhaseRunner(ctx, f.cmd, f.flags, f.rootDir, f.identity.WorktreePath(f.rootDir), modelAlias, approver, advisorCfg, 0, "oneshot", false, f.events, f.identity.ID)
+	return newPhaseRunner(ctx, f.cmd, f.flags, phaseRunnerParams{
+		ProjectRoot:        f.rootDir,
+		WorkDir:            f.identity.WorktreePath(f.rootDir),
+		ModelAlias:         modelAlias,
+		Approver:           approver,
+		AdvisorCfg:         advisorCfg,
+		MaxTurns:           0,
+		RunMode:            "oneshot",
+		StreamingPreferred: false,
+		Events:             f.events,
+		PromptCacheKey:     f.identity.ID,
+	})
 }
 
 func renderOneshotRuns(stream *output.EventStream, runs []oneshot.ResumableRun) {
