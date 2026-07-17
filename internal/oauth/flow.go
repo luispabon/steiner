@@ -70,7 +70,32 @@ func RunAuthCodeFlow(ctx context.Context, cfg FlowConfig) (*oauth2.Token, error)
 		redirectURI = fmt.Sprintf("http://localhost:%d%s", port, callbackPath)
 	}
 
-	// Build OAuth2 config
+	conf, authURL := prepareAuthRequest(cfg, redirectURI, state, verifier)
+
+	// Wait for callback (with timeout if no deadline set)
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 120*time.Second)
+		defer cancel()
+	}
+
+	code, err := awaitCallbackCode(ctx, cfg, listener, callbackPath, state, authURL)
+	if err != nil {
+		return nil, err
+	}
+
+	// Exchange code for token
+	token, err := conf.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+	if err != nil {
+		return nil, fmt.Errorf("exchange code for token: %w", err)
+	}
+
+	return token, nil
+}
+
+// prepareAuthRequest builds the oauth2 client config and the PKCE-protected
+// authorization URL for the given redirect URI, CSRF state, and verifier.
+func prepareAuthRequest(cfg FlowConfig, redirectURI, state, verifier string) (*oauth2.Config, string) {
 	conf := &oauth2.Config{
 		ClientID:    cfg.ClientID,
 		Endpoint:    cfg.Endpoint,
@@ -84,50 +109,38 @@ func RunAuthCodeFlow(ctx context.Context, cfg FlowConfig) (*oauth2.Token, error)
 	for k, v := range cfg.ExtraParams {
 		opts = append(opts, oauth2.SetAuthURLParam(k, v))
 	}
-	authURL := conf.AuthCodeURL(state, opts...)
+	return conf, conf.AuthCodeURL(state, opts...)
+}
 
+// awaitCallbackCode notifies cfg.OnAuthURL (if set), opens the browser to
+// authURL, and blocks until the local callback server receives an
+// authorization code, the context is cancelled, or an error occurs.
+func awaitCallbackCode(ctx context.Context, cfg FlowConfig, listener net.Listener, callbackPath, state, authURL string) (string, error) {
 	if cfg.OnAuthURL != nil {
 		cfg.OnAuthURL(authURL)
 	}
 
-	// Open browser
 	launcher := cfg.OpenBrowser
 	if launcher == nil {
 		launcher = openBrowser
 	}
 	if err := launcher(authURL); err != nil {
-		return nil, fmt.Errorf("open browser: %w", err)
+		return "", fmt.Errorf("open browser: %w", err)
 	}
 
-	// Wait for callback (with timeout if no deadline set)
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 120*time.Second)
-		defer cancel()
-	}
-
-	// Serve HTTP and wait for callback
 	codeChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 
 	go serveCallback(listener, callbackPath, state, codeChan, errChan)
 
-	var code string
 	select {
-	case code = <-codeChan:
+	case code := <-codeChan:
+		return code, nil
 	case err := <-errChan:
-		return nil, fmt.Errorf("callback error: %w", err)
+		return "", fmt.Errorf("callback error: %w", err)
 	case <-ctx.Done():
-		return nil, fmt.Errorf("auth flow cancelled: %w", ctx.Err())
+		return "", fmt.Errorf("auth flow cancelled: %w", ctx.Err())
 	}
-
-	// Exchange code for token
-	token, err := conf.Exchange(ctx, code, oauth2.VerifierOption(verifier))
-	if err != nil {
-		return nil, fmt.Errorf("exchange code for token: %w", err)
-	}
-
-	return token, nil
 }
 
 // generateState creates a random CSRF state (16 bytes, hex-encoded).
