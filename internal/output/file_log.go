@@ -38,7 +38,7 @@ func NewFileLogSink(path string, thinkingChunk bool) (*FileLogSink, error) {
 
 // Emit appends event to the log file unless it is filtered out.
 func (s *FileLogSink) Emit(event Event) {
-	if s == nil || s.file == nil {
+	if s == nil {
 		return
 	}
 	if event.Type == EventTypeThinkingChunk && !s.thinkingChunk {
@@ -48,7 +48,7 @@ func (s *FileLogSink) Emit(event Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.lastErr != nil {
+	if s.file == nil || s.lastErr != nil {
 		return
 	}
 

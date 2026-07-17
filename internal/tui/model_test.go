@@ -1714,7 +1714,7 @@ func TestModelRefreshesGitSnapshotAfterToolAndModelCallFinishedEvents(t *testing
 	}
 
 	writeRepoFile(t, repo, "turn.txt", "draft\n")
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(1, "", "stop", 1, 0, nil, 0, 0, 0)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{Turn: 1, FinishReason: "stop", ToolCalls: 1})})
 	m.git.Refresh(context.Background())
 	m = updateModel(t, m, gitRefreshDoneMsg{})
 
@@ -3696,7 +3696,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	}
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("review", ".steiner/plans/step-3", "handoff now")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(1, "", "", 1, 0, nil, 0, 0, 0)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{Turn: 1, ToolCalls: 1})})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
 
 	prompts := ctrl.submitPrompts()
@@ -3805,7 +3805,7 @@ func TestModelWorkflowHandoffAcceptWithCurrentSessionModelDoesNotSwitch(t *testi
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("implement", ".steiner/plans/step-4", "")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(1, "", "", 1, 0, nil, 0, 0, 0)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{Turn: 1, ToolCalls: 1})})
 	updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
 
 	if got := ctrl.switchModelActions(); len(got) != 0 {

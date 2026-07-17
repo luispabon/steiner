@@ -60,7 +60,16 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		outputTPS = float64(turnTokens) / (float64(durationMs) / 1000.0)
 	}
 
-	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(turn, p.request.ResolvedModel.BackendModelID, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil, durationMs, ttftMs, outputTPS))
+	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
+		Turn:             turn,
+		Model:            p.request.ResolvedModel.BackendModelID,
+		FinishReason:     response.FinishReason,
+		ToolCalls:        len(response.Message.ToolCalls),
+		CompletionTokens: turnTokens,
+		DurationMs:       durationMs,
+		TTFTMs:           ttftMs,
+		OutputTPS:        outputTPS,
+	}))
 	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
 		emitEvent(p.request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
 	}
@@ -78,12 +87,19 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 func (p *turnProgressor) handleModelCallError(ctx context.Context, state RunState, turn int, err error) turnOutcome {
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
-		emitEvent(p.request.Events, output.NewModelCallFinishedEvent(turn, p.request.ResolvedModel.BackendModelID, "", 0, 0, nil, 0, 0, 0))
+		emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
+			Turn:  turn,
+			Model: p.request.ResolvedModel.BackendModelID,
+		}))
 		emitStop(p.request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
 	}
 	state.StopReason = StopReasonError
-	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(turn, p.request.ResolvedModel.BackendModelID, "", 0, 0, err, 0, 0, 0))
+	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
+		Turn:  turn,
+		Model: p.request.ResolvedModel.BackendModelID,
+		Err:   err,
+	}))
 
 	return turnOutcome{State: state, Stop: true, Error: err}
 }

@@ -126,7 +126,15 @@ func TestNewModelCallFinishedEventTimingFields(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ev := NewModelCallFinishedEvent(1, "model", "stop", 0, 100, nil, tc.durationMs, tc.ttftMs, tc.outputTPS)
+			ev := NewModelCallFinishedEvent(ModelCallFinishedParams{
+				Turn:             1,
+				Model:            "model",
+				FinishReason:     "stop",
+				CompletionTokens: 100,
+				DurationMs:       tc.durationMs,
+				TTFTMs:           tc.ttftMs,
+				OutputTPS:        tc.outputTPS,
+			})
 			payload := ev.Payload.(ModelCallFinishedEvent)
 			if payload.DurationMs != tc.durationMs {
 				t.Errorf("DurationMs: got %d, want %d", payload.DurationMs, tc.durationMs)
