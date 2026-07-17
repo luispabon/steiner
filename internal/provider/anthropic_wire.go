@@ -424,19 +424,11 @@ func anthropicToolInput(arguments map[string]any) map[string]any {
 	return cloneToolArguments(arguments)
 }
 
+// cloneToolArguments deep-copies tool call arguments for echoing back to the
+// model. Delegates to the shared, error-free implementation instead of a
+// JSON round trip that can silently drop arguments on marshal failure.
 func cloneToolArguments(input map[string]any) map[string]any {
-	if len(input) == 0 {
-		return nil
-	}
-	data, err := json.Marshal(input)
-	if err != nil {
-		return map[string]any{}
-	}
-	var out map[string]any
-	if err := json.Unmarshal(data, &out); err != nil {
-		return map[string]any{}
-	}
-	return out
+	return CloneToolArguments(input)
 }
 
 func (u *anthropicUsage) toUsageStats() *UsageStats {
