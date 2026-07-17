@@ -509,14 +509,16 @@ func TestValidate(t *testing.T) {
 			name: "subagent known agent types accepted",
 			cfg: func() Config {
 				c := validBase()
+				c.Models.Definitions["alt-a"] = c.Models.Definitions["default"]
+				c.Models.Definitions["alt-b"] = c.Models.Definitions["default"]
 				c.Models.SubAgents = map[string]string{
-					"explore":      "default",
+					"explore":      "alt-a",
 					"research":     "default",
-					"code":         "default",
-					"evaluate":     "default",
+					"code":         "alt-b",
+					"evaluate":     "alt-a",
 					"sanity_check": "default",
-					"review":       "default",
-					"vision":       "default",
+					"review":       "alt-b",
+					"vision":       "alt-a",
 				}
 				return c
 			}(),
@@ -537,8 +539,9 @@ func TestValidate(t *testing.T) {
 			name: "workflow handoff known aliases accepted",
 			cfg: func() Config {
 				c := validBase()
+				c.Models.Definitions["alt-a"] = c.Models.Definitions["default"]
 				c.Models.WorkflowHandoff = map[string]string{
-					"implement": "default",
+					"implement": "alt-a",
 					"review":    "default",
 				}
 				return c
@@ -571,10 +574,12 @@ func TestValidate(t *testing.T) {
 			name: "oneshot known aliases accepted",
 			cfg: func() Config {
 				c := validBase()
+				c.Models.Definitions["alt-a"] = c.Models.Definitions["default"]
+				c.Models.Definitions["alt-b"] = c.Models.Definitions["default"]
 				c.Models.OneShot = map[string]string{
-					"plan":      "default",
+					"plan":      "alt-a",
 					"implement": "default",
-					"review":    "default",
+					"review":    "alt-b",
 				}
 				return c
 			}(),
