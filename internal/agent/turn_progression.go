@@ -436,23 +436,22 @@ func imageBlockPlaceholder(img ImageBlock, visionState VisionState, subAgentConf
 				img.ID, img.FilePath, dims, fmtStr)
 		}
 
-		// Vision-capable: advertise vision and read tools.
-		if visionState == VisionCapable {
-			return descriptive + fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
+		var suffix string
+		switch {
+		case visionState == VisionCapable:
+			// Vision-capable: advertise vision and read tools.
+			suffix = fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
+		case visionState == VisionIncapable && subAgentConfigured:
+			// Non-vision with sub-agent: advertise follow_up, not read.
+			suffix = " — use follow_up with the agent_id from the image analysis]"
+		case visionState == VisionIncapable:
+			// Non-vision without sub-agent: no re-examine hint.
+			suffix = "]"
+		default:
+			// Unknown (conservative): advertise both tools (backward compat).
+			suffix = fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
 		}
-
-		// Non-vision with sub-agent: advertise follow_up, not read.
-		if visionState == VisionIncapable && subAgentConfigured {
-			return descriptive + " — use follow_up with the agent_id from the image analysis]"
-		}
-
-		// Non-vision without sub-agent: no re-examine hint.
-		if visionState == VisionIncapable {
-			return descriptive + "]"
-		}
-
-		// Unknown (conservative): advertise both tools (backward compat).
-		return descriptive + fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
+		return descriptive + suffix
 	}
 
 	// Legacy format for backward compat (when ID/FilePath are not set).

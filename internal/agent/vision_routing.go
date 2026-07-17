@@ -132,15 +132,12 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 
 	raw, err := p.request.Executor.Execute(ctx, "vision", callID, args)
 	if err != nil {
-		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", err))
-		return fmt.Errorf("vision call: %w", err)
+		return p.failVisionCall(callID, err)
 	}
 
 	env := normalizeToolResult(raw)
 	if env.Content == "" {
-		emptyErr := fmt.Errorf("vision tool returned empty result")
-		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", emptyErr))
-		return fmt.Errorf("vision call: %w", emptyErr)
+		return p.failVisionCall(callID, fmt.Errorf("vision tool returned empty result"))
 	}
 
 	var result struct {
@@ -153,9 +150,7 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	}
 
 	if result.Output == "" {
-		emptyErr := fmt.Errorf("vision tool output is empty")
-		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", emptyErr))
-		return fmt.Errorf("vision call: %w", emptyErr)
+		return p.failVisionCall(callID, fmt.Errorf("vision tool output is empty"))
 	}
 
 	description := fmt.Sprintf("[Image %s — you cannot view images directly. A vision assistant examined it and reports:\n%s\nFor further detail about this image, call follow_up with agent_id \"%s\".]",
@@ -178,6 +173,13 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	}))
 
 	return nil
+}
+
+// failVisionCall emits a finished event for the failed vision call and
+// returns the wrapped error.
+func (p *turnProgressor) failVisionCall(callID string, err error) error {
+	emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", err))
+	return fmt.Errorf("vision call: %w", err)
 }
 
 // truncateForLog shortens s to at most max runes for a compact diagnostic
