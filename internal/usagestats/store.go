@@ -182,7 +182,7 @@ func (s *store) write(delta *bucket, deltaKey bucketKey) error {
 	defer f.Close() //nolint:errcheck
 
 	if err := s.locker.lock(f.Fd()); err != nil {
-		return nil
+		return fmt.Errorf("lock store file: %w", err)
 	}
 	defer func() {
 		_ = s.locker.unlock(f.Fd())
