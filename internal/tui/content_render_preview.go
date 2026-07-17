@@ -58,43 +58,70 @@ func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
 }
 
 func (b *contentBuffer) buildGlobLines(tc *toolCallSegment) []string {
-	return b.buildListLines(tc.preview.Path, "glob results", tc.preview.Returned, tc.preview.NextOffset, tc.preview.Truncated, tc.preview.Entries, true)
+	return b.buildListLines(listLinesParams{
+		path:       tc.preview.Path,
+		label:      "glob results",
+		returned:   tc.preview.Returned,
+		nextOffset: tc.preview.NextOffset,
+		truncated:  tc.preview.Truncated,
+		entries:    tc.preview.Entries,
+		showDirs:   true,
+	})
 }
 
 func (b *contentBuffer) buildLSLines(tc *toolCallSegment) []string {
-	return b.buildListLines(tc.preview.Path, "directory listing", tc.preview.Returned, tc.preview.NextOffset, tc.preview.Truncated, tc.preview.Entries, true)
+	return b.buildListLines(listLinesParams{
+		path:       tc.preview.Path,
+		label:      "directory listing",
+		returned:   tc.preview.Returned,
+		nextOffset: tc.preview.NextOffset,
+		truncated:  tc.preview.Truncated,
+		entries:    tc.preview.Entries,
+		showDirs:   true,
+	})
 }
 
-func (b *contentBuffer) buildListLines(path, label string, returned, nextOffset int, truncated bool, entries []output.ToolPreviewListEntry, showDirs bool) []string {
-	summary := label
-	if path != "" {
-		summary = path + " · " + summary
+// listLinesParams bundles the arguments for buildListLines.
+type listLinesParams struct {
+	path       string
+	label      string
+	returned   int
+	nextOffset int
+	truncated  bool
+	entries    []output.ToolPreviewListEntry
+	showDirs   bool
+}
+
+func (b *contentBuffer) buildListLines(p listLinesParams) []string {
+	summary := p.label
+	if p.path != "" {
+		summary = p.path + " · " + summary
 	}
-	if returned > 0 {
-		summary += fmt.Sprintf(" · %d entries", returned)
+	if p.returned > 0 {
+		summary += fmt.Sprintf(" · %d entries", p.returned)
 	} else {
 		summary += " · no entries"
 	}
-	if nextOffset > 0 || truncated {
+	if p.nextOffset > 0 || p.truncated {
 		summary += " · more available"
 	}
 
 	lines := []string{b.styles.FgDim.Render(summary)}
-	if len(entries) == 0 {
+	if len(p.entries) == 0 {
 		lines = append(lines, b.styles.FgMute.Render("no results"))
 		return lines
 	}
 
-	for _, entry := range entries {
+	for _, entry := range p.entries {
 		name := entry.Path
-		if showDirs && entry.IsDir {
+		if p.showDirs && entry.IsDir {
 			name += "/"
 			lines = append(lines, b.toolTagStyle("read").Render(name))
 		} else {
 			lines = append(lines, b.styles.FgDim.Render(name))
 		}
 	}
-	if nextOffset > 0 || truncated {
+	if p.nextOffset > 0 || p.truncated {
 		lines = append(lines, b.styles.FgMute.Render("more available"))
 	}
 	return lines
@@ -111,14 +138,10 @@ func (b *contentBuffer) buildGrepLines(tc *toolCallSegment) []string {
 	}
 }
 
-func (b *contentBuffer) buildGrepFileLines(tc *toolCallSegment) []string {
-	summary := "files with matches"
-	if tc.preview.Path != "" {
-		summary = tc.preview.Path + " · " + summary
-	}
-	if tc.preview.Returned > 0 {
-		summary += fmt.Sprintf(" · %d files", tc.preview.Returned)
-	}
+// buildGrepResultLines renders a grep-mode summary header followed by
+// per-file lines produced by renderFile, with a shared "no matches
+// found"/"more available" wrapping for all grep output modes.
+func (b *contentBuffer) buildGrepResultLines(tc *toolCallSegment, summary string, renderFile func(output.ToolPreviewGrepFile) []string) []string {
 	if tc.preview.NextOffset > 0 {
 		summary += " · more available"
 	}
@@ -128,12 +151,25 @@ func (b *contentBuffer) buildGrepFileLines(tc *toolCallSegment) []string {
 		return lines
 	}
 	for _, file := range tc.preview.GrepFiles {
-		lines = append(lines, b.toolTagStyle("grep").Render(file.Path))
+		lines = append(lines, renderFile(file)...)
 	}
 	if tc.preview.NextOffset > 0 {
 		lines = append(lines, b.styles.FgMute.Render("more available"))
 	}
 	return lines
+}
+
+func (b *contentBuffer) buildGrepFileLines(tc *toolCallSegment) []string {
+	summary := "files with matches"
+	if tc.preview.Path != "" {
+		summary = tc.preview.Path + " · " + summary
+	}
+	if tc.preview.Returned > 0 {
+		summary += fmt.Sprintf(" · %d files", tc.preview.Returned)
+	}
+	return b.buildGrepResultLines(tc, summary, func(file output.ToolPreviewGrepFile) []string {
+		return []string{b.toolTagStyle("grep").Render(file.Path)}
+	})
 }
 
 func (b *contentBuffer) buildGrepCountLines(tc *toolCallSegment) []string {
@@ -144,21 +180,9 @@ func (b *contentBuffer) buildGrepCountLines(tc *toolCallSegment) []string {
 	if tc.preview.Returned > 0 {
 		summary += fmt.Sprintf(" · %d matches", tc.preview.Returned)
 	}
-	if tc.preview.NextOffset > 0 {
-		summary += " · more available"
-	}
-	lines := []string{b.styles.FgDim.Render(summary)}
-	if len(tc.preview.GrepFiles) == 0 {
-		lines = append(lines, b.styles.FgMute.Render("no matches found"))
-		return lines
-	}
-	for _, file := range tc.preview.GrepFiles {
-		lines = append(lines, b.toolTagStyle("grep").Render(fmt.Sprintf("%s:%d", file.Path, file.Count)))
-	}
-	if tc.preview.NextOffset > 0 {
-		lines = append(lines, b.styles.FgMute.Render("more available"))
-	}
-	return lines
+	return b.buildGrepResultLines(tc, summary, func(file output.ToolPreviewGrepFile) []string {
+		return []string{b.toolTagStyle("grep").Render(fmt.Sprintf("%s:%d", file.Path, file.Count))}
+	})
 }
 
 func (b *contentBuffer) buildGrepContentLines(tc *toolCallSegment) []string {
@@ -173,16 +197,8 @@ func (b *contentBuffer) buildGrepContentLines(tc *toolCallSegment) []string {
 	if total > 0 {
 		summary += fmt.Sprintf(" · %d matches", total)
 	}
-	if tc.preview.NextOffset > 0 {
-		summary += " · more available"
-	}
-	lines := []string{b.styles.FgDim.Render(summary)}
-	if len(tc.preview.GrepFiles) == 0 {
-		lines = append(lines, b.styles.FgMute.Render("no matches found"))
-		return lines
-	}
-	for _, file := range tc.preview.GrepFiles {
-		lines = append(lines, b.toolTagStyle("grep").Render("## "+file.Path))
+	return b.buildGrepResultLines(tc, summary, func(file output.ToolPreviewGrepFile) []string {
+		lines := []string{b.toolTagStyle("grep").Render("## " + file.Path)}
 		for _, match := range file.Matches {
 			if match.LineNumber > 0 {
 				lines = append(lines, b.styles.FgFaint.Render(fmt.Sprintf("%4d  ", match.LineNumber))+b.styles.FgDim.Render(match.Text))
@@ -190,11 +206,8 @@ func (b *contentBuffer) buildGrepContentLines(tc *toolCallSegment) []string {
 			}
 			lines = append(lines, b.styles.FgDim.Render(match.Text))
 		}
-	}
-	if tc.preview.NextOffset > 0 {
-		lines = append(lines, b.styles.FgMute.Render("more available"))
-	}
-	return lines
+		return lines
+	})
 }
 
 func (b *contentBuffer) buildFilePreviewLines(tc *toolCallSegment, width int) []string {
@@ -453,79 +466,101 @@ func (b *contentBuffer) buildMutateLines(tc *toolCallSegment, width int) []strin
 }
 
 func (b *contentBuffer) renderMutateOperation(op output.ToolPreviewMutateOperation, rule string) []string {
-	var lines []string
-
-	addedBg := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.DiffAddedBg)).
-		Foreground(lipgloss.Color(theme.Added))
-	removedBg := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.DiffRemovedBg)).
-		Foreground(lipgloss.Color(theme.Removed))
-
 	switch op.Type {
 	case "create", "write":
-		badge := b.styles.Added.Render("A")
-		if op.Type == "write" {
-			badge = b.styles.Warn.Render("M")
-		}
-		header := badge + " " + b.styles.FgDim.Render(op.Path)
-		lines = append(lines, header)
-		lines = append(lines, rule)
-
-		doc := output.FormatFilePreview(op.Path, op.Content)
-		lines = append(lines, b.renderFilePreviewDocument(doc)...)
-		lines = append(lines, rule)
-
+		return b.renderMutateWriteOp(op, rule)
 	case "replace":
-		badge := b.styles.Warn.Render("M")
-		header := badge + " " + b.styles.FgDim.Render(op.Path)
-		lines = append(lines, header)
-		lines = append(lines, rule)
-
-		oldLines := strings.Split(op.OldString, "\n")
-		newLines := strings.Split(op.NewString, "\n")
-		maxLen := max(len(oldLines), len(newLines))
-		for i := 0; i < maxLen; i++ {
-			if i < len(oldLines) {
-				lines = append(lines, removedBg.Render("- "+oldLines[i]))
-			}
-			if i < len(newLines) {
-				lines = append(lines, addedBg.Render("+ "+newLines[i]))
-			}
-		}
-		lines = append(lines, rule)
-
+		return b.renderMutateReplaceOp(op, rule)
 	case "line_replace":
-		badge := b.styles.Warn.Render("M")
-		header := badge + " " + b.styles.FgDim.Render(op.Path)
-		lines = append(lines, header)
-		lines = append(lines, rule)
-
-		lineNo := b.styles.FgFaint.Render(fmt.Sprintf("%4d", op.Line))
-		lines = append(lines, lineNo+"  "+removedBg.Render("- "+op.OldString))
-		lines = append(lines, lineNo+"  "+addedBg.Render("+ "+op.NewString))
-		lines = append(lines, rule)
-
+		return b.renderMutateLineReplaceOp(op, rule)
 	case "insert_before", "insert_after":
-		badge := b.styles.Added.Render("I")
-		header := badge + " " + b.styles.FgDim.Render(fmt.Sprintf("%s:%d", op.Path, op.Line))
-		lines = append(lines, header)
-		lines = append(lines, rule)
-		for _, insertLine := range strings.Split(op.NewString, "\n") {
-			lines = append(lines, addedBg.Render("+ "+insertLine))
-		}
-		lines = append(lines, rule)
-
+		return b.renderMutateInsertOp(op, rule)
 	case "delete":
-		badge := b.styles.Removed.Render("D")
-		header := badge + " " + b.styles.FgDim.Render(op.Path)
-		lines = append(lines, header)
-
+		return b.renderMutateDeleteOp(op)
 	case "move":
-		badge := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ToolBlue)).Render("R")
-		header := badge + " " + b.styles.FgDim.Render(op.From) + " " + b.styles.FgFaint.Render("→") + " " + b.styles.FgDim.Render(op.To)
-		lines = append(lines, header)
+		return b.renderMutateMoveOp(op)
 	}
+	return nil
+}
 
+func (b *contentBuffer) renderMutateWriteOp(op output.ToolPreviewMutateOperation, rule string) []string {
+	badge := b.styles.Added.Render("A")
+	if op.Type == "write" {
+		badge = b.styles.Warn.Render("M")
+	}
+	header := badge + " " + b.styles.FgDim.Render(op.Path)
+	lines := []string{header, rule}
+
+	doc := output.FormatFilePreview(op.Path, op.Content)
+	lines = append(lines, b.renderFilePreviewDocument(doc)...)
+	lines = append(lines, rule)
 	return lines
+}
+
+func (b *contentBuffer) renderMutateReplaceOp(op output.ToolPreviewMutateOperation, rule string) []string {
+	removedBg, addedBg := mutateDiffStyles()
+	badge := b.styles.Warn.Render("M")
+	header := badge + " " + b.styles.FgDim.Render(op.Path)
+	lines := []string{header, rule}
+
+	oldLines := strings.Split(op.OldString, "\n")
+	newLines := strings.Split(op.NewString, "\n")
+	maxLen := max(len(oldLines), len(newLines))
+	for i := 0; i < maxLen; i++ {
+		if i < len(oldLines) {
+			lines = append(lines, removedBg.Render("- "+oldLines[i]))
+		}
+		if i < len(newLines) {
+			lines = append(lines, addedBg.Render("+ "+newLines[i]))
+		}
+	}
+	lines = append(lines, rule)
+	return lines
+}
+
+func (b *contentBuffer) renderMutateLineReplaceOp(op output.ToolPreviewMutateOperation, rule string) []string {
+	removedBg, addedBg := mutateDiffStyles()
+	badge := b.styles.Warn.Render("M")
+	header := badge + " " + b.styles.FgDim.Render(op.Path)
+	lineNo := b.styles.FgFaint.Render(fmt.Sprintf("%4d", op.Line))
+	return []string{
+		header,
+		rule,
+		lineNo + "  " + removedBg.Render("- "+op.OldString),
+		lineNo + "  " + addedBg.Render("+ "+op.NewString),
+		rule,
+	}
+}
+
+func (b *contentBuffer) renderMutateInsertOp(op output.ToolPreviewMutateOperation, rule string) []string {
+	_, addedBg := mutateDiffStyles()
+	badge := b.styles.Added.Render("I")
+	header := badge + " " + b.styles.FgDim.Render(fmt.Sprintf("%s:%d", op.Path, op.Line))
+	lines := []string{header, rule}
+	for _, insertLine := range strings.Split(op.NewString, "\n") {
+		lines = append(lines, addedBg.Render("+ "+insertLine))
+	}
+	lines = append(lines, rule)
+	return lines
+}
+
+func (b *contentBuffer) renderMutateDeleteOp(op output.ToolPreviewMutateOperation) []string {
+	badge := b.styles.Removed.Render("D")
+	return []string{badge + " " + b.styles.FgDim.Render(op.Path)}
+}
+
+func (b *contentBuffer) renderMutateMoveOp(op output.ToolPreviewMutateOperation) []string {
+	badge := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.ToolBlue)).Render("R")
+	header := badge + " " + b.styles.FgDim.Render(op.From) + " " + b.styles.FgFaint.Render("→") + " " + b.styles.FgDim.Render(op.To)
+	return []string{header}
+}
+
+func mutateDiffStyles() (removed, added lipgloss.Style) {
+	added = lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.DiffAddedBg)).
+		Foreground(lipgloss.Color(theme.Added))
+	removed = lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.DiffRemovedBg)).
+		Foreground(lipgloss.Color(theme.Removed))
+	return removed, added
 }

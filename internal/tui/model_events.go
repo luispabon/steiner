@@ -99,55 +99,18 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.ContextBudgetEvent:
 		m.applyContextBudget(payload)
 	case output.ContextCompactionEvent:
-		cs := newCompactionState(payload)
-		m.setCompaction(cs)
-		if cs.Active() {
-			m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
-		} else {
-			m.activity = m.activity.static("context compacted", compactedLabel(payload))
-			m.applyContextBudget(payload.BudgetSnapshot())
-		}
-		m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
-		// Append separator + summary text when compaction finishes with a summary.
-		if payload.Severity != "compacting" && payload.SummaryText != "" {
-			m.content.AppendCompactionResult("Compaction", payload.SummaryText)
-		}
+		m.applyCompactionEvent(payload)
 	case output.ContextSessionHealthEvent:
-		if !m.compaction.Active() {
-			m.status.context = appendStatusContext(m.status.context, sessionHealthStatusFragment(payload))
-		}
-		m.sessionHealthCompactionCount = payload.CompactionCount
-		m.sessionHealthTurn = payload.Turn
-		m.sessionHealthState = payload.SessionState
-		m.sessionHealthGuidance = payload.RestartGuidance
-		m.sessionHealthNotes = append([]string(nil), payload.Notes...)
+		m.applySessionHealthEvent(payload)
 	case output.ContextDiagnosticsEvent:
 		if budget, ok := output.AsContextBudgetEvent(payload); ok {
 			m.applyContextBudget(budget)
 		}
 		if compaction, ok := output.AsContextCompactionEvent(payload); ok {
-			cs := newCompactionState(compaction)
-			m.setCompaction(cs)
-			if cs.Active() {
-				m.activity = m.activity.waiting("compacting context", compactingLabel(compaction))
-			} else {
-				m.activity = m.activity.static("context compacted", compactedLabel(compaction))
-				m.applyContextBudget(compaction.BudgetSnapshot())
-			}
-			m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(compaction))
-			if !cs.Active() && compaction.SummaryText != "" {
-				m.content.AppendCompactionResult("Compaction", compaction.SummaryText)
-			}
+			m.applyCompactionEvent(compaction)
 		}
 		if health, ok := output.AsContextSessionHealthEvent(payload); ok {
-			if !m.compaction.Active() {
-				m.status.context = appendStatusContext(m.status.context, sessionHealthStatusFragment(health))
-			}
-			m.sessionHealthCompactionCount = health.CompactionCount
-			m.sessionHealthTurn = health.Turn
-			m.sessionHealthState = health.SessionState
-			m.sessionHealthGuidance = health.RestartGuidance
-			m.sessionHealthNotes = append([]string(nil), health.Notes...)
+			m.applySessionHealthEvent(health)
 		}
 	case output.ApprovalEvent:
 		switch event.Type {
@@ -225,6 +188,39 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		cmds = append(cmds, syncDebounceCmd(m.syncDebounceSeq))
 	}
 	return tea.Batch(cmds...)
+}
+
+// applyCompactionEvent updates compaction state, activity, and status context
+// for a context compaction event. Shared by the direct ContextCompactionEvent
+// case and the ContextDiagnosticsEvent envelope.
+func (m *Model) applyCompactionEvent(payload output.ContextCompactionEvent) {
+	cs := newCompactionState(payload)
+	m.setCompaction(cs)
+	if cs.Active() {
+		m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
+	} else {
+		m.activity = m.activity.static("context compacted", compactedLabel(payload))
+		m.applyContextBudget(payload.BudgetSnapshot())
+	}
+	m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
+	// Append separator + summary text when compaction finishes with a summary.
+	if !cs.Active() && payload.SummaryText != "" {
+		m.content.AppendCompactionResult("Compaction", payload.SummaryText)
+	}
+}
+
+// applySessionHealthEvent updates session health tracking fields and status
+// context for a context session health event. Shared by the direct
+// ContextSessionHealthEvent case and the ContextDiagnosticsEvent envelope.
+func (m *Model) applySessionHealthEvent(payload output.ContextSessionHealthEvent) {
+	if !m.compaction.Active() {
+		m.status.context = appendStatusContext(m.status.context, sessionHealthStatusFragment(payload))
+	}
+	m.sessionHealthCompactionCount = payload.CompactionCount
+	m.sessionHealthTurn = payload.Turn
+	m.sessionHealthState = payload.SessionState
+	m.sessionHealthGuidance = payload.RestartGuidance
+	m.sessionHealthNotes = append([]string(nil), payload.Notes...)
 }
 
 func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
