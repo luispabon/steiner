@@ -191,26 +191,42 @@ var workflowInstructionsAfterApproval = []string{
 
 // SystemPreamble builds the system-message preamble for an assembled request.
 func SystemPreamble(override string, delegationEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
-	return SystemPreambleWithAdvisor(override, delegationEnabled, false, workflowModeParent, caveHuman, systemSuffix)
+	return SystemPreambleWithAdvisor(SystemPreambleParams{
+		Override:          override,
+		DelegationEnabled: delegationEnabled,
+		Mode:              workflowModeParent,
+		CaveHuman:         caveHuman,
+		SystemSuffix:      systemSuffix,
+	})
+}
+
+// SystemPreambleParams holds the inputs used to build the system preamble.
+type SystemPreambleParams struct {
+	Override          string
+	DelegationEnabled bool
+	AdvisorEnabled    bool
+	Mode              WorkflowMode
+	CaveHuman         bool
+	SystemSuffix      string
 }
 
 // SystemPreambleWithAdvisor builds the system-message preamble with optional advisor guidance.
-func SystemPreambleWithAdvisor(override string, delegationEnabled bool, advisorEnabled bool, mode workflowMode, caveHuman bool, systemSuffix string) ContextBlock {
-	return systemPreambleWithAdvisor(override, delegationEnabled, advisorEnabled, mode, caveHuman, systemSuffix)
+func SystemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
+	return systemPreambleWithAdvisor(params)
 }
 
-func systemPreambleWithAdvisor(override string, delegationEnabled bool, advisorEnabled bool, mode workflowMode, caveHuman bool, systemSuffix string) ContextBlock {
-	content := buildSystemPreamble(delegationEnabled, advisorEnabled, mode)
-	if override != "" {
-		content = buildOverridePreamble(strings.TrimSpace(override), delegationEnabled, advisorEnabled, mode)
+func systemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
+	content := buildSystemPreamble(params.DelegationEnabled, params.AdvisorEnabled, params.Mode)
+	if params.Override != "" {
+		content = buildOverridePreamble(strings.TrimSpace(params.Override), params.DelegationEnabled, params.AdvisorEnabled, params.Mode)
 	}
 
-	if caveHuman {
+	if params.CaveHuman {
 		content += "\n\n" + caveHumanInstruction
 	}
 
-	if systemSuffix != "" {
-		content = content + "\n\n" + systemSuffix
+	if params.SystemSuffix != "" {
+		content = content + "\n\n" + params.SystemSuffix
 	}
 
 	return ContextBlock{

@@ -57,29 +57,25 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, cal
 			Response:          make(chan ApprovalResponse, 1),
 		}
 		if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr != nil {
-			return nil, nil, &ToolExecutionError{
-				Tool:    def.Name,
-				Kind:    "policy_denied",
-				Message: err.Error(),
-			}
+			return nil, nil, policyDeniedError(def.Name, err)
 		}
 		resp := <-req.Response
 		if resp.Allow {
 			relaxed := policy.WithoutRoot()
 			relaxedInput, relaxedErr := relaxed.ValidateToolInput(def.Name, input)
 			if relaxedErr != nil {
-				return nil, nil, &ToolExecutionError{
-					Tool:    def.Name,
-					Kind:    "policy_denied",
-					Message: relaxedErr.Error(),
-				}
+				return nil, nil, policyDeniedError(def.Name, relaxedErr)
 			}
 			return relaxedInput, &relaxed, nil
 		}
 	}
 
-	return nil, nil, &ToolExecutionError{
-		Tool:    def.Name,
+	return nil, nil, policyDeniedError(def.Name, err)
+}
+
+func policyDeniedError(toolName string, err error) *ToolExecutionError {
+	return &ToolExecutionError{
+		Tool:    toolName,
 		Kind:    "policy_denied",
 		Message: err.Error(),
 	}
@@ -163,17 +159,36 @@ func (e *Executor) handleBashDenial(ctx context.Context, ec *executionContext, r
 
 	output := br.BashOutput()
 	if isBashDenial(output) {
-		return e.handleSandboxDenial(ctx, ec, br, output, "command blocked by sandbox", "Add a host_mount in .steiner/config.yaml or re-run with --unsafe", "\nAdd a host_mount in .steiner/config.yaml or re-run with --unsafe")
+		return e.handleSandboxDenial(ctx, ec, br, sandboxDenialParams{
+			Output:            output,
+			Reason:            "command blocked by sandbox",
+			GrantInstructions: "Add a host_mount in .steiner/config.yaml or re-run with --unsafe",
+			DenialMessage:     "\nAdd a host_mount in .steiner/config.yaml or re-run with --unsafe",
+		})
 	}
 
 	if isSSHConfigOwnershipDenial(output) {
-		return e.handleSandboxDenial(ctx, ec, br, output, "SSH config rejected inside sandbox", "Re-run outside the sandbox with --unsafe", "\nSSH failed because OpenSSH rejected config ownership inside the sandbox.\nThe command was not rerun outside the sandbox.")
+		return e.handleSandboxDenial(ctx, ec, br, sandboxDenialParams{
+			Output:            output,
+			Reason:            "SSH config rejected inside sandbox",
+			GrantInstructions: "Re-run outside the sandbox with --unsafe",
+			DenialMessage:     "\nSSH failed because OpenSSH rejected config ownership inside the sandbox.\nThe command was not rerun outside the sandbox.",
+		})
 	}
 
 	return result, nil
 }
 
-func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext, br BashDenialResult, output, reason, grantInstructions, denialMessage string) (any, error) {
+// sandboxDenialParams holds the localized guidance shown to the user when a
+// bash command is denied by the sandbox and re-execution requires approval.
+type sandboxDenialParams struct {
+	Output            string
+	Reason            string
+	GrantInstructions string
+	DenialMessage     string
+}
+
+func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext, br BashDenialResult, params sandboxDenialParams) (any, error) {
 	policy, ok := ctx.Value(EffectivePolicyKey{}).(*PathPolicy)
 	if !ok || policy == nil {
 		policy = &e.pathPolicy
@@ -184,9 +199,9 @@ func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext
 		Input:             ec.NormalizedInput,
 		WorkDir:           policy.Root(),
 		Preview:           buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, *policy),
-		DeniedPath:        extractDeniedPath(output),
-		Reason:            reason,
-		GrantInstructions: grantInstructions,
+		DeniedPath:        extractDeniedPath(params.Output),
+		Reason:            params.Reason,
+		GrantInstructions: params.GrantInstructions,
 		Response:          make(chan ApprovalResponse, 1),
 	}
 	if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr == nil {
@@ -197,7 +212,7 @@ func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext
 		}
 	}
 	// Denied or approval error — append the localized denial guidance and return original.
-	br.AppendOutput(denialMessage)
+	br.AppendOutput(params.DenialMessage)
 	return br, nil
 }
 

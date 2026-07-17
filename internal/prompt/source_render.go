@@ -81,7 +81,7 @@ func applyBudget(tracker *budgetTracker, source ContextSource, content string) (
 	if content == "" {
 		return "", false, true
 	}
-	allowed, _ := tracker.take(source, len(content))
+	allowed := tracker.take(source, len(content))
 	if allowed <= 0 {
 		return "", false, false
 	}

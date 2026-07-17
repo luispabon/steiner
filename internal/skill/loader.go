@@ -202,7 +202,7 @@ func (l Loader) Load(ctx context.Context, name string) (Skill, error) {
 		}
 	}
 
-	for _, root := range l.RootDirs {
+	for i, root := range l.RootDirs {
 		if err := ctx.Err(); err != nil {
 			return Skill{}, err
 		}
@@ -221,11 +221,14 @@ func (l Loader) Load(ctx context.Context, name string) (Skill, error) {
 			return Skill{}, fmt.Errorf("load skill %s: %w", path, err)
 		}
 
+		content := string(data)
 		return Skill{
 			Name:     name,
 			Path:     path,
-			Content:  string(data),
+			Content:  content,
 			ByteSize: len(data),
+			Source:   rootSource(i),
+			Summary:  discoverSummaryFromContent(content),
 		}, nil
 	}
 

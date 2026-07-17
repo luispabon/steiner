@@ -33,7 +33,14 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		b.cachedPreamble.workflowMode != workflowMode ||
 		b.cachedPreamble.caveHuman != caveHuman ||
 		b.cachedPreamble.systemSuffix != systemSuffix {
-		b.cachedPreamble.content = prompt.SystemPreambleWithAdvisor(override, delegationEnabled, advisorEnabled, workflowMode, caveHuman, systemSuffix).Content
+		b.cachedPreamble.content = prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{
+			Override:          override,
+			DelegationEnabled: delegationEnabled,
+			AdvisorEnabled:    advisorEnabled,
+			Mode:              workflowMode,
+			CaveHuman:         caveHuman,
+			SystemSuffix:      systemSuffix,
+		}).Content
 		b.cachedPreamble.override = override
 		b.cachedPreamble.delegationEnabled = delegationEnabled
 		b.cachedPreamble.advisorEnabled = advisorEnabled
