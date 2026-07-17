@@ -52,44 +52,62 @@ func (s *FileLogSink) Emit(event Event) {
 		return
 	}
 
-	if _, err := fmt.Fprintf(s.file, "=== %s %s ===\n", event.Timestamp.UTC().Format(time.RFC3339Nano), event.Type); err != nil {
-		s.lastErr = err
+	if !s.writef("=== %s %s ===\n", event.Timestamp.UTC().Format(time.RFC3339Nano), event.Type) {
 		return
 	}
 	switch payload := event.Payload.(type) {
 	case UserInputEvent:
 		if payload.Mode != "" {
-			if _, err := fmt.Fprintf(s.file, "mode: %s\n", payload.Mode); err != nil {
-				s.lastErr = err
+			if !s.writef("mode: %s\n", payload.Mode) {
 				return
 			}
 		}
-		if _, err := io.WriteString(s.file, payload.Content); err != nil {
-			s.lastErr = err
+		if !s.writeString(payload.Content) {
 			return
 		}
-		if _, err := io.WriteString(s.file, "\n\n"); err != nil {
-			s.lastErr = err
+		if !s.writeString("\n\n") {
 			return
 		}
 	default:
 		data, err := json.MarshalIndent(payload, "", "  ")
 		if err != nil {
-			if _, writeErr := fmt.Fprintf(s.file, "%v\n\n", payload); writeErr != nil {
-				s.lastErr = writeErr
-				return
-			}
+			s.writef("%v\n\n", payload)
 			return
 		}
-		if _, err := s.file.Write(data); err != nil {
-			s.lastErr = err
+		if !s.writeBytes(data) {
 			return
 		}
-		if _, err := io.WriteString(s.file, "\n\n"); err != nil {
-			s.lastErr = err
+		if !s.writeString("\n\n") {
 			return
 		}
 	}
+}
+
+func (s *FileLogSink) writeString(str string) bool {
+	_, err := io.WriteString(s.file, str)
+	if err != nil {
+		s.lastErr = err
+		return false
+	}
+	return true
+}
+
+func (s *FileLogSink) writef(format string, args ...any) bool {
+	_, err := fmt.Fprintf(s.file, format, args...)
+	if err != nil {
+		s.lastErr = err
+		return false
+	}
+	return true
+}
+
+func (s *FileLogSink) writeBytes(data []byte) bool {
+	_, err := s.file.Write(data)
+	if err != nil {
+		s.lastErr = err
+		return false
+	}
+	return true
 }
 
 // Err reports the first write error observed by the sink.
