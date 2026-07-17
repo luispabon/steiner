@@ -47,7 +47,7 @@ type fakeExecutor struct {
 	execute func(context.Context, string, map[string]any) (any, error)
 }
 
-func (e *fakeExecutor) Execute(ctx context.Context, toolName string, input map[string]any) (any, error) {
+func (e *fakeExecutor) Execute(ctx context.Context, toolName, _ string, input map[string]any) (any, error) {
 	e.calls = append(e.calls, struct {
 		tool string
 		args map[string]any

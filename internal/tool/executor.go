@@ -75,9 +75,11 @@ func (e *Executor) WorkDir() string {
 }
 
 // Execute runs toolName with the given input through the full execution pipeline
-// and returns the decoded result or a structured ToolExecutionError.
-func (e *Executor) Execute(ctx context.Context, toolName string, input map[string]any) (any, error) {
-	return e.runPipeline(ctx, executionInput{ToolName: toolName, Input: input})
+// and returns the decoded result or a structured ToolExecutionError. callID
+// identifies the originating tool call for approval correlation and may be
+// empty when no call ID is available.
+func (e *Executor) Execute(ctx context.Context, toolName, callID string, input map[string]any) (any, error) {
+	return e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
 }
 
 func normalizeExecutionRoot(workDir string) string {

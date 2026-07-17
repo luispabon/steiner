@@ -22,7 +22,7 @@ func TestExecutorCapturesTruncatedOutputAndMetadata(t *testing.T) {
 		},
 	}
 
-	result, err := NewExecutor(reg, cfg, nil, t.TempDir(), "").Execute(context.Background(), "probe", nil)
+	result, err := NewExecutor(reg, cfg, nil, t.TempDir(), "").Execute(context.Background(), "probe", "", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -53,7 +53,7 @@ func TestExecutorMarksBinaryOutputSafely(t *testing.T) {
 		},
 	}
 
-	_, err := NewExecutor(reg, cfg, nil, t.TempDir(), "").Execute(context.Background(), "probe", nil)
+	_, err := NewExecutor(reg, cfg, nil, t.TempDir(), "").Execute(context.Background(), "probe", "", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want binary-output failure")
 	}
@@ -140,7 +140,7 @@ func TestExecutorContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := executor.Execute(ctx, "probe", nil)
+	_, err := executor.Execute(ctx, "probe", "", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
@@ -156,7 +156,7 @@ func TestExecutorTimeoutExceeded(t *testing.T) {
 	})
 
 	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
-	_, err := executor.Execute(context.Background(), "probe", nil)
+	_, err := executor.Execute(context.Background(), "probe", "", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want DeadlineExceeded")
 	}
@@ -174,7 +174,7 @@ func TestExecutorNonZeroExitCode(t *testing.T) {
 	})
 
 	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
-	_, err := executor.Execute(context.Background(), "probe", nil)
+	_, err := executor.Execute(context.Background(), "probe", "", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want non-zero exit error")
 	}
