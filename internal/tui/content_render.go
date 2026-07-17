@@ -98,7 +98,10 @@ func (b *contentBuffer) checkBufferDirty() bool {
 		}
 	}
 	// showThinking toggle changes visibility.
-	// (This would need tracking of previous showThinking value if we want to be more precise.)
+	if b.showThinking != b.lastShowThinking {
+		b.lastShowThinking = b.showThinking
+		return true
+	}
 	return false
 }
 

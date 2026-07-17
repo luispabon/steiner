@@ -52,6 +52,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSyncDebounceFiredMsg(msg)
 	case clipboardImageMsg:
 		return m.handleClipboardImageMsg(msg)
+	case phaseTransitionFailedMsg:
+		m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", msg.err))
+		return m, nil
 	case mouseClickMsg, mouseMotionMsg, mouseReleaseMsg, mouseWheelMsg:
 		return m.handleMouseEventMsg(msg)
 	case tea.KeyPressMsg:

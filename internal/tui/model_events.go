@@ -317,6 +317,12 @@ func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {
 	}
 }
 
+// phaseTransitionFailedMsg reports that RotateSessionWithGroup failed while
+// handling a phase transition. Update appends the status line to the live
+// model, since the tea.Cmd closure that discovers the failure only has a
+// copy of Model captured at Cmd-creation time.
+type phaseTransitionFailedMsg struct{ err error }
+
 func (m *Model) handlePhaseTransition(payload output.PhaseTransitionEvent) tea.Cmd {
 	switch strings.TrimSpace(payload.Status) {
 	case "starting":
@@ -326,13 +332,16 @@ func (m *Model) handlePhaseTransition(payload output.PhaseTransitionEvent) tea.C
 			m.content.AppendPhaseDivider(phaseName)
 		}
 		// Rotate session with run group to stamp session and reset model context
+		controller := m.controller
+		runID := payload.RunID
 		return func() tea.Msg {
-			if m.controller != nil {
-				if err := m.controller.Handle(context.Background(), interactive.RotateSessionWithGroup{
-					Group: strings.TrimSpace(payload.RunID),
-				}); err != nil {
-					m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", err))
-				}
+			if controller == nil {
+				return nil
+			}
+			if err := controller.Handle(context.Background(), interactive.RotateSessionWithGroup{
+				Group: strings.TrimSpace(runID),
+			}); err != nil {
+				return phaseTransitionFailedMsg{err: err}
 			}
 			return nil
 		}

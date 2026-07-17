@@ -15,7 +15,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 			seg := &b.segments[i]
 			switch seg.kind {
 			case segmentToolCall:
-				if seg.toolData == nil {
+				if seg.toolData == nil || !strings.EqualFold(normalizeToolName(seg.toolData.tool), normalizeToolName(payload.Tool)) {
 					continue
 				}
 				seg.toolData.approvalPending = true
@@ -31,7 +31,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				}
 				for j := len(seg.toolGroupData.entries) - 1; j >= 0; j-- {
 					entry := seg.toolGroupData.entries[j]
-					if entry == nil || entry.approvalPending {
+					if entry == nil || entry.approvalPending || !strings.EqualFold(normalizeToolName(entry.tool), normalizeToolName(payload.Tool)) {
 						continue
 					}
 					entry.approvalPending = true
