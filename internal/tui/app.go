@@ -169,6 +169,7 @@ func (a *App) Run(options ...tea.ProgramOption) error {
 // but bubbletea does not restore on exit (it only cleans up mode 1002/1003).
 // Call this after the bubbletea program has fully exited.
 func (a *App) Cleanup() {
+	a.bridge.close()
 	_, _ = os.Stdout.WriteString("\x1b[?1000l")
 }
 
@@ -179,14 +180,35 @@ type runtimeEventMsg struct {
 type bridgeClosedMsg struct{}
 
 type eventBridge struct {
-	ch chan tea.Msg
+	ch   chan tea.Msg
+	done chan struct{}
 }
 
+// Emit delivers event to the TUI's message loop. It never blocks past the
+// bridge being closed: once done is closed (after the program has exited),
+// events are dropped instead of hanging the emitting goroutine forever
+// waiting on a channel nobody drains anymore.
 func (b *eventBridge) Emit(event output.Event) {
 	if b == nil {
 		return
 	}
-	b.ch <- runtimeEventMsg{Event: event}
+	select {
+	case b.ch <- runtimeEventMsg{Event: event}:
+	case <-b.done:
+	}
+}
+
+// close marks the bridge closed so any Emit calls racing with or following
+// program shutdown return instead of blocking forever.
+func (b *eventBridge) close() {
+	if b == nil {
+		return
+	}
+	select {
+	case <-b.done:
+	default:
+		close(b.done)
+	}
 }
 
 type noopSubscriber struct{}
@@ -197,7 +219,7 @@ func newEventBridge(buffer int) *eventBridge {
 	if buffer < 1 {
 		buffer = 1
 	}
-	return &eventBridge{ch: make(chan tea.Msg, buffer)}
+	return &eventBridge{ch: make(chan tea.Msg, buffer), done: make(chan struct{})}
 }
 
 func (b *eventBridge) Messages() <-chan tea.Msg {

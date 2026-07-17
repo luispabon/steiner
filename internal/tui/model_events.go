@@ -150,7 +150,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			m.input.Focus()
 		}
 	case output.ToolCallStartedEvent:
-		m.activity = m.activity.waiting("running tool", toolCallDetail(payload.Tool, payload.Arguments))
+		m.activity = m.activity.waiting("running tool", toolCallDetail(payload.Tool))
 	case output.ToolCallFinishedEvent:
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
 	case output.SteerReceivedEvent:

@@ -74,39 +74,19 @@ func (m Model) handleSessionPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 	case tea.KeyEsc:
 		m.sessionPicker = m.sessionPicker.Close()
 	case tea.KeyEnter:
-		if m.sessionPicker.selection >= 0 && len(m.sessionPicker.candidates) > 0 {
-			selected := m.sessionPicker.candidates[m.sessionPicker.selection]
-			m.sessionPicker = m.sessionPicker.Close()
-			if m.sessionResetCleanup != nil {
-				m.sessionResetCleanup()
-			}
-			if m.controller != nil {
-				ctrl := m.controller
-				sid := selected.ID
-				return m, func() tea.Msg {
-					_ = ctrl.Handle(context.Background(), interactive.LoadSession{SessionID: sid})
-					return nil
-				}
-			}
+		if newModel, cmd, ok := m.dispatchSelectedSessionAction(func(sid string) interactive.Action {
+			return interactive.LoadSession{SessionID: sid}
+		}); ok {
+			return newModel, cmd
 		}
 	}
 	// Handle printable characters (tea.KeyRunes equivalent)
 	if msg.Text != "" {
 		if msg.String() == "f" {
-			if m.sessionPicker.selection >= 0 && len(m.sessionPicker.candidates) > 0 {
-				selected := m.sessionPicker.candidates[m.sessionPicker.selection]
-				m.sessionPicker = m.sessionPicker.Close()
-				if m.sessionResetCleanup != nil {
-					m.sessionResetCleanup()
-				}
-				if m.controller != nil {
-					ctrl := m.controller
-					sid := selected.ID
-					return m, func() tea.Msg {
-						_ = ctrl.Handle(context.Background(), interactive.ForkSavedSession{SessionID: sid})
-						return nil
-					}
-				}
+			if newModel, cmd, ok := m.dispatchSelectedSessionAction(func(sid string) interactive.Action {
+				return interactive.ForkSavedSession{SessionID: sid}
+			}); ok {
+				return newModel, cmd
 			}
 		} else {
 			var cmd tea.Cmd
@@ -119,6 +99,31 @@ func (m Model) handleSessionPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		return m, cmd
 	}
 	return m, nil
+}
+
+// dispatchSelectedSessionAction closes the session picker, runs the reset
+// cleanup, and dispatches the action produced by makeAction for the
+// currently selected candidate. selected is false when there is no
+// candidate selection, in which case the caller should fall through
+// without modifying m.
+func (m Model) dispatchSelectedSessionAction(makeAction func(sessionID string) interactive.Action) (Model, tea.Cmd, bool) {
+	if m.sessionPicker.selection < 0 || len(m.sessionPicker.candidates) == 0 {
+		return m, nil, false
+	}
+	selected := m.sessionPicker.candidates[m.sessionPicker.selection]
+	m.sessionPicker = m.sessionPicker.Close()
+	if m.sessionResetCleanup != nil {
+		m.sessionResetCleanup()
+	}
+	if m.controller == nil {
+		return m, nil, true
+	}
+	ctrl := m.controller
+	action := makeAction(selected.ID)
+	return m, func() tea.Msg {
+		_ = ctrl.Handle(context.Background(), action)
+		return nil
+	}, true
 }
 
 func (m Model) handleOneshotResumePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
