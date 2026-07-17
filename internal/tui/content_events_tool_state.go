@@ -93,6 +93,15 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 					b.applyFinishedToolCallResult(&b.segments[i], td, payload)
 					return
 				}
+			case segmentDelegation:
+				if dd := b.segments[i].delegData; dd != nil && dd.parentCallID != "" && callIDsMatch(dd.parentCallID, payload.CallID) {
+					if dd.agentID == "" && payload.Error != "" {
+						b.removeFromPendingDelegateParents(i)
+						dd.status = "failed"
+						b.segments[i].renderDirty = true
+					}
+					return
+				}
 			}
 		}
 		return
