@@ -188,3 +188,42 @@ func TestDelegationToolCallFinished_IgnoresSpawned(t *testing.T) {
 		t.Fatalf("agentID = %q, want \"child-1\"", seg.delegData.agentID)
 	}
 }
+
+func TestDelegationToolCallFinished_FollowUp_DrainsQueue(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]int, 0),
+		activeDelegations:      make(map[string]int),
+		styles:                 theme.BuildStyles(theme.AccentAmber),
+	}
+	// Simulate a follow_up tool call that will fail before spawning
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "call_fu_1", map[string]any{"agent_id": "child-1", "message": "continue work"}))
+
+	if len(buffer.pendingDelegateParents) != 1 {
+		t.Fatalf("pendingDelegateParents len = %d, want 1 after ToolCallStarted", len(buffer.pendingDelegateParents))
+	}
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments len = %d, want 1", len(buffer.segments))
+	}
+	seg := buffer.segments[0]
+	if seg.kind != segmentDelegation || seg.delegData == nil {
+		t.Fatal("expected segmentDelegation with delegData")
+	}
+	if seg.delegData.agentID != "" {
+		t.Fatalf("agentID = %q, want empty", seg.delegData.agentID)
+	}
+
+	// Fire ToolCallFinished with an error — should drain queue and mark failed
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "follow_up", "call_fu_1", "", errors.New("plan mode rejected")))
+
+	if len(buffer.pendingDelegateParents) != 0 {
+		t.Fatalf("pendingDelegateParents len = %d, want 0 after failed ToolCallFinished", len(buffer.pendingDelegateParents))
+	}
+	if seg.delegData.status != "failed" {
+		t.Fatalf("status = %q, want \"failed\"", seg.delegData.status)
+	}
+	if !seg.renderDirty {
+		t.Error("segment should be renderDirty after failure")
+	}
+}
