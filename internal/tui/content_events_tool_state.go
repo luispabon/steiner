@@ -67,6 +67,22 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 }
 
+// applyFinishedToolCallToDelegation handles a ToolCallFinishedEvent for a
+// segmentDelegation segment. Returns true if the segment matched and was
+// handled (caller should stop scanning).
+func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload output.ToolCallFinishedEvent) bool {
+	dd := b.segments[idx].delegData
+	if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
+		return false
+	}
+	if dd.agentID == "" && payload.Error != "" {
+		b.removeFromPendingDelegateParents(idx)
+		dd.status = "failed"
+		b.segments[idx].renderDirty = true
+	}
+	return true
+}
+
 func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
@@ -91,6 +107,10 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 						continue
 					}
 					b.applyFinishedToolCallResult(&b.segments[i], td, payload)
+					return
+				}
+			case segmentDelegation:
+				if b.applyFinishedToolCallToDelegation(i, payload) {
 					return
 				}
 			}
