@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -24,11 +23,7 @@ import (
 func resolveAccentPreset(preset string, randIntn func(int) int) string {
 	if preset == "random" {
 		// Collect all preset keys in sorted order for deterministic randomness
-		keys := make([]string, 0, len(theme.AccentPresets))
-		for k := range theme.AccentPresets {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := sortedKeys(theme.AccentPresets)
 
 		if len(keys) == 0 {
 			return ""

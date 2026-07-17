@@ -168,6 +168,20 @@ func trimIncompleteUTF8Suffix(data []byte) []byte {
 	return data
 }
 
+// trimIncompleteUTF8SuffixString is the string-native equivalent of
+// trimIncompleteUTF8Suffix, avoiding a []byte/string round-trip for callers
+// that already hold a string.
+func trimIncompleteUTF8SuffixString(s string) string {
+	for trimmed := 0; trimmed < utf8.UTFMax && len(s) > 0; trimmed++ {
+		r, size := utf8.DecodeLastRuneInString(s)
+		if r != utf8.RuneError || size > 1 {
+			return s
+		}
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
 // extensionFromContentType maps a Content-Type value to a file extension,
 // including the leading dot.
 func extensionFromContentType(contentType string) string {
