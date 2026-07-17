@@ -20,6 +20,7 @@ func (f ApprovalResponderFunc) RequestApproval(ctx context.Context, req Approval
 // ApprovalRequest carries a sandbox boundary violation for user decision.
 type ApprovalRequest struct {
 	Tool              ToolDef
+	CallID            string
 	Input             map[string]any
 	WorkDir           string
 	Preview           ApprovalPreview

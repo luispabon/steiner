@@ -231,6 +231,7 @@ type ToolCallFinishedEvent struct {
 type ApprovalEvent struct {
 	Turn    int    `json:"turn"`
 	Tool    string `json:"tool,omitempty"`
+	CallID  string `json:"call_id,omitempty"`
 	Mode    string `json:"mode,omitempty"`
 	Preview string `json:"preview,omitempty"`
 	Allowed bool   `json:"allowed"`

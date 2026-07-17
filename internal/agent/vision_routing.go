@@ -130,7 +130,7 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 
 	emitEvent(p.request.Events, output.NewToolCallStartedEvent(0, "vision", callID, args))
 
-	raw, err := p.request.Executor.Execute(ctx, "vision", args)
+	raw, err := p.request.Executor.Execute(ctx, "vision", callID, args)
 	if err != nil {
 		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", err))
 		return fmt.Errorf("vision call: %w", err)

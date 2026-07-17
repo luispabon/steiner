@@ -350,7 +350,7 @@ func truncateUTF8(text string) string {
 
 type summaryOnlyExecutor struct{}
 
-func (summaryOnlyExecutor) Execute(context.Context, string, map[string]any) (any, error) {
+func (summaryOnlyExecutor) Execute(context.Context, string, string, map[string]any) (any, error) {
 	return nil, fmt.Errorf("delegate summary turn does not permit tools")
 }
 

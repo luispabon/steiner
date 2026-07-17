@@ -23,7 +23,7 @@ const (
 
 // ToolExecutor runs a named tool invocation for the agent loop.
 type ToolExecutor interface {
-	Execute(ctx context.Context, toolName string, input map[string]any) (any, error)
+	Execute(ctx context.Context, toolName, callID string, input map[string]any) (any, error)
 }
 
 // usageRecorder records per-call token usage for cache-hit-rate analytics.

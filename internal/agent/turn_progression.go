@@ -151,7 +151,7 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunSta
 	emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
 
 	ctx = WithConversationSnapshot(ctx, liveConversationSnapshot(state))
-	result, err := p.request.Executor.Execute(ctx, call.Name, cloneInput(call.Arguments))
+	result, err := p.request.Executor.Execute(ctx, call.Name, call.ID, cloneInput(call.Arguments))
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
 		cancelled = replaySafeRunState(cancelled)
 		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))

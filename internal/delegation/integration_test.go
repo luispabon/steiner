@@ -646,7 +646,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 		t.Fatalf("Tools[0] = %q, want helper", req.Tools[0].Function.Name)
 	}
 
-	value, err := req.Executor.Execute(context.Background(), "helper", map[string]any{})
+	value, err := req.Executor.Execute(context.Background(), "helper", "", map[string]any{})
 	if err != nil {
 		t.Fatalf("helper tool execution failed: %v", err)
 	}
@@ -654,7 +654,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 		t.Fatalf("helper tool result = %v, want helper-result", value)
 	}
 
-	if _, err := req.Executor.Execute(context.Background(), "delegate", map[string]any{}); err == nil {
+	if _, err := req.Executor.Execute(context.Background(), "delegate", "", map[string]any{}); err == nil {
 		t.Fatal("expected delegate tool execution to fail in child context")
 	} else if !strings.Contains(err.Error(), "delegate") {
 		t.Fatalf("delegate error = %v, want it to mention delegate", err)
