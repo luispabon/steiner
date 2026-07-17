@@ -370,12 +370,19 @@ func TestTrimAfterAppend_FileHandleValidAndPersistsAfterTrim(t *testing.T) {
 		}
 	}
 
+	// Force the actual truncate/rename/reopen path: Record() always calls
+	// TrimAfterAppend(50), which no-ops while under 50 lines, so it alone
+	// never exercises the rename+reopen logic this test targets.
+	if err := w.TrimAfterAppend(3); err != nil {
+		t.Fatalf("TrimAfterAppend(3): %v", err)
+	}
+
 	if w.file == nil {
 		t.Fatal("w.file is nil after successful trim, want valid handle")
 	}
 
-	// Confirm the handle returned by trim is the live file backing w.path,
-	// not a stale handle to the pre-rename (now unlinked) file.
+	// Confirm the handle left behind by trim is the live file backing
+	// w.path, not a stale handle to the pre-rename (now unlinked) file.
 	if err := w.Record("post-trim"); err != nil {
 		t.Fatalf("Record after trim: %v", err)
 	}
