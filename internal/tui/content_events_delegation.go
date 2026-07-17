@@ -310,6 +310,15 @@ func (b *contentBuffer) dequeuePendingDelegateParentSegment() (int, bool) {
 	return 0, false
 }
 
+func (b *contentBuffer) removeFromPendingDelegateParents(idx int) {
+	for i, v := range b.pendingDelegateParents {
+		if v == idx {
+			b.pendingDelegateParents = append(b.pendingDelegateParents[:i], b.pendingDelegateParents[i+1:]...)
+			return
+		}
+	}
+}
+
 func (b *contentBuffer) dequeuePendingDelegationStartSegment() (int, bool) {
 	for len(b.pendingDelegationStarts) > 0 {
 		idx := b.pendingDelegationStarts[0]
