@@ -454,9 +454,6 @@ func imageBlockPlaceholder(img ImageBlock, visionState VisionState, subAgentConf
 
 		var suffix string
 		switch {
-		case visionState == VisionCapable:
-			// Vision-capable: advertise vision and read tools.
-			suffix = fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
 		case visionState == VisionIncapable && subAgentConfigured:
 			// Non-vision with sub-agent: advertise follow_up, not read.
 			suffix = " — use follow_up with the agent_id from the image analysis]"
@@ -464,7 +461,7 @@ func imageBlockPlaceholder(img ImageBlock, visionState VisionState, subAgentConf
 			// Non-vision without sub-agent: no re-examine hint.
 			suffix = "]"
 		default:
-			// Unknown (conservative): advertise both tools (backward compat).
+			// Vision-capable or unknown (conservative): advertise both tools (backward compat).
 			suffix = fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
 		}
 		return descriptive + suffix

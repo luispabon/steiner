@@ -116,7 +116,7 @@ func (m Model) dispatchSelectedSessionAction(makeAction func(sessionID string) i
 		m.sessionResetCleanup()
 	}
 	if m.controller == nil {
-		return m, nil, true
+		return m, nil, false
 	}
 	ctrl := m.controller
 	action := makeAction(selected.ID)

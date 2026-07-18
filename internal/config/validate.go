@@ -59,6 +59,9 @@ func validateModelAliasMap(problems *[]string, mapName, keyLabel string, aliases
 			*problems = append(*problems, fmt.Sprintf("%s contains unknown %s %q", mapName, keyLabel, key))
 			continue
 		}
+		if alias == "" {
+			continue // empty alias is the documented "disabled" sentinel for lean/optional sub-agents (see internal/delegation/registry.go)
+		}
 		if _, ok := models[alias]; !ok {
 			*problems = append(*problems, fmt.Sprintf("%s[%q] %q is not defined in models.definitions", mapName, key, alias))
 		}
