@@ -68,7 +68,7 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, "advisor-model", snapshot, intPtr(256))
+	resp, err := advise(context.Background(), prov, "advisor-model", snapshot, intPtr(256), nil)
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -152,7 +152,7 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 func TestAdviseWrapsProviderErrors(t *testing.T) {
 	prov := &fakeProvider{err: errors.New("backend failed")}
 
-	_, err := advise(context.Background(), prov, "advisor-model", nil, nil)
+	_, err := advise(context.Background(), prov, "advisor-model", nil, nil, nil)
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -170,7 +170,7 @@ func TestAdviseFallsBackToStreamingWhenStreamRequired(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, "advisor-model", nil, nil)
+	resp, err := advise(context.Background(), prov, "advisor-model", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -191,7 +191,7 @@ func TestAdviseStreamRequiredButStreamingFails(t *testing.T) {
 		streamErr: errors.New("stream broke"),
 	}
 
-	_, err := advise(context.Background(), prov, "advisor-model", nil, nil)
+	_, err := advise(context.Background(), prov, "advisor-model", nil, nil, nil)
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}

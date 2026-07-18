@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -104,5 +105,156 @@ func TestDrainStream(t *testing.T) {
 				t.Fatalf("FinishReason = %q, want %q", got.FinishReason, tc.want.FinishReason)
 			}
 		})
+	}
+}
+
+func TestStreamWithEvents(t *testing.T) {
+	tests := []struct {
+		name               string
+		chunks             []provider.ChatChunk
+		want               provider.ChatResponse
+		wantErr            string
+		wantThinkingEvents []string
+	}{
+		{
+			name: "thinking content emits thinking chunk events",
+			chunks: []provider.ChatChunk{
+				{Delta: provider.Message{Content: ""}, Thinking: "Let me think about this "},
+				{Delta: provider.Message{Content: ""}, Thinking: "more deeply"},
+				{Done: true, Delta: provider.Message{Content: "Final answer"}, FinishReason: "stop"},
+			},
+			want: provider.ChatResponse{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "Final answer"},
+				FinishReason: "stop",
+			},
+			wantThinkingEvents: []string{"Let me think about this ", "more deeply"},
+		},
+		{
+			name: "nil sink does not panic",
+			chunks: []provider.ChatChunk{
+				{Delta: provider.Message{Content: "Hello "}, Thinking: "thinking..."},
+				{Done: true, Delta: provider.Message{Content: "Hello world"}, FinishReason: "stop"},
+			},
+			want: provider.ChatResponse{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "Hello world"},
+				FinishReason: "stop",
+			},
+		},
+		{
+			name: "content-only chunks emit no thinking events",
+			chunks: []provider.ChatChunk{
+				{Delta: provider.Message{Content: "Hello "}},
+				{Delta: provider.Message{Content: "world"}},
+				{Done: true, Delta: provider.Message{Content: "Hello world"}, FinishReason: "stop"},
+			},
+			want: provider.ChatResponse{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "Hello world"},
+				FinishReason: "stop",
+			},
+			wantThinkingEvents: nil,
+		},
+		{
+			name: "RetryReset clears state but thinking events already emitted are fine",
+			chunks: []provider.ChatChunk{
+				{Delta: provider.Message{Content: "old "}, Thinking: "old thinking"},
+				{RetryReset: true},
+				{Delta: provider.Message{Content: "new "}, Thinking: "new thinking"},
+				{Done: true, Delta: provider.Message{Content: "new content"}, FinishReason: "stop"},
+			},
+			want: provider.ChatResponse{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "new content"},
+				FinishReason: "stop",
+			},
+			wantThinkingEvents: []string{"old thinking", "new thinking"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ch := make(chan provider.ChatChunk, len(tc.chunks))
+			for _, c := range tc.chunks {
+				ch <- c
+			}
+			close(ch)
+
+			var sink output.EventSink
+			if tc.wantThinkingEvents != nil {
+				sink = &toolSink{}
+			}
+
+			got, err := streamWithEvents(ch, sink)
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("streamWithEvents() error = nil, want %q", tc.wantErr)
+				}
+				if gotErr := err.Error(); gotErr != tc.wantErr {
+					t.Fatalf("streamWithEvents() error = %q, want %q", gotErr, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("streamWithEvents() error = %v, want nil", err)
+			}
+			if got.Message.Content != tc.want.Message.Content {
+				t.Fatalf("content = %q, want %q", got.Message.Content, tc.want.Message.Content)
+			}
+			if got.Message.Role != tc.want.Message.Role {
+				t.Fatalf("role = %q, want %q", got.Message.Role, tc.want.Message.Role)
+			}
+			if got.FinishReason != tc.want.FinishReason {
+				t.Fatalf("FinishReason = %q, want %q", got.FinishReason, tc.want.FinishReason)
+			}
+
+			// Check thinking events
+			if tc.wantThinkingEvents != nil {
+				var gotThinking []string
+				for _, e := range sink.(*toolSink).events {
+					if p, ok := e.Payload.(output.ThinkingChunkEvent); ok {
+						gotThinking = append(gotThinking, p.Content)
+					}
+				}
+				if len(gotThinking) != len(tc.wantThinkingEvents) {
+					t.Fatalf("thinking events = %v, want %v", gotThinking, tc.wantThinkingEvents)
+				}
+				for i := range gotThinking {
+					if gotThinking[i] != tc.wantThinkingEvents[i] {
+						t.Fatalf("thinking event[%d] = %q, want %q", i, gotThinking[i], tc.wantThinkingEvents[i])
+					}
+				}
+			} else if ts, ok := sink.(*toolSink); ok && len(ts.events) > 0 {
+				t.Fatalf("unexpected events: %v", ts.events)
+			}
+		})
+	}
+}
+
+func TestStreamWithEventsNilSinkIdenticalToDrainStream(t *testing.T) {
+	// Verify that streamWithEvents with nil sink produces identical results to drainStream.
+	chunks := []provider.ChatChunk{
+		{Delta: provider.Message{Content: "Hello "}},
+		{Delta: provider.Message{Content: "world"}, Thinking: "thinking..."},
+		{Done: true, Delta: provider.Message{Content: "Hello world"}, FinishReason: "stop"},
+	}
+
+	ch1 := make(chan provider.ChatChunk, len(chunks))
+	ch2 := make(chan provider.ChatChunk, len(chunks))
+	for _, c := range chunks {
+		ch1 <- c
+		ch2 <- c
+	}
+	close(ch1)
+	close(ch2)
+
+	got1, err1 := drainStream(ch1)
+	got2, err2 := streamWithEvents(ch2, nil)
+
+	if err1 != nil || err2 != nil {
+		t.Fatalf("errors: drainStream=%v, streamWithEvents=%v", err1, err2)
+	}
+	if got1.Message.Content != got2.Message.Content {
+		t.Fatalf("content mismatch: drainStream=%q, streamWithEvents=%q", got1.Message.Content, got2.Message.Content)
+	}
+	if got1.FinishReason != got2.FinishReason {
+		t.Fatalf("FinishReason mismatch: drainStream=%q, streamWithEvents=%q", got1.FinishReason, got2.FinishReason)
 	}
 }

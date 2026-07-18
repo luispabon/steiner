@@ -288,6 +288,11 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 	if event.Scope.AgentID != "" && b.appendScopedDelegationEvent(event) {
 		return
 	}
+	// Redirect thinking chunks to active advisor segment if present.
+	if event.Type == output.EventTypeThinkingChunk && b.activeAdvisorSegment > 0 {
+		b.appendAdvisorEvent(event)
+		return
+	}
 	if handler, ok := contentEventHandlers[event.Type]; ok {
 		handler(b, event)
 		return

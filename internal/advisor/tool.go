@@ -85,7 +85,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps) (any, error
 	// cache prefixes stay reusable. The per-run cap lives in handler state on
 	// purpose, even though Anthropic guidance often suggests removing spent tools.
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses))
-	response, err := advise(ctx, deps.Provider, deps.Model.BackendModelID, snapshot, deps.Config.MaxTokens)
+	response, err := advise(ctx, deps.Provider, deps.Model.BackendModelID, snapshot, deps.Config.MaxTokens, deps.Events)
 	if err != nil {
 		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err))
 		return nil, err
@@ -111,7 +111,7 @@ func emitEvent(sink output.EventSink, event output.Event) {
 	}
 }
 
-func advise(ctx context.Context, prov provider.Provider, model string, conversation []provider.Message, maxTokens *int) (provider.ChatResponse, error) {
+func advise(ctx context.Context, prov provider.Provider, model string, conversation []provider.Message, maxTokens *int, events output.EventSink) (provider.ChatResponse, error) {
 	if prov == nil {
 		return provider.ChatResponse{}, fmt.Errorf("advisor: provider is required")
 	}
@@ -133,7 +133,7 @@ func advise(ctx context.Context, prov provider.Provider, model string, conversat
 			if streamErr != nil {
 				return provider.ChatResponse{}, fmt.Errorf("advisor: %w", streamErr)
 			}
-			resp, drainErr := drainStream(stream)
+			resp, drainErr := streamWithEvents(stream, events)
 			if drainErr != nil {
 				return provider.ChatResponse{}, fmt.Errorf("advisor: %w", drainErr)
 			}

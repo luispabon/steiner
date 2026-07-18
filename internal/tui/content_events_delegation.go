@@ -40,6 +40,8 @@ func (b *contentBuffer) appendAdvisorEvent(event output.Event) {
 		b.handleAdvisorComplete(event)
 	case output.EventTypeAdvisorBudgetExhausted:
 		b.handleAdvisorBudgetExhausted(event)
+	case output.EventTypeThinkingChunk:
+		b.handleAdvisorThinkingChunk(event)
 	default:
 		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
 	}
@@ -660,6 +662,17 @@ func (b *contentBuffer) handleAdvisorBudgetExhausted(event output.Event) {
 		},
 		renderDirty: true,
 	})
+}
+
+func (b *contentBuffer) handleAdvisorThinkingChunk(event output.Event) {
+	idx := b.activeAdvisorSegment - 1
+	if idx < 0 || idx >= len(b.segments) || b.segments[idx].kind != segmentDelegation || b.segments[idx].delegData == nil || !b.segments[idx].delegData.isAdvisor {
+		return
+	}
+	dd := b.segments[idx].delegData
+	if b.applyDelegationThinkingChunk(dd, event) {
+		b.segments[idx].renderDirty = true
+	}
 }
 
 func (b *contentBuffer) HasActiveDelegations() bool {
