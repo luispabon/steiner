@@ -131,22 +131,22 @@ func newBudgetTracker(model SourceBudgetModel) *budgetTracker {
 	}
 }
 
-func (b *budgetTracker) take(source ContextSource, size int) (int, bool) {
+func (b *budgetTracker) take(source ContextSource, size int) int {
 	limit, ok := b.remaining[source]
 	if !ok {
 		limit = 0
 	}
 	if size <= 0 {
-		return 0, false
+		return 0
 	}
 	if limit <= 0 {
 		b.remaining[source] = 0
-		return 0, true
+		return 0
 	}
 	if size > limit {
 		b.remaining[source] = 0
-		return limit, true
+		return limit
 	}
 	b.remaining[source] = limit - size
-	return size, false
+	return size
 }

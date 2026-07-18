@@ -85,50 +85,33 @@ func closeRuntime(rt *cliRuntime) {
 		_ = rt.imageStore.Cleanup()
 	}
 	if rt.sandbox != nil {
-		if err := rt.sandbox.Cleanup(); err != nil {
-			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Notes:    []string{fmt.Sprintf("sandbox tmp cleanup: %v", err)},
-			}))
-		}
+		emitCloseWarning(rt.events, "sandbox tmp cleanup", rt.sandbox.Cleanup())
 	}
 	if rt.delegationLogger != nil {
-		if err := rt.delegationLogger.Close(); err != nil {
-			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Notes:    []string{fmt.Sprintf("failed to close delegation logger: %v", err)},
-			}))
-		}
+		emitCloseWarning(rt.events, "failed to close delegation logger", rt.delegationLogger.Close())
 	}
 	if rt.streamErrorLog != nil {
-		if err := rt.streamErrorLog.Close(); err != nil {
-			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Notes:    []string{fmt.Sprintf("close stream error log: %s", err)},
-			}))
-		}
+		emitCloseWarning(rt.events, "close stream error log", rt.streamErrorLog.Close())
 	}
 	if rt.historyWriter != nil {
-		if err := rt.historyWriter.Close(); err != nil {
-			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Notes:    []string{fmt.Sprintf("failed to close history writer: %v", err)},
-			}))
-		}
+		emitCloseWarning(rt.events, "failed to close history writer", rt.historyWriter.Close())
 	}
 	if rt.closeFn != nil {
-		if err := rt.closeFn(); err != nil {
-			rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Notes:    []string{fmt.Sprintf("failed to close runtime: %v", err)},
-			}))
-		}
+		emitCloseWarning(rt.events, "failed to close runtime", rt.closeFn())
 	}
+}
+
+// emitCloseWarning emits a session_health warning diagnostic event if err is
+// non-nil, prefixing the message with action.
+func emitCloseWarning(events output.EventSink, action string, err error) {
+	if err == nil {
+		return
+	}
+	events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:     "session_health",
+		Severity: "warning",
+		Notes:    []string{fmt.Sprintf("%s: %v", action, err)},
+	}))
 }
 
 func openApprovalInput(stdin io.Reader) (*bufio.Reader, func() error) {

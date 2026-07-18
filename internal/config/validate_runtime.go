@@ -24,18 +24,7 @@ var validOneShotPhases = map[string]bool{
 }
 
 func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, subAgents map[string]string, models map[string]ModelConfig) {
-	for name, alias := range subAgents {
-		if !validAgentTypes[name] {
-			*problems = append(*problems, fmt.Sprintf("models.sub_agents contains unknown agent type %q", name))
-			continue
-		}
-		if alias == "" {
-			continue // empty alias is the documented "disabled" sentinel for lean/optional sub-agents (see internal/delegation/registry.go)
-		}
-		if _, ok := models[alias]; !ok {
-			*problems = append(*problems, fmt.Sprintf("models.sub_agents[%q] %q is not defined in models.definitions", name, alias))
-		}
-	}
+	validateModelAliasMap(problems, "models.sub_agents", "agent type", subAgents, validAgentTypes, models)
 	if !cfg.Enabled {
 		return
 	}
@@ -101,13 +90,5 @@ func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 }
 
 func validateOneShotConfig(problems *[]string, oneShot map[string]string, models map[string]ModelConfig) {
-	for phase, alias := range oneShot {
-		if !validOneShotPhases[phase] {
-			*problems = append(*problems, fmt.Sprintf("models.oneshot contains unknown phase %q", phase))
-			continue
-		}
-		if _, ok := models[alias]; !ok {
-			*problems = append(*problems, fmt.Sprintf("models.oneshot[%q] %q is not defined in models.definitions", phase, alias))
-		}
-	}
+	validateModelAliasMap(problems, "models.oneshot", "phase", oneShot, validOneShotPhases, models)
 }

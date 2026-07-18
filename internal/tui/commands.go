@@ -1,6 +1,9 @@
 package tui
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // slashCommand represents a slash command in the registry.
 type slashCommand struct {
@@ -246,18 +249,16 @@ func projectPrefixes(allowlistOnly bool) []string {
 	return out
 }
 
+// commandsAcceptingArbitraryArgs lists commands that accept arbitrary
+// (non-predefined) arguments, used by takesArg alongside ArgVariants.
+var commandsAcceptingArbitraryArgs = []string{"/ls", "/model", "/skill", "/oneshot"}
+
 // takesArg reports whether a slashCommand accepts an argument.
 func takesArg(sc slashCommand) bool {
-	// Commands with predefined ArgVariants take arguments.
 	if len(sc.ArgVariants) > 0 {
 		return true
 	}
-	// Commands known to accept arbitrary arguments.
-	switch sc.ID {
-	case "/ls", "/model", "/skill", "/oneshot":
-		return true
-	}
-	return false
+	return slices.Contains(commandsAcceptingArbitraryArgs, sc.ID)
 }
 
 // projectCompletionCandidates returns completion candidate strings. Skips

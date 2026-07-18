@@ -356,7 +356,7 @@ func (m Model) handleTabKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	candidates := m.completionCandidates
 	if len(candidates) == 0 {
-		candidates = buildCompletionCandidates(current, m.skillNames, m.modelNames, m.oneshotRunning)
+		candidates = buildCompletionCandidates(current, m.skillNames, m.oneshotRunning)
 		if len(candidates) == 0 {
 			return m, nil
 		}

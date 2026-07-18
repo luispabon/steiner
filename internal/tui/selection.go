@@ -259,82 +259,18 @@ func (m Model) detectRegion(x, y int) selectionRegion {
 	return regionViewport
 }
 
-// clampToRegion clamps screen coordinates (x, y) to the content bounds of a
-// given selection region (viewport or input), preventing multi-line selection
-// from bleeding into padding, dividers, sidebar, or the other container.
-// For regionNone and regionSidebar, returns (x, y) unchanged.
-func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
+// regionXBounds returns the [left, right) screen-column bounds of the content
+// area for a given selection region (viewport or input), accounting for
+// sidebar placement and the scrollbar-aware right padding. Shared by
+// clampToRegion (which additionally clamps y and nudges x for click
+// placement) and selectionHighlightBounds (which uses the bounds verbatim to
+// constrain multi-line highlight). Returns (0, 0) for regionNone and
+// regionSidebar.
+func (m Model) regionXBounds(region selectionRegion) (left, right int) {
 	contentWidth := m.contentWidth()
 	sidebarVisible := m.sidebar.Visible(m.width)
-	statusRow := m.height - 1
-	inputChromeH := m.inputChromeHeight(contentWidth)
-	inputStartRow := statusRow - inputChromeH
 
 	switch region {
-	case regionViewport:
-		left := 0
-		right := m.width
-
-		if sidebarVisible {
-			if m.sidebarPosition == "right" {
-				right = m.width - sidebarWidth - 1
-			} else {
-				left = sidebarWidth + 1
-			}
-		}
-
-		left += 3
-		right -= 3
-		if left > right {
-			left = right
-		}
-
-		x = max(left, min(right-1, x))
-		y = max(0, min(inputStartRow-3, y))
-		return x, y
-
-	case regionInput:
-		sidebarOffset := 0
-
-		if sidebarVisible {
-			if m.sidebarPosition == "right" {
-				sidebarOffset = 0
-			} else {
-				sidebarOffset = sidebarWidth + 1
-			}
-		}
-
-		left := sidebarOffset + inputRailWidth + inputPadX
-		right := sidebarOffset + contentWidth - 1
-		if left > right {
-			right = left
-		}
-
-		if sidebarVisible {
-			x = max(left, min(right, x))
-		} else {
-			x = max(left, min(right-1, x))
-		}
-		y = max(inputStartRow, min(statusRow-1, y))
-		return x, y
-
-	default:
-		return x, y
-	}
-}
-
-// selectionHighlightBounds returns the [left, right) screen-column bounds of
-// the currently active selection region's content area, for use by
-// applyScreenHighlight to keep intermediate multi-line selection highlight
-// out of the sidebar, dividers, and padding. It mirrors the viewport/input
-// x-bound computation in clampToRegion, including the scrollbar-aware right
-// padding. Returns (0, 0) for regionNone, regionSidebar, or when no region
-// is active, which preserves the legacy unconstrained behaviour.
-func (m Model) selectionHighlightBounds() (left, right int) {
-	contentWidth := m.contentWidth()
-	sidebarVisible := m.sidebar.Visible(m.width)
-
-	switch m.activeRegion {
 	case regionViewport:
 		left = 0
 		right = m.width
@@ -375,6 +311,49 @@ func (m Model) selectionHighlightBounds() (left, right int) {
 	default:
 		return 0, 0
 	}
+}
+
+// clampToRegion clamps screen coordinates (x, y) to the content bounds of a
+// given selection region (viewport or input), preventing multi-line selection
+// from bleeding into padding, dividers, sidebar, or the other container.
+// For regionNone and regionSidebar, returns (x, y) unchanged.
+func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
+	contentWidth := m.contentWidth()
+	sidebarVisible := m.sidebar.Visible(m.width)
+	statusRow := m.height - 1
+	inputChromeH := m.inputChromeHeight(contentWidth)
+	inputStartRow := statusRow - inputChromeH
+
+	switch region {
+	case regionViewport:
+		left, right := m.regionXBounds(region)
+		x = max(left, min(right-1, x))
+		y = max(0, min(inputStartRow-3, y))
+		return x, y
+
+	case regionInput:
+		left, right := m.regionXBounds(region)
+		if sidebarVisible {
+			x = max(left, min(right, x))
+		} else {
+			x = max(left, min(right-1, x))
+		}
+		y = max(inputStartRow, min(statusRow-1, y))
+		return x, y
+
+	default:
+		return x, y
+	}
+}
+
+// selectionHighlightBounds returns the [left, right) screen-column bounds of
+// the currently active selection region's content area, for use by
+// applyScreenHighlight to keep intermediate multi-line selection highlight
+// out of the sidebar, dividers, and padding. Returns (0, 0) for regionNone,
+// regionSidebar, or when no region is active, which preserves the legacy
+// unconstrained behaviour.
+func (m Model) selectionHighlightBounds() (left, right int) {
+	return m.regionXBounds(m.activeRegion)
 }
 
 // isWordChar reports whether r is part of a "word" for double-click
@@ -544,13 +523,17 @@ func clipboardExec(text string) bool {
 		if err != nil {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, path, c.args...)
-		cmd.Stdin = strings.NewReader(text)
-		if cmd.Run() == nil {
+		if runClipboardCandidate(path, c.args, text) {
 			return true
 		}
 	}
 	return false
+}
+
+func runClipboardCandidate(path string, args []string, text string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run() == nil
 }

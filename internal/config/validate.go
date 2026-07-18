@@ -46,13 +46,24 @@ var validWorkflowHandoffDestinations = map[string]bool{
 }
 
 func validateWorkflowHandoffConfig(problems *[]string, workflowHandoff map[string]string, models map[string]ModelConfig) {
-	for destination, alias := range workflowHandoff {
-		if !validWorkflowHandoffDestinations[destination] {
-			*problems = append(*problems, fmt.Sprintf("models.workflow_handoff contains unknown destination %q", destination))
+	validateModelAliasMap(problems, "models.workflow_handoff", "destination", workflowHandoff, validWorkflowHandoffDestinations, models)
+}
+
+// validateModelAliasMap checks that every key in aliases is a member of
+// validKeys and that every value names a model defined in models.definitions.
+// mapName is the dotted config path (e.g. "models.workflow_handoff") used in
+// problem messages, and keyLabel names the key (e.g. "destination", "phase").
+func validateModelAliasMap(problems *[]string, mapName, keyLabel string, aliases map[string]string, validKeys map[string]bool, models map[string]ModelConfig) {
+	for key, alias := range aliases {
+		if !validKeys[key] {
+			*problems = append(*problems, fmt.Sprintf("%s contains unknown %s %q", mapName, keyLabel, key))
 			continue
 		}
+		if alias == "" {
+			continue // empty alias is the documented "disabled" sentinel for lean/optional sub-agents (see internal/delegation/registry.go)
+		}
 		if _, ok := models[alias]; !ok {
-			*problems = append(*problems, fmt.Sprintf("models.workflow_handoff[%q] %q is not defined in models.definitions", destination, alias))
+			*problems = append(*problems, fmt.Sprintf("%s[%q] %q is not defined in models.definitions", mapName, key, alias))
 		}
 	}
 }

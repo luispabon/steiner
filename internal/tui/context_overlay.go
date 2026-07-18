@@ -42,7 +42,14 @@ func openContextOverlay(title, content string, width, height int, styles theme.S
 }
 
 func (s contextOverlayState) reflow() contextOverlayState {
-	rendered, _ := renderMarkdownBlock(s.content, s.InnerWidth(), s.styles, s.glamourStyleSheet, &s.renderer, &s.renderWidth)
+	rendered, _ := renderMarkdownBlock(markdownBlockParams{
+		block:       s.content,
+		width:       s.InnerWidth(),
+		styles:      s.styles,
+		styleSheet:  s.glamourStyleSheet,
+		renderer:    &s.renderer,
+		renderWidth: &s.renderWidth,
+	})
 	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
 	if len(lines) == 1 && lines[0] == "" {
 		lines = nil

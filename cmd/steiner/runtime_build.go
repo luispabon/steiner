@@ -152,42 +152,46 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, str
 		case config.ProviderTypeAnthropic:
 			return newAnthropic(runtimeProviderConfig(rm, providerType, scheduler, httpClient, streamErrorLog))
 		case config.ProviderTypeCodex:
-			path, err := oauth.DefaultTokenPath()
-			if err != nil {
-				return nil, fmt.Errorf("resolve token path: %w", err)
-			}
-			store := oauth.NewTokenStore(path)
-			token, err := store.Load()
-			if errors.Is(err, oauth.ErrNoToken) {
-				return nil, fmt.Errorf("codex provider requires authentication — run 'steiner login codex' first")
-			} else if err != nil {
-				return nil, fmt.Errorf("load codex token: %w", err)
-			}
-			token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{
-				ClientID: oauth.CodexClientID,
-				Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL},
-			}, token).Token()
-			if err != nil {
-				return nil, fmt.Errorf("refresh codex token: %w", err)
-			}
-			cfg := runtimeProviderConfig(rm, providerType, scheduler, httpClient, streamErrorLog)
-			if apiKey := oauth.TokenOpenAIAPIKey(token); apiKey != "" {
-				cfg.APIKey = apiKey
-			} else {
-				accountID := oauth.TokenChatGPTAccountID(token)
-				if accountID == "" {
-					return nil, fmt.Errorf("codex token missing ChatGPT account metadata — run 'steiner login codex' again")
-				}
-				cfg.BaseURL = "https://chatgpt.com/backend-api/codex"
-				cfg.APIKey = token.AccessToken
-				cfg.Headers = cloneStringMap(cfg.Headers)
-				cfg.Headers["ChatGPT-Account-ID"] = accountID
-			}
-			return newCodexResponses(cfg)
+			return newCodexProvider(rm, providerType, scheduler, httpClient, streamErrorLog)
 		default:
 			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
 		}
 	}, nil
+}
+
+func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, scheduler *provider.Scheduler, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (provider.Provider, error) {
+	path, err := oauth.DefaultTokenPath()
+	if err != nil {
+		return nil, fmt.Errorf("resolve token path: %w", err)
+	}
+	store := oauth.NewTokenStore(path)
+	token, err := store.Load()
+	if errors.Is(err, oauth.ErrNoToken) {
+		return nil, fmt.Errorf("codex provider requires authentication — run 'steiner login codex' first")
+	} else if err != nil {
+		return nil, fmt.Errorf("load codex token: %w", err)
+	}
+	token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{
+		ClientID: oauth.CodexClientID,
+		Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL},
+	}, token).Token()
+	if err != nil {
+		return nil, fmt.Errorf("refresh codex token: %w", err)
+	}
+	cfg := runtimeProviderConfig(rm, providerType, scheduler, httpClient, streamErrorLog)
+	if apiKey := oauth.TokenOpenAIAPIKey(token); apiKey != "" {
+		cfg.APIKey = apiKey
+	} else {
+		accountID := oauth.TokenChatGPTAccountID(token)
+		if accountID == "" {
+			return nil, fmt.Errorf("codex token missing ChatGPT account metadata — run 'steiner login codex' again")
+		}
+		cfg.BaseURL = "https://chatgpt.com/backend-api/codex"
+		cfg.APIKey = token.AccessToken
+		cfg.Headers = cloneStringMap(cfg.Headers)
+		cfg.Headers["ChatGPT-Account-ID"] = accountID
+	}
+	return newCodexResponses(cfg)
 }
 
 func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, scheduler *provider.Scheduler, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.ClientConfig {

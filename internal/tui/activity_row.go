@@ -163,15 +163,6 @@ func approvalResultLabel(eventType string) string {
 	}
 }
 
-func toolCallDetail(tool string, args map[string]any) string {
-	tool = strings.TrimSpace(tool)
-	if tool == "" {
-		return ""
-	}
-	switch {
-	case len(args) == 0:
-		return tool
-	default:
-		return tool
-	}
+func toolCallDetail(tool string) string {
+	return strings.TrimSpace(tool)
 }

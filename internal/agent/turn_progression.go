@@ -60,7 +60,16 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		outputTPS = float64(turnTokens) / (float64(durationMs) / 1000.0)
 	}
 
-	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(turn, p.request.ResolvedModel.BackendModelID, response.FinishReason, len(response.Message.ToolCalls), turnTokens, nil, durationMs, ttftMs, outputTPS))
+	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
+		Turn:             turn,
+		Model:            p.request.ResolvedModel.BackendModelID,
+		FinishReason:     response.FinishReason,
+		ToolCalls:        len(response.Message.ToolCalls),
+		CompletionTokens: turnTokens,
+		DurationMs:       durationMs,
+		TTFTMs:           ttftMs,
+		OutputTPS:        outputTPS,
+	}))
 	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
 		emitEvent(p.request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
 	}
@@ -78,12 +87,19 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 func (p *turnProgressor) handleModelCallError(ctx context.Context, state RunState, turn int, err error) turnOutcome {
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
-		emitEvent(p.request.Events, output.NewModelCallFinishedEvent(turn, p.request.ResolvedModel.BackendModelID, "", 0, 0, nil, 0, 0, 0))
+		emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
+			Turn:  turn,
+			Model: p.request.ResolvedModel.BackendModelID,
+		}))
 		emitStop(p.request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
 	}
 	state.StopReason = StopReasonError
-	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(turn, p.request.ResolvedModel.BackendModelID, "", 0, 0, err, 0, 0, 0))
+	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
+		Turn:  turn,
+		Model: p.request.ResolvedModel.BackendModelID,
+		Err:   err,
+	}))
 
 	return turnOutcome{State: state, Stop: true, Error: err}
 }
@@ -436,23 +452,19 @@ func imageBlockPlaceholder(img ImageBlock, visionState VisionState, subAgentConf
 				img.ID, img.FilePath, dims, fmtStr)
 		}
 
-		// Vision-capable: advertise vision and read tools.
-		if visionState == VisionCapable {
-			return descriptive + fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
+		var suffix string
+		switch {
+		case visionState == VisionIncapable && subAgentConfigured:
+			// Non-vision with sub-agent: advertise follow_up, not read.
+			suffix = " — use follow_up with the agent_id from the image analysis]"
+		case visionState == VisionIncapable:
+			// Non-vision without sub-agent: no re-examine hint.
+			suffix = "]"
+		default:
+			// Vision-capable or unknown (conservative): advertise both tools (backward compat).
+			suffix = fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
 		}
-
-		// Non-vision with sub-agent: advertise follow_up, not read.
-		if visionState == VisionIncapable && subAgentConfigured {
-			return descriptive + " — use follow_up with the agent_id from the image analysis]"
-		}
-
-		// Non-vision without sub-agent: no re-examine hint.
-		if visionState == VisionIncapable {
-			return descriptive + "]"
-		}
-
-		// Unknown (conservative): advertise both tools (backward compat).
-		return descriptive + fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
+		return descriptive + suffix
 	}
 
 	// Legacy format for backward compat (when ID/FilePath are not set).

@@ -115,7 +115,14 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			content := systemPreambleWithAdvisor(tc.override, tc.delegation, tc.advisor, workflowModeParent, tc.caveHuman, tc.suffix).Content
+			content := systemPreambleWithAdvisor(SystemPreambleParams{
+				Override:          tc.override,
+				DelegationEnabled: tc.delegation,
+				AdvisorEnabled:    tc.advisor,
+				Mode:              workflowModeParent,
+				CaveHuman:         tc.caveHuman,
+				SystemSuffix:      tc.suffix,
+			}).Content
 
 			for _, want := range tc.wantPresent {
 				if !strings.Contains(content, want) {
@@ -246,7 +253,7 @@ func TestSystemPreambleCaveHumanMode(t *testing.T) {
 func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor("", false, true, workflowModeParent, false, "").Content
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: true, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
 	for _, want := range []string{
 		"## Advisor",
 		"If you need a stronger-model strategic check, call `advisor`.",
@@ -322,7 +329,7 @@ func TestSystemPreambleSuffixAfterOverride(t *testing.T) {
 func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 	t.Parallel()
 
-	parent := systemPreambleWithAdvisor("", true, false, workflowModeParent, false, "").Content
+	parent := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
 	if !strings.Contains(parent, testWorkflowMarker) {
 		t.Fatalf("parent preamble missing %q in %q", testWorkflowMarker, parent)
 	}
@@ -330,7 +337,7 @@ func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 		t.Fatalf("parent preamble missing approval line %q in %q", parentApprovalLine, parent)
 	}
 
-	child := systemPreambleWithAdvisor("", true, false, workflowModeDelegatedChild, false, "").Content
+	child := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeDelegatedChild, CaveHuman: false, SystemSuffix: ""}).Content
 	if !strings.Contains(child, testWorkflowMarker) {
 		t.Fatalf("child preamble missing %q in %q", testWorkflowMarker, child)
 	}
@@ -345,7 +352,7 @@ func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 func TestSystemPreambleExecutionModesInParent(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor("", false, false, workflowModeParent, false, "").Content
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
 	for _, want := range []string{
 		"## Execution modes",
 		"Interactive sessions run in `plan` or `build` mode.",
@@ -365,7 +372,7 @@ func TestSystemPreambleExecutionModesInParent(t *testing.T) {
 func TestSystemPreambleExecutionModesAbsentInDelegatedChild(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor("", false, false, workflowModeDelegatedChild, false, "").Content
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: false, Mode: workflowModeDelegatedChild, CaveHuman: false, SystemSuffix: ""}).Content
 	if strings.Contains(content, "## Execution modes") {
 		t.Fatalf("delegated child preamble should not contain execution modes section in %q", content)
 	}
@@ -377,8 +384,8 @@ func TestSystemPreambleByteStable(t *testing.T) {
 	// Call the preamble builder twice with identical inputs and verify byte-identity.
 	// This proves the preamble has no mode variance (since ExecutionMode is not a parameter)
 	// and no per-turn randomness.
-	first := systemPreambleWithAdvisor("", true, false, workflowModeParent, false, "").Content
-	second := systemPreambleWithAdvisor("", true, false, workflowModeParent, false, "").Content
+	first := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
+	second := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
 
 	if first != second {
 		t.Fatalf("preamble not byte-identical across builds:\nfirst:\n%s\n\nsecond:\n%s", first, second)

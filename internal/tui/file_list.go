@@ -30,12 +30,31 @@ func newFileListOverlay(styles theme.Styles) fileListOverlay {
 func (f fileListOverlay) Open(root string) fileListOverlay {
 	f.OverlayShell = f.openShell()
 	f.root = root
-	f.entries = nil
 
+	entries, err := walkDirEntries(root)
+	if err != nil {
+		f.entries = []string{fmt.Sprintf("error: %v", err)}
+	} else {
+		f.entries = entries
+	}
+
+	return f
+}
+
+// walkDirEntries walks root and returns relative paths, with directories
+// suffixed by "/". It uses the file picker always-include excluder.
+func walkDirEntries(root string) ([]string, error) {
 	excluder := tool.NewPathExcluderWithIncludes(nil, nil, tool.FilePickerAlwaysInclude)
+	var entries []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			if path == root {
+				return err
+			}
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
@@ -48,20 +67,19 @@ func (f fileListOverlay) Open(root string) fileListOverlay {
 			if excluder.ShouldExclude(rel) {
 				return filepath.SkipDir
 			}
-			f.entries = append(f.entries, rel+"/")
+			entries = append(entries, rel+"/")
 		} else {
 			if excluder.ShouldExclude(rel) {
 				return nil
 			}
-			f.entries = append(f.entries, rel)
+			entries = append(entries, rel)
 		}
 		return nil
 	})
 	if err != nil {
-		f.entries = []string{fmt.Sprintf("error: %v", err)}
+		return nil, err
 	}
-
-	return f
+	return entries, nil
 }
 
 func (f fileListOverlay) Close() fileListOverlay {

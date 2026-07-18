@@ -74,7 +74,8 @@ func applyModelPatch(dst *ModelConfig, patch *modelPatch) {
 		applyAdvancedPatch(&dst.Advanced, patch.Advanced)
 	}
 	if patch.Vision != nil {
-		dst.Vision = patch.Vision
+		vision := *patch.Vision
+		dst.Vision = &vision
 	}
 }
 

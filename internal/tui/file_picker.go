@@ -2,14 +2,11 @@ package tui
 
 import (
 	"fmt"
-	"io/fs"
-	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -49,33 +46,11 @@ func (f filePickerOverlay) Open(root string) filePickerOverlay {
 	f.candidates = nil
 	f.matchIndexes = nil
 
-	excluder := tool.NewPathExcluderWithIncludes(nil, nil, tool.FilePickerAlwaysInclude)
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return nil
-		}
-		if rel == "." {
-			return nil
-		}
-		if d.IsDir() {
-			if excluder.ShouldExclude(rel) {
-				return filepath.SkipDir
-			}
-			f.allEntries = append(f.allEntries, rel+"/")
-		} else {
-			if excluder.ShouldExclude(rel) {
-				return nil
-			}
-			f.allEntries = append(f.allEntries, rel)
-		}
-		return nil
-	})
+	entries, err := walkDirEntries(root)
 	if err != nil {
 		f.allEntries = nil
+	} else {
+		f.allEntries = entries
 	}
 
 	f.candidates = append([]string(nil), f.allEntries...)

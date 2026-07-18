@@ -185,7 +185,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		currentAlias:             sess.CurrentModelAlias,
 		currentReasoningOverride: sess.CurrentReasoningOverride,
 		promptCacheKey:           sess.SessionID(),
-		modeGetter:               sess.Mode,
+		modeGetterFunc:           sess.Mode,
 	}
 	runner.approver = sess.Approver(rt.events)
 	sess.SetRunner(sessionRunner{runner: runner})

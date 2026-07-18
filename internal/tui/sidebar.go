@@ -126,6 +126,9 @@ func occupancyPercent(used, budget int) int {
 
 func fitTextMiddle(text string, width int) string {
 	text = strings.TrimSpace(text)
+	if width > 0 && len(text) <= width {
+		return text
+	}
 	runes := []rune(text)
 	if width <= 0 || len(runes) <= width {
 		return text
@@ -141,13 +144,17 @@ func fitTextMiddle(text string, width int) string {
 
 func fitText(text string, width int) string {
 	text = strings.TrimSpace(text)
-	if width <= 0 || len(text) <= width {
+	if width > 0 && len(text) <= width {
+		return text
+	}
+	runes := []rune(text)
+	if width <= 0 || len(runes) <= width {
 		return text
 	}
 	if width <= 3 {
-		return text[:width]
+		return string(runes[:width])
 	}
-	return text[:width-3] + "..."
+	return string(runes[:width-3]) + "..."
 }
 
 func safeText(text string) string {

@@ -9,9 +9,14 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	nativeclipboard "github.com/aymanbagabas/go-nativeclipboard"
 )
+
+// wlPasteTimeout bounds each wl-paste invocation so a clipboard owner that
+// never responds cannot hang the paste command's goroutine indefinitely.
+const wlPasteTimeout = 3 * time.Second
 
 // ReadClipboardImage reads image bytes from the system clipboard.
 // Returns ErrClipboardNoImage if the clipboard contains no image data.
@@ -52,7 +57,9 @@ func ReadClipboardText() (string, error) {
 // readImageViaWlPaste reads an image from the Wayland clipboard using wl-paste.
 // Returns ErrClipboardNoImage when no image MIME type is offered.
 func readImageViaWlPaste() ([]byte, string, error) {
-	out, err := exec.CommandContext(context.Background(), "wl-paste", "--list-types").Output()
+	listCtx, cancel := context.WithTimeout(context.Background(), wlPasteTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(listCtx, "wl-paste", "--list-types").Output()
 	if err != nil {
 		return nil, "", ErrClipboardNoImage
 	}
@@ -61,7 +68,9 @@ func readImageViaWlPaste() ([]byte, string, error) {
 		if !strings.Contains(available, mime) {
 			continue
 		}
-		data, err := exec.CommandContext(context.Background(), "wl-paste", "--type", mime, "--no-newline").Output()
+		readCtx, cancel := context.WithTimeout(context.Background(), wlPasteTimeout)
+		data, err := exec.CommandContext(readCtx, "wl-paste", "--type", mime, "--no-newline").Output()
+		cancel()
 		if err != nil || len(data) == 0 {
 			continue
 		}

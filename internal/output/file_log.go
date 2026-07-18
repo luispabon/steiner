@@ -16,7 +16,6 @@ type FileLogSink struct {
 	mu            sync.Mutex
 	file          *os.File
 	thinkingChunk bool
-	lastErr       error
 }
 
 // NewFileLogSink creates a new file-based event sink at the given path.
@@ -38,7 +37,7 @@ func NewFileLogSink(path string, thinkingChunk bool) (*FileLogSink, error) {
 
 // Emit appends event to the log file unless it is filtered out.
 func (s *FileLogSink) Emit(event Event) {
-	if s == nil || s.file == nil {
+	if s == nil {
 		return
 	}
 	if event.Type == EventTypeThinkingChunk && !s.thinkingChunk {
@@ -48,7 +47,7 @@ func (s *FileLogSink) Emit(event Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.lastErr != nil {
+	if s.file == nil {
 		return
 	}
 
@@ -85,36 +84,17 @@ func (s *FileLogSink) Emit(event Event) {
 
 func (s *FileLogSink) writeString(str string) bool {
 	_, err := io.WriteString(s.file, str)
-	if err != nil {
-		s.lastErr = err
-		return false
-	}
-	return true
+	return err == nil
 }
 
 func (s *FileLogSink) writef(format string, args ...any) bool {
 	_, err := fmt.Fprintf(s.file, format, args...)
-	if err != nil {
-		s.lastErr = err
-		return false
-	}
-	return true
+	return err == nil
 }
 
 func (s *FileLogSink) writeBytes(data []byte) bool {
 	_, err := s.file.Write(data)
-	if err != nil {
-		s.lastErr = err
-		return false
-	}
-	return true
-}
-
-// Err reports the first write error observed by the sink.
-func (s *FileLogSink) Err() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.lastErr
+	return err == nil
 }
 
 // Close releases the underlying log file handle.

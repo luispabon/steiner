@@ -19,7 +19,10 @@ func defaultStorePath() string {
 	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
 		return filepath.Join(xdg, "steiner", "cache-stats.json")
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.TempDir()
+	}
 	return filepath.Join(home, ".local", "state", "steiner", "cache-stats.json")
 }
 

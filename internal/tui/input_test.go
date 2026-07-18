@@ -13,7 +13,7 @@ func TestParseInputHandlesConfigCommand(t *testing.T) {
 }
 
 func TestBuildCompletionCandidatesIncludesConfig(t *testing.T) {
-	got := buildCompletionCandidates("/co", nil, nil, false)
+	got := buildCompletionCandidates("/co", nil, false)
 	if len(got) != 2 {
 		t.Fatalf("candidates = %#v, want 2 candidates", got)
 	}
@@ -64,7 +64,7 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 	})
 
 	t.Run("buildCompletionCandidates includes ls", func(t *testing.T) {
-		got := buildCompletionCandidates("/l", nil, nil, false)
+		got := buildCompletionCandidates("/l", nil, false)
 		found := false
 		for _, c := range got {
 			if c == "/ls" {
@@ -141,7 +141,7 @@ func TestParseInputHandlesSkillInvocation(t *testing.T) {
 }
 
 func TestBuildCompletionCandidatesAllowlistExcludesOneshot(t *testing.T) {
-	got := buildCompletionCandidates("/", nil, nil, true)
+	got := buildCompletionCandidates("/", nil, true)
 	for _, c := range got {
 		if c == "/oneshot" {
 			t.Fatalf("candidates includes /oneshot in allowlist mode, got %#v", got)
@@ -183,7 +183,7 @@ func TestParseInputHandlesCacheStatsCommand(t *testing.T) {
 }
 
 func TestBuildCompletionCandidatesIncludesOneshotResume(t *testing.T) {
-	got := buildCompletionCandidates("/oneshot", nil, nil, false)
+	got := buildCompletionCandidates("/oneshot", nil, false)
 	found := false
 	for _, c := range got {
 		if c == "/oneshot-resume" {

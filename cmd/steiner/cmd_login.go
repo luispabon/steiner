@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,13 @@ import (
 )
 
 var codexOAuthScopes = []string{"openid", "profile", "email", "offline_access", "api.connectors.read", "api.connectors.invoke"}
+
+func writeStatusLine(w io.Writer, format string, args ...any) error {
+	if _, err := fmt.Fprintf(w, format, args...); err != nil {
+		return fmt.Errorf("write status: %w", err)
+	}
+	return nil
+}
 
 func newLoginCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -62,8 +70,8 @@ func newLoginCodexCommand() *cobra.Command {
 				}
 			}
 
-			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Opening browser to authenticate with OpenAI..."); err != nil {
-				return fmt.Errorf("write status: %w", err)
+			if err := writeStatusLine(cmd.OutOrStdout(), "Opening browser to authenticate with OpenAI...\n"); err != nil {
+				return err
 			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
@@ -79,8 +87,8 @@ func newLoginCodexCommand() *cobra.Command {
 				return fmt.Errorf("save token: %w", err)
 			}
 
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Authenticated. Token saved to %s.\n", path); err != nil {
-				return fmt.Errorf("write status: %w", err)
+			if err := writeStatusLine(cmd.OutOrStdout(), "Authenticated. Token saved to %s.\n", path); err != nil {
+				return err
 			}
 			return nil
 		},
@@ -117,8 +125,8 @@ func newLoginCodexStatusCommand() *cobra.Command {
 			token, err := store.Load()
 			if err != nil {
 				if errors.Is(err, oauth.ErrNoToken) {
-					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Not authenticated. Run 'steiner login codex' to authenticate."); err != nil {
-						return fmt.Errorf("write status: %w", err)
+					if err := writeStatusLine(cmd.OutOrStdout(), "Not authenticated. Run 'steiner login codex' to authenticate.\n"); err != nil {
+						return err
 					}
 					return nil
 				}
@@ -126,28 +134,28 @@ func newLoginCodexStatusCommand() *cobra.Command {
 			}
 
 			if token.Expiry.IsZero() {
-				if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Token expires: never"); err != nil {
-					return fmt.Errorf("write status: %w", err)
+				if err := writeStatusLine(cmd.OutOrStdout(), "Token expires: never\n"); err != nil {
+					return err
 				}
-				if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Status: valid"); err != nil {
-					return fmt.Errorf("write status: %w", err)
+				if err := writeStatusLine(cmd.OutOrStdout(), "Status: valid\n"); err != nil {
+					return err
 				}
 				return nil
 			}
 
 			remaining := time.Until(token.Expiry)
 			minutes := int(remaining.Minutes())
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Token expires: %s (in %d minutes)\n", token.Expiry.Format(time.RFC3339), minutes); err != nil {
-				return fmt.Errorf("write status: %w", err)
+			if err := writeStatusLine(cmd.OutOrStdout(), "Token expires: %s (in %d minutes)\n", token.Expiry.Format(time.RFC3339), minutes); err != nil {
+				return err
 			}
 
 			if remaining < 5*time.Minute {
-				if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Status: needs refresh"); err != nil {
-					return fmt.Errorf("write status: %w", err)
+				if err := writeStatusLine(cmd.OutOrStdout(), "Status: needs refresh\n"); err != nil {
+					return err
 				}
 			} else {
-				if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Status: valid"); err != nil {
-					return fmt.Errorf("write status: %w", err)
+				if err := writeStatusLine(cmd.OutOrStdout(), "Status: valid\n"); err != nil {
+					return err
 				}
 			}
 

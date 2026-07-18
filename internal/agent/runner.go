@@ -261,30 +261,23 @@ func formatToolError(err error) string {
 			details["stdout"] = tee.Output.Stdout.Summary()
 			details["stderr"] = tee.Output.Stderr.Summary()
 		}
-		envelope := tool.JSONEnvelope{
-			OK: false,
-			Error: &tool.JSONEnvelopeError{
-				Kind:    tee.Kind,
-				Message: tee.Message,
-				Details: details,
-			},
-		}
-		data, err := json.Marshal(envelope)
-		if err != nil {
-			return fmt.Sprintf(`{"ok":false,"error":{"kind":"%s","message":"%s"}}`, tee.Kind, tee.Message)
-		}
-		return string(data)
+		return marshalToolErrorEnvelope(tee.Kind, tee.Message, details)
 	}
+	return marshalToolErrorEnvelope("tool_error", err.Error(), nil)
+}
+
+func marshalToolErrorEnvelope(kind, message string, details map[string]any) string {
 	envelope := tool.JSONEnvelope{
 		OK: false,
 		Error: &tool.JSONEnvelopeError{
-			Kind:    "tool_error",
-			Message: err.Error(),
+			Kind:    kind,
+			Message: message,
+			Details: details,
 		},
 	}
-	data, marshalErr := json.Marshal(envelope)
-	if marshalErr != nil {
-		return fmt.Sprintf(`{"ok":false,"error":{"kind":"tool_error","message":"%s"}}`, err.Error())
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Sprintf(`{"ok":false,"error":{"kind":"%s","message":"%s"}}`, kind, message)
 	}
 	return string(data)
 }

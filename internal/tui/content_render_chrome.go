@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // renderCenteredDashes returns a width-filling dashed line with the label centered.
@@ -14,8 +15,8 @@ func (b *contentBuffer) renderCenteredDashes(label string, width int) string {
 	labelStr := " " + label + " "
 	labelLen := lipgloss.Width(labelStr)
 	if labelLen > width-2 {
-		// Label too wide; just render label truncated.
-		return b.styles.FgDim.Render(labelStr[:min(len(labelStr), max(1, width))])
+		// Label too wide; truncate by display width (rune/grapheme safe).
+		return b.styles.FgDim.Render(ansi.Truncate(labelStr, max(1, width), ""))
 	}
 	dashCount := (width - labelLen) / 2
 	// Ensure at least 1 dash on each side

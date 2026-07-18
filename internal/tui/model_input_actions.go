@@ -299,14 +299,59 @@ func (m Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.
 	return m.executeSubmitAction(displayText, displayText, displayText)
 }
 
-func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
+// oneshotDrainSteers builds a DrainSteers closure over ch, collecting any
+// buffered steer messages without blocking.
+func oneshotDrainSteers(ch chan agent.SteerMessage) func() []agent.SteerMessage {
+	return func() []agent.SteerMessage {
+		var msgs []agent.SteerMessage
+		for {
+			select {
+			case msg := <-ch:
+				msgs = append(msgs, msg)
+			default:
+				return msgs
+			}
+		}
+	}
+}
+
+// oneshotSessionStoreOrEmit casts sessionStore to oneshot.SessionStore,
+// emitting the standard "not configured" failure events on the sink when it
+// does not implement the interface.
+func oneshotSessionStoreOrEmit(sessionStore interface{}, sink output.EventSink, runID string) (oneshot.SessionStore, bool) {
+	oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
+	if !ok {
+		sink.Emit(output.NewOverlayReportEvent("Context Report", "session store does not implement required oneshot interface"))
+		sink.Emit(output.NewOneshotFinishedEvent(runID, nil))
+		return nil, false
+	}
+	return oneshotSessionStore, true
+}
+
+// runOrchestratorAndReport runs run (Orchestrator.Run or Orchestrator.Resume)
+// and emits the standard failed/report/finished event sequence.
+func runOrchestratorAndReport(sink output.EventSink, runID, failureLabel string, run func() (oneshot.Manifest, error)) {
+	manifest, err := run()
+	if err != nil {
+		sink.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("%s: %v", failureLabel, err)))
+	}
+	if manifest.ReportPath != "" {
+		sink.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot report: %s", manifest.ReportPath)))
+	}
+	sink.Emit(output.NewOneshotFinishedEvent(runID, err))
+}
+
+// prepareOneshotRun applies the guard checks and steer-channel setup shared
+// by launch and resume. ok is false when a guard failed and m already
+// carries the corresponding status message and reset input.
+func (m Model) prepareOneshotRun() (Model, bool) {
 	if m.oneshotRunnerFactory == nil {
 		m.content.AppendLine("status: oneshot runner factory not configured")
 		m.input.Reset()
 		m.historyIdx = 0
 		m.relayoutInput()
 		m.syncViewport()
-		return m, nil
+		return m, false
 	}
 
 	if m.controller == nil {
@@ -315,6 +360,18 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		m.historyIdx = 0
 		m.relayoutInput()
 		m.syncViewport()
+		return m, false
+	}
+
+	m.oneshotSteerCh = make(chan agent.SteerMessage, 4)
+	m.oneshotRunning = true
+	m.oneshotPhase = ""
+	return m, true
+}
+
+func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
+	m, ok := m.prepareOneshotRun()
+	if !ok {
 		return m, nil
 	}
 
@@ -322,14 +379,11 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	runIdentity, err := oneshot.NewRunIdentity(strings.TrimSpace(task))
 	if err != nil {
 		m.content.AppendLine(fmt.Sprintf("status: launch oneshot failed: %v", err))
+		m.oneshotRunning = false
+		m.oneshotSteerCh = nil
 		m.syncViewport()
 		return m, nil
 	}
-
-	// Create steer channel
-	m.oneshotSteerCh = make(chan agent.SteerMessage, 4)
-	m.oneshotRunning = true
-	m.oneshotPhase = ""
 
 	sessionStore := m.sessionStore
 
@@ -339,33 +393,20 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		// the controller is always a *Session
 		sess := m.controller.(*interactive.Session)
 
-		// Cast sessionStore to oneshot.SessionStore interface
-		oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
+		oneshotSessionStore, ok := oneshotSessionStoreOrEmit(sessionStore, sess.EventSink(), runIdentity.ID)
 		if !ok {
-			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", "session store does not implement required oneshot interface"))
-			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, nil))
 			return
 		}
 
 		deps := oneshot.Dependencies{
-			ProjectRoot:   sess.ProjectRoot(),
-			Identity:      runIdentity,
-			Task:          strings.TrimSpace(task),
-			Config:        sess.Config(),
-			SessionStore:  oneshotSessionStore,
-			RunnerFactory: m.oneshotRunnerFactory(runIdentity),
-			Events:        sess.EventSink(),
-			DrainSteers: func() []agent.SteerMessage {
-				var msgs []agent.SteerMessage
-				for {
-					select {
-					case m := <-m.oneshotSteerCh:
-						msgs = append(msgs, m)
-					default:
-						return msgs
-					}
-				}
-			},
+			ProjectRoot:      sess.ProjectRoot(),
+			Identity:         runIdentity,
+			Task:             strings.TrimSpace(task),
+			Config:           sess.Config(),
+			SessionStore:     oneshotSessionStore,
+			RunnerFactory:    m.oneshotRunnerFactory(runIdentity),
+			Events:           sess.EventSink(),
+			DrainSteers:      oneshotDrainSteers(m.oneshotSteerCh),
 			InterruptFactory: context.WithCancel,
 		}
 
@@ -376,14 +417,9 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 			return
 		}
 
-		manifest, err := orchestrator.Run(context.Background())
-		if err != nil {
-			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot run failed: %v", err)))
-		}
-		if manifest.ReportPath != "" {
-			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot report: %s", manifest.ReportPath)))
-		}
-		sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, err))
+		runOrchestratorAndReport(sess.EventSink(), runIdentity.ID, "oneshot run failed", func() (oneshot.Manifest, error) {
+			return orchestrator.Run(context.Background())
+		})
 
 		// Do not close the steer channel — sending to a closed channel panics.
 		// The buffered channel becomes inert once the orchestrator goroutine exits;
@@ -400,30 +436,12 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
-	if m.oneshotRunnerFactory == nil {
-		m.content.AppendLine("status: oneshot runner factory not configured")
-		m.input.Reset()
-		m.historyIdx = 0
-		m.relayoutInput()
-		m.syncViewport()
-		return m, nil
-	}
-
-	if m.controller == nil {
-		m.content.AppendLine("status: controller not available")
-		m.input.Reset()
-		m.historyIdx = 0
-		m.relayoutInput()
-		m.syncViewport()
+	m, ok := m.prepareOneshotRun()
+	if !ok {
 		return m, nil
 	}
 
 	sessionStore := m.sessionStore
-
-	// Create steer channel
-	m.oneshotSteerCh = make(chan agent.SteerMessage, 4)
-	m.oneshotRunning = true
-	m.oneshotPhase = ""
 
 	// Spawn orchestrator goroutine
 	go func() {
@@ -459,33 +477,20 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 			Slug: targetRun.Slug,
 		}
 
-		// Cast sessionStore to oneshot.SessionStore interface
-		oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
+		oneshotSessionStore, ok := oneshotSessionStoreOrEmit(sessionStore, sess.EventSink(), identity.ID)
 		if !ok {
-			sess.EventSink().Emit(output.NewOneshotFinishedEvent(identity.ID, nil))
-			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", "session store does not implement required oneshot interface"))
 			return
 		}
 
 		deps := oneshot.Dependencies{
-			ProjectRoot:   projectRoot,
-			Identity:      identity,
-			Task:          targetRun.Task,
-			Config:        sess.Config(),
-			SessionStore:  oneshotSessionStore,
-			RunnerFactory: m.oneshotRunnerFactory(identity),
-			Events:        sess.EventSink(),
-			DrainSteers: func() []agent.SteerMessage {
-				var msgs []agent.SteerMessage
-				for {
-					select {
-					case m := <-m.oneshotSteerCh:
-						msgs = append(msgs, m)
-					default:
-						return msgs
-					}
-				}
-			},
+			ProjectRoot:      projectRoot,
+			Identity:         identity,
+			Task:             targetRun.Task,
+			Config:           sess.Config(),
+			SessionStore:     oneshotSessionStore,
+			RunnerFactory:    m.oneshotRunnerFactory(identity),
+			Events:           sess.EventSink(),
+			DrainSteers:      oneshotDrainSteers(m.oneshotSteerCh),
 			InterruptFactory: context.WithCancel,
 		}
 
@@ -496,14 +501,9 @@ func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 			return
 		}
 
-		runManifest, err := orchestrator.Resume(context.Background())
-		sess.EventSink().Emit(output.NewOneshotFinishedEvent(identity.ID, err))
-		if err != nil {
-			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot resume failed: %v", err)))
-		}
-		if runManifest.ReportPath != "" {
-			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot report: %s", runManifest.ReportPath)))
-		}
+		runOrchestratorAndReport(sess.EventSink(), identity.ID, "oneshot resume failed", func() (oneshot.Manifest, error) {
+			return orchestrator.Resume(context.Background())
+		})
 	}()
 
 	m.content.AppendLine(fmt.Sprintf("status: resuming oneshot run: %s", runID))

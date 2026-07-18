@@ -152,7 +152,14 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 		Background(userBgColor)
 	pad := padStyle.Render(barStyle.Render("┃"))
 
-	rendered, err := renderMarkdownBlock(segment.text, contentWidth-2, b.styles, b.glamourStyleSheet, &b.renderer, &b.renderWidth)
+	rendered, err := renderMarkdownBlock(markdownBlockParams{
+		block:       segment.text,
+		width:       contentWidth - 2,
+		styles:      b.styles,
+		styleSheet:  b.glamourStyleSheet,
+		renderer:    &b.renderer,
+		renderWidth: &b.renderWidth,
+	})
 	if err != nil {
 		b.lastRenderErr = fmt.Errorf("render user markdown: %w", err)
 		return b.renderUserSegment(segment, width)
@@ -268,7 +275,14 @@ func (b *contentBuffer) renderMarkdown(block string, isAssistant bool, width int
 	if isAssistant {
 		label = "assistant"
 	}
-	rendered, err := renderMarkdownBlock(block, width, b.styles, b.glamourStyleSheet, &b.renderer, &b.renderWidth)
+	rendered, err := renderMarkdownBlock(markdownBlockParams{
+		block:       block,
+		width:       width,
+		styles:      b.styles,
+		styleSheet:  b.glamourStyleSheet,
+		renderer:    &b.renderer,
+		renderWidth: &b.renderWidth,
+	})
 	if err != nil {
 		b.lastRenderErr = fmt.Errorf("render markdown: %w", err)
 		return b.styles.UserBg.Render(label + "> " + block)
@@ -276,12 +290,22 @@ func (b *contentBuffer) renderMarkdown(block string, isAssistant bool, width int
 	return rendered
 }
 
-func renderMarkdownBlock(block string, width int, styles theme.Styles, styleSheet glamour.TermRendererOption, renderer **glamour.TermRenderer, renderWidth *int) (string, error) {
-	targetWidth := max(1, width-markdownRenderPadding)
-	if renderer != nil && *renderer != nil && renderWidth != nil && *renderWidth == targetWidth {
-		rendered, err := (*renderer).Render(block)
+// markdownBlockParams bundles the arguments for renderMarkdownBlock.
+type markdownBlockParams struct {
+	block       string
+	width       int
+	styles      theme.Styles
+	styleSheet  glamour.TermRendererOption
+	renderer    **glamour.TermRenderer
+	renderWidth *int
+}
+
+func renderMarkdownBlock(p markdownBlockParams) (string, error) {
+	targetWidth := max(1, p.width-markdownRenderPadding)
+	if p.renderer != nil && *p.renderer != nil && p.renderWidth != nil && *p.renderWidth == targetWidth {
+		rendered, err := (*p.renderer).Render(p.block)
 		if err != nil {
-			return styles.AssistantProse.Render("assistant> " + block), err
+			return p.styles.AssistantProse.Render("assistant> " + p.block), err
 		}
 		return rendered, nil
 	}
@@ -289,24 +313,24 @@ func renderMarkdownBlock(block string, width int, styles theme.Styles, styleShee
 		glamour.WithWordWrap(targetWidth),
 		glamour.WithPreservedNewLines(),
 	}
-	if styleSheet != nil {
-		opts = append([]glamour.TermRendererOption{styleSheet}, opts...)
+	if p.styleSheet != nil {
+		opts = append([]glamour.TermRendererOption{p.styleSheet}, opts...)
 	} else {
 		opts = append([]glamour.TermRendererOption{glamour.WithStandardStyle("dark")}, opts...)
 	}
 	termRenderer, err := glamour.NewTermRenderer(opts...)
 	if err != nil {
-		return styles.AssistantProse.Render("assistant> " + block), err
+		return p.styles.AssistantProse.Render("assistant> " + p.block), err
 	}
-	if renderer != nil {
-		*renderer = termRenderer
+	if p.renderer != nil {
+		*p.renderer = termRenderer
 	}
-	if renderWidth != nil {
-		*renderWidth = targetWidth
+	if p.renderWidth != nil {
+		*p.renderWidth = targetWidth
 	}
-	rendered, err := termRenderer.Render(block)
+	rendered, err := termRenderer.Render(p.block)
 	if err != nil {
-		return styles.AssistantProse.Render("assistant> " + block), err
+		return p.styles.AssistantProse.Render("assistant> " + p.block), err
 	}
 	return rendered, nil
 }

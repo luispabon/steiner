@@ -1,8 +1,6 @@
 package config
 
 var (
-	advisorTimeout = MustDuration("180s")
-
 	// DefaultCodexMinRequestInterval is the minimum gap enforced between
 	// consecutive Codex requests when a provider omits
 	// codex.min_request_interval. Exported so internal/provider can seed it
@@ -10,6 +8,13 @@ var (
 	// defaultConfig.
 	DefaultCodexMinRequestInterval = MustDuration("4s")
 )
+
+// advisorTimeout returns a fresh Duration for the default Advisor.Timeout so
+// each Config produced by defaultConfig owns its own pointer.
+func advisorTimeout() *Duration {
+	timeout := MustDuration("180s")
+	return &timeout
+}
 
 func defaultConfig() Config {
 	defaultProvider := ProviderConfig{
@@ -73,7 +78,7 @@ func defaultConfig() Config {
 		Advisor: AdvisorConfig{
 			Enabled:       false,
 			MaxUsesPerRun: 3,
-			Timeout:       &advisorTimeout,
+			Timeout:       advisorTimeout(),
 		},
 		OneShot: oneshotConfig{
 			AutoPR: false,

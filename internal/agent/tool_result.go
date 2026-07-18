@@ -47,47 +47,34 @@ func normalizeToolResult(result any) ToolResultEnvelope {
 func extractImage(result any) *ImageBlock {
 	switch v := result.(type) {
 	case *builtin.ReadResult:
-		if v != nil && v.Image != nil {
-			return &ImageBlock{
-				MediaType: v.Image.MediaType,
-				Data:      v.Image.Data,
-				Width:     v.Image.Width,
-				Height:    v.Image.Height,
-				SizeBytes: v.Image.SizeBytes,
-			}
+		if v == nil {
+			return nil
 		}
+		return imageBlockFrom(v.Image)
 	case builtin.ReadResult:
-		if v.Image != nil {
-			return &ImageBlock{
-				MediaType: v.Image.MediaType,
-				Data:      v.Image.Data,
-				Width:     v.Image.Width,
-				Height:    v.Image.Height,
-				SizeBytes: v.Image.SizeBytes,
-			}
-		}
+		return imageBlockFrom(v.Image)
 	case *builtin.FetchURLResult:
-		if v != nil && v.Image != nil {
-			return &ImageBlock{
-				MediaType: v.Image.MediaType,
-				Data:      v.Image.Data,
-				Width:     v.Image.Width,
-				Height:    v.Image.Height,
-				SizeBytes: v.Image.SizeBytes,
-			}
+		if v == nil {
+			return nil
 		}
+		return imageBlockFrom(v.Image)
 	case builtin.FetchURLResult:
-		if v.Image != nil {
-			return &ImageBlock{
-				MediaType: v.Image.MediaType,
-				Data:      v.Image.Data,
-				Width:     v.Image.Width,
-				Height:    v.Image.Height,
-				SizeBytes: v.Image.SizeBytes,
-			}
-		}
+		return imageBlockFrom(v.Image)
 	}
 	return nil
+}
+
+func imageBlockFrom(img *builtin.ImageBlock) *ImageBlock {
+	if img == nil {
+		return nil
+	}
+	return &ImageBlock{
+		MediaType: img.MediaType,
+		Data:      img.Data,
+		Width:     img.Width,
+		Height:    img.Height,
+		SizeBytes: img.SizeBytes,
+	}
 }
 
 func toolResultContent(result any) string {

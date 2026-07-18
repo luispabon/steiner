@@ -61,20 +61,33 @@ func NewModelCallStartedEvent(turn int, model string, messageCount int) Event {
 	})
 }
 
+// ModelCallFinishedParams holds the arguments for NewModelCallFinishedEvent.
+type ModelCallFinishedParams struct {
+	Turn             int
+	Model            string
+	FinishReason     string
+	ToolCalls        int
+	CompletionTokens int
+	Err              error
+	DurationMs       int64
+	TTFTMs           int64
+	OutputTPS        float64
+}
+
 // NewModelCallFinishedEvent creates a new model call finished event.
-func NewModelCallFinishedEvent(turn int, model, finishReason string, toolCalls, completionTokens int, err error, durationMs int64, ttftMs int64, outputTPS float64) Event {
+func NewModelCallFinishedEvent(p ModelCallFinishedParams) Event {
 	payload := ModelCallFinishedEvent{
-		Turn:             turn,
-		Model:            model,
-		FinishReason:     finishReason,
-		ToolCalls:        toolCalls,
-		CompletionTokens: completionTokens,
-		DurationMs:       durationMs,
-		TTFTMs:           ttftMs,
-		OutputTPS:        outputTPS,
+		Turn:             p.Turn,
+		Model:            p.Model,
+		FinishReason:     p.FinishReason,
+		ToolCalls:        p.ToolCalls,
+		CompletionTokens: p.CompletionTokens,
+		DurationMs:       p.DurationMs,
+		TTFTMs:           p.TTFTMs,
+		OutputTPS:        p.OutputTPS,
 	}
-	if err != nil {
-		payload.Error = err.Error()
+	if p.Err != nil {
+		payload.Error = p.Err.Error()
 	}
 	return newEvent(EventTypeModelCallFinished, payload)
 }
