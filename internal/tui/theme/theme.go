@@ -107,7 +107,7 @@ type Styles struct {
 	// Input focus border ring
 	InputFocusBorder lipgloss.Style
 
-	// Command palette
+	// Overlay palette styles
 	PaletteOverlay    lipgloss.Style
 	PaletteInput      lipgloss.Style
 	PaletteItem       lipgloss.Style
