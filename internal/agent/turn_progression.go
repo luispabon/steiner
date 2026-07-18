@@ -461,7 +461,6 @@ func imageBlockPlaceholder(img ImageBlock, visionState VisionState, subAgentConf
 			// Non-vision without sub-agent: no re-examine hint.
 			suffix = "]"
 		default:
-			// Vision-capable or unknown (conservative): advertise both tools (backward compat).
 			suffix = fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
 		}
 		return descriptive + suffix

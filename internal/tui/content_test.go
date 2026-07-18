@@ -435,6 +435,62 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 		t.Errorf("segment[3] closing = false, want true")
 	}
 }
+
+func TestAdvisorThinkingChunkRouting(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		showThinking:  true,
+	}
+
+	// Emit advisor started.
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2))
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments after start = %d, want 1", len(buffer.segments))
+	}
+
+	// Emit thinking chunks.
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(0, "thinking step one ", output.ChunkSourceAssistant))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(0, "thinking step two", output.ChunkSourceAssistant))
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want advisor delegation state")
+	}
+	if !dd.isAdvisor {
+		t.Fatal("isAdvisor = false, want true")
+	}
+
+	// Entries should contain merged thinking transcript.
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count = %d, want 1 (merged thinking)", got)
+	}
+	if got := dd.entries[0].kind; got != delegationTranscriptEntryThinking {
+		t.Fatalf("entry kind = %v, want delegationTranscriptEntryThinking", got)
+	}
+	if got := dd.entries[0].body; got != "thinking step one thinking step two" {
+		t.Fatalf("entry body = %q, want merged thinking content", got)
+	}
+
+	// Emit complete with output.
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "Final advice here", false, nil))
+
+	// Verify the advisor box status is complete.
+	if got := dd.status; got != "complete" {
+		t.Fatalf("status after complete = %q, want complete", got)
+	}
+
+	// Verify the labeled block is still appended (index 1).
+	if len(buffer.segments) < 2 {
+		t.Fatal("segments too few after complete, want labeled block")
+	}
+	if buffer.segments[1].kind != segmentSeparator || buffer.segments[1].separatorData == nil {
+		t.Fatalf("segment[1] kind=%v, want segmentSeparator", buffer.segments[1].kind)
+	}
+	if buffer.segments[1].separatorData.label != "Advisor output" {
+		t.Errorf("segment[1] label = %q, want %q", buffer.segments[1].separatorData.label, "Advisor output")
+	}
+}
 func TestRenderAdvisorTrailingMargin(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),

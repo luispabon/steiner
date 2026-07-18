@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -33,6 +34,64 @@ func drainStream(chunks <-chan provider.ChatChunk) (provider.ChatResponse, error
 		}
 		if !chunk.Done {
 			message.Content += chunk.Delta.Content
+			continue
+		}
+		// Final chunk
+		sawFinal = true
+		response.Usage = chunk.Usage
+		response.FinishReason = chunk.FinishReason
+		if content := chunk.Delta.Content; content != "" {
+			switch {
+			case message.Content == "":
+				message.Content = content
+			case strings.HasPrefix(content, message.Content):
+				message.Content = content
+			case strings.HasPrefix(message.Content, content):
+				// Final chunk already represented by prior deltas.
+			default:
+				message.Content += content
+			}
+		}
+	}
+
+	if !sawFinal {
+		return provider.ChatResponse{}, fmt.Errorf("stream completed without a final chunk")
+	}
+
+	response.Message = message
+	return response, nil
+}
+
+// streamWithEvents reads all chunks from a streaming response, assembles them
+// into a single ChatResponse, and emits thinking chunks to the event sink.
+// It mirrors drainStream but adds event emission for thinking content.
+// A nil sink behaves identically to drainStream.
+func streamWithEvents(chunks <-chan provider.ChatChunk, sink output.EventSink) (provider.ChatResponse, error) {
+	response := provider.ChatResponse{}
+	message := provider.Message{Role: provider.MessageRoleAssistant}
+	sawFinal := false
+
+	for chunk := range chunks {
+		if chunk.RetryReset {
+			response = provider.ChatResponse{}
+			message = provider.Message{Role: provider.MessageRoleAssistant}
+			sawFinal = false
+			continue
+		}
+		if errText := strings.TrimSpace(chunk.Error); errText != "" {
+			if chunk.OriginalError != nil {
+				return provider.ChatResponse{}, chunk.OriginalError
+			}
+			return provider.ChatResponse{}, fmt.Errorf("%s", errText)
+		}
+		if role := chunk.Delta.Role; role != "" {
+			message.Role = role
+		}
+		if !chunk.Done {
+			message.Content += chunk.Delta.Content
+			if chunk.Thinking != "" {
+				emitEvent(sink, output.NewThinkingChunkEventWithSource(0, chunk.Thinking, output.ChunkSourceAssistant))
+			}
 			continue
 		}
 		// Final chunk
