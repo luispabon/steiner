@@ -85,7 +85,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps) (any, error
 	// cache prefixes stay reusable. The per-run cap lives in handler state on
 	// purpose, even though Anthropic guidance often suggests removing spent tools.
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses))
-	response, err := advise(ctx, deps.Provider, deps.Model.BackendModelID, snapshot, deps.Config.MaxTokens, deps.Events)
+	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, deps.Config.MaxTokens, deps.Events)
 	if err != nil {
 		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err))
 		return nil, err
@@ -111,18 +111,37 @@ func emitEvent(sink output.EventSink, event output.Event) {
 	}
 }
 
-func advise(ctx context.Context, prov provider.Provider, model string, conversation []provider.Message, maxTokens *int, events output.EventSink) (provider.ChatResponse, error) {
+func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, conversation []provider.Message, maxTokens *int, events output.EventSink) (provider.ChatResponse, error) {
 	if prov == nil {
 		return provider.ChatResponse{}, fmt.Errorf("advisor: provider is required")
 	}
-	if strings.TrimSpace(model) == "" {
+	if strings.TrimSpace(rm.BackendModelID) == "" {
 		return provider.ChatResponse{}, fmt.Errorf("advisor: model is required")
 	}
 
 	req := provider.ChatRequest{
-		Model:     model,
-		Messages:  buildMessages(conversation),
-		MaxTokens: maxTokens,
+		Model:       rm.BackendModelID,
+		Messages:    buildMessages(conversation),
+		MaxTokens:   maxTokens,
+		Params:      rm.Params,
+		ExtraParams: rm.ExtraParams,
+	}
+	if rm.ReasoningEffectiveEffort != "" {
+		req.Reasoning = &provider.ReasoningRequest{Effort: rm.ReasoningEffectiveEffort}
+	}
+
+	if req.Reasoning != nil {
+		// Streaming is required for reasoning models. Go directly to streaming
+		// so the provider produces thinking chunks.
+		stream, err := prov.StreamChatCompletion(ctx, req)
+		if err != nil {
+			return provider.ChatResponse{}, fmt.Errorf("advisor: %w", err)
+		}
+		resp, drainErr := streamWithEvents(stream, events)
+		if drainErr != nil {
+			return provider.ChatResponse{}, fmt.Errorf("advisor: %w", drainErr)
+		}
+		return resp, nil
 	}
 
 	response, err := prov.ChatCompletion(ctx, req)

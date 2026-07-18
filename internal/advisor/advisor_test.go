@@ -6,15 +6,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
 type fakeProvider struct {
-	requests     []provider.ChatRequest
-	response     provider.ChatResponse
-	err          error
-	streamChunks []provider.ChatChunk
-	streamErr    error
+	requests       []provider.ChatRequest
+	streamRequests []provider.ChatRequest
+	response       provider.ChatResponse
+	err            error
+	streamChunks   []provider.ChatChunk
+	streamErr      error
 }
 
 func (p *fakeProvider) ChatCompletion(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
@@ -25,7 +27,8 @@ func (p *fakeProvider) ChatCompletion(_ context.Context, req provider.ChatReques
 	return p.response, nil
 }
 
-func (p *fakeProvider) StreamChatCompletion(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+func (p *fakeProvider) StreamChatCompletion(_ context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	p.streamRequests = append(p.streamRequests, req)
 	if p.streamChunks != nil {
 		ch := make(chan provider.ChatChunk, len(p.streamChunks))
 		for _, c := range p.streamChunks {
@@ -68,7 +71,7 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, "advisor-model", snapshot, intPtr(256), nil)
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, snapshot, intPtr(256), nil)
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -152,7 +155,7 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 func TestAdviseWrapsProviderErrors(t *testing.T) {
 	prov := &fakeProvider{err: errors.New("backend failed")}
 
-	_, err := advise(context.Background(), prov, "advisor-model", nil, nil, nil)
+	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -170,7 +173,7 @@ func TestAdviseFallsBackToStreamingWhenStreamRequired(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, "advisor-model", nil, nil, nil)
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -191,12 +194,109 @@ func TestAdviseStreamRequiredButStreamingFails(t *testing.T) {
 		streamErr: errors.New("stream broke"),
 	}
 
-	_, err := advise(context.Background(), prov, "advisor-model", nil, nil, nil)
+	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
 	if got := err.Error(); !strings.Contains(got, "advisor: stream broke") {
 		t.Fatalf("advise() error = %q, want wrapped streaming error", got)
+	}
+}
+
+func TestAdviseWithReasoningDirectsToStream(t *testing.T) {
+	prov := &fakeProvider{
+		streamChunks: []provider.ChatChunk{
+			{Delta: provider.Message{Content: "reasoned answer"}},
+			{Done: true, Delta: provider.Message{Content: "reasoned answer"}, FinishReason: "stop"},
+		},
+	}
+
+	rm := provider.ResolvedModel{
+		BackendModelID:           "glm-5.2",
+		ReasoningEffectiveEffort: "high",
+	}
+
+	resp, err := advise(context.Background(), prov, rm, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("advise() error = %v", err)
+	}
+	if got, want := resp.Message.Content, "reasoned answer"; got != want {
+		t.Fatalf("response content = %q, want %q", got, want)
+	}
+	if len(prov.requests) != 0 {
+		t.Fatalf("len(ChatCompletion requests) = %d, want 0 (stream used directly)", len(prov.requests))
+	}
+	if len(prov.streamRequests) != 1 {
+		t.Fatalf("len(stream requests) = %d, want 1", len(prov.streamRequests))
+	}
+	streamReq := prov.streamRequests[0]
+	if streamReq.Reasoning == nil {
+		t.Fatal("stream request.Reasoning = nil, want non-nil")
+	}
+	if got, want := streamReq.Reasoning.Effort, "high"; got != want {
+		t.Fatalf("stream request.Reasoning.Effort = %q, want %q", got, want)
+	}
+	if got, want := streamReq.Model, "glm-5.2"; got != want {
+		t.Fatalf("stream request.Model = %q, want %q", got, want)
+	}
+}
+
+func TestAdviseWithReasoningStreamError(t *testing.T) {
+	prov := &fakeProvider{
+		streamErr: errors.New("stream failed"),
+	}
+
+	rm := provider.ResolvedModel{
+		BackendModelID:           "glm-5.2",
+		ReasoningEffectiveEffort: "high",
+	}
+
+	_, err := advise(context.Background(), prov, rm, nil, nil, nil)
+	if err == nil {
+		t.Fatal("advise() error = nil, want wrapped error")
+	}
+	if got := err.Error(); !strings.Contains(got, "advisor: stream failed") {
+		t.Fatalf("advise() error = %q, want wrapped stream error", got)
+	}
+}
+
+func TestAdviseWithReasoningEmitsThinkingChunks(t *testing.T) {
+	prov := &fakeProvider{
+		streamChunks: []provider.ChatChunk{
+			{Delta: provider.Message{Content: ""}, Thinking: "Let me think about this "},
+			{Delta: provider.Message{Content: ""}, Thinking: "more deeply"},
+			{Done: true, Delta: provider.Message{Content: "Final answer"}, FinishReason: "stop"},
+		},
+	}
+
+	rm := provider.ResolvedModel{
+		BackendModelID:           "glm-5.2",
+		ReasoningEffectiveEffort: "high",
+	}
+
+	sink := &toolSink{}
+	resp, err := advise(context.Background(), prov, rm, nil, nil, sink)
+	if err != nil {
+		t.Fatalf("advise() error = %v", err)
+	}
+	if got, want := resp.Message.Content, "Final answer"; got != want {
+		t.Fatalf("response content = %q, want %q", got, want)
+	}
+
+	var gotThinking []string
+	for _, e := range sink.events {
+		if p, ok := e.Payload.(output.ThinkingChunkEvent); ok {
+			gotThinking = append(gotThinking, p.Content)
+		}
+	}
+	wantThinking := []string{"Let me think about this ", "more deeply"}
+	if len(gotThinking) != len(wantThinking) {
+		t.Fatalf("thinking events = %v, want %v", gotThinking, wantThinking)
+	}
+	for i := range gotThinking {
+		if gotThinking[i] != wantThinking[i] {
+			t.Fatalf("thinking event[%d] = %q, want %q", i, gotThinking[i], wantThinking[i])
+		}
 	}
 }
 
