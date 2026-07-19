@@ -79,6 +79,10 @@ func isCtrl(msg tea.KeyPressMsg, letter rune) bool {
 }
 
 func (m Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation bool) (bool, tea.Model) {
+	if msg.Code == tea.KeyEsc && m.helpVisible {
+		m.helpVisible = false
+		return true, m
+	}
 	if activeConversation && (msg.Code == tea.KeyEsc || isCtrl(msg, 'c') || isCtrl(msg, 'd')) {
 		return true, m.executeInterruptAction()
 	}
@@ -88,10 +92,6 @@ func (m Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation 
 	}
 	if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
 		m.helpVisible = !m.helpVisible
-		return true, m
-	}
-	if msg.Code == tea.KeyEsc && m.helpVisible {
-		m.helpVisible = false
 		return true, m
 	}
 	return false, m
