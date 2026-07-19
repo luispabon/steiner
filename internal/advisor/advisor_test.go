@@ -441,7 +441,7 @@ func TestAdviseSucceedsWithEmptyCacheKey(t *testing.T) {
 func intPtr(v int) *int { return &v }
 
 func TestHandlerRecordsUsageStatsOnNonStreamingCall(t *testing.T) {
-	t.Parallel()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	prov := &fakeProvider{
 		response: provider.ChatResponse{
@@ -478,7 +478,7 @@ func TestHandlerRecordsUsageStatsOnNonStreamingCall(t *testing.T) {
 }
 
 func TestHandlerRecordsUsageStatsOnStreamingCall(t *testing.T) {
-	t.Parallel()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	prov := &fakeProvider{
 		streamChunks: []provider.ChatChunk{
@@ -520,9 +520,7 @@ func TestHandlerRecordsUsageStatsOnStreamingCall(t *testing.T) {
 }
 
 // findUsageRow returns the single report row matching backendModelID, failing
-// the test if it is absent or duplicated. The underlying recorder persists to
-// a shared on-disk store across test runs, so assertions must key off a
-// unique BackendModelID rather than the total row count.
+// the test if it is absent or duplicated.
 func findUsageRow(t *testing.T, rec *usagestats.Recorder, backendModelID string) usagestats.Row {
 	t.Helper()
 	report := rec.Window(time.Hour)
