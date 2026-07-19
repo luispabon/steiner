@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -71,7 +72,7 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, snapshot, intPtr(256), nil)
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, snapshot, intPtr(256), nil, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -155,7 +156,7 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 func TestAdviseWrapsProviderErrors(t *testing.T) {
 	prov := &fakeProvider{err: errors.New("backend failed")}
 
-	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil)
+	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil, "")
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -173,7 +174,7 @@ func TestAdviseFallsBackToStreamingWhenStreamRequired(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil)
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -194,7 +195,7 @@ func TestAdviseStreamRequiredButStreamingFails(t *testing.T) {
 		streamErr: errors.New("stream broke"),
 	}
 
-	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil)
+	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil, "")
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -216,7 +217,7 @@ func TestAdviseWithReasoningDirectsToStream(t *testing.T) {
 		ReasoningEffectiveEffort: "high",
 	}
 
-	resp, err := advise(context.Background(), prov, rm, nil, nil, nil)
+	resp, err := advise(context.Background(), prov, rm, nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -251,7 +252,7 @@ func TestAdviseWithReasoningStreamError(t *testing.T) {
 		ReasoningEffectiveEffort: "high",
 	}
 
-	_, err := advise(context.Background(), prov, rm, nil, nil, nil)
+	_, err := advise(context.Background(), prov, rm, nil, nil, nil, "")
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -275,7 +276,7 @@ func TestAdviseWithReasoningEmitsThinkingChunks(t *testing.T) {
 	}
 
 	sink := &toolSink{}
-	resp, err := advise(context.Background(), prov, rm, nil, nil, sink)
+	resp, err := advise(context.Background(), prov, rm, nil, nil, sink, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -297,6 +298,141 @@ func TestAdviseWithReasoningEmitsThinkingChunks(t *testing.T) {
 		if gotThinking[i] != wantThinking[i] {
 			t.Fatalf("thinking event[%d] = %q, want %q", i, gotThinking[i], wantThinking[i])
 		}
+	}
+}
+
+func contextWithSnapshot(snapshot []provider.Message) context.Context {
+	return agent.WithConversationSnapshot(context.Background(), snapshot)
+}
+
+func TestCacheKeyReusedAcrossHandlerCalls(t *testing.T) {
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice 1"},
+		},
+	}
+
+	handler := NewHandler(HandlerDeps{
+		Provider: prov,
+		Model:    provider.ResolvedModel{BackendModelID: "test-model"},
+		Events:   nil,
+		Config:   Config{MaxUsesPerRun: 10},
+	})
+
+	snapshot := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "test question"},
+	}
+	ctx := contextWithSnapshot(snapshot)
+
+	// First call
+	_, err := handler(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("first handler call error = %v", err)
+	}
+
+	// Second call with same context
+	_, err = handler(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("second handler call error = %v", err)
+	}
+
+	if len(prov.requests) < 2 {
+		t.Fatalf("len(requests) = %d, want at least 2", len(prov.requests))
+	}
+
+	key1 := prov.requests[0].PromptCacheKey
+	key2 := prov.requests[1].PromptCacheKey
+
+	if key1 == "" {
+		t.Fatalf("first request PromptCacheKey is empty, want non-empty")
+	}
+	if key1 != key2 {
+		t.Fatalf("cache keys differ: %q vs %q, want identical", key1, key2)
+	}
+}
+
+func TestDifferentHandlersDifferentCacheKeys(t *testing.T) {
+	prov1 := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice 1"},
+		},
+	}
+	prov2 := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice 2"},
+		},
+	}
+
+	handler1 := NewHandler(HandlerDeps{
+		Provider: prov1,
+		Model:    provider.ResolvedModel{BackendModelID: "test-model"},
+		Events:   nil,
+		Config:   Config{MaxUsesPerRun: 10},
+	})
+
+	handler2 := NewHandler(HandlerDeps{
+		Provider: prov2,
+		Model:    provider.ResolvedModel{BackendModelID: "test-model"},
+		Events:   nil,
+		Config:   Config{MaxUsesPerRun: 10},
+	})
+
+	snapshot := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "test question"},
+	}
+	ctx := contextWithSnapshot(snapshot)
+
+	_, err := handler1(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("handler1 call error = %v", err)
+	}
+
+	_, err = handler2(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("handler2 call error = %v", err)
+	}
+
+	if len(prov1.requests) != 1 {
+		t.Fatalf("len(prov1.requests) = %d, want 1", len(prov1.requests))
+	}
+	if len(prov2.requests) != 1 {
+		t.Fatalf("len(prov2.requests) = %d, want 1", len(prov2.requests))
+	}
+
+	key1 := prov1.requests[0].PromptCacheKey
+	key2 := prov2.requests[0].PromptCacheKey
+
+	if key1 == "" {
+		t.Fatalf("handler1 PromptCacheKey is empty, want non-empty")
+	}
+	if key2 == "" {
+		t.Fatalf("handler2 PromptCacheKey is empty, want non-empty")
+	}
+	if key1 == key2 {
+		t.Fatalf("cache keys are identical: %q, want different", key1)
+	}
+}
+
+func TestAdviseSucceedsWithEmptyCacheKey(t *testing.T) {
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice works"},
+		},
+	}
+
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "test-model"}, nil, nil, nil, "")
+	if err != nil {
+		t.Fatalf("advise() error = %v", err)
+	}
+	if got, want := resp.Message.Content, "advice works"; got != want {
+		t.Fatalf("response content = %q, want %q", got, want)
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("len(requests) = %d, want 1", len(prov.requests))
+	}
+	// Empty key should be set (or unset, but field is there)
+	if prov.requests[0].PromptCacheKey != "" {
+		t.Fatalf("request PromptCacheKey = %q, want empty string", prov.requests[0].PromptCacheKey)
 	}
 }
 

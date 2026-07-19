@@ -51,15 +51,17 @@ type Config struct {
 
 // NewHandler returns a fresh per-run advisor handler.
 func NewHandler(deps HandlerDeps) func(context.Context, map[string]any) (any, error) {
-	state := &handlerState{}
+	cacheKey, _ := provider.NewPromptCacheKey()
+	state := &handlerState{cacheKey: cacheKey}
 	return func(ctx context.Context, _ map[string]any) (any, error) {
 		return state.handle(ctx, deps)
 	}
 }
 
 type handlerState struct {
-	mu   sync.Mutex
-	uses int
+	mu       sync.Mutex
+	uses     int
+	cacheKey string
 }
 
 func (s *handlerState) handle(ctx context.Context, deps HandlerDeps) (any, error) {
@@ -85,7 +87,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps) (any, error
 	// cache prefixes stay reusable. The per-run cap lives in handler state on
 	// purpose, even though Anthropic guidance often suggests removing spent tools.
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses))
-	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, deps.Config.MaxTokens, deps.Events)
+	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, deps.Config.MaxTokens, deps.Events, s.cacheKey)
 	if err != nil {
 		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err))
 		return nil, err
@@ -111,7 +113,7 @@ func emitEvent(sink output.EventSink, event output.Event) {
 	}
 }
 
-func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, conversation []provider.Message, maxTokens *int, events output.EventSink) (provider.ChatResponse, error) {
+func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, conversation []provider.Message, maxTokens *int, events output.EventSink, cacheKey string) (provider.ChatResponse, error) {
 	if prov == nil {
 		return provider.ChatResponse{}, fmt.Errorf("advisor: provider is required")
 	}
@@ -120,11 +122,12 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 	}
 
 	req := provider.ChatRequest{
-		Model:       rm.BackendModelID,
-		Messages:    buildMessages(conversation),
-		MaxTokens:   maxTokens,
-		Params:      rm.Params,
-		ExtraParams: rm.ExtraParams,
+		Model:          rm.BackendModelID,
+		Messages:       buildMessages(conversation),
+		MaxTokens:      maxTokens,
+		Params:         rm.Params,
+		ExtraParams:    rm.ExtraParams,
+		PromptCacheKey: cacheKey,
 	}
 	if rm.ReasoningEffectiveEffort != "" {
 		req.Reasoning = &provider.ReasoningRequest{Effort: rm.ReasoningEffectiveEffort}
