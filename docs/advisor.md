@@ -25,6 +25,18 @@ The advisor is for strategic steering. It is not a code executor, verifier, revi
 
 The conversation snapshot is sent after Steiner's normal context management with one transformation applied: `tool_use` blocks in assistant messages are rendered as `[tool_call: <name> <args-json>]` lines, and `tool_result` messages are converted to user messages prefixed with `[tool_result: <name>]`. All original content is preserved in text form. This keeps the advisor request provider-agnostic and eliminates the need for a matching `toolConfig`.
 
+## Payload shaping
+
+Before the advisor receives the conversation, Steiner applies several transformations to reduce token usage and preserve prompt caching:
+
+**Reasoning and metadata stripping**: `ReasoningContent` and `ProviderMetadata` (including `ThinkingSignature`) are unconditionally cleared from every message reaching the advisor. This is a per-message transform with no position dependence, so it does not break cache reusability.
+
+**Oversized tool-call arguments capping**: When tool calls in the snapshot contain large arguments (e.g. whole-file content from a `mutate` call), any string in the `Arguments` object longer than 1000 characters is truncated to a 1000-character prefix plus a size-preserving elision marker like `"...[elided, N bytes total]"`. This is a compile-time constant, not derived from conversation state, so it stays cache-safe. The transformation applies generically to any tool's arguments, not hardcoded to a specific tool.
+
+**Prior advisor notes reframing**: When a tool-result message's `Name` equals `advisor`, it is rendered with the framing "Your earlier note (update if circumstances have changed):" instead of the generic `[tool_result: advisor]` prefix. This presents the advisor's own revisable prior opinion rather than an authoritative observation. *(This is scope creep beyond issue #380, a quality fix not a token or cache optimization.)*
+
+**Stable per-run prompt cache key**: Each advisor handler generates one stable prompt cache key via `provider.NewPromptCacheKey()` in `NewHandler`, reused across every advisor call in that run. This lets call N+1 read call N's cached prefix. On Codex, this triggers session-id/thread-id shard-affinity headers that route requests to the same cache shard, improving cache hit rates. Empty key on entropy error disables caching without failing the call. On Anthropic providers, the same stable key may improve hit rates through the provider's ephemeral cache window (5 minutes), though this benefit is not yet measured as of this writing.
+
 ## Configuration
 
 The advisor is disabled by default.

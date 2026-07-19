@@ -238,7 +238,7 @@ See [Advisor](docs/advisor.md) for configuration options and behavior reference.
 
 ### Cache hit rate tracking
 
-Token-weighted prompt-cache hit rate, always-on with no configuration. Surfaces in the sidebar and via the `/cache-stats` overlay command.
+Token-weighted prompt-cache hit rate, always-on with no configuration. Surfaces in the sidebar and via the `/cache-stats` overlay command. Includes main agent model calls and advisor traffic.
 
 See [Cache Stats](docs/cache-stats.md) for the metric definition, storage format, and privacy notes.
 
