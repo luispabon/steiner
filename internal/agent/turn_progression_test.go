@@ -1780,3 +1780,312 @@ func TestAdvance_VisionLatchRetryDoesNotPanic(t *testing.T) {
 		t.Fatalf("StopReason = %q, want %q", outcome.State.StopReason, StopReasonComplete)
 	}
 }
+
+func TestPrepareTurn_SetsLastBudget(t *testing.T) {
+	state := RunState{
+		TurnCount:    0,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	}
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		Limits:         Limits{MaxTurns: 2},
+		Events:         output.NoopSink{},
+		PromptCacheKey: "test-session-key",
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	_, _, fit, err := p.prepareTurn(context.Background(), state)
+	if err != nil {
+		t.Fatalf("prepareTurn() error = %v", err)
+	}
+	if p.lastBudget == nil {
+		t.Fatal("p.lastBudget = nil, want non-nil")
+	}
+	if p.lastBudget.EstimatedPromptTokens <= 0 {
+		t.Fatalf("p.lastBudget.EstimatedPromptTokens = %d, want > 0", p.lastBudget.EstimatedPromptTokens)
+	}
+	if p.lastBudget.ContextSize != 4096 {
+		t.Fatalf("p.lastBudget.ContextSize = %d, want 4096", p.lastBudget.ContextSize)
+	}
+	if p.lastBudget.TotalTokens <= 0 {
+		t.Fatalf("p.lastBudget.TotalTokens = %d, want > 0", p.lastBudget.TotalTokens)
+	}
+	// fit is the returned copy, not the stored pointer; verify they match.
+	if p.lastBudget.EstimatedPromptTokens != fit.EstimatedPromptTokens {
+		t.Fatalf("lastBudget.EstimatedPromptTokens = %d, fit.EstimatedPromptTokens = %d", p.lastBudget.EstimatedPromptTokens, fit.EstimatedPromptTokens)
+	}
+}
+
+func TestExecuteSingleToolCall_EmitsUpdatedBudgetEvent(t *testing.T) {
+	var events []output.Event
+	sink := output.SinkFunc(func(e output.Event) {
+		events = append(events, e)
+	})
+
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return map[string]any{"ok": true, "content": "some tool output with meaningful content for token estimation"}, nil
+		},
+	}
+
+	state := RunState{
+		TurnCount: 0,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "hi"},
+			{Role: MessageRoleAssistant, Content: "check", ToolCalls: []ToolCall{{
+				ID: "call-1", Name: "bash", Arguments: map[string]any{"cmd": "echo hi"},
+			}}},
+		},
+	}
+	state.Lineage = newConversationLineage(state.Conversation)
+
+	req := RunRequest{
+		Executor:       executor,
+		ContextManager: NewContextStateManager(),
+		Events:         sink,
+		ResolvedModel:  provider.ResolvedModel{BackendModelID: "test-model"},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hi"}},
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		Limits:         Limits{MaxTurns: 2},
+		PromptCacheKey: "test-session-key",
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	_, _, _, err := p.prepareTurn(context.Background(), state)
+	if err != nil {
+		t.Fatalf("prepareTurn() error = %v", err)
+	}
+
+	// Capture the initial budget event from prepareTurn.
+	var initialBudget *output.ContextBudgetEvent
+	for _, e := range events {
+		if be, ok := output.AsContextBudgetEvent(e.Payload); ok {
+			initialBudget = &be
+		}
+	}
+	if initialBudget == nil {
+		t.Fatal("no ContextBudgetEvent emitted from prepareTurn")
+	}
+
+	// Clear events so we only capture executeSingleToolCall events.
+	events = nil
+
+	call := provider.ToolCall{ID: "call-1", Name: "bash", Arguments: map[string]any{"cmd": "echo hi"}}
+	_, outcome := p.executeSingleToolCall(context.Background(), state, 1, call)
+	if outcome.Stop {
+		t.Fatalf("executeSingleToolCall() stop = true, want false")
+	}
+
+	var toolBudget *output.ContextBudgetEvent
+	for _, e := range events {
+		if be, ok := output.AsContextBudgetEvent(e.Payload); ok {
+			toolBudget = &be
+		}
+	}
+	if toolBudget == nil {
+		t.Fatal("no ContextBudgetEvent emitted after executeSingleToolCall")
+	}
+	if toolBudget.PromptTokens <= initialBudget.PromptTokens {
+		t.Fatalf("tool budget PromptTokens = %d, want > initial %d", toolBudget.PromptTokens, initialBudget.PromptTokens)
+	}
+	if toolBudget.ContextUsagePercent <= initialBudget.ContextUsagePercent {
+		t.Fatalf("tool budget ContextUsagePercent = %f, want > initial %f", toolBudget.ContextUsagePercent, initialBudget.ContextUsagePercent)
+	}
+}
+
+func TestExecuteSingleToolCall_SkipsBudgetUpdateWhenNoContextSize(t *testing.T) {
+	var events []output.Event
+	sink := output.SinkFunc(func(e output.Event) {
+		events = append(events, e)
+	})
+
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return map[string]any{"ok": true, "content": "some output"}, nil
+		},
+	}
+
+	state := RunState{
+		TurnCount: 1,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "hi"},
+			{Role: MessageRoleAssistant, Content: "check", ToolCalls: []ToolCall{{
+				ID: "call-1", Name: "bash", Arguments: map[string]any{"cmd": "echo hi"},
+			}}},
+		},
+	}
+	state.Lineage = newConversationLineage(state.Conversation)
+
+	req := RunRequest{
+		Executor:       executor,
+		ContextManager: NewContextStateManager(),
+		Events:         sink,
+		ResolvedModel:  provider.ResolvedModel{BackendModelID: "test-model"},
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	// Set lastBudget manually with ContextSize = 0 so the guard triggers.
+	p.lastBudget = &prompt.RequestTokenBudget{ContextSize: 0, EstimatedPromptTokens: 100}
+
+	events = nil
+
+	call := provider.ToolCall{ID: "call-1", Name: "bash", Arguments: map[string]any{"cmd": "echo hi"}}
+	_, outcome := p.executeSingleToolCall(context.Background(), state, 1, call)
+	if outcome.Stop {
+		t.Fatalf("executeSingleToolCall() stop = true, want false")
+	}
+
+	for _, e := range events {
+		if _, ok := output.AsContextBudgetEvent(e.Payload); ok {
+			t.Fatal("unexpected ContextBudgetEvent emitted when ContextSize=0")
+		}
+	}
+}
+
+func TestExecuteSingleToolCall_MultipleCallsIncrementCumulatively(t *testing.T) {
+	var events []output.Event
+	sink := output.SinkFunc(func(e output.Event) {
+		events = append(events, e)
+	})
+
+	callCount := 0
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			callCount++
+			return map[string]any{"ok": true, "content": fmt.Sprintf("tool output number %d with enough text to exceed one token", callCount)}, nil
+		},
+	}
+
+	state := RunState{
+		TurnCount: 0,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "hi"},
+			{Role: MessageRoleAssistant, Content: "check", ToolCalls: []ToolCall{{
+				ID: "call-1", Name: "bash", Arguments: map[string]any{"cmd": "echo hi"},
+			}}},
+		},
+	}
+	state.Lineage = newConversationLineage(state.Conversation)
+
+	req := RunRequest{
+		Executor:       executor,
+		ContextManager: NewContextStateManager(),
+		Events:         sink,
+		ResolvedModel:  provider.ResolvedModel{BackendModelID: "test-model"},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hi"}},
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		Limits:         Limits{MaxTurns: 2},
+		PromptCacheKey: "test-session-key",
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	_, _, _, err := p.prepareTurn(context.Background(), state)
+	if err != nil {
+		t.Fatalf("prepareTurn() error = %v", err)
+	}
+
+	// Clear events from prepareTurn.
+	events = nil
+
+	call1 := provider.ToolCall{ID: "call-1", Name: "bash", Arguments: map[string]any{"cmd": "echo first"}}
+	_, outcome1 := p.executeSingleToolCall(context.Background(), state, 1, call1)
+	if outcome1.Stop {
+		t.Fatalf("first executeSingleToolCall() stop = true, want false")
+	}
+
+	var afterFirst *output.ContextBudgetEvent
+	for _, e := range events {
+		if be, ok := output.AsContextBudgetEvent(e.Payload); ok {
+			afterFirst = &be
+		}
+	}
+	if afterFirst == nil {
+		t.Fatal("no ContextBudgetEvent after first tool call")
+	}
+
+	events = nil
+
+	call2 := provider.ToolCall{ID: "call-2", Name: "bash", Arguments: map[string]any{"cmd": "echo second"}}
+	_, outcome2 := p.executeSingleToolCall(context.Background(), state, 1, call2)
+	if outcome2.Stop {
+		t.Fatalf("second executeSingleToolCall() stop = true, want false")
+	}
+
+	var afterSecond *output.ContextBudgetEvent
+	for _, e := range events {
+		if be, ok := output.AsContextBudgetEvent(e.Payload); ok {
+			afterSecond = &be
+		}
+	}
+	if afterSecond == nil {
+		t.Fatal("no ContextBudgetEvent after second tool call")
+	}
+
+	if afterSecond.PromptTokens <= afterFirst.PromptTokens {
+		t.Fatalf("second call PromptTokens = %d, want > first call PromptTokens = %d", afterSecond.PromptTokens, afterFirst.PromptTokens)
+	}
+}
+
+func TestPrepareTurn_ResetsLastBudget(t *testing.T) {
+	state := RunState{
+		TurnCount:    0,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	}
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 256,
+		},
+		Limits:         Limits{MaxTurns: 2},
+		Events:         output.NoopSink{},
+		PromptCacheKey: "test-session-key",
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	// First prepareTurn.
+	_, _, _, err := p.prepareTurn(context.Background(), state)
+	if err != nil {
+		t.Fatalf("first prepareTurn() error = %v", err)
+	}
+	if p.lastBudget == nil {
+		t.Fatal("p.lastBudget = nil after first prepareTurn")
+	}
+	firstPtr := p.lastBudget
+
+	// Second prepareTurn with a different turn count.
+	state.TurnCount = 1
+	_, _, _, err = p.prepareTurn(context.Background(), state)
+	if err != nil {
+		t.Fatalf("second prepareTurn() error = %v", err)
+	}
+	if p.lastBudget == nil {
+		t.Fatal("p.lastBudget = nil after second prepareTurn")
+	}
+	if p.lastBudget == firstPtr {
+		t.Fatal("p.lastBudget was not reset; same pointer as before")
+	}
+	if p.lastBudget.EstimatedPromptTokens <= 0 {
+		t.Fatalf("p.lastBudget.EstimatedPromptTokens = %d, want > 0 after reset", p.lastBudget.EstimatedPromptTokens)
+	}
+}
