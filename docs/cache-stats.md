@@ -1,6 +1,6 @@
 # Cache Hit Rate Tracking
 
-Steiner records prompt-cache token usage on every usage-bearing model response and surfaces a token-weighted cache hit rate. The feature is always-on with no configuration required and stores no prompt or completion content — only token counts and model identity.
+Steiner records prompt-cache token usage on every usage-bearing model response and surfaces a token-weighted cache hit rate. The feature is always-on with no configuration required and stores no prompt or completion content — only token counts and model identity. Advisor calls are included in this recording and now flow into the cache-hit-rate reporting where they were previously invisible.
 
 ## Codex cache improvements
 
@@ -50,6 +50,8 @@ Where:
 **Undefined case**: When a time window contains no cache-capable model calls or zero total input tokens, the metric renders as `—` (em-dash), never NaN or an error.
 
 **Zero cache reads**: A call with input tokens but zero cache reads is recorded normally and shows 0.0% in that window's aggregate.
+
+**Provider-specific cache-creation token reporting**: Codex and OpenAI-compatible providers report cache-read tokens only, never cache-creation tokens. This is by design at those providers, not a bug or gap in Steiner's integration. Anthropic reports both cache-read and cache-creation tokens.
 
 ## Fixed time windows
 

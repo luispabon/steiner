@@ -384,12 +384,14 @@ type AdvisorStartedEvent struct {
 
 // AdvisorCompleteEvent records a completed advisor call.
 type AdvisorCompleteEvent struct {
-	Model     string `json:"model,omitempty"`
-	UseNumber int    `json:"use_number"`
-	MaxUses   int    `json:"max_uses"`
-	Note      string `json:"note,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
+	Model             string `json:"model,omitempty"`
+	UseNumber         int    `json:"use_number"`
+	MaxUses           int    `json:"max_uses"`
+	Note              string `json:"note,omitempty"`
+	Error             string `json:"error,omitempty"`
+	Truncated         bool   `json:"truncated,omitempty"`
+	CacheReadTokens   int    `json:"cache_read_tokens,omitempty"`
+	CacheCreateTokens int    `json:"cache_create_tokens,omitempty"`
 }
 
 // AdvisorBudgetExhaustedEvent records a skipped advisor call after the per-run

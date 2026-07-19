@@ -307,7 +307,7 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Fatalf("status after start = %q, want active", got)
 	}
 
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0))
 	seg = buffer.segments[0]
 	if got := seg.delegData.status; got != "complete" {
 		t.Fatalf("status after complete = %q, want complete", got)
@@ -384,7 +384,7 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 	}
 
 	// Complete with an error.
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", false, errors.New("something went wrong")))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", false, errors.New("something went wrong"), 0, 0))
 
 	if len(buffer.segments) != 5 {
 		t.Fatalf("segments count after complete with error = %d, want 5 (advisor box + labeled block + blank margin)", len(buffer.segments))
@@ -473,7 +473,7 @@ func TestAdvisorThinkingChunkRouting(t *testing.T) {
 	}
 
 	// Emit complete with output.
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "Final advice here", false, nil))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "Final advice here", false, nil, 0, 0))
 
 	// Verify the advisor box status is complete.
 	if got := dd.status; got != "complete" {
@@ -499,7 +499,7 @@ func TestRenderAdvisorTrailingMargin(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2))
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", false, nil))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", false, nil, 0, 0))
 
 	rendered := stripANSI(buffer.String(80))
 

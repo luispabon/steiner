@@ -199,7 +199,7 @@ func TestAdvisorEventsRender(t *testing.T) {
 		t.Fatalf("started text = %q, want advisor lifecycle summary", got)
 	}
 
-	complete := renderEvent(NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil))
+	complete := renderEvent(NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0))
 	if got := complete.Text; !strings.Contains(got, "advisor complete") || !strings.Contains(got, "note=check tests first") {
 		t.Fatalf("complete text = %q, want advisor note summary", got)
 	}

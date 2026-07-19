@@ -1,6 +1,7 @@
 package advisor
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -155,6 +156,39 @@ func TestFlattenToolMessages(t *testing.T) {
 			},
 		},
 		{
+			name: "assistant message with ReasoningContent and ProviderMetadata clears both",
+			input: []provider.Message{
+				{
+					Role:             provider.MessageRoleAssistant,
+					Content:          "my response",
+					ReasoningContent: "my internal reasoning",
+					ProviderMetadata: &provider.MessageProviderMetadata{
+						Anthropic: &provider.AnthropicMessageMetadata{
+							ThinkingSignature: "sig123",
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, got []provider.Message) {
+				if len(got) != 1 {
+					t.Fatalf("len = %d, want 1", len(got))
+				}
+				m := got[0]
+				if m.Role != provider.MessageRoleAssistant {
+					t.Fatalf("role = %q, want assistant", m.Role)
+				}
+				if m.Content != "my response" {
+					t.Fatalf("content = %q, want 'my response'", m.Content)
+				}
+				if m.ReasoningContent != "" {
+					t.Fatalf("ReasoningContent not cleared: %q", m.ReasoningContent)
+				}
+				if m.ProviderMetadata != nil {
+					t.Fatalf("ProviderMetadata not cleared: %#v", m.ProviderMetadata)
+				}
+			},
+		},
+		{
 			name: "mixed conversation",
 			input: []provider.Message{
 				{Role: provider.MessageRoleUser, Content: "fix it"},
@@ -204,6 +238,67 @@ func TestFlattenToolMessages(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "advisor tool result uses prior-note framing",
+			input: []provider.Message{
+				{
+					Role:       provider.MessageRoleTool,
+					Name:       ToolName,
+					ToolCallID: "id-1",
+					Content:    "check the edge cases",
+				},
+			},
+			check: func(t *testing.T, got []provider.Message) {
+				if len(got) != 1 {
+					t.Fatalf("len = %d, want 1", len(got))
+				}
+				m := got[0]
+				if m.Role != provider.MessageRoleUser {
+					t.Fatalf("role = %q, want user", m.Role)
+				}
+				if !strings.Contains(m.Content, "Your earlier note") {
+					t.Fatalf("content missing prior-note framing: %q", m.Content)
+				}
+				if !strings.Contains(m.Content, "check the edge cases") {
+					t.Fatalf("content missing original advisory text: %q", m.Content)
+				}
+				if strings.Contains(m.Content, "[tool_result: advisor]") {
+					t.Fatalf("content should not use generic [tool_result] prefix: %q", m.Content)
+				}
+				if m.ToolCallID != "" || m.Name != "" {
+					t.Fatalf("fields not cleared: ToolCallID=%q Name=%q", m.ToolCallID, m.Name)
+				}
+			},
+		},
+		{
+			name: "non-advisor tool results use standard tool_result framing",
+			input: []provider.Message{
+				{
+					Role:       provider.MessageRoleTool,
+					Name:       "bash",
+					ToolCallID: "id-1",
+					Content:    "command output",
+				},
+			},
+			check: func(t *testing.T, got []provider.Message) {
+				if len(got) != 1 {
+					t.Fatalf("len = %d, want 1", len(got))
+				}
+				m := got[0]
+				if m.Role != provider.MessageRoleUser {
+					t.Fatalf("role = %q, want user", m.Role)
+				}
+				if !strings.HasPrefix(m.Content, "[tool_result: bash]") {
+					t.Fatalf("content missing [tool_result: bash] prefix: %q", m.Content)
+				}
+				if !strings.Contains(m.Content, "command output") {
+					t.Fatalf("content missing original bash output: %q", m.Content)
+				}
+				if m.ToolCallID != "" || m.Name != "" {
+					t.Fatalf("fields not cleared: ToolCallID=%q Name=%q", m.ToolCallID, m.Name)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -211,5 +306,218 @@ func TestFlattenToolMessages(t *testing.T) {
 			got := flattenToolMessages(tt.input)
 			tt.check(t, got)
 		})
+	}
+}
+
+func TestFlattenToolMessagesPreservesInput(t *testing.T) {
+	original := []provider.Message{
+		{
+			Role:             provider.MessageRoleAssistant,
+			Content:          "response",
+			ReasoningContent: "reasoning",
+			ProviderMetadata: &provider.MessageProviderMetadata{
+				Anthropic: &provider.AnthropicMessageMetadata{
+					ThinkingSignature: "sig123",
+				},
+			},
+		},
+		{
+			Role:    provider.MessageRoleUser,
+			Content: "user input",
+		},
+	}
+
+	snapshot := make([]provider.Message, len(original))
+	copy(snapshot, original)
+
+	_ = flattenToolMessages(original)
+
+	if len(original) != len(snapshot) {
+		t.Fatalf("input length changed: %d vs %d", len(original), len(snapshot))
+	}
+	for i, msg := range original {
+		if msg.Role != snapshot[i].Role {
+			t.Fatalf("msg[%d] Role changed", i)
+		}
+		if msg.Content != snapshot[i].Content {
+			t.Fatalf("msg[%d] Content changed", i)
+		}
+		if msg.ReasoningContent != snapshot[i].ReasoningContent {
+			t.Fatalf("msg[%d] ReasoningContent changed", i)
+		}
+		if (msg.ProviderMetadata == nil) != (snapshot[i].ProviderMetadata == nil) {
+			t.Fatalf("msg[%d] ProviderMetadata nil state changed", i)
+		}
+		if msg.ProviderMetadata != nil && snapshot[i].ProviderMetadata != nil {
+			if msg.ProviderMetadata.Anthropic.ThinkingSignature != snapshot[i].ProviderMetadata.Anthropic.ThinkingSignature {
+				t.Fatalf("msg[%d] ThinkingSignature changed", i)
+			}
+		}
+	}
+}
+
+func TestFlattenToolMessagesCapsLargeToolArgStrings(t *testing.T) {
+	largeContent := strings.Repeat("a", maxToolArgStringLen+500)
+	input := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{
+				ID:   "id-1",
+				Name: "mutate",
+				Arguments: map[string]any{
+					"operations": []any{
+						map[string]any{
+							"type":    "write",
+							"path":    "main.go",
+							"content": largeContent,
+						},
+					},
+				},
+			}},
+		},
+	}
+
+	got := flattenToolMessages(input)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	content := got[0].Content
+	marker := fmt.Sprintf("…[elided, %d bytes total]", len(largeContent))
+	if !strings.Contains(content, marker) {
+		t.Fatalf("content missing elision marker %q: %q", marker, content)
+	}
+	if strings.Contains(content, largeContent) {
+		t.Fatalf("content still contains full untruncated string: %q", content)
+	}
+}
+
+func TestFlattenToolMessagesCapsMultipleOperationsIndependently(t *testing.T) {
+	large1 := strings.Repeat("x", maxToolArgStringLen+10)
+	large2 := strings.Repeat("y", maxToolArgStringLen+20)
+	input := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{
+				ID:   "id-1",
+				Name: "mutate",
+				Arguments: map[string]any{
+					"operations": []any{
+						map[string]any{"type": "write", "path": "a.go", "content": large1},
+						map[string]any{"type": "write", "path": "b.go", "content": large2},
+					},
+				},
+			}},
+		},
+	}
+
+	got := flattenToolMessages(input)
+	content := got[0].Content
+	marker1 := fmt.Sprintf("…[elided, %d bytes total]", len(large1))
+	marker2 := fmt.Sprintf("…[elided, %d bytes total]", len(large2))
+	if !strings.Contains(content, marker1) {
+		t.Fatalf("content missing marker for first operation %q: %q", marker1, content)
+	}
+	if !strings.Contains(content, marker2) {
+		t.Fatalf("content missing marker for second operation %q: %q", marker2, content)
+	}
+	if strings.Contains(content, large1) || strings.Contains(content, large2) {
+		t.Fatalf("content still contains full untruncated strings: %q", content)
+	}
+}
+
+func TestFlattenToolMessagesSmallArgsUnchanged(t *testing.T) {
+	input := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{
+				ID:        "id-1",
+				Name:      "read",
+				Arguments: map[string]any{"path": "main.go"},
+			}},
+		},
+	}
+
+	got := flattenToolMessages(input)
+	if !strings.Contains(got[0].Content, `"path":"main.go"`) {
+		t.Fatalf("small argument was altered: %q", got[0].Content)
+	}
+}
+
+func TestFlattenToolMessagesCapDeterministic(t *testing.T) {
+	input := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{
+				ID:   "id-1",
+				Name: "mutate",
+				Arguments: map[string]any{
+					"content": strings.Repeat("z", maxToolArgStringLen+50),
+				},
+			}},
+		},
+	}
+
+	got1 := flattenToolMessages(input)
+	got2 := flattenToolMessages(input)
+	if got1[0].Content != got2[0].Content {
+		t.Fatalf("rendering not deterministic:\n%q\nvs\n%q", got1[0].Content, got2[0].Content)
+	}
+}
+
+func TestFlattenToolMessagesDoesNotMutateOriginalArguments(t *testing.T) {
+	large := strings.Repeat("w", maxToolArgStringLen+50)
+	args := map[string]any{"content": large}
+	input := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{
+				ID:        "id-1",
+				Name:      "mutate",
+				Arguments: args,
+			}},
+		},
+	}
+
+	_ = flattenToolMessages(input)
+
+	if args["content"] != large {
+		t.Fatalf("original Arguments map was mutated: %#v", args)
+	}
+}
+
+func TestFlattenToolMessagesDeterminism(t *testing.T) {
+	input := []provider.Message{
+		{
+			Role:             provider.MessageRoleAssistant,
+			Content:          "response",
+			ReasoningContent: "reasoning",
+			ProviderMetadata: &provider.MessageProviderMetadata{
+				Anthropic: &provider.AnthropicMessageMetadata{
+					ThinkingSignature: "sig123",
+				},
+			},
+		},
+	}
+
+	result1 := flattenToolMessages(input)
+	result2 := flattenToolMessages(input)
+
+	if len(result1) != len(result2) {
+		t.Fatalf("results differ in length: %d vs %d", len(result1), len(result2))
+	}
+
+	for i := range result1 {
+		if result1[i].Role != result2[i].Role {
+			t.Fatalf("msg[%d] Role differs", i)
+		}
+		if result1[i].Content != result2[i].Content {
+			t.Fatalf("msg[%d] Content differs", i)
+		}
+		if result1[i].ReasoningContent != result2[i].ReasoningContent {
+			t.Fatalf("msg[%d] ReasoningContent differs", i)
+		}
+		if (result1[i].ProviderMetadata == nil) != (result2[i].ProviderMetadata == nil) {
+			t.Fatalf("msg[%d] ProviderMetadata nil state differs", i)
+		}
 	}
 }

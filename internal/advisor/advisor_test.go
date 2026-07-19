@@ -5,9 +5,12 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 type fakeProvider struct {
@@ -71,7 +74,7 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, snapshot, intPtr(256), nil)
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, snapshot, intPtr(256), nil, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -155,7 +158,7 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 func TestAdviseWrapsProviderErrors(t *testing.T) {
 	prov := &fakeProvider{err: errors.New("backend failed")}
 
-	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil)
+	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil, "")
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -173,7 +176,7 @@ func TestAdviseFallsBackToStreamingWhenStreamRequired(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil)
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -194,7 +197,7 @@ func TestAdviseStreamRequiredButStreamingFails(t *testing.T) {
 		streamErr: errors.New("stream broke"),
 	}
 
-	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil)
+	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil, "")
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -216,7 +219,7 @@ func TestAdviseWithReasoningDirectsToStream(t *testing.T) {
 		ReasoningEffectiveEffort: "high",
 	}
 
-	resp, err := advise(context.Background(), prov, rm, nil, nil, nil)
+	resp, err := advise(context.Background(), prov, rm, nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -251,7 +254,7 @@ func TestAdviseWithReasoningStreamError(t *testing.T) {
 		ReasoningEffectiveEffort: "high",
 	}
 
-	_, err := advise(context.Background(), prov, rm, nil, nil, nil)
+	_, err := advise(context.Background(), prov, rm, nil, nil, nil, "")
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -275,7 +278,7 @@ func TestAdviseWithReasoningEmitsThinkingChunks(t *testing.T) {
 	}
 
 	sink := &toolSink{}
-	resp, err := advise(context.Background(), prov, rm, nil, nil, sink)
+	resp, err := advise(context.Background(), prov, rm, nil, nil, sink, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -300,4 +303,329 @@ func TestAdviseWithReasoningEmitsThinkingChunks(t *testing.T) {
 	}
 }
 
+func contextWithSnapshot(snapshot []provider.Message) context.Context {
+	return agent.WithConversationSnapshot(context.Background(), snapshot)
+}
+
+func TestCacheKeyReusedAcrossHandlerCalls(t *testing.T) {
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice 1"},
+		},
+	}
+
+	handler := NewHandler(HandlerDeps{
+		Provider: prov,
+		Model:    provider.ResolvedModel{BackendModelID: "test-model"},
+		Events:   nil,
+		Config:   Config{MaxUsesPerRun: 10},
+	})
+
+	snapshot := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "test question"},
+	}
+	ctx := contextWithSnapshot(snapshot)
+
+	// First call
+	_, err := handler(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("first handler call error = %v", err)
+	}
+
+	// Second call with same context
+	_, err = handler(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("second handler call error = %v", err)
+	}
+
+	if len(prov.requests) < 2 {
+		t.Fatalf("len(requests) = %d, want at least 2", len(prov.requests))
+	}
+
+	key1 := prov.requests[0].PromptCacheKey
+	key2 := prov.requests[1].PromptCacheKey
+
+	if key1 == "" {
+		t.Fatalf("first request PromptCacheKey is empty, want non-empty")
+	}
+	if key1 != key2 {
+		t.Fatalf("cache keys differ: %q vs %q, want identical", key1, key2)
+	}
+}
+
+func TestDifferentHandlersDifferentCacheKeys(t *testing.T) {
+	prov1 := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice 1"},
+		},
+	}
+	prov2 := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice 2"},
+		},
+	}
+
+	handler1 := NewHandler(HandlerDeps{
+		Provider: prov1,
+		Model:    provider.ResolvedModel{BackendModelID: "test-model"},
+		Events:   nil,
+		Config:   Config{MaxUsesPerRun: 10},
+	})
+
+	handler2 := NewHandler(HandlerDeps{
+		Provider: prov2,
+		Model:    provider.ResolvedModel{BackendModelID: "test-model"},
+		Events:   nil,
+		Config:   Config{MaxUsesPerRun: 10},
+	})
+
+	snapshot := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "test question"},
+	}
+	ctx := contextWithSnapshot(snapshot)
+
+	_, err := handler1(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("handler1 call error = %v", err)
+	}
+
+	_, err = handler2(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("handler2 call error = %v", err)
+	}
+
+	if len(prov1.requests) != 1 {
+		t.Fatalf("len(prov1.requests) = %d, want 1", len(prov1.requests))
+	}
+	if len(prov2.requests) != 1 {
+		t.Fatalf("len(prov2.requests) = %d, want 1", len(prov2.requests))
+	}
+
+	key1 := prov1.requests[0].PromptCacheKey
+	key2 := prov2.requests[0].PromptCacheKey
+
+	if key1 == "" {
+		t.Fatalf("handler1 PromptCacheKey is empty, want non-empty")
+	}
+	if key2 == "" {
+		t.Fatalf("handler2 PromptCacheKey is empty, want non-empty")
+	}
+	if key1 == key2 {
+		t.Fatalf("cache keys are identical: %q, want different", key1)
+	}
+}
+
+func TestAdviseSucceedsWithEmptyCacheKey(t *testing.T) {
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice works"},
+		},
+	}
+
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "test-model"}, nil, nil, nil, "")
+	if err != nil {
+		t.Fatalf("advise() error = %v", err)
+	}
+	if got, want := resp.Message.Content, "advice works"; got != want {
+		t.Fatalf("response content = %q, want %q", got, want)
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("len(requests) = %d, want 1", len(prov.requests))
+	}
+	// Empty key should be set (or unset, but field is there)
+	if prov.requests[0].PromptCacheKey != "" {
+		t.Fatalf("request PromptCacheKey = %q, want empty string", prov.requests[0].PromptCacheKey)
+	}
+}
+
 func intPtr(v int) *int { return &v }
+
+func TestHandlerRecordsUsageStatsOnNonStreamingCall(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice"},
+			Usage: &provider.UsageStats{
+				PromptTokens:             500,
+				CompletionTokens:         50,
+				CacheReadInputTokens:     300,
+				CacheCreationInputTokens: 20,
+			},
+		},
+	}
+	rec := usagestats.New(nil)
+	const backendModelID = "advisor-nonstream-usage-test-model"
+	handler := NewHandler(HandlerDeps{
+		Provider:      prov,
+		Model:         provider.ResolvedModel{BackendModelID: backendModelID, ProviderAlias: "test-alias"},
+		Config:        Config{MaxUsesPerRun: 1},
+		UsageRecorder: rec,
+	})
+
+	ctx := contextWithSnapshot([]provider.Message{{Role: provider.MessageRoleUser, Content: "fix it"}})
+	if _, err := handler(ctx, nil); err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+
+	row := findUsageRow(t, rec, backendModelID)
+	if row.CacheReadTokens != 300 || row.CacheCreateTokens != 20 || row.CompletionTokens != 50 {
+		t.Fatalf("row = %#v, want cache read=300 create=20 completion=50", row)
+	}
+	if row.ProviderAlias != "test-alias" {
+		t.Fatalf("row.ProviderAlias = %q, want test-alias", row.ProviderAlias)
+	}
+}
+
+func TestHandlerRecordsUsageStatsOnStreamingCall(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	prov := &fakeProvider{
+		streamChunks: []provider.ChatChunk{
+			{Delta: provider.Message{Content: "reasoned "}},
+			{
+				Done:         true,
+				Delta:        provider.Message{Content: "reasoned answer"},
+				FinishReason: "stop",
+				Usage: &provider.UsageStats{
+					PromptTokens:             800,
+					CompletionTokens:         40,
+					CacheReadInputTokens:     600,
+					CacheCreationInputTokens: 10,
+				},
+			},
+		},
+	}
+	rec := usagestats.New(nil)
+	const backendModelID = "advisor-stream-usage-test-model"
+	handler := NewHandler(HandlerDeps{
+		Provider: prov,
+		Model: provider.ResolvedModel{
+			BackendModelID:           backendModelID,
+			ReasoningEffectiveEffort: "high",
+		},
+		Config:        Config{MaxUsesPerRun: 1},
+		UsageRecorder: rec,
+	})
+
+	ctx := contextWithSnapshot([]provider.Message{{Role: provider.MessageRoleUser, Content: "fix it"}})
+	if _, err := handler(ctx, nil); err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+
+	row := findUsageRow(t, rec, backendModelID)
+	if row.CacheReadTokens != 600 || row.CacheCreateTokens != 10 || row.CompletionTokens != 40 {
+		t.Fatalf("row = %#v, want cache read=600 create=10 completion=40", row)
+	}
+}
+
+// findUsageRow returns the single report row matching backendModelID, failing
+// the test if it is absent or duplicated.
+func findUsageRow(t *testing.T, rec *usagestats.Recorder, backendModelID string) usagestats.Row {
+	t.Helper()
+	report := rec.Window(time.Hour)
+	var matches []usagestats.Row
+	for _, row := range report.Rows {
+		if row.BackendModelID == backendModelID {
+			matches = append(matches, row)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("rows matching BackendModelID %q = %d, want 1 (rows: %#v)", backendModelID, len(matches), report.Rows)
+	}
+	return matches[0]
+}
+
+func TestAdvisorCompleteEventCarriesCacheTokenCounts(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice"},
+			Usage: &provider.UsageStats{
+				CacheReadInputTokens:     150,
+				CacheCreationInputTokens: 5,
+			},
+		},
+	}
+	sink := &toolSink{}
+	handler := NewHandler(HandlerDeps{
+		Provider: prov,
+		Model:    provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Events:   sink,
+		Config:   Config{MaxUsesPerRun: 1},
+	})
+
+	ctx := contextWithSnapshot([]provider.Message{{Role: provider.MessageRoleUser, Content: "fix it"}})
+	if _, err := handler(ctx, nil); err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+
+	completed, ok := sink.events[1].Payload.(output.AdvisorCompleteEvent)
+	if !ok {
+		t.Fatalf("event[1] payload = %T, want AdvisorCompleteEvent", sink.events[1].Payload)
+	}
+	if completed.CacheReadTokens != 150 || completed.CacheCreateTokens != 5 {
+		t.Fatalf("completed cache tokens = %#v, want read=150 create=5", completed)
+	}
+}
+
+func TestHandlerWithNilUsageRecorderDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice"},
+			Usage: &provider.UsageStats{
+				CacheReadInputTokens:     150,
+				CacheCreationInputTokens: 5,
+			},
+		},
+	}
+	handler := NewHandler(HandlerDeps{
+		Provider:      prov,
+		Model:         provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Config:        Config{MaxUsesPerRun: 1},
+		UsageRecorder: nil,
+	})
+
+	ctx := contextWithSnapshot([]provider.Message{{Role: provider.MessageRoleUser, Content: "fix it"}})
+	got, err := handler(ctx, nil)
+	if err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+	if got != "advice" {
+		t.Fatalf("handler() = %#v, want %q", got, "advice")
+	}
+}
+
+func TestHandlerDoesNotRecordFabricatedUsageWhenProviderReportsNone(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice"},
+			Usage:   nil,
+		},
+	}
+	rec := usagestats.New(nil)
+	const backendModelID = "advisor-no-usage-test-model"
+	handler := NewHandler(HandlerDeps{
+		Provider:      prov,
+		Model:         provider.ResolvedModel{BackendModelID: backendModelID},
+		Config:        Config{MaxUsesPerRun: 1},
+		UsageRecorder: rec,
+	})
+
+	ctx := contextWithSnapshot([]provider.Message{{Role: provider.MessageRoleUser, Content: "fix it"}})
+	if _, err := handler(ctx, nil); err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+
+	report := rec.Window(time.Hour)
+	for _, row := range report.Rows {
+		if row.BackendModelID == backendModelID {
+			t.Fatalf("unexpected recorded row for %q: %#v (no usage means no observation recorded)", backendModelID, row)
+		}
+	}
+}
