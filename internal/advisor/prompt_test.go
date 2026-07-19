@@ -1,6 +1,7 @@
 package advisor
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -291,6 +292,135 @@ func TestFlattenToolMessagesPreservesInput(t *testing.T) {
 				t.Fatalf("msg[%d] ThinkingSignature changed", i)
 			}
 		}
+	}
+}
+
+func TestFlattenToolMessagesCapsLargeToolArgStrings(t *testing.T) {
+	largeContent := strings.Repeat("a", maxToolArgStringLen+500)
+	input := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{
+				ID:   "id-1",
+				Name: "mutate",
+				Arguments: map[string]any{
+					"operations": []any{
+						map[string]any{
+							"type":    "write",
+							"path":    "main.go",
+							"content": largeContent,
+						},
+					},
+				},
+			}},
+		},
+	}
+
+	got := flattenToolMessages(input)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	content := got[0].Content
+	marker := fmt.Sprintf("…[elided, %d bytes total]", len(largeContent))
+	if !strings.Contains(content, marker) {
+		t.Fatalf("content missing elision marker %q: %q", marker, content)
+	}
+	if strings.Contains(content, largeContent) {
+		t.Fatalf("content still contains full untruncated string: %q", content)
+	}
+}
+
+func TestFlattenToolMessagesCapsMultipleOperationsIndependently(t *testing.T) {
+	large1 := strings.Repeat("x", maxToolArgStringLen+10)
+	large2 := strings.Repeat("y", maxToolArgStringLen+20)
+	input := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{
+				ID:   "id-1",
+				Name: "mutate",
+				Arguments: map[string]any{
+					"operations": []any{
+						map[string]any{"type": "write", "path": "a.go", "content": large1},
+						map[string]any{"type": "write", "path": "b.go", "content": large2},
+					},
+				},
+			}},
+		},
+	}
+
+	got := flattenToolMessages(input)
+	content := got[0].Content
+	marker1 := fmt.Sprintf("…[elided, %d bytes total]", len(large1))
+	marker2 := fmt.Sprintf("…[elided, %d bytes total]", len(large2))
+	if !strings.Contains(content, marker1) {
+		t.Fatalf("content missing marker for first operation %q: %q", marker1, content)
+	}
+	if !strings.Contains(content, marker2) {
+		t.Fatalf("content missing marker for second operation %q: %q", marker2, content)
+	}
+	if strings.Contains(content, large1) || strings.Contains(content, large2) {
+		t.Fatalf("content still contains full untruncated strings: %q", content)
+	}
+}
+
+func TestFlattenToolMessagesSmallArgsUnchanged(t *testing.T) {
+	input := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{
+				ID:        "id-1",
+				Name:      "read",
+				Arguments: map[string]any{"path": "main.go"},
+			}},
+		},
+	}
+
+	got := flattenToolMessages(input)
+	if !strings.Contains(got[0].Content, `"path":"main.go"`) {
+		t.Fatalf("small argument was altered: %q", got[0].Content)
+	}
+}
+
+func TestFlattenToolMessagesCapDeterministic(t *testing.T) {
+	input := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{
+				ID:   "id-1",
+				Name: "mutate",
+				Arguments: map[string]any{
+					"content": strings.Repeat("z", maxToolArgStringLen+50),
+				},
+			}},
+		},
+	}
+
+	got1 := flattenToolMessages(input)
+	got2 := flattenToolMessages(input)
+	if got1[0].Content != got2[0].Content {
+		t.Fatalf("rendering not deterministic:\n%q\nvs\n%q", got1[0].Content, got2[0].Content)
+	}
+}
+
+func TestFlattenToolMessagesDoesNotMutateOriginalArguments(t *testing.T) {
+	large := strings.Repeat("w", maxToolArgStringLen+50)
+	args := map[string]any{"content": large}
+	input := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{
+				ID:        "id-1",
+				Name:      "mutate",
+				Arguments: args,
+			}},
+		},
+	}
+
+	_ = flattenToolMessages(input)
+
+	if args["content"] != large {
+		t.Fatalf("original Arguments map was mutated: %#v", args)
 	}
 }
 
