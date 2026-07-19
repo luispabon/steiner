@@ -186,6 +186,20 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunSta
 	toolMessage := p.buildToolMessage(turn, call, result, err)
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
+
+	// Emit an updated context budget event so the TUI context meter
+	// reflects the token cost of the newly appended tool result.
+	if p.lastBudget != nil && p.lastBudget.ContextSize > 0 {
+		provMsg := toProviderMessage(toolMessage)
+		delta, err := provider.EstimateMessageTokens(ctx, p.request.ResolvedModel.BackendModelID, provMsg)
+		if err == nil && delta > 0 {
+			p.lastBudget.EstimatedPromptTokens += delta
+			p.lastBudget.TotalTokens += delta
+			p.lastBudget.PromptUsage = float64(p.lastBudget.EstimatedPromptTokens) / float64(p.lastBudget.ContextSize)
+			emitRequestTokenDiagnostic(p.request.Events, turn, *p.lastBudget, false)
+		}
+	}
+
 	return state, turnOutcome{}
 }
 
@@ -270,6 +284,11 @@ type turnProgressor struct {
 	// Set to true after detecting a "stream required" error, so subsequent
 	// turns go straight to streaming.
 	skipNonStream bool
+
+	// lastBudget holds a copy of the most recent request token budget.
+	// It is updated after each tool result is appended so the context
+	// meter reflects mid-turn prompt growth.
+	lastBudget *prompt.RequestTokenBudget
 }
 
 func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn compactConversationFn) *turnProgressor {
@@ -360,6 +379,7 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 // event sink.
 func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (prompt.Assembly, provider.ChatRequest, prompt.RequestTokenBudget, error) {
 	turn := state.TurnCount + 1
+	p.lastBudget = nil
 
 	cm := p.request.ContextManager
 	if cm == nil {
@@ -408,6 +428,10 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, err
 	}
 	emitRequestTokenDiagnostic(p.request.Events, turn, fit, fit.ShouldCompact || !fit.Fits)
+	// Store a copy so mid-turn tool result appends can incrementally
+	// update the context meter without full re-assembly.
+	budgetCopy := fit
+	p.lastBudget = &budgetCopy
 	return assembly, chatRequest, fit, nil
 }
 
