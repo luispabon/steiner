@@ -238,6 +238,67 @@ func TestFlattenToolMessages(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "advisor tool result uses prior-note framing",
+			input: []provider.Message{
+				{
+					Role:       provider.MessageRoleTool,
+					Name:       ToolName,
+					ToolCallID: "id-1",
+					Content:    "check the edge cases",
+				},
+			},
+			check: func(t *testing.T, got []provider.Message) {
+				if len(got) != 1 {
+					t.Fatalf("len = %d, want 1", len(got))
+				}
+				m := got[0]
+				if m.Role != provider.MessageRoleUser {
+					t.Fatalf("role = %q, want user", m.Role)
+				}
+				if !strings.Contains(m.Content, "Your earlier note") {
+					t.Fatalf("content missing prior-note framing: %q", m.Content)
+				}
+				if !strings.Contains(m.Content, "check the edge cases") {
+					t.Fatalf("content missing original advisory text: %q", m.Content)
+				}
+				if strings.Contains(m.Content, "[tool_result: advisor]") {
+					t.Fatalf("content should not use generic [tool_result] prefix: %q", m.Content)
+				}
+				if m.ToolCallID != "" || m.Name != "" {
+					t.Fatalf("fields not cleared: ToolCallID=%q Name=%q", m.ToolCallID, m.Name)
+				}
+			},
+		},
+		{
+			name: "non-advisor tool results use standard tool_result framing",
+			input: []provider.Message{
+				{
+					Role:       provider.MessageRoleTool,
+					Name:       "bash",
+					ToolCallID: "id-1",
+					Content:    "command output",
+				},
+			},
+			check: func(t *testing.T, got []provider.Message) {
+				if len(got) != 1 {
+					t.Fatalf("len = %d, want 1", len(got))
+				}
+				m := got[0]
+				if m.Role != provider.MessageRoleUser {
+					t.Fatalf("role = %q, want user", m.Role)
+				}
+				if !strings.HasPrefix(m.Content, "[tool_result: bash]") {
+					t.Fatalf("content missing [tool_result: bash] prefix: %q", m.Content)
+				}
+				if !strings.Contains(m.Content, "command output") {
+					t.Fatalf("content missing original bash output: %q", m.Content)
+				}
+				if m.ToolCallID != "" || m.Name != "" {
+					t.Fatalf("fields not cleared: ToolCallID=%q Name=%q", m.ToolCallID, m.Name)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

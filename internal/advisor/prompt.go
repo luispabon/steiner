@@ -59,9 +59,15 @@ func flattenToolMessages(messages []provider.Message) []provider.Message {
 			if content == "" {
 				content = "(empty)"
 			}
+			var msgContent string
+			if m.Name == ToolName {
+				msgContent = fmt.Sprintf("Your earlier note (update if circumstances have changed):\n%s", content)
+			} else {
+				msgContent = fmt.Sprintf("[tool_result: %s]\n%s", m.Name, content)
+			}
 			out = append(out, provider.Message{
 				Role:    provider.MessageRoleUser,
-				Content: fmt.Sprintf("[tool_result: %s]\n%s", m.Name, content),
+				Content: msgContent,
 			})
 		case provider.MessageRoleAssistant:
 			if len(m.ToolCalls) == 0 {
