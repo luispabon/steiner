@@ -88,6 +88,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 				MaxUsesPerRun: deps.AdvisorCfg.MaxUsesPerRun,
 				MaxTokens:     deps.AdvisorCfg.MaxTokens,
 			},
+			UsageRecorder: deps.UsageRecorder,
 		})))
 	}
 

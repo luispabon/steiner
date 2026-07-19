@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 // ToolName is the registered provider-facing name of the advisor tool.
@@ -37,10 +38,11 @@ func ToolDef(handler func(context.Context, map[string]any) (any, error)) tool.To
 
 // HandlerDeps holds the runtime dependencies for one advisor tool instance.
 type HandlerDeps struct {
-	Provider provider.Provider
-	Model    provider.ResolvedModel
-	Events   output.EventSink
-	Config   Config
+	Provider      provider.Provider
+	Model         provider.ResolvedModel
+	Events        output.EventSink
+	Config        Config
+	UsageRecorder *usagestats.Recorder
 }
 
 // Config configures the per-run advisor handler.
@@ -89,9 +91,11 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps) (any, error
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses))
 	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, deps.Config.MaxTokens, deps.Events, s.cacheKey)
 	if err != nil {
-		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err))
+		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err, 0, 0))
 		return nil, err
 	}
+
+	recordAdvisorUsage(deps.UsageRecorder, deps.Model, response.Usage)
 
 	note := strings.TrimSpace(response.Message.Content)
 	truncated := response.FinishReason == "length"
@@ -103,8 +107,32 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps) (any, error
 		note = "advisor returned no content"
 	}
 
-	emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, note, truncated, nil))
+	var cacheReadTokens, cacheCreateTokens int
+	if response.Usage != nil {
+		cacheReadTokens = response.Usage.CacheReadInputTokens
+		cacheCreateTokens = response.Usage.CacheCreationInputTokens
+	}
+
+	emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, note, truncated, nil, cacheReadTokens, cacheCreateTokens))
 	return note, nil
+}
+
+// recordAdvisorUsage records one observation for a usage-bearing advisor
+// response. No-op when the recorder is unset or the response carried no
+// usage, mirroring internal/agent's recordModelUsage.
+func recordAdvisorUsage(recorder *usagestats.Recorder, model provider.ResolvedModel, usage *provider.UsageStats) {
+	if recorder == nil || usage == nil {
+		return
+	}
+	recorder.Record(usagestats.Observation{
+		ProviderAlias:     model.ProviderAlias,
+		ProviderType:      string(model.EffectiveProviderType),
+		BackendModelID:    model.BackendModelID,
+		PromptTokens:      usage.PromptTokens,
+		CompletionTokens:  usage.CompletionTokens,
+		CacheReadTokens:   usage.CacheReadInputTokens,
+		CacheCreateTokens: usage.CacheCreationInputTokens,
+	})
 }
 
 func emitEvent(sink output.EventSink, event output.Event) {
