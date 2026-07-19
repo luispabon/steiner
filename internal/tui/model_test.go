@@ -2006,6 +2006,37 @@ func TestModelEscInterruptsStreaming(t *testing.T) {
 	}
 }
 
+func TestModelEscClosesHelpDuringActiveConversation(t *testing.T) {
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
+
+	// Open help via ? key during active conversation.
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '?', Text: "?"})
+	if !m.helpVisible {
+		t.Fatal("helpVisible = false, want true after ? key")
+	}
+
+	// ESC should close help, not interrupt.
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
+
+	if m.helpVisible {
+		t.Fatal("helpVisible = true, want false after ESC")
+	}
+	if ctrl.countInterruptActiveRun() != 0 {
+		t.Fatalf("interrupt count = %d, want 0 (help should close, not interrupt)", ctrl.countInterruptActiveRun())
+	}
+	// Streaming should still be active (help closed, agent not interrupted).
+	if m.content.streamingPhase == "" {
+		t.Fatal("streamingPhase empty, want still streaming after help closed")
+	}
+}
+
 func TestModelIdleCtrlCOpensExitModalInsteadOfQuitting(t *testing.T) {
 	ctrl := &testController{}
 
