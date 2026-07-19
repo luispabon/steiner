@@ -155,6 +155,39 @@ func TestFlattenToolMessages(t *testing.T) {
 			},
 		},
 		{
+			name: "assistant message with ReasoningContent and ProviderMetadata clears both",
+			input: []provider.Message{
+				{
+					Role:             provider.MessageRoleAssistant,
+					Content:          "my response",
+					ReasoningContent: "my internal reasoning",
+					ProviderMetadata: &provider.MessageProviderMetadata{
+						Anthropic: &provider.AnthropicMessageMetadata{
+							ThinkingSignature: "sig123",
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, got []provider.Message) {
+				if len(got) != 1 {
+					t.Fatalf("len = %d, want 1", len(got))
+				}
+				m := got[0]
+				if m.Role != provider.MessageRoleAssistant {
+					t.Fatalf("role = %q, want assistant", m.Role)
+				}
+				if m.Content != "my response" {
+					t.Fatalf("content = %q, want 'my response'", m.Content)
+				}
+				if m.ReasoningContent != "" {
+					t.Fatalf("ReasoningContent not cleared: %q", m.ReasoningContent)
+				}
+				if m.ProviderMetadata != nil {
+					t.Fatalf("ProviderMetadata not cleared: %#v", m.ProviderMetadata)
+				}
+			},
+		},
+		{
 			name: "mixed conversation",
 			input: []provider.Message{
 				{Role: provider.MessageRoleUser, Content: "fix it"},
@@ -211,5 +244,89 @@ func TestFlattenToolMessages(t *testing.T) {
 			got := flattenToolMessages(tt.input)
 			tt.check(t, got)
 		})
+	}
+}
+
+func TestFlattenToolMessagesPreservesInput(t *testing.T) {
+	original := []provider.Message{
+		{
+			Role:             provider.MessageRoleAssistant,
+			Content:          "response",
+			ReasoningContent: "reasoning",
+			ProviderMetadata: &provider.MessageProviderMetadata{
+				Anthropic: &provider.AnthropicMessageMetadata{
+					ThinkingSignature: "sig123",
+				},
+			},
+		},
+		{
+			Role:    provider.MessageRoleUser,
+			Content: "user input",
+		},
+	}
+
+	snapshot := make([]provider.Message, len(original))
+	copy(snapshot, original)
+
+	_ = flattenToolMessages(original)
+
+	if len(original) != len(snapshot) {
+		t.Fatalf("input length changed: %d vs %d", len(original), len(snapshot))
+	}
+	for i, msg := range original {
+		if msg.Role != snapshot[i].Role {
+			t.Fatalf("msg[%d] Role changed", i)
+		}
+		if msg.Content != snapshot[i].Content {
+			t.Fatalf("msg[%d] Content changed", i)
+		}
+		if msg.ReasoningContent != snapshot[i].ReasoningContent {
+			t.Fatalf("msg[%d] ReasoningContent changed", i)
+		}
+		if (msg.ProviderMetadata == nil) != (snapshot[i].ProviderMetadata == nil) {
+			t.Fatalf("msg[%d] ProviderMetadata nil state changed", i)
+		}
+		if msg.ProviderMetadata != nil && snapshot[i].ProviderMetadata != nil {
+			if msg.ProviderMetadata.Anthropic.ThinkingSignature != snapshot[i].ProviderMetadata.Anthropic.ThinkingSignature {
+				t.Fatalf("msg[%d] ThinkingSignature changed", i)
+			}
+		}
+	}
+}
+
+func TestFlattenToolMessagesDeterminism(t *testing.T) {
+	input := []provider.Message{
+		{
+			Role:             provider.MessageRoleAssistant,
+			Content:          "response",
+			ReasoningContent: "reasoning",
+			ProviderMetadata: &provider.MessageProviderMetadata{
+				Anthropic: &provider.AnthropicMessageMetadata{
+					ThinkingSignature: "sig123",
+				},
+			},
+		},
+	}
+
+	result1 := flattenToolMessages(input)
+	result2 := flattenToolMessages(input)
+
+	if len(result1) != len(result2) {
+		t.Fatalf("results differ in length: %d vs %d", len(result1), len(result2))
+	}
+
+	for i := range result1 {
+		if result1[i].Role != result2[i].Role {
+			t.Fatalf("msg[%d] Role differs", i)
+		}
+		if result1[i].Content != result2[i].Content {
+			t.Fatalf("msg[%d] Content differs", i)
+		}
+		if result1[i].ReasoningContent != result2[i].ReasoningContent {
+			t.Fatalf("msg[%d] ReasoningContent differs", i)
+		}
+		if (result1[i].ProviderMetadata == nil) != (result2[i].ProviderMetadata == nil) {
+			t.Fatalf("msg[%d] ProviderMetadata nil state differs", i)
+		}
 	}
 }

@@ -30,6 +30,8 @@ func flattenToolMessages(messages []provider.Message) []provider.Message {
 			})
 		case provider.MessageRoleAssistant:
 			if len(m.ToolCalls) == 0 {
+				m.ReasoningContent = ""
+				m.ProviderMetadata = nil
 				out = append(out, m)
 				continue
 			}
@@ -51,6 +53,8 @@ func flattenToolMessages(messages []provider.Message) []provider.Message {
 				Content: strings.TrimSuffix(sb.String(), "\n"),
 			})
 		default:
+			m.ReasoningContent = ""
+			m.ProviderMetadata = nil
 			out = append(out, m)
 		}
 	}
