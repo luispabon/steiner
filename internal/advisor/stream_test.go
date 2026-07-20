@@ -258,3 +258,36 @@ func TestStreamWithEventsNilSinkIdenticalToDrainStream(t *testing.T) {
 		t.Fatalf("FinishReason mismatch: drainStream=%q, streamWithEvents=%q", got1.FinishReason, got2.FinishReason)
 	}
 }
+
+func TestStreamWithEventsEmitsAdvisorThinkingChunksWithAdvisorSource(t *testing.T) {
+	chunks := []provider.ChatChunk{
+		{Delta: provider.Message{Content: ""}, Thinking: "advisor reasoning"},
+		{Done: true, Delta: provider.Message{Content: "advisor answer"}, FinishReason: "stop"},
+	}
+
+	ch := make(chan provider.ChatChunk, len(chunks))
+	for _, c := range chunks {
+		ch <- c
+	}
+	close(ch)
+
+	sink := &toolSink{}
+	resp, err := streamWithEvents(ch, sink)
+
+	if err != nil {
+		t.Fatalf("streamWithEvents() error = %v, want nil", err)
+	}
+	if resp.Message.Content != "advisor answer" {
+		t.Fatalf("response content = %q, want %q", resp.Message.Content, "advisor answer")
+	}
+
+	// Verify that the thinking chunk has ChunkSourceAdvisor.
+	if len(sink.events) != 1 {
+		t.Fatalf("event count = %d, want 1", len(sink.events))
+	}
+	if payload, ok := sink.events[0].Payload.(output.ThinkingChunkEvent); !ok {
+		t.Fatalf("event payload type = %T, want ThinkingChunkEvent", sink.events[0].Payload)
+	} else if payload.Source != output.ChunkSourceAdvisor {
+		t.Fatalf("thinking chunk source = %q, want %q", payload.Source, output.ChunkSourceAdvisor)
+	}
+}

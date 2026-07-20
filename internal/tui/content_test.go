@@ -449,9 +449,9 @@ func TestAdvisorThinkingChunkRouting(t *testing.T) {
 		t.Fatalf("segments after start = %d, want 1", len(buffer.segments))
 	}
 
-	// Emit thinking chunks.
-	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(0, "thinking step one ", output.ChunkSourceAssistant))
-	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(0, "thinking step two", output.ChunkSourceAssistant))
+	// Emit thinking chunks with advisor source.
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(0, "thinking step one ", output.ChunkSourceAdvisor))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(0, "thinking step two", output.ChunkSourceAdvisor))
 
 	dd := buffer.segments[0].delegData
 	if dd == nil {

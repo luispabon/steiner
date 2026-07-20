@@ -316,6 +316,8 @@ type ChunkSource string
 const (
 	// ChunkSourceAssistant identifies chunks emitted from assistant output.
 	ChunkSourceAssistant ChunkSource = "assistant"
+	// ChunkSourceAdvisor identifies chunks emitted by the stronger-model advisor.
+	ChunkSourceAdvisor ChunkSource = "advisor"
 )
 
 // AssistantChunkEvent records a streamed assistant chunk.

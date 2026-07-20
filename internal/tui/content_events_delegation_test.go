@@ -227,3 +227,48 @@ func TestDelegationToolCallFinished_FollowUp_DrainsQueue(t *testing.T) {
 		t.Error("segment should be renderDirty after failure")
 	}
 }
+
+func TestAdvisorThinkingChunkRoutingBySource(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		showThinking:  true,
+	}
+
+	// Start advisor call.
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1))
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments after start = %d, want 1", len(buffer.segments))
+	}
+
+	// Emit assistant-sourced thinking chunk while advisor box is active.
+	// This should NOT route to the advisor box but to a normal thinking segment.
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(0, "assistant thinking", output.ChunkSourceAssistant))
+
+	// Verify advisor box has no entries (hasn't received the assistant thinking).
+	advisorSeg := buffer.segments[0]
+	if advisorSeg.delegData == nil || len(advisorSeg.delegData.entries) != 0 {
+		t.Fatalf("advisor entries = %d, want 0 (assistant chunk should not route to advisor)", len(advisorSeg.delegData.entries))
+	}
+
+	// Verify a new thinking segment was created for the assistant chunk.
+	if len(buffer.segments) != 2 {
+		t.Fatalf("segments count = %d, want 2 (advisor box + thinking segment)", len(buffer.segments))
+	}
+	if buffer.segments[1].kind != segmentThinkingBlock {
+		t.Fatalf("segment[1].kind = %v, want segmentThinkingBlock", buffer.segments[1].kind)
+	}
+
+	// Now emit advisor-sourced thinking chunk.
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(0, "advisor thinking", output.ChunkSourceAdvisor))
+
+	// Verify advisor box now has the thinking entry.
+	if len(advisorSeg.delegData.entries) != 1 {
+		t.Fatalf("advisor entries = %d, want 1 (advisor chunk should route to advisor)", len(advisorSeg.delegData.entries))
+	}
+
+	// Verify segment count hasn't increased (advisor chunk merged into advisor box).
+	if len(buffer.segments) != 2 {
+		t.Fatalf("segments count = %d, want 2 (advisor chunk should not create new segment)", len(buffer.segments))
+	}
+}

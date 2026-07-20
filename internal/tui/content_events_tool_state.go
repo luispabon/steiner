@@ -269,6 +269,12 @@ func (b *contentBuffer) Clear() {
 	b.stringCacheRendered = ""
 }
 
+// ResetAdvisorSegment clears the active advisor segment flag.
+// Called on run teardown to prevent stale flag from persisting across runs.
+func (b *contentBuffer) ResetAdvisorSegment() {
+	b.activeAdvisorSegment = 0
+}
+
 func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 	if tc == nil || len(b.segments) == 0 {
 		return false
