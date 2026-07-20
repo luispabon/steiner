@@ -30,3 +30,21 @@ func renderModeBadge(styles theme.Styles, mode string) string {
 		return ""
 	}
 }
+
+// renderSandboxBadge renders the sandbox status badge for the status bar.
+func renderSandboxBadge(styles theme.Styles, status string) string {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return ""
+	}
+	switch status {
+	case "active":
+		return styles.Added.Render("sbx active")
+	case "unavailable":
+		return styles.Warn.Render("sbx unavailable")
+	case "bypassed":
+		return styles.Removed.Render("sbx bypassed")
+	default:
+		return styles.FgDim.Render("sbx " + status)
+	}
+}

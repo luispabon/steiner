@@ -21,8 +21,10 @@ type statusState struct {
 	promptUsed     int
 	contextBudget  int
 	oneshotPhase   string
+	sandboxStatus  string
 }
 
+//nolint:gocyclo // fan-out by segment is structural, not accidental
 func (s statusState) view(width int) string {
 	sep := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(" │ ")
 
@@ -40,6 +42,11 @@ func (s statusState) view(width int) string {
 
 	// Segment 1b: execution mode badge
 	if badge := renderModeBadge(s.styles, s.execMode); badge != "" {
+		parts = append(parts, badge)
+	}
+
+	// Segment 1c: sandbox status badge
+	if badge := renderSandboxBadge(s.styles, s.sandboxStatus); badge != "" {
 		parts = append(parts, badge)
 	}
 

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -83,10 +84,12 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	sb, err := buildRuntimeSandbox(cfg, projectRoot, workDir, homeDir)
+	sb, err := buildRuntimeSandbox(&cfg, projectRoot, workDir, homeDir)
 	if err != nil {
 		return cliRuntime{}, err
 	}
+
+	emitSandboxWarning(cfg, events)
 	// Rebuild registry with sandbox now that workDir and homeDir are known.
 	if sb != nil {
 		registry = buildRuntimeRegistryWithSandbox(cfg, workDir, sb)
@@ -408,14 +411,17 @@ func createSandboxTmpDir(parentDir string) (string, error) {
 }
 
 // buildRuntimeSandbox creates a Sandbox when sandboxing is enabled. Returns nil
-// when cfg.Sandbox.Enabled is false (e.g. --unsafe flag was set). Returns an
-// error when bwrap is required but not found on PATH.
-func buildRuntimeSandbox(cfg config.Config, projectRoot, workDir, userHome string) (*sandbox.Sandbox, error) {
+// when cfg.Sandbox.Enabled is false (e.g. --unsafe flag was set). Returns nil
+// when bwrap is unavailable (unsupported platform or missing binary) and sets
+// cfg.Sandbox.Status to "bypassed" or "unavailable" respectively.
+func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome string) (*sandbox.Sandbox, error) {
 	if !cfg.Sandbox.Enabled {
+		cfg.Sandbox.Status = "bypassed"
 		return nil, nil
 	}
 	if err := sandbox.PrereqCheck(); err != nil {
-		return nil, err
+		cfg.Sandbox.Status = "unavailable"
+		return nil, nil
 	}
 
 	// Session-scoped tmp directory.
@@ -431,5 +437,24 @@ func buildRuntimeSandbox(cfg config.Config, projectRoot, workDir, userHome strin
 	if err := s.EnsureHome(); err != nil {
 		return nil, fmt.Errorf("sandbox setup: %w", err)
 	}
+	cfg.Sandbox.Status = "active"
 	return s, nil
+}
+
+// emitSandboxWarning emits a SandboxStatusEvent when sandbox is not active and
+// WarningOnUnsupportedPlatform is enabled.
+func emitSandboxWarning(cfg config.Config, events output.EventSink) {
+	if cfg.Sandbox.Status == "active" || !cfg.Sandbox.WarningOnUnsupportedPlatform {
+		return
+	}
+	var msg string
+	switch cfg.Sandbox.Status {
+	case "unavailable":
+		msg = fmt.Sprintf("sandbox unavailable: bubblewrap is not supported on %s. Bash and subprocess tools run unsandboxed.", runtime.GOOS)
+	case "bypassed":
+		msg = "sandbox bypassed: running with --unsafe or sandbox.enabled=false. Bash and subprocess tools run unsandboxed."
+	}
+	if msg != "" {
+		events.Emit(output.NewSandboxStatusEvent(cfg.Sandbox.Status, msg))
+	}
 }

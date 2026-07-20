@@ -166,6 +166,12 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.sidebar.execMode = m.mode
 		m.status.execMode = m.mode
 		m.content.AppendLine(fmt.Sprintf("status: mode → %s", m.mode))
+	case output.SandboxStatusEvent:
+		m.sidebar.sandboxStatus = strings.TrimSpace(payload.Status)
+		m.status.sandboxStatus = strings.TrimSpace(payload.Status)
+		if payload.Message != "" {
+			m.content.AppendLine(fmt.Sprintf("status: %s", payload.Message))
+		}
 	case output.OneshotFinishedEvent:
 		m.oneshotRunning = false
 		m.oneshotPhase = ""

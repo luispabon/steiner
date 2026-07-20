@@ -64,3 +64,12 @@ func applyToolPatch(dst *ToolConfig, patch *toolPatch) {
 		dst.Constraints = copyStringAnyMap(*patch.Constraints)
 	}
 }
+
+func applySandboxPatch(cfg *SandboxConfig, patch *sandboxPatch) {
+	if patch.Enabled != nil {
+		cfg.Enabled = *patch.Enabled
+	}
+	if patch.WarningOnUnsupportedPlatform != nil {
+		cfg.WarningOnUnsupportedPlatform = *patch.WarningOnUnsupportedPlatform
+	}
+}

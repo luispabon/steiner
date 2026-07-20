@@ -362,11 +362,14 @@ Controls bubblewrap sandbox behavior.
 
 | Field     | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `enabled` | bool | `true`  | Enable bubblewrap sandboxing. `--unsafe` applies a CLI override that forces this to `false` at load time. |
+| `enabled`                          | bool   | `true`  | Enable bubblewrap sandboxing. `--unsafe` applies a CLI override that forces this to `false` at load time. |
+| `warning_on_unsupported_platform` | bool   | `true`  | When enabled, shows a warning in the TUI when sandbox is unavailable or bypassed. |
+| `status`                          | string | computed | The runtime sandbox status: `active`, `unavailable`, or `bypassed`. This is set at startup and is not user-configurable. |
 
 ```yaml
 sandbox:
-  enabled: true  # default; --unsafe overrides this to false at runtime
+  enabled: true                       # default; --unsafe overrides this to false at runtime
+  warning_on_unsupported_platform: true # default; warns when sandbox is unavailable/bypassed
 ```
 
 ---

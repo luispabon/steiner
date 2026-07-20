@@ -419,3 +419,11 @@ func NewModeChangedEvent(mode string) Event {
 		Mode: strings.TrimSpace(mode),
 	})
 }
+
+// NewSandboxStatusEvent creates a sandbox_status event.
+func NewSandboxStatusEvent(status, message string) Event {
+	return newEvent(EventTypeSandboxStatus, SandboxStatusEvent{
+		Status:  strings.TrimSpace(status),
+		Message: strings.TrimSpace(message),
+	})
+}

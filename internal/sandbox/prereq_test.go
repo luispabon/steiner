@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -43,5 +44,15 @@ func TestPrereqCheck_ErrorMessage(t *testing.T) {
 	}
 	if !strings.Contains(msg, "dnf install bubblewrap") {
 		t.Errorf("error message missing 'dnf install bubblewrap': %q", msg)
+	}
+}
+
+func TestIsSupportedPlatform(t *testing.T) {
+	result := IsSupportedPlatform()
+	if result && runtime.GOOS != "linux" {
+		t.Errorf("IsSupportedPlatform() = true on non-Linux OS %q", runtime.GOOS)
+	}
+	if !result && runtime.GOOS == "linux" {
+		t.Errorf("IsSupportedPlatform() = false on Linux")
 	}
 }

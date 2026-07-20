@@ -5,6 +5,7 @@ type configPatch struct {
 	CaveHuman            *bool                      `yaml:"cave_human"`
 	Scheduler            *schedulerPatch            `yaml:"scheduler"`
 	Providers            *map[string]providerPatch  `yaml:"providers"`
+	Sandbox              *sandboxPatch              `yaml:"sandbox"`
 	Models               *modelsPatch               `yaml:"models"`
 	Limits               *limitsPatch               `yaml:"limits"`
 	SubAgent             *subAgentPatch             `yaml:"sub_agent"`
@@ -49,6 +50,12 @@ type contextManagementPatch struct {
 
 type schedulerPatch struct {
 	Parallelism *int `yaml:"parallelism"`
+}
+
+// sandboxPatch holds sandbox config fields that can be patched from YAML.
+type sandboxPatch struct {
+	Enabled                      *bool `yaml:"enabled"`
+	WarningOnUnsupportedPlatform *bool `yaml:"warning_on_unsupported_platform"`
 }
 
 type modelPatch struct {

@@ -265,6 +265,20 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.sidebar.workingDir = strings.TrimSpace(cfg.WorkingDir)
 	m.sidebar.execMode = m.mode
 	m.status.execMode = m.mode
+	m.sidebar.sandboxStatus = cfg.SandboxStatus
+	m.status.sandboxStatus = cfg.SandboxStatus
+	if cfg.SandboxStatus != "" && cfg.SandboxStatus != "active" {
+		var msg string
+		switch cfg.SandboxStatus {
+		case "unavailable":
+			msg = "sandbox unavailable: bubblewrap is not supported on this platform. Bash and subprocess tools run unsandboxed."
+		case "bypassed":
+			msg = "sandbox bypassed: running with --unsafe or sandbox.enabled=false. Bash and subprocess tools run unsandboxed."
+		}
+		if msg != "" {
+			m.content.AppendLine(fmt.Sprintf("status: %s", msg))
+		}
+	}
 	m.git.Refresh(context.Background())
 	m.syncSidebar()
 	m.layout()

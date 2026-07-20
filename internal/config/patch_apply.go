@@ -89,6 +89,9 @@ func applyRuntimeConfigPatch(cfg *Config, patch configPatch) {
 	if patch.DesktopNotifications != nil {
 		applyDesktopNotificationsPatch(&cfg.DesktopNotifications, patch.DesktopNotifications)
 	}
+	if patch.Sandbox != nil {
+		applySandboxPatch(&cfg.Sandbox, patch.Sandbox)
+	}
 }
 
 func applyToolingConfigPatch(cfg *Config, patch configPatch) {

@@ -104,6 +104,8 @@ type Config struct {
 	// Must reset session-scoped sandbox state (e.g., empty /tmp contents) without
 	// tearing down the sandbox itself. May be nil.
 	SessionResetCleanup func()
+	// SandboxStatus seeds the initial sandbox status at startup.
+	SandboxStatus string
 }
 
 // OneshotRunnerFactoryBuilder builds a phase runner factory bound to a specific
