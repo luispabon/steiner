@@ -66,9 +66,7 @@ func drainStream(chunks <-chan provider.ChatChunk) (provider.ChatResponse, error
 // into a single ChatResponse, and emits thinking chunks to the event sink.
 // It mirrors drainStream but adds event emission for thinking content.
 // A nil sink behaves identically to drainStream.
-//
-//nolint:unparam // source parameter is used at line 93 to tag advisor vs primary thinking chunks
-func streamWithEvents(chunks <-chan provider.ChatChunk, sink output.EventSink, source output.ChunkSource) (provider.ChatResponse, error) {
+func streamWithEvents(chunks <-chan provider.ChatChunk, sink output.EventSink) (provider.ChatResponse, error) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}
 	sawFinal := false
@@ -95,7 +93,7 @@ func streamWithEvents(chunks <-chan provider.ChatChunk, sink output.EventSink, s
 				// turn=0 is correct here: advisor calls are out-of-band tool invocations
 				// that occur outside the primary turn sequence and have no meaningful
 				// turn attribution in the agent's turn counter.
-				emitEvent(sink, output.NewThinkingChunkEventWithSource(0, chunk.Thinking, source))
+				emitEvent(sink, output.NewThinkingChunkEventWithSource(0, chunk.Thinking, output.ChunkSourceAdvisor))
 			}
 			continue
 		}

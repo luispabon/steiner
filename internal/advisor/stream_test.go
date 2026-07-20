@@ -182,7 +182,7 @@ func TestStreamWithEvents(t *testing.T) {
 				sink = &toolSink{}
 			}
 
-			got, err := streamWithEvents(ch, sink, output.ChunkSourceAdvisor)
+			got, err := streamWithEvents(ch, sink)
 			if tc.wantErr != "" {
 				if err == nil {
 					t.Fatalf("streamWithEvents() error = nil, want %q", tc.wantErr)
@@ -246,7 +246,7 @@ func TestStreamWithEventsNilSinkIdenticalToDrainStream(t *testing.T) {
 	close(ch2)
 
 	got1, err1 := drainStream(ch1)
-	got2, err2 := streamWithEvents(ch2, nil, output.ChunkSourceAdvisor)
+	got2, err2 := streamWithEvents(ch2, nil)
 
 	if err1 != nil || err2 != nil {
 		t.Fatalf("errors: drainStream=%v, streamWithEvents=%v", err1, err2)
@@ -272,7 +272,7 @@ func TestStreamWithEventsEmitsAdvisorThinkingChunksWithAdvisorSource(t *testing.
 	close(ch)
 
 	sink := &toolSink{}
-	resp, err := streamWithEvents(ch, sink, output.ChunkSourceAdvisor)
+	resp, err := streamWithEvents(ch, sink)
 
 	if err != nil {
 		t.Fatalf("streamWithEvents() error = %v, want nil", err)

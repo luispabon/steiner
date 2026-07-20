@@ -138,17 +138,6 @@ func TestRandomAccentResolves(t *testing.T) {
 }
 
 func TestAdvisorFlagResetOnInterruptedRunCompletion(t *testing.T) {
-	// Regression test: when an advisor call is interrupted, the activeAdvisorSegment
-	// flag must be cleared by resetTopLevelTerminalState on run finish, so that
-	// primary-model thinking chunks don't land in a stale advisor box.
-	//
-	// Before the fix, shouldSuppressInterruptedRunEvent would drop AdvisorComplete
-	// events, leaving activeAdvisorSegment set. After run finish, the flag remained
-	// and all subsequent thinking chunks routed to the dead advisor box.
-	//
-	// The fix adds EventTypeAdvisorComplete to the non-suppressed allowlist and
-	// calls ResetAdvisorSegment() in resetTopLevelTerminalState.
-
 	m := newModel(Config{}, nil)
 	m.content.showThinking = true
 
