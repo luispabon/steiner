@@ -36,7 +36,7 @@ func TestRunAuthCodeFlowSuccess(t *testing.T) {
 		// browser redirect by calling the callback endpoint.
 		OpenBrowser: func(authURL string) error {
 			go func() {
-				time.Sleep(50 * time.Millisecond)
+				time.Sleep(1 * time.Millisecond)
 				u, err := url.Parse(authURL)
 				if err != nil {
 					return

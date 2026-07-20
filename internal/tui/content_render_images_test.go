@@ -8,6 +8,7 @@ import (
 )
 
 func TestRenderImagesAttachedSegment(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		styles: theme.BuildStyles(theme.AccentAmber),
 	}
@@ -111,6 +112,7 @@ func TestRenderImagesAttachedSegment(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			segment := contentSegment{
 				kind: segmentImagesAttached,
 				imagesAttachedData: &imagesAttachedData{
@@ -125,6 +127,7 @@ func TestRenderImagesAttachedSegment(t *testing.T) {
 }
 
 func TestRenderImagesAttachedSegmentEmpty(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		styles: theme.BuildStyles(theme.AccentAmber),
 	}
@@ -141,6 +144,7 @@ func TestRenderImagesAttachedSegmentEmpty(t *testing.T) {
 }
 
 func TestRenderImagesAttachedSegmentEmptyRows(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		styles: theme.BuildStyles(theme.AccentAmber),
 	}

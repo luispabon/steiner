@@ -10,6 +10,7 @@ import (
 )
 
 func TestAccentPickerOpen(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	p := newAccentPickerOverlay(styles)
 	p = p.Open("amber")
@@ -27,6 +28,7 @@ func TestAccentPickerOpen(t *testing.T) {
 }
 
 func TestAccentPickerFilter(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	p := newAccentPickerOverlay(styles).Open("")
 
@@ -45,6 +47,7 @@ func TestAccentPickerFilter(t *testing.T) {
 }
 
 func TestAccentPickerSelect(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	p := newAccentPickerOverlay(styles).Open("")
 
@@ -64,6 +67,7 @@ func TestAccentPickerSelect(t *testing.T) {
 }
 
 func TestAccentPickerRandomEntry(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	p := newAccentPickerOverlay(styles).Open("")
 
@@ -84,6 +88,7 @@ func TestAccentPickerRandomEntry(t *testing.T) {
 }
 
 func TestAccentPickerClose(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	p := newAccentPickerOverlay(styles).Open("amber")
 	p = p.Close()

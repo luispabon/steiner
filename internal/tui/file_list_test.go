@@ -10,6 +10,7 @@ import (
 )
 
 func TestFileListOverlay_NewClose(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFileListOverlay(s)
 	if f.IsOpen() {
@@ -31,6 +32,7 @@ func TestFileListOverlay_NewClose(t *testing.T) {
 }
 
 func TestFileListOverlay_ViewEmpty(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFileListOverlay(s)
 	view := f.View()
@@ -40,6 +42,7 @@ func TestFileListOverlay_ViewEmpty(t *testing.T) {
 }
 
 func TestFileListOverlay_ViewNonEmpty(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f.OverlayShell = f.WithDimensions(80, 24)
@@ -54,6 +57,7 @@ func TestFileListOverlay_ViewNonEmpty(t *testing.T) {
 }
 
 func TestFileListOverlay_UpdateEsc(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f = f.Open(".")
@@ -68,6 +72,7 @@ func TestFileListOverlay_UpdateEsc(t *testing.T) {
 }
 
 func TestFileListOverlay_UpdateEnter(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f = f.Open(".")
@@ -82,6 +87,7 @@ func TestFileListOverlay_UpdateEnter(t *testing.T) {
 }
 
 func TestFileListOverlay_UpdateIgnoresOtherKeys(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f = f.Open(".")
@@ -96,6 +102,7 @@ func TestFileListOverlay_UpdateIgnoresOtherKeys(t *testing.T) {
 }
 
 func TestFileListOverlay_UpdateWhenClosed(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFileListOverlay(s)
 	if f.IsOpen() {
@@ -109,6 +116,7 @@ func TestFileListOverlay_UpdateWhenClosed(t *testing.T) {
 }
 
 func TestFileListOverlay_RootWithError(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f.OverlayShell = f.WithDimensions(80, 24)
@@ -126,6 +134,7 @@ func TestFileListOverlay_RootWithError(t *testing.T) {
 }
 
 func TestFileListOverlay_RespectsExclusions(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f = f.Open(".")

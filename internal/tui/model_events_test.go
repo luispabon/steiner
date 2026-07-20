@@ -11,6 +11,7 @@ import (
 )
 
 func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
+	t.Parallel()
 	ch := make(chan agent.SteerMessage, 4)
 	ch <- agent.SteerMessage{Text: "test"}
 
@@ -43,6 +44,7 @@ func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 }
 
 func TestApplyEventModeChangedUpdatesStateAndTranscript(t *testing.T) {
+	t.Parallel()
 	m := Model{
 		mode: "build",
 		content: contentBuffer{
@@ -77,6 +79,7 @@ func TestApplyEventModeChangedUpdatesStateAndTranscript(t *testing.T) {
 }
 
 func TestApplyEventContextCompactionFinishedRefreshesBudget(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -109,6 +112,7 @@ func TestApplyEventContextCompactionFinishedRefreshesBudget(t *testing.T) {
 }
 
 func TestRandomAccentResolves(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
@@ -138,6 +142,7 @@ func TestRandomAccentResolves(t *testing.T) {
 }
 
 func TestAdvisorFlagResetOnInterruptedRunCompletion(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.content.showThinking = true
 

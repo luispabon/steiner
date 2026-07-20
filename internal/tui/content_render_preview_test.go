@@ -9,6 +9,7 @@ import (
 )
 
 func TestBuildMutateLinesInsertBefore(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		styles: theme.BuildStyles(theme.AccentAmber),
 	}
@@ -48,6 +49,7 @@ func TestBuildMutateLinesInsertBefore(t *testing.T) {
 }
 
 func TestBuildMutateLinesInsertAfter(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		styles: theme.BuildStyles(theme.AccentAmber),
 	}
@@ -82,11 +84,13 @@ func TestBuildMutateLinesInsertAfter(t *testing.T) {
 }
 
 func TestBuildFetchURLLines(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		styles: theme.BuildStyles(theme.AccentAmber),
 	}
 
 	t.Run("markdown response shows status header", func(t *testing.T) {
+		t.Parallel()
 		tc := &toolCallSegment{
 			tool:     "fetch_url",
 			bodyKind: "fetch_url",
@@ -120,6 +124,7 @@ func TestBuildFetchURLLines(t *testing.T) {
 	})
 
 	t.Run("image response shows placeholder", func(t *testing.T) {
+		t.Parallel()
 		tc := &toolCallSegment{
 			tool:     "fetch_url",
 			bodyKind: "fetch_url",

@@ -10,6 +10,7 @@ import (
 )
 
 func TestModelPickerEnterOnReasoningCapableModelOpensReasoningStep(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -42,6 +43,7 @@ func TestModelPickerEnterOnReasoningCapableModelOpensReasoningStep(t *testing.T)
 }
 
 func TestModelPickerEnterOnNonReasoningModelCommitsImmediately(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -73,6 +75,7 @@ func TestModelPickerEnterOnNonReasoningModelCommitsImmediately(t *testing.T) {
 }
 
 func TestReasoningPickerEnterCommitsModelAndReasoning(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -114,6 +117,7 @@ func TestReasoningPickerEnterCommitsModelAndReasoning(t *testing.T) {
 }
 
 func TestReasoningPickerProviderDefaultOption(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -146,6 +150,7 @@ func TestReasoningPickerProviderDefaultOption(t *testing.T) {
 }
 
 func TestReasoningPickerEscReturnsToModelList(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:      "small",
 		ModelNames: []string{"small", "large"},
@@ -178,6 +183,7 @@ func TestReasoningPickerEscReturnsToModelList(t *testing.T) {
 }
 
 func TestModelPickerWorkflowHandoffSkipsReasoningStep(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:      "small",
 		ModelNames: []string{"small", "large"},
@@ -206,6 +212,7 @@ func TestModelPickerWorkflowHandoffSkipsReasoningStep(t *testing.T) {
 }
 
 func TestModelPickerEnterFallsBackToOnDemandResolveWhenBatchPending(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	resolveCalls := 0
 
@@ -251,6 +258,7 @@ func TestModelPickerEnterFallsBackToOnDemandResolveWhenBatchPending(t *testing.T
 }
 
 func TestModelPickerEnterSkipsOnDemandResolveOnceBatchResolved(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	resolveCalls := 0
 

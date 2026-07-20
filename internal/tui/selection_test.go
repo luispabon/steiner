@@ -19,6 +19,7 @@ var testSelStyle = lipgloss.NewStyle().Background(lipgloss.Color("#3a4a5a"))
 // ---------------------------------------------------------------------------
 
 func TestExtractText(t *testing.T) {
+	t.Parallel()
 	plainLines := []string{
 		"hello world",   // 0
 		"foo bar baz",   // 1
@@ -208,6 +209,7 @@ func TestExtractText(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := extractText(tc.lines, tc.state, tc.regionLeft, tc.regionRight)
 			if got != tc.want {
 				t.Errorf("extractText() = %q; want %q", got, tc.want)
@@ -221,6 +223,7 @@ func TestExtractText(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestStripBoxChrome(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		s    string
@@ -285,6 +288,7 @@ func TestStripBoxChrome(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := stripBoxChrome(tc.s)
 			if got != tc.want {
 				t.Errorf("stripBoxChrome(%q) = %q; want %q", tc.s, got, tc.want)
@@ -488,6 +492,7 @@ func TestApplyScreenHighlight(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestWordBoundsAt(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		line         string
@@ -597,6 +602,7 @@ func TestWordBoundsAt(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			gotStart, gotEnd := wordBoundsAt(tc.line, tc.col)
 			if gotStart != tc.wantStartCol || gotEnd != tc.wantEndCol {
 				t.Errorf("wordBoundsAt(%q, %d) = (%d, %d); want (%d, %d)",
@@ -611,6 +617,7 @@ func TestWordBoundsAt(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLineBoundsAt(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		lines        []string
@@ -671,6 +678,7 @@ func TestLineBoundsAt(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			gotStart, gotEnd := lineBoundsAt(tc.lines, tc.lineIdx)
 			if gotStart != tc.wantStartCol || gotEnd != tc.wantEndCol {
 				t.Errorf("lineBoundsAt(lines, %d) = (%d, %d); want (%d, %d)",
@@ -685,6 +693,7 @@ func TestLineBoundsAt(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLogicalLineBounds(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		lines         []string
@@ -805,6 +814,7 @@ func TestLogicalLineBounds(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			gotStartLine, gotEndLine, gotStartCol, gotEndCol := logicalLineBounds(
 				tc.lines, tc.lineIdx, tc.regionLeft, tc.regionRight)
 			if gotStartLine != tc.wantStartLine || gotEndLine != tc.wantEndLine ||
@@ -842,6 +852,7 @@ func buildTestModel(width, height int, sidebarVisible, sidebarRight bool) Model 
 }
 
 func TestDetectRegion(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		width      int
@@ -1035,6 +1046,7 @@ func TestDetectRegion(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := buildTestModel(tc.width, tc.height, tc.sidebarVis, tc.sidebarPos == "right")
 			got := m.detectRegion(tc.clickX, tc.clickY)
 			if got != tc.wantRegion {
@@ -1049,6 +1061,7 @@ func TestDetectRegion(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestClickCount(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		clicks []struct {
@@ -1163,43 +1176,18 @@ func TestClickCount(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := buildTestModel(100, 30, false, false)
 			var gotCounts []int
 
+			clickTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 			for i, click := range tc.clicks {
 				if i > 0 {
-					time.Sleep(click.delay)
+					clickTime = clickTime.Add(click.delay)
 				}
 
 				clickPos := selectionPoint{line: click.y, col: click.x}
-				clickTime := time.Now()
-
-				timeDiff := clickTime.Sub(m.lastClickTime)
-				const clickTimeout = 500 * time.Millisecond
-				isWithinTime := timeDiff <= clickTimeout && timeDiff >= 0
-
-				isWithinDelta := false
-				if isWithinTime {
-					colDiff := m.lastClickPos.col - clickPos.col
-					lineDiff := m.lastClickPos.line - clickPos.line
-					if colDiff < 0 {
-						colDiff = -colDiff
-					}
-					if lineDiff < 0 {
-						lineDiff = -lineDiff
-					}
-					isWithinDelta = colDiff <= 1 && lineDiff <= 1
-				}
-
-				if isWithinTime && isWithinDelta {
-					m.clickCount++
-					if m.clickCount > 3 {
-						m.clickCount = 1
-					}
-				} else {
-					m.clickCount = 1
-				}
-
+				m.clickCount = m.nextClickCount(clickPos, clickTime)
 				m.lastClickTime = clickTime
 				m.lastClickPos = clickPos
 				gotCounts = append(gotCounts, m.clickCount)
@@ -1224,6 +1212,7 @@ func TestClickCount(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestClampToRegion(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		width      int
@@ -1516,6 +1505,7 @@ func TestClampToRegion(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := buildTestModel(tc.width, tc.height, tc.sidebarVis, tc.sidebarPos == "right")
 			gotX, gotY := m.clampToRegion(tc.x, tc.y, tc.region)
 			if gotX != tc.wantX || gotY != tc.wantY {
@@ -1530,6 +1520,7 @@ func TestClampToRegion(t *testing.T) {
 // always excludes 3 columns on the right (matching the combined pane padding
 // and scrollbar column), regardless of whether a scrollbar is visible.
 func TestClampToRegionScrollbar(t *testing.T) {
+	t.Parallel()
 	m := buildTestModel(100, 30, false, false)
 	gotX, _ := m.clampToRegion(99, 15, regionViewport)
 	if gotX != 96 {

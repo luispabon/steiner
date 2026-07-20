@@ -148,7 +148,7 @@ func TestExecuteToolTimeout(t *testing.T) {
 		Name:       "probe",
 		ExecPath:   helper,
 		Subcommand: "sleep",
-		Timeout:    100 * time.Millisecond,
+		Timeout:    15 * time.Millisecond,
 	})
 	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
 	_, err := executor.Execute(context.Background(), "probe", "", nil)

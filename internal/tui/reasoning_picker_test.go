@@ -10,6 +10,7 @@ import (
 )
 
 func TestReasoningPickerOpenBuildsOptions(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{
 		SupportedEfforts:      []string{"low", "medium", "high"},
@@ -40,6 +41,7 @@ func TestReasoningPickerOpenBuildsOptions(t *testing.T) {
 }
 
 func TestReasoningPickerOmitsUnsupportedEfforts(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"medium", "high"}}
 
@@ -53,6 +55,7 @@ func TestReasoningPickerOmitsUnsupportedEfforts(t *testing.T) {
 }
 
 func TestReasoningPickerMarksCurrentEffort(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 	current := provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "high"}
@@ -69,6 +72,7 @@ func TestReasoningPickerMarksCurrentEffort(t *testing.T) {
 }
 
 func TestReasoningPickerMarksCurrentProviderDefault(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium"}}
 	current := provider.ReasoningOverride{Kind: provider.ReasoningOverrideProviderDefault}
@@ -85,6 +89,7 @@ func TestReasoningPickerMarksCurrentProviderDefault(t *testing.T) {
 }
 
 func TestReasoningPickerMarksConfiguredEffortCurrentWhenNoOverride(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 
@@ -100,6 +105,7 @@ func TestReasoningPickerMarksConfiguredEffortCurrentWhenNoOverride(t *testing.T)
 }
 
 func TestReasoningPickerMarksProviderDefaultCurrentWhenNoOverrideAndNoConfiguredEffort(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 
@@ -115,6 +121,7 @@ func TestReasoningPickerMarksProviderDefaultCurrentWhenNoOverrideAndNoConfigured
 }
 
 func TestReasoningPickerOverrideWinsOverConfiguredEffort(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 	current := provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "high"}
@@ -131,6 +138,7 @@ func TestReasoningPickerOverrideWinsOverConfiguredEffort(t *testing.T) {
 }
 
 func TestReasoningPickerFilter(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 
@@ -148,6 +156,7 @@ func TestReasoningPickerFilter(t *testing.T) {
 }
 
 func TestReasoningPickerCloseOnEsc(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low"}}
 
@@ -160,6 +169,7 @@ func TestReasoningPickerCloseOnEsc(t *testing.T) {
 }
 
 func TestReasoningOverrideFromOption(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		opt  reasoningEffortOption
@@ -178,6 +188,7 @@ func TestReasoningOverrideFromOption(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := reasoningOverrideFromOption(tt.opt)
 			if got != tt.want {
 				t.Errorf("reasoningOverrideFromOption(%+v) = %+v, want %+v", tt.opt, got, tt.want)
@@ -187,6 +198,7 @@ func TestReasoningOverrideFromOption(t *testing.T) {
 }
 
 func TestReasoningOverrideLabel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		o    provider.ReasoningOverride
@@ -198,6 +210,7 @@ func TestReasoningOverrideLabel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := reasoningOverrideLabel(tt.o); got != tt.want {
 				t.Errorf("reasoningOverrideLabel(%+v) = %q, want %q", tt.o, got, tt.want)
 			}

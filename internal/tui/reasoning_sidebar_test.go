@@ -9,6 +9,7 @@ import (
 )
 
 func TestNewModelSeedsReasoningSidebarFromConfiguredEffort(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:             "gpt-5-id",
 		CurrentModelAlias: "large",
@@ -25,6 +26,7 @@ func TestNewModelSeedsReasoningSidebarFromConfiguredEffort(t *testing.T) {
 }
 
 func TestNewModelSeedsReasoningSidebarProviderDefaultWhenNoConfiguredEffort(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:             "gpt-5-id",
 		CurrentModelAlias: "large",
@@ -40,6 +42,7 @@ func TestNewModelSeedsReasoningSidebarProviderDefaultWhenNoConfiguredEffort(t *t
 }
 
 func TestNewModelLeavesReasoningSidebarAbsentForNonReasoningModel(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:             "small-id",
 		CurrentModelAlias: "small",
@@ -52,6 +55,7 @@ func TestNewModelLeavesReasoningSidebarAbsentForNonReasoningModel(t *testing.T) 
 }
 
 func TestReasoningSidebarLabel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		effort string
@@ -79,6 +83,7 @@ func TestReasoningSidebarLabel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := reasoningSidebarLabel(tt.effort, tt.caps); got != tt.want {
 				t.Errorf("reasoningSidebarLabel(%q, %+v) = %q, want %q", tt.effort, tt.caps, got, tt.want)
 			}
@@ -87,6 +92,7 @@ func TestReasoningSidebarLabel(t *testing.T) {
 }
 
 func TestReasoningPickerOpenMarksConfiguredEffortCurrentFromStartup(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:             "small-id",
 		CurrentModelAlias: "small",
@@ -113,6 +119,7 @@ func TestReasoningPickerOpenMarksConfiguredEffortCurrentFromStartup(t *testing.T
 }
 
 func TestCurrentReasoningOverrideForUsesModelAliasNotBackendID(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{reasoningOverride: provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "high"}}
 
 	m := newModel(Config{

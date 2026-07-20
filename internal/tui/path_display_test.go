@@ -7,6 +7,7 @@ import (
 )
 
 func TestShortenAttachedImagePath(t *testing.T) {
+	t.Parallel()
 	testHomeDir := "/home/testuser"
 	workingDir := filepath.Join(testHomeDir, "project")
 	homeDir := testHomeDir
@@ -71,6 +72,7 @@ func TestShortenAttachedImagePath(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := shortenAttachedImagePath(tc.filePath, tc.workingDir, tc.homeDir, tc.maxWidth)
 			if !strings.HasPrefix(got, tc.wantPrefix) {
 				t.Errorf("shortenAttachedImagePath = %q, want prefix %q", got, tc.wantPrefix)
@@ -80,6 +82,7 @@ func TestShortenAttachedImagePath(t *testing.T) {
 }
 
 func TestShortenAttachedImagePathWithRelativeCheck(t *testing.T) {
+	t.Parallel()
 	workingDir := "/home/user/project"
 	homeDir := "/home/user"
 	filePath := "/home/user/project/.steiner/tmp/images/test.png"
@@ -92,6 +95,7 @@ func TestShortenAttachedImagePathWithRelativeCheck(t *testing.T) {
 }
 
 func TestShortenAttachedImagePathEllipsis(t *testing.T) {
+	t.Parallel()
 	workingDir := "/home/user/project"
 	homeDir := "/home/user"
 	// Create a long path that will be shortened
@@ -105,6 +109,7 @@ func TestShortenAttachedImagePathEllipsis(t *testing.T) {
 }
 
 func TestShortenAttachedImagePathHomeRelative(t *testing.T) {
+	t.Parallel()
 	homeDir := "/home/user"
 	filePath := "/home/user/photos/image.png"
 

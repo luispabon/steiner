@@ -7,6 +7,7 @@ import (
 )
 
 func TestNextMarkerLabel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		markers []imageMarker
@@ -18,6 +19,7 @@ func TestNextMarkerLabel(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := nextMarkerLabel(tc.markers)
 			if got != tc.want {
 				t.Errorf("nextMarkerLabel = %q, want %q", got, tc.want)
@@ -27,6 +29,7 @@ func TestNextMarkerLabel(t *testing.T) {
 }
 
 func TestPendingImageBlocks(t *testing.T) {
+	t.Parallel()
 	img1 := agent.ImageBlock{MediaType: "image/png", Data: "abc"}
 	img2 := agent.ImageBlock{MediaType: "image/jpeg", Data: "xyz"}
 
@@ -41,6 +44,7 @@ func TestPendingImageBlocks(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := pendingImageBlocks(tc.markers)
 			if len(got) != len(tc.want) {
 				t.Fatalf("pendingImageBlocks len = %d, want %d", len(got), len(tc.want))
@@ -55,6 +59,7 @@ func TestPendingImageBlocks(t *testing.T) {
 }
 
 func TestRemoveMarkerFromValue(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		value  string
@@ -67,6 +72,7 @@ func TestRemoveMarkerFromValue(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := removeMarkerFromValue(tc.value, tc.marker)
 			if got != tc.want {
 				t.Errorf("removeMarkerFromValue = %q, want %q", got, tc.want)
@@ -76,6 +82,7 @@ func TestRemoveMarkerFromValue(t *testing.T) {
 }
 
 func TestRenumberMarkers(t *testing.T) {
+	t.Parallel()
 	img1 := agent.ImageBlock{MediaType: "image/png", Data: "a"}
 	img2 := agent.ImageBlock{MediaType: "image/jpeg", Data: "b"}
 	img3 := agent.ImageBlock{MediaType: "image/webp", Data: "c"}
@@ -123,6 +130,7 @@ func TestRenumberMarkers(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			gotValue, gotMarkers := renumberMarkers(tc.value, tc.markers)
 			if gotValue != tc.wantValue {
 				t.Errorf("renumberMarkers value = %q, want %q", gotValue, tc.wantValue)
@@ -140,6 +148,7 @@ func TestRenumberMarkers(t *testing.T) {
 }
 
 func TestCursorRuneOffset(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		value string
@@ -158,6 +167,7 @@ func TestCursorRuneOffset(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := cursorRuneOffset(tc.value, tc.row, tc.col)
 			if got != tc.want {
 				t.Errorf("cursorRuneOffset(%q, %d, %d) = %d, want %d", tc.value, tc.row, tc.col, got, tc.want)
@@ -167,6 +177,7 @@ func TestCursorRuneOffset(t *testing.T) {
 }
 
 func TestMarkerAtCursor(t *testing.T) {
+	t.Parallel()
 	img1 := agent.ImageBlock{MediaType: "image/png", Data: "a"}
 	markers := []imageMarker{{label: "[Image 1]", image: img1}}
 
@@ -190,6 +201,7 @@ func TestMarkerAtCursor(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			idx, atStart, atEnd, inside := markerAtCursor(value, tc.offset, markers)
 			if idx != tc.wantIdx {
 				t.Errorf("idx = %d, want %d", idx, tc.wantIdx)
@@ -208,6 +220,7 @@ func TestMarkerAtCursor(t *testing.T) {
 }
 
 func TestReconcileMarkers(t *testing.T) {
+	t.Parallel()
 	img1 := agent.ImageBlock{MediaType: "image/png", Data: "a"}
 	img2 := agent.ImageBlock{MediaType: "image/jpeg", Data: "b"}
 
@@ -249,6 +262,7 @@ func TestReconcileMarkers(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			gotValue, gotMarkers := reconcileMarkers(tc.value, tc.markers)
 			if gotValue != tc.wantValue {
 				t.Errorf("reconcileMarkers value = %q, want %q", gotValue, tc.wantValue)
@@ -266,6 +280,7 @@ func TestReconcileMarkers(t *testing.T) {
 }
 
 func TestTuiFormatSize(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		sizeBytes int
 		want      string
@@ -286,6 +301,7 @@ func TestTuiFormatSize(t *testing.T) {
 }
 
 func TestExecuteSubmitActionAppendsImagesAttached(t *testing.T) {
+	t.Parallel()
 	inp := newModelInput()
 	inp.SetValue("describe this")
 	m := Model{
@@ -338,6 +354,7 @@ func TestExecuteSubmitActionAppendsImagesAttached(t *testing.T) {
 }
 
 func TestSnapCursorPastMarkers(t *testing.T) {
+	t.Parallel()
 	img1 := agent.ImageBlock{MediaType: "image/png", Data: "a"}
 	markers := []imageMarker{{label: "[Image 1]", image: img1}}
 	// value: "ab[Image 1]cd"
@@ -359,6 +376,7 @@ func TestSnapCursorPastMarkers(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := snapCursorPastMarkers(value, tc.offset, markers, tc.direction)
 			if got != tc.want {
 				t.Errorf("snapCursorPastMarkers(%d, %d) = %d, want %d", tc.offset, tc.direction, got, tc.want)

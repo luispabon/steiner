@@ -77,6 +77,7 @@ func TestPlanPickerOpen(t *testing.T) {
 }
 
 func TestPlanPickerUpdate(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	m := newPlanPickerOverlay(s)
 
@@ -109,6 +110,7 @@ func TestPlanPickerUpdate(t *testing.T) {
 }
 
 func TestPlanPickerSelectedName(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	m := newPlanPickerOverlay(s)
 
@@ -137,6 +139,7 @@ func TestPlanPickerSelectedName(t *testing.T) {
 }
 
 func TestPlanPickerClose(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	m := newPlanPickerOverlay(s)
 	m = m.Open("/plan")
@@ -165,9 +168,11 @@ func TestPlanPickerClose(t *testing.T) {
 }
 
 func TestPlanPickerViewShowsTriggerCommand(t *testing.T) {
+	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 
 	t.Run("/implement", func(t *testing.T) {
+		t.Parallel()
 		m := newPlanPickerOverlay(s).Open("/implement")
 		if !m.IsOpen() {
 			t.Fatal("expected picker to be open")
@@ -179,6 +184,7 @@ func TestPlanPickerViewShowsTriggerCommand(t *testing.T) {
 	})
 
 	t.Run("/review", func(t *testing.T) {
+		t.Parallel()
 		m := newPlanPickerOverlay(s).Open("/review")
 		if !m.IsOpen() {
 			t.Fatal("expected picker to be open")

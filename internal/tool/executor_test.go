@@ -3,15 +3,55 @@ package tool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 )
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if helperBinaryDir != "" {
+		if err := os.RemoveAll(helperBinaryDir); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to remove helper binary dir: %v\n", err)
+		}
+	}
+	os.Exit(code)
+}
+
+var helperBinaryDir string
+
+type builtHelperBinary struct {
+	path string
+	err  error
+}
+
+var buildHelperBinaryOnce = sync.OnceValue(func() builtHelperBinary {
+	dir, err := os.MkdirTemp("", "steiner-tool-helper")
+	if err != nil {
+		return builtHelperBinary{err: fmt.Errorf("create helper binary dir: %w", err)}
+	}
+	helperBinaryDir = dir
+
+	source := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(source, []byte(helperSource), 0o644); err != nil {
+		return builtHelperBinary{err: fmt.Errorf("write helper source: %w", err)}
+	}
+	bin := filepath.Join(dir, "helper")
+	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin, source)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return builtHelperBinary{err: fmt.Errorf("build helper binary: %w: %s", err, strings.TrimSpace(string(output)))}
+	}
+	return builtHelperBinary{path: bin}
+})
 
 func TestExecutorCapturesTruncatedOutputAndMetadata(t *testing.T) {
 	helper := mustBuildHelperBinary(t)
@@ -78,19 +118,11 @@ func TestExecutorMarksBinaryOutputSafely(t *testing.T) {
 func mustBuildHelperBinary(t *testing.T) string {
 	t.Helper()
 
-	dir := t.TempDir()
-	source := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(source, []byte(helperSource), 0o644); err != nil {
-		t.Fatalf("write helper source: %v", err)
+	built := buildHelperBinaryOnce()
+	if built.err != nil {
+		t.Fatalf("%v", built.err)
 	}
-	bin := filepath.Join(dir, "helper")
-	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin, source)
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("build helper binary: %v: %s", err, strings.TrimSpace(string(output)))
-	}
-	return bin
+	return built.path
 }
 
 const helperSource = `package main
@@ -152,7 +184,7 @@ func TestExecutorTimeoutExceeded(t *testing.T) {
 		Name:       "probe",
 		ExecPath:   helper,
 		Subcommand: "sleep",
-		Timeout:    100 * time.Millisecond,
+		Timeout:    15 * time.Millisecond,
 	})
 
 	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")

@@ -17,6 +17,7 @@ import (
 )
 
 func TestAdvisorToolCallSuppression(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
 	}
@@ -34,6 +35,7 @@ func TestAdvisorToolCallSuppression(t *testing.T) {
 	}
 }
 func TestAppendEventDelegationStarted(t *testing.T) {
+	t.Parallel()
 	event := output.NewDelegationStartedEvent("child-1", "fix the bug in module X")
 
 	buffer := &contentBuffer{
@@ -74,6 +76,7 @@ func TestAppendEventDelegationStarted(t *testing.T) {
 }
 
 func TestAppendEventDelegationComplete(t *testing.T) {
+	t.Parallel()
 	event := output.NewDelegationCompleteEvent("child-2", "complete", 5, 2000, 0, "")
 
 	buffer := &contentBuffer{
@@ -110,6 +113,7 @@ func TestAppendEventDelegationComplete(t *testing.T) {
 }
 
 func TestAppendEventDelegationFailed(t *testing.T) {
+	t.Parallel()
 	event := output.NewDelegationFailedEvent("child-3", "build package", "compilation error")
 
 	buffer := &contentBuffer{
@@ -151,6 +155,7 @@ func TestAppendEventDelegationFailed(t *testing.T) {
 }
 
 func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		event output.Event
@@ -171,6 +176,7 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			buffer := &contentBuffer{
 				segments: make([]contentSegment, 0),
 			}
@@ -206,6 +212,7 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 }
 
 func TestAppendEventSuppressesTransportOverrideProviderDiagnostic(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:     make([]contentSegment, 0),
 		streaming:    true,
@@ -226,6 +233,7 @@ func TestAppendEventSuppressesTransportOverrideProviderDiagnostic(t *testing.T) 
 }
 
 func TestAppendEventRendersWarningProviderDiagnostic(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
 	}
@@ -249,6 +257,7 @@ func TestAppendEventRendersWarningProviderDiagnostic(t *testing.T) {
 }
 
 func TestFormatDelegationEvent(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		event     output.Event
@@ -278,6 +287,7 @@ func TestFormatDelegationEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := formatDelegationEvent(tt.event)
 			if result != tt.wantMatch {
 				t.Errorf("formatDelegationEvent = %q, want %q", result, tt.wantMatch)
@@ -287,6 +297,7 @@ func TestFormatDelegationEvent(t *testing.T) {
 }
 
 func TestAppendEventAdvisorLifecycle(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -373,6 +384,7 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 }
 
 func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -437,6 +449,7 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 }
 
 func TestAdvisorThinkingChunkRouting(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -492,6 +505,7 @@ func TestAdvisorThinkingChunkRouting(t *testing.T) {
 	}
 }
 func TestRenderAdvisorTrailingMargin(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -525,6 +539,7 @@ func TestRenderAdvisorTrailingMargin(t *testing.T) {
 }
 
 func TestAppendCompactionResultLabeledBlock(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
 	}
@@ -570,6 +585,7 @@ func TestAppendCompactionResultLabeledBlock(t *testing.T) {
 }
 
 func TestDelegationSpinnerAdvancement(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -605,6 +621,7 @@ func TestDelegationSpinnerAdvancement(t *testing.T) {
 }
 
 func TestDelegationElapsedTimeDisplay(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		startNano int64
@@ -619,6 +636,7 @@ func TestDelegationElapsedTimeDisplay(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := formatElapsed(tt.startNano, tt.endNano)
 			if got != tt.want {
 				t.Errorf("formatElapsed(%d, %d) = %q, want %q", tt.startNano, tt.endNano, got, tt.want)
@@ -628,6 +646,7 @@ func TestDelegationElapsedTimeDisplay(t *testing.T) {
 }
 
 func TestDelegationLifecycle(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -662,6 +681,7 @@ func TestDelegationLifecycle(t *testing.T) {
 }
 
 func TestDelegationFailedLifecycle(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -691,6 +711,7 @@ func TestDelegationFailedLifecycle(t *testing.T) {
 }
 
 func TestDelegationToggleOutput(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -730,6 +751,7 @@ func TestDelegationToggleOutput(t *testing.T) {
 }
 
 func TestDelegationPromptStateFromParentCall(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
 	}
@@ -753,6 +775,7 @@ func TestDelegationPromptStateFromParentCall(t *testing.T) {
 }
 
 func TestDelegationPromptStateWithParentCallBeforeStarted(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
 	}
@@ -774,6 +797,7 @@ func TestDelegationPromptStateWithParentCallBeforeStarted(t *testing.T) {
 }
 
 func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -791,6 +815,7 @@ func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
 }
 
 func TestDelegationBlockRendering(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		setup   func(*contentBuffer)
@@ -824,6 +849,7 @@ func TestDelegationBlockRendering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			buffer := &contentBuffer{
 				segments:      make([]contentSegment, 0),
 				collapseState: make(map[int]bool),
@@ -846,6 +872,7 @@ func TestDelegationBlockRendering(t *testing.T) {
 }
 
 func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -870,6 +897,7 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 }
 
 func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -904,6 +932,7 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 }
 
 func TestRenderDelegationPromptSubsectionCollapsedAndExpanded(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -968,6 +997,7 @@ func TestRenderDelegationPromptSubsectionCollapsedAndExpanded(t *testing.T) {
 }
 
 func TestRenderDelegationBlankPromptSkipsSubsection(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -988,6 +1018,7 @@ func TestRenderDelegationBlankPromptSkipsSubsection(t *testing.T) {
 }
 
 func TestRenderNormalParentBashToolRemainsBoxed(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1007,6 +1038,7 @@ func TestRenderNormalParentBashToolRemainsBoxed(t *testing.T) {
 }
 
 func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1035,6 +1067,7 @@ func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
 }
 
 func TestRenderDelegationTranscriptTruncatesToRecentRows(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -1071,6 +1104,7 @@ func TestRenderDelegationTranscriptTruncatesToRecentRows(t *testing.T) {
 }
 
 func TestAppendEventContextDiagnosticsAreVisible(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
 	}
@@ -1101,6 +1135,7 @@ func TestAppendEventContextDiagnosticsAreVisible(t *testing.T) {
 }
 
 func TestAppendEventContextReportRendersMarkdownBlock(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
 	}
@@ -1116,6 +1151,7 @@ func TestAppendEventContextReportRendersMarkdownBlock(t *testing.T) {
 }
 
 func TestAppendEventStreamsThinkingAndAssistantChunks(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1138,6 +1174,7 @@ func TestAppendEventStreamsThinkingAndAssistantChunks(t *testing.T) {
 }
 
 func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1188,6 +1225,7 @@ func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *tes
 }
 
 func TestThinkingBlockBeforeToolCallStartsToolBoxOnFreshLine(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1225,6 +1263,7 @@ func TestThinkingBlockBeforeToolCallStartsToolBoxOnFreshLine(t *testing.T) {
 }
 
 func TestAPIResponseFinalizesAssistantChunksAfterThinking(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1251,6 +1290,7 @@ func TestAPIResponseFinalizesAssistantChunksAfterThinking(t *testing.T) {
 }
 
 func TestRenderThinkingBlockSegment(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		width     int
@@ -1324,6 +1364,7 @@ func TestRenderThinkingBlockSegment(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			buf := &contentBuffer{styles: theme.BuildStyles(theme.AccentAmber)}
 			seg := contentSegment{kind: segmentThinkingBlock, thinkData: tc.thinkData}
 			result := buf.renderThinkingBlockSegment(seg, tc.width)
@@ -1365,6 +1406,7 @@ func TestRenderThinkingBlockSegment(t *testing.T) {
 }
 
 func TestAppendUserMarkdownSegmentKind(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		text     string
@@ -1394,6 +1436,7 @@ func TestAppendUserMarkdownSegmentKind(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			b := &contentBuffer{
 				segments:      make([]contentSegment, 0),
 				collapseState: make(map[int]bool),
@@ -1410,6 +1453,7 @@ func TestAppendUserMarkdownSegmentKind(t *testing.T) {
 }
 
 func TestRenderUserMarkdownSegmentContainsText(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -1428,6 +1472,7 @@ func TestRenderUserMarkdownSegmentContainsText(t *testing.T) {
 }
 
 func TestRenderPlainUserSegmentUnchanged(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -1446,6 +1491,7 @@ func TestRenderPlainUserSegmentUnchanged(t *testing.T) {
 }
 
 func TestUserSegmentMargin(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		segments          []contentSegment
@@ -1503,6 +1549,7 @@ func TestUserSegmentMargin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			b := &contentBuffer{
 				styles:        theme.BuildStyles(theme.AccentAmber),
 				collapseState: make(map[int]bool),
@@ -1576,6 +1623,7 @@ func TestUserSegmentMargin(t *testing.T) {
 }
 
 func TestPluralTurns(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		count int
 		want  string
@@ -1588,6 +1636,7 @@ func TestPluralTurns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
+			t.Parallel()
 			result := pluralTurns(tt.count)
 			if result != tt.want {
 				t.Errorf("pluralTurns(%d) = %q, want %q", tt.count, result, tt.want)
@@ -1597,6 +1646,7 @@ func TestPluralTurns(t *testing.T) {
 }
 
 func TestAppendEventDisplayFileUsesExplicitPreviewDocument(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1635,6 +1685,7 @@ func main() {}
 }
 
 func TestAppendEventDisplayFileSuppressesGenericToolLifecycleRows(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1675,6 +1726,7 @@ func main() {}
 }
 
 func TestAppendEventBuildsFallbackPreviewFromRetainedArgs(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1701,6 +1753,7 @@ func TestAppendEventBuildsFallbackPreviewFromRetainedArgs(t *testing.T) {
 }
 
 func TestAppendEventScopedChildToolEventDoesNotAppendTopLevelToolSegment(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1742,6 +1795,7 @@ func TestAppendEventScopedChildToolEventDoesNotAppendTopLevelToolSegment(t *test
 }
 
 func TestAppendEventScopedChildToolEventFallsBackWhenTargetMissing(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1764,6 +1818,7 @@ func TestAppendEventScopedChildToolEventFallsBackWhenTargetMissing(t *testing.T)
 }
 
 func TestAppendEventDelegateParentToolCallMergesIntoDelegationSegment(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1803,6 +1858,7 @@ func TestAppendEventDelegateParentToolCallMergesIntoDelegationSegment(t *testing
 }
 
 func TestAppendEventDelegationStartedBeforeDelegateParentToolCallMergesIntoOneSegment(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1836,6 +1892,7 @@ func TestAppendEventDelegationStartedBeforeDelegateParentToolCallMergesIntoOneSe
 }
 
 func TestAppendEventNormalParentBashToolStillUsesToolCallSegment(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1857,6 +1914,7 @@ func TestAppendEventNormalParentBashToolStillUsesToolCallSegment(t *testing.T) {
 }
 
 func TestAppendEventUnscopedParentToolBehaviorUnchanged(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1880,6 +1938,7 @@ func TestAppendEventUnscopedParentToolBehaviorUnchanged(t *testing.T) {
 }
 
 func TestAppendEventScopedChildToolFinishedEventUpdatesExistingTranscriptEntry(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1920,6 +1979,7 @@ func TestAppendEventScopedChildToolFinishedEventUpdatesExistingTranscriptEntry(t
 }
 
 func TestAppendEventScopedChildAssistantEventsUpdateTranscriptState(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1960,6 +2020,7 @@ func TestAppendEventScopedChildAssistantEventsUpdateTranscriptState(t *testing.T
 }
 
 func TestAppendEventScopedChildThinkingEventsStayInsideDelegationTranscript(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -1992,6 +2053,7 @@ func TestAppendEventScopedChildThinkingEventsStayInsideDelegationTranscript(t *t
 }
 
 func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -2020,6 +2082,7 @@ func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
 }
 
 func TestAppendEventScopedChildAssistantDuplicateFinalMessageSuppressed(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -2043,6 +2106,7 @@ func TestAppendEventScopedChildAssistantDuplicateFinalMessageSuppressed(t *testi
 }
 
 func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -2079,6 +2143,7 @@ func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
 }
 
 func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -2109,6 +2174,7 @@ func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
 }
 
 func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles: theme.BuildStyles(theme.AccentAmber),
 	}
@@ -2129,6 +2195,7 @@ func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := buffer.toolBorderStyle(tt.tool).GetForeground()
 			if got != tt.want {
 				t.Fatalf("toolBorderStyle(%q) foreground = %q, want %q", tt.tool, got, tt.want)
@@ -2138,6 +2205,7 @@ func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
 }
 
 func TestRenderAdjacentSameToolCallsAsOneGroupedBox(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -2173,6 +2241,7 @@ func TestRenderAdjacentSameToolCallsAsOneGroupedBox(t *testing.T) {
 }
 
 func TestRenderSingleBashToolCallStaysBoxed(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -2190,6 +2259,7 @@ func TestRenderSingleBashToolCallStaysBoxed(t *testing.T) {
 }
 
 func TestRenderMixedAdjacentToolsStaySeparate(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -2208,6 +2278,7 @@ func TestRenderMixedAdjacentToolsStaySeparate(t *testing.T) {
 }
 
 func TestRenderNonToolSegmentBreaksToolGrouping(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -2227,6 +2298,7 @@ func TestRenderNonToolSegmentBreaksToolGrouping(t *testing.T) {
 }
 
 func TestFinishGroupedToolCallUpdatesMatchingCallID(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -2308,6 +2380,7 @@ func TestRenderToolPreviewUsesChromaStylesForMakefile(t *testing.T) {
 }
 
 func TestRenderDisplayFilePreviewUsesCaptionAndHighlightedContent(t *testing.T) {
+	t.Parallel()
 	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
 func main() {}
 `, 10)
@@ -2341,6 +2414,7 @@ func main() {}
 }
 
 func TestRenderReadFilePreviewIncludesLanguageInCaption(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles:        theme.BuildStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
@@ -2444,6 +2518,7 @@ func TestRenderToolPreviewTrimsSharedMarkdownHeadingInDiffs(t *testing.T) {
 }
 
 func TestRenderToolPreviewTruncatesLongFileBodies(t *testing.T) {
+	t.Parallel()
 	var body strings.Builder
 	for i := 0; i < 30; i++ {
 		body.WriteString("line\n")
@@ -2477,6 +2552,7 @@ func TestRenderToolPreviewTruncatesLongFileBodies(t *testing.T) {
 }
 
 func TestRenderToolPreviewUsesStructuredListViews(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		tool    string
@@ -2515,6 +2591,7 @@ func TestRenderToolPreviewUsesStructuredListViews(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			buffer := &contentBuffer{
 				styles:        theme.BuildStyles(theme.AccentAmber),
 				collapseState: make(map[int]bool),
@@ -2544,6 +2621,7 @@ func TestRenderToolPreviewUsesStructuredListViews(t *testing.T) {
 }
 
 func TestRenderToolPreviewUsesStructuredGrepViews(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		kind    string
@@ -2596,6 +2674,7 @@ func TestRenderToolPreviewUsesStructuredGrepViews(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			buffer := &contentBuffer{
 				styles:        theme.BuildStyles(theme.AccentAmber),
 				collapseState: make(map[int]bool),
@@ -2625,6 +2704,7 @@ func TestRenderToolPreviewUsesStructuredGrepViews(t *testing.T) {
 }
 
 func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		preview output.ToolPreview
@@ -2656,6 +2736,7 @@ func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			buffer := &contentBuffer{
 				styles:        theme.BuildStyles(theme.AccentAmber),
 				collapseState: make(map[int]bool),
@@ -2684,6 +2765,7 @@ func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
 }
 
 func TestIsSpecializedDelegateTool(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		tool string
 		want bool
@@ -2714,6 +2796,7 @@ func TestIsSpecializedDelegateTool(t *testing.T) {
 }
 
 func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		tool string
 		args map[string]any
@@ -2762,9 +2845,11 @@ func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
 }
 
 func TestSpecializedDelegateToolCallCreatesSingleDelegationSegment(t *testing.T) {
+	t.Parallel()
 	tools := []string{"explore", "research", "code", "evaluate", "sanity_check", "review"}
 	for _, tool := range tools {
 		t.Run(tool, func(t *testing.T) {
+			t.Parallel()
 			buffer := &contentBuffer{segments: make([]contentSegment, 0)}
 			buffer.AppendEvent(output.NewToolCallStartedEvent(1, tool, "call-1", map[string]any{"task": "do something"}))
 
@@ -2786,6 +2871,7 @@ func TestSpecializedDelegateToolCallCreatesSingleDelegationSegment(t *testing.T)
 }
 
 func TestDelegationHeaderRendersSpecializedToolLabel(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		styles:        theme.BuildStyles(theme.AccentAmber),
@@ -2808,6 +2894,7 @@ func TestDelegationHeaderRendersSpecializedToolLabel(t *testing.T) {
 }
 
 func TestDelegationHeaderLabelHasNoGenericDelegateFallback(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		styles:        theme.BuildStyles(theme.AccentAmber),
@@ -2829,6 +2916,7 @@ func TestDelegationHeaderLabelHasNoGenericDelegateFallback(t *testing.T) {
 }
 
 func TestRenderReplayDelegationUsesParentToolStartForPromptAndOutput(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -2888,6 +2976,7 @@ func hasANSIBackground(s string) bool {
 }
 
 func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -2924,6 +3013,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 }
 
 func TestDelegationStatsFooterHiddenWhenCollapsed(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -2944,6 +3034,7 @@ func TestDelegationStatsFooterHiddenWhenCollapsed(t *testing.T) {
 }
 
 func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -2971,7 +3062,9 @@ func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
 }
 
 func TestDelegationExtensionCounter(t *testing.T) {
+	t.Parallel()
 	t.Run("newly started delegation shows initial capacity", func(t *testing.T) {
+		t.Parallel()
 		buffer := &contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
@@ -2989,6 +3082,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 	})
 
 	t.Run("extension events update same segment without raw status line", func(t *testing.T) {
+		t.Parallel()
 		buffer := &contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
@@ -3024,6 +3118,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 	})
 
 	t.Run("extension appears after context", func(t *testing.T) {
+		t.Parallel()
 		buffer := &contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
@@ -3047,6 +3142,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 	})
 
 	t.Run("unknown agent extension is ignored", func(t *testing.T) {
+		t.Parallel()
 		buffer := &contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
@@ -3062,6 +3158,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 }
 
 func TestBuildMutateLinesRendersOperations(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles: theme.BuildStyles(theme.AccentAmber),
 	}
@@ -3140,6 +3237,7 @@ func TestBuildMutateLinesRendersOperations(t *testing.T) {
 }
 
 func TestBuildMutateLinesFallsBackToPlainWhenEmptyOperations(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles: theme.BuildStyles(theme.AccentAmber),
 	}
@@ -3162,6 +3260,7 @@ func TestBuildMutateLinesFallsBackToPlainWhenEmptyOperations(t *testing.T) {
 }
 
 func TestBuildMutateLinesWriteShowsModifiedBadge(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		styles: theme.BuildStyles(theme.AccentAmber),
 	}
@@ -3188,6 +3287,7 @@ func TestBuildMutateLinesWriteShowsModifiedBadge(t *testing.T) {
 }
 
 func TestClearApprovalState(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		segments []contentSegment
@@ -3265,6 +3365,7 @@ func TestClearApprovalState(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			b := &contentBuffer{
 				segments: tt.segments,
 			}
@@ -3301,6 +3402,7 @@ func TestClearApprovalState(t *testing.T) {
 }
 
 func TestApprovalRequestedTargetsGroupedToolCall(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		collapseState: make(map[int]bool),
 	}
@@ -3362,6 +3464,7 @@ func TestApprovalRequestedTargetsGroupedToolCall(t *testing.T) {
 }
 
 func TestApprovalDecisionTargetsGroupedToolCall(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		collapseState: make(map[int]bool),
 	}
@@ -3538,6 +3641,7 @@ func TestContentBufferSegmentHeights(t *testing.T) {
 	}
 }
 func TestFollowUpToolCallCreatesDelegationSegmentWithMatchedLabel(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -3612,6 +3716,7 @@ func TestFollowUpToolCallCreatesDelegationSegmentWithMatchedLabel(t *testing.T) 
 }
 
 func TestFollowUpHeaderRendersWithChildAgentID(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentAmber)
 	b := &contentBuffer{
 		styles:        styles,
@@ -3643,6 +3748,7 @@ func TestFollowUpHeaderRendersWithChildAgentID(t *testing.T) {
 }
 
 func TestFollowUpFallsBackGracefullyWhenChildNotFound(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -3699,6 +3805,7 @@ func useTrueColor(t *testing.T) {
 	})
 }
 func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentAmber)
 	b := &contentBuffer{
 		styles:            styles,
@@ -3873,6 +3980,7 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 }
 
 func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentAmber)
 	b := &contentBuffer{
 		styles:            styles,

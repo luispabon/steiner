@@ -11,6 +11,7 @@ import (
 )
 
 func TestSessionPickerOverlayOpen(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
@@ -42,6 +43,7 @@ func TestSessionPickerOverlayOpen(t *testing.T) {
 }
 
 func TestSessionPickerOverlayClose(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
@@ -61,6 +63,7 @@ func TestSessionPickerOverlayClose(t *testing.T) {
 }
 
 func TestSessionPickerOverlayNavigation(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
@@ -100,6 +103,7 @@ func TestSessionPickerOverlayNavigation(t *testing.T) {
 }
 
 func TestSessionPickerOverlayEscapeCloses(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
@@ -119,6 +123,7 @@ func TestSessionPickerOverlayEscapeCloses(t *testing.T) {
 }
 
 func TestSessionPickerOverlaySearchFiltering(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
@@ -151,6 +156,7 @@ func TestSessionPickerOverlaySearchFiltering(t *testing.T) {
 }
 
 func TestSessionPickerOverlaySearchCaseInsensitive(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
@@ -172,6 +178,7 @@ func TestSessionPickerOverlaySearchCaseInsensitive(t *testing.T) {
 }
 
 func TestSessionPickerOverlayBackspaceDeletesQuery(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
@@ -207,6 +214,7 @@ func TestSessionPickerOverlayBackspaceDeletesQuery(t *testing.T) {
 }
 
 func TestSessionPickerOverlaySelectionResetOnFilter(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
@@ -235,6 +243,7 @@ func TestSessionPickerOverlaySelectionResetOnFilter(t *testing.T) {
 }
 
 func TestRelativeTime(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	tests := []struct {
 		name     string
@@ -253,6 +262,7 @@ func TestRelativeTime(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := relativeTime(now.Add(-tt.age))
 			if result != tt.expected {
 				t.Fatalf("relativeTime(%s) = %q, want %q", tt.name, result, tt.expected)

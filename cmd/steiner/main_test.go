@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,16 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+// restoreEnv restores key to its previous value, unsetting it when it was not
+// present before. Setting an empty string is not equivalent: DefaultCacheDir
+// treats a set-but-empty XDG_CACHE_HOME differently from an absent one.
+func restoreEnv(key, value string, present bool) error {
+	if !present {
+		return os.Unsetenv(key)
+	}
+	return os.Setenv(key, value)
+}
 
 func TestMain(m *testing.M) {
 	tmp, err := os.MkdirTemp("", "steiner-cmd-test")
@@ -50,7 +61,23 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to set HOME for cmd tests: %v\n", err)
 		os.Exit(1)
 	}
+
+	// metadata.DefaultCacheDir prefers XDG_CACHE_HOME over HOME, so overriding
+	// HOME alone leaves tests reading and writing the developer's real
+	// ~/.cache/steiner (and fetching models.dev over the network) on any machine
+	// where XDG_CACHE_HOME is set. Redirect both to keep the suite hermetic.
+	oldCacheHome, hadCacheHome := os.LookupEnv("XDG_CACHE_HOME")
+	if err := os.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, ".cache")); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to set XDG_CACHE_HOME for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
+
 	code := m.Run()
+
+	if err := restoreEnv("XDG_CACHE_HOME", oldCacheHome, hadCacheHome); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to restore XDG_CACHE_HOME for cmd tests: %v\n", err)
+		os.Exit(1)
+	}
 	if err := os.Setenv("HOME", oldHome); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to restore HOME for cmd tests: %v\n", err)
 		os.Exit(1)
@@ -62,6 +89,12 @@ func TestMain(m *testing.M) {
 	if err := os.RemoveAll(tmp); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to remove temp dir for cmd tests: %v\n", err)
 		os.Exit(1)
+	}
+	if cliHelperBinaryDir != "" {
+		if err := os.RemoveAll(cliHelperBinaryDir); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to remove helper binary dir: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	os.Exit(code)
 }
@@ -1474,22 +1507,42 @@ func writeFile(t *testing.T, path, contents string) {
 	}
 }
 
-func mustBuildCLIHelperBinary(t *testing.T) string {
-	t.Helper()
+type builtCLIHelperBinary struct {
+	path string
+	err  error
+}
 
-	dir := t.TempDir()
+var buildCLIHelperBinaryOnce = sync.OnceValue(func() builtCLIHelperBinary {
+	dir, err := os.MkdirTemp("", "steiner-cmd-helper")
+	if err != nil {
+		return builtCLIHelperBinary{err: fmt.Errorf("create helper binary dir: %w", err)}
+	}
+	cliHelperBinaryDir = dir
+
 	source := filepath.Join(dir, "main.go")
 	if err := os.WriteFile(source, []byte(cliHelperSource), 0o644); err != nil {
-		t.Fatalf("write helper source: %v", err)
+		return builtCLIHelperBinary{err: fmt.Errorf("write helper source: %w", err)}
 	}
 	bin := filepath.Join(dir, "helper")
 	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin, source)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("build helper binary: %v: %s", err, strings.TrimSpace(string(output)))
+		return builtCLIHelperBinary{err: fmt.Errorf("build helper binary: %w: %s", err, strings.TrimSpace(string(output)))}
 	}
-	return bin
+	return builtCLIHelperBinary{path: bin}
+})
+
+var cliHelperBinaryDir string
+
+func mustBuildCLIHelperBinary(t *testing.T) string {
+	t.Helper()
+
+	built := buildCLIHelperBinaryOnce()
+	if built.err != nil {
+		t.Fatalf("%v", built.err)
+	}
+	return built.path
 }
 
 const cliHelperSource = `package main

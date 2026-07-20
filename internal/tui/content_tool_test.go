@@ -14,6 +14,7 @@ import (
 )
 
 func TestSpecializedDelegateToolAccessor(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		tool string
@@ -36,6 +37,7 @@ func TestSpecializedDelegateToolAccessor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := isSpecializedDelegateTool(tt.tool); got != tt.want {
 				t.Fatalf("isSpecializedDelegateTool(%q) = %v, want %v", tt.tool, got, tt.want)
 			}
@@ -68,6 +70,7 @@ func TestRenderToolCallBoxKeepsRequestedWidth(t *testing.T) {
 }
 
 func TestSummarizeGrepArgs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		args     map[string]any
@@ -125,6 +128,7 @@ func TestSummarizeGrepArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := summarizeGrepArgs(tt.args)
 			if result != tt.expected {
 				t.Errorf("got %q, want %q", result, tt.expected)
@@ -134,6 +138,7 @@ func TestSummarizeGrepArgs(t *testing.T) {
 }
 
 func TestSummarizeGlobArgs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		args     map[string]any
@@ -178,6 +183,7 @@ func TestSummarizeGlobArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := summarizeGlobArgs(tt.args)
 			if result != tt.expected {
 				t.Errorf("summarizeGlobArgs(%v) = %q, want %q", tt.args, result, tt.expected)
@@ -187,6 +193,7 @@ func TestSummarizeGlobArgs(t *testing.T) {
 }
 
 func TestSummarizeReadArgs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		args     map[string]any
@@ -236,6 +243,7 @@ func TestSummarizeReadArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := summarizeReadArgs(tt.args)
 			if result != tt.expected {
 				t.Errorf("got %q, want %q", result, tt.expected)
@@ -245,6 +253,7 @@ func TestSummarizeReadArgs(t *testing.T) {
 }
 
 func TestSummarizeLSArgs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		args     map[string]any
@@ -279,6 +288,7 @@ func TestSummarizeLSArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := summarizeLSArgs(tt.args)
 			if result != tt.expected {
 				t.Errorf("summarizeLSArgs(%v) = %q, want %q", tt.args, result, tt.expected)
@@ -288,6 +298,7 @@ func TestSummarizeLSArgs(t *testing.T) {
 }
 
 func TestSummarizeMutateArgs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		args     map[string]any
@@ -349,6 +360,7 @@ func TestSummarizeMutateArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := summarizeMutateArgs(tt.args)
 			if result != tt.expected {
 				t.Errorf("got %q, want %q", result, tt.expected)
@@ -358,6 +370,7 @@ func TestSummarizeMutateArgs(t *testing.T) {
 }
 
 func TestSummarizeArgs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		tool     string
@@ -430,6 +443,7 @@ func TestSummarizeArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := summarizeArgs(tt.tool, tt.args)
 			if result != tt.expected {
 				t.Errorf("summarizeArgs(%q) = %q, want %q", tt.tool, result, tt.expected)
@@ -439,6 +453,7 @@ func TestSummarizeArgs(t *testing.T) {
 }
 
 func TestApplyFinishedToolCallResultMutateStatus(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		preview   output.ToolPreview
@@ -484,6 +499,7 @@ func TestApplyFinishedToolCallResultMutateStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			buffer := &contentBuffer{
 				collapseState: make(map[int]bool),
 			}

@@ -10,6 +10,7 @@ import (
 )
 
 func TestRenderHelpIncludesContextKeybind(t *testing.T) {
+	t.Parallel()
 	styles := theme.Default().LipGlossStyles()
 	help := renderHelp(styles, 60)
 	if !strings.Contains(help, "ctrl+t") {

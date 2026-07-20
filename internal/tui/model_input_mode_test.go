@@ -22,6 +22,7 @@ func (c *testController) switchModeActions() []interactive.SwitchMode {
 }
 
 func TestShiftTabTogglesMode(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		fromMode string
@@ -33,6 +34,7 @@ func TestShiftTabTogglesMode(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			ctrl := &testController{}
 			m := newModel(Config{Controller: ctrl, InitialMode: tc.fromMode}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -51,6 +53,7 @@ func TestShiftTabTogglesMode(t *testing.T) {
 }
 
 func TestShiftTabPreservesInput(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	m := newModel(Config{Controller: ctrl, InitialMode: "build"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -71,6 +74,7 @@ func TestShiftTabPreservesInput(t *testing.T) {
 }
 
 func TestShiftTabSuppressedWhenOverlayOpen(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	m := newModel(Config{Controller: ctrl, InitialMode: "build"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -85,6 +89,7 @@ func TestShiftTabSuppressedWhenOverlayOpen(t *testing.T) {
 }
 
 func TestModeSlashCommandParsing(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		value       string
@@ -99,6 +104,7 @@ func TestModeSlashCommandParsing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			action := parseInput(tc.value)
 			if action.toggleMode != tc.wantToggle {
 				t.Errorf("toggleMode = %v, want %v", action.toggleMode, tc.wantToggle)
@@ -114,6 +120,7 @@ func TestModeSlashCommandParsing(t *testing.T) {
 }
 
 func TestModeSlashCommandDispatch(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	m := newModel(Config{Controller: ctrl, InitialMode: "build"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
@@ -131,6 +138,7 @@ func TestModeSlashCommandDispatch(t *testing.T) {
 }
 
 func TestModeSlashCommandNoArgClearsInput(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	m := newModel(Config{Controller: ctrl, InitialMode: "build"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
@@ -151,6 +159,7 @@ func TestModeSlashCommandNoArgClearsInput(t *testing.T) {
 }
 
 func TestModeSlashCommandInvalidArgReportsStatus(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	m := newModel(Config{Controller: ctrl, InitialMode: "build"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})

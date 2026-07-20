@@ -8,6 +8,7 @@ import (
 )
 
 func TestStatusBarRendersPhaseSegment(t *testing.T) {
+	t.Parallel()
 	s := statusState{oneshotPhase: "plan"}
 	result := s.view(80)
 	if !strings.Contains(result, "phase") || !strings.Contains(result, "plan") {
@@ -16,6 +17,7 @@ func TestStatusBarRendersPhaseSegment(t *testing.T) {
 }
 
 func TestStatusBarOmitsPhaseWhenEmpty(t *testing.T) {
+	t.Parallel()
 	s := statusState{oneshotPhase: ""}
 	result := s.view(80)
 	if strings.Contains(result, "phase ·") {
@@ -24,6 +26,7 @@ func TestStatusBarOmitsPhaseWhenEmpty(t *testing.T) {
 }
 
 func TestRenderModeBadge(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		mode  string
@@ -38,6 +41,7 @@ func TestRenderModeBadge(t *testing.T) {
 	styles := theme.BuildStyles(theme.AccentAmber)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := renderModeBadge(styles, tc.mode)
 			if tc.empty {
 				if got != "" {
@@ -53,6 +57,7 @@ func TestRenderModeBadge(t *testing.T) {
 }
 
 func TestStatusBarRendersModeBadge(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentAmber)
 	s := statusState{execMode: "plan", styles: styles}
 	result := s.view(120)
@@ -62,6 +67,7 @@ func TestStatusBarRendersModeBadge(t *testing.T) {
 }
 
 func TestStatusBarOmitsModeBadgeWhenUnset(t *testing.T) {
+	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentAmber)
 	s := statusState{execMode: "", styles: styles}
 	result := s.view(120)

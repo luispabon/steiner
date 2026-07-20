@@ -10,6 +10,7 @@ import (
 )
 
 func TestOneshotAllowedAction(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		input string
@@ -28,6 +29,7 @@ func TestOneshotAllowedAction(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := oneshotAllowedAction(tc.input)
 			if got != tc.want {
 				t.Errorf("oneshotAllowedAction(%q) = %v, want %v", tc.input, got, tc.want)
@@ -37,6 +39,7 @@ func TestOneshotAllowedAction(t *testing.T) {
 }
 
 func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
+	t.Parallel()
 	input := newModelInput()
 	input.SetValue("hello")
 
@@ -69,6 +72,7 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 }
 
 func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
+	t.Parallel()
 	input := newModelInput()
 	input.SetValue("describe this")
 	input.InsertString(" [Image 1]")
@@ -111,6 +115,7 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 }
 
 func TestHandleEnterRoutesToSteerDuringBusyRegularRun(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	m := newModel(Config{
 		Controller: ctrl,
@@ -142,6 +147,7 @@ func newMinimalModel(inputValue string) Model {
 }
 
 func TestLaunchOneshotActionClearsComposer(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		factory OneshotRunnerFactoryBuilder
@@ -150,6 +156,7 @@ func TestLaunchOneshotActionClearsComposer(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := newMinimalModel("/oneshot build the thing")
 			m.oneshotRunnerFactory = tc.factory
 			updated, _ := m.executeLaunchOneshotAction("build the thing")
@@ -162,6 +169,7 @@ func TestLaunchOneshotActionClearsComposer(t *testing.T) {
 }
 
 func TestResumeOneshotActionClearsComposer(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		factory OneshotRunnerFactoryBuilder
@@ -170,6 +178,7 @@ func TestResumeOneshotActionClearsComposer(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := newMinimalModel("/oneshot --resume abc123")
 			m.oneshotRunnerFactory = tc.factory
 			updated, _ := m.executeResumeOneshotAction("abc123")
@@ -182,6 +191,7 @@ func TestResumeOneshotActionClearsComposer(t *testing.T) {
 }
 
 func TestBuildSlashOverlayItemsAllowlistDuringOneshot(t *testing.T) {
+	t.Parallel()
 	m := Model{oneshotRunning: true}
 	items := m.buildSlashOverlayItems()
 	if len(items) != 3 {
@@ -200,6 +210,7 @@ func TestBuildSlashOverlayItemsAllowlistDuringOneshot(t *testing.T) {
 }
 
 func TestNoArgSkillInvocationEnablesAndSubmits(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	m := newModel(Config{
 		SkillNames: []string{"myskill"},
@@ -223,6 +234,7 @@ func TestNoArgSkillInvocationEnablesAndSubmits(t *testing.T) {
 }
 
 func TestArgSkillInvocationEnablesAndSubmitsArgs(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	m := newModel(Config{
 		SkillNames: []string{"myskill"},
@@ -246,6 +258,7 @@ func TestArgSkillInvocationEnablesAndSubmitsArgs(t *testing.T) {
 }
 
 func TestBuildSlashOverlayItemsIncludesCacheStats(t *testing.T) {
+	t.Parallel()
 	m := Model{}
 	items := m.buildSlashOverlayItems()
 
