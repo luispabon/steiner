@@ -106,7 +106,9 @@ type SearchConfig struct {
 
 // SandboxConfig controls bubblewrap sandbox behaviour for tool execution.
 type SandboxConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled                      bool   `yaml:"enabled"`
+	WarningOnUnsupportedPlatform bool   `yaml:"warning_on_unsupported_platform"`
+	Status                       string `yaml:"status,omitempty"`
 }
 
 // PermissionsConfig holds host-capability flags granted to the sandbox.

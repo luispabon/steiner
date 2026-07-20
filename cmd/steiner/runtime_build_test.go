@@ -400,3 +400,33 @@ func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 		t.Fatalf("factory() error = %q, want %q", err.Error(), want)
 	}
 }
+
+func TestBuildRuntimeSandbox_Bypassed(t *testing.T) {
+	cfg := config.Config{
+		Sandbox: config.SandboxConfig{Enabled: false},
+	}
+
+	sb, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp")
+	if err != nil {
+		t.Fatalf("expected nil error when sandbox is disabled, got: %v", err)
+	}
+	if sb != nil {
+		t.Fatal("expected nil sandbox when disabled")
+	}
+}
+
+func TestBuildRuntimeSandbox_Unavailable(t *testing.T) {
+	cfg := config.Config{
+		Sandbox: config.SandboxConfig{Enabled: true},
+	}
+
+	sb, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp")
+	// On Linux with bwrap, this may succeed — skip if sandbox built.
+	if sb != nil {
+		t.Skip("bwrap is available, cannot test unavailable branch")
+	}
+	// Otherwise we expect nil error (graceful fallback).
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+}

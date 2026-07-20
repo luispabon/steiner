@@ -38,6 +38,9 @@ func (s sidebarState) staticLines(width int) []string {
 	lines = append(lines, lipgloss.NewStyle().Background(lipgloss.Color(theme.Black)).Render(""))
 	lines = append(lines, s.separatorLine(width))
 	lines = append(lines, s.modelSection(width)...)
+	if strings.TrimSpace(s.sandboxStatus) != "" {
+		lines = append(lines, s.sandboxSection(width)...)
+	}
 	if strings.TrimSpace(s.activeSkill) != "" {
 		lines = append(lines, s.skillSection(width)...)
 	}
@@ -75,6 +78,26 @@ func (s sidebarState) modelSection(width int) []string {
 		providerDisplay = "n/a"
 	}
 	return append(lines, cardField("provider", s.styles.FgDim, providerDisplay, s.styles))
+}
+
+func (s sidebarState) sandboxSection(_ int) []string {
+	statusDisplay := strings.TrimSpace(s.sandboxStatus)
+	var statusStyle lipgloss.Style
+	switch statusDisplay {
+	case "active":
+		statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Added))
+	case "unavailable":
+		statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn))
+	case "bypassed":
+		statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Removed))
+	default:
+		statusStyle = s.styles.FgDim
+	}
+	return []string{
+		"",
+		cardLabel("sandbox", s.styles),
+		cardField("status", statusStyle, statusDisplay, s.styles),
+	}
 }
 
 // separatorLine renders the separator line with the mode label centered.

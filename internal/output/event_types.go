@@ -92,6 +92,8 @@ const (
 	EventTypeSteerReceived = "steer_received"
 	// EventTypeModeChanged is emitted when the execution mode changes.
 	EventTypeModeChanged = "mode_changed"
+	// EventTypeSandboxStatus is emitted when the sandbox status is determined at startup.
+	EventTypeSandboxStatus = "sandbox_status"
 )
 
 // Event is the timestamped envelope emitted by the runtime event stream.
@@ -444,4 +446,10 @@ type DisplayFilePayload struct {
 // ModeChangedEvent is emitted when the execution mode changes.
 type ModeChangedEvent struct {
 	Mode string `json:"mode"`
+}
+
+// SandboxStatusEvent is emitted when the sandbox status is determined at startup.
+type SandboxStatusEvent struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
 }

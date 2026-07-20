@@ -3,11 +3,24 @@ package sandbox
 import (
 	"fmt"
 	"os/exec"
+	"runtime"
 )
 
-// PrereqCheck returns nil if bwrap is found on PATH, or a descriptive error
-// with install instructions.
+// IsSupportedPlatform returns true when the host OS is Linux, which is the only
+// platform bubblewrap supports.
+func IsSupportedPlatform() bool {
+	return runtime.GOOS == "linux"
+}
+
+// PrereqCheck returns nil if the platform is supported and bwrap is found on
+// PATH, or a descriptive error with install instructions.
 func PrereqCheck() error {
+	if !IsSupportedPlatform() {
+		return fmt.Errorf(
+			"unsupported platform: bubblewrap requires Linux, current OS is %s",
+			runtime.GOOS,
+		)
+	}
 	_, err := exec.LookPath("bwrap")
 	if err != nil {
 		return fmt.Errorf(

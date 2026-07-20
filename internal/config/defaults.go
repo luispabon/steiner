@@ -68,7 +68,8 @@ func defaultConfig() Config {
 			ToolOutputMaxBytes: 65536,
 		},
 		Sandbox: SandboxConfig{
-			Enabled: true,
+			Enabled:                      true,
+			WarningOnUnsupportedPlatform: true,
 		},
 		SubAgent: SubAgentConfig{
 			Enabled:   true,
