@@ -92,6 +92,9 @@ func streamWithEvents(chunks <-chan provider.ChatChunk, sink output.EventSink, s
 		if !chunk.Done {
 			message.Content += chunk.Delta.Content
 			if chunk.Thinking != "" {
+				// turn=0 is correct here: advisor calls are out-of-band tool invocations
+				// that occur outside the primary turn sequence and have no meaningful
+				// turn attribution in the agent's turn counter.
 				emitEvent(sink, output.NewThinkingChunkEventWithSource(0, chunk.Thinking, source))
 			}
 			continue
