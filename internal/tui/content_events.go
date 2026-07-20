@@ -288,8 +288,10 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 	if event.Scope.AgentID != "" && b.appendScopedDelegationEvent(event) {
 		return
 	}
-	// Redirect thinking chunks to active advisor segment if present.
-	if event.Type == output.EventTypeThinkingChunk && b.activeAdvisorSegment > 0 {
+	// Redirect thinking chunks to active advisor segment if present and sourced from advisor.
+	if event.Type == output.EventTypeThinkingChunk &&
+		b.activeAdvisorSegment > 0 &&
+		thinkingChunkSource(event) == output.ChunkSourceAdvisor {
 		b.appendAdvisorEvent(event)
 		return
 	}
@@ -303,6 +305,13 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		return
 	}
 	b.appendLine(line)
+}
+
+func thinkingChunkSource(event output.Event) output.ChunkSource {
+	if payload, ok := event.Payload.(output.ThinkingChunkEvent); ok {
+		return payload.Source
+	}
+	return ""
 }
 
 // AppendCompactionResult appends a centered separator line with the given label

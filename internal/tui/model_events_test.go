@@ -136,3 +136,66 @@ func TestRandomAccentResolves(t *testing.T) {
 		t.Errorf("resolved accent %q not found in AccentPresets", resolved)
 	}
 }
+
+func TestAdvisorFlagResetOnRunFinish(t *testing.T) {
+	// Regression test: advisor flag should not persist across runs.
+	// If an advisor call is interrupted, the activeAdvisorSegment flag
+	// must be cleared so that primary-model thinking chunks don't land
+	// in the stale advisor box.
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		showThinking:  true,
+	}
+
+	// Start advisor call.
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1))
+	if buffer.activeAdvisorSegment == 0 {
+		t.Fatal("activeAdvisorSegment = 0 after AdvisorStarted, want > 0")
+	}
+
+	// Simulate interrupt by manually setting the flag (in real usage, shouldSuppressInterruptedRunEvent
+	// would prevent AdvisorComplete from being processed, leaving the flag stale).
+	// For this test, we simulate that by setting the flag back after completion.
+	staleFlag := buffer.activeAdvisorSegment
+
+	// Emit AdvisorComplete.
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 1, "some note", false, nil, 0, 0))
+	if buffer.activeAdvisorSegment != 0 {
+		t.Fatalf("activeAdvisorSegment = %d after AdvisorComplete, want 0", buffer.activeAdvisorSegment)
+	}
+
+	// Manually set the flag to simulate the stuck-flag bug (as if AdvisorComplete was suppressed).
+	buffer.activeAdvisorSegment = staleFlag
+
+	// Now reset the advisor segment as would happen on run finish.
+	buffer.ResetAdvisorSegment()
+	if buffer.activeAdvisorSegment != 0 {
+		t.Fatalf("activeAdvisorSegment = %d after ResetAdvisorSegment, want 0", buffer.activeAdvisorSegment)
+	}
+
+	// Record segment count before the thinking chunk.
+	segmentsBefore := len(buffer.segments)
+
+	// Verify that a primary-model thinking chunk now goes to a normal segment.
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(0, "primary thinking", output.ChunkSourceAssistant))
+
+	// A new thinking segment should be created (not appended to advisor box).
+	// The advisor box's delegData.entries should remain empty.
+	advisorBox := buffer.segments[0]
+	if advisorBox.delegData != nil && len(advisorBox.delegData.entries) != 0 {
+		t.Fatalf("advisor box entries = %d, want 0 (thinking chunk should not land in advisor)", len(advisorBox.delegData.entries))
+	}
+
+	// Find the thinking segment we just created.
+	foundThinking := false
+	for i := segmentsBefore; i < len(buffer.segments); i++ {
+		if buffer.segments[i].kind == segmentThinkingBlock {
+			foundThinking = true
+			break
+		}
+	}
+	if !foundThinking {
+		t.Fatal("thinking segment not found after emitting primary thinking chunk")
+	}
+}
