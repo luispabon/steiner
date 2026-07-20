@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# Superseded pushes to the same ref are pointless work; cancel them. main is
+# excluded so pushes there always produce a completed run per commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   go:
     runs-on: ubuntu-latest
@@ -46,8 +52,14 @@ jobs:
       - name: Build
         run: make build-binaries
 
-      - name: Test
+      # The race job below requires CGO_ENABLED=1, so it can never exercise the
+      # CGO_ENABLED=0 configuration the release binaries actually ship with.
+      # Running this one with cgo off makes it real coverage of that build
+      # rather than a duplicate of the race job.
+      - name: Test (CGO_ENABLED=0, as shipped)
         run: make test
+        env:
+          CGO_ENABLED: 0
 
       - name: Vet
         run: make vet
