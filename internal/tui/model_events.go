@@ -226,6 +226,7 @@ func (m *Model) applySessionHealthEvent(payload output.ContextSessionHealthEvent
 func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
 	m.approval = approvalState{}
 	m.content.clearApprovalState()
+	m.content.ResetAdvisorSegment()
 	if m.workflowHandoff.IsOpen() {
 		m.workflowHandoff = m.workflowHandoff.close()
 	}
@@ -306,7 +307,7 @@ func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {
 		return false
 	}
 	switch event.Type {
-	case output.EventTypeRunStarted, output.EventTypeRunFinished, output.EventTypeStopReason, output.EventTypeHistoryLoaded, output.EventTypeContextReport, output.EventTypeToolCallFinished:
+	case output.EventTypeRunStarted, output.EventTypeRunFinished, output.EventTypeStopReason, output.EventTypeHistoryLoaded, output.EventTypeContextReport, output.EventTypeToolCallFinished, output.EventTypeAdvisorComplete:
 		return false
 	default:
 		return true

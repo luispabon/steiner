@@ -136,3 +136,70 @@ func TestRandomAccentResolves(t *testing.T) {
 		t.Errorf("resolved accent %q not found in AccentPresets", resolved)
 	}
 }
+
+func TestAdvisorFlagResetOnInterruptedRunCompletion(t *testing.T) {
+	// Regression test: when an advisor call is interrupted, the activeAdvisorSegment
+	// flag must be cleared by resetTopLevelTerminalState on run finish, so that
+	// primary-model thinking chunks don't land in a stale advisor box.
+	//
+	// Before the fix, shouldSuppressInterruptedRunEvent would drop AdvisorComplete
+	// events, leaving activeAdvisorSegment set. After run finish, the flag remained
+	// and all subsequent thinking chunks routed to the dead advisor box.
+	//
+	// The fix adds EventTypeAdvisorComplete to the non-suppressed allowlist and
+	// calls ResetAdvisorSegment() in resetTopLevelTerminalState.
+
+	m := newModel(Config{}, nil)
+	m.content.showThinking = true
+
+	// Advisor starts (interrupt not pending yet).
+	_ = m.applyEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1))
+	if m.content.activeAdvisorSegment == 0 {
+		t.Fatal("activeAdvisorSegment = 0 after AdvisorStarted, want > 0")
+	}
+
+	// User interrupts (e.g., presses ESC) — now interruptPending is true.
+	m.interruptPending = true
+
+	// AdvisorComplete arrives while interruptPending is true.
+	// Before the fix, this would be suppressed.
+	// After the fix, it should NOT be suppressed and should reset the flag.
+	_ = m.applyEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 1, "some note", false, nil, 0, 0))
+
+	// AdvisorComplete should have cleared the flag via appendAdvisorEvent → handleAdvisorComplete.
+	if m.content.activeAdvisorSegment != 0 {
+		t.Fatalf("activeAdvisorSegment = %d after AdvisorComplete, want 0 (should be cleared by handler)", m.content.activeAdvisorSegment)
+	}
+
+	// Simulate the run finishing: emit RunFinishedEvent which calls resetTopLevelTerminalState.
+	// This is extra protection — even if the flag were somehow stale, resetTopLevelTerminalState would clear it.
+	_ = m.applyEvent(output.NewRunFinishedEvent(0, "complete", "done", "", nil))
+	if m.content.activeAdvisorSegment != 0 {
+		t.Fatalf("activeAdvisorSegment = %d after RunFinishedEvent, want 0 (reset on run finish)", m.content.activeAdvisorSegment)
+	}
+
+	// Now emit a primary-model thinking chunk and verify it does NOT land in
+	// the advisor box (which should have been closed).
+	_ = m.applyEvent(output.NewThinkingChunkEventWithSource(0, "primary thinking", output.ChunkSourceAssistant))
+
+	// The advisor box (if it exists) should have no new entries.
+	for i := 0; i < len(m.content.segments); i++ {
+		if m.content.segments[i].kind == segmentDelegation && m.content.segments[i].delegData != nil && m.content.segments[i].delegData.isAdvisor {
+			if len(m.content.segments[i].delegData.entries) != 0 {
+				t.Fatalf("advisor box has entries = %d, want 0 (primary thinking should not route to advisor)", len(m.content.segments[i].delegData.entries))
+			}
+		}
+	}
+
+	// Verify a thinking segment was created for the primary thinking.
+	foundThinking := false
+	for _, seg := range m.content.segments {
+		if seg.kind == segmentThinkingBlock {
+			foundThinking = true
+			break
+		}
+	}
+	if !foundThinking {
+		t.Fatal("thinking segment not found (primary thinking should create normal segment)")
+	}
+}

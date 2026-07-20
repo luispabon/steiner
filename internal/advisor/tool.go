@@ -168,7 +168,7 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 		if err != nil {
 			return provider.ChatResponse{}, fmt.Errorf("advisor: %w", err)
 		}
-		resp, drainErr := streamWithEvents(stream, events)
+		resp, drainErr := streamWithEvents(stream, events, output.ChunkSourceAdvisor)
 		if drainErr != nil {
 			return provider.ChatResponse{}, fmt.Errorf("advisor: %w", drainErr)
 		}
@@ -183,7 +183,7 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 			if streamErr != nil {
 				return provider.ChatResponse{}, fmt.Errorf("advisor: %w", streamErr)
 			}
-			resp, drainErr := streamWithEvents(stream, events)
+			resp, drainErr := streamWithEvents(stream, events, output.ChunkSourceAdvisor)
 			if drainErr != nil {
 				return provider.ChatResponse{}, fmt.Errorf("advisor: %w", drainErr)
 			}
