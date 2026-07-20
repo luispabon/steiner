@@ -9,6 +9,7 @@ import (
 )
 
 func TestFormatCacheStatsReportNilRecorder(t *testing.T) {
+	t.Parallel()
 	got := formatCacheStatsReport(nil)
 	if !strings.Contains(got, "No cache statistics recorded yet") {
 		t.Fatalf("nil recorder report = %q, want to contain 'No cache statistics recorded yet'", got)
@@ -16,6 +17,10 @@ func TestFormatCacheStatsReportNilRecorder(t *testing.T) {
 }
 
 func TestFormatCacheStatsReportEmptyRecorder(t *testing.T) {
+	// Not parallel: usagestats.New persists to a store file derived from
+	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if
+	// combined with t.Parallel().
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	rec := usagestats.New(func() time.Time { return time.Unix(1000, 0) })
 	got := formatCacheStatsReport(rec)
 	if !strings.Contains(got, "No cache statistics recorded yet") {
@@ -24,6 +29,10 @@ func TestFormatCacheStatsReportEmptyRecorder(t *testing.T) {
 }
 
 func TestFormatCacheStatsReportWithObservations(t *testing.T) {
+	// Not parallel: usagestats.New persists to a store file derived from
+	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if
+	// combined with t.Parallel().
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(1000, 0)
 	rec := usagestats.New(func() time.Time { return now })
 
@@ -66,6 +75,10 @@ func TestFormatCacheStatsReportWithObservations(t *testing.T) {
 }
 
 func TestFormatCacheStatsReportZeroHitRate(t *testing.T) {
+	// Not parallel: usagestats.New persists to a store file derived from
+	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if
+	// combined with t.Parallel().
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(2000, 0)
 	rec := usagestats.New(func() time.Time { return now })
 
@@ -95,6 +108,10 @@ func TestFormatCacheStatsReportZeroHitRate(t *testing.T) {
 }
 
 func TestFormatCacheStatsReportUndefinedHitRate(t *testing.T) {
+	// Not parallel: usagestats.New persists to a store file derived from
+	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if
+	// combined with t.Parallel().
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(3000, 0)
 	rec := usagestats.New(func() time.Time { return now })
 
@@ -128,6 +145,10 @@ func TestFormatCacheStatsReportUndefinedHitRate(t *testing.T) {
 }
 
 func TestFormatCacheStatsReportDeterministicOrdering(t *testing.T) {
+	// Not parallel: usagestats.New persists to a store file derived from
+	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if
+	// combined with t.Parallel().
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(1000, 0)
 	rec := usagestats.New(func() time.Time { return now })
 
@@ -167,6 +188,10 @@ func TestFormatCacheStatsReportDeterministicOrdering(t *testing.T) {
 }
 
 func TestFormatCacheStatsReportMultipleWindows(t *testing.T) {
+	// Not parallel: usagestats.New persists to a store file derived from
+	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if
+	// combined with t.Parallel().
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(4000, 0)
 	rec := usagestats.New(func() time.Time { return now })
 

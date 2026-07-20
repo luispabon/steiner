@@ -103,7 +103,8 @@ vuln:
 	}
 	govulncheck ./...
 
-check: tidy-check fmt-check imports-check build-binaries test test-race vet lint vuln
+check: tidy-check
+	$(MAKE) -j6 fmt-check imports-check build-binaries test-race vet lint vuln
 
 # Run TUI benchmarks. Default: all suites, 1s each, single count.
 # Run a specific suite: `make bench BENCH=BenchmarkKeystroke`

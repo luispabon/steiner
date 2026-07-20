@@ -6,6 +6,7 @@ import (
 
 func TestScoreStringMatch_ExactSubstringBoost(t *testing.T) {
 	// A weak fuzzy match in a long string vs an exact substring match
+	t.Parallel()
 	weak := scoreStringMatch("some very long description text", "plan", []int{5, 10, 15, 20})
 	exact := scoreStringMatch("/plan", "plan", []int{1, 2, 3, 4})
 	if exact <= weak {
@@ -14,6 +15,7 @@ func TestScoreStringMatch_ExactSubstringBoost(t *testing.T) {
 }
 
 func TestScoreStringMatch_PrefixBoost(t *testing.T) {
+	t.Parallel()
 	prefix := scoreStringMatch("planning.md", "plan", []int{0, 1, 2, 3})
 	middle := scoreStringMatch("my-planning.md", "plan", []int{3, 4, 5, 6})
 	if prefix <= middle {
@@ -23,6 +25,7 @@ func TestScoreStringMatch_PrefixBoost(t *testing.T) {
 
 func TestScoreStringMatch_ConsecutiveRunBonus(t *testing.T) {
 	// Consecutive match "plan" should score higher than scattered match
+	t.Parallel()
 	consecutive := scoreStringMatch("plan", "plan", []int{0, 1, 2, 3})
 	scattered := scoreStringMatch("p___l__a___n", "plan", []int{0, 4, 7, 11})
 	if consecutive <= scattered {
@@ -32,6 +35,7 @@ func TestScoreStringMatch_ConsecutiveRunBonus(t *testing.T) {
 
 func TestScoreStringMatch_WordBoundaryBonus(t *testing.T) {
 	// Match at word boundary should score higher than match in middle of word
+	t.Parallel()
 	boundary := scoreStringMatch("plan file", "plan", []int{0, 1, 2, 3})
 	midWord := scoreStringMatch("template", "plan", []int{2, 3, 4, 5})
 	if boundary <= midWord {
@@ -40,6 +44,7 @@ func TestScoreStringMatch_WordBoundaryBonus(t *testing.T) {
 }
 
 func TestScoreStringMatch_EarlyMatchBonus(t *testing.T) {
+	t.Parallel()
 	early := scoreStringMatch("plan something", "plan", []int{0, 1, 2, 3})
 	late := scoreStringMatch("something plan", "plan", []int{10, 11, 12, 13})
 	if early <= late {
@@ -48,6 +53,7 @@ func TestScoreStringMatch_EarlyMatchBonus(t *testing.T) {
 }
 
 func TestConsecutiveScore(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		indexes []int
@@ -63,6 +69,7 @@ func TestConsecutiveScore(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := consecutiveScore(tt.indexes)
 			if got != tt.want {
 				t.Fatalf("consecutiveScore(%v) = %d, want %d", tt.indexes, got, tt.want)
@@ -72,6 +79,7 @@ func TestConsecutiveScore(t *testing.T) {
 }
 
 func TestFuzzyMatchStrings_ReordersByCustomScore(t *testing.T) {
+	t.Parallel()
 	entries := []string{
 		"planning",
 		"some-plan",
@@ -96,6 +104,7 @@ func TestFuzzyMatchStrings_ReordersByCustomScore(t *testing.T) {
 }
 
 func TestFuzzyMatchStrings_EmptyQuery(t *testing.T) {
+	t.Parallel()
 	entries := []string{"alpha", "beta", "gamma"}
 	results, indexes := fuzzyMatchStrings(entries, "")
 	if len(results) != 3 {
@@ -109,6 +118,7 @@ func TestFuzzyMatchStrings_EmptyQuery(t *testing.T) {
 }
 
 func TestFuzzyMatchStrings_NoMatches(t *testing.T) {
+	t.Parallel()
 	entries := []string{"alpha", "beta"}
 	results, _ := fuzzyMatchStrings(entries, "zzz")
 	if len(results) != 0 {
@@ -118,6 +128,7 @@ func TestFuzzyMatchStrings_NoMatches(t *testing.T) {
 
 func TestScoreSlashMatch_CommandBeatsDescription(t *testing.T) {
 	// A weak command match should still outrank a strong description match
+	t.Parallel()
 	itemCmd := slashOverlayItem{command: "/plan", name: "Plan", desc: "plan things"}
 	matchCmd := slashOverlayMatch{commandIndexes: []int{1, 2, 3, 4}}
 
@@ -133,6 +144,7 @@ func TestScoreSlashMatch_CommandBeatsDescription(t *testing.T) {
 }
 
 func TestScoreSlashMatch_PrefixSlashCommand(t *testing.T) {
+	t.Parallel()
 	item := slashOverlayItem{command: "/plan", name: "Plan", desc: "plan things"}
 	match := slashOverlayMatch{commandIndexes: []int{1, 2, 3, 4}}
 	score := scoreSlashMatch(item, "plan", match)
@@ -142,6 +154,7 @@ func TestScoreSlashMatch_PrefixSlashCommand(t *testing.T) {
 }
 
 func TestScoreSlashMatch_NameBeatsDescription(t *testing.T) {
+	t.Parallel()
 	itemName := slashOverlayItem{command: "/other", name: "Planner", desc: "something"}
 	matchName := slashOverlayMatch{nameIndexes: []int{0, 1, 2, 3}}
 
@@ -157,6 +170,7 @@ func TestScoreSlashMatch_NameBeatsDescription(t *testing.T) {
 }
 
 func TestFuzzyMatchSlashItems_ReordersByField(t *testing.T) {
+	t.Parallel()
 	items := []slashOverlayItem{
 		{command: "/other", name: "Other", desc: "plan your work"},
 		{command: "/plan", name: "Plan", desc: "do things"},
@@ -176,6 +190,7 @@ func TestFuzzyMatchSlashItems_ReordersByField(t *testing.T) {
 }
 
 func TestFuzzyMatchSlashItems_EmptyQuery(t *testing.T) {
+	t.Parallel()
 	items := []slashOverlayItem{
 		{command: "/a", name: "A", desc: "a"},
 		{command: "/b", name: "B", desc: "b"},
@@ -192,6 +207,7 @@ func TestFuzzyMatchSlashItems_EmptyQuery(t *testing.T) {
 }
 
 func TestFuzzyMatchSlashItems_NoMatches(t *testing.T) {
+	t.Parallel()
 	items := []slashOverlayItem{
 		{command: "/a", name: "A", desc: "a"},
 	}

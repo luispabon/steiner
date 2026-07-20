@@ -69,6 +69,7 @@ func TestContextOverlayRendersMarkdownAndKeepsBaseVisible(t *testing.T) {
 }
 
 func TestContextOverlayRendersConfigYAMLWithSyntaxHighlighting(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 90, Height: 24})
 
@@ -97,6 +98,7 @@ func TestContextOverlayRendersConfigYAMLWithSyntaxHighlighting(t *testing.T) {
 }
 
 func TestContextOverlayOpensForLongContextReport(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -110,6 +112,7 @@ func TestContextOverlayOpensForLongContextReport(t *testing.T) {
 }
 
 func TestContextOverlayOpensForMultiLineContextReport(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -123,6 +126,7 @@ func TestContextOverlayOpensForMultiLineContextReport(t *testing.T) {
 }
 
 func TestContextOverlayClosesOnEsc(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", "# Heading\n\nContent with newline.")})
@@ -138,6 +142,7 @@ func TestContextOverlayClosesOnEsc(t *testing.T) {
 }
 
 func TestContextOverlayScrollsLongRenderedMarkdown(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 72, Height: 24})
 

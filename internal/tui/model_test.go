@@ -224,6 +224,7 @@ func (c *testController) countByType(target interactive.Action) int {
 }
 
 func TestModelAppliesRuntimeEvents(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:         "gpt-test",
 		ModelContexts: map[string]int{"gpt-test": 4096},
@@ -281,6 +282,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 }
 
 func TestModelRoutesShortContextReportToTranscript(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{Model: "gpt-test"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -296,6 +298,7 @@ func TestModelRoutesShortContextReportToTranscript(t *testing.T) {
 }
 
 func TestModelIgnoresByteBudgetForSidebarContextFill(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:         "gemma4",
 		ModelContexts: map[string]int{"gemma4": 65536},
@@ -315,6 +318,7 @@ func TestModelIgnoresByteBudgetForSidebarContextFill(t *testing.T) {
 }
 
 func TestModelIgnoresScopedContextDiagnosticsForSidebarAndStatus(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:         "gpt-test",
 		ModelContexts: map[string]int{"gpt-test": 4096},
@@ -357,6 +361,7 @@ func TestModelIgnoresScopedContextDiagnosticsForSidebarAndStatus(t *testing.T) {
 }
 
 func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -397,6 +402,7 @@ func TestModelSubmitsInputAndTogglesSkills(t *testing.T) {
 }
 
 func TestClearResetsActiveSkill(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -425,6 +431,7 @@ func TestClearResetsActiveSkill(t *testing.T) {
 }
 
 func TestSkillExclusivity(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -487,6 +494,7 @@ func TestSkillExclusivity(t *testing.T) {
 }
 
 func TestSidebarSkillSection(t *testing.T) {
+	t.Parallel()
 	styles := theme.Default().LipGlossStyles()
 
 	sidebar := sidebarState{
@@ -508,6 +516,7 @@ func TestSidebarSkillSection(t *testing.T) {
 }
 
 func TestBuildSlashOverlayItemsUsesSkillDescriptions(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		SkillNames:        []string{"review"},
 		SkillDescriptions: map[string]string{"review": "Review changes for bugs and regressions."},
@@ -537,7 +546,9 @@ func TestBuildSlashOverlayItemsUsesSkillDescriptions(t *testing.T) {
 }
 
 func TestComposerTokenAtCursor(t *testing.T) {
+	t.Parallel()
 	t.Run("finds slash token at cursor", func(t *testing.T) {
+		t.Parallel()
 		token, start, end, ok := composerTokenAtCursor("/con", len([]rune("/con")), '/')
 		if !ok {
 			t.Fatal("expected slash token to be found")
@@ -548,6 +559,7 @@ func TestComposerTokenAtCursor(t *testing.T) {
 	})
 
 	t.Run("finds at token after leading text", func(t *testing.T) {
+		t.Parallel()
 		value := "check @inte"
 		token, start, end, ok := composerTokenAtCursor(value, len([]rune(value)), '@')
 		if !ok {
@@ -562,6 +574,7 @@ func TestComposerTokenAtCursor(t *testing.T) {
 	})
 
 	t.Run("ignores non-matching token", func(t *testing.T) {
+		t.Parallel()
 		if _, _, _, ok := composerTokenAtCursor("plain text", len([]rune("plain text")), '@'); ok {
 			t.Fatal("expected no @ token")
 		}
@@ -569,6 +582,7 @@ func TestComposerTokenAtCursor(t *testing.T) {
 }
 
 func TestModelSlashOverlayTypingUsesComposerText(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -601,6 +615,7 @@ func TestModelSlashOverlayTypingUsesComposerText(t *testing.T) {
 }
 
 func TestModelSlashOverlayEscRemovesActiveToken(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -617,6 +632,7 @@ func TestModelSlashOverlayEscRemovesActiveToken(t *testing.T) {
 }
 
 func TestModelModifiedEnterInsertsNewline(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -636,6 +652,7 @@ func TestModelModifiedEnterInsertsNewline(t *testing.T) {
 }
 
 func TestModelPlainEnterStillSubmitsPrompt(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -655,6 +672,7 @@ func TestModelPlainEnterStillSubmitsPrompt(t *testing.T) {
 }
 
 func TestModelCtrlXTogglesDelegationWhileConversationActive(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
@@ -681,6 +699,7 @@ func TestModelCtrlXTogglesDelegationWhileConversationActive(t *testing.T) {
 }
 
 func TestModelMouseClickTogglesDelegation(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("child-1", "task preview")})
@@ -750,6 +769,7 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 }
 
 func TestModelMouseDragDoesNotToggle(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("child-1", "task")})
@@ -784,6 +804,7 @@ func TestModelMouseDragDoesNotToggle(t *testing.T) {
 }
 
 func TestModelMouseClickTargetsGroupedToolRow(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"})})
@@ -823,7 +844,7 @@ func TestModelMouseClickTargetsGroupedToolRow(t *testing.T) {
 		t.Fatal("divider click should not toggle any grouped entry")
 	}
 
-	time.Sleep(600 * time.Millisecond)
+	m.lastClickTime = m.lastClickTime.Add(-600 * time.Millisecond)
 
 	m = updateModel(t, m, mouseClickMsg{x: 0, y: rowForSecond + clickOffset})
 	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: rowForSecond + clickOffset})
@@ -837,6 +858,7 @@ func TestModelMouseClickTargetsGroupedToolRow(t *testing.T) {
 }
 
 func TestModelMouseClickTargetsStandaloneToolRow(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"})})
@@ -863,6 +885,7 @@ func TestModelMouseClickTargetsStandaloneToolRow(t *testing.T) {
 }
 
 func TestModelMouseClickTargetsResumedToolRowAfterUserGap(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 14})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewUserInputEvent("resumed prompt", "resume")})
@@ -901,6 +924,7 @@ func TestModelMouseClickTargetsResumedToolRowAfterUserGap(t *testing.T) {
 }
 
 func TestModelHandlesContextKeybindLocally(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -943,6 +967,7 @@ func TestModelHandlesContextKeybindLocally(t *testing.T) {
 }
 
 func TestModelHandlesConfigCommandLocally(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -981,6 +1006,7 @@ func TestModelHandlesConfigCommandLocally(t *testing.T) {
 }
 
 func TestModelDisplaysFileEventInTranscript(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
@@ -1007,6 +1033,7 @@ func main() {}
 }
 
 func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:         "gpt-test",
 		ModelContexts: map[string]int{"gpt-test": 4096},
@@ -1073,6 +1100,7 @@ func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) 
 }
 
 func TestModelActivityRowReservesLayoutSpace(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 60, Height: 12})
 
@@ -1085,6 +1113,7 @@ func TestModelActivityRowReservesLayoutSpace(t *testing.T) {
 }
 
 func TestModelActivityRowShowsSpinnerAfterApiRequestBeforeFirstChunk(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{Model: "gpt-test"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -1099,6 +1128,7 @@ func TestModelActivityRowShowsSpinnerAfterApiRequestBeforeFirstChunk(t *testing.
 }
 
 func TestModelStatusBarKeepsPrimaryModelDuringOtherRuntimeCalls(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{Model: "main-model"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "main-model", "", 4, 256)})
@@ -1114,6 +1144,7 @@ func TestModelStatusBarKeepsPrimaryModelDuringOtherRuntimeCalls(t *testing.T) {
 }
 
 func TestModelTabCompletesModelCommandInPrompt(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		ModelNames: []string{"deepseek-v4-flash", "qwen3-coder-30b"},
 	}, nil)
@@ -1132,6 +1163,7 @@ func TestModelTabCompletesModelCommandInPrompt(t *testing.T) {
 }
 
 func TestModelActivityRowShowsToolPhaseLabel(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -1146,6 +1178,7 @@ func TestModelActivityRowShowsToolPhaseLabel(t *testing.T) {
 }
 
 func TestModelActivityRowShowsCompactionSpinner(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -1165,6 +1198,7 @@ func TestModelActivityRowShowsCompactionSpinner(t *testing.T) {
 }
 
 func TestModelApprovalKeepsReservedRowAndDisablesSpinner(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`)})
@@ -1182,6 +1216,7 @@ func TestModelApprovalKeepsReservedRowAndDisablesSpinner(t *testing.T) {
 }
 
 func TestModelInterruptClearsActivityImmediately(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{Controller: ctrl}, nil)
@@ -1206,6 +1241,7 @@ func TestModelInterruptClearsActivityImmediately(t *testing.T) {
 }
 
 func TestModelFinishedCompactionDiagnosticDoesNotForceRunningState(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
@@ -1227,6 +1263,7 @@ func TestModelFinishedCompactionDiagnosticDoesNotForceRunningState(t *testing.T)
 }
 
 func TestModelSessionHealthAfterCompactionDoesNotRearmSidebarSpinner(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
@@ -1259,6 +1296,7 @@ func TestModelSessionHealthAfterCompactionDoesNotRearmSidebarSpinner(t *testing.
 }
 
 func TestModelSwitchFailureDoesNotUpdateUI(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{err: errors.New("model not found")}
 
 	m := newModel(Config{
@@ -1281,6 +1319,7 @@ func TestModelSwitchFailureDoesNotUpdateUI(t *testing.T) {
 }
 
 func TestModelSwitchUpdatesProviderHost(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -1310,6 +1349,7 @@ func TestModelSwitchUpdatesProviderHost(t *testing.T) {
 }
 
 func TestModelPickerEnterSwitchesActiveModel(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -1346,6 +1386,7 @@ func TestModelPickerEnterSwitchesActiveModel(t *testing.T) {
 }
 
 func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
+	t.Parallel()
 	type checkFunc func(*testing.T, Model, bool, tea.Cmd)
 
 	tests := []struct {
@@ -1653,6 +1694,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := tc.setup(t)
 			handled, next, cmd := m.handleOverlayKeyMsg(tc.key)
 			got, ok := next.(Model)
@@ -1665,6 +1707,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 }
 
 func TestModelStartupSnapshotPopulatesSidebarModifiedFiles(t *testing.T) {
+	t.Parallel()
 	repo := initTUITestRepo(t)
 	writeRepoFile(t, repo, "tracked.txt", "one\n")
 	runGit(t, repo, "add", "tracked.txt")
@@ -1688,6 +1731,7 @@ func TestModelStartupSnapshotPopulatesSidebarModifiedFiles(t *testing.T) {
 }
 
 func TestModelRefreshesGitSnapshotAfterToolAndModelCallFinishedEvents(t *testing.T) {
+	t.Parallel()
 	repo := initTUITestRepo(t)
 	writeRepoFile(t, repo, "tracked.txt", "one\n")
 	runGit(t, repo, "add", "tracked.txt")
@@ -1734,6 +1778,7 @@ func TestModelRefreshesGitSnapshotAfterToolAndModelCallFinishedEvents(t *testing
 }
 
 func TestModelTickConsumesOnlyItsOwnGitError(t *testing.T) {
+	t.Parallel()
 	m1 := newModel(Config{}, nil)
 	m2 := newModel(Config{}, nil)
 
@@ -1753,6 +1798,7 @@ func TestModelTickConsumesOnlyItsOwnGitError(t *testing.T) {
 }
 
 func TestModelApprovalModeTransitions(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -1784,6 +1830,7 @@ func TestModelApprovalModeTransitions(t *testing.T) {
 }
 
 func TestModelThinkingToggleShowsOnlyAfterToggle(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		ShowThinking: false,
 	}, nil)
@@ -1803,6 +1850,7 @@ func TestModelThinkingToggleShowsOnlyAfterToggle(t *testing.T) {
 }
 
 func TestContextDiagnosticsHiddenByDefault(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 200, "ok", false)})
@@ -1815,6 +1863,7 @@ func TestContextDiagnosticsHiddenByDefault(t *testing.T) {
 }
 
 func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -1841,6 +1890,7 @@ func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 }
 
 func TestModelApprovalSelectionAndConfirmation(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -1875,6 +1925,7 @@ func TestModelApprovalSelectionAndConfirmation(t *testing.T) {
 }
 
 func TestModelApprovalEscDenies(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -1901,8 +1952,10 @@ func TestModelApprovalEscDenies(t *testing.T) {
 }
 
 func TestModelApprovalCtrlCInterrupts(t *testing.T) {
+	t.Parallel()
 	for _, key := range []tea.KeyPressMsg{{Code: 'c', Mod: tea.ModCtrl}, {Code: 'd', Mod: tea.ModCtrl}} {
 		t.Run(key.Keystroke(), func(t *testing.T) {
+			t.Parallel()
 			ctrl := &testController{}
 			m := newModel(Config{Controller: ctrl}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
@@ -1928,6 +1981,7 @@ func TestModelApprovalCtrlCInterrupts(t *testing.T) {
 }
 
 func TestModelApprovalStopReasonRestoresComposerFocus(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
 	if !m.input.Focused() {
@@ -1956,6 +2010,7 @@ func TestModelApprovalStopReasonRestoresComposerFocus(t *testing.T) {
 }
 
 func TestModelApprovalRunFinishedRestoresComposerFocus(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "mutate", "", "prompt", `{"path":"note.txt"}`)})
@@ -1977,6 +2032,7 @@ func TestModelApprovalRunFinishedRestoresComposerFocus(t *testing.T) {
 }
 
 func TestModelEscInterruptsStreaming(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2007,6 +2063,7 @@ func TestModelEscInterruptsStreaming(t *testing.T) {
 }
 
 func TestModelEscClosesHelpDuringActiveConversation(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2038,6 +2095,7 @@ func TestModelEscClosesHelpDuringActiveConversation(t *testing.T) {
 }
 
 func TestModelIdleCtrlCOpensExitModalInsteadOfQuitting(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2067,6 +2125,7 @@ func TestModelIdleCtrlCOpensExitModalInsteadOfQuitting(t *testing.T) {
 }
 
 func TestModelIdleCtrlDOpensExitModalInsteadOfQuitting(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2094,6 +2153,7 @@ func TestModelIdleCtrlDOpensExitModalInsteadOfQuitting(t *testing.T) {
 func TestModelIdleCtrlCQuitsWhenNoCallbackSet(t *testing.T) {
 	// When OnExitRequested is not wired (e.g. non-interactive mode),
 	// idle Ctrl+C falls back to immediate quit.
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
@@ -2104,6 +2164,7 @@ func TestModelIdleCtrlCQuitsWhenNoCallbackSet(t *testing.T) {
 }
 
 func TestModelExitModalCancelClosesWithoutExiting(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2128,6 +2189,7 @@ func TestModelExitModalCancelClosesWithoutExiting(t *testing.T) {
 }
 
 func TestModelExitModalExitRequestsQuit(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2151,6 +2213,7 @@ func TestModelExitModalExitRequestsQuit(t *testing.T) {
 }
 
 func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2184,6 +2247,7 @@ func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
 }
 
 func TestModelEscInterruptsActiveRunWithoutStreamingChunks(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2210,6 +2274,7 @@ func TestModelEscInterruptsActiveRunWithoutStreamingChunks(t *testing.T) {
 }
 
 func TestModelEscInterruptsToolPhase(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2240,6 +2305,7 @@ func TestModelEscInterruptsToolPhase(t *testing.T) {
 }
 
 func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2316,6 +2382,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 }
 
 func TestModelStreamingEnterQueuesSteerPrompt(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2361,6 +2428,7 @@ func TestModelStreamingEnterQueuesSteerPrompt(t *testing.T) {
 }
 
 func TestModelStreamingEnterRendersSteerImmediately(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2381,6 +2449,7 @@ func TestModelStreamingEnterRendersSteerImmediately(t *testing.T) {
 }
 
 func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2405,6 +2474,7 @@ func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
 }
 
 func TestModelSteerReceivedEventAppendUserMessage(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2453,6 +2523,7 @@ func TestModelSteerReceivedEventAppendUserMessage(t *testing.T) {
 }
 
 func TestModelAltEnterInsertsNewline(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 
 	m := newModel(Config{
@@ -2472,6 +2543,7 @@ func TestModelAltEnterInsertsNewline(t *testing.T) {
 }
 
 func TestModelResizeAndMouseScroll(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 6})
 	for i := 0; i < 20; i++ {
@@ -2504,6 +2576,7 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 }
 
 func TestModelOnMouseDispatchesWheelEvents(t *testing.T) {
+	t.Parallel()
 	upCmd := classifyMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
 	if upCmd == nil {
 		t.Fatal("upCmd = nil, want wheel dispatch command")
@@ -2530,12 +2603,14 @@ func TestModelOnMouseDispatchesWheelEvents(t *testing.T) {
 }
 
 func TestModelOnMouseIgnoresHoverMotion(t *testing.T) {
+	t.Parallel()
 	if cmd := classifyMouse(tea.MouseMotionMsg(tea.Mouse{X: 4, Y: 2})); cmd != nil {
 		t.Fatalf("hover motion cmd = %v, want nil", cmd)
 	}
 }
 
 func TestModelIgnoresStructuredMouseLeakRunes(t *testing.T) {
+	t.Parallel()
 	tests := []string{
 		"[<65;174;45M",
 		"<65;174;45m",
@@ -2547,6 +2622,7 @@ func TestModelIgnoresStructuredMouseLeakRunes(t *testing.T) {
 
 	for _, fragment := range tests {
 		t.Run(fragment, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{WorkingDir: "."}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 			m.input.SetValue("seed")
@@ -2561,10 +2637,12 @@ func TestModelIgnoresStructuredMouseLeakRunes(t *testing.T) {
 }
 
 func TestModelAllowsNormalRuneInputNearMouseLikeText(t *testing.T) {
+	t.Parallel()
 	tests := []string{"[", "[abc", "<tag>", "65;foo"}
 
 	for _, text := range tests {
 		t.Run(text, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -2578,6 +2656,7 @@ func TestModelAllowsNormalRuneInputNearMouseLikeText(t *testing.T) {
 }
 
 func TestModelIgnoresBareBracketMousePrefixAfterWheel(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -2590,6 +2669,7 @@ func TestModelIgnoresBareBracketMousePrefixAfterWheel(t *testing.T) {
 }
 
 func TestModelAllowsBareBracketOutsideRecentWheelWindow(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.lastWheelMouseAt = time.Now().Add(-time.Second)
@@ -2602,6 +2682,7 @@ func TestModelAllowsBareBracketOutsideRecentWheelWindow(t *testing.T) {
 }
 
 func TestModelListFilesOpensOverlayWithWorkingDir(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -2624,6 +2705,7 @@ func TestModelListFilesOpensOverlayWithWorkingDir(t *testing.T) {
 }
 
 func TestModelListFilesOpensWithPath(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -2643,6 +2725,7 @@ func TestModelListFilesOpensWithPath(t *testing.T) {
 }
 
 func TestModelFilePickerOverlayInView(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -2669,6 +2752,7 @@ func TestModelFilePickerOverlayInView(t *testing.T) {
 }
 
 func TestModelRenderInputLinesUsesLocalCursor(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.input.SetValue("asdasd")
 	m.input.SetCursorColumn(len([]rune("asdasd")))
@@ -2687,6 +2771,7 @@ func TestModelRenderInputLinesUsesLocalCursor(t *testing.T) {
 }
 
 func TestModelCursorInHardwrappedInput(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
 
@@ -2715,6 +2800,8 @@ func TestModelCursorInHardwrappedInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Not parallel: subtests share and mutate m.input's cursor
+			// position, which is unsafe to do concurrently.
 			m.input.SetCursorColumn(tt.absPos)
 			lines, _ := m.renderTypedInputLines(innerWidth)
 
@@ -2743,6 +2830,7 @@ func TestModelCursorInHardwrappedInput(t *testing.T) {
 }
 
 func TestModelCursorInHardwrappedInputWithLeftArrow(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
 
@@ -2783,6 +2871,7 @@ func TestModelCursorInHardwrappedInputWithLeftArrow(t *testing.T) {
 }
 
 func TestContentBufferReflowsMarkdownForViewportWidth(t *testing.T) {
+	t.Parallel()
 	var content contentBuffer
 	content.appendMarkdownBlock("## Title\n\nThis is a long markdown paragraph that should wrap differently when the content pane width changes.")
 
@@ -2856,6 +2945,7 @@ func (f *fakeNotifier) snapshot() []notify.Notification {
 }
 
 func TestNotifyApprovalEventFiresNotification(t *testing.T) {
+	t.Parallel()
 	fn := &fakeNotifier{avail: true}
 	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
 	m.sidebar.branch = "main"
@@ -2880,6 +2970,7 @@ func TestNotifyApprovalEventFiresNotification(t *testing.T) {
 }
 
 func TestNotifyWorkflowHandoffFiresNotification(t *testing.T) {
+	t.Parallel()
 	fn := &fakeNotifier{avail: true}
 	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
 	m.sidebar.branch = "main"
@@ -2897,13 +2988,15 @@ func TestNotifyWorkflowHandoffFiresNotification(t *testing.T) {
 	}
 }
 
-func TestNotifyNilNotifierIsSafe(_ *testing.T) {
+func TestNotifyNilNotifierIsSafe(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{WorkingDir: "/home/user/myproject"}, nil)
 	// must not panic
 	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "", "approve", "preview"))
 }
 
 func TestNotifyUnavailableEmitsStartupWarning(t *testing.T) {
+	t.Parallel()
 	fn := &fakeNotifier{avail: false, reason: "no daemon found"}
 	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
 
@@ -2920,6 +3013,7 @@ func TestNotifyUnavailableEmitsStartupWarning(t *testing.T) {
 }
 
 func TestModelFilePicker_TabInsertsPath(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -2945,6 +3039,7 @@ func TestModelFilePicker_TabInsertsPath(t *testing.T) {
 }
 
 func TestModelSlashOverlay_TabInsertsCommand(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -2970,6 +3065,7 @@ func TestModelSlashOverlay_TabInsertsCommand(t *testing.T) {
 }
 
 func TestModelSlashOverlay_TypedAccentSpaceOpensPicker(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		name string
 		key  tea.KeyPressMsg
@@ -2978,6 +3074,7 @@ func TestModelSlashOverlay_TypedAccentSpaceOpensPicker(t *testing.T) {
 		{name: "key space", key: tea.KeyPressMsg{Code: tea.KeySpace}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -3004,6 +3101,7 @@ func TestModelSlashOverlay_TypedAccentSpaceOpensPicker(t *testing.T) {
 }
 
 func TestModelSlashOverlay_SelectAccentOpensPicker(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		name string
 		key  tea.KeyPressMsg
@@ -3012,6 +3110,7 @@ func TestModelSlashOverlay_SelectAccentOpensPicker(t *testing.T) {
 		{name: "Enter", key: tea.KeyPressMsg{Code: tea.KeyEnter}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -3039,6 +3138,7 @@ func TestModelSlashOverlay_SelectAccentOpensPicker(t *testing.T) {
 }
 
 func TestModelFilePicker_ReopensAfterSpaceBackspace(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -3065,6 +3165,7 @@ func TestModelFilePicker_ReopensAfterSpaceBackspace(t *testing.T) {
 }
 
 func TestModelSlashOverlay_ReopensAfterSpaceBackspace(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -3088,6 +3189,7 @@ func TestModelSlashOverlay_ReopensAfterSpaceBackspace(t *testing.T) {
 }
 
 func TestModelFilePicker_ReopensOnLeftArrow(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -3111,6 +3213,7 @@ func TestModelFilePicker_ReopensOnLeftArrow(t *testing.T) {
 }
 
 func TestModelFilePicker_NoReopenAfterEsc(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{WorkingDir: "."}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -3133,6 +3236,7 @@ func TestModelFilePicker_NoReopenAfterEsc(t *testing.T) {
 }
 
 func TestFrameHeightClamping(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		height   int
@@ -3155,6 +3259,7 @@ func TestFrameHeightClamping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: tt.height})
 
@@ -3168,6 +3273,7 @@ func TestFrameHeightClamping(t *testing.T) {
 }
 
 func TestSelectionSmallHeight(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		height          int
@@ -3181,6 +3287,7 @@ func TestSelectionSmallHeight(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			screenLines := new([]string)
 			m.screenLines = screenLines
@@ -3200,6 +3307,7 @@ func TestSelectionSmallHeight(t *testing.T) {
 }
 
 func TestContentTopPadNoOffByOne(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		height      int
@@ -3214,6 +3322,7 @@ func TestContentTopPadNoOffByOne(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: tt.height})
 
@@ -3338,6 +3447,7 @@ func TestModelPlanPickerOpenClose(t *testing.T) {
 }
 
 func TestModelWorkflowHandoffOpensModalImmediately(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{
 		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
 			"implement": {
@@ -3389,6 +3499,7 @@ func TestModelWorkflowHandoffOpensModalImmediately(t *testing.T) {
 }
 
 func TestModelWorkflowHandoffRendersReviewCopy(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{
 		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
 			"review": {
@@ -3435,6 +3546,7 @@ func TestModelWorkflowHandoffRendersReviewCopy(t *testing.T) {
 }
 
 func TestModelWorkflowHandoffChangeModelOpensAttachedPickerAndUpdatesSelection(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{
 		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
 			"implement": {
@@ -3520,6 +3632,7 @@ func TestModelWorkflowHandoffChangeModelOpensAttachedPickerAndUpdatesSelection(t
 }
 
 func TestModelWorkflowHandoffChangeModelCancelPreservesSelection(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{
 		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
 			"review": {
@@ -3560,6 +3673,7 @@ func TestModelWorkflowHandoffChangeModelCancelPreservesSelection(t *testing.T) {
 }
 
 func TestModelWorkflowHandoffDismissDeclinesAndKeepsTranscript(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{
 		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
 			"review": {
@@ -3608,6 +3722,7 @@ func TestModelWorkflowHandoffDismissDeclinesAndKeepsTranscript(t *testing.T) {
 }
 
 func TestModelWorkflowHandoffTerminalEventsCloseModalAndRestoreFocus(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		event output.Event
@@ -3624,6 +3739,7 @@ func TestModelWorkflowHandoffTerminalEventsCloseModalAndRestoreFocus(t *testing.
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 			m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
@@ -3648,6 +3764,7 @@ func TestModelWorkflowHandoffTerminalEventsCloseModalAndRestoreFocus(t *testing.
 }
 
 func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{
 		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
 			"review": {
@@ -3762,6 +3879,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 }
 
 func TestModelWorkflowHandoffAcceptSwitchFailureKeepsConversationAndSkipsLaunch(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{
 		switchModelErr: fmt.Errorf("model switch failed"),
 		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
@@ -3816,6 +3934,7 @@ func TestModelWorkflowHandoffAcceptSwitchFailureKeepsConversationAndSkipsLaunch(
 }
 
 func TestModelWorkflowHandoffAcceptWithCurrentSessionModelDoesNotSwitch(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{
 		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
 			"implement": {
@@ -3849,6 +3968,7 @@ func TestModelWorkflowHandoffAcceptWithCurrentSessionModelDoesNotSwitch(t *testi
 }
 
 func TestModelTopLevelTerminalEventsPreserveStatusAndContentWithoutPriorBlur(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		event       output.Event
@@ -3877,6 +3997,7 @@ func TestModelTopLevelTerminalEventsPreserveStatusAndContentWithoutPriorBlur(t *
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
 			m.content.AppendLine("existing transcript")
@@ -3911,6 +4032,7 @@ func TestModelTopLevelTerminalEventsPreserveStatusAndContentWithoutPriorBlur(t *
 }
 
 func TestModelScopedTerminalEventDoesNotChangeMainComposerState(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`)})
@@ -3933,11 +4055,13 @@ func TestModelScopedTerminalEventDoesNotChangeMainComposerState(t *testing.T) {
 }
 
 func TestMultiLineInputViewHeightNeverExceedsTerminal(t *testing.T) {
+	t.Parallel()
 	heights := []int{8, 10, 12, 20, 24}
 	lineCounts := []int{1, 2, 4, 6, 10, 15}
 	for _, h := range heights {
 		for _, n := range lineCounts {
 			t.Run(fmt.Sprintf("h%d_n%d", h, n), func(t *testing.T) {
+				t.Parallel()
 				m := newModel(Config{}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: h})
 
@@ -3965,6 +4089,7 @@ func TestMultiLineInputViewHeightNeverExceedsTerminal(t *testing.T) {
 }
 
 func TestContentStringCacheInvalidationOnDirtySegment(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -3983,6 +4108,7 @@ func TestContentStringCacheInvalidationOnDirtySegment(t *testing.T) {
 }
 
 func TestContentStringCacheInvalidationOnWidthChange(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -4008,6 +4134,7 @@ func TestContentStringCacheInvalidationOnWidthChange(t *testing.T) {
 func TestHiddenThinkingSegmentCleared(t *testing.T) {
 	// Verify that renderDirty is cleared on hidden thinking segments
 	// (the fix for Phase 4 cache being defeated by hidden thinking blocks).
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -4034,6 +4161,7 @@ func TestHiddenThinkingSegmentCleared(t *testing.T) {
 }
 
 func TestContentStringCacheInvalidationOnActiveDelegation(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -4055,6 +4183,7 @@ func TestContentStringCacheInvalidationOnActiveDelegation(t *testing.T) {
 }
 
 func TestScrollbarCacheInvalidationOnScroll(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -4084,6 +4213,7 @@ func TestScrollbarCacheInvalidationOnScroll(t *testing.T) {
 }
 
 func TestStripTrailingResetSupportsLipglossV2ShortReset(t *testing.T) {
+	t.Parallel()
 	input := "styled\x1b[m"
 	if got := stripTrailingReset(input); got != "styled" {
 		t.Fatalf("stripTrailingReset(%q) = %q, want %q", input, got, "styled")
@@ -4091,6 +4221,7 @@ func TestStripTrailingResetSupportsLipglossV2ShortReset(t *testing.T) {
 }
 
 func TestPasteGate_CapableModel_AllowsPaste(t *testing.T) {
+	t.Parallel()
 	vc := agent.NewVisionCapabilities(false)
 	vc.SetDerived("gpt-4", agent.VisionCapable)
 
@@ -4110,6 +4241,7 @@ func TestPasteGate_CapableModel_AllowsPaste(t *testing.T) {
 }
 
 func TestPasteGate_UnknownModel_AllowsPaste(t *testing.T) {
+	t.Parallel()
 	vc := agent.NewVisionCapabilities(false)
 
 	m := newModel(Config{
@@ -4128,6 +4260,7 @@ func TestPasteGate_UnknownModel_AllowsPaste(t *testing.T) {
 }
 
 func TestPasteGate_IncapableModelWithSubAgent_AllowsPaste(t *testing.T) {
+	t.Parallel()
 	vc := agent.NewVisionCapabilities(true)
 	vc.LatchIncapable("deepseek")
 
@@ -4147,6 +4280,7 @@ func TestPasteGate_IncapableModelWithSubAgent_AllowsPaste(t *testing.T) {
 }
 
 func TestPasteGate_IncapableModelNoSubAgent_BlocksPaste(t *testing.T) {
+	t.Parallel()
 	vc := agent.NewVisionCapabilities(false)
 	vc.LatchIncapable("deepseek")
 
@@ -4175,6 +4309,7 @@ func TestPasteGate_IncapableModelNoSubAgent_BlocksPaste(t *testing.T) {
 }
 
 func TestPasteGate_DisabledCapabilities_AllowsPaste(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:              "test-model",
 		ModelNames:         []string{"test-model"},
@@ -4191,6 +4326,7 @@ func TestPasteGate_DisabledCapabilities_AllowsPaste(t *testing.T) {
 }
 
 func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		initialCaps      map[string]provider.ReasoningCapabilities
@@ -4313,6 +4449,7 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{
 				Model:                      tt.primaryModel,
 				ModelNames:                 []string{tt.modelAlias},
@@ -4378,6 +4515,7 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 }
 
 func TestPasteMsgRelayoutsInput(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{
 		Model:         "test-model",
 		ModelContexts: map[string]int{"test-model": 4096},

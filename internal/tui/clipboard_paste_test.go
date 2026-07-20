@@ -26,6 +26,7 @@ func minimalPNG(t *testing.T) []byte {
 }
 
 func TestBuildClipboardImageMsgWithStorePopulatesIDAndFilePath(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store := agent.NewImageStore(filepath.Join(dir, "images"))
 
@@ -58,6 +59,7 @@ func TestBuildClipboardImageMsgWithStorePopulatesIDAndFilePath(t *testing.T) {
 }
 
 func TestBuildClipboardImageMsgWithoutStoreNoIDOrFilePath(t *testing.T) {
+	t.Parallel()
 	data := minimalPNG(t)
 	msg := buildClipboardImageMsg(data, "image/png", nil)
 
@@ -77,6 +79,7 @@ func TestBuildClipboardImageMsgWithoutStoreNoIDOrFilePath(t *testing.T) {
 }
 
 func TestExtFromMIME(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ mime, want string }{
 		{"image/png", "png"},
 		{"image/jpeg", "jpg"},
@@ -94,6 +97,7 @@ func TestExtFromMIME(t *testing.T) {
 
 func TestPendingImagesAccumulate(t *testing.T) {
 	// Test that multiple clipboardImageMsg events accumulate imageMarkers
+	t.Parallel()
 	m := Model{}
 	block1 := agent.ImageBlock{MediaType: "image/png", Data: "abc", Width: 100, Height: 100}
 	block2 := agent.ImageBlock{MediaType: "image/jpeg", Data: "def", Width: 200, Height: 200}
@@ -121,6 +125,7 @@ func TestPendingImagesAccumulate(t *testing.T) {
 }
 
 func TestPendingImagesClearedOnSubmit(t *testing.T) {
+	t.Parallel()
 	m := Model{
 		imageMarkers: []imageMarker{
 			{label: "[Image 1]", image: agent.ImageBlock{MediaType: "image/png", Data: "abc"}},
@@ -133,6 +138,7 @@ func TestPendingImagesClearedOnSubmit(t *testing.T) {
 }
 
 func TestClipboardImageMsgErrSilentlyIgnored(t *testing.T) {
+	t.Parallel()
 	m := Model{}
 	msg := clipboardImageMsg{err: ErrClipboardNoImage}
 

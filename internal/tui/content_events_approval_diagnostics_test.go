@@ -14,6 +14,7 @@ import (
 // segment, mirroring how two non-adjacent tool calls would appear in the
 // transcript.
 func TestApprovalCorrelatesByCallIDAcrossConcurrentCalls(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		collapseState: make(map[int]bool),
 	}

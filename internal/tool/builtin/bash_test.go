@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
@@ -81,7 +82,9 @@ func TestBashTool(t *testing.T) {
 	})
 
 	t.Run("timeout works", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
+		shortCtx, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+		defer cancel()
+		resultI, err := toolDef.Handler(shortCtx, map[string]any{
 			"command":         "sleep 5",
 			"timeout_seconds": 1,
 		})

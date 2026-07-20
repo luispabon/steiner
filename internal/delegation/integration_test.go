@@ -562,7 +562,7 @@ func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
 		Limits: DelegationLimits{
 			MaxTurns:          5,
 			OutputLimitTokens: 100,
-			Timeout:           25 * time.Millisecond,
+			Timeout:           2 * time.Millisecond,
 		},
 	}
 
@@ -591,7 +591,7 @@ func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{})
 
 	// Sleep past the spec timeout so childCtx is expired before summary
-	time.Sleep(30 * time.Millisecond)
+	time.Sleep(3 * time.Millisecond)
 
 	result, _, err := SpawnDelegate(context.Background(), spec, req, wrapped, output.NoopSink{}, nil)
 	if err != nil {

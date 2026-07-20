@@ -5,12 +5,14 @@ import (
 )
 
 func TestRegistrySize(t *testing.T) {
+	t.Parallel()
 	if len(slashCommands) != 18 {
 		t.Fatalf("registry length = %d, want 18", len(slashCommands))
 	}
 }
 
 func TestRegistryAllowlist(t *testing.T) {
+	t.Parallel()
 	for _, sc := range slashCommands {
 		switch sc.ID {
 		case "/exit", "/thinking", "/accent":
@@ -31,6 +33,7 @@ func TestRegistryAllowlist(t *testing.T) {
 }
 
 func TestRegistryOverlayOnly(t *testing.T) {
+	t.Parallel()
 	for _, sc := range slashCommands {
 		switch sc.ID {
 		case "/implement", "/review":
@@ -46,6 +49,7 @@ func TestRegistryOverlayOnly(t *testing.T) {
 }
 
 func TestRegistryOrder(t *testing.T) {
+	t.Parallel()
 	want := []string{
 		"/cache-stats",
 		"/clear",
@@ -77,6 +81,7 @@ func TestRegistryOrder(t *testing.T) {
 }
 
 func TestProjectPrefixesFalse(t *testing.T) {
+	t.Parallel()
 	got := projectPrefixes(false)
 	// No overlay-only entries
 	for _, p := range got {
@@ -150,6 +155,7 @@ func TestProjectPrefixesFalse(t *testing.T) {
 }
 
 func TestProjectPrefixesTrue(t *testing.T) {
+	t.Parallel()
 	got := projectPrefixes(true)
 	// Only allowlist entries
 	wantAllowlist := map[string]bool{"/exit": true, "/thinking": true, "/accent": true}
@@ -189,6 +195,7 @@ func TestProjectPrefixesTrue(t *testing.T) {
 }
 
 func TestProjectCompletionCandidatesFalseNoSkills(t *testing.T) {
+	t.Parallel()
 	got := projectCompletionCandidates(false, nil)
 	// Should contain all non-overlay entries
 	for _, sc := range slashCommands {
@@ -235,6 +242,7 @@ func TestProjectCompletionCandidatesFalseNoSkills(t *testing.T) {
 }
 
 func TestProjectCompletionCandidatesFalseWithSkills(t *testing.T) {
+	t.Parallel()
 	got := projectCompletionCandidates(false, []string{"foo"})
 	// Should include skill variants
 	hasPlus := false
@@ -263,6 +271,7 @@ func TestProjectCompletionCandidatesFalseWithSkills(t *testing.T) {
 }
 
 func TestProjectCompletionCandidatesTrue(t *testing.T) {
+	t.Parallel()
 	got := projectCompletionCandidates(true, nil)
 	// Only allowlist entries
 	for _, c := range got {
@@ -300,6 +309,7 @@ func TestProjectCompletionCandidatesTrue(t *testing.T) {
 }
 
 func TestProjectOverlayItemsFalse(t *testing.T) {
+	t.Parallel()
 	got := projectOverlayItems(false, nil, nil)
 	if len(got) != 18 {
 		t.Fatalf("projectOverlayItems(false) length = %d, want 18", len(got))
@@ -319,6 +329,7 @@ func TestProjectOverlayItemsFalse(t *testing.T) {
 }
 
 func TestProjectOverlayItemsTrue(t *testing.T) {
+	t.Parallel()
 	got := projectOverlayItems(true, nil, nil)
 	if len(got) != 3 {
 		t.Fatalf("projectOverlayItems(true) length = %d, want 3", len(got))
@@ -332,6 +343,7 @@ func TestProjectOverlayItemsTrue(t *testing.T) {
 }
 
 func TestProjectOverlayItemsWithSkills(t *testing.T) {
+	t.Parallel()
 	skillNames := []string{"foo"}
 	skillDescs := map[string]string{"foo": "a useful skill"}
 	got := projectOverlayItems(false, skillNames, skillDescs)
@@ -353,6 +365,7 @@ func TestProjectOverlayItemsWithSkills(t *testing.T) {
 }
 
 func TestProjectHelpLines(t *testing.T) {
+	t.Parallel()
 	got := projectHelpLines()
 	want := []helpBinding{
 		{key: "/clear", desc: "reset the current session"},

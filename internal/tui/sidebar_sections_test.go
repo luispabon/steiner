@@ -8,6 +8,7 @@ import (
 )
 
 func TestFormatDuration(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		ms   int64
 		want string
@@ -29,6 +30,7 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestFormatTPS(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		tps  float64
 		want string
@@ -47,6 +49,7 @@ func TestFormatTPS(t *testing.T) {
 }
 
 func TestModelSectionProviderLabel(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name         string
 		provider     string
@@ -78,6 +81,7 @@ func TestModelSectionProviderLabel(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			s := sidebarState{
 				provider:     tc.provider,
 				providerName: tc.providerName,
@@ -98,6 +102,7 @@ func TestModelSectionProviderLabel(t *testing.T) {
 }
 
 func TestModelSectionReasoningLine(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		reasoning string
@@ -109,6 +114,7 @@ func TestModelSectionReasoningLine(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			s := sidebarState{model: "gpt-5", reasoning: tc.reasoning}
 			lines := s.modelSection(32)
 			joined := strings.Join(lines, "\n")
@@ -123,6 +129,7 @@ func TestModelSectionReasoningLine(t *testing.T) {
 }
 
 func TestSeparatorLineMode(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		mode    string
@@ -136,6 +143,7 @@ func TestSeparatorLineMode(t *testing.T) {
 	styles := theme.BuildStyles(theme.AccentAmber)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			s := sidebarState{execMode: tc.mode, styles: styles}
 			line := s.separatorLine(32)
 			if tc.hasMode {
@@ -158,6 +166,7 @@ func TestSeparatorLineMode(t *testing.T) {
 }
 
 func TestPerformanceSection(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name           string
 		perfDurationMs int64
@@ -172,6 +181,7 @@ func TestPerformanceSection(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			s := sidebarState{
 				perfDurationMs: tc.perfDurationMs,
 				perfTTFTMs:     tc.perfTTFTMs,
@@ -186,6 +196,7 @@ func TestPerformanceSection(t *testing.T) {
 }
 
 func TestSidebarRendersOneshotSection(t *testing.T) {
+	t.Parallel()
 	s := sidebarState{oneshotPhase: "plan"}
 	lines := s.staticLines(32)
 	joined := strings.Join(lines, "\n")
@@ -198,6 +209,7 @@ func TestSidebarRendersOneshotSection(t *testing.T) {
 }
 
 func TestSidebarOmitsOneshotSectionWhenEmpty(t *testing.T) {
+	t.Parallel()
 	s := sidebarState{oneshotPhase: ""}
 	lines := s.staticLines(32)
 	joined := strings.Join(lines, "\n")
@@ -207,6 +219,7 @@ func TestSidebarOmitsOneshotSectionWhenEmpty(t *testing.T) {
 }
 
 func TestFormatCacheHitRate(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		rate float64
 		ok   bool
@@ -227,6 +240,7 @@ func TestFormatCacheHitRate(t *testing.T) {
 }
 
 func TestCacheSection(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name                  string
 		sessionCacheHitRate   float64
@@ -258,6 +272,7 @@ func TestCacheSection(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			s := sidebarState{
 				sessionCacheHitRate:   tc.sessionCacheHitRate,
 				sessionCacheHitRateOK: tc.sessionCacheHitRateOK,

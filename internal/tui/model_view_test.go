@@ -31,6 +31,7 @@ func renderViewportWithScrollbarOriginal(viewportInner, scrollbar string, viewpo
 }
 
 func TestRenderViewportWithScrollbar(t *testing.T) {
+	t.Parallel()
 	m := Model{
 		viewport: viewport.New(),
 		styles:   theme.BuildStyles(theme.AccentAmber),
@@ -104,6 +105,7 @@ func TestRenderViewportWithScrollbar(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			want := renderViewportWithScrollbarOriginal(tc.viewport, tc.scrollbar, viewportWidth)
 			got := m.renderViewportWithScrollbar(tc.viewport, tc.scrollbar)
 			if got != want {

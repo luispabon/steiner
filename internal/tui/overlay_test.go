@@ -7,6 +7,7 @@ import (
 )
 
 func TestComposeCenteredOverlayKeepsBaseContentOutsideOverlay(t *testing.T) {
+	t.Parallel()
 	base := strings.Join([]string{
 		"abcdefghijkl",
 		"mnopqrstuvwx",
@@ -46,6 +47,7 @@ func TestComposeCenteredOverlayKeepsBaseContentOutsideOverlay(t *testing.T) {
 
 func TestPlaceBottomAnchoredAtPosition(t *testing.T) {
 	// Build a 20-row base with distinguishable lines.
+	t.Parallel()
 	lines := make([]string, 20)
 	for i := range lines {
 		lines[i] = fmt.Sprintf("row-%02d", i)
@@ -97,6 +99,7 @@ func TestPlaceBottomAnchoredAtPosition(t *testing.T) {
 }
 
 func TestOverlayShellOverlayWidth(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		preferred int
@@ -111,6 +114,7 @@ func TestOverlayShellOverlayWidth(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			shell := OverlayShell{width: tt.termWidth, preferredWidth: tt.preferred}
 			if got := shell.overlayWidth(); got != tt.wantWidth {
 				t.Errorf("overlayWidth() = %d, want %d", got, tt.wantWidth)

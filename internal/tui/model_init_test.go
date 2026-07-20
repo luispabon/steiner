@@ -7,6 +7,7 @@ import (
 )
 
 func TestResolveAccentPreset(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		preset         string
@@ -54,6 +55,7 @@ func TestResolveAccentPreset(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := resolveAccentPreset(tt.preset, tt.randFn)
 
 			if tt.wantExactValue != "" {
@@ -79,6 +81,7 @@ func TestResolveAccentPreset(t *testing.T) {
 
 func TestResolveAccentPresetRandomDeterministic(t *testing.T) {
 	// Test that random selection is deterministic given the same randFn
+	t.Parallel()
 	callCount := 0
 	randFn := func(_ int) int {
 		callCount++

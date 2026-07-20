@@ -12,6 +12,7 @@ import (
 )
 
 func TestWorkflowHandoffModalHeaderText(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		next     string
@@ -36,6 +37,7 @@ func TestWorkflowHandoffModalHeaderText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -60,6 +62,7 @@ func TestWorkflowHandoffModalHeaderText(t *testing.T) {
 }
 
 func TestWorkflowHandoffModalWarningText(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		next     string
@@ -89,6 +92,7 @@ func TestWorkflowHandoffModalWarningText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -113,6 +117,7 @@ func TestWorkflowHandoffModalWarningText(t *testing.T) {
 }
 
 func TestWorkflowHandoffModalBoldLabels(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -149,6 +154,7 @@ func TestWorkflowHandoffModalBoldLabels(t *testing.T) {
 }
 
 func TestWorkflowHandoffModalModelLineRendering(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		modelAlias   string
@@ -177,6 +183,7 @@ func TestWorkflowHandoffModalModelLineRendering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -201,6 +208,7 @@ func TestWorkflowHandoffModalModelLineRendering(t *testing.T) {
 }
 
 func TestWorkflowHandoffModalPlanningFolder(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 

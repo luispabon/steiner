@@ -7,6 +7,7 @@ import (
 )
 
 func TestImagePlaceholder_WithDimensions(t *testing.T) {
+	t.Parallel()
 	img := agent.ImageBlock{
 		MediaType: "image/png",
 		Width:     1024,
@@ -21,6 +22,7 @@ func TestImagePlaceholder_WithDimensions(t *testing.T) {
 }
 
 func TestImagePlaceholder_WithSize_NoDimensions(t *testing.T) {
+	t.Parallel()
 	img := agent.ImageBlock{
 		MediaType: "image/jpeg",
 		Width:     0,
@@ -35,6 +37,7 @@ func TestImagePlaceholder_WithSize_NoDimensions(t *testing.T) {
 }
 
 func TestImagePlaceholder_NoData(t *testing.T) {
+	t.Parallel()
 	img := agent.ImageBlock{
 		MediaType: "",
 		Width:     0,
@@ -49,6 +52,7 @@ func TestImagePlaceholder_NoData(t *testing.T) {
 }
 
 func TestImageBlocksText_Multiple(t *testing.T) {
+	t.Parallel()
 	images := []agent.ImageBlock{
 		{
 			MediaType: "image/png",
@@ -71,6 +75,7 @@ func TestImageBlocksText_Multiple(t *testing.T) {
 }
 
 func TestImageBlocksText_Empty(t *testing.T) {
+	t.Parallel()
 	images := []agent.ImageBlock{}
 	got := imageBlocksText(images)
 	if got != "" {

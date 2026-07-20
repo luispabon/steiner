@@ -3,6 +3,7 @@ package tui
 import "testing"
 
 func TestParseInputHandlesConfigCommand(t *testing.T) {
+	t.Parallel()
 	action := parseInput("/config")
 	if !action.inspectConfig {
 		t.Fatal("inspectConfig = false, want true")
@@ -13,6 +14,7 @@ func TestParseInputHandlesConfigCommand(t *testing.T) {
 }
 
 func TestBuildCompletionCandidatesIncludesConfig(t *testing.T) {
+	t.Parallel()
 	got := buildCompletionCandidates("/co", nil, false)
 	if len(got) != 2 {
 		t.Fatalf("candidates = %#v, want 2 candidates", got)
@@ -23,6 +25,7 @@ func TestBuildCompletionCandidatesIncludesConfig(t *testing.T) {
 }
 
 func TestParseInputHandlesResumeCommand(t *testing.T) {
+	t.Parallel()
 	action := parseInput("/resume")
 	if !action.requestSessionPicker {
 		t.Fatal("requestSessionPicker = false, want true")
@@ -33,7 +36,9 @@ func TestParseInputHandlesResumeCommand(t *testing.T) {
 }
 
 func TestParseInputHandlesListFiles(t *testing.T) {
+	t.Parallel()
 	t.Run("no path defaults to working directory", func(t *testing.T) {
+		t.Parallel()
 		action := parseInput("/ls")
 		if !action.listFiles {
 			t.Fatal("listFiles = false, want true")
@@ -44,6 +49,7 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 	})
 
 	t.Run("with path argument", func(t *testing.T) {
+		t.Parallel()
 		action := parseInput("/ls internal/")
 		if !action.listFiles {
 			t.Fatal("listFiles = false, want true")
@@ -54,6 +60,7 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 	})
 
 	t.Run("submits as text without slash", func(t *testing.T) {
+		t.Parallel()
 		action := parseInput("ls")
 		if action.listFiles {
 			t.Fatal("listFiles = true, want false for text without slash")
@@ -64,6 +71,7 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 	})
 
 	t.Run("buildCompletionCandidates includes ls", func(t *testing.T) {
+		t.Parallel()
 		got := buildCompletionCandidates("/l", nil, false)
 		found := false
 		for _, c := range got {
@@ -79,7 +87,9 @@ func TestParseInputHandlesListFiles(t *testing.T) {
 }
 
 func TestParseInputHandlesSkillInvocation(t *testing.T) {
+	t.Parallel()
 	t.Run("direct invocation", func(t *testing.T) {
+		t.Parallel()
 		action := parseInputWithSkills("/mykill", nil, []string{"mykill"})
 		if action.invokeSkill != "mykill" {
 			t.Fatalf("invokeSkill = %q, want mykill", action.invokeSkill)
@@ -90,6 +100,7 @@ func TestParseInputHandlesSkillInvocation(t *testing.T) {
 	})
 
 	t.Run("invocation with args", func(t *testing.T) {
+		t.Parallel()
 		action := parseInputWithSkills("/mykill some args here", nil, []string{"mykill"})
 		if action.invokeSkill != "mykill" {
 			t.Fatalf("invokeSkill = %q, want mykill", action.invokeSkill)
@@ -100,6 +111,7 @@ func TestParseInputHandlesSkillInvocation(t *testing.T) {
 	})
 
 	t.Run("unknown skill is submitted as text", func(t *testing.T) {
+		t.Parallel()
 		action := parseInputWithSkills("/unknownSkill", nil, []string{"mykill"})
 		if action.submit != "/unknownSkill" {
 			t.Fatalf("submit = %q, want /unknownSkill", action.submit)
@@ -110,6 +122,7 @@ func TestParseInputHandlesSkillInvocation(t *testing.T) {
 	})
 
 	t.Run("prefix match does not invoke different skill", func(t *testing.T) {
+		t.Parallel()
 		action := parseInputWithSkills("/mykill-extra", nil, []string{"mykill"})
 		if action.invokeSkill != "" {
 			t.Fatalf("invokeSkill = %q, want empty", action.invokeSkill)
@@ -120,6 +133,7 @@ func TestParseInputHandlesSkillInvocation(t *testing.T) {
 	})
 
 	t.Run("similar skill names resolve exactly", func(t *testing.T) {
+		t.Parallel()
 		action := parseInputWithSkills("/reviewer arg", nil, []string{"review", "reviewer"})
 		if action.invokeSkill != "reviewer" {
 			t.Fatalf("invokeSkill = %q, want reviewer", action.invokeSkill)
@@ -130,6 +144,7 @@ func TestParseInputHandlesSkillInvocation(t *testing.T) {
 	})
 
 	t.Run("slash-skill still works", func(t *testing.T) {
+		t.Parallel()
 		action := parseInputWithSkills("/skill mykill", nil, []string{"mykill"})
 		if action.toggleSkill != "mykill" {
 			t.Fatalf("toggleSkill = %q, want mykill", action.toggleSkill)
@@ -141,6 +156,7 @@ func TestParseInputHandlesSkillInvocation(t *testing.T) {
 }
 
 func TestBuildCompletionCandidatesAllowlistExcludesOneshot(t *testing.T) {
+	t.Parallel()
 	got := buildCompletionCandidates("/", nil, true)
 	for _, c := range got {
 		if c == "/oneshot" {
@@ -163,6 +179,7 @@ func TestBuildCompletionCandidatesAllowlistExcludesOneshot(t *testing.T) {
 }
 
 func TestParseInputHandlesOneshotResumeCommand(t *testing.T) {
+	t.Parallel()
 	action := parseInput("/oneshot-resume")
 	if !action.requestOneshotResumePicker {
 		t.Fatal("requestOneshotResumePicker = false, want true")
@@ -173,6 +190,7 @@ func TestParseInputHandlesOneshotResumeCommand(t *testing.T) {
 }
 
 func TestParseInputHandlesCacheStatsCommand(t *testing.T) {
+	t.Parallel()
 	action := parseInput("/cache-stats")
 	if !action.openCacheStats {
 		t.Fatal("openCacheStats = false, want true")
@@ -183,6 +201,7 @@ func TestParseInputHandlesCacheStatsCommand(t *testing.T) {
 }
 
 func TestBuildCompletionCandidatesIncludesOneshotResume(t *testing.T) {
+	t.Parallel()
 	got := buildCompletionCandidates("/oneshot", nil, false)
 	found := false
 	for _, c := range got {

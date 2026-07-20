@@ -12,6 +12,7 @@ import (
 )
 
 func TestScopedDelegationCompactionStaysInsideDelegationSegment(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
@@ -84,6 +85,7 @@ func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
 }
 
 func TestRemoveFromPendingDelegateParents(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
@@ -115,6 +117,7 @@ func TestRemoveFromPendingDelegateParents(t *testing.T) {
 }
 
 func TestDelegationToolCallFinished_DrainsQueue(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
@@ -154,6 +157,7 @@ func TestDelegationToolCallFinished_DrainsQueue(t *testing.T) {
 }
 
 func TestDelegationToolCallFinished_IgnoresSpawned(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
@@ -190,6 +194,7 @@ func TestDelegationToolCallFinished_IgnoresSpawned(t *testing.T) {
 }
 
 func TestDelegationToolCallFinished_FollowUp_DrainsQueue(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
@@ -229,6 +234,7 @@ func TestDelegationToolCallFinished_FollowUp_DrainsQueue(t *testing.T) {
 }
 
 func TestAdvisorThinkingChunkRoutingBySource(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),

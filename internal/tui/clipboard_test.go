@@ -6,6 +6,7 @@ import (
 )
 
 func TestClipboardErrors(t *testing.T) {
+	t.Parallel()
 	if ErrClipboardNoImage == nil {
 		t.Error("ErrClipboardNoImage must not be nil")
 	}
@@ -29,6 +30,7 @@ func TestClipboardErrors(t *testing.T) {
 }
 
 func TestClipboardMaxImageBytes(t *testing.T) {
+	t.Parallel()
 	const want = 5 * 1024 * 1024
 	if clipboardMaxImageBytes != want {
 		t.Errorf("clipboardMaxImageBytes = %d, want %d", clipboardMaxImageBytes, want)
