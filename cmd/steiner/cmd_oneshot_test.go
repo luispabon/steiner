@@ -13,6 +13,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 )
 
 type fakeOneshotOrchestrator struct {
@@ -198,5 +199,38 @@ func TestOneshotCommandResume(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestPhasePromptDelivery(t *testing.T) {
+	tests := []struct {
+		phase              oneshot.Phase
+		expectedPromptText string
+	}{
+		{phase: oneshot.PhasePlan, expectedPromptText: "mandatory advisor"},
+		{phase: oneshot.PhaseImplement, expectedPromptText: "## Execution Artifact"},
+		{phase: oneshot.PhaseReview, expectedPromptText: "mandatory advisor"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.phase), func(t *testing.T) {
+			phasePrompt, err := oneshot.LoadPrompt(tt.phase)
+			if err != nil {
+				t.Fatalf("LoadPrompt(%s) failed: %v", tt.phase, err)
+			}
+			if phasePrompt == "" {
+				t.Fatalf("LoadPrompt(%s) returned empty string", tt.phase)
+			}
+
+			if !strings.Contains(phasePrompt, tt.expectedPromptText) {
+				t.Errorf("phase prompt for %s missing expected text %q\nGot: %q",
+					tt.phase, tt.expectedPromptText, phasePrompt)
+			}
+
+			wfMode := prompt.DelegatedChildWorkflowMode()
+			if wfMode == "" {
+				t.Error("DelegatedChildWorkflowMode() returned empty string")
+			}
+		})
 	}
 }

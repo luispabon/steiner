@@ -148,6 +148,8 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
 		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
 		AdvisorEnabled:            r.runtime.cfg.Advisor.Enabled,
+		PhasePrompt:               r.phasePrompt,
+		WorkflowMode:              r.workflowMode,
 		Conversation:              toProviderConversation(conversation),
 		CaveHuman:                 r.runtime.cfg.CaveHuman,
 	}

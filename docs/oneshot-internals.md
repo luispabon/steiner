@@ -26,7 +26,7 @@ The agent's prompt contexts reference the worktree path; tool schemas and result
 
 ### Phase Loop: Plan → Implement → Review
 
-Each phase is a fresh agent run with empty model context and a clean scrollback. Cross-phase state is carried by:
+Each phase is a fresh agent run with empty model context and a clean scrollback. Every phase receives its **phase orchestration prompt** as a system-level context source — embedded prompts (`internal/oneshot/prompts/{plan,implement,review}.md`) are loaded and delivered directly to the model as part of the static system context, bypassing byte budgets to ensure full delivery. All phases run in **delegated-child workflow mode** (no approval gating for mutations; the delegated task is pre-authorized). Cross-phase state is carried by:
 
 1. **Disk artifacts**: `overview.md`, `plan.yaml`, `execution.md`, `review.md` (committed at phase boundaries)
 2. **Git history**: each phase leaves a commit milestone

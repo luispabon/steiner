@@ -15,6 +15,7 @@ func buildContextCategories(ctx context.Context, snapshot RequestContextSnapshot
 	categories := []contextReportCategory{
 		{Title: "request framing"},
 		{Title: "system preamble"},
+		{Title: "oneshot phase prompt"},
 		{Title: "global AGENTS.md"},
 		{Title: "project AGENTS.md"},
 		{Title: "project context files"},
@@ -173,7 +174,7 @@ func attributeOrphanMessage(message provider.Message, categories []contextReport
 // reflected in the other.
 func assemblyRoleForSource(source prompt.ContextSource) provider.MessageRole {
 	switch source {
-	case prompt.ContextSourcePreamble, prompt.ContextSourceGlobalAgentsMD, prompt.ContextSourceProjectAgentsMD, prompt.ContextSourceConversationSummary:
+	case prompt.ContextSourcePreamble, prompt.ContextSourcePhasePrompt, prompt.ContextSourceGlobalAgentsMD, prompt.ContextSourceProjectAgentsMD, prompt.ContextSourceConversationSummary:
 		return provider.MessageRoleSystem
 	case prompt.ContextSourceToolSummary, prompt.ContextSourceToolResult, prompt.ContextSourceDelegationResult:
 		return provider.MessageRoleTool
@@ -232,6 +233,8 @@ func classifyBlock(block prompt.ContextBlock) (string, string) {
 	switch block.Source {
 	case prompt.ContextSourcePreamble:
 		return "system preamble", "system preamble"
+	case prompt.ContextSourcePhasePrompt:
+		return "oneshot phase prompt", "oneshot phase prompt"
 	case prompt.ContextSourceGlobalAgentsMD:
 		return "global AGENTS.md", blockPathLabel(block.Path, "global AGENTS.md")
 	case prompt.ContextSourceProjectAgentsMD:

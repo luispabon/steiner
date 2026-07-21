@@ -589,6 +589,93 @@ func TestAssembleBundledSkillsAreNotImplicit(t *testing.T) {
 	}
 }
 
+func TestPhasePromptBypassesBudget(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	projectRoot := t.TempDir()
+
+	// Create a large phase prompt. Note: phasePromptStep trims whitespace, so
+	// the trailing space will be removed.
+	phasePrompt := strings.Repeat("Phase prompt content.", 1000) + "\n"
+	expectedPrompt := strings.TrimSpace(phasePrompt)
+
+	// Set a very restrictive budget that would normally truncate the phase prompt
+	assembly, err := Assemble(context.Background(), AssemblyOptions{
+		HomeDir:      homeDir,
+		ProjectRoot:  projectRoot,
+		PhasePrompt:  phasePrompt,
+		Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		Policy: AssemblyPolicy{
+			Budgets: SourceBudgetModel{
+				PreambleBytes:       100000,
+				ProjectContextBytes: 100,
+				SkillBytes:          100,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	var foundPhasePrompt *ContextBlock
+	for i := range assembly.Blocks {
+		if assembly.Blocks[i].Source == ContextSourcePhasePrompt {
+			foundPhasePrompt = &assembly.Blocks[i]
+			break
+		}
+	}
+
+	if foundPhasePrompt == nil {
+		t.Fatal("phase prompt block not found in assembly")
+	}
+
+	if foundPhasePrompt.Truncated {
+		t.Errorf("phase prompt should not be truncated but was")
+	}
+
+	if foundPhasePrompt.Content != expectedPrompt {
+		t.Errorf("phase prompt content mismatch: got %d bytes, want %d bytes",
+			len(foundPhasePrompt.Content), len(expectedPrompt))
+	}
+
+	var phasePromptMsgIdx int
+	found := false
+	for i, msg := range assembly.Messages {
+		if strings.Contains(msg.Content, "Phase prompt content") {
+			phasePromptMsgIdx = i
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("phase prompt message not found")
+	}
+
+	if assembly.Messages[phasePromptMsgIdx].Role != provider.MessageRoleSystem {
+		t.Errorf("phase prompt message role = %q, want system",
+			assembly.Messages[phasePromptMsgIdx].Role)
+	}
+
+	convMsgIdx := -1
+	for i, msg := range assembly.Messages {
+		if msg.Content == "hello" {
+			convMsgIdx = i
+			break
+		}
+	}
+
+	if convMsgIdx < 0 {
+		t.Fatal("conversation message not found")
+	}
+
+	if phasePromptMsgIdx >= convMsgIdx {
+		t.Errorf("phase prompt message at index %d should come before conversation at index %d",
+			phasePromptMsgIdx, convMsgIdx)
+	}
+}
+
 func mustWrite(t *testing.T, dir, name, content string) {
 	t.Helper()
 

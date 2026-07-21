@@ -19,6 +19,7 @@ func TestPlanSourceAssemblyOrdersSources(t *testing.T) {
 		{Kind: plannedSourceAgents, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceProjectContext, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceSkills, Placement: plannedSourcePlacementCore, PassThrough: false},
+		{Kind: plannedSourcePhasePrompt, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceConversation, Placement: plannedSourcePlacementConversation, PassThrough: true},
 		{Kind: plannedSourceToolSummaries, Placement: plannedSourcePlacementToolSummaries, PassThrough: false},
 	}

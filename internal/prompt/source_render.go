@@ -97,7 +97,7 @@ func blockMessage(block ContextBlock) provider.Message {
 	}
 
 	switch block.Source {
-	case ContextSourcePreamble, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
+	case ContextSourcePreamble, ContextSourcePhasePrompt, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
 		message.Role = provider.MessageRoleSystem
 	case ContextSourceConversationSummary:
 		message.Role = provider.MessageRoleSystem

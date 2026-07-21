@@ -13,6 +13,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -42,6 +43,8 @@ type phaseRunnerParams struct {
 	StreamingPreferred bool
 	Events             output.EventSink
 	PromptCacheKey     string
+	PhasePrompt        string
+	WorkflowMode       prompt.WorkflowMode
 }
 
 func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, params phaseRunnerParams) (oneshot.PhaseRunner, error) {
@@ -70,6 +73,8 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 		runMode:            params.RunMode,
 		streamingPreferred: params.StreamingPreferred,
 		promptCacheKey:     params.PromptCacheKey,
+		phasePrompt:        params.PhasePrompt,
+		workflowMode:       params.WorkflowMode,
 	}
 	if alias := strings.TrimSpace(params.ModelAlias); alias != "" {
 		runner.currentAlias = func() string {
@@ -204,7 +209,11 @@ type phaseRunnerFactory struct {
 	events   output.EventSink
 }
 
-func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, _ oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (oneshot.PhaseRunner, error) {
+func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, phase oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (oneshot.PhaseRunner, error) {
+	phasePrompt, err := oneshot.LoadPrompt(phase)
+	if err != nil {
+		return nil, err
+	}
 	return newPhaseRunner(ctx, f.cmd, f.flags, phaseRunnerParams{
 		ProjectRoot:        f.rootDir,
 		WorkDir:            f.identity.WorktreePath(f.rootDir),
@@ -216,6 +225,8 @@ func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, _ oneshot.Phase,
 		StreamingPreferred: false,
 		Events:             f.events,
 		PromptCacheKey:     f.identity.ID,
+		PhasePrompt:        phasePrompt,
+		WorkflowMode:       prompt.DelegatedChildWorkflowMode(),
 	})
 }
 
