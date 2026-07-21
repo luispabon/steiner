@@ -209,12 +209,14 @@ type phaseRunnerFactory struct {
 	events   output.EventSink
 }
 
-func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, phase oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (oneshot.PhaseRunner, error) {
+// phaseParams builds the runner parameters for a phase, including the phase
+// orchestration prompt that carries the workflow contract.
+func (f phaseRunnerFactory) phaseParams(phase oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (phaseRunnerParams, error) {
 	phasePrompt, err := oneshot.LoadPrompt(phase)
 	if err != nil {
-		return nil, err
+		return phaseRunnerParams{}, err
 	}
-	return newPhaseRunner(ctx, f.cmd, f.flags, phaseRunnerParams{
+	return phaseRunnerParams{
 		ProjectRoot:        f.rootDir,
 		WorkDir:            f.identity.WorktreePath(f.rootDir),
 		ModelAlias:         modelAlias,
@@ -227,7 +229,15 @@ func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, phase oneshot.Ph
 		PromptCacheKey:     f.identity.ID,
 		PhasePrompt:        phasePrompt,
 		WorkflowMode:       prompt.DelegatedChildWorkflowMode(),
-	})
+	}, nil
+}
+
+func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, phase oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (oneshot.PhaseRunner, error) {
+	params, err := f.phaseParams(phase, modelAlias, approver, advisorCfg)
+	if err != nil {
+		return nil, err
+	}
+	return newPhaseRunner(ctx, f.cmd, f.flags, params)
 }
 
 func renderOneshotRuns(stream *output.EventStream, runs []oneshot.ResumableRun) {

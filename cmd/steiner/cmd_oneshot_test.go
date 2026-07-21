@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -202,35 +203,60 @@ func TestOneshotCommandResume(t *testing.T) {
 	}
 }
 
-func TestPhasePromptDelivery(t *testing.T) {
+func TestPhaseParamsCarryPhasePrompt(t *testing.T) {
 	tests := []struct {
-		phase              oneshot.Phase
-		expectedPromptText string
+		phase          oneshot.Phase
+		expectedMarker string
 	}{
-		{phase: oneshot.PhasePlan, expectedPromptText: "mandatory advisor"},
-		{phase: oneshot.PhaseImplement, expectedPromptText: "## Execution Artifact"},
-		{phase: oneshot.PhaseReview, expectedPromptText: "mandatory advisor"},
+		{phase: oneshot.PhasePlan, expectedMarker: "# Plan Phase"},
+		{phase: oneshot.PhaseImplement, expectedMarker: "## Execution Artifact"},
+		{phase: oneshot.PhaseReview, expectedMarker: "# Review Phase"},
 	}
+
+	factory := phaseRunnerFactory{}
 
 	for _, tt := range tests {
 		t.Run(string(tt.phase), func(t *testing.T) {
-			phasePrompt, err := oneshot.LoadPrompt(tt.phase)
+			params, err := factory.phaseParams(tt.phase, "", nil, config.AdvisorConfig{})
 			if err != nil {
-				t.Fatalf("LoadPrompt(%s) failed: %v", tt.phase, err)
-			}
-			if phasePrompt == "" {
-				t.Fatalf("LoadPrompt(%s) returned empty string", tt.phase)
+				t.Fatalf("phaseParams(%s) failed: %v", tt.phase, err)
 			}
 
-			if !strings.Contains(phasePrompt, tt.expectedPromptText) {
-				t.Errorf("phase prompt for %s missing expected text %q\nGot: %q",
-					tt.phase, tt.expectedPromptText, phasePrompt)
+			if !strings.Contains(params.PhasePrompt, tt.expectedMarker) {
+				t.Errorf("phaseParams(%s).PhasePrompt missing expected marker %q\nGot: %q",
+					tt.phase, tt.expectedMarker, params.PhasePrompt)
 			}
 
-			wfMode := prompt.DelegatedChildWorkflowMode()
-			if wfMode == "" {
-				t.Error("DelegatedChildWorkflowMode() returned empty string")
+			if params.WorkflowMode != prompt.DelegatedChildWorkflowMode() {
+				t.Errorf("phaseParams(%s).WorkflowMode = %q, want %q",
+					tt.phase, params.WorkflowMode, prompt.DelegatedChildWorkflowMode())
 			}
 		})
 	}
+}
+
+func TestPromptAssemblyCarriesPhasePrompt(t *testing.T) {
+	t.Run("phase runner carries phase prompt", func(t *testing.T) {
+		rt := cliRuntime{}
+		runner := cliRunner{runtime: rt, phasePrompt: "SENTINEL-PHASE-PROMPT", workflowMode: prompt.DelegatedChildWorkflowMode()}
+
+		opts := runner.promptAssembly(nil, nil, prompt.ModelTokenBudget{}, config.ModelPrompts{})
+
+		if got, want := opts.PhasePrompt, "SENTINEL-PHASE-PROMPT"; got != want {
+			t.Errorf("AssemblyOptions.PhasePrompt = %q, want %q", got, want)
+		}
+		if got, want := opts.WorkflowMode, prompt.DelegatedChildWorkflowMode(); got != want {
+			t.Errorf("AssemblyOptions.WorkflowMode = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("non-phase runner has no phase prompt", func(t *testing.T) {
+		runner := cliRunner{}
+
+		opts := runner.promptAssembly(nil, nil, prompt.ModelTokenBudget{}, config.ModelPrompts{})
+
+		if got := opts.PhasePrompt; got != "" {
+			t.Errorf("AssemblyOptions.PhasePrompt = %q, want empty", got)
+		}
+	})
 }
