@@ -923,6 +923,64 @@ func TestModelMouseClickTargetsResumedToolRowAfterUserGap(t *testing.T) {
 	}
 }
 
+func TestModelDoubleClickSelectsURLAndBareRelativePath(t *testing.T) {
+	t.Parallel()
+	const (
+		url  = "https://github.com/luispabon/steiner/issues/356"
+		path = "internal/tui/selection.go"
+	)
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 150, Height: 20})
+	m.content.AppendLine("See " + url + " and " + path + " for details")
+	m.syncViewport()
+	m.contentTopPad = 0
+	m.viewport.SetYOffset(0)
+
+	m.populateScreenLines()
+	lines := *m.screenLines
+
+	row, urlCol, pathCol := -1, -1, -1
+	for i, line := range lines {
+		if idx := strings.Index(line, url); idx >= 0 {
+			row = i
+			urlCol = idx
+		}
+		if idx := strings.Index(line, path); idx >= 0 {
+			pathCol = idx
+		}
+	}
+	if row < 0 || urlCol < 0 || pathCol < 0 {
+		t.Fatalf("rendered content missing URL or path:\n%s", strings.Join(lines, "\n"))
+	}
+
+	// Double-click inside the URL: two consecutive clicks at the same
+	// coordinates land well inside nextClickCount's 500ms / ±1 cell window.
+	m = updateModel(t, m, mouseClickMsg{x: urlCol + 2, y: row})
+	m = updateModel(t, m, mouseClickMsg{x: urlCol + 2, y: row})
+
+	start, end := m.selection.canonical()
+	if start.line != row || end.line != row || start.col != urlCol || end.col != urlCol+len(url) {
+		t.Fatalf("URL selection = (%d,%d)-(%d,%d), want (%d,%d)-(%d,%d)",
+			start.line, start.col, end.line, end.col, row, urlCol, row, urlCol+len(url))
+	}
+	if got := extractText(*m.screenLines, m.selection, 0, 0); got != url {
+		t.Fatalf("extractText = %q, want %q", got, url)
+	}
+
+	// Double-click inside the bare relative path.
+	m = updateModel(t, m, mouseClickMsg{x: pathCol + 2, y: row})
+	m = updateModel(t, m, mouseClickMsg{x: pathCol + 2, y: row})
+
+	start, end = m.selection.canonical()
+	if start.line != row || end.line != row || start.col != pathCol || end.col != pathCol+len(path) {
+		t.Fatalf("path selection = (%d,%d)-(%d,%d), want (%d,%d)-(%d,%d)",
+			start.line, start.col, end.line, end.col, row, pathCol, row, pathCol+len(path))
+	}
+	if got := extractText(*m.screenLines, m.selection, 0, 0); got != path {
+		t.Fatalf("extractText = %q, want %q", got, path)
+	}
+}
+
 func TestModelHandlesContextKeybindLocally(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}

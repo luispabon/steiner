@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -358,24 +359,62 @@ func (m Model) selectionHighlightBounds() (left, right int) {
 }
 
 // Compiled regexps for token-aware double-click selection.
+//
+// pathRegex's two bare-relative alternatives (no leading /, ~, or .) are
+// deliberately narrower than "anything with a slash", to avoid swallowing
+// prose: a bare relative path qualifies only when it has two or more path
+// separators (internal/tui/selection.go) or its final segment carries a file
+// extension (docs/oneshot.md). This rejects and/or, TCP/IP, 24/7, and 12/25
+// while accepting steiner's own path output. The trailing (?::\d+(?::\d+)?)?
+// group attaches an optional :line or :line:col suffix to every alternative.
 var (
 	urlRegex  = regexp.MustCompile(`(?:https?|ftp|file|git|ssh)://[^\s]+`)
-	pathRegex = regexp.MustCompile(`(?:/(?:[\w.\-]+/)*[\w.\-]+/?|~(?:/[\w.\-]+)*/?|\.\.?(?:/[\w.\-]+)*/?)`)
+	pathRegex = regexp.MustCompile(
+		`(?:` +
+			`/(?:[\w.\-]+/)*[\w.\-]+/?` +
+			`|~(?:/[\w.\-]+)*/?` +
+			`|\.\.?(?:/[\w.\-]+)*/?` +
+			`|[\w.\-]+(?:/[\w.\-]+){2,}/?` +
+			`|[\w\-]+(?:/[\w.\-]+)*/[\w\-]+\.\w+` +
+			`)(?::\d+(?::\d+)?)?`)
 )
 
-// isWordChar reports whether r is part of a "word" for double-click
-// word-selection purposes: letters, digits, underscore, and hyphen.
-func isWordChar(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-'
+// isTokenBoundaryRune reports whether r may precede a path token: whitespace,
+// common quoting/bracketing punctuation, or a box-drawing character (so a
+// path immediately after viewport chrome such as "│" is still recognised).
+func isTokenBoundaryRune(r rune) bool {
+	if unicode.IsSpace(r) {
+		return true
+	}
+	switch r {
+	case ':', '\'', '"', '(', '[', '=', ',':
+		return true
+	}
+	return isBoxDrawing(r)
 }
 
-// urlBoundsAt checks if col falls within a URL token in line. If so it returns
-// the visual column range [startCol, endCol) of the URL, with trailing
-// punctuation trimmed. Returns ok=false if no URL contains col.
+// visualColumns builds the visual-column (terminal cell) start offset and
+// width for each rune in runes, along with the total visual width.
+func visualColumns(runes []rune) (starts, widths []int, total int) {
+	starts = make([]int, len(runes))
+	widths = make([]int, len(runes))
+	for i, r := range runes {
+		starts[i] = total
+		w := runewidth.RuneWidth(r)
+		widths[i] = w
+		total += w
+	}
+	return starts, widths, total
+}
+
+// tokenBoundsAt checks if col falls within a token matched by re in line. If
+// requireBoundary is true, a match must start at a token boundary (see
+// isTokenBoundaryRune) or the start of the line. Trailing punctuation is
+// trimmed from the match. Returns ok=false if no matching token contains col.
 //
 //nolint:gocyclo // token detection inherently involves multiple regex matches and trim logic
-func urlBoundsAt(line string, col int) (startCol, endCol int, ok bool) {
-	locs := urlRegex.FindAllStringIndex(line, -1)
+func tokenBoundsAt(line string, col int, re *regexp.Regexp, requireBoundary bool) (startCol, endCol int, ok bool) {
+	locs := re.FindAllStringIndex(line, -1)
 	if len(locs) == 0 {
 		return 0, 0, false
 	}
@@ -386,16 +425,7 @@ func urlBoundsAt(line string, col int) (startCol, endCol int, ok bool) {
 		return 0, 0, false
 	}
 
-	// Build visual column mapping for each rune.
-	visStarts := make([]int, n)
-	visWidths := make([]int, n)
-	total := 0
-	for i, r := range runes {
-		visStarts[i] = total
-		w := runewidth.RuneWidth(r)
-		visWidths[i] = w
-		total += w
-	}
+	visStarts, visWidths, total := visualColumns(runes)
 
 	if col < 0 || col >= total {
 		return 0, 0, false
@@ -407,83 +437,9 @@ func urlBoundsAt(line string, col int) (startCol, endCol int, ok bool) {
 			continue
 		}
 
-		// Convert byte offsets to rune indices.
-		runeStart := len([]rune(line[:byteStart]))
-		runeEnd := len([]rune(line[:byteEnd]))
-		if runeStart >= n || runeEnd > n || runeStart >= runeEnd {
-			continue
-		}
-
-		visStart := visStarts[runeStart]
-		visEndOrig := visStarts[runeEnd-1] + visWidths[runeEnd-1]
-
-		if col >= visStart && col < visEndOrig {
-			// Trim trailing punctuation from the match.
-			trimmedEnd := runeEnd
-			for trimmedEnd > runeStart {
-				r := runes[trimmedEnd-1]
-				if r == '.' || r == ',' || r == ';' || r == ':' || r == '!' || r == '?' ||
-					r == ')' || r == ']' || r == '}' || r == '"' || r == '\'' {
-					trimmedEnd--
-				} else {
-					break
-				}
-			}
-
-			if trimmedEnd <= runeStart {
-				return visStart, visStart, true
-			}
-			visEnd := visStarts[trimmedEnd-1] + visWidths[trimmedEnd-1]
-			return visStart, visEnd, true
-		}
-	}
-
-	return 0, 0, false
-}
-
-// pathBoundsAt checks if col falls within a file path token in line.
-// The match must start at a word boundary (space, colon, quote, or
-// start-of-line). Returns ok=false if no path contains col.
-//
-//nolint:gocyclo // token detection inherently involves multiple regex matches
-func pathBoundsAt(line string, col int) (startCol, endCol int, ok bool) {
-	locs := pathRegex.FindAllStringIndex(line, -1)
-	if len(locs) == 0 {
-		return 0, 0, false
-	}
-
-	runes := []rune(line)
-	n := len(runes)
-	if n == 0 {
-		return 0, 0, false
-	}
-
-	// Build visual column mapping for each rune.
-	visStarts := make([]int, n)
-	visWidths := make([]int, n)
-	total := 0
-	for i, r := range runes {
-		visStarts[i] = total
-		w := runewidth.RuneWidth(r)
-		visWidths[i] = w
-		total += w
-	}
-
-	if col < 0 || col >= total {
-		return 0, 0, false
-	}
-
-	for _, loc := range locs {
-		byteStart, byteEnd := loc[0], loc[1]
-		if byteStart >= byteEnd {
-			continue
-		}
-
-		// Word boundary check: char before match must be space, colon, quote,
-		// or start-of-line.
-		if byteStart > 0 {
-			ch := line[byteStart-1]
-			if ch != ' ' && ch != ':' && ch != '\'' && ch != '"' {
+		if requireBoundary && byteStart > 0 {
+			r, _ := utf8.DecodeLastRuneInString(line[:byteStart])
+			if !isTokenBoundaryRune(r) {
 				continue
 			}
 		}
@@ -496,14 +452,52 @@ func pathBoundsAt(line string, col int) (startCol, endCol int, ok bool) {
 		}
 
 		visStart := visStarts[runeStart]
-		visEnd := visStarts[runeEnd-1] + visWidths[runeEnd-1]
+		visEndOrig := visStarts[runeEnd-1] + visWidths[runeEnd-1]
 
-		if col >= visStart && col < visEnd {
-			return visStart, visEnd, true
+		if col < visStart || col >= visEndOrig {
+			continue
 		}
+
+		// Trim trailing punctuation from the match.
+		trimmedEnd := runeEnd
+		for trimmedEnd > runeStart {
+			r := runes[trimmedEnd-1]
+			if r == '.' || r == ',' || r == ';' || r == ':' || r == '!' || r == '?' ||
+				r == ')' || r == ']' || r == '}' || r == '"' || r == '\'' {
+				trimmedEnd--
+			} else {
+				break
+			}
+		}
+
+		if trimmedEnd <= runeStart {
+			return visStart, visStart, true
+		}
+		visEnd := visStarts[trimmedEnd-1] + visWidths[trimmedEnd-1]
+		return visStart, visEnd, true
 	}
 
 	return 0, 0, false
+}
+
+// isWordChar reports whether r is part of a "word" for double-click
+// word-selection purposes: letters, digits, underscore, and hyphen.
+func isWordChar(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-'
+}
+
+// urlBoundsAt checks if col falls within a URL token in line. If so it returns
+// the visual column range [startCol, endCol) of the URL, with trailing
+// punctuation trimmed. Returns ok=false if no URL contains col.
+func urlBoundsAt(line string, col int) (startCol, endCol int, ok bool) {
+	return tokenBoundsAt(line, col, urlRegex, false)
+}
+
+// pathBoundsAt checks if col falls within a file path token in line. The
+// match must start at a token boundary (see isTokenBoundaryRune) or
+// start-of-line. Returns ok=false if no path contains col.
+func pathBoundsAt(line string, col int) (startCol, endCol int, ok bool) {
+	return tokenBoundsAt(line, col, pathRegex, true)
 }
 
 // wordBoundsAt returns the visual column range [startCol, endCol) of the word
