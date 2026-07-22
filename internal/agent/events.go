@@ -198,7 +198,7 @@ func diagnosticBudgets(opts prompt.AssemblyOptions) prompt.SourceBudgetModel {
 
 func budgetForSource(budgets prompt.SourceBudgetModel, source prompt.ContextSource) int {
 	switch source {
-	case prompt.ContextSourcePreamble:
+	case prompt.ContextSourcePreamble, prompt.ContextSourcePhasePrompt:
 		return budgets.PreambleBytes
 	case prompt.ContextSourceGlobalAgentsMD:
 		return budgets.GlobalAgentsBytes

@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"path/filepath"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/skill"
 )
@@ -11,6 +12,7 @@ type plannedSourceKind string
 
 const (
 	plannedSourcePreamble       plannedSourceKind = "preamble"
+	plannedSourcePhasePrompt    plannedSourceKind = "phase_prompt"
 	plannedSourceAgents         plannedSourceKind = "agents"
 	plannedSourceProjectContext plannedSourceKind = "project_context"
 	plannedSourceSkills         plannedSourceKind = "skills"
@@ -47,6 +49,7 @@ func (a assembler) planSourceAssembly() sourcePlan {
 			agentsStep(opts),
 			projectContextStep(opts, policy),
 			skillsStep(opts),
+			phasePromptStep(opts),
 			conversationStep(opts),
 			toolSummariesStep(opts, policy),
 		},
@@ -87,6 +90,29 @@ func preambleStep(opts AssemblyOptions) sourcePlanStep {
 			}
 			// Bypass budget: append directly to blocks and messages so the system
 			// preamble is never truncated.
+			state.blocks = append(state.blocks, block)
+			state.messages = append(state.messages, blockMessage(block))
+			return nil
+		},
+	}
+}
+
+// phasePromptStep returns the step that loads the oneshot phase prompt.
+// Bypasses budget to ensure phase instructions are always delivered.
+func phasePromptStep(opts AssemblyOptions) sourcePlanStep {
+	return sourcePlanStep{
+		Kind:      plannedSourcePhasePrompt,
+		Placement: plannedSourcePlacementCore,
+		Apply: func(_ context.Context, state *assemblyState) error {
+			content := strings.TrimSpace(opts.PhasePrompt)
+			if content == "" {
+				return nil
+			}
+			block := ContextBlock{
+				Source:   ContextSourcePhasePrompt,
+				Content:  content,
+				ByteSize: len(content),
+			}
 			state.blocks = append(state.blocks, block)
 			state.messages = append(state.messages, blockMessage(block))
 			return nil

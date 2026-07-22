@@ -11,6 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tool/builtin"
@@ -27,6 +28,8 @@ type cliRunner struct {
 	currentReasoningOverride func() provider.ReasoningOverride
 	promptCacheKey           string
 	modeGetterFunc           func() config.ExecutionMode
+	phasePrompt              string
+	workflowMode             prompt.WorkflowMode
 }
 
 type runResult = oneshot.RunResult

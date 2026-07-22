@@ -13,6 +13,8 @@ type ContextSource string
 const (
 	// ContextSourcePreamble identifies the assembled system preamble block.
 	ContextSourcePreamble ContextSource = "preamble"
+	// ContextSourcePhasePrompt identifies the oneshot phase orchestration prompt.
+	ContextSourcePhasePrompt ContextSource = "phase_prompt"
 	// ContextSourceGlobalAgentsMD identifies the global AGENTS.md block.
 	ContextSourceGlobalAgentsMD ContextSource = "global_agents_md"
 	// ContextSourceProjectAgentsMD identifies the project AGENTS.md block.
@@ -38,7 +40,7 @@ const (
 // IsSystemZone reports whether the source belongs to the system prompt zone.
 func (s ContextSource) IsSystemZone() bool {
 	switch s {
-	case ContextSourcePreamble, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD, ContextSourceConversationSummary:
+	case ContextSourcePreamble, ContextSourcePhasePrompt, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD, ContextSourceConversationSummary:
 		return true
 	default:
 		return false
@@ -143,6 +145,8 @@ type AssemblyOptions struct {
 	AdvisorEnabled            bool
 	// WorkflowMode selects the shared workflow wording for the system preamble.
 	WorkflowMode workflowMode
+	// PhasePrompt carries the oneshot phase orchestration prompt. Empty outside oneshot runs.
+	PhasePrompt  string
 	Conversation []provider.Message
 	ToolResults  []provider.Message
 	// CachedPreamble is the pre-built system preamble string. When non-empty it

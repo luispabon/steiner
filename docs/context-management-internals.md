@@ -30,7 +30,7 @@ Child agents use the same prompt assembly and compaction path as the parent for 
 
 ## Prompt assembly
 
-Each turn, steiner assembles the full context through a 6-step ordered plan. The order is intentional — static sources come first to maximize KV-cache reuse in local inference servers:
+Each turn, steiner assembles the full context through a 7-step ordered plan. The order is intentional — static sources come first to maximize KV-cache reuse in local inference servers:
 
 | Step | Source | Budget | Bypasses budget? |
 |------|--------|--------|-------------------|
@@ -38,12 +38,13 @@ Each turn, steiner assembles the full context through a 6-step ordered plan. The
 | 2 | Agent definitions (global + project `AGENTS.md`) | 2048 + 8192 bytes | No |
 | 3 | Project context files | 2000 bytes | No |
 | 4 | Skills | 16384 bytes | No |
-| 5 | Conversation history | — | No (pass-through) |
-| 6 | Tool summaries (including delegate summaries) | 1024 bytes | No |
+| 5 | Oneshot phase prompt (if applicable) | — | Yes |
+| 6 | Conversation history | — | No (pass-through) |
+| 7 | Tool summaries (including delegate summaries) | 1024 bytes | No |
 
-Each step with a budget is tracked by a `budgetTracker`. When a source exceeds its allocation, content is truncated and a `Truncated` flag is set on the resulting `ContextBlock`. The system preamble is never truncated.
+Each step with a budget is tracked by a `budgetTracker`. When a source exceeds its allocation, content is truncated and a `Truncated` flag is set on the resulting `ContextBlock`. The system preamble and phase prompt are never truncated.
 
-`ContextSource` constants distinguish where each block originated: `preamble`, `global_agents_md`, `project_agents_md`, `project_context`, `skill`, `tool_result`, `tool_summary`, and `delegation_result`.
+`ContextSource` constants distinguish where each block originated: `preamble`, `phase_prompt`, `global_agents_md`, `project_agents_md`, `project_context`, `skill`, `tool_result`, `tool_summary`, and `delegation_result`.
 
 ---
 

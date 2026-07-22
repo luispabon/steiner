@@ -13,6 +13,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -42,6 +43,8 @@ type phaseRunnerParams struct {
 	StreamingPreferred bool
 	Events             output.EventSink
 	PromptCacheKey     string
+	PhasePrompt        string
+	WorkflowMode       prompt.WorkflowMode
 }
 
 func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, params phaseRunnerParams) (oneshot.PhaseRunner, error) {
@@ -70,6 +73,8 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 		runMode:            params.RunMode,
 		streamingPreferred: params.StreamingPreferred,
 		promptCacheKey:     params.PromptCacheKey,
+		phasePrompt:        params.PhasePrompt,
+		workflowMode:       params.WorkflowMode,
 	}
 	if alias := strings.TrimSpace(params.ModelAlias); alias != "" {
 		runner.currentAlias = func() string {
@@ -204,8 +209,14 @@ type phaseRunnerFactory struct {
 	events   output.EventSink
 }
 
-func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, _ oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (oneshot.PhaseRunner, error) {
-	return newPhaseRunner(ctx, f.cmd, f.flags, phaseRunnerParams{
+// phaseParams builds the runner parameters for a phase, including the phase
+// orchestration prompt that carries the workflow contract.
+func (f phaseRunnerFactory) phaseParams(phase oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (phaseRunnerParams, error) {
+	phasePrompt, err := oneshot.LoadPrompt(phase)
+	if err != nil {
+		return phaseRunnerParams{}, err
+	}
+	return phaseRunnerParams{
 		ProjectRoot:        f.rootDir,
 		WorkDir:            f.identity.WorktreePath(f.rootDir),
 		ModelAlias:         modelAlias,
@@ -216,7 +227,17 @@ func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, _ oneshot.Phase,
 		StreamingPreferred: false,
 		Events:             f.events,
 		PromptCacheKey:     f.identity.ID,
-	})
+		PhasePrompt:        phasePrompt,
+		WorkflowMode:       prompt.DelegatedChildWorkflowMode(),
+	}, nil
+}
+
+func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, phase oneshot.Phase, modelAlias string, approver tool.ApprovalResponder, advisorCfg config.AdvisorConfig) (oneshot.PhaseRunner, error) {
+	params, err := f.phaseParams(phase, modelAlias, approver, advisorCfg)
+	if err != nil {
+		return nil, err
+	}
+	return newPhaseRunner(ctx, f.cmd, f.flags, params)
 }
 
 func renderOneshotRuns(stream *output.EventStream, runs []oneshot.ResumableRun) {
