@@ -1318,6 +1318,69 @@ func TestModelSwitchFailureDoesNotUpdateUI(t *testing.T) {
 	}
 }
 
+func TestModelPhaseTransitionUpdatesModelDisplay(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		Model:         "default-model",
+		ModelContexts: map[string]int{"default-model": 4096, "plan-model": 2048},
+		Controller:    ctrl,
+		ModelReasoningEfforts: map[string]string{
+			"default-model": "low",
+			"plan-model":    "medium",
+		},
+		ModelReasoningCapabilities: map[string]provider.ReasoningCapabilities{
+			"default-model": {SupportedEfforts: []string{"low", "high"}},
+			"plan-model":    {SupportedEfforts: []string{"low", "medium", "high"}},
+		},
+	}, nil)
+	m.reasoningLabels = newReasoningLabels(
+		map[string]string{"default-model": "low", "plan-model": "medium"},
+		map[string]provider.ReasoningCapabilities{
+			"default-model": {SupportedEfforts: []string{"low", "high"}},
+			"plan-model":    {SupportedEfforts: []string{"low", "medium", "high"}},
+		},
+	)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	// Simulate a oneshot phase transition that changes the model.
+	event := runtimeEventMsg{Event: output.NewPhaseTransitionEvent(
+		"run-1",      // runID
+		"",           // from
+		"plan",       // to (phase name)
+		"starting",   // status
+		"plan-model", // model
+		"session-1",  // sessionID
+	)}
+	m = updateModel(t, m, event)
+
+	if got, want := m.primaryModel, "plan-model"; got != want {
+		t.Fatalf("primaryModel = %q, want %q", got, want)
+	}
+	if got, want := m.status.model, "plan-model"; got != want {
+		t.Fatalf("status.model = %q, want %q", got, want)
+	}
+	if got, want := m.sidebar.model, "plan-model"; got != want {
+		t.Fatalf("sidebar.model = %q, want %q", got, want)
+	}
+	if got, want := m.sidebar.contextBudget, 2048; got != want {
+		t.Fatalf("sidebar.contextBudget = %d, want %d", got, want)
+	}
+	if got, want := m.sidebar.reasoning, "medium"; got != want {
+		t.Fatalf("sidebar.reasoning = %q, want %q", got, want)
+	}
+	if got, want := m.sidebar.promptUsed, 0; got != want {
+		t.Fatalf("sidebar.promptUsed = %d, want %d", got, want)
+	}
+	if got, want := m.sidebar.budgetUsed, 0; got != want {
+		t.Fatalf("sidebar.budgetUsed = %d, want %d", got, want)
+	}
+	if got, want := m.status.context, "ctx 0/2048"; got != want {
+		t.Fatalf("status.context = %q, want %q", got, want)
+	}
+}
+
 func TestModelSwitchUpdatesProviderHost(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}

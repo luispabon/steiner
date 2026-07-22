@@ -329,6 +329,23 @@ type phaseTransitionFailedMsg struct{ err error }
 func (m *Model) handlePhaseTransition(payload output.PhaseTransitionEvent) tea.Cmd {
 	switch strings.TrimSpace(payload.Status) {
 	case "starting":
+		// Update model display when oneshot phase transitions to a different model.
+		// PhaseTransitionEvent carries the per-phase model alias resolved by
+		// phaseModelAlias; the sidebar and statusbar must reflect it.
+		if modelName := strings.TrimSpace(payload.Model); modelName != "" {
+			m.primaryModel = modelName
+			m.status.model = modelName
+			m.sidebar.model = modelName
+			m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
+			m.sidebar.reasoning = m.reasoningLabels[modelName]
+			m.sidebar.promptUsed = 0
+			m.sidebar.budgetUsed = 0
+			if m.sidebar.contextBudget > 0 {
+				m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
+			} else {
+				m.status.context = ""
+			}
+		}
 		// Insert phase divider with phase name
 		phaseName := strings.TrimSpace(payload.To)
 		if phaseName != "" {
