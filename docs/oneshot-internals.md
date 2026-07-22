@@ -129,11 +129,11 @@ After the review phase completes with a passing verdict:
 
 1. **If `auto_pr` is false**: the run ends and the branch remains local. The user can inspect and push manually.
 2. **If `auto_pr` is true**: the orchestrator pushes the branch and opens a PR/MR automatically:
-   - **GitHub**: uses `gh pr create` with the PR title and body from the final report.
+   - **GitHub**: uses `gh pr create`. If the PR already exists for the branch (a re-run of closeout), it falls back to `gh pr view` and reports the existing PR instead of failing.
    - **GitLab**: uses git push with merge request creation options.
    - **Azure Repos**: uses `az repos pr create`.
 
-The PR/MR body includes a structured summary of the review findings and a link to the run manifest for future reference.
+The PR/MR title comes from the first H1 (`# `) heading in `overview.md`, falling back to the task string if no H1 is present. The body is `overview.md` (with the H1 line removed) followed by a `---` separator and the full `review.md` content, verbatim — there is no commit list, since every forge already lists a PR's commits natively. The body is capped at 60,000 characters; an oversized body is truncated at a line boundary with a notice naming the planning folder.
 
 ### TUI Visibility and Interactive Behaviour
 
