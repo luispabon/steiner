@@ -543,6 +543,34 @@ func TestWordBoundsAt(t *testing.T) {
 			wantEndCol:   6,
 		},
 		{
+			name:         "kebab-case identifier (start)",
+			line:         "foo-bar baz",
+			col:          0,
+			wantStartCol: 0,
+			wantEndCol:   7,
+		},
+		{
+			name:         "kebab-case identifier (middle)",
+			line:         "foo-bar",
+			col:          2,
+			wantStartCol: 0,
+			wantEndCol:   7,
+		},
+		{
+			name:         "kebab-case identifier (at hyphen)",
+			line:         "foo-bar",
+			col:          3,
+			wantStartCol: 0,
+			wantEndCol:   7,
+		},
+		{
+			name:         "word starting with hyphen",
+			line:         "-flag",
+			col:          0,
+			wantStartCol: 0,
+			wantEndCol:   5,
+		},
+		{
 			name:         "col on punctuation selects only that character",
 			line:         "foo, bar",
 			col:          3,
@@ -598,6 +626,34 @@ func TestWordBoundsAt(t *testing.T) {
 			wantStartCol: 5,
 			wantEndCol:   10,
 		},
+		{
+			name:         "double-click URL selects full URL",
+			line:         "see http://example.com/path here",
+			col:          8,
+			wantStartCol: 4,
+			wantEndCol:   27,
+		},
+		{
+			name:         "double-click absolute path selects full path",
+			line:         "edit /home/user/file.txt now",
+			col:          8,
+			wantStartCol: 5,
+			wantEndCol:   24,
+		},
+		{
+			name:         "double-click tilde path selects full path",
+			line:         "cat ~/docs/readme.md",
+			col:          7,
+			wantStartCol: 4,
+			wantEndCol:   20,
+		},
+		{
+			name:         "double-click relative path selects full path",
+			line:         "run ./scripts/build.sh",
+			col:          8,
+			wantStartCol: 4,
+			wantEndCol:   22,
+		},
 	}
 
 	for _, tc := range tests {
@@ -607,6 +663,254 @@ func TestWordBoundsAt(t *testing.T) {
 			if gotStart != tc.wantStartCol || gotEnd != tc.wantEndCol {
 				t.Errorf("wordBoundsAt(%q, %d) = (%d, %d); want (%d, %d)",
 					tc.line, tc.col, gotStart, gotEnd, tc.wantStartCol, tc.wantEndCol)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestURLBoundsAt
+// ---------------------------------------------------------------------------
+
+func TestURLBoundsAt(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		line         string
+		col          int
+		wantStartCol int
+		wantEndCol   int
+		wantOk       bool
+	}{
+		{
+			name:         "simple http URL",
+			line:         "visit http://example.com now",
+			col:          10,
+			wantStartCol: 6,
+			wantEndCol:   24,
+			wantOk:       true,
+		},
+		{
+			name:         "https URL with path",
+			line:         "see https://example.com/path?q=1",
+			col:          8,
+			wantStartCol: 4,
+			wantEndCol:   32,
+			wantOk:       true,
+		},
+		{
+			name:         "URL at start of line",
+			line:         "http://example.com is here",
+			col:          0,
+			wantStartCol: 0,
+			wantEndCol:   18,
+			wantOk:       true,
+		},
+		{
+			name:         "URL at end of line",
+			line:         "go to http://example.com",
+			col:          16,
+			wantStartCol: 6,
+			wantEndCol:   24,
+			wantOk:       true,
+		},
+		{
+			name:         "cursor not in URL returns false",
+			line:         "text http://x.com more",
+			col:          1,
+			wantStartCol: 0,
+			wantEndCol:   0,
+			wantOk:       false,
+		},
+		{
+			name:         "ftp URL",
+			line:         "download ftp://files.example.com/foo",
+			col:          14,
+			wantStartCol: 9,
+			wantEndCol:   36,
+			wantOk:       true,
+		},
+		{
+			name:         "URL followed by comma",
+			line:         "see http://example.com, ok",
+			col:          10,
+			wantStartCol: 4,
+			wantEndCol:   22,
+			wantOk:       true,
+		},
+		{
+			name:         "URL followed by period",
+			line:         "see http://example.com.",
+			col:          10,
+			wantStartCol: 4,
+			wantEndCol:   22,
+			wantOk:       true,
+		},
+		{
+			name:         "URL in parentheses",
+			line:         "(http://example.com/path)",
+			col:          5,
+			wantStartCol: 1,
+			wantEndCol:   24,
+			wantOk:       true,
+		},
+		{
+			name:         "no URL in line",
+			line:         "hello world",
+			col:          2,
+			wantStartCol: 0,
+			wantEndCol:   0,
+			wantOk:       false,
+		},
+		{
+			name:         "empty line",
+			line:         "",
+			col:          0,
+			wantStartCol: 0,
+			wantEndCol:   0,
+			wantOk:       false,
+		},
+		{
+			name:         "col beyond line",
+			line:         "hi",
+			col:          50,
+			wantStartCol: 0,
+			wantEndCol:   0,
+			wantOk:       false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotStart, gotEnd, gotOk := urlBoundsAt(tc.line, tc.col)
+			if gotStart != tc.wantStartCol || gotEnd != tc.wantEndCol || gotOk != tc.wantOk {
+				t.Errorf("urlBoundsAt(%q, %d) = (%d, %d, %v); want (%d, %d, %v)",
+					tc.line, tc.col, gotStart, gotEnd, gotOk, tc.wantStartCol, tc.wantEndCol, tc.wantOk)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestPathBoundsAt
+// ---------------------------------------------------------------------------
+
+func TestPathBoundsAt(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		line         string
+		col          int
+		wantStartCol int
+		wantEndCol   int
+		wantOk       bool
+	}{
+		{
+			name:         "absolute path",
+			line:         "edit /home/user/file.txt now",
+			col:          10,
+			wantStartCol: 5,
+			wantEndCol:   24,
+			wantOk:       true,
+		},
+		{
+			name:         "absolute path at start",
+			line:         "/usr/bin/bash",
+			col:          2,
+			wantStartCol: 0,
+			wantEndCol:   13,
+			wantOk:       true,
+		},
+		{
+			name:         "absolute path with trailing slash",
+			line:         "ls /home/user/",
+			col:          8,
+			wantStartCol: 3,
+			wantEndCol:   14,
+			wantOk:       true,
+		},
+		{
+			name:         "tilde home path",
+			line:         "cat ~/docs/readme.md",
+			col:          7,
+			wantStartCol: 4,
+			wantEndCol:   20,
+			wantOk:       true,
+		},
+		{
+			name:         "tilde alone",
+			line:         "cd ~",
+			col:          3,
+			wantStartCol: 3,
+			wantEndCol:   4,
+			wantOk:       true,
+		},
+		{
+			name:         "relative path dot-slash",
+			line:         "run ./scripts/build.sh",
+			col:          8,
+			wantStartCol: 4,
+			wantEndCol:   22,
+			wantOk:       true,
+		},
+		{
+			name:         "relative path dot-dot-slash",
+			line:         "cd ../parent/dir",
+			col:          5,
+			wantStartCol: 3,
+			wantEndCol:   16,
+			wantOk:       true,
+		},
+		{
+			name:         "dot in prose not a path",
+			line:         "the foo.bar is",
+			col:          6,
+			wantStartCol: 0,
+			wantEndCol:   0,
+			wantOk:       false,
+		},
+		{
+			name:         "colon not a URL",
+			line:         "x:y in code",
+			col:          1,
+			wantStartCol: 0,
+			wantEndCol:   0,
+			wantOk:       false,
+		},
+		{
+			name:         "plain text",
+			line:         "hello world",
+			col:          2,
+			wantStartCol: 0,
+			wantEndCol:   0,
+			wantOk:       false,
+		},
+		{
+			name:         "empty line",
+			line:         "",
+			col:          0,
+			wantStartCol: 0,
+			wantEndCol:   0,
+			wantOk:       false,
+		},
+		{
+			name:         "col beyond line",
+			line:         "hi",
+			col:          50,
+			wantStartCol: 0,
+			wantEndCol:   0,
+			wantOk:       false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotStart, gotEnd, gotOk := pathBoundsAt(tc.line, tc.col)
+			if gotStart != tc.wantStartCol || gotEnd != tc.wantEndCol || gotOk != tc.wantOk {
+				t.Errorf("pathBoundsAt(%q, %d) = (%d, %d, %v); want (%d, %d, %v)",
+					tc.line, tc.col, gotStart, gotEnd, gotOk, tc.wantStartCol, tc.wantEndCol, tc.wantOk)
 			}
 		})
 	}
