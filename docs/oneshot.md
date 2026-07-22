@@ -36,6 +36,8 @@ models:
 - `models.oneshot.*` are optional; omit to use `models.default` at runtime.
 - `auto_pr` is optional; defaults to `false`.
 
+When `auto_pr` is true and the review phase passes, the opened PR/MR is titled from the first H1 (`# `) heading the plan phase writes to `overview.md` (falling back to the task string if no H1 is found), and its body is the full `overview.md` content plus the review outcome from `review.md`. The plan phase's `overview.md` must therefore open with a short, descriptive H1 in imperative mood — it becomes the pull request title. Re-running closeout against a branch that already has an open PR reports the existing PR rather than failing.
+
 ## Listing and Resumable Runs
 
 `steiner oneshot --list` displays all resumable runs:

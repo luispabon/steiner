@@ -42,7 +42,9 @@ Before writing `overview.md`, discover the repository verification strategy once
 
 You MUST write both documents to the planning folder named in the seed conversation. Do not commit yet — committing happens once, after the advisor sanity check (see Commit below).
 
-`overview.md` must contain these sections:
+`overview.md` must open with a single H1 (`# `) giving a bare, descriptive change title in imperative mood — no `Plan:` prefix — since closeout uses it verbatim as the pull request title. Keep it short enough to read as a PR title (~70 chars), e.g. `# Expose sandbox state and unsupported-platform warnings`.
+
+After the title, `overview.md` must contain these sections:
 
 - `## Request` — the task as understood
 - `## Overview` — the approach in prose

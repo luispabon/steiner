@@ -284,15 +284,19 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, manifest *Manifest, plan
 	manifest.ReportPath = report.ReportPath
 
 	overview := ""
-	data, readErr := os.ReadFile(filepath.Join(planningPath, "overview.md"))
-	if readErr == nil {
+	if data, readErr := os.ReadFile(filepath.Join(planningPath, "overview.md")); readErr == nil {
 		overview = string(data)
+	}
+	review := ""
+	if data, readErr := os.ReadFile(filepath.Join(planningPath, "review.md")); readErr == nil {
+		review = string(data)
 	}
 
 	input := CloseoutInput{
 		Manifest: *manifest,
 		Report:   report,
 		Overview: overview,
+		Review:   review,
 	}
 	result, closeoutErr := Closeout(ctx, o.deps.Config, input)
 	if closeoutErr != nil {
