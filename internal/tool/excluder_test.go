@@ -45,9 +45,10 @@ func TestPathExcluder_ExactPaths(t *testing.T) {
 	}{
 		{path: "/project/secret/key.txt", want: true},
 		{path: "/project/secret", want: true},
+		{path: "/project/secret/nested/deep.txt", want: true},
 		{path: "/project/private/data", want: true},
 		{path: "/project/src/main.go", want: false},
-		{path: "/project/secretary/notes.txt", want: true},
+		{path: "/project/secretary/notes.txt", want: false},
 	}
 
 	for _, tc := range tests {
