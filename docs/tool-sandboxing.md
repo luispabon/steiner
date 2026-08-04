@@ -255,7 +255,7 @@ permissions:
 
 This setting is currently **not enforced** by the sandbox. The sandbox binds the host root filesystem read-only (`--ro-bind / /`), but bubblewrap's read-only enforcement does not cover unix sockets. As a result, the host Docker socket (`/var/run/docker.sock` or equivalent) is reachable from inside the sandbox whenever the Docker daemon is running and the invoking user can reach it — regardless of whether `permissions.docker` is `true` or `false`.
 
-**Security note**: if the user running steiner has Docker access, the model has full control over host containers via the `docker` CLI inside the sandbox, whether or not `permissions.docker` is set. Do not rely on this setting to restrict Docker access. Enforcement (deny-by-default socket masking) is tracked as a separate follow-up.
+**Security note**: if the user running steiner has Docker access, the model has full control over host containers via the `docker` CLI inside the sandbox, whether or not `permissions.docker` is set. Do not rely on this setting to restrict Docker access. Enforcement (deny-by-default socket masking) is tracked in [#402](https://github.com/luispabon/steiner/issues/402).
 
 ## Error reporting
 
