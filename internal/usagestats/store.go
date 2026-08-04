@@ -70,6 +70,11 @@ func newStore(clock func() time.Time) *store {
 	}
 }
 
+// lockPath returns the path of the stable sibling file used for write locking.
+func (s *store) lockPath() string {
+	return s.path + ".lock"
+}
+
 // load reads the on-disk store and populates the buckets map.
 // Missing file, corrupt JSON, or unknown schema → empty map, no error.
 func (s *store) load() map[bucketKey]*bucket {
@@ -178,9 +183,15 @@ func (s *store) write(delta *bucket, deltaKey bucketKey) error {
 		return fmt.Errorf("create store dir: %w", err)
 	}
 
-	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE, 0o644)
+	// The lock is taken on a dedicated sibling file, never on the data file
+	// itself: flock binds to the open file description (the inode at open
+	// time), and atomicWrite replaces the data file's inode via rename on
+	// every write. Locking the data file would let a writer that opened it
+	// before someone else's rename hold a lock on an unlinked inode, read
+	// stale data, and clobber the newer state on its own rename.
+	f, err := os.OpenFile(s.lockPath(), os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
-		return fmt.Errorf("open store file: %w", err)
+		return fmt.Errorf("open store lock file: %w", err)
 	}
 	defer f.Close() //nolint:errcheck
 
