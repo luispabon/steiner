@@ -13,6 +13,10 @@ type mutationOK struct{}
 
 func (mutationOK) WasMutated() bool { return true }
 
+type mutationFailed struct{}
+
+func (mutationFailed) WasMutated() bool { return false }
+
 func TestFileTrackerAnnotatesUnchangedReread(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -135,21 +139,24 @@ func TestFileTrackerBumpGenerationIsFileWide(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 
 	tracker := FileTracker{}
-	first := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":3,"output":"alpha\n"}`
-	second := `{"path":"note.txt","start_line":2,"end_line":2,"total_lines":3,"output":"beta\n"}`
+	// Hold the byte range (start_line/end_line/total_lines) fixed across both
+	// reads so the generation counter is the only variable that changes. If
+	// BumpGeneration were a no-op, this read would instead be annotated as
+	// unchanged instead of reporting "generation changed".
+	sameRange := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":3,"output":"alpha\n"}`
 
-	if got, observation := tracker.ObserveRead(1, first, true); got != first || observation.Reason != "first read" {
+	if got, observation := tracker.ObserveRead(1, sameRange, true); got != sameRange || observation.Reason != "first read" {
 		t.Fatalf("first read = %q, reason = %q, want first read", got, observation.Reason)
 	}
 	if ok := tracker.BumpGeneration("note.txt"); !ok {
 		t.Fatal("BumpGeneration() = false, want true")
 	}
 
-	got, observation := tracker.ObserveRead(2, second, true)
+	got, observation := tracker.ObserveRead(2, sameRange, true)
 	if strings.Contains(got, "file unchanged since turn") {
-		t.Fatalf("different-range reread = %q, want full content", got)
+		t.Fatalf("generation-changed reread = %q, want full content", got)
 	}
-	if got, want := observation.Reason, "range changed"; got != want {
+	if got, want := observation.Reason, "generation changed"; got != want {
 		t.Fatalf("observation reason = %q, want %q", got, want)
 	}
 
@@ -312,6 +319,50 @@ func TestFileTrackerInvalidatesAfterMutationKinds(t *testing.T) {
 	}
 	if obs.Reason != "generation changed" {
 		t.Fatalf("observation reason = %q, want generation changed", obs.Reason)
+	}
+}
+
+func TestFileTrackerSkipsFailedMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
+
+	cm := &ContextStateManager{}
+	if got, obs := cm.fileTracker.ObserveRead(1, content, true); got != content || obs.Reason != "first read" {
+		t.Fatalf("first read = %q, reason = %q, want full content / first read", got, obs.Reason)
+	}
+
+	failedResult := struct {
+		Paths []string `json:"paths"`
+		*mutationFailed
+	}{Paths: []string{"note.txt"}, mutationFailed: &mutationFailed{}}
+	if failedResult.WasMutated() {
+		t.Fatal("mutationFailed.WasMutated() = true, want false")
+	}
+	recordMutationForContextManager(cm, "mutate", nil, failedResult)
+	if got := len(cm.fileTracker.generations); got != 0 {
+		t.Fatalf("generation entries = %d after failed mutation, want 0", got)
+	}
+
+	got, obs := cm.fileTracker.ObserveRead(2, content, true)
+	if obs.Reason != fmt.Sprintf("unchanged since turn %d", 1) {
+		t.Fatalf("observation reason = %q, want unchanged since turn 1 (generation must not have advanced)", obs.Reason)
+	}
+	if !strings.Contains(got, "file unchanged since turn 1") {
+		t.Fatalf("reread after failed mutation = %q, want unchanged annotation", got)
 	}
 }
 
