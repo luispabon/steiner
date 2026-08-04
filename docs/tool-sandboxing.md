@@ -245,9 +245,7 @@ Mounted paths are:
 - CI/CD logs (writable): `host_mounts: [{path: /var/log/ci, mode: rw}]`
 - Build output dir: `host_mounts: [{path: /opt/build, mode: rw}]`
 
-## Docker opt-in
-
-To allow the model to run Docker commands inside the sandbox, enable Docker permissions:
+## Docker permission (not currently enforced)
 
 ```yaml
 # .steiner/config.yaml
@@ -255,12 +253,9 @@ permissions:
   docker: true
 ```
 
-When enabled:
-- The Docker socket (`/var/run/docker.sock` or equivalent) is bind-mounted into the sandbox
-- The `docker` CLI inside the sandbox can communicate with the host Docker daemon
-- Containers started by the model run on the host (not nested)
+This setting is currently **not enforced** by the sandbox. The sandbox binds the host root filesystem read-only (`--ro-bind / /`), but bubblewrap's read-only enforcement does not cover unix sockets. As a result, the host Docker socket (`/var/run/docker.sock` or equivalent) is reachable from inside the sandbox whenever the Docker daemon is running and the invoking user can reach it — regardless of whether `permissions.docker` is `true` or `false`.
 
-**Security note**: Docker socket access gives the model full control over host containers. Use only if you trust the model completely.
+**Security note**: if the user running steiner has Docker access, the model has full control over host containers via the `docker` CLI inside the sandbox, whether or not `permissions.docker` is set. Do not rely on this setting to restrict Docker access. Enforcement (deny-by-default socket masking) is tracked as a separate follow-up.
 
 ## Error reporting
 

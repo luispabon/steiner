@@ -16,7 +16,7 @@ import (
 
 func TestWrapCommand_Disabled(t *testing.T) {
 	cfg := config.SandboxConfig{Enabled: false}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/workspace", "/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, "/workspace", "/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -28,7 +28,7 @@ func TestWrapCommand_Disabled(t *testing.T) {
 
 func TestWrapCommandMode_Disabled(t *testing.T) {
 	cfg := config.SandboxConfig{Enabled: false}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/workspace", "/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, "/workspace", "/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommandMode(original, true)
@@ -47,7 +47,7 @@ func TestWrapCommandMode_False_MatchesWrapCommand(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar")
 
@@ -77,7 +77,7 @@ func TestWrapCommandMode_True_CreatesSteinerdDir(t *testing.T) {
 
 	cfg := config.SandboxConfig{Enabled: true}
 	root := t.TempDir()
-	s := New(cfg, config.PermissionsConfig{}, nil, root, root, "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, root, root, "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommandMode(original, true)
@@ -109,7 +109,7 @@ func TestWrapCommandMode_True_NoBwrap(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommandMode(original, true)
@@ -128,7 +128,7 @@ func TestWrapCommand_Enabled_NoBwrap(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -147,7 +147,7 @@ func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar")
 	wrapped := s.WrapCommand(original)
@@ -190,7 +190,7 @@ func TestWrapCommand_Enabled_InheritsStreams(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "ls")
 	wrapped := s.WrapCommand(original)
@@ -239,7 +239,7 @@ func TestWrapCommand_AppendsSSHOverlayFiles(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "ssh", "example.com")
 	original.ExtraFiles = []*os.File{os.Stdout}
@@ -277,7 +277,7 @@ func TestWrapCommand_OverlayFailureFallsBack(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -307,7 +307,7 @@ func TestWrapCommand_BwrapLookupFailureClosesOverlay(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := New(cfg, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped := s.WrapCommand(original)
@@ -366,7 +366,7 @@ func TestWrapCommand_AllowsGitCommitInWorktreeSubdir(t *testing.T) {
 	}
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, nil, repoRoot, worktreeDir, t.TempDir(), t.TempDir())
+	s := New(cfg, nil, repoRoot, worktreeDir, t.TempDir(), t.TempDir())
 	if err := s.EnsureHome(); err != nil {
 		t.Fatalf("ensure sandbox home: %v", err)
 	}
@@ -464,7 +464,7 @@ func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
 
 	cfg := config.SandboxConfig{Enabled: true}
 	rootDir := t.TempDir()
-	s := New(cfg, config.PermissionsConfig{}, nil, rootDir, rootDir, t.TempDir(), t.TempDir())
+	s := New(cfg, nil, rootDir, rootDir, t.TempDir(), t.TempDir())
 	if err := s.EnsureHome(); err != nil {
 		t.Fatalf("ensure sandbox home: %v", err)
 	}
