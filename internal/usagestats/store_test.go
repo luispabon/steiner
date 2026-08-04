@@ -277,18 +277,17 @@ func TestStoreConcurrentRecords(t *testing.T) {
 	wg.Wait()
 
 	// Load and verify totals.
-	// Concurrent writes may have lock contention; at least some must succeed.
+	// The file lock in write must serialize the read-modify-write cycle so
+	// that all n concurrent deltas are reflected exactly, with none lost.
 	s2 := newStore(clock.Now)
 	loaded := s2.load()
 
 	b := loaded[key]
-	// All 10 writes should be included in the final state via additive merge.
-	// This test verifies that concurrent writes are added correctly, not overwritten.
-	if b.Requests < 1 || b.Requests > n {
-		t.Errorf("concurrent requests: got %d, want between 1 and %d", b.Requests, n)
+	if b.Requests != n {
+		t.Errorf("concurrent requests: got %d, want %d", b.Requests, n)
 	}
-	if b.InputTokens < 10 || b.InputTokens > n*10 {
-		t.Errorf("concurrent input tokens: got %d, want between 10 and %d", b.InputTokens, n*10)
+	if b.InputTokens != n*10 {
+		t.Errorf("concurrent input tokens: got %d, want %d", b.InputTokens, n*10)
 	}
 }
 
@@ -340,8 +339,8 @@ func TestStoreWritePermissions(t *testing.T) {
 		t.Fatalf("stat: %v", err)
 	}
 
-	if info.Mode()&0o644 != 0o644 {
-		t.Errorf("file perms: got %o, want 0o644", info.Mode()&0o777)
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("file perms: got %o, want 0o644", info.Mode().Perm())
 	}
 }
 

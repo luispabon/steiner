@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -169,19 +170,35 @@ func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 	}
 }
 
-func TestRenderSourcePlanMatchesAssemble(t *testing.T) {
+// TestAssembleKeepsStaticSourcesBeforeDynamicSources pins the prompt cache
+// invariant: Assemble must emit static sources (preamble, agents, project
+// context, skills, phase prompt) ahead of dynamic ones (conversation, tool
+// summaries), and must do so deterministically across calls.
+func TestAssembleKeepsStaticSourcesBeforeDynamicSources(t *testing.T) {
 	t.Parallel()
 
-	assembler, err := newAssembler(AssemblyOptions{})
+	homeDir := t.TempDir()
+	projectRoot := t.TempDir()
+	skillsRoot := t.TempDir()
+
+	mustWrite(t, filepath.Join(homeDir, ".config", "steiner"), "AGENTS.md", "global rules")
+	mustWrite(t, projectRoot, "AGENTS.md", "project rules")
+	mustWrite(t, projectRoot, "README.md", "project readme")
+	mustWrite(t, filepath.Join(skillsRoot, "codex"), "SKILL.md", "skill instructions")
+
+	assembler, err := newAssembler(AssemblyOptions{
+		HomeDir:                   homeDir,
+		ProjectRoot:               projectRoot,
+		SkillsRoots:               []string{skillsRoot},
+		SkillNames:                []string{"codex"},
+		PhasePrompt:               "phase instructions",
+		ProjectContextBudgetBytes: 1024,
+		ProjectContextExtraFiles:  []string{"README.md"},
+		Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "conversation turn"}},
+		ToolResults:               []provider.Message{{Role: provider.MessageRoleTool, Content: "tool output"}},
+	})
 	if err != nil {
 		t.Fatalf("newAssembler() error = %v", err)
-	}
-
-	plan := assembler.planSourceAssembly()
-
-	assembly, err := plan.render(context.Background(), assembler.policy, assembler.opts)
-	if err != nil {
-		t.Fatalf("plan.render() error = %v", err)
 	}
 
 	got, err := assembler.Assemble(context.Background())
@@ -189,11 +206,36 @@ func TestRenderSourcePlanMatchesAssemble(t *testing.T) {
 		t.Fatalf("Assemble() error = %v", err)
 	}
 
-	if gotLen, wantLen := len(assembly.Blocks), len(got.Blocks); gotLen != wantLen {
-		t.Fatalf("rendered blocks = %d, want %d", gotLen, wantLen)
+	wantSources := []ContextSource{
+		ContextSourcePreamble,
+		ContextSourceGlobalAgentsMD,
+		ContextSourceProjectAgentsMD,
+		ContextSourceProjectContext,
+		ContextSourceSkill,
+		ContextSourceSkill,
+		ContextSourcePhasePrompt,
+		ContextSourceToolSummary,
 	}
-	if gotLen, wantLen := len(assembly.Messages), len(got.Messages); gotLen != wantLen {
-		t.Fatalf("rendered messages = %d, want %d", gotLen, wantLen)
+	if gotSources := blockSources(got.Blocks); !sourcesEqual(gotSources, wantSources) {
+		t.Fatalf("block sources = %v, want %v", gotSources, wantSources)
+	}
+
+	phaseIdx := messageIndexContaining(got.Messages, "phase instructions")
+	conversationIdx := messageIndexContaining(got.Messages, "conversation turn")
+	toolSummaryIdx := messageIndexContaining(got.Messages, "\"kind\":\"tool_summary\"")
+	if phaseIdx < 0 || conversationIdx < 0 || toolSummaryIdx < 0 {
+		t.Fatalf("missing messages: phase=%d conversation=%d tool_summary=%d", phaseIdx, conversationIdx, toolSummaryIdx)
+	}
+	if phaseIdx >= conversationIdx || conversationIdx >= toolSummaryIdx {
+		t.Fatalf("message order phase=%d conversation=%d tool_summary=%d, want static sources first", phaseIdx, conversationIdx, toolSummaryIdx)
+	}
+
+	again, err := assembler.Assemble(context.Background())
+	if err != nil {
+		t.Fatalf("second Assemble() error = %v", err)
+	}
+	if !reflect.DeepEqual(got.Messages, again.Messages) {
+		t.Fatal("Assemble() is not deterministic across calls; prompt prefix must be byte-stable")
 	}
 }
 

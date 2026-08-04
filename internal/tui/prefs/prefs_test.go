@@ -63,6 +63,24 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if got != p {
 		t.Fatalf("round-trip = %#v, want %#v", got, p)
 	}
+
+	cfgDir := filepath.Join(dir, ".config", "steiner")
+	dirInfo, err := os.Stat(cfgDir)
+	if err != nil {
+		t.Fatalf("stat config dir: %v", err)
+	}
+	if mode := dirInfo.Mode().Perm(); mode != 0o700 {
+		t.Errorf("config dir perms: got %o, want 0o700", mode)
+	}
+
+	filePath := filepath.Join(cfgDir, "prefs.yaml")
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatalf("stat prefs.yaml: %v", err)
+	}
+	if mode := fileInfo.Mode().Perm(); mode&0o077 != 0 {
+		t.Errorf("prefs.yaml perms: got %o, want no group/world access", mode)
+	}
 }
 
 func TestSaveCreatesDirectories(t *testing.T) {
@@ -72,8 +90,24 @@ func TestSaveCreatesDirectories(t *testing.T) {
 	if err := Save(p); err != nil {
 		t.Fatalf("Save() = %v", err)
 	}
-	cfgPath := filepath.Join(dir, ".config", "steiner", "prefs.yaml")
-	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+	cfgDir := filepath.Join(dir, ".config", "steiner")
+	dirInfo, err := os.Stat(cfgDir)
+	if err != nil {
+		t.Fatalf("config dir was not created at %s: %v", cfgDir, err)
+	}
+	if mode := dirInfo.Mode().Perm(); mode != 0o700 {
+		t.Errorf("config dir perms: got %o, want 0o700", mode)
+	}
+
+	cfgPath := filepath.Join(cfgDir, "prefs.yaml")
+	fileInfo, err := os.Stat(cfgPath)
+	if os.IsNotExist(err) {
 		t.Fatalf("prefs.yaml was not created at %s", cfgPath)
+	}
+	if err != nil {
+		t.Fatalf("stat prefs.yaml: %v", err)
+	}
+	if mode := fileInfo.Mode().Perm(); mode&0o077 != 0 {
+		t.Errorf("prefs.yaml perms: got %o, want no group/world access", mode)
 	}
 }

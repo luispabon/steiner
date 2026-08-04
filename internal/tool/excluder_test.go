@@ -37,7 +37,7 @@ func TestPathExcluder_Builtins(t *testing.T) {
 }
 
 func TestPathExcluder_ExactPaths(t *testing.T) {
-	ex := NewPathExcluder([]string{"/project/secret", "/project/private"}, nil)
+	ex := NewPathExcluder([]string{"/project/secret", "/project/private", "/project/logs/", "./project/reports"}, nil)
 
 	tests := []struct {
 		path string
@@ -45,9 +45,12 @@ func TestPathExcluder_ExactPaths(t *testing.T) {
 	}{
 		{path: "/project/secret/key.txt", want: true},
 		{path: "/project/secret", want: true},
+		{path: "/project/secret/nested/deep.txt", want: true},
 		{path: "/project/private/data", want: true},
 		{path: "/project/src/main.go", want: false},
-		{path: "/project/secretary/notes.txt", want: true},
+		{path: "/project/secretary/notes.txt", want: false},
+		{path: "/project/logs/access.log", want: true},
+		{path: "project/reports/summary.csv", want: true},
 	}
 
 	for _, tc := range tests {

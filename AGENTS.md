@@ -97,7 +97,8 @@ Go version: `1.25`.
 * Keep symbols unexported unless cross-package use requires export.
 * Exported symbols in `internal/` must be justified by cross-package use and documented immediately with Godoc starting with the symbol name.
 * TODO comments must name the follow-up action or owner, not leave open-ended debt markers.
-* Do not commit no-op or stub functions that silently do nothing (e.g. a validator whose body is only `_ = arg`). Either implement the behaviour, remove the function, or leave a comment naming the concrete follow-up — the same standard already applied to TODO comments.
+* Do not commit no-op or stub functions that silently do nothing (e.g. a validator whose body is only `_ = arg`). Either implement the behaviour, remove the function, or leave a comment naming the concrete follow-up — the same standard already applied to TODO comments. This applies to tests as well: every test must have an observable failing path. A comparison reported via `t.Logf` is not an assertion, and a test body with no `t.Error`/`t.Fatal` asserts nothing.
+* When asserting file or directory permissions in tests, compare exactly (`mode.Perm() != 0o600`) or assert the absence of unwanted bits (`mode&0o077 != 0`). A subset mask such as `mode&0o644 != 0o644` passes for `0o666` and `0o777` and must not be used.
 
 ## Security
 

@@ -240,47 +240,40 @@ func TestReplaceBinary(t *testing.T) {
 
 func TestReplaceBinary_Rollback(t *testing.T) {
 	testDir := t.TempDir()
-	roDir := filepath.Join(testDir, "readonly")
-	roPath := filepath.Join(roDir, "steiner")
-
-	if err := os.MkdirAll(roDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
+	exePath := filepath.Join(testDir, "steiner")
+	oldPath := exePath + ".old"
+	tmpPath := exePath + ".tmp"
 
 	initialContent := []byte("original binary")
-	if err := os.WriteFile(roPath, initialContent, 0o755); err != nil {
+	if err := os.WriteFile(exePath, initialContent, 0o755); err != nil {
 		t.Fatalf("write initial: %v", err)
 	}
 
-	// Make directory read-only so writing .tmp will fail after rename.
-	if err := os.Chmod(roDir, 0o555); err != nil {
-		t.Fatalf("chmod: %v", err)
+	// Pre-create tmpPath as a directory so the initial rename to .old
+	// succeeds, but the subsequent WriteFile to .tmp fails with EISDIR,
+	// forcing control into the rollback defer.
+	if err := os.Mkdir(tmpPath, 0o755); err != nil {
+		t.Fatalf("mkdir tmpPath: %v", err)
 	}
 
-	err := replaceBinary(roPath, []byte("new content"))
+	err := replaceBinary(exePath, []byte("new content"))
 	if err == nil {
-		// Restore permissions before failing.
-		if chErr := os.Chmod(roDir, 0o755); chErr != nil {
-			t.Errorf("chmod restore: %v", chErr)
-		}
-		t.Fatal("replaceBinary: expected error for read-only directory, got nil")
+		t.Fatal("replaceBinary: expected error writing temp binary, got nil")
+	}
+	if !strings.Contains(err.Error(), "write temp binary") {
+		t.Fatalf("replaceBinary: error = %v, want write temp binary error (proves rename to .old succeeded first)", err)
 	}
 
-	// Restore permissions to verify rollback.
-	if err := os.Chmod(roDir, 0o755); err != nil {
-		t.Fatalf("chmod restore: %v", err)
+	if _, statErr := os.Stat(oldPath); !os.IsNotExist(statErr) {
+		t.Errorf("replaceBinary: .old should be gone after rollback, stat err: %v", statErr)
 	}
 
-	got, err := os.ReadFile(roPath)
+	got, err := os.ReadFile(exePath)
 	if err != nil {
 		t.Fatalf("read after rollback: %v", err)
 	}
 	if string(got) != string(initialContent) {
 		t.Errorf("replaceBinary rollback: got %q, want %q", got, initialContent)
-	}
-
-	if _, err := os.Stat(roPath + ".old"); !os.IsNotExist(err) {
-		t.Errorf("replaceBinary: .old should be gone after rollback, stat err: %v", err)
 	}
 }
 

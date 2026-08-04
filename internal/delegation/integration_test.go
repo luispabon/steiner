@@ -653,59 +653,6 @@ func (r *summaryCtxInspector) Run(ctx context.Context, req agent.RunRequest) (ag
 	return st, err
 }
 
-// TestNestingPrevention verifies that when the child's provider attempts to
-// call the delegate tool, execution fails because the child registry has no
-// "delegate" entry, and the error propagates correctly.
-func TestNestingPrevention(t *testing.T) {
-	// Child provider first returns a tool_call for "delegate", then (if somehow
-	// reached) a text stop. The executor will fail on the first call because
-	// "delegate" is not in the child registry.
-	childProv := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{
-				Message: provider.Message{
-					Role: provider.MessageRoleAssistant,
-					ToolCalls: []provider.ToolCall{
-						{ID: "tc-1", Name: "delegate", Arguments: map[string]any{"task": "nested"}},
-					},
-				},
-				FinishReason: "tool_calls",
-			},
-			{Message: provider.Message{Content: "final"}, FinishReason: "stop"},
-		},
-	}
-
-	spec := makeSpec("nesting-test", 10000)
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	sink := &collectingSink{}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, childProv, visibleReg, execReg, agentLimits, sink)
-
-	runner := agent.NewRunner()
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	// The agent should propagate a failure: the delegate tool is unknown to the
-	// child executor. SpawnDelegate either returns an error, or the state has a
-	// non-complete stop reason captured in the result.
-	if err != nil {
-		// Expected: child runner propagated an error for unknown delegate tool.
-		if !strings.Contains(err.Error(), "delegate") && !strings.Contains(err.Error(), "unknown") && !strings.Contains(err.Error(), "tool") {
-			t.Logf("error propagated (acceptable): %v", err)
-		}
-		return
-	}
-	// If no error was returned, the result status should reflect failure or the
-	// child provider should have received a tool error rather than completing
-	// successfully with the nested delegation.
-	// Check that child provider did not receive a second model call that would
-	// indicate nesting succeeded — the tool result turn would be an error.
-	if childProv.callCount < 2 {
-		// Only one provider call: model returned tool_calls but executor failed
-		// before getting a second model call. That is also an acceptable
-		// nesting-prevention signal since the tool error is surfaced.
-		t.Logf("child provider called %d time(s), nesting blocked before second model call", childProv.callCount)
-	}
-}
-
 // TestParentContextIsolation verifies that a child doing multi-turn work with
 // a helper tool does not pollute the parent conversation. The parent only
 // receives the DelegationResult; child internal messages stay in the child.

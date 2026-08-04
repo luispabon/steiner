@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,9 +209,15 @@ func TestCompactionLogger_ConcurrentSafety(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func() {
-			req := provider.ChatRequest{Model: "test", Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "data"}}}
+			req := provider.ChatRequest{
+				Model:    fmt.Sprintf("model-%d", i),
+				Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: fmt.Sprintf("request-body-%d", i)}},
+			}
 			logger.LogRequest(req) //nolint: errcheck
-			resp := provider.ChatResponse{Message: provider.Message{Content: "response"}}
+			resp := provider.ChatResponse{
+				FinishReason: fmt.Sprintf("stop-%d", i),
+				Message:      provider.Message{Content: fmt.Sprintf("response-body-%d", i)},
+			}
 			logger.LogResponse(resp) //nolint: errcheck
 			done <- struct{}{}
 		}()
@@ -233,5 +240,18 @@ func TestCompactionLogger_ConcurrentSafety(t *testing.T) {
 	}
 	if strings.Count(content, "=== Compaction Response ===") != goroutines {
 		t.Errorf("expected %d response headers, got %d", goroutines, strings.Count(content, "=== Compaction Response ==="))
+	}
+
+	// Headers alone cannot detect interleaved writes: assert each goroutine's
+	// body survived contiguously and exactly once.
+	for i := 0; i < goroutines; i++ {
+		reqBody := fmt.Sprintf("Model: model-%d\nMaxTokens: unset\nMessages:\n--- user ---\nrequest-body-%d\n\n", i, i)
+		if got := strings.Count(content, reqBody); got != 1 {
+			t.Errorf("request body for goroutine %d appears %d times, want 1", i, got)
+		}
+		respBody := fmt.Sprintf("FinishReason: stop-%d\nUsage: null\nContent:\nresponse-body-%d\n\n", i, i)
+		if got := strings.Count(content, respBody); got != 1 {
+			t.Errorf("response body for goroutine %d appears %d times, want 1", i, got)
+		}
 	}
 }

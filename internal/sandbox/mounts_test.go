@@ -10,8 +10,7 @@ import (
 )
 
 func TestBuildArgs_WorkspaceBind(t *testing.T) {
-	args := BuildArgs("/my/workspace", "/my/workspace", "/my/workspace/.steiner/home", "/home/user",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/my/workspace", "/my/workspace", "/my/workspace/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, "--bind", "/my/workspace", "/my/workspace") {
 		t.Errorf("expected --bind /my/workspace /my/workspace in args: %v", args)
@@ -19,8 +18,7 @@ func TestBuildArgs_WorkspaceBind(t *testing.T) {
 }
 
 func TestBuildArgs_SeparateWritableRootAndWorkDir(t *testing.T) {
-	args := BuildArgs("/repo", "/repo/.git-worktrees/step-1a", "/repo/.steiner/home", "/home/user",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/repo", "/repo/.git-worktrees/step-1a", "/repo/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, "--bind", "/repo", "/repo") {
 		t.Fatalf("expected writable root bind for /repo in args: %v", args)
@@ -35,8 +33,7 @@ func TestBuildArgs_SeparateWritableRootAndWorkDir(t *testing.T) {
 
 func TestBuildArgs_SandboxHomeBind(t *testing.T) {
 	sandboxHome := "/my/workspace/.steiner/home"
-	args := BuildArgs("/my/workspace", "/my/workspace", sandboxHome, "/home/user",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/my/workspace", "/my/workspace", sandboxHome, "/home/user", nil, nil, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, "--bind", sandboxHome, sandboxHome) {
 		t.Errorf("expected --bind %s %s in args: %v", sandboxHome, sandboxHome, args)
@@ -44,8 +41,7 @@ func TestBuildArgs_SandboxHomeBind(t *testing.T) {
 }
 
 func TestBuildArgs_TmpBind(t *testing.T) {
-	args := BuildArgs("/my/workspace", "/my/workspace", "/my/workspace/.steiner/home", "/home/user",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/my/workspace", "/my/workspace", "/my/workspace/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, "--bind", "/tmp/sandbox-tmp", "/tmp") {
 		t.Errorf("expected --bind /tmp/sandbox-tmp /tmp in args: %v", args)
@@ -53,8 +49,7 @@ func TestBuildArgs_TmpBind(t *testing.T) {
 }
 
 func TestBuildArgs_UnshareAll(t *testing.T) {
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false)
 
 	if !slices.Contains(args, "--unshare-all") {
 		t.Errorf("expected --unshare-all in args: %v", args)
@@ -65,8 +60,7 @@ func TestBuildArgs_UnshareAll(t *testing.T) {
 }
 
 func TestBuildArgs_NoSetenvHome(t *testing.T) {
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false)
 
 	if containsSeq(args, "--setenv", "HOME") {
 		t.Errorf("--setenv HOME should not be present in args: %v", args)
@@ -74,8 +68,7 @@ func TestBuildArgs_NoSetenvHome(t *testing.T) {
 }
 
 func TestBuildArgs_RoBindRoot(t *testing.T) {
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, "--ro-bind", "/", "/") {
 		t.Errorf("expected --ro-bind / / in args: %v", args)
@@ -90,8 +83,7 @@ func TestBuildArgs_RoBindRoot(t *testing.T) {
 }
 
 func TestBuildArgs_Chdir(t *testing.T) {
-	args := BuildArgs("/my/workspace", "/my/workspace", "/my/workspace/.steiner/home", "/home/user",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/my/workspace", "/my/workspace", "/my/workspace/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, "--chdir", "/my/workspace") {
 		t.Errorf("expected --chdir /my/workspace in args: %v", args)
@@ -103,8 +95,7 @@ func TestBuildArgs_HostMountsAppended(t *testing.T) {
 		{Path: "/data/ro", Mode: "ro"},
 		{Path: "/data/rw", Mode: "rw"},
 	}
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user",
-		config.PermissionsConfig{}, hostMounts, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", hostMounts, nil, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, "--ro-bind", "/data/ro", "/data/ro") {
 		t.Errorf("expected --ro-bind /data/ro /data/ro in args: %v", args)
@@ -121,8 +112,7 @@ func TestBuildArgs_CacheDirBind(t *testing.T) {
 		t.Fatalf("mkdir cache dir: %v", err)
 	}
 
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", home,
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", home, nil, nil, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, "--bind", cacheDir, cacheDir) {
 		t.Errorf("expected --bind %s %s in args: %v", cacheDir, cacheDir, args)
@@ -139,8 +129,7 @@ func TestBuildArgs_CacheDirBindResolvesSymlink(t *testing.T) {
 		t.Fatalf("symlink cache dir: %v", err)
 	}
 
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", home,
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", home, nil, nil, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, "--bind", target, target) {
 		t.Errorf("expected resolved cache bind %s %s in args: %v", target, target, args)
@@ -154,8 +143,7 @@ func TestBuildArgs_NoCacheDirWhenMissing(t *testing.T) {
 	home := t.TempDir()
 	cacheDir := filepath.Join(home, ".cache")
 
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", home,
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", home, nil, nil, "/tmp/sandbox-tmp", false)
 
 	if containsSeq(args, "--bind", cacheDir, cacheDir) {
 		t.Errorf("should not mount missing cache dir: %v", args)
@@ -163,8 +151,7 @@ func TestBuildArgs_NoCacheDirWhenMissing(t *testing.T) {
 }
 
 func TestBuildArgs_NoCacheDirWhenNoHome(t *testing.T) {
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "", nil, nil, "/tmp/sandbox-tmp", false)
 
 	if containsSeq(args, "--bind", "/.cache", "/.cache") {
 		t.Errorf("should not mount /.cache when userHome is empty: %v", args)
@@ -177,8 +164,7 @@ func TestBuildArgs_AppendsOverlayBeforeChdir(t *testing.T) {
 		"--ro-bind-data", "3", "/etc/ssh/ssh_config",
 	}
 
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user",
-		config.PermissionsConfig{}, nil, overlayArgs, "/tmp/sandbox-tmp", false)
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", nil, overlayArgs, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, overlayArgs...) {
 		t.Fatalf("expected overlay args to be present: %v", args)
@@ -197,8 +183,7 @@ func TestBuildArgs_ReadOnlyProject_RoBindsRootAndBindsSteiner(t *testing.T) {
 		t.Fatalf("mkdir .steiner: %v", err)
 	}
 
-	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", true)
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", true)
 
 	steinerPath := filepath.Join(root, ".steiner")
 	if !containsSeq(args, "--ro-bind", root, root, "--bind", steinerPath, steinerPath) {
@@ -212,8 +197,7 @@ func TestBuildArgs_ReadOnlyProject_RoBindsRootAndBindsSteiner(t *testing.T) {
 
 func TestBuildArgs_ReadOnlyProject_False_UnchangedFromBefore(t *testing.T) {
 	root := "/test/root"
-	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user",
-		config.PermissionsConfig{}, nil, nil, "/tmp/sandbox-tmp", false)
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", false)
 
 	if !containsSeq(args, "--bind", root, root) {
 		t.Errorf("expected --bind %s %s in args when readOnlyProject=false: %v", root, root, args)

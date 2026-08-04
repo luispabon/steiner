@@ -316,6 +316,189 @@ func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 	}
 }
 
+func TestFollowUpHandler_DeniesMutateChildInPlanMode(t *testing.T) {
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: DelegationSpec{AgentID: "child-mutate", Task: "fix bug"},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Tools:  []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+		},
+	})
+
+	runs := 0
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+			runs++
+			return agent.RunState{}, nil
+		}},
+	})
+
+	ctx := context.WithValue(context.Background(), tool.ExecutionModeKey{}, config.ExecutionModePlan)
+	_, err := handler(ctx, map[string]any{
+		"agent_id": "child-mutate",
+		"message":  "continue",
+	})
+	if err == nil {
+		t.Fatal("expected error denying follow-up in plan mode")
+	}
+	want := "follow_up: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
+		"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready"
+	if got := err.Error(); got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+	if runs != 0 {
+		t.Fatalf("runs = %d, want 0 (child runner must not be invoked when denied)", runs)
+	}
+}
+
+func TestFollowUpHandler_AllowsMutateChildInBuildMode(t *testing.T) {
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: DelegationSpec{AgentID: "child-mutate", Task: "fix bug"},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Tools:  []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+		},
+	})
+
+	runs := 0
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+				return agent.RunState{
+					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
+					TurnCount:    1,
+					TokenCount:   1,
+					StopReason:   agent.StopReasonComplete,
+				}, nil
+			}
+			runs++
+			return agent.RunState{
+				Conversation: []agent.Message{
+					{Role: agent.MessageRoleUser, Content: "initial task"},
+					{Role: agent.MessageRoleAssistant, Content: "done"},
+				},
+				TurnCount:  1,
+				TokenCount: 5,
+				StopReason: agent.StopReasonComplete,
+			}, nil
+		}},
+	})
+
+	ctx := context.WithValue(context.Background(), tool.ExecutionModeKey{}, config.ExecutionModeBuild)
+	_, err := handler(ctx, map[string]any{
+		"agent_id": "child-mutate",
+		"message":  "continue",
+	})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if runs != 1 {
+		t.Fatalf("runs = %d, want 1 (child runner must be invoked in build mode)", runs)
+	}
+}
+
+func TestFollowUpHandler_NonMutateChildNotDeniedInPlanMode(t *testing.T) {
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: DelegationSpec{AgentID: "child-readonly", Task: "investigate"},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Tools: []provider.ToolSpec{
+				{Function: provider.ToolFunctionSpec{Name: "read"}},
+				{Function: provider.ToolFunctionSpec{Name: "grep"}},
+			},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+		},
+	})
+
+	runs := 0
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+				return agent.RunState{
+					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
+					TurnCount:    1,
+					TokenCount:   1,
+					StopReason:   agent.StopReasonComplete,
+				}, nil
+			}
+			runs++
+			return agent.RunState{
+				Conversation: []agent.Message{
+					{Role: agent.MessageRoleUser, Content: "initial task"},
+					{Role: agent.MessageRoleAssistant, Content: "found it"},
+				},
+				TurnCount:  1,
+				TokenCount: 5,
+				StopReason: agent.StopReasonComplete,
+			}, nil
+		}},
+	})
+
+	ctx := context.WithValue(context.Background(), tool.ExecutionModeKey{}, config.ExecutionModePlan)
+	_, err := handler(ctx, map[string]any{
+		"agent_id": "child-readonly",
+		"message":  "continue",
+	})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if runs != 1 {
+		t.Fatalf("runs = %d, want 1 (non-mutate child must not be denied in plan mode)", runs)
+	}
+}
+
+func TestChildHasMutateTool(t *testing.T) {
+	tests := []struct {
+		name  string
+		tools []provider.ToolSpec
+		want  bool
+	}{
+		{
+			name:  "contains mutate",
+			tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "read"}}, {Function: provider.ToolFunctionSpec{Name: "mutate"}}},
+			want:  true,
+		},
+		{
+			name:  "without mutate",
+			tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "read"}}, {Function: provider.ToolFunctionSpec{Name: "grep"}}},
+			want:  false,
+		},
+		{
+			name:  "empty list",
+			tools: []provider.ToolSpec{},
+			want:  false,
+		},
+		{
+			name:  "nil list",
+			tools: nil,
+			want:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := childHasMutateTool(agent.RunRequest{Tools: tt.tools})
+			if got != tt.want {
+				t.Fatalf("childHasMutateTool() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func promptWithConversation(contents ...string) prompt.AssemblyOptions {
 	conversation := make([]provider.Message, 0, len(contents))
 	for _, content := range contents {

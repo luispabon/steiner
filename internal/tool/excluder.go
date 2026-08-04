@@ -59,7 +59,7 @@ func NewPathExcluder(excludePaths, excludePatterns []string) PathExcluder {
 // Used by the TUI file picker to surface project-metadata folders.
 func NewPathExcluderWithIncludes(excludePaths, excludePatterns, includeComponents []string) PathExcluder {
 	e := PathExcluder{
-		excludePaths: append([]string(nil), excludePaths...),
+		excludePaths: cleanExcludePaths(excludePaths),
 	}
 	e.excludePatterns = append(e.excludePatterns, builtinExcludeEntries...)
 	e.excludePatterns = append(e.excludePatterns, excludePatterns...)
@@ -72,6 +72,22 @@ func NewPathExcluderWithIncludes(excludePaths, excludePatterns, includeComponent
 	return e
 }
 
+// cleanExcludePaths applies filepath.Clean to each configured exclude path so
+// that user-configured forms such as a trailing separator ("secrets/") or a
+// "./"-relative prefix match the same way a cleaned candidate path does in
+// ShouldExclude. Empty entries are dropped: filepath.Clean("") returns ".",
+// which would otherwise match the entire relative tree as an exclude prefix.
+func cleanExcludePaths(excludePaths []string) []string {
+	cleaned := make([]string, 0, len(excludePaths))
+	for _, p := range excludePaths {
+		if p == "" {
+			continue
+		}
+		cleaned = append(cleaned, filepath.Clean(p))
+	}
+	return cleaned
+}
+
 // ShouldExclude returns true if the path matches any exclusion rule.
 // Exact prefix exclusions are checked first, then glob patterns are matched
 // against each path component. If the path contains any component listed in
@@ -81,7 +97,13 @@ func (e PathExcluder) ShouldExclude(path string) bool {
 		return false
 	}
 	for _, prefix := range e.excludePaths {
-		if strings.HasPrefix(path, prefix) {
+		// filepath.Clean collapses a root separator exclude path to just the
+		// separator itself, so prefix+separator ("//") never matches any real
+		// path. Treat a bare separator as excluding everything beneath it.
+		if prefix == string(filepath.Separator) {
+			return true
+		}
+		if path == prefix || strings.HasPrefix(path, prefix+string(filepath.Separator)) {
 			return true
 		}
 	}

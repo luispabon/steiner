@@ -129,19 +129,61 @@ func TestWithBg_preservesTrailingNewlines(t *testing.T) {
 	}
 }
 
+// stripANSI removes every CSI escape sequence from s, leaving the visible
+// text and newline structure.
+func stripANSI(s string) string {
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			i = j
+			continue
+		}
+		sb.WriteByte(s[i])
+	}
+	return sb.String()
+}
+
+// TestWithBg_visuallyIdempotent pins the idempotence contract stated in the
+// WithBg doc comment: re-applying the same background may legitimately double
+// up background escape sequences, but the visible text and newline structure
+// must be identical between one and two applications, and every line must
+// still carry the background.
 func TestWithBg_visuallyIdempotent(t *testing.T) {
-	s := "hello\nworld"
 	bg := BgElev
-	first := WithBg(s, bg)
-	second := WithBg(first, bg)
-	if !strings.Contains(second, "hello") || !strings.Contains(second, "world") {
-		t.Errorf("second application lost original text")
+	bgSeq := "\x1b[48;2;"
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "single line", input: "hello"},
+		{name: "multi line", input: "hello\nworld"},
+		{name: "empty line", input: "a\n\nb"},
+		{name: "trailing newline", input: "hello\n"},
+		{name: "embedded long reset", input: "before\x1b[0mafter"},
+		{name: "embedded short reset", input: "before\x1b[mafter"},
+		{name: "embedded bg reset", input: "a\x1b[49mb"},
+		{name: "embedded foreground", input: "\x1b[31mred\x1b[0mnormal"},
 	}
-	if !strings.HasPrefix(second, "\x1b[") {
-		t.Errorf("second application should start with ANSI escape")
-	}
-	if !strings.HasPrefix(first, second[:len(first)-6]) {
-		t.Logf("first and second may differ structurally but are visually equivalent")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			first := WithBg(tt.input, bg)
+			second := WithBg(first, bg)
+
+			if got, want := stripANSI(second), stripANSI(first); got != want {
+				t.Fatalf("second application changed visible text: got %q, want %q", got, want)
+			}
+			for i, line := range strings.Split(strings.TrimSuffix(second, "\n"), "\n") {
+				if !strings.HasPrefix(line, bgSeq) {
+					t.Fatalf("line %d of second application = %q, want background escape prefix", i, line)
+				}
+			}
+		})
 	}
 }
 

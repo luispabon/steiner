@@ -416,17 +416,20 @@ func TestBuildRuntimeSandbox_Bypassed(t *testing.T) {
 }
 
 func TestBuildRuntimeSandbox_Unavailable(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
 	cfg := config.Config{
 		Sandbox: config.SandboxConfig{Enabled: true},
 	}
 
 	sb, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp")
-	// On Linux with bwrap, this may succeed — skip if sandbox built.
-	if sb != nil {
-		t.Skip("bwrap is available, cannot test unavailable branch")
-	}
-	// Otherwise we expect nil error (graceful fallback).
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if sb != nil {
+		t.Fatal("expected nil sandbox when bwrap is unavailable")
+	}
+	if cfg.Sandbox.Status != "unavailable" {
+		t.Fatalf("cfg.Sandbox.Status = %q, want %q", cfg.Sandbox.Status, "unavailable")
 	}
 }

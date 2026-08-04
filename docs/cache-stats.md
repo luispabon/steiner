@@ -73,6 +73,8 @@ Observations are stored in a single global JSON file shared across all concurren
 
 **Placement**: Under XDG *state* (durable analytics), not cache. This ensures the data persists across sessions and is not swept by cache cleanup.
 
+**Lock file**: A zero-byte sibling `cache-stats.json.lock` (mode `0600`) sits next to the data file and carries the write lock. It is created on first write and persists; it holds no data and is safe to delete when no steiner process is running.
+
 **On-disk schema**:
 
 ```json
@@ -116,7 +118,7 @@ Each entry represents one hourly bucket for a given provider-alias, provider-typ
 
 The global file is shared across concurrent steiner processes. Write safety is enforced through:
 
-1. **OS advisory lock (flock)**: On Unix, an exclusive lock (`LOCK_EX`) is acquired before reading and releasing after writing. Ensures atomic read-modify-write.
+1. **OS advisory lock (flock)**: On Unix, an exclusive lock (`LOCK_EX`) is acquired before reading and released after writing. Ensures atomic read-modify-write. The lock is taken on the stable sibling `cache-stats.json.lock`, never on the data file: `flock` binds to the open file description (the inode open at lock time), and each write replaces the data file's inode via temp+rename, so locking the data file would let concurrent writers hold locks on different inodes and lose each other's updates.
 2. **Additive delta merging**: Each observation is calculated as a delta (one call's token counts). The on-disk state is re-read before write, and the new observation is added to the existing entries. Concurrent writers do not lose each other's updates.
 3. **Non-unix fallback**: On Windows and other platforms without flock, in-process concurrency only is guaranteed (same-process threads are serialized). Cross-process safety is not available.
 4. **Graceful degradation**: If a lock cannot be acquired within a short timeout, the observation is dropped from persistence only; the in-session counts are unaffected.

@@ -129,16 +129,4 @@ func TestBuiltins(t *testing.T) {
 			}
 		}
 	})
-
-	t.Run("handler returns errors for invalid input", func(t *testing.T) {
-		for _, td := range tools {
-			td := td
-			t.Run(td.Name, func(_ *testing.T) {
-				_, err := td.Handler(context.Background(), map[string]any{
-					"nonexistent_key": "value",
-				})
-				_ = err
-			})
-		}
-	})
 }

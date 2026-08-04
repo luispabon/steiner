@@ -433,7 +433,11 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 		return nil, err
 	}
 
-	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, projectRoot, workDir, userHome, tmpDir)
+	// cfg.Permissions.Docker is not enforced by the sandbox: bwrap's read-only root
+	// bind does not cover unix sockets, so the host Docker socket is reachable
+	// regardless of this setting. Enforcement is tracked separately (deny-by-default
+	// socket masking), not implemented here. Tracked in #402.
+	s := sandbox.New(cfg.Sandbox, cfg.HostMounts, projectRoot, workDir, userHome, tmpDir)
 	if err := s.EnsureHome(); err != nil {
 		return nil, fmt.Errorf("sandbox setup: %w", err)
 	}
