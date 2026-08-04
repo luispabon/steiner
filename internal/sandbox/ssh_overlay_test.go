@@ -236,22 +236,7 @@ func TestPrepareSSHOverlayFromPath_MissingRootReturnsNil(t *testing.T) {
 	}
 }
 
-func TestSSHOverlayConstantsAndScaffold(t *testing.T) {
-	file := sshOverlayFile{
-		sourcePath:  "/etc/ssh/ssh_config",
-		sandboxPath: "/tmp/ssh_config",
-		content:     []byte("Host *"),
-	}
-	resolution := sshIncludeResolution{
-		files:              []sshOverlayFile{file},
-		replacementDirs:    []string{"/tmp"},
-		skippedDiagnostics: []string{"skipped include"},
-	}
-	overlay := sshOverlay{
-		bwrapArgs: []string{"--ro-bind-data", "3", "/tmp/ssh_config"},
-		memfds:    nil,
-	}
-
+func TestSSHOverlayConstants(t *testing.T) {
 	if got, want := sshSystemConfigPath, "/etc/ssh/ssh_config"; got != want {
 		t.Fatalf("sshSystemConfigPath = %q, want %q", got, want)
 	}
@@ -266,15 +251,6 @@ func TestSSHOverlayConstantsAndScaffold(t *testing.T) {
 	}
 	if got, want := sshMaxTotalBytes, 8<<20; got != want {
 		t.Fatalf("sshMaxTotalBytes = %d, want %d", got, want)
-	}
-	if len(overlay.bwrapArgs) != 3 {
-		t.Fatalf("overlay.bwrapArgs len = %d, want 3", len(overlay.bwrapArgs))
-	}
-	if len(resolution.files) != 1 || len(resolution.replacementDirs) != 1 || len(resolution.skippedDiagnostics) != 1 {
-		t.Fatalf("unexpected resolution scaffold: %+v", resolution)
-	}
-	if resolution.files[0].sourcePath != file.sourcePath || resolution.files[0].sandboxPath != file.sandboxPath {
-		t.Fatalf("resolution file mismatch: %+v", resolution.files[0])
 	}
 }
 

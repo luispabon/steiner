@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1635,37 +1636,45 @@ func TestLoadSessionSkipsOrphanedToolCallWithNoResult(t *testing.T) {
 
 func TestSubmitPromptWithImages(t *testing.T) {
 	t.Parallel()
-	s := testNewSession(t, Dependencies{})
 
-	// Verify SubmitPrompt struct can be constructed with Images field
-	images := []agent.ImageBlock{
-		{MediaType: "image/png", Data: "base64encodeddata"},
-	}
-	action := SubmitPrompt{
-		Text:   "hello",
-		Images: images,
-	}
-
-	// Verify the action implements Action interface
-	var _ Action = action
-
-	// Verify Images field is properly set
-	if len(action.Images) != 1 {
-		t.Fatalf("action.Images length = %d, want 1", len(action.Images))
-	}
-	if got, want := action.Images[0].MediaType, "image/png"; got != want {
-		t.Fatalf("action.Images[0].MediaType = %q, want %q", got, want)
-	}
-	if got, want := action.Images[0].Data, "base64encodeddata"; got != want {
-		t.Fatalf("action.Images[0].Data = %q, want %q", got, want)
+	tests := []struct {
+		name   string
+		images []agent.ImageBlock
+	}{
+		{
+			name:   "images are attached to the user message",
+			images: []agent.ImageBlock{{MediaType: "image/png", Data: "base64encodeddata"}},
+		},
+		{
+			name:   "text-only prompt carries no images",
+			images: nil,
+		},
 	}
 
-	// Verify nil Images is acceptable
-	actionNoImages := SubmitPrompt{Text: "text only"}
-	if actionNoImages.Images != nil {
-		t.Fatalf("expected nil Images for text-only SubmitPrompt")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got []agent.Message
+			s := testNewSession(t, Dependencies{
+				Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+					got = conversation
+					return RunResult{Conversation: conversation}, nil
+				}),
+			})
+
+			s.submitPrompt(context.Background(), "hello", tt.images)
+
+			if len(got) != 1 {
+				t.Fatalf("runner conversation length = %d, want 1", len(got))
+			}
+			if !reflect.DeepEqual(got[0].Images, tt.images) {
+				t.Fatalf("runner user message Images = %+v, want %+v", got[0].Images, tt.images)
+			}
+			if !reflect.DeepEqual(s.Conversation()[0].Images, tt.images) {
+				t.Fatalf("stored user message Images = %+v, want %+v", s.Conversation()[0].Images, tt.images)
+			}
+		})
 	}
-	_ = s // Suppress unused warning
 }
 
 func TestForkSession(t *testing.T) {
