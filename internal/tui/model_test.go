@@ -3135,7 +3135,11 @@ func TestNotifyUnavailableEmitsStartupWarning(t *testing.T) {
 
 func TestModelFilePicker_TabInsertsPath(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{WorkingDir: "."}, nil)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "fixture.txt"), []byte("fixture"), 0o644); err != nil {
+		t.Fatalf("write fixture file: %v", err)
+	}
+	m := newModel(Config{WorkingDir: dir}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
@@ -3143,7 +3147,7 @@ func TestModelFilePicker_TabInsertsPath(t *testing.T) {
 		t.Fatal("expected file picker to open")
 	}
 	if len(m.filePicker.candidates) == 0 {
-		t.Skip("no candidates")
+		t.Fatal("expected file picker candidates from fixture directory")
 	}
 
 	selected := m.filePicker.candidates[m.filePicker.selection]

@@ -1,5 +1,10 @@
 //go:build linux
 
+// This file is Linux-only because it tests ssh_overlay.go, which is itself
+// Linux-only (it depends on golang.org/x/sys/unix bind-mount syscalls). CI
+// also runs a `GOOS=darwin go vet ./...` compile-only check to catch rot in
+// files gated this way.
+
 package sandbox
 
 import (

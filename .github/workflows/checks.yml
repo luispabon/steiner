@@ -64,6 +64,13 @@ jobs:
       - name: Vet
         run: make vet
 
+      # Compile-only check: catches rot in `//go:build !linux` / `//go:build
+      # darwin`-gated files (e.g. internal/notify) that the Linux-only runner
+      # above never compiles. No macOS test execution, just a cross-compile
+      # vet pass.
+      - name: Vet (darwin cross-compile)
+        run: GOOS=darwin go vet ./...
+
       - name: Lint
         run: make lint
 
