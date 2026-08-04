@@ -1,79 +1,173 @@
 package delegation
 
 import (
+	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/provider"
 )
 
-func TestDelegationSpecFields(t *testing.T) {
-	spec := DelegationSpec{
-		Task:         "test task",
-		Context:      "test context",
-		SystemPrompt: "test prompt",
-		AgentID:      "agent-123",
-		Limits: DelegationLimits{
-			MaxTurns:          10,
-			OutputLimitTokens: 50000,
-			Timeout:           time.Second * 60,
-		},
-	}
-
-	if spec.Task != "test task" {
-		t.Errorf("expected Task=%q, got %q", "test task", spec.Task)
-	}
-	if spec.Context != "test context" {
-		t.Errorf("expected Context=%q, got %q", "test context", spec.Context)
-	}
-	if spec.SystemPrompt != "test prompt" {
-		t.Errorf("expected SystemPrompt=%q, got %q", "test prompt", spec.SystemPrompt)
-	}
-	if spec.AgentID != "agent-123" {
-		t.Errorf("expected AgentID=%q, got %q", "agent-123", spec.AgentID)
-	}
-	if spec.Limits.MaxTurns != 10 {
-		t.Errorf("expected Limits.MaxTurns=10, got %d", spec.Limits.MaxTurns)
+func populatedResult() DelegationResult {
+	return DelegationResult{
+		AgentID:          "agent-123",
+		Status:           StatusPartial,
+		Output:           "test output",
+		Summary:          "condensed findings",
+		TurnCount:        5,
+		TokenCount:       1000,
+		StopReason:       "max_turns",
+		ToolCallCount:    7,
+		FollowUpCount:    2,
+		SessionResumable: true,
+		Trace: []TraceEntry{{
+			Time:    time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+			Phase:   "spawn",
+			Message: "child started",
+			Fields:  map[string]any{"agent_id": "agent-123"},
+		}},
 	}
 }
 
-func TestDelegationResultFields(t *testing.T) {
-	result := DelegationResult{
-		AgentID:       "agent-123",
-		Status:        StatusComplete,
-		Output:        "test output",
-		TurnCount:     5,
-		TokenCount:    1000,
-		FollowUpCount: 2,
+func marshalKeys(t *testing.T, v any) (map[string]json.RawMessage, []byte) {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal %T: %v", v, err)
 	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err != nil {
+		t.Fatalf("unmarshal %T into key map: %v", v, err)
+	}
+	return keys, data
+}
 
-	if result.AgentID != "agent-123" {
-		t.Errorf("expected AgentID=%q, got %q", "agent-123", result.AgentID)
+func assertKeys(t *testing.T, keys map[string]json.RawMessage, data []byte, want, absent []string) {
+	t.Helper()
+	for _, key := range want {
+		if _, ok := keys[key]; !ok {
+			t.Errorf("missing %q in %s", key, data)
+		}
 	}
-	if result.Status != StatusComplete {
-		t.Errorf("expected Status=%q, got %q", StatusComplete, result.Status)
+	for _, key := range absent {
+		if _, ok := keys[key]; ok {
+			t.Errorf("unexpected %q in %s", key, data)
+		}
 	}
-	if result.Output != "test output" {
-		t.Errorf("expected Output=%q, got %q", "test output", result.Output)
-	}
-	if result.Summary != "" {
-		t.Errorf("expected Summary to remain hidden, got %q", result.Summary)
-	}
-	if result.TurnCount != 5 {
-		t.Errorf("expected TurnCount=5, got %d", result.TurnCount)
-	}
-	if result.TokenCount != 1000 {
-		t.Errorf("expected TokenCount=1000, got %d", result.TokenCount)
-	}
-	if result.FollowUpCount != 2 {
-		t.Errorf("expected FollowUpCount=2, got %d", result.FollowUpCount)
+	if len(keys) != len(want) {
+		t.Errorf("key count = %d, want %d: %s", len(keys), len(want), data)
 	}
 }
 
-func TestNoTouchedFilesField(t *testing.T) {
-	// Verify that DelegationResult does not have touched_files field
-	result := DelegationResult{}
-	_ = result
+func TestDelegationResultJSONRoundTrip(t *testing.T) {
+	t.Run("populated result keeps every wire field", func(t *testing.T) {
+		result := populatedResult()
+		keys, data := marshalKeys(t, result)
+		assertKeys(t, keys, data, []string{
+			"agent_id",
+			"status",
+			"output",
+			"summary",
+			"turn_count",
+			"token_count",
+			"stop_reason",
+			"tool_call_count",
+			"follow_up_count",
+			"session_resumable",
+			"trace",
+		}, nil)
 
-	// This test passes if the code compiles.
-	// The absence of a touched_files field is verified by the type definition.
-	t.Log("DelegationResult correctly has no touched_files field")
+		var decoded DelegationResult
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+		if !reflect.DeepEqual(decoded, result) {
+			t.Errorf("round-tripped result = %+v, want %+v", decoded, result)
+		}
+	})
+
+	t.Run("optional result fields are omitted when empty", func(t *testing.T) {
+		keys, data := marshalKeys(t, DelegationResult{
+			AgentID: "agent-123",
+			Status:  StatusComplete,
+			Output:  "test output",
+		})
+		assertKeys(t, keys, data, []string{
+			"agent_id",
+			"status",
+			"output",
+			"turn_count",
+			"token_count",
+			"tool_call_count",
+		}, []string{
+			"summary",
+			"stop_reason",
+			"follow_up_count",
+			"session_resumable",
+			"trace",
+		})
+	})
+
+	// touched_files was removed from the contract; the wire format must not
+	// grow it back under any field name.
+	t.Run("touched_files is absent from the wire format", func(t *testing.T) {
+		for _, result := range []DelegationResult{{}, populatedResult()} {
+			data, err := json.Marshal(result)
+			if err != nil {
+				t.Fatalf("marshal result: %v", err)
+			}
+			if strings.Contains(string(data), "touched_files") {
+				t.Errorf("touched_files reappeared in the wire format: %s", data)
+			}
+		}
+	})
+}
+
+func TestDelegationSpecJSONRoundTrip(t *testing.T) {
+	t.Run("populated spec keeps every wire field", func(t *testing.T) {
+		spec := DelegationSpec{
+			Task:         "test task",
+			Context:      "test context",
+			SystemPrompt: "test prompt",
+			Images:       []provider.ImageBlock{{MediaType: "image/png", Data: "aGk="}},
+			Limits: DelegationLimits{
+				MaxTurns:          10,
+				OutputLimitTokens: 50000,
+				Timeout:           60 * time.Second,
+			},
+			AgentID: "agent-123",
+		}
+		keys, data := marshalKeys(t, spec)
+		assertKeys(t, keys, data, []string{
+			"task",
+			"context",
+			"system_prompt",
+			"images",
+			"limits",
+			"agent_id",
+		}, nil)
+
+		var decoded DelegationSpec
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("unmarshal spec: %v", err)
+		}
+		if !reflect.DeepEqual(decoded, spec) {
+			t.Errorf("round-tripped spec = %+v, want %+v", decoded, spec)
+		}
+	})
+
+	t.Run("optional spec fields are omitted when empty", func(t *testing.T) {
+		keys, data := marshalKeys(t, DelegationSpec{Task: "test task", AgentID: "agent-123"})
+		assertKeys(t, keys, data, []string{
+			"task",
+			"limits",
+			"agent_id",
+		}, []string{
+			"context",
+			"system_prompt",
+			"images",
+		})
+	})
 }
