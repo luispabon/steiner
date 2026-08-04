@@ -330,6 +330,56 @@ func TestHandleCompaction_NoCandidate(t *testing.T) {
 	}
 }
 
+func TestHandleCompaction_SuccessfulCompactionRetries(t *testing.T) {
+	state := RunState{
+		TurnCount: 0,
+		Conversation: []Message{
+			{Role: MessageRoleUser, Content: "hello"},
+			{Role: MessageRoleAssistant, Content: "world"},
+		},
+		Lineage: newConversationLineage([]Message{
+			{Role: MessageRoleUser, Content: "hello"},
+			{Role: MessageRoleAssistant, Content: "world"},
+		}),
+	}
+
+	req := RunRequest{
+		Events: output.NoopSink{},
+	}
+
+	compactFn := func(_ context.Context, _ RunRequest, state *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, compactionCount *int) (bool, error) {
+		state.Conversation = []Message{{Role: MessageRoleAssistant, Content: "compacted summary"}}
+		state.Lineage = newConversationLineage(state.Conversation)
+		*compactionCount++
+		return true, nil
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, compactFn)
+
+	fit := prompt.RequestTokenBudget{
+		ContextSize: 10,
+		TotalTokens: 100,
+		Fits:        false,
+	}
+
+	outcome := p.handleCompaction(context.Background(), state, fit)
+
+	if !outcome.Retry {
+		t.Fatal("outcome.Retry = false, want true")
+	}
+	if outcome.Stop {
+		t.Fatal("outcome.Stop = true, want false")
+	}
+	if outcome.Error != nil {
+		t.Fatalf("outcome.Error = %v, want nil", outcome.Error)
+	}
+	if len(outcome.State.Conversation) != 1 || outcome.State.Conversation[0].Content != "compacted summary" {
+		t.Fatalf("outcome.State.Conversation = %#v, want single compacted message", outcome.State.Conversation)
+	}
+	if p.compactionCount != 1 {
+		t.Fatalf("p.compactionCount = %d, want 1", p.compactionCount)
+	}
+}
+
 func TestPrepareTurn_AssemblyErrorPropagates(t *testing.T) {
 	state := RunState{
 		TurnCount:    0,
@@ -509,6 +559,142 @@ func TestAdvance_ToolCallsThenContinue(t *testing.T) {
 	}
 	if !containsSequence(eventTypes(events), wantSequence) {
 		t.Fatalf("event types = %v, want sequence %v", eventTypes(events), wantSequence)
+	}
+}
+
+func TestExecuteToolCalls_MultipleCallsInOrder(t *testing.T) {
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, args map[string]any) (any, error) {
+			return map[string]any{"cmd": args["cmd"]}, nil
+		},
+	}
+	state := RunState{
+		TurnCount:    1,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hi"}},
+		Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}}),
+	}
+	req := RunRequest{
+		Executor: executor,
+		Events:   output.NoopSink{},
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	response := provider.ChatResponse{
+		Message: provider.Message{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{
+				{ID: "call_1", Name: "bash", Arguments: map[string]any{"cmd": "one"}},
+				{ID: "call_2", Name: "bash", Arguments: map[string]any{"cmd": "two"}},
+				{ID: "call_3", Name: "bash", Arguments: map[string]any{"cmd": "three"}},
+			},
+		},
+		FinishReason: "tool_calls",
+	}
+
+	outcome := p.executeToolCalls(context.Background(), state, response)
+
+	if outcome.Stop {
+		t.Fatalf("outcome.Stop = true, want false")
+	}
+	if outcome.Error != nil {
+		t.Fatalf("outcome.Error = %v, want nil", outcome.Error)
+	}
+	if len(executor.calls) != 3 {
+		t.Fatalf("executor.calls = %d, want 3", len(executor.calls))
+	}
+	wantOrder := []string{"one", "two", "three"}
+	for i, want := range wantOrder {
+		got, _ := executor.calls[i].args["cmd"].(string)
+		if got != want {
+			t.Fatalf("executor.calls[%d].args[cmd] = %q, want %q", i, got, want)
+		}
+	}
+
+	var toolMsgs []Message
+	for _, m := range outcome.State.Conversation {
+		if m.Role == MessageRoleTool {
+			toolMsgs = append(toolMsgs, m)
+		}
+	}
+	if len(toolMsgs) != 3 {
+		t.Fatalf("tool messages = %d, want 3", len(toolMsgs))
+	}
+	wantIDs := []string{"call_1", "call_2", "call_3"}
+	for i, want := range wantIDs {
+		if toolMsgs[i].ToolCallID != want {
+			t.Fatalf("toolMsgs[%d].ToolCallID = %q, want %q", i, toolMsgs[i].ToolCallID, want)
+		}
+	}
+	if !strings.Contains(toolMsgs[0].Content, "one") ||
+		!strings.Contains(toolMsgs[1].Content, "two") ||
+		!strings.Contains(toolMsgs[2].Content, "three") {
+		t.Fatalf("tool message contents = %v, want echoed cmd values in order", toolMsgs)
+	}
+}
+
+func TestExecuteToolCalls_MidLoopStopHaltsRemainingCalls(t *testing.T) {
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, toolName string, args map[string]any) (any, error) {
+			if toolName == "workflow_handoff" {
+				return tool.WorkflowHandoffAccepted{
+					Transition: tool.WorkflowHandoffTransition{
+						Next:   "implement",
+						Target: ".steiner/plans/step-2",
+					},
+				}, nil
+			}
+			return map[string]any{"cmd": args["cmd"]}, nil
+		},
+	}
+	state := RunState{
+		TurnCount:    1,
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hi"}},
+		Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}}),
+	}
+	req := RunRequest{
+		Executor: executor,
+		Events:   output.NoopSink{},
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	response := provider.ChatResponse{
+		Message: provider.Message{
+			Role: provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{
+				{ID: "call_1", Name: "bash", Arguments: map[string]any{"cmd": "one"}},
+				{ID: "call_2", Name: "workflow_handoff", Arguments: map[string]any{"next": "implement"}},
+				{ID: "call_3", Name: "bash", Arguments: map[string]any{"cmd": "three"}},
+			},
+		},
+		FinishReason: "tool_calls",
+	}
+
+	outcome := p.executeToolCalls(context.Background(), state, response)
+
+	if !outcome.Stop {
+		t.Fatal("outcome.Stop = false, want true")
+	}
+	if got, want := outcome.State.StopReason, StopReasonWorkflowHandoff; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if len(executor.calls) != 2 {
+		t.Fatalf("executor.calls = %d, want 2 (third call must not execute)", len(executor.calls))
+	}
+	if executor.calls[0].tool != "bash" || executor.calls[1].tool != "workflow_handoff" {
+		t.Fatalf("executor.calls order = %#v, want [bash, workflow_handoff]", executor.calls)
+	}
+
+	var toolMsgs []Message
+	for _, m := range outcome.State.Conversation {
+		if m.Role == MessageRoleTool {
+			toolMsgs = append(toolMsgs, m)
+		}
+	}
+	if len(toolMsgs) != 1 {
+		t.Fatalf("tool messages = %d, want 1 (only call_1 produced a tool result message)", len(toolMsgs))
+	}
+	if toolMsgs[0].ToolCallID != "call_1" {
+		t.Fatalf("toolMsgs[0].ToolCallID = %q, want call_1", toolMsgs[0].ToolCallID)
 	}
 }
 
