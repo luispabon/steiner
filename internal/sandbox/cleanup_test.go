@@ -55,6 +55,13 @@ func TestCleanupOrphans_ReadOnlyFile(t *testing.T) {
 	if err := os.WriteFile(roFile, []byte("data"), 0o444); err != nil {
 		t.Fatalf("write readonly file: %v", err)
 	}
+	// Remove oldDir's own write bit so unlinking roFile requires the chmod
+	// step in forceRemoveAll. POSIX unlink permission is governed by the
+	// containing directory's write bit, not the target file's mode: a plain
+	// os.RemoveAll would fail here with oldDir non-writable.
+	if err := os.Chmod(oldDir, 0o555); err != nil {
+		t.Fatalf("chmod old: %v", err)
+	}
 
 	past := time.Now().Add(-2 * time.Hour)
 	if err := os.Chtimes(oldDir, past, past); err != nil {
@@ -66,6 +73,6 @@ func TestCleanupOrphans_ReadOnlyFile(t *testing.T) {
 		t.Fatalf("count = %d, want 1", count)
 	}
 	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
-		t.Fatal("expected oldDir (with read-only file) to be removed")
+		t.Fatal("expected oldDir (with read-only file and non-writable dir) to be removed")
 	}
 }

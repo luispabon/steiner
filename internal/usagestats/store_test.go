@@ -340,8 +340,8 @@ func TestStoreWritePermissions(t *testing.T) {
 		t.Fatalf("stat: %v", err)
 	}
 
-	if info.Mode()&0o644 != 0o644 {
-		t.Errorf("file perms: got %o, want 0o644", info.Mode()&0o777)
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("file perms: got %o, want 0o644", info.Mode().Perm())
 	}
 }
 
