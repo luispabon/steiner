@@ -105,6 +105,47 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 	}
 }
 
+func TestRunnerCompactionExhaustionFailsFastWithoutCallingProvider(t *testing.T) {
+	providerStub := &fakeProvider{}
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return tool.ExecutionResult{Value: map[string]any{"contents": "unused"}}, nil
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:               16,
+			MaxCompletionTokens:       16,
+			SafetyMarginTokens:        0,
+			SummaryMaxTokens:          8,
+			NormalSummaryMaxTokens:    8,
+			EmergencySummaryMaxTokens: 8,
+		},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: strings.Repeat("latest user content ", 10)},
+				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("latest assistant content ", 10)},
+			},
+		},
+		Limits: Limits{MaxTurns: 8, MaxTokens: 2000},
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want irreducible compaction failure")
+	}
+	if !strings.Contains(err.Error(), "compaction cannot solve this request") {
+		t.Fatalf("Run() error = %v, want compaction cannot solve this request", err)
+	}
+	if got, want := state.StopReason, StopReasonError; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 0; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+}
+
 func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
