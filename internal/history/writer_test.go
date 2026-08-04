@@ -1,9 +1,11 @@
 package history
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -164,7 +166,7 @@ func TestRecord_TrimsAfterWrite(t *testing.T) {
 	}()
 
 	for i := 0; i < 55; i++ {
-		if err := w.Record("prompt"); err != nil {
+		if err := w.Record(fmt.Sprintf("prompt-%d", i)); err != nil {
 			t.Fatalf("Record(%d): %v", i, err)
 		}
 	}
@@ -175,6 +177,14 @@ func TestRecord_TrimsAfterWrite(t *testing.T) {
 	}
 	if len(prompts) != 50 {
 		t.Fatalf("got %d prompts, want 50", len(prompts))
+	}
+
+	want := make([]string, 0, 50)
+	for i := 5; i < 55; i++ {
+		want = append(want, fmt.Sprintf("prompt-%d", i))
+	}
+	if !slices.Equal(prompts, want) {
+		t.Errorf("retained prompts = %v, want the newest 50 in original order %v", prompts, want)
 	}
 }
 
@@ -211,7 +221,7 @@ func TestTrimAfterAppend_Truncates(t *testing.T) {
 	defer closeWriter(t, w)
 
 	for i := 0; i < 10; i++ {
-		if err := w.Record("line"); err != nil {
+		if err := w.Record(fmt.Sprintf("line-%d", i)); err != nil {
 			t.Fatalf("Record(%d): %v", i, err)
 		}
 	}
@@ -227,6 +237,10 @@ func TestTrimAfterAppend_Truncates(t *testing.T) {
 	if len(prompts) != 3 {
 		t.Errorf("got %d prompts, want 3", len(prompts))
 	}
+	want := []string{"line-7", "line-8", "line-9"}
+	if !slices.Equal(prompts, want) {
+		t.Errorf("retained prompts = %v, want the newest 3 in original order %v", prompts, want)
+	}
 }
 
 func TestTrimAfterAppend_NoTruncateWhenUnderMax(t *testing.T) {
@@ -234,7 +248,7 @@ func TestTrimAfterAppend_NoTruncateWhenUnderMax(t *testing.T) {
 	defer closeWriter(t, w)
 
 	for i := 0; i < 3; i++ {
-		if err := w.Record("line"); err != nil {
+		if err := w.Record(fmt.Sprintf("line-%d", i)); err != nil {
 			t.Fatalf("Record(%d): %v", i, err)
 		}
 	}
@@ -249,6 +263,10 @@ func TestTrimAfterAppend_NoTruncateWhenUnderMax(t *testing.T) {
 	}
 	if len(prompts) != 3 {
 		t.Errorf("got %d prompts, want 3", len(prompts))
+	}
+	want := []string{"line-0", "line-1", "line-2"}
+	if !slices.Equal(prompts, want) {
+		t.Errorf("retained prompts = %v, want all entries unchanged %v", prompts, want)
 	}
 }
 

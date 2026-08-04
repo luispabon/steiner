@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -530,6 +531,27 @@ func TestNormalizeToolCalls_TrailingCommaInNestedObject(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Fatalf("got %d calls, want 1", len(got))
+	}
+	if got[0].Name != "mutate" {
+		t.Fatalf("Name = %q, want %q", got[0].Name, "mutate")
+	}
+
+	// Sanitizing must strip only the trailing commas: the nested operation
+	// values have to survive intact.
+	ops, ok := got[0].Arguments["operations"].([]any)
+	if !ok {
+		t.Fatalf("operations type = %T, want []any", got[0].Arguments["operations"])
+	}
+	if len(ops) != 1 {
+		t.Fatalf("got %d operations, want 1", len(ops))
+	}
+	op, ok := ops[0].(map[string]any)
+	if !ok {
+		t.Fatalf("operations[0] type = %T, want map[string]any", ops[0])
+	}
+	want := map[string]any{"type": "write", "path": "a.go", "content": "x"}
+	if !reflect.DeepEqual(op, want) {
+		t.Fatalf("operations[0] = %v, want %v", op, want)
 	}
 }
 
