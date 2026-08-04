@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -8,6 +9,14 @@ import (
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
+
+func candidateCommands(overlay slashOverlay) []string {
+	commands := make([]string, 0, len(overlay.candidates))
+	for _, candidate := range overlay.candidates {
+		commands = append(commands, candidate.command)
+	}
+	return commands
+}
 
 func TestSlashOverlayOpen(t *testing.T) {
 	t.Parallel()
@@ -200,6 +209,9 @@ func TestSlashOverlayTypeToFilter(t *testing.T) {
 	if len(overlay.candidates) < 2 {
 		t.Fatalf("after typing 'co': candidates count = %d, want at least 2", len(overlay.candidates))
 	}
+	if got, want := candidateCommands(overlay), []string{"/config", "/context"}; !slices.Equal(got, want) {
+		t.Fatalf("after typing 'co': candidates = %v, want %v", got, want)
+	}
 	if overlay.selection != 0 {
 		t.Fatalf("after filter: selection = %d, want 0", overlay.selection)
 	}
@@ -259,12 +271,18 @@ func TestSlashOverlayBackspace(t *testing.T) {
 	if len(overlay.candidates) != 2 {
 		t.Fatalf("after 'con': candidates = %d, want 2 (matches /config and /compact)", len(overlay.candidates))
 	}
+	if got, want := candidateCommands(overlay), []string{"/config", "/compact"}; !slices.Equal(got, want) {
+		t.Fatalf("after 'con': candidates = %v, want %v", got, want)
+	}
 
 	// Backspace
 	overlay, _ = overlay.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 
 	if len(overlay.candidates) != 2 {
 		t.Fatalf("after backspace: candidates = %d, want 2", len(overlay.candidates))
+	}
+	if got, want := candidateCommands(overlay), []string{"/config", "/compact"}; !slices.Equal(got, want) {
+		t.Fatalf("after backspace: candidates = %v, want %v", got, want)
 	}
 }
 

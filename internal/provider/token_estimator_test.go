@@ -24,6 +24,11 @@ func TestEstimateMessageTokensReturnsPositiveForContent(t *testing.T) {
 	if count <= messageOverheadTokens {
 		t.Fatalf("count = %d, want > %d", count, messageOverheadTokens)
 	}
+	// messageOverheadTokens(4) + role "user"(1) + content(16) under o200k_base.
+	const wantCount = 21
+	if count != wantCount {
+		t.Fatalf("count = %d, want %d", count, wantCount)
+	}
 }
 
 func TestEstimateMessageTokensRespectsCancelledCtx(t *testing.T) {
@@ -76,6 +81,12 @@ func TestEstimateToolSpecTokensReturnsPositive(t *testing.T) {
 	if count <= toolSpecOverheadTokens {
 		t.Fatalf("count = %d, want > %d", count, toolSpecOverheadTokens)
 	}
+	// toolSpecOverheadTokens(6) plus type, name, description and the nested
+	// parameter map (including per-map-entry overhead) under o200k_base.
+	const wantCount = 35
+	if count != wantCount {
+		t.Fatalf("count = %d, want %d", count, wantCount)
+	}
 }
 
 func TestEstimateToolSpecTokensRespectsCancelledCtx(t *testing.T) {
@@ -90,8 +101,14 @@ func TestEstimateToolSpecTokensRespectsCancelledCtx(t *testing.T) {
 }
 
 func TestRequestOverheadTokensReturnsConstant(t *testing.T) {
-	if got := RequestOverheadTokens(); got != requestOverheadTokens {
+	got := RequestOverheadTokens()
+	if got != requestOverheadTokens {
 		t.Fatalf("RequestOverheadTokens() = %d, want %d", got, requestOverheadTokens)
+	}
+	// Pin the magnitude too: comparing against the wrapped constant alone
+	// cannot detect the constant itself drifting.
+	if got != 8 {
+		t.Fatalf("RequestOverheadTokens() = %d, want 8", got)
 	}
 }
 
