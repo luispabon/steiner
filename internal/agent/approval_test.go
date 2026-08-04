@@ -97,7 +97,7 @@ func TestEventingApproverNilInnerDeniesWithoutPanic(t *testing.T) {
 func TestEventingApproverInnerErrorPropagatesAndEmitsDenial(t *testing.T) {
 	var events []output.Event
 	innerErr := fmt.Errorf("inner boom")
-	approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
+	approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, _ tool.ApprovalRequest) error {
 		return innerErr
 	}))
 
@@ -151,7 +151,7 @@ func TestEventingApproverAllowFalseEmitsDenialNotAcceptance(t *testing.T) {
 
 func TestEventingApproverContextCancelledDeniesWithoutHanging(t *testing.T) {
 	var events []output.Event
-	approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
+	approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, _ tool.ApprovalRequest) error {
 		return nil
 	}))
 

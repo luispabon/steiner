@@ -226,7 +226,7 @@ func TestAssembleKeepsStaticSourcesBeforeDynamicSources(t *testing.T) {
 	if phaseIdx < 0 || conversationIdx < 0 || toolSummaryIdx < 0 {
 		t.Fatalf("missing messages: phase=%d conversation=%d tool_summary=%d", phaseIdx, conversationIdx, toolSummaryIdx)
 	}
-	if !(phaseIdx < conversationIdx && conversationIdx < toolSummaryIdx) {
+	if phaseIdx >= conversationIdx || conversationIdx >= toolSummaryIdx {
 		t.Fatalf("message order phase=%d conversation=%d tool_summary=%d, want static sources first", phaseIdx, conversationIdx, toolSummaryIdx)
 	}
 
