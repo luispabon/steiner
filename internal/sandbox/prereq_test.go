@@ -8,11 +8,11 @@ import (
 )
 
 func TestPrereqCheck_WhenBwrapInstalled(t *testing.T) {
-	_, err := exec.LookPath("bwrap")
-	if err != nil {
-		// bwrap not installed — skip this half of the table.
-		t.Skip("bwrap not installed, skipping installed check")
+	prevLookup := lookupBwrap
+	lookupBwrap = func(_ string) (string, error) {
+		return "/usr/bin/bwrap", nil
 	}
+	t.Cleanup(func() { lookupBwrap = prevLookup })
 
 	if err := PrereqCheck(); err != nil {
 		t.Errorf("expected PrereqCheck to return nil when bwrap is installed, got: %v", err)
@@ -20,12 +20,11 @@ func TestPrereqCheck_WhenBwrapInstalled(t *testing.T) {
 }
 
 func TestPrereqCheck_ErrorMessage(t *testing.T) {
-	_, err := exec.LookPath("bwrap")
-	if err == nil {
-		// bwrap is installed — can't test the error branch directly,
-		// but we can verify the function contract is satisfied.
-		t.Skip("bwrap is installed, cannot test missing-bwrap error message")
+	prevLookup := lookupBwrap
+	lookupBwrap = func(_ string) (string, error) {
+		return "", exec.ErrNotFound
 	}
+	t.Cleanup(func() { lookupBwrap = prevLookup })
 
 	checkErr := PrereqCheck()
 	if checkErr == nil {

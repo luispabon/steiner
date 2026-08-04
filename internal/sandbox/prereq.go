@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"fmt"
-	"os/exec"
 	"runtime"
 )
 
@@ -21,7 +20,7 @@ func PrereqCheck() error {
 			runtime.GOOS,
 		)
 	}
-	_, err := exec.LookPath("bwrap")
+	_, err := lookupBwrap("bwrap")
 	if err != nil {
 		return fmt.Errorf(
 			"bwrap not found on PATH: install bubblewrap: apt install bubblewrap / dnf install bubblewrap",

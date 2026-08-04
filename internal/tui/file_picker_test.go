@@ -64,14 +64,14 @@ func TestFilePickerOverlay_QueryFiltersCandidates(t *testing.T) {
 	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	if !f.IsOpen() {
 		t.Fatal("expected picker to be open")
 	}
 
 	initialCount := len(f.candidates)
 	if initialCount == 0 {
-		t.Skip("no entries to filter")
+		t.Fatal("expected candidates from fixture directory")
 	}
 
 	f.query = ".go"
@@ -91,13 +91,13 @@ func TestFilePickerOverlay_EmptyQueryShowsAll(t *testing.T) {
 	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	allCount := len(f.candidates)
 
 	f.query = ".go"
 	f.filter()
 	if len(f.candidates) == 0 {
-		t.Skip("no .go files to filter")
+		t.Fatal("expected at least one .go file to filter")
 	}
 
 	f.query = ""
@@ -111,9 +111,9 @@ func TestFilePickerOverlay_SyncQueryFiltersCandidates(t *testing.T) {
 	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	if len(f.candidates) == 0 {
-		t.Skip("no entries to filter")
+		t.Fatal("expected candidates from fixture directory")
 	}
 
 	f.syncQuery(".go")
@@ -156,9 +156,9 @@ func TestFilePickerOverlay_Navigation(t *testing.T) {
 	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	if len(f.candidates) == 0 {
-		t.Skip("no candidates to navigate")
+		t.Fatal("expected candidates from fixture directory")
 	}
 
 	if f.selection != 0 {
@@ -309,7 +309,7 @@ func TestModelFilePicker_EscCloses(t *testing.T) {
 
 func TestModelFilePicker_EnterInsertsPath(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{WorkingDir: "."}, nil)
+	m := newModel(Config{WorkingDir: filePickerFixtureDir(t)}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
@@ -317,7 +317,7 @@ func TestModelFilePicker_EnterInsertsPath(t *testing.T) {
 		t.Fatal("expected file picker to open")
 	}
 	if len(m.filePicker.candidates) == 0 {
-		t.Skip("no candidates")
+		t.Fatal("expected candidates from fixture directory")
 	}
 
 	selected := m.filePicker.candidates[m.filePicker.selection]
@@ -769,6 +769,17 @@ func TestFilePickerOverlay_OpenIncludesSteiner(t *testing.T) {
 			t.Errorf("expected entries to exclude %q, got %v", entry, f.allEntries)
 		}
 	}
+}
+
+// filePickerFixtureDir returns a temp directory with a known, deterministic
+// set of files so file-picker tests don't depend on the live repo cwd.
+func filePickerFixtureDir(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	mustWriteFile(t, root, "main.go", "package main\n")
+	mustWriteFile(t, root, "README.md", "# fixture\n")
+	mustWriteFile(t, root, "notes.txt", "notes\n")
+	return root
 }
 
 func containsString(haystack []string, needle string) bool {
