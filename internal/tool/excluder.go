@@ -81,7 +81,7 @@ func (e PathExcluder) ShouldExclude(path string) bool {
 		return false
 	}
 	for _, prefix := range e.excludePaths {
-		if strings.HasPrefix(path, prefix) {
+		if path == prefix || strings.HasPrefix(path, prefix+string(filepath.Separator)) {
 			return true
 		}
 	}
