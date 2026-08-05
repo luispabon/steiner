@@ -21,6 +21,7 @@ func validate(cfg Config) error {
 	validateLoggingConfig(&problems, cfg.Logging)
 	validateToolsConfig(&problems, cfg.Tools)
 	validateSearchConfig(&problems, cfg.Search)
+	validateMCPConfig(&problems, cfg.MCP)
 	validateDesktopNotificationsConfig(&problems, cfg.DesktopNotifications)
 	validateModesConfig(&problems, cfg.Modes)
 

@@ -671,3 +671,78 @@ func TestApplyModesPatch(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyMCPPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial MCPConfig
+		patch   mcpPatch
+		want    MCPConfig
+	}{
+		{
+			name:    "applies top-level enabled",
+			initial: MCPConfig{},
+			patch:   mcpPatch{Enabled: boolPtr(true)},
+			want:    MCPConfig{Enabled: true},
+		},
+		{
+			name:    "adds a new server",
+			initial: MCPConfig{},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {Enabled: boolPtr(true), Transport: stringPtr("stdio"), Command: stringPtr("npx")},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Enabled: true, Transport: "stdio", Command: "npx"},
+				},
+			},
+		},
+		{
+			name: "partial server override preserves fields",
+			initial: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Enabled: true, Transport: "stdio", Command: "npx"},
+				},
+			},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {Enabled: boolPtr(false)},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Enabled: false, Transport: "stdio", Command: "npx"},
+				},
+			},
+		},
+		{
+			name: "merges env per-key",
+			initial: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Env: map[string]string{"A": "1"}},
+				},
+			},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {Env: stringMapPtr(map[string]string{"B": "2"})},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Env: map[string]string{"A": "1", "B": "2"}},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyMCPPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyMCPPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
