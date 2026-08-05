@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"strings"
+
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -431,5 +434,56 @@ func TestBuildRuntimeSandbox_Unavailable(t *testing.T) {
 	}
 	if cfg.Sandbox.Status != "unavailable" {
 		t.Fatalf("cfg.Sandbox.Status = %q, want %q", cfg.Sandbox.Status, "unavailable")
+	}
+}
+
+func TestEmitSandboxWarning_EnvPassthroughAll(t *testing.T) {
+	tests := []struct {
+		name          string
+		cfg           config.Config
+		wantEmitted   bool
+		wantSubstring string
+	}{
+		{
+			name: "active sandbox with env_passthrough_all warns about the credential barrier",
+			cfg: config.Config{
+				Sandbox: config.SandboxConfig{Enabled: true, EnvPassthroughAll: true, Status: "active"},
+			},
+			wantEmitted:   true,
+			wantSubstring: "credential barrier is disabled",
+		},
+		{
+			name: "active sandbox without env_passthrough_all emits nothing",
+			cfg: config.Config{
+				Sandbox: config.SandboxConfig{Enabled: true, EnvPassthroughAll: false, Status: "active"},
+			},
+			wantEmitted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var emitted []output.Event
+			sink := output.SinkFunc(func(e output.Event) { emitted = append(emitted, e) })
+
+			emitSandboxWarning(tt.cfg, sink)
+
+			if !tt.wantEmitted {
+				if len(emitted) != 0 {
+					t.Fatalf("expected no events, got %d: %v", len(emitted), emitted)
+				}
+				return
+			}
+			if len(emitted) == 0 {
+				t.Fatal("expected a SandboxStatusEvent, got none")
+			}
+			payload, ok := emitted[0].Payload.(output.SandboxStatusEvent)
+			if !ok {
+				t.Fatalf("payload type = %T, want output.SandboxStatusEvent", emitted[0].Payload)
+			}
+			if !strings.Contains(payload.Message, tt.wantSubstring) {
+				t.Fatalf("message = %q, want substring %q", payload.Message, tt.wantSubstring)
+			}
+		})
 	}
 }

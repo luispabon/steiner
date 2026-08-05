@@ -20,6 +20,7 @@ func validate(cfg Config) error {
 	validateProjectContextConfig(&problems, cfg.ProjectContext)
 	validateLoggingConfig(&problems, cfg.Logging)
 	validateToolsConfig(&problems, cfg.Tools)
+	validateSandboxConfig(&problems, cfg.Sandbox)
 	validateSearchConfig(&problems, cfg.Search)
 	validateMCPConfig(&problems, cfg.MCP)
 	validateDesktopNotificationsConfig(&problems, cfg.DesktopNotifications)

@@ -320,6 +320,103 @@ func TestWrapCommand_BwrapLookupFailureClosesOverlay(t *testing.T) {
 	}
 }
 
+func TestWrapCommandMode_NilEnv_DoesNotInheritUnfiltered(t *testing.T) {
+	restore := stubSandboxHooks(t, func(string) (string, error) {
+		return "/usr/bin/bwrap", nil
+	}, func(string, int) (*sshOverlay, error) {
+		return nil, nil
+	})
+	defer restore()
+
+	t.Setenv("STEINER_TEST_FAKE_TOKEN", "x")
+
+	cfg := config.SandboxConfig{Enabled: true}
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+
+	original := exec.CommandContext(context.Background(), "echo", "hello")
+	wrapped := s.WrapCommandMode(original, false)
+
+	if wrapped.Env == nil {
+		t.Fatal("expected wrapped.Env to be non-nil: nil cmd.Env must be treated as inheriting the host environment before filtering")
+	}
+	for _, kv := range wrapped.Env {
+		if kv == "STEINER_TEST_FAKE_TOKEN=x" {
+			t.Fatalf("wrapped.Env leaked unfiltered host var: %v", wrapped.Env)
+		}
+	}
+	found := false
+	for _, kv := range wrapped.Env {
+		if strings.HasPrefix(kv, "PATH=") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected an allowlisted PATH= entry in wrapped.Env, got %v", wrapped.Env)
+	}
+}
+
+func TestWrapCommandMode_NilEnv_PassthroughAll(t *testing.T) {
+	restore := stubSandboxHooks(t, func(string) (string, error) {
+		return "/usr/bin/bwrap", nil
+	}, func(string, int) (*sshOverlay, error) {
+		return nil, nil
+	})
+	defer restore()
+
+	t.Setenv("STEINER_TEST_FAKE_TOKEN", "x")
+
+	cfg := config.SandboxConfig{Enabled: true, EnvPassthroughAll: true}
+	s := New(cfg, config.PermissionsConfig{}, nil, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+
+	original := exec.CommandContext(context.Background(), "echo", "hello")
+	wrapped := s.WrapCommandMode(original, false)
+
+	found := false
+	for _, kv := range wrapped.Env {
+		if kv == "STEINER_TEST_FAKE_TOKEN=x" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected EnvPassthroughAll to keep STEINER_TEST_FAKE_TOKEN, got %v", wrapped.Env)
+	}
+}
+
+func TestWrapCommand_NilEnv_Integration_HostVarNotVisibleInSandbox(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("bwrap integration only runs on Linux")
+	}
+	if _, err := exec.LookPath("bwrap"); err != nil {
+		t.Skip("bwrap not installed")
+	}
+
+	t.Setenv("STEINER_TEST_FAKE_TOKEN", "x")
+
+	root := t.TempDir()
+	cfg := config.SandboxConfig{Enabled: true}
+	s := New(cfg, config.PermissionsConfig{}, nil, root, root, t.TempDir(), t.TempDir())
+	if err := s.EnsureHome(); err != nil {
+		t.Fatalf("ensure sandbox home: %v", err)
+	}
+
+	original := exec.CommandContext(context.Background(), "env")
+	wrapped := s.WrapCommand(original)
+
+	out, err := wrapped.CombinedOutput()
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()+" "+string(out)), "operation not permitted") ||
+			strings.Contains(strings.ToLower(err.Error()+" "+string(out)), "creating new namespace failed") {
+			t.Skipf("sandbox unavailable in this environment: %v\n%s", err, out)
+		}
+		t.Fatalf("sandboxed env failed: %v\n%s", err, out)
+	}
+	if strings.Contains(string(out), "STEINER_TEST_FAKE_TOKEN") {
+		t.Fatalf("sandboxed env leaked host var: %s", out)
+	}
+}
+
 func TestWrapCommand_AllowsGitCommitInWorktreeSubdir(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("bwrap integration only runs on Linux")

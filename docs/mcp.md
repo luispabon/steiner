@@ -24,6 +24,8 @@ mcp:
 `stdio` is currently the only supported transport. See [docs/configuration.md](configuration.md)
 for the full config reference.
 
+The `env` map under each server (`mcp.servers.<name>.env`) is passed to the server process verbatim and bypasses the host sandbox allowlist entirely, since it is declared config rather than inherited host state. This makes it the correct place to put a server's own credentials or API keys (e.g., a token the MCP server itself needs), even when `sandbox.enabled: true`.
+
 ## TUI surfaces
 
 ### `/mcp` overlay

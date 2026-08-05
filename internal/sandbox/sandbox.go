@@ -23,6 +23,7 @@ type Sandbox struct {
 	userHome   string // host user home
 	tmpDir     string // session-scoped temp directory
 	hostMounts []config.HostMount
+	envPolicy  EnvPolicy
 }
 
 // New creates a Sandbox. rootDir, workDir, userHome, and tmpDir must be absolute paths.
@@ -35,6 +36,7 @@ func New(cfg config.SandboxConfig, perms config.PermissionsConfig, hostMounts []
 		userHome:   userHome,
 		tmpDir:     tmpDir,
 		hostMounts: hostMounts,
+		envPolicy:  newEnvPolicy(cfg.EnvPassthroughAll, cfg.EnvPassthrough),
 	}
 }
 
@@ -91,13 +93,21 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
 	args = append(args, "--")
 	args = append(args, cmd.Args...)
 
+	// A nil cmd.Env is not "no environment" — os/exec treats it as "inherit
+	// the full host environment". Treating nil as already-filtered is the bug
+	// that let every built-in tool run with steiner's complete environment,
+	// credentials included, regardless of the allowlist.
+	inherited := cmd.Env
+	if inherited == nil {
+		inherited = os.Environ()
+	}
 	wrapped := &exec.Cmd{
 		Path:   bwrapPath,
 		Args:   args,
 		Stdin:  cmd.Stdin,
 		Stdout: cmd.Stdout,
 		Stderr: cmd.Stderr,
-		Env:    FilterEnv(cmd.Env),
+		Env:    FilterEnv(inherited, s.envPolicy),
 	}
 	if len(cmd.ExtraFiles) > 0 {
 		wrapped.ExtraFiles = append(wrapped.ExtraFiles, cmd.ExtraFiles...)

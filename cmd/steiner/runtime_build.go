@@ -468,8 +468,12 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 }
 
 // emitSandboxWarning emits a SandboxStatusEvent when sandbox is not active and
-// WarningOnUnsupportedPlatform is enabled.
+// WarningOnUnsupportedPlatform is enabled, and independently when the sandbox
+// is active but env_passthrough_all disables the credential barrier.
 func emitSandboxWarning(cfg config.Config, events output.EventSink) {
+	if cfg.Sandbox.Enabled && cfg.Sandbox.EnvPassthroughAll {
+		events.Emit(output.NewSandboxStatusEvent(cfg.Sandbox.Status, "sandbox env_passthrough_all is enabled: the credential barrier is disabled and the full host environment (including credentials) is passed to sandboxed processes unfiltered."))
+	}
 	if cfg.Sandbox.Status == "active" || !cfg.Sandbox.WarningOnUnsupportedPlatform {
 		return
 	}

@@ -1118,6 +1118,72 @@ func TestMCPConfigValidation(t *testing.T) {
 	}
 }
 
+func TestSandboxConfigValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     SandboxConfig
+		wantErr string
+	}{
+		{
+			name: "empty config is valid",
+			cfg:  SandboxConfig{},
+		},
+		{
+			name: "exact name is valid",
+			cfg:  SandboxConfig{EnvPassthrough: []string{"MYAPP_TOKEN"}},
+		},
+		{
+			name: "trailing glob is valid",
+			cfg:  SandboxConfig{EnvPassthrough: []string{"MYAPP_*"}},
+		},
+		{
+			name:    "entry containing '=' rejected",
+			cfg:     SandboxConfig{EnvPassthrough: []string{"MYAPP_TOKEN=value"}},
+			wantErr: `sandbox.env_passthrough[0] ("MYAPP_TOKEN=value"): must not contain '='`,
+		},
+		{
+			name:    "empty entry rejected",
+			cfg:     SandboxConfig{EnvPassthrough: []string{"   "}},
+			wantErr: `sandbox.env_passthrough[0] ("   "): must not be empty`,
+		},
+		{
+			name:    "star not in final position rejected",
+			cfg:     SandboxConfig{EnvPassthrough: []string{"FOO*BAR"}},
+			wantErr: `sandbox.env_passthrough[0] ("FOO*BAR"): '*' is only permitted as the final character`,
+		},
+		{
+			name:    "leading star rejected",
+			cfg:     SandboxConfig{EnvPassthrough: []string{"*FOO"}},
+			wantErr: `sandbox.env_passthrough[0] ("*FOO"): '*' is only permitted as the final character`,
+		},
+		{
+			name:    "bare star rejected",
+			cfg:     SandboxConfig{EnvPassthrough: []string{"*"}},
+			wantErr: `sandbox.env_passthrough[0] ("*"): a bare '*' would pass through the entire environment; use sandbox.env_passthrough_all instead`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBase()
+			cfg.Sandbox = tt.cfg
+			err := validate(cfg)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validate() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validate() error = nil, want substring %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validate() error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestDesktopNotificationsValidation(t *testing.T) {
 	tests := []struct {
 		name    string

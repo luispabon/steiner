@@ -21,7 +21,7 @@ func TestFilterEnv_PassesAllowlisted(t *testing.T) {
 		"XDG_RUNTIME_DIR=/run/user/1000",
 	}
 
-	result := FilterEnv(input)
+	result := FilterEnv(input, EnvPolicy{})
 
 	for _, want := range input {
 		if !slices.Contains(result, want) {
@@ -40,7 +40,7 @@ func TestFilterEnv_BlocksSensitiveVars(t *testing.T) {
 		"ANTHROPIC_API_KEY=xxx",
 	}
 
-	result := FilterEnv(input)
+	result := FilterEnv(input, EnvPolicy{})
 
 	for _, blocked := range input {
 		if slices.Contains(result, blocked) {
@@ -55,7 +55,7 @@ func TestFilterEnv_PassesHomeUnchanged(t *testing.T) {
 		"PATH=/usr/bin",
 	}
 
-	result := FilterEnv(input)
+	result := FilterEnv(input, EnvPolicy{})
 
 	if !slices.Contains(result, "HOME=/home/realuser") {
 		t.Errorf("HOME should pass through unchanged, got: %v", result)
@@ -69,7 +69,7 @@ func TestFilterEnv_PassesLCPrefix(t *testing.T) {
 		"LC_MESSAGES=en_US",
 	}
 
-	result := FilterEnv(input)
+	result := FilterEnv(input, EnvPolicy{})
 
 	for _, want := range input {
 		if !slices.Contains(result, want) {
@@ -79,15 +79,20 @@ func TestFilterEnv_PassesLCPrefix(t *testing.T) {
 }
 
 func TestFilterEnv_NilInput(t *testing.T) {
-	result := FilterEnv(nil)
+	result := FilterEnv(nil, EnvPolicy{})
 	if result != nil {
 		t.Errorf("expected nil for nil input, got %v", result)
+	}
+
+	resultPassthrough := FilterEnv(nil, EnvPolicy{PassthroughAll: true})
+	if resultPassthrough != nil {
+		t.Errorf("expected nil for nil input even with PassthroughAll, got %v", resultPassthrough)
 	}
 }
 
 func TestFilterEnv_MissingEqualsSkipped(t *testing.T) {
 	input := []string{"NOEQUALS", "PATH=/usr/bin"}
-	result := FilterEnv(input)
+	result := FilterEnv(input, EnvPolicy{})
 
 	// NOEQUALS should be skipped, PATH should pass.
 	for _, kv := range result {
@@ -97,5 +102,82 @@ func TestFilterEnv_MissingEqualsSkipped(t *testing.T) {
 	}
 	if !slices.Contains(result, "PATH=/usr/bin") {
 		t.Error("PATH should be present")
+	}
+}
+
+func TestFilterEnv_ExtraAllowlist(t *testing.T) {
+	tests := []struct {
+		name    string
+		extra   []string
+		input   []string
+		wantIn  []string
+		wantOut []string
+	}{
+		{
+			name:    "exact name match",
+			extra:   []string{"MY_CUSTOM_VAR"},
+			input:   []string{"MY_CUSTOM_VAR=value", "OTHER_VAR=x"},
+			wantIn:  []string{"MY_CUSTOM_VAR=value"},
+			wantOut: []string{"OTHER_VAR=x"},
+		},
+		{
+			name:    "prefix glob match",
+			extra:   []string{"MYAPP_*"},
+			input:   []string{"MYAPP_FOO=1", "MYAPP_BAR=2", "OTHERAPP_FOO=3"},
+			wantIn:  []string{"MYAPP_FOO=1", "MYAPP_BAR=2"},
+			wantOut: []string{"OTHERAPP_FOO=3"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FilterEnv(tt.input, EnvPolicy{Extra: tt.extra})
+			for _, want := range tt.wantIn {
+				if !slices.Contains(result, want) {
+					t.Errorf("expected %q to be present, got %v", want, result)
+				}
+			}
+			for _, notWant := range tt.wantOut {
+				if slices.Contains(result, notWant) {
+					t.Errorf("expected %q to be absent, got %v", notWant, result)
+				}
+			}
+		})
+	}
+}
+
+func TestNewEnvPolicy_TrimsExtraEntries(t *testing.T) {
+	policy := newEnvPolicy(false, []string{" MY_CUSTOM_VAR ", "MYAPP_* "})
+
+	result := FilterEnv([]string{"MY_CUSTOM_VAR=value", "MYAPP_FOO=1", "OTHER_VAR=x"}, policy)
+
+	if !slices.Contains(result, "MY_CUSTOM_VAR=value") {
+		t.Errorf("expected whitespace-padded exact entry to match after trimming, got %v", result)
+	}
+	if !slices.Contains(result, "MYAPP_FOO=1") {
+		t.Errorf("expected whitespace-padded glob entry to match after trimming, got %v", result)
+	}
+	if slices.Contains(result, "OTHER_VAR=x") {
+		t.Errorf("expected unrelated var to remain filtered, got %v", result)
+	}
+}
+
+func TestFilterEnv_PassthroughAll(t *testing.T) {
+	input := []string{
+		"ANTHROPIC_API_KEY=sk-xxx",
+		"GH_TOKEN=ghp_xxx",
+		"RANDOM_VAR=whatever",
+	}
+
+	result := FilterEnv(input, EnvPolicy{PassthroughAll: true})
+
+	if !slices.Equal(result, input) {
+		t.Errorf("expected all vars passed through unchanged, got %v", result)
+	}
+
+	// Confirm we returned a copy, not an alias of the caller's slice.
+	result[0] = "MUTATED=1"
+	if input[0] != "ANTHROPIC_API_KEY=sk-xxx" {
+		t.Error("FilterEnv must not alias the caller's slice under PassthroughAll")
 	}
 }

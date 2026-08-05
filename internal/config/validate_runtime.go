@@ -92,3 +92,24 @@ func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 func validateOneShotConfig(problems *[]string, oneShot map[string]string, models map[string]ModelConfig) {
 	validateModelAliasMap(problems, "models.oneshot", "phase", oneShot, validOneShotPhases, models)
 }
+
+func validateSandboxConfig(problems *[]string, cfg SandboxConfig) {
+	for i, entry := range cfg.EnvPassthrough {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			*problems = append(*problems, fmt.Sprintf("sandbox.env_passthrough[%d] (%q): must not be empty", i, entry))
+			continue
+		}
+		if trimmed == "*" {
+			*problems = append(*problems, fmt.Sprintf("sandbox.env_passthrough[%d] (%q): a bare '*' would pass through the entire environment; use sandbox.env_passthrough_all instead", i, entry))
+			continue
+		}
+		if strings.Contains(trimmed, "=") {
+			*problems = append(*problems, fmt.Sprintf("sandbox.env_passthrough[%d] (%q): must not contain '='", i, entry))
+			continue
+		}
+		if strings.Contains(strings.TrimSuffix(trimmed, "*"), "*") {
+			*problems = append(*problems, fmt.Sprintf("sandbox.env_passthrough[%d] (%q): '*' is only permitted as the final character", i, entry))
+		}
+	}
+}

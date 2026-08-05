@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -1471,5 +1472,56 @@ models:
 
 	if cfg.Permissions.Docker {
 		t.Fatal("permissions.docker = true, want false (default deny)")
+	}
+}
+
+func TestLoadSandboxEnvPassthroughConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+sandbox:
+  env_passthrough:
+    - MYAPP_TOKEN
+    - MYAPP_*
+  env_passthrough_all: true
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	wantPassthrough := []string{"MYAPP_TOKEN", "MYAPP_*"}
+	if !slices.Equal(cfg.Sandbox.EnvPassthrough, wantPassthrough) {
+		t.Fatalf("sandbox.env_passthrough = %v, want %v", cfg.Sandbox.EnvPassthrough, wantPassthrough)
+	}
+	if !cfg.Sandbox.EnvPassthroughAll {
+		t.Fatal("sandbox.env_passthrough_all = false, want true")
 	}
 }
