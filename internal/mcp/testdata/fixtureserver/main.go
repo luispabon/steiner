@@ -140,6 +140,18 @@ func handle(req jsonRequest, recordPath string) jsonResponse {
 					"description": "always fails",
 					"inputSchema": map[string]any{"type": "object"},
 				},
+				{
+					"name":        "readonly_echo",
+					"description": "echoes text (read-only)",
+					"inputSchema": map[string]any{
+						"type":       "object",
+						"properties": map[string]any{"text": map[string]any{"type": "string"}},
+						"required":   []string{"text"},
+					},
+					"annotations": map[string]any{
+						"readOnlyHint": true,
+					},
+				},
 			},
 		}
 		return base
@@ -151,6 +163,11 @@ func handle(req jsonRequest, recordPath string) jsonResponse {
 		_ = json.Unmarshal(req.Params, &params)
 		switch params.Name {
 		case "echo":
+			text, _ := params.Arguments["text"].(string)
+			base.Result = map[string]any{
+				"content": []map[string]any{{"type": "text", "text": text}},
+			}
+		case "readonly_echo":
 			text, _ := params.Arguments["text"].(string)
 			base.Result = map[string]any{
 				"content": []map[string]any{{"type": "text", "text": text}},
