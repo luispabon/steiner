@@ -17,3 +17,19 @@ func TestDefaultModesExecutionMode(t *testing.T) {
 		t.Errorf("Modes.Default = %q, want %q", cfg.Modes.Default, ExecutionModeBuild)
 	}
 }
+
+func TestApplyMCPDefaultsTransport(t *testing.T) {
+	cfg := MCPConfig{
+		Servers: map[string]MCPServerConfig{
+			"empty":    {Command: "npx"},
+			"explicit": {Transport: "stdio", Command: "npx"},
+		},
+	}
+	applyMCPDefaults(&cfg)
+	if got := cfg.Servers["empty"].Transport; got != "stdio" {
+		t.Errorf("empty transport = %q, want %q", got, "stdio")
+	}
+	if got := cfg.Servers["explicit"].Transport; got != "stdio" {
+		t.Errorf("explicit transport = %q, want %q", got, "stdio")
+	}
+}

@@ -120,4 +120,7 @@ func applyToolingConfigPatch(cfg *Config, patch configPatch) {
 	if patch.Search != nil {
 		applySearchPatch(&cfg.Search, patch.Search)
 	}
+	if patch.MCP != nil {
+		applyMCPPatch(&cfg.MCP, patch.MCP)
+	}
 }

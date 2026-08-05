@@ -659,6 +659,99 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: `search.backend is "searxng" but search.searxng_url is not set`,
 		},
+
+		// MCP validation
+		{
+			name: "mcp disabled (enabled false)",
+			cfg: func() Config {
+				c := validBase()
+				c.MCP = MCPConfig{Enabled: false}
+				return c
+			}(),
+			wantErr: "",
+		},
+		{
+			name: "mcp with valid server",
+			cfg: func() Config {
+				c := validBase()
+				c.MCP = MCPConfig{
+					Enabled: true,
+					Servers: map[string]MCPServerConfig{
+						"example": {Enabled: true, Transport: "stdio", Command: "npx"},
+					},
+				}
+				return c
+			}(),
+			wantErr: "",
+		},
+		{
+			name: "mcp server with unsupported transport",
+			cfg: func() Config {
+				c := validBase()
+				c.MCP = MCPConfig{
+					Enabled: true,
+					Servers: map[string]MCPServerConfig{
+						"example": {Transport: "http"},
+					},
+				}
+				return c
+			}(),
+			wantErr: `mcp.servers.example.transport: "http" is not supported`,
+		},
+		{
+			name: "mcp server with empty command",
+			cfg: func() Config {
+				c := validBase()
+				c.MCP = MCPConfig{
+					Enabled: true,
+					Servers: map[string]MCPServerConfig{
+						"example": {Transport: "stdio"},
+					},
+				}
+				return c
+			}(),
+			wantErr: "mcp.servers.example.command is required",
+		},
+		{
+			name: "mcp server name with __ delimiter",
+			cfg: func() Config {
+				c := validBase()
+				c.MCP = MCPConfig{
+					Servers: map[string]MCPServerConfig{
+						"a__b": {Transport: "stdio", Command: "npx"},
+					},
+				}
+				return c
+			}(),
+			wantErr: `server name must not contain "__"`,
+		},
+		{
+			name: "mcp server empty name",
+			cfg: func() Config {
+				c := validBase()
+				c.MCP = MCPConfig{
+					Servers: map[string]MCPServerConfig{
+						"": {Transport: "stdio", Command: "npx"},
+					},
+				}
+				return c
+			}(),
+			wantErr: "contains an empty server name",
+		},
+		{
+			name: "mcp validation runs when enabled is false",
+			cfg: func() Config {
+				c := validBase()
+				c.MCP = MCPConfig{
+					Enabled: false,
+					Servers: map[string]MCPServerConfig{
+						"bad": {Transport: "http"},
+					},
+				}
+				return c
+			}(),
+			wantErr: `mcp.servers.bad.transport: "http" is not supported`,
+		},
 		{
 			name: "modes.default plan accepted",
 			cfg: func() Config {
@@ -930,6 +1023,84 @@ func TestSearchConfigValidation(t *testing.T) {
 				},
 			}
 
+			err := validate(cfg)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validate() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validate() error = nil, want substring %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validate() error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestMCPConfigValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     MCPConfig
+		wantErr string
+	}{
+		{
+			name: "empty config is valid",
+			cfg:  MCPConfig{},
+		},
+		{
+			name: "valid server",
+			cfg: MCPConfig{
+				Enabled: true,
+				Servers: map[string]MCPServerConfig{
+					"example": {Enabled: true, Transport: "stdio", Command: "npx"},
+				},
+			},
+		},
+		{
+			name: "unsupported transport rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http"},
+				},
+			},
+			wantErr: `mcp.servers.example.transport: "http" is not supported`,
+		},
+		{
+			name: "empty command rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "stdio"},
+				},
+			},
+			wantErr: "mcp.servers.example.command is required",
+		},
+		{
+			name: "server name with __ delimiter rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"a__b": {Transport: "stdio", Command: "npx"},
+				},
+			},
+			wantErr: `server name must not contain "__"`,
+		},
+		{
+			name: "empty server name rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"": {Transport: "stdio", Command: "npx"},
+				},
+			},
+			wantErr: "contains an empty server name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBase()
+			cfg.MCP = tt.cfg
 			err := validate(cfg)
 			if tt.wantErr == "" {
 				if err != nil {
