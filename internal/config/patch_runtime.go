@@ -72,6 +72,12 @@ func applySandboxPatch(cfg *SandboxConfig, patch *sandboxPatch) {
 	if patch.WarningOnUnsupportedPlatform != nil {
 		cfg.WarningOnUnsupportedPlatform = *patch.WarningOnUnsupportedPlatform
 	}
+	if patch.EnvPassthrough != nil {
+		cfg.EnvPassthrough = *patch.EnvPassthrough
+	}
+	if patch.EnvPassthroughAll != nil {
+		cfg.EnvPassthroughAll = *patch.EnvPassthroughAll
+	}
 }
 
 func applyPermissionsPatch(cfg *PermissionsConfig, patch *permissionsPatch) {

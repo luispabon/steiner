@@ -365,11 +365,15 @@ Controls bubblewrap sandbox behavior.
 | `enabled`                          | bool   | `true`  | Enable bubblewrap sandboxing. `--unsafe` applies a CLI override that forces this to `false` at load time. |
 | `warning_on_unsupported_platform` | bool   | `true`  | When enabled, shows a warning in the TUI when sandbox is unavailable or bypassed. |
 | `status`                          | string | computed | The runtime sandbox status: `active`, `unavailable`, or `bypassed`. This is set at startup and is not user-configurable. |
+| `env_passthrough`                 | []string | `[]`   | Additional host environment variable names (beyond the built-in allowlist) passed through to sandboxed processes. Entries may end in `*` to match by prefix (e.g. `MYAPP_*`); no other wildcard forms are supported. |
+| `env_passthrough_all`             | bool   | `false` | When `true`, disables environment filtering entirely and passes the full host environment through, including credentials. |
 
 ```yaml
 sandbox:
   enabled: true                       # default; --unsafe overrides this to false at runtime
   warning_on_unsupported_platform: true # default; warns when sandbox is unavailable/bypassed
+  env_passthrough: []                 # default; extra allowlisted env var names, "*" suffix allowed for prefix match
+  env_passthrough_all: false          # default; true disables env filtering entirely
 ```
 
 ---

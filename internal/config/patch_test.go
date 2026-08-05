@@ -703,6 +703,43 @@ func TestApplyPermissionsPatch(t *testing.T) {
 	}
 }
 
+func TestApplySandboxPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial SandboxConfig
+		patch   sandboxPatch
+		want    SandboxConfig
+	}{
+		{
+			name:    "sets enabled and warning flags",
+			initial: SandboxConfig{},
+			patch:   sandboxPatch{Enabled: boolPtr(true), WarningOnUnsupportedPlatform: boolPtr(true)},
+			want:    SandboxConfig{Enabled: true, WarningOnUnsupportedPlatform: true},
+		},
+		{
+			name:    "sets env passthrough fields",
+			initial: SandboxConfig{},
+			patch:   sandboxPatch{EnvPassthrough: stringSlicePtr([]string{"MYAPP_*"}), EnvPassthroughAll: boolPtr(true)},
+			want:    SandboxConfig{EnvPassthrough: []string{"MYAPP_*"}, EnvPassthroughAll: true},
+		},
+		{
+			name:    "nil fields leave values untouched",
+			initial: SandboxConfig{Enabled: true, EnvPassthrough: []string{"FOO"}, EnvPassthroughAll: true},
+			patch:   sandboxPatch{},
+			want:    SandboxConfig{Enabled: true, EnvPassthrough: []string{"FOO"}, EnvPassthroughAll: true},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applySandboxPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applySandboxPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
 func TestApplyMCPPatch(t *testing.T) {
 	tests := []struct {
 		name    string

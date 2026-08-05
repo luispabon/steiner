@@ -56,8 +56,10 @@ type schedulerPatch struct {
 
 // sandboxPatch holds sandbox config fields that can be patched from YAML.
 type sandboxPatch struct {
-	Enabled                      *bool `yaml:"enabled"`
-	WarningOnUnsupportedPlatform *bool `yaml:"warning_on_unsupported_platform"`
+	Enabled                      *bool     `yaml:"enabled"`
+	WarningOnUnsupportedPlatform *bool     `yaml:"warning_on_unsupported_platform"`
+	EnvPassthrough               *[]string `yaml:"env_passthrough"`
+	EnvPassthroughAll            *bool     `yaml:"env_passthrough_all"`
 }
 
 // permissionsPatch holds permissions config fields that can be patched from YAML.
