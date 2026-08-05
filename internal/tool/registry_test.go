@@ -93,3 +93,65 @@ func TestSubset(t *testing.T) {
 		}
 	})
 }
+
+func TestMCPProvenance(t *testing.T) {
+	prov := MCPProvenance{Server: "fixture", ToolName: "echo"}
+	mcpDef := ToolDef{
+		Name:            "mcp__fixture__echo",
+		Description:     "echoes text",
+		ParameterSchema: map[string]any{"type": "object"},
+		MCP:             prov,
+	}
+	builtin := ToolDef{Name: "read", Description: "reads a file"}
+
+	// Built-in tools carry the zero value of MCPProvenance.
+	if builtin.MCP != (MCPProvenance{}) {
+		t.Fatalf("built-in MCP = %+v, want zero value", builtin.MCP)
+	}
+
+	reg := NewRegistry(mcpDef, builtin)
+
+	// Get preserves provenance.
+	got, ok := reg.Get(mcpDef.Name)
+	if !ok {
+		t.Fatal("Get() = false, want true")
+	}
+	if got.MCP != prov {
+		t.Errorf("Get() MCP = %+v, want %+v", got.MCP, prov)
+	}
+	if gotBuiltin, ok := reg.Get("read"); ok && gotBuiltin.MCP != (MCPProvenance{}) {
+		t.Errorf("Get() built-in MCP = %+v, want zero value", gotBuiltin.MCP)
+	}
+
+	// Definitions preserves provenance.
+	found := false
+	for _, d := range reg.Definitions() {
+		if d.Name == mcpDef.Name {
+			found = true
+			if d.MCP != prov {
+				t.Errorf("Definitions() MCP = %+v, want %+v", d.MCP, prov)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("Definitions() missing MCP tool")
+	}
+
+	// Clone preserves provenance.
+	got, ok = reg.Clone().Get(mcpDef.Name)
+	if !ok {
+		t.Fatal("Clone().Get() = false, want true")
+	}
+	if got.MCP != prov {
+		t.Errorf("Clone().Get() MCP = %+v, want %+v", got.MCP, prov)
+	}
+
+	// Subset preserves provenance.
+	got, ok = reg.Subset([]string{mcpDef.Name}, nil).Get(mcpDef.Name)
+	if !ok {
+		t.Fatal("Subset().Get() = false, want true")
+	}
+	if got.MCP != prov {
+		t.Errorf("Subset().Get() MCP = %+v, want %+v", got.MCP, prov)
+	}
+}

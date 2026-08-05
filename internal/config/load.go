@@ -67,6 +67,7 @@ func Load(opts LoadOptions) (Config, error) {
 	applyCLIOverrides(&cfg, opts.CLI)
 	normalizePaths(&cfg, homeDir)
 	normalizeExecutionModes(&cfg)
+	applyMCPDefaults(&cfg.MCP)
 	if err := validate(cfg); err != nil {
 		return Config{}, err
 	}
@@ -77,5 +78,15 @@ func Load(opts LoadOptions) (Config, error) {
 func normalizeExecutionModes(cfg *Config) {
 	if cfg.Modes.Default == "" {
 		cfg.Modes.Default = ExecutionModeBuild
+	}
+}
+
+// applyMCPDefaults normalizes per-server MCP defaults after patching.
+func applyMCPDefaults(cfg *MCPConfig) {
+	for name, srv := range cfg.Servers {
+		if srv.Transport == "" {
+			srv.Transport = "stdio"
+			cfg.Servers[name] = srv
+		}
 	}
 }

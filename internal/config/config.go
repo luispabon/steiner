@@ -104,6 +104,21 @@ type SearchConfig struct {
 	BraveAPIKey  string `yaml:"brave_api_key"`
 }
 
+// MCPConfig configures Model Context Protocol servers.
+type MCPConfig struct {
+	Enabled bool                       `yaml:"enabled"`
+	Servers map[string]MCPServerConfig `yaml:"servers"`
+}
+
+// MCPServerConfig declares one MCP server.
+type MCPServerConfig struct {
+	Enabled   bool              `yaml:"enabled"`
+	Transport string            `yaml:"transport"`
+	Command   string            `yaml:"command"`
+	Args      []string          `yaml:"args"`
+	Env       map[string]string `yaml:"env"`
+}
+
 // SandboxConfig controls bubblewrap sandbox behaviour for tool execution.
 type SandboxConfig struct {
 	Enabled                      bool   `yaml:"enabled"`
@@ -142,6 +157,7 @@ type Config struct {
 	ContextManagement    ContextManagementConfig    `yaml:"context_management"`
 	CaveHuman            bool                       `yaml:"cave_human"`
 	Search               SearchConfig               `yaml:"search"`
+	MCP                  MCPConfig                  `yaml:"mcp"`
 	Modes                ModesConfig                `yaml:"modes"`
 }
 

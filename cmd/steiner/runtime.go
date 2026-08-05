@@ -15,6 +15,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/history"
+	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/sandbox"
@@ -52,6 +53,7 @@ type cliRuntime struct {
 	workDir                string
 	homeDir                string
 	sandbox                *sandbox.Sandbox
+	mcpManager             *mcp.Manager
 	stdin                  io.Reader
 	human                  *output.EventStream
 	status                 *output.EventStream
@@ -83,6 +85,10 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 func closeRuntime(rt *cliRuntime) {
 	if rt.imageStore != nil {
 		_ = rt.imageStore.Cleanup()
+	}
+	// Terminate MCP servers before the sandbox tmp dir is removed.
+	if rt.mcpManager != nil {
+		emitCloseWarning(rt.events, "close mcp servers", rt.mcpManager.Close())
 	}
 	if rt.sandbox != nil {
 		emitCloseWarning(rt.events, "sandbox tmp cleanup", rt.sandbox.Cleanup())

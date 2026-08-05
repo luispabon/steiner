@@ -180,6 +180,69 @@ func TestApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
 	}
 }
 
+// TestApprovalResponderNeverCachesMCPTools proves MCP tools stay always-ask:
+// an always_allow decision on an MCP tool must not short-circuit the next
+// request the way it does for a built-in tool (see
+// TestApprovalResponderAllowsAndCachesAlwaysAllow).
+func TestApprovalResponderNeverCachesMCPTools(t *testing.T) {
+	coordinator := &ApprovalCoordinator{}
+	responder := newApprovalResponder(coordinator)
+
+	mcpTool := tool.ToolDef{
+		Name: "mcp__fixture__echo",
+		MCP:  tool.MCPProvenance{Server: "fixture", ToolName: "echo"},
+	}
+
+	request := func() (chan tool.ApprovalResponse, chan error) {
+		responseCh := make(chan tool.ApprovalResponse, 1)
+		done := make(chan error, 1)
+		go func() {
+			done <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+				Tool:     mcpTool,
+				Reason:   "MCP tool call",
+				Response: responseCh,
+			})
+		}()
+		return responseCh, done
+	}
+
+	firstResponse, firstDone := request()
+	waitForPendingApproval(t, coordinator)
+	coordinator.Submit(SubmitApproval{
+		Tool:     mcpTool.Name,
+		Mode:     "prompt",
+		Decision: "always_allow",
+	})
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first RequestApproval() error = %v", err)
+	}
+	if got, want := <-firstResponse, (tool.ApprovalResponse{Allow: true, Message: "always allowed"}); got != want {
+		t.Fatalf("first response = %#v, want %#v", got, want)
+	}
+
+	// The second request must reach the coordinator again rather than being
+	// answered from the always-allow cache.
+	secondResponse, secondDone := request()
+	select {
+	case err := <-secondDone:
+		t.Fatalf("second RequestApproval() returned early (err = %v), want a fresh approval prompt", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	waitForPendingApproval(t, coordinator)
+	coordinator.Submit(SubmitApproval{
+		Tool:     mcpTool.Name,
+		Mode:     "prompt",
+		Decision: "deny",
+	})
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second RequestApproval() error = %v", err)
+	}
+	if got, want := <-secondResponse, (tool.ApprovalResponse{Allow: false, Message: "denied"}); got != want {
+		t.Fatalf("second response = %#v, want %#v", got, want)
+	}
+}
+
 func TestApprovalResponseForDecision(t *testing.T) {
 	tests := []struct {
 		decision string

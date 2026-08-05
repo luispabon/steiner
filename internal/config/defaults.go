@@ -101,6 +101,9 @@ func defaultConfig() Config {
 			ReadAnnotations: true,
 		},
 		CaveHuman: false,
+		MCP: MCPConfig{
+			Enabled: false,
+		},
 		Modes: ModesConfig{
 			Default: ExecutionModeBuild,
 		},

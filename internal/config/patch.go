@@ -18,6 +18,7 @@ type configPatch struct {
 	Logging              *loggingPatch              `yaml:"logging"`
 	ContextManagement    *contextManagementPatch    `yaml:"context_management"`
 	Search               *searchPatch               `yaml:"search"`
+	MCP                  *mcpPatch                  `yaml:"mcp"`
 	Modes                *modesPatch                `yaml:"modes"`
 }
 
@@ -168,6 +169,19 @@ type searchPatch struct {
 	GoogleAPIKey *string `yaml:"google_api_key"`
 	KagiAPIKey   *string `yaml:"kagi_api_key"`
 	BraveAPIKey  *string `yaml:"brave_api_key"`
+}
+
+type mcpPatch struct {
+	Enabled *bool                      `yaml:"enabled"`
+	Servers *map[string]mcpServerPatch `yaml:"servers"`
+}
+
+type mcpServerPatch struct {
+	Enabled   *bool              `yaml:"enabled"`
+	Transport *string            `yaml:"transport"`
+	Command   *string            `yaml:"command"`
+	Args      *[]string          `yaml:"args"`
+	Env       *map[string]string `yaml:"env"`
 }
 
 type modesPatch struct {

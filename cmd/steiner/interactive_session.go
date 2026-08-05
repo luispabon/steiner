@@ -43,10 +43,17 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 }
 
 func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntime {
-	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, sess)
+	rt.events = sess.EventSink()
+	// The approver must be updated before the registry is built: the registry
+	// copies ToolDef values (including their approval closures) by value, and
+	// the interactive runner later snapshots the runtime by value too, so any
+	// approver wiring done after this point is invisible downstream.
+	if rt.mcpManager != nil {
+		rt.mcpManager.UpdateApprover(sess.Approver(rt.events))
+	}
+	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, sess, rt.mcpManager)
 	rt.registry = registry
 	rt.toolNames = registry.Names()
-	rt.events = sess.EventSink()
 	return rt
 }
 
