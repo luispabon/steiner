@@ -40,7 +40,7 @@ func TestStdio(t *testing.T) {
 		wrap := func(c *exec.Cmd) *exec.Cmd { return s.WrapCommandMode(c, true) }
 
 		var stderr bytes.Buffer
-		sess, err := mcp.Connect(context.Background(), mcp.ServerSpec{
+		sess, err := mcp.ConnectSession(context.Background(), mcp.ServerSpec{
 			Name:    "fixture",
 			Command: "/tmp/fixtureserver", // sandboxTmp is bound at /tmp inside the sandbox
 		}, wrap, &stderr)
@@ -102,7 +102,7 @@ func TestStdio(t *testing.T) {
 		}
 
 		var stderr bytes.Buffer
-		sess, err := mcp.Connect(context.Background(), mcp.ServerSpec{
+		sess, err := mcp.ConnectSession(context.Background(), mcp.ServerSpec{
 			Name:    "fixture",
 			Command: "/tmp/fixtureserver",
 		}, wrap, &stderr)
@@ -132,7 +132,7 @@ func TestStdio(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sess, err := mcp.Connect(ctx, mcp.ServerSpec{
+		sess, err := mcp.ConnectSession(ctx, mcp.ServerSpec{
 			Name:    "fixture",
 			Command: fixtureBin,
 			Env: map[string]string{
@@ -171,7 +171,7 @@ func TestStdio(t *testing.T) {
 		defer cancel()
 
 		var stderr bytes.Buffer
-		_, err := mcp.Connect(ctx, mcp.ServerSpec{
+		_, err := mcp.ConnectSession(ctx, mcp.ServerSpec{
 			Name:    "fixture",
 			Command: fixtureBin,
 			Env: map[string]string{

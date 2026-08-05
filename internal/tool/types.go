@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+// MCPProvenance identifies the MCP server a tool was discovered on.
+// The zero value means the tool is not an MCP tool.
+type MCPProvenance struct {
+	Server   string // empty => built-in tool
+	ToolName string // original, unsanitised name as the server reported it
+}
+
 // ToolDef describes a callable tool and its execution policy.
 //
 //nolint:revive // package API keeps tool-prefixed names for compatibility.
@@ -18,6 +25,7 @@ type ToolDef struct {
 	ParameterSchema map[string]any
 	Timeout         time.Duration
 	Handler         func(ctx context.Context, input map[string]any) (any, error)
+	MCP             MCPProvenance
 }
 
 // RetentionKindDelegateSummary identifies retained delegate summaries.
