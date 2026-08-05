@@ -48,6 +48,9 @@ type sidebarState struct {
 	oneshotPhase          string
 	sandboxStatus         string
 	execMode              string // execution mode: "plan" or "build"
+	mcpConnected          int
+	mcpTotal              int
+	mcpFailed             bool
 }
 
 func newSidebarState() sidebarState {
