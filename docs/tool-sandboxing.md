@@ -154,34 +154,39 @@ rm -rf .steiner/home/
 
 ## Environment variable allowlist
 
-Inside the sandbox, only specific environment variables are passed through from the host. This prevents credential leakage via environment variables.
+Inside the sandbox, only environment variables on a built-in allowlist are passed through from the host; everything else is dropped. This is an allowlist, not a denylist — there is no pattern matching against credential-shaped names. Names like `ANTHROPIC_API_KEY`, `GH_TOKEN`, `GITLAB_PRIVATE_TOKEN`, and `KUBECONFIG` are blocked simply because they are not on the list, the same as any other unrecognised variable.
 
 ### Allowed variables
 
-| Variable | Purpose |
-|----------|---------|
-| `PATH` | Command search path |
-| `HOME` | Host home directory (passed through unchanged) |
-| `TERM` | Terminal type (for ANSI colors) |
-| `LANG`, `LC_*` | Locale settings |
-| `TZ` | Timezone |
-| `SSH_AUTH_SOCK` | SSH agent socket path |
-| `EDITOR`, `VISUAL` | Preferred editor |
-| `SHELL` | User's shell |
-| `USER`, `LOGNAME` | Username |
-| `XDG_RUNTIME_DIR` | XDG runtime directory |
+| Group | Variables |
+|-------|-----------|
+| Core | `PATH`, `HOME` (passed through unchanged), `TERM`, `LANG`, `LC_*`, `TZ`, `SSH_AUTH_SOCK`, `EDITOR`, `VISUAL`, `SHELL`, `USER`, `LOGNAME`, `XDG_RUNTIME_DIR` |
+| Proxy | `HTTP_PROXY`, `HTTPS_PROXY`, `FTP_PROXY`, `NO_PROXY`, and lowercase `http_proxy`, `https_proxy`, `ftp_proxy`, `no_proxy` |
+| TLS trust | `SSL_CERT_FILE`, `SSL_CERT_DIR`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO` |
+| Go | `GOFLAGS`, `GOPROXY`, `GOPRIVATE`, `GOSUMDB`, `GONOSUMDB`, `GOTOOLCHAIN`, `GOPATH`, `GOCACHE`, `GOMODCACHE` |
+| Rust | `CARGO_HOME`, `RUSTUP_HOME` |
+| Node | `NODE_OPTIONS` |
+| Python | `PYTHONPATH`, `VIRTUAL_ENV`, `PYENV_ROOT` |
+| Java | `JAVA_HOME` |
+| XDG | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME` |
+| Terminal | `COLORTERM`, `NO_COLOR`, `TERM_PROGRAM` |
 
-### Blocked variables
+Nothing credential-shaped (`*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_KEY`, `*_CREDENTIALS`) is on the built-in list. Examples of variables blocked simply for not being on it: `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `GITLAB_PRIVATE_TOKEN`, `DOCKER_CONFIG`, `KUBECONFIG`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`.
 
-The following credential and sensitive variables are **never** passed to the sandbox:
+### Extending the allowlist
 
-- `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, and other AWS secret tokens
-- `GH_TOKEN`, `GITHUB_TOKEN` — GitHub personal access tokens
-- `GITLAB_PRIVATE_TOKEN` — GitLab tokens
-- `DOCKER_CONFIG` — Docker credentials path
-- `KUBECONFIG` — Kubernetes config path
-- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` — API keys
-- Any variable matching `*_SECRET`, `*_PASSWORD`, `*_TOKEN` (case-insensitive)
+Two `sandbox` config fields adjust this behaviour:
+
+- `env_passthrough` (`[]string`, default `[]`) — additional variable names allowed through, on top of the built-in list. An entry ending in `*` matches by prefix (e.g. `MYAPP_*` matches `MYAPP_FOO`); no other wildcard forms are supported.
+- `env_passthrough_all` (`bool`, default `false`) — disables filtering entirely and passes the full host environment through verbatim, credentials included. **This removes the credential barrier described above.** When enabled alongside `sandbox.enabled: true`, Steiner emits a startup warning making that explicit.
+
+```yaml
+sandbox:
+  env_passthrough: ["MYAPP_*", "SOME_TOOL_TOKEN"]
+  env_passthrough_all: false
+```
+
+See [docs/configuration.md](configuration.md) for the full field reference.
 
 Credential config files on disk (e.g., `~/.aws/config`) are readable inside the sandbox through the root bind. The env var allowlist blocks only the environment variable path — it does not prevent the model from reading credential files directly.
 
