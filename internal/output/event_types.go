@@ -238,6 +238,7 @@ type ApprovalEvent struct {
 	Preview string `json:"preview,omitempty"`
 	Allowed bool   `json:"allowed"`
 	Message string `json:"message,omitempty"`
+	Kind    string `json:"kind,omitempty"`
 }
 
 // WorkflowHandoffEvent captures a workflow handoff request for later handling.

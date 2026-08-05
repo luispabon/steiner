@@ -26,7 +26,7 @@ func newEvent(eventType string, payload any) Event {
 	}
 }
 
-func newApprovalEvent(eventType string, turn int, toolName, callID, mode, preview, message string, allowed bool) Event {
+func newApprovalEvent(eventType string, turn int, toolName, callID, mode, preview, message, kind string, allowed bool) Event {
 	return newEvent(eventType, ApprovalEvent{
 		Turn:    turn,
 		Tool:    toolName,
@@ -35,6 +35,7 @@ func newApprovalEvent(eventType string, turn int, toolName, callID, mode, previe
 		Preview: preview,
 		Allowed: allowed,
 		Message: message,
+		Kind:    kind,
 	})
 }
 
@@ -123,18 +124,18 @@ func NewToolCallFinishedEventWithPreview(turn int, toolName, callID string, resu
 }
 
 // NewApprovalRequestedEvent creates a new approval requested event.
-func NewApprovalRequestedEvent(turn int, toolName, callID, mode, preview string) Event {
-	return newApprovalEvent(EventTypeApprovalRequested, turn, toolName, callID, mode, preview, "", false)
+func NewApprovalRequestedEvent(turn int, toolName, callID, mode, preview, kind string) Event {
+	return newApprovalEvent(EventTypeApprovalRequested, turn, toolName, callID, mode, preview, "", kind, false)
 }
 
 // NewApprovalAcceptedEvent creates a new approval accepted event.
-func NewApprovalAcceptedEvent(turn int, toolName, callID, mode, preview, message string) Event {
-	return newApprovalEvent(EventTypeApprovalAccepted, turn, toolName, callID, mode, preview, message, true)
+func NewApprovalAcceptedEvent(turn int, toolName, callID, mode, preview, message, kind string) Event {
+	return newApprovalEvent(EventTypeApprovalAccepted, turn, toolName, callID, mode, preview, message, kind, true)
 }
 
 // NewApprovalDeniedEvent creates a new approval denied event.
-func NewApprovalDeniedEvent(turn int, toolName, callID, mode, preview, message string) Event {
-	return newApprovalEvent(EventTypeApprovalDenied, turn, toolName, callID, mode, preview, message, false)
+func NewApprovalDeniedEvent(turn int, toolName, callID, mode, preview, message, kind string) Event {
+	return newApprovalEvent(EventTypeApprovalDenied, turn, toolName, callID, mode, preview, message, kind, false)
 }
 
 // NewWorkflowHandoffRequestedEvent creates a new workflow handoff request event.

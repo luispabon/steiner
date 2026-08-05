@@ -1276,7 +1276,7 @@ func TestModelApprovalKeepsReservedRowAndDisablesSpinner(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "path")})
 
 	row := m.renderActivityRow(m.viewport.Width())
 	if !strings.Contains(strings.ToLower(row), "approval required") {
@@ -1942,7 +1942,7 @@ func TestModelApprovalModeTransitions(t *testing.T) {
 	m := newModel(Config{
 		Controller: ctrl,
 	}, nil)
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "path")})
 	if !m.approval.active {
 		t.Fatal("expected approval mode to be active")
 	}
@@ -2010,7 +2010,7 @@ func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "path")})
 
 	m.input.SetValue("yes")
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -2034,7 +2034,7 @@ func TestModelApprovalSelectionAndConfirmation(t *testing.T) {
 	m := newModel(Config{
 		Controller: ctrl,
 	}, nil)
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`, "path")})
 
 	if got, want := m.approval.selectedAction, 0; got != want {
 		t.Fatalf("selectedAction = %d, want %d", got, want)
@@ -2069,7 +2069,7 @@ func TestModelApprovalEscDenies(t *testing.T) {
 	m := newModel(Config{
 		Controller: ctrl,
 	}, nil)
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "path")})
 	m.input.SetValue("stale text")
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
@@ -2098,7 +2098,7 @@ func TestModelApprovalCtrlCInterrupts(t *testing.T) {
 			m := newModel(Config{Controller: ctrl}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 			m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`)})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`, "path")})
 			if !m.approval.active {
 				t.Fatal("approval.active = false, want true")
 			}
@@ -2126,7 +2126,7 @@ func TestModelApprovalStopReasonRestoresComposerFocus(t *testing.T) {
 		t.Fatal("input.Focused() = false, want true at start")
 	}
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`, "path")})
 	if m.input.Focused() {
 		t.Fatal("input.Focused() = true, want false while approval is open")
 	}
@@ -2151,7 +2151,7 @@ func TestModelApprovalRunFinishedRestoresComposerFocus(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "mutate", "", "prompt", `{"path":"note.txt"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "mutate", "", "prompt", `{"path":"note.txt"}`, "path")})
 	if m.input.Focused() {
 		t.Fatal("input.Focused() = true, want false while approval is open")
 	}
@@ -2455,7 +2455,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "git status"})})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "bash", "", "prompt", `{"command":"git status"}`, "approved")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "bash", "", "prompt", `{"command":"git status"}`, "approved", "path")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "still streaming", output.ChunkSourceAssistant)})
 
 	if ctrl.countInterruptActiveRun() != 1 {
@@ -3088,7 +3088,7 @@ func TestNotifyApprovalEventFiresNotification(t *testing.T) {
 	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
 	m.sidebar.branch = "main"
 
-	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "", "approve", "some preview"))
+	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "", "approve", "some preview", "path"))
 
 	time.Sleep(20 * time.Millisecond)
 
@@ -3130,7 +3130,7 @@ func TestNotifyNilNotifierIsSafe(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{WorkingDir: "/home/user/myproject"}, nil)
 	// must not panic
-	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "", "approve", "preview"))
+	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "", "approve", "preview", "path"))
 }
 
 func TestNotifyUnavailableEmitsStartupWarning(t *testing.T) {
@@ -4177,7 +4177,7 @@ func TestModelScopedTerminalEventDoesNotChangeMainComposerState(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`, "path")})
 	if m.input.Focused() {
 		t.Fatal("input.Focused() = true, want false while approval is open")
 	}

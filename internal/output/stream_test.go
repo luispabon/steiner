@@ -15,9 +15,9 @@ func TestPlainRendererFormatsModelToolAndStopEvents(t *testing.T) {
 
 	renderer.OnEvent(NewModelCallStartedEvent(1, "test-model", 5))
 	renderer.OnEvent(NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}))
-	renderer.OnEvent(NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`))
-	renderer.OnEvent(NewApprovalAcceptedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "ok"))
-	renderer.OnEvent(NewApprovalDeniedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`, "blocked"))
+	renderer.OnEvent(NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "path"))
+	renderer.OnEvent(NewApprovalAcceptedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "ok", "path"))
+	renderer.OnEvent(NewApprovalDeniedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`, "blocked", "path"))
 	renderer.OnEvent(NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-1", "handoff message"))
 	renderer.OnEvent(NewWorkflowHandoffAcceptedEvent("implement", ".steiner/plans/step-1", "handoff message"))
 	renderer.OnEvent(NewWorkflowHandoffDeclinedEvent("review", ".steiner/plans/step-2", "declined message"))

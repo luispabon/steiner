@@ -216,6 +216,7 @@ func (s *SnapshotStore) Snapshot() (RequestContextSnapshot, bool) {
 type pendingApproval struct {
 	toolName string
 	mode     string
+	kind     string // ApprovalKind string value
 	response chan SubmitApproval
 }
 
@@ -228,12 +229,13 @@ type ApprovalCoordinator struct {
 
 // Begin registers a new pending approval request and returns a channel that
 // will receive the decision once the client submits one.
-func (c *ApprovalCoordinator) Begin(toolName, mode string) chan SubmitApproval {
+func (c *ApprovalCoordinator) Begin(toolName, mode, kind string) chan SubmitApproval {
 	response := make(chan SubmitApproval, 1)
 	c.mu.Lock()
 	c.pending = &pendingApproval{
 		toolName: toolName,
 		mode:     mode,
+		kind:     kind,
 		response: response,
 	}
 	c.mu.Unlock()

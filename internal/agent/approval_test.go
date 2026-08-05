@@ -50,6 +50,68 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 	}
 }
 
+func TestEventingApproverMCPRequestUsesArgumentsPreview(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       map[string]any
+		wantPreview string
+	}{
+		{
+			name:        "compacted input",
+			input:       map[string]any{"message": "hi"},
+			wantPreview: `{"message":"hi"}`,
+		},
+		{
+			name:        "unmarshalable input falls back to arguments preview",
+			input:       map[string]any{"bad": func() {}},
+			wantPreview: `{"message":"hi"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var events []output.Event
+			approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
+				req.Response <- tool.ApprovalResponse{Allow: true, Message: "ok"}
+				return nil
+			}))
+
+			response := make(chan tool.ApprovalResponse, 1)
+			err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
+				Tool:     tool.ToolDef{Name: "mcp__fixture__echo"},
+				Reason:   "MCP tool call",
+				Input:    tt.input,
+				Response: response,
+				Kind:     tool.ApprovalKindMCP,
+				MCP: &tool.MCPApprovalDetails{
+					Server:           "fixture",
+					ToolName:         "echo",
+					ArgumentsPreview: `{"message":"hi"}`,
+				},
+			})
+			if err != nil {
+				t.Fatalf("RequestApproval() error = %v", err)
+			}
+			resp := <-response
+			if !resp.Allow {
+				t.Fatal("approval response = false, want true")
+			}
+			if got, want := eventTypes(events), []string{output.EventTypeApprovalRequested, output.EventTypeApprovalAccepted}; !equalStrings(got, want) {
+				t.Fatalf("event types = %v, want %v", got, want)
+			}
+			requested, ok := events[0].Payload.(output.ApprovalEvent)
+			if !ok {
+				t.Fatalf("requested payload type = %T, want ApprovalEvent", events[0].Payload)
+			}
+			if got, want := requested.Preview, tt.wantPreview; got != want {
+				t.Fatalf("requested preview = %q, want %q", got, want)
+			}
+			if got, want := requested.Kind, string(tool.ApprovalKindMCP); got != want {
+				t.Fatalf("requested kind = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestEventingApproverEmitsLifecycleEvents(t *testing.T) {
 	var events []output.Event
 	approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {

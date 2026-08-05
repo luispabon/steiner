@@ -184,11 +184,11 @@ func TestApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
 	}
 }
 
-// TestApprovalResponderNeverCachesMCPTools proves MCP tools stay always-ask:
-// an always_allow decision on an MCP tool must not short-circuit the next
-// request the way it does for a built-in tool (see
-// TestApprovalResponderAllowsAndCachesAlwaysAllow).
-func TestApprovalResponderNeverCachesMCPTools(t *testing.T) {
+// TestApprovalResponderCachesMCPToolsByServerAndTool proves MCP tools are
+// cached by the server+tool grant key: an always_allow decision on one MCP
+// tool short-circuits the next request for the same server+tool, but a
+// different tool from the same server still prompts.
+func TestApprovalResponderCachesMCPToolsByServerAndTool(t *testing.T) {
 	coordinator := &ApprovalCoordinator{}
 	responder := newApprovalResponder(coordinator)
 
@@ -196,26 +196,30 @@ func TestApprovalResponderNeverCachesMCPTools(t *testing.T) {
 		Name: "mcp__fixture__echo",
 		MCP:  tool.MCPProvenance{Server: "fixture", ToolName: "echo"},
 	}
+	otherTool := tool.ToolDef{
+		Name: "mcp__fixture__other",
+		MCP:  tool.MCPProvenance{Server: "fixture", ToolName: "other"},
+	}
 
-	request := func() (chan tool.ApprovalResponse, chan error) {
+	request := func(td tool.ToolDef, server, toolName string) (chan tool.ApprovalResponse, chan error) {
 		responseCh := make(chan tool.ApprovalResponse, 1)
 		done := make(chan error, 1)
 		go func() {
 			done <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
-				Tool:     mcpTool,
+				Tool:     td,
 				Reason:   "MCP tool call",
 				Response: responseCh,
 				Kind:     tool.ApprovalKindMCP,
 				MCP: &tool.MCPApprovalDetails{
-					Server:   "fixture",
-					ToolName: "echo",
+					Server:   server,
+					ToolName: toolName,
 				},
 			})
 		}()
 		return responseCh, done
 	}
 
-	firstResponse, firstDone := request()
+	firstResponse, firstDone := request(mcpTool, "fixture", "echo")
 	waitForPendingApproval(t, coordinator)
 	coordinator.Submit(SubmitApproval{
 		Tool:     mcpTool.Name,
@@ -229,26 +233,39 @@ func TestApprovalResponderNeverCachesMCPTools(t *testing.T) {
 		t.Fatalf("first response = %#v, want %#v", got, want)
 	}
 
-	// The second request must reach the coordinator again rather than being
-	// answered from the always-allow cache.
-	secondResponse, secondDone := request()
+	// The second request for the same server+tool is served from the cache.
+	secondResponse, secondDone := request(mcpTool, "fixture", "echo")
 	select {
 	case err := <-secondDone:
-		t.Fatalf("second RequestApproval() returned early (err = %v), want a fresh approval prompt", err)
+		if err != nil {
+			t.Fatalf("second RequestApproval() error = %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("second RequestApproval() blocked, want cached always-allow response")
+	}
+	if got, want := <-secondResponse, (tool.ApprovalResponse{Allow: true, Message: "always allowed"}); got != want {
+		t.Fatalf("second response = %#v, want %#v", got, want)
+	}
+
+	// A different tool from the same server still prompts.
+	thirdResponse, thirdDone := request(otherTool, "fixture", "other")
+	select {
+	case err := <-thirdDone:
+		t.Fatalf("third RequestApproval() returned early (err = %v), want a fresh approval prompt", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 
 	waitForPendingApproval(t, coordinator)
 	coordinator.Submit(SubmitApproval{
-		Tool:     mcpTool.Name,
+		Tool:     otherTool.Name,
 		Mode:     "prompt",
 		Decision: "deny",
 	})
-	if err := <-secondDone; err != nil {
-		t.Fatalf("second RequestApproval() error = %v", err)
+	if err := <-thirdDone; err != nil {
+		t.Fatalf("third RequestApproval() error = %v", err)
 	}
-	if got, want := <-secondResponse, (tool.ApprovalResponse{Allow: false, Message: "denied"}); got != want {
-		t.Fatalf("second response = %#v, want %#v", got, want)
+	if got, want := <-thirdResponse, (tool.ApprovalResponse{Allow: false, Message: "denied"}); got != want {
+		t.Fatalf("third response = %#v, want %#v", got, want)
 	}
 }
 
