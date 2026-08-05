@@ -109,7 +109,12 @@ func (b *contentBuffer) renderToolCallFrame(tc *toolCallSegment, width int) stri
 		return ""
 	}
 	tagStyle := b.toolTagStyle(tc.tool)
-	tag := tagStyle.Render(tc.tool)
+	tagText := tc.tool
+	if _, ok := b.mcpOrigin(tc.tool); ok {
+		tagStyle = b.styles.ToolTagMCP
+		tagText = b.toolDisplayTag(tc.tool)
+	}
+	tag := tagStyle.Render(tagText)
 	tagWidth := lipgloss.Width(tag)
 	disclosure := "▾"
 	if tc.collapsed {
@@ -151,6 +156,9 @@ func (b *contentBuffer) renderToolCallFrame(tc *toolCallSegment, width int) stri
 
 func (b *contentBuffer) renderToolCallBox(content, tool string, width int) string {
 	borderStyle := b.toolBorderStyle(tool)
+	if _, ok := b.mcpOrigin(tool); ok {
+		borderStyle = b.styles.ToolBorderMCP
+	}
 	boxStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color(theme.BgElev)).
 		Padding(0, 1).
