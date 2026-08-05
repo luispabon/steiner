@@ -290,6 +290,9 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 			m.content.AppendLine(fmt.Sprintf("status: %s", msg))
 		}
 	}
+	for _, line := range mcpStartupWarnings(m.mcpServers, m.mcpEnabled) {
+		m.content.AppendLine(m.styles.WarningStyle.Render(line))
+	}
 	m.git.Refresh(context.Background())
 	m.syncSidebar()
 	m.layout()
