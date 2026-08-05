@@ -380,7 +380,7 @@ Opt-in permissions for additional capabilities.
 
 | Field    | Type | Default | Description |
 |----------|------|---------|-------------|
-| `docker` | bool | `false` | Intended to gate Docker socket access inside the sandbox. **Not currently enforced**: the sandbox's read-only root bind does not cover unix sockets, so the host Docker socket is reachable from inside the sandbox regardless of this setting whenever the daemon is running and the invoking user can reach it. See [tool-sandboxing.md](tool-sandboxing.md#docker-permission-not-currently-enforced). Tracked in [#402](https://github.com/luispabon/steiner/issues/402). |
+| `docker` | bool | `false` | Gates Docker socket access inside the sandbox. `false` (default) masks any reachable Docker socket and unsets `DOCKER_HOST`, denying sandboxed tools access to the host daemon. `true` leaves the socket reachable. See [tool-sandboxing.md](tool-sandboxing.md#docker-permission). |
 
 ```yaml
 permissions:

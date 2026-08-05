@@ -672,6 +672,37 @@ func TestApplyModesPatch(t *testing.T) {
 	}
 }
 
+func TestApplyPermissionsPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial PermissionsConfig
+		patch   permissionsPatch
+		want    PermissionsConfig
+	}{
+		{
+			name:    "sets docker",
+			initial: PermissionsConfig{Docker: false},
+			patch:   permissionsPatch{Docker: boolPtr(true)},
+			want:    PermissionsConfig{Docker: true},
+		},
+		{
+			name:    "nil docker leaves value untouched",
+			initial: PermissionsConfig{Docker: true},
+			patch:   permissionsPatch{},
+			want:    PermissionsConfig{Docker: true},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyPermissionsPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyPermissionsPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
 func TestApplyMCPPatch(t *testing.T) {
 	tests := []struct {
 		name    string

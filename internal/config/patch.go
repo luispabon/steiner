@@ -6,6 +6,7 @@ type configPatch struct {
 	Scheduler            *schedulerPatch            `yaml:"scheduler"`
 	Providers            *map[string]providerPatch  `yaml:"providers"`
 	Sandbox              *sandboxPatch              `yaml:"sandbox"`
+	Permissions          *permissionsPatch          `yaml:"permissions"`
 	Models               *modelsPatch               `yaml:"models"`
 	Limits               *limitsPatch               `yaml:"limits"`
 	SubAgent             *subAgentPatch             `yaml:"sub_agent"`
@@ -57,6 +58,11 @@ type schedulerPatch struct {
 type sandboxPatch struct {
 	Enabled                      *bool `yaml:"enabled"`
 	WarningOnUnsupportedPlatform *bool `yaml:"warning_on_unsupported_platform"`
+}
+
+// permissionsPatch holds permissions config fields that can be patched from YAML.
+type permissionsPatch struct {
+	Docker *bool `yaml:"docker"`
 }
 
 type modelPatch struct {
