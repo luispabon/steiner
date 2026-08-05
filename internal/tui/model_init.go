@@ -59,6 +59,9 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		skillNames:                   append([]string(nil), cfg.SkillNames...),
 		skillDescriptions:            cloneStringMap(cfg.SkillDescriptions),
 		enabledSkills:                enabledSkills,
+		mcpEnabled:                   cfg.MCPEnabled,
+		mcpServers:                   cfg.MCPServers,
+		mcpToolOrigins:               cfg.MCPToolOrigins,
 		modelNames:                   append([]string(nil), cfg.ModelNames...),
 		modelContexts:                cloneModelContexts(cfg.ModelContexts),
 		modelBaseURLs:                cloneModelBaseURLs(cfg.ModelBaseURLs),
@@ -285,6 +288,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 
 	m.content.styles = m.styles
 	m.content.skillNames = m.skillNames
+	m.content.mcpToolOrigins = m.mcpToolOrigins
 	m.content.setGlamourStyleSheet(accentHex)
 	m.content.collapseState = make(map[int]bool)
 	m.content.showThinking = m.showThinking
