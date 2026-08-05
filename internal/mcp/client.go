@@ -38,11 +38,11 @@ type Session struct {
 	protocolVersion string
 }
 
-// Connect launches the server described by spec, optionally wrapped (e.g. with
-// the sandbox), and completes the MCP handshake. The negotiated protocol
+// ConnectSession launches the server described by spec, optionally wrapped (e.g.
+// with the sandbox), and completes the MCP handshake. The negotiated protocol
 // version and the server's tool list are captured; ListTools is called exactly
 // once per session.
-func Connect(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer) (*Session, error) {
+func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer) (*Session, error) {
 	cmd := buildCommand(ctx, spec, wrap, stderr)
 
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "steiner", Version: clientVersion}, nil)
