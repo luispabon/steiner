@@ -44,6 +44,7 @@ func (s sidebarState) staticLines(width int) []string {
 	if strings.TrimSpace(s.activeSkill) != "" {
 		lines = append(lines, s.skillSection(width)...)
 	}
+	lines = append(lines, s.mcpSection(width)...)
 	lines = append(lines, s.contextSection(width)...)
 	lines = append(lines, s.performanceSection(width)...)
 	lines = append(lines, s.cacheSection(width)...)
