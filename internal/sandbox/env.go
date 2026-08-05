@@ -83,11 +83,11 @@ type EnvPolicy struct {
 	Extra []string
 }
 
-// NewEnvPolicy builds an EnvPolicy from configured values, trimming
+// newEnvPolicy builds an EnvPolicy from configured values, trimming
 // surrounding whitespace from each Extra entry so that validation
 // (internal/config's validateSandboxConfig) and matching (isAllowed) agree on
 // the same strings.
-func NewEnvPolicy(passthroughAll bool, extra []string) EnvPolicy {
+func newEnvPolicy(passthroughAll bool, extra []string) EnvPolicy {
 	trimmed := make([]string, len(extra))
 	for i, e := range extra {
 		trimmed[i] = strings.TrimSpace(e)

@@ -147,7 +147,7 @@ func TestFilterEnv_ExtraAllowlist(t *testing.T) {
 }
 
 func TestNewEnvPolicy_TrimsExtraEntries(t *testing.T) {
-	policy := NewEnvPolicy(false, []string{" MY_CUSTOM_VAR ", "MYAPP_* "})
+	policy := newEnvPolicy(false, []string{" MY_CUSTOM_VAR ", "MYAPP_* "})
 
 	result := FilterEnv([]string{"MY_CUSTOM_VAR=value", "MYAPP_FOO=1", "OTHER_VAR=x"}, policy)
 
