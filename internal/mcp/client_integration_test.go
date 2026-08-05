@@ -22,6 +22,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/sandbox"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // TestStdio exercises a long-lived MCP stdio server across the whole connect,
@@ -52,8 +53,8 @@ func TestStdio(t *testing.T) {
 		if got := sess.ProtocolVersion(); got != "2025-11-25" {
 			t.Errorf("ProtocolVersion() = %q, want %q", got, "2025-11-25")
 		}
-		if tools := sess.Tools(); len(tools) != 2 {
-			t.Fatalf("Tools() has %d entries, want 2", len(tools))
+		if tools := sess.Tools(); len(tools) != 3 {
+			t.Fatalf("Tools() has %d entries, want 3", len(tools))
 		}
 
 		res, err := sess.Call(context.Background(), "echo", map[string]any{"text": "hi"})
@@ -191,6 +192,131 @@ func TestStdio(t *testing.T) {
 			t.Fatal("Connect succeeded, want error from the handshake timeout")
 		}
 	})
+}
+
+// TestIntegrationAnnotationAutoAllow drives the full Connect path against the
+// fixture server with trust_annotations: true (step 9, D6): a readOnlyHint tool
+// auto-allows with no approval prompt, while an unannotated tool still prompts.
+func TestIntegrationAnnotationAutoAllow(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+	approver := &recordingApprover{allow: true}
+	cfg := config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"fixture": {Enabled: true, Command: fixtureBin, Approval: "ask", TrustAnnotations: true},
+		},
+	}
+
+	m := mcp.Connect(context.Background(), cfg, nil, approver, func(string) {}, func(string) {}, io.Discard, false)
+	defer m.Close() //nolint:errcheck
+
+	// readonly_echo carries readOnlyHint, so trust_annotations auto-allows it:
+	// the call reaches the server and returns the echoed text with no prompt.
+	env, err := findToolDef(t, m.ToolDefs(), "mcp__fixture__readonly_echo").Handler(context.Background(), map[string]any{"text": "hi"})
+	if err != nil {
+		t.Fatalf("readonly_echo returned Go error %v, want nil", err)
+	}
+	echo, ok := env.(tool.JSONEnvelope)
+	if !ok {
+		t.Fatalf("readonly_echo result type = %T, want tool.JSONEnvelope", env)
+	}
+	if !echo.OK {
+		t.Errorf("readonly_echo OK = false, want true (error: %+v)", echo.Error)
+	}
+	if got := echo.Result; got != "hi" {
+		t.Errorf("readonly_echo result = %v, want %q", got, "hi")
+	}
+	if got := len(approver.reqs); got != 0 {
+		t.Errorf("approver recorded %d requests, want 0 (readOnlyHint auto-allows)", got)
+	}
+
+	// boom has no hints (destructiveHint and openWorldHint default to true), so
+	// it still prompts. The approving responder lets it through; the server's
+	// deliberate failure proves the call was dispatched after approval.
+	env, err = findToolDef(t, m.ToolDefs(), "mcp__fixture__boom").Handler(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("boom returned Go error %v, want nil with an mcp_tool_error envelope", err)
+	}
+	boom, ok := env.(tool.JSONEnvelope)
+	if !ok {
+		t.Fatalf("boom result type = %T, want tool.JSONEnvelope", env)
+	}
+	if boom.OK {
+		t.Error("boom OK = true, want false")
+	}
+	if boom.Error == nil || boom.Error.Kind != "mcp_tool_error" {
+		t.Errorf("boom error = %+v, want kind mcp_tool_error", boom.Error)
+	}
+	if got := len(approver.reqs); got != 1 {
+		t.Errorf("approver recorded %d requests, want 1 (boom prompts)", got)
+	}
+	if got := approver.reqs[0].MCP.ToolName; got != "boom" {
+		t.Errorf("approval request tool = %q, want %q", got, "boom")
+	}
+}
+
+// TestIntegrationTrustAnnotationsFalse verifies that trust_annotations: false
+// ignores readOnlyHint end to end: readonly_echo still prompts for approval.
+func TestIntegrationTrustAnnotationsFalse(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+	approver := &recordingApprover{allow: true}
+	cfg := config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"fixture": {Enabled: true, Command: fixtureBin, Approval: "ask", TrustAnnotations: false},
+		},
+	}
+
+	m := mcp.Connect(context.Background(), cfg, nil, approver, func(string) {}, func(string) {}, io.Discard, false)
+	defer m.Close() //nolint:errcheck
+
+	// The prompt is answered with allow, so the call succeeds but the recorded
+	// request proves approval was requested despite the readOnlyHint.
+	env, err := findToolDef(t, m.ToolDefs(), "mcp__fixture__readonly_echo").Handler(context.Background(), map[string]any{"text": "hi"})
+	if err != nil {
+		t.Fatalf("readonly_echo returned Go error %v, want nil", err)
+	}
+	echo, ok := env.(tool.JSONEnvelope)
+	if !ok {
+		t.Fatalf("readonly_echo result type = %T, want tool.JSONEnvelope", env)
+	}
+	if !echo.OK {
+		t.Errorf("readonly_echo OK = false, want true (error: %+v)", echo.Error)
+	}
+	if got := echo.Result; got != "hi" {
+		t.Errorf("readonly_echo result = %v, want %q", got, "hi")
+	}
+	if got := len(approver.reqs); got != 1 {
+		t.Errorf("approver recorded %d requests, want 1 (readOnlyHint ignored without trust_annotations)", got)
+	}
+	if got := approver.reqs[0].MCP.ToolName; got != "readonly_echo" {
+		t.Errorf("approval request tool = %q, want %q", got, "readonly_echo")
+	}
+}
+
+// recordingApprover records every approval request and answers with a fixed
+// decision.
+type recordingApprover struct {
+	allow bool
+	reqs  []tool.ApprovalRequest
+}
+
+func (r *recordingApprover) RequestApproval(_ context.Context, req tool.ApprovalRequest) error {
+	r.reqs = append(r.reqs, req)
+	req.Response <- tool.ApprovalResponse{Allow: r.allow}
+	return nil
+}
+
+// findToolDef returns the definition with the given registry name.
+func findToolDef(t *testing.T, defs []tool.ToolDef, name string) tool.ToolDef {
+	t.Helper()
+	for _, d := range defs {
+		if d.Name == name {
+			return d
+		}
+	}
+	t.Fatalf("tool %q not found in %v", name, defs)
+	return tool.ToolDef{}
 }
 
 // buildFixture compiles the fixtureserver binary once per test run.

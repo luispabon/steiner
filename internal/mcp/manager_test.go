@@ -81,8 +81,8 @@ func TestManagerConnect(t *testing.T) {
 		defer m.Close() //nolint:errcheck
 
 		defs := m.ToolDefs()
-		if len(defs) != 2 {
-			t.Fatalf("ToolDefs() has %d tools, want 2 (echo, boom)", len(defs))
+		if len(defs) != 3 {
+			t.Fatalf("ToolDefs() has %d tools, want 3 (echo, boom, readonly_echo)", len(defs))
 		}
 		// onWarn carries failures only; a successful connect goes to onInfo so
 		// a healthy startup emits no warnings.
@@ -119,8 +119,8 @@ func TestManagerConnect(t *testing.T) {
 		m := Connect(context.Background(), cfg, nil, allowApprover(), nil, nil, io.Discard, false)
 		defer m.Close() //nolint:errcheck
 
-		if got := len(m.ToolDefs()); got != 2 {
-			t.Fatalf("ToolDefs() has %d tools, want 2 (echo, boom)", got)
+		if got := len(m.ToolDefs()); got != 3 {
+			t.Fatalf("ToolDefs() has %d tools, want 3 (echo, boom, readonly_echo)", got)
 		}
 	})
 
@@ -185,8 +185,8 @@ func TestManagerConnect(t *testing.T) {
 		defer m.Close() //nolint:errcheck
 
 		defs := m.ToolDefs()
-		if len(defs) != 2 {
-			t.Fatalf("ToolDefs() has %d tools, want 2", len(defs))
+		if len(defs) != 3 {
+			t.Fatalf("ToolDefs() has %d tools, want 3", len(defs))
 		}
 		for _, tt := range []struct {
 			name     string
@@ -219,8 +219,8 @@ func TestManagerConnect(t *testing.T) {
 		defer m.Close() //nolint:errcheck
 
 		defs := m.ToolDefs()
-		if len(defs) != 2 {
-			t.Fatalf("ToolDefs() has %d tools, want 2 (only the ask server's echo and boom)", len(defs))
+		if len(defs) != 3 {
+			t.Fatalf("ToolDefs() has %d tools, want 3 (only the ask server's echo, boom, and readonly_echo)", len(defs))
 		}
 		for _, d := range defs {
 			if d.MCP.Server == "denied" {
@@ -416,8 +416,8 @@ func TestManagerConnect(t *testing.T) {
 		if !ok || good.Status != ServerStatusConnected || good.ProtocolVersion == "" || good.Transport != "stdio" {
 			t.Errorf("good state = %+v, want connected with non-empty ProtocolVersion and stdio transport", good)
 		}
-		if !reflect.DeepEqual(good.Tools, []string{"echo", "boom"}) {
-			t.Errorf("good.Tools = %v, want [echo boom]", good.Tools)
+		if !reflect.DeepEqual(good.Tools, []string{"echo", "boom", "readonly_echo"}) {
+			t.Errorf("good.Tools = %v, want [echo boom readonly_echo]", good.Tools)
 		}
 
 		// Sorted name order.
