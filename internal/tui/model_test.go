@@ -923,15 +923,16 @@ func TestModelMouseClickTargetsResumedToolRowAfterUserGap(t *testing.T) {
 	}
 }
 
-func TestModelDoubleClickSelectsURLAndBareRelativePath(t *testing.T) {
+func TestModelDoubleClickSelectsURLAndPaths(t *testing.T) {
 	t.Parallel()
 	const (
-		url  = "https://github.com/luispabon/steiner/issues/356"
-		path = "internal/tui/selection.go"
+		url    = "https://github.com/luispabon/steiner/issues/356"
+		path   = "internal/tui/selection.go"
+		hidden = ".project_planning/2026-08-05_mcp-walking-skeleton"
 	)
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 150, Height: 20})
-	m.content.AppendLine("See " + url + " and " + path + " for details")
+	m.content.AppendLine("See " + url + " and " + path + " and " + hidden + " for details")
 	m.syncViewport()
 	m.contentTopPad = 0
 	m.viewport.SetYOffset(0)
@@ -939,7 +940,7 @@ func TestModelDoubleClickSelectsURLAndBareRelativePath(t *testing.T) {
 	m.populateScreenLines()
 	lines := *m.screenLines
 
-	row, urlCol, pathCol := -1, -1, -1
+	row, urlCol, pathCol, hiddenCol := -1, -1, -1, -1
 	for i, line := range lines {
 		if idx := strings.Index(line, url); idx >= 0 {
 			row = i
@@ -948,9 +949,12 @@ func TestModelDoubleClickSelectsURLAndBareRelativePath(t *testing.T) {
 		if idx := strings.Index(line, path); idx >= 0 {
 			pathCol = idx
 		}
+		if idx := strings.Index(line, hidden); idx >= 0 {
+			hiddenCol = idx
+		}
 	}
-	if row < 0 || urlCol < 0 || pathCol < 0 {
-		t.Fatalf("rendered content missing URL or path:\n%s", strings.Join(lines, "\n"))
+	if row < 0 || urlCol < 0 || pathCol < 0 || hiddenCol < 0 {
+		t.Fatalf("rendered content missing URL, path, or hidden path:\n%s", strings.Join(lines, "\n"))
 	}
 
 	// Double-click inside the URL: two consecutive clicks at the same
@@ -978,6 +982,19 @@ func TestModelDoubleClickSelectsURLAndBareRelativePath(t *testing.T) {
 	}
 	if got := extractText(*m.screenLines, m.selection, 0, 0); got != path {
 		t.Fatalf("extractText = %q, want %q", got, path)
+	}
+
+	// Double-click inside the hidden folder path.
+	m = updateModel(t, m, mouseClickMsg{x: hiddenCol + 2, y: row})
+	m = updateModel(t, m, mouseClickMsg{x: hiddenCol + 2, y: row})
+
+	start, end = m.selection.canonical()
+	if start.line != row || end.line != row || start.col != hiddenCol || end.col != hiddenCol+len(hidden) {
+		t.Fatalf("hidden path selection = (%d,%d)-(%d,%d), want (%d,%d)-(%d,%d)",
+			start.line, start.col, end.line, end.col, row, hiddenCol, row, hiddenCol+len(hidden))
+	}
+	if got := extractText(*m.screenLines, m.selection, 0, 0); got != hidden {
+		t.Fatalf("extractText = %q, want %q", got, hidden)
 	}
 }
 

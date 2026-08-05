@@ -654,6 +654,13 @@ func TestWordBoundsAt(t *testing.T) {
 			wantStartCol: 4,
 			wantEndCol:   22,
 		},
+		{
+			name:         "double-click hidden folder path selects full path",
+			line:         "run .project_planning/2026-08-05_mcp-walking-skeleton",
+			col:          6,
+			wantStartCol: 4,
+			wantEndCol:   53,
+		},
 	}
 
 	for _, tc := range tests {
@@ -1100,6 +1107,65 @@ func TestPathBoundsAt(t *testing.T) {
 			name:         "dotted first segment is rejected",
 			line:         "see example.com/index.html now",
 			col:          17,
+			wantStartCol: 0,
+			wantEndCol:   0,
+			wantOk:       false,
+		},
+		{
+			name:         "hidden folder path",
+			line:         "see .project_planning/2026-08-05_mcp-walking-skeleton now",
+			col:          20,
+			wantStartCol: 4,
+			wantEndCol:   53,
+			wantOk:       true,
+		},
+		{
+			name:         "hidden folder path at start",
+			line:         ".project_planning/2026-08-05_mcp-walking-skeleton",
+			col:          0,
+			wantStartCol: 0,
+			wantEndCol:   49,
+			wantOk:       true,
+		},
+		{
+			name:         "hidden file alone",
+			line:         "edit .env now",
+			col:          6,
+			wantStartCol: 5,
+			wantEndCol:   9,
+			wantOk:       true,
+		},
+		{
+			name:         "hidden path with line ref",
+			line:         "Source: .project_planning/x:12",
+			col:          10,
+			wantStartCol: 8,
+			wantEndCol:   30,
+			wantOk:       true,
+		},
+		{
+			name:         "hidden path trailing period trimmed",
+			line:         "see .project_planning/foo.",
+			col:          6,
+			wantStartCol: 4,
+			wantEndCol:   25,
+			wantOk:       true,
+		},
+		{
+			// Accepted trade-off, mirroring "full date matches": a dot-prefixed
+			// token at a boundary is treated as a hidden file, so prose ".NET"
+			// selects as one token instead of falling back to "NET".
+			name:         "hidden-style prose token is an accepted trade-off",
+			line:         "use .NET now",
+			col:          5,
+			wantStartCol: 4,
+			wantEndCol:   8,
+			wantOk:       true,
+		},
+		{
+			name:         "mid-token dot hidden suffix is rejected",
+			line:         "the.env is config",
+			col:          5,
 			wantStartCol: 0,
 			wantEndCol:   0,
 			wantOk:       false,

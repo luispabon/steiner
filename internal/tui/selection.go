@@ -365,14 +365,20 @@ func (m Model) selectionHighlightBounds() (left, right int) {
 // prose: a bare relative path qualifies only when it has two or more path
 // separators (internal/tui/selection.go) or its final segment carries a file
 // extension (docs/oneshot.md). This rejects and/or, TCP/IP, 24/7, and 12/25
-// while accepting steiner's own path output. The trailing (?::\d+(?::\d+)?)?
-// group attaches an optional :line or :line:col suffix to every alternative.
+// while accepting steiner's own path output. A dot-prefixed segment is its own
+// path signal: \.[\w\-]+(?:/[\w.\-]+)*/? matches hidden files and dot-dirs
+// (.env, .project_planning/x) at any depth. Like the other prefix-marked
+// alternatives it must start at a token boundary, so example.com/index.html
+// and the foo.bar stay rejected; a prose ".NET" is an accepted trade-off. The
+// trailing (?::\d+(?::\d+)?)? group attaches an optional :line or :line:col
+// suffix to every alternative.
 var (
 	urlRegex  = regexp.MustCompile(`(?:https?|ftp|file|git|ssh)://[^\s]+`)
 	pathRegex = regexp.MustCompile(
 		`(?:` +
 			`/(?:[\w.\-]+/)*[\w.\-]+/?` +
 			`|~(?:/[\w.\-]+)*/?` +
+			`|\.[\w\-]+(?:/[\w.\-]+)*/?` +
 			`|\.\.?(?:/[\w.\-]+)*/?` +
 			`|[\w.\-]+(?:/[\w.\-]+){2,}/?` +
 			`|[\w\-]+(?:/[\w.\-]+)*/[\w\-]+\.\w+` +
