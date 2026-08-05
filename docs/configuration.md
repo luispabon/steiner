@@ -522,6 +522,37 @@ tools:
 
 ---
 
+## `mcp` block
+
+Configures Model Context Protocol (MCP) servers. MCP is off by default. See
+[docs/mcp.md](mcp.md) for the TUI surfaces and approval behavior.
+
+| Field    | Type   | Default | Description |
+|----------|--------|---------|-------------|
+| `enabled`| bool   | `false` | Master switch for the MCP client. |
+| `servers`| map    | —       | Per-server configuration under `mcp.servers.<name>`. |
+
+Each server entry (`MCPServerConfig`) supports:
+
+| Field               | Type   | Default | Description |
+|---------------------|--------|---------|-------------|
+| `approval`          | string | `"ask"` | Approval mode for the server's tools. One of `ask` (prompt per tool call), `allow` (run without prompting in build mode, downgraded to `ask` in plan mode), or `deny` (register no tools). |
+| `trust_annotations` | bool   | `false` | When `true`, tools advertised with `readOnlyHint: true` skip approval; `destructiveHint` and `openWorldHint` tools still prompt. |
+
+```yaml
+mcp:
+  enabled: true
+  servers:
+    my-server:
+      enabled: true
+      command: "npx"
+      args: ["-y", "@some/mcp-server"]
+      approval: ask
+      trust_annotations: false
+```
+
+---
+
 ## `project_context` block
 
 Configures extra files and token budget for project-level context injected
