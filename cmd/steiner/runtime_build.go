@@ -103,14 +103,16 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		if sb != nil {
 			wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
 		}
-		onWarn := func(msg string) {
-			events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Notes:    []string{msg},
-			}))
+		diagnose := func(severity string) func(string) {
+			return func(msg string) {
+				events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+					Kind:     "session_health",
+					Severity: severity,
+					Notes:    []string{msg},
+				}))
+			}
 		}
-		mcpMgr = mcp.Connect(ctx, cfg.MCP, wrap, nil, onWarn, os.Stderr)
+		mcpMgr = mcp.Connect(ctx, cfg.MCP, wrap, nil, diagnose("warning"), diagnose("info"), os.Stderr)
 	}
 
 	// Rebuild registry with sandbox and MCP tools now that workDir and homeDir are known.
