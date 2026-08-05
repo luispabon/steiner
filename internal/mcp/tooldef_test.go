@@ -6,8 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/luispabon/steiner/internal/tool"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestMCPToolDefSchema(t *testing.T) {
@@ -71,7 +72,7 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, nil)
 
 		env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
-		assertDenial(t, env, err, "approval_denied")
+		assertDenial(t, env, err)
 	})
 
 	t.Run("approver error denies", func(t *testing.T) {
@@ -82,6 +83,6 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, approver)
 
 		env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
-		assertDenial(t, env, err, "approval_denied")
+		assertDenial(t, env, err)
 	})
 }

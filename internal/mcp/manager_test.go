@@ -160,7 +160,7 @@ func TestManagerConnect(t *testing.T) {
 		// echo would return OK with the text if it reached the server, so a
 		// denial envelope proves the call never left the handler.
 		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
-		assertDenial(t, env, err, "approval_denied")
+		assertDenial(t, env, err)
 	})
 
 	t.Run("approver denial denies without calling the server", func(t *testing.T) {
@@ -175,7 +175,7 @@ func TestManagerConnect(t *testing.T) {
 		// boom would return mcp_tool_error if it reached the server; the denial
 		// envelope proves the call was gated before dispatch.
 		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__boom").Handler(context.Background(), nil)
-		assertDenial(t, env, err, "approval_denied")
+		assertDenial(t, env, err)
 	})
 
 	t.Run("approver allow round-trips echo and surfaces boom as an envelope", func(t *testing.T) {
@@ -224,7 +224,7 @@ func TestManagerConnect(t *testing.T) {
 
 		// Connected with a nil approver: calls deny.
 		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
-		assertDenial(t, env, err, "approval_denied")
+		assertDenial(t, env, err)
 
 		m.UpdateApprover(allowApprover())
 		env, err = findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
@@ -278,10 +278,10 @@ func allowApprover() tool.ApprovalResponder {
 
 // assertDenial fails unless env is a JSONEnvelope with the given error kind and
 // a nil Go error.
-func assertDenial(t *testing.T, env any, err error, kind string) {
+func assertDenial(t *testing.T, env any, err error) {
 	t.Helper()
 	if err != nil {
-		t.Fatalf("handler returned Go error %v, want nil %s envelope", err, kind)
+		t.Fatalf("handler returned Go error %v, want nil %s envelope", err, "approval_denied")
 	}
 	denial, ok := env.(tool.JSONEnvelope)
 	if !ok {
@@ -290,8 +290,8 @@ func assertDenial(t *testing.T, env any, err error, kind string) {
 	if denial.OK {
 		t.Error("OK = true, want false")
 	}
-	if denial.Error == nil || denial.Error.Kind != kind {
-		t.Errorf("error = %+v, want kind %s", denial.Error, kind)
+	if denial.Error == nil || denial.Error.Kind != "approval_denied" {
+		t.Errorf("error = %+v, want kind %s", denial.Error, "approval_denied")
 	}
 }
 

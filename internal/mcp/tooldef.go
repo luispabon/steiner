@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/luispabon/steiner/internal/tool"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // mcpToolDef builds a tool.ToolDef for a discovered MCP tool.
