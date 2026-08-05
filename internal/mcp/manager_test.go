@@ -217,6 +217,32 @@ func TestManagerConnect(t *testing.T) {
 		}
 	})
 
+	t.Run("UpdateApprover rebuilds defs with the new approver", func(t *testing.T) {
+		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, io.Discard)
+		defer m.Close() //nolint:errcheck
+
+		// Connected with a nil approver: calls deny.
+		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
+		assertDenial(t, env, err, "approval_denied")
+
+		m.UpdateApprover(allowApprover())
+		env, err = findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
+		if err != nil {
+			t.Fatalf("echo returned Go error %v, want nil", err)
+		}
+		echo, ok := env.(tool.JSONEnvelope)
+		if !ok {
+			t.Fatalf("echo result type = %T, want tool.JSONEnvelope", env)
+		}
+		if !echo.OK {
+			t.Errorf("echo OK = false, want true (error: %+v)", echo.Error)
+		}
+		if got := echo.Result; got != "hi" {
+			t.Errorf("echo result = %v, want %q", got, "hi")
+		}
+	})
+
 	t.Run("Close terminates every session", func(t *testing.T) {
 		cfg := config.MCPConfig{
 			Enabled: true,

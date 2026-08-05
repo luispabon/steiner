@@ -36,6 +36,14 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	rt = buildInteractiveRuntime(rt, sess)
 	tuiApp := buildInteractiveApp(cmd, flags, rt, sess)
 	wireInteractiveRunner(rt, sess)
+	// Update MCP tools with the real approver and rebuild the registry so the
+	// interactive session's approvals gate MCP calls.
+	if rt.mcpManager != nil {
+		rt.mcpManager.UpdateApprover(sess.Approver(rt.events))
+		registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, sess, rt.mcpManager)
+		rt.registry = registry
+		rt.toolNames = registry.Names()
+	}
 	sess.DisplaySink().Set(tuiApp.EventSink())
 
 	p := tuiApp.NewProgram()

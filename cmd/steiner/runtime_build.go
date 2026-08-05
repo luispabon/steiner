@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/history"
+	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/oauth"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -90,9 +92,30 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}
 
 	emitSandboxWarning(cfg, events)
-	// Rebuild registry with sandbox now that workDir and homeDir are known.
-	if sb != nil {
-		registry = buildRuntimeRegistryWithSandbox(cfg, workDir, sb)
+
+	// Connect MCP servers after the sandbox exists (so server commands can be
+	// wrapped) and before the registry is rebuilt (so MCP tools register).
+	// Failures are reported and skipped; Connect never returns an error for a
+	// server failure.
+	var mcpMgr *mcp.Manager
+	if cfg.MCP.Enabled {
+		var wrap func(*exec.Cmd) *exec.Cmd
+		if sb != nil {
+			wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
+		}
+		onWarn := func(msg string) {
+			events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: "warning",
+				Notes:    []string{msg},
+			}))
+		}
+		mcpMgr = mcp.Connect(ctx, cfg.MCP, wrap, nil, onWarn, os.Stderr)
+	}
+
+	// Rebuild registry with sandbox and MCP tools now that workDir and homeDir are known.
+	if sb != nil || mcpMgr != nil {
+		registry = buildRuntimeRegistryWithSandbox(cfg, workDir, sb, mcpMgr)
 	}
 	historyWriter, sessionStore, err := buildRuntimeSessionStores(homeDir)
 	if err != nil {
@@ -115,6 +138,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		workDir:                workDir,
 		homeDir:                homeDir,
 		sandbox:                sb,
+		mcpManager:             mcpMgr,
 		stdin:                  cmd.InOrStdin(),
 		human:                  output.NewStream(cmd.OutOrStdout()),
 		status:                 output.NewStream(cmd.ErrOrStderr()),
@@ -294,13 +318,13 @@ func runtimeCompactionLogFile(cfg config.Config, flags *cliFlags) string {
 }
 
 func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry) {
-	registry := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
+	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, nil, nil)
 	return workDir, registry
 }
 
-// buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox.
-func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox) *tool.Registry {
-	registry := runtimeRegistryWithSink(cfg, workDir, nil, false, nil, sb)
+// buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox and MCP tools.
+func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox, mgr *mcp.Manager) *tool.Registry {
+	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, nil, mgr)
 	return registry
 }
 
