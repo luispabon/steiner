@@ -1383,3 +1383,91 @@ models:
 		t.Fatalf("desktop_notifications.duration = %d, want 0", cfg.DesktopNotifications.Duration)
 	}
 }
+
+// TestLoadPermissionsConfig guards against the permissions block being
+// documented and struct-defined but never wired into configPatch: a user
+// writing the documented `permissions: docker: true` YAML would previously
+// hit "field permissions not found in type config.configPatch" at startup.
+func TestLoadPermissionsConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+permissions:
+  docker: true
+`)
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = os.Chdir(cwd)
+		})
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !cfg.Permissions.Docker {
+		t.Fatal("permissions.docker = false, want true")
+	}
+}
+
+func TestLoadPermissionsConfigOmittedDefaultsToDenied(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+`)
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = os.Chdir(cwd)
+		})
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Permissions.Docker {
+		t.Fatal("permissions.docker = true, want false (default deny)")
+	}
+}

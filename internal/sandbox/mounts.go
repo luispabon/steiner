@@ -8,7 +8,7 @@ import (
 )
 
 // BuildArgs returns the bwrap argument list (excluding the trailing -- cmd args).
-func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts []config.HostMount, overlayArgs []string, tmpDir string, readOnlyProject bool) []string {
+func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts []config.HostMount, overlayArgs []string, tmpDir string, readOnlyProject bool, perms config.PermissionsConfig) []string {
 	var args []string
 
 	// Namespace isolation: unshare all but share network.
@@ -56,6 +56,16 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 	}
 
 	args = append(args, overlayArgs...)
+
+	// Docker socket masking: appended after host mounts and overlay args, and
+	// immediately before --chdir, so no earlier bind — including a user
+	// host_mounts entry that rw-binds /run — can unmask the socket. Later
+	// bwrap operations win. When perms.Docker is true the socket is already
+	// reachable via the root bind and nothing is emitted; that asymmetry is
+	// the entire point of the permission.
+	if !perms.Docker {
+		args = append(args, dockerDenyArgs(dockerSocketCandidates())...)
+	}
 
 	// Set working directory to workspace after all mounts have been established.
 	args = append(args, "--chdir", workDir)

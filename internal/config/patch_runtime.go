@@ -73,3 +73,9 @@ func applySandboxPatch(cfg *SandboxConfig, patch *sandboxPatch) {
 		cfg.WarningOnUnsupportedPlatform = *patch.WarningOnUnsupportedPlatform
 	}
 }
+
+func applyPermissionsPatch(cfg *PermissionsConfig, patch *permissionsPatch) {
+	if patch.Docker != nil {
+		cfg.Docker = *patch.Docker
+	}
+}

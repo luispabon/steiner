@@ -17,6 +17,7 @@ var (
 // Sandbox wraps bubblewrap invocation for tool execution.
 type Sandbox struct {
 	cfg        config.SandboxConfig
+	perms      config.PermissionsConfig
 	root       string // absolute project root
 	workDir    string // absolute agent workDir
 	userHome   string // host user home
@@ -25,9 +26,10 @@ type Sandbox struct {
 }
 
 // New creates a Sandbox. rootDir, workDir, userHome, and tmpDir must be absolute paths.
-func New(cfg config.SandboxConfig, hostMounts []config.HostMount, rootDir, workDir, userHome, tmpDir string) *Sandbox {
+func New(cfg config.SandboxConfig, perms config.PermissionsConfig, hostMounts []config.HostMount, rootDir, workDir, userHome, tmpDir string) *Sandbox {
 	return &Sandbox{
 		cfg:        cfg,
+		perms:      perms,
 		root:       rootDir,
 		workDir:    workDir,
 		userHome:   userHome,
@@ -80,7 +82,7 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
 	if overlay != nil {
 		overlayArgs = overlay.bwrapArgs
 	}
-	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.hostMounts, overlayArgs, s.tmpDir, readOnlyProject)
+	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.hostMounts, overlayArgs, s.tmpDir, readOnlyProject, s.perms)
 
 	// Build the new Args slice: [bwrap, ...bwrap-args..., "--", original-cmd, original-args...]
 	args := make([]string, 0, 1+len(bwrapArgs)+1+len(cmd.Args))

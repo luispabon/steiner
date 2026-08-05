@@ -245,7 +245,7 @@ Mounted paths are:
 - CI/CD logs (writable): `host_mounts: [{path: /var/log/ci, mode: rw}]`
 - Build output dir: `host_mounts: [{path: /opt/build, mode: rw}]`
 
-## Docker permission (not currently enforced)
+## Docker permission
 
 ```yaml
 # .steiner/config.yaml
@@ -253,9 +253,11 @@ permissions:
   docker: true
 ```
 
-This setting is currently **not enforced** by the sandbox. The sandbox binds the host root filesystem read-only (`--ro-bind / /`), but bubblewrap's read-only enforcement does not cover unix sockets. As a result, the host Docker socket (`/var/run/docker.sock` or equivalent) is reachable from inside the sandbox whenever the Docker daemon is running and the invoking user can reach it — regardless of whether `permissions.docker` is `true` or `false`.
+Default is `false`, which **denies** sandboxed access to the Docker daemon. The sandbox binds the host root filesystem read-only (`--ro-bind / /`), but bubblewrap's read-only enforcement does not cover unix sockets, so a plain read-only bind cannot deny Docker access on its own. Instead, when `permissions.docker` is `false`, the sandbox masks every reachable Docker socket (`/run/docker.sock` and, when set, `$XDG_RUNTIME_DIR/docker.sock`) with a bind over `/dev/null`, so `connect()` against the socket fails, and unsets `DOCKER_HOST` so a TCP-endpoint daemon can't be reached either. A socket that doesn't exist on the host is skipped rather than masked — masking a nonexistent destination would abort sandbox startup for every tool, not just Docker ones.
 
-**Security note**: if the user running steiner has Docker access, the model has full control over host containers via the `docker` CLI inside the sandbox, whether or not `permissions.docker` is set. Do not rely on this setting to restrict Docker access. Enforcement (deny-by-default socket masking) is tracked in [#402](https://github.com/luispabon/steiner/issues/402).
+Set `permissions.docker: true` to leave the socket reachable and let sandboxed tools run `docker` against the host daemon.
+
+**Not covered**: a `docker context` pointing at `ssh://` bypasses this control, since `SSH_AUTH_SOCK` is allowlisted through to the sandbox independently of this setting.
 
 ## Error reporting
 

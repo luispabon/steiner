@@ -92,6 +92,9 @@ func applyRuntimeConfigPatch(cfg *Config, patch configPatch) {
 	if patch.Sandbox != nil {
 		applySandboxPatch(&cfg.Sandbox, patch.Sandbox)
 	}
+	if patch.Permissions != nil {
+		applyPermissionsPatch(&cfg.Permissions, patch.Permissions)
+	}
 }
 
 func applyToolingConfigPatch(cfg *Config, patch configPatch) {
