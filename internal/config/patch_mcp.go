@@ -37,4 +37,10 @@ func applyMCPServerPatch(dst *MCPServerConfig, patch *mcpServerPatch) {
 			dst.Env[k] = v
 		}
 	}
+	if patch.Approval != nil {
+		dst.Approval = *patch.Approval
+	}
+	if patch.TrustAnnotations != nil {
+		dst.TrustAnnotations = *patch.TrustAnnotations
+	}
 }

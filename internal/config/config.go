@@ -112,11 +112,13 @@ type MCPConfig struct {
 
 // MCPServerConfig declares one MCP server.
 type MCPServerConfig struct {
-	Enabled   bool              `yaml:"enabled"`
-	Transport string            `yaml:"transport"`
-	Command   string            `yaml:"command"`
-	Args      []string          `yaml:"args"`
-	Env       map[string]string `yaml:"env"`
+	Enabled          bool              `yaml:"enabled"`
+	Transport        string            `yaml:"transport"`
+	Command          string            `yaml:"command"`
+	Args             []string          `yaml:"args"`
+	Env              map[string]string `yaml:"env"`
+	Approval         string            `yaml:"approval"`
+	TrustAnnotations bool              `yaml:"trust_annotations"`
 }
 
 // SandboxConfig controls bubblewrap sandbox behaviour for tool execution.

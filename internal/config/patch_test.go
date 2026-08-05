@@ -803,6 +803,24 @@ func TestApplyMCPPatch(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "patches approval and trust_annotations",
+			initial: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Approval: "ask", TrustAnnotations: false},
+				},
+			},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {Approval: stringPtr("allow"), TrustAnnotations: boolPtr(true)},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Approval: "allow", TrustAnnotations: true},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
