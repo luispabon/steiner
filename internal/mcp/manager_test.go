@@ -297,6 +297,79 @@ func TestManagerConnect(t *testing.T) {
 		}
 	})
 
+	t.Run("ServerStates reports disabled, failed, and connected outcomes", func(t *testing.T) {
+		cfg := config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"bad":  {Enabled: true, Command: "/nonexistent/steiner-no-such-binary"},
+				"off":  {Enabled: false, Command: fixtureBin},
+				"good": server(nil),
+			},
+		}
+
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
+		defer m.Close() //nolint:errcheck
+
+		states := m.ServerStates()
+		if len(states) != 3 {
+			t.Fatalf("ServerStates() has %d entries, want 3", len(states))
+		}
+
+		byName := make(map[string]ServerState, len(states))
+		for _, s := range states {
+			byName[s.Name] = s
+		}
+
+		bad, ok := byName["bad"]
+		if !ok || bad.Status != ServerStatusFailed || bad.Err == "" || bad.Transport != "stdio" {
+			t.Errorf("bad state = %+v, want failed with non-empty Err and stdio transport", bad)
+		}
+
+		off, ok := byName["off"]
+		if !ok || off.Status != ServerStatusDisabled || off.Transport != "stdio" {
+			t.Errorf("off state = %+v, want disabled with stdio transport", off)
+		}
+
+		good, ok := byName["good"]
+		if !ok || good.Status != ServerStatusConnected || good.ProtocolVersion == "" || good.Transport != "stdio" {
+			t.Errorf("good state = %+v, want connected with non-empty ProtocolVersion and stdio transport", good)
+		}
+		if !reflect.DeepEqual(good.Tools, []string{"echo", "boom"}) {
+			t.Errorf("good.Tools = %v, want [echo boom]", good.Tools)
+		}
+
+		// Sorted name order.
+		var names []string
+		for _, s := range states {
+			names = append(names, s.Name)
+		}
+		if !reflect.DeepEqual(names, []string{"bad", "good", "off"}) {
+			t.Errorf("ServerStates() order = %v, want sorted [bad good off]", names)
+		}
+	})
+
+	t.Run("ServerStates reports every declared server as disabled when MCP is off", func(t *testing.T) {
+		cfg := config.MCPConfig{
+			Enabled: false,
+			Servers: map[string]config.MCPServerConfig{
+				"fixture": server(nil),
+			},
+		}
+
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard)
+		want := []ServerState{{Name: "fixture", Status: ServerStatusDisabled, Transport: "stdio"}}
+		if got := m.ServerStates(); !reflect.DeepEqual(got, want) {
+			t.Errorf("ServerStates() = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("ServerStates on a nil Manager returns nil", func(t *testing.T) {
+		var m *Manager
+		if got := m.ServerStates(); got != nil {
+			t.Errorf("ServerStates() = %+v, want nil", got)
+		}
+	})
+
 	t.Run("Close terminates every session", func(t *testing.T) {
 		cfg := config.MCPConfig{
 			Enabled: true,
