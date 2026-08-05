@@ -14,8 +14,11 @@ func TestWorktreeAutoApproverScopesMutationApprovalToWorktree(t *testing.T) {
 	mutateResp := make(chan tool.ApprovalResponse, 1)
 	if err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
 		Tool:     tool.ToolDef{Name: "mutate"},
-		WorkDir:  worktree,
 		Response: mutateResp,
+		Kind:     tool.ApprovalKindPath,
+		Path: &tool.PathApprovalDetails{
+			WorkDir: worktree,
+		},
 	}); err != nil {
 		t.Fatalf("mutate approval request failed: %v", err)
 	}
@@ -26,8 +29,11 @@ func TestWorktreeAutoApproverScopesMutationApprovalToWorktree(t *testing.T) {
 	bashResp := make(chan tool.ApprovalResponse, 1)
 	if err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
 		Tool:     tool.ToolDef{Name: "bash"},
-		WorkDir:  worktree,
 		Response: bashResp,
+		Kind:     tool.ApprovalKindPath,
+		Path: &tool.PathApprovalDetails{
+			WorkDir: worktree,
+		},
 	}); err != nil {
 		t.Fatalf("bash approval request failed: %v", err)
 	}

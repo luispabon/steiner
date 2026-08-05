@@ -55,9 +55,15 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 		req := tool.ApprovalRequest{
 			Tool:              def,
 			Input:             input,
+			Kind:              tool.ApprovalKindMCP,
 			Reason:            "MCP tool call",
-			GrantInstructions: "Approval modes for MCP servers arrive in a later release",
+			GrantInstructions: "Use approval mode in MCP server config to control this",
 			Response:          make(chan tool.ApprovalResponse, 1),
+			MCP: &tool.MCPApprovalDetails{
+				Server:           serverName,
+				ToolName:         toolName,
+				ArgumentsPreview: "", // placeholder; step 7 will fill with formatted args
+			},
 		}
 		if err := approver.RequestApproval(ctx, req); err != nil {
 			return tool.JSONEnvelope{

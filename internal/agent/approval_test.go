@@ -23,7 +23,7 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 
 	var gotPreview tool.ApprovalPreview
 	approver := NewEventingApprover(output.NoopSink{}, tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
-		gotPreview = req.Preview
+		gotPreview = req.Path.Preview
 		req.Response <- tool.ApprovalResponse{Allow: true, Message: "ok"}
 		return nil
 	}))
@@ -32,8 +32,11 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 	err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
 		Tool:     tool.ToolDef{Name: "bash"},
 		Reason:   "sandbox_violation",
-		Preview:  preview,
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
+		Path: &tool.PathApprovalDetails{
+			Preview: preview,
+		},
 	})
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)
@@ -59,6 +62,7 @@ func TestEventingApproverEmitsLifecycleEvents(t *testing.T) {
 		Tool:     tool.ToolDef{Name: "write"},
 		Reason:   "sandbox_violation",
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
 	})
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)
@@ -81,6 +85,7 @@ func TestEventingApproverNilInnerDeniesWithoutPanic(t *testing.T) {
 		Tool:     tool.ToolDef{Name: "bash"},
 		Reason:   "sandbox_violation",
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
 	})
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)
@@ -106,6 +111,7 @@ func TestEventingApproverInnerErrorPropagatesAndEmitsDenial(t *testing.T) {
 		Tool:     tool.ToolDef{Name: "bash"},
 		Reason:   "sandbox_violation",
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
 	})
 	if err == nil || err.Error() != innerErr.Error() {
 		t.Fatalf("RequestApproval() error = %v, want %v", err, innerErr)
@@ -131,6 +137,7 @@ func TestEventingApproverAllowFalseEmitsDenialNotAcceptance(t *testing.T) {
 		Tool:     tool.ToolDef{Name: "bash"},
 		Reason:   "sandbox_violation",
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
 	})
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)
@@ -163,6 +170,7 @@ func TestEventingApproverContextCancelledDeniesWithoutHanging(t *testing.T) {
 		Tool:     tool.ToolDef{Name: "bash"},
 		Reason:   "sandbox_violation",
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
 	})
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)

@@ -325,8 +325,8 @@ func TestExecuteTool_BashDenialDetection_ApproverCalled(t *testing.T) {
 	if approver.lastReq.Reason != "command blocked by sandbox" {
 		t.Fatalf("req.Reason = %q, want 'command blocked by sandbox'", approver.lastReq.Reason)
 	}
-	if approver.lastReq.DeniedPath != "/host/path" {
-		t.Fatalf("req.DeniedPath = %q, want '/host/path'", approver.lastReq.DeniedPath)
+	if approver.lastReq.Path.DeniedPath != "/host/path" {
+		t.Fatalf("req.DeniedPath = %q, want '/host/path'", approver.lastReq.Path.DeniedPath)
 	}
 	br, ok := result.(*mockBashResult)
 	if !ok {
@@ -565,8 +565,8 @@ func TestNormalizeExecutionInput_PathViolation_ApproverCalled(t *testing.T) {
 	if !approver.called {
 		t.Fatal("approver.RequestApproval() was not called, want called")
 	}
-	if approver.lastReq.DeniedPath != "/etc/passwd" {
-		t.Fatalf("req.DeniedPath = %q, want '/etc/passwd'", approver.lastReq.DeniedPath)
+	if approver.lastReq.Path.DeniedPath != "/etc/passwd" {
+		t.Fatalf("req.DeniedPath = %q, want '/etc/passwd'", approver.lastReq.Path.DeniedPath)
 	}
 	var toolErr *ToolExecutionError
 	if !errors.As(err, &toolErr) {

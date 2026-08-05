@@ -27,8 +27,8 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 		return fmt.Errorf("approval response channel is required")
 	}
 	preview := output.CompactJSON(req.Input)
-	if preview == "" && req.Preview.Summary() != "" {
-		preview = req.Preview.Summary()
+	if preview == "" && req.Path.Preview.Summary() != "" {
+		preview = req.Path.Preview.Summary()
 	}
 	emitEvent(a.sink, output.NewApprovalRequestedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview))
 	if a.inner == nil {

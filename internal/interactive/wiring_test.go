@@ -81,6 +81,7 @@ func TestApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 			Tool:     tool.ToolDef{Name: "write"},
 			Reason:   "sandbox_violation",
 			Response: firstResponse,
+			Kind:     tool.ApprovalKindPath,
 		})
 	}()
 	waitForPendingApproval(t, coordinator)
@@ -105,6 +106,7 @@ func TestApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 			Tool:     tool.ToolDef{Name: "write"},
 			Reason:   "sandbox_violation",
 			Response: secondResponse,
+			Kind:     tool.ApprovalKindPath,
 		})
 	}()
 
@@ -133,6 +135,7 @@ func TestApprovalResponderDeniesDecisions(t *testing.T) {
 			Tool:     tool.ToolDef{Name: "bash"},
 			Reason:   "sandbox_violation",
 			Response: responseCh,
+			Kind:     tool.ApprovalKindPath,
 		})
 	}()
 	waitForPendingApproval(t, coordinator)
@@ -162,6 +165,7 @@ func TestApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
 			Tool:     tool.ToolDef{Name: "edit"},
 			Reason:   "sandbox_violation",
 			Response: responseCh,
+			Kind:     tool.ApprovalKindPath,
 		})
 	}()
 	waitForPendingApproval(t, coordinator)
@@ -201,6 +205,11 @@ func TestApprovalResponderNeverCachesMCPTools(t *testing.T) {
 				Tool:     mcpTool,
 				Reason:   "MCP tool call",
 				Response: responseCh,
+				Kind:     tool.ApprovalKindMCP,
+				MCP: &tool.MCPApprovalDetails{
+					Server:   "fixture",
+					ToolName: "echo",
+				},
 			})
 		}()
 		return responseCh, done
