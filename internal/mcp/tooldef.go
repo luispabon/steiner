@@ -11,7 +11,9 @@ import (
 )
 
 // mcpToolDef builds a tool.ToolDef for a discovered MCP tool.
-func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponder) tool.ToolDef {
+// planMode is captured by the handler closure for approval gating; it is not
+// consulted yet (step 7 owns the gate logic).
+func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponder, planMode bool) tool.ToolDef {
 	name := ToolName(session.Name(), t.Name)
 
 	schema, ok := t.InputSchema.(map[string]any)
@@ -34,12 +36,13 @@ func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponde
 	// ExecPath, Subcommand, and Timeout are intentionally NOT set — Handler
 	// dispatch is sufficient (internal/tool/execution_pipeline.go).
 
-	def.Handler = mcpHandler(session, t.Name, session.Name(), def, approver)
+	def.Handler = mcpHandler(session, t.Name, session.Name(), def, approver, planMode)
 	return def
 }
 
 // mcpHandler returns a Handler closure that gates on approval and invokes the MCP server.
-func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, approver tool.ApprovalResponder) func(ctx context.Context, input map[string]any) (any, error) {
+// planMode is captured for step 7's plan-mode gate; it is unused today.
+func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, approver tool.ApprovalResponder, planMode bool) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		// Fail closed: a nil approver denies.
 		if approver == nil {

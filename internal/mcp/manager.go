@@ -17,6 +17,8 @@ type Manager struct {
 	sessions []*Session
 	defs     []tool.ToolDef
 	states   []ServerState
+	planMode bool
+	approver tool.ApprovalResponder
 }
 
 // syncWriter serialises writes from the per-process stderr copier goroutines
@@ -46,8 +48,8 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 //
 // Connect never returns an error for a server failure; a failed server is
 // simply omitted.
-func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *exec.Cmd, approver tool.ApprovalResponder, onWarn, onInfo func(string), stderr io.Writer) *Manager {
-	m := &Manager{}
+func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *exec.Cmd, approver tool.ApprovalResponder, onWarn, onInfo func(string), stderr io.Writer, planMode bool) *Manager {
+	m := &Manager{planMode: planMode, approver: approver}
 
 	if onWarn == nil {
 		onWarn = func(string) {}
@@ -106,7 +108,7 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 		// Build ToolDefs for this session.
 		var toolNames []string
 		for _, t := range session.Tools() {
-			def := mcpToolDef(session, t, approver)
+			def := mcpToolDef(session, t, approver, m.planMode)
 			m.defs = append(m.defs, def)
 			toolNames = append(toolNames, t.Name)
 		}
@@ -141,6 +143,15 @@ func (m *Manager) ServerStates() []ServerState {
 	return m.states
 }
 
+// PlanMode returns whether MCP tools currently run in plan mode.
+// Safe to call on a nil Manager.
+func (m *Manager) PlanMode() bool {
+	if m == nil {
+		return false
+	}
+	return m.planMode
+}
+
 // UpdateApprover rebuilds tool definitions with a new approver.
 // Call this after the approver becomes available (e.g. after interactive
 // session construction) so MCP tools can be invoked. Safe to call with nil.
@@ -148,10 +159,28 @@ func (m *Manager) UpdateApprover(approver tool.ApprovalResponder) {
 	if m == nil {
 		return
 	}
+	m.approver = approver
 	m.defs = nil
 	for _, s := range m.sessions {
 		for _, t := range s.Tools() {
-			def := mcpToolDef(s, t, approver)
+			def := mcpToolDef(s, t, approver, m.planMode)
+			m.defs = append(m.defs, def)
+		}
+	}
+}
+
+// UpdatePlanMode rebuilds tool definitions with a new plan mode so handler
+// closures see the current mode. The approver is taken from the last
+// UpdateApprover call (or Connect). Safe to call with nil.
+func (m *Manager) UpdatePlanMode(planMode bool) {
+	if m == nil {
+		return
+	}
+	m.planMode = planMode
+	m.defs = nil
+	for _, s := range m.sessions {
+		for _, t := range s.Tools() {
+			def := mcpToolDef(s, t, m.approver, m.planMode)
 			m.defs = append(m.defs, def)
 		}
 	}

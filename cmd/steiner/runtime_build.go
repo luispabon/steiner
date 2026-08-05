@@ -112,7 +112,8 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 				}))
 			}
 		}
-		mcpMgr = mcp.Connect(ctx, cfg.MCP, wrap, nil, diagnose("warning"), diagnose("info"), os.Stderr)
+		planMode := cfg.Modes.Default == config.ExecutionModePlan
+		mcpMgr = mcp.Connect(ctx, cfg.MCP, wrap, nil, diagnose("warning"), diagnose("info"), os.Stderr, planMode)
 	}
 
 	// Rebuild registry with sandbox and MCP tools now that workDir and homeDir are known.

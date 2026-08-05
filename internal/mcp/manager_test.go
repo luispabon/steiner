@@ -33,7 +33,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
 		if got := m.ToolDefs(); len(got) != 0 {
 			t.Fatalf("ToolDefs() has %d tools, want 0", len(got))
 		}
@@ -55,7 +55,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
 		if got := m.ToolDefs(); len(got) != 0 {
 			t.Fatalf("ToolDefs() has %d tools, want 0", len(got))
 		}
@@ -77,7 +77,7 @@ func TestManagerConnect(t *testing.T) {
 		m := Connect(context.Background(), cfg, nil, allowApprover(),
 			func(msg string) { warns = append(warns, msg) },
 			func(msg string) { infos = append(infos, msg) },
-			io.Discard)
+			io.Discard, false)
 		defer m.Close() //nolint:errcheck
 
 		defs := m.ToolDefs()
@@ -116,7 +116,7 @@ func TestManagerConnect(t *testing.T) {
 
 		// A failing server with no reporting callbacks must not panic; the
 		// healthy server's tools still arrive.
-		m := Connect(context.Background(), cfg, nil, allowApprover(), nil, nil, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), nil, nil, io.Discard, false)
 		defer m.Close() //nolint:errcheck
 
 		if got := len(m.ToolDefs()); got != 2 {
@@ -138,7 +138,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(), nil, nil, &shared)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), nil, nil, &shared, false)
 		defer m.Close() //nolint:errcheck
 
 		// The fixture logs to stderr on every notification, so exercising both
@@ -159,7 +159,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
 		defer m.Close() //nolint:errcheck
 
 		first := m.ToolDefs()
@@ -181,7 +181,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("names and provenance", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
 		defer m.Close() //nolint:errcheck
 
 		defs := m.ToolDefs()
@@ -208,7 +208,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("nil approver denies without calling the server", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
 		defer m.Close() //nolint:errcheck
 
 		// echo would return OK with the text if it reached the server, so a
@@ -223,7 +223,7 @@ func TestManagerConnect(t *testing.T) {
 			return nil
 		})
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, approver, func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, approver, func(string) {}, func(string) {}, io.Discard, false)
 		defer m.Close() //nolint:errcheck
 
 		// boom would return mcp_tool_error if it reached the server; the denial
@@ -234,7 +234,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("approver allow round-trips echo and surfaces boom as an envelope", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
 		defer m.Close() //nolint:errcheck
 
 		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
@@ -273,7 +273,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("UpdateApprover rebuilds defs with the new approver", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
 		defer m.Close() //nolint:errcheck
 
 		// Connected with a nil approver: calls deny.
@@ -297,6 +297,49 @@ func TestManagerConnect(t *testing.T) {
 		}
 	})
 
+	t.Run("PlanMode reflects Connect and UpdatePlanMode", func(t *testing.T) {
+		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, true)
+		defer m.Close() //nolint:errcheck
+
+		if got := m.PlanMode(); !got {
+			t.Fatal("PlanMode() = false, want true after Connect with planMode=true")
+		}
+
+		m.UpdatePlanMode(false)
+		if got := m.PlanMode(); got {
+			t.Fatal("PlanMode() = true, want false after UpdatePlanMode(false)")
+		}
+
+		// UpdatePlanMode rebuilds defs with the stored approver: connected with
+		// nil, so UpdateApprover then UpdatePlanMode must keep calls working.
+		m.UpdateApprover(allowApprover())
+		m.UpdatePlanMode(true)
+		if got := m.PlanMode(); !got {
+			t.Fatal("PlanMode() = false, want true after UpdatePlanMode(true)")
+		}
+		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
+		if err != nil {
+			t.Fatalf("echo returned Go error %v, want nil", err)
+		}
+		echo, ok := env.(tool.JSONEnvelope)
+		if !ok {
+			t.Fatalf("echo result type = %T, want tool.JSONEnvelope", env)
+		}
+		if !echo.OK || echo.Result != "hi" {
+			t.Errorf("echo = %+v, want OK with result %q", echo, "hi")
+		}
+	})
+
+	t.Run("PlanMode and UpdatePlanMode are nil-safe", func(t *testing.T) {
+		var m *Manager
+		if got := m.PlanMode(); got {
+			t.Fatal("PlanMode() = true on nil Manager, want false")
+		}
+		m.UpdatePlanMode(true)
+		m.UpdatePlanMode(false)
+	})
+
 	t.Run("ServerStates reports disabled, failed, and connected outcomes", func(t *testing.T) {
 		cfg := config.MCPConfig{
 			Enabled: true,
@@ -307,7 +350,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
 		defer m.Close() //nolint:errcheck
 
 		states := m.ServerStates()
@@ -356,7 +399,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
 		want := []ServerState{{Name: "fixture", Status: ServerStatusDisabled, Transport: "stdio"}}
 		if got := m.ServerStates(); !reflect.DeepEqual(got, want) {
 			t.Errorf("ServerStates() = %+v, want %+v", got, want)
@@ -378,7 +421,7 @@ func TestManagerConnect(t *testing.T) {
 				"beta":  server(nil),
 			},
 		}
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
 		if err := m.Close(); err != nil {
 			t.Fatalf("Close: %v", err)
 		}

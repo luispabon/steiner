@@ -25,7 +25,7 @@ func TestMCPTUIStateEnabledMix(t *testing.T) {
 		},
 	}
 
-	mgr := mcp.Connect(context.Background(), cfg.MCP, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
+	mgr := mcp.Connect(context.Background(), cfg.MCP, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
 	defer mgr.Close() //nolint:errcheck
 
 	registry := tool.NewRegistry(mgr.ToolDefs()...)

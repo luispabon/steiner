@@ -2703,6 +2703,44 @@ func TestSessionModeSetNoOp(t *testing.T) {
 	}
 }
 
+func TestSessionModeListener(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
+			},
+		},
+	}
+	s := testNewSession(t, deps)
+
+	var got []config.ExecutionMode
+	s.SetModeListener(func(m config.ExecutionMode) { got = append(got, m) })
+
+	s.SetMode(config.ExecutionModeBuild)
+	if want := []config.ExecutionMode{config.ExecutionModeBuild}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("listener calls = %v, want %v", got, want)
+	}
+
+	s.SetMode(config.ExecutionModePlan)
+	if want := []config.ExecutionMode{config.ExecutionModeBuild, config.ExecutionModePlan}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("listener calls = %v, want %v", got, want)
+	}
+
+	// No-op SetMode to the current mode must not notify the listener.
+	s.SetMode(config.ExecutionModePlan)
+	if want := []config.ExecutionMode{config.ExecutionModeBuild, config.ExecutionModePlan}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("listener calls after no-op = %v, want %v", got, want)
+	}
+
+	// Replacing the listener takes effect for subsequent changes.
+	s.SetModeListener(nil)
+	s.SetMode(config.ExecutionModeBuild)
+	if want := []config.ExecutionMode{config.ExecutionModeBuild, config.ExecutionModePlan}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("listener calls after replacement = %v, want %v", got, want)
+	}
+}
+
 func TestSessionModePendingNoticeFlag(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {

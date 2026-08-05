@@ -52,7 +52,14 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntim
 	// approver wiring done after this point is invisible downstream.
 	if rt.mcpManager != nil {
 		rt.mcpManager.UpdateApprover(sess.Approver(rt.events))
+		rt.mcpManager.UpdatePlanMode(sess.Mode() == config.ExecutionModePlan)
 	}
+	// Keep the Manager's plan mode in sync with mid-session mode switches.
+	sess.SetModeListener(func(m config.ExecutionMode) {
+		if rt.mcpManager != nil {
+			rt.mcpManager.UpdatePlanMode(m == config.ExecutionModePlan)
+		}
+	})
 	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, sess, rt.mcpManager)
 	rt.registry = registry
 	rt.toolNames = registry.Names()

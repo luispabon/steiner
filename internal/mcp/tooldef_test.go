@@ -38,7 +38,7 @@ func TestMCPToolDefSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text", InputSchema: tt.input}, nil)
+			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text", InputSchema: tt.input}, nil, false)
 			if !reflect.DeepEqual(def.ParameterSchema, tt.want) {
 				t.Errorf("ParameterSchema = %#v, want %#v", def.ParameterSchema, tt.want)
 			}
@@ -48,7 +48,7 @@ func TestMCPToolDefSchema(t *testing.T) {
 
 func TestMCPToolDefProvenance(t *testing.T) {
 	sess := &Session{name: "fixture"}
-	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text"}, nil)
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text"}, nil, false)
 
 	if def.Name != "mcp__fixture__echo" {
 		t.Errorf("Name = %q, want %q", def.Name, "mcp__fixture__echo")
@@ -69,7 +69,7 @@ func TestMCPToolDefProvenance(t *testing.T) {
 func TestMCPHandlerFailClosed(t *testing.T) {
 	t.Run("nil approver denies", func(t *testing.T) {
 		sess := &Session{name: "fixture"}
-		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, nil)
+		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, nil, false)
 
 		env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 		assertDenial(t, env, err)
@@ -80,7 +80,7 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 			return errors.New("approval transport down")
 		})
 		sess := &Session{name: "fixture"}
-		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, approver)
+		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, approver, false)
 
 		env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 		assertDenial(t, env, err)

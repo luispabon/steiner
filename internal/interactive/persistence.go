@@ -108,6 +108,9 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}
 	s.mode = mode
 	s.pendingModeNotice = (mode == config.ExecutionModePlan)
+	if s.modeListener != nil {
+		s.modeListener(mode)
+	}
 	msgs := append([]agent.Message(nil), s.conversation...)
 	s.mu.Unlock()
 
