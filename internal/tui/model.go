@@ -100,6 +100,9 @@ type Model struct {
 	contentTopPad                int
 	skillNames                   []string
 	skillDescriptions            map[string]string
+	mcpEnabled                   bool
+	mcpServers                   []MCPServerStatus
+	mcpToolOrigins               map[string]MCPToolOrigin
 	enabledSkills                map[string]bool
 	modelNames                   []string
 	modelContexts                map[string]int
