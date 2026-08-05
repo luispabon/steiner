@@ -78,6 +78,22 @@ func (m *Manager) ToolDefs() []tool.ToolDef {
 	return m.defs
 }
 
+// UpdateApprover rebuilds tool definitions with a new approver.
+// Call this after the approver becomes available (e.g. after interactive
+// session construction) so MCP tools can be invoked. Safe to call with nil.
+func (m *Manager) UpdateApprover(approver tool.ApprovalResponder) {
+	if m == nil {
+		return
+	}
+	m.defs = nil
+	for _, s := range m.sessions {
+		for _, t := range s.Tools() {
+			def := mcpToolDef(s, t, approver)
+			m.defs = append(m.defs, def)
+		}
+	}
+}
+
 // Close terminates every connected server. Safe to call on a nil Manager.
 func (m *Manager) Close() error {
 	if m == nil {
