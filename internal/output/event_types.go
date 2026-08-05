@@ -231,14 +231,16 @@ type ToolCallFinishedEvent struct {
 
 // ApprovalEvent captures approval lifecycle decisions for mutation tools.
 type ApprovalEvent struct {
-	Turn    int    `json:"turn"`
-	Tool    string `json:"tool,omitempty"`
-	CallID  string `json:"call_id,omitempty"`
-	Mode    string `json:"mode,omitempty"`
-	Preview string `json:"preview,omitempty"`
-	Allowed bool   `json:"allowed"`
-	Message string `json:"message,omitempty"`
-	Kind    string `json:"kind,omitempty"`
+	Turn     int    `json:"turn"`
+	Tool     string `json:"tool,omitempty"`
+	CallID   string `json:"call_id,omitempty"`
+	Mode     string `json:"mode,omitempty"`
+	Preview  string `json:"preview,omitempty"`
+	Allowed  bool   `json:"allowed"`
+	Message  string `json:"message,omitempty"`
+	Kind     string `json:"kind,omitempty"`
+	Server   string `json:"server,omitempty"`
+	ToolName string `json:"tool_name,omitempty"`
 }
 
 // WorkflowHandoffEvent captures a workflow handoff request for later handling.

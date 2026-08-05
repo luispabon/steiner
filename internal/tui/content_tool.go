@@ -299,7 +299,11 @@ func (b *contentBuffer) renderToolApprovalBlock(tc *toolCallSegment, width int) 
 	} else {
 		dot = b.styles.FgDim.Render("●")
 	}
-	header := dot + " " + accentStyle.Bold(true).Render("APPROVAL REQUIRED")
+	label := "APPROVAL REQUIRED"
+	if tc.approvalKind == "mcp" && tc.approvalServer != "" {
+		label = tc.approvalServer + " → " + tc.approvalMCPTool
+	}
+	header := dot + " " + accentStyle.Bold(true).Render(label)
 
 	// Preview: parse JSON key-value pairs and format as bold-key lines with 1-line padding.
 	preview := b.renderApprovalPreview(tc.approvalPreview, width)
@@ -353,7 +357,7 @@ func (b *contentBuffer) renderToolApprovalButtons(tc *toolCallSegment, accentC c
 	}
 	specs := []btnSpec{
 		{"Allow once", "y", 0},
-		{"Always allow", "a", 1},
+		{"Allowed for session", "a", 1},
 		{"Deny", "n", 2},
 	}
 

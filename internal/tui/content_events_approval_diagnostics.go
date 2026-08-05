@@ -21,6 +21,9 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				seg.toolData.approvalPending = true
 				seg.toolData.approvalMode = payload.Mode
 				seg.toolData.approvalPreview = payload.Preview
+				seg.toolData.approvalKind = payload.Kind
+				seg.toolData.approvalServer = payload.Server
+				seg.toolData.approvalMCPTool = payload.ToolName
 				seg.toolData.approvalSelectedAction = 0
 				seg.toolData.collapsed = false
 				seg.renderDirty = true
@@ -34,6 +37,9 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 					if entry == nil || entry.approvalPending || !callIDsMatch(entry.callID, payload.CallID) || !strings.EqualFold(normalizeToolName(entry.tool), normalizeToolName(payload.Tool)) {
 						continue
 					}
+					entry.approvalKind = payload.Kind
+					entry.approvalServer = payload.Server
+					entry.approvalMCPTool = payload.ToolName
 					entry.approvalPending = true
 					entry.approvalMode = payload.Mode
 					entry.approvalPreview = payload.Preview
@@ -48,9 +54,12 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 		b.segments = append(b.segments, contentSegment{
 			kind: segmentApprovalPill,
 			approvalData: &approvalPillData{
-				tool:    payload.Tool,
-				mode:    payload.Mode,
-				preview: payload.Preview,
+				tool:        payload.Tool,
+				mode:        payload.Mode,
+				preview:     payload.Preview,
+				kind:        payload.Kind,
+				server:      payload.Server,
+				mcpToolName: payload.ToolName,
 			},
 			renderDirty: true,
 		})

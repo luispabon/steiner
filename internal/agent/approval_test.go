@@ -108,6 +108,12 @@ func TestEventingApproverMCPRequestUsesArgumentsPreview(t *testing.T) {
 			if got, want := requested.Kind, string(tool.ApprovalKindMCP); got != want {
 				t.Fatalf("requested kind = %q, want %q", got, want)
 			}
+			if got, want := requested.Server, "fixture"; got != want {
+				t.Fatalf("requested server = %q, want %q", got, want)
+			}
+			if got, want := requested.ToolName, "echo"; got != want {
+				t.Fatalf("requested tool name = %q, want %q", got, want)
+			}
 		})
 	}
 }
