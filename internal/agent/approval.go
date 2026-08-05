@@ -27,12 +27,15 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 	if req.Response == nil {
 		return fmt.Errorf("approval response channel is required")
 	}
-	preview := output.CompactJSON(req.Input)
+	preview := ""
+	if req.Kind == tool.ApprovalKindMCP && req.MCP != nil {
+		preview = req.MCP.ArgumentsPreview
+	}
+	if preview == "" {
+		preview = output.CompactJSON(req.Input)
+	}
 	if req.Kind == tool.ApprovalKindPath && preview == "" && req.Path != nil && req.Path.Preview.Summary() != "" {
 		preview = req.Path.Preview.Summary()
-	}
-	if req.Kind == tool.ApprovalKindMCP && preview == "" && req.MCP != nil && req.MCP.ArgumentsPreview != "" {
-		preview = req.MCP.ArgumentsPreview
 	}
 	server := ""
 	toolName := ""

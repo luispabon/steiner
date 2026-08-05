@@ -534,10 +534,15 @@ Configures Model Context Protocol (MCP) servers. MCP is off by default. See
 
 Each server entry (`MCPServerConfig`) supports:
 
-| Field               | Type   | Default | Description |
-|---------------------|--------|---------|-------------|
-| `approval`          | string | `"ask"` | Approval mode for the server's tools. One of `ask` (prompt per tool call), `allow` (run without prompting in build mode, downgraded to `ask` in plan mode), or `deny` (register no tools). |
-| `trust_annotations` | bool   | `false` | When `true`, tools advertised with `readOnlyHint: true` skip approval; `destructiveHint` and `openWorldHint` tools still prompt. |
+| Field               | Type               | Default     | Description |
+|---------------------|--------------------|-------------|-------------|
+| `enabled`           | bool               | `false`     | Whether this server is started. |
+| `transport`         | string             | `"stdio"`   | Transport used to reach the server. `stdio` is currently the only supported transport. |
+| `command`           | string             | —           | Executable that starts the server. |
+| `args`              | []string           | —           | Arguments passed to the command. |
+| `env`               | map[string]string  | —           | Extra environment variables for the server process. Passed verbatim, so it is the right place for a server's own credentials. |
+| `approval`          | string             | `"ask"`     | Approval mode for the server's tools. One of `ask` (prompt per tool call), `allow` (run without prompting in build mode, downgraded to `ask` in plan mode), or `deny` (register no tools). |
+| `trust_annotations` | bool               | `false`     | When `true`, tools advertised with `readOnlyHint: true` skip approval; `destructiveHint` and `openWorldHint` tools still prompt. |
 
 ```yaml
 mcp:

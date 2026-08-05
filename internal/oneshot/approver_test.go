@@ -40,4 +40,17 @@ func TestWorktreeAutoApproverScopesMutationApprovalToWorktree(t *testing.T) {
 	if got := <-bashResp; got.Allow {
 		t.Fatal("bash approval response = allowed, want denied")
 	}
+
+	// A mutate request with nil Path details must not panic and must deny.
+	noPathResp := make(chan tool.ApprovalResponse, 1)
+	if err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
+		Tool:     tool.ToolDef{Name: "mutate"},
+		Response: noPathResp,
+		Kind:     tool.ApprovalKindPath,
+	}); err != nil {
+		t.Fatalf("mutate approval request with nil Path failed: %v", err)
+	}
+	if got := <-noPathResp; got.Allow {
+		t.Fatal("mutate approval response with nil Path = allowed, want denied")
+	}
 }

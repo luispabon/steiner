@@ -280,6 +280,7 @@ These features are documented in [Optional Features](docs/optional-features.md):
 - [**Conversation forking**](docs/optional-features.md#conversation-forking) — fork live or saved sessions into independent copies
 - [**Code simplification**](docs/optional-features.md#code-simplification) — parallel sub-agent analysis for reuse, simplification, efficiency, and altitude
 - [**Codex OAuth**](docs/optional-features.md#codex-oauth) — use OpenAI Codex subscription models without a separate API key
+- [**MCP servers**](docs/mcp.md) — connect Model Context Protocol servers with per-server approval control (behind a feature flag, off by default)
 
 ## Self-update
 

@@ -310,6 +310,39 @@ func TestManagerConnect(t *testing.T) {
 		}
 	})
 
+	t.Run("trust_annotations auto-allow readonly_echo and deny boom without an approver", func(t *testing.T) {
+		cfg := config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"fixture": {Enabled: true, Command: fixtureBin, Approval: "ask", TrustAnnotations: true},
+			},
+		}
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
+		defer m.Close() //nolint:errcheck
+
+		// readonly_echo advertises readOnlyHint: true, so trust_annotations
+		// auto-allows the call even with a nil approver.
+		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__readonly_echo").Handler(context.Background(), map[string]any{"text": "hi"})
+		if err != nil {
+			t.Fatalf("readonly_echo returned Go error %v, want nil", err)
+		}
+		echo, ok := env.(tool.JSONEnvelope)
+		if !ok {
+			t.Fatalf("readonly_echo result type = %T, want tool.JSONEnvelope", env)
+		}
+		if !echo.OK {
+			t.Errorf("readonly_echo OK = false, want true (error: %+v)", echo.Error)
+		}
+		if got := echo.Result; got != "hi" {
+			t.Errorf("readonly_echo result = %v, want %q", got, "hi")
+		}
+
+		// boom has no readOnlyHint: it falls through to approval, and a nil
+		// approver fails closed.
+		env, err = findTool(t, m.ToolDefs(), "mcp__fixture__boom").Handler(context.Background(), nil)
+		assertDenial(t, env, err)
+	})
+
 	t.Run("UpdateApprover rebuilds defs with the new approver", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
 		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
@@ -350,8 +383,9 @@ func TestManagerConnect(t *testing.T) {
 			t.Fatal("PlanMode() = true, want false after UpdatePlanMode(false)")
 		}
 
-		// UpdatePlanMode rebuilds defs with the stored approver: connected with
-		// nil, so UpdateApprover then UpdatePlanMode must keep calls working.
+		// UpdateApprover rebuilds defs with the stored approver; UpdatePlanMode
+		// only flips the mode the handler closures read live, so the defs from
+		// UpdateApprover must keep calls working.
 		m.UpdateApprover(allowApprover())
 		m.UpdatePlanMode(true)
 		if got := m.PlanMode(); !got {

@@ -15,8 +15,9 @@ import (
 // mcpToolDef builds a tool.ToolDef for a discovered MCP tool.
 // planMode and srv are captured by the handler closure for approval gating:
 // planMode downgrades "allow" to "ask" (D7), and srv carries the per-server
-// approval mode and trust_annotations opt-in.
-func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponder, planMode bool, srv config.MCPServerConfig) tool.ToolDef {
+// approval mode and trust_annotations opt-in. planMode is read from the
+// closure at call time, so mode changes apply without rebuilding the registry.
+func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponder, planMode func() bool, srv config.MCPServerConfig) tool.ToolDef {
 	name := ToolName(session.Name(), t.Name)
 
 	schema, ok := t.InputSchema.(map[string]any)
@@ -48,7 +49,7 @@ func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponde
 }
 
 // mcpHandler returns a Handler closure that gates on approval and invokes the MCP server.
-func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, approver tool.ApprovalResponder, planMode bool, approvalMode string, trustAnnotations bool, annotations *mcpsdk.ToolAnnotations) func(ctx context.Context, input map[string]any) (any, error) {
+func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, approver tool.ApprovalResponder, planMode func() bool, approvalMode string, trustAnnotations bool, annotations *mcpsdk.ToolAnnotations) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		// Deny mode: deny servers register no tools, but the handler defends
 		// anyway so a stale definition can never bypass the mode.
@@ -63,9 +64,28 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 		}
 
 		// Allow mode in build mode calls the tool directly. In plan mode it is
-		// downgraded to ask (D7) and falls through to approval below.
-		if approvalMode == "allow" && !planMode {
+		// downgraded to ask (D7) and falls through to approval below. planMode
+		// is read live so a mode switch applies without rebuilding the registry.
+		if approvalMode == "allow" && !planMode() {
 			return callMCPTool(ctx, session, toolName, serverName, input)
+		}
+
+		// Trusted annotations can skip approval for clearly safe tools (D6:
+		// trust_annotations defaults to false, so this runs only on explicit
+		// opt-in). DestructiveHint and OpenWorldHint default to true per the MCP
+		// spec when unset, so an empty annotation set still prompts. This runs
+		// before the nil-approver check: a trusted read-only tool needs no
+		// approver at all.
+		if trustAnnotations && annotations != nil {
+			if annotations.ReadOnlyHint {
+				return callMCPTool(ctx, session, toolName, serverName, input)
+			}
+			isDestructive := annotations.DestructiveHint == nil || *annotations.DestructiveHint
+			isOpenWorld := annotations.OpenWorldHint == nil || *annotations.OpenWorldHint
+			if !isDestructive && !isOpenWorld {
+				return callMCPTool(ctx, session, toolName, serverName, input)
+			}
+			// Destructive or open-world: fall through to approval.
 		}
 
 		// Fail closed: a nil approver denies.
@@ -77,22 +97,6 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 					Message: fmt.Sprintf("MCP tool %q on server %q cannot be called without an approver", toolName, serverName),
 				},
 			}, nil
-		}
-
-		// Trusted annotations can skip approval for clearly safe tools (D6:
-		// trust_annotations defaults to false, so this runs only on explicit
-		// opt-in). DestructiveHint and OpenWorldHint default to true per the MCP
-		// spec when unset, so an empty annotation set still prompts.
-		if trustAnnotations && annotations != nil {
-			if annotations.ReadOnlyHint {
-				return callMCPTool(ctx, session, toolName, serverName, input)
-			}
-			isDestructive := annotations.DestructiveHint == nil || *annotations.DestructiveHint
-			isOpenWorld := annotations.OpenWorldHint == nil || *annotations.OpenWorldHint
-			if !isDestructive && !isOpenWorld {
-				return callMCPTool(ctx, session, toolName, serverName, input)
-			}
-			// Destructive or open-world: fall through to approval.
 		}
 
 		req := tool.ApprovalRequest{
@@ -193,8 +197,9 @@ func formatArgumentsPreview(input map[string]any) string {
 func formatArgValue(v any) string {
 	switch val := v.(type) {
 	case string:
-		if len(val) > 60 {
-			return val[:57] + "..."
+		runes := []rune(val)
+		if len(runes) > 60 {
+			return string(runes[:57]) + "..."
 		}
 		return val
 	case float64:
@@ -204,10 +209,10 @@ func formatArgValue(v any) string {
 	case map[string]any, []any:
 		return "{...}"
 	default:
-		s := fmt.Sprintf("%v", val)
+		s := []rune(fmt.Sprintf("%v", val))
 		if len(s) > 60 {
-			return s[:57] + "..."
+			return string(s[:57]) + "..."
 		}
-		return s
+		return string(s)
 	}
 }

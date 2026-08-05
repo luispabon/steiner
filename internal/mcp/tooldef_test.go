@@ -41,7 +41,7 @@ func TestMCPToolDefSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text", InputSchema: tt.input}, nil, false, config.MCPServerConfig{Approval: "ask"})
+			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text", InputSchema: tt.input}, nil, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
 			if !reflect.DeepEqual(def.ParameterSchema, tt.want) {
 				t.Errorf("ParameterSchema = %#v, want %#v", def.ParameterSchema, tt.want)
 			}
@@ -51,7 +51,7 @@ func TestMCPToolDefSchema(t *testing.T) {
 
 func TestMCPToolDefProvenance(t *testing.T) {
 	sess := &Session{name: "fixture"}
-	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text"}, nil, false, config.MCPServerConfig{Approval: "ask"})
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text"}, nil, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
 
 	if def.Name != "mcp__fixture__echo" {
 		t.Errorf("Name = %q, want %q", def.Name, "mcp__fixture__echo")
@@ -72,7 +72,7 @@ func TestMCPToolDefProvenance(t *testing.T) {
 func TestMCPHandlerFailClosed(t *testing.T) {
 	t.Run("nil approver denies", func(t *testing.T) {
 		sess := &Session{name: "fixture"}
-		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, nil, false, config.MCPServerConfig{Approval: "ask"})
+		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, nil, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
 
 		env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 		assertDenial(t, env, err)
@@ -83,11 +83,69 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 			return errors.New("approval transport down")
 		})
 		sess := &Session{name: "fixture"}
-		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, approver, false, config.MCPServerConfig{Approval: "ask"})
+		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, approver, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
 
 		env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 		assertDenial(t, env, err)
 	})
+}
+
+// TestMCPHandlerPlanModeDynamic proves the handler reads plan mode from the
+// closure at call time: toggling the mode changes approval behaviour without
+// rebuilding the tool definition.
+func TestMCPHandlerPlanModeDynamic(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard)
+	if err != nil {
+		t.Fatalf("connect fixture: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	planMode := false
+	approver := &recordingApprover{allow: true}
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, approver, func() bool { return planMode }, config.MCPServerConfig{Approval: "allow"})
+
+	// Build mode: allow calls the tool without prompting.
+	env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
+	if err != nil {
+		t.Fatalf("build-mode call returned Go error %v, want nil", err)
+	}
+	envelope, ok := env.(tool.JSONEnvelope)
+	if !ok {
+		t.Fatalf("build-mode result type = %T, want tool.JSONEnvelope", env)
+	}
+	if !envelope.OK || envelope.Result != "hi" {
+		t.Errorf("build-mode result = %+v, want OK with result %q", envelope, "hi")
+	}
+	if len(approver.reqs) != 0 {
+		t.Fatalf("RequestApproval invoked %d times in build mode, want 0", len(approver.reqs))
+	}
+
+	// Plan mode on the same def: allow downgrades to ask.
+	planMode = true
+	env, err = def.Handler(context.Background(), map[string]any{"text": "hi"})
+	if err != nil {
+		t.Fatalf("plan-mode call returned Go error %v, want nil", err)
+	}
+	envelope, ok = env.(tool.JSONEnvelope)
+	if !ok {
+		t.Fatalf("plan-mode result type = %T, want tool.JSONEnvelope", env)
+	}
+	if !envelope.OK || envelope.Result != "hi" {
+		t.Errorf("plan-mode result = %+v, want OK with result %q after approval", envelope, "hi")
+	}
+	if len(approver.reqs) != 1 {
+		t.Fatalf("RequestApproval invoked %d times in plan mode, want 1", len(approver.reqs))
+	}
+
+	// Back to build mode: prompting stops without rebuilding the definition.
+	planMode = false
+	if _, err = def.Handler(context.Background(), map[string]any{"text": "hi"}); err != nil {
+		t.Fatalf("build-mode call after toggle returned Go error %v, want nil", err)
+	}
+	if len(approver.reqs) != 1 {
+		t.Fatalf("RequestApproval invoked %d times after toggling back to build mode, want still 1", len(approver.reqs))
+	}
 }
 
 // recordingApprover records every request and answers with a fixed decision.
@@ -182,6 +240,13 @@ func TestApproval(t *testing.T) {
 			wantResult:  "hi",
 		},
 		{
+			name:        "trusted readOnlyHint skips approval even with a nil approver",
+			srv:         config.MCPServerConfig{Approval: "ask", TrustAnnotations: true},
+			annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true},
+			wantOK:      true,
+			wantResult:  "hi",
+		},
+		{
 			name:        "trusted destructiveHint still prompts",
 			srv:         config.MCPServerConfig{Approval: "ask", TrustAnnotations: true},
 			annotations: &mcpsdk.ToolAnnotations{DestructiveHint: boolPtr(true)},
@@ -225,7 +290,7 @@ func TestApproval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Annotations: tt.annotations}, tt.approver, tt.planMode, tt.srv)
+			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Annotations: tt.annotations}, tt.approver, func() bool { return tt.planMode }, tt.srv)
 			env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 
 			switch {

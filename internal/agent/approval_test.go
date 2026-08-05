@@ -54,17 +54,25 @@ func TestEventingApproverMCPRequestUsesArgumentsPreview(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       map[string]any
+		mcpPreview  string
 		wantPreview string
 	}{
 		{
-			name:        "compacted input",
+			name:        "formatted arguments preview preferred for normal input",
+			input:       map[string]any{"message": "hi"},
+			mcpPreview:  "message: hi",
+			wantPreview: "message: hi",
+		},
+		{
+			name:        "empty arguments preview falls back to compacted input",
 			input:       map[string]any{"message": "hi"},
 			wantPreview: `{"message":"hi"}`,
 		},
 		{
 			name:        "unmarshalable input falls back to arguments preview",
 			input:       map[string]any{"bad": func() {}},
-			wantPreview: `{"message":"hi"}`,
+			mcpPreview:  "message: hi",
+			wantPreview: "message: hi",
 		},
 	}
 	for _, tt := range tests {
@@ -85,7 +93,7 @@ func TestEventingApproverMCPRequestUsesArgumentsPreview(t *testing.T) {
 				MCP: &tool.MCPApprovalDetails{
 					Server:           "fixture",
 					ToolName:         "echo",
-					ArgumentsPreview: `{"message":"hi"}`,
+					ArgumentsPreview: tt.mcpPreview,
 				},
 			})
 			if err != nil {

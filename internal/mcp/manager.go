@@ -114,7 +114,7 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 			if srv.Approval == "deny" {
 				continue
 			}
-			def := mcpToolDef(session, t, approver, m.planMode, srv)
+			def := mcpToolDef(session, t, approver, func() bool { return m.planMode }, srv)
 			m.defs = append(m.defs, def)
 			toolNames = append(toolNames, t.Name)
 		}
@@ -173,31 +173,20 @@ func (m *Manager) UpdateApprover(approver tool.ApprovalResponder) {
 			continue
 		}
 		for _, t := range s.Tools() {
-			def := mcpToolDef(s, t, approver, m.planMode, srv)
+			def := mcpToolDef(s, t, approver, func() bool { return m.planMode }, srv)
 			m.defs = append(m.defs, def)
 		}
 	}
 }
 
-// UpdatePlanMode rebuilds tool definitions with a new plan mode so handler
-// closures see the current mode. The approver is taken from the last
-// UpdateApprover call (or Connect). Safe to call with nil.
+// UpdatePlanMode sets the plan mode read by the handler closures at call
+// time. Tool definitions are not rebuilt: each handler reads the current mode
+// from the closure. Safe to call with nil.
 func (m *Manager) UpdatePlanMode(planMode bool) {
 	if m == nil {
 		return
 	}
 	m.planMode = planMode
-	m.defs = nil
-	for _, s := range m.sessions {
-		srv := m.serverConfigs[s.Name()]
-		if srv.Approval == "deny" {
-			continue
-		}
-		for _, t := range s.Tools() {
-			def := mcpToolDef(s, t, m.approver, m.planMode, srv)
-			m.defs = append(m.defs, def)
-		}
-	}
 }
 
 // Close terminates every connected server. Safe to call on a nil Manager.
