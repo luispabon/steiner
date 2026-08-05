@@ -14,11 +14,12 @@ import (
 
 // Manager owns the MCP server sessions for one steiner session.
 type Manager struct {
-	sessions []*Session
-	defs     []tool.ToolDef
-	states   []ServerState
-	planMode bool
-	approver tool.ApprovalResponder
+	sessions      []*Session
+	defs          []tool.ToolDef
+	states        []ServerState
+	serverConfigs map[string]config.MCPServerConfig
+	planMode      bool
+	approver      tool.ApprovalResponder
 }
 
 // syncWriter serialises writes from the per-process stderr copier goroutines
@@ -49,7 +50,7 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 // Connect never returns an error for a server failure; a failed server is
 // simply omitted.
 func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *exec.Cmd, approver tool.ApprovalResponder, onWarn, onInfo func(string), stderr io.Writer, planMode bool) *Manager {
-	m := &Manager{planMode: planMode, approver: approver}
+	m := &Manager{planMode: planMode, approver: approver, serverConfigs: map[string]config.MCPServerConfig{}}
 
 	if onWarn == nil {
 		onWarn = func(string) {}
@@ -104,11 +105,16 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 		onInfo(fmt.Sprintf("MCP server %q connected (protocol %s, %d tools)", name, session.ProtocolVersion(), len(session.Tools())))
 
 		m.sessions = append(m.sessions, session)
+		m.serverConfigs[name] = srv
 
-		// Build ToolDefs for this session.
+		// Build ToolDefs for this session. Deny servers still connect (their
+		// state stays visible) but register no tools.
 		var toolNames []string
 		for _, t := range session.Tools() {
-			def := mcpToolDef(session, t, approver, m.planMode)
+			if srv.Approval == "deny" {
+				continue
+			}
+			def := mcpToolDef(session, t, approver, m.planMode, srv)
 			m.defs = append(m.defs, def)
 			toolNames = append(toolNames, t.Name)
 		}
@@ -162,8 +168,12 @@ func (m *Manager) UpdateApprover(approver tool.ApprovalResponder) {
 	m.approver = approver
 	m.defs = nil
 	for _, s := range m.sessions {
+		srv := m.serverConfigs[s.Name()]
+		if srv.Approval == "deny" {
+			continue
+		}
 		for _, t := range s.Tools() {
-			def := mcpToolDef(s, t, approver, m.planMode)
+			def := mcpToolDef(s, t, approver, m.planMode, srv)
 			m.defs = append(m.defs, def)
 		}
 	}
@@ -179,8 +189,12 @@ func (m *Manager) UpdatePlanMode(planMode bool) {
 	m.planMode = planMode
 	m.defs = nil
 	for _, s := range m.sessions {
+		srv := m.serverConfigs[s.Name()]
+		if srv.Approval == "deny" {
+			continue
+		}
 		for _, t := range s.Tools() {
-			def := mcpToolDef(s, t, m.approver, m.planMode)
+			def := mcpToolDef(s, t, m.approver, m.planMode, srv)
 			m.defs = append(m.defs, def)
 		}
 	}

@@ -3,17 +3,20 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
 // mcpToolDef builds a tool.ToolDef for a discovered MCP tool.
-// planMode is captured by the handler closure for approval gating; it is not
-// consulted yet (step 7 owns the gate logic).
-func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponder, planMode bool) tool.ToolDef {
+// planMode and srv are captured by the handler closure for approval gating:
+// planMode downgrades "allow" to "ask" (D7), and srv carries the per-server
+// approval mode and trust_annotations opt-in.
+func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponder, planMode bool, srv config.MCPServerConfig) tool.ToolDef {
 	name := ToolName(session.Name(), t.Name)
 
 	schema, ok := t.InputSchema.(map[string]any)
@@ -36,14 +39,35 @@ func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponde
 	// ExecPath, Subcommand, and Timeout are intentionally NOT set — Handler
 	// dispatch is sufficient (internal/tool/execution_pipeline.go).
 
-	def.Handler = mcpHandler(session, t.Name, session.Name(), def, approver, planMode)
+	approvalMode := srv.Approval
+	if approvalMode == "" {
+		approvalMode = "ask"
+	}
+	def.Handler = mcpHandler(session, t.Name, session.Name(), def, approver, planMode, approvalMode, srv.TrustAnnotations, t.Annotations)
 	return def
 }
 
 // mcpHandler returns a Handler closure that gates on approval and invokes the MCP server.
-// planMode is captured for step 7's plan-mode gate; it is unused today.
-func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, approver tool.ApprovalResponder, planMode bool) func(ctx context.Context, input map[string]any) (any, error) {
+func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, approver tool.ApprovalResponder, planMode bool, approvalMode string, trustAnnotations bool, annotations *mcpsdk.ToolAnnotations) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
+		// Deny mode: deny servers register no tools, but the handler defends
+		// anyway so a stale definition can never bypass the mode.
+		if approvalMode == "deny" {
+			return tool.JSONEnvelope{
+				OK: false,
+				Error: &tool.JSONEnvelopeError{
+					Kind:    "approval_denied",
+					Message: "MCP tool not available: server approval mode is 'deny'",
+				},
+			}, nil
+		}
+
+		// Allow mode in build mode calls the tool directly. In plan mode it is
+		// downgraded to ask (D7) and falls through to approval below.
+		if approvalMode == "allow" && !planMode {
+			return callMCPTool(ctx, session, toolName, serverName, input)
+		}
+
 		// Fail closed: a nil approver denies.
 		if approver == nil {
 			return tool.JSONEnvelope{
@@ -53,6 +77,22 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 					Message: fmt.Sprintf("MCP tool %q on server %q cannot be called without an approver", toolName, serverName),
 				},
 			}, nil
+		}
+
+		// Trusted annotations can skip approval for clearly safe tools (D6:
+		// trust_annotations defaults to false, so this runs only on explicit
+		// opt-in). DestructiveHint and OpenWorldHint default to true per the MCP
+		// spec when unset, so an empty annotation set still prompts.
+		if trustAnnotations && annotations != nil {
+			if annotations.ReadOnlyHint {
+				return callMCPTool(ctx, session, toolName, serverName, input)
+			}
+			isDestructive := annotations.DestructiveHint == nil || *annotations.DestructiveHint
+			isOpenWorld := annotations.OpenWorldHint == nil || *annotations.OpenWorldHint
+			if !isDestructive && !isOpenWorld {
+				return callMCPTool(ctx, session, toolName, serverName, input)
+			}
+			// Destructive or open-world: fall through to approval.
 		}
 
 		req := tool.ApprovalRequest{
@@ -65,7 +105,7 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 			MCP: &tool.MCPApprovalDetails{
 				Server:           serverName,
 				ToolName:         toolName,
-				ArgumentsPreview: "", // placeholder; step 7 will fill with formatted args
+				ArgumentsPreview: formatArgumentsPreview(input),
 			},
 		}
 		if err := approver.RequestApproval(ctx, req); err != nil {
@@ -89,39 +129,85 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 			}, nil
 		}
 
-		result, err := session.Call(ctx, toolName, input)
-		if err != nil {
-			return nil, fmt.Errorf("call mcp tool %q on server %q: %w", toolName, serverName, err)
-		}
+		return callMCPTool(ctx, session, toolName, serverName, input)
+	}
+}
 
-		// Flatten content: only text content is rendered; other types are named
-		// but not decoded (image/audio/resource rendering is out of scope here).
-		var parts []string
-		for _, c := range result.Content {
-			switch ct := c.(type) {
-			case *mcpsdk.TextContent:
-				parts = append(parts, ct.Text)
-			default:
-				parts = append(parts, fmt.Sprintf("[%T content not rendered]", ct))
-			}
-		}
-		text := strings.Join(parts, "\n")
+// callMCPTool invokes the tool on the server and wraps the outcome in a
+// JSONEnvelope. Tool-level failures surface as a non-OK envelope with a nil Go
+// error; only transport failures return non-nil errors.
+func callMCPTool(ctx context.Context, session *Session, toolName, serverName string, input map[string]any) (any, error) {
+	result, err := session.Call(ctx, toolName, input)
+	if err != nil {
+		return nil, fmt.Errorf("call mcp tool %q on server %q: %w", toolName, serverName, err)
+	}
 
-		// Tool-level failures surface as an envelope with a nil Go error; only
-		// transport failures return non-nil errors.
-		if result.IsError {
-			return tool.JSONEnvelope{
-				OK: false,
-				Error: &tool.JSONEnvelopeError{
-					Kind:    "mcp_tool_error",
-					Message: text,
-				},
-			}, nil
+	// Flatten content: only text content is rendered; other types are named
+	// but not decoded (image/audio/resource rendering is out of scope here).
+	var parts []string
+	for _, c := range result.Content {
+		switch ct := c.(type) {
+		case *mcpsdk.TextContent:
+			parts = append(parts, ct.Text)
+		default:
+			parts = append(parts, fmt.Sprintf("[%T content not rendered]", ct))
 		}
+	}
+	text := strings.Join(parts, "\n")
 
+	// Tool-level failures surface as an envelope with a nil Go error; only
+	// transport failures return non-nil errors.
+	if result.IsError {
 		return tool.JSONEnvelope{
-			OK:     true,
-			Result: text,
+			OK: false,
+			Error: &tool.JSONEnvelopeError{
+				Kind:    "mcp_tool_error",
+				Message: text,
+			},
 		}, nil
+	}
+
+	return tool.JSONEnvelope{
+		OK:     true,
+		Result: text,
+	}, nil
+}
+
+// formatArgumentsPreview renders the call arguments as sorted "key: value"
+// lines for the approval prompt (D4 Option A; D8: formatted by the handler).
+func formatArgumentsPreview(input map[string]any) string {
+	if len(input) == 0 {
+		return "no arguments"
+	}
+	var lines []string
+	for k, v := range input {
+		valStr := formatArgValue(v)
+		lines = append(lines, fmt.Sprintf("%s: %s", k, valStr))
+	}
+	sort.Strings(lines)
+	return strings.Join(lines, "\n")
+}
+
+// formatArgValue renders one argument value, truncating long strings and
+// collapsing nested structures so the preview stays bounded.
+func formatArgValue(v any) string {
+	switch val := v.(type) {
+	case string:
+		if len(val) > 60 {
+			return val[:57] + "..."
+		}
+		return val
+	case float64:
+		return fmt.Sprintf("%v", val)
+	case bool:
+		return fmt.Sprintf("%v", val)
+	case map[string]any, []any:
+		return "{...}"
+	default:
+		s := fmt.Sprintf("%v", val)
+		if len(s) > 60 {
+			return s[:57] + "..."
+		}
+		return s
 	}
 }

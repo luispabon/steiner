@@ -206,6 +206,45 @@ func TestManagerConnect(t *testing.T) {
 		}
 	})
 
+	t.Run("deny server connects but registers no tools", func(t *testing.T) {
+		cfg := config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"denied": {Enabled: true, Command: fixtureBin, Approval: "deny"},
+				"ask":    server(nil),
+			},
+		}
+
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
+		defer m.Close() //nolint:errcheck
+
+		defs := m.ToolDefs()
+		if len(defs) != 2 {
+			t.Fatalf("ToolDefs() has %d tools, want 2 (only the ask server's echo and boom)", len(defs))
+		}
+		for _, d := range defs {
+			if d.MCP.Server == "denied" {
+				t.Errorf("tool %q from deny server registered, want none", d.Name)
+			}
+		}
+
+		// The deny server still connects so its state is visible, but shows no
+		// registered tools.
+		states := m.ServerStates()
+		var denied *ServerState
+		for i := range states {
+			if states[i].Name == "denied" {
+				denied = &states[i]
+			}
+		}
+		if denied == nil || denied.Status != ServerStatusConnected {
+			t.Fatalf("denied state = %+v, want connected", denied)
+		}
+		if len(denied.Tools) != 0 {
+			t.Errorf("denied.Tools = %v, want none registered", denied.Tools)
+		}
+	})
+
 	t.Run("nil approver denies without calling the server", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
 		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
