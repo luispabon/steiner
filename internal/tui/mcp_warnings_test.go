@@ -72,6 +72,17 @@ func TestMCPStartupWarnings(t *testing.T) {
 				`⚠ MCP startup incomplete (failed: bar)`,
 			},
 		},
+		{
+			name:    "failure with empty error",
+			enabled: true,
+			servers: []MCPServerStatus{
+				{Name: "foo", State: "failed", Error: ""},
+			},
+			want: []string{
+				`⚠ MCP server "foo" failed to connect: unknown error`,
+				`⚠ MCP startup incomplete (failed: foo)`,
+			},
+		},
 	}
 
 	for _, tt := range tests {
