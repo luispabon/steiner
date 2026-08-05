@@ -20,7 +20,11 @@ func mcpStartupWarnings(servers []MCPServerStatus, enabled bool) []string {
 		if s.State != "failed" {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("⚠ MCP server %q failed to connect: %s", s.Name, s.Error))
+		errText := s.Error
+		if errText == "" {
+			errText = "unknown error"
+		}
+		lines = append(lines, fmt.Sprintf("⚠ MCP server %q failed to connect: %s", s.Name, errText))
 		failed = append(failed, s.Name)
 	}
 	if len(failed) == 0 {

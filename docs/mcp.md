@@ -80,11 +80,11 @@ The following are intentionally not part of this work:
 
 - **`steiner mcp debug`** — a standalone connectivity probe outside the TUI. Not yet built.
 - **Live enable/disable toggling** from the `/mcp` overlay. Server state is a startup snapshot;
-  toggling servers mid-session is future work.
+  toggling servers mid-session is future work, tracked in #411.
 - **Reconnect / restart actions** and any push-based state updates after startup — today's surfaces
-  are all frozen at the initial connection snapshot.
+  are all frozen at the initial connection snapshot. Tracked in #409.
 - **The approval prompt overlay** for MCP tool calls requiring approval — a separate surface from
-  the four described here.
+  the four described here. Tracked in #407.
 - **Surfacing `serverInfo.title` / `instructions`** — no competitor tool surfaces these either, and
   the client currently only captures the negotiated protocol version, not the full initialize
   result. A possible future addition if a concrete need arises.
