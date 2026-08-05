@@ -257,6 +257,8 @@ Default is `false`, which **denies** sandboxed access to the Docker daemon. The 
 
 Set `permissions.docker: true` to leave the socket reachable and let sandboxed tools run `docker` against the host daemon.
 
+**Security note**: Docker daemon access is host-root-equivalent — a container can bind-mount `/` and read or write anywhere on the host. Setting `permissions.docker: true` is an explicit opt-in to giving the model that level of access via the `docker` CLI; do not enable it unless you intend the model to have host-root-equivalent control.
+
 **Not covered**: a `docker context` pointing at `ssh://` bypasses this control, since `SSH_AUTH_SOCK` is allowlisted through to the sandbox independently of this setting.
 
 ## Error reporting

@@ -1409,11 +1409,12 @@ permissions:
 `)
 
 	cwd, err := os.Getwd()
-	if err == nil {
-		t.Cleanup(func() {
-			_ = os.Chdir(cwd)
-		})
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
 	}
@@ -1450,11 +1451,12 @@ models:
 `)
 
 	cwd, err := os.Getwd()
-	if err == nil {
-		t.Cleanup(func() {
-			_ = os.Chdir(cwd)
-		})
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
 	}

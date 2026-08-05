@@ -40,7 +40,7 @@ func TestDockerDenyArgs(t *testing.T) {
 			candidates := tc.candidates(t)
 			args := dockerDenyArgs(candidates)
 
-			if !slices.Contains(args, "--unsetenv") || !containsSeq(args, "--unsetenv", "DOCKER_HOST") {
+			if !containsSeq(args, "--unsetenv", "DOCKER_HOST") {
 				t.Errorf("expected --unsetenv DOCKER_HOST in args: %v", args)
 			}
 
@@ -95,6 +95,38 @@ func TestDockerDenyArgs_DuplicateCandidatesCollapse(t *testing.T) {
 	}
 }
 
+func TestDockerDenyArgs_CandidatesConvergingThroughSymlinkedParentCollapse(t *testing.T) {
+	// Mirrors the real /run + /var/run pair: two differently-spelled
+	// candidates that resolve to the same socket via a symlinked parent
+	// directory must still collapse to a single mask.
+	realDir := t.TempDir()
+	sock := filepath.Join(realDir, "docker.sock")
+	if err := os.WriteFile(sock, nil, 0o644); err != nil {
+		t.Fatalf("create fake socket: %v", err)
+	}
+
+	linkDir := filepath.Join(t.TempDir(), "var-run-link")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatalf("symlink parent dir: %v", err)
+	}
+	aliasedCandidate := filepath.Join(linkDir, "docker.sock")
+
+	args := dockerDenyArgs([]string{sock, aliasedCandidate})
+
+	count := 0
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--bind" && args[i+1] == "/dev/null" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly one mask for candidates converging through a symlinked parent, got %d: %v", count, args)
+	}
+	if !containsSeq(args, "--bind", "/dev/null", sock) {
+		t.Errorf("expected mask resolved to real path %s in args: %v", sock, args)
+	}
+}
+
 func TestBuildArgs_Docker_DeniedMasksExistingSocket(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "docker.sock")
 	if err := os.WriteFile(sock, nil, 0o644); err != nil {
@@ -145,7 +177,7 @@ func TestBuildArgs_Docker_MaskOrderedAfterMountsBeforeChdir(t *testing.T) {
 	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", hostMounts, overlayArgs, "/tmp/sandbox-tmp", false, config.PermissionsConfig{Docker: false})
 
 	hostMountIdx := slices.Index(args, "/data/rw")
-	overlayIdx := slices.Index(args, "--tmpfs")
+	overlayIdx := slices.Index(args, "/etc/ssh/ssh_config.d")
 	maskIdx := -1
 	for i := 0; i+2 < len(args); i++ {
 		if args[i] == "--bind" && args[i+1] == "/dev/null" {

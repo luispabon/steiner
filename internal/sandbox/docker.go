@@ -10,10 +10,12 @@ import (
 var dockerSocketCandidates = defaultDockerSocketCandidates
 
 // defaultDockerSocketCandidates returns the well-known Docker socket paths:
-// the system daemon and, when set, the rootless per-user daemon under
+// the system daemon (both spellings — /var/run is a symlink to /run on most
+// distros, but not guaranteed, and an unmasked /var/run/docker.sock would
+// fail this control open) and, when set, the rootless per-user daemon under
 // XDG_RUNTIME_DIR (which is allowlisted through to the sandbox, see env.go).
 func defaultDockerSocketCandidates() []string {
-	candidates := []string{"/run/docker.sock"}
+	candidates := []string{"/run/docker.sock", "/var/run/docker.sock"}
 	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
 		candidates = append(candidates, filepath.Join(runtimeDir, "docker.sock"))
 	}
