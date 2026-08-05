@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -66,6 +67,65 @@ func TestBuildCommand_AppliesProcessGroup(t *testing.T) {
 	}
 	if cmd.Stdin != nil || cmd.Stdout != nil {
 		t.Error("Stdin/Stdout must stay nil")
+	}
+}
+
+func TestBuildCommand_SpecEnvSurvivesFilteringWrap(t *testing.T) {
+	allowed := map[string]bool{"PATH": true, "HOME": true}
+	filterWrap := func(c *exec.Cmd) *exec.Cmd {
+		filtered := make([]string, 0, len(c.Env))
+		for _, kv := range c.Env {
+			key, _, ok := strings.Cut(kv, "=")
+			if ok && allowed[key] {
+				filtered = append(filtered, kv)
+			}
+		}
+		return &exec.Cmd{
+			Path: "/wrapped/bin",
+			Args: []string{"/wrapped/bin"},
+			Env:  filtered,
+		}
+	}
+
+	spec := ServerSpec{
+		Command: "/bin/true",
+		Env:     map[string]string{"MCP_TOKEN": "secret"},
+	}
+
+	got := buildCommand(context.Background(), spec, filterWrap, io.Discard)
+
+	if !slices.Contains(got.Env, "MCP_TOKEN=secret") {
+		t.Errorf("expected spec.Env to survive the filtering wrap, got %v", got.Env)
+	}
+	for _, kv := range got.Env {
+		key, _, _ := strings.Cut(kv, "=")
+		if key != "MCP_TOKEN" && !allowed[key] {
+			t.Errorf("expected non-allowlisted, non-spec.Env var to be filtered out, found %q in %v", kv, got.Env)
+		}
+	}
+}
+
+func TestBuildCommand_SpecEnvOrderIsDeterministic(t *testing.T) {
+	spec := ServerSpec{
+		Command: "/bin/true",
+		Env:     map[string]string{"ZETA": "1", "ALPHA": "2", "MID": "3"},
+	}
+
+	first := buildCommand(context.Background(), spec, nil, io.Discard)
+	second := buildCommand(context.Background(), spec, nil, io.Discard)
+
+	specTail := func(env []string) []string {
+		return env[len(env)-3:]
+	}
+	firstTail := specTail(first.Env)
+	secondTail := specTail(second.Env)
+
+	if !slices.Equal(firstTail, secondTail) {
+		t.Fatalf("spec.Env ordering not deterministic across calls: %v vs %v", firstTail, secondTail)
+	}
+	want := []string{"ALPHA=2", "MID=3", "ZETA=1"}
+	if !slices.Equal(firstTail, want) {
+		t.Fatalf("spec.Env not in sorted-key order: got %v, want %v", firstTail, want)
 	}
 }
 
