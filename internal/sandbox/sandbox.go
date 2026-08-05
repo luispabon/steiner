@@ -36,7 +36,7 @@ func New(cfg config.SandboxConfig, perms config.PermissionsConfig, hostMounts []
 		userHome:   userHome,
 		tmpDir:     tmpDir,
 		hostMounts: hostMounts,
-		envPolicy:  EnvPolicy{PassthroughAll: cfg.EnvPassthroughAll, Extra: cfg.EnvPassthrough},
+		envPolicy:  NewEnvPolicy(cfg.EnvPassthroughAll, cfg.EnvPassthrough),
 	}
 }
 

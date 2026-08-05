@@ -83,8 +83,25 @@ type EnvPolicy struct {
 	Extra []string
 }
 
+// NewEnvPolicy builds an EnvPolicy from configured values, trimming
+// surrounding whitespace from each Extra entry so that validation
+// (internal/config's validateSandboxConfig) and matching (isAllowed) agree on
+// the same strings.
+func NewEnvPolicy(passthroughAll bool, extra []string) EnvPolicy {
+	trimmed := make([]string, len(extra))
+	for i, e := range extra {
+		trimmed[i] = strings.TrimSpace(e)
+	}
+	return EnvPolicy{PassthroughAll: passthroughAll, Extra: trimmed}
+}
+
 // FilterEnv filters os.Environ()-style KEY=VALUE pairs through the allowlist,
 // as extended by policy. HOME passes through unchanged.
+//
+// A nil env means "no environment" and is returned as nil unchanged — this is
+// not "inherit the host environment". Callers that want host inheritance must
+// pass os.Environ() explicitly; conflating the two is what let the sandbox's
+// allowlist go unenforced for every built-in tool before this was fixed.
 func FilterEnv(env []string, policy EnvPolicy) []string {
 	if env == nil {
 		return nil

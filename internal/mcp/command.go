@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"sort"
+	"slices"
 )
 
 // buildCommand constructs the stdio command for an MCP server.
@@ -76,7 +76,7 @@ func sortedEnvPairs(m map[string]string) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	pairs := make([]string, 0, len(keys))
 	for _, k := range keys {
 		pairs = append(pairs, k+"="+m[k])

@@ -1156,6 +1156,11 @@ func TestSandboxConfigValidation(t *testing.T) {
 			cfg:     SandboxConfig{EnvPassthrough: []string{"*FOO"}},
 			wantErr: `sandbox.env_passthrough[0] ("*FOO"): '*' is only permitted as the final character`,
 		},
+		{
+			name:    "bare star rejected",
+			cfg:     SandboxConfig{EnvPassthrough: []string{"*"}},
+			wantErr: `sandbox.env_passthrough[0] ("*"): a bare '*' would pass through the entire environment; use sandbox.env_passthrough_all instead`,
+		},
 	}
 
 	for _, tt := range tests {

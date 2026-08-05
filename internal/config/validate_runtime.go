@@ -100,6 +100,10 @@ func validateSandboxConfig(problems *[]string, cfg SandboxConfig) {
 			*problems = append(*problems, fmt.Sprintf("sandbox.env_passthrough[%d] (%q): must not be empty", i, entry))
 			continue
 		}
+		if trimmed == "*" {
+			*problems = append(*problems, fmt.Sprintf("sandbox.env_passthrough[%d] (%q): a bare '*' would pass through the entire environment; use sandbox.env_passthrough_all instead", i, entry))
+			continue
+		}
 		if strings.Contains(trimmed, "=") {
 			*problems = append(*problems, fmt.Sprintf("sandbox.env_passthrough[%d] (%q): must not contain '='", i, entry))
 			continue

@@ -146,6 +146,22 @@ func TestFilterEnv_ExtraAllowlist(t *testing.T) {
 	}
 }
 
+func TestNewEnvPolicy_TrimsExtraEntries(t *testing.T) {
+	policy := NewEnvPolicy(false, []string{" MY_CUSTOM_VAR ", "MYAPP_* "})
+
+	result := FilterEnv([]string{"MY_CUSTOM_VAR=value", "MYAPP_FOO=1", "OTHER_VAR=x"}, policy)
+
+	if !slices.Contains(result, "MY_CUSTOM_VAR=value") {
+		t.Errorf("expected whitespace-padded exact entry to match after trimming, got %v", result)
+	}
+	if !slices.Contains(result, "MYAPP_FOO=1") {
+		t.Errorf("expected whitespace-padded glob entry to match after trimming, got %v", result)
+	}
+	if slices.Contains(result, "OTHER_VAR=x") {
+		t.Errorf("expected unrelated var to remain filtered, got %v", result)
+	}
+}
+
 func TestFilterEnv_PassthroughAll(t *testing.T) {
 	input := []string{
 		"ANTHROPIC_API_KEY=sk-xxx",
