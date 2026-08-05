@@ -50,7 +50,11 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 	}
 
 	toolName := req.Tool.Name
-	if h.isAlwaysAllowed(toolName) {
+	// MCP tools are hardcoded to always-ask: a third-party server's tools are
+	// not eligible for the session-scoped always-allow cache. A later release
+	// replaces this with real per-server approval modes.
+	cacheable := req.Tool.MCP.Server == ""
+	if cacheable && h.isAlwaysAllowed(toolName) {
 		req.Response <- tool.ApprovalResponse{Allow: true, Message: "always allowed"}
 		return nil
 	}
@@ -65,7 +69,7 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 			return fmt.Errorf("approval response channel closed")
 		}
 		response := approvalResponseForDecision(submission.Decision)
-		if submission.Decision == "always_allow" {
+		if cacheable && submission.Decision == "always_allow" {
 			h.cacheAlwaysAllow(toolName)
 		}
 		req.Response <- response

@@ -18,10 +18,23 @@ type Manager struct {
 }
 
 // Connect dials every enabled server in cfg sequentially and returns a Manager.
-// Servers that fail to connect are reported through onWarn and omitted; Connect
-// itself returns an error only for programming faults, never for a server failure.
-func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *exec.Cmd, approver tool.ApprovalResponder, onWarn func(string), stderr io.Writer) *Manager {
+// The reporting channels are distinct so callers can pick a severity per
+// channel: onWarn receives connection failures, onInfo receives successful
+// connects and their negotiated protocol version. Both are optional; a nil
+// callback discards its messages. stderr is not a reporting channel — it is
+// handed to each server process as its own stderr, and Connect never writes to
+// it, because exec copies the child's stderr into it concurrently. Connect
+// never returns an error for a server failure; a failed server is simply
+// omitted.
+func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *exec.Cmd, approver tool.ApprovalResponder, onWarn, onInfo func(string), stderr io.Writer) *Manager {
 	m := &Manager{}
+
+	if onWarn == nil {
+		onWarn = func(string) {}
+	}
+	if onInfo == nil {
+		onInfo = func(string) {}
+	}
 
 	if !cfg.Enabled {
 		return m
@@ -53,8 +66,8 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 			continue
 		}
 
-		// Log the negotiated protocol version.
-		onWarn(fmt.Sprintf("MCP server %q connected (protocol %s, %d tools)", name, session.ProtocolVersion(), len(session.Tools())))
+		// A successful connect is informational, not a warning.
+		onInfo(fmt.Sprintf("MCP server %q connected (protocol %s, %d tools)", name, session.ProtocolVersion(), len(session.Tools())))
 
 		m.sessions = append(m.sessions, session)
 

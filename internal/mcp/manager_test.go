@@ -32,7 +32,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard)
 		if got := m.ToolDefs(); len(got) != 0 {
 			t.Fatalf("ToolDefs() has %d tools, want 0", len(got))
 		}
@@ -54,7 +54,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard)
 		if got := m.ToolDefs(); len(got) != 0 {
 			t.Fatalf("ToolDefs() has %d tools, want 0", len(got))
 		}
@@ -64,7 +64,7 @@ func TestManagerConnect(t *testing.T) {
 	})
 
 	t.Run("failed server is reported and does not abort others", func(t *testing.T) {
-		var warns []string
+		var warns, infos []string
 		cfg := config.MCPConfig{
 			Enabled: true,
 			Servers: map[string]config.MCPServerConfig{
@@ -73,26 +73,53 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(msg string) { warns = append(warns, msg) }, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(),
+			func(msg string) { warns = append(warns, msg) },
+			func(msg string) { infos = append(infos, msg) },
+			io.Discard)
 		defer m.Close() //nolint:errcheck
 
 		defs := m.ToolDefs()
 		if len(defs) != 2 {
 			t.Fatalf("ToolDefs() has %d tools, want 2 (echo, boom)", len(defs))
 		}
-		if len(warns) != 2 {
-			t.Fatalf("got %d warnings, want 2 (failure + connected): %v", len(warns), warns)
+		// onWarn carries failures only; a successful connect goes to onInfo so
+		// a healthy startup emits no warnings.
+		if len(warns) != 1 {
+			t.Fatalf("got %d warnings, want 1 (the failure only): %v", len(warns), warns)
 		}
 		if !strings.Contains(warns[0], "bad") || !strings.Contains(warns[0], "failed to connect") {
-			t.Errorf("first warning %q does not report server %q failure", warns[0], "bad")
+			t.Errorf("warning %q does not report server %q failure", warns[0], "bad")
 		}
-		if !strings.Contains(warns[1], "good") || !strings.Contains(warns[1], "connected") {
-			t.Errorf("second warning %q does not report server %q connect", warns[1], "good")
+		if len(infos) != 1 {
+			t.Fatalf("got %d info messages, want 1 (the successful connect): %v", len(infos), infos)
+		}
+		if !strings.Contains(infos[0], `"good"`) || !strings.Contains(infos[0], "connected") {
+			t.Errorf("info %q does not report server %q connect", infos[0], "good")
 		}
 		for _, d := range defs {
 			if d.MCP.Server != "good" {
 				t.Errorf("tool %q MCP.Server = %q, want %q", d.Name, d.MCP.Server, "good")
 			}
+		}
+	})
+
+	t.Run("nil reporting callbacks are tolerated", func(t *testing.T) {
+		cfg := config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"bad":  {Enabled: true, Command: "/nonexistent/steiner-no-such-binary"},
+				"good": server(nil),
+			},
+		}
+
+		// A failing server with no reporting callbacks must not panic; the
+		// healthy server's tools still arrive.
+		m := Connect(context.Background(), cfg, nil, allowApprover(), nil, nil, io.Discard)
+		defer m.Close() //nolint:errcheck
+
+		if got := len(m.ToolDefs()); got != 2 {
+			t.Fatalf("ToolDefs() has %d tools, want 2 (echo, boom)", got)
 		}
 	})
 
@@ -105,7 +132,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
 		defer m.Close() //nolint:errcheck
 
 		first := m.ToolDefs()
@@ -127,7 +154,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("names and provenance", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
 		defer m.Close() //nolint:errcheck
 
 		defs := m.ToolDefs()
@@ -154,7 +181,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("nil approver denies without calling the server", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard)
 		defer m.Close() //nolint:errcheck
 
 		// echo would return OK with the text if it reached the server, so a
@@ -169,7 +196,7 @@ func TestManagerConnect(t *testing.T) {
 			return nil
 		})
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, approver, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, approver, func(string) {}, func(string) {}, io.Discard)
 		defer m.Close() //nolint:errcheck
 
 		// boom would return mcp_tool_error if it reached the server; the denial
@@ -180,7 +207,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("approver allow round-trips echo and surfaces boom as an envelope", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
 		defer m.Close() //nolint:errcheck
 
 		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
@@ -219,7 +246,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("UpdateApprover rebuilds defs with the new approver", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard)
 		defer m.Close() //nolint:errcheck
 
 		// Connected with a nil approver: calls deny.
@@ -251,18 +278,26 @@ func TestManagerConnect(t *testing.T) {
 				"beta":  server(nil),
 			},
 		}
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, io.Discard)
+		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard)
 		if err := m.Close(); err != nil {
 			t.Fatalf("Close: %v", err)
 		}
 
-		// A closed session must not serve calls on either server.
+		// A closed session must not serve calls on either server. Either the
+		// handler returns a transport error, or it returns a non-OK envelope;
+		// anything else means the session survived Close.
 		for _, name := range []string{"mcp__alpha__echo", "mcp__beta__echo"} {
 			env, err := findTool(t, m.ToolDefs(), name).Handler(context.Background(), map[string]any{"text": "hi"})
-			if err == nil {
-				if ok, isEnv := env.(tool.JSONEnvelope); isEnv && ok.OK {
-					t.Errorf("%s call after Close succeeded, want transport failure", name)
-				}
+			if err != nil {
+				continue // transport failure: the session is gone, as required
+			}
+			envelope, isEnv := env.(tool.JSONEnvelope)
+			if !isEnv {
+				t.Errorf("%s call after Close returned %T with a nil error, want a transport failure or a non-OK envelope", name, env)
+				continue
+			}
+			if envelope.OK {
+				t.Errorf("%s call after Close succeeded (result %v), want transport failure", name, envelope.Result)
 			}
 		}
 	})

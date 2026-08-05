@@ -33,7 +33,7 @@ func mcpFixtureManager(t *testing.T) *mcp.Manager {
 		Servers: map[string]config.MCPServerConfig{
 			"fixture": {Enabled: true, Command: buildMCPFixture(t)},
 		},
-	}, nil, nil, func(string) {}, io.Discard)
+	}, nil, nil, func(string) {}, func(string) {}, io.Discard)
 	t.Cleanup(func() { _ = mgr.Close() })
 	return mgr
 }

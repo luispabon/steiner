@@ -86,6 +86,11 @@ func TestStdio(t *testing.T) {
 		repoRoot := t.TempDir()
 		sandboxTmp := t.TempDir()
 		copyFile(t, fixtureBin, filepath.Join(sandboxTmp, "fixtureserver"))
+		// recordPath is the HOST path used to read the record back; the
+		// fixture itself is given the SANDBOX-side path below, since
+		// sandboxTmp is bind-mounted read-write at /tmp inside the sandbox
+		// (internal/sandbox/mounts.go) while its host path resolves through
+		// the read-only "--ro-bind / /" mount.
 		recordPath := filepath.Join(sandboxTmp, "record.txt")
 
 		s := newSandbox(t, repoRoot, sandboxTmp)
@@ -94,9 +99,13 @@ func TestStdio(t *testing.T) {
 			// The sandbox env allowlist (sandbox.FilterEnv) strips arbitrary
 			// vars, so the fixture's env vars are injected on the wrapped
 			// command, which bwrap passes on to the fixture unchanged.
+			// STEINER_FIXTURE_TOUCH deliberately stays on the host repoRoot
+			// path: it is the read-only target being probed. STEINER_FIXTURE_RECORD
+			// must be the sandbox-side /tmp path so the fixture can actually
+			// write it.
 			w.Env = append(w.Env,
 				"STEINER_FIXTURE_TOUCH="+filepath.Join(repoRoot, "probe.txt"),
-				"STEINER_FIXTURE_RECORD="+recordPath,
+				"STEINER_FIXTURE_RECORD=/tmp/record.txt",
 			)
 			return w
 		}
