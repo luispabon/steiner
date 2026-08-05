@@ -173,6 +173,14 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.mcpOverlay.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			var cmd tea.Cmd
+			m.mcpOverlay, cmd = m.mcpOverlay.Update(msg)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
 		match: func(m Model) bool { return m.contextOverlay.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			next := m.handleContextOverlayKey(msg)
@@ -309,6 +317,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 func (m *Model) initializeOverlays(cfg Config) {
 
 	m.fileList = newFileListOverlay(m.styles)
+	m.mcpOverlay = newMCPOverlay(m.styles)
 	m.filePicker = newFilePickerOverlay(m.styles)
 	m.filePicker.width = m.width
 	m.filePicker.height = m.height

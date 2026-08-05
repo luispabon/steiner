@@ -163,6 +163,7 @@ func (m Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.applyInputStyles()
 	m.slashOverlay.styles = m.styles
 	m.fileList.styles = m.styles
+	m.mcpOverlay.styles = m.styles
 	m.filePicker.styles = m.styles
 	m.sessionPicker.styles = m.styles
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
@@ -212,6 +213,7 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
 	m.fileList.OverlayShell = m.fileList.WithDimensions(msg.Width, msg.Height)
+	m.mcpOverlay.OverlayShell = m.mcpOverlay.WithDimensions(msg.Width, msg.Height)
 
 	m.sessionPicker = m.sessionPicker.withDimensions(msg.Width, msg.Height)
 	m.oneshotResumePicker = m.oneshotResumePicker.withDimensions(msg.Width, msg.Height)

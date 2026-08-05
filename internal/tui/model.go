@@ -126,6 +126,7 @@ type Model struct {
 	sidebarPosition              string
 	slashOverlay                 slashOverlay
 	fileList                     fileListOverlay
+	mcpOverlay                   mcpOverlay
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay
 	oneshotResumePicker          oneshotResumePickerOverlay

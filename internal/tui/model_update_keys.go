@@ -178,6 +178,7 @@ func (m Model) hasOpenOverlay() bool {
 		m.exitModal.IsOpen() ||
 		m.slashOverlay.IsOpen() ||
 		m.fileList.IsOpen() ||
+		m.mcpOverlay.IsOpen() ||
 		m.contextOverlay.IsOpen() ||
 		m.filePicker.IsOpen() ||
 		m.sessionPicker.IsOpen() ||

@@ -70,6 +70,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.listFiles {
 		return m.executeListFilesAction(action.listFilesPath)
 	}
+	if action.showMCP {
+		return m.executeShowMCPAction()
+	}
 	if action.requestSessionPicker {
 		return m.executeRequestSessionPickerAction()
 	}
