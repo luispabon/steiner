@@ -16,10 +16,12 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
 )
 
@@ -88,6 +90,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
 	}
+	tuiCfg.MCPEnabled, tuiCfg.MCPServers, tuiCfg.MCPToolOrigins = mcpTUIState(rt.cfg, rt.mcpManager, rt.registry)
 	tuiCfg.Recorder = rt.usageRecorder
 	tuiCfg.ImageStore = rt.imageStore
 	tuiCfg.VisionCapabilities = rt.visionCapabilities
@@ -114,6 +117,42 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		return rm.Reasoning, rm.ReasoningEffectiveEffort
 	}
 	return tui.NewApp(tuiCfg)
+}
+
+// mcpTUIState converts MCP manager state and registry tool provenance into
+// the TUI's display-only snapshot: whether MCP is enabled, the per-server
+// states, and the tool-name-to-origin map.
+func mcpTUIState(cfg config.Config, mgr *mcp.Manager, registry *tool.Registry) (bool, []tui.MCPServerStatus, map[string]tui.MCPToolOrigin) {
+	enabled := cfg.MCP.Enabled
+
+	states := mgr.ServerStates() // nil-safe: nil when mgr is nil (MCP off, no Manager was constructed)
+	if !enabled {
+		states = mcp.DeclaredStates(cfg.MCP) // MCP off: no Manager exists
+	}
+
+	servers := make([]tui.MCPServerStatus, 0, len(states))
+	for _, s := range states {
+		servers = append(servers, tui.MCPServerStatus{
+			Name:      s.Name,
+			State:     string(s.Status),
+			Transport: s.Transport,
+			Tools:     s.Tools,
+			Error:     s.Err,
+		})
+	}
+
+	var origins map[string]tui.MCPToolOrigin
+	for _, def := range registry.Definitions() {
+		if def.MCP.Server == "" {
+			continue
+		}
+		if origins == nil {
+			origins = make(map[string]tui.MCPToolOrigin)
+		}
+		origins[def.Name] = tui.MCPToolOrigin{Server: def.MCP.Server, Tool: def.MCP.ToolName}
+	}
+
+	return enabled, servers, origins
 }
 
 func selectedModelConfig(cfg config.Config) config.ModelConfig {

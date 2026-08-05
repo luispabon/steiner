@@ -16,6 +16,7 @@ import (
 type Manager struct {
 	sessions []*Session
 	defs     []tool.ToolDef
+	states   []ServerState
 }
 
 // syncWriter serialises writes from the per-process stderr copier goroutines
@@ -59,6 +60,7 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 	}
 
 	if !cfg.Enabled {
+		m.states = DeclaredStates(cfg)
 		return m
 	}
 
@@ -71,7 +73,14 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 
 	for _, name := range names {
 		srv := cfg.Servers[name]
+
+		transport := srv.Transport
+		if transport == "" {
+			transport = "stdio"
+		}
+
 		if !srv.Enabled {
+			m.states = append(m.states, ServerState{Name: name, Status: ServerStatusDisabled, Transport: transport})
 			continue
 		}
 
@@ -85,6 +94,7 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 		session, err := ConnectSession(ctx, spec, wrap, stderr)
 		if err != nil {
 			onWarn(fmt.Sprintf("MCP server %q failed to connect: %v", name, err))
+			m.states = append(m.states, ServerState{Name: name, Status: ServerStatusFailed, Transport: transport, Err: err.Error()})
 			continue
 		}
 
@@ -94,10 +104,19 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 		m.sessions = append(m.sessions, session)
 
 		// Build ToolDefs for this session.
+		var toolNames []string
 		for _, t := range session.Tools() {
 			def := mcpToolDef(session, t, approver)
 			m.defs = append(m.defs, def)
+			toolNames = append(toolNames, t.Name)
 		}
+		m.states = append(m.states, ServerState{
+			Name:            name,
+			Status:          ServerStatusConnected,
+			Transport:       transport,
+			Tools:           toolNames,
+			ProtocolVersion: session.ProtocolVersion(),
+		})
 	}
 
 	return m
@@ -111,6 +130,15 @@ func (m *Manager) ToolDefs() []tool.ToolDef {
 		return nil
 	}
 	return m.defs
+}
+
+// ServerStates returns the recorded connection outcome for every configured
+// server, in sorted name order. Safe to call on a nil Manager.
+func (m *Manager) ServerStates() []ServerState {
+	if m == nil {
+		return nil
+	}
+	return m.states
 }
 
 // UpdateApprover rebuilds tool definitions with a new approver.

@@ -114,6 +114,14 @@ func (m Model) executeListFilesAction(path string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) executeShowMCPAction() (tea.Model, tea.Cmd) {
+	m.mcpOverlay = m.mcpOverlay.Open(m.mcpServers, m.mcpEnabled)
+	m.mcpOverlay.OverlayShell = m.mcpOverlay.WithDimensions(m.width, m.height)
+	m.input.Reset()
+	m.historyIdx = 0
+	return m, nil
+}
+
 func (m Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0

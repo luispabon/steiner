@@ -13,6 +13,7 @@ type inputAction struct {
 	listSkills                 bool
 	listFiles                  bool
 	listFilesPath              string
+	showMCP                    bool
 	submit                     string
 	toggleSkill                string
 	toggleEnable               bool

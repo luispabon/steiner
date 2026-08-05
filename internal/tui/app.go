@@ -106,6 +106,14 @@ type Config struct {
 	SessionResetCleanup func()
 	// SandboxStatus seeds the initial sandbox status at startup.
 	SandboxStatus string
+	// MCPEnabled reports whether MCP is switched on in config, distinguishing
+	// "MCP off" from "MCP on but nothing configured".
+	MCPEnabled bool
+	// MCPServers is the display-only snapshot of every configured MCP server.
+	MCPServers []MCPServerStatus
+	// MCPToolOrigins maps a registry tool name (e.g. "mcp__server__tool") to
+	// the MCP server and tool it originated from.
+	MCPToolOrigins map[string]MCPToolOrigin
 }
 
 // OneshotRunnerFactoryBuilder builds a phase runner factory bound to a specific

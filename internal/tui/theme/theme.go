@@ -69,6 +69,11 @@ type Styles struct {
 	// ToolBorderDefault is the fallback border style for unknown tools.
 	ToolBorderDefault lipgloss.Style
 
+	// ToolTagMCP is the pill style for an MCP-attributed tool call tag.
+	ToolTagMCP lipgloss.Style
+	// ToolBorderMCP is the border style for an MCP-attributed tool call frame.
+	ToolBorderMCP lipgloss.Style
+
 	// DelegateTagStyles maps normalized delegate labels to pill styles.
 	DelegateTagStyles map[string]lipgloss.Style
 
@@ -203,6 +208,9 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 			"grep":      ToolMagLine,
 		}),
 		ToolBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
+
+		ToolTagMCP:    lipgloss.NewStyle().Background(lipgloss.Color(DelegateViolet)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
+		ToolBorderMCP: lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateVioletLine)),
 
 		DelegateTagStyles: map[string]lipgloss.Style{
 			"explore":      lipgloss.NewStyle().Foreground(lipgloss.Color(ToolCyan)).Bold(true),

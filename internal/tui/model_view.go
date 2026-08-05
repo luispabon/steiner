@@ -188,6 +188,9 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 	if m.fileList.IsOpen() {
 		return composeCenteredOverlay(base, m.fileList.View(), m.width, m.height)
 	}
+	if m.mcpOverlay.IsOpen() {
+		return composeCenteredOverlay(base, m.mcpOverlay.View(), m.width, m.height)
+	}
 
 	base = m.renderBottomAnchoredOverlays(base, contentWidth)
 	switch {

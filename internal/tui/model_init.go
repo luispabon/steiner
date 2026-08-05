@@ -59,6 +59,9 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		skillNames:                   append([]string(nil), cfg.SkillNames...),
 		skillDescriptions:            cloneStringMap(cfg.SkillDescriptions),
 		enabledSkills:                enabledSkills,
+		mcpEnabled:                   cfg.MCPEnabled,
+		mcpServers:                   cfg.MCPServers,
+		mcpToolOrigins:               cfg.MCPToolOrigins,
 		modelNames:                   append([]string(nil), cfg.ModelNames...),
 		modelContexts:                cloneModelContexts(cfg.ModelContexts),
 		modelBaseURLs:                cloneModelBaseURLs(cfg.ModelBaseURLs),
@@ -166,6 +169,14 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			var cmd tea.Cmd
 			m.fileList, cmd = m.fileList.Update(msg)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m Model) bool { return m.mcpOverlay.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			var cmd tea.Cmd
+			m.mcpOverlay, cmd = m.mcpOverlay.Update(msg)
 			return cmd
 		},
 	},
@@ -279,12 +290,16 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 			m.content.AppendLine(fmt.Sprintf("status: %s", msg))
 		}
 	}
+	for _, line := range mcpStartupWarnings(m.mcpServers, m.mcpEnabled) {
+		m.content.AppendLine(m.styles.WarningStyle.Render(line))
+	}
 	m.git.Refresh(context.Background())
 	m.syncSidebar()
 	m.layout()
 
 	m.content.styles = m.styles
 	m.content.skillNames = m.skillNames
+	m.content.mcpToolOrigins = m.mcpToolOrigins
 	m.content.setGlamourStyleSheet(accentHex)
 	m.content.collapseState = make(map[int]bool)
 	m.content.showThinking = m.showThinking
@@ -305,6 +320,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 func (m *Model) initializeOverlays(cfg Config) {
 
 	m.fileList = newFileListOverlay(m.styles)
+	m.mcpOverlay = newMCPOverlay(m.styles)
 	m.filePicker = newFilePickerOverlay(m.styles)
 	m.filePicker.width = m.width
 	m.filePicker.height = m.height

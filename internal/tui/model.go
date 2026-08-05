@@ -100,6 +100,9 @@ type Model struct {
 	contentTopPad                int
 	skillNames                   []string
 	skillDescriptions            map[string]string
+	mcpEnabled                   bool
+	mcpServers                   []MCPServerStatus
+	mcpToolOrigins               map[string]MCPToolOrigin
 	enabledSkills                map[string]bool
 	modelNames                   []string
 	modelContexts                map[string]int
@@ -123,6 +126,7 @@ type Model struct {
 	sidebarPosition              string
 	slashOverlay                 slashOverlay
 	fileList                     fileListOverlay
+	mcpOverlay                   mcpOverlay
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay
 	oneshotResumePicker          oneshotResumePickerOverlay
@@ -242,6 +246,21 @@ func (m *Model) syncSidebar() {
 		rate, ok := sr.HitRate()
 		m.sidebar.sessionCacheHitRate = rate
 		m.sidebar.sessionCacheHitRateOK = ok
+	}
+	m.sidebar.mcpConnected = 0
+	m.sidebar.mcpTotal = 0
+	m.sidebar.mcpFailed = false
+	for _, server := range m.mcpServers {
+		if server.State == "disabled" {
+			continue
+		}
+		m.sidebar.mcpTotal++
+		if server.State == "connected" {
+			m.sidebar.mcpConnected++
+		}
+		if server.State == "failed" {
+			m.sidebar.mcpFailed = true
+		}
 	}
 }
 
