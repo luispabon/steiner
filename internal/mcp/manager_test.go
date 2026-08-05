@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -120,6 +121,32 @@ func TestManagerConnect(t *testing.T) {
 
 		if got := len(m.ToolDefs()); got != 2 {
 			t.Fatalf("ToolDefs() has %d tools, want 2 (echo, boom)", got)
+		}
+	})
+
+	t.Run("one stderr writer is shared safely across servers", func(t *testing.T) {
+		// Every connected server gets this writer as its cmd.Stderr, and exec
+		// copies each child's stderr into it from its own goroutine, so the
+		// writes overlap for the whole session. Connect must serialise them:
+		// under -race an unsynchronised bytes.Buffer here is a data race.
+		var shared bytes.Buffer
+		cfg := config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"alpha": server(nil),
+				"beta":  server(nil),
+			},
+		}
+
+		m := Connect(context.Background(), cfg, nil, allowApprover(), nil, nil, &shared)
+		defer m.Close() //nolint:errcheck
+
+		// The fixture logs to stderr on every notification, so exercising both
+		// servers guarantees concurrent writes to the shared buffer.
+		for _, name := range []string{"mcp__alpha__echo", "mcp__beta__echo"} {
+			if _, err := findTool(t, m.ToolDefs(), name).Handler(context.Background(), map[string]any{"text": "hi"}); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
 		}
 	})
 

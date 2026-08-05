@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"sort"
+	"sync"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
@@ -17,15 +18,33 @@ type Manager struct {
 	defs     []tool.ToolDef
 }
 
+// syncWriter serialises writes from the per-process stderr copier goroutines
+// that exec starts, so one shared writer can back every connected server.
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
+}
+
 // Connect dials every enabled server in cfg sequentially and returns a Manager.
 // The reporting channels are distinct so callers can pick a severity per
 // channel: onWarn receives connection failures, onInfo receives successful
 // connects and their negotiated protocol version. Both are optional; a nil
-// callback discards its messages. stderr is not a reporting channel — it is
-// handed to each server process as its own stderr, and Connect never writes to
-// it, because exec copies the child's stderr into it concurrently. Connect
-// never returns an error for a server failure; a failed server is simply
-// omitted.
+// callback discards its messages.
+//
+// stderr is not a reporting channel: it becomes each server process's own
+// stderr, which exec copies into from a goroutine per process. Every connected
+// server therefore writes to it concurrently for the whole session, so Connect
+// serialises those writes and callers may pass an ordinary unsynchronised
+// writer. Connect never writes to it directly.
+//
+// Connect never returns an error for a server failure; a failed server is
+// simply omitted.
 func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *exec.Cmd, approver tool.ApprovalResponder, onWarn, onInfo func(string), stderr io.Writer) *Manager {
 	m := &Manager{}
 
@@ -34,6 +53,9 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 	}
 	if onInfo == nil {
 		onInfo = func(string) {}
+	}
+	if stderr != nil {
+		stderr = &syncWriter{w: stderr}
 	}
 
 	if !cfg.Enabled {
