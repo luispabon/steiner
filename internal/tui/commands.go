@@ -97,6 +97,14 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		ID:   "/mcp",
+		Name: "MCP servers",
+		Desc: "show MCP server status",
+		Build: func(_ string) inputAction {
+			return inputAction{showMCP: true}
+		},
+	},
+	{
 		ID:   "/model",
 		Name: "Switch model",
 		Desc: "pick a language model",
