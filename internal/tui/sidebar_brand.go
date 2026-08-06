@@ -49,3 +49,13 @@ func cardFieldN(key string, keyWidth int, valStyle lipgloss.Style, value string,
 	keyStr := keyStyle.Render(fmt.Sprintf("%-*s", keyWidth, key))
 	return keyStr + valStyleWithBg.Render(value)
 }
+
+// cardFieldAccentN renders a field row whose key uses the accent card-label
+// style (same as the REPOSITORY/PERFORMANCE headers) instead of the faint key
+// style, keeping the value inline.
+func cardFieldAccentN(key string, keyWidth int, valStyle lipgloss.Style, value string, styles theme.Styles) string {
+	keyStyle := styles.CardLabel.Background(lipgloss.Color(theme.Black))
+	valStyleWithBg := valStyle.Background(lipgloss.Color(theme.Black))
+	keyStr := keyStyle.Render(fmt.Sprintf("%-*s", keyWidth, key))
+	return keyStr + valStyleWithBg.Render(value)
+}

@@ -202,6 +202,40 @@ func TestStatusSection(t *testing.T) {
 	}
 }
 
+func TestStatusSectionAccentKeys(t *testing.T) {
+	t.Parallel()
+	styles := theme.BuildStyles(theme.AccentAmber)
+	s := sidebarState{
+		sandboxStatus: "active",
+		activeSkill:   "review",
+		mcpTotal:      1,
+		mcpConnected:  1,
+		styles:        styles,
+	}
+	got := s.statusSection(32)
+	if len(got) != 4 {
+		t.Fatalf("statusSection() len = %d, want 4 (blank + 3 rows)", len(got))
+	}
+	bg := lipgloss.Color(theme.Black)
+	wantSandboxKey := styles.CardLabel.Background(bg).Render("SANDBOX ")
+	wantSkillKey := styles.FgFaint.Background(bg).Render("SKILL   ")
+	wantMCPKey := styles.CardLabel.Background(bg).Render("MCP     ")
+	rows := []struct {
+		name string
+		line string
+		want string
+	}{
+		{"SANDBOX", got[1], wantSandboxKey},
+		{"SKILL", got[2], wantSkillKey},
+		{"MCP", got[3], wantMCPKey},
+	}
+	for _, tc := range rows {
+		if !strings.HasPrefix(tc.line, tc.want) {
+			t.Errorf("%s row = %q, want key prefix %q", tc.name, tc.line, tc.want)
+		}
+	}
+}
+
 func TestStatusSectionSandboxStatusBoundedToWidth(t *testing.T) {
 	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentAmber)
