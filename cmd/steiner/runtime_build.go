@@ -113,7 +113,14 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 			}
 		}
 		planMode := cfg.Modes.Default == config.ExecutionModePlan
-		mcpMgr = mcp.Connect(ctx, cfg.MCP, wrap, nil, diagnose("warning"), diagnose("info"), os.Stderr, planMode)
+		mcpMgr = mcp.Connect(ctx, cfg.MCP, cfg.Limits, wrap, planMode, diagnose("warning"), diagnose("info"), os.Stderr, nil)
+		// Block until every enabled server resolves (connected or failed) so
+		// the registry below freezes the complete tool list. All modes block
+		// for now, but connects run in parallel; step-7 makes interactive skip
+		// this wait and paint the TUI while servers connect. A cancelled ctx
+		// marks the servers failed, which is what the sequential Connect did,
+		// so the error is not actionable here.
+		_ = mcpMgr.WaitInit(ctx)
 	}
 
 	// Rebuild registry with sandbox and MCP tools now that workDir and homeDir are known.

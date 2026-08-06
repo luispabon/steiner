@@ -7,6 +7,23 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+func TestServerStatusWireValues(t *testing.T) {
+	// These strings reach the TUI and logs, so pin them.
+	want := map[ServerStatus]string{
+		ServerStatusConnecting:   "connecting",
+		ServerStatusConnected:    "connected",
+		ServerStatusFailed:       "failed",
+		ServerStatusReconnecting: "reconnecting",
+		ServerStatusUnavailable:  "unavailable",
+		ServerStatusDisabled:     "disabled",
+	}
+	for status, wantStr := range want {
+		if got := string(status); got != wantStr {
+			t.Errorf("ServerStatus(%q) = %q, want %q", status, got, wantStr)
+		}
+	}
+}
+
 func TestDeclaredStates(t *testing.T) {
 	tests := []struct {
 		name string

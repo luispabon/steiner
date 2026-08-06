@@ -13,11 +13,13 @@ import (
 )
 
 // mcpToolDef builds a tool.ToolDef for a discovered MCP tool.
-// planMode and srv are captured by the handler closure for approval gating:
-// planMode downgrades "allow" to "ask" (D7), and srv carries the per-server
-// approval mode and trust_annotations opt-in. planMode is read from the
-// closure at call time, so mode changes apply without rebuilding the registry.
-func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponder, planMode func() bool, srv config.MCPServerConfig) tool.ToolDef {
+// getApprover resolves the approval responder lazily at call time (the manager
+// wires it in after connect, once the session approver exists); planMode and
+// srv are captured by the handler closure for approval gating: planMode
+// downgrades "allow" to "ask" (D7), and srv carries the per-server approval
+// mode and trust_annotations opt-in. planMode is read from the closure at call
+// time, so mode changes apply without rebuilding the registry.
+func mcpToolDef(session *Session, t *mcpsdk.Tool, getApprover func() tool.ApprovalResponder, planMode func() bool, srv config.MCPServerConfig) tool.ToolDef {
 	name := ToolName(session.Name(), t.Name)
 
 	schema, ok := t.InputSchema.(map[string]any)
@@ -44,12 +46,12 @@ func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponde
 	if approvalMode == "" {
 		approvalMode = "ask"
 	}
-	def.Handler = mcpHandler(session, t.Name, session.Name(), def, approver, planMode, approvalMode, srv.TrustAnnotations, t.Annotations)
+	def.Handler = mcpHandler(session, t.Name, session.Name(), def, getApprover, planMode, approvalMode, srv.TrustAnnotations, t.Annotations)
 	return def
 }
 
 // mcpHandler returns a Handler closure that gates on approval and invokes the MCP server.
-func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, approver tool.ApprovalResponder, planMode func() bool, approvalMode string, trustAnnotations bool, annotations *mcpsdk.ToolAnnotations) func(ctx context.Context, input map[string]any) (any, error) {
+func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, getApprover func() tool.ApprovalResponder, planMode func() bool, approvalMode string, trustAnnotations bool, annotations *mcpsdk.ToolAnnotations) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		// Deny mode: deny servers register no tools, but the handler defends
 		// anyway so a stale definition can never bypass the mode.
@@ -89,6 +91,7 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 		}
 
 		// Fail closed: a nil approver denies.
+		approver := getApprover()
 		if approver == nil {
 			return tool.JSONEnvelope{
 				OK: false,

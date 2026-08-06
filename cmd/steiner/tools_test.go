@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -33,7 +34,12 @@ func mcpFixtureManager(t *testing.T) *mcp.Manager {
 		Servers: map[string]config.MCPServerConfig{
 			"fixture": {Enabled: true, Command: buildMCPFixture(t)},
 		},
-	}, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
+	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := mgr.WaitInit(ctx); err != nil {
+		t.Fatalf("WaitInit: %v", err)
+	}
 	t.Cleanup(func() { _ = mgr.Close() })
 	return mgr
 }

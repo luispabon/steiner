@@ -13,7 +13,12 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const connectTimeout = 30 * time.Second
+const (
+	// DefaultConnectTimeout is the per-server MCP handshake timeout applied when
+	// a server config leaves connect_timeout zero. It mirrors the config default
+	// (15s) so direct ConnectSession callers get the same bound.
+	DefaultConnectTimeout = 15 * time.Second
+)
 
 // clientVersion identifies the steiner MCP client during the handshake. The
 // build version lives in cmd/steiner as main.version (injected via ldflags)
@@ -50,8 +55,10 @@ type Session struct {
 // For stdio, the server described by spec is launched, optionally wrapped (e.g.
 // with the sandbox); for HTTP, a request is made to the configured endpoint.
 // The negotiated protocol version and the server's tool list are captured;
-// ListTools is called exactly once per session.
-func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer) (*Session, error) {
+// ListTools is called exactly once per session. timeout bounds the connect and
+// the initial ListTools together; a zero or negative timeout falls back to
+// DefaultConnectTimeout.
+func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer, timeout time.Duration) (*Session, error) {
 	var transport mcpsdk.Transport
 	var cmd *exec.Cmd
 
@@ -70,7 +77,10 @@ func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *
 
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "steiner", Version: clientVersion}, nil)
 
-	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
+	if timeout <= 0 {
+		timeout = DefaultConnectTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	session, err := client.Connect(ctx, transport, nil)

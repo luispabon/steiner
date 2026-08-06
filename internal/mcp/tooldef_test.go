@@ -41,7 +41,7 @@ func TestMCPToolDefSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text", InputSchema: tt.input}, nil, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
+			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text", InputSchema: tt.input}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
 			if !reflect.DeepEqual(def.ParameterSchema, tt.want) {
 				t.Errorf("ParameterSchema = %#v, want %#v", def.ParameterSchema, tt.want)
 			}
@@ -51,7 +51,7 @@ func TestMCPToolDefSchema(t *testing.T) {
 
 func TestMCPToolDefProvenance(t *testing.T) {
 	sess := &Session{name: "fixture"}
-	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text"}, nil, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text"}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
 
 	if def.Name != "mcp__fixture__echo" {
 		t.Errorf("Name = %q, want %q", def.Name, "mcp__fixture__echo")
@@ -72,7 +72,7 @@ func TestMCPToolDefProvenance(t *testing.T) {
 func TestMCPHandlerFailClosed(t *testing.T) {
 	t.Run("nil approver denies", func(t *testing.T) {
 		sess := &Session{name: "fixture"}
-		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, nil, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
+		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
 
 		env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 		assertDenial(t, env, err)
@@ -83,7 +83,7 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 			return errors.New("approval transport down")
 		})
 		sess := &Session{name: "fixture"}
-		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, approver, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
+		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, func() tool.ApprovalResponder { return approver }, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
 
 		env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 		assertDenial(t, env, err)
@@ -95,7 +95,7 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 // rebuilding the tool definition.
 func TestMCPHandlerPlanModeDynamic(t *testing.T) {
 	fixtureBin := buildFixture(t, t.TempDir())
-	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestMCPHandlerPlanModeDynamic(t *testing.T) {
 
 	planMode := false
 	approver := &recordingApprover{allow: true}
-	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, approver, func() bool { return planMode }, config.MCPServerConfig{Approval: "allow"})
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, func() tool.ApprovalResponder { return approver }, func() bool { return planMode }, config.MCPServerConfig{Approval: "allow"})
 
 	// Build mode: allow calls the tool without prompting.
 	env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
@@ -166,7 +166,7 @@ func TestApproval(t *testing.T) {
 	// A live fixture session lets the auto-allowed paths prove the tool call
 	// actually reaches the server (echo returns OK with the input text).
 	fixtureBin := buildFixture(t, t.TempDir())
-	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestApproval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Annotations: tt.annotations}, tt.approver, func() bool { return tt.planMode }, tt.srv)
+			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Annotations: tt.annotations}, func() tool.ApprovalResponder { return tt.approver }, func() bool { return tt.planMode }, tt.srv)
 			env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 
 			switch {

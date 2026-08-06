@@ -44,7 +44,7 @@ func TestStdio(t *testing.T) {
 		sess, err := mcp.ConnectSession(context.Background(), mcp.ServerSpec{
 			Name:    "fixture",
 			Command: "/tmp/fixtureserver", // sandboxTmp is bound at /tmp inside the sandbox
-		}, wrap, &stderr)
+		}, wrap, &stderr, 30*time.Second)
 		if err != nil {
 			t.Fatalf("connect: %v\nstderr:\n%s", err, stderr.String())
 		}
@@ -115,7 +115,7 @@ func TestStdio(t *testing.T) {
 		sess, err := mcp.ConnectSession(context.Background(), mcp.ServerSpec{
 			Name:    "fixture",
 			Command: "/tmp/fixtureserver",
-		}, wrap, &stderr)
+		}, wrap, &stderr, 30*time.Second)
 		if err != nil {
 			t.Fatalf("connect: %v\nstderr:\n%s", err, stderr.String())
 		}
@@ -149,7 +149,7 @@ func TestStdio(t *testing.T) {
 				"STEINER_FIXTURE_SPAWN_CHILD":    "1",
 				"STEINER_FIXTURE_CHILD_PID_FILE": childPIDFile,
 			},
-		}, nil, io.Discard)
+		}, nil, io.Discard, 30*time.Second)
 		if err != nil {
 			t.Fatalf("connect: %v", err)
 		}
@@ -177,6 +177,9 @@ func TestStdio(t *testing.T) {
 	})
 
 	t.Run("connect_timeout", func(t *testing.T) {
+		// The deadline ctx also binds the transport, so the hung process is
+		// killed at the deadline and teardown is fast; the timeout param is the
+		// per-server connect_timeout under test.
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
@@ -187,7 +190,7 @@ func TestStdio(t *testing.T) {
 			Env: map[string]string{
 				"STEINER_FIXTURE_STALL_HANDSHAKE": "1",
 			},
-		}, nil, &stderr)
+		}, nil, &stderr, 500*time.Millisecond)
 		if err == nil {
 			t.Fatal("Connect succeeded, want error from the handshake timeout")
 		}
@@ -207,8 +210,14 @@ func TestIntegrationAnnotationAutoAllow(t *testing.T) {
 		},
 	}
 
-	m := mcp.Connect(context.Background(), cfg, nil, approver, func(string) {}, func(string) {}, io.Discard, false)
+	m := mcp.Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 	defer m.Close() //nolint:errcheck
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := m.WaitInit(ctx); err != nil {
+		t.Fatalf("WaitInit: %v", err)
+	}
+	m.UpdateApprover(approver)
 
 	// readonly_echo carries readOnlyHint, so trust_annotations auto-allows it:
 	// the call reaches the server and returns the echoed text with no prompt.
@@ -267,8 +276,14 @@ func TestIntegrationTrustAnnotationsFalse(t *testing.T) {
 		},
 	}
 
-	m := mcp.Connect(context.Background(), cfg, nil, approver, func(string) {}, func(string) {}, io.Discard, false)
+	m := mcp.Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 	defer m.Close() //nolint:errcheck
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := m.WaitInit(ctx); err != nil {
+		t.Fatalf("WaitInit: %v", err)
+	}
+	m.UpdateApprover(approver)
 
 	// The prompt is answered with allow, so the call succeeds but the recorded
 	// request proves approval was requested despite the readOnlyHint.

@@ -5,6 +5,7 @@ import (
 	"io"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/mcp"
@@ -25,8 +26,13 @@ func TestMCPTUIStateEnabledMix(t *testing.T) {
 		},
 	}
 
-	mgr := mcp.Connect(context.Background(), cfg.MCP, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
+	mgr := mcp.Connect(context.Background(), cfg.MCP, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 	defer mgr.Close() //nolint:errcheck
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := mgr.WaitInit(ctx); err != nil {
+		t.Fatalf("WaitInit: %v", err)
+	}
 
 	registry := tool.NewRegistry(mgr.ToolDefs()...)
 
