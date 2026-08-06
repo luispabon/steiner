@@ -67,14 +67,12 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 //
 // Connect takes no approver: tool definitions resolve the approver lazily via
 // the Manager at call time, so definitions created before UpdateApprover still
-// work once the approver is installed. limits is reserved for later lifecycle
-// steps that bound MCP tool output and reconnect policy.
+// work once the approver is installed. limits is captured at connect time and
+// bounds each MCP tool call's output and duration at call time (D19).
 //
 // Connect never returns an error for a server failure; a failed server is
 // simply marked failed.
 func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConfig, wrap WrapFn, planMode bool, warnFn, infoFn func(string), stderr io.Writer, onStateChange func()) *Manager {
-	_ = limits // reserved for later lifecycle steps (tool output bounds, reconnect policy)
-
 	ctx, cancel := context.WithCancel(ctx)
 	m := &Manager{
 		planMode: planMode,
@@ -143,7 +141,7 @@ func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConf
 			Headers:   srv.Headers,
 		}
 		m.connectWG.Add(1)
-		go m.connectServer(spec, srv, transport, wrap, warnFn, infoFn, stderr, onStateChange)
+		go m.connectServer(spec, srv, transport, limits, wrap, warnFn, infoFn, stderr, onStateChange)
 	}
 
 	return m
@@ -151,8 +149,10 @@ func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConf
 
 // connectServer runs one server's connection attempt: handshake, tool list,
 // and def creation, all bounded by the server's ConnectTimeout, then records
-// the final state under the manager mutex and reports the transition.
-func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, transport string, wrap WrapFn, warnFn, infoFn func(string), stderr io.Writer, onStateChange func()) {
+// the final state under the manager mutex and reports the transition. limits is
+// captured into each tool definition so per-call output bounds and timeouts
+// apply (D19).
+func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, transport string, limits config.LimitsConfig, wrap WrapFn, warnFn, infoFn func(string), stderr io.Writer, onStateChange func()) {
 	defer m.connectWG.Done()
 
 	timeout := time.Duration(srv.ConnectTimeout.Duration())
@@ -189,7 +189,7 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 		if srv.Approval == "deny" {
 			continue
 		}
-		def := mcpToolDef(session, t, func() tool.ApprovalResponder { return m.currentApprover() }, func() bool { return m.planMode }, srv)
+		def := mcpToolDef(session, t, func() tool.ApprovalResponder { return m.currentApprover() }, func() bool { return m.planMode }, srv, limits)
 		m.mu.Lock()
 		m.defs = append(m.defs, def)
 		m.mu.Unlock()

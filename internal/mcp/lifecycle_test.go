@@ -314,6 +314,97 @@ func TestLifecycleReconnectCap(t *testing.T) {
 	}
 }
 
+// TestLifecycleTimeoutNoReconnect proves a timed-out MCP call returns a usable
+// error without triggering reconnect: the server stays connected, no process is
+// respawned, and a follow-up call succeeds on the same session. The per-tool
+// timeout entry (keyed by the full registered tool name) wins over the default.
+func TestLifecycleTimeoutNoReconnect(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+	dir := t.TempDir()
+	startLog := filepath.Join(dir, "start.log")
+	record := filepath.Join(dir, "record.txt")
+
+	cfg := config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"fixture": {
+				Enabled: true,
+				Command: fixtureBin,
+				Env: map[string]string{
+					"STEINER_FIXTURE_RECORD":    record,
+					"STEINER_FIXTURE_START_LOG": startLog,
+				},
+			},
+		},
+	}
+	limits := config.LimitsConfig{
+		ToolTimeoutDefault: config.MustDuration("60s"),
+		ToolTimeouts:       map[string]config.Duration{ToolName("fixture", "sleep"): config.MustDuration("50ms")},
+	}
+
+	tr := &transitionRecorder{name: "fixture"}
+	m := Connect(context.Background(), cfg, limits, nil, false,
+		func(string) {}, func(string) {}, io.Discard, tr.onChange)
+	tr.m.Store(m)
+	defer m.Close() //nolint:errcheck
+	waitInit(t, m)
+	m.UpdateApprover(allowApprover())
+	if st := stateByName(m.ServerStates(), "fixture"); st == nil || st.Status != ServerStatusConnected {
+		t.Fatalf("initial state = %+v, want connected", st)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := findTool(t, m.ToolDefs(), "mcp__fixture__sleep").Handler(ctx, map[string]any{"ms": float64(1000)})
+	if err == nil {
+		t.Fatal("sleep call returned nil error, want a timeout error")
+	}
+	if !strings.Contains(err.Error(), "deadline exceeded") {
+		t.Errorf("sleep error %q does not report the deadline", err)
+	}
+
+	// A deadline is not a transport error, so no reconnect: the status sequence
+	// stays at the single initial connected transition and the start log counts
+	// one spawn. Give any (wrong) reconnect worker time to report before
+	// asserting the sequence.
+	time.Sleep(200 * time.Millisecond)
+	tr.mu.Lock()
+	seq := append([]ServerStatus(nil), tr.seq...)
+	tr.mu.Unlock()
+	if !reflect.DeepEqual(seq, []ServerStatus{ServerStatusConnected}) {
+		t.Errorf("status transitions = %v, want [connected] (timeout must not trigger reconnect)", seq)
+	}
+	if got := countPrefix(t, startLog, "startup="); got != 1 {
+		t.Errorf("startup count = %d, want 1 (timeout must not respawn the server)", got)
+	}
+
+	// The server is still usable: the follow-up echo lands on the same process
+	// once the fixture finishes its sleep.
+	env, err := findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(ctx, map[string]any{"text": "still alive"})
+	if err != nil {
+		t.Fatalf("echo after timeout returned Go error %v, want nil", err)
+	}
+	envelope, ok := env.(tool.JSONEnvelope)
+	if !ok {
+		t.Fatalf("echo result type = %T, want tool.JSONEnvelope", env)
+	}
+	if !envelope.OK || envelope.Result != "still alive" {
+		t.Errorf("echo result = %+v, want OK with %q", envelope, "still alive")
+	}
+
+	// The sleep call reached the server exactly once; the echo once; a single
+	// handshake (no reconnect).
+	if got := countPrefix(t, record, "request_sleep="); got != 1 {
+		t.Errorf("request_sleep count = %d, want 1", got)
+	}
+	if got := countPrefix(t, record, "request_echo="); got != 1 {
+		t.Errorf("request_echo count = %d, want 1", got)
+	}
+	if got := countPrefix(t, record, "protocol_version="); got != 1 {
+		t.Errorf("protocol_version count = %d, want 1 (no reconnect)", got)
+	}
+}
+
 // TestIsTransportError pins the transport-error classifier: connection-closed,
 // EOF, unexpected-EOF, and session-missing errors are transport failures;
 // context cancellation/deadline and JSON-RPC application errors are not.
