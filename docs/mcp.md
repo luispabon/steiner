@@ -111,6 +111,20 @@ in the error style when any server has failed, and the normal row style otherwis
 entirely — not shown as "MCP: off" — when MCP is disabled or nothing is configured, to avoid
 spending sidebar width on users who will never enable MCP.
 
+## Remote HTTP servers
+
+Remote MCP servers are supported over HTTP; see `mcp.servers.<name>.transport` and `mcp.servers.<name>.url` in [docs/configuration.md](configuration.md). The same approval model (`ask`, `allow`, `deny`) applies to remote servers as to stdio servers.
+
+### OAuth for remote servers
+
+OAuth 2.1 + PKCE for remote MCP servers was considered and deliberately deferred. The rationale:
+
+- **Test coverage unavailable.** No test peer was available to develop and validate the integration.
+- **SDK support exists.** The MCP SDK already provides `StreamableClientTransport.OAuthHandler` for pluggable OAuth handlers; a user who needs it can open an issue with their use case.
+- **Alternative shipped instead.** Static headers (via `mcp.servers.<name>.headers`) ship in this round to unblock deployments that need bearer tokens or other immutable credentials.
+
+A future issue (#XYZ, once opened by a user) should implement OAuth by configuring `OAuthHandler` on the client transport.
+
 ## Deferred
 
 The following are intentionally not part of this work:
