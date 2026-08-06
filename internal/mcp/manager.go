@@ -164,7 +164,14 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 	// timeout-bounded one, because the stdio transport binds the server process
 	// to the context it was started with: cancelling it after a successful
 	// connect would kill the session.
-	session, err := ConnectSession(m.ctx, spec, wrap, stderr, timeout)
+	session, err := ConnectSession(m.ctx, spec, wrap, stderr, timeout, SessionOptions{
+		ManagerCtx: m.ctx,
+		OnStatus: func(status ServerStatus, reconnectErr error) {
+			// Reconnect lifecycle: connected→reconnecting→connected/unavailable.
+			// Runs on the session's reconnect worker goroutine.
+			m.updateServerStatus(spec.Name, status, reconnectErr, onStateChange)
+		},
+	})
 	if err != nil {
 		warnFn(fmt.Sprintf("MCP server %q failed to connect: %v", spec.Name, err))
 		m.setServerState(ServerState{Name: spec.Name, Status: ServerStatusFailed, Transport: transport, Err: err.Error()})
@@ -201,6 +208,31 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 		ProtocolVersion: session.ProtocolVersion(),
 	})
 	onStateChange()
+}
+
+// updateServerStatus transitions one server's status in place, preserving its
+// other state fields (tools, protocol version, transport). onStateChange fires
+// only when the status actually changed, so repeated reports of the same status
+// emit nothing.
+func (m *Manager) updateServerStatus(name string, status ServerStatus, err error, onStateChange func()) {
+	m.mu.Lock()
+	for i := range m.states {
+		if m.states[i].Name == name {
+			if m.states[i].Status == status {
+				m.mu.Unlock()
+				return
+			}
+			m.states[i].Status = status
+			m.states[i].Err = ""
+			if err != nil {
+				m.states[i].Err = err.Error()
+			}
+			m.mu.Unlock()
+			onStateChange()
+			return
+		}
+	}
+	m.mu.Unlock()
 }
 
 // setServerState records s under the manager mutex, replacing any earlier

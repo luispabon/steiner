@@ -28,8 +28,19 @@ func main() {
 	stallHandshake := os.Getenv("STEINER_FIXTURE_STALL_HANDSHAKE") == "1"
 	dieEnabled := os.Getenv("STEINER_FIXTURE_ENABLE_DIE") == "1"
 	startLogPath := os.Getenv("STEINER_FIXTURE_START_LOG")
+	crashFile := os.Getenv("STEINER_FIXTURE_CRASH_FILE")
 
 	appendStartupLog(startLogPath)
+
+	// Crash-loop mode: when the crash file exists at startup, exit immediately
+	// so a reconnect attempt fails fast at the handshake. Tests create the file
+	// after the initial connect, so only respawns crash. The startup line above
+	// is written first so the start log counts every respawn.
+	if crashFile != "" {
+		if _, err := os.Stat(crashFile); err == nil {
+			os.Exit(1)
+		}
+	}
 
 	if touchPath != "" {
 		err := os.WriteFile(touchPath, []byte("touch\n"), 0o644)
