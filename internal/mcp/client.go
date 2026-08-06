@@ -1,7 +1,6 @@
-// Package mcp connects steiner to Model Context Protocol servers over stdio.
-// This is step-1 of the MCP walking skeleton: a long-lived server subprocess
-// with JSON-RPC pipes crossing the (optional) bwrap sandbox boundary, plus
-// process-group reaping so killing a session leaves no orphans.
+// Package mcp connects steiner to Model Context Protocol servers over stdio
+// or HTTP transports. It handles transport construction, MCP handshake,
+// protocol negotiation, and server lifecycle management.
 package mcp
 
 import (
@@ -21,12 +20,20 @@ const connectTimeout = 30 * time.Second
 // and is not importable from internal packages.
 const clientVersion = "dev"
 
-// ServerSpec describes a stdio MCP server to launch.
+// ServerSpec describes one MCP server to connect to. Transport selects which of the
+// two field groups applies; config validation guarantees the other group is empty.
 type ServerSpec struct {
-	Name    string
+	Name      string
+	Transport string // "stdio" or "http"; empty is treated as "stdio"
+
+	// stdio
 	Command string
 	Args    []string
 	Env     map[string]string
+
+	// http
+	URL     string
+	Headers map[string]string
 }
 
 // Session is a connected stdio MCP server.
@@ -38,15 +45,30 @@ type Session struct {
 	protocolVersion string
 }
 
-// ConnectSession launches the server described by spec, optionally wrapped (e.g.
-// with the sandbox), and completes the MCP handshake. The negotiated protocol
-// version and the server's tool list are captured; ListTools is called exactly
-// once per session.
+// ConnectSession establishes a connection to an MCP server and completes the
+// handshake. It dispatches to stdio or HTTP transport based on spec.Transport.
+// For stdio, the server described by spec is launched, optionally wrapped (e.g.
+// with the sandbox); for HTTP, a request is made to the configured endpoint.
+// The negotiated protocol version and the server's tool list are captured;
+// ListTools is called exactly once per session.
 func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer) (*Session, error) {
-	cmd := buildCommand(ctx, spec, wrap, stderr)
+	var transport mcpsdk.Transport
+	var cmd *exec.Cmd
+
+	switch spec.Transport {
+	case "http":
+		var err error
+		transport, err = newHTTPTransport(spec)
+		if err != nil {
+			return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
+		}
+	case "", "stdio":
+		transport, cmd = newStdioTransport(ctx, spec, wrap, stderr)
+	default:
+		return nil, fmt.Errorf("connect mcp server %q: unsupported transport %q", spec.Name, spec.Transport)
+	}
 
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "steiner", Version: clientVersion}, nil)
-	transport := &mcpsdk.CommandTransport{Command: cmd}
 
 	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
