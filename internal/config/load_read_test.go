@@ -7,7 +7,7 @@ import (
 )
 
 func TestParseConfigPatchPreservesParamsAndExtraParams(t *testing.T) {
-	patch, err := parseConfigPatch("test.yaml", `models:
+	patch, err := parseConfigPatch(`models:
   definitions:
     default:
       provider: local
@@ -78,7 +78,7 @@ func TestParseConfigPatchPreservesParamsAndExtraParams(t *testing.T) {
 }
 
 func TestParseConfigPatchModelsSubAgents(t *testing.T) {
-	patch, err := parseConfigPatch("test.yaml", `sub_agent:
+	patch, err := parseConfigPatch(`sub_agent:
   enabled: true
   max_turns: 10
   max_tokens: 50000
@@ -143,7 +143,7 @@ func TestSubAgentConfigYAMLParsing(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			patch, err := parseConfigPatch("test.yaml", tt.yaml)
+			patch, err := parseConfigPatch(tt.yaml)
 			if err != nil {
 				t.Fatalf("parseConfigPatch() error = %v", err)
 			}
@@ -199,7 +199,7 @@ func TestParseConfigPatchRejectsUnknownFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := parseConfigPatch("test.yaml", tt.yaml)
+			_, err := parseConfigPatch(tt.yaml)
 			if err == nil {
 				t.Fatalf("parseConfigPatch() error = nil, want substring %q", tt.wantErr)
 			}

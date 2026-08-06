@@ -98,7 +98,7 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 }
 
 func TestAdvisorConfigPatchAndYAMLParsing(t *testing.T) {
-	patch, err := parseConfigPatch("test.yaml", `advisor:
+	patch, err := parseConfigPatch(`advisor:
   enabled: true
   max_uses_per_run: 2
   max_tokens: 512
@@ -135,7 +135,7 @@ models:
 }
 
 func TestOneShotConfigPatchAndYAMLParsing(t *testing.T) {
-	patch, err := parseConfigPatch("test.yaml", `oneshot:
+	patch, err := parseConfigPatch(`oneshot:
   auto_pr: true
 models:
   oneshot:

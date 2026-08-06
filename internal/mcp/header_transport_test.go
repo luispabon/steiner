@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -68,7 +69,7 @@ func TestHeaderTransport(t *testing.T) {
 			}
 
 			// Create a request with the caller's headers.
-			req, err := http.NewRequest("GET", srv.URL, nil)
+			req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
 			if err != nil {
 				t.Fatalf("NewRequest failed: %v", err)
 			}
@@ -87,7 +88,7 @@ func TestHeaderTransport(t *testing.T) {
 			if err != nil {
 				t.Fatalf("client.Do failed: %v", err)
 			}
-			resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			// Assert expected headers reached the server.
 			for k, v := range tt.expectedHeaders {
@@ -148,7 +149,7 @@ func TestHeaderTransportBaseNilUseDefaultTransport(t *testing.T) {
 	}
 
 	// Execute the request.
-	req, err := http.NewRequest("GET", srv.URL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
 	if err != nil {
 		t.Fatalf("NewRequest failed: %v", err)
 	}
@@ -157,7 +158,7 @@ func TestHeaderTransportBaseNilUseDefaultTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client.Do failed: %v", err)
 	}
-	resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Assert the configured header reached the server via the default transport.
 	if got := recordedHeaders.Get("X-Custom"); got != "value" {
@@ -169,7 +170,7 @@ func TestHeaderTransportRequestNotMutated(t *testing.T) {
 	// This test explicitly verifies that request cloning works:
 	// if the clone line is removed, this test should fail.
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -180,7 +181,7 @@ func TestHeaderTransportRequestNotMutated(t *testing.T) {
 		},
 	}
 
-	req, err := http.NewRequest("GET", srv.URL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
 	if err != nil {
 		t.Fatalf("NewRequest failed: %v", err)
 	}
@@ -195,7 +196,7 @@ func TestHeaderTransportRequestNotMutated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client.Do failed: %v", err)
 	}
-	resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// After RoundTrip returns, the original request must still not have the injected header.
 	// This verifies that req.Clone was called and the original was not mutated.

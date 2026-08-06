@@ -241,7 +241,7 @@ type httpHeaderRecorder struct {
 // newTestMCPServer creates a test HTTP server with a single "test_tool" that
 // echoes its "text" argument. If recorder is non-nil, headers from the
 // initialize request are recorded in it.
-func newTestMCPServer(t *testing.T, recorder *httpHeaderRecorder) *httptest.Server {
+func newTestMCPServer(_ *testing.T, recorder *httpHeaderRecorder) *httptest.Server {
 	server := mcpsdk.NewServer(
 		&mcpsdk.Implementation{Name: "test", Version: "1.0"},
 		nil,
@@ -257,7 +257,7 @@ func newTestMCPServer(t *testing.T, recorder *httpHeaderRecorder) *httptest.Serv
 			},
 			"required": []string{"text"},
 		},
-	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, args struct {
+	}, func(_ context.Context, _ *mcpsdk.CallToolRequest, args struct {
 		Text string `json:"text"`
 	}) (*mcpsdk.CallToolResult, any, error) {
 		return &mcpsdk.CallToolResult{

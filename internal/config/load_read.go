@@ -88,7 +88,8 @@ func marshalCleanConfigNode(path string, rawMapping *yaml.Node) ([]byte, error) 
 	return cleaned, nil
 }
 
-func parseConfigPatch(path, contents string) (configPatch, error) {
+func parseConfigPatch(contents string) (configPatch, error) {
+	const path = "test.yaml"
 	root, err := decodeConfigNode(path, contents)
 	if err != nil {
 		return configPatch{}, err

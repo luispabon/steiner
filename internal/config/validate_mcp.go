@@ -28,46 +28,9 @@ func validateMCPConfig(problems *[]string, cfg MCPConfig) {
 			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.transport: %q is not supported (must be stdio or http)", name, srv.Transport))
 		}
 
-		// Per-transport field validation.
-		if transport == "stdio" {
-			if srv.Command == "" {
-				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.command is required", name))
-			}
-			if srv.URL != "" {
-				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: must be empty for stdio transport", name))
-			}
-			if len(srv.Headers) > 0 {
-				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: must be empty for stdio transport", name))
-			}
-		} else if transport == "http" {
-			if srv.URL == "" {
-				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url is required", name))
-			}
-			if srv.Command != "" {
-				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.command: must be empty for http transport", name))
-			}
-			if len(srv.Args) > 0 {
-				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.args: must be empty for http transport", name))
-			}
-			if len(srv.Env) > 0 {
-				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.env: must be empty for http transport", name))
-			}
-		}
-
-		// Validate URL if present.
-		if srv.URL != "" {
-			parsed, err := url.Parse(srv.URL)
-			if err != nil {
-				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: %v", name, err))
-			} else {
-				if parsed.Scheme != "http" && parsed.Scheme != "https" {
-					*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: unsupported scheme %q (must be http or https)", name, parsed.Scheme))
-				}
-				if parsed.Host == "" {
-					*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: must have a non-empty host", name))
-				}
-			}
-		}
+		// Per-transport field validation and URL validation.
+		validateMCPTransportFields(problems, name, transport, srv)
+		validateMCPURL(problems, name, srv.URL)
 
 		// Validate header names.
 		validateMCPHeaders(problems, name, srv.Headers)
@@ -76,6 +39,51 @@ func validateMCPConfig(problems *[]string, cfg MCPConfig) {
 		if srv.Approval != "" && srv.Approval != "ask" && srv.Approval != "allow" && srv.Approval != "deny" {
 			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.approval: %q is invalid (must be ask, allow, or deny)", name, srv.Approval))
 		}
+	}
+}
+
+func validateMCPTransportFields(problems *[]string, name, transport string, srv MCPServerConfig) {
+	switch transport {
+	case "stdio":
+		if srv.Command == "" {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.command is required", name))
+		}
+		if srv.URL != "" {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: must be empty for stdio transport", name))
+		}
+		if len(srv.Headers) > 0 {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: must be empty for stdio transport", name))
+		}
+	case "http":
+		if srv.URL == "" {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url is required", name))
+		}
+		if srv.Command != "" {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.command: must be empty for http transport", name))
+		}
+		if len(srv.Args) > 0 {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.args: must be empty for http transport", name))
+		}
+		if len(srv.Env) > 0 {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.env: must be empty for http transport", name))
+		}
+	}
+}
+
+func validateMCPURL(problems *[]string, name, rawURL string) {
+	if rawURL == "" {
+		return
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: %v", name, err))
+		return
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: unsupported scheme %q (must be http or https)", name, parsed.Scheme))
+	}
+	if parsed.Host == "" {
+		*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: must have a non-empty host", name))
 	}
 }
 
@@ -135,19 +143,13 @@ func isValidHTTPToken(s string) bool {
 	return true
 }
 
+const httpTokenExtraChars = "!#$%&'*+-.^_`|~"
+
 func isTokenChar(b byte) bool {
 	switch {
-	case b >= '0' && b <= '9':
-		return true
-	case b >= 'A' && b <= 'Z':
-		return true
-	case b >= 'a' && b <= 'z':
-		return true
-	case b == '!' || b == '#' || b == '$' || b == '%' || b == '&' || b == '\'' ||
-		b == '*' || b == '+' || b == '-' || b == '.' || b == '^' || b == '_' ||
-		b == '`' || b == '|' || b == '~':
+	case b >= '0' && b <= '9', b >= 'A' && b <= 'Z', b >= 'a' && b <= 'z':
 		return true
 	default:
-		return false
+		return strings.IndexByte(httpTokenExtraChars, b) >= 0
 	}
 }

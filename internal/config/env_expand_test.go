@@ -229,7 +229,7 @@ func TestExpandNodeTreeNeverExpandsKeys(t *testing.T) {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 
-	missing := expandNodeTree(&root, func(name string) (string, bool) {
+	missing := expandNodeTree(&root, func(_ string) (string, bool) {
 		return "expanded", true
 	})
 
@@ -258,7 +258,7 @@ reference: *ref
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 
-	missing := expandNodeTree(&root, func(name string) (string, bool) {
+	missing := expandNodeTree(&root, func(_ string) (string, bool) {
 		return "", false
 	})
 
@@ -276,7 +276,7 @@ func TestExpandNodeTreeEmptyFile(t *testing.T) {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 
-	missing := expandNodeTree(&root, func(name string) (string, bool) {
+	missing := expandNodeTree(&root, func(_ string) (string, bool) {
 		return "", false
 	})
 
