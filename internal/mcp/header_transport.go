@@ -22,12 +22,13 @@ type headerTransport struct {
 // RoundTrip injects configured headers onto the request and delegates to the base transport.
 // The caller's request is not modified; a clone is made if headers need to be set.
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if t.base == nil {
-		t.base = http.DefaultTransport
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
 	}
 
 	if len(t.headers) == 0 {
-		return t.base.RoundTrip(req)
+		return base.RoundTrip(req)
 	}
 
 	// Clone the request to avoid mutating the caller's request.
@@ -44,5 +45,5 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Header.Set(k, t.headers[k])
 	}
 
-	return t.base.RoundTrip(req)
+	return base.RoundTrip(req)
 }

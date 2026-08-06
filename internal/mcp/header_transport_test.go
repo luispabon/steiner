@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 )
 
@@ -203,4 +204,44 @@ func TestHeaderTransportRequestNotMutated(t *testing.T) {
 	if got := req.Header.Get("X-Injected"); got != "" {
 		t.Errorf("original request was mutated; X-Injected header = %q, want absent", got)
 	}
+}
+
+func TestHeaderTransportConcurrentRoundTrip(t *testing.T) {
+	// This test drives concurrent RoundTrip calls through a headerTransport
+	// to catch data races on t.base assignment.
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := &http.Client{
+		Transport: &headerTransport{
+			headers: map[string]string{"X-Test": "value"},
+		},
+	}
+
+	const numConcurrent = 16
+	var wg sync.WaitGroup
+	wg.Add(numConcurrent)
+
+	for i := 0; i < numConcurrent; i++ {
+		go func() {
+			defer wg.Done()
+			req, err := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
+			if err != nil {
+				t.Errorf("NewRequest failed: %v", err)
+				return
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Errorf("client.Do failed: %v", err)
+				return
+			}
+			_ = resp.Body.Close()
+		}()
+	}
+
+	wg.Wait()
 }

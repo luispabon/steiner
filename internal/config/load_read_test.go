@@ -209,3 +209,27 @@ func TestParseConfigPatchRejectsUnknownFields(t *testing.T) {
 		})
 	}
 }
+
+// parseConfigPatch reads a YAML config snippet and returns it as a patch.
+// This is a test-only helper used by config unit tests.
+func parseConfigPatch(contents string) (configPatch, error) {
+	const path = "test.yaml"
+	root, err := decodeConfigNode(path, contents)
+	if err != nil {
+		return configPatch{}, err
+	}
+
+	if root.Kind == 0 {
+		return configPatch{}, nil
+	}
+
+	cleaned, err := marshalCleanConfigNode(path, root)
+	if err != nil {
+		return configPatch{}, err
+	}
+	var patch configPatch
+	if err := decodeKnownConfigPatch(cleaned, &patch); err != nil {
+		return configPatch{}, err
+	}
+	return patch, nil
+}

@@ -18,7 +18,7 @@ type undefinedVar struct {
 // references that do not resolve instead of silently dropping them.
 type envExpander struct {
 	lookup  func(string) (string, bool)
-	missing []string // names collected during the current expand call
+	missing []string // names collected during the current expand call; includes unresolved references found inside default expressions but not the defaulted name itself
 }
 
 // expand returns the expanded string plus the names of unresolved references found in it.
@@ -79,7 +79,8 @@ func (e *envExpander) expandBraceToken(input string, i int, b *strings.Builder) 
 	if value, ok := e.lookup(name); ok && value != "" {
 		b.WriteString(value)
 	} else if hasDefault {
-		expanded, missing := e.expand(defaultValue)
+		sub := &envExpander{lookup: e.lookup}
+		expanded, missing := sub.expand(defaultValue)
 		b.WriteString(expanded)
 		e.missing = append(e.missing, missing...)
 	} else if !ok {

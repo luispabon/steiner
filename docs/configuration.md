@@ -574,7 +574,7 @@ Each server entry (`MCPServerConfig`) supports:
 | `args`              | []string           | —           | Arguments passed to the command. Used only with `stdio` transport; must be empty for `http`. |
 | `env`               | map[string]string  | —           | Extra environment variables for the server process. Used only with `stdio` transport; must be empty for `http`. |
 | `url`               | string             | —           | HTTP endpoint (http or https). Required for `http` transport; must be empty for `stdio`. |
-| `headers`           | map[string]string  | —           | HTTP headers sent with every request. Used only with `http` transport; must be empty for `stdio`. Header names cannot collide with SDK-reserved names (case-insensitive): `Content-Type`, `Accept`, `Mcp-Protocol-Version`, `Mcp-Session-Id`, `Last-Event-Id`, `Mcp-Method`, `Mcp-Name`, or names with the `Mcp-Param-` prefix. `Authorization` is allowed for static bearer tokens sourced from `${VAR}` (step-1's strict env expansion). |
+| `headers`           | map[string]string  | —           | HTTP headers sent with every request. Used only with `http` transport; must be empty for `stdio`. Header names cannot collide with SDK-reserved names (case-insensitive): `Content-Type`, `Accept`, `Mcp-Protocol-Version`, `Mcp-Session-Id`, `Last-Event-Id`, `Mcp-Method`, `Mcp-Name`, or names with the `Mcp-Param-` prefix. `Authorization` is allowed for static bearer tokens sourced from `${VAR}` (see [environment variable expansion](#environment-variable-expansion-in-config-values)). |
 | `approval`          | string             | `"ask"`     | Approval mode for the server's tools. One of `ask` (prompt per tool call), `allow` (run without prompting in build mode, downgraded to `ask` in plan mode), or `deny` (register no tools). |
 | `trust_annotations` | bool               | `false`     | When `true`, tools advertised with `readOnlyHint: true` skip approval; `destructiveHint` and `openWorldHint` tools still prompt. |
 
@@ -597,7 +597,7 @@ mcp:
       approval: ask
 ```
 
-When using `http` transport with an `Authorization` header, use the strict env expansion syntax (e.g. `${VAR}`) to inject environment variables. See the [strict env expansion section](#strict-env-expansion-for-scalar-values) for details.
+When using `http` transport with an `Authorization` header, use the strict env expansion syntax (e.g. `${VAR}`) to inject environment variables. See the [environment variable expansion](#environment-variable-expansion-in-config-values) section for details.
 
 ---
 

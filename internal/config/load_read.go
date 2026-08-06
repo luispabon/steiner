@@ -88,28 +88,6 @@ func marshalCleanConfigNode(path string, rawMapping *yaml.Node) ([]byte, error) 
 	return cleaned, nil
 }
 
-func parseConfigPatch(contents string) (configPatch, error) {
-	const path = "test.yaml"
-	root, err := decodeConfigNode(path, contents)
-	if err != nil {
-		return configPatch{}, err
-	}
-
-	if root.Kind == 0 {
-		return configPatch{}, nil
-	}
-
-	cleaned, err := marshalCleanConfigNode(path, root)
-	if err != nil {
-		return configPatch{}, err
-	}
-	var patch configPatch
-	if err := decodeKnownConfigPatch(cleaned, &patch); err != nil {
-		return configPatch{}, fmt.Errorf("parse config %q: %w", path, err)
-	}
-	return patch, nil
-}
-
 func decodeKnownConfigPatch(cleaned []byte, patch *configPatch) error {
 	dec := yaml.NewDecoder(strings.NewReader(string(cleaned)))
 	dec.KnownFields(true)

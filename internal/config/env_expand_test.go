@@ -132,6 +132,34 @@ func TestEnvExpanderBasicExpansion(t *testing.T) {
 			env:   map[string]string{"PORT": "8080"},
 			want:  "8080",
 		},
+		{
+			name:    "undefined before default collected",
+			input:   "${UNSET_ONE} and ${UNSET_TWO:-fallback}",
+			env:     map[string]string{},
+			want:    " and fallback",
+			wantErr: []string{"UNSET_ONE"},
+		},
+		{
+			name:    "undefined after default collected",
+			input:   "${A:-x}${UNSET_TWO}",
+			env:     map[string]string{},
+			want:    "x",
+			wantErr: []string{"UNSET_TWO"},
+		},
+		{
+			name:    "undefined before and after default both collected",
+			input:   "${U1} ${A:-x} ${U2}",
+			env:     map[string]string{},
+			want:    " x ",
+			wantErr: []string{"U1", "U2"},
+		},
+		{
+			name:    "undefined variable used in non-default context",
+			input:   "${UNSET_VAR:-}${USED_LATER}",
+			env:     map[string]string{},
+			want:    "",
+			wantErr: []string{"USED_LATER"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

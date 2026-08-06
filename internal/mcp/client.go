@@ -36,7 +36,7 @@ type ServerSpec struct {
 	Headers map[string]string
 }
 
-// Session is a connected stdio MCP server.
+// Session is a connected MCP server, over either the stdio or HTTP transport.
 type Session struct {
 	name            string
 	sdk             *mcpsdk.ClientSession
@@ -115,7 +115,7 @@ func (s *Session) Call(ctx context.Context, toolName string, args map[string]any
 	return s.sdk.CallTool(ctx, &mcpsdk.CallToolParams{Name: toolName, Arguments: args})
 }
 
-// Close shuts the session down and reaps the server process.
+// Close shuts the session down. For stdio transport, it reaps the server process.
 func (s *Session) Close() error {
 	return s.sdk.Close()
 }

@@ -1249,6 +1249,42 @@ func TestMCPConfigValidation(t *testing.T) {
 			wantErr: `mcp.servers.example.headers: header name "X\nCustom" contains invalid characters`,
 		},
 		{
+			name: "header with non-ASCII rune in name rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"Ł": "value"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header name "Ł" contains invalid characters`,
+		},
+		{
+			name: "header with emoji in name rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"X-Ok✓": "value"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header name "X-Ok✓" contains invalid characters`,
+		},
+		{
+			name: "header with newline in value rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"X-Custom": "value\ninjection"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "X-Custom" has a value containing a newline or carriage return`,
+		},
+		{
+			name: "header with carriage return in value rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"X-Custom": "value\rinjection"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "X-Custom" has a value containing a newline or carriage return`,
+		},
+		{
 			name: "server name with __ delimiter rejected",
 			cfg: MCPConfig{
 				Servers: map[string]MCPServerConfig{

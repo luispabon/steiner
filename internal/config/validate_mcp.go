@@ -98,7 +98,7 @@ func validateMCPHeaders(problems *[]string, serverName string, headers map[strin
 		"Mcp-Name":             true,
 	}
 
-	for name := range headers {
+	for name, value := range headers {
 		if name == "" {
 			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: header name must not be empty", serverName))
 			continue
@@ -126,6 +126,11 @@ func validateMCPHeaders(problems *[]string, serverName string, headers map[strin
 		if strings.HasPrefix(strings.ToLower(canonical), "mcp-param-") {
 			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: header %q uses reserved Mcp-Param- prefix", serverName, name))
 		}
+
+		// Check for CR/LF in header value.
+		if strings.ContainsAny(value, "\r\n") {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: header %q has a value containing a newline or carriage return", serverName, name))
+		}
 	}
 }
 
@@ -135,8 +140,8 @@ func isValidHTTPToken(s string) bool {
 	if len(s) == 0 {
 		return false
 	}
-	for _, b := range s {
-		if !isTokenChar(byte(b)) {
+	for i := 0; i < len(s); i++ {
+		if !isTokenChar(s[i]) {
 			return false
 		}
 	}
