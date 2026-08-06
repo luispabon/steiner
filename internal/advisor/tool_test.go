@@ -3,12 +3,16 @@ package advisor
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 type toolSink struct {
@@ -229,6 +233,201 @@ func TestNewHandlerAppendsMarkerOnMaxTokensTruncation(t *testing.T) {
 	}
 	if !completed.Truncated {
 		t.Fatal("completed.Truncated = false, want true")
+	}
+}
+
+func TestToolDefSchemaExposesQuestionAndFiles(t *testing.T) {
+	t.Parallel()
+
+	def := ToolDef(nil)
+	props, ok := def.ParameterSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %T, want map[string]any", def.ParameterSchema["properties"])
+	}
+	if _, ok := props["question"]; !ok {
+		t.Fatal("schema missing question property")
+	}
+	if _, ok := props["files"]; !ok {
+		t.Fatal("schema missing files property")
+	}
+	required, hasRequired := def.ParameterSchema["required"]
+	if hasRequired {
+		t.Fatalf("required = %#v, want no required fields", required)
+	}
+}
+
+func newAdvisorTestPolicy(t *testing.T) (string, *tool.PathPolicy) {
+	t.Helper()
+	workDir := t.TempDir()
+	policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	return workDir, &policy
+}
+
+func TestHandlerRejectsTooManyFilesWithoutConsumingUse(t *testing.T) {
+	t.Parallel()
+
+	workDir, policy := newAdvisorTestPolicy(t)
+	prov := &fakeProvider{
+		response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}},
+	}
+	handler := NewHandler(HandlerDeps{
+		Provider:   prov,
+		Model:      provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Config:     Config{MaxUsesPerRun: 2},
+		WorkDir:    workDir,
+		PathPolicy: policy,
+	})
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+	})
+
+	paths := make([]any, maxAdvisorFiles+1)
+	for i := range paths {
+		paths[i] = "f.md"
+	}
+
+	_, err := handler(ctx, map[string]any{"files": paths})
+	if err == nil {
+		t.Fatal("handler() error = nil, want too-many-files error")
+	}
+
+	got, err := handler(ctx, nil)
+	if err != nil {
+		t.Fatalf("follow-up handler() error = %v", err)
+	}
+	if got != "note" {
+		t.Fatalf("handler() = %#v, want first successful call to still be use 1", got)
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider calls = %d, want 1 (rejected call must not reach the provider)", len(prov.requests))
+	}
+}
+
+func TestHandlerRejectsMissingFileWithoutConsumingUse(t *testing.T) {
+	t.Parallel()
+
+	workDir, policy := newAdvisorTestPolicy(t)
+	prov := &fakeProvider{
+		response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}},
+	}
+	handler := NewHandler(HandlerDeps{
+		Provider:   prov,
+		Model:      provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Config:     Config{MaxUsesPerRun: 1},
+		WorkDir:    workDir,
+		PathPolicy: policy,
+	})
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+	})
+
+	_, err := handler(ctx, map[string]any{"files": []any{"missing.md"}})
+	if err == nil {
+		t.Fatal("handler() error = nil, want missing-file error")
+	}
+
+	// A malformed call must not have consumed the sole allotted use.
+	got, err := handler(ctx, nil)
+	if err != nil {
+		t.Fatalf("follow-up handler() error = %v", err)
+	}
+	if got != "note" {
+		t.Fatalf("handler() = %#v, want the use budget still available", got)
+	}
+}
+
+func TestHandlerRejectsPathOutsidePolicyWithoutConsumingUse(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	blockedDir := filepath.Join(workDir, "secret")
+	if err := os.Mkdir(blockedDir, 0o755); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(blockedDir, "value.txt"), []byte("shh"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	policy := tool.NewPathPolicy(workDir, config.PathsConfig{BlockedPaths: []string{"secret"}})
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}},
+	}
+	handler := NewHandler(HandlerDeps{
+		Provider:   prov,
+		Model:      provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Config:     Config{MaxUsesPerRun: 1},
+		WorkDir:    workDir,
+		PathPolicy: &policy,
+	})
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+	})
+
+	_, err := handler(ctx, map[string]any{"files": []any{"secret/value.txt"}})
+	if err == nil {
+		t.Fatal("handler() error = nil, want blocked-path error")
+	}
+
+	got, err := handler(ctx, nil)
+	if err != nil {
+		t.Fatalf("follow-up handler() error = %v", err)
+	}
+	if got != "note" {
+		t.Fatalf("handler() = %#v, want the use budget still available", got)
+	}
+}
+
+func TestHandlerValidCallWithFilesIncrementsUseAndReachesProvider(t *testing.T) {
+	t.Parallel()
+
+	workDir, policy := newAdvisorTestPolicy(t)
+	if err := os.WriteFile(filepath.Join(workDir, "plan.yaml"), []byte("steps: []\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	prov := &fakeProvider{
+		response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}},
+	}
+	sink := &toolSink{}
+	handler := NewHandler(HandlerDeps{
+		Provider:   prov,
+		Model:      provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Events:     sink,
+		Config:     Config{MaxUsesPerRun: 1},
+		WorkDir:    workDir,
+		PathPolicy: policy,
+	})
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+	})
+
+	got, err := handler(ctx, map[string]any{"files": []any{"plan.yaml"}, "question": "is this sound?"})
+	if err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+	if got != "note" {
+		t.Fatalf("handler() = %#v, want advisor note", got)
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(prov.requests))
+	}
+	last := prov.requests[0].Messages[len(prov.requests[0].Messages)-1]
+	if !strings.Contains(last.Content, "steps: []") {
+		t.Fatalf("provider request missing file content: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "is this sound?") {
+		t.Fatalf("provider request missing question: %q", last.Content)
+	}
+
+	// The budget is now exhausted; a second call must not reach the provider.
+	second, err := handler(ctx, nil)
+	if err != nil {
+		t.Fatalf("second handler() error = %v", err)
+	}
+	if second == "note" {
+		t.Fatal("second handler() reached the provider, want budget-exhausted message")
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider calls after exhaustion = %d, want 1", len(prov.requests))
 	}
 }
 

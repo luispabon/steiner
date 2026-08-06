@@ -485,6 +485,126 @@ func TestFlattenToolMessagesDoesNotMutateOriginalArguments(t *testing.T) {
 	}
 }
 
+func TestBuildMessagesEmptyFilesAndQuestionMatchesLegacyOutput(t *testing.T) {
+	snapshot := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+	}
+
+	got := buildMessages(snapshot, "", nil)
+	want := []provider.Message{
+		{Role: provider.MessageRoleSystem, Content: advisorSystemPrompt},
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+		{Role: provider.MessageRoleUser, Content: advisorUserPrompt},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len(messages) = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].Role != want[i].Role || got[i].Content != want[i].Content {
+			t.Fatalf("messages[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBuildMessagesOrdersFilesAndQuestionAfterSnapshot(t *testing.T) {
+	snapshot := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+		{Role: provider.MessageRoleAssistant, Content: "on it"},
+	}
+	files := []advisorFile{
+		{DisplayPath: ".steiner/plans/x/overview.md", Content: "## Overview\ndo the thing"},
+		{DisplayPath: ".steiner/plans/x/plan.yaml", Content: "steps: []"},
+	}
+
+	got := buildMessages(snapshot, "is this sound?", files)
+
+	// system prompt, then snapshot (2 msgs), then the single trailing suffix message.
+	wantLen := 1 + len(snapshot) + 1
+	if len(got) != wantLen {
+		t.Fatalf("len(messages) = %d, want %d", len(got), wantLen)
+	}
+	if got[0].Role != provider.MessageRoleSystem {
+		t.Fatalf("messages[0].Role = %q, want system", got[0].Role)
+	}
+	if got[1].Content != "fix it" || got[2].Content != "on it" {
+		t.Fatalf("snapshot messages not preserved in order: %#v", got[1:3])
+	}
+
+	last := got[len(got)-1]
+	if last.Role != provider.MessageRoleUser {
+		t.Fatalf("last message role = %q, want user", last.Role)
+	}
+	if !strings.Contains(last.Content, "overview.md") || !strings.Contains(last.Content, "do the thing") {
+		t.Fatalf("last message missing first file content: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "plan.yaml") || !strings.Contains(last.Content, "steps: []") {
+		t.Fatalf("last message missing second file content: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "is this sound?") {
+		t.Fatalf("last message missing question: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, advisorUserPrompt) {
+		t.Fatalf("last message missing closing instruction: %q", last.Content)
+	}
+	// files must precede the question, which must precede the closing instruction.
+	filesIdx := strings.Index(last.Content, "do the thing")
+	questionIdx := strings.Index(last.Content, "is this sound?")
+	closingIdx := strings.Index(last.Content, advisorUserPrompt)
+	if filesIdx >= questionIdx || questionIdx >= closingIdx {
+		t.Fatalf("suffix ordering wrong: filesIdx=%d questionIdx=%d closingIdx=%d", filesIdx, questionIdx, closingIdx)
+	}
+}
+
+func TestBuildMessagesTruncatesOversizedFile(t *testing.T) {
+	large := strings.Repeat("a", maxAdvisorFileBytes+500)
+	files := []advisorFile{{DisplayPath: "big.txt", Content: large}}
+
+	got := buildMessages(nil, "", files)
+	last := got[len(got)-1]
+	marker := elide(large, maxAdvisorFileBytes)
+	if !strings.Contains(last.Content, "…[elided,") {
+		t.Fatalf("content missing elision marker: %q", last.Content)
+	}
+	if strings.Contains(last.Content, large) {
+		t.Fatal("content still contains full untruncated file")
+	}
+	if !strings.Contains(last.Content, marker) {
+		t.Fatalf("content missing expected truncated prefix: %q", last.Content)
+	}
+}
+
+func TestBuildMessagesTruncatesAggregateAcrossFiles(t *testing.T) {
+	// Four files individually at the per-file cap but collectively over the
+	// aggregate cap (4 * maxAdvisorFileBytes > maxAdvisorFilesTotalBytes).
+	each := strings.Repeat("b", maxAdvisorFileBytes)
+	files := []advisorFile{
+		{DisplayPath: "one.txt", Content: each},
+		{DisplayPath: "two.txt", Content: each},
+		{DisplayPath: "three.txt", Content: each},
+		{DisplayPath: "four.txt", Content: each},
+	}
+
+	got := buildMessages(nil, "", files)
+	last := got[len(got)-1]
+	if !strings.Contains(last.Content, "…[elided,") {
+		t.Fatalf("content missing elision marker for aggregate cap: %q", last.Content)
+	}
+}
+
+func TestBuildMessagesTruncatesQuestion(t *testing.T) {
+	longQuestion := strings.Repeat("q", maxAdvisorQuestionBytes+200)
+
+	got := buildMessages(nil, longQuestion, nil)
+	last := got[len(got)-1]
+	if strings.Contains(last.Content, longQuestion) {
+		t.Fatal("content still contains full untruncated question")
+	}
+	marker := elide(longQuestion, maxAdvisorQuestionBytes)
+	if !strings.Contains(last.Content, marker) {
+		t.Fatalf("content missing truncated question prefix: %q", last.Content)
+	}
+}
+
 func TestFlattenToolMessagesDeterminism(t *testing.T) {
 	input := []provider.Message{
 		{

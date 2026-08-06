@@ -28,8 +28,18 @@ func ToolDef(handler func(context.Context, map[string]any) (any, error)) tool.To
 		Name:        ToolName,
 		Description: "Ask a stronger-model steering advisor for concise strategic guidance. Advisory only: it does not mutate code, execute tools, or act as a sub-agent.",
 		ParameterSchema: map[string]any{
-			"type":                 "object",
-			"properties":           map[string]any{},
+			"type": "object",
+			"properties": map[string]any{
+				"question": map[string]any{
+					"type":        "string",
+					"description": "What you want the advisor to judge. Free text.",
+				},
+				"files": map[string]any{
+					"type":        "array",
+					"description": "Workspace paths to include verbatim in the advisor's context. The advisor has no tool access and cannot read files itself, so pass the paths of any artifact you want it to review.",
+					"items":       map[string]any{"type": "string"},
+				},
+			},
 			"additionalProperties": false,
 		},
 		Handler: handler,
@@ -43,6 +53,13 @@ type HandlerDeps struct {
 	Events        output.EventSink
 	Config        Config
 	UsageRecorder *usagestats.Recorder
+	// WorkDir is the working directory used to render workspace-relative
+	// display paths for caller-supplied files.
+	WorkDir string
+	// PathPolicy resolves and constrains caller-supplied file paths using the
+	// same policy the read tool enforces. Required only when a caller passes
+	// files.
+	PathPolicy *tool.PathPolicy
 }
 
 // Config configures the per-run advisor handler.
@@ -55,8 +72,8 @@ type Config struct {
 func NewHandler(deps HandlerDeps) func(context.Context, map[string]any) (any, error) {
 	cacheKey, _ := provider.NewPromptCacheKey()
 	state := &handlerState{cacheKey: cacheKey}
-	return func(ctx context.Context, _ map[string]any) (any, error) {
-		return state.handle(ctx, deps)
+	return func(ctx context.Context, input map[string]any) (any, error) {
+		return state.handle(ctx, deps, input)
 	}
 }
 
@@ -66,7 +83,16 @@ type handlerState struct {
 	cacheKey string
 }
 
-func (s *handlerState) handle(ctx context.Context, deps HandlerDeps) (any, error) {
+func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[string]any) (any, error) {
+	in, err := decodeAdvisorInput(input)
+	if err != nil {
+		return nil, fmt.Errorf("advisor: %w", err)
+	}
+	files, err := loadAdvisorFiles(deps.WorkDir, deps.PathPolicy, in.Files)
+	if err != nil {
+		return nil, err
+	}
+
 	s.mu.Lock()
 	nextUse := s.uses + 1
 	maxUses := deps.Config.MaxUsesPerRun
@@ -89,7 +115,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps) (any, error
 	// cache prefixes stay reusable. The per-run cap lives in handler state on
 	// purpose, even though Anthropic guidance often suggests removing spent tools.
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses))
-	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, deps.Config.MaxTokens, deps.Events, s.cacheKey)
+	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, in.Question, files, deps.Config.MaxTokens, deps.Events, s.cacheKey)
 	if err != nil {
 		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err, 0, 0))
 		return nil, err
@@ -141,7 +167,7 @@ func emitEvent(sink output.EventSink, event output.Event) {
 	}
 }
 
-func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, conversation []provider.Message, maxTokens *int, events output.EventSink, cacheKey string) (provider.ChatResponse, error) {
+func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, conversation []provider.Message, question string, files []advisorFile, maxTokens *int, events output.EventSink, cacheKey string) (provider.ChatResponse, error) {
 	if prov == nil {
 		return provider.ChatResponse{}, fmt.Errorf("advisor: provider is required")
 	}
@@ -151,7 +177,7 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 
 	req := provider.ChatRequest{
 		Model:          rm.BackendModelID,
-		Messages:       buildMessages(conversation),
+		Messages:       buildMessages(conversation, question, files),
 		MaxTokens:      maxTokens,
 		Params:         rm.Params,
 		ExtraParams:    rm.ExtraParams,

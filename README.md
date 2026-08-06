@@ -155,7 +155,7 @@ See [Configuration](docs/configuration.md) for all provider types, model fields,
 | `scratchpad` | Record working state; persists across compaction |
 | `fetch_url` | Fetch a URL and return its content: HTML converted to markdown, text formats (JSON, YAML, plain text, CSV, etc.) returned raw, images returned for vision models; large responses saved to disk |
 | `display_file` | Show a file in the TUI overlay without adding to conversation |
-| `advisor` | Ask a stronger-model steering advisor for guidance (requires `advisor.enabled`) |
+| `advisor` | Ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`) |
 | `workflow_handoff` | Transition to a different workflow with approved artifacts |
 
 ## Sandboxing

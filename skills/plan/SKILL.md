@@ -119,7 +119,7 @@ Author `plan.yaml` (see the plan.yaml schema and the decision model in Reference
 
 **Decision re-surface ▸ GATE — only if step planning promoted a new feature-level decision.** Per the back-flow rule, a feature-level decision discovered while writing steps must not be buried in a step: add it to `## Key Decisions` and flag it explicitly to the user ("one more decision came up") — it is the one user touch the five-stage map did not promise. Incorporate feedback before continuing.
 
-**Advisor sanity check ▸ STOP.** After `plan.yaml` is written, call the advisor as a sanity check before handoff. Skip only if the run's advisor budget is exhausted or `AdvisorEnabled` is off. Capture the advisor's note in `overview.md` under `## Advisor Sanity Check` (or in `## Decision Log` if the note is short). The planner continues only after the advisor returns.
+**Advisor sanity check ▸ STOP.** After `plan.yaml` is written, call the advisor as a sanity check before handoff, passing `files: [overview.md path, plan.yaml path]` and a `question` framing the sanity check (soundness of the step decomposition, missed risks, decisions that don't survive contact with the steps). Skip only if the run's advisor budget is exhausted or `AdvisorEnabled` is off. Capture the advisor's note in `overview.md` under `## Advisor Sanity Check` (or in `## Decision Log` if the note is short). The planner continues only after the advisor returns.
 
 ### Handoff ▸ STOP
 
