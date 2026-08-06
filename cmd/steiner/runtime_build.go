@@ -96,31 +96,13 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	// Connect MCP servers after the sandbox exists (so server commands can be
 	// wrapped) and before the registry is rebuilt (so MCP tools register).
 	// Failures are reported and skipped; Connect never returns an error for a
-	// server failure.
+	// server failure. Non-interactive commands block until every server
+	// resolves; interactive (asyncMCP) returns immediately so the TUI paints
+	// while servers connect and the session runner waits before the first turn.
 	var mcpMgr *mcp.Manager
+	var mcpState *mcpStateProducer
 	if cfg.MCP.Enabled {
-		var wrap func(*exec.Cmd) *exec.Cmd
-		if sb != nil {
-			wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
-		}
-		diagnose := func(severity string) func(string) {
-			return func(msg string) {
-				events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-					Kind:     "session_health",
-					Severity: severity,
-					Notes:    []string{msg},
-				}))
-			}
-		}
-		planMode := cfg.Modes.Default == config.ExecutionModePlan
-		mcpMgr = mcp.Connect(ctx, cfg.MCP, cfg.Limits, wrap, planMode, diagnose("warning"), diagnose("info"), os.Stderr, nil)
-		// Block until every enabled server resolves (connected or failed) so
-		// the registry below freezes the complete tool list. All modes block
-		// for now, but connects run in parallel; step-7 makes interactive skip
-		// this wait and paint the TUI while servers connect. A cancelled ctx
-		// marks the servers failed, which is what the sequential Connect did,
-		// so the error is not actionable here.
-		_ = mcpMgr.WaitInit(ctx)
+		mcpMgr, mcpState = connectRuntimeMCP(ctx, cfg, sb, flags.asyncMCP, events)
 	}
 
 	// Rebuild registry with sandbox and MCP tools now that workDir and homeDir are known.
@@ -149,6 +131,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		homeDir:                homeDir,
 		sandbox:                sb,
 		mcpManager:             mcpMgr,
+		mcpState:               mcpState,
 		stdin:                  cmd.InOrStdin(),
 		human:                  output.NewStream(cmd.OutOrStdout()),
 		status:                 output.NewStream(cmd.ErrOrStderr()),
@@ -325,6 +308,48 @@ func runtimeCompactionLogFile(cfg config.Config, flags *cliFlags) string {
 		return cfg.Logging.CompactionLogFile
 	}
 	return ""
+}
+
+// connectRuntimeMCP connects every enabled MCP server in parallel and returns
+// the manager. When asyncMCP is false it blocks (WaitInit) until every server
+// resolves to connected or failed, so the caller's registry rebuild freezes the
+// complete tool list; this is the non-interactive behaviour. When asyncMCP is
+// true it returns immediately so an interactive TUI can paint while servers
+// connect: the interactive session runner must WaitInit and re-register the
+// manager's tool defs before the first agent turn. The returned producer gates
+// manager state-change notifications behind that first-turn registration so the
+// TUI never observes a half-connected server set.
+func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandbox, asyncMCP bool, events output.EventSink) (*mcp.Manager, *mcpStateProducer) {
+	var wrap func(*exec.Cmd) *exec.Cmd
+	if sb != nil {
+		wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
+	}
+	diagnose := func(severity string) func(string) {
+		return func(msg string) {
+			events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind:     "session_health",
+				Severity: severity,
+				Notes:    []string{msg},
+			}))
+		}
+	}
+	planMode := cfg.Modes.Default == config.ExecutionModePlan
+	var producer *mcpStateProducer
+	var onStateChange func()
+	if asyncMCP {
+		producer = &mcpStateProducer{}
+		onStateChange = producer.stateChanged
+	}
+	mgr := mcp.Connect(ctx, cfg.MCP, cfg.Limits, wrap, planMode, diagnose("warning"), diagnose("info"), os.Stderr, onStateChange)
+	if !asyncMCP {
+		// Block until every enabled server resolves (connected or failed) so
+		// the registry below freezes the complete tool list. Connects run in
+		// parallel, so startup latency is bounded by the slowest server. A
+		// cancelled ctx marks the servers failed, which is what the sequential
+		// Connect did, so the error is not actionable here.
+		_ = mgr.WaitInit(ctx)
+	}
+	return mgr, producer
 }
 
 func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry) {
