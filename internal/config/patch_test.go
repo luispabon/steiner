@@ -821,6 +821,78 @@ func TestApplyMCPPatch(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "sets url field",
+			initial: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http"},
+				},
+			},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {URL: stringPtr("http://localhost:3000")},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000"},
+				},
+			},
+		},
+		{
+			name: "merges headers per-key",
+			initial: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Headers: map[string]string{"Authorization": "Bearer token1"}},
+				},
+			},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {Headers: stringMapPtr(map[string]string{"X-Custom": "value"})},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Headers: map[string]string{"Authorization": "Bearer token1", "X-Custom": "value"}},
+				},
+			},
+		},
+		{
+			name: "headers merge overwrites existing keys",
+			initial: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Headers: map[string]string{"Authorization": "Bearer old"}},
+				},
+			},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {Headers: stringMapPtr(map[string]string{"Authorization": "Bearer new"})},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Headers: map[string]string{"Authorization": "Bearer new"}},
+				},
+			},
+		},
+		{
+			name: "allocates headers map when nil",
+			initial: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {},
+				},
+			},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {Headers: stringMapPtr(map[string]string{"X-Custom": "value"})},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Headers: map[string]string{"X-Custom": "value"}},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

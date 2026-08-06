@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -14,14 +16,138 @@ func validateMCPConfig(problems *[]string, cfg MCPConfig) {
 		if strings.Contains(name, "__") {
 			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s: server name must not contain \"__\" (the naming delimiter)", name))
 		}
-		if srv.Transport != "" && srv.Transport != "stdio" {
-			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.transport: %q is not supported (only \"stdio\")", name, srv.Transport))
+
+		// Normalize empty transport to "stdio" for validation, matching applyMCPDefaults behavior.
+		transport := srv.Transport
+		if transport == "" {
+			transport = "stdio"
 		}
+
+		// Validate transport value.
+		if transport != "stdio" && transport != "http" {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.transport: %q is not supported (must be stdio or http)", name, srv.Transport))
+		}
+
+		// Per-transport field validation.
+		if transport == "stdio" {
+			if srv.Command == "" {
+				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.command is required", name))
+			}
+			if srv.URL != "" {
+				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: must be empty for stdio transport", name))
+			}
+			if len(srv.Headers) > 0 {
+				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: must be empty for stdio transport", name))
+			}
+		} else if transport == "http" {
+			if srv.URL == "" {
+				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url is required", name))
+			}
+			if srv.Command != "" {
+				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.command: must be empty for http transport", name))
+			}
+			if len(srv.Args) > 0 {
+				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.args: must be empty for http transport", name))
+			}
+			if len(srv.Env) > 0 {
+				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.env: must be empty for http transport", name))
+			}
+		}
+
+		// Validate URL if present.
+		if srv.URL != "" {
+			parsed, err := url.Parse(srv.URL)
+			if err != nil {
+				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: %v", name, err))
+			} else {
+				if parsed.Scheme != "http" && parsed.Scheme != "https" {
+					*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: unsupported scheme %q (must be http or https)", name, parsed.Scheme))
+				}
+				if parsed.Host == "" {
+					*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.url: must have a non-empty host", name))
+				}
+			}
+		}
+
+		// Validate header names.
+		validateMCPHeaders(problems, name, srv.Headers)
+
+		// Validate approval value.
 		if srv.Approval != "" && srv.Approval != "ask" && srv.Approval != "allow" && srv.Approval != "deny" {
 			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.approval: %q is invalid (must be ask, allow, or deny)", name, srv.Approval))
 		}
-		if srv.Command == "" {
-			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.command is required", name))
+	}
+}
+
+func validateMCPHeaders(problems *[]string, serverName string, headers map[string]string) {
+	sdkReservedHeaders := map[string]bool{
+		"Content-Type":         true,
+		"Accept":               true,
+		"Mcp-Protocol-Version": true,
+		"Mcp-Session-Id":       true,
+		"Last-Event-Id":        true,
+		"Mcp-Method":           true,
+		"Mcp-Name":             true,
+	}
+
+	for name := range headers {
+		if name == "" {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: header name must not be empty", serverName))
+			continue
 		}
+
+		// Check for invalid HTTP token characters.
+		if strings.ContainsAny(name, " :\n") {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: header name %q contains invalid characters (space, colon, or newline)", serverName, name))
+			continue
+		}
+
+		// Check if it's a valid HTTP token.
+		if !isValidHTTPToken(name) {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: header name %q contains invalid characters", serverName, name))
+			continue
+		}
+
+		// Check for SDK-reserved headers (case-insensitive).
+		canonical := http.CanonicalHeaderKey(name)
+		if sdkReservedHeaders[canonical] {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: header %q is reserved by the SDK", serverName, name))
+		}
+
+		// Check for Mcp-Param- prefix (case-insensitive).
+		if strings.HasPrefix(strings.ToLower(canonical), "mcp-param-") {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.headers: header %q uses reserved Mcp-Param- prefix", serverName, name))
+		}
+	}
+}
+
+// isValidHTTPToken checks if a string is a valid HTTP token per RFC 7230.
+// Tokens consist of 1*tchar where tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." / "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA
+func isValidHTTPToken(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, b := range s {
+		if !isTokenChar(byte(b)) {
+			return false
+		}
+	}
+	return true
+}
+
+func isTokenChar(b byte) bool {
+	switch {
+	case b >= '0' && b <= '9':
+		return true
+	case b >= 'A' && b <= 'Z':
+		return true
+	case b >= 'a' && b <= 'z':
+		return true
+	case b == '!' || b == '#' || b == '$' || b == '%' || b == '&' || b == '\'' ||
+		b == '*' || b == '+' || b == '-' || b == '.' || b == '^' || b == '_' ||
+		b == '`' || b == '|' || b == '~':
+		return true
+	default:
+		return false
 	}
 }

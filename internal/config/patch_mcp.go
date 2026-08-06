@@ -37,6 +37,17 @@ func applyMCPServerPatch(dst *MCPServerConfig, patch *mcpServerPatch) {
 			dst.Env[k] = v
 		}
 	}
+	if patch.URL != nil {
+		dst.URL = *patch.URL
+	}
+	if patch.Headers != nil {
+		if dst.Headers == nil {
+			dst.Headers = make(map[string]string)
+		}
+		for k, v := range *patch.Headers {
+			dst.Headers[k] = v
+		}
+	}
 	if patch.Approval != nil {
 		dst.Approval = *patch.Approval
 	}

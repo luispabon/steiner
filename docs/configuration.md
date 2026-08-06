@@ -569,10 +569,12 @@ Each server entry (`MCPServerConfig`) supports:
 | Field               | Type               | Default     | Description |
 |---------------------|--------------------|-------------|-------------|
 | `enabled`           | bool               | `false`     | Whether this server is started. |
-| `transport`         | string             | `"stdio"`   | Transport used to reach the server. `stdio` is currently the only supported transport. |
-| `command`           | string             | —           | Executable that starts the server. |
-| `args`              | []string           | —           | Arguments passed to the command. |
-| `env`               | map[string]string  | —           | Extra environment variables for the server process. Passed verbatim, so it is the right place for a server's own credentials. |
+| `transport`         | string             | `"stdio"`   | Transport used to reach the server. One of `stdio` (starts a subprocess) or `http` (connects via HTTP). |
+| `command`           | string             | —           | Executable that starts the server. Required for `stdio` transport; must be empty for `http`. |
+| `args`              | []string           | —           | Arguments passed to the command. Used only with `stdio` transport; must be empty for `http`. |
+| `env`               | map[string]string  | —           | Extra environment variables for the server process. Used only with `stdio` transport; must be empty for `http`. |
+| `url`               | string             | —           | HTTP endpoint (http or https). Required for `http` transport; must be empty for `stdio`. |
+| `headers`           | map[string]string  | —           | HTTP headers sent with every request. Used only with `http` transport; must be empty for `stdio`. Header names cannot collide with SDK-reserved names (case-insensitive): `Content-Type`, `Accept`, `Mcp-Protocol-Version`, `Mcp-Session-Id`, `Last-Event-Id`, `Mcp-Method`, `Mcp-Name`, or names with the `Mcp-Param-` prefix. `Authorization` is allowed for static bearer tokens sourced from `${VAR}` (step-1's strict env expansion). |
 | `approval`          | string             | `"ask"`     | Approval mode for the server's tools. One of `ask` (prompt per tool call), `allow` (run without prompting in build mode, downgraded to `ask` in plan mode), or `deny` (register no tools). |
 | `trust_annotations` | bool               | `false`     | When `true`, tools advertised with `readOnlyHint: true` skip approval; `destructiveHint` and `openWorldHint` tools still prompt. |
 
@@ -580,13 +582,22 @@ Each server entry (`MCPServerConfig`) supports:
 mcp:
   enabled: true
   servers:
-    my-server:
+    my-stdio-server:
       enabled: true
       command: "npx"
       args: ["-y", "@some/mcp-server"]
       approval: ask
       trust_annotations: false
+    my-http-server:
+      enabled: true
+      transport: http
+      url: "http://localhost:3000/mcp"
+      headers:
+        Authorization: "Bearer ${MCP_AUTH_TOKEN}"
+      approval: ask
 ```
+
+When using `http` transport with an `Authorization` header, use the strict env expansion syntax (e.g. `${VAR}`) to inject environment variables. See the [strict env expansion section](#strict-env-expansion-for-scalar-values) for details.
 
 ---
 

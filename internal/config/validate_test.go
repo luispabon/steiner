@@ -691,12 +691,12 @@ func TestValidate(t *testing.T) {
 				c.MCP = MCPConfig{
 					Enabled: true,
 					Servers: map[string]MCPServerConfig{
-						"example": {Transport: "http"},
+						"example": {Transport: "grpc"},
 					},
 				}
 				return c
 			}(),
-			wantErr: `mcp.servers.example.transport: "http" is not supported`,
+			wantErr: `mcp.servers.example.transport: "grpc" is not supported`,
 		},
 		{
 			name: "mcp server with empty command",
@@ -745,12 +745,12 @@ func TestValidate(t *testing.T) {
 				c.MCP = MCPConfig{
 					Enabled: false,
 					Servers: map[string]MCPServerConfig{
-						"bad": {Transport: "http"},
+						"bad": {Transport: "grpc"},
 					},
 				}
 				return c
 			}(),
-			wantErr: `mcp.servers.bad.transport: "http" is not supported`,
+			wantErr: `mcp.servers.bad.transport: "grpc" is not supported`,
 		},
 		{
 			name: "modes.default plan accepted",
@@ -1051,7 +1051,7 @@ func TestMCPConfigValidation(t *testing.T) {
 			cfg:  MCPConfig{},
 		},
 		{
-			name: "valid server",
+			name: "valid stdio server",
 			cfg: MCPConfig{
 				Enabled: true,
 				Servers: map[string]MCPServerConfig{
@@ -1060,22 +1060,193 @@ func TestMCPConfigValidation(t *testing.T) {
 			},
 		},
 		{
+			name: "valid http server",
+			cfg: MCPConfig{
+				Enabled: true,
+				Servers: map[string]MCPServerConfig{
+					"example": {Enabled: true, Transport: "http", URL: "http://localhost:3000"},
+				},
+			},
+		},
+		{
 			name: "unsupported transport rejected",
 			cfg: MCPConfig{
 				Servers: map[string]MCPServerConfig{
-					"example": {Transport: "http"},
+					"example": {Transport: "grpc"},
 				},
 			},
-			wantErr: `mcp.servers.example.transport: "http" is not supported`,
+			wantErr: `mcp.servers.example.transport: "grpc" is not supported (must be stdio or http)`,
 		},
 		{
-			name: "empty command rejected",
+			name: "stdio transport without command rejected",
 			cfg: MCPConfig{
 				Servers: map[string]MCPServerConfig{
 					"example": {Transport: "stdio"},
 				},
 			},
 			wantErr: "mcp.servers.example.command is required",
+		},
+		{
+			name: "http transport without url rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http"},
+				},
+			},
+			wantErr: "mcp.servers.example.url is required",
+		},
+		{
+			name: "stdio transport with url rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "stdio", Command: "npx", URL: "http://localhost:3000"},
+				},
+			},
+			wantErr: "mcp.servers.example.url: must be empty for stdio transport",
+		},
+		{
+			name: "stdio transport with headers rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "stdio", Command: "npx", Headers: map[string]string{"X-Custom": "value"}},
+				},
+			},
+			wantErr: "mcp.servers.example.headers: must be empty for stdio transport",
+		},
+		{
+			name: "http transport with command rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Command: "npx"},
+				},
+			},
+			wantErr: "mcp.servers.example.command: must be empty for http transport",
+		},
+		{
+			name: "http transport with args rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Args: []string{"arg1"}},
+				},
+			},
+			wantErr: "mcp.servers.example.args: must be empty for http transport",
+		},
+		{
+			name: "http transport with env rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Env: map[string]string{"VAR": "value"}},
+				},
+			},
+			wantErr: "mcp.servers.example.env: must be empty for http transport",
+		},
+		{
+			name: "http url with invalid scheme rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "ftp://localhost:3000"},
+				},
+			},
+			wantErr: `mcp.servers.example.url: unsupported scheme "ftp" (must be http or https)`,
+		},
+		{
+			name: "http url with no host rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://"},
+				},
+			},
+			wantErr: "mcp.servers.example.url: must have a non-empty host",
+		},
+		{
+			name: "http url with malformed url rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "ht!!tp://localhost"},
+				},
+			},
+			wantErr: "mcp.servers.example.url:",
+		},
+		{
+			name: "header with content-type (lowercase) rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"content-type": "application/json"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "content-type" is reserved by the SDK`,
+		},
+		{
+			name: "header with Content-Type (mixed case) rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"Content-Type": "application/json"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "Content-Type" is reserved by the SDK`,
+		},
+		{
+			name: "header with Mcp-Session-Id (lowercase) rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"mcp-session-id": "123"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "mcp-session-id" is reserved by the SDK`,
+		},
+		{
+			name: "header with Mcp-Param- prefix rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"Mcp-Param-Custom": "value"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "Mcp-Param-Custom" uses reserved Mcp-Param- prefix`,
+		},
+		{
+			name: "header with Authorization is allowed",
+			cfg: MCPConfig{
+				Enabled: true,
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"Authorization": "Bearer token123"}},
+				},
+			},
+		},
+		{
+			name: "header with empty name rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"": "value"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header name must not be empty`,
+		},
+		{
+			name: "header with space in name rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"X Custom": "value"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header name "X Custom" contains invalid characters`,
+		},
+		{
+			name: "header with colon in name rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"X:Custom": "value"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header name "X:Custom" contains invalid characters`,
+		},
+		{
+			name: "header with newline in name rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"X\nCustom": "value"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header name "X\nCustom" contains invalid characters`,
 		},
 		{
 			name: "server name with __ delimiter rejected",
