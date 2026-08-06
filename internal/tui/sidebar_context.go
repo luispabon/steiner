@@ -9,6 +9,10 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+// eighthBlocks holds the eighth-width partial block glyphs, U+258F..U+2588,
+// indexed by [rem-1] for rem in [1,8].
+const eighthBlocks = "▏▎▍▌▋▊▉█"
+
 func stripProviderURL(url string) string {
 	url = strings.TrimSpace(url)
 	url = strings.TrimPrefix(url, "https://")
@@ -36,15 +40,31 @@ func (s sidebarState) contextGaugeLine(width int) string {
 	barWithBg := thresholdStyle.Background(lipgloss.Color(theme.Black))
 
 	barWidth := min(10, max(4, width-16))
-	filled := 0
-	if s.contextBudget > 0 && barWidth > 0 {
-		filled = (s.promptUsed * barWidth) / s.contextBudget
-		if filled > barWidth {
-			filled = barWidth
-		}
+	totalEighths := barWidth * 8
+	filledEighths := 0
+	if s.contextBudget > 0 {
+		filledEighths = (s.promptUsed * totalEighths) / s.contextBudget
 	}
-	bar := barWithBg.Render(strings.Repeat("█", filled)) +
-		emptyWithBg.Render(strings.Repeat(" ", barWidth-filled))
+	if filledEighths < 0 {
+		filledEighths = 0
+	}
+	if filledEighths > totalEighths {
+		filledEighths = totalEighths
+	}
+	if s.promptUsed > 0 && filledEighths == 0 {
+		filledEighths = 1
+	}
+	full := filledEighths / 8
+	rem := filledEighths % 8
+
+	var barText strings.Builder
+	barText.WriteString(strings.Repeat("█", full))
+	padCells := barWidth - full
+	if rem > 0 {
+		barText.WriteRune([]rune(eighthBlocks)[rem-1])
+		padCells--
+	}
+	bar := barWithBg.Render(barText.String()) + emptyWithBg.Render(strings.Repeat(" ", padCells))
 
 	pctField := barWithBg.Render(fmt.Sprintf("%4s", fmt.Sprintf("%d%%", pct)))
 	prefix := bar + emptyWithBg.Render("  ") + pctField

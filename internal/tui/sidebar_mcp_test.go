@@ -46,10 +46,21 @@ func TestMCPRowEmptyWhenOffOrUnconfigured(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := tc.s.mcpRow(32); got != "" {
+			if got := tc.s.mcpRow(); got != "" {
 				t.Errorf("mcpRow() = %q, want empty", got)
 			}
 		})
+	}
+}
+
+func TestMCPRowReturnsBareValue(t *testing.T) {
+	t.Parallel()
+	s := sidebarState{mcpConnected: 2, mcpTotal: 3}
+	if got := s.mcpRow(); got != "2/3" {
+		t.Errorf("mcpRow() = %q, want %q", got, "2/3")
+	}
+	if strings.Contains(s.mcpRow(), "\x1b[") {
+		t.Errorf("mcpRow() = %q, must not contain ANSI escapes; styling is the caller's job", s.mcpRow())
 	}
 }
 

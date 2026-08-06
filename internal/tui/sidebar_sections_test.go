@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -200,6 +202,22 @@ func TestStatusSection(t *testing.T) {
 	}
 }
 
+func TestStatusSectionSandboxStatusBoundedToWidth(t *testing.T) {
+	t.Parallel()
+	styles := theme.BuildStyles(theme.AccentAmber)
+	const width = 32
+	s := sidebarState{
+		sandboxStatus: strings.Repeat("x", 40),
+		styles:        styles,
+	}
+	got := s.statusSection(width)
+	for _, line := range got {
+		if w := lipgloss.Width(line); w > width {
+			t.Errorf("statusSection() row width = %d, want <= %d, row = %q", w, width, line)
+		}
+	}
+}
+
 func TestSeparatorLineMode(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -372,12 +390,14 @@ func TestContextGaugeLine(t *testing.T) {
 		promptUsed    int
 		contextBudget int
 		wantContains  []string
+		wantBarPrefix string
 	}{
 		{
 			name:          "shows bar, percentage, and compact counts",
 			promptUsed:    92_000,
 			contextBudget: 1_000_000,
 			wantContains:  []string{"9%", "92k", "1.0m"},
+			wantBarPrefix: "▉",
 		},
 		{
 			name:          "falls back to n/a when no budget set",
@@ -385,15 +405,65 @@ func TestContextGaugeLine(t *testing.T) {
 			contextBudget: 0,
 			wantContains:  []string{"n/a"},
 		},
+		{
+			name:          "zero usage renders no glyphs",
+			promptUsed:    0,
+			contextBudget: 1_000_000,
+			wantBarPrefix: "",
+		},
+		{
+			name:          "tiny usage still renders a visible glyph",
+			promptUsed:    1,
+			contextBudget: 1_000_000,
+			wantBarPrefix: "▏",
+		},
+		{
+			name:          "partial eighth beyond a full cell",
+			promptUsed:    125_000,
+			contextBudget: 1_000_000,
+			wantBarPrefix: "█▎",
+		},
+		{
+			name:          "half full",
+			promptUsed:    500_000,
+			contextBudget: 1_000_000,
+			wantBarPrefix: "█████",
+		},
+		{
+			name:          "exactly full",
+			promptUsed:    1_000_000,
+			contextBudget: 1_000_000,
+			wantBarPrefix: "██████████",
+		},
+		{
+			name:          "over budget clamps to full",
+			promptUsed:    2_000_000,
+			contextBudget: 1_000_000,
+			wantBarPrefix: "██████████",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			s := sidebarState{promptUsed: tc.promptUsed, contextBudget: tc.contextBudget, styles: styles}
 			got := s.contextGaugeLine(32)
+			if w := lipgloss.Width(got); w != 32 {
+				t.Errorf("contextGaugeLine() width = %d, want 32, got %q", w, stripANSI(got))
+			}
+			plain := stripANSI(got)
 			for _, want := range tc.wantContains {
-				if !strings.Contains(got, want) {
-					t.Errorf("contextGaugeLine() = %q, want to contain %q", got, want)
+				if !strings.Contains(plain, want) {
+					t.Errorf("contextGaugeLine() = %q, want to contain %q", plain, want)
+				}
+			}
+			if !strings.HasPrefix(plain, tc.wantBarPrefix) {
+				t.Errorf("contextGaugeLine() = %q, want bar prefix %q", plain, tc.wantBarPrefix)
+			}
+			if tc.wantBarPrefix == "" && tc.promptUsed == 0 && tc.contextBudget > 0 {
+				for _, glyph := range eighthBlocks {
+					if strings.ContainsRune(plain, glyph) {
+						t.Errorf("contextGaugeLine() = %q, want no bar glyphs at zero usage", plain)
+					}
 				}
 			}
 		})
