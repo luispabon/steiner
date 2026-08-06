@@ -117,7 +117,7 @@ func (s sidebarState) statusSection(width int) []string {
 		rows = append(rows, cardFieldAccentN("SANDBOX", keyW, sandboxStatusStyle(status, s.styles), fitText(status, width-keyW), s.styles))
 	}
 	if skill := strings.TrimSpace(s.activeSkill); skill != "" {
-		rows = append(rows, cardFieldN("SKILL", keyW, fgBright, fitText(skill, width-keyW), s.styles))
+		rows = append(rows, cardFieldAccentN("SKILL", keyW, fgBright, fitText(skill, width-keyW), s.styles))
 	}
 	if mcp := s.mcpRow(); mcp != "" {
 		mcpStyle := fgBright

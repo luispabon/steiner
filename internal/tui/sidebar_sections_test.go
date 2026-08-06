@@ -218,7 +218,7 @@ func TestStatusSectionAccentKeys(t *testing.T) {
 	}
 	bg := lipgloss.Color(theme.Black)
 	wantSandboxKey := styles.CardLabel.Background(bg).Render("SANDBOX ")
-	wantSkillKey := styles.FgFaint.Background(bg).Render("SKILL   ")
+	wantSkillKey := styles.CardLabel.Background(bg).Render("SKILL   ")
 	wantMCPKey := styles.CardLabel.Background(bg).Render("MCP     ")
 	rows := []struct {
 		name string
