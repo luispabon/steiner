@@ -365,7 +365,11 @@ func (m Model) selectionHighlightBounds() (left, right int) {
 // prose: a bare relative path qualifies only when it has two or more path
 // separators (internal/tui/selection.go) or its final segment carries a file
 // extension (docs/oneshot.md). This rejects and/or, TCP/IP, 24/7, and 12/25
-// while accepting steiner's own path output. A dot-prefixed segment is its own
+// while accepting steiner's own path output. A single-separator bare path is
+// admitted when one side is long enough to be a branch or namespace ref: a
+// final segment of five or more characters (cl/2026-08-05_mcp_approval_model)
+// or a first segment of six or more (origin/main). Short prose pairs like
+// he/she and src/main stay rejected. A dot-prefixed segment is its own
 // path signal: \.[\w\-]+(?:/[\w.\-]+)*/? matches hidden files and dot-dirs
 // (.env, .project_planning/x) at any depth. Like the other prefix-marked
 // alternatives it must start at a token boundary, so example.com/index.html
@@ -382,6 +386,8 @@ var (
 			`|\.\.?(?:/[\w.\-]+)*/?` +
 			`|[\w.\-]+(?:/[\w.\-]+){2,}/?` +
 			`|[\w\-]+(?:/[\w.\-]+)*/[\w\-]+\.\w+` +
+			`|[\w\-]+/[\w.\-]{5,}` +
+			`|[\w\-]{6,}/[\w.\-]+` +
 			`)(?::\d+(?::\d+)?)?`)
 )
 
