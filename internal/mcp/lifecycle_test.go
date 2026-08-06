@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -504,6 +505,211 @@ func TestLifecycleHTTPReconnect(t *testing.T) {
 	}
 	if !envelope.OK || envelope.Result != "again" {
 		t.Errorf("call after reconnect result = %+v, want OK with %q", envelope, "again")
+	}
+}
+
+// TestLifecycleShutdownReapsChildren proves Manager.Close terminates every
+// server and their spawned grandchildren concurrently: two servers, one of
+// which spawned a sleep-600 child, shut down within the shutdown grace and the
+// child's process group is reaped.
+func TestLifecycleShutdownReapsChildren(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+	childPIDFile := filepath.Join(t.TempDir(), "child.pid")
+
+	cfg := config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"alpha": {Enabled: true, Command: fixtureBin},
+			"beta": {
+				Enabled: true,
+				Command: fixtureBin,
+				Env: map[string]string{
+					"STEINER_FIXTURE_SPAWN_CHILD":    "1",
+					"STEINER_FIXTURE_CHILD_PID_FILE": childPIDFile,
+				},
+			},
+		},
+	}
+
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	waitInit(t, m)
+
+	pidData, err := os.ReadFile(childPIDFile)
+	if err != nil {
+		t.Fatalf("read child pid file: %v", err)
+	}
+	childPID, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
+	if err != nil {
+		t.Fatalf("parse child pid %q: %v", pidData, err)
+	}
+
+	start := time.Now()
+	if err := m.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > shutdownGrace {
+		t.Errorf("Close took %v, want it bounded by the shutdown grace (%v)", elapsed, shutdownGrace)
+	}
+
+	// The sleep-600 grandchild sits in the server's process group; Close must
+	// have killed and reaped it (applyProcessGroup SIGKILLs the whole group on
+	// manager-context cancellation).
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if !processAlive(childPID) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("grandchild %d still alive after Close", childPID)
+}
+
+// TestLifecycleCloseCancelsInFlightConnect proves Close does not wait for a
+// server whose handshake is stuck: the stall fixture sleeps for an hour inside
+// initialize, but cancelling the manager context kills its process group, so
+// Close returns within the shutdown grace instead of blocking on the stall.
+func TestLifecycleCloseCancelsInFlightConnect(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+
+	cfg := config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"stall": {
+				Enabled:        true,
+				Command:        fixtureBin,
+				Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
+				ConnectTimeout: config.MustDuration("1h"),
+			},
+			"fast": {Enabled: true, Command: fixtureBin},
+		},
+	}
+
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	defer m.Close() //nolint:errcheck
+
+	// The fast server must reach connected while the stall server is still
+	// stuck in its hour-long handshake, so Close below runs with a connect in
+	// flight.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if st := stateByName(m.ServerStates(), "fast"); st != nil && st.Status == ServerStatusConnected {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("fast server never connected; states=%+v", m.ServerStates())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	start := time.Now()
+	if err := m.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > shutdownGrace {
+		t.Errorf("Close took %v while a stall handshake was in flight, want <= %v", elapsed, shutdownGrace)
+	}
+}
+
+// TestLifecycleCloseIdempotent proves Close can be called twice: the second
+// call returns the first call's (filtered) result without re-running shutdown.
+func TestLifecycleCloseIdempotent(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+	cfg := config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"fixture": {Enabled: true, Command: fixtureBin},
+		},
+	}
+
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	waitInit(t, m)
+
+	if err := m.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := m.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+// TestLifecycleCloseDuringReconnect proves Close is safe while a reconnect is
+// in flight: the gated reconnect attempt is released after Close, observes the
+// cancelled manager context, and aborts to unavailable without panicking,
+// publishing a connected state, or completing a fresh handshake (no leak).
+func TestLifecycleCloseDuringReconnect(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+	record := filepath.Join(t.TempDir(), "record.txt")
+
+	// The initial spawn passes through; every later spawn (a reconnect
+	// attempt) signals and then blocks until the test releases it.
+	var spawns atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce sync.Once
+	var releaseOnce sync.Once
+	releaseFn := func() { releaseOnce.Do(func() { close(release) }) }
+	wrap := func(c *exec.Cmd) *exec.Cmd {
+		if spawns.Add(1) > 1 {
+			startedOnce.Do(func() { close(started) })
+			<-release
+		}
+		return c
+	}
+	defer releaseFn()
+
+	cfg := config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"fixture": {
+				Enabled: true,
+				Command: fixtureBin,
+				Env:     map[string]string{"STEINER_FIXTURE_ENABLE_DIE": "1", "STEINER_FIXTURE_RECORD": record},
+			},
+		},
+	}
+
+	tr := &transitionRecorder{name: "fixture"}
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, false,
+		func(string) {}, func(string) {}, io.Discard, tr.onChange)
+	tr.m.Store(m)
+	waitInit(t, m)
+	m.UpdateApprover(allowApprover())
+	if st := stateByName(m.ServerStates(), "fixture"); st == nil || st.Status != ServerStatusConnected {
+		t.Fatalf("initial state = %+v, want connected", st)
+	}
+
+	// Kill the server so a reconnect attempt starts and blocks in the wrap.
+	if _, err := findTool(t, m.ToolDefs(), "mcp__fixture__die").Handler(context.Background(), nil); err == nil {
+		t.Fatal("die call returned nil error, want a disconnect error")
+	}
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("reconnect attempt never started")
+	}
+
+	// Close while the reconnect is mid-flight, then release it to finish.
+	if err := m.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	releaseFn()
+
+	// The reconnect must abort to unavailable: connected → reconnecting →
+	// unavailable, and never connected again after Close.
+	if got := tr.waitFor(t, 3); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusUnavailable}) {
+		t.Errorf("status transitions = %v, want [connected reconnecting unavailable]", got)
+	}
+	for _, st := range m.ServerStates() {
+		if st.Status == ServerStatusConnected {
+			t.Errorf("server %q reports connected after Close; a closing manager must not republish sessions", st.Name)
+		}
+	}
+
+	// The gated reconnect never completed a handshake: exactly one
+	// protocol_version line (the initial connect), so no second server process
+	// leaked into service.
+	if got := countPrefix(t, record, "protocol_version="); got != 1 {
+		t.Errorf("protocol_version count = %d, want 1 (the gated reconnect must not complete)", got)
 	}
 }
 

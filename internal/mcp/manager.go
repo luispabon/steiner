@@ -2,10 +2,12 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +17,12 @@ import (
 
 // WrapFn wraps a server command before launch, e.g. inside the sandbox.
 type WrapFn func(*exec.Cmd) *exec.Cmd
+
+// shutdownGrace bounds how long Close waits for each session to tear down. It
+// must exceed the stdio transport's TerminateDuration (5s) plus a margin, so a
+// server that needs the full SIGTERM wait still finishes inside the grace;
+// servers whose process group the shutdown SIGKILLed finish far sooner.
+const shutdownGrace = 10 * time.Second
 
 // Manager owns the MCP server sessions for one steiner session.
 type Manager struct {
@@ -31,6 +39,11 @@ type Manager struct {
 	initOnce  sync.Once
 	initDone  chan struct{}
 	connectWG sync.WaitGroup
+
+	// closeOnce serialises Close: the first call runs the shutdown, later
+	// calls (concurrent or repeated) return its result.
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // syncWriter serialises writes from the per-process stderr copier goroutines
@@ -182,31 +195,37 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 	// A successful connect is informational, not a warning.
 	infoFn(fmt.Sprintf("MCP server %q connected (protocol %s, %d tools)", spec.Name, session.ProtocolVersion(), len(session.Tools())))
 
-	// Build ToolDefs for this session. Deny servers still connect (their
-	// state stays visible) but register no tools.
+	// Publish the session, its tool defs, and the connected state in one
+	// critical section guarded by the manager context (Close cancels it under
+	// the same lock): a dial that completed concurrently with Close must not
+	// swap a new session into a closing manager. The fresh process is bound to
+	// the cancelled manager context, so it is already being killed; close the
+	// handle so it cannot leak. Deny servers still connect (their state stays
+	// visible) but register no tools.
+	m.mu.Lock()
+	if m.ctx.Err() != nil {
+		m.mu.Unlock()
+		_ = session.Close() // best-effort teardown of a session born during Close
+		return
+	}
 	var toolNames []string
 	for _, t := range session.Tools() {
 		if srv.Approval == "deny" {
 			continue
 		}
 		def := mcpToolDef(session, t, func() tool.ApprovalResponder { return m.currentApprover() }, func() bool { return m.planMode }, srv, limits)
-		m.mu.Lock()
 		m.defs = append(m.defs, def)
-		m.mu.Unlock()
 		toolNames = append(toolNames, t.Name)
 	}
-
-	m.mu.Lock()
 	m.sessions = append(m.sessions, session)
-	m.mu.Unlock()
-
-	m.setServerState(ServerState{
+	m.setServerStateLocked(ServerState{
 		Name:            spec.Name,
 		Status:          ServerStatusConnected,
 		Transport:       transport,
 		Tools:           toolNames,
 		ProtocolVersion: session.ProtocolVersion(),
 	})
+	m.mu.Unlock()
 	onStateChange()
 }
 
@@ -240,6 +259,12 @@ func (m *Manager) updateServerStatus(name string, status ServerStatus, err error
 func (m *Manager) setServerState(s ServerState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.setServerStateLocked(s)
+}
+
+// setServerStateLocked records s, replacing any earlier entry for the same
+// server name. Callers must hold m.mu.
+func (m *Manager) setServerStateLocked(s ServerState) {
 	for i := range m.states {
 		if m.states[i].Name == s.Name {
 			m.states[i] = s
@@ -342,23 +367,91 @@ func (m *Manager) UpdatePlanMode(planMode bool) {
 	m.planMode = planMode
 }
 
-// Close terminates every connected server and cancels in-flight connects.
-// Sessions are closed first (graceful stdin-close on stdio transports), then
-// the manager context is cancelled to abort any connect still running. Safe to
-// call on a nil Manager.
+// Close terminates every connected server and cancels in-flight connects. It
+// cancels the manager context first so connect goroutines, reconnect workers,
+// and their bound stdio process groups observe the shutdown, then closes each
+// session concurrently bounded by shutdownGrace. Expected shutdown errors
+// (io.EOF, context.Canceled, reaped "signal: killed" processes) are filtered;
+// unexpected ones are joined. Close is idempotent and safe to call on a nil
+// Manager.
 func (m *Manager) Close() error {
 	if m == nil {
 		return nil
 	}
+	m.closeOnce.Do(func() {
+		m.closeErr = m.close()
+	})
+	return m.closeErr
+}
+
+// close runs the actual shutdown once. The manager context is cancelled before
+// any session is closed: every stdio process group bound to it is SIGKILLed
+// immediately, so a server that ignores SIGTERM cannot stall the shutdown, and
+// a connect goroutine whose dial completed concurrently is rejected by the
+// generation guard in connectServer.
+func (m *Manager) close() error {
+	m.cancel()
+
 	m.mu.Lock()
 	sessions := append([]*Session(nil), m.sessions...)
 	m.mu.Unlock()
-	var firstErr error
+
+	// The shutdown context is derived from a detached manager context: the
+	// manager context itself is already cancelled, so WithoutCancel gives the
+	// per-session closes a fresh deadline to race. One stuck server therefore
+	// cannot stall the rest, and Close never waits beyond shutdownGrace.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(m.ctx), shutdownGrace)
+	defer shutdownCancel()
+
+	errCh := make(chan error, len(sessions))
+	var wg sync.WaitGroup
 	for _, s := range sessions {
-		if err := s.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
+		wg.Add(1)
+		go func(s *Session) {
+			defer wg.Done()
+			done := make(chan error, 1)
+			go func() { done <- s.Close() }()
+			select {
+			case err := <-done:
+				errCh <- err
+			case <-shutdownCtx.Done():
+				// The session did not finish within the grace; stop waiting for
+				// it (its goroutine keeps tearing down in the background).
+				errCh <- shutdownCtx.Err()
+			}
+		}(s)
 	}
-	m.cancel()
-	return firstErr
+	wg.Wait()
+	close(errCh)
+
+	var unexpected []error
+	for err := range errCh {
+		if isExpectedShutdownErr(err) {
+			continue
+		}
+		unexpected = append(unexpected, err)
+	}
+	switch len(unexpected) {
+	case 0:
+		return nil
+	case 1:
+		return unexpected[0]
+	default:
+		return errors.Join(unexpected...)
+	}
+}
+
+// isExpectedShutdownErr reports whether err is a normal shutdown outcome:
+// io.EOF from a server that exited on stdin close, context.Canceled from the
+// cancelled manager context, or "signal: killed" from reaping a process group
+// the shutdown SIGKILLed (exec.Cmd WaitError). Anything else is unexpected and
+// must surface.
+func isExpectedShutdownErr(err error) bool {
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	return strings.Contains(err.Error(), "signal: killed")
 }
