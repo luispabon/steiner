@@ -61,6 +61,63 @@ Grants made via "Allowed for session" are held in memory only, keyed by
 - Per-tool approval overrides, as a finer-grained alternative to whole-server
   modes.
 
+## Lifecycle
+
+### Startup: parallel connect, TUI paints first
+
+`Manager.Connect` starts every enabled server's connection attempt on its own goroutine and
+returns immediately, so startup latency is bounded by the slowest server rather than the sum.
+Each attempt is bounded by the server's `connect_timeout` (default `15s`, applied when the
+field is absent or `0`), covering the handshake and the initial tool-list call together; a
+failed server is marked `failed` and never blocks the others.
+
+Non-interactive runs block on `WaitInit` before building the tool registry, so the frozen
+registry contains every server that connected. The interactive TUI does the reverse: it
+paints while servers connect, and the first agent turn waits on `WaitInit` and registers
+the connected tools before any model call runs. Until then, servers show as `connecting`
+in the sidebar and the `/mcp` overlay.
+
+### Reconnect on transport error
+
+A classified transport error — a dead stdio process or a lost HTTP session — triggers an
+optimistic reconnect: the failed call is **not replayed**. It returns a
+"disconnected, verify state" error naming the server, and a background worker runs
+sequential fresh-connect attempts, each bounded by the server's `connect_timeout`. Calls
+that arrive while a reconnect is in flight block on its outcome, bounded by the call's own
+timeout; if the reconnect succeeded the call proceeds on the fresh session, if it ended
+`unavailable` the call fails with that outcome. A successful reconnect swaps a new session
+under the same handle — tool definitions keep working and the consecutive-failure counter
+resets. After 3 consecutive failed attempts the server is marked `unavailable` and no
+further reconnect workers spawn. Reconnects never re-list tools: the tool set is frozen at
+connect time.
+
+A dead server's tools stay registered for the whole run. This is a deliberate divergence
+from crush (D15): dropping them mid-session would mutate the prompt prefix and invalidate
+the prompt cache, so the model keeps seeing the tools and any call to the dead server
+blocks during reconnect, then fails with the verify-state error above.
+
+### Output bounds and call timeouts (D19)
+
+MCP tool output is bounded by `limits.tool_output_max_bytes` (default `65536`): flattened
+text is truncated with a `<truncated output shown=… total=…>` marker reporting the
+pre-truncation total. Each call is also bounded by `limits.tool_timeout_default` (default
+`30s`), which now applies to MCP tools; a per-tool override goes in
+`limits.tool_timeouts`, keyed by the tool's full registered name — `mcp__<server>__<tool>`,
+or the hashed form when the name needed sanitisation or exceeded the length limit (see
+[docs/configuration.md](configuration.md)). A timed-out call is not a transport error, so
+it never triggers reconnect.
+
+### State events and TUI refresh
+
+Every status transition — `connecting` → `connected`/`failed` at startup, and
+`connected` → `reconnecting` → `connected`/`unavailable` later — is recorded in the
+manager's live snapshot and broadcast to the interactive TUI, which refreshes the sidebar
+indicator and re-reads the snapshot when the `/mcp` overlay opens. Transition warnings are
+deduplicated per failure generation: a server that recovers to `connected` and fails again
+warns once more. Initial-connect transitions that land before the first-turn registration
+are collapsed into one snapshot when the session arms, so the TUI never observes a
+half-connected server set.
+
 ## TUI surfaces
 
 ### `/mcp` overlay
@@ -140,10 +197,15 @@ A future issue (#XYZ, once opened by a user) should implement OAuth by configuri
 The following are intentionally not part of this work:
 
 - **`steiner mcp debug`** — a standalone connectivity probe outside the TUI. Not yet built.
-- **Live enable/disable toggling** from the `/mcp` overlay. Server state is a live snapshot
-  updated by status events, but toggling servers mid-session is future work, tracked in #411.
-- **Reconnect / restart actions** from the `/mcp` overlay — state updates flow in live, but
-  user-initiated reconnect or restart of a server is future work.
+- **Live config reload / server reconciliation** — re-reading config changes and enabling
+  or disabling servers mid-session. Server state is a live snapshot updated by status
+  events, but the server set itself is frozen at startup; tracked in #411.
+- **Background health-check watchdog** — proactive liveness probes. Reconnect today is
+  driven by transport errors on calls; a watchdog would detect a silently dead server
+  without waiting for the next call.
+- **Retry-when-provably-safe** — replaying a call that died on the wire when the server
+  advertises `idempotentHint`. Today a failed call is never replayed; it fails with the
+  "verify state" error described under [Lifecycle](#lifecycle).
 - **The approval prompt overlay** for MCP tool calls requiring approval — a separate surface from
   the four described here. Tracked in #407.
 - **Surfacing `serverInfo.title` / `instructions`** — no competitor tool surfaces these either, and

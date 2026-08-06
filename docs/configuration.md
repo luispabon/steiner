@@ -480,6 +480,12 @@ limits:
   tool_output_max_bytes: 65536
 ```
 
+`tool_timeout_default` and `tool_timeouts` also apply to MCP tools: every MCP call is
+bounded by `tool_timeout_default` (the `30s` default), unless the tool's full registered
+name has an entry in `tool_timeouts`. That key is the registry name shown by
+`steiner tools` — `mcp__<server>__<tool>`, or the hashed form when the name needed
+sanitisation or exceeded the length limit.
+
 ---
 
 ## `sub_agent` block
