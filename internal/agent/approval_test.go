@@ -23,7 +23,7 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 
 	var gotPreview tool.ApprovalPreview
 	approver := NewEventingApprover(output.NoopSink{}, tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
-		gotPreview = req.Preview
+		gotPreview = req.Path.Preview
 		req.Response <- tool.ApprovalResponse{Allow: true, Message: "ok"}
 		return nil
 	}))
@@ -32,8 +32,11 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 	err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
 		Tool:     tool.ToolDef{Name: "bash"},
 		Reason:   "sandbox_violation",
-		Preview:  preview,
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
+		Path: &tool.PathApprovalDetails{
+			Preview: preview,
+		},
 	})
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)
@@ -44,6 +47,82 @@ func TestEventingApproverForwardsPreviewToInnerApprover(t *testing.T) {
 	}
 	if got, want := gotPreview.Summary(), preview.Summary(); got != want {
 		t.Fatalf("forwarded preview summary = %q, want %q", got, want)
+	}
+}
+
+func TestEventingApproverMCPRequestUsesArgumentsPreview(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       map[string]any
+		mcpPreview  string
+		wantPreview string
+	}{
+		{
+			name:        "formatted arguments preview preferred for normal input",
+			input:       map[string]any{"message": "hi"},
+			mcpPreview:  "message: hi",
+			wantPreview: "message: hi",
+		},
+		{
+			name:        "empty arguments preview falls back to compacted input",
+			input:       map[string]any{"message": "hi"},
+			wantPreview: `{"message":"hi"}`,
+		},
+		{
+			name:        "unmarshalable input falls back to arguments preview",
+			input:       map[string]any{"bad": func() {}},
+			mcpPreview:  "message: hi",
+			wantPreview: "message: hi",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var events []output.Event
+			approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
+				req.Response <- tool.ApprovalResponse{Allow: true, Message: "ok"}
+				return nil
+			}))
+
+			response := make(chan tool.ApprovalResponse, 1)
+			err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
+				Tool:     tool.ToolDef{Name: "mcp__fixture__echo"},
+				Reason:   "MCP tool call",
+				Input:    tt.input,
+				Response: response,
+				Kind:     tool.ApprovalKindMCP,
+				MCP: &tool.MCPApprovalDetails{
+					Server:           "fixture",
+					ToolName:         "echo",
+					ArgumentsPreview: tt.mcpPreview,
+				},
+			})
+			if err != nil {
+				t.Fatalf("RequestApproval() error = %v", err)
+			}
+			resp := <-response
+			if !resp.Allow {
+				t.Fatal("approval response = false, want true")
+			}
+			if got, want := eventTypes(events), []string{output.EventTypeApprovalRequested, output.EventTypeApprovalAccepted}; !equalStrings(got, want) {
+				t.Fatalf("event types = %v, want %v", got, want)
+			}
+			requested, ok := events[0].Payload.(output.ApprovalEvent)
+			if !ok {
+				t.Fatalf("requested payload type = %T, want ApprovalEvent", events[0].Payload)
+			}
+			if got, want := requested.Preview, tt.wantPreview; got != want {
+				t.Fatalf("requested preview = %q, want %q", got, want)
+			}
+			if got, want := requested.Kind, string(tool.ApprovalKindMCP); got != want {
+				t.Fatalf("requested kind = %q, want %q", got, want)
+			}
+			if got, want := requested.Server, "fixture"; got != want {
+				t.Fatalf("requested server = %q, want %q", got, want)
+			}
+			if got, want := requested.ToolName, "echo"; got != want {
+				t.Fatalf("requested tool name = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -59,6 +138,7 @@ func TestEventingApproverEmitsLifecycleEvents(t *testing.T) {
 		Tool:     tool.ToolDef{Name: "write"},
 		Reason:   "sandbox_violation",
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
 	})
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)
@@ -81,6 +161,7 @@ func TestEventingApproverNilInnerDeniesWithoutPanic(t *testing.T) {
 		Tool:     tool.ToolDef{Name: "bash"},
 		Reason:   "sandbox_violation",
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
 	})
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)
@@ -106,6 +187,7 @@ func TestEventingApproverInnerErrorPropagatesAndEmitsDenial(t *testing.T) {
 		Tool:     tool.ToolDef{Name: "bash"},
 		Reason:   "sandbox_violation",
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
 	})
 	if err == nil || err.Error() != innerErr.Error() {
 		t.Fatalf("RequestApproval() error = %v, want %v", err, innerErr)
@@ -131,6 +213,7 @@ func TestEventingApproverAllowFalseEmitsDenialNotAcceptance(t *testing.T) {
 		Tool:     tool.ToolDef{Name: "bash"},
 		Reason:   "sandbox_violation",
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
 	})
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)
@@ -163,6 +246,7 @@ func TestEventingApproverContextCancelledDeniesWithoutHanging(t *testing.T) {
 		Tool:     tool.ToolDef{Name: "bash"},
 		Reason:   "sandbox_violation",
 		Response: response,
+		Kind:     tool.ApprovalKindPath,
 	})
 	if err != nil {
 		t.Fatalf("RequestApproval() error = %v", err)

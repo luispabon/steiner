@@ -185,11 +185,13 @@ type mcpPatch struct {
 }
 
 type mcpServerPatch struct {
-	Enabled   *bool              `yaml:"enabled"`
-	Transport *string            `yaml:"transport"`
-	Command   *string            `yaml:"command"`
-	Args      *[]string          `yaml:"args"`
-	Env       *map[string]string `yaml:"env"`
+	Enabled          *bool              `yaml:"enabled"`
+	Transport        *string            `yaml:"transport"`
+	Command          *string            `yaml:"command"`
+	Args             *[]string          `yaml:"args"`
+	Env              *map[string]string `yaml:"env"`
+	Approval         *string            `yaml:"approval"`
+	TrustAnnotations *bool              `yaml:"trust_annotations"`
 }
 
 type modesPatch struct {

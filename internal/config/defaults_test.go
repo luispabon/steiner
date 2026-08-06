@@ -18,6 +18,22 @@ func TestDefaultModesExecutionMode(t *testing.T) {
 	}
 }
 
+func TestApplyMCPDefaultsApproval(t *testing.T) {
+	cfg := MCPConfig{
+		Servers: map[string]MCPServerConfig{
+			"empty":    {Command: "npx"},
+			"explicit": {Approval: "deny", Command: "npx"},
+		},
+	}
+	applyMCPDefaults(&cfg)
+	if got := cfg.Servers["empty"].Approval; got != "ask" {
+		t.Errorf("empty approval = %q, want %q", got, "ask")
+	}
+	if got := cfg.Servers["explicit"].Approval; got != "deny" {
+		t.Errorf("explicit approval = %q, want %q", got, "deny")
+	}
+}
+
 func TestApplyMCPDefaultsTransport(t *testing.T) {
 	cfg := MCPConfig{
 		Servers: map[string]MCPServerConfig{

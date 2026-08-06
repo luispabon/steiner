@@ -49,12 +49,15 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, cal
 			Tool:              def,
 			CallID:            callID,
 			Input:             input,
-			WorkDir:           policy.Root(),
-			Preview:           buildApprovalPreview(def.Name, input, policy),
-			DeniedPath:        policyErr.Path,
+			Kind:              ApprovalKindPath,
 			Reason:            policyErr.Reason,
 			GrantInstructions: "Add a host_mount in .steiner/config.yaml or re-run with --unsafe",
 			Response:          make(chan ApprovalResponse, 1),
+			Path: &PathApprovalDetails{
+				WorkDir:    policy.Root(),
+				Preview:    buildApprovalPreview(def.Name, input, policy),
+				DeniedPath: policyErr.Path,
+			},
 		}
 		if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr != nil {
 			return nil, nil, policyDeniedError(def.Name, err)
@@ -197,12 +200,15 @@ func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext
 		Tool:              ec.Def,
 		CallID:            ec.CallID,
 		Input:             ec.NormalizedInput,
-		WorkDir:           policy.Root(),
-		Preview:           buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, *policy),
-		DeniedPath:        extractDeniedPath(params.Output),
+		Kind:              ApprovalKindPath,
 		Reason:            params.Reason,
 		GrantInstructions: params.GrantInstructions,
 		Response:          make(chan ApprovalResponse, 1),
+		Path: &PathApprovalDetails{
+			WorkDir:    policy.Root(),
+			Preview:    buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, *policy),
+			DeniedPath: extractDeniedPath(params.Output),
+		},
 	}
 	if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr == nil {
 		resp := <-req.Response

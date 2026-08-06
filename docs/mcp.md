@@ -26,6 +26,41 @@ for the full config reference.
 
 The `env` map under each server (`mcp.servers.<name>.env`) is passed to the server process verbatim and bypasses the host sandbox allowlist entirely, since it is declared config rather than inherited host state. This makes it the correct place to put a server's own credentials or API keys (e.g., a token the MCP server itself needs), even when `sandbox.enabled: true`.
 
+## Approval Model
+
+Each server in `mcp.servers` can be gated independently via the `approval`
+field. Three modes are supported:
+
+- `ask` — the default. Every tool call prompts the user for approval. The
+  prompt offers an "Allowed for session" button, which records a session-scoped
+  grant so the same tool does not prompt again for the rest of the run.
+- `allow` — tools run without prompting in build mode. In plan mode the server
+  is downgraded to `ask`, so plan-mode tool calls still prompt.
+- `deny` — the server's tools are not registered at all. The server still
+  connects, but exposes no tools to the model.
+
+An unset `approval` defaults to `ask`.
+
+### Annotation trust
+
+`trust_annotations` (default `false`) opts a server into trusting the
+annotations it advertises on its tools. When `true`, a tool with
+`readOnlyHint: true` skips approval entirely. `destructiveHint` and
+`openWorldHint` tools still prompt unless both hints are explicitly `false`;
+per the MCP spec they default to `true` when unset, so a server that omits
+annotations is not silently trusted.
+
+### Session grants
+
+Grants made via "Allowed for session" are held in memory only, keyed by
+`server + tool`, and never persisted. They last for the current session.
+
+### Deferred
+
+- Persistent grants across sessions — tracked in #411.
+- Per-tool approval overrides, as a finer-grained alternative to whole-server
+  modes.
+
 ## TUI surfaces
 
 ### `/mcp` overlay

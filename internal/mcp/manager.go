@@ -14,9 +14,12 @@ import (
 
 // Manager owns the MCP server sessions for one steiner session.
 type Manager struct {
-	sessions []*Session
-	defs     []tool.ToolDef
-	states   []ServerState
+	sessions      []*Session
+	defs          []tool.ToolDef
+	states        []ServerState
+	serverConfigs map[string]config.MCPServerConfig
+	planMode      bool
+	approver      tool.ApprovalResponder
 }
 
 // syncWriter serialises writes from the per-process stderr copier goroutines
@@ -46,8 +49,8 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 //
 // Connect never returns an error for a server failure; a failed server is
 // simply omitted.
-func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *exec.Cmd, approver tool.ApprovalResponder, onWarn, onInfo func(string), stderr io.Writer) *Manager {
-	m := &Manager{}
+func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *exec.Cmd, approver tool.ApprovalResponder, onWarn, onInfo func(string), stderr io.Writer, planMode bool) *Manager {
+	m := &Manager{planMode: planMode, approver: approver, serverConfigs: map[string]config.MCPServerConfig{}}
 
 	if onWarn == nil {
 		onWarn = func(string) {}
@@ -102,11 +105,16 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 		onInfo(fmt.Sprintf("MCP server %q connected (protocol %s, %d tools)", name, session.ProtocolVersion(), len(session.Tools())))
 
 		m.sessions = append(m.sessions, session)
+		m.serverConfigs[name] = srv
 
-		// Build ToolDefs for this session.
+		// Build ToolDefs for this session. Deny servers still connect (their
+		// state stays visible) but register no tools.
 		var toolNames []string
 		for _, t := range session.Tools() {
-			def := mcpToolDef(session, t, approver)
+			if srv.Approval == "deny" {
+				continue
+			}
+			def := mcpToolDef(session, t, approver, func() bool { return m.planMode }, srv)
 			m.defs = append(m.defs, def)
 			toolNames = append(toolNames, t.Name)
 		}
@@ -141,6 +149,15 @@ func (m *Manager) ServerStates() []ServerState {
 	return m.states
 }
 
+// PlanMode returns whether MCP tools currently run in plan mode.
+// Safe to call on a nil Manager.
+func (m *Manager) PlanMode() bool {
+	if m == nil {
+		return false
+	}
+	return m.planMode
+}
+
 // UpdateApprover rebuilds tool definitions with a new approver.
 // Call this after the approver becomes available (e.g. after interactive
 // session construction) so MCP tools can be invoked. Safe to call with nil.
@@ -148,13 +165,28 @@ func (m *Manager) UpdateApprover(approver tool.ApprovalResponder) {
 	if m == nil {
 		return
 	}
+	m.approver = approver
 	m.defs = nil
 	for _, s := range m.sessions {
+		srv := m.serverConfigs[s.Name()]
+		if srv.Approval == "deny" {
+			continue
+		}
 		for _, t := range s.Tools() {
-			def := mcpToolDef(s, t, approver)
+			def := mcpToolDef(s, t, approver, func() bool { return m.planMode }, srv)
 			m.defs = append(m.defs, def)
 		}
 	}
+}
+
+// UpdatePlanMode sets the plan mode read by the handler closures at call
+// time. Tool definitions are not rebuilt: each handler reads the current mode
+// from the closure. Safe to call with nil.
+func (m *Manager) UpdatePlanMode(planMode bool) {
+	if m == nil {
+		return
+	}
+	m.planMode = planMode
 }
 
 // Close terminates every connected server. Safe to call on a nil Manager.

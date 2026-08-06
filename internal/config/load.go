@@ -88,5 +88,9 @@ func applyMCPDefaults(cfg *MCPConfig) {
 			srv.Transport = "stdio"
 			cfg.Servers[name] = srv
 		}
+		if srv.Approval == "" {
+			srv.Approval = "ask"
+			cfg.Servers[name] = srv
+		}
 	}
 }

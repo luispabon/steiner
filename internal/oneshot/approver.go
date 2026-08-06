@@ -24,10 +24,10 @@ func (a worktreeAutoApprover) RequestApproval(_ context.Context, req tool.Approv
 	}
 
 	allowed := false
-	if strings.EqualFold(strings.TrimSpace(req.Tool.Name), "mutate") {
-		scope := strings.TrimSpace(req.WorkDir)
+	if strings.EqualFold(strings.TrimSpace(req.Tool.Name), "mutate") && req.Kind == tool.ApprovalKindPath && req.Path != nil {
+		scope := strings.TrimSpace(req.Path.WorkDir)
 		if scope == "" {
-			scope = req.Preview.WorkDir
+			scope = req.Path.Preview.WorkDir
 		}
 		allowed = pathWithinRoot(a.worktreeRoot, scope)
 	}

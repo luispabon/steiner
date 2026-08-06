@@ -1095,6 +1095,34 @@ func TestMCPConfigValidation(t *testing.T) {
 			},
 			wantErr: "contains an empty server name",
 		},
+		{
+			name: "invalid approval value rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Approval: "always", Command: "npx"},
+				},
+			},
+			wantErr: `mcp.servers.example.approval: "always" is invalid (must be ask, allow, or deny)`,
+		},
+		{
+			name: "approval value is case-sensitive",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Approval: "Ask", Command: "npx"},
+				},
+			},
+			wantErr: `mcp.servers.example.approval: "Ask" is invalid (must be ask, allow, or deny)`,
+		},
+		{
+			name: "valid approval values accepted",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"ask":   {Approval: "ask", Command: "npx"},
+					"allow": {Approval: "allow", Command: "npx"},
+					"deny":  {Approval: "deny", Command: "npx"},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {

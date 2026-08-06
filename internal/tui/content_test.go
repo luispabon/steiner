@@ -3510,6 +3510,34 @@ func TestApprovalDecisionTargetsGroupedToolCall(t *testing.T) {
 	}
 }
 
+func TestRenderToolApprovalBlockMCPShowsServerToolAndSessionButton(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+	buffer.segments = append(buffer.segments, contentSegment{
+		kind: segmentToolCall,
+		toolData: &toolCallSegment{
+			tool:            "mcp__fixture__echo",
+			collapsed:       false,
+			approvalPending: true,
+			approvalKind:    "mcp",
+			approvalServer:  "fixture",
+			approvalMCPTool: "echo",
+			approvalPreview: `{"message":"hi"}`,
+		},
+	})
+
+	rendered := stripANSI(buffer.String(100))
+	for _, want := range []string{"fixture → echo", "Allowed for session", "Message: hi"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("content = %q, missing %q", rendered, want)
+		}
+	}
+}
+
 func TestContentBufferSegmentHeights(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -19,10 +19,13 @@ func TestApprovalResponderFuncAdapter(t *testing.T) {
 
 	responseCh := make(chan ApprovalResponse, 1)
 	req := ApprovalRequest{
-		Tool:       ToolDef{Name: "bash"},
-		DeniedPath: "",
-		Reason:     "command was blocked by sandbox",
-		Response:   responseCh,
+		Tool:     ToolDef{Name: "bash"},
+		Reason:   "command was blocked by sandbox",
+		Response: responseCh,
+		Kind:     ApprovalKindPath,
+		Path: &PathApprovalDetails{
+			DeniedPath: "",
+		},
 	}
 
 	if err := fn.RequestApproval(context.Background(), req); err != nil {
@@ -52,6 +55,7 @@ func TestApprovalResponderFuncAdapterPropagatesError(t *testing.T) {
 	req := ApprovalRequest{
 		Tool:     ToolDef{Name: "read"},
 		Response: responseCh,
+		Kind:     ApprovalKindPath,
 	}
 
 	err := fn.RequestApproval(context.Background(), req)

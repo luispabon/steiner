@@ -34,6 +34,7 @@ type Session struct {
 	reasoningOverrides  map[string]provider.ReasoningOverride
 	mode                config.ExecutionMode
 	pendingModeNotice   bool
+	modeListener        func(config.ExecutionMode)
 	done                chan struct{}
 	exitOnce            sync.Once
 }
@@ -252,7 +253,7 @@ func (s *Session) Mode() config.ExecutionMode {
 
 // SetMode updates the execution mode. If m is the same as the current mode,
 // this is a no-op. Otherwise, it stores m, sets pendingModeNotice=true,
-// and emits a mode-changed event.
+// emits a mode-changed event, and notifies the mode listener if one is set.
 func (s *Session) SetMode(m config.ExecutionMode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -262,6 +263,18 @@ func (s *Session) SetMode(m config.ExecutionMode) {
 	s.mode = m
 	s.pendingModeNotice = true
 	s.events.Emit(output.NewModeChangedEvent(string(m)))
+	if s.modeListener != nil {
+		s.modeListener(m)
+	}
+}
+
+// SetModeListener registers a callback invoked after a mode change, outside of
+// the no-op path. It replaces any previously registered listener. Safe to call
+// with a nil listener.
+func (s *Session) SetModeListener(listener func(config.ExecutionMode)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.modeListener = listener
 }
 
 // consumeModeNotice returns the mode notice string if pendingModeNotice is set,

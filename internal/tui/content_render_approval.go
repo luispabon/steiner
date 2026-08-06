@@ -21,7 +21,9 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 	}
 
 	label := "approval required"
-	if ad.tool != "" {
+	if ad.kind == "mcp" && ad.server != "" {
+		label = ad.server + " → " + ad.mcpToolName
+	} else if ad.tool != "" {
 		label = ad.tool
 		if ad.mode != "" {
 			label += " · " + ad.mode
@@ -58,7 +60,7 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 	btnDeny := lipgloss.NewStyle().Background(bgElev2C).Foreground(fgMuteC).Render("[n]") +
 		lipgloss.NewStyle().Background(bgElev2C).Foreground(fgDimC).Render(" deny")
 	btnAlways := lipgloss.NewStyle().Background(bgElev2C).Foreground(fgMuteC).Render("[a]") +
-		lipgloss.NewStyle().Background(bgElev2C).Foreground(fgDimC).Render(" always")
+		lipgloss.NewStyle().Background(bgElev2C).Foreground(fgDimC).Render(" Allowed for session")
 	buttons := btnApprove + " " + btnDeny + " " + btnAlways
 	buttonsW := lipgloss.Width(buttons)
 
@@ -76,5 +78,10 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 	bgContent := " " + question + " " + buttons
 	bgRow := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Width(bgW).Render(bgContent)
 
+	// MCP approvals render the handler-formatted ArgumentsPreview below the bar
+	// as key:value lines.
+	if ad.kind == "mcp" {
+		return indent + bar + bgRow + "\n" + b.renderApprovalPreview(ad.preview, innerWidth)
+	}
 	return indent + bar + bgRow + "\n"
 }

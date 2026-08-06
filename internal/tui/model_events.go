@@ -123,6 +123,9 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 					tool:           payload.Tool,
 					mode:           payload.Mode,
 					preview:        payload.Preview,
+					kind:           payload.Kind,
+					server:         payload.Server,
+					mcpToolName:    payload.ToolName,
 					selectedAction: 0,
 				}
 				m.status.mode = "approval"

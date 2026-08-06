@@ -61,7 +61,10 @@ type toolCallSegment struct {
 	approvalAccepted       bool
 	approvalMode           string
 	approvalPreview        string
-	approvalSelectedAction int // 0=allow once, 1=always allow, 2=deny
+	approvalKind           string // "path" or "mcp"
+	approvalServer         string // MCP server name (empty for path)
+	approvalMCPTool        string // MCP tool name (empty for path)
+	approvalSelectedAction int    // 0=allow once, 1=always allow, 2=deny
 }
 
 type toolCallGroupSegment struct {
@@ -70,11 +73,14 @@ type toolCallGroupSegment struct {
 }
 
 type approvalPillData struct {
-	tool     string
-	mode     string
-	preview  string
-	resolved bool
-	accepted bool
+	tool        string
+	mode        string
+	preview     string
+	kind        string // "path" or "mcp"
+	server      string // MCP server name (empty for path)
+	mcpToolName string // MCP tool name (empty for path)
+	resolved    bool
+	accepted    bool
 }
 
 type compactionBannerData struct {
