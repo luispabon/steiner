@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -443,15 +444,16 @@ func (m *Manager) close() error {
 
 // isExpectedShutdownErr reports whether err is a normal shutdown outcome:
 // io.EOF from a server that exited on stdin close, context.Canceled from the
-// cancelled manager context, or "signal: killed" from reaping a process group
-// the shutdown SIGKILLed (exec.Cmd WaitError). Anything else is unexpected and
-// must surface.
+// cancelled manager context, "signal: killed" from reaping a process group
+// the shutdown SIGKILLed (exec.Cmd WaitError), or os.ErrProcessDone / "no such
+// process" from exec.Cmd.Cancel racing a process that exited on its own during
+// concurrent shutdown. Anything else is unexpected and must surface.
 func isExpectedShutdownErr(err error) bool {
 	if err == nil {
 		return true
 	}
-	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || errors.Is(err, os.ErrProcessDone) {
 		return true
 	}
-	return strings.Contains(err.Error(), "signal: killed")
+	return strings.Contains(err.Error(), "signal: killed") || strings.Contains(err.Error(), "no such process")
 }
