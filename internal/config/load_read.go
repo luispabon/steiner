@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -22,23 +23,25 @@ func readConfigPatch(path string, env map[string]string, allowMissing bool) (con
 		return configPatch{}, fmt.Errorf("read config %q: %w", path, err)
 	}
 
-	return parseConfigPatch(path, expandConfigContents(string(contents), env))
-}
-
-func expandConfigContents(contents string, env map[string]string) string {
-	return expandEnvText(contents, func(name string) (string, bool) {
-		v, ok := env[name]
-		return v, ok
-	})
-}
-
-func parseConfigPatch(path, contents string) (configPatch, error) {
-	rawMapping, err := decodeConfigNode(path, contents)
+	root, err := decodeConfigNode(path, string(contents))
 	if err != nil {
 		return configPatch{}, err
 	}
 
-	cleaned, err := marshalCleanConfigNode(path, rawMapping)
+	if root.Kind == 0 {
+		return configPatch{}, nil
+	}
+
+	lookup := func(name string) (string, bool) {
+		v, ok := env[name]
+		return v, ok
+	}
+	missing := expandNodeTree(root, lookup)
+	if len(missing) > 0 {
+		return configPatch{}, undefinedVarError(path, missing)
+	}
+
+	cleaned, err := marshalCleanConfigNode(path, root)
 	if err != nil {
 		return configPatch{}, err
 	}
@@ -47,6 +50,26 @@ func parseConfigPatch(path, contents string) (configPatch, error) {
 		return configPatch{}, fmt.Errorf("parse config %q: %w", path, err)
 	}
 	return patch, nil
+}
+
+func undefinedVarError(path string, missing []undefinedVar) error {
+	sort.Slice(missing, func(i, j int) bool {
+		if missing[i].Line != missing[j].Line {
+			return missing[i].Line < missing[j].Line
+		}
+		if missing[i].Path != missing[j].Path {
+			return missing[i].Path < missing[j].Path
+		}
+		return missing[i].Name < missing[j].Name
+	})
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "config %q references undefined environment variables:\n", path)
+	for _, uv := range missing {
+		fmt.Fprintf(&b, "  line %-5d  %-40s  %s\n", uv.Line, uv.Path, uv.Name)
+	}
+	b.WriteString("use ${VAR:-} to allow an empty value, or $$VAR for a literal dollar sign\n")
+	return fmt.Errorf("expand env vars: %s", strings.TrimSpace(b.String()))
 }
 
 func decodeConfigNode(path, contents string) (*yaml.Node, error) {
@@ -63,6 +86,27 @@ func marshalCleanConfigNode(path string, rawMapping *yaml.Node) ([]byte, error) 
 		return nil, fmt.Errorf("marshal cleaned config %q: %w", path, err)
 	}
 	return cleaned, nil
+}
+
+func parseConfigPatch(path, contents string) (configPatch, error) {
+	root, err := decodeConfigNode(path, contents)
+	if err != nil {
+		return configPatch{}, err
+	}
+
+	if root.Kind == 0 {
+		return configPatch{}, nil
+	}
+
+	cleaned, err := marshalCleanConfigNode(path, root)
+	if err != nil {
+		return configPatch{}, err
+	}
+	var patch configPatch
+	if err := decodeKnownConfigPatch(cleaned, &patch); err != nil {
+		return configPatch{}, fmt.Errorf("parse config %q: %w", path, err)
+	}
+	return patch, nil
 }
 
 func decodeKnownConfigPatch(cleaned []byte, patch *configPatch) error {

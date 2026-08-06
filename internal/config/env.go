@@ -41,19 +41,6 @@ func applyEnvOverrides(cfg *Config, env map[string]string) error {
 		return err
 	}
 
-	// Expand env vars in provider fields
-	for name, p := range cfg.Providers {
-		p.BaseURL = expandEnvText(p.BaseURL, lookup)
-		p.APIKey = expandEnvText(p.APIKey, lookup)
-		cfg.Providers[name] = p
-	}
-
-	// Expand env vars in model fields
-	for name, m := range cfg.Models.Definitions {
-		m.ID = expandEnvText(m.ID, lookup)
-		cfg.Models.Definitions[name] = m
-	}
-
 	if err := applyEnvIntOverrides(cfg, lookup); err != nil {
 		return err
 	}
