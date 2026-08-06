@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"time"
 )
 
 var (
@@ -81,6 +82,11 @@ func normalizeExecutionModes(cfg *Config) {
 	}
 }
 
+// defaultMCPConnectTimeout is the default per-server MCP connect timeout used
+// when a server omits connect_timeout (or sets it to zero). 15s mirrors
+// crush's default (issue #409 range 5-30s).
+const defaultMCPConnectTimeout = 15 * time.Second
+
 // applyMCPDefaults normalizes per-server MCP defaults after patching.
 func applyMCPDefaults(cfg *MCPConfig) {
 	for name, srv := range cfg.Servers {
@@ -90,6 +96,10 @@ func applyMCPDefaults(cfg *MCPConfig) {
 		}
 		if srv.Approval == "" {
 			srv.Approval = "ask"
+			cfg.Servers[name] = srv
+		}
+		if srv.ConnectTimeout.IsZero() {
+			srv.ConnectTimeout = Duration{value: int64(defaultMCPConnectTimeout), set: true}
 			cfg.Servers[name] = srv
 		}
 	}

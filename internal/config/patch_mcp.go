@@ -54,4 +54,7 @@ func applyMCPServerPatch(dst *MCPServerConfig, patch *mcpServerPatch) {
 	if patch.TrustAnnotations != nil {
 		dst.TrustAnnotations = *patch.TrustAnnotations
 	}
+	if patch.ConnectTimeout != nil {
+		dst.ConnectTimeout = *patch.ConnectTimeout
+	}
 }

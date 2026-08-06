@@ -194,6 +194,7 @@ type mcpServerPatch struct {
 	Headers          *map[string]string `yaml:"headers"`
 	Approval         *string            `yaml:"approval"`
 	TrustAnnotations *bool              `yaml:"trust_annotations"`
+	ConnectTimeout   *Duration          `yaml:"connect_timeout"`
 }
 
 type modesPatch struct {

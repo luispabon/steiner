@@ -577,6 +577,7 @@ Each server entry (`MCPServerConfig`) supports:
 | `headers`           | map[string]string  | —           | HTTP headers sent with every request. Used only with `http` transport; must be empty for `stdio`. Header names cannot collide with SDK-reserved names (case-insensitive): `Content-Type`, `Accept`, `Mcp-Protocol-Version`, `Mcp-Session-Id`, `Last-Event-Id`, `Mcp-Method`, `Mcp-Name`, or names with the `Mcp-Param-` prefix. `Authorization` is allowed for static bearer tokens sourced from `${VAR}` (see [environment variable expansion](#environment-variable-expansion-in-config-values)). |
 | `approval`          | string             | `"ask"`     | Approval mode for the server's tools. One of `ask` (prompt per tool call), `allow` (run without prompting in build mode, downgraded to `ask` in plan mode), or `deny` (register no tools). |
 | `trust_annotations` | bool               | `false`     | When `true`, tools advertised with `readOnlyHint: true` skip approval; `destructiveHint` and `openWorldHint` tools still prompt. |
+| `connect_timeout`   | duration           | `"15s"`     | Maximum time to wait for the MCP connection to be established. Absent or `0` falls back to `15s` (mirrors crush's default, range 5-30s); negative values are rejected. |
 
 ```yaml
 mcp:
