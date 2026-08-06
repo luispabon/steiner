@@ -3,6 +3,7 @@ package advisor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -147,5 +148,32 @@ func TestLoadAdvisorFilesReadsAndRendersRelativePath(t *testing.T) {
 	}
 	if files[0].Content != "steps: []\n" {
 		t.Fatalf("Content = %q, want file contents", files[0].Content)
+	}
+	if files[0].TotalBytes != len("steps: []\n") {
+		t.Fatalf("TotalBytes = %d, want %d", files[0].TotalBytes, len("steps: []\n"))
+	}
+}
+
+func TestLoadAdvisorFilesCapsReadWithoutLoadingWholeFile(t *testing.T) {
+	workDir := t.TempDir()
+	target := filepath.Join(workDir, "big.txt")
+	realSize := maxAdvisorFileBytes + 5000
+	if err := os.WriteFile(target, []byte(strings.Repeat("x", realSize)), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+
+	files, err := loadAdvisorFiles(workDir, &policy, []string{"big.txt"})
+	if err != nil {
+		t.Fatalf("loadAdvisorFiles() error = %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("len(files) = %d, want 1", len(files))
+	}
+	if len(files[0].Content) != maxAdvisorFileBytes {
+		t.Fatalf("len(Content) = %d, want %d (capped read, not the full file)", len(files[0].Content), maxAdvisorFileBytes)
+	}
+	if files[0].TotalBytes != realSize {
+		t.Fatalf("TotalBytes = %d, want %d (real on-disk size)", files[0].TotalBytes, realSize)
 	}
 }

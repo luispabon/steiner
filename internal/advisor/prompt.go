@@ -33,10 +33,21 @@ const (
 // elide truncates s to a max-byte prefix plus a size-preserving elision
 // marker when s exceeds max bytes; otherwise it returns s unchanged.
 func elide(s string, max int) string {
-	if len(s) <= max {
+	return elideKnownTotal(s, max, len(s))
+}
+
+// elideKnownTotal is like elide but takes the true total byte length
+// separately from s. Used when s was already capped before this call (e.g.
+// a file read through a limited reader), so len(s) alone would misreport
+// the real size in the elision marker.
+func elideKnownTotal(s string, max, total int) string {
+	if total <= max {
 		return s
 	}
-	return fmt.Sprintf("%s…[elided, %d bytes total]", s[:max], len(s))
+	if len(s) > max {
+		s = s[:max]
+	}
+	return fmt.Sprintf("%s…[elided, %d bytes total]", s, total)
 }
 
 // capToolArgStrings returns a deep copy of v with any string longer than
@@ -129,7 +140,7 @@ func renderAdvisorFiles(files []advisorFile) string {
 	var sb strings.Builder
 	remaining := maxAdvisorFilesTotalBytes
 	for _, f := range files {
-		content := elide(f.Content, maxAdvisorFileBytes)
+		content := elideKnownTotal(f.Content, maxAdvisorFileBytes, f.TotalBytes)
 		if len(content) > remaining {
 			content = elide(content, remaining)
 		}

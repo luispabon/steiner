@@ -336,7 +336,7 @@ func TestHandlerRejectsMissingFileWithoutConsumingUse(t *testing.T) {
 	}
 }
 
-func TestHandlerRejectsPathOutsidePolicyWithoutConsumingUse(t *testing.T) {
+func TestHandlerRejectsBlockedPathWithoutConsumingUse(t *testing.T) {
 	t.Parallel()
 
 	workDir := t.TempDir()

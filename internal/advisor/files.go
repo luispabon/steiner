@@ -2,6 +2,7 @@ package advisor
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -9,10 +10,15 @@ import (
 )
 
 // advisorFile is one caller-supplied artifact loaded for the advisor's
-// bounded suffix payload.
+// bounded suffix payload. Content is read through a limited reader capped at
+// maxAdvisorFileBytes, so it may be shorter than TotalBytes for large files;
+// TotalBytes always reflects the real on-disk size so the elision marker in
+// renderAdvisorFiles can report an accurate total even when Content itself
+// was truncated at read time.
 type advisorFile struct {
 	DisplayPath string
 	Content     string
+	TotalBytes  int
 }
 
 // advisorInput is the decoded optional input to the advisor tool.
@@ -73,20 +79,46 @@ func loadAdvisorFiles(workDir string, policy *tool.PathPolicy, paths []string) (
 		if err != nil {
 			return nil, fmt.Errorf("advisor: %w", err)
 		}
-		data, err := os.ReadFile(absPath)
+		content, totalBytes, err := readCapped(absPath, maxAdvisorFileBytes)
 		if err != nil {
 			return nil, fmt.Errorf("advisor: read %q: %w", raw, err)
 		}
 		files = append(files, advisorFile{
 			DisplayPath: relDisplayPath(workDir, policy.DisplayPath(absPath)),
-			Content:     string(data),
+			Content:     content,
+			TotalBytes:  totalBytes,
 		})
 	}
 	return files, nil
 }
 
-// relDisplayPath returns p relative to workDir when possible, so absolute
-// host paths never leak into the advisor's prompt.
+// readCapped reads at most capBytes from absPath without allocating for
+// bytes beyond the cap, so a caller-supplied path pointing at a very large
+// file cannot force an unbounded read. It also returns the file's real
+// on-disk size (via stat, which costs no allocation) so callers can report
+// an accurate total even when the returned content was truncated.
+func readCapped(absPath string, capBytes int) (string, int, error) {
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return "", 0, err
+	}
+	f, err := os.Open(absPath)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(f, int64(capBytes)))
+	if err != nil {
+		return "", 0, err
+	}
+	return string(data), int(info.Size()), nil
+}
+
+// relDisplayPath returns p relative to workDir when possible. For paths
+// under workDir this hides the absolute host path; for paths outside
+// workDir (or when no relation can be computed) it falls back to p as-is,
+// which may itself be absolute or contain "..".
 func relDisplayPath(workDir, p string) string {
 	if workDir == "" || p == "" {
 		return p

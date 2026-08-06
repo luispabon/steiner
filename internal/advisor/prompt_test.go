@@ -557,7 +557,7 @@ func TestBuildMessagesOrdersFilesAndQuestionAfterSnapshot(t *testing.T) {
 
 func TestBuildMessagesTruncatesOversizedFile(t *testing.T) {
 	large := strings.Repeat("a", maxAdvisorFileBytes+500)
-	files := []advisorFile{{DisplayPath: "big.txt", Content: large}}
+	files := []advisorFile{{DisplayPath: "big.txt", Content: large, TotalBytes: len(large)}}
 
 	got := buildMessages(nil, "", files)
 	last := got[len(got)-1]
@@ -578,10 +578,10 @@ func TestBuildMessagesTruncatesAggregateAcrossFiles(t *testing.T) {
 	// aggregate cap (4 * maxAdvisorFileBytes > maxAdvisorFilesTotalBytes).
 	each := strings.Repeat("b", maxAdvisorFileBytes)
 	files := []advisorFile{
-		{DisplayPath: "one.txt", Content: each},
-		{DisplayPath: "two.txt", Content: each},
-		{DisplayPath: "three.txt", Content: each},
-		{DisplayPath: "four.txt", Content: each},
+		{DisplayPath: "one.txt", Content: each, TotalBytes: len(each)},
+		{DisplayPath: "two.txt", Content: each, TotalBytes: len(each)},
+		{DisplayPath: "three.txt", Content: each, TotalBytes: len(each)},
+		{DisplayPath: "four.txt", Content: each, TotalBytes: len(each)},
 	}
 
 	got := buildMessages(nil, "", files)
