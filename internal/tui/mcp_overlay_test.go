@@ -278,3 +278,41 @@ func TestMCPOverlay_CommandRegistered(t *testing.T) {
 		t.Fatal("expected /mcp command to build a showMCP action")
 	}
 }
+
+func TestStateDisplayLabelLiveStates(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"connected":    "Connected",
+		"failed":       "Failed",
+		"disabled":     "Disabled",
+		"connecting":   "Connecting",
+		"reconnecting": "Reconnecting",
+		"unavailable":  "Unavailable",
+		"mystery":      "mystery",
+	}
+	for state, want := range tests {
+		if got := stateDisplayLabel(state); got != want {
+			t.Errorf("stateDisplayLabel(%q) = %q, want %q", state, got, want)
+		}
+	}
+}
+
+func TestMCPOverlay_LiveStatesRenderWithoutFallback(t *testing.T) {
+	t.Parallel()
+	s := theme.BuildStyles("#ff0000")
+	o := newMCPOverlay(s)
+	o.OverlayShell = o.WithDimensions(80, 24)
+	servers := []MCPServerStatus{
+		{Name: "pending", State: "connecting", Transport: "stdio"},
+		{Name: "retry", State: "reconnecting", Transport: "stdio"},
+		{Name: "down", State: "unavailable", Transport: "stdio", Error: "exhausted retries"},
+	}
+	o = o.Open(servers, true)
+
+	view := o.View()
+	for _, want := range []string{"Connecting", "Reconnecting", "Unavailable", "exhausted retries"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected view to contain %q, got: %s", want, view)
+		}
+	}
+}

@@ -430,3 +430,14 @@ func NewSandboxStatusEvent(status, message string) Event {
 		Message: strings.TrimSpace(message),
 	})
 }
+
+// NewMCPStatusEvent creates an mcp_status snapshot event carrying an immutable
+// view of the MCP surface: whether MCP is enabled, every configured server's
+// live state keyed by server name, and the registry's MCP tool origins.
+func NewMCPStatusEvent(enabled bool, servers map[string]MCPServerState, origins map[string]MCPToolOrigin) Event {
+	return newEvent(EventTypeMCPStatus, MCPStatusEvent{
+		Enabled: enabled,
+		Servers: servers,
+		Origins: origins,
+	})
+}

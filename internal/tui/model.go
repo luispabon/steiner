@@ -106,6 +106,7 @@ type Model struct {
 	mcpEnabled                   bool
 	mcpServers                   []MCPServerStatus
 	mcpToolOrigins               map[string]MCPToolOrigin
+	mcpWarned                    map[string]bool // servers that already surfaced a failure warning in the current failure generation
 	enabledSkills                map[string]bool
 	modelNames                   []string
 	modelContexts                map[string]int

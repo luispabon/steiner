@@ -293,6 +293,16 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	for _, line := range mcpStartupWarnings(m.mcpServers, m.mcpEnabled) {
 		m.content.AppendLine(m.styles.WarningStyle.Render(line))
 	}
+	// Seed the failure-warning dedupe with servers the startup snapshot already
+	// surfaced, so a later status event carrying the same failure does not warn
+	// twice. Async connect starts every server as connecting, so this is empty
+	// on the interactive path and the first resolved failure warns once.
+	m.mcpWarned = make(map[string]bool)
+	for _, s := range m.mcpServers {
+		if mcpFailureState(s.State) {
+			m.mcpWarned[s.Name] = true
+		}
+	}
 	m.git.Refresh(context.Background())
 	m.syncSidebar()
 	m.layout()

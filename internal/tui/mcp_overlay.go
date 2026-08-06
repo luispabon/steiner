@@ -77,7 +77,7 @@ func (o mcpOverlay) renderServerLines(srv MCPServerStatus) []string {
 	switch srv.State {
 	case "connected":
 		bulletStyle = o.styles.SuccessStyle
-	case "failed":
+	case "failed", "unavailable":
 		bulletStyle = o.styles.ErrorStyle
 	}
 
@@ -86,7 +86,7 @@ func (o mcpOverlay) renderServerLines(srv MCPServerStatus) []string {
 
 	indentWidth := max(o.InnerWidth()-2, 1)
 	switch srv.State {
-	case "failed":
+	case "failed", "unavailable":
 		errText := srv.Error
 		if errText == "" {
 			errText = "unknown error"
@@ -121,6 +121,12 @@ func stateDisplayLabel(state string) string {
 		return "Failed"
 	case "disabled":
 		return "Disabled"
+	case "connecting":
+		return "Connecting"
+	case "reconnecting":
+		return "Reconnecting"
+	case "unavailable":
+		return "Unavailable"
 	default:
 		return state
 	}

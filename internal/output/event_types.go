@@ -94,6 +94,10 @@ const (
 	EventTypeModeChanged = "mode_changed"
 	// EventTypeSandboxStatus is emitted when the sandbox status is determined at startup.
 	EventTypeSandboxStatus = "sandbox_status"
+	// EventTypeMCPStatus is emitted when the MCP server set changes state. The
+	// payload is an immutable snapshot of the MCP surface, so display consumers
+	// never read the registry or manager concurrently.
+	EventTypeMCPStatus = "mcp_status"
 )
 
 // Event is the timestamped envelope emitted by the runtime event stream.
@@ -455,4 +459,37 @@ type ModeChangedEvent struct {
 type SandboxStatusEvent struct {
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
+}
+
+// MCPServerState is the display-only view of one configured MCP server inside
+// an MCPStatusEvent. The map key in MCPStatusEvent.Servers is the server's
+// config key.
+type MCPServerState struct {
+	// State is the server's connection outcome: "connecting", "connected",
+	// "reconnecting", "failed", "unavailable" or "disabled".
+	State string `json:"state"`
+	// Transport is the server's transport, e.g. "stdio".
+	Transport string `json:"transport,omitempty"`
+	// Tools lists the MCP-side tool names offered by this server; connected only, may be empty.
+	Tools []string `json:"tools,omitempty"`
+	// Error is the failure text; failed/unavailable only.
+	Error string `json:"error,omitempty"`
+}
+
+// MCPToolOrigin identifies the MCP server a registry tool name came from.
+type MCPToolOrigin struct {
+	// Server is the config key of the MCP server that provided the tool.
+	Server string `json:"server"`
+	// Tool is the original, unsanitised tool name as the server reported it.
+	Tool string `json:"tool"`
+}
+
+// MCPStatusEvent is the payload for EventTypeMCPStatus: an immutable snapshot
+// of the MCP surface (whether MCP is enabled, every configured server's live
+// state, and the registry's MCP tool origins) that the TUI can rebuild its MCP
+// display from without touching the manager or registry.
+type MCPStatusEvent struct {
+	Enabled bool                      `json:"enabled"`
+	Servers map[string]MCPServerState `json:"servers,omitempty"`
+	Origins map[string]MCPToolOrigin  `json:"origins,omitempty"`
 }

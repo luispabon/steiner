@@ -162,19 +162,30 @@ func mcpTUIState(cfg config.Config, mgr *mcp.Manager, registry *tool.Registry) (
 	return enabled, servers, origins
 }
 
-// mcpStateEventType is the runtime event type carrying an MCP state snapshot
-// for the interactive TUI. The TUI consumer lands in step-8; until then unknown
-// event types are ignored downstream.
-const mcpStateEventType = "mcp_state"
-
-// mcpStateSnapshot is an immutable snapshot of the MCP surface: whether MCP is
-// enabled, every configured server's current state, and the registry's MCP tool
-// origins. The producer emits one consolidated snapshot after first-turn
-// registration and one per subsequent state transition.
-type mcpStateSnapshot struct {
-	Enabled bool                         `json:"enabled"`
-	Servers []tui.MCPServerStatus        `json:"servers,omitempty"`
-	Origins map[string]tui.MCPToolOrigin `json:"origins,omitempty"`
+// emitMCPStateSnapshot computes the current MCP display state and emits it as
+// one immutable snapshot event on the given sink. The snapshot carries every
+// server's live state plus the registry's MCP tool origins, so the TUI can
+// rebuild its MCP surface from a single event without touching the manager or
+// registry.
+func emitMCPStateSnapshot(rt cliRuntime, sink output.EventSink) {
+	if rt.mcpManager == nil {
+		return
+	}
+	enabled, servers, origins := mcpTUIState(rt.cfg, rt.mcpManager, rt.registry)
+	states := make(map[string]output.MCPServerState, len(servers))
+	for _, s := range servers {
+		states[s.Name] = output.MCPServerState{
+			State:     s.State,
+			Transport: s.Transport,
+			Tools:     append([]string(nil), s.Tools...),
+			Error:     s.Error,
+		}
+	}
+	toolOrigins := make(map[string]output.MCPToolOrigin, len(origins))
+	for name, o := range origins {
+		toolOrigins[name] = output.MCPToolOrigin{Server: o.Server, Tool: o.Tool}
+	}
+	sink.Emit(output.NewMCPStatusEvent(enabled, states, toolOrigins))
 }
 
 // mcpStateProducer gates MCP state-change notifications behind the first-turn
@@ -223,21 +234,6 @@ func (p *mcpStateProducer) arm() {
 	if listener != nil {
 		listener()
 	}
-}
-
-// emitMCPStateSnapshot computes the current MCP display state and emits it as
-// one immutable snapshot event on the given sink. The snapshot carries every
-// server's live state plus the registry's MCP tool origins, so the TUI can
-// rebuild its MCP surface from a single event.
-func emitMCPStateSnapshot(rt cliRuntime, sink output.EventSink) {
-	if rt.mcpManager == nil {
-		return
-	}
-	enabled, servers, origins := mcpTUIState(rt.cfg, rt.mcpManager, rt.registry)
-	sink.Emit(output.Event{
-		Type:    mcpStateEventType,
-		Payload: mcpStateSnapshot{Enabled: enabled, Servers: servers, Origins: origins},
-	})
 }
 
 func selectedModelConfig(cfg config.Config) config.ModelConfig {

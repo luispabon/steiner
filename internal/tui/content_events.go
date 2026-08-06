@@ -289,6 +289,9 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// SteerReceived is handled by model_events.go (PromoteLastPendingSteer); no
 	// content line is emitted here.
 	output.EventTypeSteerReceived: func(*contentBuffer, output.Event) {},
+	// MCPStatus is display-only state handled by model_events.go; no transcript
+	// line is emitted here.
+	output.EventTypeMCPStatus: func(*contentBuffer, output.Event) {},
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {

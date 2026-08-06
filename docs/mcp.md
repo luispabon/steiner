@@ -68,12 +68,12 @@ Grants made via "Allowed for session" are held in memory only, keyed by
 The `/mcp` command opens a scrollable overlay listing every server declared in `mcp.servers`,
 regardless of whether it connected. Each entry shows:
 
-- a status bullet, coloured (not shaped) by state — green for `connected`, red for `failed`, muted
-  for `disabled`
+- a status bullet, coloured (not shaped) by state — green for `connected`, red for `failed` and
+  `unavailable`, muted for `disabled` and the in-flight states `connecting`/`reconnecting`
 - the server name, state label, and transport
 - for a connected server: its tool count and tool names, or an explicit "no tools advertised" note
   if it exposes none (a real misconfiguration signal, not treated as a blank)
-- for a failed server: the error text, indented beneath its status line
+- for a failed or unavailable server: the error text, indented beneath its status line
 
 When MCP is disabled in config, the overlay says so and still lists every declared server as
 disabled — useful for a user who forgot to flip the flag. When no servers are configured, it says
@@ -82,10 +82,12 @@ so rather than rendering an empty frame.
 Scrolling is plain line-offset (arrow keys/`j`/`k`, page up/down, home/end); there is no
 selection model or filtering. `esc` or `enter` closes it.
 
+In interactive mode the overlay reflects live state: it re-reads the current snapshot each time it
+opens, so it shows the post-connect and post-reconnect picture rather than the startup one.
+
 ### Startup failure warnings
 
-Because the MCP handshake happens before the TUI exists, a failed connection is captured in a
-snapshot and surfaced as warning lines in the transcript at startup — not just in a log line. One
+A failed connection is surfaced as warning lines in the transcript — not just in a log line. One
 line per failed server naming it and its error, plus a single aggregate line if any failed:
 
 ```
@@ -94,6 +96,11 @@ line per failed server naming it and its error, plus a single aggregate line if 
 ```
 
 Nothing is emitted when MCP is off, when nothing is configured, or when every server connected.
+
+The interactive TUI starts with async connect, so servers may still be `connecting` when it
+paints. Each server that later resolves to a failure (`failed` or `unavailable`) surfaces one
+warning line at the transition, deduplicated per failure generation: a server that recovers to
+`connected` and fails again warns once more.
 
 ### Transcript attribution
 
@@ -111,7 +118,8 @@ servers are excluded from both numbers). The value is coloured in the error styl
 has failed, and the normal row style otherwise. It is hidden entirely — not shown as "MCP: off" —
 when MCP is disabled or nothing is configured, to avoid spending sidebar width on users who will
 never enable MCP. When sandbox status, skill, and MCP are all absent, the status block does not
-render at all.
+render at all. In interactive mode the row updates as status events arrive, so it tracks
+connect and reconnect without a restart.
 
 ## Remote HTTP servers
 
@@ -132,10 +140,10 @@ A future issue (#XYZ, once opened by a user) should implement OAuth by configuri
 The following are intentionally not part of this work:
 
 - **`steiner mcp debug`** — a standalone connectivity probe outside the TUI. Not yet built.
-- **Live enable/disable toggling** from the `/mcp` overlay. Server state is a startup snapshot;
-  toggling servers mid-session is future work, tracked in #411.
-- **Reconnect / restart actions** and any push-based state updates after startup — today's surfaces
-  are all frozen at the initial connection snapshot. Tracked in #409.
+- **Live enable/disable toggling** from the `/mcp` overlay. Server state is a live snapshot
+  updated by status events, but toggling servers mid-session is future work, tracked in #411.
+- **Reconnect / restart actions** from the `/mcp` overlay — state updates flow in live, but
+  user-initiated reconnect or restart of a server is future work.
 - **The approval prompt overlay** for MCP tool calls requiring approval — a separate surface from
   the four described here. Tracked in #407.
 - **Surfacing `serverInfo.title` / `instructions`** — no competitor tool surfaces these either, and

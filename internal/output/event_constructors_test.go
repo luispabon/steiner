@@ -137,3 +137,41 @@ func TestNewModeChangedEvent(t *testing.T) {
 		}
 	})
 }
+
+func TestNewMCPStatusEvent(t *testing.T) {
+	event := NewMCPStatusEvent(true, map[string]MCPServerState{
+		"srv-a": {State: "connected", Transport: "stdio", Tools: []string{"echo"}},
+		"srv-b": {State: "failed", Error: "boom"},
+	}, map[string]MCPToolOrigin{
+		"mcp__srv_a__echo": {Server: "srv-a", Tool: "echo"},
+	})
+
+	if event.Type != EventTypeMCPStatus {
+		t.Fatalf("Type = %q, want %q", event.Type, EventTypeMCPStatus)
+	}
+	if event.Timestamp.IsZero() {
+		t.Fatal("Timestamp is zero")
+	}
+	if event.Timestamp.Location() != time.UTC {
+		t.Fatalf("Location = %v, want UTC", event.Timestamp.Location())
+	}
+	p, ok := event.Payload.(MCPStatusEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T", event.Payload)
+	}
+	if !p.Enabled {
+		t.Fatal("Enabled = false, want true")
+	}
+	if len(p.Servers) != 2 {
+		t.Fatalf("Servers = %v, want 2 entries", p.Servers)
+	}
+	if got := p.Servers["srv-a"]; got.State != "connected" || got.Transport != "stdio" || len(got.Tools) != 1 {
+		t.Fatalf("Servers[srv-a] = %+v, want connected stdio with 1 tool", got)
+	}
+	if got := p.Servers["srv-b"]; got.State != "failed" || got.Error != "boom" {
+		t.Fatalf("Servers[srv-b] = %+v, want failed with boom", got)
+	}
+	if got := p.Origins["mcp__srv_a__echo"]; got.Server != "srv-a" || got.Tool != "echo" {
+		t.Fatalf("Origins[mcp__srv_a__echo] = %+v, want srv-a/echo", got)
+	}
+}

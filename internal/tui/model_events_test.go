@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -108,6 +109,83 @@ func TestApplyEventContextCompactionFinishedRefreshesBudget(t *testing.T) {
 	}
 	if m.sidebar.contextBudget != 10000 {
 		t.Errorf("sidebar.contextBudget = %d, want 10000", m.sidebar.contextBudget)
+	}
+}
+
+func TestApplyEventMCPStatusRefreshesSnapshotAndWarnsOnce(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{MCPEnabled: true}, nil)
+
+	// Async connect: startup snapshot shows every server connecting.
+	connecting := output.NewMCPStatusEvent(true, map[string]output.MCPServerState{
+		"srv-a": {State: "connecting", Transport: "stdio"},
+		"srv-b": {State: "connecting", Transport: "stdio"},
+	}, nil)
+	_ = m.applyEvent(connecting)
+	if m.sidebar.mcpTotal != 2 || m.sidebar.mcpConnected != 0 || m.sidebar.mcpFailed {
+		t.Fatalf("sidebar mcp = %d/%d failed=%t, want 0/2 not failed", m.sidebar.mcpConnected, m.sidebar.mcpTotal, m.sidebar.mcpFailed)
+	}
+
+	// srv-a connects, srv-b fails: one warning line, sorted snapshot.
+	failed := output.NewMCPStatusEvent(true, map[string]output.MCPServerState{
+		"srv-a": {State: "connected", Transport: "stdio", Tools: []string{"echo"}},
+		"srv-b": {State: "failed", Transport: "stdio", Error: "boom"},
+	}, nil)
+	_ = m.applyEvent(failed)
+	if m.sidebar.mcpTotal != 2 || m.sidebar.mcpConnected != 1 || !m.sidebar.mcpFailed {
+		t.Fatalf("sidebar mcp = %d/%d failed=%t, want 1/2 failed", m.sidebar.mcpConnected, m.sidebar.mcpTotal, m.sidebar.mcpFailed)
+	}
+	if len(m.mcpServers) != 2 || m.mcpServers[0].Name != "srv-a" || m.mcpServers[1].Name != "srv-b" {
+		t.Fatalf("mcpServers = %+v, want sorted srv-a, srv-b", m.mcpServers)
+	}
+	if len(m.content.segments) != 1 {
+		t.Fatalf("warning segments = %d, want 1", len(m.content.segments))
+	}
+	if got := m.content.segments[0].text; !strings.Contains(got, `MCP server "srv-b" failed to connect: boom`) {
+		t.Fatalf("warning text = %q, want failure line", got)
+	}
+
+	// The same failure on the next event must not warn again.
+	_ = m.applyEvent(failed)
+	if len(m.content.segments) != 1 {
+		t.Fatalf("warning segments = %d after repeat event, want still 1", len(m.content.segments))
+	}
+
+	// srv-b recovers to connected: the warned flag clears, so a later failure
+	// (post-reconnect) warns again.
+	recovered := output.NewMCPStatusEvent(true, map[string]output.MCPServerState{
+		"srv-a": {State: "connected", Transport: "stdio", Tools: []string{"echo"}},
+		"srv-b": {State: "connected", Transport: "stdio", Tools: []string{"echo"}},
+	}, nil)
+	_ = m.applyEvent(recovered)
+	if m.sidebar.mcpConnected != 2 || m.sidebar.mcpFailed {
+		t.Fatalf("sidebar mcp = %d/%d failed=%t, want 2/2 not failed", m.sidebar.mcpConnected, m.sidebar.mcpTotal, m.sidebar.mcpFailed)
+	}
+	_ = m.applyEvent(failed)
+	if len(m.content.segments) != 2 {
+		t.Fatalf("warning segments = %d after post-recovery failure, want 2", len(m.content.segments))
+	}
+}
+
+func TestApplyEventMCPStatusRefreshesOrigins(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+
+	event := output.NewMCPStatusEvent(false, nil, map[string]output.MCPToolOrigin{
+		"mcp__srv_a__echo": {Server: "srv-a", Tool: "echo"},
+	})
+	_ = m.applyEvent(event)
+
+	if m.mcpEnabled {
+		t.Fatal("mcpEnabled = true, want false")
+	}
+	origin, ok := m.mcpToolOrigins["mcp__srv_a__echo"]
+	if !ok || origin.Server != "srv-a" || origin.Tool != "echo" {
+		t.Fatalf("mcpToolOrigins = %+v, want srv-a/echo entry", m.mcpToolOrigins)
+	}
+	// content keeps the startup snapshot: origins are immutable per D14.
+	if len(m.content.mcpToolOrigins) != 0 {
+		t.Fatalf("content.mcpToolOrigins = %v, want untouched startup snapshot", m.content.mcpToolOrigins)
 	}
 }
 

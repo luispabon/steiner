@@ -159,24 +159,22 @@ func TestEmitMCPStateSnapshot(t *testing.T) {
 	var got output.Event
 	emitMCPStateSnapshot(rt, output.SinkFunc(func(e output.Event) { got = e }))
 
-	if got.Type != mcpStateEventType {
-		t.Fatalf("event type = %q, want %q", got.Type, mcpStateEventType)
+	if got.Type != output.EventTypeMCPStatus {
+		t.Fatalf("event type = %q, want %q", got.Type, output.EventTypeMCPStatus)
 	}
-	snap, ok := got.Payload.(mcpStateSnapshot)
+	snap, ok := got.Payload.(output.MCPStatusEvent)
 	if !ok {
-		t.Fatalf("payload type = %T, want mcpStateSnapshot", got.Payload)
+		t.Fatalf("payload type = %T, want output.MCPStatusEvent", got.Payload)
 	}
 	if !snap.Enabled {
 		t.Fatal("snapshot enabled = false, want true")
 	}
-	var foundConnected bool
-	for _, srv := range snap.Servers {
-		if srv.Name == "fixture" && srv.State == string(mcp.ServerStatusConnected) {
-			foundConnected = true
-		}
+	srv, ok := snap.Servers["fixture"]
+	if !ok {
+		t.Fatalf("snapshot servers = %v, want fixture entry", snap.Servers)
 	}
-	if !foundConnected {
-		t.Fatalf("snapshot servers = %+v, want fixture connected", snap.Servers)
+	if srv.State != string(mcp.ServerStatusConnected) {
+		t.Fatalf("fixture state = %q, want %q", srv.State, mcp.ServerStatusConnected)
 	}
 	if _, ok := snap.Origins["mcp__fixture__echo"]; !ok {
 		t.Fatalf("snapshot origins = %v, want mcp__fixture__echo", snap.Origins)
