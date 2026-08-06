@@ -105,11 +105,13 @@ tool names containing underscores.
 
 ### Sidebar indicator
 
-A compact `MCP <connected>/<total>` row appears in the sidebar, counting connected servers over
-configured-and-enabled ones (disabled servers are excluded from both numbers). The row is coloured
-in the error style when any server has failed, and the normal row style otherwise. It is hidden
-entirely — not shown as "MCP: off" — when MCP is disabled or nothing is configured, to avoid
-spending sidebar width on users who will never enable MCP.
+A compact `MCP <connected>/<total>` key/value row appears in the sidebar's status block, alongside
+`SANDBOX` and `SKILL`, counting connected servers over configured-and-enabled ones (disabled
+servers are excluded from both numbers). The value is coloured in the error style when any server
+has failed, and the normal row style otherwise. It is hidden entirely — not shown as "MCP: off" —
+when MCP is disabled or nothing is configured, to avoid spending sidebar width on users who will
+never enable MCP. When sandbox status, skill, and MCP are all absent, the status block does not
+render at all.
 
 ## Remote HTTP servers
 

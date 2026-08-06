@@ -256,13 +256,15 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	lines := m.sidebar.lines(38, 50)
 	joined := stripANSI(strings.Join(lines, "\n"))
 	for _, want := range []string{
-		"● auto @ 90%",
 		"CONTEXT",
-		"100 / 4096",
+		"100 / 4.1k",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("sidebar = %q, want %q", joined, want)
 		}
+	}
+	if strings.Contains(joined, "compacting") {
+		t.Fatalf("sidebar = %q, want no compacting dot when idle", joined)
 	}
 	if strings.Contains(joined, "Budget") {
 		t.Fatalf("sidebar = %q, want no Budget row", joined)

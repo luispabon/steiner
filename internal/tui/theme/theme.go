@@ -164,7 +164,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 		SidebarSection:    lipgloss.NewStyle().Foreground(lipgloss.Color(FgDim)),
 		SidebarLabel:      lipgloss.NewStyle().Foreground(lipgloss.Color(FgFaint)),
 		SidebarValue:      lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),
-		CardLabel:         lipgloss.NewStyle().Foreground(lipgloss.Color(FgLabel)).Bold(true),
+		CardLabel:         lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)).Bold(true),
 		ToolBlock:         lipgloss.NewStyle().Background(lipgloss.Color(BgElev)).BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Tool)).Padding(1),
 		ThinkingBlock:     lipgloss.NewStyle().Background(lipgloss.Color(BgElev)).BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Thinking)).Padding(1),
 		AssistantProse:    lipgloss.NewStyle().Background(lipgloss.Color(BgElev)).Foreground(lipgloss.Color(Fg)),

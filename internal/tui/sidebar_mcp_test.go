@@ -7,38 +7,34 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-func TestMCPSectionShowsConnectedOverTotal(t *testing.T) {
+func TestStatusSectionShowsMCPConnectedOverTotal(t *testing.T) {
 	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentAmber)
 	s := sidebarState{mcpConnected: 2, mcpTotal: 3, styles: styles}
-	lines := s.mcpSection(32)
-	if len(lines) != 1 {
-		t.Fatalf("mcpSection() = %d lines, want 1", len(lines))
-	}
-	if !strings.Contains(lines[0], "MCP 2/3") {
-		t.Errorf("mcpSection() = %q, want to contain %q", lines[0], "MCP 2/3")
+	lines := s.statusSection(32)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "MCP") || !strings.Contains(joined, "2/3") {
+		t.Errorf("statusSection() = %q, want to contain MCP 2/3", joined)
 	}
 }
 
-func TestMCPSectionExcludesDisabledFromDenominator(t *testing.T) {
+func TestStatusSectionMCPExcludesDisabledFromDenominator(t *testing.T) {
 	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentAmber)
 	// 3 servers configured, 1 disabled -> mcpTotal should already be 2
 	// (syncSidebar excludes disabled servers before assigning mcpTotal).
 	s := sidebarState{mcpConnected: 2, mcpTotal: 2, styles: styles}
-	lines := s.mcpSection(32)
-	if len(lines) != 1 {
-		t.Fatalf("mcpSection() = %d lines, want 1", len(lines))
+	lines := s.statusSection(32)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "2/2") {
+		t.Errorf("statusSection() = %q, want to contain 2/2", joined)
 	}
-	if !strings.Contains(lines[0], "MCP 2/2") {
-		t.Errorf("mcpSection() = %q, want to contain %q", lines[0], "MCP 2/2")
-	}
-	if strings.Contains(lines[0], "2/3") {
-		t.Errorf("mcpSection() = %q, disabled server must not inflate denominator", lines[0])
+	if strings.Contains(joined, "2/3") {
+		t.Errorf("statusSection() = %q, disabled server must not inflate denominator", joined)
 	}
 }
 
-func TestMCPSectionNilWhenOffOrUnconfigured(t *testing.T) {
+func TestMCPRowEmptyWhenOffOrUnconfigured(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
@@ -50,33 +46,36 @@ func TestMCPSectionNilWhenOffOrUnconfigured(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := tc.s.mcpSection(32); got != nil {
-				t.Errorf("mcpSection() = %v, want nil", got)
+			if got := tc.s.mcpRow(32); got != "" {
+				t.Errorf("mcpRow() = %q, want empty", got)
 			}
 		})
 	}
 }
 
-func TestMCPSectionUsesErrorStyleOnFailure(t *testing.T) {
+func TestStatusSectionMCPUsesErrorStyleOnFailure(t *testing.T) {
 	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentAmber)
 	ok := sidebarState{mcpConnected: 3, mcpTotal: 3, mcpFailed: false, styles: styles}
 	failed := sidebarState{mcpConnected: 2, mcpTotal: 3, mcpFailed: true, styles: styles}
 
-	okLine := ok.mcpSection(32)[0]
-	failedLine := failed.mcpSection(32)[0]
+	okLine := strings.Join(ok.statusSection(32), "\n")
+	failedLine := strings.Join(failed.statusSection(32), "\n")
 
 	if okLine == failedLine {
 		t.Errorf("expected different styling between ok and failed states")
 	}
-	if !strings.Contains(failedLine, "MCP 2/3") {
-		t.Errorf("failed line = %q, want to contain %q", failedLine, "MCP 2/3")
+	if !strings.Contains(failedLine, "2/3") {
+		t.Errorf("failed section = %q, want to contain %q", failedLine, "2/3")
 	}
 }
 
-func TestMCPSectionNilAddsNoBlankLineToSidebar(t *testing.T) {
+func TestStatusSectionNilAddsNoBlankLineToSidebar(t *testing.T) {
 	t.Parallel()
 	s := sidebarState{mcpTotal: 0}
+	if got := s.statusSection(32); got != nil {
+		t.Errorf("statusSection() = %v, want nil when sandbox/skill/MCP all absent", got)
+	}
 	lines := s.staticLines(32)
 	for i, line := range lines {
 		if strings.Contains(line, "MCP") {

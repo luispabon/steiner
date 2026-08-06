@@ -129,7 +129,7 @@ Cache statistics are surfaced in two ways.
 
 ### In-session sidebar section
 
-A live "cache" section in the sidebar displays the **current session** token-weighted cache hit rate:
+A live "cache hit rate" section in the sidebar displays the **current session** token-weighted cache hit rate as a `primary` field:
 
 - **Format**: e.g., `78.2%` (session-lifetime percentage) or `—` (before the first cache-capable call).
 - **Scope**: Process-lifetime counters, independent of the global windowed store.

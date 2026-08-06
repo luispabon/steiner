@@ -38,14 +38,8 @@ func (s sidebarState) staticLines(width int) []string {
 	lines = append(lines, lipgloss.NewStyle().Background(lipgloss.Color(theme.Black)).Render(""))
 	lines = append(lines, s.separatorLine(width))
 	lines = append(lines, s.modelSection(width)...)
-	if strings.TrimSpace(s.sandboxStatus) != "" {
-		lines = append(lines, s.sandboxSection(width)...)
-	}
-	if strings.TrimSpace(s.activeSkill) != "" {
-		lines = append(lines, s.skillSection(width)...)
-	}
-	lines = append(lines, s.mcpSection(width)...)
 	lines = append(lines, s.contextSection(width)...)
+	lines = append(lines, s.statusSection(width)...)
 	lines = append(lines, s.performanceSection(width)...)
 	lines = append(lines, s.cacheSection(width)...)
 	if s.oneshotPhase != "" {
@@ -57,48 +51,85 @@ func (s sidebarState) staticLines(width int) []string {
 }
 
 func (s sidebarState) modelSection(width int) []string {
-	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
-	lines := []string{
-		"",
-		cardLabel("model", s.styles),
-		cardField("name", fgBright, fitText(safeText(s.model), width-7), s.styles),
+	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Background(lipgloss.Color(theme.Black))
+	fgDim := s.styles.FgDim.Background(lipgloss.Color(theme.Black))
+
+	model := fitText(safeText(s.model), width)
+	provider := strings.TrimSpace(s.providerName)
+	if provider == "" {
+		provider = stripProviderURL(s.provider)
 	}
-	if r := strings.TrimSpace(s.reasoning); r != "" {
-		lines = append(lines, cardField("reasoning", s.styles.FgDim, fitText(r, width-7), s.styles))
+
+	var line1 string
+	switch {
+	case provider == "":
+		line1 = fgBright.Render(model)
+	case len(provider)+1+len(model) <= width:
+		line1 = fgDim.Render(provider+"/") + fgBright.Render(model)
+	default:
+		remaining := width - len(model) - 1
+		if remaining < 4 {
+			line1 = fgBright.Render(model)
+		} else {
+			line1 = fgDim.Render(fitText(provider, remaining)+"/") + fgBright.Render(model)
+		}
 	}
-	if q := strings.TrimSpace(s.quant); q != "" {
-		lines = append(lines, cardField("quant", s.styles.FgDim, fitText(q, width-7), s.styles))
+
+	lines := []string{"", cardLabel("model", s.styles), line1}
+
+	reasoning := strings.TrimSpace(s.reasoning)
+	quant := strings.TrimSpace(s.quant)
+	switch {
+	case reasoning != "" && quant != "":
+		lines = append(lines, s.styledWithBg(s.styles.FgDim, fitText(fmt.Sprintf("reasoning: %s · %s", reasoning, quant), width)))
+	case reasoning != "":
+		lines = append(lines, s.styledWithBg(s.styles.FgDim, fitText("reasoning: "+reasoning, width)))
+	case quant != "":
+		lines = append(lines, s.styledWithBg(s.styles.FgDim, fitText("quant: "+quant, width)))
 	}
-	providerDisplay := strings.TrimSpace(s.providerName)
-	if providerDisplay == "" {
-		providerDisplay = fitText(stripProviderURL(s.provider), width-7)
-	} else {
-		providerDisplay = fitText(providerDisplay, width-11)
-	}
-	if providerDisplay == "" {
-		providerDisplay = "n/a"
-	}
-	return append(lines, cardField("provider", s.styles.FgDim, providerDisplay, s.styles))
+
+	return lines
 }
 
-func (s sidebarState) sandboxSection(_ int) []string {
-	statusDisplay := strings.TrimSpace(s.sandboxStatus)
-	var statusStyle lipgloss.Style
-	switch statusDisplay {
+// sandboxStatusStyle returns the colour for a sandbox status value: green
+// for active, amber for unavailable, red for bypassed, dim otherwise.
+func sandboxStatusStyle(status string, styles theme.Styles) lipgloss.Style {
+	switch status {
 	case "active":
-		statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Added))
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Added))
 	case "unavailable":
-		statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn))
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn))
 	case "bypassed":
-		statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Removed))
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Removed))
 	default:
-		statusStyle = s.styles.FgDim
+		return styles.FgDim
 	}
-	return []string{
-		"",
-		cardLabel("sandbox", s.styles),
-		cardField("status", statusStyle, statusDisplay, s.styles),
+}
+
+// statusSection renders the compact sandbox/skill/MCP status trio. Returns
+// nil when all three are absent, so no stray blank line is emitted.
+func (s sidebarState) statusSection(width int) []string {
+	const keyW = 8
+	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
+
+	var rows []string
+	if status := strings.TrimSpace(s.sandboxStatus); status != "" {
+		rows = append(rows, cardFieldN("SANDBOX", keyW, sandboxStatusStyle(status, s.styles), status, s.styles))
 	}
+	if skill := strings.TrimSpace(s.activeSkill); skill != "" {
+		rows = append(rows, cardFieldN("SKILL", keyW, fgBright, fitText(skill, width-keyW), s.styles))
+	}
+	if mcp := s.mcpRow(width); mcp != "" {
+		mcpStyle := fgBright
+		if s.mcpFailed {
+			mcpStyle = s.styles.ErrorStyle
+		}
+		rows = append(rows, cardFieldN("MCP", keyW, mcpStyle, mcp, s.styles))
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return append([]string{""}, rows...)
 }
 
 // separatorLine renders the separator line with the mode label centered.
@@ -139,22 +170,15 @@ func (s sidebarState) separatorLine(width int) string {
 }
 
 func (s sidebarState) contextSection(width int) []string {
-	return []string{
+	lines := []string{
 		"",
 		cardLabel("context", s.styles),
-		s.tokenBarLine(width),
-		s.tokenUsageLine(width),
-		s.compactDotLine(),
+		s.contextGaugeLine(width),
 	}
-}
-
-func (s sidebarState) skillSection(width int) []string {
-	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
-	return []string{
-		"",
-		cardLabel("skill", s.styles),
-		cardField("active", fgBright, fitText(safeText(s.activeSkill), width-7), s.styles),
+	if dot := s.compactDotLine(); dot != "" {
+		lines = append(lines, dot)
 	}
+	return lines
 }
 
 func (s sidebarState) repositorySection(width int) []string {
@@ -189,8 +213,8 @@ func (s sidebarState) cacheSection(width int) []string {
 	const keyW = 10
 	return []string{
 		"",
-		cardLabel("cache", s.styles),
-		cardFieldN("hit rate", keyW, s.styles.FgDim, fitText(formatCacheHitRate(s.sessionCacheHitRate, s.sessionCacheHitRateOK), w-keyW+7), s.styles),
+		cardLabel("cache hit rate", s.styles),
+		cardFieldN("primary", keyW, s.styles.FgDim, fitText(formatCacheHitRate(s.sessionCacheHitRate, s.sessionCacheHitRateOK), w-keyW+7), s.styles),
 	}
 }
 

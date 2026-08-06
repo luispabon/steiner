@@ -18,20 +18,24 @@ func stripProviderURL(url string) string {
 	return url
 }
 
-func (s sidebarState) tokenBarLine(width int) string {
+// contextGaugeLine renders the bar, percentage, and used/budget counts on a
+// single line: "██          9%   92k / 1.0m".
+func (s sidebarState) contextGaugeLine(width int) string {
 	pct := occupancyPercent(s.promptUsed, s.contextBudget)
-	barWidth := max(4, width-2)
 
-	var barStyle lipgloss.Style
+	var thresholdStyle lipgloss.Style
 	switch {
 	case pct > 90:
-		barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Removed))
+		thresholdStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Removed))
 	case pct > 70:
-		barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn))
+		thresholdStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn))
 	default:
-		barStyle = s.styles.Accent
+		thresholdStyle = s.styles.Accent
 	}
+	emptyWithBg := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
+	barWithBg := thresholdStyle.Background(lipgloss.Color(theme.Black))
 
+	barWidth := min(10, max(4, width-16))
 	filled := 0
 	if s.contextBudget > 0 && barWidth > 0 {
 		filled = (s.promptUsed * barWidth) / s.contextBudget
@@ -39,32 +43,35 @@ func (s sidebarState) tokenBarLine(width int) string {
 			filled = barWidth
 		}
 	}
-
-	barWithBg := barStyle.Background(lipgloss.Color(theme.Black))
-	emptyWithBg := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
-	return barWithBg.Render(strings.Repeat("█", filled)) +
+	bar := barWithBg.Render(strings.Repeat("█", filled)) +
 		emptyWithBg.Render(strings.Repeat(" ", barWidth-filled))
-}
 
-func (s sidebarState) tokenUsageLine(width int) string {
-	pct := occupancyPercent(s.promptUsed, s.contextBudget)
-	usageStr := sidebarPromptCount(s.promptUsed, s.contextBudget)
-	pctStr := fmt.Sprintf("%d%%", pct)
-	pad := width - len(usageStr) - len(pctStr)
+	pctField := barWithBg.Render(fmt.Sprintf("%4s", fmt.Sprintf("%d%%", pct)))
+	prefix := bar + emptyWithBg.Render("  ") + pctField
+
+	var countsStr string
+	if s.contextBudget <= 0 {
+		countsStr = sidebarPromptCount(s.promptUsed, s.contextBudget)
+	} else {
+		countsStr = fmt.Sprintf("%s / %s", formatCompactCount(s.promptUsed), formatCompactCount(s.contextBudget))
+	}
+	counts := s.styledWithBg(s.styles.FgDim, countsStr)
+
+	pad := width - lipgloss.Width(prefix) - lipgloss.Width(counts)
 	if pad < 1 {
 		pad = 1
 	}
-	return s.styledWithBg(s.styles.FgDim, usageStr+strings.Repeat(" ", pad)+pctStr)
+	return prefix + emptyWithBg.Render(strings.Repeat(" ", pad)) + counts
 }
 
 func (s sidebarState) compactDotLine() string {
-	if s.compaction.Active() {
-		dot := "●"
-		if s.tickCount%2 == 0 {
-			dot = "○"
-		}
-		dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Background(lipgloss.Color(theme.Black))
-		return dotStyle.Render(dot) + s.styledWithBg(s.styles.FgDim, " compacting…")
+	if !s.compaction.Active() {
+		return ""
 	}
-	return s.styledWithBg(s.styles.FgFaint, "●") + s.styledWithBg(s.styles.FgDim, " auto @ 90%")
+	dot := "●"
+	if s.tickCount%2 == 0 {
+		dot = "○"
+	}
+	dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Background(lipgloss.Color(theme.Black))
+	return dotStyle.Render(dot) + s.styledWithBg(s.styles.FgDim, " compacting…")
 }
