@@ -29,6 +29,38 @@ Key environment variables:
 | `STEINER_LOG_FILE`            | `logging.file`                    |
 | `STEINER_TOOL_OUTPUT_MAX_BYTES` | `limits.tool_output_max_bytes`  |
 
+### Environment variable expansion in config values
+
+Configuration values support shell-style environment variable expansion. The expansion applies to scalar values only—keys and comments are never expanded. An undefined variable reference is a hard error that names the file, line number, YAML path, and variable name.
+
+**Recognized forms:**
+
+- `${VAR}` — replaced with the value of `VAR`. If `VAR` is undefined, loading fails. If `VAR` is defined but empty, it expands to nothing (empty string).
+- `${VAR:-default}` — replaced with the value of `VAR` if defined and non-empty. If `VAR` is undefined or empty, `default` is used instead (and recursively expanded). Use `${VAR:-}` to allow an empty value and opt out of the error.
+- `$VAR` — bare form, replaced with the value of `VAR`. If `VAR` is undefined, loading fails. No defaults; bare form has no `:-default` syntax.
+- `$$` — escape sequence for a literal `$` character.
+
+**Behavior details:**
+
+- Backslash is **not** an escape character; write `\\` to mean a backslash.
+- Undefined references are not silently dropped; every undefined variable in every config file is reported together in a single error listing the file, line, YAML path, and variable name.
+- `${VAR:-}` with an empty default is valid and does not error even if `VAR` is undefined.
+- Expanded values round-trip through YAML correctly, including those that look numeric (e.g. `PORT: "${PORT}"` remains a string after expansion).
+
+**Example:**
+
+```yaml
+providers:
+  openai:
+    type: openai
+    base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    api_key: ${OPENAI_API_KEY}
+logging:
+  file: ~/.local/share/steiner/${STEINER_LOG_FILE:-steiner.log}
+```
+
+If `OPENAI_API_KEY` is not set, configuration loading fails. If `OPENAI_BASE_URL` is not set, it defaults to the URL shown.
+
 ---
 
 ## Top-level fields
@@ -537,10 +569,12 @@ Each server entry (`MCPServerConfig`) supports:
 | Field               | Type               | Default     | Description |
 |---------------------|--------------------|-------------|-------------|
 | `enabled`           | bool               | `false`     | Whether this server is started. |
-| `transport`         | string             | `"stdio"`   | Transport used to reach the server. `stdio` is currently the only supported transport. |
-| `command`           | string             | —           | Executable that starts the server. |
-| `args`              | []string           | —           | Arguments passed to the command. |
-| `env`               | map[string]string  | —           | Extra environment variables for the server process. Passed verbatim, so it is the right place for a server's own credentials. |
+| `transport`         | string             | `"stdio"`   | Transport used to reach the server. One of `stdio` (starts a subprocess) or `http` (connects via HTTP). |
+| `command`           | string             | —           | Executable that starts the server. Required for `stdio` transport; must be empty for `http`. |
+| `args`              | []string           | —           | Arguments passed to the command. Used only with `stdio` transport; must be empty for `http`. |
+| `env`               | map[string]string  | —           | Extra environment variables for the server process. Used only with `stdio` transport; must be empty for `http`. |
+| `url`               | string             | —           | HTTP endpoint (http or https). Required for `http` transport; must be empty for `stdio`. |
+| `headers`           | map[string]string  | —           | HTTP headers sent with every request. Used only with `http` transport; must be empty for `stdio`. Header names cannot collide with SDK-reserved names (case-insensitive): `Content-Type`, `Accept`, `Mcp-Protocol-Version`, `Mcp-Session-Id`, `Last-Event-Id`, `Mcp-Method`, `Mcp-Name`, or names with the `Mcp-Param-` prefix. `Authorization` is allowed for static bearer tokens sourced from `${VAR}` (see [environment variable expansion](#environment-variable-expansion-in-config-values)). |
 | `approval`          | string             | `"ask"`     | Approval mode for the server's tools. One of `ask` (prompt per tool call), `allow` (run without prompting in build mode, downgraded to `ask` in plan mode), or `deny` (register no tools). |
 | `trust_annotations` | bool               | `false`     | When `true`, tools advertised with `readOnlyHint: true` skip approval; `destructiveHint` and `openWorldHint` tools still prompt. |
 
@@ -548,13 +582,22 @@ Each server entry (`MCPServerConfig`) supports:
 mcp:
   enabled: true
   servers:
-    my-server:
+    my-stdio-server:
       enabled: true
       command: "npx"
       args: ["-y", "@some/mcp-server"]
       approval: ask
       trust_annotations: false
+    my-http-server:
+      enabled: true
+      transport: http
+      url: "http://localhost:3000/mcp"
+      headers:
+        Authorization: "Bearer ${MCP_AUTH_TOKEN}"
+      approval: ask
 ```
+
+When using `http` transport with an `Authorization` header, use the strict env expansion syntax (e.g. `${VAR}`) to inject environment variables. See the [environment variable expansion](#environment-variable-expansion-in-config-values) section for details.
 
 ---
 

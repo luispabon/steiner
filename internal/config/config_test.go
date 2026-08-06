@@ -98,7 +98,7 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 }
 
 func TestAdvisorConfigPatchAndYAMLParsing(t *testing.T) {
-	patch, err := parseConfigPatch("test.yaml", `advisor:
+	patch, err := parseConfigPatch(`advisor:
   enabled: true
   max_uses_per_run: 2
   max_tokens: 512
@@ -135,7 +135,7 @@ models:
 }
 
 func TestOneShotConfigPatchAndYAMLParsing(t *testing.T) {
-	patch, err := parseConfigPatch("test.yaml", `oneshot:
+	patch, err := parseConfigPatch(`oneshot:
   auto_pr: true
 models:
   oneshot:
@@ -1523,5 +1523,51 @@ sandbox:
 	}
 	if !cfg.Sandbox.EnvPassthroughAll {
 		t.Fatal("sandbox.env_passthrough_all = false, want true")
+	}
+}
+
+func TestLoadRejectsUndefinedEnvVarBeforeDefault(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+logging:
+  file: ${UNSET_A}-${UNSET_B:-default}
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want undefined env var error")
+	}
+	if !strings.Contains(err.Error(), "UNSET_A") {
+		t.Fatalf("error = %q, want to mention UNSET_A", err)
+	}
+	if strings.Contains(err.Error(), "UNSET_B") {
+		t.Fatalf("error = %q, should not mention UNSET_B (it has a default)", err)
 	}
 }

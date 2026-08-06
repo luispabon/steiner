@@ -190,6 +190,8 @@ type mcpServerPatch struct {
 	Command          *string            `yaml:"command"`
 	Args             *[]string          `yaml:"args"`
 	Env              *map[string]string `yaml:"env"`
+	URL              *string            `yaml:"url"`
+	Headers          *map[string]string `yaml:"headers"`
 	Approval         *string            `yaml:"approval"`
 	TrustAnnotations *bool              `yaml:"trust_annotations"`
 }

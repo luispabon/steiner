@@ -7,30 +7,6 @@ import (
 	"time"
 )
 
-func expandEnvText(input string, lookup func(string) (string, bool)) string {
-	if input == "" {
-		return input
-	}
-
-	var b strings.Builder
-	for i := 0; i < len(input); {
-		if input[i] != '$' {
-			b.WriteByte(input[i])
-			i++
-			continue
-		}
-
-		next, ok := expandEnvToken(input, i, lookup, &b)
-		if !ok {
-			b.WriteByte(input[i])
-			i++
-			continue
-		}
-		i = next
-	}
-	return b.String()
-}
-
 func applyEnvOverrides(cfg *Config, env map[string]string) error {
 	lookup := func(name string) (string, bool) {
 		value, ok := env[name]
@@ -39,19 +15,6 @@ func applyEnvOverrides(cfg *Config, env map[string]string) error {
 
 	if err := applyEnvModelOverride(cfg, lookup); err != nil {
 		return err
-	}
-
-	// Expand env vars in provider fields
-	for name, p := range cfg.Providers {
-		p.BaseURL = expandEnvText(p.BaseURL, lookup)
-		p.APIKey = expandEnvText(p.APIKey, lookup)
-		cfg.Providers[name] = p
-	}
-
-	// Expand env vars in model fields
-	for name, m := range cfg.Models.Definitions {
-		m.ID = expandEnvText(m.ID, lookup)
-		cfg.Models.Definitions[name] = m
 	}
 
 	if err := applyEnvIntOverrides(cfg, lookup); err != nil {
@@ -110,52 +73,6 @@ func applyEnvSearchOverrides(cfg *Config, lookup func(string) (string, bool)) {
 			}
 		}
 	}
-}
-
-func expandEnvToken(input string, i int, lookup func(string) (string, bool), b *strings.Builder) (int, bool) {
-	if i+1 < len(input) && input[i+1] == '$' {
-		b.WriteByte('$')
-		return i + 2, true
-	}
-	if i+1 < len(input) && input[i+1] == '{' {
-		return expandEnvBraceToken(input, i, lookup, b)
-	}
-	return expandEnvBareToken(input, i, lookup, b)
-}
-
-func expandEnvBraceToken(input string, i int, lookup func(string) (string, bool), b *strings.Builder) (int, bool) {
-	end := strings.IndexByte(input[i+2:], '}')
-	if end < 0 {
-		return i, false
-	}
-	expr := input[i+2 : i+2+end]
-	name, defaultValue, hasDefault := strings.Cut(expr, ":-")
-	if !isEnvName(name) {
-		b.WriteString("${")
-		b.WriteString(expr)
-		b.WriteByte('}')
-		return i + end + 3, true
-	}
-	if value, ok := lookup(name); ok && value != "" {
-		b.WriteString(value)
-	} else if hasDefault {
-		b.WriteString(expandEnvText(defaultValue, lookup))
-	}
-	return i + end + 3, true
-}
-
-func expandEnvBareToken(input string, i int, lookup func(string) (string, bool), b *strings.Builder) (int, bool) {
-	j := i + 1
-	for j < len(input) && isEnvContinue(input[j], j == i+1) {
-		j++
-	}
-	if j == i+1 {
-		return i, false
-	}
-	if value, ok := lookup(input[i+1 : j]); ok {
-		b.WriteString(value)
-	}
-	return j, true
 }
 
 func applyEnvModelOverride(cfg *Config, lookup func(string) (string, bool)) error {

@@ -88,10 +88,13 @@ func Connect(ctx context.Context, cfg config.MCPConfig, wrap func(*exec.Cmd) *ex
 		}
 
 		spec := ServerSpec{
-			Name:    name,
-			Command: srv.Command,
-			Args:    srv.Args,
-			Env:     srv.Env,
+			Name:      name,
+			Transport: transport,
+			Command:   srv.Command,
+			Args:      srv.Args,
+			Env:       srv.Env,
+			URL:       srv.URL,
+			Headers:   srv.Headers,
 		}
 
 		session, err := ConnectSession(ctx, spec, wrap, stderr)
