@@ -88,6 +88,7 @@ type MutateOperationResult struct {
 	From         string                  `json:"from,omitempty"`
 	To           string                  `json:"to,omitempty"`
 	MatchCount   int                     `json:"match_count,omitempty"`
+	Applied      bool                    `json:"applied"`
 	FileHash     string                  `json:"file_hash,omitempty"`
 	Assertions   []MutateAssertionResult `json:"assertions,omitempty"`
 	Context      *MutateContextResult    `json:"context,omitempty"`
@@ -95,18 +96,19 @@ type MutateOperationResult struct {
 
 // MutateResult is the result from a mutate tool call.
 type MutateResult struct {
-	Paths             []string                `json:"paths"`
-	Created           []string                `json:"created,omitempty"`
-	Modified          []string                `json:"modified,omitempty"`
-	Deleted           []string                `json:"deleted,omitempty"`
-	Moved             []MoveResult            `json:"moved,omitempty"`
-	FileHashes        map[string]string       `json:"file_hashes,omitempty"`
-	OperationResults  []MutateOperationResult `json:"operation_results,omitempty"`
-	DryRun            bool                    `json:"dry_run,omitempty"`
-	OperationsApplied int                     `json:"operations_applied"`
-	OperationsFailed  int                     `json:"operations_failed,omitempty"`
-	OperationsSkipped int                     `json:"operations_skipped,omitempty"`
-	Output            string                  `json:"output"`
+	Paths                []string                `json:"paths"`
+	Created              []string                `json:"created,omitempty"`
+	Modified             []string                `json:"modified,omitempty"`
+	Deleted              []string                `json:"deleted,omitempty"`
+	Moved                []MoveResult            `json:"moved,omitempty"`
+	FileHashes           map[string]string       `json:"file_hashes,omitempty"`
+	OperationResults     []MutateOperationResult `json:"operation_results,omitempty"`
+	DryRun               bool                    `json:"dry_run,omitempty"`
+	OperationsApplied    int                     `json:"operations_applied"`
+	OperationsFailed     int                     `json:"operations_failed,omitempty"`
+	OperationsRolledBack int                     `json:"operations_rolled_back,omitempty"`
+	OperationsSkipped    int                     `json:"operations_skipped,omitempty"`
+	Output               string                  `json:"output"`
 }
 
 func (r *MutateResult) clearCommittedMetadata() {
@@ -117,6 +119,10 @@ func (r *MutateResult) clearCommittedMetadata() {
 	r.Moved = nil
 	r.FileHashes = nil
 	r.OperationsApplied = 0
+	for i := range r.OperationResults {
+		r.OperationResults[i].Applied = false
+		r.OperationResults[i].FileHash = ""
+	}
 }
 
 // WasMutated reports whether mutate actually modified the filesystem.
