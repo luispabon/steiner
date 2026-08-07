@@ -441,41 +441,40 @@ func TestFindDiagnosticAnchorDistinctiveness(t *testing.T) {
 
 func TestFindDiagnosticAnchorClusterTiebreaker(t *testing.T) {
 	t.Run("cluster score breaks tie when candidates have same count and length", func(t *testing.T) {
-		// Construct oldText with three lines, all exactly 15 chars.
-		// "alpha test data" and "fruit solo here" are both 15 chars with count=1;
-		// cluster score differentiates them: first clusters with second line (within 300 bytes),
-		// third is isolated far away.
+		// Construct content with isolated candidate FIRST (lowest byte offset),
+		// then clustered pair far away (>300 bytes). All candidates are 15 chars, count=1.
+		// Without cluster scoring, index-order tiebreak would pick the first candidate ("fruit solo here").
+		// With cluster scoring, cluster score=0 for "fruit" should lose to cluster score=1 for "alpha"/"gamma".
 		fillerLines := make([]string, 0, 25)
 		for i := 0; i < 25; i++ {
 			fillerLines = append(fillerLines, "filler line "+strings.Repeat("X", i%3+1))
 		}
 		content := []byte(
-			"alpha test data\n" +
-				"gamma test here\n" +
+			"fruit solo here\n" +
 				strings.Join(fillerLines, "\n") + "\n" +
-				"fruit solo here\n",
+				"alpha test data\n" +
+				"gamma test here\n",
 		)
-		// oldText produces these 15-char line candidates (all count=1):
-		// "alpha test data" (line 1, near line 2 → cluster >= 1)
-		// "gamma test here" (line 2, near line 1 → cluster >= 1)
-		// "fruit solo here" (isolated after filler → cluster = 0)
-		oldText := "alpha test data\ngamma test here\nfruit solo here"
+		// oldText produces three 15-char candidates (all count=1):
+		// "fruit solo here" (isolated, appears first at byte offset 0 → lowest idx)
+		// "alpha test data" (appears later, within 300 bytes of "gamma test here")
+		// "gamma test here" (appears later, within 300 bytes of "alpha test data")
+		oldText := "fruit solo here\nalpha test data\ngamma test here"
 
 		start, end, lineNum, preview, ok := findDiagnosticAnchor(content, oldText)
 		if !ok {
 			t.Fatal("ok = false, want true")
 		}
 
-		// "alpha test data" (count=1, length=15, cluster=1 from line 2)
-		// "gamma test here" (count=1, length=15, cluster=1 from line 1)
-		// "fruit solo here" (count=1, length=15, cluster=0, isolated)
-		// Cluster score (1 > 0) breaks the tie in favor of either line 1 or 2, not line N.
-		// Assert lineNum is NOT the isolated line (should be 1 or 2, not the last one).
-		if lineNum < 1 || lineNum > 2 {
-			t.Fatalf("lineNum = %d, want 1 or 2 (clustered candidates should win over isolated line)", lineNum)
-		}
-		if preview == "fruit solo here" {
-			t.Fatalf("preview = 'fruit solo here', but isolated candidate should lose to clustered ones")
+		// All three candidates: count=1, length=15.
+		// Scoring order: count (tie) → cluster → length (tie) → idx (tie-breaker last).
+		// "fruit solo here": cluster=0 (isolated, no other oldText-candidates within 300 bytes)
+		// "alpha test data": cluster=1 (sees "gamma test here" nearby)
+		// "gamma test here": cluster=1 (sees "alpha test data" nearby)
+		// Despite "fruit" having the lowest idx, cluster score (1 > 0) should win.
+		// Assert winner is NOT "fruit" at line 1, but one of the later clustered ones.
+		if lineNum == 1 && preview == "fruit solo here" {
+			t.Fatalf("lineNum=1, preview='fruit solo here': cluster tiebreaker did not override index order (cluster score should have won)")
 		}
 		if string(content[start:end]) != preview {
 			t.Fatalf("content[start:end] = %q, want %q", string(content[start:end]), preview)
