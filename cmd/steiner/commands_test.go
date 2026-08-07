@@ -169,6 +169,24 @@ models:
 	if got.Models.Definitions["test"].ID != "test-model" {
 		t.Fatalf("models[test].ID = %q, want test-model", got.Models.Definitions["test"].ID)
 	}
+
+	// The output is two YAML documents: the resolved config, then a runtime
+	// sandbox status that is not part of the config schema.
+	dec := yaml.NewDecoder(bytes.NewReader(stdout.Bytes()))
+	var doc1 config.Config
+	if err := dec.Decode(&doc1); err != nil {
+		t.Fatalf("decode first document: %v", err)
+	}
+	var doc2 map[string]string
+	if err := dec.Decode(&doc2); err != nil {
+		t.Fatalf("decode second document: %v", err)
+	}
+	switch doc2["sandbox_status"] {
+	case "active", "unavailable", "bypassed":
+	default:
+		t.Fatalf("sandbox_status = %q, want one of active, unavailable, bypassed", doc2["sandbox_status"])
+	}
+
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}

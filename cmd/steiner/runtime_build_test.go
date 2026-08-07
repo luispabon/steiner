@@ -409,12 +409,15 @@ func TestBuildRuntimeSandbox_Bypassed(t *testing.T) {
 		Sandbox: config.SandboxConfig{Enabled: false},
 	}
 
-	sb, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp")
+	sb, status, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp")
 	if err != nil {
 		t.Fatalf("expected nil error when sandbox is disabled, got: %v", err)
 	}
 	if sb != nil {
 		t.Fatal("expected nil sandbox when disabled")
+	}
+	if status != "bypassed" {
+		t.Fatalf("status = %q, want %q", status, "bypassed")
 	}
 }
 
@@ -425,15 +428,15 @@ func TestBuildRuntimeSandbox_Unavailable(t *testing.T) {
 		Sandbox: config.SandboxConfig{Enabled: true},
 	}
 
-	sb, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp")
+	sb, status, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp")
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
 	if sb != nil {
 		t.Fatal("expected nil sandbox when bwrap is unavailable")
 	}
-	if cfg.Sandbox.Status != "unavailable" {
-		t.Fatalf("cfg.Sandbox.Status = %q, want %q", cfg.Sandbox.Status, "unavailable")
+	if status != "unavailable" {
+		t.Fatalf("status = %q, want %q", status, "unavailable")
 	}
 }
 
@@ -447,7 +450,7 @@ func TestEmitSandboxWarning_EnvPassthroughAll(t *testing.T) {
 		{
 			name: "active sandbox with env_passthrough_all warns about the credential barrier",
 			cfg: config.Config{
-				Sandbox: config.SandboxConfig{Enabled: true, EnvPassthroughAll: true, Status: "active"},
+				Sandbox: config.SandboxConfig{Enabled: true, EnvPassthroughAll: true},
 			},
 			wantEmitted:   true,
 			wantSubstring: "credential barrier is disabled",
@@ -455,7 +458,7 @@ func TestEmitSandboxWarning_EnvPassthroughAll(t *testing.T) {
 		{
 			name: "active sandbox without env_passthrough_all emits nothing",
 			cfg: config.Config{
-				Sandbox: config.SandboxConfig{Enabled: true, EnvPassthroughAll: false, Status: "active"},
+				Sandbox: config.SandboxConfig{Enabled: true, EnvPassthroughAll: false},
 			},
 			wantEmitted: false,
 		},
@@ -466,7 +469,7 @@ func TestEmitSandboxWarning_EnvPassthroughAll(t *testing.T) {
 			var emitted []output.Event
 			sink := output.SinkFunc(func(e output.Event) { emitted = append(emitted, e) })
 
-			emitSandboxWarning(tt.cfg, sink)
+			emitSandboxWarning(tt.cfg, "active", sink)
 
 			if !tt.wantEmitted {
 				if len(emitted) != 0 {

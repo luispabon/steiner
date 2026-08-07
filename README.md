@@ -166,7 +166,7 @@ Steiner also creates an ephemeral in-memory OpenSSH client-config overlay for sa
 
 When a sandboxed tool attempts to write to a file outside the workspace, the user is prompted to either grant temporary access, use the `--unsafe` flag to disable sandboxing, or cancel the operation. This protects against accidental workspace-external writes and environment variable leakage. Reading host files (including on-disk credentials) is not restricted — sandboxing is not a confidentiality boundary, and private SSH keys are never copied into the workspace.
 
-**Platform support**: Linux only (automatic detection; sandboxing is disabled on macOS and Windows). When sandboxing is unavailable or bypassed, the sandbox status (`sandbox.status`) is reported in the TUI and an optional warning banner is shown (see `sandbox.warning_on_unsupported_platform` in [Configuration](docs/configuration.md)). Bash and subprocess tools fall back to unsandboxed execution.
+**Platform support**: Linux only (automatic detection; sandboxing is disabled on macOS and Windows). When sandboxing is unavailable or bypassed, the sandbox status is reported in the TUI and an optional warning banner is shown (see `sandbox.warning_on_unsupported_platform` in [Configuration](docs/configuration.md)). Bash and subprocess tools fall back to unsandboxed execution.
 
 For configuration, environment variable filtering, mount layout, and troubleshooting, see [docs/tool-sandboxing.md](docs/tool-sandboxing.md).
 

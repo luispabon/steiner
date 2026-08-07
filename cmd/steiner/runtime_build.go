@@ -86,12 +86,12 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	sb, err := buildRuntimeSandbox(&cfg, projectRoot, workDir, homeDir)
+	sb, status, err := buildRuntimeSandbox(&cfg, projectRoot, workDir, homeDir)
 	if err != nil {
 		return cliRuntime{}, err
 	}
 
-	emitSandboxWarning(cfg, events)
+	emitSandboxWarning(cfg, status, events)
 
 	// Connect MCP servers after the sandbox exists (so server commands can be
 	// wrapped) and before the registry is rebuilt (so MCP tools register).
@@ -118,6 +118,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 
 	return cliRuntime{
 		cfg:                    cfg,
+		sandboxStatus:          status,
 		providerFactory:        providerFactory,
 		httpClient:             httpClient,
 		registry:               registry,
@@ -471,16 +472,14 @@ func createSandboxTmpDir(parentDir string) (string, error) {
 
 // buildRuntimeSandbox creates a Sandbox when sandboxing is enabled. Returns nil
 // when cfg.Sandbox.Enabled is false (e.g. --unsafe flag was set). Returns nil
-// when bwrap is unavailable (unsupported platform or missing binary) and sets
-// cfg.Sandbox.Status to "bypassed" or "unavailable" respectively.
-func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome string) (*sandbox.Sandbox, error) {
+// when bwrap is unavailable (unsupported platform or missing binary). The
+// returned status is "bypassed", "unavailable", or "active" respectively.
+func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome string) (*sandbox.Sandbox, string, error) {
 	if !cfg.Sandbox.Enabled {
-		cfg.Sandbox.Status = "bypassed"
-		return nil, nil
+		return nil, "bypassed", nil
 	}
 	if err := sandbox.PrereqCheck(); err != nil {
-		cfg.Sandbox.Status = "unavailable"
-		return nil, nil
+		return nil, "unavailable", nil
 	}
 
 	// Session-scoped tmp directory.
@@ -489,35 +488,34 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 	cleanupSandboxTmpOrphans(parentDir, 48*time.Hour)
 	tmpDir, err := createSandboxTmpDir(parentDir)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	s := sandbox.New(cfg.Sandbox, cfg.Permissions, cfg.HostMounts, projectRoot, workDir, userHome, tmpDir)
 	if err := s.EnsureHome(); err != nil {
-		return nil, fmt.Errorf("sandbox setup: %w", err)
+		return nil, "", fmt.Errorf("sandbox setup: %w", err)
 	}
-	cfg.Sandbox.Status = "active"
-	return s, nil
+	return s, "active", nil
 }
 
 // emitSandboxWarning emits a SandboxStatusEvent when sandbox is not active and
 // WarningOnUnsupportedPlatform is enabled, and independently when the sandbox
 // is active but env_passthrough_all disables the credential barrier.
-func emitSandboxWarning(cfg config.Config, events output.EventSink) {
+func emitSandboxWarning(cfg config.Config, status string, events output.EventSink) {
 	if cfg.Sandbox.Enabled && cfg.Sandbox.EnvPassthroughAll {
-		events.Emit(output.NewSandboxStatusEvent(cfg.Sandbox.Status, "sandbox env_passthrough_all is enabled: the credential barrier is disabled and the full host environment (including credentials) is passed to sandboxed processes unfiltered."))
+		events.Emit(output.NewSandboxStatusEvent(status, "sandbox env_passthrough_all is enabled: the credential barrier is disabled and the full host environment (including credentials) is passed to sandboxed processes unfiltered."))
 	}
-	if cfg.Sandbox.Status == "active" || !cfg.Sandbox.WarningOnUnsupportedPlatform {
+	if status == "active" || !cfg.Sandbox.WarningOnUnsupportedPlatform {
 		return
 	}
 	var msg string
-	switch cfg.Sandbox.Status {
+	switch status {
 	case "unavailable":
 		msg = fmt.Sprintf("sandbox unavailable: bubblewrap is not supported on %s. Bash and subprocess tools run unsandboxed.", runtime.GOOS)
 	case "bypassed":
 		msg = "sandbox bypassed: running with --unsafe or sandbox.enabled=false. Bash and subprocess tools run unsandboxed."
 	}
 	if msg != "" {
-		events.Emit(output.NewSandboxStatusEvent(cfg.Sandbox.Status, msg))
+		events.Emit(output.NewSandboxStatusEvent(status, msg))
 	}
 }

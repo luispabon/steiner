@@ -155,14 +155,15 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 				return err
 			}
 
-			// Compute sandbox status for display.
+			// Compute sandbox status for display; it is runtime state, not configuration.
+			var status string
 			switch {
 			case !resolved.Sandbox.Enabled:
-				resolved.Sandbox.Status = "bypassed"
+				status = "bypassed"
 			case sandbox.PrereqCheck() != nil:
-				resolved.Sandbox.Status = "unavailable"
+				status = "unavailable"
 			default:
-				resolved.Sandbox.Status = "active"
+				status = "active"
 			}
 
 			data, err := yaml.Marshal(resolved)
@@ -170,7 +171,7 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 				return err
 			}
 
-			_, err = fmt.Fprint(cmd.OutOrStdout(), string(data))
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s---\nsandbox_status: %s\n", data, status)
 			return err
 		},
 	}

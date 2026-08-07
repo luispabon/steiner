@@ -97,7 +97,7 @@ go run ./cmd/steiner --unsafe
 - Steiner detects the platform at startup and disables sandboxing automatically
 - `--unsafe` flag is ignored (sandboxing is already disabled)
 - **Workaround**: Use WSL2 on Windows or a Linux VM
-- **Status reporting**: When sandboxing is unavailable, `sandbox.status` is set to `unavailable` and the UI shows a warning banner (unless `sandbox.warning_on_unsupported_platform` is disabled). Bash and subprocess tools run unsandboxed with a graceful fallback — no hard failure.
+- **Status reporting**: When sandboxing is unavailable, the runtime sandbox status is `unavailable` and the UI shows a warning banner (unless `sandbox.warning_on_unsupported_platform` is disabled). Bash and subprocess tools run unsandboxed with a graceful fallback — no hard failure.
 
 ## Mount layout
 
