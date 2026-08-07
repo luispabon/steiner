@@ -28,6 +28,10 @@ type SubAgentHandlerDeps struct {
 	CaveHuman            bool
 	TraceLogger          *TraceLogger
 	SessionStore         *SessionStore
+	// ExtraAllowedTools provides per-agent-type extra tool names included in
+	// child registries beyond the built-in allowlists. Nil or empty map grants
+	// no extra tools.
+	ExtraAllowedTools map[AgentType][]string
 	// Sandbox is the parent sandbox. Sub-agents inherit it unchanged so that
 	// child sandbox permissions cannot exceed parent permissions.
 	Sandbox tool.SandboxWrapper

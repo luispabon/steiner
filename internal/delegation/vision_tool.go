@@ -52,11 +52,16 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			}
 		}
 
+		allowedTools := AgentAllowedTools(AgentTypeVision)
+		if deps.ExtraAllowedTools != nil {
+			allowedTools = mergedAllowedTools(allowedTools, deps.ExtraAllowedTools[AgentTypeVision])
+		}
+
 		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
 			Provider:             resolvedProvider,
 			ParentReg:            deps.ParentReg,
 			SubAgentCfg:          deps.SubAgentCfg,
-			AllowedTools:         AgentAllowedTools(AgentTypeVision),
+			AllowedTools:         allowedTools,
 			Events:               deps.Events,
 			WorkDir:              deps.WorkDir,
 			HomeDir:              deps.HomeDir,

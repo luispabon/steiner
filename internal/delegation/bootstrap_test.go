@@ -3,6 +3,8 @@ package delegation
 import (
 	"context"
 	"os/exec"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1040,5 +1042,33 @@ func TestBuildChildRunInheritsEnabledSandbox(t *testing.T) {
 	}
 	if got != sb {
 		t.Error("Sandbox is not the parent sandbox instance (must be same, not a copy)")
+	}
+}
+
+func TestMCPChildRegistryRetainsHandlersAndProvenance(t *testing.T) {
+	handler := func(_ context.Context, _ map[string]any) (any, error) { return "ok", nil }
+	prov := tool.MCPProvenance{Server: "notes", ToolName: "search"}
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Description: "read"},
+		tool.ToolDef{Name: "mcp__notes__search", Description: "search notes", Handler: handler, MCP: prov},
+	)
+
+	visible, exec := buildChildRegistries(parent, []string{"read", "mcp__notes__search"})
+
+	if !slices.Contains(visible.Names(), "mcp__notes__search") {
+		t.Fatalf("visible registry missing MCP tool: %v", visible.Names())
+	}
+	got, ok := exec.Get("mcp__notes__search")
+	if !ok {
+		t.Fatal("exec registry missing MCP tool")
+	}
+	if got.Handler == nil {
+		t.Error("MCP ToolDef lost its handler in child registry")
+	}
+	if reflect.ValueOf(got.Handler).Pointer() != reflect.ValueOf(handler).Pointer() {
+		t.Error("child MCP ToolDef handler differs from parent handler")
+	}
+	if got.MCP != prov {
+		t.Errorf("child MCP ToolDef provenance = %+v, want %+v", got.MCP, prov)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -944,4 +945,247 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestMergedAllowedTools(t *testing.T) {
+	tests := []struct {
+		name   string
+		base   []string
+		extras []string
+		want   []string
+	}{
+		{
+			name:   "nil base and extras produce empty slice",
+			base:   nil,
+			extras: nil,
+			want:   []string{},
+		},
+		{
+			name:   "extras appended and sorted with base",
+			base:   []string{"read", "grep"},
+			extras: []string{"bash"},
+			want:   []string{"bash", "grep", "read"},
+		},
+		{
+			name:   "duplicates across base and extras removed",
+			base:   []string{"read", "bash"},
+			extras: []string{"bash", "read"},
+			want:   []string{"bash", "read"},
+		},
+		{
+			name:   "unsorted extras sorted with base",
+			base:   []string{"ls", "read"},
+			extras: []string{"mutate", "bash", "grep"},
+			want:   []string{"bash", "grep", "ls", "mutate", "read"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergedAllowedTools(tt.base, tt.extras)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("mergedAllowedTools(%v, %v) = %v, want %v", tt.base, tt.extras, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("base slice is not mutated", func(t *testing.T) {
+		base := []string{"read", "grep", "ls"}
+		original := append([]string(nil), base...)
+		got := mergedAllowedTools(base, []string{"ls", "bash", "read"})
+		if !slices.Equal(base, original) {
+			t.Fatalf("base mutated: %v, want %v", base, original)
+		}
+		got[0] = "mutated"
+		if !slices.Equal(base, original) {
+			t.Fatalf("mutating merged result changed base: %v, want %v", base, original)
+		}
+	})
+}
+
+func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
+	mcpTool := "mcp__notes__search"
+	parentDefs := []tool.ToolDef{
+		{Name: "read", Description: "read"},
+		{Name: "grep", Description: "grep"},
+		{Name: "ls", Description: "ls"},
+		{Name: "bash", Description: "bash"},
+		{Name: mcpTool, Description: "search notes", MCP: tool.MCPProvenance{Server: "notes", ToolName: "search"}},
+	}
+
+	runHandler := func(t *testing.T, agentType AgentType, extras map[AgentType][]string) (agent.RunRequest, *SessionStore) {
+		t.Helper()
+		store := NewSessionStore()
+		var capturedReq agent.RunRequest
+		runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+				return successRunState(), nil
+			}
+			capturedReq = req
+			return successRunState(), nil
+		}}
+		deps := SpecializedToolDeps{
+			SubAgentHandlerDeps: SubAgentHandlerDeps{
+				SubAgentCfg:       config.SubAgentConfig{},
+				Provider:          stubProvider{},
+				ParentReg:         tool.NewRegistry(parentDefs...),
+				Runner:            runner,
+				Events:            noopEventSink{},
+				WorkDir:           "/tmp/work",
+				SessionStore:      store,
+				ExtraAllowedTools: extras,
+			},
+			ModelResolver: nil,
+		}
+		def := SpecializedToolDef(agentType, deps)
+		if _, err := def.Handler(context.Background(), map[string]any{"task": "test task"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		return capturedReq, store
+	}
+
+	childToolNames := func(req agent.RunRequest) []string {
+		names := make([]string, 0, len(req.Tools))
+		for _, ts := range req.Tools {
+			names = append(names, ts.Function.Name)
+		}
+		return names
+	}
+
+	t.Run("nil extras grants no extra tools", func(t *testing.T) {
+		req, _ := runHandler(t, AgentTypeResearch, nil)
+		if slices.Contains(childToolNames(req), mcpTool) {
+			t.Errorf("research child contains %q with nil extras: %v", mcpTool, childToolNames(req))
+		}
+	})
+
+	t.Run("empty extras map grants no extra tools", func(t *testing.T) {
+		req, _ := runHandler(t, AgentTypeResearch, map[AgentType][]string{})
+		if slices.Contains(childToolNames(req), mcpTool) {
+			t.Errorf("research child contains %q with empty extras: %v", mcpTool, childToolNames(req))
+		}
+	})
+
+	t.Run("extra tool granted to research only", func(t *testing.T) {
+		extras := map[AgentType][]string{AgentTypeResearch: {mcpTool}}
+		researchReq, _ := runHandler(t, AgentTypeResearch, extras)
+		if !slices.Contains(childToolNames(researchReq), mcpTool) {
+			t.Errorf("research child missing %q: %v", mcpTool, childToolNames(researchReq))
+		}
+		codeReq, _ := runHandler(t, AgentTypeCode, extras)
+		if slices.Contains(childToolNames(codeReq), mcpTool) {
+			t.Errorf("code child unexpectedly contains %q: %v", mcpTool, childToolNames(codeReq))
+		}
+	})
+
+	t.Run("unknown extra tool names are ignored", func(t *testing.T) {
+		extras := map[AgentType][]string{AgentTypeResearch: {"mcp__missing__tool"}}
+		req, _ := runHandler(t, AgentTypeResearch, extras)
+		names := childToolNames(req)
+		if slices.Contains(names, "mcp__missing__tool") {
+			t.Errorf("child contains unknown extra tool %q: %v", "mcp__missing__tool", names)
+		}
+		if !slices.Contains(names, "read") {
+			t.Errorf("child missing base tool read: %v", names)
+		}
+	})
+
+	t.Run("merged child tools are sorted and deduplicated", func(t *testing.T) {
+		extras := map[AgentType][]string{AgentTypeResearch: {mcpTool, "read", "bash"}}
+		req, _ := runHandler(t, AgentTypeResearch, extras)
+		names := childToolNames(req)
+		want := []string{"bash", "grep", "ls", mcpTool, "read"}
+		if !slices.Equal(names, want) {
+			t.Errorf("child tools = %v, want %v", names, want)
+		}
+	})
+
+	t.Run("follow-up reuses merged includes from saved session", func(t *testing.T) {
+		origIDGen := idGen
+		idGen = func() string { return "child-extra-followup" }
+		defer func() { idGen = origIDGen }()
+
+		extras := map[AgentType][]string{AgentTypeResearch: {mcpTool}}
+		initialReq, store := runHandler(t, AgentTypeResearch, extras)
+		if !slices.Contains(childToolNames(initialReq), mcpTool) {
+			t.Fatalf("initial research child missing %q: %v", mcpTool, childToolNames(initialReq))
+		}
+
+		var followUpReq agent.RunRequest
+		handler := NewFollowUpHandler(SubAgentHandlerDeps{
+			SubAgentCfg:  config.SubAgentConfig{},
+			SessionStore: store,
+			Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+				if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+					return successRunState(), nil
+				}
+				followUpReq = req
+				return successRunState(), nil
+			}},
+			Events: noopEventSink{},
+		})
+		if _, err := handler(context.Background(), map[string]any{
+			"agent_id": "child-extra-followup",
+			"message":  "continue",
+		}); err != nil {
+			t.Fatalf("follow-up error: %v", err)
+		}
+		if !slices.Contains(childToolNames(followUpReq), mcpTool) {
+			t.Errorf("follow-up child missing %q: %v", mcpTool, childToolNames(followUpReq))
+		}
+	})
+}
+
+func TestVisionHandler_ExtraAllowedTools(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "test.png")
+	imgContent := []byte("fake-png-content")
+	if err := os.WriteFile(imgPath, imgContent, 0o600); err != nil {
+		t.Fatalf("write temp image: %v", err)
+	}
+	store := agent.NewImageStore(dir)
+	ref := store.Register(imgPath, "image/png", 100, 200, len(imgContent))
+
+	mcpTool := "mcp__gallery__find"
+	var capturedReq agent.RunRequest
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+			return successRunState(), nil
+		}
+		capturedReq = req
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
+			SubAgentCfg:       config.SubAgentConfig{},
+			Provider:          stubProvider{},
+			ParentReg:         tool.NewRegistry(tool.ToolDef{Name: "read"}, tool.ToolDef{Name: mcpTool}),
+			Runner:            runner,
+			Events:            noopEventSink{},
+			WorkDir:           dir,
+			ExtraAllowedTools: map[AgentType][]string{AgentTypeVision: {mcpTool}},
+		},
+		ImageStore: store,
+	}
+
+	def := SpecializedToolDef(AgentTypeVision, deps)
+	raw, err := def.Handler(context.Background(), map[string]any{
+		"task":     "describe the image",
+		"image_id": ref.ID,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := raw.(tool.ExecutionResult); !ok {
+		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+
+	names := make([]string, 0, len(capturedReq.Tools))
+	for _, ts := range capturedReq.Tools {
+		names = append(names, ts.Function.Name)
+	}
+	if want := []string{mcpTool, "read"}; !slices.Equal(names, want) {
+		t.Errorf("vision child tools = %v, want %v", names, want)
+	}
 }
