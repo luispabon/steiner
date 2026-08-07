@@ -53,8 +53,8 @@ func TestStdio(t *testing.T) {
 		if got := sess.ProtocolVersion(); got != "2025-11-25" {
 			t.Errorf("ProtocolVersion() = %q, want %q", got, "2025-11-25")
 		}
-		if tools := sess.Tools(); len(tools) != 3 {
-			t.Fatalf("Tools() has %d entries, want 3", len(tools))
+		if tools := sess.Tools(); len(tools) != 6 {
+			t.Fatalf("Tools() has %d entries, want 6", len(tools))
 		}
 
 		res, err := sess.Call(context.Background(), "echo", map[string]any{"text": "hi"})
