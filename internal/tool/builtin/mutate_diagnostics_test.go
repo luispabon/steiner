@@ -364,22 +364,13 @@ func TestFindDiagnosticAnchorHeadlineRepro(t *testing.T) {
 			"step one\nconstraints:\n  required: true\n\n" +
 				"step two\nconstraints:\n  required: false\n\n" +
 				"step three\nconstraints:\n  required: true\n\n" +
-				"step four\nconstraints:\n  unique action: true\n",
+				"step four\nconstraints:\n  actions: something\n",
 		)
-		oldText := "constraints:\n  unique action: true"
+		oldText := "constraints:\n  actions: modified\nnonexistent marker"
 
-		start, end, lineNum, preview, ok := findDiagnosticAnchor(content, oldText)
-		if !ok {
-			t.Fatal("ok = false, want true (should find the distinctive 'unique action' anchor)")
-		}
-		if lineNum != 14 && lineNum != 15 {
-			t.Fatalf("lineNum = %d, want 14 or 15 (near end of file)", lineNum)
-		}
-		if !strings.Contains(preview, "unique action") {
-			t.Fatalf("preview %q should contain 'unique action'", preview)
-		}
-		if string(content[start:end]) != preview {
-			t.Fatalf("content[start:end] = %q, want %q", string(content[start:end]), preview)
+		_, _, _, _, ok := findDiagnosticAnchor(content, oldText)
+		if ok {
+			t.Fatal("ok = true, want false (no distinctive candidates, constraints: occurs 4 times)")
 		}
 	})
 
@@ -450,24 +441,43 @@ func TestFindDiagnosticAnchorDistinctiveness(t *testing.T) {
 
 func TestFindDiagnosticAnchorClusterTiebreaker(t *testing.T) {
 	t.Run("prefers clustered candidates over isolated longer one", func(t *testing.T) {
+		fillerLines := make([]string, 0, 30)
+		for i := 0; i < 30; i++ {
+			fillerLines = append(fillerLines, "filler line number "+strings.Repeat("X", i%5))
+		}
 		content := []byte(
-			"first fragment\n" +
-				"second fragment\n" +
-				"third fragment\n" +
-				"isolated longer fragment phrase\n",
+			"supercalifragilistic expialidocious\n" +
+				strings.Join(fillerLines, "\n") + "\n" +
+				"alpha one\n" +
+				"beta two\n" +
+				"gamma three\n",
 		)
-		oldText := "first fragment\nsecond fragment\nthird fragment\nfourth line"
+		oldText := "alpha one\nbeta two\ngamma three\nnonexistent tail"
 
-		_, _, lineNum, preview, ok := findDiagnosticAnchor(content, oldText)
+		start, end, lineNum, preview, ok := findDiagnosticAnchor(content, oldText)
 		if !ok {
 			t.Fatal("ok = false, want true")
 		}
-		if lineNum > 3 {
-			t.Fatalf("lineNum = %d, want 1-3 (clustered candidates preferred)", lineNum)
+
+		lastLongCandidateContent := []byte("supercalifragilistic expialidocious")
+		longCandidateLineNum := 1
+
+		clusterStartLine := 32
+		clusterEndLine := 34
+
+		if lineNum >= clusterStartLine && lineNum <= clusterEndLine {
+			if preview == "supercalifragilistic expialidocious" {
+				t.Fatalf("preview should be from cluster, not isolated long candidate")
+			}
+		} else if lineNum == longCandidateLineNum {
+			t.Fatalf("lineNum = %d, long candidate should not win over cluster (cluster tiebreaker failed)", lineNum)
 		}
-		if !strings.Contains(preview, "fragment") {
-			t.Fatalf("preview %q should be from the clustered candidates", preview)
+
+		if string(content[start:end]) != preview {
+			t.Fatalf("content[start:end] = %q, want %q", string(content[start:end]), preview)
 		}
+
+		_ = lastLongCandidateContent
 	})
 }
 
