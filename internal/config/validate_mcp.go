@@ -45,6 +45,15 @@ func validateMCPConfig(problems *[]string, cfg MCPConfig) {
 		if srv.ConnectTimeout.Duration() < 0 {
 			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.connect_timeout must be non-negative", name))
 		}
+
+		// Validate sub_agents against the fixed Steiner agent-type vocabulary.
+		// Allowed/blocked tool names are not validated here: discovery has not
+		// run yet, so unknown names are non-fatal warnings later.
+		for _, agentType := range srv.SubAgents {
+			if !validAgentTypes[agentType] {
+				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.sub_agents: unknown agent type %q (must be one of explore, research, code, evaluate, sanity_check, review, or vision)", name, agentType))
+			}
+		}
 	}
 }
 

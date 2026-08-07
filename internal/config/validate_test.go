@@ -1330,6 +1330,31 @@ func TestMCPConfigValidation(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "valid sub_agents accepted",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "stdio", Command: "npx", SubAgents: []string{"explore", "code"}},
+				},
+			},
+		},
+		{
+			name: "unknown sub_agents rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "stdio", Command: "npx", SubAgents: []string{"bogus"}},
+				},
+			},
+			wantErr: `mcp.servers.example.sub_agents: unknown agent type "bogus"`,
+		},
+		{
+			name: "unknown allowed_tools and blocked_tools names accepted",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "stdio", Command: "npx", AllowedTools: []string{"echo", "no_such_tool"}, BlockedTools: []string{"no_such_tool"}},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {

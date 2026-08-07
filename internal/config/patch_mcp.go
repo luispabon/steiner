@@ -57,4 +57,20 @@ func applyMCPServerPatch(dst *MCPServerConfig, patch *mcpServerPatch) {
 	if patch.ConnectTimeout != nil {
 		dst.ConnectTimeout = *patch.ConnectTimeout
 	}
+	applyMCPServerListPatches(dst, patch)
+}
+
+// applyMCPServerListPatches replaces the per-server tool filter and sub-agent
+// lists when set. A nil patch field means "don't touch"; a non-nil pointer
+// (even to an empty slice) replaces the destination list entirely.
+func applyMCPServerListPatches(dst *MCPServerConfig, patch *mcpServerPatch) {
+	if patch.AllowedTools != nil {
+		dst.AllowedTools = *patch.AllowedTools
+	}
+	if patch.BlockedTools != nil {
+		dst.BlockedTools = *patch.BlockedTools
+	}
+	if patch.SubAgents != nil {
+		dst.SubAgents = *patch.SubAgents
+	}
 }
