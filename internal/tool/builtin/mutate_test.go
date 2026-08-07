@@ -2726,6 +2726,152 @@ func TestMutateValidCreateAndWriteStillSucceed(t *testing.T) {
 	assertFile(t, filepath.Join(root, "existing.txt"), "")
 }
 
+func TestMutatePlanPhaseFailureAccounting(t *testing.T) {
+	root := t.TempDir()
+	toolDef := newMutateTestTool(t, root)
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("a\nb\nc\nd\ne\nf\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, toolDef, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "a", "new_string": "A"},
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "b", "new_string": "B"},
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "c", "new_string": "C"},
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "d", "new_string": "D"},
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "missing", "new_string": "MISSING"},
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "f", "new_string": "F"},
+		},
+	})
+
+	total := 6
+	if got.OperationsApplied+got.OperationsFailed+got.OperationsRolledBack+got.OperationsSkipped != total {
+		t.Fatalf("accounting sum = %d + %d + %d + %d = %d, want %d",
+			got.OperationsApplied, got.OperationsFailed, got.OperationsRolledBack, got.OperationsSkipped,
+			got.OperationsApplied+got.OperationsFailed+got.OperationsRolledBack+got.OperationsSkipped, total)
+	}
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+	}
+	if got.OperationsRolledBack != 4 {
+		t.Fatalf("OperationsRolledBack = %d, want 4", got.OperationsRolledBack)
+	}
+	if got.OperationsSkipped != 1 {
+		t.Fatalf("OperationsSkipped = %d, want 1", got.OperationsSkipped)
+	}
+	if got.OperationsApplied != 0 {
+		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
+	}
+	if len(got.OperationResults) != 4 {
+		t.Fatalf("OperationResults count = %d, want 4", len(got.OperationResults))
+	}
+	for i, opResult := range got.OperationResults {
+		if opResult.Applied != false {
+			t.Fatalf("OperationResults[%d].Applied = %v, want false", i, opResult.Applied)
+		}
+		if opResult.FileHash != "" {
+			t.Fatalf("OperationResults[%d].FileHash = %q, want empty", i, opResult.FileHash)
+		}
+	}
+	assertFile(t, path, "a\nb\nc\nd\ne\nf\n")
+}
+
+func TestMutateCommitPhaseFailureAccounting(t *testing.T) {
+	root := t.TempDir()
+	toolDef := newMutateTestTool(t, root)
+	readonlyDir := filepath.Join(root, "readonly")
+	if err := os.Mkdir(readonlyDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Chmod(readonlyDir, 0o555); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() {
+		os.Chmod(readonlyDir, 0o755)
+	})
+
+	got := runMutate(t, toolDef, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": "readonly/file1.txt", "content": "one\n"},
+			map[string]any{"type": "create", "path": "readonly/file2.txt", "content": "two\n"},
+			map[string]any{"type": "create", "path": "readonly/file3.txt", "content": "three\n"},
+		},
+	})
+
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1 (commit operation failed)", got.OperationsFailed)
+	}
+	if got.OperationsRolledBack != 3 {
+		t.Fatalf("OperationsRolledBack = %d, want 3 (all input ops rolled back)", got.OperationsRolledBack)
+	}
+	if got.OperationsSkipped != 0 {
+		t.Fatalf("OperationsSkipped = %d, want 0", got.OperationsSkipped)
+	}
+	if got.OperationsApplied != 0 {
+		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
+	}
+	if len(got.OperationResults) != 3 {
+		t.Fatalf("OperationResults count = %d, want 3", len(got.OperationResults))
+	}
+	for i, opResult := range got.OperationResults {
+		if opResult.Applied != false {
+			t.Fatalf("OperationResults[%d].Applied = %v, want false", i, opResult.Applied)
+		}
+		if opResult.FileHash != "" {
+			t.Fatalf("OperationResults[%d].FileHash = %q, want empty", i, opResult.FileHash)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(readonlyDir, "file1.txt")); !os.IsNotExist(err) {
+		t.Fatalf("file1.txt exists after failed commit, err=%v", err)
+	}
+}
+
+func TestMutateSuccessfulBatchMarksApplied(t *testing.T) {
+	root := t.TempDir()
+	toolDef := newMutateTestTool(t, root)
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("a\nb\nc\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, toolDef, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "a", "new_string": "A"},
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "b", "new_string": "B"},
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "c", "new_string": "C"},
+		},
+	})
+
+	total := 3
+	if got.OperationsApplied+got.OperationsFailed+got.OperationsRolledBack+got.OperationsSkipped != total {
+		t.Fatalf("accounting sum = %d + %d + %d + %d = %d, want %d",
+			got.OperationsApplied, got.OperationsFailed, got.OperationsRolledBack, got.OperationsSkipped,
+			got.OperationsApplied+got.OperationsFailed+got.OperationsRolledBack+got.OperationsSkipped, total)
+	}
+	if got.OperationsApplied != 3 {
+		t.Fatalf("OperationsApplied = %d, want 3", got.OperationsApplied)
+	}
+	if got.OperationsFailed != 0 {
+		t.Fatalf("OperationsFailed = %d, want 0", got.OperationsFailed)
+	}
+	if got.OperationsRolledBack != 0 {
+		t.Fatalf("OperationsRolledBack = %d, want 0", got.OperationsRolledBack)
+	}
+	if len(got.OperationResults) != 3 {
+		t.Fatalf("OperationResults count = %d, want 3", len(got.OperationResults))
+	}
+	for i, opResult := range got.OperationResults {
+		if opResult.Applied != true {
+			t.Fatalf("OperationResults[%d].Applied = %v, want true", i, opResult.Applied)
+		}
+		if opResult.FileHash == "" {
+			t.Fatalf("OperationResults[%d].FileHash is empty, want non-empty", i)
+		}
+	}
+	assertFile(t, path, "A\nB\nC\n")
+}
+
 func assertFile(t *testing.T, path, want string) {
 	t.Helper()
 	data, err := os.ReadFile(path)
