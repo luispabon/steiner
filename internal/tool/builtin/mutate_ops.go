@@ -89,9 +89,9 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 	matchCount := bytes.Count(state.content, oldBytes)
 	switch {
 	case matchCount == 0:
-		return errors.New(buildNoMatchDiagnostics("mutate", state.content, op.OldString, state.path))
+		return errors.New(buildNoMatchDiagnostics(fmt.Sprintf("mutate: operation %d replace", index), state.content, op.OldString, state.path))
 	case matchCount > 1 && !op.ReplaceAll:
-		return errors.New(buildAmbiguousDiagnostics("mutate", state.content, op.OldString, matchCount, state.path))
+		return errors.New(buildAmbiguousDiagnostics(fmt.Sprintf("mutate: operation %d replace", index), state.content, op.OldString, matchCount, state.path))
 	}
 	before := string(state.content)
 	if op.ReplaceAll {
