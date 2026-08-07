@@ -147,7 +147,7 @@ See [Configuration](docs/configuration.md) for all provider types, model fields,
 | Tool | Description |
 |------|-------------|
 | `read` | Read files with offset/limit pagination; detects and base64-encodes images |
-| `mutate` | Apply structured file mutations atomically (create, write, replace, delete, move, insert) |
+| `mutate` | Apply structured file mutations atomically (create, write, replace, delete, move, insert); parent directories must exist for workspace paths |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents with surrounding context |
 | `ls` | List directory contents |

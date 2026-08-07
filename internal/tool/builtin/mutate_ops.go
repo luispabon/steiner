@@ -435,7 +435,7 @@ func verifyParentDirExists(path string, isSandboxTmpPath bool, state *mutateFile
 			return fmt.Errorf("parent directory %q: %w", parent, err)
 		}
 		if !isSandboxTmpPath {
-			return fmt.Errorf("parent directory %q: %w", parent, err)
+			return fmt.Errorf("parent directory %q does not exist — create it first (e.g. with bash mkdir -p), then retry: %w", parent, err)
 		}
 		// Parent doesn't exist, but it's a sandbox tmp path — mark for creation at commit time.
 		state.needsParent = true
