@@ -392,9 +392,9 @@ modes:
 
 Controls bubblewrap sandbox behavior.
 
-The runtime sandbox status (`active`, `unavailable`, or `bypassed`) is not part of this
-schema: it is computed at startup and reported separately in the TUI and as a second YAML
-document in `steiner config` output (`sandbox_status:`). It is not user-configurable.
+The runtime sandbox status (`active`, `unavailable`, or `bypassed`) is computed at startup
+and surfaced only in the TUI (sidebar/badge) and startup warnings; it is not part of `steiner
+config` output and is not user-configurable.
 
 | Field     | Type | Default | Description |
 |-----------|------|---------|-------------|

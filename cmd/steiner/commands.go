@@ -12,7 +12,6 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/session"
 )
 
@@ -155,23 +154,12 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 				return err
 			}
 
-			// Compute sandbox status for display; it is runtime state, not configuration.
-			var status string
-			switch {
-			case !resolved.Sandbox.Enabled:
-				status = "bypassed"
-			case sandbox.PrereqCheck() != nil:
-				status = "unavailable"
-			default:
-				status = "active"
-			}
-
 			data, err := yaml.Marshal(resolved)
 			if err != nil {
 				return err
 			}
 
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s---\nsandbox_status: %s\n", data, status)
+			_, err = fmt.Fprint(cmd.OutOrStdout(), string(data))
 			return err
 		},
 	}
