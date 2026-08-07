@@ -24,7 +24,7 @@ Follow this sequence:
 3. If no changed files, report "nothing to analyze" and stop.
 4. Dispatch four parallel `explore` sub-agents, one per category. Each receives: the list of changed files, the base branch name, and the category-specific analysis prompt from ## Category Prompts. Each agent must return findings as a structured list with: finding ID (category prefix + number, e.g. R1, S2, E3, A1), severity (blocking/non_blocking/informational), file path and line range, description, and suggested fix.
 5. Aggregate all four reports into a unified findings list.
-6. Call the advisor with the aggregated findings for a sanity check. Incorporate feedback: drop findings the advisor flags as weak or incorrect, adjust severity per advisor guidance, add concerns the advisor raises that sub-agents missed. The advisor sees the findings and a summary of changed files — not the full code.
+6. Call the advisor with the aggregated findings for a sanity check, passing the findings (and changed-file paths where useful) via `files` and a `question` framing the sanity check. Incorporate feedback: drop findings the advisor flags as weak or incorrect, adjust severity per advisor guidance, add concerns the advisor raises that sub-agents missed.
 7. Present the refined report to the user, organized by category (Reuse, Simplification, Efficiency, Altitude), with finding counts and severity breakdown.
 
 ## Category Prompts
@@ -189,7 +189,7 @@ If any check fails, the sub-agent must not commit. It must report the mismatch a
 
 ## Advisor Sanity Check
 
-Called twice:
+Called twice, each time passing the findings file (and changed-file paths where useful) via `files` and a `question` framing the sanity check:
 
 1. After initial analysis (step 6 in Analysis Flow) — internal quality gate before user sees findings
 2. After the fix/review loop completes — before marking final status

@@ -122,3 +122,63 @@ func TestBuildDelegateRegistryAppliesAdvisorTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildDelegateRegistryRegistersAdvisorSchemaWithQuestionAndFiles(t *testing.T) {
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"testprov": {
+				Type:    config.ProviderTypeOpenAICompat,
+				BaseURL: "http://example.invalid",
+				Timeout: config.MustDuration("180s"),
+			},
+		},
+		Models: config.ModelsConfig{
+			Advisor: "advisor",
+			Definitions: map[string]config.ModelConfig{
+				"advisor": {
+					Provider: "testprov",
+					ID:       "advisor-model",
+					Advanced: config.AdvancedConfig{
+						Limits: config.AdvancedLimitsConfig{
+							ContextWindow:   8192,
+							MaxOutputTokens: 1024,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	reg, err := BuildDelegateRegistry(DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
+		Provider:     &fakeProvider{},
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens: 256,
+		Config:    cfg,
+	})
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+
+	def, ok := reg.Get("advisor")
+	if !ok {
+		t.Fatal("advisor tool not registered")
+	}
+	props, ok := def.ParameterSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %T, want map[string]any", def.ParameterSchema["properties"])
+	}
+	if _, ok := props["question"]; !ok {
+		t.Fatal("registered advisor schema missing question property")
+	}
+	if _, ok := props["files"]; !ok {
+		t.Fatal("registered advisor schema missing files property")
+	}
+}

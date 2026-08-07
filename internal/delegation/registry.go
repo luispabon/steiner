@@ -80,6 +80,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		if err != nil {
 			return nil, fmt.Errorf("build advisor provider for %q: %w", deps.Config.Models.Advisor, err)
 		}
+		advisorPolicy := tool.NewPathPolicy(deps.WorkDir, deps.Config.Paths)
 		cloned.Register(advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
 			Provider: advisorProvider,
 			Model:    advisorResolved,
@@ -89,6 +90,8 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 				MaxTokens:     deps.AdvisorCfg.MaxTokens,
 			},
 			UsageRecorder: deps.UsageRecorder,
+			WorkDir:       deps.WorkDir,
+			PathPolicy:    &advisorPolicy,
 		})))
 	}
 

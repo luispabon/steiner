@@ -17,9 +17,9 @@ The advisor is for strategic steering. It is not a code executor, verifier, revi
 
 ## How it works
 
-1. The main model decides to call `advisor`.
-2. The tool handler snapshots the live parent conversation from the current run context.
-3. Steiner builds an advisor request with an advisor system prompt, the parent conversation snapshot, and a short user prompt asking for guidance.
+1. The main model decides to call `advisor`, optionally passing `question` (free text describing what to judge) and `files` (workspace paths to include verbatim).
+2. The tool handler resolves and loads any `files` under the same path policy the `read` tool uses, then snapshots the live parent conversation from the current run context.
+3. Steiner builds an advisor request with an advisor system prompt, the parent conversation snapshot, and a trailing user message containing the loaded files, the caller's question, and a short closing prompt asking for guidance.
 4. The configured advisor model receives no tools and runs one non-streaming chat completion. Any `tool_use`/`tool_result` messages in the snapshot are flattened to plain text before sending, so the advisor request contains no structured tool content and requires no tool definitions.
 5. The advisor's text is returned as the tool result and added to the parent conversation.
 
@@ -32,6 +32,8 @@ Before the advisor receives the conversation, Steiner applies several transforma
 **Reasoning and metadata stripping**: `ReasoningContent` and `ProviderMetadata` (including `ThinkingSignature`) are unconditionally cleared from every message reaching the advisor. This is a per-message transform with no position dependence, so it does not break cache reusability.
 
 **Oversized tool-call arguments capping**: When tool calls in the snapshot contain large arguments (e.g. whole-file content from a `mutate` call), any string in the `Arguments` object longer than 1000 bytes is truncated to a 1000-byte prefix plus a size-preserving elision marker like `…[elided, N bytes total]`. This is a compile-time constant, not derived from conversation state, so it stays cache-safe. The transformation applies generically to any tool's arguments, not hardcoded to a specific tool. When the truncation point falls within a multi-byte UTF-8 character, JSON encoding will emit a U+FFFD replacement character at the cut point, which is deterministic and does not affect cache safety.
+
+**Caller-supplied files and question**: `files` and `question` give a caller an explicit, bounded channel for artifacts the conversation snapshot doesn't reliably carry (e.g. tool-call arguments truncated by the 1000-byte cap above, or content dropped by a compaction that happened after it was written). They are rendered into a single trailing user message appended strictly *after* the flattened conversation snapshot, so the cached prefix (system prompt + snapshot) never shifts position regardless of what a caller passes — this mirrors the reasoning behind the 1000-byte tool-arg cap. Caps apply independently: up to 8 files, 32KB per file, 96KB aggregate across all files, and 4000 bytes for the question, each truncated with the same `…[elided, N bytes total]` marker when exceeded. Passing more than 8 files is a caller error and is rejected before the call is counted against the per-run budget. Each file is read through a reader limited to the 32KB cap rather than loaded in full first, so a path pointing at a very large file cannot force an unbounded read; the marker still reports the file's true on-disk size, obtained via a stat call rather than the capped read. Files are resolved with the same policy the `read` tool uses (a blocked-paths and special-file denylist — see the `read` tool's path policy for what "resolved" means; it does not add workspace containment beyond what `read` already allows). A bare `advisor` call with neither field behaves exactly as before this feature existed.
 
 **Prior advisor notes reframing**: When a tool-result message's `Name` equals `advisor`, it is rendered with the framing "Your earlier note (update if circumstances have changed):" instead of the generic `[tool_result: advisor]` prefix. This presents the advisor's own revisable prior opinion rather than an authoritative observation. *(This is scope creep beyond issue #380, a quality fix not a token or cache optimization.)*
 
@@ -64,7 +66,7 @@ The advisor model is resolved through the same model configuration and provider 
 
 ## Tool behavior
 
-The model-facing tool is named `advisor`. Its schema is an empty object; the call is a timing signal rather than a request with meaningful parameters.
+The model-facing tool is named `advisor`. Its schema accepts two optional properties: `question` (free text describing what to judge) and `files` (an array of workspace paths to include verbatim, since the advisor has no tool access and cannot read files itself). Both are optional; a bare call with neither behaves as a pure timing signal over the live conversation, same as before.
 
 The handler keeps a per-run use counter. Calls within `max_uses_per_run` invoke the advisor model. Calls after the cap return:
 

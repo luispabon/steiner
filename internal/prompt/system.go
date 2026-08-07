@@ -134,7 +134,7 @@ Examples:
 
 const advisorInstructions = `## Advisor
 
-If you need a stronger-model strategic check, call ` + "`advisor`" + `. Use it sparingly for ambiguity, risk, or a final sanity check. It gives steering only; it does not mutate code, run tools, or replace your judgment. Weigh its guidance seriously, but when your own evidence contradicts a specific claim it made — a step it recommended fails when you try it, or file contents disagree with what it assumed — surface the conflict explicitly rather than silently complying or silently discarding the advice.`
+If you need a stronger-model strategic check, call ` + "`advisor`" + `. Use it sparingly for ambiguity, risk, or a final sanity check. It gives steering only; it does not mutate code, run tools, or replace your judgment. Weigh its guidance seriously, but when your own evidence contradicts a specific claim it made — a step it recommended fails when you try it, or file contents disagree with what it assumed — surface the conflict explicitly rather than silently complying or silently discarding the advice. The advisor sees the conversation but cannot read files itself, so pass the paths of any artifact you want it to judge via ` + "`files`" + `, and state what you want judged via ` + "`question`" + `.`
 
 const coreRules = `## Core rules:
 - Do user's task only. No extra features, abstractions, refactors, config, cleanup, or polish unless required.

@@ -175,7 +175,7 @@ Steiner exposes these model-facing built-in tools:
 - `scratchpad` — record working state (intent, decisions, next action); persists across compaction
 - `fetch_url` — fetch a URL and return its content as markdown or image data
 - `display_file` — show a file in the TUI overlay without adding contents to conversation
-- `advisor` — ask a stronger-model steering advisor for guidance (requires `advisor.enabled`)
+- `advisor` — ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`)
 - `workflow_handoff` — transition to a different workflow with approved artifacts
 
 Steiner owns the schemas and result formats. Dive implements the behavior.

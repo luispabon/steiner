@@ -152,7 +152,7 @@ If any check fails, the sub-agent must not commit. It must report the mismatch a
 
 ### Advisor Sanity Check
 
-Run the advisor tool between the review-fix loop and final verification, before marking final status. Unconditional — skip only if the per-run advisor budget is exhausted or `AdvisorEnabled` is off.
+Run the advisor tool between the review-fix loop and final verification, before marking final status. Pass `files` with the review artifacts (e.g. `review.md` or the plan's `overview.md`/`plan.yaml`) and a `question` stating the findings the reviewer is about to mark final, so the advisor judges the actual artifacts rather than a conversational summary. Unconditional — skip only if the per-run advisor budget is exhausted or `AdvisorEnabled` is off.
 
 Include the advisor's note in the final review status summary. When `review.md` is created during closeout, append the note to the file.
 

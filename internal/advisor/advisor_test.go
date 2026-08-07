@@ -74,7 +74,7 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, snapshot, intPtr(256), nil, "")
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, snapshot, "", nil, intPtr(256), nil, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -158,7 +158,7 @@ func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 func TestAdviseWrapsProviderErrors(t *testing.T) {
 	prov := &fakeProvider{err: errors.New("backend failed")}
 
-	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil, "")
+	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, "", nil, nil, nil, "")
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -176,7 +176,7 @@ func TestAdviseFallsBackToStreamingWhenStreamRequired(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil, "")
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, "", nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -197,7 +197,7 @@ func TestAdviseStreamRequiredButStreamingFails(t *testing.T) {
 		streamErr: errors.New("stream broke"),
 	}
 
-	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, nil, nil, "")
+	_, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "advisor-model"}, nil, "", nil, nil, nil, "")
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -219,7 +219,7 @@ func TestAdviseWithReasoningDirectsToStream(t *testing.T) {
 		ReasoningEffectiveEffort: "high",
 	}
 
-	resp, err := advise(context.Background(), prov, rm, nil, nil, nil, "")
+	resp, err := advise(context.Background(), prov, rm, nil, "", nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -254,7 +254,7 @@ func TestAdviseWithReasoningStreamError(t *testing.T) {
 		ReasoningEffectiveEffort: "high",
 	}
 
-	_, err := advise(context.Background(), prov, rm, nil, nil, nil, "")
+	_, err := advise(context.Background(), prov, rm, nil, "", nil, nil, nil, "")
 	if err == nil {
 		t.Fatal("advise() error = nil, want wrapped error")
 	}
@@ -278,7 +278,7 @@ func TestAdviseWithReasoningEmitsThinkingChunks(t *testing.T) {
 	}
 
 	sink := &toolSink{}
-	resp, err := advise(context.Background(), prov, rm, nil, nil, sink, "")
+	resp, err := advise(context.Background(), prov, rm, nil, "", nil, nil, sink, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
@@ -422,7 +422,7 @@ func TestAdviseSucceedsWithEmptyCacheKey(t *testing.T) {
 		},
 	}
 
-	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "test-model"}, nil, nil, nil, "")
+	resp, err := advise(context.Background(), prov, provider.ResolvedModel{BackendModelID: "test-model"}, nil, "", nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("advise() error = %v", err)
 	}
