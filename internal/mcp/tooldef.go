@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -13,11 +14,15 @@ import (
 )
 
 // mcpToolDef builds a tool.ToolDef for a discovered MCP tool.
-// planMode and srv are captured by the handler closure for approval gating:
-// planMode downgrades "allow" to "ask" (D7), and srv carries the per-server
-// approval mode and trust_annotations opt-in. planMode is read from the
-// closure at call time, so mode changes apply without rebuilding the registry.
-func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponder, planMode func() bool, srv config.MCPServerConfig) tool.ToolDef {
+// getApprover resolves the approval responder lazily at call time (the manager
+// wires it in after connect, once the session approver exists); planMode and
+// srv are captured by the handler closure for approval gating: planMode
+// downgrades "allow" to "ask" (D7), and srv carries the per-server approval
+// mode and trust_annotations opt-in. planMode is read from the closure at call
+// time, so mode changes apply without rebuilding the registry. limits is
+// captured at connect time and bounds each call's output (ToolOutputMaxBytes)
+// and duration (ToolTimeoutDefault / ToolTimeouts) at call time (D19).
+func mcpToolDef(session *Session, t *mcpsdk.Tool, getApprover func() tool.ApprovalResponder, planMode func() bool, srv config.MCPServerConfig, limits config.LimitsConfig) tool.ToolDef {
 	name := ToolName(session.Name(), t.Name)
 
 	schema, ok := t.InputSchema.(map[string]any)
@@ -44,12 +49,12 @@ func mcpToolDef(session *Session, t *mcpsdk.Tool, approver tool.ApprovalResponde
 	if approvalMode == "" {
 		approvalMode = "ask"
 	}
-	def.Handler = mcpHandler(session, t.Name, session.Name(), def, approver, planMode, approvalMode, srv.TrustAnnotations, t.Annotations)
+	def.Handler = mcpHandler(session, t.Name, session.Name(), def, getApprover, planMode, approvalMode, srv.TrustAnnotations, t.Annotations, limits)
 	return def
 }
 
 // mcpHandler returns a Handler closure that gates on approval and invokes the MCP server.
-func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, approver tool.ApprovalResponder, planMode func() bool, approvalMode string, trustAnnotations bool, annotations *mcpsdk.ToolAnnotations) func(ctx context.Context, input map[string]any) (any, error) {
+func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, getApprover func() tool.ApprovalResponder, planMode func() bool, approvalMode string, trustAnnotations bool, annotations *mcpsdk.ToolAnnotations, limits config.LimitsConfig) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		// Deny mode: deny servers register no tools, but the handler defends
 		// anyway so a stale definition can never bypass the mode.
@@ -67,7 +72,7 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 		// downgraded to ask (D7) and falls through to approval below. planMode
 		// is read live so a mode switch applies without rebuilding the registry.
 		if approvalMode == "allow" && !planMode() {
-			return callMCPTool(ctx, session, toolName, serverName, input)
+			return callMCPTool(ctx, session, toolName, serverName, limits, input)
 		}
 
 		// Trusted annotations can skip approval for clearly safe tools (D6:
@@ -78,17 +83,18 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 		// approver at all.
 		if trustAnnotations && annotations != nil {
 			if annotations.ReadOnlyHint {
-				return callMCPTool(ctx, session, toolName, serverName, input)
+				return callMCPTool(ctx, session, toolName, serverName, limits, input)
 			}
 			isDestructive := annotations.DestructiveHint == nil || *annotations.DestructiveHint
 			isOpenWorld := annotations.OpenWorldHint == nil || *annotations.OpenWorldHint
 			if !isDestructive && !isOpenWorld {
-				return callMCPTool(ctx, session, toolName, serverName, input)
+				return callMCPTool(ctx, session, toolName, serverName, limits, input)
 			}
 			// Destructive or open-world: fall through to approval.
 		}
 
 		// Fail closed: a nil approver denies.
+		approver := getApprover()
 		if approver == nil {
 			return tool.JSONEnvelope{
 				OK: false,
@@ -133,15 +139,33 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 			}, nil
 		}
 
-		return callMCPTool(ctx, session, toolName, serverName, input)
+		return callMCPTool(ctx, session, toolName, serverName, limits, input)
 	}
 }
 
 // callMCPTool invokes the tool on the server and wraps the outcome in a
 // JSONEnvelope. Tool-level failures surface as a non-OK envelope with a nil Go
 // error; only transport failures return non-nil errors.
-func callMCPTool(ctx context.Context, session *Session, toolName, serverName string, input map[string]any) (any, error) {
-	result, err := session.Call(ctx, toolName, input)
+//
+// The call is bounded per D19: the per-tool timeout (keyed by the full
+// registered tool name) wins over the default, a sub-nanosecond timeout is the
+// unset convention and disables the wrap (mirroring the subprocess executor),
+// and the flattened text is truncated to ToolOutputMaxBytes with a Summary()-style
+// marker. Deadline/cancellation errors from the timeout are not transport
+// errors, so a timed-out call never triggers reconnect (step-4).
+func callMCPTool(ctx context.Context, session *Session, toolName, serverName string, limits config.LimitsConfig, input map[string]any) (any, error) {
+	timeout := time.Duration(limits.ToolTimeoutDefault.Duration())
+	if perTool, ok := limits.ToolTimeouts[ToolName(serverName, toolName)]; ok {
+		timeout = time.Duration(perTool.Duration())
+	}
+	callCtx := ctx
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		callCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	result, err := session.Call(callCtx, toolName, input)
 	if err != nil {
 		return nil, fmt.Errorf("call mcp tool %q on server %q: %w", toolName, serverName, err)
 	}
@@ -158,6 +182,18 @@ func callMCPTool(ctx context.Context, session *Session, toolName, serverName str
 		}
 	}
 	text := strings.Join(parts, "\n")
+
+	// Bound the text returned to the model (D19), mirroring the truncation
+	// marker style of internal/tool/output.go Summary(). The marker reports the
+	// pre-truncation total.
+	limit := limits.ToolOutputMaxBytes
+	if limit < 1 {
+		limit = 65536
+	}
+	if len(text) > limit {
+		total := len(text)
+		text = text[:limit] + fmt.Sprintf("\n<truncated output shown=%d total=%d>", limit, total)
+	}
 
 	// Tool-level failures surface as an envelope with a nil Go error; only
 	// transport failures return non-nil errors.

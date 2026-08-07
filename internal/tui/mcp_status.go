@@ -1,5 +1,11 @@
 package tui
 
+import (
+	"sort"
+
+	"github.com/luispabon/steiner/internal/output"
+)
+
 // MCPServerStatus is the TUI's display-only view of one configured MCP server.
 type MCPServerStatus struct {
 	// Name is the server's config key.
@@ -20,4 +26,41 @@ type MCPToolOrigin struct {
 	Server string
 	// Tool is the original, unsanitised tool name as the server reported it.
 	Tool string
+}
+
+// mcpServersFromStatusEvent converts an MCPStatusEvent server map into the
+// display slice, sorted by server name so the sidebar and /mcp overlay keep a
+// stable ordering across refreshes.
+func mcpServersFromStatusEvent(states map[string]output.MCPServerState) []MCPServerStatus {
+	names := make([]string, 0, len(states))
+	for name := range states {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	servers := make([]MCPServerStatus, 0, len(names))
+	for _, name := range names {
+		s := states[name]
+		servers = append(servers, MCPServerStatus{
+			Name:      name,
+			State:     s.State,
+			Transport: s.Transport,
+			Tools:     append([]string(nil), s.Tools...),
+			Error:     s.Error,
+		})
+	}
+	return servers
+}
+
+// mcpToolOriginsFromStatusEvent converts an MCPStatusEvent origin map into the
+// TUI's display type.
+func mcpToolOriginsFromStatusEvent(origins map[string]output.MCPToolOrigin) map[string]MCPToolOrigin {
+	if len(origins) == 0 {
+		return nil
+	}
+	out := make(map[string]MCPToolOrigin, len(origins))
+	for name, o := range origins {
+		out[name] = MCPToolOrigin{Server: o.Server, Tool: o.Tool}
+	}
+	return out
 }

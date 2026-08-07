@@ -25,6 +25,9 @@ func clearTerminalScreen(w io.Writer) {
 }
 
 func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
+	// Paint the TUI before MCP servers finish connecting; the interactive
+	// session runner waits for every server before the first agent turn.
+	flags.asyncMCP = true
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
 		return err

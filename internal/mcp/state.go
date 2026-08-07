@@ -10,15 +10,23 @@ import (
 type ServerStatus string
 
 const (
+	// ServerStatusConnecting means the server's connection attempt is in flight.
+	ServerStatusConnecting ServerStatus = "connecting"
 	// ServerStatusConnected means the server's session was established.
 	ServerStatusConnected ServerStatus = "connected"
 	// ServerStatusFailed means the server was enabled but the connection attempt failed.
 	ServerStatusFailed ServerStatus = "failed"
+	// ServerStatusReconnecting means the session dropped and a reconnect is in flight.
+	ServerStatusReconnecting ServerStatus = "reconnecting"
+	// ServerStatusUnavailable means the server is not reachable for the current attempt.
+	ServerStatusUnavailable ServerStatus = "unavailable"
 	// ServerStatusDisabled means the server (or MCP as a whole) is configured off.
 	ServerStatusDisabled ServerStatus = "disabled"
 )
 
-// ServerState describes one configured MCP server after Connect processed it.
+// ServerState describes one configured MCP server's live lifecycle state.
+// Status is a snapshot: it starts as connecting and resolves to connected or
+// failed once the connection attempt settles.
 type ServerState struct {
 	Name            string // config key
 	Status          ServerStatus

@@ -36,6 +36,11 @@ type cliFlags struct {
 	resume            string
 	unsafe            bool
 	dev               bool
+	// asyncMCP makes MCP connects non-blocking so the interactive TUI paints
+	// while servers connect; the interactive session runner waits for every
+	// server before the first agent turn. Non-interactive commands keep the
+	// blocking behaviour (set false, the zero value).
+	asyncMCP bool
 }
 
 type cliRuntime struct {
@@ -54,6 +59,7 @@ type cliRuntime struct {
 	homeDir                string
 	sandbox                *sandbox.Sandbox
 	mcpManager             *mcp.Manager
+	mcpState               *mcpStateProducer
 	stdin                  io.Reader
 	human                  *output.EventStream
 	status                 *output.EventStream

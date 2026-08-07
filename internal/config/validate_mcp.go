@@ -39,6 +39,12 @@ func validateMCPConfig(problems *[]string, cfg MCPConfig) {
 		if srv.Approval != "" && srv.Approval != "ask" && srv.Approval != "allow" && srv.Approval != "deny" {
 			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.approval: %q is invalid (must be ask, allow, or deny)", name, srv.Approval))
 		}
+
+		// Reject negative connect timeouts. Zero (absent or explicit) means
+		// unset and is defaulted to 15s by applyMCPDefaults.
+		if srv.ConnectTimeout.Duration() < 0 {
+			*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.connect_timeout must be non-negative", name))
+		}
 	}
 }
 

@@ -94,3 +94,77 @@ func TestMCPStartupWarnings(t *testing.T) {
 		})
 	}
 }
+
+func TestMCPStartupWarningsUnavailable(t *testing.T) {
+	servers := []MCPServerStatus{
+		{Name: "foo", State: "unavailable", Error: "exhausted retries"},
+	}
+	got := mcpStartupWarnings(servers, true)
+	want := []string{
+		`⚠ MCP server "foo" failed to connect: exhausted retries`,
+		`⚠ MCP startup incomplete (failed: foo)`,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("mcpStartupWarnings() = %v, want %v", got, want)
+	}
+}
+
+func TestMCPTransitionWarnings(t *testing.T) {
+	failed := []MCPServerStatus{{Name: "foo", State: "failed", Error: "boom"}}
+	unavailable := []MCPServerStatus{{Name: "foo", State: "unavailable", Error: "exhausted"}}
+	connected := []MCPServerStatus{{Name: "foo", State: "connected"}}
+
+	t.Run("first failure warns once", func(t *testing.T) {
+		lines, warned := mcpTransitionWarnings(failed, nil)
+		if len(lines) != 1 || lines[0] != `⚠ MCP server "foo" failed to connect: boom` {
+			t.Fatalf("lines = %v, want single failure line", lines)
+		}
+		if !warned["foo"] {
+			t.Fatal("warned[foo] = false, want true")
+		}
+
+		lines, _ = mcpTransitionWarnings(failed, warned)
+		if len(lines) != 0 {
+			t.Fatalf("second failure event emitted %d lines, want 0", len(lines))
+		}
+	})
+
+	t.Run("unavailable is a failure state", func(t *testing.T) {
+		lines, warned := mcpTransitionWarnings(unavailable, nil)
+		if len(lines) != 1 {
+			t.Fatalf("lines = %v, want single unavailable line", lines)
+		}
+		lines, _ = mcpTransitionWarnings(unavailable, warned)
+		if len(lines) != 0 {
+			t.Fatalf("second unavailable event emitted %d lines, want 0", len(lines))
+		}
+	})
+
+	t.Run("recovery clears flag so failure warns again", func(t *testing.T) {
+		_, warned := mcpTransitionWarnings(failed, nil)
+		mcpTransitionWarnings(connected, warned)
+		if warned["foo"] {
+			t.Fatal("warned[foo] = true after connected, want cleared")
+		}
+		lines, _ := mcpTransitionWarnings(failed, warned)
+		if len(lines) != 1 {
+			t.Fatalf("failure after recovery emitted %d lines, want 1", len(lines))
+		}
+	})
+
+	t.Run("in-flight and healthy states never warn", func(t *testing.T) {
+		for _, state := range []string{"connecting", "reconnecting", "connected", "disabled"} {
+			lines, _ := mcpTransitionWarnings([]MCPServerStatus{{Name: "foo", State: state}}, nil)
+			if len(lines) != 0 {
+				t.Errorf("state %q emitted %d lines, want 0", state, len(lines))
+			}
+		}
+	})
+
+	t.Run("empty error falls back", func(t *testing.T) {
+		lines, _ := mcpTransitionWarnings([]MCPServerStatus{{Name: "foo", State: "failed"}}, nil)
+		if len(lines) != 1 || lines[0] != `⚠ MCP server "foo" failed to connect: unknown error` {
+			t.Fatalf("lines = %v, want unknown-error fallback", lines)
+		}
+	})
+}

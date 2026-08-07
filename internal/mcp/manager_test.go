@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
@@ -33,7 +35,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		if got := m.ToolDefs(); len(got) != 0 {
 			t.Fatalf("ToolDefs() has %d tools, want 0", len(got))
 		}
@@ -55,7 +57,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		if got := m.ToolDefs(); len(got) != 0 {
 			t.Fatalf("ToolDefs() has %d tools, want 0", len(got))
 		}
@@ -74,15 +76,16 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(),
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
 			func(msg string) { warns = append(warns, msg) },
 			func(msg string) { infos = append(infos, msg) },
-			io.Discard, false)
+			io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		defs := m.ToolDefs()
-		if len(defs) != 3 {
-			t.Fatalf("ToolDefs() has %d tools, want 3 (echo, boom, readonly_echo)", len(defs))
+		if len(defs) != 6 {
+			t.Fatalf("ToolDefs() has %d tools, want 6 (echo, boom, readonly_echo, die, sleep, big_output)", len(defs))
 		}
 		// onWarn carries failures only; a successful connect goes to onInfo so
 		// a healthy startup emits no warnings.
@@ -116,11 +119,12 @@ func TestManagerConnect(t *testing.T) {
 
 		// A failing server with no reporting callbacks must not panic; the
 		// healthy server's tools still arrive.
-		m := Connect(context.Background(), cfg, nil, allowApprover(), nil, nil, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, nil, nil, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
-		if got := len(m.ToolDefs()); got != 3 {
-			t.Fatalf("ToolDefs() has %d tools, want 3 (echo, boom, readonly_echo)", got)
+		if got := len(m.ToolDefs()); got != 6 {
+			t.Fatalf("ToolDefs() has %d tools, want 6 (echo, boom, readonly_echo, die, sleep, big_output)", got)
 		}
 	})
 
@@ -138,8 +142,10 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(), nil, nil, &shared, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, nil, nil, &shared, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
+		m.UpdateApprover(allowApprover())
 
 		// The fixture logs to stderr on every notification, so exercising both
 		// servers guarantees concurrent writes to the shared buffer.
@@ -159,8 +165,9 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		first := m.ToolDefs()
 		second := m.ToolDefs()
@@ -181,12 +188,13 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("names and provenance", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		defs := m.ToolDefs()
-		if len(defs) != 3 {
-			t.Fatalf("ToolDefs() has %d tools, want 3", len(defs))
+		if len(defs) != 6 {
+			t.Fatalf("ToolDefs() has %d tools, want 6", len(defs))
 		}
 		for _, tt := range []struct {
 			name     string
@@ -215,12 +223,13 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		defs := m.ToolDefs()
-		if len(defs) != 3 {
-			t.Fatalf("ToolDefs() has %d tools, want 3 (only the ask server's echo, boom, and readonly_echo)", len(defs))
+		if len(defs) != 6 {
+			t.Fatalf("ToolDefs() has %d tools, want 6 (only the ask server's echo, boom, readonly_echo, die, sleep, big_output)", len(defs))
 		}
 		for _, d := range defs {
 			if d.MCP.Server == "denied" {
@@ -247,8 +256,9 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("nil approver denies without calling the server", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		// echo would return OK with the text if it reached the server, so a
 		// denial envelope proves the call never left the handler.
@@ -262,8 +272,10 @@ func TestManagerConnect(t *testing.T) {
 			return nil
 		})
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, approver, func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
+		m.UpdateApprover(approver)
 
 		// boom would return mcp_tool_error if it reached the server; the denial
 		// envelope proves the call was gated before dispatch.
@@ -273,8 +285,10 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("approver allow round-trips echo and surfaces boom as an envelope", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
+		m.UpdateApprover(allowApprover())
 
 		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
 		if err != nil {
@@ -317,8 +331,9 @@ func TestManagerConnect(t *testing.T) {
 				"fixture": {Enabled: true, Command: fixtureBin, Approval: "ask", TrustAnnotations: true},
 			},
 		}
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		// readonly_echo advertises readOnlyHint: true, so trust_annotations
 		// auto-allows the call even with a nil approver.
@@ -343,10 +358,11 @@ func TestManagerConnect(t *testing.T) {
 		assertDenial(t, env, err)
 	})
 
-	t.Run("UpdateApprover rebuilds defs with the new approver", func(t *testing.T) {
+	t.Run("UpdateApprover wires the approver into existing defs", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		// Connected with a nil approver: calls deny.
 		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
@@ -371,8 +387,9 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("PlanMode reflects Connect and UpdatePlanMode", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, true)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, true, func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		if got := m.PlanMode(); !got {
 			t.Fatal("PlanMode() = false, want true after Connect with planMode=true")
@@ -423,8 +440,9 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		states := m.ServerStates()
 		if len(states) != 3 {
@@ -450,8 +468,8 @@ func TestManagerConnect(t *testing.T) {
 		if !ok || good.Status != ServerStatusConnected || good.ProtocolVersion == "" || good.Transport != "stdio" {
 			t.Errorf("good state = %+v, want connected with non-empty ProtocolVersion and stdio transport", good)
 		}
-		if !reflect.DeepEqual(good.Tools, []string{"echo", "boom", "readonly_echo"}) {
-			t.Errorf("good.Tools = %v, want [echo boom readonly_echo]", good.Tools)
+		if !reflect.DeepEqual(good.Tools, []string{"echo", "boom", "readonly_echo", "die", "sleep", "big_output"}) {
+			t.Errorf("good.Tools = %v, want [echo boom readonly_echo die sleep big_output]", good.Tools)
 		}
 
 		// Sorted name order.
@@ -472,7 +490,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, nil, func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 		want := []ServerState{{Name: "fixture", Status: ServerStatusDisabled, Transport: "stdio"}}
 		if got := m.ServerStates(); !reflect.DeepEqual(got, want) {
 			t.Errorf("ServerStates() = %+v, want %+v", got, want)
@@ -486,6 +504,134 @@ func TestManagerConnect(t *testing.T) {
 		}
 	})
 
+	t.Run("parallel connect: fast server resolves while a stalling server is still connecting", func(t *testing.T) {
+		changed := make(chan struct{}, 1)
+		onStateChange := func() {
+			select {
+			case changed <- struct{}{}:
+			default:
+			}
+		}
+
+		cfg := config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"stall": {
+					Enabled:        true,
+					Command:        fixtureBin,
+					Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
+					ConnectTimeout: config.MustDuration("500ms"),
+				},
+				"fast": server(nil),
+			},
+		}
+
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, onStateChange)
+		defer m.Close() //nolint:errcheck
+
+		// The fast server must reach connected while the stall server is still
+		// stuck in its handshake: direct evidence the stall did not block it, so
+		// WaitInit latency is bounded by the slowest server, not the sum.
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		for {
+			states := m.ServerStates()
+			fast := stateByName(states, "fast")
+			stall := stateByName(states, "stall")
+			if fast == nil || stall == nil {
+				t.Fatalf("states missing a server: %+v", states)
+			}
+			if fast.Status == ServerStatusConnected && stall.Status == ServerStatusConnecting {
+				break
+			}
+			if stall.Status != ServerStatusConnecting {
+				t.Fatalf("stall resolved to %q before fast connected (%q); connects are not parallel", stall.Status, fast.Status)
+			}
+			select {
+			case <-changed:
+			case <-timer.C:
+				t.Fatalf("fast server never connected while stall was connecting; states=%+v", states)
+			}
+		}
+
+		// WaitInit unblocks only after the stalling server hits its
+		// connect_timeout and its transport is torn down, then both servers
+		// have resolved. The SDK's teardown of a hung process adds up to 5s on
+		// top of the 500ms timeout, so allow 10s.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := m.WaitInit(ctx); err != nil {
+			t.Fatalf("WaitInit: %v", err)
+		}
+		states := m.ServerStates()
+		if got := stateByName(states, "stall"); got.Status != ServerStatusFailed || got.Err == "" {
+			t.Errorf("stall state = %+v, want failed with an error", got)
+		}
+		if got := stateByName(states, "fast"); got.Status != ServerStatusConnected {
+			t.Errorf("fast state = %+v, want connected", got)
+		}
+	})
+
+	t.Run("WaitInit returns when the context is cancelled", func(t *testing.T) {
+		cfg := config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"stall": {
+					Enabled:        true,
+					Command:        fixtureBin,
+					Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
+					ConnectTimeout: config.MustDuration("5s"),
+				},
+			},
+		}
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		defer m.Close() //nolint:errcheck
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if err := m.WaitInit(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("WaitInit(cancelled ctx) = %v, want context.Canceled", err)
+		}
+	})
+
+	t.Run("WaitInit is idempotent and nil-safe", func(t *testing.T) {
+		var nilM *Manager
+		if err := nilM.WaitInit(context.Background()); err != nil {
+			t.Fatalf("WaitInit on nil Manager = %v, want nil", err)
+		}
+
+		m := Connect(context.Background(), config.MCPConfig{Enabled: false}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := m.WaitInit(ctx); err != nil {
+			t.Fatalf("WaitInit on MCP-off Manager = %v, want nil", err)
+		}
+		if err := m.WaitInit(ctx); err != nil {
+			t.Fatalf("second WaitInit = %v, want nil", err)
+		}
+	})
+
+	t.Run("ServerStates returns a deep copy", func(t *testing.T) {
+		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
+
+		states := m.ServerStates()
+		if len(states) != 1 || len(states[0].Tools) != 6 {
+			t.Fatalf("ServerStates() = %+v, want one connected server with 6 tools", states)
+		}
+		// Mutating the returned copy must not corrupt the manager's live state.
+		states[0].Tools[0] = "mutated"
+		states[0].Status = ServerStatusFailed
+		if got := m.ServerStates()[0].Tools[0]; got == "mutated" {
+			t.Error("ServerStates() shares its Tools slice with live state, want a deep copy")
+		}
+		if got := m.ServerStates()[0].Status; got == ServerStatusFailed {
+			t.Error("ServerStates() shares ServerState values with live state, want a copy")
+		}
+	})
+
 	t.Run("Close terminates every session", func(t *testing.T) {
 		cfg := config.MCPConfig{
 			Enabled: true,
@@ -494,7 +640,9 @@ func TestManagerConnect(t *testing.T) {
 				"beta":  server(nil),
 			},
 		}
-		m := Connect(context.Background(), cfg, nil, allowApprover(), func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		waitInit(t, m)
+		m.UpdateApprover(allowApprover())
 		if err := m.Close(); err != nil {
 			t.Fatalf("Close: %v", err)
 		}
@@ -517,6 +665,28 @@ func TestManagerConnect(t *testing.T) {
 			}
 		}
 	})
+}
+
+// waitInit blocks until every enabled server resolves, failing the test on a
+// cancelled wait. Connect is now parallel, so tests must wait before reading
+// resolved state.
+func waitInit(t *testing.T, m *Manager) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := m.WaitInit(ctx); err != nil {
+		t.Fatalf("WaitInit: %v", err)
+	}
+}
+
+// stateByName returns the state for the named server from a ServerStates copy.
+func stateByName(states []ServerState, name string) *ServerState {
+	for i := range states {
+		if states[i].Name == name {
+			return &states[i]
+		}
+	}
+	return nil
 }
 
 // allowApprover returns an ApprovalResponder that approves every request.

@@ -175,6 +175,8 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		if payload.Message != "" {
 			m.content.AppendLine(fmt.Sprintf("status: %s", payload.Message))
 		}
+	case output.MCPStatusEvent:
+		m.applyMCPStatusEvent(payload)
 	case output.OneshotFinishedEvent:
 		m.oneshotRunning = false
 		m.oneshotPhase = ""
@@ -197,6 +199,25 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		cmds = append(cmds, syncDebounceCmd(m.syncDebounceSeq))
 	}
 	return tea.Batch(cmds...)
+}
+
+// applyMCPStatusEvent replaces the TUI's MCP snapshot with the fresh values
+// carried by the event, surfaces one warning line per server that newly entered
+// a failure state, and recomputes the sidebar's MCP N/N row. The TUI never
+// reads the manager or registry: the event is the only data source.
+func (m *Model) applyMCPStatusEvent(payload output.MCPStatusEvent) {
+	m.mcpEnabled = payload.Enabled
+	m.mcpServers = mcpServersFromStatusEvent(payload.Servers)
+	m.mcpToolOrigins = mcpToolOriginsFromStatusEvent(payload.Origins)
+	// m.content.mcpToolOrigins keeps the startup snapshot: MCP tool origins are
+	// immutable per D14 (the tool set is never re-listed on reconnect), so the
+	// content renderer has nothing to refresh.
+	lines, warned := mcpTransitionWarnings(m.mcpServers, m.mcpWarned)
+	m.mcpWarned = warned
+	for _, line := range lines {
+		m.content.AppendLine(m.styles.WarningStyle.Render(line))
+	}
+	m.syncSidebar()
 }
 
 // applyCompactionEvent updates compaction state, activity, and status context

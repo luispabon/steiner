@@ -3,10 +3,12 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -41,7 +43,7 @@ func TestMCPToolDefSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text", InputSchema: tt.input}, nil, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
+			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text", InputSchema: tt.input}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "ask"}, config.LimitsConfig{})
 			if !reflect.DeepEqual(def.ParameterSchema, tt.want) {
 				t.Errorf("ParameterSchema = %#v, want %#v", def.ParameterSchema, tt.want)
 			}
@@ -51,7 +53,7 @@ func TestMCPToolDefSchema(t *testing.T) {
 
 func TestMCPToolDefProvenance(t *testing.T) {
 	sess := &Session{name: "fixture"}
-	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text"}, nil, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Description: "echoes text"}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "ask"}, config.LimitsConfig{})
 
 	if def.Name != "mcp__fixture__echo" {
 		t.Errorf("Name = %q, want %q", def.Name, "mcp__fixture__echo")
@@ -72,7 +74,7 @@ func TestMCPToolDefProvenance(t *testing.T) {
 func TestMCPHandlerFailClosed(t *testing.T) {
 	t.Run("nil approver denies", func(t *testing.T) {
 		sess := &Session{name: "fixture"}
-		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, nil, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
+		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "ask"}, config.LimitsConfig{})
 
 		env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 		assertDenial(t, env, err)
@@ -83,7 +85,7 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 			return errors.New("approval transport down")
 		})
 		sess := &Session{name: "fixture"}
-		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, approver, func() bool { return false }, config.MCPServerConfig{Approval: "ask"})
+		def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, func() tool.ApprovalResponder { return approver }, func() bool { return false }, config.MCPServerConfig{Approval: "ask"}, config.LimitsConfig{})
 
 		env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 		assertDenial(t, env, err)
@@ -95,7 +97,7 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 // rebuilding the tool definition.
 func TestMCPHandlerPlanModeDynamic(t *testing.T) {
 	fixtureBin := buildFixture(t, t.TempDir())
-	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}
@@ -103,7 +105,7 @@ func TestMCPHandlerPlanModeDynamic(t *testing.T) {
 
 	planMode := false
 	approver := &recordingApprover{allow: true}
-	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, approver, func() bool { return planMode }, config.MCPServerConfig{Approval: "allow"})
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, func() tool.ApprovalResponder { return approver }, func() bool { return planMode }, config.MCPServerConfig{Approval: "allow"}, config.LimitsConfig{})
 
 	// Build mode: allow calls the tool without prompting.
 	env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
@@ -166,7 +168,7 @@ func TestApproval(t *testing.T) {
 	// A live fixture session lets the auto-allowed paths prove the tool call
 	// actually reaches the server (echo returns OK with the input text).
 	fixtureBin := buildFixture(t, t.TempDir())
-	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}
@@ -290,7 +292,7 @@ func TestApproval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Annotations: tt.annotations}, tt.approver, func() bool { return tt.planMode }, tt.srv)
+			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo", Annotations: tt.annotations}, func() tool.ApprovalResponder { return tt.approver }, func() bool { return tt.planMode }, tt.srv, config.LimitsConfig{})
 			env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
 
 			switch {
@@ -326,6 +328,142 @@ func TestApproval(t *testing.T) {
 				t.Errorf("ArgumentsPreview = %q, want %q", reqs[0].MCP.ArgumentsPreview, tt.wantPreview)
 			}
 		})
+	}
+}
+
+// TestMCPToolDefOutputTruncation proves D19's output bound: an oversized result
+// is cut to ToolOutputMaxBytes and tagged with the Summary()-style marker whose
+// total is the full pre-truncation size. A result under the limit passes through
+// unchanged.
+func TestMCPToolDefOutputTruncation(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+	if err != nil {
+		t.Fatalf("connect fixture: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	limit := 1024
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "big_output"}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "allow"}, config.LimitsConfig{ToolOutputMaxBytes: limit})
+
+	env, err := def.Handler(context.Background(), map[string]any{"bytes": float64(200000)})
+	if err != nil {
+		t.Fatalf("big_output returned Go error %v, want nil", err)
+	}
+	envelope, ok := env.(tool.JSONEnvelope)
+	if !ok {
+		t.Fatalf("big_output result type = %T, want tool.JSONEnvelope", env)
+	}
+	if !envelope.OK {
+		t.Fatalf("big_output OK = false, want true (error: %+v)", envelope.Error)
+	}
+	result, ok := envelope.Result.(string)
+	if !ok {
+		t.Fatalf("big_output result type = %T, want string", envelope.Result)
+	}
+	wantMarker := fmt.Sprintf("\n<truncated output shown=%d total=%d>", limit, 200000)
+	if !strings.HasSuffix(result, wantMarker) {
+		t.Errorf("result does not end with marker %q: %q", wantMarker, result)
+	}
+	if got := len(result); got != limit+len(wantMarker) {
+		t.Errorf("result length = %d, want %d (limit + marker)", got, limit+len(wantMarker))
+	}
+
+	// A result under the limit is returned verbatim, without a marker.
+	env, err = def.Handler(context.Background(), map[string]any{"bytes": float64(32)})
+	if err != nil {
+		t.Fatalf("small big_output returned Go error %v, want nil", err)
+	}
+	envelope, ok = env.(tool.JSONEnvelope)
+	if !ok {
+		t.Fatalf("small big_output result type = %T, want tool.JSONEnvelope", env)
+	}
+	if !envelope.OK || envelope.Result != strings.Repeat("X", 32) {
+		t.Errorf("small result = %+v, want OK with 32 X's", envelope)
+	}
+}
+
+// TestMCPToolDefTimeout proves D19's per-call timeout: a tool that outlives its
+// budget fails with a deadline error wrapped as a Go error (never an envelope),
+// and the call returns promptly instead of waiting for the server. The per-tool
+// entry (keyed by the full registered tool name) wins over the default, and the
+// default applies when no entry exists.
+func TestMCPToolDefTimeout(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+
+	tests := []struct {
+		name   string
+		limits config.LimitsConfig
+	}{
+		{
+			name: "per-tool timeout beats the default",
+			limits: config.LimitsConfig{
+				ToolTimeoutDefault: config.MustDuration("60s"),
+				ToolTimeouts:       map[string]config.Duration{ToolName("fixture", "sleep"): config.MustDuration("50ms")},
+			},
+		},
+		{
+			name: "default applies when no per-tool entry exists",
+			limits: config.LimitsConfig{
+				ToolTimeoutDefault: config.MustDuration("50ms"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+			if err != nil {
+				t.Fatalf("connect fixture: %v", err)
+			}
+			defer sess.Close() //nolint:errcheck
+
+			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "sleep"}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "allow"}, tt.limits)
+			start := time.Now()
+			_, err = def.Handler(context.Background(), map[string]any{"ms": float64(5000)})
+			if err == nil {
+				t.Fatal("sleep call returned nil error, want a timeout error")
+			}
+			if !strings.Contains(err.Error(), "deadline exceeded") {
+				t.Errorf("sleep error %q does not report the deadline", err)
+			}
+			if elapsed := time.Since(start); elapsed > 5*time.Second {
+				t.Errorf("sleep call took %v, want it bounded by the 50ms timeout", elapsed)
+			}
+		})
+	}
+}
+
+// TestMCPToolDefIsErrorNoReconnect proves D19's distinct error channels: a
+// tool-level failure (fixture boom sets isError) surfaces as a non-OK envelope
+// with a nil Go error, so it is returned to the model and never mistaken for a
+// transport failure that would trigger reconnect.
+func TestMCPToolDefIsErrorNoReconnect(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+	if err != nil {
+		t.Fatalf("connect fixture: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "boom"}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "allow"}, config.LimitsConfig{})
+
+	env, err := def.Handler(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("boom returned Go error %v, want nil (tool-level failure)", err)
+	}
+	envelope, ok := env.(tool.JSONEnvelope)
+	if !ok {
+		t.Fatalf("boom result type = %T, want tool.JSONEnvelope", env)
+	}
+	if envelope.OK {
+		t.Error("OK = true, want false")
+	}
+	if envelope.Error == nil || envelope.Error.Kind != "mcp_tool_error" {
+		t.Errorf("error = %+v, want kind mcp_tool_error", envelope.Error)
+	}
+	if envelope.Error == nil || envelope.Error.Message != "deliberate failure" {
+		t.Errorf("error message = %+v, want %q", envelope.Error, "deliberate failure")
 	}
 }
 

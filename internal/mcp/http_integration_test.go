@@ -41,9 +41,11 @@ func TestHTTPIntegration(t *testing.T) {
 		}
 
 		var infos []string
-		m := Connect(context.Background(), cfg, nil, allowApprover(),
-			func(string) {}, func(msg string) { infos = append(infos, msg) }, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
+			func(string) {}, func(msg string) { infos = append(infos, msg) }, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
+		m.UpdateApprover(allowApprover())
 
 		defs := m.ToolDefs()
 		if len(defs) != 1 {
@@ -135,9 +137,10 @@ func TestHTTPIntegration(t *testing.T) {
 			return cmd
 		}
 
-		m := Connect(context.Background(), cfg, wrap, allowApprover(),
-			func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, false,
+			func(string) {}, func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		_ = m.ToolDefs()
 		if wrapCalled {
@@ -166,10 +169,11 @@ func TestHTTPIntegration(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(),
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
 			func(msg string) { warns = append(warns, msg) },
-			func(string) {}, io.Discard, false)
+			func(string) {}, io.Discard, nil)
 		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
 
 		states := m.ServerStates()
 		if len(states) != 2 {
@@ -223,8 +227,9 @@ func TestHTTPIntegration(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, nil, allowApprover(),
-			func(string) {}, func(string) {}, io.Discard, false)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
+			func(string) {}, func(string) {}, io.Discard, nil)
+		waitInit(t, m)
 
 		if err := m.Close(); err != nil {
 			t.Fatalf("Close: %v", err)

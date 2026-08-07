@@ -10,11 +10,13 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -24,6 +26,21 @@ func main() {
 	spawnChild := os.Getenv("STEINER_FIXTURE_SPAWN_CHILD") == "1"
 	childPIDFile := os.Getenv("STEINER_FIXTURE_CHILD_PID_FILE")
 	stallHandshake := os.Getenv("STEINER_FIXTURE_STALL_HANDSHAKE") == "1"
+	dieEnabled := os.Getenv("STEINER_FIXTURE_ENABLE_DIE") == "1"
+	startLogPath := os.Getenv("STEINER_FIXTURE_START_LOG")
+	crashFile := os.Getenv("STEINER_FIXTURE_CRASH_FILE")
+
+	appendStartupLog(startLogPath)
+
+	// Crash-loop mode: when the crash file exists at startup, exit immediately
+	// so a reconnect attempt fails fast at the handshake. Tests create the file
+	// after the initial connect, so only respawns crash. The startup line above
+	// is written first so the start log counts every respawn.
+	if crashFile != "" {
+		if _, err := os.Stat(crashFile); err == nil {
+			os.Exit(1)
+		}
+	}
 
 	if touchPath != "" {
 		err := os.WriteFile(touchPath, []byte("touch\n"), 0o644)
@@ -50,6 +67,10 @@ func main() {
 		}
 	}
 
+	// toolCallCounts backs the per-tool request_<tool>=<counter> record lines;
+	// it must outlive individual requests.
+	toolCallCounts := map[string]int{}
+
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -69,7 +90,7 @@ func main() {
 			// select{} would trip the runtime deadlock detector and crash.
 			time.Sleep(time.Hour)
 		}
-		resp := handle(req, recordPath)
+		resp := handle(req, recordPath, dieEnabled, toolCallCounts)
 		out, err := json.Marshal(resp)
 		if err != nil {
 			log.Printf("encode response: %v", err)
@@ -102,7 +123,7 @@ type jsonError struct {
 	Message string `json:"message"`
 }
 
-func handle(req jsonRequest, recordPath string) jsonResponse {
+func handle(req jsonRequest, recordPath string, dieEnabled bool, toolCallCounts map[string]int) jsonResponse {
 	base := jsonResponse{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "server/discover":
@@ -152,6 +173,29 @@ func handle(req jsonRequest, recordPath string) jsonResponse {
 						"readOnlyHint": true,
 					},
 				},
+				{
+					"name":        "die",
+					"description": "exits the process before responding (only when STEINER_FIXTURE_ENABLE_DIE=1)",
+					"inputSchema": map[string]any{"type": "object"},
+				},
+				{
+					"name":        "sleep",
+					"description": "sleeps for the given number of milliseconds before responding",
+					"inputSchema": map[string]any{
+						"type":       "object",
+						"properties": map[string]any{"ms": map[string]any{"type": "integer"}},
+						"required":   []string{"ms"},
+					},
+				},
+				{
+					"name":        "big_output",
+					"description": "returns a text blob of the given number of bytes",
+					"inputSchema": map[string]any{
+						"type":       "object",
+						"properties": map[string]any{"bytes": map[string]any{"type": "integer"}},
+						"required":   []string{"bytes"},
+					},
+				},
 			},
 		}
 		return base
@@ -161,6 +205,9 @@ func handle(req jsonRequest, recordPath string) jsonResponse {
 			Arguments map[string]any `json:"arguments"`
 		}
 		_ = json.Unmarshal(req.Params, &params)
+		// Record every tools/call before dispatch so even calls that kill the
+		// server (die) or time out (sleep) are observed in the record file.
+		recordToolCall(recordPath, params.Name, toolCallCounts)
 		switch params.Name {
 		case "echo":
 			text, _ := params.Arguments["text"].(string)
@@ -176,6 +223,42 @@ func handle(req jsonRequest, recordPath string) jsonResponse {
 			base.Result = map[string]any{
 				"content": []map[string]any{{"type": "text", "text": "deliberate failure"}},
 				"isError": true,
+			}
+		case "die":
+			if !dieEnabled {
+				base.Result = map[string]any{
+					"content": []map[string]any{{"type": "text", "text": "die tool disabled"}},
+				}
+				return base
+			}
+			// Exit before responding so the in-flight call fails with a raw EOF,
+			// matching a server dying mid-request. Sync flushes stdout first; on
+			// a pipe it may return EINVAL, but the response bytes were already
+			// written by fmt.Println, so that error is harmless.
+			_ = os.Stdout.Sync()
+			os.Exit(0)
+		case "sleep":
+			ms, err := argInt(params.Arguments, "ms")
+			if err != nil {
+				base.Error = &jsonError{Code: -32602, Message: err.Error()}
+				return base
+			}
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+			base.Result = map[string]any{
+				"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("slept %dms", ms)}},
+			}
+		case "big_output":
+			n, err := argInt(params.Arguments, "bytes")
+			if err != nil {
+				base.Error = &jsonError{Code: -32602, Message: err.Error()}
+				return base
+			}
+			if n < 0 {
+				base.Error = &jsonError{Code: -32602, Message: "bytes must be non-negative"}
+				return base
+			}
+			base.Result = map[string]any{
+				"content": []map[string]any{{"type": "text", "text": strings.Repeat("X", n)}},
 			}
 		default:
 			base.Error = &jsonError{Code: -32602, Message: "unknown tool: " + params.Name}
@@ -205,4 +288,46 @@ func appendRecord(recordPath, line string) {
 	if _, err := fmt.Fprintln(f, line); err != nil {
 		log.Printf("write record file: %v", err)
 	}
+}
+
+// recordToolCall appends one request_<tool>=<counter> line per tools/call,
+// with a monotonic counter per tool. Counters increment even when no record
+// file is configured so they stay monotonic across requests.
+func recordToolCall(recordPath, tool string, toolCallCounts map[string]int) {
+	toolCallCounts[tool]++
+	appendRecord(recordPath, "request_"+tool+"="+strconv.Itoa(toolCallCounts[tool]))
+}
+
+// appendStartupLog appends one startup=<counter> line to the start log. The
+// counter is one more than the number of existing startup= lines, so every
+// process start is distinguishable. A missing file simply starts at 1.
+func appendStartupLog(path string) {
+	if path == "" {
+		return
+	}
+	n := 0
+	if data, err := os.ReadFile(path); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "startup=") {
+				n++
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		log.Printf("read start log %s: %v", path, err)
+	}
+	appendRecord(path, "startup="+strconv.Itoa(n+1))
+}
+
+// argInt reads an integer tool argument. JSON numbers decode into any as
+// float64, so the type assertion targets float64.
+func argInt(args map[string]any, key string) (int, error) {
+	v, ok := args[key]
+	if !ok {
+		return 0, fmt.Errorf("missing %q argument", key)
+	}
+	f, ok := v.(float64)
+	if !ok {
+		return 0, fmt.Errorf("%q argument must be a number", key)
+	}
+	return int(f), nil
 }
