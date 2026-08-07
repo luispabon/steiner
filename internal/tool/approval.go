@@ -62,3 +62,24 @@ type ApprovalResponse struct {
 	Allow   bool
 	Message string
 }
+
+// approvalAgentScopeKey is the context key carrying the child agent ID for
+// approval events emitted while a delegated child executes a tool.
+type approvalAgentScopeKey struct{}
+
+// WithApprovalAgentScope returns a context carrying agentID so approval events
+// emitted during that tool execution can be attributed to the delegated child.
+// An empty agentID returns ctx unchanged.
+func WithApprovalAgentScope(ctx context.Context, agentID string) context.Context {
+	if agentID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, approvalAgentScopeKey{}, agentID)
+}
+
+// ApprovalAgentScope returns the child agent ID attached to ctx by
+// WithApprovalAgentScope, or "" when absent.
+func ApprovalAgentScope(ctx context.Context) string {
+	agentID, _ := ctx.Value(approvalAgentScopeKey{}).(string)
+	return agentID
+}

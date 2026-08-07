@@ -968,6 +968,21 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 	})
 }
 
+// childExecutorInner unwraps the child executor to the underlying *tool.Executor,
+// which carries the inherited sandbox and mode getter.
+func childExecutorInner(t *testing.T, req agent.RunRequest) *tool.Executor {
+	t.Helper()
+	scoped, ok := req.Executor.(scopedToolExecutor)
+	if !ok {
+		t.Fatalf("Executor type=%T, want scopedToolExecutor", req.Executor)
+	}
+	inner, ok := scoped.inner.(*tool.Executor)
+	if !ok {
+		t.Fatalf("Executor inner type=%T, want *tool.Executor", scoped.inner)
+	}
+	return inner
+}
+
 // mockSandbox is a test double for tool.SandboxWrapper.
 type mockSandbox struct {
 	enabled bool
@@ -998,10 +1013,7 @@ func TestBuildChildRunInheritsNilSandbox(t *testing.T) {
 	if req.Executor == nil {
 		t.Fatal("Executor is nil")
 	}
-	concreteExec, ok := req.Executor.(*tool.Executor)
-	if !ok {
-		t.Fatalf("Executor type=%T, want *tool.Executor", req.Executor)
-	}
+	concreteExec := childExecutorInner(t, req)
 	if got := concreteExec.Sandbox(); got != nil {
 		t.Errorf("Sandbox=%v, want nil when parent sandbox is nil", got)
 	}
@@ -1029,10 +1041,7 @@ func TestBuildChildRunInheritsEnabledSandbox(t *testing.T) {
 	if req.Executor == nil {
 		t.Fatal("Executor is nil")
 	}
-	concreteExec, ok := req.Executor.(*tool.Executor)
-	if !ok {
-		t.Fatalf("Executor type=%T, want *tool.Executor", req.Executor)
-	}
+	concreteExec := childExecutorInner(t, req)
 	got := concreteExec.Sandbox()
 	if got == nil {
 		t.Fatal("Sandbox is nil, want inherited parent sandbox")

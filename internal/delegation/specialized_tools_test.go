@@ -834,10 +834,7 @@ func TestSubAgentHandlerDeps_SandboxInherited(t *testing.T) {
 	if capturedReq.Executor == nil {
 		t.Fatal("capturedReq.Executor is nil")
 	}
-	concreteExec, ok := capturedReq.Executor.(*tool.Executor)
-	if !ok {
-		t.Fatalf("child Executor type=%T, want *tool.Executor", capturedReq.Executor)
-	}
+	concreteExec := childExecutorInner(t, capturedReq)
 	got := concreteExec.Sandbox()
 	if got == nil {
 		t.Fatal("child Executor.Sandbox() is nil, want parent sandbox")
@@ -884,10 +881,7 @@ func TestSubAgentHandlerDeps_NilSandboxNotInherited(t *testing.T) {
 	if capturedReq.Executor == nil {
 		t.Fatal("capturedReq.Executor is nil")
 	}
-	concreteExec, ok := capturedReq.Executor.(*tool.Executor)
-	if !ok {
-		t.Fatalf("child Executor type=%T, want *tool.Executor", capturedReq.Executor)
-	}
+	concreteExec := childExecutorInner(t, capturedReq)
 	if got := concreteExec.Sandbox(); got != nil {
 		t.Errorf("child Executor.Sandbox()=%v, want nil when parent has no sandbox", got)
 	}
