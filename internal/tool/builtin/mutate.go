@@ -13,7 +13,7 @@ import (
 func NewMutateTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "mutate",
-		Description:     "Apply structured file edits via op types: create, write (create or overwrite), replace, line_replace, delete_line, insert_before, insert_after, delete, move. Supports file_hash for staleness detection on existing targets — pass the hash from read/grep to fail fast if the file changed. move rejects destination collisions instead of overwriting. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+		Description:     "Apply structured file edits via op types: create, write (create or overwrite), replace, line_replace, delete_line, insert_before, insert_after, delete, move. Supports file_hash for staleness detection on existing targets — pass the hash from read/grep to fail fast if the file changed. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
 		ParameterSchema: MutateSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[MutateInput](input)
