@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath string) string {
@@ -26,7 +27,7 @@ func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath str
 	anchorLineNum := 0
 	if anchorStart, anchorEnd, lineNum, preview, ok := findDiagnosticAnchor(content, oldText); ok {
 		anchorLineNum = lineNum
-		lines = append(lines, fmt.Sprintf("%s: nearest anchor at line %d, bytes %d-%d", prefix, lineNum, anchorStart+1, anchorEnd))
+		lines = append(lines, fmt.Sprintf("%s: nearest anchor at line %d, bytes %d-%d (matched fragment %q)", prefix, lineNum, anchorStart+1, anchorEnd, preview))
 		lines = append(lines, fmt.Sprintf("%s: context:", prefix))
 		lines = append(lines, previewContext(content, lineNum, preview)...)
 	} else {
@@ -132,33 +133,84 @@ func extractNormalizedMatch(content []byte, oldText string) (matchedText string,
 	return "", 0, false
 }
 
+func isStructuralOnlyCandidate(candidate string) bool {
+	fields := strings.Fields(candidate)
+	if len(fields) == 1 && strings.HasSuffix(candidate, ":") {
+		return true
+	}
+	for _, r := range candidate {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
 func findDiagnosticAnchor(content []byte, oldText string) (int, int, int, string, bool) {
 	candidates := diagnosticAnchorCandidates(oldText)
-	bestStart := -1
-	bestEnd := -1
-	bestLine := 0
-	bestPreview := ""
-	bestLen := 0
+
+	type survivor struct {
+		candidate string
+		idx       int
+		count     int
+	}
+	var survivors []survivor
 
 	for _, candidate := range candidates {
 		idx := bytes.Index(content, []byte(candidate))
 		if idx < 0 {
 			continue
 		}
-		if len(candidate) > bestLen || (len(candidate) == bestLen && (bestStart < 0 || idx < bestStart)) {
-			bestStart = idx
-			bestEnd = idx + len(candidate)
-			bestLine = lineNumberAt(content, idx)
-			bestPreview = candidate
-			bestLen = len(candidate)
+		count := bytes.Count(content, []byte(candidate))
+		if count > 3 {
+			continue
 		}
+		survivors = append(survivors, survivor{
+			candidate: candidate,
+			idx:       idx,
+			count:     count,
+		})
 	}
 
-	if bestStart < 0 {
+	if len(survivors) == 0 {
 		return 0, 0, 0, "", false
 	}
 
-	return bestStart, bestEnd, bestLine, bestPreview, true
+	const proximityWindow = 300
+
+	best := survivors[0]
+	for _, s := range survivors[1:] {
+		clusterBest := 0
+		clusterS := 0
+		for _, other := range survivors {
+			if other.candidate != best.candidate && other.idx-best.idx >= -proximityWindow && other.idx-best.idx <= proximityWindow {
+				clusterBest++
+			}
+			if other.candidate != s.candidate && other.idx-s.idx >= -proximityWindow && other.idx-s.idx <= proximityWindow {
+				clusterS++
+			}
+		}
+
+		sBetter := false
+		if s.count < best.count {
+			sBetter = true
+		} else if s.count == best.count {
+			if clusterS > clusterBest {
+				sBetter = true
+			} else if clusterS == clusterBest {
+				if len(s.candidate) > len(best.candidate) {
+					sBetter = true
+				} else if len(s.candidate) == len(best.candidate) && s.idx < best.idx {
+					sBetter = true
+				}
+			}
+		}
+		if sBetter {
+			best = s
+		}
+	}
+
+	return best.idx, best.idx + len(best.candidate), lineNumberAt(content, best.idx), best.candidate, true
 }
 
 func diagnosticAnchorCandidates(oldText string) []string {
@@ -168,6 +220,9 @@ func diagnosticAnchorCandidates(oldText string) []string {
 	add := func(candidate string) {
 		candidate = strings.TrimSpace(candidate)
 		if len(candidate) < 4 {
+			return
+		}
+		if isStructuralOnlyCandidate(candidate) {
 			return
 		}
 		if _, ok := seen[candidate]; ok {
