@@ -440,44 +440,46 @@ func TestFindDiagnosticAnchorDistinctiveness(t *testing.T) {
 }
 
 func TestFindDiagnosticAnchorClusterTiebreaker(t *testing.T) {
-	t.Run("prefers clustered candidates over isolated longer one", func(t *testing.T) {
-		fillerLines := make([]string, 0, 30)
-		for i := 0; i < 30; i++ {
-			fillerLines = append(fillerLines, "filler line number "+strings.Repeat("X", i%5))
+	t.Run("cluster score breaks tie when candidates have same count and length", func(t *testing.T) {
+		// Construct oldText with three lines, all exactly 15 chars.
+		// "alpha test data" and "fruit solo here" are both 15 chars with count=1;
+		// cluster score differentiates them: first clusters with second line (within 300 bytes),
+		// third is isolated far away.
+		fillerLines := make([]string, 0, 25)
+		for i := 0; i < 25; i++ {
+			fillerLines = append(fillerLines, "filler line "+strings.Repeat("X", i%3+1))
 		}
 		content := []byte(
-			"supercalifragilistic expialidocious\n" +
+			"alpha test data\n" +
+				"gamma test here\n" +
 				strings.Join(fillerLines, "\n") + "\n" +
-				"alpha one\n" +
-				"beta two\n" +
-				"gamma three\n",
+				"fruit solo here\n",
 		)
-		oldText := "alpha one\nbeta two\ngamma three\nnonexistent tail"
+		// oldText produces these 15-char line candidates (all count=1):
+		// "alpha test data" (line 1, near line 2 → cluster >= 1)
+		// "gamma test here" (line 2, near line 1 → cluster >= 1)
+		// "fruit solo here" (isolated after filler → cluster = 0)
+		oldText := "alpha test data\ngamma test here\nfruit solo here"
 
 		start, end, lineNum, preview, ok := findDiagnosticAnchor(content, oldText)
 		if !ok {
 			t.Fatal("ok = false, want true")
 		}
 
-		lastLongCandidateContent := []byte("supercalifragilistic expialidocious")
-		longCandidateLineNum := 1
-
-		clusterStartLine := 32
-		clusterEndLine := 34
-
-		if lineNum >= clusterStartLine && lineNum <= clusterEndLine {
-			if preview == "supercalifragilistic expialidocious" {
-				t.Fatalf("preview should be from cluster, not isolated long candidate")
-			}
-		} else if lineNum == longCandidateLineNum {
-			t.Fatalf("lineNum = %d, long candidate should not win over cluster (cluster tiebreaker failed)", lineNum)
+		// "alpha test data" (count=1, length=15, cluster=1 from line 2)
+		// "gamma test here" (count=1, length=15, cluster=1 from line 1)
+		// "fruit solo here" (count=1, length=15, cluster=0, isolated)
+		// Cluster score (1 > 0) breaks the tie in favor of either line 1 or 2, not line N.
+		// Assert lineNum is NOT the isolated line (should be 1 or 2, not the last one).
+		if lineNum < 1 || lineNum > 2 {
+			t.Fatalf("lineNum = %d, want 1 or 2 (clustered candidates should win over isolated line)", lineNum)
 		}
-
+		if preview == "fruit solo here" {
+			t.Fatalf("preview = 'fruit solo here', but isolated candidate should lose to clustered ones")
+		}
 		if string(content[start:end]) != preview {
 			t.Fatalf("content[start:end] = %q, want %q", string(content[start:end]), preview)
 		}
-
-		_ = lastLongCandidateContent
 	})
 }
 
