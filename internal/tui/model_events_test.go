@@ -128,7 +128,7 @@ func TestApplyEventMCPStatusRefreshesSnapshotAndWarnsOnce(t *testing.T) {
 
 	// srv-a connects, srv-b fails: one warning line, sorted snapshot.
 	failed := output.NewMCPStatusEvent(true, map[string]output.MCPServerState{
-		"srv-a": {State: "connected", Transport: "stdio", Tools: []string{"echo"}},
+		"srv-a": {State: "connected", Transport: "stdio", Tools: []output.MCPAdvertisedTool{{Name: "echo", Outcome: "registered"}}},
 		"srv-b": {State: "failed", Transport: "stdio", Error: "boom"},
 	}, nil)
 	_ = m.applyEvent(failed)
@@ -154,8 +154,8 @@ func TestApplyEventMCPStatusRefreshesSnapshotAndWarnsOnce(t *testing.T) {
 	// srv-b recovers to connected: the warned flag clears, so a later failure
 	// (post-reconnect) warns again.
 	recovered := output.NewMCPStatusEvent(true, map[string]output.MCPServerState{
-		"srv-a": {State: "connected", Transport: "stdio", Tools: []string{"echo"}},
-		"srv-b": {State: "connected", Transport: "stdio", Tools: []string{"echo"}},
+		"srv-a": {State: "connected", Transport: "stdio", Tools: []output.MCPAdvertisedTool{{Name: "echo", Outcome: "registered"}}},
+		"srv-b": {State: "connected", Transport: "stdio", Tools: []output.MCPAdvertisedTool{{Name: "echo", Outcome: "registered"}}},
 	}, nil)
 	_ = m.applyEvent(recovered)
 	if m.sidebar.mcpConnected != 2 || m.sidebar.mcpFailed {

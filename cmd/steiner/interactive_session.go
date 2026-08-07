@@ -139,11 +139,15 @@ func mcpTUIState(cfg config.Config, mgr *mcp.Manager, registry *tool.Registry) (
 
 	servers := make([]tui.MCPServerStatus, 0, len(states))
 	for _, s := range states {
+		tools := make([]tui.MCPToolStatus, 0, len(s.AdvertisedTools))
+		for _, t := range s.AdvertisedTools {
+			tools = append(tools, tui.MCPToolStatus{Name: t.Name, Outcome: mcpOutcomeLabel(t.Outcome)})
+		}
 		servers = append(servers, tui.MCPServerStatus{
 			Name:      s.Name,
 			State:     string(s.Status),
 			Transport: s.Transport,
-			Tools:     s.Tools,
+			Tools:     tools,
 			Error:     s.Err,
 		})
 	}
@@ -162,6 +166,19 @@ func mcpTUIState(cfg config.Config, mgr *mcp.Manager, registry *tool.Registry) (
 	return enabled, servers, origins
 }
 
+// mcpOutcomeLabel maps a manager ToolOutcome to the display label the TUI and
+// status snapshots carry: "registered", "filtered" or "denied".
+func mcpOutcomeLabel(o mcp.ToolOutcome) string {
+	switch o {
+	case mcp.ToolFiltered:
+		return "filtered"
+	case mcp.ToolDenied:
+		return "denied"
+	default:
+		return "registered"
+	}
+}
+
 // emitMCPStateSnapshot computes the current MCP display state and emits it as
 // one immutable snapshot event on the given sink. The snapshot carries every
 // server's live state plus the registry's MCP tool origins, so the TUI can
@@ -174,10 +191,14 @@ func emitMCPStateSnapshot(rt cliRuntime, sink output.EventSink) {
 	enabled, servers, origins := mcpTUIState(rt.cfg, rt.mcpManager, rt.registry)
 	states := make(map[string]output.MCPServerState, len(servers))
 	for _, s := range servers {
+		tools := make([]output.MCPAdvertisedTool, 0, len(s.Tools))
+		for _, t := range s.Tools {
+			tools = append(tools, output.MCPAdvertisedTool{Name: t.Name, Outcome: t.Outcome})
+		}
 		states[s.Name] = output.MCPServerState{
 			State:     s.State,
 			Transport: s.Transport,
-			Tools:     append([]string(nil), s.Tools...),
+			Tools:     tools,
 			Error:     s.Error,
 		}
 	}

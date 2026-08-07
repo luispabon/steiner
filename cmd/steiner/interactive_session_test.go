@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -52,8 +51,15 @@ func TestMCPTUIStateEnabledMix(t *testing.T) {
 		if got.Name != s.Name || got.State != string(s.Status) || got.Transport != s.Transport || got.Error != s.Err {
 			t.Errorf("server[%d] = %+v, want name=%s state=%s transport=%s err=%s", i, got, s.Name, s.Status, s.Transport, s.Err)
 		}
-		if !reflect.DeepEqual(got.Tools, s.Tools) {
-			t.Errorf("server[%d].Tools = %v, want %v", i, got.Tools, s.Tools)
+		if len(got.Tools) != len(s.AdvertisedTools) {
+			t.Errorf("server[%d] advertised tools = %d, want %d", i, len(got.Tools), len(s.AdvertisedTools))
+			continue
+		}
+		for j, want := range s.AdvertisedTools {
+			gotTool := got.Tools[j]
+			if gotTool.Name != want.Name || gotTool.Outcome != mcpOutcomeLabel(want.Outcome) {
+				t.Errorf("server[%d].Tools[%d] = %+v, want name=%s outcome=%s", i, j, gotTool, want.Name, mcpOutcomeLabel(want.Outcome))
+			}
 		}
 	}
 
@@ -175,6 +181,15 @@ func TestEmitMCPStateSnapshot(t *testing.T) {
 	}
 	if srv.State != string(mcp.ServerStatusConnected) {
 		t.Fatalf("fixture state = %q, want %q", srv.State, mcp.ServerStatusConnected)
+	}
+	if len(srv.Tools) != 6 {
+		t.Fatalf("fixture advertised tools = %+v, want 6 registered tools", srv.Tools)
+	}
+	for i, want := range []string{"echo", "boom", "readonly_echo", "die", "sleep", "big_output"} {
+		got := srv.Tools[i]
+		if got.Name != want || got.Outcome != "registered" {
+			t.Fatalf("fixture tool[%d] = %+v, want %s registered", i, got, want)
+		}
 	}
 	if _, ok := snap.Origins["mcp__fixture__echo"]; !ok {
 		t.Fatalf("snapshot origins = %v, want mcp__fixture__echo", snap.Origins)

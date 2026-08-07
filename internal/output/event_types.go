@@ -474,10 +474,20 @@ type MCPServerState struct {
 	State string `json:"state"`
 	// Transport is the server's transport, e.g. "stdio".
 	Transport string `json:"transport,omitempty"`
-	// Tools lists the MCP-side tool names offered by this server; connected only, may be empty.
-	Tools []string `json:"tools,omitempty"`
+	// Tools lists every tool this server advertised, in advertised order, with
+	// its access outcome; connected only, may be empty.
+	Tools []MCPAdvertisedTool `json:"tools,omitempty"`
 	// Error is the failure text; failed/unavailable only.
 	Error string `json:"error,omitempty"`
+}
+
+// MCPAdvertisedTool is the display-only view of one tool a connected MCP server
+// advertised, with its access outcome after filtering or approval denial.
+type MCPAdvertisedTool struct {
+	// Name is the MCP-native advertised tool name.
+	Name string `json:"name"`
+	// Outcome is "registered", "filtered" or "denied".
+	Outcome string `json:"outcome"`
 }
 
 // MCPToolOrigin identifies the MCP server a registry tool name came from.
