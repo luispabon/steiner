@@ -111,7 +111,7 @@ func TestLifecycleDeathReconnectNoReplay(t *testing.T) {
 
 	// State machine: connected → reconnecting → connected, each transition
 	// reported exactly once.
-	if got := tr.waitFor(t, 3); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusConnected}) {
+	if got := tr.waitFor(t); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusConnected}) {
 		t.Errorf("status transitions = %v, want [connected reconnecting connected]", got)
 	}
 
@@ -226,7 +226,7 @@ func TestLifecycleCallsBlockDuringReconnect(t *testing.T) {
 		t.Fatal("echo never returned after the reconnect was released")
 	}
 
-	if got := tr.waitFor(t, 3); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusConnected}) {
+	if got := tr.waitFor(t); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusConnected}) {
 		t.Errorf("status transitions = %v, want [connected reconnecting connected]", got)
 	}
 }
@@ -284,7 +284,7 @@ func TestLifecycleReconnectCap(t *testing.T) {
 
 	// The worker burns through exactly 3 attempts, then the server is
 	// unavailable: connected → reconnecting → unavailable.
-	if got := tr.waitFor(t, 3); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusUnavailable}) {
+	if got := tr.waitFor(t); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusUnavailable}) {
 		t.Errorf("status transitions = %v, want [connected reconnecting unavailable]", got)
 	}
 
@@ -495,7 +495,7 @@ func TestLifecycleHTTPReconnect(t *testing.T) {
 
 	// The reconnect must land on a fresh session: wait for the state machine
 	// to complete connected → reconnecting → connected, then call again.
-	if got := tr.waitFor(t, 3); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusConnected}) {
+	if got := tr.waitFor(t); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusConnected}) {
 		t.Errorf("status transitions = %v, want [connected reconnecting connected]", got)
 	}
 
@@ -696,7 +696,7 @@ func TestLifecycleCloseDuringReconnect(t *testing.T) {
 
 	// The reconnect must abort to unavailable: connected → reconnecting →
 	// unavailable, and never connected again after Close.
-	if got := tr.waitFor(t, 3); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusUnavailable}) {
+	if got := tr.waitFor(t); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusUnavailable}) {
 		t.Errorf("status transitions = %v, want [connected reconnecting unavailable]", got)
 	}
 	for _, st := range m.ServerStates() {
@@ -739,21 +739,21 @@ func (r *transitionRecorder) onChange() {
 	}
 }
 
-// waitFor blocks until at least minLen transitions are recorded, then returns
+// waitFor blocks until at least 3 transitions are recorded, then returns
 // the recorded sequence. The recorder appends after the manager state write
 // that triggers onStateChange, so observing the final transition is race-free.
-func (r *transitionRecorder) waitFor(t *testing.T, minLen int) []ServerStatus {
+func (r *transitionRecorder) waitFor(t *testing.T) []ServerStatus {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		r.mu.Lock()
 		seq := append([]ServerStatus(nil), r.seq...)
 		r.mu.Unlock()
-		if len(seq) >= minLen {
+		if len(seq) >= 3 {
 			return seq
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %d status transitions; got %v", minLen, seq)
+			t.Fatalf("timed out waiting for 3 status transitions; got %v", seq)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
