@@ -359,11 +359,13 @@ func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
 }
 
 // NewAdvisorStartedEvent creates an advisor_started event.
-func NewAdvisorStartedEvent(model string, useNumber, maxUses int) Event {
+func NewAdvisorStartedEvent(model string, useNumber, maxUses int, question string, files []string) Event {
 	return newEvent(EventTypeAdvisorStarted, AdvisorStartedEvent{
 		Model:     strings.TrimSpace(model),
 		UseNumber: useNumber,
 		MaxUses:   maxUses,
+		Question:  strings.TrimSpace(question),
+		Files:     append([]string(nil), files...),
 	})
 }
 
@@ -385,12 +387,14 @@ func NewAdvisorCompleteEvent(model string, useNumber, maxUses int, note string, 
 }
 
 // NewAdvisorBudgetExhaustedEvent creates an advisor_budget_exhausted event.
-func NewAdvisorBudgetExhaustedEvent(model string, used, maxUses int, message string) Event {
+func NewAdvisorBudgetExhaustedEvent(model string, used, maxUses int, message, question string, files []string) Event {
 	return newEvent(EventTypeAdvisorBudgetExhausted, AdvisorBudgetExhaustedEvent{
-		Model:   strings.TrimSpace(model),
-		Used:    used,
-		MaxUses: maxUses,
-		Message: strings.TrimSpace(message),
+		Model:    strings.TrimSpace(model),
+		Used:     used,
+		MaxUses:  maxUses,
+		Message:  strings.TrimSpace(message),
+		Question: strings.TrimSpace(question),
+		Files:    append([]string(nil), files...),
 	})
 }
 

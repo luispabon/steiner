@@ -242,7 +242,7 @@ func TestAdvisorThinkingChunkRoutingBySource(t *testing.T) {
 	}
 
 	// Start advisor call.
-	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1))
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1, "", nil))
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments after start = %d, want 1", len(buffer.segments))
 	}

@@ -388,9 +388,11 @@ type DelegationExtensionEvent struct {
 
 // AdvisorStartedEvent records a stronger-model advisor call beginning.
 type AdvisorStartedEvent struct {
-	Model     string `json:"model,omitempty"`
-	UseNumber int    `json:"use_number"`
-	MaxUses   int    `json:"max_uses"`
+	Model     string   `json:"model,omitempty"`
+	UseNumber int      `json:"use_number"`
+	MaxUses   int      `json:"max_uses"`
+	Question  string   `json:"question,omitempty"`
+	Files     []string `json:"files,omitempty"`
 }
 
 // AdvisorCompleteEvent records a completed advisor call.
@@ -408,10 +410,12 @@ type AdvisorCompleteEvent struct {
 // AdvisorBudgetExhaustedEvent records a skipped advisor call after the per-run
 // budget was exhausted.
 type AdvisorBudgetExhaustedEvent struct {
-	Model   string `json:"model,omitempty"`
-	Used    int    `json:"used"`
-	MaxUses int    `json:"max_uses"`
-	Message string `json:"message,omitempty"`
+	Model    string   `json:"model,omitempty"`
+	Used     int      `json:"used"`
+	MaxUses  int      `json:"max_uses"`
+	Message  string   `json:"message,omitempty"`
+	Question string   `json:"question,omitempty"`
+	Files    []string `json:"files,omitempty"`
 }
 
 // PhaseTransitionEvent records a oneshot phase handoff.

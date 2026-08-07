@@ -58,6 +58,16 @@ func decodeAdvisorInput(raw map[string]any) (advisorInput, error) {
 	return in, nil
 }
 
+// advisorDisplayPaths returns the display paths of the loaded advisor files,
+// preserving order.
+func advisorDisplayPaths(files []advisorFile) []string {
+	paths := make([]string, 0, len(files))
+	for _, f := range files {
+		paths = append(paths, f.DisplayPath)
+	}
+	return paths
+}
+
 // loadAdvisorFiles resolves and reads each caller-supplied path under the
 // given path policy, the same way the read tool does. It returns an error
 // before any handler state changes so a malformed call never consumes an

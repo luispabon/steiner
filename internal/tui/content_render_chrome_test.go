@@ -228,6 +228,82 @@ func TestDelegationRowsOmitSeparatorWhenCollapsed(t *testing.T) {
 	}
 }
 
+func TestDelegationRowsAdvisorQuestionAndFiles(t *testing.T) {
+	b := newTestBuffer(t)
+	dd := &delegationDisplayState{
+		isAdvisor:       true,
+		advisorQuestion: "split the switch?",
+		advisorFiles:    []string{"a.go", "b.go"},
+		collapsed:       false,
+	}
+
+	rows := b.delegationRows(dd, 80)
+
+	headerIdx, qHeaderIdx, qBodyIdx, fHeaderIdx, fBodyIdx := -1, -1, -1, -1, -1
+	for i, row := range rows {
+		switch row.kind {
+		case delegationRowHeader:
+			headerIdx = i
+		case delegationRowQuestionHeader:
+			qHeaderIdx = i
+		case delegationRowQuestionBody:
+			qBodyIdx = i
+		case delegationRowFilesHeader:
+			fHeaderIdx = i
+		case delegationRowFilesBody:
+			fBodyIdx = i
+		}
+	}
+	if headerIdx < 0 || qHeaderIdx < 0 || qBodyIdx < 0 || fHeaderIdx < 0 || fBodyIdx < 0 {
+		t.Fatalf("rows = %#v, want header, question header/body, files header/body rows", rows)
+	}
+	if headerIdx >= qHeaderIdx || qHeaderIdx >= qBodyIdx || qBodyIdx >= fHeaderIdx || fHeaderIdx >= fBodyIdx {
+		t.Fatalf("row order = header:%d questionHeader:%d questionBody:%d filesHeader:%d filesBody:%d, want header < question < files", headerIdx, qHeaderIdx, qBodyIdx, fHeaderIdx, fBodyIdx)
+	}
+
+	var plain []string
+	for _, row := range rows {
+		plain = append(plain, stripANSI(row.text))
+	}
+	joined := strings.Join(plain, "\n")
+	if !strings.Contains(joined, "split the switch?") {
+		t.Fatalf("rows missing question text:\n%s", joined)
+	}
+	for _, path := range []string{"a.go", "b.go"} {
+		if !strings.Contains(joined, "• "+path) {
+			t.Fatalf("rows missing file path %q:\n%s", path, joined)
+		}
+	}
+}
+
+func TestDelegationRowsAdvisorCollapsedHeaderShowsQuestionAndFileCount(t *testing.T) {
+	b := newTestBuffer(t)
+	dd := &delegationDisplayState{
+		isAdvisor:       true,
+		advisorQuestion: "split the switch?",
+		advisorFiles:    []string{"a.go", "b.go"},
+		collapsed:       true,
+	}
+
+	rows := b.delegationRows(dd, 80)
+	var header string
+	for _, row := range rows {
+		if row.kind == delegationRowHeader {
+			header = stripANSI(row.text)
+		}
+		switch row.kind {
+		case delegationRowQuestionHeader, delegationRowQuestionBody, delegationRowFilesHeader, delegationRowFilesBody:
+			t.Fatalf("collapsed rows = %#v, want no question/files body rows", rows)
+		}
+	}
+	if !strings.Contains(header, "split the switch?") {
+		t.Fatalf("header = %q, want question text", header)
+	}
+	if !strings.Contains(header, "· 2 files") {
+		t.Fatalf("header = %q, want file count", header)
+	}
+}
+
 func TestRenderClosingSeparatorHasBlankLineMargin(t *testing.T) {
 	b := newTestBuffer(t)
 	b.appendLabeledBlock("Compaction", "summary text")

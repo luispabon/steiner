@@ -194,7 +194,7 @@ func TestNewAPIRequestEventDeepClonesProviderOwnedFields(t *testing.T) {
 }
 
 func TestAdvisorEventsRender(t *testing.T) {
-	start := renderEvent(NewAdvisorStartedEvent("advisor-model", 1, 2))
+	start := renderEvent(NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
 	if got := start.Text; !strings.Contains(got, "advisor started") || !strings.Contains(got, "use=1/2") {
 		t.Fatalf("started text = %q, want advisor lifecycle summary", got)
 	}
@@ -204,9 +204,37 @@ func TestAdvisorEventsRender(t *testing.T) {
 		t.Fatalf("complete text = %q, want advisor note summary", got)
 	}
 
-	exhausted := renderEvent(NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment"))
+	exhausted := renderEvent(NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment", "", nil))
 	if got := exhausted.Text; !strings.Contains(got, "advisor budget exhausted") || !strings.Contains(got, "use=2/2") {
 		t.Fatalf("exhausted text = %q, want advisor budget summary", got)
+	}
+}
+
+func TestAdvisorStartedEventCarriesQuestionAndFilesInPayloadOnly(t *testing.T) {
+	question := "check the layout"
+	files := []string{"internal/tui/content_render_delegation.go", "internal/tui/delegation_layout.go"}
+	event := NewAdvisorStartedEvent("advisor-model", 1, 2, question, files)
+
+	payload, ok := event.Payload.(AdvisorStartedEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want AdvisorStartedEvent", event.Payload)
+	}
+	if payload.Question != question {
+		t.Fatalf("payload.Question = %q, want %q", payload.Question, question)
+	}
+	if !reflect.DeepEqual(payload.Files, files) {
+		t.Fatalf("payload.Files = %v, want %v", payload.Files, files)
+	}
+
+	// The new fields are payload-only: non-TUI text renderers must not surface them.
+	rendered := renderEvent(event)
+	if strings.Contains(rendered.Text, question) {
+		t.Fatalf("rendered text = %q, contains question; want payload-only", rendered.Text)
+	}
+	for _, path := range files {
+		if strings.Contains(rendered.Text, path) {
+			t.Fatalf("rendered text = %q, contains file path %q; want payload-only", rendered.Text, path)
+		}
 	}
 }
 
