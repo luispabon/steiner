@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
+
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // WrapFn wraps a server command before launch, e.g. inside the sandbox.
@@ -210,13 +213,21 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 		return
 	}
 	var toolNames []string
-	for _, t := range session.Tools() {
-		if srv.Approval == "deny" {
-			continue
+	var advertisedTools []AdvertisedTool
+	if srv.Approval == "deny" {
+		// Denial is final (D4): connect and discover, but register no tools
+		// and record every advertised tool as denied in advertised order.
+		for _, t := range session.Tools() {
+			advertisedTools = append(advertisedTools, AdvertisedTool{Name: t.Name, Outcome: ToolDenied})
 		}
-		def := mcpToolDef(session, t, func() tool.ApprovalResponder { return m.currentApprover() }, func() bool { return m.planMode }, srv, limits)
-		m.defs = append(m.defs, def)
-		toolNames = append(toolNames, t.Name)
+	} else {
+		var passing []*mcpsdk.Tool
+		advertisedTools, passing = filterTools(session.Tools(), srv, spec.Name, warnFn)
+		for _, t := range passing {
+			def := mcpToolDef(session, t, func() tool.ApprovalResponder { return m.currentApprover() }, func() bool { return m.planMode }, srv, limits)
+			m.defs = append(m.defs, def)
+			toolNames = append(toolNames, t.Name)
+		}
 	}
 	m.sessions = append(m.sessions, session)
 	m.setServerStateLocked(ServerState{
@@ -224,10 +235,72 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 		Status:          ServerStatusConnected,
 		Transport:       transport,
 		Tools:           toolNames,
+		AdvertisedTools: advertisedTools,
 		ProtocolVersion: session.ProtocolVersion(),
 	})
 	m.mu.Unlock()
 	onStateChange()
+}
+
+// sortedUnique returns names sorted lexically with duplicates removed, so
+// unknown-reference warnings are emitted once each in a deterministic order
+// (D11) regardless of the configured list's order.
+func sortedUnique(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	out := append([]string(nil), names...)
+	sort.Strings(out)
+	return slices.Compact(out)
+}
+
+// filterTools applies allow-then-block filtering (D1, D2) to the advertised
+// tools and returns, in advertised order, every tool with its outcome plus the
+// passing tool pointers for def creation. A nil AllowedTools means no allowlist
+// restriction; an explicitly configured empty one filters all tools (D12).
+// Unknown allow/block references are non-fatal diagnostics reported once each
+// in sorted order through warnFn (D3).
+func filterTools(advertised []*mcpsdk.Tool, srv config.MCPServerConfig, serverName string, warnFn func(string)) (outcomes []AdvertisedTool, passing []*mcpsdk.Tool) {
+	advertisedSet := make(map[string]struct{}, len(advertised))
+	for _, t := range advertised {
+		advertisedSet[t.Name] = struct{}{}
+	}
+
+	allowed := make(map[string]struct{}, len(srv.AllowedTools))
+	for _, name := range srv.AllowedTools {
+		allowed[name] = struct{}{}
+	}
+	blocked := make(map[string]struct{}, len(srv.BlockedTools))
+	for _, name := range srv.BlockedTools {
+		blocked[name] = struct{}{}
+	}
+
+	for _, t := range advertised {
+		if srv.AllowedTools != nil {
+			if _, ok := allowed[t.Name]; !ok {
+				outcomes = append(outcomes, AdvertisedTool{Name: t.Name, Outcome: ToolFiltered})
+				continue
+			}
+		}
+		if _, ok := blocked[t.Name]; ok {
+			outcomes = append(outcomes, AdvertisedTool{Name: t.Name, Outcome: ToolFiltered})
+			continue
+		}
+		outcomes = append(outcomes, AdvertisedTool{Name: t.Name, Outcome: ToolRegistered})
+		passing = append(passing, t)
+	}
+
+	for _, name := range sortedUnique(srv.AllowedTools) {
+		if _, ok := advertisedSet[name]; !ok {
+			warnFn(fmt.Sprintf("allowed_tools: tool %q not advertised by server %q", name, serverName))
+		}
+	}
+	for _, name := range sortedUnique(srv.BlockedTools) {
+		if _, ok := advertisedSet[name]; !ok {
+			warnFn(fmt.Sprintf("blocked_tools: tool %q not advertised by server %q", name, serverName))
+		}
+	}
+	return outcomes, passing
 }
 
 // updateServerStatus transitions one server's status in place, preserving its
@@ -331,6 +404,7 @@ func (m *Manager) ServerStates() []ServerState {
 	for i, s := range m.states {
 		out[i] = s
 		out[i].Tools = append([]string(nil), s.Tools...)
+		out[i].AdvertisedTools = append([]AdvertisedTool(nil), s.AdvertisedTools...)
 	}
 	return out
 }

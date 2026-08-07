@@ -252,6 +252,11 @@ func TestManagerConnect(t *testing.T) {
 		if len(denied.Tools) != 0 {
 			t.Errorf("denied.Tools = %v, want none registered", denied.Tools)
 		}
+		// Every advertised tool is retained with a denied outcome, in
+		// advertised order, so the TUI can show why nothing registered.
+		if !reflect.DeepEqual(denied.AdvertisedTools, wantAllOutcome(ToolDenied)) {
+			t.Errorf("denied.AdvertisedTools = %+v, want all tools denied", denied.AdvertisedTools)
+		}
 	})
 
 	t.Run("nil approver denies without calling the server", func(t *testing.T) {
@@ -627,6 +632,10 @@ func TestManagerConnect(t *testing.T) {
 		if got := m.ServerStates()[0].Tools[0]; got == "mutated" {
 			t.Error("ServerStates() shares its Tools slice with live state, want a deep copy")
 		}
+		states[0].AdvertisedTools[0].Outcome = ToolDenied
+		if got := m.ServerStates()[0].AdvertisedTools[0].Outcome; got == ToolDenied {
+			t.Error("ServerStates() shares its AdvertisedTools slice with live state, want a deep copy")
+		}
 		if got := m.ServerStates()[0].Status; got == ServerStatusFailed {
 			t.Error("ServerStates() shares ServerState values with live state, want a copy")
 		}
@@ -665,6 +674,213 @@ func TestManagerConnect(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestFilter verifies allow/block filtering on connect: which tools register,
+// the retained per-tool outcomes, and unknown-reference warnings.
+func TestFilter(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+
+	tests := []struct {
+		name         string
+		allowed      []string
+		blocked      []string
+		approval     string
+		wantDefs     []string
+		wantTools    []string
+		wantOutcomes []AdvertisedTool
+		wantWarnings []string
+	}{
+		{
+			name:         "allow only restricts to listed names",
+			allowed:      []string{"echo", "die"},
+			wantDefs:     []string{"mcp__fixture__echo", "mcp__fixture__die"},
+			wantTools:    []string{"echo", "die"},
+			wantOutcomes: wantRegistered("echo", "die"),
+		},
+		{
+			name:         "explicit empty allowlist registers nothing",
+			allowed:      []string{},
+			wantDefs:     nil,
+			wantTools:    nil,
+			wantOutcomes: wantRegistered(),
+		},
+		{
+			name:         "block only removes listed names",
+			blocked:      []string{"boom", "big_output"},
+			wantDefs:     []string{"mcp__fixture__echo", "mcp__fixture__readonly_echo", "mcp__fixture__die", "mcp__fixture__sleep"},
+			wantTools:    []string{"echo", "readonly_echo", "die", "sleep"},
+			wantOutcomes: wantRegistered("echo", "readonly_echo", "die", "sleep"),
+		},
+		{
+			name:         "same name in allow and block: block wins",
+			allowed:      []string{"echo", "boom", "sleep"},
+			blocked:      []string{"boom"},
+			wantDefs:     []string{"mcp__fixture__echo", "mcp__fixture__sleep"},
+			wantTools:    []string{"echo", "sleep"},
+			wantOutcomes: wantRegistered("echo", "sleep"),
+		},
+		{
+			name:         "allow then block: block removes allowed names",
+			allowed:      []string{"echo", "boom", "readonly_echo"},
+			blocked:      []string{"echo"},
+			wantDefs:     []string{"mcp__fixture__boom", "mcp__fixture__readonly_echo"},
+			wantTools:    []string{"boom", "readonly_echo"},
+			wantOutcomes: wantRegistered("boom", "readonly_echo"),
+		},
+		{
+			name:         "unknown references warn but connect succeeds",
+			allowed:      []string{"echo", "no_such"},
+			blocked:      []string{"zzz"},
+			wantDefs:     []string{"mcp__fixture__echo"},
+			wantTools:    []string{"echo"},
+			wantOutcomes: wantRegistered("echo"),
+			wantWarnings: []string{
+				`allowed_tools: tool "no_such" not advertised by server "fixture"`,
+				`blocked_tools: tool "zzz" not advertised by server "fixture"`,
+			},
+		},
+		{
+			name:         "deny is final and skips filter warnings",
+			allowed:      []string{"echo"},
+			blocked:      []string{"zzz"},
+			approval:     "deny",
+			wantDefs:     nil,
+			wantTools:    nil,
+			wantOutcomes: wantAllOutcome(ToolDenied),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var warns []string
+			cfg := config.MCPConfig{
+				Enabled: true,
+				Servers: map[string]config.MCPServerConfig{
+					"fixture": {Enabled: true, Command: fixtureBin, Approval: tt.approval, AllowedTools: tt.allowed, BlockedTools: tt.blocked},
+				},
+			}
+
+			m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(msg string) { warns = append(warns, msg) }, func(string) {}, io.Discard, nil)
+			defer m.Close() //nolint:errcheck
+			waitInit(t, m)
+
+			var defNames []string
+			for _, d := range m.ToolDefs() {
+				defNames = append(defNames, d.Name)
+			}
+			if !reflect.DeepEqual(defNames, tt.wantDefs) {
+				t.Errorf("ToolDefs names = %v, want %v", defNames, tt.wantDefs)
+			}
+
+			st := stateByName(m.ServerStates(), "fixture")
+			if st == nil {
+				t.Fatal("fixture state not found")
+			}
+			if !reflect.DeepEqual(st.Tools, tt.wantTools) {
+				t.Errorf("state.Tools = %v, want %v", st.Tools, tt.wantTools)
+			}
+			if !reflect.DeepEqual(st.AdvertisedTools, tt.wantOutcomes) {
+				t.Errorf("state.AdvertisedTools = %+v, want %+v", st.AdvertisedTools, tt.wantOutcomes)
+			}
+			if !reflect.DeepEqual(warns, tt.wantWarnings) {
+				t.Errorf("warnings = %v, want %v", warns, tt.wantWarnings)
+			}
+		})
+	}
+}
+
+// TestFilterDeterministic proves one config + one discovery yields identical
+// defs, outcomes, and warnings across connects (D11): configured references are
+// warned once each in sorted order regardless of list order or duplication.
+func TestFilterDeterministic(t *testing.T) {
+	fixtureBin := buildFixture(t, t.TempDir())
+
+	connect := func() ([]string, []AdvertisedTool, []string) {
+		cfg := config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"fixture": {
+					Enabled:      true,
+					Command:      fixtureBin,
+					AllowedTools: []string{"echo", "nope", "echo", "zzz"},
+					BlockedTools: []string{"nope"},
+				},
+			},
+		}
+
+		var warns []string
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(msg string) { warns = append(warns, msg) }, func(string) {}, io.Discard, nil)
+		defer m.Close() //nolint:errcheck
+		waitInit(t, m)
+
+		var defs []string
+		for _, d := range m.ToolDefs() {
+			defs = append(defs, d.Name)
+		}
+		st := stateByName(m.ServerStates(), "fixture")
+		if st == nil {
+			t.Fatal("fixture state not found")
+		}
+		return defs, st.AdvertisedTools, warns
+	}
+
+	defs1, outcomes1, warns1 := connect()
+	defs2, outcomes2, warns2 := connect()
+
+	if !reflect.DeepEqual(defs1, defs2) {
+		t.Errorf("defs differ across connects: %v vs %v", defs1, defs2)
+	}
+	if !reflect.DeepEqual(outcomes1, outcomes2) {
+		t.Errorf("outcomes differ across connects: %+v vs %+v", outcomes1, outcomes2)
+	}
+	if !reflect.DeepEqual(warns1, warns2) {
+		t.Errorf("warnings differ across connects: %v vs %v", warns1, warns2)
+	}
+
+	wantDefs := []string{"mcp__fixture__echo"}
+	if !reflect.DeepEqual(defs1, wantDefs) {
+		t.Errorf("defs = %v, want %v", defs1, wantDefs)
+	}
+	if !reflect.DeepEqual(outcomes1, wantRegistered("echo")) {
+		t.Errorf("outcomes = %+v, want %+v", outcomes1, wantRegistered("echo"))
+	}
+	wantWarns := []string{
+		`allowed_tools: tool "nope" not advertised by server "fixture"`,
+		`allowed_tools: tool "zzz" not advertised by server "fixture"`,
+		`blocked_tools: tool "nope" not advertised by server "fixture"`,
+	}
+	if !reflect.DeepEqual(warns1, wantWarns) {
+		t.Errorf("warnings = %v, want %v", warns1, wantWarns)
+	}
+}
+
+// wantRegistered marks every fixture tool as ToolFiltered except the named
+// registered ones, in the fixture's advertised order.
+func wantRegistered(registered ...string) []AdvertisedTool {
+	isRegistered := make(map[string]bool, len(registered))
+	for _, r := range registered {
+		isRegistered[r] = true
+	}
+	var out []AdvertisedTool
+	for _, name := range []string{"echo", "boom", "readonly_echo", "die", "sleep", "big_output"} {
+		outcome := ToolFiltered
+		if isRegistered[name] {
+			outcome = ToolRegistered
+		}
+		out = append(out, AdvertisedTool{Name: name, Outcome: outcome})
+	}
+	return out
+}
+
+// wantAllOutcome marks every fixture tool with the given outcome, in the
+// fixture's advertised order.
+func wantAllOutcome(outcome ToolOutcome) []AdvertisedTool {
+	var out []AdvertisedTool
+	for _, name := range []string{"echo", "boom", "readonly_echo", "die", "sleep", "big_output"} {
+		out = append(out, AdvertisedTool{Name: name, Outcome: outcome})
+	}
+	return out
 }
 
 // waitInit blocks until every enabled server resolves, failing the test on a
