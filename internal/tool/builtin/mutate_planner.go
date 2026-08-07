@@ -31,6 +31,7 @@ type mutateFileState struct {
 	isDir          bool
 	content        []byte
 	touched        bool
+	needsParent    bool
 }
 
 func (p *mutatePlanner) run(in MutateInput) *MutateResult {
@@ -49,10 +50,17 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 		p.result.Output = p.successOutput("Dry run succeeded.")
 		return &p.result
 	}
-	if err := p.commit(); err != nil {
+	dirtyPaths, err := p.commit()
+	if err != nil {
 		p.result.OperationsFailed = 1
-		p.result.clearCommittedMetadata()
-		p.result.Output = fmt.Sprintf("mutate: commit failed: %v", err)
+		if len(dirtyPaths) > 0 {
+			p.result.Paths = dirtyPaths
+			p.result.Modified = dirtyPaths
+			p.result.Output = fmt.Sprintf("mutate: commit failed with rollback failure: %v — the following files are in an inconsistent state: %s", err, strings.Join(dirtyPaths, ", "))
+		} else {
+			p.result.clearCommittedMetadata()
+			p.result.Output = fmt.Sprintf("mutate: commit failed: %v", err)
+		}
 		return &p.result
 	}
 	p.result.OperationsApplied = p.applied
