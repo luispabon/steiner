@@ -303,7 +303,7 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2))
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count after start = %d, want 1", len(buffer.segments))
 	}
@@ -373,7 +373,7 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Errorf("segment[4] text = %q, want single space", s.text)
 	}
 
-	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment"))
+	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment", "", nil))
 	if len(buffer.segments) != 6 {
 		t.Fatalf("segments count after budget event = %d, want 6", len(buffer.segments))
 	}
@@ -390,7 +390,7 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2))
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count after start = %d, want 1", len(buffer.segments))
 	}
@@ -457,7 +457,7 @@ func TestAdvisorThinkingChunkRouting(t *testing.T) {
 	}
 
 	// Emit advisor started.
-	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2))
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments after start = %d, want 1", len(buffer.segments))
 	}
@@ -512,7 +512,7 @@ func TestRenderAdvisorTrailingMargin(t *testing.T) {
 		styles:        theme.BuildStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2))
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "check the layout", []string{"internal/tui/content_render_delegation.go"}))
 	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", false, nil, 0, 0))
 
 	rendered := stripANSI(buffer.String(80))

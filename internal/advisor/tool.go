@@ -100,7 +100,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 		used := s.uses
 		s.mu.Unlock()
 		message := BudgetExhaustedMessage(used, maxUses)
-		emitEvent(deps.Events, output.NewAdvisorBudgetExhaustedEvent(deps.Model.BackendModelID, used, maxUses, message))
+		emitEvent(deps.Events, output.NewAdvisorBudgetExhaustedEvent(deps.Model.BackendModelID, used, maxUses, message, in.Question, advisorDisplayPaths(files)))
 		return message, nil
 	}
 	s.uses = nextUse
@@ -114,7 +114,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	// Keep the provider-visible tool list stable for the whole run so prompt/KV
 	// cache prefixes stay reusable. The per-run cap lives in handler state on
 	// purpose, even though Anthropic guidance often suggests removing spent tools.
-	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses))
+	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses, in.Question, advisorDisplayPaths(files)))
 	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, in.Question, files, deps.Config.MaxTokens, deps.Events, s.cacheKey)
 	if err != nil {
 		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err, 0, 0))

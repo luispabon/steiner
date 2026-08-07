@@ -71,6 +71,27 @@ func (b *contentBuffer) renderDelegationPromptBody(dd *delegationDisplayState, w
 	return lines
 }
 
+func (b *contentBuffer) renderDelegationSectionHeader(label string) string {
+	return b.styles.FgDim.Render("▾ " + label)
+}
+
+func (b *contentBuffer) renderAdvisorQuestionBody(dd *delegationDisplayState, width int) []string {
+	lines := b.wrapStyledDelegationLines(dd.advisorQuestion, width, b.styles.FgMute.Italic(true))
+	if b.maxDelegationBodyLines > 0 && len(lines) > b.maxDelegationBodyLines {
+		lines = lines[:b.maxDelegationBodyLines]
+	}
+	return lines
+}
+
+func (b *contentBuffer) renderAdvisorFilesBody(dd *delegationDisplayState, width int) []string {
+	rows := make([]string, 0, len(dd.advisorFiles))
+	for _, p := range dd.advisorFiles {
+		line := "• " + strings.TrimSpace(p)
+		rows = append(rows, b.styles.FgMute.Render(truncateRunes(line, max(1, width))))
+	}
+	return rows
+}
+
 func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width int) string {
 	_, statusWidth := b.renderDelegationHeaderStatus(dd)
 	meta := b.renderDelegationHeaderMeta(dd)
@@ -238,12 +259,27 @@ func delegationFailedMeta(dd *delegationDisplayState) []string {
 }
 
 func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplayState, width int) string {
-	operation := strings.TrimSpace(dd.currentOperation)
-	if operation == "" && dd.isAdvisor {
-		operation = "stronger-model steering"
-	}
-	if operation == "" && dd.status == "active" {
-		operation = strings.TrimSpace(dd.taskPreview)
+	var operation string
+	if dd.isAdvisor {
+		operation = strings.TrimSpace(dd.advisorQuestion)
+		if operation == "" {
+			operation = strings.TrimSpace(dd.currentOperation)
+		}
+		if operation == "" {
+			operation = "stronger-model steering"
+		}
+		if n := len(dd.advisorFiles); n > 0 {
+			suffix := fmt.Sprintf(" · %d file", n)
+			if n != 1 {
+				suffix += "s"
+			}
+			operation = truncateRunes(operation, max(1, width-lipgloss.Width(suffix))) + suffix
+		}
+	} else {
+		operation = strings.TrimSpace(dd.currentOperation)
+		if operation == "" && dd.status == "active" {
+			operation = strings.TrimSpace(dd.taskPreview)
+		}
 	}
 	if operation == "" {
 		return ""

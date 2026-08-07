@@ -11,6 +11,10 @@ const (
 	delegationRowHeader
 	delegationRowPromptHeader
 	delegationRowPromptBody
+	delegationRowQuestionHeader
+	delegationRowQuestionBody
+	delegationRowFilesHeader
+	delegationRowFilesBody
 	delegationRowTranscript
 	delegationRowOutput
 	delegationRowSeparator
@@ -39,26 +43,11 @@ func (b *contentBuffer) delegationRows(dd *delegationDisplayState, width int) []
 			text: b.renderDelegationHeader(dd, headerWidth),
 		},
 	}
-	var promptBodyRows []delegationRow
-	if !dd.collapsed && strings.TrimSpace(dd.promptText) != "" {
-		rows = append(rows, delegationRow{kind: delegationRowPromptHeader, text: b.renderDelegationPromptHeader(dd)})
-		if dd.promptCollapsed {
-			if preview := previewDelegationText(dd.promptText); preview != "" {
-				promptBodyRows = append(promptBodyRows, delegationRow{
-					kind: delegationRowPromptBody,
-					text: b.styles.FgMute.Render(truncateRunes(preview, max(1, headerWidth-2))),
-				})
-			}
-		} else {
-			for _, line := range b.renderDelegationPromptBody(dd, headerWidth) {
-				promptBodyRows = append(promptBodyRows, delegationRow{kind: delegationRowPromptBody, text: line})
-			}
-		}
-		rows = append(rows, promptBodyRows...)
-	}
+	sectionRows, hasSections := b.delegationSectionRows(dd, headerWidth)
+	rows = append(rows, sectionRows...)
 	if !dd.collapsed {
 		transcriptRows := b.renderDelegationTranscript(dd, headerWidth)
-		if !dd.promptCollapsed && len(promptBodyRows) > 0 && len(transcriptRows) > 0 {
+		if hasSections && len(transcriptRows) > 0 {
 			rows = append(rows, delegationRow{kind: delegationRowSeparator, text: b.renderDelegationFooterSeparator(headerWidth)})
 		}
 		for _, line := range transcriptRows {
@@ -79,6 +68,52 @@ func (b *contentBuffer) delegationRows(dd *delegationDisplayState, width int) []
 		delegationRow{kind: delegationRowHint, text: b.renderDelegationHint(dd)},
 	)
 	return rows
+}
+
+// delegationSectionRows renders the expanded-body section rows (prompt, and for
+// advisor boxes the question/files) and reports whether any section rows were
+// produced, so delegationRows can insert a separator before the transcript
+// block. Prompt sections count only when non-collapsed body rows exist,
+// matching the pre-existing separator rule.
+func (b *contentBuffer) delegationSectionRows(dd *delegationDisplayState, width int) ([]delegationRow, bool) {
+	if dd.collapsed {
+		return nil, false
+	}
+	var rows []delegationRow
+	hasSections := false
+	if strings.TrimSpace(dd.promptText) != "" {
+		rows = append(rows, delegationRow{kind: delegationRowPromptHeader, text: b.renderDelegationPromptHeader(dd)})
+		if dd.promptCollapsed {
+			if preview := previewDelegationText(dd.promptText); preview != "" {
+				rows = append(rows, delegationRow{
+					kind: delegationRowPromptBody,
+					text: b.styles.FgMute.Render(truncateRunes(preview, max(1, width-2))),
+				})
+			}
+		} else {
+			for _, line := range b.renderDelegationPromptBody(dd, width) {
+				rows = append(rows, delegationRow{kind: delegationRowPromptBody, text: line})
+				hasSections = true
+			}
+		}
+	}
+	if dd.isAdvisor {
+		if strings.TrimSpace(dd.advisorQuestion) != "" {
+			hasSections = true
+			rows = append(rows, delegationRow{kind: delegationRowQuestionHeader, text: b.renderDelegationSectionHeader("question")})
+			for _, line := range b.renderAdvisorQuestionBody(dd, width) {
+				rows = append(rows, delegationRow{kind: delegationRowQuestionBody, text: line})
+			}
+		}
+		if len(dd.advisorFiles) > 0 {
+			hasSections = true
+			rows = append(rows, delegationRow{kind: delegationRowFilesHeader, text: b.renderDelegationSectionHeader("files")})
+			for _, line := range b.renderAdvisorFilesBody(dd, width) {
+				rows = append(rows, delegationRow{kind: delegationRowFilesBody, text: line})
+			}
+		}
+	}
+	return rows, hasSections
 }
 
 func delegationRowIsInteractive(row delegationRowKind) bool {

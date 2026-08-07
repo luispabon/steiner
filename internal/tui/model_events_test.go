@@ -225,7 +225,7 @@ func TestAdvisorFlagResetOnInterruptedRunCompletion(t *testing.T) {
 	m.content.showThinking = true
 
 	// Advisor starts (interrupt not pending yet).
-	_ = m.applyEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1))
+	_ = m.applyEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1, "", nil))
 	if m.content.activeAdvisorSegment == 0 {
 		t.Fatal("activeAdvisorSegment = 0 after AdvisorStarted, want > 0")
 	}
