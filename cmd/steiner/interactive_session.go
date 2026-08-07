@@ -92,7 +92,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		SkillDescriptions:  rt.skillDescriptions,
 		SkillSources:       rt.skillSources,
 		Controller:         sess,
-		SandboxStatus:      rt.cfg.Sandbox.Status,
+		SandboxStatus:      rt.sandboxStatus,
 	}
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore

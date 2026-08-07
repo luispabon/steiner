@@ -169,6 +169,7 @@ models:
 	if got.Models.Definitions["test"].ID != "test-model" {
 		t.Fatalf("models[test].ID = %q, want test-model", got.Models.Definitions["test"].ID)
 	}
+
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}

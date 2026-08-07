@@ -392,11 +392,14 @@ modes:
 
 Controls bubblewrap sandbox behavior.
 
+The runtime sandbox status (`active`, `unavailable`, or `bypassed`) is computed at startup
+and surfaced only in the TUI (sidebar/badge) and startup warnings; it is not part of `steiner
+config` output and is not user-configurable.
+
 | Field     | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `enabled`                          | bool   | `true`  | Enable bubblewrap sandboxing. `--unsafe` applies a CLI override that forces this to `false` at load time. |
 | `warning_on_unsupported_platform` | bool   | `true`  | When enabled, shows a warning in the TUI when sandbox is unavailable or bypassed. |
-| `status`                          | string | computed | The runtime sandbox status: `active`, `unavailable`, or `bypassed`. This is set at startup and is not user-configurable. |
 | `env_passthrough`                 | []string | `[]`   | Additional host environment variable names (beyond the built-in allowlist) passed through to sandboxed processes. Entries may end in `*` to match by prefix (e.g. `MYAPP_*`); no other wildcard forms are supported. |
 | `env_passthrough_all`             | bool   | `false` | When `true`, disables environment filtering entirely and passes the full host environment through, including credentials. |
 

@@ -131,7 +131,6 @@ type MCPServerConfig struct {
 type SandboxConfig struct {
 	Enabled                      bool     `yaml:"enabled"`
 	WarningOnUnsupportedPlatform bool     `yaml:"warning_on_unsupported_platform"`
-	Status                       string   `yaml:"status,omitempty"`
 	EnvPassthrough               []string `yaml:"env_passthrough"`
 	EnvPassthroughAll            bool     `yaml:"env_passthrough_all"`
 }
