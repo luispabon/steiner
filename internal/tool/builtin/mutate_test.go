@@ -572,6 +572,11 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			wantError: "parent directory",
 		},
 		{
+			name:      "missing parent directory names the remedy",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "write", "path": "missing/note.txt", "content": "x"}}},
+			wantError: "create it first (e.g. with bash mkdir -p), then retry",
+		},
+		{
 			name: "line_replace old_string with trailing newline",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
@@ -2647,6 +2652,16 @@ func TestMutateDescriptionMatchesEnumSpelling(t *testing.T) {
 		if strings.Contains(def.Description, bad) {
 			t.Errorf("description contains hyphenated %q", bad)
 		}
+	}
+}
+
+func TestMutateDescriptionDocumentsParentDirectoryRequirement(t *testing.T) {
+	def := newMutateTestTool(t, t.TempDir())
+	if !strings.Contains(def.Description, "parent directories must exist for workspace paths") {
+		t.Errorf("description missing parent-directory requirement clause: %q", def.Description)
+	}
+	if !strings.Contains(def.Description, "sandbox tmpdir") {
+		t.Errorf("description missing sandbox-tmpdir auto-create carve-out: %q", def.Description)
 	}
 }
 
