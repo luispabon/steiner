@@ -24,16 +24,36 @@ const (
 	ServerStatusDisabled ServerStatus = "disabled"
 )
 
+// ToolOutcome classifies one advertised MCP tool's fate after filtering.
+type ToolOutcome int
+
+const (
+	// ToolRegistered means the tool passed filtering and a definition was registered.
+	ToolRegistered ToolOutcome = iota
+	// ToolFiltered means the tool was excluded by allowed_tools or blocked_tools.
+	ToolFiltered
+	// ToolDenied means the server's approval mode is "deny", so no tools register.
+	ToolDenied
+)
+
+// AdvertisedTool records one tool a connected server advertised and its outcome
+// after allow/block filtering or approval denial.
+type AdvertisedTool struct {
+	Name    string      // MCP-native advertised name
+	Outcome ToolOutcome // registered, filtered, or denied
+}
+
 // ServerState describes one configured MCP server's live lifecycle state.
 // Status is a snapshot: it starts as connecting and resolves to connected or
 // failed once the connection attempt settles.
 type ServerState struct {
 	Name            string // config key
 	Status          ServerStatus
-	Transport       string   // "stdio" when the config leaves it empty
-	Tools           []string // MCP-side tool names; connected only, may be empty
-	Err             string   // failure text; failed only
-	ProtocolVersion string   // negotiated version; connected only
+	Transport       string           // "stdio" when the config leaves it empty
+	Tools           []string         // registered MCP-side tool names; connected only, may be empty
+	AdvertisedTools []AdvertisedTool // every advertised tool and its outcome; connected only
+	Err             string           // failure text; failed only
+	ProtocolVersion string           // negotiated version; connected only
 }
 
 // DeclaredStates returns a disabled ServerState for every server declared in cfg,

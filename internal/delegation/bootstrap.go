@@ -227,7 +227,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 
 	req := agent.RunRequest{
 		Provider:           p.Provider,
-		Executor:           exec,
+		Executor:           scopedToolExecutor{inner: exec, agentID: p.AgentID},
 		Tools:              p.VisibleReg.ToProviderSpecs(),
 		Limits:             p.BaseLimits,
 		Events:             scopedEvents,
@@ -264,4 +264,16 @@ func withAgentScope(agentID string, sink output.EventSink) output.EventSink {
 		return sink
 	}
 	return scopedEventSink{sink: sink, agentID: agentID}
+}
+
+// scopedToolExecutor injects the child agent scope into the tool execution
+// context so approval events emitted by tool handlers (e.g. MCP tools) during
+// a delegated child run carry the child's agent ID.
+type scopedToolExecutor struct {
+	inner   agent.ToolExecutor
+	agentID string
+}
+
+func (e scopedToolExecutor) Execute(ctx context.Context, toolName, callID string, input map[string]any) (any, error) {
+	return e.inner.Execute(tool.WithApprovalAgentScope(ctx, e.agentID), toolName, callID, input)
 }

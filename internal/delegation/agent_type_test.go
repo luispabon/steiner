@@ -209,3 +209,21 @@ func TestAgentTypeVision(t *testing.T) {
 		}
 	})
 }
+
+func TestAgentAllowedToolsUnchangedByMerge(t *testing.T) {
+	// Merging extra tools must not mutate the built-in allowlists: the values
+	// returned by AgentAllowedTools are identical before and after a merge, and
+	// mutating the merged result does not leak into them.
+	for _, at := range AllAgentTypes() {
+		before := AgentAllowedTools(at)
+		merged := mergedAllowedTools(before, []string{"mcp__srv__extra", before[0]})
+		after := AgentAllowedTools(at)
+		if !slices.Equal(before, after) {
+			t.Errorf("AgentAllowedTools(%q) changed after merge: before %v, after %v", at, before, after)
+		}
+		merged[0] = "mutated"
+		if !slices.Equal(before, after) {
+			t.Errorf("mutating merged result changed AgentAllowedTools(%q): %v", at, after)
+		}
+	}
+}

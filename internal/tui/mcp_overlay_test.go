@@ -108,21 +108,80 @@ func TestMCPOverlay_ConnectedServerWithNoTools(t *testing.T) {
 	}
 }
 
-func TestMCPOverlay_ConnectedServerListsToolsWithCount(t *testing.T) {
+func TestMCPOverlay_ConnectedServerListsRegisteredTools(t *testing.T) {
 	t.Parallel()
 	s := theme.BuildStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	servers := []MCPServerStatus{
-		{Name: "good-srv", State: "connected", Transport: "stdio", Tools: []string{"alpha", "beta", "gamma"}},
+		{Name: "good-srv", State: "connected", Transport: "stdio", Tools: []MCPToolStatus{
+			{Name: "alpha", Outcome: "registered"},
+			{Name: "beta", Outcome: "registered"},
+			{Name: "gamma", Outcome: "registered"},
+		}},
 	}
 	o = o.Open(servers, true)
 
 	view := o.View()
-	for _, want := range []string{"3 tools", "alpha", "beta", "gamma"} {
+	for _, want := range []string{"alpha (registered)", "beta (registered)", "gamma (registered)"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got: %s", want, view)
 		}
+	}
+}
+
+func TestMCPOverlay_MixedOutcomesShowStatusLabels(t *testing.T) {
+	t.Parallel()
+	s := theme.BuildStyles("#ff0000")
+	o := newMCPOverlay(s)
+	o.OverlayShell = o.WithDimensions(80, 24)
+	servers := []MCPServerStatus{
+		{Name: "mixed-srv", State: "connected", Transport: "stdio", Tools: []MCPToolStatus{
+			{Name: "alpha", Outcome: "registered"},
+			{Name: "beta", Outcome: "filtered"},
+			{Name: "gamma", Outcome: "denied"},
+		}},
+	}
+	o = o.Open(servers, true)
+
+	view := o.View()
+	for _, want := range []string{"alpha (registered)", "beta (filtered)", "gamma (denied)"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected view to contain %q, got: %s", want, view)
+		}
+	}
+	// Filtered and denied entries are dimmed; registered stays plain.
+	for _, want := range []string{s.FgMute.Render("beta (filtered)"), s.FgMute.Render("gamma (denied)")} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected dimmed render %q in view, got: %s", want, view)
+		}
+	}
+	if strings.Contains(view, s.FgMute.Render("alpha (registered)")) {
+		t.Fatalf("registered tool rendered dimmed, got: %s", view)
+	}
+}
+
+func TestMCPOverlay_DenyOnlyServerShowsAllDenied(t *testing.T) {
+	t.Parallel()
+	s := theme.BuildStyles("#ff0000")
+	o := newMCPOverlay(s)
+	o.OverlayShell = o.WithDimensions(80, 24)
+	servers := []MCPServerStatus{
+		{Name: "deny-srv", State: "connected", Transport: "stdio", Tools: []MCPToolStatus{
+			{Name: "delta", Outcome: "denied"},
+			{Name: "epsilon", Outcome: "denied"},
+		}},
+	}
+	o = o.Open(servers, true)
+
+	view := o.View()
+	for _, want := range []string{"delta (denied)", "epsilon (denied)"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected view to contain %q, got: %s", want, view)
+		}
+	}
+	if strings.Contains(view, "registered") {
+		t.Fatalf("deny-only server shows a registered tool, got: %s", view)
 	}
 }
 
@@ -132,7 +191,7 @@ func TestMCPOverlay_ServerNameWithUnderscoresRendersIntact(t *testing.T) {
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	servers := []MCPServerStatus{
-		{Name: "my_tool_srv", State: "connected", Transport: "stdio", Tools: []string{"do_thing"}},
+		{Name: "my_tool_srv", State: "connected", Transport: "stdio", Tools: []MCPToolStatus{{Name: "do_thing", Outcome: "registered"}}},
 	}
 	o = o.Open(servers, true)
 
@@ -154,7 +213,7 @@ func TestMCPOverlay_ScrollClampsAtBothEnds(t *testing.T) {
 			Name:      fmt.Sprintf("srv-%d", i),
 			State:     "connected",
 			Transport: "stdio",
-			Tools:     []string{"tool-a"},
+			Tools:     []MCPToolStatus{{Name: "tool-a", Outcome: "registered"}},
 		})
 	}
 	o = o.Open(servers, true)
@@ -246,7 +305,7 @@ func TestMCPOverlay_SlashCommandOpensOverlay(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{
 		MCPEnabled: true,
-		MCPServers: []MCPServerStatus{{Name: "srv-a", State: "connected", Transport: "stdio", Tools: []string{"tool-a"}}},
+		MCPServers: []MCPServerStatus{{Name: "srv-a", State: "connected", Transport: "stdio", Tools: []MCPToolStatus{{Name: "tool-a", Outcome: "registered"}}}},
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 

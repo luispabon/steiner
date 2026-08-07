@@ -43,11 +43,16 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 		server = req.MCP.Server
 		toolName = req.MCP.ToolName
 	}
-	emitEvent(a.sink, output.NewApprovalRequestedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, string(req.Kind), server, toolName))
+
+	// Approval events emitted during a delegated child's tool execution carry
+	// the child agent scope threaded through the execution context, so the TUI
+	// can attribute the prompt to the child transcript.
+	agentID := tool.ApprovalAgentScope(ctx)
+	emitEvent(a.sink, output.WithAgentScope(output.NewApprovalRequestedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, string(req.Kind), server, toolName), agentID))
 	if a.inner == nil {
 		response := tool.ApprovalResponse{Allow: false, Message: "approval is required"}
 		req.Response <- response
-		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, response.Message, string(req.Kind), server, toolName))
+		emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, response.Message, string(req.Kind), server, toolName), agentID))
 		return nil
 	}
 	bridge := make(chan tool.ApprovalResponse, 1)
@@ -56,7 +61,7 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 	if err := a.inner.RequestApproval(ctx, innerReq); err != nil {
 		response := tool.ApprovalResponse{Allow: false, Message: err.Error()}
 		req.Response <- response
-		emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, response.Message, string(req.Kind), server, toolName))
+		emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, response.Message, string(req.Kind), server, toolName), agentID))
 		return err
 	}
 	go func() {
@@ -67,13 +72,13 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 			response = tool.ApprovalResponse{Allow: false, Message: ctx.Err().Error()}
 		}
 		if response.Allow {
-			emitEvent(a.sink, output.NewApprovalAcceptedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, response.Message, string(req.Kind), server, toolName))
+			emitEvent(a.sink, output.WithAgentScope(output.NewApprovalAcceptedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, response.Message, string(req.Kind), server, toolName), agentID))
 		} else {
 			message := strings.TrimSpace(response.Message)
 			if message == "" {
 				message = "tool execution denied"
 			}
-			emitEvent(a.sink, output.NewApprovalDeniedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, message, string(req.Kind), server, toolName))
+			emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(0, req.Tool.Name, req.CallID, req.Reason, preview, message, string(req.Kind), server, toolName), agentID))
 		}
 		req.Response <- response
 	}()

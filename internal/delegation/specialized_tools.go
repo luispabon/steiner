@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -103,6 +104,30 @@ func resolveModel(agentType AgentType, deps SpecializedToolDeps) (provider.Provi
 	return p, rm, nil
 }
 
+// mergedAllowedTools combines a base allowlist with per-agent-type extra tool
+// names, returning a new sorted, deduplicated slice. The base slice is not
+// mutated.
+func mergedAllowedTools(base, extras []string) []string {
+	seen := make(map[string]struct{}, len(base)+len(extras))
+	merged := make([]string, 0, len(base)+len(extras))
+	for _, name := range base {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		merged = append(merged, name)
+	}
+	for _, name := range extras {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		merged = append(merged, name)
+	}
+	slices.Sort(merged)
+	return merged
+}
+
 // newSpecializedHandler returns a handler for the given agent type.
 // It uses the per-type system prompt and allowed-tool list, leaving other
 // delegation parameters at their configured defaults.
@@ -119,6 +144,11 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		task, _ := input["task"].(string)
 		if task == "" {
 			return nil, fmt.Errorf("%s: task is required", agentType)
+		}
+
+		allowedTools := AgentAllowedTools(agentType)
+		if deps.ExtraAllowedTools != nil {
+			allowedTools = mergedAllowedTools(allowedTools, deps.ExtraAllowedTools[agentType])
 		}
 
 		agentID := generateAgentID()
@@ -138,7 +168,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			Provider:             resolvedProvider,
 			ParentReg:            deps.ParentReg,
 			SubAgentCfg:          deps.SubAgentCfg,
-			AllowedTools:         AgentAllowedTools(agentType),
+			AllowedTools:         allowedTools,
 			Events:               deps.Events,
 			WorkDir:              deps.WorkDir,
 			HomeDir:              deps.HomeDir,

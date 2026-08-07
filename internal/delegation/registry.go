@@ -54,6 +54,11 @@ type DelegateDeps struct {
 	// When nil, BuildDelegateRegistry creates a fresh per-call store (backward-compatible).
 	// Callers that need cross-turn follow_up support should provide a long-lived store.
 	SessionStore *SessionStore
+	// ExtraAllowedTools provides per-agent-type extra tool names that should be
+	// included in child registries beyond the built-in allowlists. Keys are agent
+	// types; values are sorted, deduplicated registered tool names. Nil or empty
+	// map grants no extra tools.
+	ExtraAllowedTools map[AgentType][]string
 	// ImageStore provides image lookup for the vision sub-agent tool.
 	// When nil or when no vision model is configured, the vision tool is not registered.
 	ImageStore *agent.ImageStore
@@ -127,6 +132,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		CaveHuman:            deps.Config.CaveHuman,
 		TraceLogger:          deps.TraceLogger,
 		SessionStore:         store,
+		ExtraAllowedTools:    deps.ExtraAllowedTools,
 		UsageRecorder:        deps.UsageRecorder,
 	}
 

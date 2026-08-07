@@ -14,10 +14,20 @@ type MCPServerStatus struct {
 	State string
 	// Transport is the server's transport, e.g. "stdio".
 	Transport string
-	// Tools lists the MCP-side tool names offered by this server; connected only, may be empty.
-	Tools []string
+	// Tools lists every tool this server advertised, in advertised order, with
+	// its access outcome; connected only, may be empty.
+	Tools []MCPToolStatus
 	// Error is the failure text; failed only.
 	Error string
+}
+
+// MCPToolStatus is the TUI's display-only view of one advertised MCP tool and
+// its access outcome.
+type MCPToolStatus struct {
+	// Name is the MCP-native advertised tool name.
+	Name string
+	// Outcome is "registered", "filtered" or "denied".
+	Outcome string
 }
 
 // MCPToolOrigin identifies the MCP server a registry tool name came from.
@@ -41,11 +51,15 @@ func mcpServersFromStatusEvent(states map[string]output.MCPServerState) []MCPSer
 	servers := make([]MCPServerStatus, 0, len(names))
 	for _, name := range names {
 		s := states[name]
+		tools := make([]MCPToolStatus, 0, len(s.Tools))
+		for _, t := range s.Tools {
+			tools = append(tools, MCPToolStatus{Name: t.Name, Outcome: t.Outcome})
+		}
 		servers = append(servers, MCPServerStatus{
 			Name:      name,
 			State:     s.State,
 			Transport: s.Transport,
-			Tools:     append([]string(nil), s.Tools...),
+			Tools:     tools,
 			Error:     s.Error,
 		})
 	}

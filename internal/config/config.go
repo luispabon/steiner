@@ -122,6 +122,9 @@ type MCPServerConfig struct {
 	Approval         string            `yaml:"approval"`
 	TrustAnnotations bool              `yaml:"trust_annotations"`
 	ConnectTimeout   Duration          `yaml:"connect_timeout"`
+	AllowedTools     []string          `yaml:"allowed_tools"`
+	BlockedTools     []string          `yaml:"blocked_tools"`
+	SubAgents        []string          `yaml:"sub_agents"`
 }
 
 // SandboxConfig controls bubblewrap sandbox behaviour for tool execution.

@@ -893,6 +893,60 @@ func TestApplyMCPPatch(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "patches allowed_tools, blocked_tools, and sub_agents",
+			initial: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {AllowedTools: []string{"old"}, BlockedTools: []string{"old"}, SubAgents: []string{"review"}},
+				},
+			},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {AllowedTools: stringSlicePtr([]string{"echo"}), BlockedTools: stringSlicePtr([]string{"dangerous"}), SubAgents: stringSlicePtr([]string{"explore", "code"})},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {AllowedTools: []string{"echo"}, BlockedTools: []string{"dangerous"}, SubAgents: []string{"explore", "code"}},
+				},
+			},
+		},
+		{
+			name: "nil filter fields leave values untouched",
+			initial: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {AllowedTools: []string{"echo"}, BlockedTools: []string{"dangerous"}, SubAgents: []string{"explore"}},
+				},
+			},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {Approval: stringPtr("allow")},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {AllowedTools: []string{"echo"}, BlockedTools: []string{"dangerous"}, SubAgents: []string{"explore"}, Approval: "allow"},
+				},
+			},
+		},
+		{
+			name: "explicit empty allowed_tools replaces with empty",
+			initial: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {AllowedTools: []string{"echo"}},
+				},
+			},
+			patch: mcpPatch{
+				Servers: &map[string]mcpServerPatch{
+					"example": {AllowedTools: stringSlicePtr([]string{})},
+				},
+			},
+			want: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {AllowedTools: []string{}},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

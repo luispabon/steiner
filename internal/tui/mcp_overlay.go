@@ -17,7 +17,7 @@ const mcpOverlayChromeLines = 6
 
 // mcpOverlay renders the /mcp server status overlay: a scrollable list of
 // every configured MCP server with its connection state, transport and
-// tool names.
+// per-tool access status.
 type mcpOverlay struct {
 	OverlayShell
 	servers      []MCPServerStatus
@@ -71,7 +71,7 @@ func (o mcpOverlay) buildLines() []string {
 }
 
 // renderServerLines renders the status line for one server, plus any
-// indented error text (failed) or tool list (connected) beneath it.
+// indented error text (failed) or advertised tool list (connected) beneath it.
 func (o mcpOverlay) renderServerLines(srv MCPServerStatus) []string {
 	bulletStyle := o.styles.FgMute
 	switch srv.State {
@@ -100,14 +100,16 @@ func (o mcpOverlay) renderServerLines(srv MCPServerStatus) []string {
 			lines = append(lines, "  "+o.styles.FgMute.Render("no tools advertised"))
 			break
 		}
-		label := fmt.Sprintf("%d tool", len(srv.Tools))
-		if len(srv.Tools) != 1 {
-			label += "s"
-		}
-		label += ": " + strings.Join(srv.Tools, ", ")
-		wrapped := lipgloss.NewStyle().Width(indentWidth).Render(label)
-		for _, l := range strings.Split(wrapped, "\n") {
-			lines = append(lines, "  "+l)
+		for _, t := range srv.Tools {
+			text := t.Name + " (" + t.Outcome + ")"
+			switch t.Outcome {
+			case "filtered", "denied":
+				text = o.styles.FgMute.Render(text)
+			}
+			wrapped := lipgloss.NewStyle().Width(indentWidth).Render(text)
+			for _, l := range strings.Split(wrapped, "\n") {
+				lines = append(lines, "  "+l)
+			}
 		}
 	}
 	return lines

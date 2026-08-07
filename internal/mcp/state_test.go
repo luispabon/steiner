@@ -24,6 +24,13 @@ func TestServerStatusWireValues(t *testing.T) {
 	}
 }
 
+func TestToolOutcomeWireValues(t *testing.T) {
+	// These values are compared in tests and may reach the TUI, so pin them.
+	if ToolRegistered != 0 || ToolFiltered != 1 || ToolDenied != 2 {
+		t.Errorf("ToolOutcome values = %d, %d, %d, want 0, 1, 2", ToolRegistered, ToolFiltered, ToolDenied)
+	}
+}
+
 func TestDeclaredStates(t *testing.T) {
 	tests := []struct {
 		name string
@@ -55,6 +62,12 @@ func TestDeclaredStates(t *testing.T) {
 			got := DeclaredStates(tt.cfg)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("DeclaredStates() = %+v, want %+v", got, tt.want)
+			}
+			// Declared states predate discovery: no advertised tools yet.
+			for _, s := range got {
+				if len(s.AdvertisedTools) != 0 {
+					t.Errorf("DeclaredStates() AdvertisedTools = %+v, want empty", s.AdvertisedTools)
+				}
 			}
 		})
 	}

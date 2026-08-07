@@ -64,11 +64,13 @@ When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the
 
 **2. Build child prompt.** The child prompt is minimal: either the caller-provided `system_prompt` or a default, plus a single user message containing the task (and optional `context`). The system prompt is passed via `PromptOverrides` so the provider sees exactly one system message. When `DelegationSpec.Images` is non-empty, those images are attached to the first user message so the child model sees them immediately without spending a turn on a `read` call.
 
-**3. Build child registries.** Two registries are built from the parent via `BootstrapDeps.AllowedTools` (populated per agent type from `AgentAllowedTools(agentType)`):
+**3. Build child registries.** Two registries are built from the parent via `BootstrapDeps.AllowedTools` (populated per agent type from `AgentAllowedTools(agentType)`, merged with `DelegateDeps.ExtraAllowedTools[agentType]` when the projection is non-nil):
 - **Visible registry** — what the model can see and request: parent base registry tools filtered to `AllowedTools`, always excluding `follow_up` and `workflow_handoff`.
 - **Execution registry** — same filtered tools but with all approval modes forced to `ApprovalModeAuto`.
 
 If `AllowedTools` is empty, no tools are available to the child. This ensures children cannot delegate further, never block on approval, and only access the explicitly permitted tool set for their agent type.
+
+`DelegateDeps.ExtraAllowedTools` is a per-agent-type projection of additional registered tool names built **externally** and consumed here. Delegation never reads MCP config or interprets tool provenance. When the projection is non-nil, handlers merge the built-in allowlist with `ExtraAllowedTools[agentType]` via `mergedAllowedTools`, producing a new sorted, deduplicated slice that never mutates the shared `agentAllowlists` map. Nil or empty projections grant no extra tools, preserving default-denied MCP behavior; names not present in the parent registry are ignored by `Registry.Subset`. Subsetting clones the original `ToolDef`s, so MCP handlers and provenance survive into the child registries unchanged.
 
 **4. Assemble RunRequest.** Includes the parent's provider instance, a tool executor wrapping the execution registry, `ExtraParams` and `PromptSuffix` propagated from the parent's model config, and no explicit model override (child uses the parent's provider/model by default, unless a per-type model alias is configured).
 
@@ -137,7 +139,7 @@ The `vision` tool uses a dedicated handler (`newVisionHandler`) rather than the 
 3. Reads the image file from `.steiner/tmp/images/` and base64-encodes it.
 4. Builds a `DelegationSpec` with `Images` populated — the image is attached to the sub-agent's first conversation message via `buildChildPrompt`.
 5. Resolves the per-type model from `sub_agent.agents.vision.model`.
-6. Calls `BuildChildRun` and `SpawnDelegate` with the vision allowlist (`["read"]`) and vision system prompt.
+6. Calls `BuildChildRun` and `SpawnDelegate` with the vision allowlist (`["read"]`, plus any `ExtraAllowedTools[vision]`) and vision system prompt.
 7. Saves the child session so the parent model can use `follow_up` for additional questions about the same image without re-uploading it.
 8. Appends a `follow_up` reminder (with `agent_id`) to the returned result.
 
@@ -174,3 +176,4 @@ When delegation is enabled, the system prompt preamble includes a delegation ins
 10. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist.
 11. **Enforced allowlist**: `BootstrapDeps.AllowedTools` is enforced during child registry construction; only listed tools (minus `follow_up` and `workflow_handoff`) are visible and executable.
 12. **Per-type allowlists**: each specialised agent type has its own tool allowlist, resolved via `AgentAllowedTools(agentType)` and passed as `BootstrapDeps.AllowedTools` — there is no user-configurable global allowlist.
+13. **Extra tool projection**: `DelegateDeps.ExtraAllowedTools` adds per-agent-type registered tool names to child registries. Nil or empty projections grant nothing; unknown names are ignored by `Registry.Subset`; merged lists are sorted and deduplicated without mutating the built-in allowlists; original ToolDef handlers and MCP provenance are retained.

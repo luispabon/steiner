@@ -584,6 +584,9 @@ Each server entry (`MCPServerConfig`) supports:
 | `approval`          | string             | `"ask"`     | Approval mode for the server's tools. One of `ask` (prompt per tool call), `allow` (run without prompting in build mode, downgraded to `ask` in plan mode), or `deny` (register no tools). |
 | `trust_annotations` | bool               | `false`     | When `true`, tools advertised with `readOnlyHint: true` skip approval; `destructiveHint` and `openWorldHint` tools still prompt. |
 | `connect_timeout`   | duration           | `"15s"`     | Maximum time to wait for the MCP connection to be established. Absent or `0` falls back to `15s` (mirrors crush's default, range 5-30s); negative values are rejected. |
+| `allowed_tools`     | []string           | —           | Optional allowlist of MCP-native tool names for this server. Only listed names are registered; registered names like `mcp__<server>__<tool>` are not accepted as entries. Missing means no allowlist restriction; an explicit empty list (`allowed_tools: []`) registers no tools (denies all). |
+| `blocked_tools`     | []string           | —           | Optional denylist of MCP-native tool names. Applied after `allowed_tools`: a tool that survives the allowlist is removed if its name appears here. |
+| `sub_agents`        | []string           | —           | Agent types allowed to use this server's tools. Defaults to closed: missing or `[]` grants no MCP tools to any child. Valid values: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`. |
 
 ```yaml
 mcp:

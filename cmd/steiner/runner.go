@@ -63,6 +63,11 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
 	searcher, _ := builtin.NewSearchBackend(r.runtime.cfg.Search)
+	// The MCP exposure projection is derived at composition time from the
+	// completed registered set: in interactive mode the session runner has
+	// already WaitInit'ed and re-registered late MCP defs before this run, so
+	// the projection always sees the final tool list.
+	exposure := BuildMCPExposure(r.runtime.registry.Definitions(), r.runtime.cfg.MCP.Servers)
 	activeRegistry, err := delegation.BuildDelegateRegistry(delegation.DelegateDeps{
 		BaseRegistry:       r.runtime.registry,
 		SubAgentCfg:        r.runtime.cfg.SubAgent,
@@ -82,6 +87,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		UsageRecorder:      r.runtime.usageRecorder,
 		SessionStore:       r.runtime.delegationSessionStore,
 		ImageStore:         r.runtime.imageStore,
+		ExtraAllowedTools:  exposure,
 	})
 	if err != nil {
 		return runResult{}, err

@@ -128,9 +128,26 @@ regardless of whether it connected. Each entry shows:
 - a status bullet, coloured (not shaped) by state — green for `connected`, red for `failed` and
   `unavailable`, muted for `disabled` and the in-flight states `connecting`/`reconnecting`
 - the server name, state label, and transport
-- for a connected server: its tool count and tool names, or an explicit "no tools advertised" note
-  if it exposes none (a real misconfiguration signal, not treated as a blank)
+- for a connected server: every advertised tool with its access status, one per line —
+  `name (registered)`, `name (filtered)` or `name (denied)` — or an explicit "no tools
+  advertised" note if the server advertises none (a real misconfiguration signal, not treated
+  as a blank)
 - for a failed or unavailable server: the error text, indented beneath its status line
+
+The per-tool status is the effective access after filtering and approval:
+
+- `registered` — the tool passed filtering and its definition is registered, so the model can
+  call it (subject to the server's approval mode at call time).
+- `filtered` — the tool was excluded by `allowed_tools` or `blocked_tools`; it is advertised but
+  not registered and cannot be called.
+- `denied` — the server's approval mode is `deny`, so no tool registers; the overlay lists every
+  advertised tool to show why nothing is callable.
+
+Filtered and denied entries are dimmed and display-only: they are not actionable and cannot
+trigger tool calls. To troubleshoot a missing tool, check the server's `allowed_tools` /
+`blocked_tools` when it shows `filtered`, and its `approval` mode when everything shows
+`denied`. Per-tool approval overrides, as a finer-grained alternative to whole-server modes, are
+deferred and not yet configurable.
 
 When MCP is disabled in config, the overlay says so and still lists every declared server as
 disabled — useful for a user who forgot to flip the flag. When no servers are configured, it says
