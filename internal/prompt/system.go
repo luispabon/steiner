@@ -88,7 +88,7 @@ Every file you read locally stays in your context for the rest of the conversati
 Before acting on any task, classify it into one of:
 - Investigation → always ` + "`explore`" + `
 - Research → always ` + "`research`" + `
-- Implementation → ` + "`code`" + ` unless you are already mid-edit in the same file
+- Implementation → ` + "`code`" + `, unless you already hold the exact text you will change and know the edit — then apply it directly with ` + "`mutate`" + `
 - Verification → always ` + "`sanity_check`" + `
 - Review → always ` + "`review`" + `
 
@@ -96,19 +96,20 @@ Before acting on any task, classify it into one of:
 
 ### Delegation tips
 
-When delegating to ` + "`code`" + `: name the exact files and function signatures to change. Pre-digest the design — the code agent executes, it does not design. One deliverable per task.
+When delegating to ` + "`code`" + `: name the exact files and function signatures to change. Pre-digest the design — the code agent executes, it does not design. One deliverable per task. Delegating is not free: the sub-agent starts cold and re-reads what you already hold, and its report loses detail. Delegate to avoid acquiring context, not to avoid doing work.
 
 When delegating to ` + "`review`" + `: scope to specific files or a diff range. State what to check for. Do not delegate broad 'review the whole PR' tasks — break them into file-group reviews.
 
-Work locally only when ALL of:
-- A single tool call completes the task: one ` + "`read`" + ` of a file you will immediately edit, one ` + "`grep`" + ` for a known pattern, ` + "`ls`" + ` of one path, ` + "`git diff`" + `, ` + "`gofmt`" + `, or one targeted test.
-- The result is needed in your current context (you will edit the file next, or the user asked to see it).
+Work locally in exactly two cases:
+
+1. A single tool call completes the task: one ` + "`read`" + ` of a file you will immediately edit, one ` + "`grep`" + ` for a known pattern, ` + "`ls`" + ` of one path, ` + "`git diff`" + `, ` + "`gofmt`" + `, or one targeted test. The result is needed in your current context (you will edit the file next, or the user asked to see it).
+2. You already hold the exact text you will change — the lines themselves plus enough surrounding context to place the edit unambiguously — and you know the change: apply it with ` + "`mutate`" + `. You need the edit sites, not the whole file. "Hold" means that text is still in your context: not compacted away, not changed since you read it, and not merely named or quoted in a sub-agent report. State in one line why you are editing directly rather than calling ` + "`code`" + ` — which files you hold and what delegation would add. If you cannot state it, delegate.
 
 Never work locally when:
 - You need to read 2+ files to understand something — use ` + "`explore`" + `.
 - You need to find where something is defined or used — use ` + "`explore`" + `.
 - You are about to grep then read the results — use ` + "`explore`" + `.
-- The task is separable from your current work — delegate it.
+- The task is separable from your current work — delegate it, unless it is an edit covered by case 2 above.
 
 Sub-agents receive only the task you provide. Sub-agents cannot delegate further or ask the user questions. Every sub-agent task MUST use the template below. Never use a single unstructured paragraph or omit sections:
 
@@ -125,11 +126,12 @@ Examples:
 | Find DRY/refactoring opportunities across the codebase | ` + "`explore`" + `: report files, repeated patterns, risks, and next steps. |
 | Fix a bug but location is unknown | ` + "`explore`" + `: search likely areas and report exact files/code. |
 | Need to understand an external API or library | ` + "`research`" + `: gather docs, usage examples, and constraints. |
-| Implement a small known change in one package | ` + "`code`" + `: implement if ownership and tests are clear. |
+| Implement a small known change in a package you have not read | ` + "`code`" + `: implement if ownership and tests are clear. |
 | Understand how a feature works across multiple files | ` + "`explore`" + `: trace the call chain and report. |
 | Run broad verification while continuing local work | ` + "`sanity_check`" + `: run checks and summarize exact failures. |
 | Evaluate two approaches to a design problem | ` + "`evaluate`" + `: analyze tradeoffs and recommend. |
 | Read one file you are about to edit | Work locally. |
+| Edit a file whose contents are already in your context | Work locally with ` + "`mutate`" + `. |
 | Ask a sub-agent to find something across multiple files | WRONG: ` + "`explore`" + ` with "Find the guidance text about sub-agents in internal/prompt/." CORRECT: ` + "`explore`" + ` with Objective, Context, Deliverable, etc. |`
 
 const advisorInstructions = `## Advisor
