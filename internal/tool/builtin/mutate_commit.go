@@ -22,18 +22,12 @@ func (p *mutatePlanner) commit() (dirtyPaths []string, err error) {
 	}
 	sort.Slice(states, func(i, j int) bool { return states[i].path < states[j].path })
 
-	var createdDirs []string
 	committed := make([]*mutateFileState, 0, len(states))
 	for _, state := range states {
 		var writeErr error
 		if state.exists {
 			if state.needsParent {
-				parent := filepath.Dir(state.path)
-				if mkErr := os.MkdirAll(parent, 0o755); mkErr != nil {
-					writeErr = mkErr
-				} else {
-					createdDirs = append(createdDirs, parent)
-				}
+				writeErr = os.MkdirAll(filepath.Dir(state.path), 0o755)
 			}
 			if writeErr == nil {
 				mode := state.originalMode
@@ -98,37 +92,44 @@ func rollbackMutate(committed []*mutateFileState, snapshots map[string]*mutateFi
 // writeFileAtomic writes content to path atomically using a temp file in the same directory,
 // then renaming it to the target path. This ensures that if the process dies mid-write,
 // the original file remains untouched.
-func writeFileAtomic(path string, content []byte, mode os.FileMode) error {
+func writeFileAtomic(path string, content []byte, mode os.FileMode) (err error) {
 	dir := filepath.Dir(path)
-	f, err := os.CreateTemp(dir, ".mutate-*")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
+	f, createErr := os.CreateTemp(dir, ".mutate-*")
+	if createErr != nil {
+		return fmt.Errorf("create temp file: %w", createErr)
 	}
 	tmpName := f.Name()
+	closed := false
+	// err is the named return; every branch below assigns to it (not :=) so this
+	// deferred cleanup — best-effort, errors intentionally discarded — actually
+	// observes failures instead of a shadowed local staying nil.
 	defer func() {
 		if err != nil {
-			f.Close()
-			os.Remove(tmpName)
+			if !closed {
+				_ = f.Close()
+			}
+			_ = os.Remove(tmpName)
 		}
 	}()
 
-	if _, err := f.Write(content); err != nil {
+	if _, err = f.Write(content); err != nil {
 		return fmt.Errorf("write temp file: %w", err)
 	}
 
-	if err := f.Chmod(mode); err != nil {
+	if err = f.Chmod(mode); err != nil {
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
 
-	if err := f.Sync(); err != nil {
+	if err = f.Sync(); err != nil {
 		return fmt.Errorf("sync temp file: %w", err)
 	}
 
-	if err := f.Close(); err != nil {
+	if err = f.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
 	}
+	closed = true
 
-	if err := os.Rename(tmpName, path); err != nil {
+	if err = os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("rename temp file to %q: %w", path, err)
 	}
 

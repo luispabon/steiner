@@ -146,66 +146,83 @@ func isStructuralOnlyCandidate(candidate string) bool {
 	return true
 }
 
-func findDiagnosticAnchor(content []byte, oldText string) (int, int, int, string, bool) {
-	candidates := diagnosticAnchorCandidates(oldText)
+// anchorSurvivor is a diagnostic-anchor candidate that occurs in the file
+// within the max-occurrence threshold applied by collectAnchorSurvivors.
+type anchorSurvivor struct {
+	candidate string
+	idx       int
+	count     int
+}
 
-	type survivor struct {
-		candidate string
-		idx       int
-		count     int
-	}
-	var survivors []survivor
+// maxAnchorOccurrences rejects candidates occurring more than this many times
+// in the file — beyond this, a candidate is common enough to be noise rather
+// than a trustworthy anchor (e.g. a repeated structural token).
+const maxAnchorOccurrences = 3
 
+// anchorProximityWindow is the byte distance within which another candidate's
+// match counts as corroborating evidence for the cluster-score tiebreaker.
+const anchorProximityWindow = 300
+
+func collectAnchorSurvivors(content []byte, candidates []string) []anchorSurvivor {
+	var survivors []anchorSurvivor
 	for _, candidate := range candidates {
 		idx := bytes.Index(content, []byte(candidate))
 		if idx < 0 {
 			continue
 		}
 		count := bytes.Count(content, []byte(candidate))
-		if count > 3 {
+		if count > maxAnchorOccurrences {
 			continue
 		}
-		survivors = append(survivors, survivor{
-			candidate: candidate,
-			idx:       idx,
-			count:     count,
-		})
+		survivors = append(survivors, anchorSurvivor{candidate: candidate, idx: idx, count: count})
 	}
+	return survivors
+}
 
+// anchorClusterScore counts how many other survivors' matches fall within
+// anchorProximityWindow bytes of target's match — corroborating evidence that
+// this location, not just this candidate, is the right one.
+func anchorClusterScore(target anchorSurvivor, all []anchorSurvivor) int {
+	score := 0
+	for _, other := range all {
+		if other.candidate == target.candidate {
+			continue
+		}
+		if other.idx-target.idx >= -anchorProximityWindow && other.idx-target.idx <= anchorProximityWindow {
+			score++
+		}
+	}
+	return score
+}
+
+// anchorSurvivorBetter reports whether s should replace best as the winning
+// anchor, ranking by occurrence count (fewer wins), then cluster score
+// (higher wins), then candidate length (longer wins), then earliest match.
+func anchorSurvivorBetter(s, best anchorSurvivor, clusterS, clusterBest int) bool {
+	if s.count != best.count {
+		return s.count < best.count
+	}
+	if clusterS != clusterBest {
+		return clusterS > clusterBest
+	}
+	if len(s.candidate) != len(best.candidate) {
+		return len(s.candidate) > len(best.candidate)
+	}
+	return s.idx < best.idx
+}
+
+func findDiagnosticAnchor(content []byte, oldText string) (int, int, int, string, bool) {
+	candidates := diagnosticAnchorCandidates(oldText)
+	survivors := collectAnchorSurvivors(content, candidates)
 	if len(survivors) == 0 {
 		return 0, 0, 0, "", false
 	}
 
-	const proximityWindow = 300
-
 	best := survivors[0]
 	for _, s := range survivors[1:] {
-		clusterBest := 0
-		clusterS := 0
-		for _, other := range survivors {
-			if other.candidate != best.candidate && other.idx-best.idx >= -proximityWindow && other.idx-best.idx <= proximityWindow {
-				clusterBest++
-			}
-			if other.candidate != s.candidate && other.idx-s.idx >= -proximityWindow && other.idx-s.idx <= proximityWindow {
-				clusterS++
-			}
-		}
-
-		sBetter := false
-		if s.count < best.count {
-			sBetter = true
-		} else if s.count == best.count {
-			if clusterS > clusterBest {
-				sBetter = true
-			} else if clusterS == clusterBest {
-				if len(s.candidate) > len(best.candidate) {
-					sBetter = true
-				} else if len(s.candidate) == len(best.candidate) && s.idx < best.idx {
-					sBetter = true
-				}
-			}
-		}
-		if sBetter {
+		clusterBest := anchorClusterScore(best, survivors)
+		clusterS := anchorClusterScore(s, survivors)
+		if anchorSurvivorBetter(s, best, clusterS, clusterBest) {
 			best = s
 		}
 	}

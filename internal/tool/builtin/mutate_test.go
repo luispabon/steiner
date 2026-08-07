@@ -2788,7 +2788,9 @@ func TestMutateCommitPhaseFailureAccounting(t *testing.T) {
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() {
-		os.Chmod(readonlyDir, 0o755)
+		if err := os.Chmod(readonlyDir, 0o755); err != nil {
+			t.Errorf("cleanup chmod %q: %v", readonlyDir, err)
+		}
 	})
 
 	got := runMutate(t, toolDef, map[string]any{

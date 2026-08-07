@@ -29,7 +29,11 @@ func TestCommitAtomicWrite_FailureDoesNotCorruptFirstFile(t *testing.T) {
 	if err := os.Chmod(bDir, 0o555); err != nil {
 		t.Fatalf("chmod dir to read-only: %v", err)
 	}
-	t.Cleanup(func() { os.Chmod(bDir, 0o755) })
+	t.Cleanup(func() {
+		if err := os.Chmod(bDir, 0o755); err != nil {
+			t.Errorf("cleanup chmod %q: %v", bDir, err)
+		}
+	})
 
 	// Skip test if running as root (root ignores directory permissions).
 	if os.Geteuid() == 0 {
@@ -109,7 +113,11 @@ func TestCommitNoLeftoverTempFiles(t *testing.T) {
 	if err := os.Chmod(bDir, 0o555); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
-	t.Cleanup(func() { os.Chmod(bDir, 0o755) })
+	t.Cleanup(func() {
+		if err := os.Chmod(bDir, 0o755); err != nil {
+			t.Errorf("cleanup chmod %q: %v", bDir, err)
+		}
+	})
 
 	if os.Geteuid() == 0 {
 		t.Skip("test requires non-root")
@@ -145,7 +153,11 @@ func TestCommitRollbackFailureReportsAffectedPaths(t *testing.T) {
 	if err := os.WriteFile(aPath, []byte("original a"), 0o444); err != nil {
 		t.Fatalf("setup aPath: %v", err)
 	}
-	t.Cleanup(func() { os.Chmod(aPath, 0o755) })
+	t.Cleanup(func() {
+		if err := os.Chmod(aPath, 0o755); err != nil {
+			t.Errorf("cleanup chmod %q: %v", aPath, err)
+		}
+	})
 
 	// Create b.txt in a subdirectory that will become read-only.
 	bDir := filepath.Join(root, "bdir")
@@ -161,7 +173,11 @@ func TestCommitRollbackFailureReportsAffectedPaths(t *testing.T) {
 	if err := os.Chmod(bDir, 0o555); err != nil {
 		t.Fatalf("chmod bDir: %v", err)
 	}
-	t.Cleanup(func() { os.Chmod(bDir, 0o755) })
+	t.Cleanup(func() {
+		if err := os.Chmod(bDir, 0o755); err != nil {
+			t.Errorf("cleanup chmod %q: %v", bDir, err)
+		}
+	})
 
 	toolDef := newMutateTestTool(t, root)
 	got := runMutate(t, toolDef, map[string]any{
@@ -273,6 +289,30 @@ func TestCommitCreatesParentDirInSandbox(t *testing.T) {
 	}
 	if string(content) != "test content" {
 		t.Errorf("file content = %q, want %q", string(content), "test content")
+	}
+}
+
+// TestWriteFileAtomicCleansUpOnRenameFailure exercises the failure path *after*
+// CreateTemp has already succeeded (write, chmod, sync, and the explicit close
+// all complete normally; only the final Rename fails because the destination
+// is an existing directory). This guards against writeFileAtomic's error
+// variable being shadowed by inner `:=` declarations, which would leave the
+// deferred cleanup unable to observe the failure and orphan the temp file.
+func TestWriteFileAtomicCleansUpOnRenameFailure(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "conflict")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+
+	err := writeFileAtomic(target, []byte("content"), 0o644)
+	if err == nil {
+		t.Fatal("writeFileAtomic err = nil, want rename failure (target is a directory)")
+	}
+
+	leftover := globTempFiles(t, dir)
+	if len(leftover) > 0 {
+		t.Errorf("temp files left behind after rename failure: %v", leftover)
 	}
 }
 
