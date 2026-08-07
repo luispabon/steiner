@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-func (p *mutatePlanner) commit() error {
+func (p *mutatePlanner) commit() (dirtyPaths []string, err error) {
 	snapshots := make(map[string]*mutateFileState, len(p.states))
 	states := make([]*mutateFileState, 0, len(p.states))
 	for path, state := range p.states {
@@ -22,35 +22,47 @@ func (p *mutatePlanner) commit() error {
 	}
 	sort.Slice(states, func(i, j int) bool { return states[i].path < states[j].path })
 
+	var createdDirs []string
 	committed := make([]*mutateFileState, 0, len(states))
 	for _, state := range states {
-		var err error
+		var writeErr error
 		if state.exists {
-			mode := state.originalMode
-			if mode == 0 {
-				mode = 0o644
+			if state.needsParent {
+				parent := filepath.Dir(state.path)
+				if mkErr := os.MkdirAll(parent, 0o755); mkErr != nil {
+					writeErr = mkErr
+				} else {
+					createdDirs = append(createdDirs, parent)
+				}
 			}
-			err = os.WriteFile(state.path, state.content, mode)
+			if writeErr == nil {
+				mode := state.originalMode
+				if mode == 0 {
+					mode = 0o644
+				}
+				writeErr = writeFileAtomic(state.path, state.content, mode)
+			}
 		} else {
-			err = os.Remove(state.path)
-			if errors.Is(err, os.ErrNotExist) {
-				err = nil
+			writeErr = os.Remove(state.path)
+			if errors.Is(writeErr, os.ErrNotExist) {
+				writeErr = nil
 			}
 		}
-		if err != nil {
-			rollbackErr := rollbackMutate(committed, snapshots)
+		if writeErr != nil {
+			failedPaths, rollbackErr := rollbackMutate(committed, snapshots)
 			if rollbackErr != nil {
-				return errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
+				return failedPaths, errors.Join(writeErr, fmt.Errorf("rollback failed: %w", rollbackErr))
 			}
-			return err
+			return nil, writeErr
 		}
 		committed = append(committed, state)
 	}
-	return nil
+	return nil, nil
 }
 
-func rollbackMutate(committed []*mutateFileState, snapshots map[string]*mutateFileState) error {
+func rollbackMutate(committed []*mutateFileState, snapshots map[string]*mutateFileState) ([]string, error) {
 	var errs []string
+	var failedPaths []string
 	for i := len(committed) - 1; i >= 0; i-- {
 		snapshot := snapshots[committed[i].path]
 		if snapshot == nil {
@@ -74,36 +86,52 @@ func rollbackMutate(committed []*mutateFileState, snapshots map[string]*mutateFi
 		}
 		if err != nil {
 			errs = append(errs, err.Error())
+			failedPaths = append(failedPaths, snapshot.displayPath)
 		}
 	}
 	if len(errs) > 0 {
-		return errors.New(strings.Join(errs, "; "))
+		return failedPaths, errors.New(strings.Join(errs, "; "))
 	}
-	return nil
+	return nil, nil
 }
 
-// ensureParentDirExists is called by the commit phase to verify or create
-// parent directories. For sandbox tmpDir paths, it creates missing parents;
-// for other paths, it only verifies existence. This prevents silent directory
-// tree creation outside the sandbox while allowing full access within it.
-func ensureParentDirExists(path string, isSandboxTmpPath bool) error {
-	parent := filepath.Dir(path)
-	info, err := os.Stat(parent)
+// writeFileAtomic writes content to path atomically using a temp file in the same directory,
+// then renaming it to the target path. This ensures that if the process dies mid-write,
+// the original file remains untouched.
+func writeFileAtomic(path string, content []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, ".mutate-*")
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("parent directory %q: %w", parent, err)
-		}
-		if !isSandboxTmpPath {
-			return fmt.Errorf("parent directory %q: %w", parent, err)
-		}
-		if mkErr := os.MkdirAll(parent, 0o755); mkErr != nil {
-			return fmt.Errorf("create parent directory %q: %w", parent, mkErr)
-		}
-		return nil
+		return fmt.Errorf("create temp file: %w", err)
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("parent %q is not a directory", parent)
+	tmpName := f.Name()
+	defer func() {
+		if err != nil {
+			f.Close()
+			os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := f.Write(content); err != nil {
+		return fmt.Errorf("write temp file: %w", err)
 	}
+
+	if err := f.Chmod(mode); err != nil {
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("sync temp file: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("rename temp file to %q: %w", path, err)
+	}
+
 	return nil
 }
 

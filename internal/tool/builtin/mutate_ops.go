@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -21,7 +23,7 @@ func (p *mutatePlanner) planCreate(index int, op MutateOperation) error {
 	if state.exists {
 		return fmt.Errorf("mutate: operation %d create: %s already exists", index, state.displayPath)
 	}
-	if err := ensureParentDirExists(state.path, p.isSandboxTmpPath(state.path)); err != nil {
+	if err := verifyParentDirExists(state.path, p.isSandboxTmpPath(state.path), state); err != nil {
 		return fmt.Errorf("mutate: operation %d create: %w", index, err)
 	}
 	before := string(state.content)
@@ -48,7 +50,7 @@ func (p *mutatePlanner) planWrite(index int, op MutateOperation) error {
 	if state.exists && state.isDir {
 		return fmt.Errorf("mutate: operation %d write: %s is a directory", index, state.displayPath)
 	}
-	if err := ensureParentDirExists(state.path, p.isSandboxTmpPath(state.path)); err != nil {
+	if err := verifyParentDirExists(state.path, p.isSandboxTmpPath(state.path), state); err != nil {
 		return fmt.Errorf("mutate: operation %d write: %w", index, err)
 	}
 	if op.Content == "" && state.exists && len(state.content) > 0 && !op.AllowEmpty {
@@ -286,7 +288,7 @@ func (p *mutatePlanner) planMove(index int, op MutateOperation) error {
 	if to.exists {
 		return fmt.Errorf("mutate: operation %d move: %s already exists", index, to.displayPath)
 	}
-	if err := ensureParentDirExists(to.path, p.isSandboxTmpPath(to.path)); err != nil {
+	if err := verifyParentDirExists(to.path, p.isSandboxTmpPath(to.path), to); err != nil {
 		return fmt.Errorf("mutate: operation %d move: %w", index, err)
 	}
 	to.exists = true
@@ -420,6 +422,29 @@ func detectLineEnding(lines []string) string {
 		}
 	}
 	return "\n"
+}
+
+// verifyParentDirExists verifies the parent directory exists (plan-phase only, side-effect-free).
+// For non-sandbox paths, it returns an error if the parent doesn't exist.
+// For sandbox tmp paths, it marks the state to create the parent during commit.
+func verifyParentDirExists(path string, isSandboxTmpPath bool, state *mutateFileState) error {
+	parent := filepath.Dir(path)
+	info, err := os.Stat(parent)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("parent directory %q: %w", parent, err)
+		}
+		if !isSandboxTmpPath {
+			return fmt.Errorf("parent directory %q: %w", parent, err)
+		}
+		// Parent doesn't exist, but it's a sandbox tmp path — mark for creation at commit time.
+		state.needsParent = true
+		return nil
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("parent %q is not a directory", parent)
+	}
+	return nil
 }
 
 func verifyAssertions(index int, op MutateOperation, state *mutateFileState) ([]MutateAssertionResult, error) {
