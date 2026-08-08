@@ -182,7 +182,7 @@ Steiner exposes these model-facing built-in tools:
 - `display_file` — show a file in the TUI overlay without adding contents to conversation
 - `advisor` — ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`)
 - `workflow_handoff` — transition to a different workflow with approved artifacts
-- `mcp__<server>__<tool>` — MCP tools registered from connected MCP servers appear alongside built-ins with the `mcp__` prefix (tool names include an 8-hex sha256 hash suffix for uniqueness). Their schemas and results come from third-party servers, not steiner.
+- `mcp__<server>__<tool>` — MCP tools registered from connected MCP servers appear alongside built-ins with the `mcp__` prefix (tool names may include an optional 8-hex SHA-256 hash suffix when sanitisation or truncation is required). Their schemas and results come from third-party servers, not steiner.
 
 Steiner owns the schemas and result formats. Dive implements the behavior.
 

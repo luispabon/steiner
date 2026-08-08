@@ -234,6 +234,8 @@ mcp:
       enabled: true
       command: npx
       args: [-y, context-mode]
+      env:
+        npm_config_cache: /tmp/npm-cache
     microsoft-learn:
       enabled: true
       transport: http

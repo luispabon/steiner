@@ -20,13 +20,15 @@ mcp:
       enabled: true
       command: npx
       args: ["-y", "context-mode"]
-    learn:                   # remote HTTP server
+      env:
+        npm_config_cache: /tmp/npm-cache
+    microsoft-learn:          # remote HTTP server
       enabled: true
       transport: http
       url: https://learn.microsoft.com/api/mcp
 ```
 
-Both examples set server-level `enabled: true`, because that is the per-server default: omitting it leaves the server disabled. Per-server defaults applied when fields are omitted: `transport` falls back to `stdio`, `approval` to `ask`, and `connect_timeout` to `15s` (`internal/config/load.go:90-106`).
+Both examples set server-level `enabled: true` because the per-server default is `false`: omitting it leaves the server disabled. Per-server defaults applied when fields are omitted: `transport` falls back to `stdio`, `approval` to `ask`, and `connect_timeout` to `15s` (`internal/config/load.go:90-106`).
 
 The `env` map under each server is passed to the server process verbatim and bypasses the sandbox env allowlist entirely, since it is declared config rather than inherited host state (`internal/mcp/command.go:52-54`). That makes it the correct place for a server's own credentials or API keys, even when `sandbox.enabled: true`.
 
@@ -109,7 +111,7 @@ Each call is bounded by `limits.tool_timeout_default` (default `30s`), with per-
 | MCP prompts | Not implemented. No prompts API. |
 | Sampling and elicitation | Not implemented. No sampling handler is registered on the client (`internal/mcp/client.go:133`). |
 | Roots/completions | Not implemented. |
-| Persistent approval grants | Deferred. Session grants are held in memory only (`internal/interactive/wiring.go:33-40`). Tracked in #411; now moved to #438 and #439. |
+| Persistent approval grants | Deferred. Session grants are held in memory only (`internal/interactive/wiring.go:33-40`). See follow-up issues #438 and #439. |
 | Per-tool approval overrides | Deferred. Approval is per-server only; the `/mcp` overlay entries are display-only. |
 | `steiner mcp debug` | Not built. No CLI subcommand exists. |
 | `steiner mcp add` CLI | Not built. No CLI subcommand exists. |
