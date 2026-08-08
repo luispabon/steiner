@@ -110,9 +110,9 @@ func (s *searxngSearcher) Search(ctx context.Context, input *web.SearchInput) (*
 		return nil, fmt.Errorf("search: decode response: %w", err)
 	}
 
-	items := make([]*web.SearchItem, len(searxResp.Results))
+	items := make([]web.SearchItem, len(searxResp.Results))
 	for i, r := range searxResp.Results {
-		items[i] = &web.SearchItem{
+		items[i] = web.SearchItem{
 			URL:         r.URL,
 			Title:       r.Title,
 			Description: r.Content,
