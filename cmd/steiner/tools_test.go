@@ -65,6 +65,31 @@ func TestRuntimeRegistryWithNilManagerRegistersNoMCPTools(t *testing.T) {
 	}
 }
 
+// TestRuntimeRegistryMCPEnabledWithoutServersIsInert proves an enabled-but-empty
+// MCP block registers no tools, and the always-run registry rebuild (runtime_build.go
+// rebuilds whenever the manager is non-nil, and Connect returns a non-nil manager
+// even with zero servers) yields the same tool set as MCP disabled.
+func TestRuntimeRegistryMCPEnabledWithoutServersIsInert(t *testing.T) {
+	cfg := registryTestConfig()
+	cfg.MCP = config.MCPConfig{Enabled: true}
+	mgr := mcp.Connect(context.Background(), cfg.MCP, cfg.Limits, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	t.Cleanup(func() { _ = mgr.Close() })
+	enabled := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, mgr)
+
+	disabledCfg := registryTestConfig()
+	disabledCfg.MCP = config.MCPConfig{Enabled: false}
+	disabled := runtimeRegistryWithSinkAndMode(disabledCfg, t.TempDir(), nil, false, nil, nil, nil, nil)
+
+	for _, name := range enabled.Names() {
+		if strings.HasPrefix(name, "mcp__") {
+			t.Fatalf("enabled-but-empty MCP produced tool %q", name)
+		}
+	}
+	if !slices.Equal(enabled.Names(), disabled.Names()) {
+		t.Fatalf("tool names differ: enabled-but-empty = %v, disabled = %v", enabled.Names(), disabled.Names())
+	}
+}
+
 func TestRuntimeRegistryRegistersMCPToolsAlongsideBuiltins(t *testing.T) {
 	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, mcpFixtureManager(t))
 

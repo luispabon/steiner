@@ -158,6 +158,8 @@ See [Configuration](docs/configuration.md) for all provider types, model fields,
 | `advisor` | Ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`) |
 | `workflow_handoff` | Transition to a different workflow with approved artifacts |
 
+MCP tools from connected servers appear alongside built-ins with the `mcp__<server>__<tool>` prefix.
+
 ## Sandboxing
 
 By default, `bash` and subprocess tools run inside a Linux sandbox (using `bubblewrap`) that restricts writes to files outside the workspace and filters credential-bearing environment variables. The sandbox bind-mounts the entire host filesystem read-only (`--ro-bind / /`), with writable overlays for the workspace and a sandbox state directory (`.steiner/home/`). All installed toolchains, system libraries, and user config files are accessible read-only without per-path configuration.
@@ -221,6 +223,25 @@ For follow-up questions about the same image, use `follow_up` with the `agent_id
 
 The `vision` tool requires a vision-capable model configured under `sub_agent.agents.vision.model`. Image files are deleted automatically when the agent exits.
 
+## MCP
+
+Connect Model Context Protocol servers to give the model access to external tools. MCP is enabled by default. Each server is configured with its own approval mode (ask, allow, deny) and the model sees registered tools alongside built-ins with the `mcp__` prefix.
+
+```yaml
+mcp:
+  servers:
+    context-mode:
+      enabled: true
+      command: npx
+      args: [-y, context-mode]
+    microsoft-learn:
+      enabled: true
+      transport: http
+      url: https://learn.microsoft.com/api/mcp
+```
+
+See [MCP servers](docs/mcp.md) for the full reference.
+
 ## Optional features
 
 ### Advisor
@@ -280,7 +301,7 @@ These features are documented in [Optional Features](docs/optional-features.md):
 - [**Conversation forking**](docs/optional-features.md#conversation-forking) — fork live or saved sessions into independent copies
 - [**Code simplification**](docs/optional-features.md#code-simplification) — parallel sub-agent analysis for reuse, simplification, efficiency, and altitude
 - [**Codex OAuth**](docs/optional-features.md#codex-oauth) — use OpenAI Codex subscription models without a separate API key
-- [**MCP servers**](docs/mcp.md) — connect Model Context Protocol servers with per-server approval control (behind a feature flag, off by default)
+- [**MCP servers**](docs/mcp.md) — connect Model Context Protocol servers with per-server approval control
 
 ## Self-update
 

@@ -49,3 +49,10 @@ func TestApplyMCPDefaultsTransport(t *testing.T) {
 		t.Errorf("explicit transport = %q, want %q", got, "stdio")
 	}
 }
+
+func TestDefaultConfigMCPEnabled(t *testing.T) {
+	cfg := defaultConfig()
+	if !cfg.MCP.Enabled {
+		t.Errorf("DefaultConfig().MCP.Enabled = false, want true")
+	}
+}

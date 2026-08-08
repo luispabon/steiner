@@ -676,6 +676,59 @@ func TestManagerConnect(t *testing.T) {
 	})
 }
 
+// TestManagerInertWithZeroServers proves an enabled-but-empty MCP config is
+// inert: no state is recorded, no callbacks fire, and WaitInit returns
+// immediately, so no exec/network is possible by construction.
+func TestManagerInertWithZeroServers(t *testing.T) {
+	checkInert := func(t *testing.T, servers map[string]config.MCPServerConfig) {
+		t.Helper()
+		var warns, infos, changes []string
+		m := Connect(context.Background(), config.MCPConfig{Enabled: true, Servers: servers}, config.LimitsConfig{}, nil, false,
+			func(msg string) { warns = append(warns, msg) },
+			func(msg string) { infos = append(infos, msg) },
+			io.Discard,
+			func() { changes = append(changes, "state change") })
+		defer m.Close() //nolint:errcheck
+
+		if got := m.ServerStates(); len(got) != 0 {
+			t.Fatalf("ServerStates() has %d entries, want 0: %+v", len(got), got)
+		}
+		if got := m.ToolDefs(); len(got) != 0 {
+			t.Fatalf("ToolDefs() has %d tools, want 0: %v", len(got), got)
+		}
+		// WaitInit must return before a short deadline: with zero servers no
+		// connect goroutine exists to wait on.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := m.WaitInit(ctx); err != nil {
+			t.Fatalf("WaitInit: %v, want nil", err)
+		}
+		if len(warns) != 0 || len(infos) != 0 || len(changes) != 0 {
+			t.Fatalf("callbacks fired: warns=%v infos=%v changes=%v, want none", warns, infos, changes)
+		}
+	}
+
+	t.Run("nil servers", func(t *testing.T) {
+		checkInert(t, nil)
+	})
+	t.Run("empty servers map", func(t *testing.T) {
+		checkInert(t, map[string]config.MCPServerConfig{})
+	})
+	t.Run("disabled config still declares states", func(t *testing.T) {
+		cfg := config.MCPConfig{
+			Enabled: false,
+			Servers: map[string]config.MCPServerConfig{
+				"fixture": {Enabled: true, Command: "/nonexistent/steiner-no-such-binary"},
+			},
+		}
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		want := []ServerState{{Name: "fixture", Status: ServerStatusDisabled, Transport: "stdio"}}
+		if got := m.ServerStates(); !reflect.DeepEqual(got, want) {
+			t.Errorf("ServerStates() = %+v, want %+v", got, want)
+		}
+	})
+}
+
 // TestFilter verifies allow/block filtering on connect: which tools register,
 // the retained per-tool outcomes, and unknown-reference warnings.
 func TestFilter(t *testing.T) {

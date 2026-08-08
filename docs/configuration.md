@@ -73,6 +73,7 @@ If `OPENAI_API_KEY` is not set, configuration loading fails. If `OPENAI_BASE_URL
 | `advisor`           | block    | see below   | Optional stronger-model steering config. When enabled, the advisor tool is available to the main loop and its per-run cap is enforced in handler state so the tool registry stays static for prompt-cache integrity. |
 | `oneshot`           | block    | empty       | Closeout settings for autonomous oneshot runs. Per-phase model aliases live under `models.oneshot`. |
 | `desktop_notifications` | block | see below | Desktop notification settings for run completion and events. |
+| `mcp`               | block    | see below   | Model Context Protocol server configuration. |
 
 ## `advisor` block
 
@@ -565,12 +566,13 @@ tools:
 
 ## `mcp` block
 
-Configures Model Context Protocol (MCP) servers. MCP is off by default. See
+Configures Model Context Protocol (MCP) servers. MCP is enabled by default.
+Individual servers must still be enabled explicitly via `servers.<name>.enabled`. See
 [docs/mcp.md](mcp.md) for the TUI surfaces and approval behavior.
 
 | Field    | Type   | Default | Description |
 |----------|--------|---------|-------------|
-| `enabled`| bool   | `false` | Master switch for the MCP client. |
+| `enabled`| bool   | `true` | Master switch for the MCP client. |
 | `servers`| map    | —       | Per-server configuration under `mcp.servers.<name>`. |
 
 Each server entry (`MCPServerConfig`) supports:
