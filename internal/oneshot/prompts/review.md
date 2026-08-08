@@ -52,6 +52,8 @@ Map final status as:
 
 Only fixable blocking findings enter the fix plan by default. Include non-blocking fixes only when directly adjacent and negligible in scope.
 
+Every interim and final review status response must report all currently known blocking and non-blocking findings and all relevant informational notes, including when the status is `fail`. Later fix or verification passes may add, resolve, withdraw, or reclassify findings, but must state the changed disposition and must not silently omit findings reported earlier. Record checks that could not run because of the environment as verification gaps, and branch push or PR/MR readiness — including a local-only branch — as closeout notes rather than code findings.
+
 ## Review-Fix Loop
 
 You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on implementation-scoped files. All review-fix edits MUST be performed by delegated `code` sub-agents. Doing it directly is a violation, not a fallback. There is no inline fix tier; if delegation itself is unavailable, stop and report a blocker.
