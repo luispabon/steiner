@@ -3139,7 +3139,7 @@ func TestNotifyWorkflowHandoffFiresNotification(t *testing.T) {
 	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
 	m.sidebar.branch = "main"
 
-	_ = m.applyEvent(output.NewWorkflowHandoffRequestedEvent("next", "target", "message"))
+	_ = m.applyEvent(output.NewWorkflowHandoffRequestedEvent("next", "target", "message", ""))
 
 	time.Sleep(20 * time.Millisecond)
 
@@ -3632,7 +3632,7 @@ func TestModelWorkflowHandoffOpensModalImmediately(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-3", "handoff now")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-3", "handoff now", "")})
 
 	if !m.workflowHandoff.IsOpen() {
 		t.Fatal("expected workflow handoff modal to open")
@@ -3684,7 +3684,7 @@ func TestModelWorkflowHandoffRendersReviewCopy(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now", "")})
 
 	if !m.workflowHandoff.IsOpen() {
 		t.Fatal("expected workflow handoff modal to open")
@@ -3732,7 +3732,7 @@ func TestModelWorkflowHandoffChangeModelOpensAttachedPickerAndUpdatesSelection(t
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-3", "handoff now")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-3", "handoff now", "")})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
@@ -3817,7 +3817,7 @@ func TestModelWorkflowHandoffChangeModelCancelPreservesSelection(t *testing.T) {
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "", "")})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
@@ -3860,7 +3860,7 @@ func TestModelWorkflowHandoffDismissDeclinesAndKeepsTranscript(t *testing.T) {
 	m.content.AppendLine("existing transcript")
 	m.syncViewport()
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "", "")})
 	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
 	for _, want := range []string{
 		"Continue to review?",
@@ -3910,7 +3910,7 @@ func TestModelWorkflowHandoffTerminalEventsCloseModalAndRestoreFocus(t *testing.
 			t.Parallel()
 			m := newModel(Config{}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
-			m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now", "")})
 
 			if !m.workflowHandoff.IsOpen() {
 				t.Fatal("workflowHandoff.IsOpen() = false, want true before terminal event")
@@ -3952,7 +3952,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	m.content.AppendLine("old transcript")
 	m.syncViewport()
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now", "")})
 	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
 	for _, want := range []string{
 		"Continue to review?",
@@ -4046,6 +4046,96 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	}
 }
 
+func TestModelWorkflowHandoffAcceptLaunchesLiteralPromptForBuildTarget(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{}
+	m := newModel(Config{
+		Model:      "current-model",
+		ModelNames: []string{"current-model"},
+		Controller: ctrl,
+		SkillNames: []string{},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.content.AppendLine("old transcript")
+	m.syncViewport()
+
+	submission := "Implement the plan at .steiner/plans/step-9/plan.md. It is the complete record of what was agreed — read it before making any changes."
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("build", ".steiner/plans/step-9", "handoff now", submission)})
+	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
+	for _, want := range []string{
+		"Continue to the next workflow?",
+		"Planning folder: .steiner/plans/step-9",
+		"Accept",
+		"Dismiss",
+		"handoff now",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered modal = %q, want %q", rendered, want)
+		}
+	}
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if m.workflowHandoff.IsOpen() {
+		t.Fatal("expected workflow handoff modal to close on accept")
+	}
+	decisions := ctrl.submitWorkflowHandoffs()
+	if len(decisions) != 1 || decisions[0].Decision != "accept" {
+		t.Fatalf("handoff decisions = %#v, want one accept", decisions)
+	}
+	if got := m.content.String(m.viewport.Width()); strings.Contains(got, "old transcript") {
+		t.Fatalf("content = %q, want cleared transcript", got)
+	}
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0 before workflow handoff stop", ctrl.countSubmitPrompt())
+	}
+
+	var sawSubmit, sawClear, sawRotate bool
+	for _, a := range ctrl.actions {
+		switch a.(type) {
+		case interactive.SubmitWorkflowHandoff:
+			sawSubmit = true
+		case interactive.ClearConversation:
+			if !sawSubmit {
+				t.Fatal("ClearConversation sent before SubmitWorkflowHandoff")
+			}
+			sawClear = true
+		case interactive.RotateSession:
+			if !sawClear {
+				t.Fatal("RotateSession sent before ClearConversation")
+			}
+			sawRotate = true
+		}
+	}
+	if !sawClear {
+		t.Fatal("ClearConversation not found in actions")
+	}
+	if !sawRotate {
+		t.Fatal("RotateSession not found in actions")
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("build", ".steiner/plans/step-9", "handoff now")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{Turn: 1, ToolCalls: 1})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
+
+	prompts := ctrl.submitPrompts()
+	if len(prompts) != 1 || prompts[0].Text != submission {
+		t.Fatalf("submit prompts = %#v, want one prompt with literal submission text %q", prompts, submission)
+	}
+	var sawPrompt bool
+	for _, a := range ctrl.actions {
+		if _, ok := a.(interactive.SubmitPrompt); ok {
+			if !sawRotate {
+				t.Fatal("SubmitPrompt sent before RotateSession")
+			}
+			sawPrompt = true
+		}
+	}
+	if !sawPrompt {
+		t.Fatal("SubmitPrompt not found in actions")
+	}
+}
+
 func TestModelWorkflowHandoffAcceptSwitchFailureKeepsConversationAndSkipsLaunch(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{
@@ -4068,7 +4158,7 @@ func TestModelWorkflowHandoffAcceptSwitchFailureKeepsConversationAndSkipsLaunch(
 	m.content.AppendLine("old transcript")
 	m.syncViewport()
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now", "")})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	rendered := m.content.String(m.viewport.Width())
@@ -4119,7 +4209,7 @@ func TestModelWorkflowHandoffAcceptWithCurrentSessionModelDoesNotSwitch(t *testi
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-4", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("implement", ".steiner/plans/step-4", "", "")})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("implement", ".steiner/plans/step-4", "")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})

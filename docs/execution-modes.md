@@ -13,7 +13,11 @@ There is no third "chat" mode and no auto-detection — plan mode itself serves 
 
 - **Shift+Tab** toggles between `plan` and `build` in the TUI. The binding is checked after overlay key handling, so open overlays (pickers, modals) take priority over the toggle.
 - **`/mode`** with no argument toggles the mode; `/mode plan` or `/mode build` sets it explicitly. An unrecognized argument reports `mode "<arg>" is not valid (use plan or build)` and leaves the mode unchanged.
-- **`workflow_handoff` acceptance** flips the session to `build` mode automatically — the intended path for moving from an approved plan into implementation. There is no model-initiated path from build back to plan; only this workflow_handoff transition and the user-driven toggle/command change mode.
+- **`workflow_handoff` acceptance** flips the session to `build` mode automatically. Two handoff targets exist:
+  - **Skill-bundle targets** (`implement`, `review`): require `overview.md` + `plan.yaml` and invoke a skill (`/implement <target>` or `/review <target>`) in the fresh session.
+  - **Loose `build` target**: requires only `plan.md` and submits a literal prompt (`Implement the plan at <target>/plan.md. It is the complete record of what was agreed — read it before making any changes.`) directly to the model. This handoff path works even with skills disabled and does not depend on skill discovery.
+  
+  There is no model-initiated path from build back to plan; only this workflow_handoff transition and the user-driven toggle/command change mode.
 
 Switching mode emits a `status: mode → <mode>` transcript line, updates the footer badge (`⏸ plan` / `⏵⏵ build`) and the sidebar mode row, and for build-mode transitions emits a one-shot bracketed mode notice (`prompt.ModeNotice`) that is prepended to the next outgoing user message. In plan mode, the notice is prepended to every outgoing user message (sticky) and stored in the conversation, so the model can always see the current mode.
 

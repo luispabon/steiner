@@ -67,9 +67,9 @@ func (m *Model) setCompaction(cs compactionState) {
 }
 
 type workflowHandoffLaunch struct {
-	next      string
-	target    string
-	modelName string
+	next       string
+	target     string
+	submission string
 }
 
 type tickMsg struct{}

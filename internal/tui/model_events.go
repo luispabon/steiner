@@ -302,7 +302,7 @@ func (m *Model) handleSuppressedWorkflowHandoffEvent(event output.Event) tea.Cmd
 		if launch == nil {
 			return nil
 		}
-		next, cmd := m.launchWorkflowHandoff(launch.next, launch.target, launch.modelName)
+		next, cmd := m.launchWorkflowHandoff(launch.next, launch.target, launch.submission)
 		if updated, ok := next.(Model); ok {
 			*m = updated
 		}

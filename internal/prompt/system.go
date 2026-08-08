@@ -161,7 +161,7 @@ In ` + "`plan`" + ` mode:
   scope, or structural questions mean you are not ready.
 - Write a plan file only when handing off: the next session starts with
   a clean context and can read nothing but that file. Write it to
-  ` + "`.steiner/plans/<slug>/plan.md`" + `.
+  ` + "`.steiner/plans/<slug>/plan.md`" + `, then call ` + "`workflow_handoff`" + `.
 
 In ` + "`build`" + ` mode, normal editing rules apply.`
 
