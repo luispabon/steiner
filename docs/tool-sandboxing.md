@@ -70,6 +70,14 @@ go run ./cmd/steiner --unsafe
 
 **Warning**: Unsafe mode disables the primary protection mechanism. Use it sparingly and only when you understand the consequences.
 
+### MCP stdio servers
+
+MCP servers using the `stdio` transport are always sandbox-wrapped, in both standard and unsafe modes. Each server process runs under a sandbox that pins the project directory read-only, preventing the server from modifying workspace files. Network access is preserved via `--share-net`.
+
+The sandbox wrapping applies only to locally launched stdio processes. Remote HTTP MCP servers run on infrastructure controlled by their operator and are not subject to steiner's sandbox.
+
+Server environment variables configured under `servers.<name>.env` are appended to the server process environment after the sandbox wrap, bypassing the host environment variable allowlist. This is intentional: server env is declared config, not inherited host state, and is the correct place for server credentials or API keys.
+
 ## Platform requirements
 
 ### Linux (supported)

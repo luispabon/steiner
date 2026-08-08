@@ -64,6 +64,7 @@ Key behaviours:
 - Only the `code` sub-agent has access to file-mutation tools (`mutate`).
 - `explore`, `research`, `evaluate`, and `vision` are read-only.
 - `sanity_check` and `review` can run commands via `bash` (for tests, `git diff`, `git log`, etc.) but must not modify files.
+- MCP tools are registered from third-party servers and are only exposed to sub-agents when the server's `sub_agents` list explicitly includes the agent type. Approval is per-server and controlled by the parent's configuration.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
 - The child's full conversation transcript is not copied into the parent session; only a structured result and bounded summary persist.
 - While the parent interactive session is in `plan` execution mode, the `code` sub-agent tool is denied outright, and `follow_up` is denied when it targets a session spawned by `code` — both can mutate files, which plan mode disallows. See [docs/execution-modes.md](execution-modes.md) for the full enforcement matrix.
@@ -86,7 +87,7 @@ Key behaviours:
 
 Delegation accepts a generic per-agent-type projection of extra allowed tool names, `ExtraAllowedTools`, supplied when the delegate registry is assembled. It is a narrow seam: the delegation package only receives registered tool names, never their origin. Nil or empty projections grant no extra tools, so the built-in allowlists above remain the effective default. Extras merge with the built-in allowlist into a sorted, deduplicated set before child registry construction.
 
-The MCP integration consumes this seam. An MCP server entry's `sub_agents` list names the agent types that may use that server's tools; those tool names are projected into `ExtraAllowedTools` for the listed types. MCP access for children defaults to closed — a server without a matching `sub_agents` entry grants no tools to any sub-agent. See [configuration.md](configuration.md) for the MCP server `sub_agents` option.
+The MCP integration consumes this seam. An MCP server entry's `sub_agents` list names the agent types that may use that server's tools; those tool names are projected into `ExtraAllowedTools` for the listed types. MCP access for children defaults to closed — a server without a matching `sub_agents` entry grants no tools to any sub-agent. When a server is granted to an agent type, the server's tools appear in the child's registry with their `mcp__<server>__<tool>` names. Per-server tool filtering (`allowed_tools` and `blocked_tools`) applies to sub-agents exactly as it does to the parent: a tool excluded by filtering is not exposed to child agents. See [configuration.md](configuration.md) for the MCP config block and [docs/mcp.md](mcp.md) for the full MCP reference.
 
 ### Configuration
 

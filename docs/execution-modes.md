@@ -31,6 +31,7 @@ Mode never changes the system preamble, tool schemas, or any other part of the c
 |---|---|---|---|
 | `mutate` (and other path-writing tools) | Denied outside `.steiner/plans/` at the tool-policy layer | Denied outside `.steiner/plans/` at the tool-policy layer (same as sandboxed) | Allowed |
 | `bash` | Project bind-mounted read-only under bubblewrap, except `.steiner/plans/` which stays writable | Unenforced — the command runs with no sandbox wrapping at all | Allowed, sandboxed as normal |
+| MCP tools | Available; `allow` approval downgrades to `ask` (see [MCP servers](mcp.md)) | Available; `allow` approval downgrades to `ask` (same) | Available |
 | `code` sub-agent tool | Denied | Denied | Allowed |
 | `review` sub-agent tool | Allowed | Allowed | Allowed |
 | `follow_up` targeting a `code`-derived child | Denied | Denied | Allowed |

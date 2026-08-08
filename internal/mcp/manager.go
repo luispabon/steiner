@@ -116,6 +116,10 @@ func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConf
 		return m
 	}
 
+	if len(cfg.Servers) == 0 {
+		return m
+	}
+
 	// Iterate servers in sorted key order for determinism.
 	names := make([]string, 0, len(cfg.Servers))
 	for name := range cfg.Servers {

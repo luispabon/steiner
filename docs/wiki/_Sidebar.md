@@ -13,6 +13,7 @@
 - [Cache Stats](cache-stats)
 - [Desktop Notifications](desktop-notifications)
 - [Image Prompts](image-prompts)
+- [MCP servers](mcp)
 - [Optional Features](optional-features)
 
 **Internals**

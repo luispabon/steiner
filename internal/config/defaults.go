@@ -102,7 +102,7 @@ func defaultConfig() Config {
 		},
 		CaveHuman: false,
 		MCP: MCPConfig{
-			Enabled: false,
+			Enabled: true,
 		},
 		Modes: ModesConfig{
 			Default: ExecutionModeBuild,

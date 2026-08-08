@@ -162,6 +162,11 @@ Code changes must update corresponding documentation in a single commit:
    * Update the "Execution modes" section in README.md if the high-level description changes
    * Update docs/sub-agent-delegation.md's Safety section if the `code`/`follow_up` denial scope changes
 
+12. **`internal/mcp` changes** (add/change MCP manager, transport, naming, approval, or tooldef behaviour):
+   * Update docs/mcp.md if user-facing MCP behaviour changes
+   * Update docs/configuration.md for any config field changes
+   * Update the MCP section in README.md if the high-level description changes
+
 ## Built-in tools
 
 Steiner exposes these model-facing built-in tools:
@@ -177,6 +182,7 @@ Steiner exposes these model-facing built-in tools:
 - `display_file` — show a file in the TUI overlay without adding contents to conversation
 - `advisor` — ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`)
 - `workflow_handoff` — transition to a different workflow with approved artifacts
+- `mcp__<server>__<tool>` — MCP tools registered from connected MCP servers appear alongside built-ins with the `mcp__` prefix (tool names may include an optional 8-hex SHA-256 hash suffix when sanitisation or truncation is required). Their schemas and results come from third-party servers, not steiner.
 
 Steiner owns the schemas and result formats. Dive implements the behavior.
 
