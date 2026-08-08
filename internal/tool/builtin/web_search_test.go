@@ -10,7 +10,7 @@ import (
 
 // mockSearcher is a test mock that implements web.Searcher.
 type mockSearcher struct {
-	results []*web.SearchItem
+	results []web.SearchItem
 	err     error
 }
 
@@ -37,7 +37,7 @@ func TestNewWebSearchTool(t *testing.T) {
 				"limit": 10,
 			},
 			searcher: &mockSearcher{
-				results: []*web.SearchItem{
+				results: []web.SearchItem{
 					{
 						URL:         "https://example.com/1",
 						Title:       "Example 1",
@@ -79,7 +79,7 @@ func TestNewWebSearchTool(t *testing.T) {
 				"query": "test",
 			},
 			searcher: &mockSearcher{
-				results: []*web.SearchItem{},
+				results: []web.SearchItem{},
 			},
 			wantItems: 0,
 		},
@@ -90,7 +90,7 @@ func TestNewWebSearchTool(t *testing.T) {
 				"limit": 100,
 			},
 			searcher: &mockSearcher{
-				results: []*web.SearchItem{},
+				results: []web.SearchItem{},
 			},
 			wantItems: 0,
 		},

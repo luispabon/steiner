@@ -91,9 +91,9 @@ func (bs *braveSearcher) Search(ctx context.Context, input *web.SearchInput) (*w
 		return nil, fmt.Errorf("search: decode response: %w", err)
 	}
 
-	items := make([]*web.SearchItem, len(braveResp.Web.Results))
+	items := make([]web.SearchItem, len(braveResp.Web.Results))
 	for i, r := range braveResp.Web.Results {
-		items[i] = &web.SearchItem{
+		items[i] = web.SearchItem{
 			URL:         r.URL,
 			Title:       r.Title,
 			Description: r.Description,
