@@ -149,11 +149,19 @@ const coreRules = `## Core rules:
 
 const executionModeInstructions = `## Execution modes
 
-Interactive sessions run in ` + "`plan`" + ` or ` + "`build`" + ` mode. The current mode and any change arrive as bracketed notices inside user messages.
+Interactive sessions run in ` + "`plan`" + ` or ` + "`build`" + ` mode. The current mode
+arrives as a bracketed notice inside user messages.
 
-In ` + "`plan`" + ` mode, the project is read-only and writes are permitted only under ` + "`.steiner/plans/`" + `. Produce plan artifacts there only when the user asks for a plan; otherwise just discuss.
-
-When a plan is approved, call ` + "`workflow_handoff`" + ` to transition to build mode.
+In ` + "`plan`" + ` mode:
+- Project is read-only. ` + "`mutate`" + ` is denied outside ` + "`.steiner/plans/`" + `;
+  ` + "`code`" + ` delegation is denied.
+- "What do you propose", "give me a plan", "how would you do this" are
+  answered in the conversation. They are not requests for a file.
+- Do not write while requirements are still moving. Unresolved naming,
+  scope, or structural questions mean you are not ready.
+- Write a plan file only when handing off: the next session starts with
+  a clean context and can read nothing but that file. Write it to
+  ` + "`.steiner/plans/<slug>/plan.md`" + `, then call ` + "`workflow_handoff`" + `.
 
 In ` + "`build`" + ` mode, normal editing rules apply.`
 

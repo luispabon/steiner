@@ -23,6 +23,7 @@ type workflowHandoffModalState struct {
 	next           string
 	target         string
 	message        string
+	submission     string
 	modelAlias     string
 	modelSource    string
 	selectedAction int
@@ -36,6 +37,7 @@ func openWorkflowHandoffModal(width, height int, payload output.WorkflowHandoffE
 		next:           strings.TrimSpace(payload.Next),
 		target:         strings.TrimSpace(payload.Target),
 		message:        strings.TrimSpace(payload.Message),
+		submission:     strings.TrimSpace(payload.Submission),
 		modelAlias:     strings.TrimSpace(selection.ModelAlias),
 		modelSource:    strings.TrimSpace(selection.SourceLabel),
 		selectedAction: workflowHandoffActionAccept,
@@ -203,6 +205,7 @@ func (m Model) openWorkflowHandoffModelPicker() Model {
 func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	next := strings.TrimSpace(m.workflowHandoff.next)
 	target := strings.TrimSpace(m.workflowHandoff.target)
+	submission := strings.TrimSpace(m.workflowHandoff.submission)
 	modelName := strings.TrimSpace(m.workflowHandoff.modelAlias)
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitWorkflowHandoff{Decision: "accept"}); err != nil {
@@ -223,11 +226,11 @@ func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	}
 	m.workflowHandoff = m.workflowHandoff.close()
 	m.suppressWorkflowHandoffRun = true
-	m.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, modelName: modelName}
+	m.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, submission: submission}
 	nextModel, cmd := m.clearConversationState()
 	if cleared, ok := nextModel.(Model); ok {
 		cleared.suppressWorkflowHandoffRun = true
-		cleared.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, modelName: modelName}
+		cleared.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, submission: submission}
 		cleared.workflowHandoff = cleared.workflowHandoff.close()
 		// Rotate session after conversation is cleared — new workflow gets a fresh identity
 		// controller may be nil in tests; skip rotation when there's no backing session.
@@ -254,7 +257,10 @@ func (m Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) launchWorkflowHandoff(next, target string, _ string) (tea.Model, tea.Cmd) {
+func (m Model) launchWorkflowHandoff(next, target, submission string) (tea.Model, tea.Cmd) {
+	if submission != "" {
+		return m.executeSubmitAction(submission, submission, submission)
+	}
 	return m.executeInvokeSkillAction(next, target)
 }
 

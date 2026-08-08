@@ -45,6 +45,7 @@ func validateDefaultModel(problems *[]string, cfg Config) {
 var validWorkflowHandoffDestinations = map[string]bool{
 	"implement": true,
 	"review":    true,
+	"build":     true,
 }
 
 func validateWorkflowHandoffConfig(problems *[]string, workflowHandoff map[string]string, models map[string]ModelConfig) {

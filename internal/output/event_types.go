@@ -249,10 +249,11 @@ type ApprovalEvent struct {
 
 // WorkflowHandoffEvent captures a workflow handoff request for later handling.
 type WorkflowHandoffEvent struct {
-	Next     string `json:"next,omitempty"`
-	Target   string `json:"target,omitempty"`
-	Message  string `json:"message,omitempty"`
-	Decision string `json:"decision,omitempty"`
+	Next       string `json:"next,omitempty"`
+	Target     string `json:"target,omitempty"`
+	Message    string `json:"message,omitempty"`
+	Decision   string `json:"decision,omitempty"`
+	Submission string `json:"submission,omitempty"`
 }
 
 // StopReasonEvent is the payload for EventTypeStopReason.

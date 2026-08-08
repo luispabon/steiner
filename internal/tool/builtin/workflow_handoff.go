@@ -24,6 +24,7 @@ type workflowTarget struct {
 	label             string   // human-readable label
 	allowedPathPrefix string   // required path prefix (e.g. ".steiner/plans")
 	requiredFiles     []string // required files in target directory (e.g. ["overview.md", "plan.yaml"])
+	promptTemplate    string   // empty means skill invocation; non-empty is a printf template for literal prompt submission
 }
 
 // workflowTargets is the registry of available workflow targets.
@@ -33,12 +34,21 @@ var workflowTargets = []workflowTarget{
 		label:             "plan loop implementation",
 		allowedPathPrefix: ".steiner/plans",
 		requiredFiles:     []string{"overview.md", "plan.yaml"},
+		promptTemplate:    "",
 	},
 	{
 		key:               "review",
 		label:             "plan loop review",
 		allowedPathPrefix: ".steiner/plans",
 		requiredFiles:     []string{"overview.md", "plan.yaml"},
+		promptTemplate:    "",
+	},
+	{
+		key:               "build",
+		label:             "plan handoff to build",
+		allowedPathPrefix: ".steiner/plans",
+		requiredFiles:     []string{"plan.md"},
+		promptTemplate:    "Implement the plan at %s/plan.md. It is the complete record of what was agreed — read it before making any changes.",
 	},
 }
 
@@ -121,6 +131,11 @@ func handleWorkflowHandoff(ctx context.Context, env Env, input map[string]any) (
 		return nil, err
 	}
 
+	submission := ""
+	if wt.promptTemplate != "" {
+		submission = fmt.Sprintf(wt.promptTemplate, target)
+	}
+
 	result := &WorkflowHandoffResult{
 		Next:             in.Next,
 		Target:           in.Target,
@@ -135,9 +150,10 @@ func handleWorkflowHandoff(ctx context.Context, env Env, input map[string]any) (
 	}
 
 	response, err := env.WorkflowHandoffResponder.RequestWorkflowHandoff(ctx, tool.WorkflowHandoffRequest{
-		Next:    in.Next,
-		Target:  in.Target,
-		Message: in.Message,
+		Next:       in.Next,
+		Target:     in.Target,
+		Message:    in.Message,
+		Submission: submission,
 	})
 	if err != nil {
 		return nil, err

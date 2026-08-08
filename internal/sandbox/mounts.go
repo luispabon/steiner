@@ -31,7 +31,7 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 	// Project workspace binding: read-only or writable depending on plan mode.
 	if readOnlyProject {
 		args = append(args, "--ro-bind", writableRoot, writableRoot)
-		args = append(args, "--bind", filepath.Join(writableRoot, ".steiner"), filepath.Join(writableRoot, ".steiner"))
+		args = append(args, "--bind", filepath.Join(writableRoot, ".steiner", "plans"), filepath.Join(writableRoot, ".steiner", "plans"))
 	} else {
 		args = append(args, "--bind", writableRoot, writableRoot)
 	}

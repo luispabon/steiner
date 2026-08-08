@@ -41,12 +41,13 @@ func newApprovalEvent(eventType string, turn int, tool, callID, mode, preview, m
 	})
 }
 
-func newWorkflowHandoffEvent(eventType string, next, target, message, decision string) Event {
+func newWorkflowHandoffEvent(eventType string, next, target, message, decision, submission string) Event {
 	return newEvent(eventType, WorkflowHandoffEvent{
-		Next:     strings.TrimSpace(next),
-		Target:   strings.TrimSpace(target),
-		Message:  strings.TrimSpace(message),
-		Decision: decision,
+		Next:       strings.TrimSpace(next),
+		Target:     strings.TrimSpace(target),
+		Message:    strings.TrimSpace(message),
+		Decision:   decision,
+		Submission: strings.TrimSpace(submission),
 	})
 }
 
@@ -141,18 +142,18 @@ func NewApprovalDeniedEvent(turn int, tool, callID, mode, preview, message, kind
 }
 
 // NewWorkflowHandoffRequestedEvent creates a new workflow handoff request event.
-func NewWorkflowHandoffRequestedEvent(next, target, message string) Event {
-	return newWorkflowHandoffEvent(EventTypeWorkflowHandoffRequested, next, target, message, "")
+func NewWorkflowHandoffRequestedEvent(next, target, message, submission string) Event {
+	return newWorkflowHandoffEvent(EventTypeWorkflowHandoffRequested, next, target, message, "", submission)
 }
 
 // NewWorkflowHandoffAcceptedEvent creates a workflow handoff accepted event.
 func NewWorkflowHandoffAcceptedEvent(next, target, message string) Event {
-	return newWorkflowHandoffEvent(EventTypeWorkflowHandoffAccepted, next, target, message, "accepted")
+	return newWorkflowHandoffEvent(EventTypeWorkflowHandoffAccepted, next, target, message, "accepted", "")
 }
 
 // NewWorkflowHandoffDeclinedEvent creates a workflow handoff declined event.
 func NewWorkflowHandoffDeclinedEvent(next, target, message string) Event {
-	return newWorkflowHandoffEvent(EventTypeWorkflowHandoffDeclined, next, target, message, "declined")
+	return newWorkflowHandoffEvent(EventTypeWorkflowHandoffDeclined, next, target, message, "declined", "")
 }
 
 // NewStopReasonEvent creates a new stop reason event.

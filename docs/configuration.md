@@ -241,7 +241,7 @@ sub-agent overrides, oneshot per-phase models, and workflow handoff models).
 | `advisor`            | string                    | `""`    | Model alias used for advisor calls. Must reference a key in `definitions` when `advisor.enabled` is `true`. |
 | `sub_agents`         | map[string]string         | empty   | Per-agent-type model alias overrides, keyed by agent type (e.g. `code`, `evaluate`, `sanity_check`, `review`). Each value must reference a key in `definitions`. If an agent type has no entry, the sub-agent uses the same model as the parent. |
 | `oneshot`            | map[string]string         | empty   | Per-phase model aliases for autonomous oneshot runs, keyed by `plan`, `implement`, and `review`. Each value must reference a key in `definitions`. Missing phases fall back to `default` at runtime. |
-| `workflow_handoff`   | map[string]string         | empty   | Persistent handoff model aliases, keyed by destination workflow name (`implement`, `review`). If a destination has no entry, handoff uses the current session model. |
+| `workflow_handoff`   | map[string]string         | empty   | Persistent handoff model aliases, keyed by destination workflow name (`implement`, `review`, `build`). If a destination has no entry, handoff uses the current session model. |
 
 ```yaml
 models:
@@ -267,7 +267,7 @@ models:
     review: sonnet
 ```
 
-`workflow_handoff` supports destination keys `implement` and `review`. If a
+`workflow_handoff` supports destination keys `implement`, `review`, and `build`. If a
 destination has no entry, handoff uses the current session model. The
 interactive handoff picker can still override the pending model for one
 handoff without changing configuration.

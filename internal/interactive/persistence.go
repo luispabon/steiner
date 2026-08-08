@@ -107,7 +107,6 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		mode = s.deps.Config.Modes.Default
 	}
 	s.mode = mode
-	s.pendingModeNotice = (mode == config.ExecutionModePlan)
 	if s.modeListener != nil {
 		s.modeListener(mode)
 	}

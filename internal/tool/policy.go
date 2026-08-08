@@ -9,7 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
-const planModeWriteDenial = "plan mode: write operations are restricted to `.steiner/plans/` and related planning directories. " +
+const planModeWriteDenial = "plan mode: write operations are restricted to `.steiner/plans/`. " +
 	"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready."
 
 // PathPolicyError is returned when a path is rejected by policy.

@@ -5,9 +5,10 @@ import "context"
 // WorkflowHandoffRequest captures a workflow transition request emitted by the
 // workflow_handoff built-in tool.
 type WorkflowHandoffRequest struct {
-	Next    string
-	Target  string
-	Message string
+	Next       string
+	Target     string
+	Message    string
+	Submission string // resolved literal prompt text; empty means "skill invocation" convention
 }
 
 // WorkflowHandoffResponse captures the user's decision on a workflow handoff.

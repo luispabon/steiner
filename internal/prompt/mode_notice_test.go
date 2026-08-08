@@ -20,11 +20,10 @@ func TestModeNotice(t *testing.T) {
 			mode: config.ExecutionModePlan,
 			wantPresent: []string{
 				"[execution mode: plan]",
-				"plan mode",
-				"Do not attempt writes outside .steiner/plans/",
-				"tools will deny them",
-				"Produce plan artifacts there only when asked for a plan",
-				"otherwise just discuss",
+				"Plan mode",
+				"Read-only",
+				"discuss, do not",
+				"Plan files are for handoff only",
 			},
 		},
 		{
@@ -32,7 +31,7 @@ func TestModeNotice(t *testing.T) {
 			mode: config.ExecutionModeBuild,
 			wantPresent: []string{
 				"[execution mode: build]",
-				"build mode",
+				"Build mode",
 				"Normal editing rules apply",
 			},
 		},

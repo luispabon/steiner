@@ -45,8 +45,8 @@ func TestWorkflowHandoffSchema(t *testing.T) {
 	if !ok {
 		t.Fatalf("next.enum type = %T, want []string", nextProp["enum"])
 	}
-	if len(enum) != 2 || enum[0] != "implement" || enum[1] != "review" {
-		t.Fatalf("next.enum = %v, want [implement review]", enum)
+	if len(enum) != 3 || enum[0] != "implement" || enum[1] != "review" || enum[2] != "build" {
+		t.Fatalf("next.enum = %v, want [implement review build]", enum)
 	}
 
 	targetProp, ok := props["target"].(map[string]any)
@@ -71,7 +71,7 @@ func TestWorkflowHandoffToolCreatesPendingRequest(t *testing.T) {
 	env.WorkflowHandoffResponder = workflowHandoffDecisionResponder{
 		response: tool.WorkflowHandoffResponse{Accepted: false},
 		onRequest: func(req tool.WorkflowHandoffRequest) {
-			env.EventSink.Emit(output.NewWorkflowHandoffRequestedEvent(req.Next, req.Target, req.Message))
+			env.EventSink.Emit(output.NewWorkflowHandoffRequestedEvent(req.Next, req.Target, req.Message, req.Submission))
 		},
 	}
 	toolDef := NewWorkflowHandoffTool(env)
@@ -119,7 +119,7 @@ func TestWorkflowHandoffToolReturnsAcceptedControlResult(t *testing.T) {
 	env.WorkflowHandoffResponder = workflowHandoffDecisionResponder{
 		response: tool.WorkflowHandoffResponse{Accepted: true},
 		onRequest: func(req tool.WorkflowHandoffRequest) {
-			env.EventSink.Emit(output.NewWorkflowHandoffRequestedEvent(req.Next, req.Target, req.Message))
+			env.EventSink.Emit(output.NewWorkflowHandoffRequestedEvent(req.Next, req.Target, req.Message, req.Submission))
 		},
 	}
 	toolDef := NewWorkflowHandoffTool(env)
@@ -415,12 +415,116 @@ func TestWorkflowHandoffInputDecodeRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestBuildTargetAcceptsWithPlanMd(t *testing.T) {
+	env, events := workflowHandoffTestEnv(t, true, nil)
+	submissionCaptured := ""
+	env.WorkflowHandoffResponder = workflowHandoffDecisionResponder{
+		response: tool.WorkflowHandoffResponse{Accepted: true},
+		onRequest: func(req tool.WorkflowHandoffRequest) {
+			submissionCaptured = req.Submission
+			env.EventSink.Emit(output.NewWorkflowHandoffRequestedEvent(req.Next, req.Target, req.Message, req.Submission))
+		},
+	}
+	toolDef := NewWorkflowHandoffTool(env)
+
+	resultI, err := toolDef.Handler(context.Background(), map[string]any{
+		"next":   "build",
+		"target": ".steiner/plans/build-plan",
+	})
+	if err != nil {
+		t.Fatalf("handler error = %v", err)
+	}
+
+	if submissionCaptured == "" {
+		t.Errorf("build target submission = %q, want non-empty submission", submissionCaptured)
+	}
+	if !strings.Contains(submissionCaptured, ".steiner/plans/build-plan") {
+		t.Errorf("submission = %q, want to contain target path", submissionCaptured)
+	}
+
+	result, ok := resultI.(tool.WorkflowHandoffAccepted)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.WorkflowHandoffAccepted", resultI)
+	}
+	if got, want := result.Transition.Next, "build"; got != want {
+		t.Fatalf("Transition.Next = %q, want build", got)
+	}
+	if len(*events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(*events))
+	}
+	payload, ok := (*events)[0].Payload.(output.WorkflowHandoffEvent)
+	if !ok {
+		t.Fatalf("event payload type = %T, want output.WorkflowHandoffEvent", (*events)[0].Payload)
+	}
+	if payload.Submission == "" {
+		t.Errorf("event payload submission = %q, want non-empty", payload.Submission)
+	}
+}
+
+func TestBuildTargetRejectsWithoutPlanMd(t *testing.T) {
+	env, _ := workflowHandoffTestEnv(t, true, nil)
+	env.WorkflowHandoffResponder = workflowHandoffDecisionResponder{
+		response: tool.WorkflowHandoffResponse{Accepted: false},
+	}
+	toolDef := NewWorkflowHandoffTool(env)
+
+	_, err := toolDef.Handler(context.Background(), map[string]any{
+		"next":   "build",
+		"target": ".steiner/plans/incomplete",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing plan.md, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing plan.md") {
+		t.Fatalf("error = %v, want substring 'missing plan.md'", err)
+	}
+}
+
+func TestExistingTargetsUnaffectedByBuildTarget(t *testing.T) {
+	env, events := workflowHandoffTestEnv(t, true, nil)
+	env.WorkflowHandoffResponder = workflowHandoffDecisionResponder{
+		response: tool.WorkflowHandoffResponse{Accepted: true},
+		onRequest: func(req tool.WorkflowHandoffRequest) {
+			if req.Next == "build" {
+				t.Fatalf("unexpected build target in existing target test")
+			}
+			if req.Submission != "" {
+				t.Errorf("implement/review targets should have empty submission, got %q", req.Submission)
+			}
+			env.EventSink.Emit(output.NewWorkflowHandoffRequestedEvent(req.Next, req.Target, req.Message, req.Submission))
+		},
+	}
+	toolDef := NewWorkflowHandoffTool(env)
+
+	for _, target := range []string{"implement", "review"} {
+		*events = (*events)[:0]
+		_, err := toolDef.Handler(context.Background(), map[string]any{
+			"next":   target,
+			"target": ".steiner/plans/step-1",
+		})
+		if err != nil {
+			t.Fatalf("handler error for %q = %v", target, err)
+		}
+		if len(*events) != 1 {
+			t.Fatalf("events len for %q = %d, want 1", target, len(*events))
+		}
+		payload, ok := (*events)[0].Payload.(output.WorkflowHandoffEvent)
+		if !ok {
+			t.Fatalf("event payload type for %q = %T, want output.WorkflowHandoffEvent", target, (*events)[0].Payload)
+		}
+		if payload.Submission != "" {
+			t.Errorf("%q target submission = %q, want empty", target, payload.Submission)
+		}
+	}
+}
+
 func workflowHandoffTestEnv(t *testing.T, interactive bool, responder tool.WorkflowHandoffResponder) (Env, *[]output.Event) {
 	t.Helper()
 
 	root := t.TempDir()
 	mustWriteWorkflowHandoffTarget(t, root, ".steiner/plans/step-1", true, true)
 	mustWriteWorkflowHandoffTarget(t, root, ".steiner/plans/incomplete", true, false)
+	mustWriteBuildPlanTarget(t, root, ".steiner/plans/build-plan", true)
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{})
 	events := &[]output.Event{}
@@ -472,6 +576,20 @@ func mustWriteWorkflowHandoffTarget(t *testing.T, root, rel string, overview, pl
 	if plan {
 		if err := os.WriteFile(filepath.Join(abs, "plan.yaml"), []byte("steps: []\n"), 0o644); err != nil {
 			t.Fatalf("WriteFile(plan.yaml) error = %v", err)
+		}
+	}
+}
+
+func mustWriteBuildPlanTarget(t *testing.T, root, rel string, withPlanMd bool) {
+	t.Helper()
+
+	abs := filepath.Join(root, rel)
+	if err := os.MkdirAll(abs, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", abs, err)
+	}
+	if withPlanMd {
+		if err := os.WriteFile(filepath.Join(abs, "plan.md"), []byte("# Build Plan\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile(plan.md) error = %v", err)
 		}
 	}
 }

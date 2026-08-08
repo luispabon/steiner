@@ -290,10 +290,13 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	if got, want := state.StopReason, StopReasonComplete; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
-	if got, want := len(providerStub.requests), 2; got != want {
+	// want=3 (not 2) because the longer plan-mode preamble text pushes this
+	// fixture's ContextSize budget into an extra compaction round; these
+	// counts are sensitive to preamble length, not just conversation shape.
+	if got, want := len(providerStub.requests), 3; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
-	if got, want := len(state.Lineage.Generations), 2; got != want {
+	if got, want := len(state.Lineage.Generations), 3; got != want {
 		t.Fatalf("lineage generations = %d, want %d", got, want)
 	}
 	if got := len(state.Lineage.Generations[1].SummaryPrefix); got == 0 {
