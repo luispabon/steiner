@@ -304,11 +304,23 @@ If tools are failing unexpectedly in the sandbox:
 2. **Check permissions**: The sandbox runs as the same user; file permissions still apply
 3. **Check mount layout**: Run `mount` or `ls` inside the sandbox to verify the root bind is active
 4. **Use --unsafe**: Temporarily disable sandboxing to isolate whether the issue is sandbox-related
-5. **Check bwrap**: Verify `bwrap` is installed and functional:
+5. **Check bwrap**: Verify `bwrap` is installed and functional (from a host terminal — see below):
    ```bash
    which bwrap
    bwrap --version
    ```
+
+### bwrap inside the sandbox (nested sandboxing)
+
+Bash and subprocess tools run **inside** the sandbox, so running `bwrap` from a tool command is a nested sandbox attempt. It fails with:
+
+```text
+bwrap: No permissions to create a new namespace, likely because the kernel does not allow non-privileged user namespaces. See <https://deb.li/bubblewrap> or <file:///usr/share/doc/bubblewrap/README.Debian.gz>.
+```
+
+This message is misleading: the host may support unprivileged user namespaces fine. The failure is that creating a user namespace combined with other namespace flags (bwrap uses a single `clone(CLONE_NEWNS|CLONE_NEWUSER)`), and creating a mount namespace at all, requires `CAP_SYS_ADMIN` in the current user namespace — and sandboxed processes have no capabilities. The usual `kernel.unprivileged_userns_clone` sysctl only relaxes that check for creation from the initial user namespace.
+
+To verify the host supports sandboxing, run `bwrap --ro-bind / / true` in a **host terminal**, not inside a steiner session. Inside a session you can confirm you are in the sandbox with `cat /proc/1/comm` (prints `bwrap`) and `cat /proc/self/uid_map` (shows a user-namespace mapping).
 
 ### Troubleshooting SSH config ownership failures
 
