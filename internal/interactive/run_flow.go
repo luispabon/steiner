@@ -3,7 +3,6 @@ package interactive
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -25,7 +24,7 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 			return s.runController.DrainSteers()
 		}
 		conversation := s.Conversation()
-		notice := s.consumeModeNotice()
+		notice := s.modeNotice()
 		if notice != "" && len(conversation) > 0 && conversation[len(conversation)-1].Role == agent.MessageRoleUser {
 			conversation[len(conversation)-1].Content = notice + conversation[len(conversation)-1].Content
 		}
@@ -33,13 +32,12 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 
 		s.mu.Lock()
 		if len(result.Conversation) > 0 {
-			cleanConversation := stripModeNoticeFromConversation(result.Conversation, notice)
 			if result.WorkflowHandoff == nil {
-				s.conversation = cleanConversation
+				s.conversation = result.Conversation
 			}
 			s.lineage = agent.ConversationLineage{
 				Generations: []agent.ConversationGeneration{
-					{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(cleanConversation)},
+					{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result.Conversation)},
 				},
 				NextGenerationID: 2,
 			}
@@ -102,25 +100,6 @@ func cloneMessages(messages []agent.Message) []agent.Message {
 	out := make([]agent.Message, len(messages))
 	copy(out, messages)
 	return out
-}
-
-// stripModeNoticeFromConversation removes a prepended mode notice from the
-// first user message that carries it (scanning backward). A mid-turn steer can
-// append additional user messages after the notice-bearing one, so we cannot
-// assume the notice is on the last user message.
-func stripModeNoticeFromConversation(messages []agent.Message, notice string) []agent.Message {
-	if notice == "" || len(messages) == 0 {
-		return messages
-	}
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == agent.MessageRoleUser && strings.HasPrefix(messages[i].Content, notice) {
-			out := make([]agent.Message, len(messages))
-			copy(out, messages)
-			out[i].Content = strings.TrimPrefix(out[i].Content, notice)
-			return out
-		}
-	}
-	return messages
 }
 
 // runWithInterruptOwnership executes a run function with a cancellable context

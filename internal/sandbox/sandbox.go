@@ -76,7 +76,7 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
 	}
 
 	if readOnlyProject {
-		_ = os.MkdirAll(filepath.Join(s.root, ".steiner"), 0o755) // Best-effort; ro-bind will fail if it still doesn't exist, but create attempt must not block.
+		_ = os.MkdirAll(filepath.Join(s.root, ".steiner", "plans"), 0o755) // Best-effort; bind will fail if it still doesn't exist, but create attempt must not block.
 	}
 
 	sandboxHome := filepath.Join(s.root, ".steiner", "home")

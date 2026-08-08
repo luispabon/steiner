@@ -7,9 +7,9 @@ import "github.com/luispabon/steiner/internal/config"
 func ModeNotice(mode config.ExecutionMode) string {
 	switch mode {
 	case config.ExecutionModePlan:
-		return "[execution mode: plan] You are now in plan mode. Do not attempt writes outside .steiner/plans/; tools will deny them. Produce plan artifacts there only when asked for a plan; otherwise just discuss."
+		return "[execution mode: plan] Plan mode. Read-only; discuss, do not write. Plan files are for handoff only."
 	case config.ExecutionModeBuild:
-		return "[execution mode: build] You are now in build mode. Normal editing rules apply."
+		return "[execution mode: build] Build mode. Normal editing rules apply."
 	default:
 		return ""
 	}

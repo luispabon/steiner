@@ -93,7 +93,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 	// Compute the effective policy: apply plan mode restriction if needed.
 	effectivePolicy := e.pathPolicy
 	if e.modeGetter != nil && e.modeGetter() == config.ExecutionModePlan {
-		effectivePolicy = e.pathPolicy.RestrictWritesTo(filepath.Join(e.pathPolicy.Root(), ".steiner"))
+		effectivePolicy = e.pathPolicy.RestrictWritesTo(filepath.Join(e.pathPolicy.Root(), ".steiner", "plans"))
 	}
 
 	normalizedInput, approvalPolicy, err := e.normalizeExecutionInput(ctx, def, in.CallID, in.Input, effectivePolicy)

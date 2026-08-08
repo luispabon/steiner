@@ -179,15 +179,15 @@ func TestBuildArgs_AppendsOverlayBeforeChdir(t *testing.T) {
 
 func TestBuildArgs_ReadOnlyProject_RoBindsRootAndBindsSteiner(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".steiner"), 0o755); err != nil {
-		t.Fatalf("mkdir .steiner: %v", err)
+	if err := os.MkdirAll(filepath.Join(root, ".steiner", "plans"), 0o755); err != nil {
+		t.Fatalf("mkdir .steiner/plans: %v", err)
 	}
 
 	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", true, config.PermissionsConfig{})
 
-	steinerPath := filepath.Join(root, ".steiner")
-	if !containsSeq(args, "--ro-bind", root, root, "--bind", steinerPath, steinerPath) {
-		t.Errorf("expected --ro-bind %s %s followed by --bind %s %s in args: %v", root, root, steinerPath, steinerPath, args)
+	steinerPlansPath := filepath.Join(root, ".steiner", "plans")
+	if !containsSeq(args, "--ro-bind", root, root, "--bind", steinerPlansPath, steinerPlansPath) {
+		t.Errorf("expected --ro-bind %s %s followed by --bind %s %s in args: %v", root, root, steinerPlansPath, steinerPlansPath, args)
 	}
 
 	if containsSeq(args, "--bind", root, root) {

@@ -1412,52 +1412,6 @@ func TestLoadSessionReplacesConversation(t *testing.T) {
 	}
 }
 
-func TestLoadSessionRearmsModePendingNoticeWhenLoadingPlanMode(t *testing.T) {
-	t.Parallel()
-	mockStore := newMockSessionStore()
-
-	mockSession := session.Session{
-		ID:    "plan-mode-session",
-		Title: "Plan Mode Session",
-		Model: "test-model",
-		Mode:  string(config.ExecutionModePlan),
-		Lineage: agent.ConversationLineage{
-			Generations: []agent.ConversationGeneration{
-				{
-					ID:       1,
-					Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "plan this"}},
-				},
-			},
-			NextGenerationID: 2,
-		},
-	}
-	mockStore.loadedSessions["plan-mode-session"] = mockSession
-
-	s := testNewSession(t, Dependencies{
-		SessionStore: mockStore,
-		Config: config.Config{
-			Modes: config.ModesConfig{
-				Default: config.ExecutionModeBuild,
-			},
-		},
-	})
-
-	if err := s.Handle(context.Background(), LoadSession{SessionID: "plan-mode-session"}); err != nil {
-		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
-	}
-
-	if got, want := s.Mode(), config.ExecutionModePlan; got != want {
-		t.Fatalf("Mode() after load = %q, want %q", got, want)
-	}
-
-	s.mu.RLock()
-	pending := s.pendingModeNotice
-	s.mu.RUnlock()
-	if !pending {
-		t.Fatal("pendingModeNotice = false after loading plan-mode session, want true")
-	}
-}
-
 func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
 	t.Parallel()
 
@@ -2760,12 +2714,12 @@ func TestSessionModePendingNoticeFlag(t *testing.T) {
 				},
 			}
 			s := testNewSession(t, deps)
-			notice := s.consumeModeNotice()
+			notice := s.modeNotice()
 			if tc.expectNotice && notice == "" {
-				t.Error("expected pending mode notice for plan mode, got empty")
+				t.Error("expected mode notice for plan mode, got empty")
 			}
 			if !tc.expectNotice && notice != "" {
-				t.Errorf("expected no pending mode notice for build mode, got: %q", notice)
+				t.Errorf("expected no mode notice for build mode, got: %q", notice)
 			}
 		})
 	}
@@ -2790,8 +2744,12 @@ func TestSessionSwitchModeAction(t *testing.T) {
 	}
 }
 
-func TestSubmitPromptDoesNotLeakModeNoticeIntoStoredConversation(t *testing.T) {
+func TestModeNoticeStickinessPlanMode(t *testing.T) {
 	t.Parallel()
+	// Test #2 & #3: Plan mode notice is sticky (appears every turn) and retained in storage.
+	// Captures what's sent to the runner and verifies notice presence at turn opening.
+	capturedConversations := make([][]agent.Message, 0, 2)
+
 	deps := Dependencies{
 		Config: config.Config{
 			Modes: config.ModesConfig{
@@ -2799,120 +2757,109 @@ func TestSubmitPromptDoesNotLeakModeNoticeIntoStoredConversation(t *testing.T) {
 			},
 		},
 		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
-			return RunResult{
-				Conversation: append(
-					append([]agent.Message(nil), conversation...),
-					agent.Message{Role: agent.MessageRoleAssistant, Content: "assistant response"},
-				),
-			}, nil
+			// Capture the conversation sent by this turn
+			capturedConversations = append(capturedConversations, cloneMessages(conversation))
+			// Return what was sent plus an assistant message (echo pattern)
+			result := append(append([]agent.Message(nil), conversation...), agent.Message{
+				Role:    agent.MessageRoleAssistant,
+				Content: "response",
+			})
+			return RunResult{Conversation: result}, nil
 		}),
 	}
 	s := testNewSession(t, deps)
 
-	s.submitPrompt(context.Background(), "user prompt", nil)
+	// Turn 1: submit first prompt
+	s.submitPrompt(context.Background(), "first prompt", nil)
 
+	// Turn 2: submit second prompt
+	s.submitPrompt(context.Background(), "second prompt", nil)
+
+	if len(capturedConversations) != 2 {
+		t.Fatalf("expected 2 captured conversations, got %d", len(capturedConversations))
+	}
+
+	// Verify test #2: Each turn-opening user message carries the notice.
+	// Turn 1: captured[0] should have notice on first user message
+	turn1First := capturedConversations[0][0]
+	planNotice := prompt.ModeNotice(config.ExecutionModePlan)
+	if turn1First.Role != agent.MessageRoleUser {
+		t.Fatalf("turn 1 first message role = %s, want user", turn1First.Role)
+	}
+	if !strings.HasPrefix(turn1First.Content, planNotice) {
+		t.Fatalf("turn 1 user message does not start with plan notice; got %q", turn1First.Content)
+	}
+
+	// Turn 2: captured[1] should have notice on the user message that opens this turn.
+	// After turn 1, there are: user + assistant. Turn 2 appends a user message.
+	// So the opening user message for turn 2 is at the end (the newly appended one).
+	turn2OpeningUser := capturedConversations[1][len(capturedConversations[1])-1]
+	if turn2OpeningUser.Role != agent.MessageRoleUser {
+		t.Fatalf("turn 2 opening message role = %s, want user", turn2OpeningUser.Role)
+	}
+	if !strings.HasPrefix(turn2OpeningUser.Content, planNotice) {
+		t.Fatalf("turn 2 opening user message does not start with plan notice; got %q", turn2OpeningUser.Content)
+	}
+
+	// Verify test #3: Stored conversation retains the notice.
 	storedConv := s.Conversation()
-	if len(storedConv) < 1 {
-		t.Fatal("expected at least one message in stored conversation")
-	}
-
-	userMsg := storedConv[0]
-	if userMsg.Role != agent.MessageRoleUser {
-		t.Fatalf("first message role = %q, want user", userMsg.Role)
-	}
-
-	if strings.Contains(userMsg.Content, "[execution mode:") {
-		t.Fatalf("stored user message contains mode notice: %q", userMsg.Content)
-	}
-
-	if userMsg.Content != "user prompt" {
-		t.Fatalf("stored user message = %q, want %q", userMsg.Content, "user prompt")
-	}
-}
-
-func TestSubmitPromptStripsNoticeWhenSteerAppendsUserMessage(t *testing.T) {
-	t.Parallel()
-	deps := Dependencies{
-		Config: config.Config{
-			Modes: config.ModesConfig{
-				Default: config.ExecutionModePlan,
-			},
-		},
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
-			// Simulate a steer appending a user message after the notice-bearing one.
-			conv := append(append([]agent.Message(nil), conversation...),
-				agent.Message{Role: agent.MessageRoleAssistant, Content: "assistant response"},
-				agent.Message{Role: agent.MessageRoleUser, Content: "steer message"},
-				agent.Message{Role: agent.MessageRoleAssistant, Content: "steered response"},
-			)
-			return RunResult{Conversation: conv}, nil
-		}),
-	}
-	s := testNewSession(t, deps)
-
-	s.submitPrompt(context.Background(), "user prompt", nil)
-
-	storedConv := s.Conversation()
+	foundNoticeInStored := false
 	for _, msg := range storedConv {
-		if msg.Role == agent.MessageRoleUser && strings.Contains(msg.Content, "[execution mode:") {
-			t.Fatalf("stored user message contains mode notice: %q", msg.Content)
+		if msg.Role == agent.MessageRoleUser && strings.Contains(msg.Content, "[execution mode: plan]") {
+			foundNoticeInStored = true
+			break
 		}
 	}
-
-	if storedConv[0].Content != "user prompt" {
-		t.Fatalf("first user message = %q, want %q", storedConv[0].Content, "user prompt")
+	if !foundNoticeInStored {
+		t.Fatal("stored conversation does not contain mode notice; notice is not retained")
 	}
 }
 
-func TestStripModeNoticeFromConversation(t *testing.T) {
+func TestCacheByteIdentity(t *testing.T) {
 	t.Parallel()
-	notice := "[execution mode: plan]\n\n"
-	cases := []struct {
-		name     string
-		messages []agent.Message
-		want     []agent.Message
-	}{
-		{
-			name:     "no steer",
-			messages: []agent.Message{{Role: agent.MessageRoleUser, Content: notice + "hello"}, {Role: agent.MessageRoleAssistant, Content: "reply"}},
-			want:     []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}, {Role: agent.MessageRoleAssistant, Content: "reply"}},
-		},
-		{
-			name: "steer after notice",
-			messages: []agent.Message{
-				{Role: agent.MessageRoleUser, Content: notice + "hello"},
-				{Role: agent.MessageRoleAssistant, Content: "reply"},
-				{Role: agent.MessageRoleUser, Content: "steer"},
-				{Role: agent.MessageRoleAssistant, Content: "steered reply"},
-			},
-			want: []agent.Message{
-				{Role: agent.MessageRoleUser, Content: "hello"},
-				{Role: agent.MessageRoleAssistant, Content: "reply"},
-				{Role: agent.MessageRoleUser, Content: "steer"},
-				{Role: agent.MessageRoleAssistant, Content: "steered reply"},
+	// Test #4: Turn N+1's sent message slice up through userN is byte-identical to
+	// what turn N sent. This verifies prompt-cache integrity: messages behind the
+	// cache breakpoint must never be mutated between turns. Plan mode is the case
+	// that matters here, since it injects a per-turn notice that the old
+	// strip-from-stored-conversation code used to mutate after the fact.
+	var sentConversations [][]agent.Message
+
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModePlan,
 			},
 		},
-		{
-			name:     "empty notice",
-			messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}},
-			want:     []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}},
-		},
+		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+			sentConversations = append(sentConversations, cloneMessages(conversation))
+			// Echo back the conversation plus an assistant message
+			result := append(append([]agent.Message(nil), conversation...), agent.Message{
+				Role:    agent.MessageRoleAssistant,
+				Content: "response",
+			})
+			return RunResult{Conversation: result}, nil
+		}),
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			n := notice
-			if tc.name == "empty notice" {
-				n = ""
-			}
-			got := stripModeNoticeFromConversation(tc.messages, n)
-			if len(got) != len(tc.want) {
-				t.Fatalf("len = %d, want %d", len(got), len(tc.want))
-			}
-			for i := range got {
-				if got[i].Role != tc.want[i].Role || got[i].Content != tc.want[i].Content {
-					t.Errorf("message[%d] = {%s, %q}, want {%s, %q}", i, got[i].Role, got[i].Content, tc.want[i].Role, tc.want[i].Content)
-				}
-			}
-		})
+	s := testNewSession(t, deps)
+
+	// Turn 1
+	s.submitPrompt(context.Background(), "first", nil)
+
+	// Turn 2
+	s.submitPrompt(context.Background(), "second", nil)
+
+	if len(sentConversations) != 2 {
+		t.Fatalf("expected 2 sent conversations, got %d", len(sentConversations))
+	}
+	turn1Sent := sentConversations[0]
+	turn2Sent := sentConversations[1]
+
+	if len(turn2Sent) < len(turn1Sent) {
+		t.Fatalf("turn 2 sent %d messages, shorter than turn 1's %d", len(turn2Sent), len(turn1Sent))
+	}
+
+	turn2Prefix := turn2Sent[:len(turn1Sent)]
+	if !reflect.DeepEqual(turn2Prefix, turn1Sent) {
+		t.Fatalf("turn 2's prefix is not byte-identical to what turn 1 sent; cached messages were mutated\nturn1Sent=%#v\nturn2Prefix=%#v", turn1Sent, turn2Prefix)
 	}
 }

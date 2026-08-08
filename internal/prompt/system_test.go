@@ -359,11 +359,13 @@ func TestSystemPreambleExecutionModesInParent(t *testing.T) {
 	for _, want := range []string{
 		"## Execution modes",
 		"Interactive sessions run in `plan` or `build` mode.",
-		"The current mode and any change arrive as bracketed notices inside user messages.",
-		"In `plan` mode, the project is read-only",
-		"writes are permitted only under `.steiner/plans/`",
-		"Produce plan artifacts there only when the user asks for a plan; otherwise just discuss.",
-		"When a plan is approved, call `workflow_handoff`",
+		"The current mode",
+		"arrives as a bracketed notice inside user messages.",
+		"In `plan` mode:",
+		"Project is read-only",
+		"`.steiner/plans/`",
+		"Write it to",
+		"`.steiner/plans/<slug>/plan.md`",
 		"In `build` mode, normal editing rules apply.",
 	} {
 		if !strings.Contains(content, want) {

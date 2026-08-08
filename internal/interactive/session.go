@@ -277,11 +277,16 @@ func (s *Session) SetModeListener(listener func(config.ExecutionMode)) {
 	s.modeListener = listener
 }
 
-// consumeModeNotice returns the mode notice string if pendingModeNotice is set,
-// then clears the flag. Returns empty string if not set.
-func (s *Session) consumeModeNotice() string {
+// modeNotice returns the mode notice string for injection into user messages.
+// Plan mode returns a sticky notice on every turn. Build mode returns a one-shot
+// notice only when pendingModeNotice is set (mode transitions). Returns empty string
+// if neither condition is met.
+func (s *Session) modeNotice() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.mode == config.ExecutionModePlan {
+		return prompt.ModeNotice(s.mode) + "\n\n"
+	}
 	if !s.pendingModeNotice {
 		return ""
 	}
