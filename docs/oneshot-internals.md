@@ -42,7 +42,7 @@ Each phase is a fresh agent run with empty model context and a clean scrollback.
 **Implement phase**:
 - Task: execute the plan's steps, make code changes, and validate with the plan's verification strategy.
 - Input: reads `overview.md` (intent + verification strategy) and `plan.yaml` (flat step contract).
-- Delegation: mandatory. The phase acts only as an orchestrator — implementation-scoped edits and verification-failure fixes flow through delegated `code` sub-agents, one per step. Direct file mutation of implementation files is a violation, not a fallback; there is no inline execution tier. Steps marked `no_delegate: true` are the only inline exception, and the reason is recorded in `execution.md`. Rationalization via low ambiguity, small testable chunks, or cheap-feeling mutate calls are explicitly prohibited — these do not license skipping delegation.
+- Delegation: mandatory. The phase receives the orchestrator role from the system preamble (delegation is enabled for oneshot phases) — implementation-scoped edits and verification-failure fixes flow through delegated `code` sub-agents, one per step. Direct file mutation of implementation files is a violation, not a fallback; there is no inline execution tier. Steps marked `no_delegate: true` are the only inline exception, and the reason is recorded in `execution.md`. Rationalization via low ambiguity, small testable chunks, or cheap-feeling mutate calls are explicitly prohibited — these do not license skipping delegation.
 - Output: `execution.md` (compact step/verification/handoff state), commits to the feature branch.
 - Refinement: point-consults (advisor enabled but capped at 1-2 uses).
 
