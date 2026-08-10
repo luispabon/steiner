@@ -170,10 +170,9 @@ Use Steiner's specialised tools directly:
 
 - `explore({"task": "..."})` for targeted review discovery
 - `code({"task": "..."})` for approved review-fix passes
-- `verify({"task": "..."})` for check-only verification
-- `plan({"task": "..."})` for bounded analysis of a review uncertainty
+- `sanity_check({"task": "..."})` for check-only verification
+- `evaluate({"task": "..."})` for bounded analysis of a review uncertainty
 - `research({"task": "..."})` only for approved current/external research
-- `delegate({...})` only when no specialised profile fits
 
 Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, non-goals, and the appropriate pre-commit checklist from the Review-Fix Loop section.
 
