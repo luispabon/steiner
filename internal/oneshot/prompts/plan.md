@@ -69,7 +69,7 @@ steps:
     verification: []
 ```
 
-Each step requires `id`, `title`, `scope`, `decisions`, `approach`, `files`, `constraints`, `acceptance`, and `verification`. `decisions` lists the Key Decision IDs that bind the step (empty only when none apply); `approach` is the concrete *how* — names, signatures, file locations, data shapes, and edge/error handling — written so the executor makes no design judgment calls, and it states any interface a later step consumes. Optional: `depends_on` only for a real dependency, `parallel_group` only when parallel execution is safe and worthwhile, `delegate_profile` (`explore`, `research`, `code`, `plan`, `verify`, `delegate`), and `no_delegate` for steps too small to delegate.
+Each step requires `id`, `title`, `scope`, `decisions`, `approach`, `files`, `constraints`, `acceptance`, and `verification`. `decisions` lists the Key Decision IDs that bind the step (empty only when none apply); `approach` is the concrete *how* — names, signatures, file locations, data shapes, and edge/error handling — written so the executor makes no design judgment calls, and it states any interface a later step consumes. Optional: `depends_on` only for a real dependency, `parallel_group` only when parallel execution is safe and worthwhile, `delegate_profile` (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`), and `no_delegate` for steps too small to delegate.
 
 ### Step Sizing
 

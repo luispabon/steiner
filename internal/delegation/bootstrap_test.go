@@ -36,8 +36,13 @@ func assertSharedChildSystemPrompt(t *testing.T, content string) {
 			t.Fatalf("shared child system prompt missing %q in %q", want, content)
 		}
 	}
-	if strings.Contains(content, "## Delegation") {
-		t.Fatalf("shared child system prompt unexpectedly contains delegation instructions: %q", content)
+	for _, forbidden := range []string{
+		"not the default implementation worker",
+		"## Your specialists",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("shared child system prompt unexpectedly contains delegation instructions: %q", content)
+		}
 	}
 	if strings.Contains(content, "Ask for user's permission before editing.") {
 		t.Fatalf("shared child system prompt unexpectedly contains parent approval guidance: %q", content)
