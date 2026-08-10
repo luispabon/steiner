@@ -28,7 +28,7 @@ Research is required by default when the task depends on information that may be
 
 Research may be skipped when the task is repo-local, stable, and sufficiently understood from nearby code and repository instructions.
 
-When research is required, delegate it — do not substitute your own reasoning. Call the `research` tool with one self-contained `task` that states the exact questions, known constraints and decisions, relevant paths/APIs already known, the expected output, and the scope boundaries. The researcher is read-only.
+When research is required, delegate it — do not substitute your own reasoning. Call the `research` tool with one self-contained `task` that states the exact questions, known constraints and decisions, relevant paths/APIs already known, the expected output, and the scope boundaries.
 
 If the `research` tool is unavailable (no search backend configured), record that as a bounded assumption in the Decision Log and continue without research.
 

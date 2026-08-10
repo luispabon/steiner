@@ -29,7 +29,7 @@ Follow this sequence:
 2. Check out the expected feature branch.
 3. Load verification strategy from `overview.md`.
 4. Create or resume compact `execution.md`.
-5. Execute ready implementation steps — dispatch one sub-agent per step via the delegation model. Do not implement directly unless the step is marked `no_delegate`, in that case make sure to state explicitly why the change is not being delegated
+5. Execute ready implementation steps — dispatch one sub-agent per step via the delegation model. Do not implement directly unless the step is marked `no_delegate`, in that case make sure to state explicitly why the change is not being delegated. (Workflow-specific: `no_delegate` is a planner-set exemption defined by `plan.yaml`'s schema, not a general routing rule.)
 6. Run planned verification and fix failures.
 7. Ask for manual verification only when the plan or risk requires it.
 8. If planning artifacts are version-controlled, commit final executor state. Hand off to review.
@@ -74,7 +74,7 @@ Expected step fields:
 - `acceptance`
 - `verification`
 
-`approach` is authoritative for *how* a step is built: delegated sub-agents follow it rather than re-deriving design (names, signatures, locations, data shapes, edge/error handling). A step's `decisions` list cites Key Decision IDs in `overview.md`; resolve them there and treat them as binding constraints on the implementation. When a delegated step task is framed, pass the step's `approach` and the resolved text of its cited `decisions` into the sub-agent's context.
+`approach` is authoritative for *how* a step is built: delegated sub-agents follow it rather than re-deriving design (names, signatures, locations, data shapes, edge/error handling). A step's `decisions` list cites Key Decision IDs in `overview.md`; resolve them there and treat them as binding constraints on the implementation. When a delegated step task is framed, pass the step's `approach` and the resolved text of its cited `decisions` into the sub-agent's context. (Workflow-specific: `approach`/`decisions` are planning-artifact fields; this instruction only makes sense inside the plan/implement/review loop.)
 
 Optional fields:
 
@@ -106,7 +106,7 @@ Use `implemented` to unlock dependencies. Use `complete` only after required ver
 
 ## Executor-Owned Work
 
-The executor acts only as an orchestrator. It performs these actions directly using the native tool for each — do not route through `bash` when a dedicated tool exists:
+The executor performs these actions directly using the native tool for each:
 
 - artifact loading — `read` to load plan files; `grep` and `glob` to locate files
 - `execution.md` creation and updates — `mutate`
@@ -115,11 +115,11 @@ The executor acts only as an orchestrator. It performs these actions directly us
 - verification orchestration — `bash` for running checks; `read` to inspect results
 - reviewer handoff
 
-Everything else is delegated.
+Everything else is delegated. (Workflow-specific: enumerates the fixed set of executor-owned actions for the implement loop; not a general routing exception.)
 
 ### Implementation code restriction
 
-The executor MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on **implementation-scoped files** — the files listed in step `files` fields. All implementation edits, verification-failure fixes, and manual-verification issue fixes MUST be performed by delegated Steiner `code` sub-agents. Doing so directly is a skill violation, not a fallback.
+The executor MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on **implementation-scoped files** — the files listed in step `files` fields. All implementation edits, verification-failure fixes, and manual-verification issue fixes MUST be performed by delegated Steiner `code` sub-agents. Doing so directly is a skill violation, not a fallback. Deliberate tightening of the routing threshold in your system prompt: the executor owns the feature branch, so even a small in-context edit must go through a `code` sub-agent — delegation is this workflow's entire purpose, not just its default.
 
 This restriction does not apply to executor-owned artifacts (`execution.md`, worktree provisioning, branch operations). Steps marked `no_delegate` in the plan are also exempt.
 
@@ -132,7 +132,7 @@ The feature branch is owned by the executor. Implementation-scoped code must be 
 1. **Isolated delegation** (preferred): sub-agent works in a dedicated worktree on a temporary branch. Provides full isolation from the feature branch.
 2. **Direct delegation** (fallback): sub-agent works directly on the feature branch. Used when worktrees are unavailable or provisioning fails.
 
-There is no inline execution tier. If delegation itself is unavailable, stop and report a blocker. Exception: steps marked `no_delegate` in the plan are applied inline by the executor.
+There is no inline execution tier. If delegation itself is unavailable, stop and report a blocker. Exception: steps marked `no_delegate` in the plan are applied inline by the executor. (Same deliberate tightening as the Implementation code restriction above — the routing threshold's local-edit permission does not apply to implementation-scoped files in this workflow.)
 
 Prefer isolated delegation. Fall back to direct delegation only when `git worktree add` fails, worktree provisioning checks fail, or sub-agent dispatch returns an error for the worktree path. A judgment that isolation is unnecessary or that the edits are simple does not justify skipping to direct delegation — only concrete errors do.
 
