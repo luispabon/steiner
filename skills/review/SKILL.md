@@ -105,7 +105,7 @@ The reviewer prefers the highest available delegation tier for fix passes:
 
 1. **Isolated delegation** (preferred): fix pass runs in a dedicated worktree on a temporary branch. Provides full isolation from the feature branch.
 2. **Direct delegation** (fallback): fix pass runs directly on the feature branch via a `code` sub-agent. Used when worktrees are unavailable or provisioning fails.
-3. **Inline fixes** (last resort): reviewer applies fixes directly. Used only when delegation tools themselves are unavailable.
+3. **Inline fixes** (last resort): reviewer applies fixes directly. Used only when delegation tools themselves are unavailable. Deliberate exception to the routing threshold in your system prompt: review-fix work must have a guaranteed way to close out even when delegation tooling itself is down.
 
 Prefer isolated delegation. Fall back through tiers in order. Do not skip direct delegation and jump to inline fixes just because worktrees failed. A judgment that isolation is unnecessary or that the fixes are simple does not justify skipping isolated delegation — only concrete errors (worktree provisioning failure, sub-agent dispatch error) do.
 
@@ -166,15 +166,7 @@ If verification fails, either run another approved review-fix pass or report a b
 
 ## Steiner Delegation
 
-Use Steiner's specialised tools directly:
-
-- `explore({"task": "..."})` for targeted review discovery
-- `code({"task": "..."})` for approved review-fix passes
-- `sanity_check({"task": "..."})` for check-only verification
-- `evaluate({"task": "..."})` for bounded analysis of a review uncertainty
-- `research({"task": "..."})` only for approved current/external research
-
-Specialised Steiner tools accept only `task`. The reviewer must provide a tight, self-contained task with known context, relevant files, approved decisions, constraints, expected output, non-goals, and the appropriate pre-commit checklist from the Review-Fix Loop section.
+Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the appropriate pre-commit checklist from the Review-Fix Loop section.
 
 ## Closeout
 
