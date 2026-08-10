@@ -57,7 +57,7 @@ func TestPreambleSpecialistRosterMatchesAgentTypes(t *testing.T) {
 	// Count identity: len(parsed) + len(excludedAgentTypes) == len(AllAgentTypes())
 	excludedAgentTypeCount := 0
 	for name := range excluded {
-		if _, ok := findAgentTypeByString(name, allAgentTypes); ok {
+		if findAgentTypeByString(name, allAgentTypes) {
 			excludedAgentTypeCount++
 		}
 	}
@@ -67,7 +67,7 @@ func TestPreambleSpecialistRosterMatchesAgentTypes(t *testing.T) {
 
 	// Verify excluded AgentTypes are absent from parsed
 	for agentType := range excluded {
-		if _, ok := findAgentTypeByString(agentType, allAgentTypes); ok {
+		if findAgentTypeByString(agentType, allAgentTypes) {
 			if slices.Contains(parsed, agentType) {
 				t.Errorf("excluded AgentType %q should not be in parsed roster", agentType)
 			}
@@ -188,11 +188,11 @@ func isSeparatorRow(line string) bool {
 	return true
 }
 
-func findAgentTypeByString(s string, agentTypes []AgentType) (AgentType, bool) {
+func findAgentTypeByString(s string, agentTypes []AgentType) bool {
 	for _, at := range agentTypes {
 		if string(at) == s {
-			return at, true
+			return true
 		}
 	}
-	return "", false
+	return false
 }
