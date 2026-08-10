@@ -48,7 +48,7 @@ func (m Model) executeSetModeAction(mode string) (tea.Model, tea.Cmd) {
 
 // executeInvalidModeAction reports an unrecognized /mode argument.
 func (m Model) executeInvalidModeAction(arg string) (tea.Model, tea.Cmd) {
-	m.content.AppendLine(fmt.Sprintf("status: mode %q is not valid (use plan or build)", arg))
+	m.content.AppendLine(fmt.Sprintf("status: mode %q is not valid (use plan: restricted edits, plan artifacts only; or build: normal workspace editing)", arg))
 	m.input.Reset()
 	m.historyIdx = 0
 	m.relayoutInput()

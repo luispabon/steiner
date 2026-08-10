@@ -375,7 +375,7 @@ func TestProjectHelpLines(t *testing.T) {
 		{key: "/resume", desc: "load a previous session"},
 		{key: "/accent [preset]", desc: "change accent color"},
 		{key: "/thinking", desc: "show or hide thinking blocks"},
-		{key: "shift+tab / /mode [plan|build]", desc: "toggle or set plan/build execution mode"},
+		{key: "shift+tab / /mode [plan|build]", desc: "toggle or set mode: plan (restricted edits, plan artifacts only) or build (normal workspace editing)"},
 		{key: "/exit", desc: "quit steiner"},
 	}
 	if len(got) != len(want) {

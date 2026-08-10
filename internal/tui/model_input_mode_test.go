@@ -170,4 +170,15 @@ func TestModeSlashCommandInvalidArgReportsStatus(t *testing.T) {
 	if len(ctrl.switchModeActions()) != 0 {
 		t.Fatalf("SwitchMode dispatched for invalid arg, want no-op")
 	}
+	if len(m.content.segments) != 1 {
+		t.Fatalf("content segments = %d, want 1", len(m.content.segments))
+	}
+	seg := m.content.segments[0]
+	want := "mode \"bogus\" is not valid (use plan: restricted edits, plan artifacts only; or build: normal workspace editing)"
+	if seg.kind != segmentStatus {
+		t.Fatalf("segment kind = %v, want segmentStatus", seg.kind)
+	}
+	if seg.text != want {
+		t.Fatalf("segment text = %q, want %q", seg.text, want)
+	}
 }

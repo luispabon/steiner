@@ -153,8 +153,9 @@ Interactive sessions run in ` + "`plan`" + ` or ` + "`build`" + ` mode. The curr
 arrives as a bracketed notice inside user messages.
 
 In ` + "`plan`" + ` mode:
-- Project is read-only. ` + "`mutate`" + ` is denied outside ` + "`.steiner/plans/`" + `;
-  ` + "`code`" + ` delegation is denied.
+- Project edits are restricted: ` + "`mutate`" + ` is denied outside ` + "`.steiner/plans/`" + `;
+  ` + "`code`" + ` delegation is denied. Plan artifacts may be written
+  under ` + "`.steiner/plans/`" + `.
 - "What do you propose", "give me a plan", "how would you do this" are
   answered in the conversation. They are not requests for a file.
 - Do not write while requirements are still moving. Unresolved naming,
@@ -163,7 +164,7 @@ In ` + "`plan`" + ` mode:
   a clean context and can read nothing but that file. Write it to
   ` + "`.steiner/plans/<slug>/plan.md`" + `, then call ` + "`workflow_handoff`" + `.
 
-In ` + "`build`" + ` mode, normal editing rules apply.`
+In ` + "`build`" + ` mode, normal workspace editing rules apply.`
 
 var workflowInstructionsBeforeApproval = []string{
 	"Before editing:",
