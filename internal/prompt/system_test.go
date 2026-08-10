@@ -7,7 +7,7 @@ import (
 
 const (
 	testIdentityMarker   = "You are steiner, a lean coding agent."
-	testDelegationMarker = "## Delegation"
+	testDelegationMarker = "## Your role"
 	testCoreRulesMarker  = "Core rules:"
 	testWorkflowMarker   = "Before editing:"
 	testCaveHumanMarker  = "## Output voice"
@@ -173,24 +173,37 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	content := SystemPreamble("", true, false, "").Content
 	for _, want := range []string{
 		testDelegationMarker,
-		"Every file you read locally stays in your context for the rest of the conversation",
-		"Sub-agent context is ephemeral",
-		"Default to delegation; work locally only when the conditions below are clearly met.",
+		"You are the orchestrator.",
+		"You are not the default implementation worker.",
+		"Your context is the scarce resource.",
+		"Every file you read locally stays in it for the rest of the conversation",
+		"Sub-agent context is ephemeral — it vanishes once the agent reports back.",
+		"You own the parts that cannot be delegated",
+		"## Your specialists",
+		"| Agent | Lane | Do not use for |",
+		"| `explore` | Navigate the codebase: find files, symbols, patterns, usages, or call sites | questions answerable from the web or docs — that is `research` |",
+		"| `research` | Gather information: search the web, read docs, synthesize across sources | anything answerable from the repo alone — that is `explore` |",
+		"| `code` | Implement a scoped change: one deliverable, exact files named, design pre-digested | design decisions, or work whose files you have not identified |",
+		"| `evaluate` | Analyze a scoped sub-problem: weigh options, produce a recommendation. Not for task planning | task planning, or questions with one obvious answer |",
+		"| `sanity_check` | Run checks: tests, lint, build. Report pass/fail. No code changes | anything that changes files |",
+		"| `review` | Examine code changes: bugs, regressions, missing tests, plan adherence. No fixes | broad 'review the whole PR' scope, or applying fixes |",
 		"Before acting on any task, classify it into one of:",
 		"Investigation → always `explore`",
 		"Research → always `research`",
-		"Implementation → `code`, unless you already hold the exact text you will change",
+		"Implementation → `code`",
 		"Verification → always `sanity_check`",
 		"Review → always `review`",
-		"Work locally in exactly two cases:",
-		"The result is needed in your current context",
-		"You need the edit sites, not the whole file.",
-		"State in one line why you are editing directly rather than calling `code`",
-		"Never work locally when:",
-		"You need to read 2+ files to understand something",
-		"You need to find where something is defined or used",
-		"You are about to grep then read the results",
-		"The task is separable from your current work",
+		"`evaluate` is a reasoning aid, not a task category.",
+		"## Routing threshold",
+		"Delegate by default.",
+		"one `read` of a file you are about to edit;",
+		"one `grep` for a known pattern, one `ls`, one `git diff`, one `gofmt`, or one targeted test;",
+		"applied with `mutate`",
+		"If you cannot state in one line why delegation would cost more than doing it yourself, delegate.",
+		"## Briefing a sub-agent",
+		"When delegating to `code`: name the exact files and function signatures to change.",
+		"Delegating is not free: the sub-agent starts cold and re-reads what you already hold",
+		"When delegating to `review`: scope to specific files or a diff range.",
 		"Sub-agents receive only the task you provide.",
 		"Sub-agents cannot delegate further or ask the user questions.",
 		"Every sub-agent task MUST use the template below.",
@@ -199,21 +212,12 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"Deliverable: the concrete output expected",
 		"Constraints: boundaries",
 		"Success criteria: how the sub-agent knows it is done",
-		"| `explore` | Navigate the codebase: find files, symbols, patterns, usages, or call sites |",
-		"| `research` | Gather information: search the web, read docs, synthesize across sources |",
-		"| `code` | Implement a scoped change: one deliverable, exact files named, design pre-digested |",
-		"| `evaluate` | Analyze a scoped sub-problem: weigh options, produce a recommendation. Not for task planning |",
-		"| `sanity_check` | Run checks: tests, lint, build. Report pass/fail. No code changes |",
-		"| `review` | Examine code changes: bugs, regressions, missing tests, plan adherence. No fixes |",
+		"Verification: commands/checks to run, if applicable",
 		"| Find DRY/refactoring opportunities across the codebase | `explore`: report files, repeated patterns, risks, and next steps. |",
 		"| Understand how a feature works across multiple files | `explore`: trace the call chain and report. |",
 		"| Read one file you are about to edit | Work locally. |",
+		"| Edit a file whose contents are already in your context | Work locally with `mutate`. |",
 		"Ask a sub-agent to find something across multiple files",
-		"`evaluate` is a reasoning aid, not a task category.",
-		"### Delegation tips",
-		"When delegating to `code`: name the exact files and function signatures to change.",
-		"Delegating is not free: the sub-agent starts cold and re-reads what you already hold",
-		"When delegating to `review`: scope to specific files or a diff range.",
 		"| Run broad verification while continuing local work | `sanity_check`: run checks and summarize exact failures. |",
 		"| Evaluate two approaches to a design problem | `evaluate`: analyze tradeoffs and recommend. |",
 	} {
@@ -237,6 +241,18 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"Use `delegate` for separable work another agent can complete independently and summarize back.",
 		"When delegating, pass a self-contained task with paths/search terms, constraints, ownership, expected output",
 		"| Read one known file or inspect one known diff | Work locally. |",
+		"## Delegation",
+		"Work locally in exactly two cases:",
+		"Never work locally when:",
+		"Default to delegation; work locally only when the conditions below are clearly met.",
+		"The result is needed in your current context",
+		"You need the edit sites, not the whole file.",
+		"State in one line why you are editing directly rather than calling `code`",
+		"You need to read 2+ files to understand something",
+		"You need to find where something is defined or used",
+		"You are about to grep then read the results",
+		"The task is separable from your current work",
+		"### Delegation tips",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("delegation preamble still contains old guidance %q", forbidden)
@@ -394,5 +410,105 @@ func TestSystemPreambleByteStable(t *testing.T) {
 
 	if first != second {
 		t.Fatalf("preamble not byte-identical across builds:\nfirst:\n%s\n\nsecond:\n%s", first, second)
+	}
+}
+
+const testRoleProseMarker = "not the default implementation worker"
+
+func TestSystemPreambleRoleProseGating(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name              string
+		delegationEnabled bool
+		mode              workflowMode
+		wantRole          bool
+	}{
+		{
+			name:              "delegation enabled, parent mode: role prose present",
+			delegationEnabled: true,
+			mode:              workflowModeParent,
+			wantRole:          true,
+		},
+		{
+			name:              "delegation disabled, parent mode: role prose absent",
+			delegationEnabled: false,
+			mode:              workflowModeParent,
+			wantRole:          false,
+		},
+		{
+			name:              "oneshot phase (delegated child mode, delegation enabled): role prose present",
+			delegationEnabled: true,
+			mode:              DelegatedChildWorkflowMode(),
+			wantRole:          true,
+		},
+		{
+			name:              "delegated child (delegation disabled): role prose absent",
+			delegationEnabled: false,
+			mode:              DelegatedChildWorkflowMode(),
+			wantRole:          false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{
+				DelegationEnabled: tc.delegationEnabled,
+				Mode:              tc.mode,
+			}).Content
+
+			if !strings.Contains(content, testIdentityMarker) {
+				t.Fatalf("preamble missing identity %q in %q", testIdentityMarker, content)
+			}
+
+			gotRole := strings.Contains(content, testRoleProseMarker)
+			if gotRole != tc.wantRole {
+				t.Fatalf("role prose present = %v, want %v in %q", gotRole, tc.wantRole, content)
+			}
+		})
+	}
+}
+
+func TestSystemPreambleRoleProseViaOverride(t *testing.T) {
+	t.Parallel()
+
+	content := SystemPreambleWithAdvisor(SystemPreambleParams{
+		Override:          "Custom override content",
+		DelegationEnabled: true,
+		Mode:              workflowModeParent,
+	}).Content
+
+	if !strings.Contains(content, testIdentityMarker) {
+		t.Fatalf("override preamble missing identity %q in %q", testIdentityMarker, content)
+	}
+	if !strings.Contains(content, testRoleProseMarker) {
+		t.Fatalf("override preamble missing role prose %q in %q", testRoleProseMarker, content)
+	}
+	if !strings.Contains(content, "Custom override content") {
+		t.Fatalf("override preamble missing override content in %q", content)
+	}
+}
+
+func TestSystemPreambleRoleProsePosition(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{
+		DelegationEnabled: true,
+		AdvisorEnabled:    true,
+		Mode:              workflowModeParent,
+	}).Content
+
+	roleIdx := strings.Index(content, testRoleProseMarker)
+	advisorIdx := strings.Index(content, "## Advisor")
+	coreIdx := strings.Index(content, testCoreRulesMarker)
+
+	if roleIdx < 0 || advisorIdx < 0 || coreIdx < 0 {
+		t.Fatalf("missing marker: roleIdx=%d advisorIdx=%d coreIdx=%d in %q", roleIdx, advisorIdx, coreIdx, content)
+	}
+	if roleIdx >= advisorIdx {
+		t.Fatalf("role prose (index %d) should appear before advisor section (index %d) in %q", roleIdx, advisorIdx, content)
+	}
+	if roleIdx >= coreIdx {
+		t.Fatalf("role prose (index %d) should appear before core rules (index %d) in %q", roleIdx, coreIdx, content)
 	}
 }
