@@ -711,3 +711,98 @@ func messageIndexByNameContains(t *testing.T, messages []provider.Message, want 
 	t.Fatalf("message with name containing %q not found", want)
 	return -1
 }
+
+// TestAssembleOrchestratorRoleReachesOrchestratorsOnly drives full prompt assembly with the
+// three option combinations that occur in production and asserts the orchestrator role prose
+// reaches exactly the callers that orchestrate.
+//
+// This is the assembly-level counterpart to the preamble-level gate tests in system_test.go:
+// it exercises the real Assemble path rather than buildSystemPreamble directly, so a
+// regression in how AssemblyOptions feeds the preamble is caught here.
+//
+// Each case mirrors a production call site; the comments name it so drift stays visible.
+func TestAssembleOrchestratorRoleReachesOrchestratorsOnly(t *testing.T) {
+	t.Parallel()
+
+	const roleMarker = "not the default implementation worker"
+
+	tests := []struct {
+		name     string
+		mirrors  string
+		mutate   func(*AssemblyOptions)
+		wantRole bool
+	}{
+		{
+			name:    "interactive parent",
+			mirrors: "cliRunner.promptAssembly (cmd/steiner/runner_run.go) with cfg.SubAgent.Enabled true",
+			mutate: func(opts *AssemblyOptions) {
+				opts.DelegationEnabled = true
+				opts.WorkflowMode = ParentWorkflowMode()
+			},
+			wantRole: true,
+		},
+		{
+			name: "oneshot phase",
+			mirrors: "cliRunner.promptAssembly with WorkflowMode from phaseRunnerFactory " +
+				"(cmd/steiner/cmd_oneshot.go), which is DelegatedChildWorkflowMode while " +
+				"DelegationEnabled stays cfg.SubAgent.Enabled",
+			mutate: func(opts *AssemblyOptions) {
+				opts.DelegationEnabled = true
+				opts.WorkflowMode = DelegatedChildWorkflowMode()
+			},
+			wantRole: true,
+		},
+		{
+			name: "delegated child",
+			mirrors: "buildChildPrompt (internal/delegation/bootstrap.go), which sets " +
+				"WorkflowMode only and never sets DelegationEnabled",
+			mutate: func(opts *AssemblyOptions) {
+				opts.WorkflowMode = DelegatedChildWorkflowMode()
+			},
+			wantRole: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			projectRoot := t.TempDir()
+			mustWrite(t, projectRoot, "go.mod", "module example.com/test\n")
+
+			opts := AssemblyOptions{
+				HomeDir:      t.TempDir(),
+				ProjectRoot:  projectRoot,
+				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "do the thing"}},
+			}
+			tt.mutate(&opts)
+
+			assembly, err := Assemble(context.Background(), opts)
+			if err != nil {
+				t.Fatalf("Assemble() error = %v", err)
+			}
+
+			preamble := blockContentBySource(t, assembly.Blocks, ContextSourcePreamble)
+
+			if got := strings.Contains(preamble, roleMarker); got != tt.wantRole {
+				t.Errorf("preamble contains %q = %t, want %t (mirrors %s)", roleMarker, got, tt.wantRole, tt.mirrors)
+			}
+
+			if !strings.Contains(preamble, identity) {
+				t.Errorf("preamble missing identity %q; identity is shared by every agent and must always render", identity)
+			}
+		})
+	}
+}
+
+func blockContentBySource(t *testing.T, blocks []ContextBlock, source ContextSource) string {
+	t.Helper()
+
+	for _, block := range blocks {
+		if block.Source == source {
+			return block.Content
+		}
+	}
+	t.Fatalf("no block with source %q found", source)
+	return ""
+}
