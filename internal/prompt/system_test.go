@@ -362,11 +362,11 @@ func TestSystemPreambleExecutionModesInParent(t *testing.T) {
 		"The current mode",
 		"arrives as a bracketed notice inside user messages.",
 		"In `plan` mode:",
-		"Project is read-only",
+		"Project edits are restricted",
 		"`.steiner/plans/`",
 		"Write it to",
 		"`.steiner/plans/<slug>/plan.md`",
-		"In `build` mode, normal editing rules apply.",
+		"In `build` mode, normal workspace editing rules apply.",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("parent preamble missing %q in %q", want, content)

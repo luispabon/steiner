@@ -96,16 +96,25 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		return err
 	}
 
+	// Validate the persisted mode before touching session state: empty falls
+	// back to the configured default, plan/build are accepted, and any other
+	// value must not restore a writable session.
+	mode := config.ExecutionMode(strings.TrimSpace(sess.Mode))
+	if mode != "" && mode != config.ExecutionModePlan && mode != config.ExecutionModeBuild {
+		err := fmt.Errorf("load session: unknown mode %q", mode)
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("load session failed: %v", err)))
+		return err
+	}
+	if mode == "" {
+		mode = s.deps.Config.Modes.Default
+	}
+
 	s.mu.Lock()
 	s.lineage = sess.Lineage
 	s.conversation = sess.Lineage.FullMessages()
 	s.sessionID = sess.ID
 	s.sessionTitle = sess.Title
 	s.sessionGroup = strings.TrimSpace(sess.Group)
-	mode := config.ExecutionMode(strings.TrimSpace(sess.Mode))
-	if mode == "" {
-		mode = s.deps.Config.Modes.Default
-	}
 	s.mode = mode
 	if s.modeListener != nil {
 		s.modeListener(mode)

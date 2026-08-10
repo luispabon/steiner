@@ -4,18 +4,19 @@ Interactive sessions run in one of two execution modes: `plan` or `build`. The m
 
 ## Mode semantics
 
-- **`build`** — the default mode. Normal editing rules apply: `mutate`, `bash`, and the `code` sub-agent tool are all available without restriction.
-- **`plan`** — the project is treated as read-only. Writes are permitted only under `.steiner/plans/`. Plan mode doubles as a chat/Q&A mode: discuss freely, and write a plan file only when handing off to build mode.
+- **`build`** — the default mode. Normal workspace editing: `mutate`, `bash`, and the `code` sub-agent tool are all available without restriction.
+- **`plan`** — project edits are restricted: writes outside `.steiner/plans/` are denied, and plan artifacts may be written under `.steiner/plans/`. Plan mode doubles as a chat/Q&A mode: discuss freely, and write a plan file only when handing off to build mode.
 
 There is no third "chat" mode and no auto-detection — plan mode itself serves that purpose. There is also no `--mode` CLI flag; execution modes apply to interactive sessions only. Oneshot and non-interactive `exec` runs are unaffected and keep their existing behaviour.
 
 ## Switching modes
 
 - **Shift+Tab** toggles between `plan` and `build` in the TUI. The binding is checked after overlay key handling, so open overlays (pickers, modals) take priority over the toggle.
-- **`/mode`** with no argument toggles the mode; `/mode plan` or `/mode build` sets it explicitly. An unrecognized argument reports `mode "<arg>" is not valid (use plan or build)` and leaves the mode unchanged.
-- **`workflow_handoff` acceptance** flips the session to `build` mode automatically. Two handoff targets exist:
-  - **Skill-bundle targets** (`implement`, `review`): require `overview.md` + `plan.yaml` and invoke a skill (`/implement <target>` or `/review <target>`) in the fresh session.
-  - **Loose `build` target**: requires only `plan.md` and submits a literal prompt (`Implement the plan at <target>/plan.md. It is the complete record of what was agreed — read it before making any changes.`) directly to the model. This handoff path works even with skills disabled and does not depend on skill discovery.
+- **`/mode`** with no argument toggles the mode; `/mode plan` or `/mode build` sets it explicitly. An unrecognized argument reports `mode "<arg>" is not valid (use plan: restricted edits, plan artifacts only; or build: normal workspace editing)` and leaves the mode unchanged.
+- **`workflow_handoff` acceptance** flips the session to `build` mode automatically. Three handoff targets exist, each with its own artifact and startup contract:
+  - **Structured `implement` target**: requires `overview.md` + `plan.yaml` and starts the structured `/implement` workflow (`/implement <target>`) in the fresh session.
+  - **Structured `review` target**: requires `overview.md` + `plan.yaml` and starts the structured `/review` workflow (`/review <target>`) in the fresh session.
+  - **Loose `build` target**: requires only `plan.md` and directly executes that standalone `plan.md` in build mode. It submits a literal prompt (`Implement the plan at <target>/plan.md. It is the complete record of what was agreed — read it before making any changes.`) to the model without depending on skill discovery; this handoff path works even with skills disabled.
   
   There is no model-initiated path from build back to plan; only this workflow_handoff transition and the user-driven toggle/command change mode.
 
@@ -36,11 +37,11 @@ Mode never changes the system preamble, tool schemas, or any other part of the c
 | `review` sub-agent tool | Allowed | Allowed | Allowed |
 | `follow_up` targeting a `code`-derived child | Denied | Denied | Allowed |
 
-The `mutate` write restriction and the sub-agent denials are enforced in `internal/tool` and `internal/delegation` regardless of sandbox state — they do not depend on bubblewrap being available. Only `bash`'s filesystem read-only enforcement depends on the sandbox: without a working sandbox (`sandbox.enabled: false`, a non-Linux platform, or `bwrap` missing from `PATH`), a plan-mode `bash` command can still write to `.steiner/plans/` via direct filesystem access.
+The `mutate` write restriction and the sub-agent denials are enforced in `internal/tool` and `internal/delegation` regardless of sandbox state — they do not depend on bubblewrap being available. Only `bash`'s filesystem read-only enforcement depends on the sandbox: without a working sandbox (`sandbox.enabled: false`, a non-Linux platform, or `bwrap` missing from `PATH`), a plan-mode `bash` command can still write to `.steiner/plans/` via direct filesystem access. In that state plan mode is an agent/tool policy, not a filesystem-level guarantee: `mutate` and sub-agent denials still hold, but `bash` runs unenforced.
 
 ## Persistence
 
-The current mode is saved with the session (`session.Mode`) and restored on resume. If a saved session has no mode recorded, the session falls back to `modes.default`. Plan-mode sessions carry the sticky mode notice on every outgoing user message, so the mode is always visible in the conversation history and survives resume and compaction without special handling. Build-mode sessions carry no standing notice, only a one-shot announcement when transitioning from plan mode.
+The current mode is saved with the session (`session.Mode`) and restored on resume. If a saved session has no mode recorded, the session falls back to `modes.default`. `plan` and `build` are accepted as persisted values; any other non-empty value is rejected at restore with a `load session failed` error, so an unknown mode can never restore a writable session. Plan-mode sessions carry the sticky mode notice on every outgoing user message, so the mode is always visible in the conversation history and survives resume and compaction without special handling. Build-mode sessions carry no standing notice, only a one-shot announcement when transitioning from plan mode.
 
 ## Configuration
 

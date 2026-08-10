@@ -1412,6 +1412,110 @@ func TestLoadSessionReplacesConversation(t *testing.T) {
 	}
 }
 
+func TestLoadSessionRestoresMode(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		persisted string
+		want      config.ExecutionMode
+	}{
+		{name: "empty uses configured default", persisted: "", want: config.ExecutionModePlan},
+		{name: "plan accepted", persisted: "plan", want: config.ExecutionModePlan},
+		{name: "build accepted", persisted: "build", want: config.ExecutionModeBuild},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mockStore := newMockSessionStore()
+			mockStore.loadedSessions["mode-session"] = session.Session{
+				ID:    "mode-session",
+				Title: "Mode Session",
+				Model: "test-model",
+				Mode:  tc.persisted,
+				Lineage: agent.ConversationLineage{
+					Generations: []agent.ConversationGeneration{
+						{
+							ID:       1,
+							Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "previous message"}},
+						},
+					},
+					NextGenerationID: 2,
+				},
+			}
+
+			s := testNewSession(t, Dependencies{
+				SessionStore: mockStore,
+				Config: config.Config{
+					Modes: config.ModesConfig{Default: config.ExecutionModePlan},
+				},
+			})
+
+			var listenerCalled bool
+			s.SetModeListener(func(config.ExecutionMode) { listenerCalled = true })
+
+			if err := s.Handle(context.Background(), LoadSession{SessionID: "mode-session"}); err != nil {
+				t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+			}
+			if got := s.Mode(); got != tc.want {
+				t.Fatalf("Mode() = %q, want %q", got, tc.want)
+			}
+			if !listenerCalled {
+				t.Fatal("mode listener not called on successful restore")
+			}
+		})
+	}
+}
+
+func TestLoadSessionRejectsUnknownMode(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions["bad-mode-session"] = session.Session{
+		ID:    "bad-mode-session",
+		Title: "Bad Mode Session",
+		Model: "test-model",
+		Mode:  "readwrite",
+	}
+
+	s := testNewSession(t, Dependencies{
+		BaseEvents:   output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+		SessionStore: mockStore,
+		Config: config.Config{
+			Modes: config.ModesConfig{Default: config.ExecutionModePlan},
+		},
+	})
+
+	var listenerCalls int
+	s.SetModeListener(func(config.ExecutionMode) { listenerCalls++ })
+
+	err := s.Handle(context.Background(), LoadSession{SessionID: "bad-mode-session"})
+	if err == nil {
+		t.Fatal("Handle(LoadSession) = nil, want error for unknown mode")
+	}
+	if !strings.Contains(err.Error(), "unknown mode") {
+		t.Fatalf("error = %v, want substring 'unknown mode'", err)
+	}
+	if got := s.Mode(); got != config.ExecutionModePlan {
+		t.Fatalf("Mode() = %q, want unchanged %q", got, config.ExecutionModePlan)
+	}
+	if listenerCalls != 0 {
+		t.Fatalf("mode listener calls = %d, want 0 (rejected restore must not mutate state)", listenerCalls)
+	}
+	var foundReport bool
+	for _, event := range events {
+		if event.Type == output.EventTypeContextReport {
+			if payload, ok := event.Payload.(output.ContextReportEvent); ok &&
+				strings.Contains(payload.Content, "load session failed") &&
+				strings.Contains(payload.Content, "unknown mode") {
+				foundReport = true
+			}
+		}
+	}
+	if !foundReport {
+		t.Fatalf("events = %#v, want Context Report 'load session failed: unknown mode' event", events)
+	}
+}
+
 func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
 	t.Parallel()
 

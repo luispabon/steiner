@@ -21,9 +21,11 @@ func TestModeNotice(t *testing.T) {
 			wantPresent: []string{
 				"[execution mode: plan]",
 				"Plan mode",
-				"Read-only",
-				"discuss, do not",
-				"Plan files are for handoff only",
+				"Project edits are restricted",
+				".steiner/plans/",
+				"Discuss proposals in conversation",
+				"do not edit while requirements are moving",
+				"write a handoff plan only when ready",
 			},
 		},
 		{
@@ -32,7 +34,7 @@ func TestModeNotice(t *testing.T) {
 			wantPresent: []string{
 				"[execution mode: build]",
 				"Build mode",
-				"Normal editing rules apply",
+				"Normal workspace editing",
 			},
 		},
 	}

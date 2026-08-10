@@ -118,7 +118,7 @@ var slashCommands = []slashCommand{
 	{
 		ID:          "/mode",
 		Name:        "Switch mode",
-		Desc:        "toggle or set plan/build execution mode",
+		Desc:        "toggle or set mode: plan (restricted edits, plan artifacts only) or build (normal workspace editing)",
 		ArgVariants: []string{"plan", "build"},
 		HelpKey:     "shift+tab / /mode [plan|build]",
 		Build: func(arg string) inputAction {

@@ -71,7 +71,7 @@ func WorkflowHandoffSchema() map[string]any {
 		"properties": map[string]any{
 			"next": map[string]any{
 				"type":        "string",
-				"description": "Required. The workflow target to hand off to.",
+				"description": "Required. The workflow target to hand off to. implement: structured `/implement` workflow using overview.md and plan.yaml. review: structured `/review` workflow using overview.md and plan.yaml. build: direct execution of standalone plan.md in build mode, without skill discovery.",
 				"enum":        nextEnum,
 			},
 			"target": map[string]any{

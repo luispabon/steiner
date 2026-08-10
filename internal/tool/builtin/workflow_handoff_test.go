@@ -48,6 +48,16 @@ func TestWorkflowHandoffSchema(t *testing.T) {
 	if len(enum) != 3 || enum[0] != "implement" || enum[1] != "review" || enum[2] != "build" {
 		t.Fatalf("next.enum = %v, want [implement review build]", enum)
 	}
+	nextDesc := toString(nextProp["description"])
+	for _, want := range []string{
+		"implement: structured `/implement` workflow using overview.md and plan.yaml",
+		"review: structured `/review` workflow using overview.md and plan.yaml",
+		"build: direct execution of standalone plan.md in build mode, without skill discovery",
+	} {
+		if !strings.Contains(nextDesc, want) {
+			t.Fatalf("next.description missing %q in %q", want, nextDesc)
+		}
+	}
 
 	targetProp, ok := props["target"].(map[string]any)
 	if !ok {

@@ -201,11 +201,11 @@ See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full docume
 
 ## Execution modes
 
-Interactive sessions run in `plan` or `build` mode. In `plan` mode the project is read-only — writes are restricted to `.steiner/plans/`, the `code` sub-agent tool and any `follow_up` targeting a mutation-capable child are denied, and when the bubblewrap sandbox is active the rest of the project is bind-mounted read-only for `bash` as well. Plan mode doubles as a chat/Q&A mode: discuss freely, and write a plan file only when handing off to build mode. Call `workflow_handoff` to hand an approved plan off to build mode, where normal editing rules apply.
+Interactive sessions run in `plan` or `build` mode. In `plan` mode project edits are restricted: `mutate` writes are limited to `.steiner/plans/`, the `code` sub-agent tool and any `follow_up` targeting a mutation-capable child are denied, and when the bubblewrap sandbox is active the rest of the project is bind-mounted read-only for `bash` as well. Plan artifacts may be written under `.steiner/plans/`. Plan mode doubles as a chat/Q&A mode: discuss freely, and write a plan file only when handing off. Call `workflow_handoff` to hand an approved plan off: `implement` and `review` start structured `/implement` and `/review` workflows from `overview.md` + `plan.yaml`, while `build` directly executes a standalone `plan.md` in build mode without skill discovery.
 
 Switch modes with Shift+Tab or `/mode [plan|build]`. The mode never changes the system prompt prefix or tool definitions. In plan mode, a bracketed notice is prepended to every outgoing user message (sticky). In build mode, a one-shot notice announces mode transitions. These notices are stored in the conversation and maintained through prompt caching. The default mode is set by `modes.default` in config (`build` unless configured otherwise).
 
-Without a working sandbox (`sandbox.enabled: false`, non-Linux, or `bwrap` unavailable), `bash` runs unenforced in plan mode — only the write-restriction on `mutate` and the sub-agent denials stay hard-gated regardless of sandbox state.
+Without a working sandbox (`sandbox.enabled: false`, non-Linux, or `bwrap` unavailable), plan mode is an agent/tool policy, not a filesystem-level guarantee: `bash` runs unenforced, while the `mutate` write restriction and the sub-agent denials stay hard-gated regardless of sandbox state.
 
 See [docs/execution-modes.md](docs/execution-modes.md) for the full enforcement matrix and persistence details.
 
