@@ -106,7 +106,7 @@ Use `implemented` to unlock dependencies. Use `complete` only after required ver
 
 ## Executor-Owned Work
 
-The executor performs these actions directly using the native tool for each — do not route through `bash` when a dedicated tool exists:
+The executor performs these actions directly using the native tool for each:
 
 - artifact loading — `read` to load plan files; `grep` and `glob` to locate files
 - `execution.md` creation and updates — `mutate`
