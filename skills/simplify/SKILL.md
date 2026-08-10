@@ -140,7 +140,7 @@ If blocking or non_blocking findings exist:
 
 Mirror the review skill's fix loop exactly:
 
-- Same delegation tier preference: isolated (worktree) > direct (code sub-agent) > inline (last resort)
+- Same delegation tier preference: isolated (worktree) > direct (code sub-agent) > inline (last resort — deliberate exception to the routing threshold in your system prompt: fix/review must have a guaranteed way to close out even when delegation tooling itself is down)
 - Worktrees created under `.steiner/worktrees/` (not /tmp)
 - Worktree provisioning: after `git worktree add`, verify with `ls -d <path>` and `git -C <path> branch --show-current`; if either fails, prune with `git worktree remove` and fall back to direct delegation
 - Same pre-commit checklist (isolated mode: check branch name, worktree path, git status scope; direct mode: check branch name, git status scope)
@@ -198,13 +198,7 @@ Skip only if advisor budget is exhausted or `AdvisorEnabled` is off. Include the
 
 ## Steiner Delegation
 
-Use Steiner's specialised tools directly:
-
-- `explore({"task": "..."})` for analysis sub-agents
-- `code({"task": "..."})` for approved fix passes
-- `verify({"task": "..."})` for check-only verification
-
-Specialised tools accept only `task`. Provide tight, self-contained task descriptions with context, files, constraints, expected output, non-goals, and the pre-commit checklist from the Fix/Review Loop section.
+Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the pre-commit checklist from the Fix/Review Loop section.
 
 ## Completion
 
