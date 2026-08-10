@@ -160,7 +160,17 @@ The TUI renders delegation lifecycle events with a spinner during execution, lif
 
 ### System prompt integration
 
-When delegation is enabled, the system prompt preamble includes a delegation instructions block: a quick-reference table of tools, classification heuristics (when to delegate vs work locally), task categories suited for delegation, guidance on what makes a good delegation, and explicit constraints (no nesting, no user questions from sub-agents).
+When delegation is enabled, the system prompt preamble includes a delegation instructions block (`delegationInstructions` in `internal/prompt/system.go`) cast as the orchestrator role, not a rules dump. It has four parts, in order: a role statement (the model plans, dispatches, verifies, and integrates — it is not the default implementation worker, and context is framed as the scarce resource); a specialists table (agent, lane, and what not to use it for, covering `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`); a single routing threshold (delegate by default, with three concrete instances where handling work locally costs less than delegating, and a one-line test for the boundary); and a briefing section with the six-field task template (Objective, Context, Deliverable, Constraints, Success criteria, Verification) plus worked examples.
+
+The block is gated on `delegationEnabled`, not on `workflowMode`:
+
+| Caller | `WorkflowMode` | `DelegationEnabled` | Receives the role? |
+|--------|----------------|----------------------|---------------------|
+| Interactive parent | `ParentWorkflowMode()` | `true` | Yes |
+| Oneshot phase | `DelegatedChildWorkflowMode()` | `true` (`cfg.SubAgent.Enabled`) | Yes |
+| Delegated child sub-agent | `DelegatedChildWorkflowMode()` | `false` (never set by `buildChildPrompt`) | No |
+
+Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate — they dispatch `code` sub-agents per step — so they need the role; a gate on `workflowMode` would incorrectly exclude them. Delegated children never set `DelegationEnabled`, so they correctly never receive it. `delegationEnabled` is part of the cache key in `CachedSystemPreamble` (`internal/agent/context_manager_base.go`), so gating on it introduces no per-turn non-determinism into the prompt prefix.
 
 ### Constraints and invariants
 

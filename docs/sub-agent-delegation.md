@@ -1,6 +1,6 @@
 # Sub-agent delegation
 
-`steiner` exposes eight sub-agent-as-tool operations that delegate bounded tasks to isolated child agents.
+`steiner` exposes eight sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. When delegation is enabled, the parent's system prompt casts it as the orchestrator: it plans the work, chooses the right specialist for each piece, dispatches it with a complete brief, verifies what comes back, and integrates it — it is not the default implementation worker.
 
 `advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. The advisor lives alongside the delegation tools in the main loop, but it is not a child agent.
 
