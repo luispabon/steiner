@@ -202,7 +202,8 @@ Use Steiner's specialised tools directly:
 
 - `explore({"task": "..."})` for analysis sub-agents
 - `code({"task": "..."})` for approved fix passes
-- `verify({"task": "..."})` for check-only verification
+- `evaluate({"task": "..."})` for bounded analysis of simplification trade-offs
+- `sanity_check({"task": "..."})` for check-only verification
 
 Specialised tools accept only `task`. Provide tight, self-contained task descriptions with context, files, constraints, expected output, non-goals, and the pre-commit checklist from the Fix/Review Loop section.
 

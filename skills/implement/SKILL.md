@@ -197,10 +197,9 @@ Use Steiner's specialised tools directly:
 
 - `explore({"task": "..."})` for read-only discovery needed before implementation
 - `code({"task": "..."})` for implementation or fix passes
-- `verify({"task": "..."})` for check-only verification
-- `plan({"task": "..."})` for bounded implementation sub-problem analysis
+- `sanity_check({"task": "..."})` for check-only verification
+- `evaluate({"task": "..."})` for bounded implementation sub-problem analysis
 - `research({"task": "..."})` for approved current/external research
-- `delegate({...})` only when no specialised profile fits
 
 Specialised Steiner tools accept only `task`. Do not try to configure their prompts or models inline.
 
