@@ -82,7 +82,7 @@ Research may be skipped when the task is repo-local, stable, and sufficiently un
 
 **Research decision ▸ GATE.** Tell the user: current understanding; whether research is required, recommended, or not needed; brief reasons; and the exact next choice. If not needed, offer to continue without research or trigger it anyway. If required or recommended, summarize the questions research will answer. Proceed only on explicit response.
 
-**Delegation.** If research is approved, delegate it — do not substitute the planner's own reasoning. Call Steiner's `research` tool with exactly one self-contained `task` that includes: the exact questions to answer; relevant user intent, constraints, and known decisions; relevant paths, files, packages, APIs, or docs already known; the expected output format; and non-goals and scope boundaries. If `research` is unavailable, report that and ask whether to continue without it or use the best available fallback. The researcher is read-only; research is complete once the delegated result is received and reviewed.
+**Delegation.** If research is approved, delegate it — do not substitute the planner's own reasoning. Call Steiner's `research` tool with exactly one self-contained `task`, framed around the exact questions to answer. When delegation is available, follow the briefing template in your system prompt. If `research` is unavailable, report that and ask whether to continue without it or use the best available fallback. The researcher is read-only; research is complete once the delegated result is received and reviewed.
 
 If a persisted artifact is useful, write `research.md` (or `research_001.md`, …) from the delegated result — do not require the researcher to write files. Then communicate findings: (1) an inline summary of 3–5 bullets covering key findings, implications, and any surprises or risks; (2) `display_file` on the artifact so the user can review full detail. The inline summary drives the conversation; the displayed file is the reference. Do not skip either.
 
@@ -225,7 +225,7 @@ During planning you may use only the read-only Steiner tools — anything that w
 
 Do **not** use `code` (implementation edits) or `sanity_check` (runs checks on changes) while planning; those belong to the executor and reviewer after handoff. You name `code`/`delegate_profile` values inside `plan.yaml` steps as instructions for the executor — that is planning, not invoking them.
 
-Every delegated task must be self-contained and include relevant context already known by the main agent. Do not make delegated agents rediscover context unnecessarily.
+When delegation is available, follow the briefing template in your system prompt.
 
 ### Research output contract
 

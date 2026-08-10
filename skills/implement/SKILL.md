@@ -193,30 +193,10 @@ If any check fails, the sub-agent must not commit. It must report the mismatch a
 
 ## Steiner Delegation
 
-Use Steiner's specialised tools directly:
-
-- `explore({"task": "..."})` for read-only discovery needed before implementation
-- `code({"task": "..."})` for implementation or fix passes
-- `sanity_check({"task": "..."})` for check-only verification
-- `evaluate({"task": "..."})` for bounded implementation sub-problem analysis
-- `research({"task": "..."})` for approved current/external research
-
-Specialised Steiner tools accept only `task`. Do not try to configure their prompts or models inline.
+Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the parent step id and goal, the step's resolved cited decisions, and the appropriate pre-commit checklist from the Delegation Model section.
 
 If an advisor tool is available, consult it before locking an implementation approach
 and again after an unresolved verification failure before choosing the next fix path.
-
-Every delegated task must be tight and self-contained. Include:
-
-- the parent step id and goal
-- relevant user intent and approved decisions
-- scoped files, packages, or paths
-- constraints, non-goals, and forbidden changes
-- expected output and commit expectations
-- verification to run or report
-- the appropriate pre-commit checklist from the Delegation Model section
-
-Do not pass broad conversation history or vague prompts. Do not make the delegated agent rediscover context the main agent already has.
 
 ## Verification Policy
 

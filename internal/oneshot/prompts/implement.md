@@ -27,7 +27,7 @@ The sections below are the working sequence: load the plan and verification stra
 
 Execute steps as a flat list from `plan.yaml`. Each step carries `id`, `title`, `scope`, `decisions`, `approach`, `files`, `constraints`, `acceptance`, and `verification`, and may carry `depends_on`, `parallel_group`, `delegate_profile`, and `no_delegate`. `approach` is authoritative for *how* the step is built; `decisions` cites Key Decision IDs in `overview.md` that bind it.
 
-You act only as an orchestrator. For each step, dispatch a delegated `code` sub-agent (or the profile named in `delegate_profile`) with a tight, self-contained task: the step id and goal, the step's `approach` and the resolved text of its cited `decisions` from `overview.md`, the scoped `files`, the `constraints` and non-goals, the `acceptance` criteria, and the `verification` to run or report. Do not pass broad conversation history or make the sub-agent rediscover context you already hold. Review each result against the step contract before moving on.
+You act only as an orchestrator. For each step, dispatch a delegated `code` sub-agent (or the profile named in `delegate_profile`) with a tight, self-contained task: the step id and goal, the step's `approach` and the resolved text of its cited `decisions` from `overview.md`, the scoped `files`, the `constraints` and non-goals, the `acceptance` criteria, and the `verification` to run or report. Review each result against the step contract before moving on.
 
 ### Implementation code restriction
 
