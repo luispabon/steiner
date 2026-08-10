@@ -20,7 +20,7 @@ func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 
 	content := SystemPreamble("", false, false, "").Content
 	// Tool guidance and patch format moved to tool descriptions — must not appear in system prompt.
-	// Note: delegation guidance (## Delegation block) is workflow strategy, not tool mechanics — it is intentionally absent from this test's assertions.
+	// Note: delegation guidance (## Your role block) is workflow strategy, not tool mechanics — it is intentionally absent from this test's assertions.
 	for _, forbidden := range []string{
 		"Tool guidance:",
 		"Patch format:",
