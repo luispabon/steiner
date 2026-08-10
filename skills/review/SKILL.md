@@ -75,7 +75,7 @@ Focus on:
 
 Review touched files and directly adjacent regression-risk areas: call sites, interfaces, tests, config, data paths, and package boundaries touched by or directly depending on the change. Do not broadly re-review unrelated code.
 
-For inspection, use native tools directly — `read` to examine files, `grep` and `glob` to locate code and call sites, `mutate` for `review.md`. Do not route through `bash` when a dedicated tool exists.
+For inspection, use native tools directly — `read` to examine files, `grep` and `glob` to locate code and call sites, `mutate` for `review.md`.
 
 Prefer evidence over speculation. Findings should reference concrete code, artifacts, missing checks, or reproducible reasoning.
 
@@ -95,9 +95,11 @@ Map final status as:
 
 Only fixable blocking findings enter the fix plan by default. Include non-blocking fixes only when directly adjacent and negligible in scope.
 
+(Workflow-specific: finding severity and status vocabulary owned by the review/simplify workflow family — the preamble's `review` specialist row has no equivalent taxonomy.)
+
 ## Review-Fix Loop
 
-Do not edit code before a review pass has produced concrete findings and the user has approved the fix plan.
+Do not edit code before a review pass has produced concrete findings and the user has approved the fix plan. (Workflow-specific: this findings → approval → fix gate sequencing belongs to `review.md`'s own artifact model, not general orchestration guidance.)
 
 Each review pass may produce one consolidated fix plan. The plan must map fixes to blocking finding ids and state which verification will be rerun.
 

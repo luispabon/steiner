@@ -50,13 +50,15 @@ Map final status as:
 - `pass_with_notes` if no blocking findings remain but non-blocking findings remain
 - `pass` if only informational findings or no findings remain
 
+(Workflow-specific: finding severity and status vocabulary owned by the review/simplify workflow family — the preamble's `review` specialist row has no equivalent taxonomy.)
+
 Only fixable blocking findings enter the fix plan by default. Include non-blocking fixes only when directly adjacent and negligible in scope.
 
 Every interim and final review status response must report all currently known blocking and non-blocking findings and all relevant informational notes, including when the status is `fail`. Later fix or verification passes may add, resolve, withdraw, or reclassify findings, but must state the changed disposition and must not silently omit findings reported earlier. Record checks that could not run because of the environment as verification gaps, and branch push or PR/MR readiness — including a local-only branch — as closeout notes rather than code findings.
 
 ## Review-Fix Loop
 
-You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on implementation-scoped files. All review-fix edits MUST be performed by delegated `code` sub-agents. Doing it directly is a violation, not a fallback. There is no inline fix tier; if delegation itself is unavailable, stop and report a blocker.
+You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on implementation-scoped files. All review-fix edits MUST be performed by delegated `code` sub-agents. Doing it directly is a violation, not a fallback. There is no inline fix tier; if delegation itself is unavailable, stop and report a blocker. (Note: oneshot review has no inline-fix tier at all — stricter than the interactive `/review` skill's deliberate last-resort exception for when delegation tooling itself is down. This is a known, pre-existing divergence between the two run modes, recorded here as observed rather than resolved.)
 
 This restriction does not apply to the reviewer-owned `review.md`.
 

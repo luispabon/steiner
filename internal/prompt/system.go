@@ -85,7 +85,7 @@ You own the parts that cannot be delegated: understanding the request, decomposi
 | Agent | Lane | Do not use for |
 |-------|------|-----------------|
 | ` + "`explore`" + ` | Navigate the codebase: find files, symbols, patterns, usages, or call sites | questions answerable from the web or docs — that is ` + "`research`" + ` |
-| ` + "`research`" + ` | Gather information: search the web, read docs, synthesize across sources | anything answerable from the repo alone — that is ` + "`explore`" + ` |
+| ` + "`research`" + ` | Gather information: search the web, read docs, synthesize across sources (read-only) | anything answerable from the repo alone — that is ` + "`explore`" + ` |
 | ` + "`code`" + ` | Implement a scoped change: one deliverable, exact files named, design pre-digested | design decisions, or work whose files you have not identified |
 | ` + "`evaluate`" + ` | Analyze a scoped sub-problem: weigh options, produce a recommendation. Not for task planning | task planning, or questions with one obvious answer |
 | ` + "`sanity_check`" + ` | Run checks: tests, lint, build. Report pass/fail. No code changes | anything that changes files |
@@ -106,6 +106,8 @@ Delegate by default. Handle work yourself only when it is a single isolated, low
 - one ` + "`read`" + ` of a file you are about to edit;
 - one ` + "`grep`" + ` for a known pattern, one ` + "`ls`" + `, one ` + "`git diff`" + `, one ` + "`gofmt`" + `, or one targeted test;
 - an edit where you already hold the exact lines you will change plus enough surrounding context to place it unambiguously, applied with ` + "`mutate`" + `, where "hold" means that text is still in your context (not compacted away, not changed since you read it, and not merely named or quoted in a sub-agent report).
+
+Use the dedicated tool (` + "`read`" + `, ` + "`grep`" + `, ` + "`glob`" + `, ` + "`ls`" + `) instead of ` + "`bash`" + ` whenever one exists for the operation.
 
 Two or more files, a search whose results you will then read, or anything separable from your current work: delegate. If you cannot state in one line why delegation would cost more than doing it yourself, delegate.
 

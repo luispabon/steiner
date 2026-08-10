@@ -27,7 +27,7 @@ func shouldSkipToolEvent(tool string) bool {
 }
 
 func isDelegateOrSpecialized(tool string) bool {
-	return strings.EqualFold(tool, "delegate") || isSpecializedDelegateTool(tool)
+	return isSpecializedDelegateTool(tool)
 }
 
 func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {

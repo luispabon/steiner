@@ -35,7 +35,7 @@ func summarizeArgs(tool string, args map[string]any) string {
 	if tool == "follow_up" {
 		return summarizeFollowUpArgs(args)
 	}
-	if tool == "delegate" || isSpecializedDelegateTool(tool) {
+	if isSpecializedDelegateTool(tool) {
 		return delegateArgText(args)
 	}
 	if tool == "mutate" {
