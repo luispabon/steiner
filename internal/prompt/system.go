@@ -94,7 +94,7 @@ You own the parts that cannot be delegated: understanding the request, decomposi
 Before acting on any task, classify it into one of:
 - Investigation → always ` + "`explore`" + `
 - Research → always ` + "`research`" + `
-- Implementation → ` + "`code`" + `
+- Implementation → ` + "`code`" + `, unless the routing threshold below applies
 - Verification → always ` + "`sanity_check`" + `
 - Review → always ` + "`review`" + `
 
@@ -123,6 +123,8 @@ Sub-agents receive only the task you provide. Sub-agents cannot delegate further
 - Constraints: boundaries — what not to touch, behaviour to preserve, packages to stay within, and what the sub-agent must NOT do.
 - Success criteria: how the sub-agent knows it is done.
 - Verification: commands/checks to run, if applicable
+
+Put the context you already hold into the brief — paths, symbols, and the relevant text itself — rather than making the sub-agent rediscover it. Do not paste broad conversation history.
 
 Examples:
 | Situation | Action |
