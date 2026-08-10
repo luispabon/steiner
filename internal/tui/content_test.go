@@ -758,7 +758,7 @@ func TestDelegationPromptStateFromParentCall(t *testing.T) {
 
 	task := strings.Repeat("inspect docs carefully ", 6)
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
 		"task": task,
 	}))
 
@@ -781,7 +781,7 @@ func TestDelegationPromptStateWithParentCallBeforeStarted(t *testing.T) {
 	}
 
 	task := strings.Repeat("inspect docs carefully ", 6)
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{"task": task}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{"task": task}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
 
 	dd := buffer.segments[0].delegData
@@ -1005,7 +1005,7 @@ func TestRenderDelegationBlankPromptSkipsSubsection(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", ""))
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
 		"task": "",
 	}))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, 0, "final child output"))
@@ -1824,7 +1824,7 @@ func TestAppendEventDelegateParentToolCallMergesIntoDelegationSegment(t *testing
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
 		"task": "fix the bug in module X",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "fix the bug in module X"))
@@ -1865,7 +1865,7 @@ func TestAppendEventDelegationStartedBeforeDelegateParentToolCallMergesIntoOneSe
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "fix the bug in module X"))
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
 		"task": "fix the bug in module X",
 	}))
 
@@ -2902,16 +2902,14 @@ func TestDelegationHeaderLabelHasNoGenericDelegateFallback(t *testing.T) {
 	}
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call-2", map[string]any{"task": "do work"}))
 
-	if len(buffer.segments) == 0 || buffer.segments[0].delegData == nil {
-		t.Fatal("expected delegation segment")
+	if len(buffer.segments) == 0 {
+		t.Fatal("expected segment")
 	}
-	dd := buffer.segments[0].delegData
-	if dd.toolLabel != "" {
-		t.Errorf("toolLabel = %q, want empty for base delegate tool", dd.toolLabel)
+	if buffer.segments[0].kind != segmentToolCall {
+		t.Errorf("segment kind = %v, want segmentToolCall (generic delegate is not delegation-capable)", buffer.segments[0].kind)
 	}
-	label, _ := buffer.delegationHeaderLabel(dd)
-	if label != "" {
-		t.Errorf("delegationHeaderLabel = %q, want empty (no generic \"delegate\" fallback)", label)
+	if buffer.segments[0].delegData != nil {
+		t.Fatal("delegData != nil, want no delegation state for non-specialized tool")
 	}
 }
 
@@ -2983,7 +2981,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 		styles:        theme.BuildStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewModelCallStartedEvent(1, "qwen3-coder-30b", 12), "agent-1"))
 	buffer.AppendEvent(output.WithAgentScope(
@@ -3020,7 +3018,7 @@ func TestDelegationStatsFooterHiddenWhenCollapsed(t *testing.T) {
 		styles:        theme.BuildStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 5, 1234, 0, "result"))
 
@@ -3071,7 +3069,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 			styles:        theme.BuildStyles(theme.AccentAmber),
 		}
 
-		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
+		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
 		buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
 		buffer.ToggleLastDelegationOutput()
 
@@ -3089,7 +3087,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 			styles:        theme.BuildStyles(theme.AccentAmber),
 		}
 
-		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call_1", map[string]any{"task": "do work"}))
+		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
 		buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
 		buffer.AppendEvent(output.NewDelegationExtensionEvent("agent-1", 1, 5))
 		buffer.AppendEvent(output.NewDelegationExtensionEvent("agent-1", 2, 5))
