@@ -21,7 +21,7 @@ install-check-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 
-.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench check
+.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check generate-check lint vuln bench check
 
 build: build-binaries
 
@@ -89,6 +89,10 @@ tidy-check:
 	go mod tidy
 	git diff --exit-code go.mod go.sum
 
+generate-check:
+	go generate ./...
+	git diff --exit-code
+
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { \
 		echo "missing golangci-lint; run 'make install-check-tools'"; \
@@ -103,7 +107,7 @@ vuln:
 	}
 	govulncheck ./...
 
-check: tidy-check
+check: tidy-check generate-check
 	$(MAKE) -j6 fmt-check imports-check build-binaries test-race vet lint vuln
 
 # Run TUI benchmarks. Default: all suites, 1s each, single count.
