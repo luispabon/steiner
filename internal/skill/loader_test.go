@@ -754,3 +754,26 @@ func TestLoaderDiscoverSourceMoreThanThreeRoots(t *testing.T) {
 		}
 	}
 }
+
+// TestLoaderLoadDoesNotExpandIncludeDirectives pins the bundled-only scope
+// of the include mechanism: skills loaded from RootDirs (user-authored,
+// not the bundled skills/ generator output) must never have include
+// directives expanded at load time. Expansion only happens at build time
+// via skills/gen.
+func TestLoaderLoadDoesNotExpandIncludeDirectives(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	directive := "<!-- include: partials/worktree-provisioning.md -->"
+	mustSkill(t, root, "custom", "before\n"+directive+"\nafter")
+
+	loader := Loader{RootDirs: []string{root}}
+	loaded, err := loader.Load(context.Background(), "custom")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !strings.Contains(loaded.Content, directive) {
+		t.Fatalf("Load() expanded the include directive; Content = %q, want it to still contain %q", loaded.Content, directive)
+	}
+}
