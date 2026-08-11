@@ -817,25 +817,10 @@ func (h *dropSessionHandler) lastSessionID() string {
 // behind a dropSessionHandler so tests can terminate sessions server-side.
 func newDropSessionMCPServer(t *testing.T) (*httptest.Server, *dropSessionHandler) {
 	t.Helper()
-	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "test", Version: "1.0"}, nil)
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "test_tool",
-		Description: "echoes text",
-		InputSchema: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{"text": map[string]any{"type": "string"}},
-			"required":   []string{"text"},
-		},
-	}, func(_ context.Context, _ *mcpsdk.CallToolRequest, args struct {
-		Text string `json:"text"`
-	}) (*mcpsdk.CallToolResult, any, error) {
-		return &mcpsdk.CallToolResult{
-			Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: args.Text}},
-		}, nil, nil
-	})
-	handler := mcpsdk.NewStreamableHTTPHandler(func(_ *http.Request) *mcpsdk.Server { return server }, nil)
-	drop := &dropSessionHandler{next: handler}
-	ts := httptest.NewServer(drop)
-	t.Cleanup(ts.Close)
+	var drop *dropSessionHandler
+	ts := newTestMCPServer(t, withRequestObservation(func(next http.Handler) http.Handler {
+		drop = &dropSessionHandler{next: next}
+		return drop
+	}))
 	return ts, drop
 }
