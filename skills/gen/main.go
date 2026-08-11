@@ -1,7 +1,7 @@
 // Command gen expands include directives in <name>/SKILL.md.src fixtures
-// and writes the resulting <name>/SKILL.md files. It is invoked via
-// go:generate from skills/embed.go and must be run with a working
-// directory of skills/.
+// and writes the resulting <name>/SKILL.md files. It is invoked from
+// skills/embed.go via a go:generate directive and must be run with a
+// working directory of skills/.
 package main
 
 import (
