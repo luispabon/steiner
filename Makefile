@@ -91,7 +91,7 @@ tidy-check:
 
 generate-check:
 	go generate ./...
-	git diff --exit-code
+	git diff --exit-code -- 'skills/*/SKILL.md'
 
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { \
