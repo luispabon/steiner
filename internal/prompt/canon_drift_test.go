@@ -181,6 +181,8 @@ func normalizeWords(s string) []string {
 
 // shingleSet returns the set of k-word shingles over words, joined by " ".
 // Returns an empty set when len(words) < k.
+//
+//nolint:unparam // k is a deliberately general parameter of this helper; all current call sites pass the pinned shingleWidth constant, but the signature is not hardcoded to it by design.
 func shingleSet(words []string, k int) map[string]struct{} {
 	set := make(map[string]struct{})
 	if len(words) < k {
