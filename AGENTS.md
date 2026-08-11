@@ -20,6 +20,7 @@ internal/tui/            Interactive TUI
 internal/delegation/     Delegation contracts and scaffolding
 internal/output/         Terminal and machine-readable event output
 internal/history/        Conversation history persistence
+skills/                  Bundled skills and the build-time partial generator
 testdata/stage3/         Integration test fixtures
 docs/                    Product/design docs and implementation notes
 ````
@@ -166,6 +167,12 @@ Code changes must update corresponding documentation in a single commit:
    * Update docs/mcp.md if user-facing MCP behaviour changes
    * Update docs/configuration.md for any config field changes
    * Update the MCP section in README.md if the high-level description changes
+
+13. **`internal/skill` / `skills/` changes** (add/change/remove a bundled skill, a partial, or the partial mechanism):
+   * Never edit a generated `SKILL.md` directly — edit `SKILL.md.src` or the partial, then run `go generate ./...`
+   * Update docs/skill-partials.md if the directive syntax, resolution timing, or bundled-only scope changes
+   * Update the "Skill partials" section in README.md if the high-level description changes
+   * Re-baseline `skills/testdata/goldens/` only for a deliberate content change, never to make a mechanism change pass
 
 ## Built-in tools
 
