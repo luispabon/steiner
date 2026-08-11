@@ -244,6 +244,8 @@ mcp:
 
 See [MCP servers](docs/mcp.md) for the full reference.
 
+MCP behaviour is covered by hermetic, CI-safe tests for both transports; live validation against real third-party servers is tracked in #438.
+
 ## Optional features
 
 ### Advisor

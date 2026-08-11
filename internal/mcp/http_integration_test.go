@@ -4,13 +4,10 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os/exec"
 	"strings"
 	"sync"
 	"testing"
-
-	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
@@ -22,7 +19,7 @@ import (
 func TestHTTPIntegration(t *testing.T) {
 	t.Run("remote http server connects, discovers tools, and invokes with headers", func(t *testing.T) {
 		recordedHeaders := httpHeaderRecorder{}
-		server := newTestMCPServer(t, &recordedHeaders)
+		server := newTestMCPServer(t, withRequestObservation(recordedHeaders.wrap))
 		defer server.Close()
 
 		cfg := config.MCPConfig{
@@ -116,7 +113,7 @@ func TestHTTPIntegration(t *testing.T) {
 	})
 
 	t.Run("wrap func is never called on http server", func(t *testing.T) {
-		server := newTestMCPServer(t, nil)
+		server := newTestMCPServer(t)
 		defer server.Close()
 
 		cfg := config.MCPConfig{
@@ -149,7 +146,7 @@ func TestHTTPIntegration(t *testing.T) {
 	})
 
 	t.Run("unreachable http server yields failed state with error", func(t *testing.T) {
-		server := newTestMCPServer(t, nil)
+		server := newTestMCPServer(t)
 		defer server.Close()
 
 		var warns []string
@@ -213,7 +210,7 @@ func TestHTTPIntegration(t *testing.T) {
 	})
 
 	t.Run("Close() succeeds for http session", func(t *testing.T) {
-		server := newTestMCPServer(t, nil)
+		server := newTestMCPServer(t)
 		defer server.Close()
 
 		cfg := config.MCPConfig{
@@ -243,55 +240,18 @@ type httpHeaderRecorder struct {
 	headers map[string]string
 }
 
-// newTestMCPServer creates a test HTTP server with a single "test_tool" that
-// echoes its "text" argument. If recorder is non-nil, headers from the
-// initialize request are recorded in it.
-func newTestMCPServer(_ *testing.T, recorder *httpHeaderRecorder) *httptest.Server {
-	server := mcpsdk.NewServer(
-		&mcpsdk.Implementation{Name: "test", Version: "1.0"},
-		nil,
-	)
-
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "test_tool",
-		Description: "echoes text",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"text": map[string]any{"type": "string"},
-			},
-			"required": []string{"text"},
-		},
-	}, func(_ context.Context, _ *mcpsdk.CallToolRequest, args struct {
-		Text string `json:"text"`
-	}) (*mcpsdk.CallToolResult, any, error) {
-		return &mcpsdk.CallToolResult{
-			Content: []mcpsdk.Content{
-				&mcpsdk.TextContent{Text: args.Text},
-			},
-		}, nil, nil
-	})
-
-	handler := mcpsdk.NewStreamableHTTPHandler(func(_ *http.Request) *mcpsdk.Server {
-		return server
-	}, nil)
-
-	var wrappedHandler http.Handler
-	if recorder != nil {
-		wrappedHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			recorder.mu.Lock()
-			recorder.headers = make(map[string]string)
-			for k, vs := range req.Header {
-				if len(vs) > 0 {
-					recorder.headers[k] = vs[0]
-				}
+// wrap returns a handler that records the request headers and then delegates
+// to next, for use as a request-observation wrapper on the shared test server.
+func (r *httpHeaderRecorder) wrap(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.mu.Lock()
+		r.headers = make(map[string]string)
+		for k, vs := range req.Header {
+			if len(vs) > 0 {
+				r.headers[k] = vs[0]
 			}
-			recorder.mu.Unlock()
-			handler.ServeHTTP(w, req)
-		})
-	} else {
-		wrappedHandler = handler
-	}
-
-	return httptest.NewServer(wrappedHandler)
+		}
+		r.mu.Unlock()
+		next.ServeHTTP(w, req)
+	})
 }
