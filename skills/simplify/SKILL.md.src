@@ -147,15 +147,7 @@ Mirror the review skill's fix loop exactly:
 - After fixes, run verification (scoped checks or `make check`)
 - Lightweight re-review: check whether fixes introduced new quality issues in the same four categories. Repeat only if new blocking findings emerge. Cap at 2 fix iterations.
 
-### Worktree Provisioning
-
-Always create worktrees under `.steiner/worktrees/` inside the project root. Do not use `/tmp` or other system temporary directories — they may be sandboxed and silently fail.
-
-After running `git worktree add`, verify the directory actually exists:
-
-1. Run `ls -d <worktree-path>` to confirm the directory was created.
-2. Run `git -C <worktree-path> branch --show-current` to confirm it is on the expected temporary branch.
-3. If either check fails, prune the worktree entry with `git worktree remove <worktree-path>` and fall back to direct delegation.
+<!-- include: partials/worktree-provisioning.md -->
 
 ### Fix/Review Delegation
 
@@ -169,20 +161,7 @@ The fix delegated agent must:
 
 Fix work is sequential. Do not parallelize it.
 
-### Pre-Commit Checklist
-
-Include the appropriate checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`.
-
-**Isolated delegation mode:**
-
-1. `git branch --show-current` — must equal the temporary branch name given in the task. If it shows the feature branch, STOP and report without committing.
-2. `git rev-parse --show-toplevel` — must equal the worktree path given in the task. If it shows a different path, STOP and report without committing.
-3. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
-
-**Direct delegation mode:**
-
-1. `git branch --show-current` — must equal the feature branch name given in the task. If it shows a different branch, STOP and report without committing.
-2. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
+<!-- include: partials/pre-commit-checklist.md -->
 
 If any check fails, the sub-agent must not commit. It must report the mismatch and let the skill coordinator recover.
 
