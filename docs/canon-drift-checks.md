@@ -1,20 +1,24 @@
 # Canon drift checks
 
-Go tests catch a downstream instruction file drifting away from the orchestration canon — the `delegationInstructions` const in `internal/prompt/system.go`. This doc explains what the checks do, what counts as canon and as a "consumer," and what to do when one fails.
+Go tests catch a downstream instruction file drifting away from the orchestration canon — `delegationInstructions` in `internal/prompt/system.go`. This doc explains what the checks do, what counts as canon and as a "consumer," and what to do when one fails.
+
+The specialist roster itself is not hand-written markdown. `internal/prompt/specialists.go` holds it as a typed `[]specialist` slice, and the `## Your specialists` table is rendered from that slice when `delegationInstructions` is assembled at init. The table therefore cannot diverge from the roster source, and neither check needs to parse markdown to recover it.
 
 ## What the checks are
 
-- **Roster vocabulary check** (`internal/prompt/canon_roster_drift_test.go`, `TestConsumersNameOnlyCurrentSpecialists`). Addresses GitHub issue #445 §3: `verify` was renamed to `sanity_check`, `plan` to `evaluate`, and the generic `delegate` tool was removed, but three skills kept instructing the model to call tools that no longer existed. This check parses the current specialist/tool roster out of canon and scans consumer files for backticked tokens in a handful of framed patterns (`` `X` sub-agent(s) ``, `` delegated `X` ``, `` `X` delegation ``, `` `X(` `` tool call). Any framed token not in the current roster is a finding. Runs as part of `go test ./internal/prompt/`.
+- **Roster vocabulary check** (`internal/prompt/canon_roster_drift_test.go`, `TestConsumersNameOnlyCurrentSpecialists`). Addresses GitHub issue #445 §3: `verify` was renamed to `sanity_check`, `plan` to `evaluate`, and the generic `delegate` tool was removed, but three skills kept instructing the model to call tools that no longer existed. This check takes the current specialist roster from `specialists` and scans consumer files for backticked tokens in a handful of framed patterns (`` `X` sub-agent(s) ``, `` delegated `X` ``, `` `X` delegation ``, `` `X(` `` tool call). Any framed token not in the current roster is a finding. Runs as part of `go test ./internal/prompt/`.
 
-- **Preamble roster match check** (`internal/delegation/preamble_roster_test.go`, `TestPreambleSpecialistRosterMatchesAgentTypes`). Parses the same roster table out of canon and asserts it is exactly the set of registered `AgentType` constants — so a Go rename or addition/removal of a sub-agent type that is not reflected in the canon roster table fails immediately. Runs as part of `go test ./internal/delegation/`.
+- **Preamble roster match check** (`internal/delegation/preamble_roster_test.go`, `TestPreambleSpecialistRosterMatchesAgentTypes`). Asserts `prompt.SpecialistNames()` is exactly the registered `AgentType` constants, minus an explicit exclusion list (`vision` is internal-only; `follow_up` is not an `AgentType`) — so a Go rename or addition/removal of a sub-agent type that is not reflected in the roster fails immediately. This direction is detected rather than derived: `internal/prompt` cannot import `internal/delegation` to build the roster from `AgentType` directly, because `internal/delegation/bootstrap.go` imports `internal/prompt`. Runs as part of `go test ./internal/delegation/`.
+
+- **Gated-tool reference check** (`internal/prompt/system_test.go`, `TestDelegationCanonDoesNotNameAdvisorWhenDisabled`). The delegation and advisor preamble sections are gated on separate config flags, so canon must not name `advisor` — canon would otherwise point the orchestrator at a tool that is not registered in a `delegation.enabled` + `advisor.enabled: false` session. Runs as part of `go test ./internal/prompt/`.
 
 - **Shared skill block check** (`skills/shared_blocks_test.go`, `TestSharedBlocksAreByteIdenticalAcrossSkills`). The `### Worktree Provisioning` and `### Pre-Commit Checklist` sections are deliberately duplicated verbatim across `skills/{implement,review,simplify}/SKILL.md`. This is workflow machinery, not canon, so it does not belong in the preamble — but it is the same missed-migration risk, so the test asserts each block still occurs exactly once and byte-identically in all three skills. Editing one copy means editing all three plus the literals in the test. Runs as part of `go test ./skills/`.
 
-All three run as part of `make check`.
+All of them run as part of `make check`.
 
 ## What counts as canon
 
-Only `delegationInstructions` in `internal/prompt/system.go`. Other preamble consts — `coreRules`, `advisorInstructions`, `executionModeInstructions`, workflow instructions, `agentPrompts` — are out of scope. The boundary is drawn at `delegationInstructions` because that's where the observed drift in #445 occurred, and because it has the most distinctive vocabulary (specialist names, routing rules, tool names) to check against.
+Only `delegationInstructions` in `internal/prompt/system.go` (assembled from `delegationRole`, the rendered roster table, and `delegationRouting`). Other preamble consts — `coreRules`, `advisorInstructions`, `executionModeInstructions`, workflow instructions, `agentPrompts` — are out of scope. The boundary is drawn at `delegationInstructions` because that's where the observed drift in #445 occurred, and because it has the most distinctive vocabulary (specialist names, routing rules, tool names) to check against.
 
 ## Consumer files
 
@@ -31,4 +35,4 @@ internal/oneshot/prompts/*.md
 
 ## This check just failed — now what
 
-A consumer file references a stale tool or sub-agent name (roster vocabulary check), or the canon roster table and the registered `AgentType` constants have diverged (preamble roster match check). Fix the consumer file, or fix the canon roster table, so the two stay in sync — there is no waiver mechanism for either check.
+A consumer file references a stale tool or sub-agent name (roster vocabulary check), the roster and the registered `AgentType` constants have diverged (preamble roster match check), or canon names a tool that is not always registered (gated-tool reference check). Fix the consumer file, fix the `specialists` slice, or move the gated tool's mention into that tool's own preamble section — there is no waiver mechanism for any of these checks.
