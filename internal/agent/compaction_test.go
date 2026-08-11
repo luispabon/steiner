@@ -1066,7 +1066,7 @@ func TestCompleteCompactionCallRecordsUsageOnSuccess(t *testing.T) {
 				},
 				UsageRecorder: recorder,
 				Events:        output.SinkFunc(func(output.Event) {}),
-			}, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{})
+			}, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, nil)
 
 			if err != nil {
 				t.Fatalf("completeCompactionCall() error = %v", err)
@@ -1123,7 +1123,7 @@ func TestCompleteCompactionCallDoesNotRecordOnError(t *testing.T) {
 		},
 		UsageRecorder: recorder,
 		Events:        output.SinkFunc(func(output.Event) {}),
-	}, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{})
+	}, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, nil)
 
 	if !errors.Is(err, boom) {
 		t.Fatalf("completeCompactionCall() error = %v, want %v", err, boom)
@@ -1179,7 +1179,7 @@ func TestNormalAndCompactionRequests_ShareResolvedReasoning(t *testing.T) {
 				t.Fatalf("prepareTurn() error = %v", err)
 			}
 
-			compactionReq, _, err := buildCompactionRequestWithMode(
+			compactionReq, _, _, err := buildCompactionRequestWithMode(
 				context.Background(), req, state, candidate,
 				prompt.CompactionModeNormal, 128,
 			)
@@ -1251,7 +1251,7 @@ func TestBuildCompactionRequestWithMode_ReasoningHandling(t *testing.T) {
 				Lineage:      newConversationLineage(messages),
 			}
 
-			chatRequest, _, err := buildCompactionRequestWithMode(
+			chatRequest, _, _, err := buildCompactionRequestWithMode(
 				context.Background(), req, state, candidate,
 				prompt.CompactionModeNormal, 256,
 			)
@@ -1326,7 +1326,7 @@ func TestBuildCompactionRequestWithMode_CacheFields(t *testing.T) {
 				Lineage:      newConversationLineage(messages),
 			}
 
-			chatRequest, _, err := buildCompactionRequestWithMode(
+			chatRequest, _, _, err := buildCompactionRequestWithMode(
 				context.Background(), req, state, candidate,
 				prompt.CompactionModeNormal, 128,
 			)
@@ -1428,7 +1428,7 @@ func TestBuildCompactionRequestWithMode_MaxTokens(t *testing.T) {
 				Lineage:      newConversationLineage(candidate.Messages),
 			}
 
-			chatRequest, _, err := buildCompactionRequestWithMode(
+			chatRequest, _, _, err := buildCompactionRequestWithMode(
 				context.Background(), req, state, candidate,
 				prompt.CompactionModeNormal, tt.maxTokens,
 			)
@@ -1488,7 +1488,7 @@ func TestBuildCompactionRequestWithMode_PromptSuffix(t *testing.T) {
 				Lineage:      newConversationLineage(candidate.Messages),
 			}
 
-			chatRequest, _, err := buildCompactionRequestWithMode(
+			chatRequest, _, _, err := buildCompactionRequestWithMode(
 				context.Background(), req, state, candidate,
 				prompt.CompactionModeNormal, 128,
 			)
@@ -1575,7 +1575,7 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 		}
 
 		// Compaction request
-		compactionReq, _, err := buildCompactionRequestWithMode(
+		compactionReq, _, _, err := buildCompactionRequestWithMode(
 			context.Background(), req, state, candidate,
 			prompt.CompactionModeNormal, 128,
 		)
@@ -1664,7 +1664,7 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 			t.Fatalf("prepareTurn() error = %v", err)
 		}
 
-		compactionReq, _, err := buildCompactionRequestWithMode(
+		compactionReq, _, _, err := buildCompactionRequestWithMode(
 			context.Background(), req, state, candidate,
 			prompt.CompactionModeNormal, 128,
 		)
@@ -1760,7 +1760,7 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 			t.Fatalf("prepareTurn() error = %v", err)
 		}
 
-		compactionReq, _, err := buildCompactionRequestWithMode(
+		compactionReq, _, _, err := buildCompactionRequestWithMode(
 			context.Background(), req, state, candidate,
 			prompt.CompactionModeNormal, 128,
 		)
@@ -1844,7 +1844,7 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 			t.Fatalf("prepareTurn() error = %v", err)
 		}
 
-		compactionReq, _, err := buildCompactionRequestWithMode(
+		compactionReq, _, _, err := buildCompactionRequestWithMode(
 			context.Background(), req, state, candidate,
 			prompt.CompactionModeNormal, 128,
 		)
@@ -1922,6 +1922,7 @@ func TestCompleteCompactionCallUsesStreaming(t *testing.T) {
 		1,
 		provider.ChatRequest{Model: "test-model"},
 		prompt.ModelTokenBudget{},
+		nil,
 	)
 
 	if err != nil {
@@ -1932,5 +1933,99 @@ func TestCompleteCompactionCallUsesStreaming(t *testing.T) {
 	}
 	if !streamingCalled {
 		t.Error("streaming path was not called, want it to be used")
+	}
+}
+
+func TestCompleteCompactionCallEmitsAPIRequestEventWithBlocks(t *testing.T) {
+	blocks := []prompt.ContextBlock{
+		{Source: prompt.ContextSourcePreamble, Content: "system preamble", ByteSize: 16},
+		{Source: prompt.ContextSourceGlobalAgentsMD, Content: "global agents", ByteSize: 13},
+	}
+
+	var events []output.Event
+	prov := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: "compaction summary",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	_, err := completeCompactionCall(context.Background(), RunRequest{
+		Provider: prov,
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "claude-test",
+			EffectiveProviderType: "anthropic",
+			BackendModelID:        "claude-3-5-sonnet",
+		},
+		Events: output.SinkFunc(func(e output.Event) {
+			events = append(events, e)
+		}),
+	}, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, blocks)
+	if err != nil {
+		t.Fatalf("completeCompactionCall() error = %v", err)
+	}
+
+	var requestEvent *output.APIRequestEvent
+	for _, e := range events {
+		if payload, ok := e.Payload.(output.APIRequestEvent); ok {
+			requestEvent = &payload
+			break
+		}
+	}
+	if requestEvent == nil {
+		t.Fatal("no APIRequestEvent emitted by completeCompactionCall")
+	}
+	if !reflect.DeepEqual(requestEvent.Blocks, blocks) {
+		t.Fatalf("APIRequestEvent Blocks = %+v, want %+v", requestEvent.Blocks, blocks)
+	}
+}
+
+func TestBuildCompactionRequestWithModeReturnsBlocks(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "user query"},
+		{Role: MessageRoleAssistant, Content: "assistant answer"},
+	}
+
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{
+			BackendModelID: "test-model",
+		},
+		Events: output.NoopSink{},
+	}
+	state := RunState{
+		Conversation: messages,
+		Lineage:      newConversationLineage(messages),
+	}
+	candidate := ConversationCandidate{
+		GenerationID: 1,
+		View:         ConversationViewFull,
+		Messages:     messages,
+	}
+
+	_, blocks, _, err := buildCompactionRequestWithMode(
+		context.Background(), req, state, candidate,
+		prompt.CompactionModeNormal, 128,
+	)
+	if err != nil {
+		t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+	}
+	if len(blocks) == 0 {
+		t.Fatal("buildCompactionRequestWithMode() returned no context blocks")
+	}
+
+	foundPreamble := false
+	for _, block := range blocks {
+		if block.Source == prompt.ContextSourcePreamble {
+			foundPreamble = true
+			break
+		}
+	}
+	if !foundPreamble {
+		t.Errorf("blocks %+v missing preamble block", blocks)
 	}
 }

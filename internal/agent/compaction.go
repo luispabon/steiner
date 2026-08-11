@@ -47,6 +47,7 @@ type compactionExecutionPlan struct {
 	sourceMessages   []Message
 	retainedMessages []Message
 	request          provider.ChatRequest
+	blocks           []prompt.ContextBlock
 	promptText       string
 	fit              prompt.RequestTokenBudget
 }
@@ -164,7 +165,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, mode, maxTokens), nil
 	}
 
-	response, err := completeCompactionCall(ctx, req, turn, plan.request, req.ModelBudget)
+	response, err := completeCompactionCall(ctx, req, turn, plan.request, req.ModelBudget, plan.blocks)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
@@ -288,7 +289,7 @@ func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, s
 func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (compactionExecutionPlan, error) {
 	workingCandidate := candidate
 	workingCandidate.Messages = stripImages(cloneMessages(sourceMessages))
-	request, promptText, err := buildCompactionRequestWithMode(ctx, req, state, workingCandidate, mode, maxTokens)
+	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, req, state, workingCandidate, mode, maxTokens)
 	if err != nil {
 		return compactionExecutionPlan{}, err
 	}
@@ -301,6 +302,7 @@ func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, sta
 		sourceMessages:   stripImages(cloneMessages(sourceMessages)),
 		retainedMessages: cloneMessages(retainedMessages),
 		request:          request,
+		blocks:           blocks,
 		promptText:       promptText,
 		fit:              fit,
 	}, nil

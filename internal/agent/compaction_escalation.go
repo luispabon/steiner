@@ -199,12 +199,12 @@ func buildSummarizedCompactionState(state RunState, summaryText string, candidat
 	return nextState
 }
 
-func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int) (provider.ChatRequest, string, error) {
+func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
 	basePrompt := prepareBasePrompt(req)
 	sourceState := state.WithConversation(candidate.Messages)
 	assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, sourceState))
 	if err != nil {
-		return provider.ChatRequest{}, "", err
+		return provider.ChatRequest{}, nil, "", err
 	}
 	messages := append(provider.CloneMessages(assembly.Messages), provider.Message{
 		Role:    provider.MessageRoleUser,
@@ -229,10 +229,10 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 	if !req.ResolvedModel.ReasoningEchoBack {
 		stripReasoningContent(request.Messages)
 	}
-	return request, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode), nil
+	return request, assembly.Blocks, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode), nil
 }
 
-func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget) (provider.ChatResponse, error) {
+func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget, blocks []prompt.ContextBlock) (provider.ChatResponse, error) {
 	var logger *CompactionLogger
 	if req.CompactionLogPath != "" {
 		var err error
@@ -242,7 +242,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 			defer func() { _ = logger.Close() }()
 		}
 	}
-	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, nil, true, true, output.ChunkSourceAssistant, nil)
+	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, output.ChunkSourceAssistant, nil)
 	if logger != nil {
 		_ = logger.LogResponse(response) // best effort
 	}
