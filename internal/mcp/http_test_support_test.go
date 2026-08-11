@@ -14,6 +14,9 @@ type testMCPServerConfig struct {
 	// observe wraps the SDK Streamable HTTP handler to observe or intercept
 	// incoming requests (e.g. header recording, dropped sessions).
 	observe func(http.Handler) http.Handler
+	// errorTool, when non-empty, registers an additional tool with that name
+	// that always returns an MCP isError result.
+	errorTool string
 }
 
 // testMCPServerOption configures newTestMCPServer.
@@ -27,10 +30,20 @@ func withRequestObservation(wrap func(http.Handler) http.Handler) testMCPServerO
 	}
 }
 
+// withErrorTool registers an additional tool named name that always returns an
+// MCP isError result, so tests can exercise the client's tool-error envelope
+// path over HTTP. The default tools and other options are unaffected.
+func withErrorTool(name string) testMCPServerOption {
+	return func(c *testMCPServerConfig) {
+		c.errorTool = name
+	}
+}
+
 // newTestMCPServer creates a loopback HTTP MCP test server with a single
 // "test_tool" that echoes its "text" argument, so tool defs surface as
-// mcp__remote__test_tool. Options may wrap the Streamable HTTP handler to
-// observe or intercept requests. The server is closed via t.Cleanup.
+// mcp__remote__test_tool. Options may add an isError tool or wrap the Streamable
+// HTTP handler to observe or intercept requests. The server is closed via
+// t.Cleanup.
 func newTestMCPServer(t *testing.T, opts ...testMCPServerOption) *httptest.Server {
 	t.Helper()
 	server := mcpsdk.NewServer(
@@ -65,6 +78,20 @@ func newTestMCPServer(t *testing.T, opts ...testMCPServerOption) *httptest.Serve
 	cfg := testMCPServerConfig{}
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+	if cfg.errorTool != "" {
+		mcpsdk.AddTool(server, &mcpsdk.Tool{
+			Name:        cfg.errorTool,
+			Description: "always fails",
+			InputSchema: map[string]any{"type": "object"},
+		}, func(_ context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+			return &mcpsdk.CallToolResult{
+				Content: []mcpsdk.Content{
+					&mcpsdk.TextContent{Text: "deliberate failure"},
+				},
+				IsError: true,
+			}, nil, nil
+		})
 	}
 	if cfg.observe != nil {
 		handler = cfg.observe(handler)
