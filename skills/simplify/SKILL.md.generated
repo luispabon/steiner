@@ -1,0 +1,3 @@
+This SKILL.md is generated from SKILL.md.src and skills/partials/*.md.
+Do not edit it directly — edits belong in SKILL.md.src or the partials.
+Regenerate with: go generate ./...

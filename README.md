@@ -209,6 +209,12 @@ Without a working sandbox (`sandbox.enabled: false`, non-Linux, or `bwrap` unava
 
 See [docs/execution-modes.md](docs/execution-modes.md) for the full enforcement matrix and persistence details.
 
+## Skill partials
+
+Bundled skills that share instructions (e.g. worktree provisioning, a pre-commit checklist) source that shared prose from a single partial file under `skills/partials/` instead of each skill restating it independently. This prevents drift — duplicated instructions edited in one skill but not another. Partials are resolved into `SKILL.md` at build time via `go generate ./...`, never at runtime, to keep the prompt prefix stable and cacheable. The mechanism only affects the bundled `skills/` tree; user-authored skills are unaffected.
+
+See [docs/skill-partials.md](docs/skill-partials.md) for the directive syntax and generation details.
+
 ## Image persistence
 
 When you paste an image (Ctrl+V), steiner saves it to `.steiner/tmp/images/` and assigns it a session-unique ID (e.g. `img-1`). The TUI displays the ID, dimensions, size, and file path below the submitted message.
