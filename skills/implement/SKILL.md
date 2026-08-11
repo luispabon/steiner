@@ -29,7 +29,7 @@ Follow this sequence:
 2. Check out the expected feature branch.
 3. Load verification strategy from `overview.md`.
 4. Create or resume compact `execution.md`.
-5. Execute ready implementation steps — dispatch one sub-agent per step via the delegation model. Do not implement directly unless the step is marked `no_delegate`, in that case make sure to state explicitly why the change is not being delegated. (Workflow-specific: `no_delegate` is a planner-set exemption defined by `plan.yaml`'s schema, not a general routing rule.)
+5. Execute ready implementation steps — dispatch one sub-agent per step via the delegation model. Do not implement directly unless the step is marked `no_delegate`, in that case make sure to state explicitly why the change is not being delegated.
 6. Run planned verification and fix failures.
 7. Ask for manual verification only when the plan or risk requires it.
 8. If planning artifacts are version-controlled, commit final executor state. Hand off to review.
@@ -74,7 +74,7 @@ Expected step fields:
 - `acceptance`
 - `verification`
 
-`approach` is authoritative for *how* a step is built: delegated sub-agents follow it rather than re-deriving design (names, signatures, locations, data shapes, edge/error handling). A step's `decisions` list cites Key Decision IDs in `overview.md`; resolve them there and treat them as binding constraints on the implementation. When a delegated step task is framed, pass the step's `approach` and the resolved text of its cited `decisions` into the sub-agent's context. (Workflow-specific: `approach`/`decisions` are planning-artifact fields; this instruction only makes sense inside the plan/implement/review loop.)
+`approach` is authoritative for *how* a step is built: delegated sub-agents follow it rather than re-deriving design (names, signatures, locations, data shapes, edge/error handling). A step's `decisions` list cites Key Decision IDs in `overview.md`; resolve them there and treat them as binding constraints on the implementation. When a delegated step task is framed, pass the step's `approach` and the resolved text of its cited `decisions` into the sub-agent's context.
 
 Optional fields:
 
@@ -115,7 +115,7 @@ The executor performs these actions directly using the native tool for each:
 - verification orchestration — `bash` for running checks; `read` to inspect results
 - reviewer handoff
 
-Everything else is delegated. (Workflow-specific: enumerates the fixed set of executor-owned actions for the implement loop; not a general routing exception.)
+Everything else is delegated.
 
 ### Implementation code restriction
 

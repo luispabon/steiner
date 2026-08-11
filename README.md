@@ -209,17 +209,11 @@ Without a working sandbox (`sandbox.enabled: false`, non-Linux, or `bwrap` unava
 
 See [docs/execution-modes.md](docs/execution-modes.md) for the full enforcement matrix and persistence details.
 
-## Skill partials
-
-Bundled skills that share instructions (e.g. worktree provisioning, a pre-commit checklist) source that shared prose from a single partial file under `skills/partials/` instead of each skill restating it independently. This prevents drift — duplicated instructions edited in one skill but not another. Partials are resolved into `SKILL.md` at build time via `go generate ./...`, never at runtime, to keep the prompt prefix stable and cacheable. The mechanism only affects the bundled `skills/` tree; user-authored skills are unaffected.
-
-See [docs/skill-partials.md](docs/skill-partials.md) for the directive syntax and generation details.
-
 ## Canon drift checks
 
-Two Go tests in `internal/prompt/` guard against the orchestration canon (the `delegationInstructions` const in `internal/prompt/system.go`) drifting out of sync with the skill and oneshot prompt files that describe delegation to the model. A roster vocabulary check flags consumer files that name a sub-agent or tool no longer in the current roster; a duplication matcher flags consumer prose that restates canon (or canon prose pasted in from a consumer) beyond a pinned similarity threshold. Both run as part of `go test ./internal/prompt/`, and therefore as part of `make check`.
+Go tests guard against the orchestration canon (the `delegationInstructions` const in `internal/prompt/system.go`) drifting out of sync with the skill and oneshot prompt files that describe delegation to the model. A roster vocabulary check in `internal/prompt/` flags consumer files that name a sub-agent or tool no longer in the current roster, and a companion test in `internal/delegation/` asserts the preamble roster matches the registered `AgentType` constants. Both run as part of `go test ./...`, and therefore as part of `make check`.
 
-See [docs/canon-drift-checks.md](docs/canon-drift-checks.md) for what counts as canon, the consumer file list, the deferral-marker exemption, and how to resolve a failing check.
+See [docs/canon-drift-checks.md](docs/canon-drift-checks.md) for what counts as canon, the consumer file list, and how to resolve a failing check.
 
 ## Image persistence
 
