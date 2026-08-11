@@ -614,6 +614,8 @@ mcp:
 
 When using `http` transport with an `Authorization` header, use the strict env expansion syntax (e.g. `${VAR}`) to inject environment variables. See the [environment variable expansion](#environment-variable-expansion-in-config-values) section for details.
 
+MCP behaviour is covered by hermetic, CI-safe integration tests under `internal/mcp/` for both transports (stdio and HTTP) through the manager path; live validation against third-party MCP servers remains manual work tracked in #438. See [docs/mcp.md](mcp.md).
+
 ---
 
 ## `project_context` block

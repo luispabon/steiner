@@ -135,4 +135,11 @@ Each call is bounded by `limits.tool_timeout_default` (default `30s`), with per-
 
 ## Verification note
 
-The claims in this document are code- and test-backed (unit and integration tests under `internal/mcp/`); they have not been live-verified against every server mentioned in the examples. Live end-to-end verification across real servers is tracked in #438 (manual e2e script) and #439 (e2e integration testing).
+MCP behaviour is covered by hermetic, CI-safe integration tests under `internal/mcp/` — loopback HTTP and local subprocesses only, no live services, credentials, or outbound network:
+
+- `TestMCPTransportParity` drives the common user-visible contract through the Manager and tool-call path for **both** transports (stdio and HTTP): connect+initialize, tool discovery, a successful tool call, an MCP `isError` result surfacing as a non-OK envelope, and initial connection failure (`internal/mcp/transport_parity_integration_test.go`).
+- The shared loopback HTTP test server (`newTestMCPServer` in `internal/mcp/http_test_support_test.go`) backs the HTTP parity, integration, and lifecycle tests.
+- `TestStdio` runs against an independent, hand-written, SDK-free stdio fixture (`internal/mcp/testdata/fixtureserver/main.go`) — the independent JSON-RPC peer; the HTTP test server is SDK-backed and not a protocol-conformance peer.
+- Transport-specific lifecycle coverage is retained: stdio reaping/reconnect and HTTP dropped-session/reconnect (`TestLifecycle*`), plus HTTP headers, close, and failure states (`TestHTTPIntegration`).
+
+These tests do not cover live validation against third-party MCP servers — real `npx` packages or remote endpoints. That remains manual work tracked in #438 (manual e2e script) and #439 (e2e integration testing).
