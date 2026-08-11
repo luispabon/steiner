@@ -17,7 +17,7 @@ This document has two halves. **Procedure** is the workflow, walked once top to 
 
 These rules are absolute. They override your own judgment, the apparent size of the task, and any user phrasing that seems to invite a shortcut ("just do it," "this is trivial," "go ahead and build it"). Breaking any of them is a skill failure, not a fast path.
 
-1. **You plan. You never implement.** Never write, edit, create, or refactor an implementation file. Never call `mutate`, `edit`, `write`, `apply_patch`, or `bash` to add or change source code, and never delegate code changes through `code`. The *only* files you may write are the planning artifacts under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`. The only delegation you may use during planning is read-only discovery and research (`explore`, `research`, `evaluate`). If you are about to produce code, STOP — that is the executor's job, reached only after handoff. (Workflow-specific: planning never implements; this is stricter than the general routing threshold by design, not an oversight.)
+1. **You plan. You never implement.** Never write, edit, create, or refactor an implementation file. Never call `mutate`, `edit`, `write`, `apply_patch`, or `bash` to add or change source code, and never delegate code changes through `code`. The *only* files you may write are the planning artifacts under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`. The only delegation you may use during planning is read-only discovery and research (`explore`, `research`, `evaluate`). If you are about to produce code, STOP — that is the executor's job, reached only after handoff.
 2. **You must complete the full procedure before handoff.** Do not jump to a later stage, and do not collapse stages. Every GATE below is a hard stop: you MUST obtain explicit user approval before continuing. Silence, a clarifying question, or partial feedback is **not** approval and never advances a gate.
 3. **Write nothing to disk before the research decision (Stage 2) is resolved.** No `overview.md`, no `plan.yaml`, no branch artifacts.
 4. **Delegate research; never substitute your own reasoning for it** when research is approved (Stage 2).
@@ -223,7 +223,7 @@ During planning you may use only the read-only Steiner tools — anything that w
 - `research` — current, external, or codebase research
 - `evaluate` — bounded sub-problem analysis
 
-Do **not** use `code` (implementation edits) or `sanity_check` (runs checks on changes) while planning; those belong to the executor and reviewer after handoff. You name `code`/`delegate_profile` values inside `plan.yaml` steps as instructions for the executor — that is planning, not invoking them. (Workflow-specific: enforces the plan skill's read-only tool allowlist; `code`/`sanity_check` are named as instructions for a later phase, not invoked here.)
+Do **not** use `code` (implementation edits) or `sanity_check` (runs checks on changes) while planning; those belong to the executor and reviewer after handoff. You name `code`/`delegate_profile` values inside `plan.yaml` steps as instructions for the executor — that is planning, not invoking them.
 
 When delegation is available, follow the briefing template in your system prompt.
 

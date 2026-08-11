@@ -50,8 +50,6 @@ Map final status as:
 - `pass_with_notes` if no blocking findings remain but non-blocking findings remain
 - `pass` if only informational findings or no findings remain
 
-(Workflow-specific: finding severity and status vocabulary owned by the review/simplify workflow family — the preamble's `review` specialist row has no equivalent taxonomy.)
-
 Only fixable blocking findings enter the fix plan by default. Include non-blocking fixes only when directly adjacent and negligible in scope.
 
 Every interim and final review status response must report all currently known blocking and non-blocking findings and all relevant informational notes, including when the status is `fail`. Later fix or verification passes may add, resolve, withdraw, or reclassify findings, but must state the changed disposition and must not silently omit findings reported earlier. Record checks that could not run because of the environment as verification gaps, and branch push or PR/MR readiness — including a local-only branch — as closeout notes rather than code findings.
