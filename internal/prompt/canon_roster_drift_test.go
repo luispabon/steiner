@@ -2,106 +2,18 @@ package prompt
 
 import (
 	"regexp"
-	"sort"
-	"strings"
 	"testing"
 )
 
-// canonRoster locates the "## Your specialists" heading in canon, then reads
-// markdown table rows until the next "##" heading, skipping the header row
-// (the one containing all of "Agent", "Lane", "Do not use for") and
-// separator rows, taking the first cell (backticks and whitespace trimmed)
-// of each remaining row.
-//
-// This deliberately duplicates the walking logic of
-// internal/delegation/preamble_roster_test.go's parseSpecialistRoster
-// (heading detection via strings.Contains(line, "## Your specialists"),
-// table rows starting with "| ", stopping at the next "##") because
-// importing internal/delegation here would be an import cycle:
-// internal/delegation/bootstrap.go imports internal/prompt. That upstream
-// test, TestPreambleSpecialistRosterMatchesAgentTypes, is what proves the
-// parsed roster equals AllAgentTypes() — that link is what makes a Go
-// rename of an AgentType eventually propagate into a failure there. This
-// function only needs the raw roster names to compare against, so it
-// panics (rather than taking a *testing.T) on a missing heading or an
-// empty roster; callers in tests should treat a panic as a t.Fatalf.
-func canonRoster(canon string) map[string]struct{} {
-	lines := strings.Split(canon, "\n")
-
-	var headingIndex int
-	var foundHeading bool
-	for i, line := range lines {
-		if strings.Contains(line, "## Your specialists") {
-			foundHeading = true
-			headingIndex = i
-			break
-		}
+// canonRoster is the set of specialist names canon currently declares, taken
+// from the specialists slice that renders the roster table. Consumer prose is
+// checked against this set.
+func canonRoster() map[string]struct{} {
+	roster := make(map[string]struct{}, len(specialists))
+	for _, name := range SpecialistNames() {
+		roster[name] = struct{}{}
 	}
-	if !foundHeading {
-		panic("canonRoster: \"## Your specialists\" heading not found in canon")
-	}
-
-	roster := make(map[string]struct{})
-	for i := headingIndex + 1; i < len(lines); i++ {
-		line := lines[i]
-		trimmed := strings.TrimSpace(line)
-
-		if trimmed == "" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "##") {
-			break
-		}
-		if !strings.HasPrefix(line, "| ") {
-			if len(roster) > 0 {
-				break
-			}
-			continue
-		}
-		if strings.Contains(line, "Agent") && strings.Contains(line, "Lane") && strings.Contains(line, "Do not use for") {
-			continue
-		}
-		if isRosterSeparatorRow(line) {
-			continue
-		}
-
-		cells := strings.Split(line, "|")
-		if len(cells) < 2 {
-			continue
-		}
-		firstCell := strings.TrimSpace(cells[1])
-		firstCell = strings.Trim(firstCell, "`")
-		if firstCell != "" {
-			roster[firstCell] = struct{}{}
-		}
-	}
-
-	if len(roster) == 0 {
-		panic("canonRoster: heading found but no roster rows parsed")
-	}
-
 	return roster
-}
-
-func isRosterSeparatorRow(line string) bool {
-	cells := strings.Split(line, "|")
-	for _, cell := range cells[1 : len(cells)-1] {
-		trimmed := strings.TrimSpace(cell)
-		if trimmed == "" {
-			continue
-		}
-		allDashes := true
-		for _, ch := range trimmed {
-			if ch != '-' {
-				allDashes = false
-				break
-			}
-		}
-		if !allDashes {
-			return false
-		}
-	}
-	return true
 }
 
 // Roster-reference frames: each captures a backticked token in submatch
@@ -172,7 +84,7 @@ func rosterFindings(roster map[string]struct{}, consumers []consumerParagraph) [
 }
 
 func TestConsumersNameOnlyCurrentSpecialists(t *testing.T) {
-	roster := canonRoster(delegationInstructions)
+	roster := canonRoster()
 	consumers := loadConsumers(t)
 
 	findings := rosterFindings(roster, consumers)
@@ -254,47 +166,4 @@ func TestRosterFindingsSeeded(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestCanonRosterParses(t *testing.T) {
-	roster := canonRoster(delegationInstructions)
-
-	want := map[string]struct{}{
-		"explore":      {},
-		"research":     {},
-		"code":         {},
-		"evaluate":     {},
-		"sanity_check": {},
-		"review":       {},
-	}
-
-	if len(roster) != len(want) {
-		t.Errorf("canonRoster() returned %d entries, want %d (roster=%v)", len(roster), len(want), sortedKeys(roster))
-	}
-	for k := range want {
-		if _, ok := roster[k]; !ok {
-			t.Errorf("canonRoster() missing expected entry %q (roster=%v)", k, sortedKeys(roster))
-		}
-	}
-	for k := range roster {
-		if _, ok := want[k]; !ok {
-			t.Errorf("canonRoster() has unexpected entry %q (roster=%v)", k, sortedKeys(roster))
-		}
-	}
-
-	if _, ok := roster["vision"]; ok {
-		t.Errorf("canonRoster() should not contain \"vision\" (internal-only, never routed by the orchestrator)")
-	}
-	if _, ok := roster["follow_up"]; ok {
-		t.Errorf("canonRoster() should not contain \"follow_up\" (not an AgentType, a continuation of an existing sub-agent)")
-	}
-}
-
-func sortedKeys(m map[string]struct{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }

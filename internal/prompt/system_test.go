@@ -221,7 +221,6 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"| Understand how a feature works across multiple files | `explore`: trace the call chain and report. |",
 		"| Read one file you are about to edit | Work locally. |",
 		"| Edit a file whose contents are already in your context | Work locally with `mutate`. |",
-		"Ask a sub-agent to find something across multiple files",
 		"| Run broad verification while continuing local work | `sanity_check`: run checks and summarize exact failures. |",
 		"| Evaluate two approaches to a design problem | `evaluate`: analyze tradeoffs and recommend. |",
 	} {
@@ -281,11 +280,29 @@ func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 		"## Advisor",
 		"If you need a stronger-model strategic check, call `advisor`.",
 		"It gives steering only; it does not mutate code, run tools, or replace your judgment.",
+		"It gives strategic guidance considering the full conversation context, rather than analysis of a single scoped sub-problem you hand it.",
 		"surface the conflict explicitly rather than silently complying or silently discarding the advice.",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("advisor preamble missing %q in %q", want, content)
 		}
+	}
+}
+
+// TestDelegationCanonDoesNotNameAdvisorWhenDisabled pins the fact that the
+// delegation and advisor sections are gated independently: canon must not
+// point the orchestrator at `advisor` in a session where the advisor tool is
+// not registered and the advisor section is not rendered.
+func TestDelegationCanonDoesNotNameAdvisorWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
+
+	if !strings.Contains(content, "## Your specialists") {
+		t.Fatalf("delegation canon not rendered in %q", content)
+	}
+	if strings.Contains(content, "`advisor`") {
+		t.Errorf("preamble names the `advisor` tool with advisor disabled; canon must not reference a tool that is not registered:\n%s", content)
 	}
 }
 
