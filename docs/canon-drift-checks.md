@@ -14,7 +14,21 @@ The specialist roster itself is not hand-written markdown. `internal/prompt/spec
 
 - **Shared skill block check** (`skills/shared_blocks_test.go`, `TestSharedBlocksAreByteIdenticalAcrossSkills`). The `### Worktree Provisioning` and `### Pre-Commit Checklist` sections are deliberately duplicated verbatim across `skills/{implement,review,simplify}/SKILL.md`. The fix-delegation bullet list is likewise duplicated between `skills/review/SKILL.md` and `skills/simplify/SKILL.md` (only the bullets — the lead-in and trailing sentence deliberately differ in wording). This is workflow machinery, not canon, so it does not belong in the preamble — but it is the same missed-migration risk, so the test asserts each block still occurs exactly once and byte-identically in every skill that carries it. Each block declares its own skill list; editing one copy means editing every copy plus the literal in the test. Runs as part of `go test ./skills/`.
 
+- **Oneshot/skill shared block check** (`internal/oneshot/prompts_shared_test.go`, `TestSharedBlocksMatchSkillCounterparts`). Pins the four spans that `internal/oneshot/prompts/{plan,review}.md` share byte-identically with `skills/{plan,review}/SKILL.md`: the research triggers, the `plan.yaml` step schema, the review input list, and the review status mapping. Runs as part of `go test ./internal/oneshot/`.
+
 All of them run as part of `make check`.
+
+## Oneshot prompts versus interactive skills
+
+The three `internal/oneshot/prompts/*.md` phase prompts and the interactive skills of the same name were measured paragraph-by-paragraph for identical text. The result:
+
+| Pair | Identical paragraphs | Substantive |
+|------|----------------------|-------------|
+| `implement` | 2 | 0 — both are bare headings |
+| `plan` | 3 | 2 |
+| `review` | 10 | 4, in two contiguous runs |
+
+The substantive overlap is pinned by the oneshot/skill shared block check above. Everything else is deliberately divergent: oneshot runs unattended against a plan manifest and writes phase artifacts, while the skills run interactively with a user in the loop, so the two describe genuinely different procedures even where they share vocabulary. This was measured rather than assumed, and the question is considered settled — do not re-derive a fuzzy or approximate duplication matcher over these files. If a new verbatim block appears, add it to the shared block table; if a pinned block should legitimately diverge, remove it from the table and note the reason here.
 
 ## What counts as canon
 
