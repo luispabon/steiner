@@ -215,6 +215,12 @@ Bundled skills that share instructions (e.g. worktree provisioning, a pre-commit
 
 See [docs/skill-partials.md](docs/skill-partials.md) for the directive syntax and generation details.
 
+## Canon drift checks
+
+Two Go tests in `internal/prompt/` guard against the orchestration canon (the `delegationInstructions` const in `internal/prompt/system.go`) drifting out of sync with the skill and oneshot prompt files that describe delegation to the model. A roster vocabulary check flags consumer files that name a sub-agent or tool no longer in the current roster; a duplication matcher flags consumer prose that restates canon (or canon prose pasted in from a consumer) beyond a pinned similarity threshold. Both run as part of `go test ./internal/prompt/`, and therefore as part of `make check`.
+
+See [docs/canon-drift-checks.md](docs/canon-drift-checks.md) for what counts as canon, the consumer file list, the deferral-marker exemption, and how to resolve a failing check.
+
 ## Image persistence
 
 When you paste an image (Ctrl+V), steiner saves it to `.steiner/tmp/images/` and assigns it a session-unique ID (e.g. `img-1`). The TUI displays the ID, dimensions, size, and file path below the submitted message.
