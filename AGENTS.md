@@ -31,6 +31,7 @@ docs/                    Product/design docs and implementation notes
 * `cmd/steiner` is the composition root; it wires dependencies and flags only, and must not accumulate business logic.
 * `internal/agent` must not bypass provider abstractions or scheduler parallelism.
 * `internal/prompt` owns context assembly and stays separate from execution.
+* `internal/prompt` must not import `internal/delegation`; `internal/delegation/bootstrap.go` imports `internal/prompt`, so the reverse import would be a cycle.
 * Context assembly order is intentional; update `internal/prompt` tests when changing precedence.
 * `internal/config` owns config loading and merging.
 * Core tools use structured JSON input/output only.
@@ -173,6 +174,11 @@ Code changes must update corresponding documentation in a single commit:
    * Update docs/skill-partials.md if the directive syntax, resolution timing, or bundled-only scope changes
    * Update the "Skill partials" section in README.md if the high-level description changes
    * Re-baseline `skills/testdata/goldens/` only for a deliberate content change, never to make a mechanism change pass
+
+14. **`delegationInstructions` or consumer file changes** (`internal/prompt/system.go`'s `delegationInstructions` const, or any of `skills/*/SKILL.md.src`, `skills/{plan,pull-request}/SKILL.md`, `skills/partials/*.md`, `internal/oneshot/prompts/*.md`):
+   * Update docs/canon-drift-checks.md if the change affects what counts as canon, the consumer file list, or the deferral-marker rules
+   * Never loosen the pinned matcher parameters (`overlapThreshold`, `shingleWidth`) to make a check pass — the only sanctioned adjustment is raising `minUnitWords`
+   * Never add a deferral marker to prose purely to silence a finding — a marker is a claim that the restatement is intentional, not a way to suppress an inconvenient check result
 
 ## Built-in tools
 
