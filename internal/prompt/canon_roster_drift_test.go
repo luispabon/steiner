@@ -134,14 +134,10 @@ var rosterFrames = []struct {
 // rosterFindings reports every framed token in consumers that is not in
 // roster.
 //
-// This intentionally runs over ALL paragraphs from loadConsumers, including
-// ones with Exempt == true. Step-1's deferral markers ("in your system
-// prompt", "(Workflow-specific:") exempt a paragraph from the shingle
-// duplication check only — they do not exempt it here. The historical #445
-// §3 bug (stale tool names like `verify`, `plan`, `delegate` left behind by
-// a Go rename) lived inside exactly the kind of labelled, workflow-specific
-// instructions that carry these markers today; applying the exemption to
-// this check would skip precisely the sites where that bug occurred.
+// This runs over every paragraph from loadConsumers with no exemptions. The
+// historical #445 §3 bug (stale tool names like `verify`, `plan`, `delegate`
+// left behind by a Go rename) lived inside exactly the kind of labelled,
+// workflow-specific instruction a caller might otherwise think to skip.
 func rosterFindings(roster map[string]struct{}, consumers []consumerParagraph) []finding {
 	type key struct {
 		path  string
@@ -230,12 +226,11 @@ func TestRosterFindingsSeeded(t *testing.T) {
 			wantHit: false,
 		},
 		{
-			name: "exempt paragraph with stale token is still flagged (D15)",
+			name: "stale token inside a workflow-specific aside is still flagged",
 			para: consumerParagraph{
 				Path:      "fake/e.md",
 				StartLine: 1,
-				Text:      "(Workflow-specific: dispatch a delegated `verify` sub-agent)",
-				Exempt:    true,
+				Text:      "This workflow dispatches a delegated `verify` sub-agent instead.",
 			},
 			wantHit: true,
 		},

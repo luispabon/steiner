@@ -95,11 +95,9 @@ Map final status as:
 
 Only fixable blocking findings enter the fix plan by default. Include non-blocking fixes only when directly adjacent and negligible in scope.
 
-(Workflow-specific: finding severity and status vocabulary owned by the review/simplify workflow family — the preamble's `review` specialist row has no equivalent taxonomy.)
-
 ## Review-Fix Loop
 
-Do not edit code before a review pass has produced concrete findings and the user has approved the fix plan. (Workflow-specific: this findings → approval → fix gate sequencing belongs to `review.md`'s own artifact model, not general orchestration guidance.)
+Do not edit code before a review pass has produced concrete findings and the user has approved the fix plan.
 
 Each review pass may produce one consolidated fix plan. The plan must map fixes to blocking finding ids and state which verification will be rerun.
 

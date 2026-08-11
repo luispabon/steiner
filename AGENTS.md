@@ -20,7 +20,7 @@ internal/tui/            Interactive TUI
 internal/delegation/     Delegation contracts and scaffolding
 internal/output/         Terminal and machine-readable event output
 internal/history/        Conversation history persistence
-skills/                  Bundled skills and the build-time partial generator
+skills/                  Bundled skills
 testdata/stage3/         Integration test fixtures
 docs/                    Product/design docs and implementation notes
 ````
@@ -169,16 +169,9 @@ Code changes must update corresponding documentation in a single commit:
    * Update docs/configuration.md for any config field changes
    * Update the MCP section in README.md if the high-level description changes
 
-13. **`internal/skill` / `skills/` changes** (add/change/remove a bundled skill, a partial, or the partial mechanism):
-   * Never edit a generated `SKILL.md` directly — edit `SKILL.md.src` or the partial, then run `go generate ./...`
-   * Update docs/skill-partials.md if the directive syntax, resolution timing, or bundled-only scope changes
-   * Update the "Skill partials" section in README.md if the high-level description changes
-   * Re-baseline `skills/testdata/goldens/` only for a deliberate content change, never to make a mechanism change pass
-
-14. **`delegationInstructions` or consumer file changes** (`internal/prompt/system.go`'s `delegationInstructions` const, or any of `skills/*/SKILL.md.src`, `skills/{plan,pull-request}/SKILL.md`, `skills/partials/*.md`, `internal/oneshot/prompts/*.md`):
-   * Update docs/canon-drift-checks.md if the change affects what counts as canon, the consumer file list, or the deferral-marker rules
-   * Never loosen the pinned matcher parameters (`overlapThreshold`, `shingleWidth`) to make a check pass — the only sanctioned adjustment is raising `minUnitWords`
-   * Never add a deferral marker to prose purely to silence a finding — a marker is a claim that the restatement is intentional, not a way to suppress an inconvenient check result
+13. **`delegationInstructions` or consumer file changes** (`internal/prompt/system.go`'s `delegationInstructions` const, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
+   * Update docs/canon-drift-checks.md if the change affects what counts as canon or the consumer file list
+   * The `### Worktree Provisioning` and `### Pre-Commit Checklist` blocks are deliberately duplicated verbatim across `skills/{implement,review,simplify}/SKILL.md` and pinned by `skills/shared_blocks_test.go`; edit all three copies and the test literals together, never one alone
 
 ## Built-in tools
 
