@@ -111,9 +111,21 @@ func loadConsumers(t *testing.T) []consumerParagraph {
 		if err != nil {
 			t.Fatalf("read consumer %s: %v", p, err)
 		}
-		out = append(out, splitParagraphs(p, string(data))...)
+		out = append(out, splitParagraphs(repoRelativePath(p), string(data))...)
 	}
 	return out
+}
+
+// repoRelativePath converts a path relative to the internal/prompt package
+// directory (as returned by consumerPaths, e.g. "../../skills/x/SKILL.md")
+// into a repo-relative path (e.g. "skills/x/SKILL.md"). Two forms exist
+// because os.ReadFile needs the package-relative form to actually open the
+// file from a test binary's working directory, while consumerParagraph.Path
+// and waiver.Consumer are documented and matched in the repo-relative form
+// (docs/canon-drift-checks.md), which is stable regardless of which
+// package's tests produced the finding.
+func repoRelativePath(pkgRelPath string) string {
+	return filepath.Clean(filepath.Join("internal/prompt", pkgRelPath))
 }
 
 // splitParagraphs splits content into blank-line-delimited blocks,
@@ -279,6 +291,26 @@ func excerpt(s string) string {
 	return s
 }
 
+// bestMatchingCanonUnit returns the canonUnits(canon) unit whose shingle set
+// overlaps cuShingles the most, for use in reverse-direction Detail strings
+// where the whole canon text is too long to excerpt meaningfully. Falls back
+// to the whole canon if no unit overlaps at all.
+func bestMatchingCanonUnit(canon string, cuShingles map[string]struct{}) string {
+	best := canon
+	bestOverlap := 0.0
+	for _, u := range canonUnits(canon) {
+		uShingles := shingleSet(normalizeWords(u), shingleWidth)
+		if len(uShingles) == 0 {
+			continue
+		}
+		if overlap := overlapRatio(cuShingles, uShingles); overlap > bestOverlap {
+			bestOverlap = overlap
+			best = u
+		}
+	}
+	return best
+}
+
 // duplicationCandidates compares canon against consumers in both directions.
 func duplicationCandidates(canon string, consumers []consumerParagraph) []findingCandidate {
 	var candidates []findingCandidate
@@ -333,7 +365,7 @@ func duplicationCandidates(canon string, consumers []consumerParagraph) []findin
 					finding: finding{
 						Path:      p.Path,
 						StartLine: p.StartLine,
-						Detail:    fmt.Sprintf("consumer unit %q duplicated in canon %q", excerpt(cu), excerpt(canon)),
+						Detail:    fmt.Sprintf("consumer unit %q duplicated in canon %q", excerpt(cu), excerpt(bestMatchingCanonUnit(canon, cuShingles))),
 					},
 					fingerprint: fingerprintUnit(cuWords),
 				})
@@ -435,9 +467,18 @@ Always delegate the implementation work to a specialist sub agent whenever a tas
 
 	const canonSentence = "Always delegate the implementation work to a specialist sub agent whenever a task touches more than one file in the repository, per policy."
 
+	const paraphraseSentence = "Per policy, always hand off implementation work to a specialist sub agent whenever a task touches more than one file in the repository."
+
 	pathParaphrase := "fake/consumer_paraphrase.md"
 	paraphraseParagraph := consumerParagraph{
 		Path:      pathParaphrase,
+		StartLine: 1,
+		Text:      paraphraseSentence,
+	}
+
+	pathVerbatimCanon := "fake/consumer_verbatim_canon.md"
+	verbatimCanonParagraph := consumerParagraph{
+		Path:      pathVerbatimCanon,
 		StartLine: 1,
 		Text:      canonSentence,
 	}
@@ -458,6 +499,7 @@ Always delegate the implementation work to a specialist sub agent whenever a tas
 		Text:      "Run the test suite before you open the file and check that the review team approved the changes to the config.",
 	}
 
+	const canonPreamble = "This section covers routing, escalation, and reporting rules that apply to every specialist sub agent regardless of which lane it was dispatched into."
 	const pastedSentence = "The executor must never mutate implementation scoped files directly and must always dispatch a dedicated code sub agent instead."
 	pathVerbatim := "fake/consumer_verbatim.md"
 	verbatimParagraph := consumerParagraph{
@@ -465,12 +507,25 @@ Always delegate the implementation work to a specialist sub agent whenever a tas
 		StartLine: 1,
 		Text:      pastedSentence,
 	}
-	canonWithPastedText := "## Other Canon\n\n" + pastedSentence + "\n"
+	canonWithPastedText := "## Other Canon\n\n" + canonPreamble + "\n\n" + pastedSentence + "\n"
 
 	t.Run("paraphrase is flagged", func(t *testing.T) {
+		// Guards against silently degenerating into an exact-string match:
+		// this subtest exists to prove reworded (not verbatim) text is
+		// caught, so the fixture must never collapse back to canonSentence.
+		if paraphraseParagraph.Text == canonSentence {
+			t.Fatalf("paraphraseParagraph.Text must not be byte-identical to canonSentence")
+		}
 		findings := duplicationFindings(fakeCanon, []consumerParagraph{paraphraseParagraph}, nil)
 		if len(findings) == 0 {
 			t.Fatalf("expected paraphrase paragraph to be flagged, got no findings")
+		}
+	})
+
+	t.Run("verbatim canon sentence is flagged", func(t *testing.T) {
+		findings := duplicationFindings(fakeCanon, []consumerParagraph{verbatimCanonParagraph}, nil)
+		if len(findings) == 0 {
+			t.Fatalf("expected verbatim canon sentence to be flagged, got no findings")
 		}
 	})
 
@@ -486,6 +541,21 @@ Always delegate the implementation work to a specialist sub agent whenever a tas
 		if len(findings) == 0 {
 			t.Fatalf("expected verbatim-pasted consumer text to be flagged via reverse direction, got no findings")
 		}
+		var reverseDetail string
+		for _, f := range findings {
+			if strings.Contains(f.Detail, "consumer unit") {
+				reverseDetail = f.Detail
+			}
+		}
+		if reverseDetail == "" {
+			t.Fatalf("expected a reverse-direction (\"consumer unit ... duplicated in canon ...\") finding, got %v", findings)
+		}
+		if !strings.Contains(reverseDetail, fmt.Sprintf("duplicated in canon %q", pastedSentence)) {
+			t.Errorf("expected reverse-direction Detail to quote the matched canon region (the pasted sentence) on the canon side, got %q", reverseDetail)
+		}
+		if strings.Contains(reverseDetail, "## Other Canon") {
+			t.Errorf("expected reverse-direction Detail not to quote the canon head/preamble, got %q", reverseDetail)
+		}
 	})
 
 	t.Run("unrelated common vocabulary is not flagged", func(t *testing.T) {
@@ -500,14 +570,17 @@ Always delegate the implementation work to a specialist sub agent whenever a tas
 		if len(candidates) == 0 {
 			t.Fatalf("setup failure: expected at least one candidate to waive")
 		}
-		w := waiver{
-			Consumer:    candidates[0].Path,
-			Fingerprint: candidates[0].fingerprint,
-			Reason:      "test waiver covering seeded paraphrase fixture",
+		var waivers []waiver
+		for _, c := range candidates {
+			waivers = append(waivers, waiver{
+				Consumer:    c.Path,
+				Fingerprint: c.fingerprint,
+				Reason:      "test waiver covering seeded paraphrase fixture",
+			})
 		}
-		findings := duplicationFindings(fakeCanon, []consumerParagraph{paraphraseParagraph}, []waiver{w})
+		findings := duplicationFindings(fakeCanon, []consumerParagraph{paraphraseParagraph}, waivers)
 		if len(findings) != 0 {
-			t.Errorf("expected waiver to suppress the matching finding, got %v", findings)
+			t.Errorf("expected waivers to suppress every matching finding, got %v", findings)
 		}
 	})
 
@@ -531,4 +604,59 @@ Always delegate the implementation work to a specialist sub agent whenever a tas
 			t.Errorf("expected stray waiver to be reported stale, got %d stale waivers", len(stale))
 		}
 	})
+}
+
+// TestConsumerParagraphPathIsRepoRelative guards docs/canon-drift-checks.md's
+// documented waiver contract: a waiver's "consumer" field is a repo-relative
+// path, matched against consumerParagraph.Path. Without this,
+// consumerParagraph.Path silently carried the package-relative form
+// (../../skills/...) instead, making every waiver written as documented
+// both fail to suppress its finding and get reported as stale.
+func TestConsumerParagraphPathIsRepoRelative(t *testing.T) {
+	consumers := loadConsumers(t)
+
+	hasImplementSkill := false
+	hasOneshotPrompt := false
+	for _, p := range consumers {
+		if strings.HasPrefix(p.Path, "..") {
+			t.Fatalf("consumerParagraph.Path must be repo-relative, got package-relative path %q", p.Path)
+		}
+		if p.Path == "skills/implement/SKILL.md.src" {
+			hasImplementSkill = true
+		}
+		if strings.HasPrefix(p.Path, "internal/oneshot/prompts/") {
+			hasOneshotPrompt = true
+		}
+	}
+	if !hasImplementSkill {
+		t.Errorf("expected loadConsumers to include a paragraph with Path %q", "skills/implement/SKILL.md.src")
+	}
+	if !hasOneshotPrompt {
+		t.Errorf("expected loadConsumers to include a paragraph with Path under %q", "internal/oneshot/prompts/")
+	}
+
+	const fakeCanon = "## Fake Canon\n\nAlways delegate the implementation work to a specialist sub agent whenever a task touches more than one file in the repository, per policy.\n"
+	fakeParagraph := consumerParagraph{
+		Path:      "skills/implement/SKILL.md.src",
+		StartLine: 1,
+		Text:      "Always delegate the implementation work to a specialist sub agent whenever a task touches more than one file in the repository, per policy.",
+	}
+
+	candidates := duplicationCandidates(fakeCanon, []consumerParagraph{fakeParagraph})
+	if len(candidates) == 0 {
+		t.Fatalf("setup failure: expected at least one candidate from fakeParagraph")
+	}
+
+	w := waiver{
+		Consumer:    "skills/implement/SKILL.md.src",
+		Fingerprint: candidates[0].fingerprint,
+		Reason:      "test waiver written in the documented repo-relative form",
+	}
+	findings, used := duplicationFindingsWithUsage(fakeCanon, []consumerParagraph{fakeParagraph}, []waiver{w})
+	if len(findings) != 0 {
+		t.Errorf("expected a repo-relative waiver to suppress the matching finding, got %v", findings)
+	}
+	if len(used) != 1 || !used[0] {
+		t.Errorf("expected the repo-relative waiver to be marked used (not stale), got used=%v", used)
+	}
 }

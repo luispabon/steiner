@@ -51,7 +51,7 @@ The duplication matcher is pinned to `shingleWidth = 5`, `overlapThreshold = 0.6
 
 `internal/prompt/testdata/canon_drift_waivers.json` holds waivers for the duplication matcher only. Each entry has:
 
-- `consumer` — repo-relative consumer path
+- `consumer` — the consumer path exactly as reported in the test failure output (repo-relative, not the package-relative form used internally to open the file), e.g. `skills/implement/SKILL.md.src` or `internal/oneshot/prompts/implement.md`
 - `fingerprint` — first 12 hex characters of the SHA-256 hash of the space-joined normalized words of the matched unit
 - `excerpt` — human-readable, not used for matching
 - `reason` — required, non-empty
