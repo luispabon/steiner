@@ -182,7 +182,7 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"## Your specialists",
 		"| Agent | Lane | Do not use for |",
 		"| `explore` | Navigate the codebase: find files, symbols, patterns, usages, or call sites | questions answerable from the web or docs — that is `research` |",
-		"| `research` | Gather information: search the web, read docs, synthesize across sources | anything answerable from the repo alone — that is `explore` |",
+		"| `research` | Gather information: search the web, read docs, synthesize across sources (read-only) | anything answerable from the repo alone — that is `explore` |",
 		"| `code` | Implement a scoped change: one deliverable, exact files named, design pre-digested | design decisions, or work whose files you have not identified |",
 		"| `evaluate` | Analyze a scoped sub-problem: weigh options, produce a recommendation. Not for task planning | task planning, or questions with one obvious answer |",
 		"| `sanity_check` | Run checks: tests, lint, build. Report pass/fail. No code changes | anything that changes files |",
@@ -200,6 +200,7 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"one `grep` for a known pattern, one `ls`, one `git diff`, one `gofmt`, or one targeted test;",
 		"applied with `mutate`",
 		"If you cannot state in one line why delegation would cost more than doing it yourself, delegate.",
+		"Use the dedicated tool (`read`, `grep`, `glob`, `ls`) instead of `bash`",
 		"## Briefing a sub-agent",
 		"When delegating to `code`: name the exact files and function signatures to change.",
 		"Delegating is not free: the sub-agent starts cold and re-reads what you already hold",
@@ -220,7 +221,6 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"| Understand how a feature works across multiple files | `explore`: trace the call chain and report. |",
 		"| Read one file you are about to edit | Work locally. |",
 		"| Edit a file whose contents are already in your context | Work locally with `mutate`. |",
-		"Ask a sub-agent to find something across multiple files",
 		"| Run broad verification while continuing local work | `sanity_check`: run checks and summarize exact failures. |",
 		"| Evaluate two approaches to a design problem | `evaluate`: analyze tradeoffs and recommend. |",
 	} {
@@ -280,11 +280,29 @@ func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 		"## Advisor",
 		"If you need a stronger-model strategic check, call `advisor`.",
 		"It gives steering only; it does not mutate code, run tools, or replace your judgment.",
+		"It gives strategic guidance considering the full conversation context, rather than analysis of a single scoped sub-problem you hand it.",
 		"surface the conflict explicitly rather than silently complying or silently discarding the advice.",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("advisor preamble missing %q in %q", want, content)
 		}
+	}
+}
+
+// TestDelegationCanonDoesNotNameAdvisorWhenDisabled pins the fact that the
+// delegation and advisor sections are gated independently: canon must not
+// point the orchestrator at `advisor` in a session where the advisor tool is
+// not registered and the advisor section is not rendered.
+func TestDelegationCanonDoesNotNameAdvisorWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
+
+	if !strings.Contains(content, "## Your specialists") {
+		t.Fatalf("delegation canon not rendered in %q", content)
+	}
+	if strings.Contains(content, "`advisor`") {
+		t.Errorf("preamble names the `advisor` tool with advisor disabled; canon must not reference a tool that is not registered:\n%s", content)
 	}
 }
 

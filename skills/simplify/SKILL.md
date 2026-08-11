@@ -141,9 +141,6 @@ If blocking or non_blocking findings exist:
 Mirror the review skill's fix loop exactly:
 
 - Same delegation tier preference: isolated (worktree) > direct (code sub-agent) > inline (last resort — deliberate exception to the routing threshold in your system prompt: fix/review must have a guaranteed way to close out even when delegation tooling itself is down)
-- Worktrees created under `.steiner/worktrees/` (not /tmp)
-- Worktree provisioning: after `git worktree add`, verify with `ls -d <path>` and `git -C <path> branch --show-current`; if either fails, prune with `git worktree remove` and fall back to direct delegation
-- Same pre-commit checklist (isolated mode: check branch name, worktree path, git status scope; direct mode: check branch name, git status scope)
 - Fix work is sequential, not parallel
 - After fixes, run verification (scoped checks or `make check`)
 - Lightweight re-review: check whether fixes introduced new quality issues in the same four categories. Repeat only if new blocking findings emerge. Cap at 2 fix iterations.

@@ -56,7 +56,7 @@ Every interim and final review status response must report all currently known b
 
 ## Review-Fix Loop
 
-You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on implementation-scoped files. All review-fix edits MUST be performed by delegated `code` sub-agents. Doing it directly is a violation, not a fallback. There is no inline fix tier; if delegation itself is unavailable, stop and report a blocker.
+You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on implementation-scoped files. All review-fix edits MUST be performed by delegated `code` sub-agents. Doing it directly is a violation, not a fallback. There is no inline fix tier; if delegation itself is unavailable, stop and report a blocker. (Note: oneshot review has no inline-fix tier at all — stricter than the interactive `/review` skill's deliberate last-resort exception for when delegation tooling itself is down. This is a known, pre-existing divergence between the two run modes, recorded here as observed rather than resolved.)
 
 This restriction does not apply to the reviewer-owned `review.md`.
 

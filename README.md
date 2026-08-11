@@ -209,6 +209,21 @@ Without a working sandbox (`sandbox.enabled: false`, non-Linux, or `bwrap` unava
 
 See [docs/execution-modes.md](docs/execution-modes.md) for the full enforcement matrix and persistence details.
 
+## Canon drift checks
+
+Go tests guard against the orchestration canon (`delegationInstructions` in `internal/prompt/system.go`) drifting out of sync with the skill and oneshot prompt files that describe delegation to the model.
+
+The specialist roster is typed Go data (`internal/prompt/specialists.go`) and the `## Your specialists` table is rendered from it, so the table cannot diverge from the roster. On top of that:
+
+- a roster vocabulary check in `internal/prompt/` flags consumer files that name a sub-agent or tool no longer in the roster;
+- a companion test in `internal/delegation/` asserts the roster matches the registered `AgentType` constants;
+- a gated-tool check asserts canon never names a tool that is not registered in every session it renders in;
+- shared-block checks pin the prose that bundled skills, and the oneshot prompts, deliberately duplicate verbatim.
+
+All run as part of `go test ./...`, and therefore as part of `make check`.
+
+See [docs/canon-drift-checks.md](docs/canon-drift-checks.md) for what counts as canon, the consumer file list, and how to resolve a failing check.
+
 ## Image persistence
 
 When you paste an image (Ctrl+V), steiner saves it to `.steiner/tmp/images/` and assigns it a session-unique ID (e.g. `img-1`). The TUI displays the ID, dimensions, size, and file path below the submitted message.
