@@ -208,10 +208,18 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 func (m *Model) applyMCPStatusEvent(payload output.MCPStatusEvent) {
 	m.mcpEnabled = payload.Enabled
 	m.mcpServers = mcpServersFromStatusEvent(payload.Servers)
-	m.mcpToolOrigins = mcpToolOriginsFromStatusEvent(payload.Origins)
-	// m.content.mcpToolOrigins keeps the startup snapshot: MCP tool origins are
-	// immutable per D14 (the tool set is never re-listed on reconnect), so the
-	// content renderer has nothing to refresh.
+
+	// Preserve existing origins when the payload carries none (states-only
+	// pre-arm snapshots never include origins). Only replace when the payload
+	// carries non-empty origins (post-arm full snapshots with real tool defs).
+	// When origins DO arrive, also refresh m.content.mcpToolOrigins so transcript
+	// tool attribution catches up once tool defs are registered.
+	newOrigins := mcpToolOriginsFromStatusEvent(payload.Origins)
+	if len(newOrigins) > 0 {
+		m.mcpToolOrigins = newOrigins
+		m.content.mcpToolOrigins = newOrigins
+	}
+
 	lines, warned := mcpTransitionWarnings(m.mcpServers, m.mcpWarned)
 	m.mcpWarned = warned
 	for _, line := range lines {

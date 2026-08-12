@@ -102,7 +102,15 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	var mcpMgr *mcp.Manager
 	var mcpState *mcpStateProducer
 	if cfg.MCP.Enabled {
-		mcpMgr, mcpState = connectRuntimeMCP(ctx, cfg, sb, flags.asyncMCP, events)
+		mcpServerLogPath := mcp.ServerLogPath(runtimeLogFile(cfg, flags))
+		mcpServerLogWriter, err := buildMCPServerLogWriter(mcpServerLogPath)
+		if err != nil {
+			return cliRuntime{}, err
+		}
+		closeFn = joinClosers(closeFn, mcpServerLogWriter.Close)
+
+		mcpStderr := selectMCPStderr(mcpServerLogPath, flags.asyncMCP, mcpServerLogWriter)
+		mcpMgr, mcpState = connectRuntimeMCP(ctx, cfg, sb, flags.asyncMCP, events, mcpStderr)
 	}
 
 	// Rebuild registry with sandbox and MCP tools now that workDir and homeDir are known.
@@ -316,11 +324,11 @@ func runtimeCompactionLogFile(cfg config.Config, flags *cliFlags) string {
 // resolves to connected or failed, so the caller's registry rebuild freezes the
 // complete tool list; this is the non-interactive behaviour. When asyncMCP is
 // true it returns immediately so an interactive TUI can paint while servers
-// connect: the interactive session runner must WaitInit and re-register the
-// manager's tool defs before the first agent turn. The returned producer gates
-// manager state-change notifications behind that first-turn registration so the
-// TUI never observes a half-connected server set.
-func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandbox, asyncMCP bool, events output.EventSink) (*mcp.Manager, *mcpStateProducer) {
+// connect: the background MCP init will WaitInit and re-register the manager's
+// tool defs, then arm the producer for full snapshots. The returned producer
+// forwards pre-arm state changes as states-only snapshots (no registry origins)
+// until armed, then switches to full snapshots with origins.
+func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandbox, asyncMCP bool, events output.EventSink, stderr io.Writer) (*mcp.Manager, *mcpStateProducer) {
 	var wrap func(*exec.Cmd) *exec.Cmd
 	if sb != nil {
 		wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
@@ -341,7 +349,7 @@ func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandb
 		producer = &mcpStateProducer{}
 		onStateChange = producer.stateChanged
 	}
-	mgr := mcp.Connect(ctx, cfg.MCP, cfg.Limits, wrap, planMode, diagnose("warning"), diagnose("info"), os.Stderr, onStateChange)
+	mgr := mcp.Connect(ctx, cfg.MCP, cfg.Limits, wrap, planMode, diagnose("warning"), diagnose("info"), stderr, onStateChange)
 	if !asyncMCP {
 		// Block until every enabled server resolves (connected or failed) so
 		// the registry below freezes the complete tool list. Connects run in
@@ -409,6 +417,30 @@ func buildStreamErrorLogger(cfg config.Config, flags *cliFlags) (*provider.Strea
 		return nil, fmt.Errorf("stream error logger: %w", err)
 	}
 	return l, nil
+}
+
+func buildMCPServerLogWriter(path string) (io.WriteCloser, error) {
+	w, err := mcp.NewServerLogWriter(path)
+	if err != nil {
+		return nil, fmt.Errorf("mcp server log writer: %w", err)
+	}
+	return w, nil
+}
+
+// selectMCPStderr picks the destination for MCP server subprocess stderr: the
+// derived log file when logPath is non-empty, io.Discard in interactive mode
+// otherwise (terminal corruption is non-negotiable), or os.Stderr in
+// non-interactive mode where there is no live TUI to trample. logPath must be
+// derived from the same inputs used to build logWriter; callers must not
+// recompute it independently, or the two can silently diverge.
+func selectMCPStderr(logPath string, asyncMCP bool, logWriter io.Writer) io.Writer {
+	if logPath != "" {
+		return logWriter
+	}
+	if asyncMCP {
+		return io.Discard
+	}
+	return os.Stderr
 }
 
 func buildRuntimeInputs(stdin io.Reader) (*bufio.Reader, *bufio.Reader, func() error) {

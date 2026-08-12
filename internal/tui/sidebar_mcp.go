@@ -2,12 +2,17 @@ package tui
 
 import "fmt"
 
-// mcpRow renders the sidebar's MCP health value ("2/3"), or "" when there is
-// nothing to report (MCP off, or no servers configured/enabled). The caller
-// applies styling.
-func (s sidebarState) mcpRow() string {
+// mcpRow renders the sidebar's MCP status as two unstyled pieces: a spinner
+// frame (empty when settled, spinning frame when connecting) and a count
+// ("N/M" format). Returns ("", "") when MCP is off or no servers configured.
+// The caller applies styling to each piece.
+func (s sidebarState) mcpRow() (spinner, count string) {
 	if s.mcpTotal == 0 {
-		return ""
+		return "", ""
 	}
-	return fmt.Sprintf("%d/%d", s.mcpConnected, s.mcpTotal)
+	count = fmt.Sprintf("%d/%d", s.mcpConnected, s.mcpTotal)
+	if s.mcpConnecting {
+		spinner = spinnerFrames[s.tickCount%len(spinnerFrames)]
+	}
+	return spinner, count
 }

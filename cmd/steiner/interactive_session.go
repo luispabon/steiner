@@ -63,6 +63,7 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntim
 	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, sess, rt.mcpManager)
 	rt.registry = registry
 	rt.toolNames = registry.Names()
+	rt.mcpInit = &mcpInitOnce{}
 	return rt
 }
 
@@ -179,16 +180,9 @@ func mcpOutcomeLabel(o mcp.ToolOutcome) string {
 	}
 }
 
-// emitMCPStateSnapshot computes the current MCP display state and emits it as
-// one immutable snapshot event on the given sink. The snapshot carries every
-// server's live state plus the registry's MCP tool origins, so the TUI can
-// rebuild its MCP surface from a single event without touching the manager or
-// registry.
-func emitMCPStateSnapshot(rt cliRuntime, sink output.EventSink) {
-	if rt.mcpManager == nil {
-		return
-	}
-	enabled, servers, origins := mcpTUIState(rt.cfg, rt.mcpManager, rt.registry)
+// serverStatesSnapshot converts MCP manager server states into the output format.
+// It applies mcpOutcomeLabel to tool outcomes and builds the servers map.
+func serverStatesSnapshot(servers []tui.MCPServerStatus) map[string]output.MCPServerState {
 	states := make(map[string]output.MCPServerState, len(servers))
 	for _, s := range servers {
 		tools := make([]output.MCPAdvertisedTool, 0, len(s.Tools))
@@ -202,41 +196,102 @@ func emitMCPStateSnapshot(rt cliRuntime, sink output.EventSink) {
 			Error:     s.Error,
 		}
 	}
+	return states
+}
+
+// emitMCPServerStatesSnapshot emits a snapshot of the current MCP server states
+// without registry origins. This is used for pre-arm notifications while servers
+// are connecting, before tool defs are registered.
+func emitMCPServerStatesSnapshot(rt cliRuntime, sink output.EventSink) {
+	if rt.mcpManager == nil {
+		return
+	}
+	enabled := rt.cfg.MCP.Enabled
+	states := rt.mcpManager.ServerStates()
+	if !enabled {
+		states = mcp.DeclaredStates(rt.cfg.MCP)
+	}
+
+	servers := make([]tui.MCPServerStatus, 0, len(states))
+	for _, s := range states {
+		tools := make([]tui.MCPToolStatus, 0, len(s.AdvertisedTools))
+		for _, t := range s.AdvertisedTools {
+			tools = append(tools, tui.MCPToolStatus{Name: t.Name, Outcome: mcpOutcomeLabel(t.Outcome)})
+		}
+		servers = append(servers, tui.MCPServerStatus{
+			Name:      s.Name,
+			State:     string(s.Status),
+			Transport: s.Transport,
+			Tools:     tools,
+			Error:     s.Err,
+		})
+	}
+
+	statesMap := serverStatesSnapshot(servers)
+	sink.Emit(output.NewMCPStatusEvent(enabled, statesMap, nil))
+}
+
+// emitMCPStateSnapshot computes the current MCP display state and emits it as
+// one immutable snapshot event on the given sink. The snapshot carries every
+// server's live state plus the registry's MCP tool origins, so the TUI can
+// rebuild its MCP surface from a single event without touching the manager or
+// registry.
+func emitMCPStateSnapshot(rt cliRuntime, sink output.EventSink) {
+	if rt.mcpManager == nil {
+		return
+	}
+	enabled, servers, origins := mcpTUIState(rt.cfg, rt.mcpManager, rt.registry)
+	statesMap := serverStatesSnapshot(servers)
 	toolOrigins := make(map[string]output.MCPToolOrigin, len(origins))
 	for name, o := range origins {
 		toolOrigins[name] = output.MCPToolOrigin{Server: o.Server, Tool: o.Tool}
 	}
-	sink.Emit(output.NewMCPStatusEvent(enabled, states, toolOrigins))
+	sink.Emit(output.NewMCPStatusEvent(enabled, statesMap, toolOrigins))
 }
 
-// mcpStateProducer gates MCP state-change notifications behind the first-turn
-// registration so the interactive TUI never observes a half-connected server
-// set. Initial-connect transitions fire before the session runner has
-// registered the connected tool defs, so they are dropped; arming (after
-// first-turn WaitInit + registration) emits one consolidated snapshot and every
-// subsequent transition forwards to the listener.
+// mcpStateProducer forwards MCP state-change notifications to different
+// listeners depending on the armed status. Before arming, state changes invoke
+// the preListener with states-only snapshots; after arming, they invoke the
+// listener with full snapshots including registry origins. This allows the TUI
+// to show connection progress before tool defs are registered, while ensuring
+// it never observes a half-connected server set with incomplete tool origins.
 type mcpStateProducer struct {
-	mu       sync.Mutex
-	armed    bool
-	listener func()
+	mu          sync.Mutex
+	armed       bool
+	listener    func()
+	preListener func()
 }
 
 // stateChanged is the onStateChange callback passed to mcp.Connect. It forwards
-// to the listener only once armed.
+// to preListener when not armed, listener when armed.
 func (p *mcpStateProducer) stateChanged() {
 	p.mu.Lock()
-	armed, listener := p.armed, p.listener
+	armed, listener, preListener := p.armed, p.listener, p.preListener
 	p.mu.Unlock()
-	if armed && listener != nil {
-		listener()
+	if armed {
+		if listener != nil {
+			listener()
+		}
+	} else {
+		if preListener != nil {
+			preListener()
+		}
 	}
 }
 
-// setListener installs the snapshot/transition listener. Safe to call before
-// arm.
+// setListener installs the full snapshot/transition listener. Safe to call
+// before arm.
 func (p *mcpStateProducer) setListener(listener func()) {
 	p.mu.Lock()
 	p.listener = listener
+	p.mu.Unlock()
+}
+
+// setPreListener installs the states-only snapshot listener for pre-arm
+// notifications. Safe to call before arm.
+func (p *mcpStateProducer) setPreListener(listener func()) {
+	p.mu.Lock()
+	p.preListener = listener
 	p.mu.Unlock()
 }
 
@@ -339,8 +394,9 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 	runner.approver = sess.Approver(rt.events)
 	if rt.mcpState != nil {
 		rt.mcpState.setListener(func() { emitMCPStateSnapshot(rt, sess.EventSink()) })
+		rt.mcpState.setPreListener(func() { emitMCPServerStatesSnapshot(rt, sess.EventSink()) })
 	}
-	sess.SetRunner(sessionRunner{runner: runner, mcpInit: &mcpInitOnce{}})
+	sess.SetRunner(sessionRunner{runner: runner, mcpInit: rt.mcpInit})
 }
 func resumeInteractiveSession(ctx context.Context, sess *interactive.Session, resumeID string, p *tea.Program, out io.Writer, rt *cliRuntime) error {
 	if resumeID == "" {
@@ -359,6 +415,9 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
 	wait := startInteractiveProgram(p, rt.events, stop)
+	if rt.mcpInit != nil {
+		go rt.mcpInit.once.Do(func() { rt.mcpInit.run(ctx, *rt) })
+	}
 	err := sess.Run(ctx)
 	stopInteractiveProgram(p)
 	wait()
@@ -396,13 +455,37 @@ func emitInteractiveProgramWarning(events output.EventSink, err error) {
 }
 
 // mcpInitOnce runs the one-shot MCP wait and registry re-registration exactly
-// once across concurrent prompt submissions. The tool registry is not
-// thread-safe, so the first turn to reach the runner waits for every server to
-// resolve, registers the connected tool defs in place, and arms the MCP state
-// producer before any later turn can proceed.
+// once in the background, protected by sync.Once. The tool registry is not
+// thread-safe, so this initialization must complete before any agent turn
+// accesses the registry. A concurrent turn submission that calls once.Do while
+// the background goroutine is running blocks until the init completes, then
+// observes the error.
 type mcpInitOnce struct {
 	once sync.Once
 	err  error
+}
+
+// run executes WaitInit, registers the connected tool defs in place, and arms
+// the MCP state producer. If WaitInit returns an error, run returns early
+// without arming (preserving the states-only snapshot mode indefinitely).
+func (i *mcpInitOnce) run(ctx context.Context, rt cliRuntime) {
+	if rt.mcpManager != nil {
+		i.err = rt.mcpManager.WaitInit(ctx)
+		if i.err != nil {
+			return
+		}
+		// Register in place: Registry.Register overwrites by name, so a
+		// server that already connected before the interactive registry
+		// was built is replaced and the rest are added, leaving one def
+		// per tool. The replayed defs carry the session approver because
+		// UpdateApprover ran before the first registry build.
+		for _, def := range rt.mcpManager.ToolDefs() {
+			rt.registry.Register(def)
+		}
+	}
+	if rt.mcpState != nil {
+		rt.mcpState.arm()
+	}
 }
 
 // sessionRunner adapts cliRunner to the runExecutor interface expected by
@@ -414,26 +497,7 @@ type sessionRunner struct {
 
 func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (interactive.RunResult, error) {
 	if r.mcpInit != nil {
-		r.mcpInit.once.Do(func() {
-			rt := r.runner.runtime
-			if rt.mcpManager != nil {
-				r.mcpInit.err = rt.mcpManager.WaitInit(ctx)
-				if r.mcpInit.err != nil {
-					return
-				}
-				// Register in place: Registry.Register overwrites by name, so a
-				// server that already connected before the interactive registry
-				// was built is replaced and the rest are added, leaving one def
-				// per tool. The replayed defs carry the session approver because
-				// UpdateApprover ran before the first registry build.
-				for _, def := range rt.mcpManager.ToolDefs() {
-					rt.registry.Register(def)
-				}
-			}
-			if rt.mcpState != nil {
-				rt.mcpState.arm()
-			}
-		})
+		r.mcpInit.once.Do(func() { r.mcpInit.run(ctx, r.runner.runtime) })
 		if r.mcpInit.err != nil {
 			return interactive.RunResult{}, r.mcpInit.err
 		}

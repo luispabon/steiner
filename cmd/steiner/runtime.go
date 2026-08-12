@@ -61,6 +61,7 @@ type cliRuntime struct {
 	sandbox                *sandbox.Sandbox
 	mcpManager             *mcp.Manager
 	mcpState               *mcpStateProducer
+	mcpInit                *mcpInitOnce
 	stdin                  io.Reader
 	human                  *output.EventStream
 	status                 *output.EventStream

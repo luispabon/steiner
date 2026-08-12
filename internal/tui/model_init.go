@@ -91,6 +91,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		resolveReasoningFunc:         cfg.ResolveReasoningFunc,
 		resolveReasoningForAliasFunc: cfg.ResolveReasoningForAliasFunc,
 		mode:                         cfg.InitialMode,
+		ticking:                      true,
 	}
 
 	m.reasoningBatchResolved = cfg.ResolveReasoningFunc == nil
