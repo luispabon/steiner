@@ -10,12 +10,12 @@ import (
 // BuildResult constructs a DelegationResult from an agent.RunState.
 // Maps StopReason to DelegationStatus and captures state metrics.
 func BuildResult(agentID string, state agent.RunState) DelegationResult {
-	return buildResultInternal(agentID, state, nil)
+	return buildResultInternal(agentID, state, nil, cacheUsageOf(state))
 }
 
 // buildResultWithTrace is the trace-aware variant used by SpawnDelegate.
-func buildResultWithTrace(agentID string, state agent.RunState, tc *traceCollector) DelegationResult {
-	return buildResultInternal(agentID, state, tc)
+func buildResultWithTrace(agentID string, state agent.RunState, tc *traceCollector, cache CacheUsage) DelegationResult {
+	return buildResultInternal(agentID, state, tc, cache)
 }
 
 func countToolCalls(conversation []agent.Message) int {
@@ -28,7 +28,7 @@ func countToolCalls(conversation []agent.Message) int {
 	return n
 }
 
-func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector) DelegationResult {
+func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector, cache CacheUsage) DelegationResult {
 	output := ""
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		output = msg.Content
@@ -40,9 +40,9 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 		TurnCount:         state.TurnCount,
 		TokenCount:        state.TokenCount,
 		ToolCallCount:     countToolCalls(state.Conversation),
-		InputTokens:       state.InputTokens,
-		CacheReadTokens:   state.CacheReadTokens,
-		CacheCreateTokens: state.CacheCreateTokens,
+		InputTokens:       cache.InputTokens,
+		CacheReadTokens:   cache.CacheReadTokens,
+		CacheCreateTokens: cache.CacheCreateTokens,
 	}
 
 	rawReason := string(state.StopReason)

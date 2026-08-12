@@ -48,6 +48,13 @@ type DelegationSpec struct {
 
 	// AgentID is a unique identifier for this delegation.
 	AgentID string `json:"agent_id"`
+
+	// PriorCacheUsage carries the child agent's cumulative prompt-cache usage
+	// from runs before this spawn (extensions and prior follow-ups). The
+	// follow_up handler seeds it from the stored ChildSession so reported
+	// cache figures describe the agent's whole life rather than a single run.
+	// Zero for a fresh spawn.
+	PriorCacheUsage CacheUsage `json:"-"`
 }
 
 // GetAgentID returns the AgentID from this DelegationSpec.

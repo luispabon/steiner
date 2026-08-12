@@ -186,9 +186,9 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 		spec.Limits = limits
 
-		result, state, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
+		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
 		if err == nil && deps.SessionStore != nil {
-			saveChildSession(deps.SessionStore, spec, req, state)
+			saveChildSession(deps.SessionStore, spec, req, state, runUsage)
 		}
 		if err != nil {
 			if result != (tool.ExecutionResult{}) {

@@ -74,10 +74,17 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 
 		spec := session.Spec
 		spec.Limits = freshLimits
+		spec.PriorCacheUsage = session.CacheUsage
 
-		result, state, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
+		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
 		if err == nil {
-			deps.SessionStore.Update(agentID, state.Conversation, state.TurnCount, state.TokenCount, countToolCalls(state.Conversation))
+			deps.SessionStore.Update(agentID, SessionUpdateParams{
+				Conversation:  state.Conversation,
+				TurnCount:     state.TurnCount,
+				TokenCount:    state.TokenCount,
+				ToolCallCount: countToolCalls(state.Conversation),
+				CacheUsage:    runUsage,
+			})
 			updated, ok := deps.SessionStore.Get(agentID)
 			if !ok {
 				return nil, fmt.Errorf("follow_up: session disappeared for agent %q", agentID)

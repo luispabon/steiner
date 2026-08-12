@@ -47,6 +47,7 @@ type ChildSession struct {
 	TurnCount     int
 	TokenCount    int
 	ToolCallCount int
+	CacheUsage    CacheUsage
 	FollowUpCount int
 }
 
@@ -80,8 +81,17 @@ func (s *SessionStore) Get(id string) (*ChildSession, bool) {
 	return session, ok
 }
 
+// SessionUpdateParams carries the deltas applied by SessionStore.Update.
+type SessionUpdateParams struct {
+	Conversation  []agent.Message
+	TurnCount     int
+	TokenCount    int
+	ToolCallCount int
+	CacheUsage    CacheUsage
+}
+
 // Update replaces the conversation and accumulates session usage counters.
-func (s *SessionStore) Update(id string, conv []agent.Message, turns, tokens, toolCalls int) {
+func (s *SessionStore) Update(id string, params SessionUpdateParams) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -90,10 +100,11 @@ func (s *SessionStore) Update(id string, conv []agent.Message, turns, tokens, to
 		return
 	}
 
-	session.Conversation = conv
-	session.TurnCount += turns
-	session.TokenCount += tokens
-	session.ToolCallCount += toolCalls
+	session.Conversation = params.Conversation
+	session.TurnCount += params.TurnCount
+	session.TokenCount += params.TokenCount
+	session.ToolCallCount += params.ToolCallCount
+	session.CacheUsage = session.CacheUsage.Add(params.CacheUsage)
 	session.FollowUpCount++
 }
 
@@ -114,7 +125,7 @@ func (s *SessionStore) Count() int {
 	return len(s.sessions)
 }
 
-func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunRequest, state agent.RunState) {
+func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunRequest, state agent.RunState, cache CacheUsage) {
 	store.Save(&ChildSession{
 		Spec:          spec,
 		Request:       req,
@@ -122,5 +133,6 @@ func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunReq
 		TurnCount:     state.TurnCount,
 		TokenCount:    state.TokenCount,
 		ToolCallCount: countToolCalls(state.Conversation),
+		CacheUsage:    cache,
 	})
 }

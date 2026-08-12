@@ -521,9 +521,10 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 				dd.turnCount = max(0, payload.TurnCount-dd.baselineTurnCount)
 				dd.toolCallCount = max(0, payload.ToolCallCount-dd.baselineToolCallCount)
 				dd.tokenCount = max(0, payload.TokenCount-dd.baselineTokenCount)
-				// Unlike TurnCount, the cache counters are not cumulative across
-				// follow-ups: each follow_up call starts a fresh RunState (see
-				// SpawnDelegate), so payload.Cache* is already this run's own usage.
+				// Unlike TurnCount, the cache counters are cumulative across
+				// follow-ups: the payload carries the child's whole-life totals
+				// (accumulated in internal/delegation), so they are rendered
+				// verbatim with no baseline subtraction.
 				dd.cacheReadTokens = payload.CacheReadTokens
 				dd.inputTokens = payload.InputTokens
 				dd.cacheCreateTokens = payload.CacheCreateTokens
@@ -753,9 +754,10 @@ func (b *contentBuffer) findChildDelegationInfo(agentID string) (label, toolLabe
 // follow-up DelegationCompleteEvent payload values to obtain per-follow-up
 // deltas. Returns zeroes when the segment is not found or has no data.
 //
-// Cache token counts are deliberately excluded: unlike TokenCount, they are
-// not cumulative across follow-ups (each follow_up call starts a fresh
-// RunState), so no baseline subtraction applies to them.
+// Cache token counts are deliberately excluded: they are cumulative across
+// follow-ups by construction (accumulated in internal/delegation and carried
+// in the payload), so subtracting a baseline would be wrong — the payload
+// values are rendered verbatim.
 func (b *contentBuffer) captureChildBaselineStats(agentID string) (turns, toolCalls, tokens int) {
 	if agentID == "" {
 		return 0, 0, 0
