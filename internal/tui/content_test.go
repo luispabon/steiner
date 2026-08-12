@@ -14,6 +14,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tui/theme"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 func TestAdvisorToolCallSuppression(t *testing.T) {
@@ -77,7 +78,14 @@ func TestAppendEventDelegationStarted(t *testing.T) {
 
 func TestAppendEventDelegationComplete(t *testing.T) {
 	t.Parallel()
-	event := output.NewDelegationCompleteEvent("child-2", "complete", 5, 2000, 0, "")
+	event := output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-2",
+		Status:        "complete",
+		TurnCount:     5,
+		TokenCount:    2000,
+		ToolCallCount: 0,
+		Output:        "",
+	})
 
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
@@ -165,8 +173,15 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 			event: output.NewDelegationStartedEvent("agent-1", "secret task content here"),
 		},
 		{
-			name:  "delegation_complete",
-			event: output.NewDelegationCompleteEvent("agent-2", "complete", 1, 100, 0, ""),
+			name: "delegation_complete",
+			event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+				AgentID:       "agent-2",
+				Status:        "complete",
+				TurnCount:     1,
+				TokenCount:    100,
+				ToolCallCount: 0,
+				Output:        "",
+			}),
 		},
 		{
 			name:  "delegation_failed",
@@ -269,13 +284,27 @@ func TestFormatDelegationEvent(t *testing.T) {
 			wantMatch: "delegate: starting test-agent",
 		},
 		{
-			name:      "complete",
-			event:     output.NewDelegationCompleteEvent("test-agent", "complete", 2, 500, 0, ""),
+			name: "complete",
+			event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+				AgentID:       "test-agent",
+				Status:        "complete",
+				TurnCount:     2,
+				TokenCount:    500,
+				ToolCallCount: 0,
+				Output:        "",
+			}),
 			wantMatch: "delegate: complete test-agent (2 turns)",
 		},
 		{
-			name:      "complete_has_tool_calls",
-			event:     output.NewDelegationCompleteEvent("test-agent", "complete", 2, 500, 3, ""),
+			name: "complete_has_tool_calls",
+			event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+				AgentID:       "test-agent",
+				Status:        "complete",
+				TurnCount:     2,
+				TokenCount:    500,
+				ToolCallCount: 3,
+				Output:        "",
+			}),
 			wantMatch: "delegate: complete test-agent (2 turns, 3 tool calls)",
 		},
 		{
@@ -318,13 +347,16 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Fatalf("status after start = %q, want active", got)
 	}
 
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0, 0))
 	seg = buffer.segments[0]
 	if got := seg.delegData.status; got != "complete" {
 		t.Fatalf("status after complete = %q, want complete", got)
 	}
 	if got := seg.delegData.output; got != "check tests first" {
 		t.Fatalf("output after complete = %q, want advisor note", got)
+	}
+	if seg.delegData.cacheHitOK {
+		t.Fatal("cacheHitOK = true, want false for a payload with no cache token fields")
 	}
 
 	// After complete, buffer should have 5 segments: advisor box + 3 labeled-block segments + blank margin.
@@ -396,7 +428,7 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 	}
 
 	// Complete with an error.
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", false, errors.New("something went wrong"), 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", false, errors.New("something went wrong"), 0, 0, 0))
 
 	if len(buffer.segments) != 5 {
 		t.Fatalf("segments count after complete with error = %d, want 5 (advisor box + labeled block + blank margin)", len(buffer.segments))
@@ -412,6 +444,9 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 	}
 	if seg.delegData.status != "failed" {
 		t.Errorf("segment[0] delegData.status = %q, want %q", seg.delegData.status, "failed")
+	}
+	if seg.delegData.cacheHitOK {
+		t.Error("segment[0] delegData.cacheHitOK = true, want false on error path")
 	}
 
 	// Index 1: opening separator with label "Advisor output", closing=false.
@@ -486,7 +521,7 @@ func TestAdvisorThinkingChunkRouting(t *testing.T) {
 	}
 
 	// Emit complete with output.
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "Final advice here", false, nil, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "Final advice here", false, nil, 0, 0, 0))
 
 	// Verify the advisor box status is complete.
 	if got := dd.status; got != "complete" {
@@ -513,7 +548,7 @@ func TestRenderAdvisorTrailingMargin(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "check the layout", []string{"internal/tui/content_render_delegation.go"}))
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", false, nil, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", false, nil, 0, 0, 0))
 
 	rendered := stripANSI(buffer.String(80))
 
@@ -659,7 +694,14 @@ func TestDelegationLifecycle(t *testing.T) {
 	}
 
 	// Complete delegation.
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("life-agent", "done", 3, 600, 0, ""))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "life-agent",
+		Status:        "done",
+		TurnCount:     3,
+		TokenCount:    600,
+		ToolCallCount: 0,
+		Output:        "",
+	}))
 	if buffer.HasActiveDelegations() {
 		t.Fatal("HasActiveDelegations = true after complete, want false")
 	}
@@ -718,7 +760,14 @@ func TestDelegationToggleOutput(t *testing.T) {
 		styles:        theme.BuildStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("toggle-agent", "done", 1, 50, 0, "result text"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "toggle-agent",
+		Status:        "done",
+		TurnCount:     1,
+		TokenCount:    50,
+		ToolCallCount: 0,
+		Output:        "result text",
+	}))
 
 	dd := buffer.segments[0].delegData
 	if dd == nil {
@@ -805,7 +854,14 @@ func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
 	}
 	longOutput := strings.Repeat("x", 650) + "tail marker"
 
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("long-agent", "done", 1, 50, 0, longOutput))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "long-agent",
+		Status:        "done",
+		TurnCount:     1,
+		TokenCount:    50,
+		ToolCallCount: 0,
+		Output:        longOutput,
+	}))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
@@ -832,7 +888,14 @@ func TestDelegationBlockRendering(t *testing.T) {
 		{
 			name: "complete_has_turns",
 			setup: func(b *contentBuffer) {
-				b.AppendEvent(output.NewDelegationCompleteEvent("c-agent", "done", 7, 300, 3, ""))
+				b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+					AgentID:       "c-agent",
+					Status:        "done",
+					TurnCount:     7,
+					TokenCount:    300,
+					ToolCallCount: 3,
+					Output:        "",
+				}))
 			},
 			checks: []string{"c-agent", "7 turns", "3 tool calls"},
 		},
@@ -917,7 +980,14 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 		output.NewToolCallFinishedEvent(1, "bash", "call_1", "ok", nil),
 		"child-1",
 	))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, 0, "final child output"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "complete",
+		TurnCount:     2,
+		TokenCount:    25,
+		ToolCallCount: 0,
+		Output:        "final child output",
+	}))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
@@ -945,7 +1015,14 @@ func TestRenderDelegationPromptSubsectionCollapsedAndExpanded(t *testing.T) {
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", prompt))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, 0, "final child output"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "complete",
+		TurnCount:     1,
+		TokenCount:    10,
+		ToolCallCount: 0,
+		Output:        "final child output",
+	}))
 
 	buffer.ToggleLastDelegationOutput()
 	dd := buffer.segments[0].delegData
@@ -1008,7 +1085,14 @@ func TestRenderDelegationBlankPromptSkipsSubsection(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
 		"task": "",
 	}))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, 0, "final child output"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "complete",
+		TurnCount:     1,
+		TokenCount:    10,
+		ToolCallCount: 0,
+		Output:        "final child output",
+	}))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
@@ -1049,7 +1133,14 @@ func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
 		"task": "inspect docs",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, 0, ""))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "complete",
+		TurnCount:     1,
+		TokenCount:    10,
+		ToolCallCount: 0,
+		Output:        "",
+	}))
 
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
@@ -2067,7 +2158,14 @@ func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, "inspect files", output.ChunkSourceAssistant), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 2, 25, 0, "final child output"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "complete",
+		TurnCount:     2,
+		TokenCount:    25,
+		ToolCallCount: 0,
+		Output:        "final child output",
+	}))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(80))
@@ -2926,7 +3024,14 @@ func TestRenderReplayDelegationUsesParentToolStartForPromptAndOutput(t *testing.
 		"task": "plan the rollout\nwith full prompt text",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-evaluate-1", "plan the rollout\nwith full prompt text"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-evaluate-1", "complete", 3, 456, 2, "final prose output"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "agent-evaluate-1",
+		Status:        "complete",
+		TurnCount:     3,
+		TokenCount:    456,
+		ToolCallCount: 2,
+		Output:        "final prose output",
+	}))
 
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
@@ -2989,7 +3094,14 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 		"agent-1",
 	))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "working on it"), "agent-1"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 5, 1234, 3, "result"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "agent-1",
+		Status:        "complete",
+		TurnCount:     5,
+		TokenCount:    1234,
+		ToolCallCount: 3,
+		Output:        "result",
+	}))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(100))
@@ -3020,7 +3132,14 @@ func TestDelegationStatsFooterHiddenWhenCollapsed(t *testing.T) {
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("agent-1", "complete", 5, 1234, 0, "result"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "agent-1",
+		Status:        "complete",
+		TurnCount:     5,
+		TokenCount:    1234,
+		ToolCallCount: 0,
+		Output:        "result",
+	}))
 
 	// collapsed (default) — stats footer must not appear
 	rendered := stripANSI(buffer.String(100))
@@ -4005,6 +4124,111 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 	}
 }
 
+func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
+	t.Parallel()
+	styles := theme.BuildStyles(theme.AccentAmber)
+	b := &contentBuffer{
+		styles:            styles,
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		showThinking:      true,
+		activeDelegations: make(map[string]int),
+	}
+
+	// 1. The original child completes with its own run's cache stats
+	// (InputTokens=100, CacheReadTokens=900 -> 90% hit rate).
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationStarted,
+		Payload: output.DelegationStartedEvent{
+			AgentID:     "child-9",
+			TaskPreview: "implement feature",
+		},
+	})
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationComplete,
+		Payload: output.DelegationCompleteEvent{
+			AgentID:           "child-9",
+			Status:            "complete",
+			TurnCount:         5,
+			TokenCount:        1000,
+			ToolCallCount:     6,
+			InputTokens:       100,
+			CacheReadTokens:   900,
+			CacheCreateTokens: 0,
+			Output:            "original child output",
+		},
+	})
+
+	// 2. Parent issues a follow_up for the same child.
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeToolCallStarted,
+		Payload: output.ToolCallStartedEvent{
+			CallID: "parent-followup",
+			Tool:   "follow_up",
+			Arguments: map[string]any{
+				"agent_id": "child-9",
+				"message":  "now also add tests",
+			},
+		},
+	})
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationStarted,
+		Payload: output.DelegationStartedEvent{
+			AgentID:     "child-9",
+			TaskPreview: "now also add tests",
+		},
+	})
+
+	// 3. The follow-up completes. The payload's cache fields are CUMULATIVE
+	// across the child's runs (accumulated in internal/delegation), so they
+	// carry the child's whole-life totals: the small follow-up run
+	// (InputTokens=20, CacheReadTokens=5) is added onto the original
+	// (100/900), giving InputTokens=120, CacheReadTokens=905 (~88.3% hit
+	// rate). Baseline-subtracting against the original run would be wrong —
+	// the payload values are rendered verbatim.
+	b.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationComplete,
+		Payload: output.DelegationCompleteEvent{
+			AgentID:           "child-9",
+			Status:            "complete",
+			TurnCount:         1,
+			TokenCount:        25,
+			ToolCallCount:     1,
+			InputTokens:       120,
+			CacheReadTokens:   905,
+			CacheCreateTokens: 0,
+			Output:            "follow-up output",
+		},
+	})
+
+	var followUpIdx = -1
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		seg := b.segments[i]
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.isFollowUp {
+			followUpIdx = i
+			break
+		}
+	}
+	if followUpIdx < 0 {
+		t.Fatalf("follow-up segment not found")
+	}
+	followUpDD := b.segments[followUpIdx].delegData
+
+	if !followUpDD.cacheHitOK {
+		t.Fatalf("follow-up cacheHitOK = false, want true (cumulative rate must not be dropped)")
+	}
+	// The payload is cumulative, so the small follow-up run must show the
+	// child's OVERALL rate (905/1025, ~88.3%), not the follow-up's own 20%
+	// and not a baseline-subtracted figure.
+	wantRate := 905.0 / 1025.0
+	if diff := followUpDD.cacheHitRate - wantRate; diff > 1e-9 || diff < -1e-9 {
+		t.Errorf("follow-up cacheHitRate = %v, want %v (child's cumulative rate, not per-run or baseline-subtracted)", followUpDD.cacheHitRate, wantRate)
+	}
+	if followUpDD.cacheReadTokens != 905 || followUpDD.inputTokens != 120 {
+		t.Errorf("follow-up cache counters = (read=%d, input=%d), want (read=905, input=120) — must equal payload directly, no baseline subtraction", followUpDD.cacheReadTokens, followUpDD.inputTokens)
+	}
+}
+
 func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 	t.Parallel()
 	styles := theme.BuildStyles(theme.AccentAmber)
@@ -4112,5 +4336,34 @@ func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 			strings.Contains(entry.body, "follow-up transcript body") {
 			t.Errorf("original child segment was polluted with follow-up transcript: %q", entry.body)
 		}
+	}
+}
+
+func TestAdvisorCompleteSetsCacheHitRateFromUsage(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 900, 0, 100))
+
+	seg := buffer.segments[0]
+	wantRate, wantOK := usagestats.HitRate(900, 100, 0)
+	if !wantOK {
+		t.Fatal("test setup: usagestats.HitRate() ok = false, want true")
+	}
+	if !seg.delegData.cacheHitOK {
+		t.Fatal("cacheHitOK = false, want true for a payload with cache token fields")
+	}
+	if seg.delegData.cacheHitRate != wantRate {
+		t.Fatalf("cacheHitRate = %v, want %v", seg.delegData.cacheHitRate, wantRate)
+	}
+
+	rendered := stripANSI(buffer.String(80))
+	if !strings.Contains(rendered, "cache 90.0%") {
+		t.Fatalf("rendered box = %q, want it to contain %q", rendered, "cache 90.0%")
 	}
 }

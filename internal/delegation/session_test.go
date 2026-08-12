@@ -22,6 +22,7 @@ func TestSessionStoreSaveGetUpdate(t *testing.T) {
 		TurnCount:     1,
 		TokenCount:    10,
 		ToolCallCount: 2,
+		CacheUsage:    CacheUsage{InputTokens: 1, CacheReadTokens: 2, CacheCreateTokens: 3},
 	}
 
 	store.Save(session)
@@ -35,7 +36,13 @@ func TestSessionStoreSaveGetUpdate(t *testing.T) {
 	}
 
 	updatedConversation := []agent.Message{{Role: agent.MessageRoleAssistant, Content: "done"}}
-	store.Update("child-1", updatedConversation, 2, 20, 3)
+	store.Update("child-1", SessionUpdateParams{
+		Conversation:  updatedConversation,
+		TurnCount:     2,
+		TokenCount:    20,
+		ToolCallCount: 3,
+		CacheUsage:    CacheUsage{InputTokens: 4, CacheReadTokens: 5, CacheCreateTokens: 6},
+	})
 
 	got, ok = store.Get("child-1")
 	if !ok {
@@ -56,6 +63,10 @@ func TestSessionStoreSaveGetUpdate(t *testing.T) {
 	if got.FollowUpCount != 1 {
 		t.Fatalf("FollowUpCount = %d, want 1", got.FollowUpCount)
 	}
+	wantCache := CacheUsage{InputTokens: 5, CacheReadTokens: 7, CacheCreateTokens: 9}
+	if got.CacheUsage != wantCache {
+		t.Fatalf("CacheUsage = %+v, want %+v (seeded plus update delta)", got.CacheUsage, wantCache)
+	}
 }
 
 func TestSessionStoreGetUnknownID(t *testing.T) {
@@ -67,7 +78,7 @@ func TestSessionStoreGetUnknownID(t *testing.T) {
 		t.Fatal("Get() returned true for unknown id")
 	}
 
-	store.Update("missing", nil, 1, 1, 1)
+	store.Update("missing", SessionUpdateParams{TurnCount: 1, TokenCount: 1, ToolCallCount: 1})
 
 	if _, ok := store.Get("missing"); ok {
 		t.Fatal("Get() returned true for unknown id after Update()")
@@ -101,7 +112,13 @@ func TestSessionStoreConcurrentAccess(t *testing.T) {
 			defer updateWG.Done()
 			id := fmt.Sprintf("child-%d", i)
 			for j := range updatesPerSession {
-				store.Update(id, []agent.Message{{Role: agent.MessageRoleAssistant, Content: fmt.Sprintf("turn-%d", j)}}, 1, 2, 3)
+				store.Update(id, SessionUpdateParams{
+					Conversation:  []agent.Message{{Role: agent.MessageRoleAssistant, Content: fmt.Sprintf("turn-%d", j)}},
+					TurnCount:     1,
+					TokenCount:    2,
+					ToolCallCount: 3,
+					CacheUsage:    CacheUsage{InputTokens: 4, CacheReadTokens: 5, CacheCreateTokens: 6},
+				})
 			}
 		}(i)
 	}
@@ -124,6 +141,14 @@ func TestSessionStoreConcurrentAccess(t *testing.T) {
 		}
 		if session.FollowUpCount != updatesPerSession {
 			t.Fatalf("FollowUpCount for %q = %d, want %d", id, session.FollowUpCount, updatesPerSession)
+		}
+		wantCache := CacheUsage{
+			InputTokens:       updatesPerSession * 4,
+			CacheReadTokens:   updatesPerSession * 5,
+			CacheCreateTokens: updatesPerSession * 6,
+		}
+		if session.CacheUsage != wantCache {
+			t.Fatalf("CacheUsage for %q = %+v, want %+v", id, session.CacheUsage, wantCache)
 		}
 		if len(session.Conversation) != 1 {
 			t.Fatalf("Conversation length for %q = %d, want 1", id, len(session.Conversation))

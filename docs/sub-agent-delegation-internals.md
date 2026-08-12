@@ -91,9 +91,9 @@ project context injection to keep the child prompt focused and cheap:
 2. **Emit** `DelegationStartedEvent` with agent ID and task preview (120 chars max).
 3. **Run** the child agent loop via the `AgentRunner` interface.
 4. **Auto-extension loop** (up to 5 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
-5. **Build result** from final state (maps `StopReason` → `DelegationStatus`).
+5. **Build result** from final state (maps `StopReason` → `DelegationStatus`). Cache counters are accumulated across extension re-runs and prior follow-ups (`DelegationSpec.PriorCacheUsage`) rather than taken from the final state alone.
 6. **Summarisation turn**: runs a single no-tool turn asking the model to summarise its work in ≤1000 chars.
-7. **Emit** `DelegationCompleteEvent` or `DelegationFailedEvent`.
+7. **Emit** `DelegationCompleteEvent` or `DelegationFailedEvent`. `DelegationCompleteEvent` carries `InputTokens`/`CacheReadTokens`/`CacheCreateTokens` alongside the existing turn/tool/token counts; it is constructed via `NewDelegationCompleteEvent`, which takes a `DelegationCompleteParams` struct rather than positional arguments, so the TUI can render the child agent's cumulative cache hit rate in the tool box.
 8. **Return** `tool.ExecutionResult` with `ToolRetention` metadata attached.
 
 A child "needs extension" when `StopReason == StopReasonMaxTurns` AND the last assistant message has pending tool calls (interrupted mid-action). This prevents early termination when a delegate is actively working but hit its turn cap.
@@ -104,16 +104,21 @@ A child "needs extension" when `StopReason == StopReasonMaxTurns` AND the last a
 
 **DelegationResult** (returned to the parent model):
 
-| Field        | Description                                           |
-|--------------|-------------------------------------------------------|
-| `AgentID`    | Matches the request                                   |
-| `Status`     | `complete`, `partial`, `failed`, or `cancelled`       |
-| `Output`     | Last assistant message content                        |
-| `Summary`    | Retained summary (≤1000 runes)                        |
-| `TurnCount`  | Turns consumed by the child                           |
-| `TokenCount` | Tokens consumed by the child                          |
-| `StopReason` | Populated on partial: `"max_turns"` or `"max_tokens"` |
-| `Error`      | Populated on failure                                  |
+| Field               | Description                                           |
+|---------------------|-------------------------------------------------------|
+| `AgentID`           | Matches the request                                   |
+| `Status`            | `complete`, `partial`, `failed`, or `cancelled`       |
+| `Output`            | Last assistant message content                        |
+| `Summary`           | Retained summary (≤1000 runes)                        |
+| `TurnCount`         | Turns consumed by the child                           |
+| `TokenCount`        | Tokens consumed by the child                          |
+| `InputTokens`       | Cumulative uncached prompt tokens consumed by the child across extensions and follow-ups   |
+| `CacheReadTokens`   | Cumulative cache-read tokens consumed by the child across extensions and follow-ups        |
+| `CacheCreateTokens` | Cumulative cache-create tokens consumed by the child across extensions and follow-ups      |
+| `StopReason`        | Populated on partial: `"max_turns"` or `"max_tokens"` |
+| `Error`             | Populated on failure                                  |
+
+The `follow_up` handler seeds `DelegationSpec.PriorCacheUsage` from the stored `ChildSession.CacheUsage`, so these fields report the child agent's whole-life totals.
 
 **ToolRetention** persists on the parent conversation message as metadata that is not sent to the provider:
 

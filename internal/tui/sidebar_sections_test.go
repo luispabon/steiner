@@ -292,28 +292,43 @@ func TestSeparatorLineMode(t *testing.T) {
 func TestPerformanceSection(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name           string
-		perfDurationMs int64
-		perfTTFTMs     int64
-		perfOutputTPS  float64
+		name                  string
+		perfDurationMs        int64
+		perfTTFTMs            int64
+		perfOutputTPS         float64
+		sessionCacheHitRate   float64
+		sessionCacheHitRateOK bool
+		wantCacheHitValue     string
 	}{
-		{"all zeros", 0, 0, 0.0},
-		{"with duration", 1200, 0, 0.0},
-		{"with ttft", 0, 340, 0.0},
-		{"with tps", 0, 0, 42.1},
-		{"all values", 1200, 340, 42.1},
+		{"all zeros", 0, 0, 0.0, 0.95, true, "95.0%"},
+		{"with duration", 1200, 0, 0.0, 0.95, true, "95.0%"},
+		{"with ttft", 0, 340, 0.0, 0.95, true, "95.0%"},
+		{"with tps", 0, 0, 42.1, 0.95, true, "95.0%"},
+		{"all values", 1200, 340, 42.1, 0.95, true, "95.0%"},
+		{"cache hit undefined", 0, 0, 0.0, 0.0, false, "—"},
+		{"cache hit zero percent", 0, 0, 0.0, 0.0, true, "0.0%"},
+		{"cache hit partial", 0, 0, 0.0, 0.782, true, "78.2%"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			s := sidebarState{
-				perfDurationMs: tc.perfDurationMs,
-				perfTTFTMs:     tc.perfTTFTMs,
-				perfOutputTPS:  tc.perfOutputTPS,
+				perfDurationMs:        tc.perfDurationMs,
+				perfTTFTMs:            tc.perfTTFTMs,
+				perfOutputTPS:         tc.perfOutputTPS,
+				sessionCacheHitRate:   tc.sessionCacheHitRate,
+				sessionCacheHitRateOK: tc.sessionCacheHitRateOK,
 			}
 			got := s.performanceSection(32)
 			if len(got) == 0 {
 				t.Errorf("performanceSection() = empty, always want non-empty")
+			}
+			joined := strings.Join(got, "\n")
+			if !strings.Contains(joined, "PERFORMANCE") {
+				t.Errorf("performanceSection() missing label %q in %q", "PERFORMANCE", joined)
+			}
+			if !strings.Contains(joined, tc.wantCacheHitValue) {
+				t.Errorf("performanceSection() missing cache hit value %q in %q", tc.wantCacheHitValue, joined)
 			}
 		})
 	}
@@ -360,59 +375,6 @@ func TestFormatCacheHitRate(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("formatCacheHitRate(%f, %v) = %q, want %q", tc.rate, tc.ok, got, tc.want)
 		}
-	}
-}
-
-func TestCacheSection(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name                  string
-		sessionCacheHitRate   float64
-		sessionCacheHitRateOK bool
-		wantLabel             string
-		wantValue             string
-	}{
-		{
-			name:                  "shows undefined as dash",
-			sessionCacheHitRate:   0.0,
-			sessionCacheHitRateOK: false,
-			wantLabel:             "CACHE HIT RATE",
-			wantValue:             "—",
-		},
-		{
-			name:                  "shows hit rate as percentage",
-			sessionCacheHitRate:   0.782,
-			sessionCacheHitRateOK: true,
-			wantLabel:             "CACHE HIT RATE",
-			wantValue:             "78.2%",
-		},
-		{
-			name:                  "shows zero percent",
-			sessionCacheHitRate:   0.0,
-			sessionCacheHitRateOK: true,
-			wantLabel:             "CACHE HIT RATE",
-			wantValue:             "0.0%",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			s := sidebarState{
-				sessionCacheHitRate:   tc.sessionCacheHitRate,
-				sessionCacheHitRateOK: tc.sessionCacheHitRateOK,
-			}
-			got := s.cacheSection(32)
-			if len(got) == 0 {
-				t.Errorf("cacheSection() = empty, always want non-empty")
-			}
-			joined := strings.Join(got, "\n")
-			if !strings.Contains(joined, tc.wantLabel) {
-				t.Errorf("cacheSection() missing label %q in %q", tc.wantLabel, joined)
-			}
-			if !strings.Contains(joined, tc.wantValue) {
-				t.Errorf("cacheSection() missing value %q in %q", tc.wantValue, joined)
-			}
-		})
 	}
 }
 
@@ -542,7 +504,7 @@ func TestStaticLinesLineCount(t *testing.T) {
 		workingDir:            "/home/user/project",
 		styles:                styles,
 	}
-	const want = 31
+	const want = 29
 	if got := len(s.staticLines(32)); got != want {
 		t.Errorf("len(staticLines(32)) = %d, want %d", got, want)
 	}

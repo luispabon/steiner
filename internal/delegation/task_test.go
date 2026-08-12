@@ -99,14 +99,17 @@ func TestRunChildToCompletion_NoExtensionNeeded(t *testing.T) {
 	// State already done — loop exits immediately.
 	runner := &extensionStubRunner{}
 	state := agent.RunState{
-		StopReason: agent.StopReasonComplete,
-		TurnCount:  1,
-		TokenCount: 10,
+		StopReason:        agent.StopReasonComplete,
+		TurnCount:         1,
+		TokenCount:        10,
+		InputTokens:       7,
+		CacheReadTokens:   8,
+		CacheCreateTokens: 9,
 	}
 	req := agent.RunRequest{Limits: agent.Limits{MaxTurns: 5}}
 	tc := newTraceCollector("test-agent", "test task")
 
-	finalState, granted, err := runChildToCompletion(
+	finalState, usage, granted, err := runChildToCompletion(
 		context.Background(), req, runner, 5, nil, tc, state, "test-agent",
 	)
 	if err != nil {
@@ -120,6 +123,9 @@ func TestRunChildToCompletion_NoExtensionNeeded(t *testing.T) {
 	}
 	if finalState.StopReason != agent.StopReasonComplete {
 		t.Errorf("state stop reason = %s, want %s", finalState.StopReason, agent.StopReasonComplete)
+	}
+	if usage != cacheUsageOf(state) {
+		t.Errorf("usage = %+v, want %+v (cacheUsageOf initial state)", usage, cacheUsageOf(state))
 	}
 }
 
@@ -149,7 +155,7 @@ func TestRunChildToCompletion_OneExtensionThenComplete(t *testing.T) {
 	req := agent.RunRequest{Limits: agent.Limits{MaxTurns: 5}}
 	tc := newTraceCollector("test-agent", "test task")
 
-	finalState, granted, err := runChildToCompletion(
+	finalState, _, granted, err := runChildToCompletion(
 		context.Background(), req, runner, 5, nil, tc, initialState, "test-agent",
 	)
 	if err != nil {
@@ -181,25 +187,34 @@ func TestRunChildToCompletion_MultipleExtensionsThenComplete(t *testing.T) {
 			Conversation: []agent.Message{
 				{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c1", Name: "t"}}},
 			},
-			StopReason: agent.StopReasonMaxTurns,
-			TurnCount:  2,
-			TokenCount: 20,
+			StopReason:        agent.StopReasonMaxTurns,
+			TurnCount:         2,
+			TokenCount:        20,
+			InputTokens:       20,
+			CacheReadTokens:   200,
+			CacheCreateTokens: 2,
 		}},
 		{state: agent.RunState{
 			Conversation: []agent.Message{
 				{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c2", Name: "t"}}},
 			},
-			StopReason: agent.StopReasonMaxTurns,
-			TurnCount:  3,
-			TokenCount: 30,
+			StopReason:        agent.StopReasonMaxTurns,
+			TurnCount:         3,
+			TokenCount:        30,
+			InputTokens:       30,
+			CacheReadTokens:   300,
+			CacheCreateTokens: 3,
 		}},
 		{state: agent.RunState{
 			Conversation: []agent.Message{
 				{Role: agent.MessageRoleAssistant, Content: "done"},
 			},
-			StopReason: agent.StopReasonComplete,
-			TurnCount:  4,
-			TokenCount: 40,
+			StopReason:        agent.StopReasonComplete,
+			TurnCount:         4,
+			TokenCount:        40,
+			InputTokens:       40,
+			CacheReadTokens:   400,
+			CacheCreateTokens: 4,
 		}},
 	}
 	runner := &extensionStubRunner{responses: responses}
@@ -207,14 +222,17 @@ func TestRunChildToCompletion_MultipleExtensionsThenComplete(t *testing.T) {
 		Conversation: []agent.Message{
 			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "t"}}},
 		},
-		StopReason: agent.StopReasonMaxTurns,
-		TurnCount:  1,
-		TokenCount: 10,
+		StopReason:        agent.StopReasonMaxTurns,
+		TurnCount:         1,
+		TokenCount:        10,
+		InputTokens:       10,
+		CacheReadTokens:   100,
+		CacheCreateTokens: 1,
 	}
 	req := agent.RunRequest{Limits: agent.Limits{MaxTurns: 5}}
 	tc := newTraceCollector("test-agent", "test task")
 
-	finalState, granted, err := runChildToCompletion(
+	finalState, usage, granted, err := runChildToCompletion(
 		context.Background(), req, runner, 5, nil, tc, initialState, "test-agent",
 	)
 	if err != nil {
@@ -231,6 +249,13 @@ func TestRunChildToCompletion_MultipleExtensionsThenComplete(t *testing.T) {
 	}
 	if finalState.TurnCount != 4 {
 		t.Errorf("final state TurnCount = %d, want 4", finalState.TurnCount)
+	}
+	wantUsage := cacheUsageOf(initialState).
+		Add(cacheUsageOf(responses[0].state)).
+		Add(cacheUsageOf(responses[1].state)).
+		Add(cacheUsageOf(responses[2].state))
+	if usage != wantUsage {
+		t.Errorf("usage = %+v, want %+v (sum across initial run and all extensions)", usage, wantUsage)
 	}
 }
 
@@ -261,7 +286,7 @@ func TestRunChildToCompletion_CapsAtMaxExtensions(t *testing.T) {
 	req := agent.RunRequest{Limits: agent.Limits{MaxTurns: 5}}
 	tc := newTraceCollector("test-agent", "test task")
 
-	finalState, granted, err := runChildToCompletion(
+	finalState, _, granted, err := runChildToCompletion(
 		context.Background(), req, runner, 5, nil, tc, initialState, "test-agent",
 	)
 	if err != nil {
@@ -288,9 +313,12 @@ func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
 				Conversation: []agent.Message{
 					{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c1", Name: "t"}}},
 				},
-				StopReason: agent.StopReasonMaxTurns,
-				TurnCount:  2,
-				TokenCount: 20,
+				StopReason:        agent.StopReasonMaxTurns,
+				TurnCount:         2,
+				TokenCount:        20,
+				InputTokens:       20,
+				CacheReadTokens:   200,
+				CacheCreateTokens: 2,
 			}},
 			{err: fmt.Errorf("provider error")},
 		},
@@ -299,14 +327,17 @@ func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
 		Conversation: []agent.Message{
 			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "t"}}},
 		},
-		StopReason: agent.StopReasonMaxTurns,
-		TurnCount:  1,
-		TokenCount: 10,
+		StopReason:        agent.StopReasonMaxTurns,
+		TurnCount:         1,
+		TokenCount:        10,
+		InputTokens:       10,
+		CacheReadTokens:   100,
+		CacheCreateTokens: 1,
 	}
 	req := agent.RunRequest{Limits: agent.Limits{MaxTurns: 5}}
 	tc := newTraceCollector("test-agent", "test task")
 
-	finalState, granted, err := runChildToCompletion(
+	finalState, usage, granted, err := runChildToCompletion(
 		context.Background(), req, runner, 5, nil, tc, initialState, "test-agent",
 	)
 	if err == nil {
@@ -327,5 +358,9 @@ func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
 	// (result of the first successful extension).
 	if finalState.TurnCount != 2 {
 		t.Errorf("final state TurnCount = %d, want 2 (state before failed run)", finalState.TurnCount)
+	}
+	wantUsage := cacheUsageOf(initialState).Add(cacheUsageOf(runner.responses[0].state))
+	if usage != wantUsage {
+		t.Errorf("usage = %+v, want %+v (usage through last successful state, excluding failed run)", usage, wantUsage)
 	}
 }

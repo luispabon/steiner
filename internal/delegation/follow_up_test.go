@@ -9,6 +9,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
@@ -623,5 +624,105 @@ func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
 	}
 	if delegationResult.FollowUpCount != 1 {
 		t.Fatalf("FollowUpCount=%d, want 1", delegationResult.FollowUpCount)
+	}
+}
+
+func TestFollowUpHandler_AccumulatesCacheUsageFromPriorSession(t *testing.T) {
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: DelegationSpec{
+			AgentID: "child-cache",
+			Task:    "inspect code",
+			Limits:  DelegationLimits{MaxTurns: 5, OutputLimitTokens: 50},
+		},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Limits: agent.Limits{MaxTurns: 5, MaxTokens: 50},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+			{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		},
+		TurnCount:     1,
+		TokenCount:    10,
+		ToolCallCount: 0,
+		CacheUsage:    CacheUsage{InputTokens: 100, CacheReadTokens: 900, CacheCreateTokens: 0},
+	})
+
+	var capturedEvent *output.DelegationCompleteEvent
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
+		SessionStore: store,
+		Events: output.SinkFunc(func(ev output.Event) {
+			if ev.Type == output.EventTypeDelegationComplete {
+				complete, ok := ev.Payload.(output.DelegationCompleteEvent)
+				if ok {
+					capturedEvent = &complete
+				}
+			}
+		}),
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+				return agent.RunState{
+					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
+					TurnCount:    1,
+					TokenCount:   1,
+					StopReason:   agent.StopReasonComplete,
+				}, nil
+			}
+			return agent.RunState{
+				Conversation: []agent.Message{
+					{Role: agent.MessageRoleUser, Content: "initial task"},
+					{Role: agent.MessageRoleAssistant, Content: "second answer"},
+				},
+				TurnCount:         1,
+				TokenCount:        5,
+				InputTokens:       20,
+				CacheReadTokens:   5,
+				CacheCreateTokens: 0,
+				StopReason:        agent.StopReasonComplete,
+			}, nil
+		}},
+	})
+
+	got, err := handler(context.Background(), map[string]any{
+		"agent_id": "child-cache",
+		"message":  "continue",
+	})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	result := got.(tool.ExecutionResult).Value.(DelegationResult)
+	if result.InputTokens != 120 {
+		t.Fatalf("InputTokens=%d, want 120 (prior 100 + run 20)", result.InputTokens)
+	}
+	if result.CacheReadTokens != 905 {
+		t.Fatalf("CacheReadTokens=%d, want 905 (prior 900 + run 5)", result.CacheReadTokens)
+	}
+	if result.CacheCreateTokens != 0 {
+		t.Fatalf("CacheCreateTokens=%d, want 0", result.CacheCreateTokens)
+	}
+
+	if capturedEvent == nil {
+		t.Fatal("DelegationCompleteEvent was not emitted")
+	}
+	if capturedEvent.InputTokens != 120 {
+		t.Fatalf("event InputTokens=%d, want 120", capturedEvent.InputTokens)
+	}
+	if capturedEvent.CacheReadTokens != 905 {
+		t.Fatalf("event CacheReadTokens=%d, want 905", capturedEvent.CacheReadTokens)
+	}
+	if capturedEvent.CacheCreateTokens != 0 {
+		t.Fatalf("event CacheCreateTokens=%d, want 0", capturedEvent.CacheCreateTokens)
+	}
+
+	session, ok := store.Get("child-cache")
+	if !ok {
+		t.Fatal("session missing after follow-up")
+	}
+	wantUsage := CacheUsage{InputTokens: 120, CacheReadTokens: 905, CacheCreateTokens: 0}
+	if session.CacheUsage != wantUsage {
+		t.Fatalf("stored CacheUsage=%+v, want %+v", session.CacheUsage, wantUsage)
 	}
 }

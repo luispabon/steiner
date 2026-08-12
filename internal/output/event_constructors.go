@@ -317,16 +317,22 @@ func NewDelegationStartedEvent(agentID, taskPreview string) Event {
 	})
 }
 
+// DelegationCompleteParams holds the arguments for NewDelegationCompleteEvent.
+type DelegationCompleteParams struct {
+	AgentID           string
+	Status            string
+	TurnCount         int
+	TokenCount        int
+	ToolCallCount     int
+	Output            string
+	InputTokens       int
+	CacheReadTokens   int
+	CacheCreateTokens int
+}
+
 // NewDelegationCompleteEvent creates a new delegation complete event.
-func NewDelegationCompleteEvent(agentID, status string, turns, tokens, toolCalls int, output string) Event {
-	return newEvent(EventTypeDelegationComplete, DelegationCompleteEvent{
-		AgentID:       agentID,
-		Status:        status,
-		TurnCount:     turns,
-		TokenCount:    tokens,
-		ToolCallCount: toolCalls,
-		Output:        output,
-	})
+func NewDelegationCompleteEvent(p DelegationCompleteParams) Event {
+	return newEvent(EventTypeDelegationComplete, DelegationCompleteEvent(p))
 }
 
 // NewDisplayFileEvent creates a DisplayFile event with an explicit preview
@@ -371,7 +377,7 @@ func NewAdvisorStartedEvent(model string, useNumber, maxUses int, question strin
 }
 
 // NewAdvisorCompleteEvent creates an advisor_complete event.
-func NewAdvisorCompleteEvent(model string, useNumber, maxUses int, note string, truncated bool, err error, cacheReadTokens, cacheCreateTokens int) Event {
+func NewAdvisorCompleteEvent(model string, useNumber, maxUses int, note string, truncated bool, err error, cacheReadTokens, cacheCreateTokens, inputTokens int) Event {
 	payload := AdvisorCompleteEvent{
 		Model:             strings.TrimSpace(model),
 		UseNumber:         useNumber,
@@ -380,6 +386,7 @@ func NewAdvisorCompleteEvent(model string, useNumber, maxUses int, note string, 
 		Truncated:         truncated,
 		CacheReadTokens:   cacheReadTokens,
 		CacheCreateTokens: cacheCreateTokens,
+		InputTokens:       inputTokens,
 	}
 	if err != nil {
 		payload.Error = err.Error()

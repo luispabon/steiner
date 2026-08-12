@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 const (
@@ -520,11 +521,22 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 				dd.turnCount = max(0, payload.TurnCount-dd.baselineTurnCount)
 				dd.toolCallCount = max(0, payload.ToolCallCount-dd.baselineToolCallCount)
 				dd.tokenCount = max(0, payload.TokenCount-dd.baselineTokenCount)
+				// Unlike TurnCount, the cache counters are cumulative across
+				// follow-ups: the payload carries the child's whole-life totals
+				// (accumulated in internal/delegation), so they are rendered
+				// verbatim with no baseline subtraction.
+				dd.cacheReadTokens = payload.CacheReadTokens
+				dd.inputTokens = payload.InputTokens
+				dd.cacheCreateTokens = payload.CacheCreateTokens
 			} else {
 				dd.turnCount = payload.TurnCount
 				dd.tokenCount = payload.TokenCount
 				dd.toolCallCount = payload.ToolCallCount
+				dd.cacheReadTokens = payload.CacheReadTokens
+				dd.inputTokens = payload.InputTokens
+				dd.cacheCreateTokens = payload.CacheCreateTokens
 			}
+			dd.cacheHitRate, dd.cacheHitOK = usagestats.HitRate(dd.cacheReadTokens, dd.inputTokens, dd.cacheCreateTokens)
 			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 			dd.output = payload.Output
 		}
@@ -532,17 +544,23 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 		delete(b.activeDelegations, payload.AgentID)
 		return
 	}
+	cacheHitRate, cacheHitOK := usagestats.HitRate(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens)
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
-			agentID:       payload.AgentID,
-			status:        "complete",
-			resultStatus:  payload.Status,
-			turnCount:     payload.TurnCount,
-			tokenCount:    payload.TokenCount,
-			toolCallCount: payload.ToolCallCount,
-			output:        payload.Output,
-			collapsed:     true,
+			agentID:           payload.AgentID,
+			status:            "complete",
+			resultStatus:      payload.Status,
+			turnCount:         payload.TurnCount,
+			tokenCount:        payload.TokenCount,
+			toolCallCount:     payload.ToolCallCount,
+			cacheReadTokens:   payload.CacheReadTokens,
+			inputTokens:       payload.InputTokens,
+			cacheCreateTokens: payload.CacheCreateTokens,
+			cacheHitRate:      cacheHitRate,
+			cacheHitOK:        cacheHitOK,
+			output:            payload.Output,
+			collapsed:         true,
 		},
 		renderDirty: true,
 	})
@@ -621,6 +639,7 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 	dd.output = payload.Note
 	dd.status = "complete"
 	dd.resultStatus = "complete"
+	dd.cacheHitRate, dd.cacheHitOK = usagestats.HitRate(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens)
 	if strings.TrimSpace(payload.Error) != "" {
 		dd.output = payload.Error
 		dd.status = "failed"
@@ -730,10 +749,15 @@ func (b *contentBuffer) findChildDelegationInfo(agentID string) (label, toolLabe
 }
 
 // captureChildBaselineStats searches for the most recent delegation segment
-// with the given agentID and returns its cumulative turn, tool-call, and token
-// counts. These form the baseline that must be subtracted from follow-up
-// DelegationCompleteEvent payload values to obtain per-follow-up deltas.
-// Returns zeroes when the segment is not found or has no data.
+// with the given agentID and returns its cumulative turn, tool-call, and
+// token counts. These form the baseline that must be subtracted from
+// follow-up DelegationCompleteEvent payload values to obtain per-follow-up
+// deltas. Returns zeroes when the segment is not found or has no data.
+//
+// Cache token counts are deliberately excluded: they are cumulative across
+// follow-ups by construction (accumulated in internal/delegation and carried
+// in the payload), so subtracting a baseline would be wrong — the payload
+// values are rendered verbatim.
 func (b *contentBuffer) captureChildBaselineStats(agentID string) (turns, toolCalls, tokens int) {
 	if agentID == "" {
 		return 0, 0, 0

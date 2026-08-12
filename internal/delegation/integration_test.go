@@ -173,7 +173,7 @@ func TestBasicDelegationResult(t *testing.T) {
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
 	runner := agent.NewRunner()
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestDelegationEvents(t *testing.T) {
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
 	runner := agent.NewRunner()
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestChildEventsAreScopedWhileLifecycleEventsStayTopLevel(t *testing.T) {
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
 	runner := &scopedEventRunner{}
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
 	runner := &failingRunner{err: fmt.Errorf("initial child run failed")}
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
 	runner := agent.NewRunner()
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestOversizedOutputKeepsFullVisibleOutput(t *testing.T) {
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
 	runner := agent.NewRunner()
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -483,7 +483,7 @@ func TestSummaryFailureFallsBackToCappedPreview(t *testing.T) {
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{})
 	runner := &summaryFailRunner{}
 
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{}, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -593,7 +593,7 @@ func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
 	// Sleep past the spec timeout so childCtx is expired before summary
 	time.Sleep(3 * time.Millisecond)
 
-	result, _, err := SpawnDelegate(context.Background(), spec, req, wrapped, output.NoopSink{}, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, wrapped, output.NoopSink{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -706,7 +706,7 @@ func TestParentContextIsolation(t *testing.T) {
 	}
 	spec.Limits = limits
 
-	execResult, _, err := SpawnDelegate(context.Background(), spec, req, agent.NewRunner(), deps.Events, nil)
+	execResult, _, _, err := SpawnDelegate(context.Background(), spec, req, agent.NewRunner(), deps.Events, nil)
 	if err != nil {
 		t.Fatalf("SpawnDelegate error: %v", err)
 	}
@@ -841,7 +841,7 @@ func TestExtensionTriggersWhenMidWork(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -881,7 +881,7 @@ func TestNoExtensionWhenComplete(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -915,7 +915,7 @@ func TestNoExtensionWhenNoToolCalls(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -946,7 +946,7 @@ func TestExtensionCapAtFive(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -981,7 +981,7 @@ func TestExtensionMaxTurnsBumped(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1014,7 +1014,7 @@ func TestExtensionEventEmitted(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1062,7 +1062,7 @@ func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("SpawnDelegate returned error: %v", err)
 	}
@@ -1131,7 +1131,7 @@ func TestExtensionCancellationReturnsCancelledStatus(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("SpawnDelegate returned error: %v", err)
 	}
@@ -1181,7 +1181,7 @@ func TestZeroTurnCancellationTellsParentSessionPreserved(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, &fakeProvider{}, visibleReg, execReg, agentLimits, sink)
 
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("SpawnDelegate returned error: %v", err)
 	}
@@ -1227,7 +1227,7 @@ func TestSummaryTurnDoesNotEmitEvents(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1282,7 +1282,7 @@ func TestSummaryUsesFullConversation(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1345,7 +1345,7 @@ func TestSummarySanitizesDanglingToolCalls(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	_, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1377,7 +1377,7 @@ func TestDelegationResultSummaryPopulated(t *testing.T) {
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
 	runner := agent.NewRunner()
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1442,7 +1442,7 @@ func TestDelegationCompleteEventEmittedBeforeSummary(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	_, _, err := SpawnDelegate(context.Background(), spec, req, wrappedRunner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, wrappedRunner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1508,7 +1508,7 @@ func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
 
-	result, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1622,7 +1622,7 @@ func TestSummaryUsesChildContext(t *testing.T) {
 	parentCtx, parentCancel := context.WithCancel(context.Background())
 	parentCancel()
 
-	result, _, err := SpawnDelegate(parentCtx, spec, req, runner, output.NoopSink{}, nil)
+	result, _, _, err := SpawnDelegate(parentCtx, spec, req, runner, output.NoopSink{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

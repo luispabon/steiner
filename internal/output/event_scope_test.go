@@ -199,14 +199,58 @@ func TestAdvisorEventsRender(t *testing.T) {
 		t.Fatalf("started text = %q, want advisor lifecycle summary", got)
 	}
 
-	complete := renderEvent(NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0))
+	complete := renderEvent(NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0, 0))
 	if got := complete.Text; !strings.Contains(got, "advisor complete") || !strings.Contains(got, "note=check tests first") {
 		t.Fatalf("complete text = %q, want advisor note summary", got)
+	}
+	if got := complete.Text; strings.Contains(got, "cache=") {
+		t.Fatalf("complete text = %q, want no cache= field when there is no cache-bearing usage", got)
+	}
+
+	completeWithUsage := NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 10, 20, 30)
+	payload, ok := completeWithUsage.Payload.(AdvisorCompleteEvent)
+	if !ok {
+		t.Fatalf("payload = %T, want AdvisorCompleteEvent", completeWithUsage.Payload)
+	}
+	if payload.CacheReadTokens != 10 || payload.CacheCreateTokens != 20 || payload.InputTokens != 30 {
+		t.Fatalf("payload usage = %+v, want CacheReadTokens=10 CacheCreateTokens=20 InputTokens=30", payload)
+	}
+	completeWithUsageRendered := renderEvent(completeWithUsage)
+	wantCacheField := "cache=16.7%" // 10 / (30+10+20) = 16.666...%
+	if got := completeWithUsageRendered.Text; !strings.Contains(got, wantCacheField) {
+		t.Fatalf("complete-with-usage text = %q, want %q", got, wantCacheField)
 	}
 
 	exhausted := renderEvent(NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment", "", nil))
 	if got := exhausted.Text; !strings.Contains(got, "advisor budget exhausted") || !strings.Contains(got, "use=2/2") {
 		t.Fatalf("exhausted text = %q, want advisor budget summary", got)
+	}
+}
+
+func TestDelegationCompleteEventRendersCacheHitRate(t *testing.T) {
+	noUsage := renderEvent(NewDelegationCompleteEvent(DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "complete",
+		TurnCount:     2,
+		TokenCount:    100,
+		ToolCallCount: 3,
+	}))
+	if got := noUsage.Text; strings.Contains(got, "cache=") {
+		t.Fatalf("no-usage text = %q, want no cache= field when there is no cache-bearing usage", got)
+	}
+
+	withUsage := renderEvent(NewDelegationCompleteEvent(DelegationCompleteParams{
+		AgentID:           "child-2",
+		Status:            "complete",
+		TurnCount:         4,
+		TokenCount:        8123,
+		ToolCallCount:     12,
+		InputTokens:       50,
+		CacheReadTokens:   950,
+		CacheCreateTokens: 0,
+	}))
+	if got := withUsage.Text; !strings.Contains(got, "cache=95.0%") {
+		t.Fatalf("with-usage text = %q, want cache=95.0%%", got)
 	}
 }
 

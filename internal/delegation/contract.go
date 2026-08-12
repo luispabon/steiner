@@ -48,6 +48,13 @@ type DelegationSpec struct {
 
 	// AgentID is a unique identifier for this delegation.
 	AgentID string `json:"agent_id"`
+
+	// PriorCacheUsage carries the child agent's cumulative prompt-cache usage
+	// from runs before this spawn (extensions and prior follow-ups). The
+	// follow_up handler seeds it from the stored ChildSession so reported
+	// cache figures describe the agent's whole life rather than a single run.
+	// Zero for a fresh spawn.
+	PriorCacheUsage CacheUsage `json:"-"`
 }
 
 // GetAgentID returns the AgentID from this DelegationSpec.
@@ -79,6 +86,15 @@ type DelegationResult struct {
 
 	// TokenCount is the total tokens used by the child.
 	TokenCount int `json:"token_count"`
+
+	// InputTokens is the total uncached prompt tokens used by the child.
+	InputTokens int `json:"input_tokens,omitempty"`
+
+	// CacheReadTokens is the total cache-read tokens used by the child.
+	CacheReadTokens int `json:"cache_read_tokens,omitempty"`
+
+	// CacheCreateTokens is the total cache-create tokens used by the child.
+	CacheCreateTokens int `json:"cache_create_tokens,omitempty"`
 
 	// StopReason carries the raw stop reason string when Status is StatusPartial.
 	// It distinguishes budget exhaustion cause (e.g. "max_turns", "max_tokens").

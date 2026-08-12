@@ -265,7 +265,7 @@ func TestAdvisorFlagResetOnInterruptedRunCompletion(t *testing.T) {
 	// AdvisorComplete arrives while interruptPending is true.
 	// Before the fix, this would be suppressed.
 	// After the fix, it should NOT be suppressed and should reset the flag.
-	_ = m.applyEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 1, "some note", false, nil, 0, 0))
+	_ = m.applyEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 1, "some note", false, nil, 0, 0, 0))
 
 	// AdvisorComplete should have cleared the flag via appendAdvisorEvent → handleAdvisorComplete.
 	if m.content.activeAdvisorSegment != 0 {

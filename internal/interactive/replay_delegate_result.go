@@ -8,24 +8,30 @@ import (
 )
 
 type replayedDelegateResult struct {
-	AgentID       string `json:"agent_id"`
-	Status        string `json:"status"`
-	Output        string `json:"output"`
-	Summary       string `json:"summary"`
-	TurnCount     int    `json:"turn_count"`
-	TokenCount    int    `json:"token_count"`
-	ToolCallCount int    `json:"tool_call_count"`
-	Error         string `json:"error"`
+	AgentID           string `json:"agent_id"`
+	Status            string `json:"status"`
+	Output            string `json:"output"`
+	Summary           string `json:"summary"`
+	TurnCount         int    `json:"turn_count"`
+	TokenCount        int    `json:"token_count"`
+	ToolCallCount     int    `json:"tool_call_count"`
+	Error             string `json:"error"`
+	InputTokens       int    `json:"input_tokens"`
+	CacheReadTokens   int    `json:"cache_read_tokens"`
+	CacheCreateTokens int    `json:"cache_create_tokens"`
 }
 
 type replayedDelegationState struct {
-	agentID       string
-	status        string
-	output        string
-	error         string
-	turnCount     int
-	tokenCount    int
-	toolCallCount int
+	agentID           string
+	status            string
+	output            string
+	error             string
+	turnCount         int
+	tokenCount        int
+	toolCallCount     int
+	inputTokens       int
+	cacheReadTokens   int
+	cacheCreateTokens int
 }
 
 func decodeReplayedDelegateResult(content string) (replayedDelegateResult, bool) {
@@ -80,6 +86,9 @@ func applyDecodedDelegationState(state *replayedDelegationState, decoded replaye
 	if decoded.ToolCallCount > 0 {
 		state.toolCallCount = decoded.ToolCallCount
 	}
+	state.inputTokens = decoded.InputTokens
+	state.cacheReadTokens = decoded.CacheReadTokens
+	state.cacheCreateTokens = decoded.CacheCreateTokens
 }
 
 func applyRetainedDelegationState(state *replayedDelegationState, retention *agent.MessageRetention) {

@@ -56,6 +56,65 @@ func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 	}
 }
 
+func TestFinalizeModelCallState_AccumulatesUsageTokens(t *testing.T) {
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Events:        output.NoopSink{},
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	tests := []struct {
+		name  string
+		usage *provider.UsageStats
+	}{
+		{
+			name: "first turn usage",
+			usage: &provider.UsageStats{
+				PromptTokens:             10,
+				CompletionTokens:         5,
+				CacheReadInputTokens:     20,
+				CacheCreationInputTokens: 3,
+			},
+		},
+		{
+			name: "second turn usage",
+			usage: &provider.UsageStats{
+				PromptTokens:             7,
+				CompletionTokens:         2,
+				CacheReadInputTokens:     15,
+				CacheCreationInputTokens: 1,
+			},
+		},
+		{
+			name:  "nil usage after accumulation leaves counters unchanged",
+			usage: nil,
+		},
+	}
+
+	state := RunState{}
+	wantInput, wantCacheRead, wantCacheCreate := 0, 0, 0
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			response := provider.ChatResponse{Usage: tc.usage}
+			state, _ = p.finalizeModelCallState(context.Background(), state, i+1, provider.ChatRequest{}, response)
+			if tc.usage != nil {
+				wantInput += tc.usage.PromptTokens
+				wantCacheRead += tc.usage.CacheReadInputTokens
+				wantCacheCreate += tc.usage.CacheCreationInputTokens
+			}
+			if state.InputTokens != wantInput {
+				t.Errorf("state.InputTokens = %d, want %d", state.InputTokens, wantInput)
+			}
+			if state.CacheReadTokens != wantCacheRead {
+				t.Errorf("state.CacheReadTokens = %d, want %d", state.CacheReadTokens, wantCacheRead)
+			}
+			if state.CacheCreateTokens != wantCacheCreate {
+				t.Errorf("state.CacheCreateTokens = %d, want %d", state.CacheCreateTokens, wantCacheCreate)
+			}
+		})
+	}
+}
+
 func TestPrepareTurn_PromptCacheKeyStableAcrossCalls(t *testing.T) {
 	state := RunState{
 		TurnCount:    0,
