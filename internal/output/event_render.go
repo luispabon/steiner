@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 func renderEvent(event Event) Segment {
@@ -34,6 +36,7 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 	reflect.TypeOf(ModelCallFinishedEvent{}):      typedRenderer(renderModelCallFinishedEvent),
 	reflect.TypeOf(ToolCallStartedEvent{}):        typedRenderer(renderToolCallStartedEvent),
 	reflect.TypeOf(ToolCallFinishedEvent{}):       typedRenderer(renderToolCallFinishedEvent),
+	reflect.TypeOf(DelegationCompleteEvent{}):     typedRenderer(renderDelegationCompleteEvent),
 	reflect.TypeOf(AdvisorStartedEvent{}):         typedRenderer(renderAdvisorStartedEvent),
 	reflect.TypeOf(AdvisorCompleteEvent{}):        typedRenderer(renderAdvisorCompleteEvent),
 	reflect.TypeOf(AdvisorBudgetExhaustedEvent{}): typedRenderer(renderAdvisorBudgetExhaustedEvent),
@@ -217,6 +220,18 @@ func renderToolCallFinishedEvent(payload ToolCallFinishedEvent) Segment {
 	return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
 }
 
+func renderDelegationCompleteEvent(payload DelegationCompleteEvent) Segment {
+	parts := []string{payload.AgentID}
+	parts = appendField(parts, "status", payload.Status)
+	parts = appendIntField(parts, "turns", payload.TurnCount)
+	parts = appendIntField(parts, "tokens", payload.TokenCount)
+	parts = appendIntField(parts, "tool_calls", payload.ToolCallCount)
+	if rate, ok := usagestats.HitRate(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens); ok {
+		parts = appendField(parts, "cache", fmt.Sprintf("%.1f%%", rate*100))
+	}
+	return Segment{Channel: ChannelStatus, Label: "delegation complete", Text: strings.Join(parts, " ")}
+}
+
 func renderAdvisorStartedEvent(payload AdvisorStartedEvent) Segment {
 	parts := advisorHeader("advisor started", payload.Model, payload.UseNumber, payload.MaxUses)
 	return Segment{Channel: ChannelStatus, Label: "advisor", Text: strings.Join(parts, " ")}
@@ -227,6 +242,9 @@ func renderAdvisorCompleteEvent(payload AdvisorCompleteEvent) Segment {
 	parts = appendField(parts, "note", TruncateWithEllipsis(payload.Note, 240))
 	if payload.Truncated {
 		parts = append(parts, "truncated=true")
+	}
+	if rate, ok := usagestats.HitRate(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens); ok {
+		parts = appendField(parts, "cache", fmt.Sprintf("%.1f%%", rate*100))
 	}
 	channel := ChannelStatus
 	label := "advisor"

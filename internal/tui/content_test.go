@@ -4135,7 +4135,8 @@ func TestFollowUpCompletionDisplaysPerFollowUpCacheHitRate(t *testing.T) {
 		activeDelegations: make(map[string]int),
 	}
 
-	// 1. The original child completes with cumulative cache stats.
+	// 1. The original child completes with its own run's cache stats
+	// (InputTokens=100, CacheReadTokens=900 -> 90% hit rate).
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationStarted,
 		Payload: output.DelegationStartedEvent{
@@ -4178,18 +4179,23 @@ func TestFollowUpCompletionDisplaysPerFollowUpCacheHitRate(t *testing.T) {
 		},
 	})
 
-	// 3. The follow-up completes with cumulative cache stats that reflect
-	// a poorly-cached follow-up turn (mostly new input, little cache hit).
+	// 3. The follow-up completes. Its RunState starts fresh (SpawnDelegate is
+	// invoked with a new RunState each follow_up call), so the payload's
+	// cache fields are already scoped to this run alone: a much SMALLER run
+	// than the original (InputTokens=20, CacheReadTokens=5 -> 20% hit rate).
+	// This is the regression case: baseline-subtracting against the larger
+	// original run would clamp both counters to 0 via max(0, ...) and drop
+	// the cache field entirely.
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationComplete,
 		Payload: output.DelegationCompleteEvent{
 			AgentID:           "child-9",
 			Status:            "complete",
-			TurnCount:         6,
-			TokenCount:        1500,
-			ToolCallCount:     7,
-			InputTokens:       450,
-			CacheReadTokens:   950,
+			TurnCount:         1,
+			TokenCount:        25,
+			ToolCallCount:     1,
+			InputTokens:       20,
+			CacheReadTokens:   5,
 			CacheCreateTokens: 0,
 			Output:            "follow-up output",
 		},
@@ -4208,14 +4214,15 @@ func TestFollowUpCompletionDisplaysPerFollowUpCacheHitRate(t *testing.T) {
 	}
 	followUpDD := b.segments[followUpIdx].delegData
 
-	// Follow-up delta: inputTokens=350, cacheRead=50 -> hit rate 50/400=12.5%.
-	// The cumulative rate would be 950/1400=~67.9%, which must not appear.
 	if !followUpDD.cacheHitOK {
-		t.Fatalf("follow-up cacheHitOK = false, want true")
+		t.Fatalf("follow-up cacheHitOK = false, want true (own-run rate must not be dropped)")
 	}
-	wantRate := 50.0 / 400.0
+	wantRate := 5.0 / 25.0
 	if diff := followUpDD.cacheHitRate - wantRate; diff > 1e-9 || diff < -1e-9 {
-		t.Errorf("follow-up cacheHitRate = %v, want %v (own delta, not cumulative)", followUpDD.cacheHitRate, wantRate)
+		t.Errorf("follow-up cacheHitRate = %v, want %v (this run's own rate, not baseline-subtracted)", followUpDD.cacheHitRate, wantRate)
+	}
+	if followUpDD.cacheReadTokens != 5 || followUpDD.inputTokens != 20 {
+		t.Errorf("follow-up cache counters = (read=%d, input=%d), want (read=5, input=20) — must equal payload directly, no baseline subtraction", followUpDD.cacheReadTokens, followUpDD.inputTokens)
 	}
 }
 

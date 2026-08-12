@@ -141,7 +141,7 @@ Sub-agent delegation tool boxes and advisor tool boxes each report their own per
 
 - **Collapsed meta line**: shown as `cache NN.N%` alongside turn/tool/token counts, e.g. `✓ complete · 4 turns · 12 tools · 8123 tokens · 12.4s · cache 95.2%`.
 - **Expanded stats block**: shown as `Cache: NN.N%`.
-- **Follow-ups**: A `follow_up` call that resumes an existing delegated child reports only that follow-up's own delta — the cumulative child total minus the baseline captured before the follow-up — matching how turn/tool/token counts are already reported for follow-ups.
+- **Follow-ups**: Unlike turn/tool/token counts (which are cumulative and reported as a delta from a baseline), cache counters reset to zero for each `follow_up` call — each call starts a fresh run — so a follow-up box reports that run's own cache rate directly, with no baseline subtraction.
 - **Compaction/escalation caveat**: Compaction and context-escalation model calls within a run do not feed these per-run counters; they report to the session-wide recorder through a separate path. A run that included heavy compaction will not have that portion reflected in its own reported cache rate.
 - **Undefined case**: `—` is shown, never `0.0%`, when the run had no cache-bearing usage.
 

@@ -185,9 +185,6 @@ type delegationDisplayState struct {
 	baselineTurnCount     int
 	baselineToolCallCount int
 	baselineTokenCount    int
-	baselineCacheRead     int
-	baselineCacheInput    int
-	baselineCacheCreate   int
 	advisorUse            int
 	advisorMaxUses        int
 	advisorQuestion       string
