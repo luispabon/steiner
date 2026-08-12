@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,26 +131,86 @@ func TestMCPTUIStateOriginsWithUnderscoreServerName(t *testing.T) {
 	}
 }
 
-func TestMCPStateProducerGatesTransitionsBehindArm(t *testing.T) {
+func TestMCPStateProducerDualListeners(t *testing.T) {
 	producer := &mcpStateProducer{}
-	calls := 0
-	producer.setListener(func() { calls++ })
+	preListenerCalls := 0
+	listenerCalls := 0
+	producer.setPreListener(func() { preListenerCalls++ })
+	producer.setListener(func() { listenerCalls++ })
 
-	producer.stateChanged() // initial-connect transition: dropped until armed
-	if calls != 0 {
-		t.Fatalf("pre-arm transition forwarded %d times, want 0", calls)
+	// Pre-arm: stateChanged invokes preListener only
+	producer.stateChanged()
+	if preListenerCalls != 1 {
+		t.Fatalf("pre-arm stateChanged: preListener calls = %d, want 1", preListenerCalls)
 	}
-	producer.arm() // one consolidated snapshot after first-turn registration
-	if calls != 1 {
-		t.Fatalf("arm emitted %d snapshots, want 1", calls)
+	if listenerCalls != 0 {
+		t.Fatalf("pre-arm stateChanged: listener calls = %d, want 0", listenerCalls)
 	}
-	producer.arm() // idempotent
-	if calls != 1 {
-		t.Fatalf("second arm emitted %d snapshots, want still 1", calls)
+
+	// Arm emits one full snapshot
+	producer.arm()
+	if preListenerCalls != 1 {
+		t.Fatalf("after arm: preListener calls = %d, want still 1", preListenerCalls)
 	}
-	producer.stateChanged() // post-arm transition flows normally
-	if calls != 2 {
-		t.Fatalf("post-arm transition forwarded %d times, want 1", calls)
+	if listenerCalls != 1 {
+		t.Fatalf("after arm: listener calls = %d, want 1", listenerCalls)
+	}
+
+	// Second arm is idempotent
+	producer.arm()
+	if listenerCalls != 1 {
+		t.Fatalf("second arm: listener calls = %d, want still 1", listenerCalls)
+	}
+
+	// Post-arm: stateChanged invokes listener only
+	producer.stateChanged()
+	if preListenerCalls != 1 {
+		t.Fatalf("post-arm stateChanged: preListener calls = %d, want still 1", preListenerCalls)
+	}
+	if listenerCalls != 2 {
+		t.Fatalf("post-arm stateChanged: listener calls = %d, want 2", listenerCalls)
+	}
+}
+
+func TestEmitMCPServerStatesSnapshot(t *testing.T) {
+	mgr := mcpFixtureManager(t)
+	// Create a registry with MCP origins to verify they are NOT included
+	registry := tool.NewRegistry(tool.ToolDef{
+		Name: "mcp__fixture__echo",
+		MCP:  tool.MCPProvenance{Server: "fixture", ToolName: "echo"},
+	})
+	rt := cliRuntime{
+		cfg:        config.Config{MCP: config.MCPConfig{Enabled: true}},
+		mcpManager: mgr,
+		registry:   registry,
+	}
+
+	var got output.Event
+	emitMCPServerStatesSnapshot(rt, output.SinkFunc(func(e output.Event) { got = e }))
+
+	if got.Type != output.EventTypeMCPStatus {
+		t.Fatalf("event type = %q, want %q", got.Type, output.EventTypeMCPStatus)
+	}
+	snap, ok := got.Payload.(output.MCPStatusEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want output.MCPStatusEvent", got.Payload)
+	}
+	if !snap.Enabled {
+		t.Fatal("snapshot enabled = false, want true")
+	}
+
+	// Servers are populated
+	srv, ok := snap.Servers["fixture"]
+	if !ok {
+		t.Fatalf("snapshot servers = %v, want fixture entry", snap.Servers)
+	}
+	if srv.State != string(mcp.ServerStatusConnected) {
+		t.Fatalf("fixture state = %q, want %q", srv.State, mcp.ServerStatusConnected)
+	}
+
+	// Origins are empty (key difference from emitMCPStateSnapshot)
+	if len(snap.Origins) != 0 {
+		t.Errorf("snapshot origins = %v, want empty", snap.Origins)
 	}
 }
 
@@ -390,4 +451,80 @@ func mcpServerStateByName(states []mcp.ServerState, name string) *mcp.ServerStat
 		}
 	}
 	return nil
+}
+
+func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
+	fixtureBin := buildMCPFixture(t)
+	mgr := mcp.Connect(context.Background(), config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"stall": {
+				Enabled:        true,
+				Command:        fixtureBin,
+				Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
+				ConnectTimeout: config.MustDuration("100ms"),
+			},
+			"good": {Enabled: true, Command: fixtureBin},
+		},
+	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	defer mgr.Close() //nolint:errcheck
+
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, mgr)
+
+	producer := &mcpStateProducer{}
+	rt := cliRuntime{
+		cfg:        config.Config{Models: config.ModelsConfig{Default: "nope"}},
+		registry:   registry,
+		mcpManager: mgr,
+		mcpState:   producer,
+	}
+
+	init := &mcpInitOnce{}
+
+	// Simulate background goroutine and turn calling once.Do concurrently
+	var wg sync.WaitGroup
+	var turnErr error
+	wg.Add(2)
+
+	// Background goroutine
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		init.once.Do(func() { init.run(ctx, rt) })
+	}()
+
+	// Turn (should block in once.Do until background completes, then observe error)
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		init.once.Do(func() { init.run(ctx, rt) })
+		turnErr = init.err
+	}()
+
+	wg.Wait()
+
+	// Both should observe the same error (WaitInit timed out on stall)
+	if turnErr == nil {
+		t.Fatal("turn goroutine err = nil, want WaitInit timeout error")
+	}
+
+	// Error path means producer was NOT armed (stays unarmed indefinitely)
+	// Verify by checking armed state indirectly: call stateChanged and verify
+	// it only triggers preListener, not listener
+	if producer.preListener == nil {
+		// Setup a listener to verify it's not called
+		preListenerCalled := false
+		listenerCalled := false
+		producer.setPreListener(func() { preListenerCalled = true })
+		producer.setListener(func() { listenerCalled = true })
+		producer.stateChanged()
+		if listenerCalled {
+			t.Fatal("listener was called after error path, want producer to stay unarmed")
+		}
+		if !preListenerCalled {
+			t.Fatal("preListener was not called, want states-only mode on error path")
+		}
+	}
 }
