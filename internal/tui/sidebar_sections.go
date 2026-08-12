@@ -41,7 +41,6 @@ func (s sidebarState) staticLines(width int) []string {
 	lines = append(lines, s.contextSection(width)...)
 	lines = append(lines, s.statusSection(width)...)
 	lines = append(lines, s.performanceSection(width)...)
-	lines = append(lines, s.cacheSection(width)...)
 	if s.oneshotPhase != "" {
 		lines = append(lines, s.oneshotSection(width)...)
 	}
@@ -210,17 +209,7 @@ func (s sidebarState) performanceSection(width int) []string {
 		cardFieldN("duration", keyW, s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w-keyW+7), s.styles),
 		cardFieldN("ttft", keyW, s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w-keyW+7), s.styles),
 		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
-	}
-}
-
-// cacheSection renders the current session's token-weighted cache hit rate.
-func (s sidebarState) cacheSection(width int) []string {
-	w := width - 7
-	const keyW = 10
-	return []string{
-		"",
-		cardLabel("cache hit rate", s.styles),
-		cardFieldN("primary", keyW, s.styles.FgDim, fitText(formatCacheHitRate(s.sessionCacheHitRate, s.sessionCacheHitRateOK), w-keyW+7), s.styles),
+		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitRate(s.sessionCacheHitRate, s.sessionCacheHitRateOK), w-keyW+7), s.styles),
 	}
 }
 
