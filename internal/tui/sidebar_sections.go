@@ -114,10 +114,10 @@ func (s sidebarState) statusSection(width int) []string {
 
 	var rows []string
 	if status := strings.TrimSpace(s.sandboxStatus); status != "" {
-		rows = append(rows, cardFieldAccentN("SANDBOX", keyW, sandboxStatusStyle(status, s.styles), fitText(status, width-keyW), s.styles))
+		rows = append(rows, cardFieldAccent("SANDBOX", sandboxStatusStyle(status, s.styles), fitText(status, width-keyW), s.styles))
 	}
 	if skill := strings.TrimSpace(s.activeSkill); skill != "" {
-		rows = append(rows, cardFieldAccentN("SKILL", keyW, fgBright, fitText(skill, width-keyW), s.styles))
+		rows = append(rows, cardFieldAccent("SKILL", fgBright, fitText(skill, width-keyW), s.styles))
 	}
 	if spinner, count := s.mcpRow(); count != "" {
 		mcpStyle := fgBright
@@ -125,11 +125,11 @@ func (s sidebarState) statusSection(width int) []string {
 			mcpStyle = s.styles.ErrorStyle
 		}
 		if spinner != "" {
-			row := cardFieldAccentN("MCP", keyW, s.styles.FgMute, spinner+" ", s.styles) +
+			row := cardFieldAccent("MCP", s.styles.FgMute, spinner+" ", s.styles) +
 				s.styledWithBg(mcpStyle, count)
 			rows = append(rows, row)
 		} else {
-			rows = append(rows, cardFieldAccentN("MCP", keyW, mcpStyle, count, s.styles))
+			rows = append(rows, cardFieldAccent("MCP", mcpStyle, count, s.styles))
 		}
 	}
 	if len(rows) == 0 {
