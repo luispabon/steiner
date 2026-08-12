@@ -235,6 +235,30 @@ func TestPhaseParamsCarryPhasePrompt(t *testing.T) {
 	}
 }
 
+func TestPhaseParamsProjectAgentsPathFromWorktree(t *testing.T) {
+	projectRoot := t.TempDir()
+	factory := phaseRunnerFactory{
+		rootDir:  projectRoot,
+		identity: oneshot.RunIdentity{ID: "run-abc"},
+	}
+
+	params, err := factory.phaseParams(oneshot.PhaseImplement, "", nil, config.AdvisorConfig{})
+	if err != nil {
+		t.Fatalf("phaseParams failed: %v", err)
+	}
+
+	wantWorktree := filepath.Join(projectRoot, ".steiner", "worktrees", "oneshot-run-abc")
+	if got, want := params.WorkDir, wantWorktree; got != want {
+		t.Errorf("WorkDir = %q, want %q", got, want)
+	}
+	if got, want := params.ProjectAgentsPath, filepath.Join(wantWorktree, "AGENTS.md"); got != want {
+		t.Errorf("ProjectAgentsPath = %q, want %q", got, want)
+	}
+	if got, want := params.ProjectRoot, projectRoot; got != want {
+		t.Errorf("ProjectRoot = %q, want %q (must stay the main checkout)", got, want)
+	}
+}
+
 func TestPromptAssemblyCarriesPhasePrompt(t *testing.T) {
 	t.Run("phase runner carries phase prompt", func(t *testing.T) {
 		rt := cliRuntime{}
@@ -247,6 +271,16 @@ func TestPromptAssemblyCarriesPhasePrompt(t *testing.T) {
 		}
 		if got, want := opts.WorkflowMode, prompt.DelegatedChildWorkflowMode(); got != want {
 			t.Errorf("AssemblyOptions.WorkflowMode = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("phase runner carries worktree AGENTS.md path", func(t *testing.T) {
+		runner := cliRunner{runtime: cliRuntime{}, projectAgentsPath: "SENTINEL-AGENTS-PATH"}
+
+		opts := runner.promptAssembly(nil, nil, prompt.ModelTokenBudget{}, config.ModelPrompts{})
+
+		if got, want := opts.ProjectAgentsPath, "SENTINEL-AGENTS-PATH"; got != want {
+			t.Errorf("AssemblyOptions.ProjectAgentsPath = %q, want %q", got, want)
 		}
 	})
 

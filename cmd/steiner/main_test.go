@@ -1068,7 +1068,7 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 				cfg := testRuntimeConfig("test-model")
 				cfg.Limits.MaxTurns = 6
 				cfg.Limits.MaxTokens = 100
-				cfg.ProjectContext.MaxTokens = 64
+				cfg.ProjectContext.MaxBytes = 64
 				return cfg
 			}(),
 			provider: providerStub,

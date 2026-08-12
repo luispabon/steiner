@@ -261,7 +261,11 @@ type ToolConfig struct {
 
 // ProjectContextConfig defines extra project files included in prompts.
 type ProjectContextConfig struct {
-	MaxTokens   int      `yaml:"max_tokens"`
+	// MaxBytes is the byte budget for extra project context files.
+	MaxBytes int `yaml:"max_bytes"`
+	// MaxTokens is deprecated; use MaxBytes. When set and MaxBytes is unset,
+	// it is converted to bytes as MaxTokens * 4 at load time.
+	MaxTokens   int      `yaml:"max_tokens,omitempty"`
 	ExtraFiles  []string `yaml:"extra_files"`
 	IgnoreFiles []string `yaml:"ignore_files"`
 }

@@ -20,6 +20,66 @@ func TestDefaultConfigProjectContextFilesDefaultToNil(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigProjectContextMaxBytes(t *testing.T) {
+	cfg := defaultConfig()
+
+	if got, want := cfg.ProjectContext.MaxBytes, 8000; got != want {
+		t.Fatalf("project_context.max_bytes = %d, want %d", got, want)
+	}
+	if got := cfg.ProjectContext.MaxTokens; got != 0 {
+		t.Fatalf("project_context.max_tokens = %d, want 0", got)
+	}
+}
+
+func TestProjectContextMaxBytesConversion(t *testing.T) {
+	tests := []struct {
+		name         string
+		yaml         string
+		wantMaxBytes int
+		wantMaxToken int
+	}{
+		{
+			name:         "max_tokens deprecated alias converts to bytes",
+			yaml:         "project_context:\n  max_tokens: 500\n",
+			wantMaxBytes: 2000,
+			wantMaxToken: 500,
+		},
+		{
+			name:         "max_bytes sets byte budget directly",
+			yaml:         "project_context:\n  max_bytes: 300\n",
+			wantMaxBytes: 300,
+			wantMaxToken: 0,
+		},
+		{
+			name:         "explicit max_bytes wins over max_tokens",
+			yaml:         "project_context:\n  max_tokens: 500\n  max_bytes: 300\n",
+			wantMaxBytes: 300,
+			wantMaxToken: 500,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patch, err := parseConfigPatch(tt.yaml)
+			if err != nil {
+				t.Fatalf("parseConfigPatch() error = %v", err)
+			}
+			if patch.ProjectContext == nil {
+				t.Fatal("patch.ProjectContext = nil, want parsed project_context patch")
+			}
+
+			var pc ProjectContextConfig
+			applyProjectContextPatch(&pc, patch.ProjectContext)
+
+			if got := pc.MaxBytes; got != tt.wantMaxBytes {
+				t.Fatalf("ProjectContext.MaxBytes = %d, want %d", got, tt.wantMaxBytes)
+			}
+			if got := pc.MaxTokens; got != tt.wantMaxToken {
+				t.Fatalf("ProjectContext.MaxTokens = %d, want %d", got, tt.wantMaxToken)
+			}
+		})
+	}
+}
+
 func TestDefaultConfigRetryDefaults(t *testing.T) {
 	cfg := defaultConfig()
 

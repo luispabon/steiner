@@ -3,13 +3,11 @@ package prompt
 import "fmt"
 
 const (
-	defaultPreambleBudgetBytes      = 4096
-	defaultGlobalAgentsBudgetBytes  = 2048
-	defaultProjectAgentsBudgetBytes = 8192
-	defaultSkillBudgetBytes         = 16384
-	defaultToolResultBudgetBytes    = 2048
-	defaultToolSummaryBudgetBytes   = 1024
-	defaultCompactionSummaryBytes   = 1024
+	defaultPreambleBudgetBytes    = 4096
+	defaultSkillBudgetBytes       = 16384
+	defaultToolResultBudgetBytes  = 2048
+	defaultToolSummaryBudgetBytes = 1024
+	defaultCompactionSummaryBytes = 1024
 )
 
 // DefaultAssemblyPolicy returns the default prompt assembly policy.
@@ -17,9 +15,7 @@ func DefaultAssemblyPolicy() AssemblyPolicy {
 	return AssemblyPolicy{
 		Budgets: SourceBudgetModel{
 			PreambleBytes:       defaultPreambleBudgetBytes,
-			GlobalAgentsBytes:   defaultGlobalAgentsBudgetBytes,
-			ProjectAgentsBytes:  defaultProjectAgentsBudgetBytes,
-			ProjectContextBytes: defaultProjectContextBudgetBytes,
+			ProjectContextBytes: fallbackProjectContextBudgetBytes,
 			SkillBytes:          defaultSkillBudgetBytes,
 			ToolResultBytes:     defaultToolResultBudgetBytes,
 			ToolSummaryBytes:    defaultToolSummaryBudgetBytes,
@@ -42,8 +38,6 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 
 func validateAssemblyPolicy(policy AssemblyPolicy) error {
 	if policy.Budgets.PreambleBytes < 0 ||
-		policy.Budgets.GlobalAgentsBytes < 0 ||
-		policy.Budgets.ProjectAgentsBytes < 0 ||
 		policy.Budgets.ProjectContextBytes < 0 ||
 		policy.Budgets.SkillBytes < 0 ||
 		policy.Budgets.ToolResultBytes < 0 ||
@@ -62,12 +56,6 @@ func validateAssemblyPolicy(policy AssemblyPolicy) error {
 func normalizeSourceBudgets(budgets, defaults SourceBudgetModel) SourceBudgetModel {
 	if budgets.PreambleBytes == 0 {
 		budgets.PreambleBytes = defaults.PreambleBytes
-	}
-	if budgets.GlobalAgentsBytes == 0 {
-		budgets.GlobalAgentsBytes = defaults.GlobalAgentsBytes
-	}
-	if budgets.ProjectAgentsBytes == 0 {
-		budgets.ProjectAgentsBytes = defaults.ProjectAgentsBytes
 	}
 	if budgets.ProjectContextBytes == 0 {
 		budgets.ProjectContextBytes = defaults.ProjectContextBytes
@@ -120,8 +108,6 @@ func newBudgetTracker(model SourceBudgetModel) *budgetTracker {
 	return &budgetTracker{
 		remaining: map[ContextSource]int{
 			ContextSourcePreamble:         model.PreambleBytes,
-			ContextSourceGlobalAgentsMD:   model.GlobalAgentsBytes,
-			ContextSourceProjectAgentsMD:  model.ProjectAgentsBytes,
 			ContextSourceProjectContext:   model.ProjectContextBytes,
 			ContextSourceSkill:            model.SkillBytes,
 			ContextSourceToolResult:       model.ToolResultBytes,

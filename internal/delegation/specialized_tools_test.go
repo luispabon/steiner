@@ -913,6 +913,9 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 				if !capturedReq.Prompt.SkipProjectContext {
 					t.Errorf("%s: SkipProjectContext = false, want true", agentType)
 				}
+				if capturedReq.Prompt.SkipAgents {
+					t.Errorf("%s: SkipAgents = true, want false", agentType)
+				}
 			})
 		}
 	})
@@ -936,7 +939,43 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 				if capturedReq.Prompt.SkipProjectContext {
 					t.Errorf("%s: SkipProjectContext = true, want false", agentType)
 				}
+				if capturedReq.Prompt.SkipAgents {
+					t.Errorf("%s: SkipAgents = true, want false", agentType)
+				}
 			})
+		}
+	})
+
+	t.Run("vision skips agents and project context", func(t *testing.T) {
+		dir := t.TempDir()
+		imgPath := filepath.Join(dir, "test.png")
+		imgContent := []byte("fake-png-content")
+		if err := os.WriteFile(imgPath, imgContent, 0o600); err != nil {
+			t.Fatalf("write temp image: %v", err)
+		}
+
+		store := agent.NewImageStore(dir)
+		ref := store.Register(imgPath, "image/png", 100, 200, len(imgContent))
+
+		var capturedReq agent.RunRequest
+		runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			capturedReq = req
+			return successRunState(), nil
+		}}
+		deps := minimalDeps(runner)
+		deps.ImageStore = store
+		def := SpecializedToolDef(AgentTypeVision, deps)
+
+		_, err := def.Handler(context.Background(), map[string]any{"task": "describe the image", "image_id": ref.ID})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if !capturedReq.Prompt.SkipProjectContext {
+			t.Errorf("vision: SkipProjectContext = false, want true")
+		}
+		if !capturedReq.Prompt.SkipAgents {
+			t.Errorf("vision: SkipAgents = false, want true")
 		}
 	})
 }

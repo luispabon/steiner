@@ -172,12 +172,6 @@ func diagnosticBudgets(opts prompt.AssemblyOptions) prompt.SourceBudgetModel {
 	if budgets.PreambleBytes == 0 {
 		budgets.PreambleBytes = defaults.PreambleBytes
 	}
-	if budgets.GlobalAgentsBytes == 0 {
-		budgets.GlobalAgentsBytes = defaults.GlobalAgentsBytes
-	}
-	if budgets.ProjectAgentsBytes == 0 {
-		budgets.ProjectAgentsBytes = defaults.ProjectAgentsBytes
-	}
 	if opts.ProjectContextBudgetBytes > 0 {
 		budgets.ProjectContextBytes = opts.ProjectContextBudgetBytes
 	} else if budgets.ProjectContextBytes == 0 {
@@ -200,10 +194,6 @@ func budgetForSource(budgets prompt.SourceBudgetModel, source prompt.ContextSour
 	switch source {
 	case prompt.ContextSourcePreamble, prompt.ContextSourcePhasePrompt:
 		return budgets.PreambleBytes
-	case prompt.ContextSourceGlobalAgentsMD:
-		return budgets.GlobalAgentsBytes
-	case prompt.ContextSourceProjectAgentsMD:
-		return budgets.ProjectAgentsBytes
 	case prompt.ContextSourceProjectContext:
 		return budgets.ProjectContextBytes
 	case prompt.ContextSourceSkill:

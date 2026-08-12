@@ -59,8 +59,6 @@ type ContextBlock struct {
 // SourceBudgetModel partitions byte budgets across prompt input sources.
 type SourceBudgetModel struct {
 	PreambleBytes       int
-	GlobalAgentsBytes   int
-	ProjectAgentsBytes  int
 	ProjectContextBytes int
 	SkillBytes          int
 	ToolResultBytes     int
@@ -157,8 +155,13 @@ type AssemblyOptions struct {
 	// CaveHuman makes the model speak tersely and avoid AI-writing tells.
 	CaveHuman bool
 
-	// SkipProjectContext skips the agentsStep and projectContextStep during
-	// prompt assembly. Used for lean sub-agents that don't need project context.
+	// SkipAgents skips the agentsStep during prompt assembly, omitting global and
+	// project AGENTS.md. Used for agents that cannot read the repo.
+	SkipAgents bool
+
+	// SkipProjectContext skips only the projectContextStep during prompt
+	// assembly, omitting user-configured project context files. AGENTS.md
+	// delivery is controlled separately by SkipAgents.
 	SkipProjectContext bool
 }
 

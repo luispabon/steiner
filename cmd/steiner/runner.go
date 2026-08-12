@@ -29,6 +29,7 @@ type cliRunner struct {
 	promptCacheKey           string
 	modeGetterFunc           func() config.ExecutionMode
 	phasePrompt              string
+	projectAgentsPath        string
 	workflowMode             prompt.WorkflowMode
 }
 

@@ -41,10 +41,14 @@ type BootstrapDeps struct {
 	// receive this getter via WithModeGetter so they inherit the parent's execution mode.
 	ModeGetter func() config.ExecutionMode
 
-	// SkipProjectContext skips AGENTS.md and project context files in the child
-	// prompt. Used for lean sub-agents (explore, research, sanity_check, vision)
+	// SkipProjectContext skips only the project-context extra files in the child
+	// prompt. AGENTS.md delivery is controlled separately by SkipAgents.
+	// Used for lean sub-agents (explore, research, sanity_check, vision)
 	// that don't need project-level conventions.
 	SkipProjectContext bool
+	// SkipAgents skips AGENTS.md delivery in the child prompt. Used for
+	// sub-agents that cannot read the repo (vision).
+	SkipAgents bool
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
@@ -71,7 +75,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		EmergencySummaryMaxTokens: deps.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 
-	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman, deps.SkipProjectContext)
+	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman, deps.SkipProjectContext, deps.SkipAgents)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.AllowedTools)
 	req := buildChildRunRequest(childRunRequestParams{
@@ -107,7 +111,7 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 // shared system preamble is left intact. Project context (AGENTS.md,
 // configured extra files) is included so child agents inherit project
 // conventions without the parent forwarding them.
-func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, caveHuman bool, skipProjectContext bool) prompt.AssemblyOptions {
+func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, caveHuman bool, skipProjectContext bool, skipAgents bool) prompt.AssemblyOptions {
 	taskContent := spec.Task
 	if spec.Context != "" {
 		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", spec.Task, spec.Context)
@@ -123,8 +127,9 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 		ProjectRoot:               workDir,
 		ProjectContextExtraFiles:  pcc.ExtraFiles,
 		ProjectContextIgnoreFiles: pcc.IgnoreFiles,
-		ProjectContextBudgetBytes: pcc.MaxTokens,
+		ProjectContextBudgetBytes: pcc.MaxBytes,
 		SkipProjectContext:        skipProjectContext,
+		SkipAgents:                skipAgents,
 		CaveHuman:                 caveHuman,
 		WorkflowMode:              prompt.DelegatedChildWorkflowMode(),
 		Conversation: []provider.Message{

@@ -78,6 +78,11 @@ func (plan sourcePlan) render(ctx context.Context, policy AssemblyPolicy, opts A
 }
 
 func applyBudget(tracker *budgetTracker, source ContextSource, content string) (string, bool, bool) {
+	// AGENTS.md is exempt from byte budgeting: full content is always delivered.
+	switch source {
+	case ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
+		return content, false, true
+	}
 	if content == "" {
 		return "", false, true
 	}

@@ -180,6 +180,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			Sandbox:              deps.Sandbox,
 			UsageRecorder:        deps.UsageRecorder,
 			SkipProjectContext:   agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate,
+			SkipAgents:           agentType == AgentTypeVision,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)

@@ -86,7 +86,7 @@ func defaultConfig() Config {
 		},
 		Tools: make(map[string]ToolConfig),
 		ProjectContext: ProjectContextConfig{
-			MaxTokens: 2000,
+			MaxBytes: 8000,
 		},
 		Paths: PathsConfig{
 			ProjectRootOnly: true,

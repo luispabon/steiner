@@ -1,6 +1,11 @@
 package config
 
 func applyProjectContextPatch(dst *ProjectContextConfig, patch *projectContextPatch) {
+	if patch.MaxBytes != nil {
+		dst.MaxBytes = *patch.MaxBytes
+	} else if patch.MaxTokens != nil {
+		dst.MaxBytes = *patch.MaxTokens * 4
+	}
 	if patch.MaxTokens != nil {
 		dst.MaxTokens = *patch.MaxTokens
 	}

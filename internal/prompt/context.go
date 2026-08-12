@@ -8,7 +8,9 @@ import (
 	"strings"
 )
 
-const defaultProjectContextBudgetBytes = 2000
+// fallbackProjectContextBudgetBytes is used when neither the assembly policy
+// nor the options supply a project context budget.
+const fallbackProjectContextBudgetBytes = 8000
 
 // ProjectContextOptions configures which project files are gathered into prompt context.
 type ProjectContextOptions struct {
@@ -25,7 +27,7 @@ func gatherProjectContext(opts ProjectContextOptions) ([]ContextBlock, error) {
 	}
 	budget := opts.BudgetBytes
 	if budget <= 0 {
-		budget = defaultProjectContextBudgetBytes
+		budget = fallbackProjectContextBudgetBytes
 	}
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {

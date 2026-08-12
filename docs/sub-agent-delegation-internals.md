@@ -74,14 +74,26 @@ If `AllowedTools` is empty, no tools are available to the child. This ensures ch
 
 **4. Assemble RunRequest.** Includes the parent's provider instance, a tool executor wrapping the execution registry, `ExtraParams` and `PromptSuffix` propagated from the parent's model config, and no explicit model override (child uses the parent's provider/model by default, unless a per-type model alias is configured).
 
-**5. Skip project context for selected types.** Certain agent types skip the
-project context injection to keep the child prompt focused and cheap:
+**5. Context delivery flags.** `buildChildPrompt` sets two independent
+`AssemblyOptions` flags:
 
-- **Skip project context:** `explore`, `research`, `sanity_check`, `vision` — these
-  agents navigate the codebase, search, run checks, or analyze images; project
-  context would add noise.
-- **Keep project context:** `code`, `review`, `evaluate` — these agents need full
-  project awareness to implement changes, review code, or evaluate design approaches.
+- `SkipAgents` — omits AGENTS.md (global + project). Set only for `vision`,
+  which cannot read the repo.
+- `SkipProjectContext` — omits project context `extra_files` only. Set for
+  `explore`, `research`, `sanity_check`, and `vision`.
+
+| Agent                            | `SkipAgents` | `SkipProjectContext` |
+|----------------------------------|--------------|----------------------|
+| `code`, `review`, `evaluate`     | No           | No                   |
+| `explore`, `research`, `sanity_check` | No       | Yes                  |
+| `vision`                         | Yes          | Yes                  |
+
+AGENTS.md delivery is independent of project context: every agent type
+receives AGENTS.md except `vision`. Project context `extra_files` go only to
+`code`, `review`, and `evaluate`, which need full project awareness to
+implement changes, review code, or evaluate design approaches. `follow_up`
+replays the original child's stored request, so it is unaffected by either
+flag.
 
 ### Execution: SpawnDelegate
 
