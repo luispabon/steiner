@@ -44,6 +44,50 @@ func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 	}
 }
 
+func TestApplyEventConfigWarningAppendsWithoutTouchingSandbox(t *testing.T) {
+	t.Parallel()
+	m := Model{
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+		},
+	}
+	m.sidebar.sandboxStatus = "unavailable"
+	m.status.sandboxStatus = "unavailable"
+
+	_ = m.applyEvent(output.NewConfigWarningEvent("project_context.max_tokens is deprecated"))
+
+	if m.sidebar.sandboxStatus != "unavailable" {
+		t.Errorf("sidebar.sandboxStatus = %q, want %q", m.sidebar.sandboxStatus, "unavailable")
+	}
+	if m.status.sandboxStatus != "unavailable" {
+		t.Errorf("status.sandboxStatus = %q, want %q", m.status.sandboxStatus, "unavailable")
+	}
+	if len(m.content.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(m.content.segments))
+	}
+	seg := m.content.segments[0]
+	if !strings.Contains(seg.text, "max_tokens is deprecated") {
+		t.Errorf("segment text = %q, want config warning text", seg.text)
+	}
+}
+
+func TestConfigureModelStateSeedsConfigWarnings(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{ConfigWarnings: []string{"project_context.max_tokens is deprecated"}}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	var found bool
+	for _, seg := range m.content.segments {
+		if strings.Contains(seg.text, "max_tokens is deprecated") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("content segments = %+v, want a seeded config warning line", m.content.segments)
+	}
+}
+
 func TestApplyEventModeChangedUpdatesStateAndTranscript(t *testing.T) {
 	t.Parallel()
 	m := Model{

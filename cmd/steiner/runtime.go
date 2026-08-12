@@ -46,6 +46,7 @@ type cliFlags struct {
 type cliRuntime struct {
 	cfg                    config.Config
 	sandboxStatus          string
+	configWarnings         []string
 	provider               provider.Provider
 	providerFactory        func(provider.ResolvedModel) (provider.Provider, error)
 	httpClient             *http.Client

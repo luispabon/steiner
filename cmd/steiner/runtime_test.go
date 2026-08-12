@@ -2,12 +2,19 @@ package main
 
 import (
 	"context"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+	"github.com/spf13/cobra"
+
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tui"
 )
 
 // allowApprover approves every request.
@@ -123,6 +130,65 @@ func TestBuildInteractiveRuntimeWiresMCPApprover(t *testing.T) {
 	case <-time.After(250 * time.Millisecond):
 		// Still waiting on the interactive approval coordinator, which is only
 		// possible when a non-nil approver was baked into the registered tool.
+	}
+}
+
+// TestBuildInteractiveAppSeedsConfigWarnings pins the interactive delivery path
+// for the project_context.max_tokens deprecation warning: buildInteractiveApp
+// copies rt.configWarnings into the TUI config, and the TUI seeds those lines
+// into the content view at startup.
+func TestBuildInteractiveAppSeedsConfigWarnings(t *testing.T) {
+	sess, err := interactive.NewSession(interactive.Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	rt := cliRuntime{
+		cfg:            testRuntimeConfig("test-model"),
+		registry:       tool.NewRegistry(),
+		workDir:        t.TempDir(),
+		homeDir:        t.TempDir(),
+		configWarnings: projectContextConfigWarnings(config.Config{ProjectContext: config.ProjectContextConfig{MaxTokens: 64}}),
+	}
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+
+	app := buildInteractiveApp(cmd, &cliFlags{}, rt, sess)
+
+	prog := app.NewProgram(
+		tea.WithInput(strings.NewReader("")),
+		tea.WithOutput(io.Discard),
+		tea.WithoutRenderer(),
+		tea.WithoutSignalHandler(),
+		tea.WithWindowSize(80, 24),
+	)
+
+	done := make(chan tea.Model, 1)
+	go func() {
+		final, _ := prog.Run()
+		done <- final
+	}()
+	prog.Quit()
+
+	select {
+	case final := <-done:
+		model, ok := final.(tui.Model)
+		if !ok {
+			t.Fatalf("final model type = %T, want tui.Model", final)
+		}
+		// Apply the window size directly so the render is deterministic
+		// regardless of message ordering inside the program's event loop.
+		sized, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		model, ok = sized.(tui.Model)
+		if !ok {
+			t.Fatalf("sized model type = %T, want tui.Model", sized)
+		}
+		if got := model.View().Content; !strings.Contains(got, "max_tokens is deprecated") {
+			t.Fatalf("TUI view does not contain the config warning:\n%s", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("TUI program did not exit after Quit")
 	}
 }
 

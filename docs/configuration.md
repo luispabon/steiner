@@ -626,7 +626,7 @@ into the system prompt.
 | Field         | Type     | Default | Description |
 |---------------|----------|---------|-------------|
 | `max_bytes`   | int      | `8000`  | Byte budget for extra project context files. The prompt assembler will truncate or skip files to stay within this budget. |
-| `max_tokens`  | int      | —       | **Deprecated** alias for `max_bytes`. When `max_bytes` is unset, converted to bytes as `max_tokens * 4` at load time; `max_bytes` wins when both are set. A deprecation warning is emitted at runtime when used. |
+| `max_tokens`  | int      | —       | **Deprecated** alias for `max_bytes`. When `max_bytes` is unset, converted to bytes as `max_tokens * 4` at load time; `max_bytes` wins when both are set. When used, a deprecation warning is shown in the interactive TUI at startup and emitted as a `config_warning` event on the `--exec` stream. |
 | `extra_files` | []string | —       | Additional files to include in project context. Paths are relative to the project root. |
 | `ignore_files`| []string | —       | Files to exclude from `extra_files`. There is no automatic project-context discovery. |
 

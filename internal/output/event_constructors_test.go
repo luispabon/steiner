@@ -105,6 +105,50 @@ func TestNewSandboxStatusEvent(t *testing.T) {
 	})
 }
 
+func TestNewConfigWarningEvent(t *testing.T) {
+	t.Run("basic fields", func(t *testing.T) {
+		event := NewConfigWarningEvent("max_tokens is deprecated")
+		if event.Type != EventTypeConfigWarning {
+			t.Fatalf("Type = %q, want %q", event.Type, EventTypeConfigWarning)
+		}
+		if event.Timestamp.IsZero() {
+			t.Fatal("Timestamp is zero")
+		}
+		if event.Timestamp.Location() != time.UTC {
+			t.Fatalf("Location = %v, want UTC", event.Timestamp.Location())
+		}
+		p, ok := event.Payload.(ConfigWarningEvent)
+		if !ok {
+			t.Fatalf("Payload type = %T", event.Payload)
+		}
+		if p.Message != "max_tokens is deprecated" {
+			t.Fatalf("Message = %q, want %q", p.Message, "max_tokens is deprecated")
+		}
+	})
+
+	t.Run("empty message", func(t *testing.T) {
+		event := NewConfigWarningEvent("")
+		p, ok := event.Payload.(ConfigWarningEvent)
+		if !ok {
+			t.Fatalf("Payload type = %T", event.Payload)
+		}
+		if p.Message != "" {
+			t.Fatalf("Message = %q, want empty", p.Message)
+		}
+	})
+
+	t.Run("trims whitespace", func(t *testing.T) {
+		event := NewConfigWarningEvent("  \tmax_bytes wins\n  ")
+		p, ok := event.Payload.(ConfigWarningEvent)
+		if !ok {
+			t.Fatalf("Payload type = %T", event.Payload)
+		}
+		if p.Message != "max_bytes wins" {
+			t.Fatalf("Message = %q, want %q", p.Message, "max_bytes wins")
+		}
+	})
+}
+
 func TestNewModeChangedEvent(t *testing.T) {
 	t.Run("basic fields", func(t *testing.T) {
 		event := NewModeChangedEvent("oneshot")

@@ -128,6 +128,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	return cliRuntime{
 		cfg:                    cfg,
 		sandboxStatus:          status,
+		configWarnings:         projectContextConfigWarnings(cfg),
 		providerFactory:        providerFactory,
 		httpClient:             httpClient,
 		registry:               registry,
@@ -554,11 +555,19 @@ func emitSandboxWarning(cfg config.Config, status string, events output.EventSin
 }
 
 // emitProjectContextDeprecationWarning warns when the legacy
-// project_context.max_tokens key is set. Status "active" keeps the sidebar
-// sandbox status untouched; the event is advisory only.
+// project_context.max_tokens key is set. The event is advisory only and never
+// carries sandbox status.
 func emitProjectContextDeprecationWarning(cfg config.Config, events output.EventSink) {
-	if cfg.ProjectContext.MaxTokens == 0 {
-		return
+	for _, msg := range projectContextConfigWarnings(cfg) {
+		events.Emit(output.NewConfigWarningEvent(msg))
 	}
-	events.Emit(output.NewSandboxStatusEvent("active", "project_context.max_tokens is deprecated; use max_bytes (converted as max_tokens x 4)"))
+}
+
+// projectContextConfigWarnings returns the user-facing warnings for deprecated
+// project_context config keys, empty when none apply.
+func projectContextConfigWarnings(cfg config.Config) []string {
+	if cfg.ProjectContext.MaxTokens == 0 {
+		return nil
+	}
+	return []string{"project_context.max_tokens is deprecated; use max_bytes (converted as max_tokens x 4)"}
 }
