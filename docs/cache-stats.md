@@ -125,15 +125,25 @@ The global file is shared across concurrent steiner processes. Write safety is e
 
 ## Surfaces
 
-Cache statistics are surfaced in two ways.
+Cache statistics are surfaced in three ways.
 
-### In-session sidebar section
+### In-session sidebar field
 
-A live "cache hit rate" section in the sidebar displays the **current session** token-weighted cache hit rate as a `primary` field:
+The `PERFORMANCE` sidebar card includes a `cache hit` field, alongside `duration`, `ttft`, and `tps`, displaying the **current session** token-weighted cache hit rate:
 
 - **Format**: e.g., `78.2%` (session-lifetime percentage) or `—` (before the first cache-capable call).
 - **Scope**: Process-lifetime counters, independent of the global windowed store.
 - **Updates**: Refreshed after each model response.
+
+### Per-run cache hit rate in sub-agent and advisor tool boxes
+
+Sub-agent delegation tool boxes and advisor tool boxes each report their own per-run cache hit rate, computed with the same `usagestats.HitRate` formula as the session and overlay figures, rather than the session-wide aggregate:
+
+- **Collapsed meta line**: shown as `cache NN.N%` alongside turn/tool/token counts, e.g. `✓ complete · 4 turns · 12 tools · 8123 tokens · 12.4s · cache 95.2%`.
+- **Expanded stats block**: shown as `Cache: NN.N%`.
+- **Follow-ups**: A `follow_up` call that resumes an existing delegated child reports only that follow-up's own delta — the cumulative child total minus the baseline captured before the follow-up — matching how turn/tool/token counts are already reported for follow-ups.
+- **Compaction/escalation caveat**: Compaction and context-escalation model calls within a run do not feed these per-run counters; they report to the session-wide recorder through a separate path. A run that included heavy compaction will not have that portion reflected in its own reported cache rate.
+- **Undefined case**: `—` is shown, never `0.0%`, when the run had no cache-bearing usage.
 
 ### /cache-stats overlay
 
