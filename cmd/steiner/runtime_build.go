@@ -316,10 +316,10 @@ func runtimeCompactionLogFile(cfg config.Config, flags *cliFlags) string {
 // resolves to connected or failed, so the caller's registry rebuild freezes the
 // complete tool list; this is the non-interactive behaviour. When asyncMCP is
 // true it returns immediately so an interactive TUI can paint while servers
-// connect: the interactive session runner must WaitInit and re-register the
-// manager's tool defs before the first agent turn. The returned producer gates
-// manager state-change notifications behind that first-turn registration so the
-// TUI never observes a half-connected server set.
+// connect: the background MCP init will WaitInit and re-register the manager's
+// tool defs, then arm the producer for full snapshots. The returned producer
+// forwards pre-arm state changes as states-only snapshots (no registry origins)
+// until armed, then switches to full snapshots with origins.
 func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandbox, asyncMCP bool, events output.EventSink) (*mcp.Manager, *mcpStateProducer) {
 	var wrap func(*exec.Cmd) *exec.Cmd
 	if sb != nil {
