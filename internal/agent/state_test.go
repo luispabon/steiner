@@ -308,6 +308,29 @@ func TestConversationLineageJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRunState_Clone(t *testing.T) {
+	original := RunState{
+		TurnCount:         3,
+		TokenCount:        27,
+		InputTokens:       11,
+		CacheReadTokens:   22,
+		CacheCreateTokens: 5,
+		StopReason:        StopReasonMaxTokens,
+	}
+
+	cloned := original.Clone()
+
+	if got, want := cloned.InputTokens, original.InputTokens; got != want {
+		t.Fatalf("cloned.InputTokens = %d, want %d", got, want)
+	}
+	if got, want := cloned.CacheReadTokens, original.CacheReadTokens; got != want {
+		t.Fatalf("cloned.CacheReadTokens = %d, want %d", got, want)
+	}
+	if got, want := cloned.CacheCreateTokens, original.CacheCreateTokens; got != want {
+		t.Fatalf("cloned.CacheCreateTokens = %d, want %d", got, want)
+	}
+}
+
 func TestConversationLineageClonePreservesRetentionMetadata(t *testing.T) {
 	original := ConversationLineage{
 		Generations: []ConversationGeneration{

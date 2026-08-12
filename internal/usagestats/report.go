@@ -26,7 +26,7 @@ type Row struct {
 // It is defined as CacheReadTokens / (InputTokens + CacheReadTokens + CacheCreateTokens).
 // When total input is zero, ok is false and rate is 0; callers should render "—".
 func (r Row) HitRate() (rate float64, ok bool) {
-	return hitRate(r.CacheReadTokens, r.InputTokens, r.CacheCreateTokens)
+	return HitRate(r.CacheReadTokens, r.InputTokens, r.CacheCreateTokens)
 }
 
 // Report is the result of a Window query, containing one Row per
@@ -54,9 +54,9 @@ func (s SessionReport) HitRate() (rate float64, ok bool) {
 	return float64(s.CacheReadTokens) / float64(s.TotalInputTokens), true
 }
 
-// hitRate computes cacheRead / (input + cacheRead + cacheCreate).
+// HitRate computes cacheRead / (input + cacheRead + cacheCreate).
 // Returns (0, false) when total is zero to avoid division by zero.
-func hitRate(cacheRead, input, cacheCreate int) (float64, bool) {
+func HitRate(cacheRead, input, cacheCreate int) (float64, bool) {
 	total := input + cacheRead + cacheCreate
 	if total == 0 {
 		return 0, false
