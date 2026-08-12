@@ -102,13 +102,14 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	var mcpMgr *mcp.Manager
 	var mcpState *mcpStateProducer
 	if cfg.MCP.Enabled {
-		mcpServerLogWriter, err := buildMCPServerLogWriter(cfg, flags)
+		mcpServerLogPath := mcp.ServerLogPath(runtimeLogFile(cfg, flags))
+		mcpServerLogWriter, err := buildMCPServerLogWriter(mcpServerLogPath)
 		if err != nil {
 			return cliRuntime{}, err
 		}
 		closeFn = joinClosers(closeFn, mcpServerLogWriter.Close)
 
-		mcpStderr := selectMCPStderr(cfg, flags, mcpServerLogWriter)
+		mcpStderr := selectMCPStderr(mcpServerLogPath, flags.asyncMCP, mcpServerLogWriter)
 		mcpMgr, mcpState = connectRuntimeMCP(ctx, cfg, sb, flags.asyncMCP, events, mcpStderr)
 	}
 
@@ -418,8 +419,7 @@ func buildStreamErrorLogger(cfg config.Config, flags *cliFlags) (*provider.Strea
 	return l, nil
 }
 
-func buildMCPServerLogWriter(cfg config.Config, flags *cliFlags) (io.WriteCloser, error) {
-	path := mcp.ServerLogPath(runtimeLogFile(cfg, flags))
+func buildMCPServerLogWriter(path string) (io.WriteCloser, error) {
 	w, err := mcp.NewServerLogWriter(path)
 	if err != nil {
 		return nil, fmt.Errorf("mcp server log writer: %w", err)
@@ -428,14 +428,16 @@ func buildMCPServerLogWriter(cfg config.Config, flags *cliFlags) (io.WriteCloser
 }
 
 // selectMCPStderr picks the destination for MCP server subprocess stderr: the
-// derived log file when one is configured, io.Discard in interactive mode
+// derived log file when logPath is non-empty, io.Discard in interactive mode
 // otherwise (terminal corruption is non-negotiable), or os.Stderr in
-// non-interactive mode where there is no live TUI to trample.
-func selectMCPStderr(cfg config.Config, flags *cliFlags, logWriter io.Writer) io.Writer {
-	if mcp.ServerLogPath(runtimeLogFile(cfg, flags)) != "" {
+// non-interactive mode where there is no live TUI to trample. logPath must be
+// derived from the same inputs used to build logWriter; callers must not
+// recompute it independently, or the two can silently diverge.
+func selectMCPStderr(logPath string, asyncMCP bool, logWriter io.Writer) io.Writer {
+	if logPath != "" {
 		return logWriter
 	}
-	if flags.asyncMCP {
+	if asyncMCP {
 		return io.Discard
 	}
 	return os.Stderr

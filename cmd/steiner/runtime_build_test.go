@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -488,5 +491,78 @@ func TestEmitSandboxWarning_EnvPassthroughAll(t *testing.T) {
 				t.Fatalf("message = %q, want substring %q", payload.Message, tt.wantSubstring)
 			}
 		})
+	}
+}
+
+// TestSelectMCPStderr covers the rule that keeps MCP server subprocess output
+// off the terminal: a log file wins when configured, io.Discard wins in
+// interactive mode with no log file (this must never fall through to
+// os.Stderr, or server output corrupts the live TUI), and os.Stderr is only
+// used in non-interactive mode with no log file.
+func TestSelectMCPStderr(t *testing.T) {
+	sentinel := &bytes.Buffer{}
+
+	tests := []struct {
+		name     string
+		logPath  string
+		asyncMCP bool
+		want     io.Writer
+	}{
+		{
+			name:     "log file configured, interactive",
+			logPath:  "/tmp/session-mcp.log",
+			asyncMCP: true,
+			want:     sentinel,
+		},
+		{
+			name:     "log file configured, non-interactive",
+			logPath:  "/tmp/session-mcp.log",
+			asyncMCP: false,
+			want:     sentinel,
+		},
+		{
+			name:     "no log file, interactive: must be io.Discard, never os.Stderr",
+			logPath:  "",
+			asyncMCP: true,
+			want:     io.Discard,
+		},
+		{
+			name:     "no log file, non-interactive",
+			logPath:  "",
+			asyncMCP: false,
+			want:     os.Stderr,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := selectMCPStderr(tt.logPath, tt.asyncMCP, sentinel)
+			if got == tt.want {
+				return
+			}
+			if tt.logPath == "" && tt.asyncMCP {
+				t.Fatalf("selectMCPStderr() = %v, want io.Discard — MCP server stderr must never reach the terminal in interactive mode with no log file configured", got)
+			}
+			t.Fatalf("selectMCPStderr() = %v, want %v", got, tt.want)
+		})
+	}
+}
+
+// TestSelectMCPStderr_LogPathFromConfig exercises the config-driven path (as
+// opposed to the --log-file flag) that produces logPath, confirming the
+// derived path threads through to selectMCPStderr's log-file branch.
+func TestSelectMCPStderr_LogPathFromConfig(t *testing.T) {
+	cfg := config.Config{Logging: config.LoggingConfig{Enabled: true, File: "/tmp/session.log"}}
+	flags := &cliFlags{asyncMCP: true}
+
+	logPath := mcp.ServerLogPath(runtimeLogFile(cfg, flags))
+	if logPath == "" {
+		t.Fatal("logPath = \"\", want non-empty when cfg.Logging.File is set")
+	}
+
+	sentinel := &bytes.Buffer{}
+	got := selectMCPStderr(logPath, flags.asyncMCP, sentinel)
+	if got != sentinel {
+		t.Fatalf("selectMCPStderr() = %v, want the configured log writer when cfg.Logging.File drives logPath", got)
 	}
 }
