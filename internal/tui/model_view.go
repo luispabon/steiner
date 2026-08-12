@@ -109,10 +109,10 @@ func (m *Model) renderViewportView(contentWidth int) string {
 	return viewportView
 }
 
+// visibleViewportContent slices the visible window out of m.viewportLines
+// without re-deriving the full content. setViewportContent guarantees
+// m.viewportLines stays in sync with the viewport's own content.
 func (m *Model) visibleViewportContent() string {
-	if len(m.viewport.GetContent()) != m.viewportContentLen {
-		return m.viewport.View()
-	}
 	start := m.viewport.YOffset()
 	height := m.viewport.Height()
 	if start < 0 {

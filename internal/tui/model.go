@@ -189,8 +189,7 @@ type Model struct {
 	visionCapabilities           *agent.VisionCapabilities
 	sessionResetCleanup          func()
 
-	viewportLines      []string
-	viewportContentLen int
+	viewportLines []string
 
 	// Render caches for width/height-dependent styles.
 	hDividerCacheWidth      int
