@@ -126,7 +126,7 @@ func agentsStep(opts AssemblyOptions) sourcePlanStep {
 		Kind:      plannedSourceAgents,
 		Placement: plannedSourcePlacementCore,
 		Apply: func(_ context.Context, state *assemblyState) error {
-			if opts.SkipProjectContext {
+			if opts.SkipAgents {
 				return nil
 			}
 			globalAgentsPath, projectAgentsPath := agentPaths(opts)

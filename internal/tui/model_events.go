@@ -175,6 +175,8 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		if payload.Message != "" {
 			m.content.AppendLine(fmt.Sprintf("status: %s", payload.Message))
 		}
+	case output.ConfigWarningEvent:
+		m.content.AppendLine(m.styles.WarningStyle.Render(payload.Message))
 	case output.MCPStatusEvent:
 		m.applyMCPStatusEvent(payload)
 	case output.OneshotFinishedEvent:

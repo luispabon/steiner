@@ -92,6 +92,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}
 
 	emitSandboxWarning(cfg, status, events)
+	emitProjectContextDeprecationWarning(cfg, events)
 
 	// Connect MCP servers after the sandbox exists (so server commands can be
 	// wrapped) and before the registry is rebuilt (so MCP tools register).
@@ -127,6 +128,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	return cliRuntime{
 		cfg:                    cfg,
 		sandboxStatus:          status,
+		configWarnings:         projectContextConfigWarnings(cfg),
 		providerFactory:        providerFactory,
 		httpClient:             httpClient,
 		registry:               registry,
@@ -550,4 +552,22 @@ func emitSandboxWarning(cfg config.Config, status string, events output.EventSin
 	if msg != "" {
 		events.Emit(output.NewSandboxStatusEvent(status, msg))
 	}
+}
+
+// emitProjectContextDeprecationWarning warns when the legacy
+// project_context.max_tokens key is set. The event is advisory only and never
+// carries sandbox status.
+func emitProjectContextDeprecationWarning(cfg config.Config, events output.EventSink) {
+	for _, msg := range projectContextConfigWarnings(cfg) {
+		events.Emit(output.NewConfigWarningEvent(msg))
+	}
+}
+
+// projectContextConfigWarnings returns the user-facing warnings for deprecated
+// project_context config keys, empty when none apply.
+func projectContextConfigWarnings(cfg config.Config) []string {
+	if cfg.ProjectContext.MaxTokens == 0 {
+		return nil
+	}
+	return []string{"project_context.max_tokens is deprecated; use max_bytes (converted as max_tokens x 4)"}
 }

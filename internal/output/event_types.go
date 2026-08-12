@@ -94,6 +94,10 @@ const (
 	EventTypeModeChanged = "mode_changed"
 	// EventTypeSandboxStatus is emitted when the sandbox status is determined at startup.
 	EventTypeSandboxStatus = "sandbox_status"
+	// EventTypeConfigWarning is emitted when configuration carries a deprecated
+	// key worth surfacing. It renders as a status line and never carries
+	// sandbox or other sidebar state.
+	EventTypeConfigWarning = "config_warning"
 	// EventTypeMCPStatus is emitted when the MCP server set changes state. The
 	// payload is an immutable snapshot of the MCP surface, so display consumers
 	// never read the registry or manager concurrently.
@@ -468,6 +472,11 @@ type ModeChangedEvent struct {
 type SandboxStatusEvent struct {
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
+}
+
+// ConfigWarningEvent carries a user-facing configuration warning message.
+type ConfigWarningEvent struct {
+	Message string `json:"message"`
 }
 
 // MCPServerState is the display-only view of one configured MCP server inside

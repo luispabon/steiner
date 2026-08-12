@@ -49,7 +49,7 @@ func validBase() Config {
 		SubAgent: SubAgentConfig{Enabled: false},
 		Tools:    map[string]ToolConfig{},
 		ProjectContext: ProjectContextConfig{
-			MaxTokens: 2000,
+			MaxBytes: 8000,
 		},
 		Logging: LoggingConfig{
 			Level: "info",
@@ -434,15 +434,15 @@ func TestValidate(t *testing.T) {
 			wantErr: `max_tokens must be at least 1 when enabled`,
 		},
 
-		// Project context max tokens < 1
+		// Project context max bytes < 1
 		{
-			name: "zero project_context max_tokens",
+			name: "zero project_context max_bytes",
 			cfg: func() Config {
 				c := validBase()
-				c.ProjectContext.MaxTokens = 0
+				c.ProjectContext.MaxBytes = 0
 				return c
 			}(),
-			wantErr: `max_tokens must be at least 1`,
+			wantErr: `max_bytes must be at least 1`,
 		},
 
 		// Logging level invalid or empty file path
@@ -1001,7 +1001,7 @@ func TestSearchConfigValidation(t *testing.T) {
 				SubAgent: SubAgentConfig{Enabled: false},
 				Tools:    map[string]ToolConfig{},
 				ProjectContext: ProjectContextConfig{
-					MaxTokens: 2000,
+					MaxBytes: 8000,
 				},
 				Logging: LoggingConfig{
 					Level: "info",

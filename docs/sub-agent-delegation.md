@@ -45,6 +45,20 @@ The `advisor` tool is a pure reasoning pass for the parent agent. It reads the l
 
 `review` is for examining implemented changes — it does not plan, implement, or verify.
 
+### Context delivery per agent type
+
+Every sub-agent receives AGENTS.md (global + project) except `vision`, which cannot read the repo. Project context `extra_files` are delivered only to `code`, `review`, and `evaluate`; the remaining types skip them to keep the child prompt focused.
+
+| Agent          | AGENTS.md | Project context `extra_files` |
+|----------------|-----------|-------------------------------|
+| `explore`      | Yes       | No                            |
+| `research`     | Yes       | No                            |
+| `code`         | Yes       | Yes                           |
+| `evaluate`     | Yes       | Yes                           |
+| `sanity_check` | Yes       | No                            |
+| `review`       | Yes       | Yes                           |
+| `vision`       | No        | No                            |
+
 ### `follow_up`
 
 The `follow_up` tool lets the parent model send a new user message to an existing child session identified by `agent_id`. This is useful when a sub-agent's initial response leads to follow-up questions or iterative refinement.

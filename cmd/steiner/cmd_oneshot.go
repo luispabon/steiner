@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -44,6 +45,7 @@ type phaseRunnerParams struct {
 	Events             output.EventSink
 	PromptCacheKey     string
 	PhasePrompt        string
+	ProjectAgentsPath  string
 	WorkflowMode       prompt.WorkflowMode
 }
 
@@ -72,6 +74,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 		maxTurns:           params.MaxTurns,
 		runMode:            params.RunMode,
 		streamingPreferred: params.StreamingPreferred,
+		projectAgentsPath:  params.ProjectAgentsPath,
 		promptCacheKey:     params.PromptCacheKey,
 		phasePrompt:        params.PhasePrompt,
 		workflowMode:       params.WorkflowMode,
@@ -225,6 +228,7 @@ func (f phaseRunnerFactory) phaseParams(phase oneshot.Phase, modelAlias string, 
 		MaxTurns:           0,
 		RunMode:            "oneshot",
 		StreamingPreferred: false,
+		ProjectAgentsPath:  filepath.Join(f.identity.WorktreePath(f.rootDir), "AGENTS.md"),
 		Events:             f.events,
 		PromptCacheKey:     f.identity.ID,
 		PhasePrompt:        phasePrompt,

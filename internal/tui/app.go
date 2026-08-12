@@ -106,6 +106,9 @@ type Config struct {
 	SessionResetCleanup func()
 	// SandboxStatus seeds the initial sandbox status at startup.
 	SandboxStatus string
+	// ConfigWarnings are user-facing configuration warnings shown once at
+	// startup in the content view (for example, deprecated config keys).
+	ConfigWarnings []string
 	// MCPEnabled reports whether MCP is switched on in config, distinguishing
 	// "MCP off" from "MCP on but nothing configured".
 	MCPEnabled bool

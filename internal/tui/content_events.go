@@ -291,8 +291,11 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// ModeChanged transcript lines are appended explicitly by model_events.go
 	// so the "mode → x" wording matches other status-line conventions.
 	output.EventTypeModeChanged: func(*contentBuffer, output.Event) {},
-	output.EventTypeAPIRequest:  func(*contentBuffer, output.Event) {},
-	output.EventTypeAPIResponse: func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
+	// ConfigWarning transcript lines are appended explicitly by model_events.go
+	// (warning styling) so the event never mutates sandbox state.
+	output.EventTypeConfigWarning: func(*contentBuffer, output.Event) {},
+	output.EventTypeAPIRequest:    func(*contentBuffer, output.Event) {},
+	output.EventTypeAPIResponse:   func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
 	// SteerReceived is handled by model_events.go (PromoteLastPendingSteer); no
 	// content line is emitted here.
 	output.EventTypeSteerReceived: func(*contentBuffer, output.Event) {},

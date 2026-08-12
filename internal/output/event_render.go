@@ -55,6 +55,7 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 	reflect.TypeOf(ContextSessionHealthEvent{}):  typedRenderer(renderContextSessionHealthEvent),
 	reflect.TypeOf(ContextBudgetEvent{}):         typedRenderer(renderContextBudgetEvent),
 	reflect.TypeOf(ContextFileAnnotationEvent{}): typedRenderer(renderContextFileAnnotationEvent),
+	reflect.TypeOf(ConfigWarningEvent{}):         typedRenderer(renderConfigWarningEvent),
 }
 
 func appendField(parts []string, key, value string) []string {
@@ -158,6 +159,10 @@ func renderContextBudgetEvent(payload ContextBudgetEvent) Segment {
 
 func renderContextFileAnnotationEvent(payload ContextFileAnnotationEvent) Segment {
 	return Segment{Channel: ChannelStatus, Label: "context", Text: formatAnyContextDiagnosticsEvent(payload)}
+}
+
+func renderConfigWarningEvent(payload ConfigWarningEvent) Segment {
+	return Segment{Channel: ChannelStatus, Label: "status", Text: payload.Message}
 }
 
 func renderDisplayFileEvent(payload DisplayFilePayload) Segment {

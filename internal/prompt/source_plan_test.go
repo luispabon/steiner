@@ -128,8 +128,6 @@ func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 			Policy: AssemblyPolicy{
 				Budgets: SourceBudgetModel{
 					PreambleBytes:       1,
-					GlobalAgentsBytes:   1,
-					ProjectAgentsBytes:  1,
 					ProjectContextBytes: 1,
 					SkillBytes:          1,
 					ToolResultBytes:     1,
@@ -143,8 +141,6 @@ func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 			Policy: AssemblyPolicy{
 				Budgets: SourceBudgetModel{
 					PreambleBytes:       1024,
-					GlobalAgentsBytes:   2048,
-					ProjectAgentsBytes:  8192,
 					ProjectContextBytes: 4096,
 					SkillBytes:          2048,
 					ToolResultBytes:     2048,
@@ -239,7 +235,7 @@ func TestAssembleKeepsStaticSourcesBeforeDynamicSources(t *testing.T) {
 	}
 }
 
-func TestPlanSourceAssemblySkipProjectContext(t *testing.T) {
+func TestPlanSourceAssemblySkipAgentsAndProjectContext(t *testing.T) {
 	t.Parallel()
 
 	homeDir := t.TempDir()
@@ -249,53 +245,202 @@ func TestPlanSourceAssemblySkipProjectContext(t *testing.T) {
 	mustWrite(t, projectRoot, "AGENTS.md", "project rules")
 	mustWrite(t, projectRoot, "README.md", "project readme")
 
-	t.Run("skip=true excludes agents and project context", func(t *testing.T) {
+	tests := []struct {
+		name               string
+		skipAgents         bool
+		skipProjectContext bool
+		wantAgents         bool
+		wantProjectContext bool
+	}{
+		{name: "skip project context only", skipProjectContext: true, wantAgents: true},
+		{name: "skip agents only", skipAgents: true, wantProjectContext: true},
+		{name: "skip both", skipAgents: true, skipProjectContext: true},
+		{name: "skip neither", wantAgents: true, wantProjectContext: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
+				HomeDir:                   homeDir,
+				ProjectRoot:               projectRoot,
+				ProjectContextBudgetBytes: 1024,
+				ProjectContextExtraFiles:  []string{"README.md"},
+				SkipAgents:                tt.skipAgents,
+				SkipProjectContext:        tt.skipProjectContext,
+			})
+
+			if got := messageIndexContaining(assembly.Messages, "global rules") >= 0; got != tt.wantAgents {
+				t.Fatalf("global agents delivered = %t, want %t", got, tt.wantAgents)
+			}
+			if got := messageIndexContaining(assembly.Messages, "project rules") >= 0; got != tt.wantAgents {
+				t.Fatalf("project agents delivered = %t, want %t", got, tt.wantAgents)
+			}
+			if got := messageIndexContaining(assembly.Messages, "project readme") >= 0; got != tt.wantProjectContext {
+				t.Fatalf("project context delivered = %t, want %t", got, tt.wantProjectContext)
+			}
+			for _, block := range assembly.Blocks {
+				if block.Source == ContextSourceProjectContext && !tt.wantProjectContext {
+					t.Fatalf("unexpected project context block: path=%q", block.Path)
+				}
+			}
+		})
+	}
+}
+
+func TestPlanSourceAssemblyDeliversLargeAgentsFilesWhole(t *testing.T) {
+	t.Parallel()
+
+	large := strings.Repeat("x", 20000)
+
+	t.Run("project agents", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		mustWrite(t, dir, "AGENTS.md", large)
+
 		assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
-			HomeDir:                   homeDir,
-			ProjectRoot:               projectRoot,
-			ProjectContextBudgetBytes: 1024,
-			ProjectContextExtraFiles:  []string{"README.md"},
-			SkipProjectContext:        true,
+			ProjectAgentsPath: filepath.Join(dir, "AGENTS.md"),
 		})
 
-		for _, block := range assembly.Blocks {
-			if block.Source == ContextSourceGlobalAgentsMD ||
-				block.Source == ContextSourceProjectAgentsMD ||
-				block.Source == ContextSourceProjectContext {
-				t.Fatalf("unexpected block with SkipProjectContext=true: source=%q path=%q", block.Source, block.Path)
+		var block *ContextBlock
+		for i := range assembly.Blocks {
+			if assembly.Blocks[i].Source == ContextSourceProjectAgentsMD {
+				block = &assembly.Blocks[i]
+				break
 			}
 		}
-		if got := messageIndexContaining(assembly.Messages, "global rules"); got >= 0 {
-			t.Fatalf("global agents content found with SkipProjectContext=true at message %d", got)
+		if block == nil {
+			t.Fatal("project agents block not found")
 		}
-		if got := messageIndexContaining(assembly.Messages, "project rules"); got >= 0 {
-			t.Fatalf("project agents content found with SkipProjectContext=true at message %d", got)
+		if got, want := block.ByteSize, len(large); got != want {
+			t.Fatalf("project agents block bytes = %d, want %d", got, want)
 		}
-		if got := messageIndexContaining(assembly.Messages, "project readme"); got >= 0 {
-			t.Fatalf("project context content found with SkipProjectContext=true at message %d", got)
+		if block.Truncated {
+			t.Fatal("project agents block unexpectedly truncated")
+		}
+		if got := block.Content; got != large {
+			t.Fatalf("project agents content mismatch: got %d bytes, want %d bytes", len(got), len(large))
 		}
 	})
 
-	t.Run("skip=false includes agents and project context", func(t *testing.T) {
+	t.Run("global agents", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		mustWrite(t, dir, "AGENTS.md", large)
+
 		assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
-			HomeDir:                   homeDir,
-			ProjectRoot:               projectRoot,
-			ProjectContextBudgetBytes: 1024,
-			ProjectContextExtraFiles:  []string{"README.md"},
-			SkipProjectContext:        false,
+			GlobalAgentsPath: filepath.Join(dir, "AGENTS.md"),
 		})
 
-		if got := messageIndexContaining(assembly.Messages, "global rules"); got < 0 {
-			t.Fatal("global agents content not found with SkipProjectContext=false")
+		var block *ContextBlock
+		for i := range assembly.Blocks {
+			if assembly.Blocks[i].Source == ContextSourceGlobalAgentsMD {
+				block = &assembly.Blocks[i]
+				break
+			}
 		}
-		if got := messageIndexContaining(assembly.Messages, "project rules"); got < 0 {
-			t.Fatal("project agents content not found with SkipProjectContext=false")
+		if block == nil {
+			t.Fatal("global agents block not found")
 		}
-		if got := messageIndexContaining(assembly.Messages, "project readme"); got < 0 {
-			t.Fatal("project context content not found with SkipProjectContext=false")
+		if got, want := block.ByteSize, len(large); got != want {
+			t.Fatalf("global agents block bytes = %d, want %d", got, want)
+		}
+		if block.Truncated {
+			t.Fatal("global agents block unexpectedly truncated")
+		}
+		if got := block.Content; got != large {
+			t.Fatalf("global agents content mismatch: got %d bytes, want %d bytes", len(got), len(large))
 		}
 	})
 }
+
+// TestPlanSourceAssemblyMergesAgentsIntoPreamble guards the merge invariant:
+// both AGENTS.md blocks must route through renderBlocks so they fold into the
+// preamble's single system message, and conversation messages follow in order
+// with their roles preserved.
+func TestPlanSourceAssemblyMergesAgentsIntoPreamble(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	projectRoot := t.TempDir()
+	mustWrite(t, filepath.Join(homeDir, ".config", "steiner"), "AGENTS.md", "global agents content")
+	mustWrite(t, projectRoot, "AGENTS.md", "project agents content")
+
+	assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
+		HomeDir:     homeDir,
+		ProjectRoot: projectRoot,
+		Conversation: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: "user turn one"},
+			{Role: provider.MessageRoleAssistant, Content: "assistant turn one"},
+		},
+	})
+
+	systemCount := 0
+	var systemContent string
+	for _, m := range assembly.Messages {
+		if m.Role == provider.MessageRoleSystem {
+			systemCount++
+			systemContent = m.Content
+		}
+	}
+	if systemCount != 1 {
+		t.Fatalf("system message count = %d, want exactly 1", systemCount)
+	}
+	if preamble := SystemPreamble("", false, false, "").Content; !strings.Contains(systemContent, preamble) {
+		t.Fatalf("system message missing preamble text")
+	}
+	if !strings.Contains(systemContent, "global agents content") {
+		t.Fatalf("system message missing global agents content: %q", systemContent)
+	}
+	if !strings.Contains(systemContent, "project agents content") {
+		t.Fatalf("system message missing project agents content: %q", systemContent)
+	}
+
+	if got, want := len(assembly.Messages), 3; got != want {
+		t.Fatalf("len(messages) = %d, want %d", got, want)
+	}
+	wantMessages := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "user turn one"},
+		{Role: provider.MessageRoleAssistant, Content: "assistant turn one"},
+	}
+	for i, want := range wantMessages {
+		got := assembly.Messages[i+1]
+		if got.Role != want.Role || got.Content != want.Content {
+			t.Fatalf("message[%d] = {role:%q content:%q}, want {role:%q content:%q}", i+1, got.Role, got.Content, want.Role, want.Content)
+		}
+	}
+}
+
+func TestPlanSourceAssemblyProjectAgentsPathOverridesProjectRoot(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+	mustWrite(t, projectRoot, "AGENTS.md", "content A")
+
+	overrideDir := t.TempDir()
+	mustWrite(t, overrideDir, "AGENTS.md", "content B")
+
+	assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
+		ProjectRoot:       projectRoot,
+		ProjectAgentsPath: filepath.Join(overrideDir, "AGENTS.md"),
+	})
+
+	count := 0
+	for _, block := range assembly.Blocks {
+		if block.Source != ContextSourceProjectAgentsMD {
+			continue
+		}
+		count++
+		if block.Content != "content B" {
+			t.Fatalf("project agents content = %q, want %q", block.Content, "content B")
+		}
+	}
+	if count != 1 {
+		t.Fatalf("project agents block count = %d, want 1", count)
+	}
+}
+
 func mustRenderPlannedAssembly(t *testing.T, opts AssemblyOptions) Assembly {
 	t.Helper()
 

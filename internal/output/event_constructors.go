@@ -443,6 +443,11 @@ func NewSandboxStatusEvent(status, message string) Event {
 	})
 }
 
+// NewConfigWarningEvent creates a config_warning event.
+func NewConfigWarningEvent(message string) Event {
+	return newEvent(EventTypeConfigWarning, ConfigWarningEvent{Message: strings.TrimSpace(message)})
+}
+
 // NewMCPStatusEvent creates an mcp_status snapshot event carrying an immutable
 // view of the MCP surface: whether MCP is enabled, every configured server's
 // live state keyed by server name, and the registry's MCP tool origins.

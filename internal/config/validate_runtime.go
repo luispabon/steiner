@@ -61,8 +61,8 @@ func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig, model string) 
 }
 
 func validateProjectContextConfig(problems *[]string, cfg ProjectContextConfig) {
-	if cfg.MaxTokens < 1 {
-		*problems = append(*problems, "project_context.max_tokens must be at least 1")
+	if cfg.MaxBytes < 1 {
+		*problems = append(*problems, "project_context.max_bytes must be at least 1")
 	}
 }
 

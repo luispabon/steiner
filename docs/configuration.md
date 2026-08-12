@@ -620,18 +620,19 @@ MCP behaviour is covered by hermetic, CI-safe integration tests under `internal/
 
 ## `project_context` block
 
-Configures extra files and token budget for project-level context injected
+Configures extra files and a byte budget for project-level context injected
 into the system prompt.
 
 | Field         | Type     | Default | Description |
 |---------------|----------|---------|-------------|
-| `max_tokens`  | int      | `2000`  | Maximum tokens allocated to project context files. The prompt assembler will truncate or skip files to stay within this budget. |
+| `max_bytes`   | int      | `8000`  | Byte budget for extra project context files. The prompt assembler will truncate or skip files to stay within this budget. |
+| `max_tokens`  | int      | —       | **Deprecated** alias for `max_bytes`. When `max_bytes` is unset, converted to bytes as `max_tokens * 4` at load time; `max_bytes` wins when both are set. When used, a deprecation warning is shown in the interactive TUI at startup and emitted as a `config_warning` event on the `--exec` stream. |
 | `extra_files` | []string | —       | Additional files to include in project context. Paths are relative to the project root. |
-| `ignore_files`| []string | —       | Files to exclude from automatic project context discovery. |
+| `ignore_files`| []string | —       | Files to exclude from `extra_files`. There is no automatic project-context discovery. |
 
 ```yaml
 project_context:
-  max_tokens: 4000
+  max_bytes: 8000
   extra_files:
     - docs/ARCHITECTURE.md
     - .steiner/skills/project.md
@@ -993,7 +994,7 @@ tools:
         description: Directory to lint. Defaults to ./...
 
 project_context:
-  max_tokens: 4000
+  max_bytes: 8000
   extra_files:
     - docs/ARCHITECTURE.md
     - .steiner/skills/project.md

@@ -494,6 +494,92 @@ func TestEmitSandboxWarning_EnvPassthroughAll(t *testing.T) {
 	}
 }
 
+func TestEmitProjectContextDeprecationWarning(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         config.Config
+		wantEmitted bool
+	}{
+		{
+			name: "legacy max_tokens set emits deprecation warning",
+			cfg: config.Config{
+				ProjectContext: config.ProjectContextConfig{MaxTokens: 64},
+			},
+			wantEmitted: true,
+		},
+		{
+			name:        "max_tokens unset emits nothing",
+			cfg:         config.Config{},
+			wantEmitted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var emitted []output.Event
+			sink := output.SinkFunc(func(e output.Event) { emitted = append(emitted, e) })
+
+			emitProjectContextDeprecationWarning(tt.cfg, sink)
+
+			if !tt.wantEmitted {
+				if len(emitted) != 0 {
+					t.Fatalf("expected no events, got %d: %v", len(emitted), emitted)
+				}
+				return
+			}
+			if len(emitted) != 1 {
+				t.Fatalf("expected 1 event, got %d: %v", len(emitted), emitted)
+			}
+			if got := emitted[0].Type; got != output.EventTypeConfigWarning {
+				t.Fatalf("event type = %q, want %q", got, output.EventTypeConfigWarning)
+			}
+			if emitted[0].Type == output.EventTypeSandboxStatus {
+				t.Fatal("event type = sandbox_status, want config_warning (must not overwrite sidebar sandbox status)")
+			}
+			payload, ok := emitted[0].Payload.(output.ConfigWarningEvent)
+			if !ok {
+				t.Fatalf("payload type = %T, want output.ConfigWarningEvent", emitted[0].Payload)
+			}
+			if !strings.Contains(payload.Message, "max_tokens") || !strings.Contains(payload.Message, "max_bytes") {
+				t.Errorf("message = %q, want it to name max_tokens and max_bytes", payload.Message)
+			}
+		})
+	}
+}
+
+func TestProjectContextConfigWarnings(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  config.Config
+		want []string
+	}{
+		{
+			name: "max_tokens unset yields no warnings",
+			cfg:  config.Config{},
+			want: nil,
+		},
+		{
+			name: "max_tokens set yields one warning",
+			cfg:  config.Config{ProjectContext: config.ProjectContextConfig{MaxTokens: 64}},
+			want: []string{"project_context.max_tokens is deprecated; use max_bytes (converted as max_tokens x 4)"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := projectContextConfigWarnings(tt.cfg)
+			if len(got) != len(tt.want) {
+				t.Fatalf("warnings = %v, want %v", got, tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Fatalf("warnings = %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
 // TestSelectMCPStderr covers the rule that keeps MCP server subprocess output
 // off the terminal: a log file wins when configured, io.Discard wins in
 // interactive mode with no log file (this must never fall through to

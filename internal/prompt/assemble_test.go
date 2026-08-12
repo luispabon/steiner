@@ -171,15 +171,16 @@ func TestGatherProjectContextHonorsBudget(t *testing.T) {
 func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 	t.Parallel()
 
-	homeDir := t.TempDir()
-	mustWrite(t, filepath.Join(homeDir, ".config", "steiner"), "AGENTS.md", "global agents content")
+	projectRoot := t.TempDir()
+	mustWrite(t, projectRoot, "README.md", "project context content")
 
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
-		HomeDir: homeDir,
+		ProjectRoot:              projectRoot,
+		ProjectContextExtraFiles: []string{"README.md"},
 		Policy: AssemblyPolicy{
 			Budgets: SourceBudgetModel{
-				PreambleBytes:     5,
-				GlobalAgentsBytes: 4,
+				PreambleBytes:       5,
+				ProjectContextBytes: 4,
 			},
 		},
 		PromptOverrides: config.ModelPrompts{
@@ -204,23 +205,27 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 		t.Fatalf("preamble block bytes = %d, want %d", got, want)
 	}
 
-	if got, want := assembly.Blocks[1].Content, "glob"; got != want {
-		t.Fatalf("agent block content = %q, want %q", got, want)
+	if got, want := assembly.Blocks[1].Content, "proj"; got != want {
+		t.Fatalf("project context block content = %q, want %q", got, want)
 	}
 	if !assembly.Blocks[1].Truncated {
-		t.Fatalf("expected agent block to be truncated")
+		t.Fatalf("expected project context block to be truncated")
 	}
 	if got, want := assembly.Blocks[1].ByteSize, 4; got != want {
-		t.Fatalf("agent block bytes = %d, want %d", got, want)
+		t.Fatalf("project context block bytes = %d, want %d", got, want)
 	}
 
-	if got, want := len(assembly.Messages), 1; got != want {
+	if got, want := len(assembly.Messages), 2; got != want {
 		t.Fatalf("len(messages) = %d, want %d", got, want)
 	}
-
-	wantContent := "You are steiner, a lean coding agent.\n\nsystem prompt content\n\nglob"
-	if got := assembly.Messages[0].Content; got != wantContent {
-		t.Fatalf("merged system message content = %q, want %q", got, wantContent)
+	if got, want := assembly.Messages[0].Content, "You are steiner, a lean coding agent.\n\nsystem prompt content"; got != want {
+		t.Fatalf("preamble message content = %q, want %q", got, want)
+	}
+	if got, want := assembly.Messages[1].Content, "proj"; got != want {
+		t.Fatalf("project context message content = %q, want %q", got, want)
+	}
+	if got, want := assembly.Messages[1].Role, provider.MessageRoleUser; got != want {
+		t.Fatalf("project context message role = %q, want %q", got, want)
 	}
 }
 

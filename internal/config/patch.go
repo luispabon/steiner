@@ -150,6 +150,7 @@ type toolPatch struct {
 }
 
 type projectContextPatch struct {
+	MaxBytes    *int      `yaml:"max_bytes"`
 	MaxTokens   *int      `yaml:"max_tokens"`
 	ExtraFiles  *[]string `yaml:"extra_files"`
 	IgnoreFiles *[]string `yaml:"ignore_files"`

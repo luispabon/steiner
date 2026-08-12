@@ -22,7 +22,7 @@ Two distinct concepts work together:
 - **Sandbox writable-root**: remains the project root (`.`). This ensures `git status`, `git commit`, and `.steiner/config.yaml` work correctly.
 - **Agent operational directory** (`workDir`): the worktree path (`.steiner/worktrees/oneshot-<id>`). All model interactions, tool invocations, and file mutations happen here.
 
-The agent's prompt contexts reference the worktree path; tool schemas and results are scoped to the worktree. Between-phase state is carried by committed work in git and shared disk artifacts.
+The agent's prompt contexts reference the worktree path; tool schemas and results are scoped to the worktree. Phase agents resolve the project `AGENTS.md` from the oneshot worktree via `AssemblyOptions.ProjectAgentsPath` (`.steiner/worktrees/oneshot-<id>/AGENTS.md`); `ProjectRoot` remains the main checkout, so manifest paths, the sandbox writable-root, and skill discovery are unchanged. Between-phase state is carried by committed work in git and shared disk artifacts.
 
 ### Phase Loop: Plan → Implement → Review
 
