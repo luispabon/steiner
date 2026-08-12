@@ -199,9 +199,18 @@ func TestAdvisorEventsRender(t *testing.T) {
 		t.Fatalf("started text = %q, want advisor lifecycle summary", got)
 	}
 
-	complete := renderEvent(NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0))
+	complete := renderEvent(NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0, 0))
 	if got := complete.Text; !strings.Contains(got, "advisor complete") || !strings.Contains(got, "note=check tests first") {
 		t.Fatalf("complete text = %q, want advisor note summary", got)
+	}
+
+	completeWithUsage := NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 10, 20, 30)
+	payload, ok := completeWithUsage.Payload.(AdvisorCompleteEvent)
+	if !ok {
+		t.Fatalf("payload = %T, want AdvisorCompleteEvent", completeWithUsage.Payload)
+	}
+	if payload.CacheReadTokens != 10 || payload.CacheCreateTokens != 20 || payload.InputTokens != 30 {
+		t.Fatalf("payload usage = %+v, want CacheReadTokens=10 CacheCreateTokens=20 InputTokens=30", payload)
 	}
 
 	exhausted := renderEvent(NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment", "", nil))
