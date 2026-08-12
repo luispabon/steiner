@@ -101,31 +101,35 @@ func TestStatusSectionNilAddsNoBlankLineToSidebar(t *testing.T) {
 }
 
 func TestMCPRowSpinnerWhenConnecting(t *testing.T) {
-	t.Parallel()
 	cases := []struct {
-		name     string
-		state    string
-		expected bool
+		name        string
+		state       string
+		wantSpinner bool
+		wantCount   string
 	}{
-		{"connecting", "connecting", true},
-		{"reconnecting", "reconnecting", true},
-		{"connected", "connected", false},
-		{"failed", "failed", false},
-		{"disabled", "disabled", false},
+		{"connecting", "connecting", true, "0/1"},
+		{"reconnecting", "reconnecting", true, "0/1"},
+		{"connected", "connected", false, "1/1"},
+		{"failed", "failed", false, "0/1"},
+		{"disabled", "disabled", false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			s := sidebarState{mcpConnected: 1, mcpTotal: 1, mcpConnecting: tc.expected, tickCount: 0}
-			spinner, count := s.mcpRow()
-			if tc.expected && spinner == "" {
+			m := newModel(Config{}, nil)
+			m.mcpServers = []MCPServerStatus{
+				{Name: "server1", State: tc.state},
+			}
+			m.syncSidebar()
+
+			spinner, count := m.sidebar.mcpRow()
+			if tc.wantSpinner && spinner == "" {
 				t.Errorf("mcpRow() spinner = %q when %s, want non-empty", spinner, tc.state)
 			}
-			if !tc.expected && spinner != "" {
+			if !tc.wantSpinner && spinner != "" {
 				t.Errorf("mcpRow() spinner = %q when %s, want empty", spinner, tc.state)
 			}
-			if count != "1/1" {
-				t.Errorf("mcpRow() count = %q, want %q", count, "1/1")
+			if count != tc.wantCount {
+				t.Errorf("mcpRow() count = %q when %s, want %q", count, tc.state, tc.wantCount)
 			}
 		})
 	}

@@ -203,6 +203,7 @@ func (m Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 		m.contentDirty = false
 	}
 	if m.needsTicking() {
+		m.ticking = true
 		return m, tickCmd()
 	}
 	m.ticking = false
