@@ -365,12 +365,15 @@ type DelegationStartedEvent struct {
 
 // DelegationCompleteEvent records a successful delegated child task.
 type DelegationCompleteEvent struct {
-	AgentID       string `json:"agent_id"`
-	Status        string `json:"status"`
-	TurnCount     int    `json:"turn_count"`
-	TokenCount    int    `json:"token_count"`
-	ToolCallCount int    `json:"tool_call_count"`
-	Output        string `json:"output,omitempty"`
+	AgentID           string `json:"agent_id"`
+	Status            string `json:"status"`
+	TurnCount         int    `json:"turn_count"`
+	TokenCount        int    `json:"token_count"`
+	ToolCallCount     int    `json:"tool_call_count"`
+	Output            string `json:"output,omitempty"`
+	InputTokens       int    `json:"input_tokens,omitempty"`
+	CacheReadTokens   int    `json:"cache_read_tokens,omitempty"`
+	CacheCreateTokens int    `json:"cache_create_tokens,omitempty"`
 }
 
 // DelegationFailedEvent records a failed delegated child task.

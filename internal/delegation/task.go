@@ -100,7 +100,17 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	})
 
 	if events != nil {
-		events.Emit(output.NewDelegationCompleteEvent(spec.AgentID, string(result.Status), result.TurnCount, result.TokenCount, result.ToolCallCount, result.Output))
+		events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+			AgentID:           spec.AgentID,
+			Status:            string(result.Status),
+			TurnCount:         result.TurnCount,
+			TokenCount:        result.TokenCount,
+			ToolCallCount:     result.ToolCallCount,
+			Output:            result.Output,
+			InputTokens:       result.InputTokens,
+			CacheReadTokens:   result.CacheReadTokens,
+			CacheCreateTokens: result.CacheCreateTokens,
+		}))
 	}
 
 	summaryCtx, summaryCancel := context.WithTimeout(childCtx, 30*time.Second)

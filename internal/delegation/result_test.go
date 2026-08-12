@@ -157,3 +157,29 @@ func TestBuildResult(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildResultCarriesCacheTokens(t *testing.T) {
+	state := agent.RunState{
+		TurnCount:         3,
+		TokenCount:        1000,
+		StopReason:        agent.StopReasonComplete,
+		InputTokens:       200,
+		CacheReadTokens:   750,
+		CacheCreateTokens: 50,
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "done"},
+		},
+	}
+
+	got := BuildResult("agent-cache", state)
+
+	if got.InputTokens != 200 {
+		t.Errorf("InputTokens=%d, want 200", got.InputTokens)
+	}
+	if got.CacheReadTokens != 750 {
+		t.Errorf("CacheReadTokens=%d, want 750", got.CacheReadTokens)
+	}
+	if got.CacheCreateTokens != 50 {
+		t.Errorf("CacheCreateTokens=%d, want 50", got.CacheCreateTokens)
+	}
+}

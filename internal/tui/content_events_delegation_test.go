@@ -11,6 +11,56 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		styles:            theme.BuildStyles(theme.AccentAmber),
+		activeDelegations: make(map[string]int),
+	}
+
+	buffer.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationStarted,
+		Payload: output.DelegationStartedEvent{
+			AgentID:     "child-cache",
+			TaskPreview: "task",
+		},
+	})
+	buffer.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationComplete,
+		Payload: output.DelegationCompleteEvent{
+			AgentID:           "child-cache",
+			Status:            "complete",
+			TurnCount:         2,
+			TokenCount:        1000,
+			ToolCallCount:     3,
+			InputTokens:       50,
+			CacheReadTokens:   950,
+			CacheCreateTokens: 0,
+			Output:            "done",
+		},
+	})
+
+	var dd *delegationDisplayState
+	for _, seg := range buffer.segments {
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.agentID == "child-cache" {
+			dd = seg.delegData
+			break
+		}
+	}
+	if dd == nil {
+		t.Fatalf("delegation segment not found")
+	}
+	if !dd.cacheHitOK {
+		t.Fatalf("cacheHitOK = false, want true")
+	}
+	wantRate := 950.0 / 1000.0
+	if diff := dd.cacheHitRate - wantRate; diff > 1e-9 || diff < -1e-9 {
+		t.Errorf("cacheHitRate = %v, want %v", dd.cacheHitRate, wantRate)
+	}
+}
+
 func TestScopedDelegationCompactionStaysInsideDelegationSegment(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
@@ -69,7 +119,14 @@ func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
-	buffer.AppendEvent(output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, 0, "done"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "complete",
+		TurnCount:     1,
+		TokenCount:    10,
+		ToolCallCount: 0,
+		Output:        "done",
+	}))
 
 	segment := buffer.segments[0]
 	rendered := strings.TrimSuffix(buffer.renderDelegationSegment(segment, 50), "\n")

@@ -236,6 +236,9 @@ func delegationCompleteMeta(dd *delegationDisplayState) []string {
 	if dd.elapsed != "" {
 		meta = append(meta, dd.elapsed)
 	}
+	if dd.cacheHitOK {
+		meta = append(meta, "cache "+formatCacheHitRate(dd.cacheHitRate, dd.cacheHitOK))
+	}
 	if dd.advisorUse > 0 && dd.advisorMaxUses > 0 {
 		meta = append(meta, fmt.Sprintf("%d/%d", dd.advisorUse, dd.advisorMaxUses))
 	}
@@ -476,6 +479,9 @@ func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string
 	}
 	if ctx := delegationStatsContext(dd); ctx != "" {
 		parts = append(parts, b.styles.FgDim.Render(ctx))
+	}
+	if dd.cacheHitOK {
+		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Cache: %s", formatCacheHitRate(dd.cacheHitRate, dd.cacheHitOK))))
 	}
 	if dd.extMax > 0 {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Extension: %d/%d", dd.extCurrent, dd.extMax)))

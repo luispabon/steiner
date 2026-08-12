@@ -154,14 +154,19 @@ type delegationDisplayState struct {
 	spinnerFrame    int    // index into spinnerFrames
 	status          string // "active" | "complete" | "failed"
 	// result fields (Complete)
-	resultStatus   string
-	turnCount      int
-	tokenCount     int
-	toolCallCount  int
-	modelName      string
-	promptTokens   int
-	contextWindow  int
-	contextFillPct float64 // last known context window occupancy %, 0 if unknown
+	resultStatus      string
+	turnCount         int
+	tokenCount        int
+	toolCallCount     int
+	cacheHitRate      float64
+	cacheHitOK        bool
+	cacheReadTokens   int
+	inputTokens       int
+	cacheCreateTokens int
+	modelName         string
+	promptTokens      int
+	contextWindow     int
+	contextFillPct    float64 // last known context window occupancy %, 0 if unknown
 	// failure field
 	errMsg string
 	// output text and visibility
@@ -180,6 +185,9 @@ type delegationDisplayState struct {
 	baselineTurnCount     int
 	baselineToolCallCount int
 	baselineTokenCount    int
+	baselineCacheRead     int
+	baselineCacheInput    int
+	baselineCacheCreate   int
 	advisorUse            int
 	advisorMaxUses        int
 	advisorQuestion       string

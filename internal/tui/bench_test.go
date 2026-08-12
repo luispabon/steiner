@@ -224,7 +224,14 @@ func populateBenchModel(m *Model) {
 
 	// Delegation event (complete it so buffer is settled for benchmarking)
 	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("agent_1", "design the optimization")})
-	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent("agent_1", "complete", 2, 500, 3, "optimized design")})
+	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "agent_1",
+		Status:        "complete",
+		TurnCount:     2,
+		TokenCount:    500,
+		ToolCallCount: 3,
+		Output:        "optimized design",
+	})})
 
 	// Thinking block
 	*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "The user asked for optimization suggestions. I identified three key areas and proposed solutions.", output.ChunkSourceAssistant)})
@@ -281,7 +288,14 @@ func populateBenchModelHeavy(m *Model) {
 		agentID := fmt.Sprintf("agent_heavy_%d", i)
 		*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewDelegationStartedEvent(agentID, "task preview "+fmt.Sprintf("%d", i))})
 		delegOutput := strings.Repeat("d", 300+i*100)
-		*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(agentID, "complete", 3+i, 500+i*100, 2+i, delegOutput)})
+		*m = updateModelDirect(*m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+			AgentID:       agentID,
+			Status:        "complete",
+			TurnCount:     3 + i,
+			TokenCount:    500 + i*100,
+			ToolCallCount: 2 + i,
+			Output:        delegOutput,
+		})})
 	}
 
 	// 5 tool call groups (2-3 calls each)

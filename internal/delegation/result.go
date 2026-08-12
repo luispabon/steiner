@@ -35,11 +35,14 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 	}
 
 	result := DelegationResult{
-		AgentID:       agentID,
-		Output:        output,
-		TurnCount:     state.TurnCount,
-		TokenCount:    state.TokenCount,
-		ToolCallCount: countToolCalls(state.Conversation),
+		AgentID:           agentID,
+		Output:            output,
+		TurnCount:         state.TurnCount,
+		TokenCount:        state.TokenCount,
+		ToolCallCount:     countToolCalls(state.Conversation),
+		InputTokens:       state.InputTokens,
+		CacheReadTokens:   state.CacheReadTokens,
+		CacheCreateTokens: state.CacheCreateTokens,
 	}
 
 	rawReason := string(state.StopReason)

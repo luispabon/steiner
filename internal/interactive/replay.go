@@ -109,14 +109,17 @@ func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[strin
 		if state.status == "failed" {
 			s.events.Emit(output.NewDelegationFailedEvent(state.agentID, task, state.error))
 		} else {
-			s.events.Emit(output.NewDelegationCompleteEvent(
-				state.agentID,
-				state.status,
-				state.turnCount,
-				state.tokenCount,
-				state.toolCallCount,
-				state.output,
-			))
+			s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+				AgentID:           state.agentID,
+				Status:            state.status,
+				TurnCount:         state.turnCount,
+				TokenCount:        state.tokenCount,
+				ToolCallCount:     state.toolCallCount,
+				Output:            state.output,
+				InputTokens:       state.inputTokens,
+				CacheReadTokens:   state.cacheReadTokens,
+				CacheCreateTokens: state.cacheCreateTokens,
+			}))
 		}
 		delete(pendingDelegates, msg.ToolCallID)
 	} else if _, ok := startedToolCalls[msg.ToolCallID]; ok {
