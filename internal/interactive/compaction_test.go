@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -325,6 +326,80 @@ func TestManualCompactionUsesDiscoveryResolvedLimits(t *testing.T) {
 	}
 	if got, want := len(prov.requests), 1; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+}
+
+func TestManualCompactionPreambleIncludesDelegationAndAdvisorSections(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"id":             "openrouter/test-model",
+					"context_length": 262144,
+					"top_provider": map[string]any{
+						"max_completion_tokens": 8192,
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	prov := &compactionTestProvider{}
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			Providers: map[string]config.ProviderConfig{
+				"openrouter": {
+					Type:    config.ProviderTypeOpenRouter,
+					BaseURL: srv.URL,
+				},
+			},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {
+						Provider: "openrouter",
+						ID:       "openrouter/test-model",
+					},
+				},
+			},
+			SubAgent: config.SubAgentConfig{Enabled: true},
+			Advisor:  config.AdvisorConfig{Enabled: true},
+		},
+		HTTPClient: srv.Client(),
+		ProviderFactory: func(provider.ResolvedModel) (provider.Provider, error) {
+			return prov, nil
+		},
+	})
+
+	s.SetConversation([]agent.Message{
+		{Role: agent.MessageRoleUser, Content: "first request"},
+		{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		{Role: agent.MessageRoleUser, Content: "second request"},
+		{Role: agent.MessageRoleAssistant, Content: "second answer"},
+	})
+
+	s.manualCompaction(context.Background())
+
+	if got, want := len(prov.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	if got, want := len(prov.requests[0].Messages), 0; got == want {
+		t.Fatal("expected compaction request to include preamble messages")
+	}
+	preamble := prov.requests[0].Messages[0].Content
+	if !strings.Contains(preamble, "## Your role") {
+		t.Fatalf("compaction preamble missing delegation role section:\n%s", preamble)
+	}
+	if !strings.Contains(preamble, "## Advisor") {
+		t.Fatalf("compaction preamble missing advisor section:\n%s", preamble)
 	}
 }
 
