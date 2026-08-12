@@ -19,10 +19,10 @@ type planPickerOverlay struct {
 	selection      int
 	scrollOffset   int
 	triggerCommand string
-	styles         theme.Styles
+	styles         *theme.Styles
 }
 
-func newPlanPickerOverlay(styles theme.Styles) planPickerOverlay {
+func newPlanPickerOverlay(styles *theme.Styles) planPickerOverlay {
 	return planPickerOverlay{styles: styles}
 }
 

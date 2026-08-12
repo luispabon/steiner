@@ -8,7 +8,7 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-func renderModelBadge(styles theme.Styles, model string) string {
+func renderModelBadge(styles *theme.Styles, model string) string {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return ""
@@ -20,7 +20,7 @@ func renderModelBadge(styles theme.Styles, model string) string {
 
 // renderModeBadge renders the execution mode badge with a fixed-width label
 // so the status bar cell stays stable across mode switches.
-func renderModeBadge(styles theme.Styles, mode string) string {
+func renderModeBadge(styles *theme.Styles, mode string) string {
 	switch strings.TrimSpace(mode) {
 	case "plan":
 		return styles.ModePlanStyle.Render("plan ")
@@ -32,7 +32,7 @@ func renderModeBadge(styles theme.Styles, mode string) string {
 }
 
 // renderSandboxBadge renders the sandbox status badge for the status bar.
-func renderSandboxBadge(styles theme.Styles, status string) string {
+func renderSandboxBadge(styles *theme.Styles, status string) string {
 	status = strings.TrimSpace(status)
 	if status == "" {
 		return ""

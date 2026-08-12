@@ -7,6 +7,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestOneshotAllowedAction(t *testing.T) {
@@ -43,6 +44,7 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 	input := newModelInput()
 	input.SetValue("hello")
 
+	styles := testStyles(theme.AccentAmber)
 	m := Model{
 		oneshotRunning: true,
 		oneshotSteerCh: make(chan agent.SteerMessage, 4),
@@ -50,7 +52,9 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
+			styles:        styles,
 		},
+		styles: styles,
 	}
 
 	updated, cmd := m.handleEnter()
@@ -78,6 +82,7 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 	input.InsertString(" [Image 1]")
 
 	steerCh := make(chan agent.SteerMessage, 4)
+	styles := testStyles(theme.AccentAmber)
 	m := Model{
 		oneshotRunning: true,
 		oneshotSteerCh: steerCh,
@@ -88,7 +93,9 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
+			styles:        styles,
 		},
+		styles: styles,
 	}
 
 	updated := m.executeSteerAction()
@@ -137,11 +144,14 @@ func TestHandleEnterRoutesToSteerDuringBusyRegularRun(t *testing.T) {
 func newMinimalModel(inputValue string) Model {
 	inp := newModelInput()
 	inp.SetValue(inputValue)
+	styles := testStyles(theme.AccentAmber)
 	return Model{
-		input: inp,
+		input:  inp,
+		styles: styles,
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
+			styles:        styles,
 		},
 	}
 }

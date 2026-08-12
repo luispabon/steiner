@@ -24,10 +24,10 @@ type mcpOverlay struct {
 	mcpEnabled   bool
 	lines        []string
 	scrollOffset int
-	styles       theme.Styles
+	styles       *theme.Styles
 }
 
-func newMCPOverlay(styles theme.Styles) mcpOverlay {
+func newMCPOverlay(styles *theme.Styles) mcpOverlay {
 	return mcpOverlay{
 		OverlayShell: OverlayShell{}.WithPreferredWidth(70),
 		styles:       styles,

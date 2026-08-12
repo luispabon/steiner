@@ -46,10 +46,13 @@ func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 
 func TestApplyEventConfigWarningAppendsWithoutTouchingSandbox(t *testing.T) {
 	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
 	m := Model{
+		styles: styles,
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
+			styles:        styles,
 		},
 	}
 	m.sidebar.sandboxStatus = "unavailable"

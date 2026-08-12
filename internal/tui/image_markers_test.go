@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestNextMarkerLabel(t *testing.T) {
@@ -304,11 +305,14 @@ func TestExecuteSubmitActionAppendsImagesAttached(t *testing.T) {
 	t.Parallel()
 	inp := newModelInput()
 	inp.SetValue("describe this")
+	styles := testStyles(theme.AccentAmber)
 	m := Model{
-		input: inp,
+		input:  inp,
+		styles: styles,
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
+			styles:        styles,
 		},
 		sidebar: sidebarState{
 			workingDir: "/home/user/project",

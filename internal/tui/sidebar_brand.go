@@ -35,15 +35,15 @@ func (s sidebarState) brandLines(width int) []string {
 	return out
 }
 
-func cardLabel(label string, styles theme.Styles) string {
+func cardLabel(label string, styles *theme.Styles) string {
 	return styles.CardLabel.Background(lipgloss.Color(theme.Black)).Render(strings.ToUpper(label))
 }
 
-func cardField(key string, valStyle lipgloss.Style, value string, styles theme.Styles) string {
+func cardField(key string, valStyle lipgloss.Style, value string, styles *theme.Styles) string {
 	return cardFieldN(key, 7, valStyle, value, styles)
 }
 
-func cardFieldN(key string, keyWidth int, valStyle lipgloss.Style, value string, styles theme.Styles) string {
+func cardFieldN(key string, keyWidth int, valStyle lipgloss.Style, value string, styles *theme.Styles) string {
 	keyStyle := styles.FgFaint.Background(lipgloss.Color(theme.Black))
 	valStyleWithBg := valStyle.Background(lipgloss.Color(theme.Black))
 	keyStr := keyStyle.Render(fmt.Sprintf("%-*s", keyWidth, key))
@@ -54,7 +54,7 @@ func cardFieldN(key string, keyWidth int, valStyle lipgloss.Style, value string,
 // style (same as the REPOSITORY/PERFORMANCE headers) instead of the faint key
 // style, keeping the value inline. The key is padded to the status trio's
 // fixed 8-column width (SANDBOX/SKILL/MCP).
-func cardFieldAccent(key string, valStyle lipgloss.Style, value string, styles theme.Styles) string {
+func cardFieldAccent(key string, valStyle lipgloss.Style, value string, styles *theme.Styles) string {
 	const keyWidth = 8
 	keyStyle := styles.CardLabel.Background(lipgloss.Color(theme.Black))
 	valStyleWithBg := valStyle.Background(lipgloss.Color(theme.Black))

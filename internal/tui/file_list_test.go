@@ -5,13 +5,11 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestFileListOverlay_NewClose(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFileListOverlay(s)
 	if f.IsOpen() {
 		t.Fatal("expected overlay to start closed")
@@ -33,7 +31,7 @@ func TestFileListOverlay_NewClose(t *testing.T) {
 
 func TestFileListOverlay_ViewEmpty(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFileListOverlay(s)
 	view := f.View()
 	if view != "" {
@@ -43,7 +41,7 @@ func TestFileListOverlay_ViewEmpty(t *testing.T) {
 
 func TestFileListOverlay_ViewNonEmpty(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f.OverlayShell = f.WithDimensions(80, 24)
 	f = f.Open(".")
@@ -58,7 +56,7 @@ func TestFileListOverlay_ViewNonEmpty(t *testing.T) {
 
 func TestFileListOverlay_UpdateEsc(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f = f.Open(".")
 	if !f.IsOpen() {
@@ -73,7 +71,7 @@ func TestFileListOverlay_UpdateEsc(t *testing.T) {
 
 func TestFileListOverlay_UpdateEnter(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f = f.Open(".")
 	if !f.IsOpen() {
@@ -88,7 +86,7 @@ func TestFileListOverlay_UpdateEnter(t *testing.T) {
 
 func TestFileListOverlay_UpdateIgnoresOtherKeys(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f = f.Open(".")
 	if !f.IsOpen() {
@@ -103,7 +101,7 @@ func TestFileListOverlay_UpdateIgnoresOtherKeys(t *testing.T) {
 
 func TestFileListOverlay_UpdateWhenClosed(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFileListOverlay(s)
 	if f.IsOpen() {
 		t.Fatal("expected overlay to start closed")
@@ -117,7 +115,7 @@ func TestFileListOverlay_UpdateWhenClosed(t *testing.T) {
 
 func TestFileListOverlay_RootWithError(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f.OverlayShell = f.WithDimensions(80, 24)
 	f = f.Open("/nonexistent/path/xyzzy")
@@ -135,7 +133,7 @@ func TestFileListOverlay_RootWithError(t *testing.T) {
 
 func TestFileListOverlay_RespectsExclusions(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFileListOverlay(s)
 	f = f.Open(".")
 	foundExcluded := false

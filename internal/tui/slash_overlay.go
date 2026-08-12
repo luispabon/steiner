@@ -31,10 +31,10 @@ type slashOverlay struct {
 	matchIndexes []slashOverlayMatch
 	selection    int
 	scrollOffset int
-	styles       theme.Styles
+	styles       *theme.Styles
 }
 
-func newSlashOverlay(styles theme.Styles) slashOverlay {
+func newSlashOverlay(styles *theme.Styles) slashOverlay {
 	return slashOverlay{styles: styles}
 }
 

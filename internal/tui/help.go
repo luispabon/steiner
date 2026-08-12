@@ -9,7 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-func renderHelp(styles theme.Styles, width int) string {
+func renderHelp(styles *theme.Styles, width int) string {
 	// Constrain panel width
 	panelWidth := width
 	if panelWidth > 50 {

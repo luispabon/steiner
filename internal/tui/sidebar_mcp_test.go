@@ -9,7 +9,7 @@ import (
 
 func TestStatusSectionShowsMCPConnectedOverTotal(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	s := sidebarState{mcpConnected: 2, mcpTotal: 3, styles: styles}
 	lines := s.statusSection(32)
 	joined := strings.Join(lines, "\n")
@@ -20,7 +20,7 @@ func TestStatusSectionShowsMCPConnectedOverTotal(t *testing.T) {
 
 func TestStatusSectionMCPExcludesDisabledFromDenominator(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	// 3 servers configured, 1 disabled -> mcpTotal should already be 2
 	// (syncSidebar excludes disabled servers before assigning mcpTotal).
 	s := sidebarState{mcpConnected: 2, mcpTotal: 2, styles: styles}
@@ -71,7 +71,7 @@ func TestMCPRowReturnsBareValue(t *testing.T) {
 
 func TestStatusSectionMCPUsesErrorStyleOnFailure(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	ok := sidebarState{mcpConnected: 3, mcpTotal: 3, mcpFailed: false, styles: styles}
 	failed := sidebarState{mcpConnected: 2, mcpTotal: 3, mcpFailed: true, styles: styles}
 
@@ -88,7 +88,7 @@ func TestStatusSectionMCPUsesErrorStyleOnFailure(t *testing.T) {
 
 func TestStatusSectionNilAddsNoBlankLineToSidebar(t *testing.T) {
 	t.Parallel()
-	s := sidebarState{mcpTotal: 0}
+	s := sidebarState{mcpTotal: 0, styles: testStyles(theme.AccentAmber)}
 	if got := s.statusSection(32); got != nil {
 		t.Errorf("statusSection() = %v, want nil when sandbox/skill/MCP all absent", got)
 	}
@@ -169,7 +169,7 @@ func TestMCPRowEmptyCountWhenZero(t *testing.T) {
 
 func TestStatusSectionMCPBackgroundPreserved(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 
 	// Non-connecting: single cardFieldAccentN call
 	s := sidebarState{

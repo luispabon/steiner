@@ -34,7 +34,7 @@ func TestRenderViewportWithScrollbar(t *testing.T) {
 	t.Parallel()
 	m := Model{
 		viewport: viewport.New(),
-		styles:   theme.BuildStyles(theme.AccentAmber),
+		styles:   testStyles(theme.AccentAmber),
 	}
 
 	cases := []struct {

@@ -233,7 +233,7 @@ type contentBuffer struct {
 	streamBuffer      string
 	renderer          *glamour.TermRenderer
 	renderWidth       int
-	styles            theme.Styles
+	styles            *theme.Styles
 	glamourStyleSheet glamour.TermRendererOption
 	previewStyleCache map[chroma.TokenType]lipgloss.Style
 	collapseState     map[int]bool    // segment index → collapsed (for tool calls and thinking)

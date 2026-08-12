@@ -6,13 +6,11 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestMCPOverlay_NewClose(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	if o.IsOpen() {
 		t.Fatal("expected overlay to start closed")
@@ -31,7 +29,7 @@ func TestMCPOverlay_NewClose(t *testing.T) {
 
 func TestMCPOverlay_ViewEmpty(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	if view := o.View(); view != "" {
 		t.Fatal("expected empty view when closed")
@@ -40,7 +38,7 @@ func TestMCPOverlay_ViewEmpty(t *testing.T) {
 
 func TestMCPOverlay_NoServersConfigured(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	o = o.Open(nil, true)
@@ -53,7 +51,7 @@ func TestMCPOverlay_NoServersConfigured(t *testing.T) {
 
 func TestMCPOverlay_DisabledLeadsWithNotice(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	servers := []MCPServerStatus{
@@ -75,7 +73,7 @@ func TestMCPOverlay_DisabledLeadsWithNotice(t *testing.T) {
 
 func TestMCPOverlay_FailedServerShowsError(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	servers := []MCPServerStatus{
@@ -94,7 +92,7 @@ func TestMCPOverlay_FailedServerShowsError(t *testing.T) {
 
 func TestMCPOverlay_ConnectedServerWithNoTools(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	servers := []MCPServerStatus{
@@ -110,7 +108,7 @@ func TestMCPOverlay_ConnectedServerWithNoTools(t *testing.T) {
 
 func TestMCPOverlay_ConnectedServerListsRegisteredTools(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	servers := []MCPServerStatus{
@@ -132,7 +130,7 @@ func TestMCPOverlay_ConnectedServerListsRegisteredTools(t *testing.T) {
 
 func TestMCPOverlay_MixedOutcomesShowStatusLabels(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	servers := []MCPServerStatus{
@@ -163,7 +161,7 @@ func TestMCPOverlay_MixedOutcomesShowStatusLabels(t *testing.T) {
 
 func TestMCPOverlay_DenyOnlyServerShowsAllDenied(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	servers := []MCPServerStatus{
@@ -187,7 +185,7 @@ func TestMCPOverlay_DenyOnlyServerShowsAllDenied(t *testing.T) {
 
 func TestMCPOverlay_ServerNameWithUnderscoresRendersIntact(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	servers := []MCPServerStatus{
@@ -203,7 +201,7 @@ func TestMCPOverlay_ServerNameWithUnderscoresRendersIntact(t *testing.T) {
 
 func TestMCPOverlay_ScrollClampsAtBothEnds(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 10)
 
@@ -246,7 +244,7 @@ func TestMCPOverlay_ScrollClampsAtBothEnds(t *testing.T) {
 
 func TestMCPOverlay_UpdateEscCloses(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o = o.Open(nil, true)
 
@@ -258,7 +256,7 @@ func TestMCPOverlay_UpdateEscCloses(t *testing.T) {
 
 func TestMCPOverlay_UpdateEnterCloses(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o = o.Open(nil, true)
 
@@ -270,7 +268,7 @@ func TestMCPOverlay_UpdateEnterCloses(t *testing.T) {
 
 func TestMCPOverlay_UpdateWhenClosedIsNoop(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 
 	updated, _ := o.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
@@ -281,7 +279,7 @@ func TestMCPOverlay_UpdateWhenClosedIsNoop(t *testing.T) {
 
 func TestMCPOverlay_JKKeysScroll(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 10)
 
@@ -358,7 +356,7 @@ func TestStateDisplayLabelLiveStates(t *testing.T) {
 
 func TestMCPOverlay_LiveStatesRenderWithoutFallback(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	o := newMCPOverlay(s)
 	o.OverlayShell = o.WithDimensions(80, 24)
 	servers := []MCPServerStatus{

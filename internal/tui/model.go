@@ -96,26 +96,30 @@ type Model struct {
 	sidebar  sidebarState
 	git      *gitState
 
-	approval                     approvalState
-	activity                     activityState
-	external                     <-chan tea.Msg
-	autoScroll                   bool
-	contentTopPad                int
-	skillNames                   []string
-	skillDescriptions            map[string]string
-	mcpEnabled                   bool
-	mcpServers                   []MCPServerStatus
-	mcpToolOrigins               map[string]MCPToolOrigin
-	mcpWarned                    map[string]bool // servers that already surfaced a failure warning in the current failure generation
-	enabledSkills                map[string]bool
-	modelNames                   []string
-	modelContexts                map[string]int
-	modelBaseURLs                map[string]string
-	modelProviderNames           map[string]string
-	controller                   interactive.Controller
-	recorder                     *usagestats.Recorder
-	activeTheme                  theme.Theme
-	styles                       theme.Styles
+	approval           approvalState
+	activity           activityState
+	external           <-chan tea.Msg
+	autoScroll         bool
+	contentTopPad      int
+	skillNames         []string
+	skillDescriptions  map[string]string
+	mcpEnabled         bool
+	mcpServers         []MCPServerStatus
+	mcpToolOrigins     map[string]MCPToolOrigin
+	mcpWarned          map[string]bool // servers that already surfaced a failure warning in the current failure generation
+	enabledSkills      map[string]bool
+	modelNames         []string
+	modelContexts      map[string]int
+	modelBaseURLs      map[string]string
+	modelProviderNames map[string]string
+	controller         interactive.Controller
+	recorder           *usagestats.Recorder
+	activeTheme        theme.Theme
+	// styles is shared by pointer across Model and every sub-component that
+	// embeds a styles field; theme.Styles must be treated as immutable after
+	// construction, and the accent-change path must allocate a fresh Styles
+	// rather than mutating this one in place.
+	styles                       *theme.Styles
 	inputHistory                 []string
 	historyIdx                   int
 	historyDraft                 string

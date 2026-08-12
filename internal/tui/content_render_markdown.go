@@ -294,7 +294,7 @@ func (b *contentBuffer) renderMarkdown(block string, isAssistant bool, width int
 type markdownBlockParams struct {
 	block       string
 	width       int
-	styles      theme.Styles
+	styles      *theme.Styles
 	styleSheet  glamour.TermRendererOption
 	renderer    **glamour.TermRenderer
 	renderWidth *int

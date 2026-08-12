@@ -497,7 +497,8 @@ func TestSkillExclusivity(t *testing.T) {
 
 func TestSidebarSkillSection(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 
 	sidebar := sidebarState{
 		activeSkill: "review",

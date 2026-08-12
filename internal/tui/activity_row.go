@@ -20,7 +20,7 @@ type activityState struct {
 	spinner  spinner.Model
 }
 
-func newActivityState(styles theme.Styles) activityState {
+func newActivityState(styles *theme.Styles) activityState {
 	return activityState{
 		accent:  styles.AccentColor,
 		spinner: newActivitySpinner(styles.AccentColor),
@@ -34,7 +34,7 @@ func newActivitySpinner(accent color.Color) spinner.Model {
 	)
 }
 
-func (a activityState) withStyles(styles theme.Styles) activityState {
+func (a activityState) withStyles(styles *theme.Styles) activityState {
 	a.accent = styles.AccentColor
 	a.spinner.Style = lipgloss.NewStyle().Foreground(styles.AccentColor)
 	return a
@@ -44,7 +44,7 @@ func (a activityState) busy() bool {
 	return a.spinning
 }
 
-func (a activityState) view(width int, styles theme.Styles) string {
+func (a activityState) view(width int, styles *theme.Styles) string {
 	if width < 1 {
 		return ""
 	}

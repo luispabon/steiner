@@ -92,7 +92,7 @@ func (s sidebarState) modelSection(width int) []string {
 
 // sandboxStatusStyle returns the colour for a sandbox status value: green
 // for active, amber for unavailable, red for bypassed, dim otherwise.
-func sandboxStatusStyle(status string, styles theme.Styles) lipgloss.Style {
+func sandboxStatusStyle(status string, styles *theme.Styles) lipgloss.Style {
 	switch status {
 	case "active":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Added))

@@ -20,7 +20,7 @@ type modelPickerOverlay struct {
 	currentModel string
 	title        string
 	mode         modelPickerMode
-	styles       theme.Styles
+	styles       *theme.Styles
 }
 
 type modelPickerMode int
@@ -30,7 +30,7 @@ const (
 	modelPickerModeWorkflowHandoff
 )
 
-func newModelPickerOverlay(styles theme.Styles) modelPickerOverlay {
+func newModelPickerOverlay(styles *theme.Styles) modelPickerOverlay {
 	return modelPickerOverlay{styles: styles}
 }
 

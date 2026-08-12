@@ -4,7 +4,16 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
+
+// testStyles builds a *theme.Styles for tests, matching the pointer-shared
+// representation used by Model and its sub-components in production code.
+func testStyles(accentHex string) *theme.Styles {
+	s := theme.BuildStyles(accentHex)
+	return &s
+}
 
 func TestMain(m *testing.M) {
 	tmp, err := os.MkdirTemp("", "steiner-tui-test")

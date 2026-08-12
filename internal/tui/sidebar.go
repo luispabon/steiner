@@ -38,7 +38,7 @@ type sidebarState struct {
 	modifiedFiles         []gitModifiedFile
 	workingDir            string
 	activeSkill           string
-	styles                theme.Styles
+	styles                *theme.Styles
 	tickCount             int
 	perfDurationMs        int64
 	perfTTFTMs            int64

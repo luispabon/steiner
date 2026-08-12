@@ -9,6 +9,8 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // testSelStyle is used as the highlight style in applyScreenHighlight tests.
@@ -1465,12 +1467,14 @@ func buildTestModel(width, height int, sidebarVisible, sidebarRight bool) Model 
 	vp.SetWidth(width - 6)
 	vp.SetHeight(max(1, height-5))
 
+	s := testStyles(theme.AccentAmber)
 	m := Model{
 		width:    width,
 		height:   height,
 		viewport: vp,
-		sidebar:  sidebarState{expanded: sidebarVisible},
+		sidebar:  sidebarState{expanded: sidebarVisible, styles: s},
 		input:    textarea.New(),
+		styles:   s,
 	}
 	if sidebarRight {
 		m.sidebarPosition = "right"

@@ -10,7 +10,7 @@ import (
 func TestRenderImagesAttachedSegment(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 
 	tests := []struct {
@@ -129,7 +129,7 @@ func TestRenderImagesAttachedSegment(t *testing.T) {
 func TestRenderImagesAttachedSegmentEmpty(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 
 	segment := contentSegment{
@@ -146,7 +146,7 @@ func TestRenderImagesAttachedSegmentEmpty(t *testing.T) {
 func TestRenderImagesAttachedSegmentEmptyRows(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 
 	segment := contentSegment{

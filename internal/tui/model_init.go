@@ -45,6 +45,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	if accentHex == "" {
 		accentHex = theme.AccentPresets["amber"]
 	}
+	s := theme.BuildStyles(accentHex)
 
 	m := Model{
 		width:    80,
@@ -72,7 +73,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 		controller:                   cfg.Controller,
 		recorder:                     cfg.Recorder,
 		activeTheme:                  resolveTheme(cfg.Theme),
-		styles:                       theme.BuildStyles(accentHex),
+		styles:                       &s,
 		inputHistory:                 []string{},
 		historyIdx:                   0,
 		historyDraft:                 "",
@@ -307,10 +308,6 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 			m.mcpWarned[s.Name] = true
 		}
 	}
-	m.git.Refresh(context.Background())
-	m.syncSidebar()
-	m.layout()
-
 	m.content.styles = m.styles
 	m.content.skillNames = m.skillNames
 	m.content.mcpToolOrigins = m.mcpToolOrigins
@@ -320,6 +317,10 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
 	m.activity = newActivityState(m.styles)
+
+	m.git.Refresh(context.Background())
+	m.syncSidebar()
+	m.layout()
 
 	m.applyInputStyles()
 	m.input.Focus()

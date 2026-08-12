@@ -9,7 +9,7 @@ import (
 
 func TestStatusBarRendersPhaseSegment(t *testing.T) {
 	t.Parallel()
-	s := statusState{oneshotPhase: "plan"}
+	s := statusState{oneshotPhase: "plan", styles: testStyles(theme.AccentAmber)}
 	result := s.view(80)
 	if !strings.Contains(result, "phase") || !strings.Contains(result, "plan") {
 		t.Errorf("status bar should contain 'phase' and 'plan', got: %s", result)
@@ -18,7 +18,7 @@ func TestStatusBarRendersPhaseSegment(t *testing.T) {
 
 func TestStatusBarOmitsPhaseWhenEmpty(t *testing.T) {
 	t.Parallel()
-	s := statusState{oneshotPhase: ""}
+	s := statusState{oneshotPhase: "", styles: testStyles(theme.AccentAmber)}
 	result := s.view(80)
 	if strings.Contains(result, "phase ·") {
 		t.Errorf("status bar should not contain 'phase ·', got: %s", result)
@@ -38,7 +38,7 @@ func TestRenderModeBadge(t *testing.T) {
 		{name: "unset", mode: "", empty: true},
 		{name: "unrecognized", mode: "bogus", empty: true},
 	}
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -58,7 +58,7 @@ func TestRenderModeBadge(t *testing.T) {
 
 func TestStatusBarRendersModeBadge(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	s := statusState{execMode: "plan", styles: styles}
 	result := s.view(120)
 	if !strings.Contains(result, "plan") {
@@ -68,7 +68,7 @@ func TestStatusBarRendersModeBadge(t *testing.T) {
 
 func TestStatusBarOmitsModeBadgeWhenUnset(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	s := statusState{execMode: "", styles: styles}
 	result := s.view(120)
 	// When execMode is unset, renderModeBadge returns "" so no styled mode

@@ -15,7 +15,7 @@ type statusState struct {
 	context        string
 	mode           string
 	execMode       string // execution mode: "plan" or "build"
-	styles         theme.Styles
+	styles         *theme.Styles
 	streaming      bool
 	approvalActive bool
 	promptUsed     int
