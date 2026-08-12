@@ -679,7 +679,14 @@ func TestModelCtrlXTogglesDelegationWhileConversationActive(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent("child-1", "complete", 1, 10, 0, "result text")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "complete",
+		TurnCount:     1,
+		TokenCount:    10,
+		ToolCallCount: 0,
+		Output:        "result text",
+	})})
 
 	dd := m.content.segments[0].delegData
 	if dd == nil {

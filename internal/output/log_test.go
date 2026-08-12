@@ -100,7 +100,14 @@ func TestDelegationCompleteEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event := NewDelegationCompleteEvent(tt.agentID, tt.status, tt.turns, tt.tokens, 0, "")
+			event := NewDelegationCompleteEvent(DelegationCompleteParams{
+				AgentID:       tt.agentID,
+				Status:        tt.status,
+				TurnCount:     tt.turns,
+				TokenCount:    tt.tokens,
+				ToolCallCount: 0,
+				Output:        "",
+			})
 
 			if event.Type != EventTypeDelegationComplete {
 				t.Errorf("Type = %s, want %s", event.Type, EventTypeDelegationComplete)

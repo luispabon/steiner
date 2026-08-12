@@ -317,16 +317,22 @@ func NewDelegationStartedEvent(agentID, taskPreview string) Event {
 	})
 }
 
+// DelegationCompleteParams holds the arguments for NewDelegationCompleteEvent.
+type DelegationCompleteParams struct {
+	AgentID           string
+	Status            string
+	TurnCount         int
+	TokenCount        int
+	ToolCallCount     int
+	Output            string
+	InputTokens       int
+	CacheReadTokens   int
+	CacheCreateTokens int
+}
+
 // NewDelegationCompleteEvent creates a new delegation complete event.
-func NewDelegationCompleteEvent(agentID, status string, turns, tokens, toolCalls int, output string) Event {
-	return newEvent(EventTypeDelegationComplete, DelegationCompleteEvent{
-		AgentID:       agentID,
-		Status:        status,
-		TurnCount:     turns,
-		TokenCount:    tokens,
-		ToolCallCount: toolCalls,
-		Output:        output,
-	})
+func NewDelegationCompleteEvent(p DelegationCompleteParams) Event {
+	return newEvent(EventTypeDelegationComplete, DelegationCompleteEvent(p))
 }
 
 // NewDisplayFileEvent creates a DisplayFile event with an explicit preview
