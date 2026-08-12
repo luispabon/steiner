@@ -7,6 +7,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
@@ -25,6 +26,10 @@ type runExecutor interface {
 	// drainSteers drains all queued between-turn steering messages; pass nil when unavailable.
 	// Returns the updated conversation on success.
 	Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (RunResult, error)
+
+	// PromptAssembly returns the assembly options used for a normal turn, so
+	// compaction replays the identical cached prefix.
+	PromptAssembly(skillNames []string, budget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions
 }
 
 // historyWriter persists and loads prompt history for an interactive session.

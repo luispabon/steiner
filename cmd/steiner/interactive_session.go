@@ -20,6 +20,7 @@ import (
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
@@ -494,6 +495,10 @@ func (i *mcpInitOnce) run(ctx context.Context, rt cliRuntime) {
 type sessionRunner struct {
 	runner  cliRunner
 	mcpInit *mcpInitOnce
+}
+
+func (r sessionRunner) PromptAssembly(skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
+	return r.runner.PromptAssembly(skillNames, modelBudget, prompts)
 }
 
 func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (interactive.RunResult, error) {

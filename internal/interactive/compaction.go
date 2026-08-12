@@ -66,14 +66,7 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		NormalSummaryMaxTokens:    rm.EffectiveLimits.NormalSummaryMaxTokens,
 		EmergencySummaryMaxTokens: rm.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
-	assembly := prompt.AssemblyOptions{
-		HomeDir:         s.deps.HomeDir,
-		ProjectRoot:     s.deps.WorkDir,
-		SkillsRoots:     prompt.SkillRoots(s.deps.HomeDir, s.deps.WorkDir),
-		ModelBudget:     modelBudget,
-		PromptOverrides: rm.Prompts,
-		CaveHuman:       s.deps.Config.CaveHuman,
-	}
+	assembly := s.deps.Runner.PromptAssembly(s.skills.Snapshot(), modelBudget, rm.Prompts)
 
 	compactReq := agent.RunRequest{
 		Provider:          prov,
