@@ -108,18 +108,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		}
 		closeFn = joinClosers(closeFn, mcpServerLogWriter.Close)
 
-		// Select stderr writer: use log file if configured, else use io.Discard
-		// in interactive mode (to prevent terminal corruption), else os.Stderr
-		// in non-interactive mode.
-		var mcpStderr io.Writer
-		if logPath := mcp.ServerLogPath(runtimeLogFile(cfg, flags)); logPath != "" {
-			mcpStderr = mcpServerLogWriter
-		} else if flags.asyncMCP {
-			mcpStderr = io.Discard
-		} else {
-			mcpStderr = os.Stderr
-		}
-
+		mcpStderr := selectMCPStderr(cfg, flags, mcpServerLogWriter)
 		mcpMgr, mcpState = connectRuntimeMCP(ctx, cfg, sb, flags.asyncMCP, events, mcpStderr)
 	}
 
@@ -436,6 +425,20 @@ func buildMCPServerLogWriter(cfg config.Config, flags *cliFlags) (io.WriteCloser
 		return nil, fmt.Errorf("mcp server log writer: %w", err)
 	}
 	return w, nil
+}
+
+// selectMCPStderr picks the destination for MCP server subprocess stderr: the
+// derived log file when one is configured, io.Discard in interactive mode
+// otherwise (terminal corruption is non-negotiable), or os.Stderr in
+// non-interactive mode where there is no live TUI to trample.
+func selectMCPStderr(cfg config.Config, flags *cliFlags, logWriter io.Writer) io.Writer {
+	if mcp.ServerLogPath(runtimeLogFile(cfg, flags)) != "" {
+		return logWriter
+	}
+	if flags.asyncMCP {
+		return io.Discard
+	}
+	return os.Stderr
 }
 
 func buildRuntimeInputs(stdin io.Reader) (*bufio.Reader, *bufio.Reader, func() error) {

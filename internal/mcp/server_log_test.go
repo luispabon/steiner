@@ -184,6 +184,9 @@ func TestNewServerLogWriter(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Write error: %v", err)
 		}
+		if n != 12 {
+			t.Errorf("Write returned %d, want 12", n)
+		}
 
 		data, err := os.ReadFile(path)
 		if err != nil {
