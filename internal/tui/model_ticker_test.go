@@ -137,3 +137,25 @@ func TestSyncSidebarExcludesDisabledServers(t *testing.T) {
 		t.Errorf("sidebar.mcpConnecting = false, want true (connecting server included)")
 	}
 }
+
+func TestNewModelHasTickingTrue(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{Model: "test"}, nil)
+	if !m.ticking {
+		t.Errorf("newModel() ticking = false, want true")
+	}
+}
+
+func TestEnsureTickingReturnsNilWhenTickingAlreadyTrue(t *testing.T) {
+	t.Parallel()
+	styles := theme.BuildStyles(theme.AccentAmber)
+	m := &Model{
+		ticking: true,
+		sidebar: sidebarState{styles: styles},
+		content: contentBuffer{styles: styles},
+	}
+	cmd := m.ensureTicking()
+	if cmd != nil {
+		t.Errorf("ensureTicking() returned %v, want nil when ticking already true", cmd)
+	}
+}

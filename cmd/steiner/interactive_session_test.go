@@ -277,7 +277,7 @@ func TestConnectRuntimeMCPBlockingWaitsAndRegistersTools(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	discard := output.SinkFunc(func(output.Event) {})
-	mgr, producer := connectRuntimeMCP(ctx, cfg, nil, false, discard)
+	mgr, producer := connectRuntimeMCP(ctx, cfg, nil, false, discard, io.Discard)
 	defer mgr.Close() //nolint:errcheck
 
 	// The blocking path waits for every server: the stall resolved to failed
@@ -320,7 +320,7 @@ func TestConnectRuntimeMCPAsyncReturnsBeforeServersResolve(t *testing.T) {
 		},
 	}
 
-	mgr, producer := connectRuntimeMCP(context.Background(), cfg, nil, true, output.SinkFunc(func(output.Event) {}))
+	mgr, producer := connectRuntimeMCP(context.Background(), cfg, nil, true, output.SinkFunc(func(output.Event) {}), io.Discard)
 	defer mgr.Close() //nolint:errcheck
 
 	if producer == nil {

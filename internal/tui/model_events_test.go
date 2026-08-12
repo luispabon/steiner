@@ -183,9 +183,38 @@ func TestApplyEventMCPStatusRefreshesOrigins(t *testing.T) {
 	if !ok || origin.Server != "srv-a" || origin.Tool != "echo" {
 		t.Fatalf("mcpToolOrigins = %+v, want srv-a/echo entry", m.mcpToolOrigins)
 	}
-	// content keeps the startup snapshot: origins are immutable per D14.
-	if len(m.content.mcpToolOrigins) != 0 {
-		t.Fatalf("content.mcpToolOrigins = %v, want untouched startup snapshot", m.content.mcpToolOrigins)
+	// When origins arrive (post-arm full snapshot), both m.mcpToolOrigins and
+	// m.content.mcpToolOrigins are refreshed so transcript attribution catches up.
+	contentOrigin, ok := m.content.mcpToolOrigins["mcp__srv_a__echo"]
+	if !ok || contentOrigin.Server != "srv-a" || contentOrigin.Tool != "echo" {
+		t.Fatalf("content.mcpToolOrigins = %v, want srv-a/echo entry", m.content.mcpToolOrigins)
+	}
+}
+
+func TestApplyEventMCPStatusPreservesOriginsOnEmptySnapshot(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{
+		MCPToolOrigins: map[string]MCPToolOrigin{
+			"mcp__srv_a__echo": {Server: "srv-a", Tool: "echo"},
+		},
+	}, nil)
+	m.content.mcpToolOrigins = m.mcpToolOrigins
+
+	// Pre-arm states-only snapshot has no origins.
+	event := output.NewMCPStatusEvent(true, map[string]output.MCPServerState{
+		"srv-a": {State: "connecting"},
+	}, nil)
+	_ = m.applyEvent(event)
+
+	// Both m.mcpToolOrigins and m.content.mcpToolOrigins should preserve the
+	// startup snapshot when the payload carries no origins.
+	origin, ok := m.mcpToolOrigins["mcp__srv_a__echo"]
+	if !ok || origin.Server != "srv-a" || origin.Tool != "echo" {
+		t.Fatalf("mcpToolOrigins = %v, want preserved", m.mcpToolOrigins)
+	}
+	contentOrigin, ok := m.content.mcpToolOrigins["mcp__srv_a__echo"]
+	if !ok || contentOrigin.Server != "srv-a" || contentOrigin.Tool != "echo" {
+		t.Fatalf("content.mcpToolOrigins = %v, want preserved", m.content.mcpToolOrigins)
 	}
 }
 

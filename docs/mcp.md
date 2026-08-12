@@ -81,6 +81,7 @@ Sub-agent exposure: `sub_agents` lists the agent types that may call this server
 - **Dead tools stay registered.** The tool set is frozen at connect time and never mutated mid-session, so the prompt prefix — and the prompt cache — stays stable (`internal/mcp/manager.go:388-395`). A call to a dead server blocks during reconnect, then fails with the verify-state error above.
 - **Status transitions.** `connecting` → `connected`/`failed` at startup; `connected` → `reconnecting` → `connected`/`unavailable` later (`internal/mcp/state.go:12-25`).
 - **Startup warnings.** A failed connection surfaces as a warning naming the server plus an aggregate "MCP startup incomplete" line; nothing is emitted when MCP is off, nothing is configured, or every server connected (`internal/tui/mcp_warnings.go:14-45`). Warnings are deduplicated per failure generation: a server that recovers to `connected` and fails again warns once more (`internal/tui/mcp_warnings.go:48-72`).
+- **Server stderr routing.** Each stdio MCP server's subprocess stderr is routed to a derived log file when a session log file is configured (`-mcp` suffix added to the base name, e.g. `session.log` → `session-mcp.log` with mode `0o600`); when no log file is configured, stderr is discarded in interactive mode to preserve TUI terminal integrity (`io.Discard`), and routed to `os.Stderr` in non-interactive modes (exec, oneshot). Remote HTTP servers do not produce subprocess logs (`internal/mcp/server_log.go`; `cmd/steiner/runtime_build.go:115-121`).
 
 ## Output bounds
 
