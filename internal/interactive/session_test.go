@@ -505,7 +505,7 @@ func TestRotateSession(t *testing.T) {
 func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
 			return RunResult{Conversation: conversation}, nil
 		}),
 	})
@@ -528,7 +528,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 	t.Parallel()
 	var called bool
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
 			called = true
 			return RunResult{Conversation: conversation}, nil
 		}),
@@ -544,7 +544,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
 			return RunResult{Conversation: []agent.Message{
 				{Role: agent.MessageRoleUser, Content: "hello"},
 				{Role: agent.MessageRoleAssistant, Content: "hi there"},
@@ -562,7 +562,7 @@ func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 func TestSubmitPromptSkipsConversationUpdateOnWorkflowHandoff(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
 			return RunResult{
 				Conversation: []agent.Message{
 					{Role: agent.MessageRoleUser, Content: "hello"},
@@ -609,7 +609,7 @@ func TestSubmitPromptSavesSessionOnWorkflowHandoff(t *testing.T) {
 	t.Parallel()
 	mockStore := newMockSessionStore()
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
 			return RunResult{
 				Conversation: []agent.Message{
 					{Role: agent.MessageRoleUser, Content: "hello"},
@@ -666,7 +666,7 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
-		Runner: runExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
 			return RunResult{}, fmt.Errorf("run failed")
 		}),
 	})
@@ -698,7 +698,7 @@ func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
 			return RunResult{Conversation: append(conversation, agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"})}, nil
 		}),
 		HistoryWriter: &recordingHistoryWriter{
@@ -740,7 +740,7 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 	block := make(chan struct{})
 	cancelled := false
 	s := testNewSession(t, Dependencies{
-		Runner: runExecutorFunc(func(ctx context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(ctx context.Context, _ []agent.Message, _ []string) (RunResult, error) {
 			close(block)
 			<-ctx.Done()
 			cancelled = true
@@ -796,11 +796,31 @@ func TestClearConversationResetsSkills(t *testing.T) {
 	}
 }
 
-// runExecutorFunc adapts a function to the runExecutor interface.
-type runExecutorFunc func(context.Context, []agent.Message, []string) (RunResult, error)
+// runExecutorFunc adapts a function to the runExecutor interface, optionally
+// recording PromptAssembly calls and returning a caller-supplied assembly.
+type runExecutorFunc struct {
+	run                func(context.Context, []agent.Message, []string) (RunResult, error)
+	assembly           prompt.AssemblyOptions
+	promptAssemblyFn   func([]string, prompt.ModelTokenBudget, config.ModelPrompts) prompt.AssemblyOptions
+	promptAssemblyCall func([]string, prompt.ModelTokenBudget, config.ModelPrompts)
+}
 
-func (f runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, skillNames []string, _ func() []agent.SteerMessage) (RunResult, error) {
-	return f(ctx, conversation, skillNames)
+func newRunExecutorFunc(run func(context.Context, []agent.Message, []string) (RunResult, error)) *runExecutorFunc {
+	return &runExecutorFunc{run: run}
+}
+
+func (f *runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, skillNames []string, _ func() []agent.SteerMessage) (RunResult, error) {
+	return f.run(ctx, conversation, skillNames)
+}
+
+func (f *runExecutorFunc) PromptAssembly(skillNames []string, budget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
+	if f.promptAssemblyCall != nil {
+		f.promptAssemblyCall(skillNames, budget, prompts)
+	}
+	if f.promptAssemblyFn != nil {
+		return f.promptAssemblyFn(skillNames, budget, prompts)
+	}
+	return f.assembly
 }
 
 // recordingHistoryWriter implements historyWriter for testing.
@@ -1197,7 +1217,7 @@ func TestSubmitPromptDoesNotPassSkillsUntilEnabled(t *testing.T) {
 	var gotSkillNames []string
 	s := testNewSession(t, Dependencies{
 		SkillNames: []string{"review"},
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, skillNames []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, skillNames []string) (RunResult, error) {
 			gotSkillNames = append([]string(nil), skillNames...)
 			return RunResult{Conversation: conversation}, nil
 		}),
@@ -1714,7 +1734,7 @@ func TestSubmitPromptWithImages(t *testing.T) {
 			t.Parallel()
 			var got []agent.Message
 			s := testNewSession(t, Dependencies{
-				Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+				Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
 					got = conversation
 					return RunResult{Conversation: conversation}, nil
 				}),
@@ -2860,7 +2880,7 @@ func TestModeNoticeStickinessPlanMode(t *testing.T) {
 				Default: config.ExecutionModePlan,
 			},
 		},
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
 			// Capture the conversation sent by this turn
 			capturedConversations = append(capturedConversations, cloneMessages(conversation))
 			// Return what was sent plus an assistant message (echo pattern)
@@ -2934,7 +2954,7 @@ func TestCacheByteIdentity(t *testing.T) {
 				Default: config.ExecutionModePlan,
 			},
 		},
-		Runner: runExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
 			sentConversations = append(sentConversations, cloneMessages(conversation))
 			// Echo back the conversation plus an assistant message
 			result := append(append([]agent.Message(nil), conversation...), agent.Message{

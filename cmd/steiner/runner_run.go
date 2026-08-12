@@ -134,6 +134,15 @@ func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider
 	return prov, nil
 }
 
+// PromptAssembly returns the assembly options used for a normal turn, with an
+// empty conversation. Manual compaction reuses these options so its request
+// replays the identical cached prefix (system + tools + skills + project
+// context) that a normal turn would use, supplying its own conversation via
+// agent.RunRequest.
+func (r cliRunner) PromptAssembly(skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
+	return r.promptAssembly(nil, skillNames, modelBudget, prompts)
+}
+
 func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
 	return prompt.AssemblyOptions{
 		HomeDir:                   r.runtime.homeDir,

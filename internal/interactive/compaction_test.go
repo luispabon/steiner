@@ -9,10 +9,12 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 )
@@ -307,6 +309,7 @@ func TestManualCompactionUsesDiscoveryResolvedLimits(t *testing.T) {
 			captured = rm
 			return prov, nil
 		},
+		Runner: newRunExecutorFunc(nil),
 	})
 
 	s.SetConversation([]agent.Message{
@@ -377,6 +380,12 @@ func TestManualCompactionPreambleIncludesDelegationAndAdvisorSections(t *testing
 		ProviderFactory: func(provider.ResolvedModel) (provider.Provider, error) {
 			return prov, nil
 		},
+		Runner: &runExecutorFunc{
+			assembly: prompt.AssemblyOptions{
+				DelegationEnabled: true,
+				AdvisorEnabled:    true,
+			},
+		},
 	})
 
 	s.SetConversation([]agent.Message{
@@ -400,6 +409,100 @@ func TestManualCompactionPreambleIncludesDelegationAndAdvisorSections(t *testing
 	}
 	if !strings.Contains(preamble, "## Advisor") {
 		t.Fatalf("compaction preamble missing advisor section:\n%s", preamble)
+	}
+}
+
+func TestManualCompactionUsesRunnerPromptAssemblyWithEnabledSkills(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"id":             "openrouter/test-model",
+					"context_length": 262144,
+					"top_provider": map[string]any{
+						"max_completion_tokens": 8192,
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	skillFS := fstest.MapFS{
+		"tracer-bullet/SKILL.md": &fstest.MapFile{Data: []byte("# Tracer Bullet Skill Marker\n\nDo the thing.\n")},
+	}
+
+	prov := &compactionTestProvider{}
+	var gotSkillNames []string
+	runner := &runExecutorFunc{
+		assembly: prompt.AssemblyOptions{
+			SkillNames:      []string{"tracer-bullet"},
+			SkillsBundledFS: skillFS,
+		},
+		promptAssemblyCall: func(skillNames []string, _ prompt.ModelTokenBudget, _ config.ModelPrompts) {
+			gotSkillNames = append([]string(nil), skillNames...)
+		},
+	}
+
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			Providers: map[string]config.ProviderConfig{
+				"openrouter": {
+					Type:    config.ProviderTypeOpenRouter,
+					BaseURL: srv.URL,
+				},
+			},
+			Models: config.ModelsConfig{
+				Default: "test",
+				Definitions: map[string]config.ModelConfig{
+					"test": {
+						Provider: "openrouter",
+						ID:       "openrouter/test-model",
+					},
+				},
+			},
+		},
+		SkillNames: []string{"tracer-bullet"},
+		HTTPClient: srv.Client(),
+		ProviderFactory: func(provider.ResolvedModel) (provider.Provider, error) {
+			return prov, nil
+		},
+		Runner: runner,
+	})
+	s.Skills().Set("tracer-bullet", true)
+
+	s.SetConversation([]agent.Message{
+		{Role: agent.MessageRoleUser, Content: "first request"},
+		{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		{Role: agent.MessageRoleUser, Content: "second request"},
+		{Role: agent.MessageRoleAssistant, Content: "second answer"},
+	})
+
+	s.manualCompaction(context.Background())
+
+	if got, want := gotSkillNames, []string{"tracer-bullet"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("PromptAssembly skillNames = %v, want %v", got, want)
+	}
+
+	if got, want := len(prov.requests), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	var found bool
+	for _, message := range prov.requests[0].Messages {
+		if strings.Contains(message.Content, "Tracer Bullet Skill Marker") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("compaction request missing skill content from Runner-supplied assembly options: %+v", prov.requests[0].Messages)
 	}
 }
 
@@ -483,6 +586,7 @@ func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.
 		ProviderFactory: func(provider.ResolvedModel) (provider.Provider, error) {
 			return prov, nil
 		},
+		Runner: newRunExecutorFunc(nil),
 	})
 
 	s.mu.Lock()
