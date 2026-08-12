@@ -119,12 +119,18 @@ func (s sidebarState) statusSection(width int) []string {
 	if skill := strings.TrimSpace(s.activeSkill); skill != "" {
 		rows = append(rows, cardFieldAccentN("SKILL", keyW, fgBright, fitText(skill, width-keyW), s.styles))
 	}
-	if mcp := s.mcpRow(); mcp != "" {
+	if spinner, count := s.mcpRow(); count != "" {
 		mcpStyle := fgBright
 		if s.mcpFailed {
 			mcpStyle = s.styles.ErrorStyle
 		}
-		rows = append(rows, cardFieldAccentN("MCP", keyW, mcpStyle, mcp, s.styles))
+		if spinner != "" {
+			row := cardFieldAccentN("MCP", keyW, s.styles.FgMute, spinner+" ", s.styles) +
+				s.styledWithBg(mcpStyle, count)
+			rows = append(rows, row)
+		} else {
+			rows = append(rows, cardFieldAccentN("MCP", keyW, mcpStyle, count, s.styles))
+		}
 	}
 	if len(rows) == 0 {
 		return nil

@@ -253,6 +253,7 @@ func (m *Model) syncSidebar() {
 	}
 	m.sidebar.mcpConnected = 0
 	m.sidebar.mcpTotal = 0
+	m.sidebar.mcpConnecting = false
 	m.sidebar.mcpFailed = false
 	for _, server := range m.mcpServers {
 		if server.State == "disabled" {
@@ -261,6 +262,9 @@ func (m *Model) syncSidebar() {
 		m.sidebar.mcpTotal++
 		if server.State == "connected" {
 			m.sidebar.mcpConnected++
+		}
+		if server.State == "connecting" || server.State == "reconnecting" {
+			m.sidebar.mcpConnecting = true
 		}
 		if server.State == "failed" {
 			m.sidebar.mcpFailed = true
@@ -524,6 +528,7 @@ func (m *Model) needsTicking() bool {
 		m.compaction.Active() ||
 		m.content.HasActiveDelegations() ||
 		m.content.HasActiveCompactions() ||
+		m.sidebar.mcpConnecting ||
 		m.contentDirty
 }
 

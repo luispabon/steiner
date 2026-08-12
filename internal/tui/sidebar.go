@@ -50,6 +50,7 @@ type sidebarState struct {
 	execMode              string // execution mode: "plan" or "build"
 	mcpConnected          int
 	mcpTotal              int
+	mcpConnecting         bool
 	mcpFailed             bool
 }
 
