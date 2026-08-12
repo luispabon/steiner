@@ -190,6 +190,52 @@ func TestNewHandlerEmitsCompleteEventOnProviderError(t *testing.T) {
 	if completed.Error == "" {
 		t.Fatal("completed error = empty, want provider error")
 	}
+	if completed.InputTokens != 0 {
+		t.Fatalf("completed.InputTokens = %d, want 0 on error path", completed.InputTokens)
+	}
+}
+
+func TestNewHandlerPopulatesInputTokensFromUsage(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "Looks good."},
+			Usage: &provider.UsageStats{
+				PromptTokens:             42,
+				CacheReadInputTokens:     100,
+				CacheCreationInputTokens: 5,
+			},
+		},
+	}
+	sink := &toolSink{}
+	handler := NewHandler(HandlerDeps{
+		Provider: prov,
+		Model:    provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Events:   sink,
+		Config:   Config{MaxUsesPerRun: 1},
+	})
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "review this"},
+	})
+
+	if _, err := handler(ctx, nil); err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+
+	completed, ok := sink.events[1].Payload.(output.AdvisorCompleteEvent)
+	if !ok {
+		t.Fatalf("event[1] payload = %T, want AdvisorCompleteEvent", sink.events[1].Payload)
+	}
+	if completed.InputTokens != 42 {
+		t.Fatalf("completed.InputTokens = %d, want 42", completed.InputTokens)
+	}
+	if completed.CacheReadTokens != 100 {
+		t.Fatalf("completed.CacheReadTokens = %d, want 100", completed.CacheReadTokens)
+	}
+	if completed.CacheCreateTokens != 5 {
+		t.Fatalf("completed.CacheCreateTokens = %d, want 5", completed.CacheCreateTokens)
+	}
 }
 
 func TestNewHandlerAppendsMarkerOnMaxTokensTruncation(t *testing.T) {

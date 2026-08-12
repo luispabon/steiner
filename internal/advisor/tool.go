@@ -117,7 +117,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses, in.Question, advisorDisplayPaths(files)))
 	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, in.Question, files, deps.Config.MaxTokens, deps.Events, s.cacheKey)
 	if err != nil {
-		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err, 0, 0))
+		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err, 0, 0, 0))
 		return nil, err
 	}
 
@@ -133,13 +133,14 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 		note = "advisor returned no content"
 	}
 
-	var cacheReadTokens, cacheCreateTokens int
+	var cacheReadTokens, cacheCreateTokens, inputTokens int
 	if response.Usage != nil {
 		cacheReadTokens = response.Usage.CacheReadInputTokens
 		cacheCreateTokens = response.Usage.CacheCreationInputTokens
+		inputTokens = response.Usage.PromptTokens
 	}
 
-	emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, note, truncated, nil, cacheReadTokens, cacheCreateTokens))
+	emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, note, truncated, nil, cacheReadTokens, cacheCreateTokens, inputTokens))
 	return note, nil
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tui/theme"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 func TestAdvisorToolCallSuppression(t *testing.T) {
@@ -346,13 +347,16 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Fatalf("status after start = %q, want active", got)
 	}
 
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0, 0))
 	seg = buffer.segments[0]
 	if got := seg.delegData.status; got != "complete" {
 		t.Fatalf("status after complete = %q, want complete", got)
 	}
 	if got := seg.delegData.output; got != "check tests first" {
 		t.Fatalf("output after complete = %q, want advisor note", got)
+	}
+	if seg.delegData.cacheHitOK {
+		t.Fatal("cacheHitOK = true, want false for a payload with no cache token fields")
 	}
 
 	// After complete, buffer should have 5 segments: advisor box + 3 labeled-block segments + blank margin.
@@ -424,7 +428,7 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 	}
 
 	// Complete with an error.
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", false, errors.New("something went wrong"), 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", false, errors.New("something went wrong"), 0, 0, 0))
 
 	if len(buffer.segments) != 5 {
 		t.Fatalf("segments count after complete with error = %d, want 5 (advisor box + labeled block + blank margin)", len(buffer.segments))
@@ -440,6 +444,9 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 	}
 	if seg.delegData.status != "failed" {
 		t.Errorf("segment[0] delegData.status = %q, want %q", seg.delegData.status, "failed")
+	}
+	if seg.delegData.cacheHitOK {
+		t.Error("segment[0] delegData.cacheHitOK = true, want false on error path")
 	}
 
 	// Index 1: opening separator with label "Advisor output", closing=false.
@@ -514,7 +521,7 @@ func TestAdvisorThinkingChunkRouting(t *testing.T) {
 	}
 
 	// Emit complete with output.
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "Final advice here", false, nil, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "Final advice here", false, nil, 0, 0, 0))
 
 	// Verify the advisor box status is complete.
 	if got := dd.status; got != "complete" {
@@ -541,7 +548,7 @@ func TestRenderAdvisorTrailingMargin(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "check the layout", []string{"internal/tui/content_render_delegation.go"}))
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", false, nil, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", false, nil, 0, 0, 0))
 
 	rendered := stripANSI(buffer.String(80))
 
@@ -4319,5 +4326,34 @@ func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 			strings.Contains(entry.body, "follow-up transcript body") {
 			t.Errorf("original child segment was polluted with follow-up transcript: %q", entry.body)
 		}
+	}
+}
+
+func TestAdvisorCompleteSetsCacheHitRateFromUsage(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        theme.BuildStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 900, 0, 100))
+
+	seg := buffer.segments[0]
+	wantRate, wantOK := usagestats.HitRate(900, 100, 0)
+	if !wantOK {
+		t.Fatal("test setup: usagestats.HitRate() ok = false, want true")
+	}
+	if !seg.delegData.cacheHitOK {
+		t.Fatal("cacheHitOK = false, want true for a payload with cache token fields")
+	}
+	if seg.delegData.cacheHitRate != wantRate {
+		t.Fatalf("cacheHitRate = %v, want %v", seg.delegData.cacheHitRate, wantRate)
+	}
+
+	rendered := stripANSI(buffer.String(80))
+	if !strings.Contains(rendered, "cache 90.0%") {
+		t.Fatalf("rendered box = %q, want it to contain %q", rendered, "cache 90.0%")
 	}
 }

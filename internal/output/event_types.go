@@ -409,6 +409,7 @@ type AdvisorCompleteEvent struct {
 	Truncated         bool   `json:"truncated,omitempty"`
 	CacheReadTokens   int    `json:"cache_read_tokens,omitempty"`
 	CacheCreateTokens int    `json:"cache_create_tokens,omitempty"`
+	InputTokens       int    `json:"input_tokens,omitempty"`
 }
 
 // AdvisorBudgetExhaustedEvent records a skipped advisor call after the per-run
