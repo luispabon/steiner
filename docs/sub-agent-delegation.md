@@ -2,6 +2,8 @@
 
 `steiner` exposes eight sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. When delegation is enabled, the parent's system prompt casts it as the orchestrator: it plans the work, chooses the right specialist for each piece, dispatches it with a complete brief, verifies what comes back, and integrates it — it is not the default implementation worker.
 
+Free-form sessions route work phase-first: the orchestrator classifies the whole task before substantive tool use when it spans investigation, implementation, and verification, then dispatches the first applicable specialist and reassesses at each boundary rather than launching every agent up front. Local work is reserved for genuinely self-contained actions — a single bounded lookup, or a tiny user-directed correction whose exact replacement text is supplied in the request.
+
 `advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. The advisor lives alongside the delegation tools in the main loop, but it is not a child agent.
 
 ---
@@ -37,7 +39,7 @@ The `advisor` tool is a pure reasoning pass for the parent agent. It reads the l
 | Implement a small known change in one package          | `code` — implement if ownership and tests are clear            |
 | Understand how a feature works across multiple files   | `explore` — trace the call chain and report                    |
 | Evaluate two approaches to a design problem            | `evaluate` — analyse tradeoffs and recommend                   |
-| Run broad verification while continuing local work     | `sanity_check` — run checks and summarise exact failures       |
+| Final verification after implementation                 | `sanity_check` — run checks and summarise exact failures       |
 | Review implemented changes before merge                | `review` — examine code for bugs, regressions, missing tests   |
 | Describe or query a pasted image                       | `vision` — the sub-agent receives the image and answers        |
 
