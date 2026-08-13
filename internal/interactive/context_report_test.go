@@ -74,6 +74,8 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 		"| conversation messages |",
 		"| tool result / tool summary blocks |",
 		"| tool definitions |",
+		"## Tool Definitions",
+		"| read |",
 		"## Context Contents",
 		"### preamble",
 		"### global_agents_md",
@@ -94,6 +96,14 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 		if !strings.Contains(report, want) {
 			t.Fatalf("report missing %q\n%s", want, report)
 		}
+	}
+
+	readTokens, err := provider.EstimateToolSpecTokens(context.Background(), snapshot.Model, snapshot.Tools[0])
+	if err != nil {
+		t.Fatalf("EstimateToolSpecTokens() error = %v", err)
+	}
+	if !strings.Contains(report, fmt.Sprintf("| read | %d |", readTokens)) {
+		t.Fatalf("report missing per-tool row %q\n%s", fmt.Sprintf("| read | %d |", readTokens), report)
 	}
 
 	request := provider.ChatRequest{
@@ -186,6 +196,8 @@ func TestBuildContextReportWithMergedMessages(t *testing.T) {
 		"| conversation messages |",
 		"| tool result / tool summary blocks |",
 		"| tool definitions |",
+		"## Tool Definitions",
+		"| read |",
 	} {
 		if !strings.Contains(report, want) {
 			t.Fatalf("report missing %q\n%s", want, report)
@@ -218,5 +230,27 @@ func TestBuildContextReportWithMergedMessages(t *testing.T) {
 	}
 	if convTotal != expectedConvTokens {
 		t.Fatalf("conversation messages total = %d, want %d (sum of user+assistant turns)", convTotal, expectedConvTokens)
+	}
+}
+
+func TestBuildContextReportOmitsToolDefinitionsWhenNoTools(t *testing.T) {
+	snapshot := RequestContextSnapshot{
+		Model: "gpt-4o",
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 128,
+			SafetyMarginTokens:  32,
+		},
+	}
+
+	report, err := BuildContextReport(context.Background(), snapshot)
+	if err != nil {
+		t.Fatalf("BuildContextReport() error = %v", err)
+	}
+	if strings.Contains(report, "## Tool Definitions") {
+		t.Fatalf("report contains Tool Definitions section with no tools\n%s", report)
+	}
+	if !strings.Contains(report, "| tool definitions |") {
+		t.Fatalf("report missing tool definitions category row\n%s", report)
 	}
 }

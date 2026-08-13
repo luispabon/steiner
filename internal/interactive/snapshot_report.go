@@ -78,6 +78,7 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	for _, category := range categories {
 		lines = append(lines, fmt.Sprintf("| %s | %d |", category.Title, category.Total))
 	}
+	lines = appendToolDefinitions(lines, categories)
 	lines = append(lines, "")
 	lines = append(lines, "Compaction threshold: `70%`")
 	lines = append(lines, fmt.Sprintf("Estimator pad: `%d`", budget.SafetyMarginTokens))
@@ -108,4 +109,22 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	}
 
 	return strings.Join(lines, "\n"), nil
+}
+
+// appendToolDefinitions appends a per-tool token breakdown for the
+// "tool definitions" category when it has items; otherwise it appends nothing.
+func appendToolDefinitions(lines []string, categories []contextReportCategory) []string {
+	for _, category := range categories {
+		if category.Title == "tool definitions" && len(category.Items) > 0 {
+			lines = append(lines, "")
+			lines = append(lines, "## Tool Definitions")
+			lines = append(lines, "")
+			lines = append(lines, "| Tool | Tokens |")
+			lines = append(lines, "|------|--------|")
+			for _, item := range category.Items {
+				lines = append(lines, fmt.Sprintf("| %s | %d |", item.Label, item.Tokens))
+			}
+		}
+	}
+	return lines
 }
