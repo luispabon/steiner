@@ -88,6 +88,12 @@ func appendRetryProblems(problems *[]string, path string, retry RetryConfig) {
 	}
 }
 
+func validateTUIConfig(problems *[]string, cfg TUIConfig) {
+	if cfg.FPS < 1 || cfg.FPS > 120 {
+		*problems = append(*problems, "tui.fps must be between 1 and 120")
+	}
+}
+
 func validateSchedulerConfig(problems *[]string, cfg SchedulerConfig) {
 	if cfg.Parallelism < 1 {
 		*problems = append(*problems, "scheduler.parallelism must be at least 1")

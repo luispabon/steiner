@@ -46,6 +46,9 @@ func defaultConfig() Config {
 		Scheduler: SchedulerConfig{
 			Parallelism: 1,
 		},
+		TUI: TUIConfig{
+			FPS: 60,
+		},
 		Providers: map[string]ProviderConfig{
 			"local": defaultProvider,
 		},

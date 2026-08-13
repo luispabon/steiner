@@ -5,6 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 const terminalClearSequence = "\x1b[2J\x1b[H"
@@ -24,6 +26,18 @@ func clearTerminalScreen(w io.Writer) {
 	_, _ = io.WriteString(w, terminalClearSequence)
 }
 
+// interactiveProgramOptions returns the renderer options for the interactive
+// program. The frame rate bounds how long a processed keystroke waits before
+// it is flushed to the terminal, so it is user-visible; it is validated to
+// 1-120 by config validation, and a zero value (config bypassed in tests)
+// falls through to Bubble Tea's own default.
+func interactiveProgramOptions(cfg config.Config) []tea.ProgramOption {
+	if cfg.TUI.FPS < 1 {
+		return nil
+	}
+	return []tea.ProgramOption{tea.WithFPS(cfg.TUI.FPS)}
+}
+
 func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	// Paint the TUI before MCP servers finish connecting; the interactive
 	// session runner waits for every server before the first agent turn.
@@ -41,7 +55,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	wireInteractiveRunner(rt, sess)
 	sess.DisplaySink().Set(tuiApp.EventSink())
 
-	p := tuiApp.NewProgram()
+	p := tuiApp.NewProgram(interactiveProgramOptions(rt.cfg)...)
 	defer tuiApp.Cleanup()
 	if err := resumeInteractiveSession(cmd.Context(), sess, flags.resume, p, cmd.OutOrStdout(), &rt); err != nil {
 		return err

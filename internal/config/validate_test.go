@@ -15,6 +15,7 @@ func validBase() Config {
 	}
 	return Config{
 		Scheduler: SchedulerConfig{Parallelism: 1},
+		TUI:       TUIConfig{FPS: 60},
 		Models: ModelsConfig{
 			Default: "default",
 			Definitions: map[string]ModelConfig{
@@ -967,6 +968,7 @@ func TestSearchConfigValidation(t *testing.T) {
 			}
 			cfg := Config{
 				Scheduler: SchedulerConfig{Parallelism: 1},
+				TUI:       TUIConfig{FPS: 60},
 				Models: ModelsConfig{
 					Default: "default",
 					Definitions: map[string]ModelConfig{
