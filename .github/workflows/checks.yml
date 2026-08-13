@@ -61,6 +61,12 @@ jobs:
         env:
           CGO_ENABLED: 0
 
+      # Allocation ceilings live behind the perfguard build tag so their
+      # benchmark runs stay out of the normal suite. Without this step nothing
+      # would ever run them and a frame-cache regression would land unnoticed.
+      - name: Performance guards
+        run: make test-perf
+
       - name: Vet
         run: make vet
 

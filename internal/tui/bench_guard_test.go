@@ -1,3 +1,9 @@
+//go:build perfguard
+
+// Package-level note: this file is behind the `perfguard` build tag so the
+// benchmarks it runs stay out of `go test ./...`. It costs ~7s, which is
+// several times the rest of the package. Run it with `make test-perf`.
+
 package tui
 
 import "testing"
@@ -8,9 +14,9 @@ import "testing"
 // on this machine (go1.26.5 linux/amd64, 220x60): bytes = ceil(measured*1.15),
 // allocs = ceil(measured*1.2).
 func TestBenchmarkAllocationCeilings(t *testing.T) {
-	if testing.Short() {
-		t.Skip("runs benchmarks")
-	}
+	// The perfguard tag keeps this out of the normal suite; this skip is the
+	// separate foot-gun guard for `go test -tags perfguard -race`, where three
+	// testing.Benchmark runs under race instrumentation take minutes.
 	if raceEnabled {
 		t.Skip("three testing.Benchmark runs under race take minutes")
 	}
@@ -48,6 +54,10 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			res := testing.Benchmark(tc.fn)
+			// Always report, so a passing run shows the measured values
+			// rather than looking like it asserted nothing.
+			t.Logf("%s: %d B/op (ceiling %d), %d allocs/op (ceiling %d)",
+				tc.name, res.AllocedBytesPerOp(), tc.maxBytes, res.AllocsPerOp(), tc.maxAllocs)
 			if res.AllocsPerOp() == 0 || res.AllocedBytesPerOp() == 0 {
 				t.Fatal("benchmark measured no allocations; metrics are not being captured")
 			}
