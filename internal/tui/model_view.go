@@ -110,23 +110,25 @@ func (m *Model) renderViewportView(contentWidth int) string {
 	return viewportView
 }
 
-// visibleViewportContent slices the visible window out of m.viewportLines
-// without re-deriving the full content. setViewportContent guarantees
-// m.viewportLines stays in sync with the viewport's own content.
+// visibleViewportContent slices the visible window out of the scroll model's
+// single line slice without re-deriving the full content. setViewportContent
+// is the only writer of that slice, and the scrollbar's line count derives
+// from it, so the window and the scroll position cannot disagree.
 func (m *Model) visibleViewportContent() string {
 	start := m.viewport.YOffset()
 	height := m.viewport.Height()
 	if start < 0 {
 		start = 0
 	}
+	lines := m.viewport.Lines()
 	end := start + height
-	if end > len(m.viewportLines) {
-		end = len(m.viewportLines)
+	if end > len(lines) {
+		end = len(lines)
 	}
 	if start >= end {
 		return ""
 	}
-	return strings.Join(m.viewportLines[start:end], "\n")
+	return strings.Join(lines[start:end], "\n")
 }
 
 func (m *Model) renderViewportWithScrollbar(viewportInner, scrollbar string) string {

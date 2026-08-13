@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -35,7 +34,7 @@ func renderViewportWithScrollbarOriginal(viewportInner, scrollbar string, viewpo
 func TestRenderViewportWithScrollbar(t *testing.T) {
 	t.Parallel()
 	m := Model{
-		viewport: viewport.New(),
+		viewport: newScrollModel(0, 0),
 		styles:   testStyles(theme.AccentAmber),
 	}
 
@@ -177,11 +176,9 @@ func TestViewportViewCacheBypassedWhenHelpVisible(t *testing.T) {
 func TestViewportViewCacheRefreshedOnScroll(t *testing.T) {
 	t.Parallel()
 	m := &Model{
-		viewport: viewport.New(),
+		viewport: newScrollModel(40, 10),
 		styles:   testStyles(theme.AccentAmber),
 	}
-	m.viewport.SetWidth(40)
-	m.viewport.SetHeight(10)
 	var lines []string
 	for i := 0; i < 40; i++ {
 		lines = append(lines, fmt.Sprintf("content line %d", i))

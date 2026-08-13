@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/textarea"
-
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -89,7 +87,7 @@ const (
 type Model struct {
 	width    int
 	height   int
-	viewport viewport.Model
+	viewport scrollModel
 	input    textarea.Model
 	content  contentBuffer
 	status   statusState
@@ -192,8 +190,6 @@ type Model struct {
 	imageStore                   *agent.ImageStore
 	visionCapabilities           *agent.VisionCapabilities
 	sessionResetCleanup          func()
-
-	viewportLines []string
 
 	// Render caches for width/height-dependent styles.
 	hDividerCacheWidth      int

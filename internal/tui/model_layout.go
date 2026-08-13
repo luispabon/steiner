@@ -61,21 +61,17 @@ func (m *Model) computeInputRows(contentWidth int) (inputRows, activityRows int)
 	return inputRows, activityRows
 }
 
-// setViewportContent is the single choke point for viewport content updates. It
-// keeps m.viewportLines in sync with the viewport's own line slice so that
-// visibleViewportContent can slice the visible window without re-deriving the
-// full content. Do not call m.viewport.SetContent directly.
+// setViewportContent is the single choke point for viewport content updates.
+// The scroll model owns the one line slice visibleViewportContent slices, and
+// vpViewCache invalidation lives here; calling m.viewport.SetContent or
+// m.viewport.SetLines directly would leave vpViewCache stale and serve frames
+// that disagree with the new content. Do not bypass this choke point.
 func (m *Model) setViewportContent(rendered string) {
-	// SetContentLines splits embedded \r\n into extra lines; normalising first
-	// keeps m.viewportLines exactly equal to the viewport's own line slice.
-	if strings.ContainsRune(rendered, '\r') {
-		rendered = strings.ReplaceAll(rendered, "\r\n", "\n")
-	}
 	m.viewport.SetContent(rendered)
-	m.viewportLines = strings.Split(rendered, "\n")
-	// vpViewCache is keyed on scroll position, width and scrollbar presence, none
-	// of which change when only the content does. Invalidating here rather than in
-	// syncViewport keeps the cache tied to the choke point this comment documents.
+	// vpViewCache is keyed on scroll position, width and scrollbar presence,
+	// none of which change when only the content does. Invalidating here
+	// rather than in syncViewport keeps the cache tied to the choke point
+	// this comment documents.
 	m.vpViewCache = ""
 }
 
