@@ -69,6 +69,50 @@ func (a activityState) view(width int, styles *theme.Styles) string {
 	return theme.WithBg(styles.StatusBar.Width(width).Render(text), theme.BgElev)
 }
 
+// activityCacheKey is the render cache key for activityState.view: every
+// field view reads. spinner.Model itself isn't comparable (it embeds a
+// []string Frames slice) and its current frame index is unexported, so the
+// key captures the rendered frame string instead — spinner.View() is a cheap
+// index-and-style-render, far cheaper than the full activity row render it
+// lets us skip.
+type activityCacheKey struct {
+	width        int
+	label        string
+	detail       string
+	spinning     bool
+	spinnerFrame string
+	styles       *theme.Styles
+}
+
+// renderActivityRow memoizes activityState.view, keyed on every field the
+// render reads (see activityCacheKey). As with renderStatus and
+// renderSidebar, the key is built fresh from live state on every call, so
+// any write to label/detail/spinning/spinner frame from any call site is
+// reflected the next time this is called — there is no separate
+// invalidation path to keep in sync.
+func (m *Model) renderActivityRow(contentWidth int) string {
+	frame := ""
+	if m.activity.spinning {
+		frame = m.activity.spinner.View()
+	}
+	key := activityCacheKey{
+		width:        contentWidth,
+		label:        m.activity.label,
+		detail:       m.activity.detail,
+		spinning:     m.activity.spinning,
+		spinnerFrame: frame,
+		styles:       m.styles,
+	}
+	if m.activityViewCacheSet && m.activityViewCacheKey == key {
+		return m.activityViewCacheRendered
+	}
+	rendered := m.activity.view(contentWidth, m.styles)
+	m.activityViewCacheSet = true
+	m.activityViewCacheKey = key
+	m.activityViewCacheRendered = rendered
+	return rendered
+}
+
 func (a activityState) advance() activityState {
 	if !a.spinning {
 		return a

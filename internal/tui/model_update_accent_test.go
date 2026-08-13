@@ -75,7 +75,18 @@ func TestHandleSetAccentMsgRepointsEveryStylesField(t *testing.T) {
 	// contextOverlay is deliberately excluded: it is rebuilt by
 	// openContextOverlay with the current styles every time it opens, so it
 	// holds a stale pointer while closed by design.
-	exempt := map[string]string{"contextOverlay": "rebuilt on open"}
+	// statusViewCacheKey is a snapshot of statusState taken at cache time, not
+	// a live component; its stale styles pointer is exactly what makes the
+	// key comparison in renderStatus correctly miss and re-render after an
+	// accent change, so staleness here is the invalidation mechanism, not a bug.
+	exempt := map[string]string{
+		"contextOverlay":       "rebuilt on open",
+		"statusViewCacheKey":   "cache key snapshot; staleness is the invalidation signal",
+		"activityViewCacheKey": "cache key snapshot; staleness is the invalidation signal",
+	}
+	// sidebarViewCacheKey wraps a sidebarCacheKey struct (not a *theme.Styles
+	// field directly), so the FieldByName("styles") lookup below does not
+	// find it and no exemption is needed for it here.
 
 	v := reflect.ValueOf(m).Elem()
 	checked := 0
