@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -112,5 +114,87 @@ func TestRenderViewportWithScrollbar(t *testing.T) {
 				t.Errorf("output mismatch\nwant: %q\n got: %q", want, got)
 			}
 		})
+	}
+}
+
+// renderViewportView caches the rendered frame keyed on scrollY, contentWidth
+// and hasScrollbar; the cache is cleared by syncViewport and must be bypassed
+// whenever help is visible (the help overlay is composed on top of the cached
+// frame, so serving the cache would show a stale frame without help). These
+// tests would fail if a stale frame were served.
+
+// TestViewportViewCacheServesStoredFrame proves the cache short-circuit is
+// live: when the keys match, the stored string is returned without re-render.
+func TestViewportViewCacheServesStoredFrame(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{Model: "cache-test"}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	contentWidth := m.contentWidth()
+	m.vpViewCache = "SENTINEL-FRAME"
+	m.vpViewCacheScrollY = m.viewport.YOffset()
+	m.vpViewCacheWidth = contentWidth
+	m.vpViewCacheHasScrollbar = m.renderScrollbar() != ""
+
+	if got := m.renderViewportView(contentWidth); got != "SENTINEL-FRAME" {
+		t.Fatalf("renderViewportView = %q, want cached sentinel frame", got)
+	}
+}
+
+// TestViewportViewCacheBypassedWhenHelpVisible is the regression test for the
+// help overlay: toggling helpVisible (the '?' key path) never calls
+// syncViewport, so the only thing preventing a stale frame is the cache-hit
+// guard. With help visible the frame must be re-rendered with the overlay.
+func TestViewportViewCacheBypassedWhenHelpVisible(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{Model: "cache-test"}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.syncViewport()
+
+	contentWidth := m.contentWidth()
+	base := m.renderViewportView(contentWidth)
+	if base == "" {
+		t.Fatal("base frame empty; test setup broken")
+	}
+
+	// Simulate the '?' key handler: help toggles without syncViewport.
+	m.helpVisible = true
+	withHelp := m.renderViewportView(contentWidth)
+	if withHelp == base {
+		t.Fatal("stale viewport frame served when help visible; cache must be bypassed")
+	}
+
+	// Toggling help off again must return the (valid, pre-help) cached frame.
+	m.helpVisible = false
+	if got := m.renderViewportView(contentWidth); got != base {
+		t.Fatal("frame changed after help dismissed; expected the cached pre-help frame")
+	}
+}
+
+// TestViewportViewCacheRefreshedOnScroll proves scrolling invalidates the
+// cached frame via the scrollY key: the frame rendered after scrollUp must
+// show the scrolled content, not the cached top-of-content frame.
+func TestViewportViewCacheRefreshedOnScroll(t *testing.T) {
+	t.Parallel()
+	m := &Model{
+		viewport: viewport.New(),
+		styles:   testStyles(theme.AccentAmber),
+	}
+	m.viewport.SetWidth(40)
+	m.viewport.SetHeight(10)
+	var lines []string
+	for i := 0; i < 40; i++ {
+		lines = append(lines, fmt.Sprintf("content line %d", i))
+	}
+	m.setViewportContent(strings.Join(lines, "\n"))
+
+	base := m.renderViewportView(40)
+	m.scrollDown(3)
+	if m.viewport.YOffset() == 0 {
+		t.Fatal("scrollDown(3) did not move the viewport; test setup broken")
+	}
+	scrolled := m.renderViewportView(40)
+	if scrolled == base {
+		t.Fatal("stale viewport frame served after scroll; scrollY key must invalidate")
 	}
 }

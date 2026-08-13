@@ -79,6 +79,7 @@ func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload outpu
 		b.removeFromPendingDelegateParents(idx)
 		dd.status = "failed"
 		b.segments[idx].renderDirty = true
+		b.gen++
 	}
 	return true
 }
@@ -247,6 +248,7 @@ func (b *contentBuffer) PromoteLastPendingSteer() {
 		if b.segments[i].kind == segmentPendingSteer {
 			b.segments[i].kind = segmentUserMarkdown
 			b.segments[i].renderDirty = true
+			b.gen++
 			return
 		}
 	}
@@ -264,9 +266,17 @@ func (b *contentBuffer) Clear() {
 	b.pendingDelegateParents = nil
 	b.pendingDelegationStarts = nil
 	b.activeAdvisorSegment = 0
-	// Invalidate render cache.
+	// Invalidate render caches.
 	b.stringCacheWidth = 0
 	b.stringCacheRendered = ""
+	b.gen = 0
+	b.prefixCacheSet = false
+	b.prefixCacheRendered = ""
+	b.prefixCacheLastKind = 0
+	b.prefixCacheLen = 0
+	b.prefixCacheWidth = 0
+	b.prefixCacheShowThinking = false
+	b.prefixCacheGen = 0
 }
 
 // ResetAdvisorSegment clears the active advisor segment flag.
@@ -292,6 +302,7 @@ func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 		last.toolData = nil
 		last.kind = segmentToolCallGroup
 		last.renderDirty = true
+		b.gen++
 		return true
 	case segmentToolCallGroup:
 		if last.toolGroupData == nil || last.toolGroupData.tool != tc.tool {
@@ -299,6 +310,7 @@ func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 		}
 		last.toolGroupData.entries = append(last.toolGroupData.entries, tc)
 		last.renderDirty = true
+		b.gen++
 		return true
 	default:
 		return false
@@ -327,6 +339,7 @@ func (b *contentBuffer) applyFinishedToolCallResult(seg *contentSegment, td *too
 		td.bodyKind = inferBodyKind(td.tool, payload.Result)
 	}
 	seg.renderDirty = true
+	b.gen++
 }
 
 func callIDsMatch(existingCallID, payloadCallID string) bool {

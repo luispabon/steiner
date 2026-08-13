@@ -126,7 +126,7 @@ func TestModeSlashCommandDispatch(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("/mode plan")
-	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	actions := ctrl.switchModeActions()
 	if len(actions) != 1 {

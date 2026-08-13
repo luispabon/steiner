@@ -16,7 +16,7 @@ import (
 	"github.com/luispabon/steiner/internal/interactive"
 )
 
-func (m Model) handleKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if shouldIgnoreLeakedMouseRunes(msg, m.recentWheelMouseInput()) {
 		return m, nil
 	}
@@ -38,14 +38,14 @@ func (m Model) handleKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.handleComposerKeyMsg(msg)
 }
 
-func (m Model) recentWheelMouseInput() bool {
+func (m *Model) recentWheelMouseInput() bool {
 	if m.lastWheelMouseAt.IsZero() {
 		return false
 	}
 	return time.Since(m.lastWheelMouseAt) <= 200*time.Millisecond
 }
 
-func (m Model) handleOverlayKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
+func (m *Model) handleOverlayKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 	if !m.hasOpenOverlay() {
 		return false, m, nil
 	}
@@ -53,14 +53,13 @@ func (m Model) handleOverlayKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cm
 		if !handler.matches(m) {
 			continue
 		}
-		next := m
-		cmd := handler.handle(&next, msg)
-		return true, next, cmd
+		cmd := handler.handle(m, msg)
+		return true, m, cmd
 	}
 	return false, m, nil
 }
 
-func (m Model) resetCompletionState(msg tea.KeyPressMsg) Model {
+func (m *Model) resetCompletionState(msg tea.KeyPressMsg) *Model {
 	if msg.Code == tea.KeyTab {
 		return m
 	}
@@ -69,7 +68,7 @@ func (m Model) resetCompletionState(msg tea.KeyPressMsg) Model {
 	return m
 }
 
-func (m Model) hasActiveConversation() bool {
+func (m *Model) hasActiveConversation() bool {
 	return m.content.streamingPhase != "" || m.status.mode == "running" || m.status.mode == "approval"
 }
 
@@ -78,7 +77,7 @@ func isCtrl(msg tea.KeyPressMsg, letter rune) bool {
 	return msg.Mod&tea.ModCtrl != 0 && msg.Code == letter
 }
 
-func (m Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation bool) (bool, tea.Model) {
+func (m *Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation bool) (bool, tea.Model) {
 	if msg.Code == tea.KeyEsc && m.helpVisible {
 		m.helpVisible = false
 		return true, m
@@ -97,7 +96,7 @@ func (m Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation 
 	return false, m
 }
 
-func (m Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
+func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 	// Handle Ctrl-key shortcuts before the switch (msg.Code alone can't match ctrl keys).
 	switch {
 	case isCtrl(msg, 'c') || isCtrl(msg, 'd'):
@@ -150,7 +149,7 @@ func (m Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea
 // handlePasteKey handles Ctrl-V: blocks the paste with an inline notice when
 // the current model can't view images and no vision sub-agent is configured
 // to route them, otherwise proceeds with the normal clipboard paste.
-func (m Model) handlePasteKey() (tea.Model, tea.Cmd) {
+func (m *Model) handlePasteKey() (tea.Model, tea.Cmd) {
 	if m.visionCapabilities != nil &&
 		m.visionCapabilities.Get(m.primaryModel) == agent.VisionIncapable &&
 		!m.visionCapabilities.SubAgentConfigured() {
@@ -163,7 +162,7 @@ func (m Model) handlePasteKey() (tea.Model, tea.Cmd) {
 
 // handleSelectionEscKey clears an active selection when Esc is pressed.
 // Returns false (not consumed) when no selection exists so Esc can fall through.
-func (m Model) handleSelectionEscKey() (bool, tea.Model, tea.Cmd) {
+func (m *Model) handleSelectionEscKey() (bool, tea.Model, tea.Cmd) {
 	if m.selection.hasSelection() {
 		m.selection = m.selection.clear()
 		return true, m, nil
@@ -171,7 +170,7 @@ func (m Model) handleSelectionEscKey() (bool, tea.Model, tea.Cmd) {
 	return false, m, nil
 }
 
-func (m Model) hasOpenOverlay() bool {
+func (m *Model) hasOpenOverlay() bool {
 	return m.modelPicker.IsOpen() ||
 		m.reasoningPicker.IsOpen() ||
 		m.workflowHandoff.IsOpen() ||
@@ -187,7 +186,7 @@ func (m Model) hasOpenOverlay() bool {
 		m.accentPicker.IsOpen()
 }
 
-func (m Model) openContextOverlayImmediate() {
+func (m *Model) openContextOverlayImmediate() {
 	if m.controller == nil {
 		return
 	}
@@ -196,7 +195,7 @@ func (m Model) openContextOverlayImmediate() {
 	}
 }
 
-func (m Model) handleComposerKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleComposerKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.Code == tea.KeyEnter && (!m.approval.active && !key.Matches(msg, m.input.KeyMap.InsertNewline)) {
 		return m.handleEnter()
 	}
@@ -248,7 +247,7 @@ func (m Model) handleComposerKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) tryDeleteMarker(msg tea.KeyPressMsg) (Model, bool) {
+func (m *Model) tryDeleteMarker(msg tea.KeyPressMsg) (*Model, bool) {
 	value := m.input.Value()
 	runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
 
@@ -278,7 +277,7 @@ func (m Model) tryDeleteMarker(msg tea.KeyPressMsg) (Model, bool) {
 	return m, false
 }
 
-func (m Model) applyMarkerPostEdit(msg tea.KeyPressMsg) Model {
+func (m *Model) applyMarkerPostEdit(msg tea.KeyPressMsg) *Model {
 	if msg.Code == tea.KeyLeft || msg.Code == tea.KeyRight {
 		direction := 1
 		if msg.Code == tea.KeyLeft {
@@ -327,7 +326,7 @@ func isEditKey(msg tea.KeyPressMsg) bool {
 	return false
 }
 
-func (m Model) maybeReopenPickers() Model {
+func (m *Model) maybeReopenPickers() *Model {
 	if !m.filePicker.IsOpen() && len(m.filePicker.allEntries) > 0 {
 		if _, _, _, ok := m.activeComposerToken('@'); ok {
 			m.filePicker.OverlayShell = m.filePicker.openShell()
@@ -348,7 +347,7 @@ func (m Model) maybeReopenPickers() Model {
 	return m
 }
 
-func (m Model) handleTabKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleTabKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	current := m.input.Value()
 	if !strings.HasPrefix(current, "/") {
 		var cmd tea.Cmd
@@ -371,7 +370,7 @@ func (m Model) handleTabKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleKeyUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleKeyUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.fileHistoryIdx >= 0 && m.fileHistoryIdx < len(m.fileHistory)-1 {
 		m.fileHistoryIdx++
 		m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
@@ -390,7 +389,7 @@ func (m Model) handleKeyUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) handleKeyDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleKeyDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.fileHistoryIdx > 0 {
 		m.fileHistoryIdx--
 		m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
@@ -408,7 +407,7 @@ func (m Model) handleKeyDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) executeSteerAction() tea.Model {
+func (m *Model) executeSteerAction() tea.Model {
 	text := strings.TrimSpace(m.input.Value())
 	if text == "" {
 		return m

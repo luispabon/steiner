@@ -73,6 +73,7 @@ func (b *contentBuffer) handleScopedDelegationEventAtIndex(idx int, event output
 	handled := b.applyScopedDelegationEvent(seg.delegData, event)
 	if handled {
 		seg.renderDirty = true
+		b.gen++
 	}
 	return handled
 }
@@ -349,6 +350,7 @@ func (b *contentBuffer) markDelegationDirty(idx int) {
 		return
 	}
 	b.segments[idx].renderDirty = true
+	b.gen++
 }
 
 func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallStartedEvent) bool {
@@ -370,6 +372,7 @@ func (b *contentBuffer) bindParentDelegateCall(idx int, payload output.ToolCallS
 		dd.toolLabel = strings.ToLower(strings.TrimSpace(payload.Tool))
 	}
 	seg.renderDirty = true
+	b.gen++
 	return true
 }
 
@@ -541,6 +544,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 			dd.output = payload.Output
 		}
 		b.segments[idx].renderDirty = true
+		b.gen++
 		delete(b.activeDelegations, payload.AgentID)
 		return
 	}
@@ -578,6 +582,7 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 		}
 		b.segments[idx].renderDirty = true
+		b.gen++
 		delete(b.activeDelegations, payload.AgentID)
 		return
 	}
@@ -646,6 +651,7 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 		dd.resultStatus = "failed"
 	}
 	b.segments[idx].renderDirty = true
+	b.gen++
 	b.activeAdvisorSegment = 0
 
 	// Append labeled block with advisor note outside the box.
@@ -695,6 +701,7 @@ func (b *contentBuffer) handleAdvisorThinkingChunk(event output.Event) {
 	dd := b.segments[idx].delegData
 	if b.applyDelegationThinkingChunk(dd, event) {
 		b.segments[idx].renderDirty = true
+		b.gen++
 	}
 }
 
@@ -709,6 +716,7 @@ func (b *contentBuffer) AdvanceDelegationSpinners() {
 				dd.spinnerFrame = (dd.spinnerFrame + 1) % len(spinnerFrames)
 			}
 			b.segments[idx].renderDirty = true
+			b.gen++
 		}
 	}
 }
@@ -718,6 +726,7 @@ func (b *contentBuffer) ToggleLastDelegationOutput() {
 		if b.segments[i].kind == segmentDelegation && b.segments[i].delegData != nil {
 			b.segments[i].delegData.collapsed = !b.segments[i].delegData.collapsed
 			b.segments[i].renderDirty = true
+			b.gen++
 			return
 		}
 	}

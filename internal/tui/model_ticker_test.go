@@ -53,7 +53,7 @@ func TestHandleTickMsgAdvancesSidebarTickCountWhenMCPConnecting(t *testing.T) {
 
 	msg := tickMsg{}
 	updated, _ := m.Update(msg)
-	m2 := updated.(Model)
+	m2 := updated.(*Model)
 
 	// After tick, sidebar tickCount should be advanced
 	if m2.sidebar.tickCount != 1 {

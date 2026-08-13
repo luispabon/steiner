@@ -257,6 +257,23 @@ type contentBuffer struct {
 	// Render cache.
 	stringCacheWidth    int
 	stringCacheRendered string
+
+	// gen is bumped whenever an existing segment is mutated in place (never on
+	// append). It invalidates the settled-prefix cache below so a retroactive
+	// mutation of an already-settled segment cannot serve stale output.
+	gen int
+
+	// Settled-prefix cache: the joined render of segments [0, prefixCacheLen),
+	// reused across dirty frames so streaming only re-walks the changing tail
+	// (preview, spinners, live segments). Keyed on gen (retroactive mutation),
+	// width (rendered segments depend on it), and showThinking (visibility).
+	prefixCacheSet          bool
+	prefixCacheRendered     string
+	prefixCacheLastKind     contentSegmentKind
+	prefixCacheLen          int
+	prefixCacheWidth        int
+	prefixCacheShowThinking bool
+	prefixCacheGen          int
 }
 
 type contentEventHandler func(*contentBuffer, output.Event)

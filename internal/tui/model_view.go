@@ -12,7 +12,7 @@ import (
 )
 
 // View renders the full TUI frame for the current model state.
-func (m Model) View() tea.View {
+func (m *Model) View() tea.View {
 	contentWidth := m.contentWidth()
 	sidebarVisible := m.sidebar.Visible(m.width)
 
@@ -40,7 +40,7 @@ func (m Model) View() tea.View {
 	return v
 }
 
-func (m Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
+func (m *Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
 	mainColumn := m.renderMainColumn(contentWidth)
 	if !sidebarVisible {
 		return mainColumn
@@ -84,6 +84,7 @@ func (m *Model) renderViewportView(contentWidth int) string {
 	hasScrollbar := scrollbar != ""
 
 	if m.vpViewCache != "" &&
+		!m.helpVisible &&
 		m.vpViewCacheScrollY == scrollY &&
 		m.vpViewCacheWidth == contentWidth &&
 		m.vpViewCacheHasScrollbar == hasScrollbar {
@@ -128,7 +129,7 @@ func (m *Model) visibleViewportContent() string {
 	return strings.Join(m.viewportLines[start:end], "\n")
 }
 
-func (m Model) renderViewportWithScrollbar(viewportInner, scrollbar string) string {
+func (m *Model) renderViewportWithScrollbar(viewportInner, scrollbar string) string {
 	var b strings.Builder
 	b.Grow(len(viewportInner) + len(scrollbar) + 64)
 
@@ -184,7 +185,7 @@ func (m Model) renderViewportWithScrollbar(viewportInner, scrollbar string) stri
 	return b.String()
 }
 
-func (m Model) renderOverlayView(base string, contentWidth int) string {
+func (m *Model) renderOverlayView(base string, contentWidth int) string {
 	if m.fileList.IsOpen() {
 		return composeCenteredOverlay(base, m.fileList.View(), m.width, m.height)
 	}
@@ -205,7 +206,7 @@ func (m Model) renderOverlayView(base string, contentWidth int) string {
 	}
 }
 
-func (m Model) hasOpenBottomOverlay() bool {
+func (m *Model) hasOpenBottomOverlay() bool {
 	return m.slashOverlay.IsOpen() || m.filePicker.IsOpen() ||
 		m.sessionPicker.IsOpen() || m.oneshotResumePicker.IsOpen() ||
 		(m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff()) ||
@@ -213,7 +214,7 @@ func (m Model) hasOpenBottomOverlay() bool {
 		m.planPicker.IsOpen() || m.accentPicker.IsOpen()
 }
 
-func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
+func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
 	if !m.hasOpenBottomOverlay() {
 		return base
 	}
@@ -254,7 +255,7 @@ func (m Model) renderBottomAnchoredOverlays(base string, contentWidth int) strin
 	return base
 }
 
-func (m Model) renderActivityRow(contentWidth int) string {
+func (m *Model) renderActivityRow(contentWidth int) string {
 	return m.activity.view(contentWidth, m.styles)
 }
 
@@ -284,7 +285,7 @@ func (m *Model) applyInputStyles() {
 	}
 }
 
-func (m Model) renderInputView(contentWidth int) string {
+func (m *Model) renderInputView(contentWidth int) string {
 	bar := m.styles.UserBar.Render("┃")
 	bodyWidth := max(1, contentWidth-inputRailWidth)
 	innerWidth := m.inputInnerWidth(contentWidth)
@@ -295,7 +296,7 @@ func (m Model) renderInputView(contentWidth int) string {
 	return m.renderNormalInputView(contentWidth, bar, bodyWidth, innerWidth, lines, cursorRow)
 }
 
-func (m Model) renderPlaceholderInputView(bar string, bodyWidth int, lines []string) string {
+func (m *Model) renderPlaceholderInputView(bar string, bodyWidth int, lines []string) string {
 	var sb strings.Builder
 	paddingLine := bar + m.styles.UserBg.Width(bodyWidth).Render("")
 	for range inputPadY {
@@ -314,7 +315,7 @@ func (m Model) renderPlaceholderInputView(bar string, bodyWidth int, lines []str
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, innerWidth int, lines []string, cursorRow int) string {
+func (m *Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, innerWidth int, lines []string, cursorRow int) string {
 	maxVisible := m.maxVisibleInputLines(contentWidth)
 	if len(lines) > maxVisible {
 		start := max(0, cursorRow-maxVisible/2)
@@ -366,7 +367,7 @@ func (m Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, in
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func (m Model) inputChromeHeight(contentWidth int) int {
+func (m *Model) inputChromeHeight(contentWidth int) int {
 	innerWidth := m.inputInnerWidth(contentWidth)
 	lines, isPlaceholder, _ := m.renderInputLines(innerWidth)
 	visibleLines := len(lines)
@@ -376,26 +377,26 @@ func (m Model) inputChromeHeight(contentWidth int) int {
 	return visibleLines + (2 * inputPadY)
 }
 
-func (m Model) bottomChromeHeight(contentWidth int) int {
+func (m *Model) bottomChromeHeight(contentWidth int) int {
 	return 1 + // hDivider
 		m.activityRowHeight(contentWidth) +
 		m.inputChromeHeight(contentWidth) +
 		1 // status bar
 }
 
-func (m Model) activityRowHeight(_ int) int {
+func (m *Model) activityRowHeight(_ int) int {
 	return 1
 }
 
-func (m Model) maxVisibleInputLines(contentWidth int) int {
+func (m *Model) maxVisibleInputLines(contentWidth int) int {
 	return max(1, m.height-4-m.activityRowHeight(contentWidth)-2*inputPadY)
 }
 
-func (m Model) inputInnerWidth(contentWidth int) int {
+func (m *Model) inputInnerWidth(contentWidth int) int {
 	return max(1, contentWidth-inputRailWidth-(inputPadX*2)-inputTailFill)
 }
 
-func (m Model) renderInputLines(innerWidth int) ([]string, bool, int) {
+func (m *Model) renderInputLines(innerWidth int) ([]string, bool, int) {
 	if m.input.Value() != "" {
 		lines, cursorRow := m.renderTypedInputLines(innerWidth)
 		return lines, false, cursorRow
@@ -403,7 +404,7 @@ func (m Model) renderInputLines(innerWidth int) ([]string, bool, int) {
 	return renderPlaceholderLines(m.input.Placeholder, innerWidth), true, 0
 }
 
-func (m Model) renderTypedInputLines(width int) ([]string, int) {
+func (m *Model) renderTypedInputLines(width int) ([]string, int) {
 	if width < 1 {
 		width = 1
 	}

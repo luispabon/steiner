@@ -16,7 +16,7 @@ func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 	ch := make(chan agent.SteerMessage, 4)
 	ch <- agent.SteerMessage{Text: "test"}
 
-	m := Model{
+	m := &Model{
 		oneshotRunning: true,
 		oneshotPhase:   "plan",
 		oneshotSteerCh: ch,
@@ -47,7 +47,7 @@ func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 func TestApplyEventConfigWarningAppendsWithoutTouchingSandbox(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
-	m := Model{
+	m := &Model{
 		styles: styles,
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
@@ -93,7 +93,7 @@ func TestConfigureModelStateSeedsConfigWarnings(t *testing.T) {
 
 func TestApplyEventModeChangedUpdatesStateAndTranscript(t *testing.T) {
 	t.Parallel()
-	m := Model{
+	m := &Model{
 		mode: "build",
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
@@ -272,7 +272,7 @@ func TestRandomAccentResolves(t *testing.T) {
 
 	msg := setAccentMsg{preset: "random"}
 	next, _ := m.handleSetAccentMsg(msg)
-	m = next.(Model)
+	m = next.(*Model)
 
 	if got := m.accentPreset; got != "random" {
 		t.Errorf("accentPreset = %q, want random (persisted)", got)

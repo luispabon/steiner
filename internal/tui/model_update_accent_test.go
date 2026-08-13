@@ -77,7 +77,7 @@ func TestHandleSetAccentMsgRepointsEveryStylesField(t *testing.T) {
 	// holds a stale pointer while closed by design.
 	exempt := map[string]string{"contextOverlay": "rebuilt on open"}
 
-	v := reflect.ValueOf(m)
+	v := reflect.ValueOf(m).Elem()
 	checked := 0
 	for i := range v.NumField() {
 		name := v.Type().Field(i).Name

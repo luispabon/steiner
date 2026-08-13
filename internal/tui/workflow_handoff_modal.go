@@ -143,7 +143,7 @@ func (m *Model) renderWorkflowHandoffModal() string {
 	return s.RenderWithBg(m.styles.PaletteOverlay, content, theme.BgElev)
 }
 
-func (m Model) renderWorkflowHandoffActionRow(contentWidth int, acceptButton string, changeModelButton string, dismissButton string) string {
+func (m *Model) renderWorkflowHandoffActionRow(contentWidth int, acceptButton string, changeModelButton string, dismissButton string) string {
 	row := lipgloss.JoinHorizontal(lipgloss.Top, acceptButton, "  ", changeModelButton, "  ", dismissButton)
 	return lipgloss.NewStyle().Width(contentWidth).Render(row)
 }
@@ -174,7 +174,7 @@ func (s workflowHandoffModalState) planningFolderLine() string {
 	return label + " " + s.target
 }
 
-func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleWorkflowHandoffModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case tea.KeyLeft, tea.KeyUp:
 		m.workflowHandoff = m.workflowHandoff.moveSelection(-1)
@@ -194,7 +194,7 @@ func (m Model) handleWorkflowHandoffModalKey(msg tea.KeyPressMsg) (tea.Model, te
 	return m, nil
 }
 
-func (m Model) openWorkflowHandoffModelPicker() Model {
+func (m *Model) openWorkflowHandoffModelPicker() *Model {
 	title := m.workflowHandoff.modelPickerTitle()
 	m.modelPicker = m.modelPicker.OpenForWorkflowHandoff(title, m.modelNames, m.workflowHandoff.modelAlias)
 	m.modelPicker.width = m.width
@@ -202,7 +202,7 @@ func (m Model) openWorkflowHandoffModelPicker() Model {
 	return m
 }
 
-func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
+func (m *Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	next := strings.TrimSpace(m.workflowHandoff.next)
 	target := strings.TrimSpace(m.workflowHandoff.target)
 	submission := strings.TrimSpace(m.workflowHandoff.submission)
@@ -228,7 +228,7 @@ func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	m.suppressWorkflowHandoffRun = true
 	m.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, submission: submission}
 	nextModel, cmd := m.clearConversationState()
-	if cleared, ok := nextModel.(Model); ok {
+	if cleared, ok := nextModel.(*Model); ok {
 		cleared.suppressWorkflowHandoffRun = true
 		cleared.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, submission: submission}
 		cleared.workflowHandoff = cleared.workflowHandoff.close()
@@ -246,7 +246,7 @@ func (m Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	return nextModel, cmd
 }
 
-func (m Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {
+func (m *Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitWorkflowHandoff{Decision: "dismiss"}); err != nil {
 			m.content.AppendLine("status: " + err.Error())
@@ -257,7 +257,7 @@ func (m Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) launchWorkflowHandoff(next, target, submission string) (tea.Model, tea.Cmd) {
+func (m *Model) launchWorkflowHandoff(next, target, submission string) (tea.Model, tea.Cmd) {
 	if submission != "" {
 		return m.executeSubmitAction(submission, submission, submission)
 	}

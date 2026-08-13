@@ -1462,7 +1462,7 @@ func TestLogicalLineBounds(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // buildTestModel creates a minimal Model for region detection tests.
-func buildTestModel(width, height int, sidebarVisible, sidebarRight bool) Model {
+func buildTestModel(width, height int, sidebarVisible, sidebarRight bool) *Model {
 	vp := viewport.New()
 	vp.SetWidth(width - 6)
 	vp.SetHeight(max(1, height-5))
@@ -1479,7 +1479,7 @@ func buildTestModel(width, height int, sidebarVisible, sidebarRight bool) Model 
 	if sidebarRight {
 		m.sidebarPosition = "right"
 	}
-	return m
+	return &m
 }
 
 func TestDetectRegion(t *testing.T) {

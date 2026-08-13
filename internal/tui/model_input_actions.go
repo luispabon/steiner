@@ -15,7 +15,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func (m Model) executeInterruptAction() Model {
+func (m *Model) executeInterruptAction() *Model {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.InterruptActiveRun{}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
@@ -37,11 +37,11 @@ func (m Model) executeInterruptAction() Model {
 	return m
 }
 
-func (m Model) executeClearAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeClearAction() (tea.Model, tea.Cmd) {
 	return m.clearConversationState()
 }
 
-func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeCompactAction() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.TriggerManualCompaction{}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
@@ -54,7 +54,7 @@ func (m Model) executeCompactAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.RequestConfigReport{}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
@@ -67,7 +67,7 @@ func (m Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
 	names := append([]string(nil), m.skillNames...)
 	slices.Sort(names)
 	if len(names) == 0 {
@@ -82,7 +82,7 @@ func (m Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeToggleSkillAction(skill string, enable bool) (tea.Model, tea.Cmd) {
+func (m *Model) executeToggleSkillAction(skill string, enable bool) (tea.Model, tea.Cmd) {
 	m = m.updateSkillState(skill, enable)
 	m.input.Reset()
 	m.historyIdx = 0
@@ -92,7 +92,7 @@ func (m Model) executeToggleSkillAction(skill string, enable bool) (tea.Model, t
 	return m, nil
 }
 
-func (m Model) executeOpenModelPickerAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeOpenModelPickerAction() (tea.Model, tea.Cmd) {
 	m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
 	m.modelPicker.width = m.width
 	m.modelPicker.height = m.height
@@ -102,7 +102,7 @@ func (m Model) executeOpenModelPickerAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeListFilesAction(path string) (tea.Model, tea.Cmd) {
+func (m *Model) executeListFilesAction(path string) (tea.Model, tea.Cmd) {
 	root := path
 	if root == "" {
 		root = m.sidebar.workingDir
@@ -114,7 +114,7 @@ func (m Model) executeListFilesAction(path string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeShowMCPAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeShowMCPAction() (tea.Model, tea.Cmd) {
 	m.mcpOverlay = m.mcpOverlay.Open(m.mcpServers, m.mcpEnabled)
 	m.mcpOverlay.OverlayShell = m.mcpOverlay.WithDimensions(m.width, m.height)
 	m.input.Reset()
@@ -122,13 +122,13 @@ func (m Model) executeShowMCPAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
 	return m, func() tea.Msg { return toggleThinkingMsg{} }
 }
 
-func (m Model) executeOpenAccentPickerAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeOpenAccentPickerAction() (tea.Model, tea.Cmd) {
 	m.accentPicker = m.accentPicker.Open(m.accentPreset)
 	m.accentPicker.width = m.width
 	m.accentPicker.height = m.height
@@ -138,7 +138,7 @@ func (m Model) executeOpenAccentPickerAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
+func (m *Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
 	return m, func() tea.Msg { return setAccentMsg{preset: preset} }
@@ -148,7 +148,7 @@ func (m Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 // session-time reasoning override. reasoning is nil when the switch carries
 // no reasoning selection, leaving any previously stored override for
 // modelName untouched.
-func (m Model) executeModelAction(modelName string, reasoning *provider.ReasoningOverride) (tea.Model, tea.Cmd) {
+func (m *Model) executeModelAction(modelName string, reasoning *provider.ReasoningOverride) (tea.Model, tea.Cmd) {
 	providerBaseURL := m.sidebar.provider
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName, Reasoning: reasoning}); err != nil {
@@ -175,7 +175,7 @@ func (m Model) executeModelAction(modelName string, reasoning *provider.Reasonin
 	return m, nil
 }
 
-func (m Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
 	if m.sessionStore == nil {
 		m.content.AppendLine("status: no session store configured")
 		m.input.Reset()
@@ -199,7 +199,7 @@ func (m Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
 	if m.controller == nil {
 		m.content.AppendLine("status: controller not available")
 		m.input.Reset()
@@ -239,7 +239,7 @@ func (m Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	// Check if there are any segments/messages in the conversation
 	if len(m.content.segments) == 0 {
 		m.content.AppendLine("status: no conversation to fork")
@@ -267,7 +267,7 @@ func (m Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeSubmitAction(value string, submitText string, displayText string) (tea.Model, tea.Cmd) {
+func (m *Model) executeSubmitAction(value string, submitText string, displayText string) (tea.Model, tea.Cmd) {
 	if value != "" {
 		m.inputHistory = append([]string{value}, m.inputHistory...)
 		m.historyIdx = 0
@@ -293,7 +293,7 @@ func (m Model) executeSubmitAction(value string, submitText string, displayText 
 	return m, nil
 }
 
-func (m Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.Cmd) {
+func (m *Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.Cmd) {
 	m = m.updateSkillState(skillName, true)
 	m.syncSidebar()
 
@@ -352,7 +352,7 @@ func runOrchestratorAndReport(sink output.EventSink, runID, failureLabel string,
 // prepareOneshotRun applies the guard checks and steer-channel setup shared
 // by launch and resume. ok is false when a guard failed and m already
 // carries the corresponding status message and reset input.
-func (m Model) prepareOneshotRun() (Model, bool) {
+func (m *Model) prepareOneshotRun() (*Model, bool) {
 	if m.oneshotRunnerFactory == nil {
 		m.content.AppendLine("status: oneshot runner factory not configured")
 		m.input.Reset()
@@ -377,7 +377,7 @@ func (m Model) prepareOneshotRun() (Model, bool) {
 	return m, true
 }
 
-func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
+func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	m, ok := m.prepareOneshotRun()
 	if !ok {
 		return m, nil
@@ -443,7 +443,7 @@ func (m Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
+func (m *Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 	m, ok := m.prepareOneshotRun()
 	if !ok {
 		return m, nil

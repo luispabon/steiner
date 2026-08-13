@@ -430,7 +430,7 @@ func newReasoningLabels(efforts map[string]string, caps map[string]provider.Reas
 // modelReasoningResolvedMsg arrives, so the reasoning picker step is not
 // silently skipped for a model that does support configurable effort. Once
 // the batch resolution completes, this is a no-op.
-func (m Model) resolveReasoningForAliasIfPending(alias string) Model {
+func (m *Model) resolveReasoningForAliasIfPending(alias string) *Model {
 	if m.reasoningBatchResolved || m.resolveReasoningForAliasFunc == nil {
 		return m
 	}

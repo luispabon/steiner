@@ -172,7 +172,7 @@ func snapCursorPastMarkers(value string, runeOffset int, _ []imageMarker, direct
 	return runeOffset
 }
 
-func (m Model) pendingImageBlocks() []agent.ImageBlock {
+func (m *Model) pendingImageBlocks() []agent.ImageBlock {
 	return pendingImageBlocks(m.imageMarkers)
 }
 
@@ -198,7 +198,7 @@ func (m *Model) restoreCursorFromRuneOffset(value string, targetRuneOff int) {
 	m.input.SetValue(value)
 }
 
-func (m Model) cursorCol() int {
+func (m *Model) cursorCol() int {
 	li := m.input.LineInfo()
 	return li.StartColumn + li.ColumnOffset
 }

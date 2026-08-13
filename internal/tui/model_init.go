@@ -34,7 +34,7 @@ func resolveAccentPreset(preset string, randIntn func(int) int) string {
 	return theme.AccentPresets[preset]
 }
 
-func newModel(cfg Config, external <-chan tea.Msg) Model {
+func newModel(cfg Config, external <-chan tea.Msg) *Model {
 	input := newModelInput()
 	enabledSkills := make(map[string]bool, len(cfg.SkillNames))
 	for _, name := range cfg.SkillNames {
@@ -98,7 +98,7 @@ func newModel(cfg Config, external <-chan tea.Msg) Model {
 	m.reasoningBatchResolved = cfg.ResolveReasoningFunc == nil
 	m.notifier = cfg.Notifier
 	m.configureModelState(cfg, accentHex)
-	return m
+	return &m
 }
 
 func newModelInput() textarea.Model {
@@ -116,16 +116,16 @@ func newModelInput() textarea.Model {
 }
 
 type overlayKeyHandler interface {
-	matches(Model) bool
+	matches(*Model) bool
 	handle(*Model, tea.KeyPressMsg) tea.Cmd
 }
 
 type overlayKeyHandlerFunc struct {
-	match func(Model) bool
+	match func(*Model) bool
 	apply func(*Model, tea.KeyPressMsg) tea.Cmd
 }
 
-func (h overlayKeyHandlerFunc) matches(m Model) bool {
+func (h overlayKeyHandlerFunc) matches(m *Model) bool {
 	return h.match(m)
 }
 
@@ -135,39 +135,35 @@ func (h overlayKeyHandlerFunc) handle(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 
 var overlayKeyHandlers = []overlayKeyHandler{
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.modelPicker.IsOpen() && m.modelPicker.IsWorkflowHandoff() },
+		match: func(m *Model) bool { return m.modelPicker.IsOpen() && m.modelPicker.IsWorkflowHandoff() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handleModelPickerKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handleModelPickerKey(msg)
 			return cmd
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.workflowHandoff.IsOpen() },
+		match: func(m *Model) bool { return m.workflowHandoff.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handleWorkflowHandoffModalKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handleWorkflowHandoffModalKey(msg)
 			return cmd
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.exitModal.IsOpen() },
+		match: func(m *Model) bool { return m.exitModal.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handleExitModalKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handleExitModalKey(msg)
 			return cmd
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.slashOverlay.IsOpen() },
+		match: func(m *Model) bool { return m.slashOverlay.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handleSlashOverlayKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handleSlashOverlayKey(msg)
 			return cmd
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.fileList.IsOpen() },
+		match: func(m *Model) bool { return m.fileList.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			var cmd tea.Cmd
 			m.fileList, cmd = m.fileList.Update(msg)
@@ -175,7 +171,7 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.mcpOverlay.IsOpen() },
+		match: func(m *Model) bool { return m.mcpOverlay.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			var cmd tea.Cmd
 			m.mcpOverlay, cmd = m.mcpOverlay.Update(msg)
@@ -183,66 +179,58 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.contextOverlay.IsOpen() },
+		match: func(m *Model) bool { return m.contextOverlay.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next := m.handleContextOverlayKey(msg)
-			*m = next.(Model)
+			_ = m.handleContextOverlayKey(msg)
 			return nil
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.filePicker.IsOpen() },
+		match: func(m *Model) bool { return m.filePicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handleFilePickerKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handleFilePickerKey(msg)
 			return cmd
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.sessionPicker.IsOpen() },
+		match: func(m *Model) bool { return m.sessionPicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handleSessionPickerKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handleSessionPickerKey(msg)
 			return cmd
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.oneshotResumePicker.IsOpen() },
+		match: func(m *Model) bool { return m.oneshotResumePicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handleOneshotResumePickerKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handleOneshotResumePickerKey(msg)
 			return cmd
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.planPicker.IsOpen() },
+		match: func(m *Model) bool { return m.planPicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handlePlanPickerKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handlePlanPickerKey(msg)
 			return cmd
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.accentPicker.IsOpen() },
+		match: func(m *Model) bool { return m.accentPicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handleAccentPickerKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handleAccentPickerKey(msg)
 			return cmd
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.modelPicker.IsOpen() },
+		match: func(m *Model) bool { return m.modelPicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handleModelPickerKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handleModelPickerKey(msg)
 			return cmd
 		},
 	},
 	overlayKeyHandlerFunc{
-		match: func(m Model) bool { return m.reasoningPicker.IsOpen() },
+		match: func(m *Model) bool { return m.reasoningPicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			next, cmd := m.handleReasoningPickerKey(msg)
-			*m = next.(Model)
+			_, cmd := m.handleReasoningPickerKey(msg)
 			return cmd
 		},
 	},
@@ -379,7 +367,7 @@ func tickCmd() tea.Cmd {
 }
 
 // Init implements tea.Model.
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.input.Focus(), tickCmd()}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))

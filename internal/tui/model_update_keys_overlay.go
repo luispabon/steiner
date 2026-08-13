@@ -12,7 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func (m Model) handleExitModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleExitModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case tea.KeyLeft, tea.KeyUp:
 		m.exitModal = m.exitModal.moveSelection(-1)
@@ -29,7 +29,7 @@ func (m Model) handleExitModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleContextOverlayKey(msg tea.KeyPressMsg) tea.Model {
+func (m *Model) handleContextOverlayKey(msg tea.KeyPressMsg) tea.Model {
 	switch msg.Code {
 	case tea.KeyEsc:
 		m.contextOverlay = m.contextOverlay.closeContextOverlay()
@@ -45,7 +45,7 @@ func (m Model) handleContextOverlayKey(msg tea.KeyPressMsg) tea.Model {
 	return m
 }
 
-func (m Model) handleFilePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleFilePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case tea.KeyEsc:
 		m.replaceComposerToken('@', "")
@@ -69,7 +69,7 @@ func (m Model) handleFilePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleSessionPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleSessionPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case tea.KeyEsc:
 		m.sessionPicker = m.sessionPicker.Close()
@@ -106,17 +106,17 @@ func (m Model) handleSessionPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 // currently selected candidate. selected is false when there is no
 // candidate selection, in which case the caller should fall through
 // without modifying m.
-func (m Model) dispatchSelectedSessionAction(makeAction func(sessionID string) interactive.Action) (Model, tea.Cmd, bool) {
-	if m.sessionPicker.selection < 0 || len(m.sessionPicker.candidates) == 0 {
+func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) interactive.Action) (*Model, tea.Cmd, bool) {
+	// Every early return must leave the model untouched: the receiver is a
+	// pointer, so a mutation before a false return would persist in the caller
+	// even though the caller treats false as "nothing happened".
+	if m.sessionPicker.selection < 0 || len(m.sessionPicker.candidates) == 0 || m.controller == nil {
 		return m, nil, false
 	}
 	selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 	m.sessionPicker = m.sessionPicker.Close()
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
-	}
-	if m.controller == nil {
-		return m, nil, false
 	}
 	ctrl := m.controller
 	action := makeAction(selected.ID)
@@ -126,7 +126,7 @@ func (m Model) dispatchSelectedSessionAction(makeAction func(sessionID string) i
 	}, true
 }
 
-func (m Model) handleOneshotResumePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleOneshotResumePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case tea.KeyEsc:
 		m.oneshotResumePicker = m.oneshotResumePicker.Close()
@@ -143,7 +143,7 @@ func (m Model) handleOneshotResumePickerKey(msg tea.KeyPressMsg) (tea.Model, tea
 	return m, nil
 }
 
-func (m Model) handlePlanPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handlePlanPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case tea.KeyEsc:
 		m.planPicker = m.planPicker.Close()
@@ -161,7 +161,7 @@ func (m Model) handlePlanPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleAccentPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleAccentPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case tea.KeyEsc:
 		m.accentPicker = m.accentPicker.Close()
@@ -182,7 +182,8 @@ func (m Model) handleAccentPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+//nolint:unparam // tea.Model result is unused: handlers mutate the receiver in place and the overlay dispatcher keeps its own *Model.
+func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case tea.KeyEsc:
 		m.modelPicker = m.modelPicker.Close()
@@ -222,7 +223,7 @@ func (m Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleReasoningPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleReasoningPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case tea.KeyEsc:
 		modelName := m.reasoningPicker.modelName
@@ -259,7 +260,7 @@ type reasoningOverrideProvider interface {
 // session only tracks the override for the active alias without an
 // arbitrary-alias getter, so other aliases report the zero value (no
 // override).
-func (m Model) currentReasoningOverrideFor(modelName string) provider.ReasoningOverride {
+func (m *Model) currentReasoningOverrideFor(modelName string) provider.ReasoningOverride {
 	if m.controller == nil || modelName != m.currentModelAlias {
 		return provider.ReasoningOverride{}
 	}
@@ -279,7 +280,7 @@ func reasoningOverrideFromOption(opt reasoningEffortOption) provider.ReasoningOv
 	return provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: opt.Value}
 }
 
-func (m Model) handleSlashOverlayKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleSlashOverlayKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.Code == tea.KeySpace {
 		msg = tea.KeyPressMsg{Text: " "}
 	}
@@ -307,7 +308,7 @@ func (m Model) handleSlashOverlayKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) completeSlashOverlayCommand(command string) Model {
+func (m *Model) completeSlashOverlayCommand(command string) *Model {
 	m.replaceComposerToken('/', command+" ")
 	m.slashOverlay = m.slashOverlay.Close()
 	switch command {
@@ -323,7 +324,7 @@ func (m Model) completeSlashOverlayCommand(command string) Model {
 	return m
 }
 
-func (m Model) openPickerForCompletedSlashCommand(value string) (Model, bool) {
+func (m *Model) openPickerForCompletedSlashCommand(value string) (*Model, bool) {
 	if !strings.HasSuffix(value, " ") {
 		return m, false
 	}
@@ -345,7 +346,7 @@ func (m Model) openPickerForCompletedSlashCommand(value string) (Model, bool) {
 	return m, false
 }
 
-func (m Model) openModelPickerFromSlashCommand() Model {
+func (m *Model) openModelPickerFromSlashCommand() *Model {
 	m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
 	m.modelPicker.width = m.width
 	m.modelPicker.height = m.height
@@ -353,7 +354,7 @@ func (m Model) openModelPickerFromSlashCommand() Model {
 	return m
 }
 
-func (m Model) openAccentPickerFromSlashCommand() Model {
+func (m *Model) openAccentPickerFromSlashCommand() *Model {
 	m.accentPicker = m.accentPicker.Open(m.accentPreset)
 	m.accentPicker.width = m.width
 	m.accentPicker.height = m.height
@@ -396,7 +397,7 @@ func (m *Model) replaceComposerToken(prefix rune, replacement string) {
 	m.input.CursorEnd()
 }
 
-func (m Model) activeComposerToken(prefix rune) (string, int, int, bool) {
+func (m *Model) activeComposerToken(prefix rune) (string, int, int, bool) {
 	value := m.input.Value()
 	cursor := composerCursorOffset(m.input)
 	return composerTokenAtCursor(value, cursor, prefix)

@@ -5,19 +5,19 @@ import (
 	"unsafe"
 )
 
-// modelSizeThreshold bounds the memory Bubble Tea copies by value on every
-// rendered frame and every dispatched event, since Model.View and
-// Model.Update are value receivers. Large by-value fields (especially
-// theme.Styles, previously embedded by value in ~15 sub-components) must be
-// shared by pointer instead of re-embedded, or every frame pays for a fresh
-// copy of the whole struct.
+// modelSizeThreshold bounds the Model struct size. Model.View and Model.Update
+// use pointer receivers, so the struct is no longer copied on every rendered
+// frame and every dispatched event, but large by-value fields (especially
+// theme.Styles, previously embedded by value in ~15 sub-components) must still
+// be shared by pointer instead of re-embedded: any remaining by-value copy
+// (test helpers, Bubble Tea internals) would pay for the whole struct.
 const modelSizeThreshold = 65536
 
 func TestModelSizeStaysBounded(t *testing.T) {
 	size := unsafe.Sizeof(Model{})
 	if size >= modelSizeThreshold {
-		t.Errorf("unsafe.Sizeof(Model{}) = %d, want < %d; Model is copied by value on every "+
-			"frame and every event (Model.View/Model.Update are value receivers), so large "+
+		t.Errorf("unsafe.Sizeof(Model{}) = %d, want < %d; Model is copied by value whenever a "+
+			"by-value copy happens (test helpers, value returns), so large "+
 			"by-value fields must not be re-embedded — share them by pointer instead "+
 			"(e.g. theme.Styles as *theme.Styles)", size, modelSizeThreshold)
 	}
