@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/textarea"
-	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -1463,9 +1462,7 @@ func TestLogicalLineBounds(t *testing.T) {
 
 // buildTestModel creates a minimal Model for region detection tests.
 func buildTestModel(width, height int, sidebarVisible, sidebarRight bool) *Model {
-	vp := viewport.New()
-	vp.SetWidth(width - 6)
-	vp.SetHeight(max(1, height-5))
+	vp := newScrollModel(width-6, max(1, height-5))
 
 	s := testStyles(theme.AccentAmber)
 	m := Model{
@@ -2162,7 +2159,7 @@ func TestClampToRegionScrollbar(t *testing.T) {
 	for i := range lines {
 		lines[i] = "line"
 	}
-	m.viewport.SetContentLines(lines)
+	m.viewport.SetLines(lines)
 	gotX, _ = m.clampToRegion(99, 15, regionViewport)
 	if gotX != 96 {
 		t.Errorf("with scrollbar: clampToRegion x = %d; want 96", gotX)

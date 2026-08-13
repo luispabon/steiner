@@ -8,14 +8,16 @@ import (
 )
 
 // TestViewportSetContentChokePoint enforces that setViewportContent is the only
-// call site for the viewport's content setters. Bypassing it lets m.viewportLines
-// drift out of sync with the viewport's own content, which visibleViewportContent
-// relies on to avoid re-deriving the full rendered conversation on every frame.
+// call site for the scroll model's content setters. The scroll model owns the
+// single line slice the renderer slices, and vpViewCache invalidation lives in
+// setViewportContent, so a direct m.viewport.SetContent or m.viewport.SetLines
+// call would leave the cache stale and serve frames that disagree with the
+// content.
 //
-// SetContentLines is policed alongside SetContent: it writes the viewport's line
-// slice just as directly, so it desyncs m.viewportLines the same way. Its one
-// existing use (selection_test.go) only needs the viewport's line count to force
-// a scrollbar and never renders content, so it is listed as a known exception.
+// SetLines is policed alongside SetContent: it writes the scroll model's line
+// slice just as directly. Its one existing use (selection_test.go) only needs
+// the line count to force a scrollbar and never renders content, so it is
+// listed as a known exception.
 func TestViewportSetContentChokePoint(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -23,7 +25,7 @@ func TestViewportSetContentChokePoint(t *testing.T) {
 	}
 
 	// Built by concatenation so this file does not match its own needles.
-	needles := []string{".viewport." + "SetContent(", ".viewport." + "SetContentLines("}
+	needles := []string{".viewport." + "SetContent(", ".viewport." + "SetLines("}
 	const allowedFile = "model_layout.go"
 	exempt := map[string]string{
 		"viewport_content_choke_point_test.go": "defines the needles",
@@ -54,7 +56,7 @@ func TestViewportSetContentChokePoint(t *testing.T) {
 				matchedAllowed++
 				continue
 			}
-			t.Errorf("%s calls m%s directly; use m.setViewportContent (defined in %s) instead so m.viewportLines stays in sync", path, needle, allowedFile)
+			t.Errorf("%s calls m%s directly; use m.setViewportContent (defined in %s) instead so vpViewCache stays in sync", path, needle, allowedFile)
 		}
 	}
 

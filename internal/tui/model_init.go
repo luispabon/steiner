@@ -10,7 +10,6 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -50,7 +49,7 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 	m := Model{
 		width:    80,
 		height:   24,
-		viewport: viewport.New(viewport.WithWidth(80), viewport.WithHeight(22)),
+		viewport: newScrollModel(80, 22),
 		input:    input,
 		sidebar:  newSidebarState(),
 		git:      newGitState(cfg.WorkingDir),

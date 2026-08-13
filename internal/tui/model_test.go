@@ -2028,7 +2028,7 @@ func TestContextDiagnosticsHiddenByDefault(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 200, "ok", false)})
 	m.syncViewport()
 
-	got := m.viewport.View()
+	got := m.visibleViewportContent()
 	if strings.Contains(got, "context info:") || strings.Contains(got, "prompt_tokens=") {
 		t.Fatalf("viewport = %q, want no context diagnostics when debug disabled", got)
 	}
@@ -2614,7 +2614,7 @@ func TestModelStreamingEnterRendersSteerImmediately(t *testing.T) {
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	// The viewport content must immediately show the queued steer box.
-	viewportContent := m.viewport.View()
+	viewportContent := m.visibleViewportContent()
 	if !strings.Contains(viewportContent, "queued steer text") {
 		t.Fatalf("viewport content does not contain queued steer text immediately after Enter.\nViewport:\n%s", viewportContent)
 	}
