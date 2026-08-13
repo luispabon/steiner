@@ -1209,8 +1209,8 @@ func TestAppendEventContextDiagnosticsAreVisible(t *testing.T) {
 	}))
 	buffer.AppendEvent(output.NewContextSessionHealthEvent("conversation", 2, 2, "warning", "fragile", "restart soon in a fresh session; repeated compaction is making retention fragile"))
 
-	// session_health events no longer produce content buffer segments; health state
-	// is stored in model fields and rendered by renderContextInfoLine in the layout.
+	// session_health events no longer produce content buffer segments; they only
+	// update the status context fragment.
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
 	}

@@ -111,14 +111,14 @@ func TestScrollModelScrollDownGuards(t *testing.T) {
 		}
 	})
 
-	t.Run("past bottom stays past bottom", func(t *testing.T) {
+	t.Run("clamped to new bottom after height change stays", func(t *testing.T) {
 		t.Parallel()
 		m := scrollModel{lines: manyScrollLines(30), height: 20}
 		m.ScrollDown(15) // offset 10, the old bottom
-		m.SetHeight(25)  // maxYOffset shrinks to 5: PastBottom
-		m.ScrollDown(3)  // must NOT re-clamp to the new bottom
-		if got := m.YOffset(); got != 10 {
-			t.Fatalf("YOffset() = %d, want 10 (PastBottom preserved)", got)
+		m.SetHeight(25)  // maxYOffset shrinks to 5 and the offset clamps to it
+		m.ScrollDown(3)  // already at bottom: no-op
+		if got := m.YOffset(); got != 5 {
+			t.Fatalf("YOffset() = %d, want 5 (clamped to new bottom)", got)
 		}
 	})
 
@@ -166,14 +166,17 @@ func TestScrollModelScrollUpGuards(t *testing.T) {
 		}
 	})
 
-	t.Run("from past bottom clamps to the new bottom", func(t *testing.T) {
+	t.Run("after height change clamps to the new bottom then moves up", func(t *testing.T) {
 		t.Parallel()
 		m := scrollModel{lines: manyScrollLines(30), height: 20}
-		m.ScrollDown(15) // offset 10
-		m.SetHeight(25)  // PastBottom: maxYOffset is now 5
-		m.ScrollUp(3)    // 10-3 = 7, clamped to 5
+		m.ScrollDown(15) // offset 10, the old bottom
+		m.SetHeight(25)  // maxYOffset is now 5; offset clamps to it
 		if got := m.YOffset(); got != 5 {
-			t.Fatalf("YOffset() = %d, want 5 (clamped to bottom)", got)
+			t.Fatalf("YOffset() = %d, want 5 (clamped to new bottom)", got)
+		}
+		m.ScrollUp(3) // 5-3 = 2
+		if got := m.YOffset(); got != 2 {
+			t.Fatalf("YOffset() = %d, want 2", got)
 		}
 	})
 
@@ -245,24 +248,24 @@ func TestScrollModelSetContentClampsOffset(t *testing.T) {
 	})
 }
 
-// TestScrollModelSetHeightDoesNotReclamp covers semantic 7: SetHeight does
-// NOT re-clamp yOffset. Growing the height shrinks maxYOffset and leaves the
-// offset past the bottom (the library's PastBottom state), exactly as the
-// bubbles viewport behaves.
-func TestScrollModelSetHeightDoesNotReclamp(t *testing.T) {
+// TestScrollModelSetHeightClampsOffset covers semantic 7: SetHeight re-clamps
+// yOffset to the new range. Growing the height shrinks maxYOffset, so an
+// offset that was valid before the resize is pulled to the new bottom instead
+// of remaining past it.
+func TestScrollModelSetHeightClampsOffset(t *testing.T) {
 	t.Parallel()
 	m := scrollModel{lines: manyScrollLines(30), height: 20}
 	m.ScrollDown(15) // offset 10, old maxYOffset 10
-	m.SetHeight(25)  // new maxYOffset 5; offset must NOT be re-clamped
-	if got := m.YOffset(); got != 10 {
-		t.Fatalf("YOffset() = %d, want 10 (SetHeight must not re-clamp)", got)
+	m.SetHeight(25)  // new maxYOffset 5; offset must clamp to the bottom
+	if got := m.YOffset(); got != 5 {
+		t.Fatalf("YOffset() = %d, want 5 (clamped to new bottom)", got)
 	}
 	if !m.AtBottom() {
-		t.Fatal("AtBottom() = false, want true in PastBottom state")
+		t.Fatal("AtBottom() = false, want true at the clamped bottom")
 	}
-	m.SetHeight(30)
-	if got := m.YOffset(); got != 10 {
-		t.Fatalf("YOffset() = %d, want 10 (subsequent SetHeight must not re-clamp either)", got)
+	m.SetHeight(30) // content fits exactly: maxYOffset 0
+	if got := m.YOffset(); got != 0 {
+		t.Fatalf("YOffset() = %d, want 0 (clamped when content fits)", got)
 	}
 }
 

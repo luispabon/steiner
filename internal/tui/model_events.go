@@ -249,18 +249,13 @@ func (m *Model) applyCompactionEvent(payload output.ContextCompactionEvent) {
 	}
 }
 
-// applySessionHealthEvent updates session health tracking fields and status
-// context for a context session health event. Shared by the direct
-// ContextSessionHealthEvent case and the ContextDiagnosticsEvent envelope.
+// applySessionHealthEvent updates status context for a context session health
+// event. Shared by the direct ContextSessionHealthEvent case and the
+// ContextDiagnosticsEvent envelope.
 func (m *Model) applySessionHealthEvent(payload output.ContextSessionHealthEvent) {
 	if !m.compaction.Active() {
 		m.status.context = appendStatusContext(m.status.context, sessionHealthStatusFragment(payload))
 	}
-	m.sessionHealthCompactionCount = payload.CompactionCount
-	m.sessionHealthTurn = payload.Turn
-	m.sessionHealthState = payload.SessionState
-	m.sessionHealthGuidance = payload.RestartGuidance
-	m.sessionHealthNotes = append([]string(nil), payload.Notes...)
 }
 
 func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {

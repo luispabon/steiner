@@ -20,8 +20,8 @@ func (m *Model) View() tea.View {
 	result := m.renderOverlayView(base, contentWidth)
 
 	// Only populate screenLines during an active selection drag; extract lazily on release.
-	if m.screenLines != nil && m.selection.active {
-		*m.screenLines = strings.Split(ansi.Strip(result), "\n")
+	if m.selection.active {
+		m.screenLines = strings.Split(ansi.Strip(result), "\n")
 	}
 	if m.selection.hasSelection() {
 		regionLeft, regionRight := m.selectionHighlightBounds()
@@ -419,14 +419,18 @@ func (m *Model) renderTypedInputLines(width int) ([]string, int) {
 	if cursorLine >= len(valueLines) {
 		cursorLine = len(valueLines) - 1
 	}
-	lineInfo := m.input.LineInfo()
 
 	cursorDisplayRow := 0
 	lines := make([]string, 0, len(valueLines))
 	for i, valueLine := range valueLines {
 		wrapped := wrapComposerLine(valueLine, width)
 		if i == cursorLine {
-			absPos := max(0, lineInfo.ColumnOffset)
+			// m.input.Column() is the rune offset of the cursor within the
+			// logical line, independent of the textarea's internal wrap
+			// width. The old code used LineInfo().ColumnOffset, which only
+			// equals this offset when the textarea width is large enough to
+			// disable soft wrapping.
+			absPos := max(0, m.input.Column())
 			row := 0
 			col := absPos
 			for r, seg := range wrapped {

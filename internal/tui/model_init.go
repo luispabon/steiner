@@ -83,7 +83,6 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		sidebarPosition:              cfg.SidebarPosition,
 		mousePressX:                  -1,
 		mousePressY:                  -1,
-		screenLines:                  new([]string),
 		oneshotRunnerFactory:         cfg.OneshotRunnerFactory,
 		imageStore:                   cfg.ImageStore,
 		visionCapabilities:           cfg.VisionCapabilities,
@@ -106,6 +105,7 @@ func newModelInput() textarea.Model {
 	input.Placeholder = "ask steiner — / for commands, @ for files"
 	input.ShowLineNumbers = false
 	input.CharLimit = 0
+	input.MaxWidth = 0
 	input.SetHeight(1)
 	input.MaxHeight = 30
 	input.KeyMap.CharacterBackward = key.NewBinding(key.WithKeys("left"))
