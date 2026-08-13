@@ -83,6 +83,7 @@ func TestHandleSetAccentMsgRepointsEveryStylesField(t *testing.T) {
 		"contextOverlay":       "rebuilt on open",
 		"statusViewCacheKey":   "cache key snapshot; staleness is the invalidation signal",
 		"activityViewCacheKey": "cache key snapshot; staleness is the invalidation signal",
+		"inputViewCacheKey":    "cache key snapshot; staleness is the invalidation signal",
 	}
 	// sidebarViewCacheKey wraps a sidebarCacheKey struct (not a *theme.Styles
 	// field directly), so the FieldByName("styles") lookup below does not

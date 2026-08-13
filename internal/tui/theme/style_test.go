@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"charm.land/lipgloss/v2"
 )
@@ -294,6 +295,122 @@ func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := styleSnapshot(tt.got); got != tt.want {
 				t.Fatalf("style snapshot = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTruncateAndPadVertical pins TruncateAndPadVertical's byte-level contract:
+// truncation at the maxHeight-th newline, exact-fit and over-height early
+// returns that must return the input string itself (no copy — verified via
+// unsafe.StringData), and padding with exactly maxHeight lines using the same
+// lipgloss background render the function uses.
+func TestTruncateAndPadVertical(t *testing.T) {
+	padLine := func(width int, bg string) string {
+		return lipgloss.NewStyle().Background(lipgloss.Color(bg)).Render(strings.Repeat(" ", width))
+	}
+
+	tests := []struct {
+		name      string
+		s         string
+		width     int
+		maxHeight int
+		bg        string
+		want      string
+		noCopy    bool // early return must return s itself, not a copy
+	}{
+		{
+			name:      "single line no trailing newline early return",
+			s:         "hello",
+			width:     10,
+			maxHeight: 1,
+			bg:        "#123456",
+			want:      "hello",
+			noCopy:    true,
+		},
+		{
+			name:      "short content padded one line",
+			s:         "hello",
+			width:     5,
+			maxHeight: 2,
+			bg:        "#123456",
+			want:      "hello" + "\n" + padLine(5, "#123456"),
+		},
+		{
+			name:      "short content padded two lines",
+			s:         "hello",
+			width:     5,
+			maxHeight: 3,
+			bg:        "#123456",
+			want:      "hello" + "\n" + padLine(5, "#123456") + "\n" + padLine(5, "#123456"),
+		},
+		{
+			name:      "exact fit early return",
+			s:         "l1\nl2",
+			width:     5,
+			maxHeight: 2,
+			bg:        "#123456",
+			want:      "l1\nl2",
+			noCopy:    true,
+		},
+		{
+			name:      "truncate at maxHeight-th newline",
+			s:         "l1\nl2\nl3",
+			width:     5,
+			maxHeight: 2,
+			bg:        "#123456",
+			want:      "l1\nl2",
+		},
+		{
+			name:      "truncate with trailing newline",
+			s:         "l1\nl2\n",
+			width:     5,
+			maxHeight: 1,
+			bg:        "#123456",
+			want:      "l1",
+		},
+		{
+			name:      "utf8 content containing newline",
+			s:         "héllo\nwörld",
+			width:     5,
+			maxHeight: 1,
+			bg:        "#123456",
+			want:      "héllo",
+		},
+		{
+			name:      "maxHeight zero truncates at first newline",
+			s:         "l1\nl2",
+			width:     5,
+			maxHeight: 0,
+			bg:        "#123456",
+			want:      "l1",
+		},
+		{
+			name:      "maxHeight zero without newline returns input",
+			s:         "l1",
+			width:     5,
+			maxHeight: 0,
+			bg:        "#123456",
+			want:      "l1",
+		},
+		{
+			name:      "empty string padded",
+			s:         "",
+			width:     5,
+			maxHeight: 2,
+			bg:        "#123456",
+			want:      "\n" + padLine(5, "#123456"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := TruncateAndPadVertical(tt.s, tt.width, tt.maxHeight, tt.bg)
+			if got != tt.want {
+				t.Fatalf("TruncateAndPadVertical(%q, %d, %d, %q) = %q, want %q", tt.s, tt.width, tt.maxHeight, tt.bg, got, tt.want)
+			}
+			if tt.noCopy && unsafe.StringData(got) != unsafe.StringData(tt.s) {
+				t.Fatalf("early return copied the input: StringData(got) %p != StringData(s) %p", unsafe.StringData(got), unsafe.StringData(tt.s))
 			}
 		})
 	}

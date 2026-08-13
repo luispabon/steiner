@@ -24,6 +24,7 @@ func zipColumns(left, divider, right string) string {
 		return ""
 	}
 	var sb strings.Builder
+	sb.Grow(len(left) + len(divider) + len(right) + n)
 	for i := range n {
 		if i > 0 {
 			sb.WriteByte('\n')
