@@ -21,7 +21,7 @@ install-check-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 
-.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench check
+.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench bench-tui check
 
 build: build-binaries
 
@@ -112,6 +112,11 @@ check: tidy-check
 # Combine: `make bench BENCH=BenchmarkView BENCH_FLAGS="-count=5"`
 bench:
 	go test -run=$$^ -bench=$(or $(BENCH),.) $(BENCH_FLAGS) -benchtime=$(or $(BENCHTIME),1s) -count=$(or $(COUNT),1) ./internal/tui/...
+
+# bench-tui runs the TUI benchmarks with -benchmem and a fixed benchtime,
+# suitable for benchstat comparison between two runs.
+bench-tui:
+	go test -run=$$^ -bench=. -benchmem -benchtime=1s -count=6 ./internal/tui/...
 
 format:
 	gofmt -w $(GO_FILES)
