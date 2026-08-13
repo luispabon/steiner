@@ -92,3 +92,25 @@ jobs:
 
       - name: Test race
         run: make test-race
+
+  # Allocation ceilings live behind the perfguard build tag so their benchmark
+  # runs stay out of the normal suite. They run here as their own job rather
+  # than a step in `go`, so they neither delay nor are delayed by the other
+  # checks. The ceilings carry 15-20% headroom precisely because shared runners
+  # are noisy: they exist to catch an order-of-magnitude regression from a
+  # broken frame cache, not to police individual allocations.
+  perf:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Performance guards
+        run: make test-perf
