@@ -637,20 +637,17 @@ func logicalLineBounds(lines []string, lineIdx, regionLeft, regionRight int) (st
 }
 
 // populateScreenLines renders the current frame exactly as View() does and
-// stores its ANSI-stripped lines in *m.screenLines. This duplicates the
+// stores its ANSI-stripped lines in m.screenLines. This duplicates the
 // render+strip steps View() performs during an active selection drag,
 // because click handling runs outside the render cycle and needs a freshly
 // rendered frame on demand; having View() call this instead would double the
 // render cost on every frame with an active selection.
 func (m *Model) populateScreenLines() {
-	if m.screenLines == nil {
-		return
-	}
 	contentWidth := m.contentWidth()
 	sidebarVisible := m.sidebar.Visible(m.width)
 	base := m.renderBaseView(contentWidth, sidebarVisible)
 	result := m.renderOverlayView(base, contentWidth)
-	*m.screenLines = strings.Split(ansi.Strip(result), "\n")
+	m.screenLines = strings.Split(ansi.Strip(result), "\n")
 }
 
 // copyToClipboard returns a tea.Cmd that writes text to the system clipboard.

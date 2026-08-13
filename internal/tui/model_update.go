@@ -298,7 +298,7 @@ func (m *Model) nextClickCount(clickPos selectionPoint, clickTime time.Time) int
 // selection at the clamped viewport coordinates and queues a clipboard copy.
 func (m *Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, tea.Cmd) {
 	m.populateScreenLines()
-	lines := *m.screenLines
+	lines := m.screenLines
 	left, right := m.selectionHighlightBounds()
 	var startLine, endLine, startCol, endCol int
 	if m.clickCount == 2 {
@@ -372,7 +372,7 @@ func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) 
 	if m.mousePressX != msg.x || m.mousePressY != msg.y {
 		m.selection.active = false
 		left, right := m.selectionHighlightBounds()
-		text := extractText(*m.screenLines, m.selection, left, right)
+		text := extractText(m.screenLines, m.selection, left, right)
 		if text != "" {
 			m.mousePressX = -1
 			m.mousePressY = -1

@@ -43,12 +43,18 @@ func (m *scrollModel) SetWidth(w int) { m.width = w }
 // Height returns the viewport height in rows.
 func (m scrollModel) Height() int { return m.height }
 
-// SetHeight sets the viewport height. Matching the bubbles viewport, it does
-// NOT re-clamp yOffset: increasing the height shrinks maxYOffset and can
-// leave the model past the bottom (YOffset() > maxYOffset()), the library's
-// PastBottom state. ScrollDown preserves that state and ScrollUp clamps back
-// into range.
-func (m *scrollModel) SetHeight(h int) { m.height = h }
+// SetHeight sets the viewport height and re-clamps yOffset to the new range.
+// Growing the height shrinks maxYOffset, so an offset that was valid before
+// the resize must be pulled to the new bottom; without the clamp a stale
+// offset would render blank space past the end of the content. The previous
+// behaviour (no re-clamp, the library's PastBottom state) relied on every
+// caller following SetHeight with a content update whose SetLines clamp
+// pulled the offset back — an emergent property of call ordering, not a
+// guarantee.
+func (m *scrollModel) SetHeight(h int) {
+	m.height = h
+	m.SetYOffset(m.yOffset)
+}
 
 // Lines returns the viewport content lines. It is the single owned slice the
 // renderer slices; only SetLines and SetContent write it.
@@ -75,8 +81,7 @@ func (m scrollModel) AtTop() bool { return m.yOffset <= 0 }
 func (m scrollModel) AtBottom() bool { return m.yOffset >= m.maxYOffset() }
 
 // ScrollDown moves the view down by n lines. It early-returns when at the
-// bottom (including the PastBottom state, which it must preserve), when n is
-// zero, or when there is no content.
+// bottom, when n is zero, or when there is no content.
 func (m *scrollModel) ScrollDown(n int) {
 	if m.AtBottom() || n == 0 || len(m.lines) == 0 {
 		return

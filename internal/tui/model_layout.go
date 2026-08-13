@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -54,8 +53,15 @@ func (m *Model) relayoutInput() {
 }
 
 func (m *Model) computeInputRows(contentWidth int) (inputRows, activityRows int) {
-	m.input.MaxWidth = 0
-	m.input.SetWidth(99999)
+	// Match the textarea's internal wrap width to the composer's render width.
+	// The old SetWidth(99999) disabled the textarea's internal soft wrap so that
+	// LineInfo().ColumnOffset reported an absolute cursor offset; cursor
+	// placement now uses m.input.Column(), which is width-independent, so the
+	// textarea can run at its natural width. Bubbles' word-wrap is quadratic in
+	// row width, so the old width made every keystroke re-wrap the entire cursor
+	// line with full grapheme segmentation instead of rows capped at the visible
+	// width.
+	m.input.SetWidth(m.inputInnerWidth(contentWidth))
 	inputRows = m.inputChromeHeight(contentWidth)
 	activityRows = m.activityRowHeight(contentWidth)
 	return inputRows, activityRows
@@ -77,11 +83,6 @@ func (m *Model) setViewportContent(rendered string) {
 
 func (m *Model) syncViewport() {
 	rendered := m.content.String(m.viewport.Width())
-	if m.showContextDiagnostics {
-		if header := m.renderContextInfoLine(m.viewport.Width()); header != "" {
-			rendered = header + rendered
-		}
-	}
 
 	// WithBg re-inserts the background escape after every ANSI reset in rendered
 	// content. This is necessary because terminals with transparency enabled
@@ -319,91 +320,6 @@ func (m *Model) renderScrollbar() string {
 	m.scrollbarCacheKey = cacheKey
 	m.scrollbarCacheRendered = result
 	return result
-}
-
-func (m *Model) renderContextInfoLine(width int) string {
-	hasSessionHealth := m.hasSessionHealthInfo()
-	hasContextInfo := m.hasContextUsageInfo()
-	if !hasSessionHealth && !hasContextInfo {
-		return ""
-	}
-	line1 := strings.Join(m.contextSessionHealthParts(hasSessionHealth), "; ")
-	line2 := m.contextUsageLine()
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.FgFaint)).
-		Italic(true).
-		Width(width)
-	return style.Render(line1) + "\n" + style.Render(line2) + "\n"
-}
-
-func (m *Model) hasSessionHealthInfo() bool {
-	return m.sessionHealthState != "" || m.sessionHealthCompactionCount > 0 || m.sessionHealthGuidance != "" || len(m.sessionHealthNotes) > 0
-}
-
-func (m *Model) hasContextUsageInfo() bool {
-	return m.ctxInfoPromptTokens > 0 || m.ctxInfoContextWindow > 0 || m.ctxInfoContextUsagePercent > 0 || m.ctxInfoCompactionThreshold > 0 || m.ctxInfoEstimatorPadTokens > 0 || strings.TrimSpace(m.ctxInfoStatus) != ""
-}
-
-func (m *Model) contextSessionHealthParts(include bool) []string {
-	parts := []string{"context info:"}
-	if !include {
-		return parts
-	}
-
-	parts = append(parts, fmt.Sprintf("session health #%d turn %d", m.sessionHealthCompactionCount, m.sessionHealthTurn))
-	if m.sessionHealthState != "" {
-		parts = append(parts, "state "+m.sessionHealthState)
-	}
-	if guidance := m.sessionHealthGuidanceEntry(); guidance != "" {
-		parts = append(parts, guidance)
-	}
-	if len(m.sessionHealthNotes) > 0 {
-		parts = append(parts, "notes "+strings.Join(m.sessionHealthNotes, ", "))
-	}
-	return parts
-}
-
-func (m *Model) sessionHealthGuidanceEntry() string {
-	entry := m.sessionHealthGuidance
-	if entry == "" {
-		return ""
-	}
-	if m.sessionHealthCompactionCount <= 0 {
-		return entry
-	}
-
-	suffix := "compaction"
-	if m.sessionHealthCompactionCount != 1 {
-		suffix = "compactions"
-	}
-	return fmt.Sprintf("%s after %d %s", entry, m.sessionHealthCompactionCount, suffix)
-}
-
-func (m *Model) contextUsageLine() string {
-	return fmt.Sprintf(
-		"view full, prompt_tokens=%d context_window=%d context_usage_percent=%s compaction_threshold=%s estimator_pad_tokens=%d status=%s",
-		m.ctxInfoPromptTokens,
-		m.contextInfoWindow(),
-		fmt.Sprintf("%.0f%%", m.ctxInfoContextUsagePercent),
-		fmt.Sprintf("%.0f%%", m.ctxInfoCompactionThreshold),
-		m.ctxInfoEstimatorPadTokens,
-		m.contextInfoStatus(),
-	)
-}
-
-func (m *Model) contextInfoWindow() int {
-	if m.ctxInfoContextWindow > 0 {
-		return m.ctxInfoContextWindow
-	}
-	return m.sidebar.contextBudget
-}
-
-func (m *Model) contextInfoStatus() string {
-	status := strings.TrimSpace(m.ctxInfoStatus)
-	if status == "" {
-		return "unknown_context"
-	}
-	return status
 }
 
 func (m *Model) handleSegmentClick(seg *contentSegment, rowInSegment int) {

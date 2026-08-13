@@ -109,19 +109,31 @@ func BenchmarkSyncViewport(b *testing.B) {
 	}
 }
 
-// BenchmarkKeystroke measures the cost of feeding a keystroke through Update.
+// BenchmarkKeystroke measures the cost of feeding a keystroke through Update
+// at a realistic terminal size (220x60) with a fixed-size composer.
 // This exercises relayoutInput → computeInputRows → inputChromeHeight.
+// The composer is pre-filled with a long wrapped line and the benchmark
+// alternates typing and backspace so its size stays bounded: a naively
+// growing composer makes per-op cost grow with b.N and the reported
+// average is dominated by an unrealistically huge input.
 func BenchmarkKeystroke(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 4096},
 	}, nil)
-	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 220, Height: 60})
 	populateBenchModel(m)
+	m.input.SetValue(strings.Repeat("lorem ipsum dolor sit amet ", 40))
+	m.input.CursorEnd()
+	m.relayoutInput()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m = updateModelDirect(m, tea.KeyPressMsg{Code: 'x', Text: "x"})
+		if i%2 == 0 {
+			m = updateModelDirect(m, tea.KeyPressMsg{Code: 'x', Text: "x"})
+		} else {
+			m = updateModelDirect(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+		}
 	}
 }
 

@@ -275,12 +275,6 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	if strings.Contains(joined, "Turn:") {
 		t.Fatalf("sidebar = %q, want no Turn row", joined)
 	}
-	if got := m.renderContextInfoLine(120); !strings.Contains(got, "prompt_tokens=100") || !strings.Contains(got, "context_window=4096") || !strings.Contains(got, "context_usage_percent=2%") || !strings.Contains(got, "compaction_threshold=70%") || !strings.Contains(got, "estimator_pad_tokens=32") || !strings.Contains(got, "status=ok") {
-		t.Fatalf("context info line = %q, want usage diagnostics", got)
-	}
-	if got := m.renderContextInfoLine(120); strings.Contains(got, "reserve") || strings.Contains(got, "safety") {
-		t.Fatalf("context info line = %q, want no reserve/safety wording", got)
-	}
 }
 
 func TestModelRoutesShortContextReportToTranscript(t *testing.T) {
@@ -948,7 +942,7 @@ func TestModelDoubleClickSelectsURLAndPaths(t *testing.T) {
 	m.viewport.SetYOffset(0)
 
 	m.populateScreenLines()
-	lines := *m.screenLines
+	lines := m.screenLines
 
 	row, urlCol, pathCol, hiddenCol := -1, -1, -1, -1
 	for i, line := range lines {
@@ -977,7 +971,7 @@ func TestModelDoubleClickSelectsURLAndPaths(t *testing.T) {
 		t.Fatalf("URL selection = (%d,%d)-(%d,%d), want (%d,%d)-(%d,%d)",
 			start.line, start.col, end.line, end.col, row, urlCol, row, urlCol+len(url))
 	}
-	if got := extractText(*m.screenLines, m.selection, 0, 0); got != url {
+	if got := extractText(m.screenLines, m.selection, 0, 0); got != url {
 		t.Fatalf("extractText = %q, want %q", got, url)
 	}
 
@@ -990,7 +984,7 @@ func TestModelDoubleClickSelectsURLAndPaths(t *testing.T) {
 		t.Fatalf("path selection = (%d,%d)-(%d,%d), want (%d,%d)-(%d,%d)",
 			start.line, start.col, end.line, end.col, row, pathCol, row, pathCol+len(path))
 	}
-	if got := extractText(*m.screenLines, m.selection, 0, 0); got != path {
+	if got := extractText(m.screenLines, m.selection, 0, 0); got != path {
 		t.Fatalf("extractText = %q, want %q", got, path)
 	}
 
@@ -1003,7 +997,7 @@ func TestModelDoubleClickSelectsURLAndPaths(t *testing.T) {
 		t.Fatalf("hidden path selection = (%d,%d)-(%d,%d), want (%d,%d)-(%d,%d)",
 			start.line, start.col, end.line, end.col, row, hiddenCol, row, hiddenCol+len(hidden))
 	}
-	if got := extractText(*m.screenLines, m.selection, 0, 0); got != hidden {
+	if got := extractText(m.screenLines, m.selection, 0, 0); got != hidden {
 		t.Fatalf("extractText = %q, want %q", got, hidden)
 	}
 }
@@ -2739,8 +2733,8 @@ func TestModelResizeAndMouseScroll(t *testing.T) {
 	if m.viewport.Width() != 54 {
 		t.Fatalf("viewport width = %d, want 54 after pane chrome", m.viewport.Width())
 	}
-	if got := m.input.Width(); got != 99999 {
-		t.Fatalf("input width = %d, want 99999 (no internal textarea wrapping)", got)
+	if got := m.input.Width(); got != 56 {
+		t.Fatalf("input width = %d, want 56 (inner composer width at 60-col terminal)", got)
 	}
 	if m.viewport.Height() != 5 {
 		t.Fatalf("viewport height = %d, want 5 after pane chrome", m.viewport.Height())
@@ -3465,8 +3459,6 @@ func TestSelectionSmallHeight(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			m := newModel(Config{}, nil)
-			screenLines := new([]string)
-			m.screenLines = screenLines
 
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: tt.height})
 
@@ -3475,8 +3467,8 @@ func TestSelectionSmallHeight(t *testing.T) {
 
 			_ = m.View().Content
 
-			if len(*screenLines) != tt.wantScreenLines {
-				t.Fatalf("screenLines count = %d, want exactly %d entries", len(*screenLines), tt.wantScreenLines)
+			if len(m.screenLines) != tt.wantScreenLines {
+				t.Fatalf("screenLines count = %d, want exactly %d entries", len(m.screenLines), tt.wantScreenLines)
 			}
 		})
 	}

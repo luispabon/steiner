@@ -151,18 +151,6 @@ type Model struct {
 	exitModal                    exitModalState
 	workflowHandoff              workflowHandoffModalState
 	sessionStore                 SessionLister
-	showContextDiagnostics       bool
-	sessionHealthCompactionCount int
-	sessionHealthTurn            int
-	sessionHealthState           string
-	sessionHealthGuidance        string
-	sessionHealthNotes           []string
-	ctxInfoPromptTokens          int
-	ctxInfoContextWindow         int
-	ctxInfoContextUsagePercent   float64
-	ctxInfoCompactionThreshold   float64
-	ctxInfoEstimatorPadTokens    int
-	ctxInfoStatus                string
 	steerQueued                  bool // true when a steer message has been queued but not yet consumed
 	interruptPending             bool
 	suppressWorkflowHandoffRun   bool
@@ -176,7 +164,7 @@ type Model struct {
 	lastClickPos                 selectionPoint
 	clickCount                   int
 	activeRegion                 selectionRegion
-	screenLines                  *[]string
+	screenLines                  []string
 	lastWheelMouseAt             time.Time
 	primaryModel                 string
 	imageMarkers                 []imageMarker
@@ -491,12 +479,6 @@ func (m *Model) applyContextBudget(payload output.ContextBudgetEvent) {
 	m.sidebar.promptUsed = promptUsed
 	m.sidebar.budgetUsed = budgetUsed
 	m.sidebar.contextBudget = contextWindow
-	m.ctxInfoPromptTokens = payload.PromptTokens
-	m.ctxInfoContextWindow = contextWindow
-	m.ctxInfoContextUsagePercent = payload.ContextUsagePercent
-	m.ctxInfoCompactionThreshold = payload.CompactionThreshold
-	m.ctxInfoEstimatorPadTokens = payload.EstimatorPadTokens
-	m.ctxInfoStatus = payload.Status
 	if payload.Turn > 0 {
 		m.sidebar.currentTurn = payload.Turn
 	}
