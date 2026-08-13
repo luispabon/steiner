@@ -32,7 +32,7 @@ import (
 // received exactly once (D16: no replay) and the tool set must stay frozen
 // across the cycle (D14: never re-list).
 func TestLifecycleDeathReconnectNoReplay(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	record := filepath.Join(t.TempDir(), "record.txt")
 
 	cfg := config.MCPConfig{
@@ -134,7 +134,7 @@ func TestLifecycleDeathReconnectNoReplay(t *testing.T) {
 // session. The reconnect attempt is gated in the wrap func so the test controls
 // exactly when it completes.
 func TestLifecycleCallsBlockDuringReconnect(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 
 	// The initial spawn passes through; every later spawn (a reconnect
 	// attempt) signals and then blocks until the test releases it.
@@ -238,7 +238,7 @@ func TestLifecycleCallsBlockDuringReconnect(t *testing.T) {
 // at startup, so each reconnect attempt fails fast; the start log counts the
 // respawns.
 func TestLifecycleReconnectCap(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	dir := t.TempDir()
 	crashFile := filepath.Join(dir, "crash.marker")
 	startLog := filepath.Join(dir, "start.log")
@@ -320,7 +320,7 @@ func TestLifecycleReconnectCap(t *testing.T) {
 // respawned, and a follow-up call succeeds on the same session. The per-tool
 // timeout entry (keyed by the full registered tool name) wins over the default.
 func TestLifecycleTimeoutNoReconnect(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	dir := t.TempDir()
 	startLog := filepath.Join(dir, "start.log")
 	record := filepath.Join(dir, "record.txt")
@@ -356,7 +356,7 @@ func TestLifecycleTimeoutNoReconnect(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := findTool(t, m.ToolDefs(), "mcp__fixture__sleep").Handler(ctx, map[string]any{"ms": float64(1000)})
+	_, err := findTool(t, m.ToolDefs(), "mcp__fixture__sleep").Handler(ctx, map[string]any{"ms": float64(300)})
 	if err == nil {
 		t.Fatal("sleep call returned nil error, want a timeout error")
 	}
@@ -513,7 +513,7 @@ func TestLifecycleHTTPReconnect(t *testing.T) {
 // which spawned a sleep-600 child, shut down within the shutdown grace and the
 // child's process group is reaped.
 func TestLifecycleShutdownReapsChildren(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	childPIDFile := filepath.Join(t.TempDir(), "child.pid")
 
 	cfg := config.MCPConfig{
@@ -569,7 +569,7 @@ func TestLifecycleShutdownReapsChildren(t *testing.T) {
 // initialize, but cancelling the manager context kills its process group, so
 // Close returns within the shutdown grace instead of blocking on the stall.
 func TestLifecycleCloseCancelsInFlightConnect(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 
 	cfg := config.MCPConfig{
 		Enabled: true,
@@ -613,7 +613,7 @@ func TestLifecycleCloseCancelsInFlightConnect(t *testing.T) {
 // TestLifecycleCloseIdempotent proves Close can be called twice: the second
 // call returns the first call's (filtered) result without re-running shutdown.
 func TestLifecycleCloseIdempotent(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	cfg := config.MCPConfig{
 		Enabled: true,
 		Servers: map[string]config.MCPServerConfig{
@@ -637,7 +637,7 @@ func TestLifecycleCloseIdempotent(t *testing.T) {
 // cancelled manager context, and aborts to unavailable without panicking,
 // publishing a connected state, or completing a fresh handshake (no leak).
 func TestLifecycleCloseDuringReconnect(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	record := filepath.Join(t.TempDir(), "record.txt")
 
 	// The initial spawn passes through; every later spawn (a reconnect

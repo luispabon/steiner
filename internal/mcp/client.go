@@ -107,7 +107,10 @@ type SessionOptions struct {
 // the initial ListTools together; a zero or negative timeout falls back to
 // DefaultConnectTimeout. opts configures reconnect lifecycle behaviour; with no
 // options the session is self-contained (reconnects still run, bound to a
-// background context, with no status reporting).
+// background context, with no status reporting). A stdio server is killed when
+// the bounded connect ctx expires, so a deadline-driven connect failure is
+// bounded by the timeout rather than the timeout plus the transport's shutdown
+// grace.
 func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer, timeout time.Duration, opts ...SessionOptions) (*Session, error) {
 	var opt SessionOptions
 	if len(opts) > 0 {
@@ -138,7 +141,30 @@ func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// A stdio server that fails its handshake must be killed the moment the
+	// connect deadline fires, not after the SDK's 5s terminate grace: the SDK's
+	// own failed-handshake Close runs inside client.Connect, so the kill has to
+	// be concurrent with it. The killOnTimeoutTransport arms the watcher after
+	// the SDK's Start, so its exec.Cmd reads are ordered after Start's writes
+	// (a goroutine armed before Connect would race them); disarming right after
+	// Connect returns guarantees we can never return a live session whose
+	// server we killed (if the deadline fired in that window, ListTools under
+	// the done ctx fails and the session is discarded). cmd.Cancel is set on
+	// every platform: CommandContext installs a Process.Kill fallback, and
+	// applyProcessGroup upgrades it to a process-group kill on unix. The
+	// wrapper therefore applies to stdio on every platform, killing the group
+	// on unix and the single process elsewhere; the HTTP transport has no
+	// command to kill.
+	var killDone chan struct{}
+	if cmd != nil && cmd.Cancel != nil {
+		killDone = make(chan struct{})
+		transport = &killOnTimeoutTransport{inner: transport, cmd: cmd, killDone: killDone}
+	}
+
 	session, err := client.Connect(ctx, transport, nil)
+	if killDone != nil {
+		close(killDone)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
 	}
@@ -168,11 +194,64 @@ func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *
 
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {
+		// The session is discarded here, so kill the server process first and
+		// make the close instant instead of waiting out the SDK's terminate
+		// grace.
+		killDiscardedCommand(cmd)
 		_ = session.Close() // Best-effort cleanup after a failed tool list.
 		return nil, fmt.Errorf("list tools for mcp server %q: %w", spec.Name, err)
 	}
 	s.tools = tools.Tools
 	return s, nil
+}
+
+// killOnTimeoutTransport wraps a stdio transport so the server process group
+// is killed the moment the connect deadline fires, instead of waiting out the
+// SDK's terminate grace inside client.Connect's failed-handshake Close. The
+// kill goroutine is armed after the inner Connect returns (which runs the
+// SDK's Start), so its exec.Cmd reads are ordered after Start's writes; a
+// goroutine armed before Connect would race them. killDone disarms the
+// watcher; the owner closes it right after client.Connect returns.
+//
+// killOnTimeoutTransport must not be used for reconnect attempts: their
+// transport is built against the manager context so a respawned process
+// outlives the handshake deadline (reconnectOnce does not wrap).
+type killOnTimeoutTransport struct {
+	inner    mcpsdk.Transport
+	cmd      *exec.Cmd
+	killDone <-chan struct{}
+}
+
+func (t *killOnTimeoutTransport) Connect(ctx context.Context) (mcpsdk.Connection, error) {
+	conn, err := t.inner.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			killDiscardedCommand(t.cmd)
+		case <-t.killDone:
+		}
+	}()
+	return conn, nil
+}
+
+// killDiscardedCommand kills a discarded stdio command's process group so
+// teardown of a session that will never be used is instant instead of waiting
+// out the SDK's terminate grace. It is a no-op when the command was never
+// started; errors are ignored because the kill may race a reap. It must only
+// be called after the SDK's Start has run, and must not read cmd.ProcessState:
+// that field is written by the SDK's Wait without synchronization.
+func killDiscardedCommand(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	if cmd.Cancel != nil {
+		_ = cmd.Cancel() // may race a reap
+		return
+	}
+	_ = cmd.Process.Kill()
 }
 
 // Name returns the server name from the spec passed to Connect.

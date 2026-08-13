@@ -62,7 +62,7 @@ Plan mode is read live from the closure, not baked into the registry: `UpdatePla
 
 ## Sandboxing
 
-When sandboxing is enabled, locally launched stdio MCP server processes are sandbox-wrapped with the project pinned read-only (`cmd/steiner/runtime_build.go:325-327`; `internal/sandbox/sandbox.go:55-119`). This applies only to stdio servers that steiner itself launches — a remote HTTP server executes on its operator's machine and is not affected by the sandbox (`internal/mcp/client.go:120-128`; `internal/mcp/transport_http.go:19-36`).
+When sandboxing is enabled, locally launched stdio MCP server processes are sandbox-wrapped with the project pinned read-only (`cmd/steiner/runtime_build.go:325-327`; `internal/sandbox/sandbox.go:55-119`). This applies only to stdio servers that steiner itself launches — a remote HTTP server executes on its operator's machine and is not affected by the sandbox (`internal/mcp/client.go:123-131`; `internal/mcp/transport_http.go:19-36`).
 
 What the wrap does: unshare all namespaces except the network (`--share-net`, `internal/sandbox/mounts.go:15`), bind the whole root filesystem read-only (`internal/sandbox/mounts.go:18`), and bind the project read-only with only `.steiner/plans` writable (`internal/sandbox/mounts.go:32-34`); the sandbox home, user cache, and `/tmp` stay writable (`internal/sandbox/mounts.go:25-29, 39-47`). Platform limits: the wrap is bubblewrap/Linux-only — when bwrap is unavailable or the sandbox is disabled, the command runs unwrapped (`internal/sandbox/sandbox.go:56-76`).
 
@@ -74,10 +74,10 @@ Sub-agent exposure: `sub_agents` lists the agent types that may call this server
 
 ## Lifecycle
 
-- **Parallel connect.** Every enabled server connects on its own goroutine, so startup latency is bounded by the slowest server rather than the sum (`internal/mcp/manager.go:146-166`). Each attempt is bounded by the server's `connect_timeout` (default `15s`, `internal/config/load.go:85-88`), covering the handshake and the initial tool-list call together (`internal/mcp/client.go:135-139, 169`). A failed server is marked `failed` and never blocks the others (`internal/mcp/manager.go:196-200`).
+- **Parallel connect.** Every enabled server connects on its own goroutine, so startup latency is bounded by the slowest server rather than the sum (`internal/mcp/manager.go:146-166`). Each attempt is bounded by the server's `connect_timeout` (default `15s`, `internal/config/load.go:85-88`), covering the handshake and the initial tool-list call together (`internal/mcp/client.go:138-142, 195`). A failed server is marked `failed` and never blocks the others (`internal/mcp/manager.go:196-200`).
 - **Non-interactive (exec, oneshot).** The run blocks on `WaitInit` before building the registry, so the frozen registry contains every server that connected (`cmd/steiner/runtime_build.go:345-352`; `internal/mcp/manager.go:366-382`).
 - **Interactive.** Servers connect asynchronously so the TUI paints immediately; the first agent turn runs `mcpInitOnce` — `WaitInit` → register the connected tool defs → arm the state producer — before any model call (`cmd/steiner/interactive_session.go:415-440`). Until then servers show `connecting`.
-- **Reconnect, no replay.** A classified transport error — a dead stdio process or a lost HTTP session (`internal/mcp/client.go:386-391`) — kicks an optimistic reconnect. The failed call is *not* replayed: it returns a "disconnected, verify state" error naming the server (`internal/mcp/client.go:200-222`). A background worker runs sequential fresh-connect attempts, each bounded by `connect_timeout`, and never re-lists tools (`internal/mcp/client.go:273-350`). Success swaps a new session under the same handle and resets the consecutive-failure counter; tool definitions keep working (`internal/mcp/client.go:293-297`). After 3 consecutive failed attempts the server is marked `unavailable` and no further reconnect workers spawn (`internal/mcp/client.go:28, 313-316`). Calls that arrive while a reconnect is in flight block on its outcome, bounded by their own timeout (`internal/mcp/client.go:230-250`).
+- **Reconnect, no replay.** A classified transport error — a dead stdio process or a lost HTTP session (`internal/mcp/client.go:465-470`) — kicks an optimistic reconnect. The failed call is *not* replayed: it returns a "disconnected, verify state" error naming the server (`internal/mcp/client.go:282-303`). A background worker runs sequential fresh-connect attempts, each bounded by `connect_timeout`, and never re-lists tools (`internal/mcp/client.go:352-397`). Success swaps a new session under the same handle and resets the consecutive-failure counter; tool definitions keep working (`internal/mcp/client.go:372-376`). After 3 consecutive failed attempts the server is marked `unavailable` and no further reconnect workers spawn (`internal/mcp/client.go:28, 392-395`). Calls that arrive while a reconnect is in flight block on its outcome, bounded by their own timeout (`internal/mcp/client.go:309-329`).
 - **Dead tools stay registered.** The tool set is frozen at connect time and never mutated mid-session, so the prompt prefix — and the prompt cache — stays stable (`internal/mcp/manager.go:388-395`). A call to a dead server blocks during reconnect, then fails with the verify-state error above.
 - **Status transitions.** `connecting` → `connected`/`failed` at startup; `connected` → `reconnecting` → `connected`/`unavailable` later (`internal/mcp/state.go:12-25`).
 - **Startup warnings.** A failed connection surfaces as a warning naming the server plus an aggregate "MCP startup incomplete" line; nothing is emitted when MCP is off, nothing is configured, or every server connected (`internal/tui/mcp_warnings.go:14-45`). Warnings are deduplicated per failure generation: a server that recovers to `connected` and fails again warns once more (`internal/tui/mcp_warnings.go:48-72`).
@@ -87,7 +87,7 @@ Sub-agent exposure: `sub_agents` lists the agent types that may call this server
 
 MCP tool output is bounded by `limits.tool_output_max_bytes` (default `65536`, `internal/config/defaults.go:68`): flattened text is truncated with a `<truncated output shown=… total=…>` marker reporting the pre-truncation total (`internal/mcp/tooldef.go:189-196`). Only text content is rendered; other content types are named but not decoded (`internal/mcp/tooldef.go:173-183`).
 
-Each call is bounded by `limits.tool_timeout_default` (default `30s`), with per-tool overrides in `limits.tool_timeouts` keyed by the tool's full registered name — `mcp__<server>__<tool>`, or the hashed form (`internal/mcp/tooldef.go:157-166`). The global MCP tool timeouts and output limits live in the [limits block](configuration.md#limits-block) of docs/configuration.md, shared with the built-in tools. A timed-out call is a context error, not a transport error, so it never triggers reconnect (`internal/mcp/client.go:386-391`).
+Each call is bounded by `limits.tool_timeout_default` (default `30s`), with per-tool overrides in `limits.tool_timeouts` keyed by the tool's full registered name — `mcp__<server>__<tool>`, or the hashed form (`internal/mcp/tooldef.go:157-166`). The global MCP tool timeouts and output limits live in the [limits block](configuration.md#limits-block) of docs/configuration.md, shared with the built-in tools. A timed-out call is a context error, not a transport error, so it never triggers reconnect (`internal/mcp/client.go:465-470`).
 
 ## TUI surfaces
 
@@ -108,16 +108,16 @@ Each call is bounded by `limits.tool_timeout_default` (default `30s`), with per-
 | Considered | Status and reasoning |
 |---|---|
 | OAuth for HTTP transport | Deferred. No test peer was available to develop and validate the integration, and the SDK's `StreamableClientTransport.OAuthHandler` is left unset (`internal/mcp/transport_http.go:14-18`). Static headers ship instead for bearer tokens and other immutable credentials. Pending a user with a concrete use case. |
-| MCP resources | Not implemented. The client captures the tool list only (`internal/mcp/client.go:169`); no resource API. |
+| MCP resources | Not implemented. The client captures the tool list only (`internal/mcp/client.go:195`); no resource API. |
 | MCP prompts | Not implemented. No prompts API. |
-| Sampling and elicitation | Not implemented. No sampling handler is registered on the client (`internal/mcp/client.go:133`). |
+| Sampling and elicitation | Not implemented. No sampling handler is registered on the client (`internal/mcp/client.go:136`). |
 | Roots/completions | Not implemented. |
 | Persistent approval grants | Deferred. Session grants are held in memory only (`internal/interactive/wiring.go:33-40`). See follow-up issues #438 and #439. |
 | Per-tool approval overrides | Deferred. Approval is per-server only; the `/mcp` overlay entries are display-only. |
 | `steiner mcp debug` | Not built. No CLI subcommand exists. |
 | `steiner mcp add` CLI | Not built. No CLI subcommand exists. |
 | Live config reload | Deferred. The server set is frozen at connect time; only per-server statuses are live (`internal/mcp/manager.go:123-144`). |
-| Retry-when-provably-safe | Deferred. A failed call is never replayed, even when the server advertises `idempotentHint`; it fails with the verify-state error (`internal/mcp/client.go:200-222`). |
+| Retry-when-provably-safe | Deferred. A failed call is never replayed, even when the server advertises `idempotentHint`; it fails with the verify-state error (`internal/mcp/client.go:282-303`). |
 | Live enable/disable from `/mcp` overlay | Deferred. The overlay is display-only — no selection model, no actions (`internal/tui/mcp_overlay.go`). |
 | Per-file `mcp/.yaml` | Not implemented. MCP servers are configured in the single `mcp` config block. |
 | Legacy HTTP+SSE | Not implemented. Only Streamable HTTP is supported (`internal/mcp/transport_http.go:28`). |
@@ -129,10 +129,10 @@ Each call is bounded by `limits.tool_timeout_default` (default `30s`), with per-
 - **Server shows `unavailable`.** Three consecutive reconnect attempts failed (`internal/mcp/client.go:28`); the server process died or the endpoint went away. Fix the server and restart steiner.
 - **A tool is missing from the model.** Check `/mcp`: `filtered` means `allowed_tools`/`blocked_tools` excluded it; `denied` means the server's approval mode is `deny`; `no tools advertised` means the server advertised none.
 - **Calls fail with "cannot be called without an approver".** No approver is installed — this is the expected fail-closed behaviour in non-interactive runs, where only `allow`-mode build calls and trusted read-only annotation tools can run (`internal/mcp/tooldef.go:96-106`).
-- **Calls fail with "disconnected, verify state".** The transport broke mid-call; the call may or may not have been applied. Verify state before retrying (`internal/mcp/client.go:221`).
+- **Calls fail with "disconnected, verify state".** The transport broke mid-call; the call may or may not have been applied. Verify state before retrying (`internal/mcp/client.go:300`).
 - **The registered name does not match your config.** Check `steiner tools` for the hashed form when the server or tool name needed sanitisation or exceeded the length limit (`internal/mcp/naming.go:18-50`).
 - **Everything prompts in plan mode.** `allow`-mode servers are downgraded to `ask` in plan mode by design (`internal/mcp/tooldef.go:74-76`).
-- **A timed-out call does not reconnect.** Deadlines are context errors, not transport errors, so they never kick a reconnect (`internal/mcp/client.go:386-391`).
+- **A timed-out call does not reconnect.** Deadlines are context errors, not transport errors, so they never kick a reconnect (`internal/mcp/client.go:465-470`).
 
 ## Verification note
 

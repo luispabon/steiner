@@ -96,6 +96,12 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 	}
+	if mcpFixtureBinaryDir != "" {
+		if err := os.RemoveAll(mcpFixtureBinaryDir); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to remove fixture binary dir: %v\n", err)
+			os.Exit(1)
+		}
+	}
 	os.Exit(code)
 }
 

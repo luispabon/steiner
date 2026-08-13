@@ -96,7 +96,7 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 // closure at call time: toggling the mode changes approval behaviour without
 // rebuilding the tool definition.
 func TestMCPHandlerPlanModeDynamic(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
@@ -167,7 +167,7 @@ func (r *recordingApprover) RequestApproval(_ context.Context, req tool.Approval
 func TestApproval(t *testing.T) {
 	// A live fixture session lets the auto-allowed paths prove the tool call
 	// actually reaches the server (echo returns OK with the input text).
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
@@ -336,7 +336,7 @@ func TestApproval(t *testing.T) {
 // total is the full pre-truncation size. A result under the limit passes through
 // unchanged.
 func TestMCPToolDefOutputTruncation(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
@@ -389,7 +389,7 @@ func TestMCPToolDefOutputTruncation(t *testing.T) {
 // entry (keyed by the full registered tool name) wins over the default, and the
 // default applies when no entry exists.
 func TestMCPToolDefTimeout(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 
 	tests := []struct {
 		name   string
@@ -420,14 +420,14 @@ func TestMCPToolDefTimeout(t *testing.T) {
 
 			def := mcpToolDef(sess, &mcpsdk.Tool{Name: "sleep"}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "allow"}, tt.limits)
 			start := time.Now()
-			_, err = def.Handler(context.Background(), map[string]any{"ms": float64(5000)})
+			_, err = def.Handler(context.Background(), map[string]any{"ms": float64(300)})
 			if err == nil {
 				t.Fatal("sleep call returned nil error, want a timeout error")
 			}
 			if !strings.Contains(err.Error(), "deadline exceeded") {
 				t.Errorf("sleep error %q does not report the deadline", err)
 			}
-			if elapsed := time.Since(start); elapsed > 5*time.Second {
+			if elapsed := time.Since(start); elapsed > time.Second {
 				t.Errorf("sleep call took %v, want it bounded by the 50ms timeout", elapsed)
 			}
 		})
@@ -439,7 +439,7 @@ func TestMCPToolDefTimeout(t *testing.T) {
 // with a nil Go error, so it is returned to the model and never mistaken for a
 // transport failure that would trigger reconnect.
 func TestMCPToolDefIsErrorNoReconnect(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)

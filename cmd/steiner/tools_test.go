@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,16 +22,39 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// buildMCPFixture compiles the internal/mcp fixture server once per test.
+// buildMCPFixture returns the path to the internal/mcp fixture server binary,
+// compiled once per test process and shared by all callers.
 func buildMCPFixture(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "fixtureserver")
-	cmd := exec.Command("go", "build", "-o", bin, "../../internal/mcp/testdata/fixtureserver") //nolint:noctx
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fixtureserver: %v\n%s", err, out)
+	built := buildMCPFixtureBinaryOnce()
+	if built.err != nil {
+		t.Fatalf("%v", built.err)
 	}
-	return bin
+	return built.path
 }
+
+type builtMCPFixtureBinary struct {
+	path string
+	err  error
+}
+
+var buildMCPFixtureBinaryOnce = sync.OnceValue(func() builtMCPFixtureBinary {
+	dir, err := os.MkdirTemp("", "steiner-mcp-fixture")
+	if err != nil {
+		return builtMCPFixtureBinary{err: fmt.Errorf("create fixture dir: %w", err)}
+	}
+	mcpFixtureBinaryDir = dir
+
+	bin := filepath.Join(dir, "fixtureserver")
+	cmd := exec.Command("go", "build", "-o", bin, "../../internal/mcp/testdata/fixtureserver") //nolint:noctx
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return builtMCPFixtureBinary{err: fmt.Errorf("build fixtureserver: %w: %s", err, strings.TrimSpace(string(output)))}
+	}
+	return builtMCPFixtureBinary{path: bin}
+})
+
+var mcpFixtureBinaryDir string
 
 // mcpFixtureManager connects the fixture server and returns the manager.
 func mcpFixtureManager(t *testing.T) *mcp.Manager {

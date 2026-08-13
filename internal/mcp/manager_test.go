@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -20,7 +21,7 @@ import (
 // TestManagerConnect drives the Manager against the step-1 fixture server
 // unsandboxed (wrap == nil) so the tests run on every platform.
 func TestManagerConnect(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 
 	server := func(env map[string]string) config.MCPServerConfig {
 		return config.MCPServerConfig{Enabled: true, Command: fixtureBin, Env: env}
@@ -560,13 +561,17 @@ func TestManagerConnect(t *testing.T) {
 		}
 
 		// WaitInit unblocks only after the stalling server hits its
-		// connect_timeout and its transport is torn down, then both servers
-		// have resolved. The SDK's teardown of a hung process adds up to 5s on
-		// top of the 500ms timeout, so allow 10s.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// connect_timeout and the failed connect kills the hung process
+		// immediately, then both servers have resolved; allow a few seconds for
+		// CI variance.
+		start := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := m.WaitInit(ctx); err != nil {
 			t.Fatalf("WaitInit: %v", err)
+		}
+		if elapsed := time.Since(start); elapsed >= 2*time.Second {
+			t.Errorf("WaitInit took %v: a failed connect must not wait out the transport shutdown grace", elapsed)
 		}
 		states := m.ServerStates()
 		if got := stateByName(states, "stall"); got.Status != ServerStatusFailed || got.Err == "" {
@@ -732,7 +737,7 @@ func TestManagerInertWithZeroServers(t *testing.T) {
 // TestFilter verifies allow/block filtering on connect: which tools register,
 // the retained per-tool outcomes, and unknown-reference warnings.
 func TestFilter(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 
 	tests := []struct {
 		name         string
@@ -847,7 +852,7 @@ func TestFilter(t *testing.T) {
 // defs, outcomes, and warnings across connects (D11): configured references are
 // warned once each in sorted order regardless of list order or duplication.
 func TestFilterDeterministic(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 
 	connect := func() ([]string, []AdvertisedTool, []string) {
 		cfg := config.MCPConfig{
@@ -997,13 +1002,38 @@ func findTool(t *testing.T, defs []tool.ToolDef, name string) tool.ToolDef {
 	return tool.ToolDef{}
 }
 
-// buildFixture compiles the fixtureserver binary once per test run.
-func buildFixture(t *testing.T, dir string) string {
-	t.Helper()
-	bin := filepath.Join(dir, "fixtureserver")
-	cmd := exec.Command("go", "build", "-o", bin, "./testdata/fixtureserver") //nolint:noctx
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fixtureserver: %v\n%s", err, out)
+var cachedFixtureBin string
+
+// TestMain builds the fixtureserver binary once per test process into a
+// temporary directory shared by every test in this package, and publishes the
+// path in STEINER_MCP_FIXTURE_BIN for the external test package (package
+// mcp_test): the go tool allows only one TestMain per test binary, so the
+// external package reads the shared path instead of defining its own.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "steiner-mcp-fixture")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "create fixture dir: %v\n", err)
+		os.Exit(1)
 	}
-	return bin
+	cachedFixtureBin = filepath.Join(dir, "fixtureserver")
+	cmd := exec.Command("go", "build", "-o", cachedFixtureBin, "./testdata/fixtureserver") //nolint:noctx
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "build fixtureserver: %v\n%s", err, out)
+		os.Exit(1)
+	}
+	if err := os.Setenv("STEINER_MCP_FIXTURE_BIN", cachedFixtureBin); err != nil {
+		fmt.Fprintf(os.Stderr, "set STEINER_MCP_FIXTURE_BIN: %v\n", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	if err := os.RemoveAll(dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
+	os.Exit(code)
+}
+
+// buildFixture returns the fixtureserver binary, built once per test process.
+func buildFixture(t *testing.T) string {
+	t.Helper()
+	return cachedFixtureBin
 }

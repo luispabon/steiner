@@ -462,7 +462,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 				Enabled:        true,
 				Command:        fixtureBin,
 				Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
-				ConnectTimeout: config.MustDuration("100ms"),
+				ConnectTimeout: config.MustDuration("10s"),
 			},
 			"good": {Enabled: true, Command: fixtureBin},
 		},
@@ -489,7 +489,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 	// Background goroutine
 	go func() {
 		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 		init.once.Do(func() { init.run(ctx, rt) })
 	}()
@@ -497,7 +497,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 	// Turn (should block in once.Do until background completes, then observe error)
 	go func() {
 		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 		init.once.Do(func() { init.run(ctx, rt) })
 		turnErr = init.err
@@ -505,7 +505,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 
 	wg.Wait()
 
-	// Both should observe the same error (WaitInit timed out on stall)
+	// Both should observe the same error (WaitInit timed out while the stall server was still connecting; its ConnectTimeout outlives the 500ms ctx)
 	if turnErr == nil {
 		t.Fatal("turn goroutine err = nil, want WaitInit timeout error")
 	}
