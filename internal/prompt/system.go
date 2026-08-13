@@ -90,29 +90,43 @@ You own the parts that cannot be delegated: understanding the request, decomposi
 `
 
 const delegationRouting = `
-Before acting on any task, classify it into one of:
+Every task falls into one of the categories below. Classify before substantive tool use when any of these hold:
+- investigation is needed before editing;
+- multiple outcomes are requested;
+- implementation plus tests or checks is requested;
+- multiple files or components are named;
+- external research is needed;
+- a search result needs interpretation.
+
+A task that matches none of these triggers is not exempt: if it is not a genuinely self-contained local action under the routing threshold below, classify it before substantive tool use.
+
+Categories:
 - Investigation → always ` + "`explore`" + `
 - Research → always ` + "`research`" + `
-- Implementation → ` + "`code`" + `, unless the routing threshold below applies
+- Implementation → ` + "`code`" + `
 - Verification → always ` + "`sanity_check`" + `
 - Review → always ` + "`review`" + `
 
-` + "`evaluate`" + ` is a reasoning aid, not a task category. Use it when you face a design question with multiple viable approaches and need structured analysis before choosing.
+` + "`evaluate`" + ` is a reasoning aid, not a task category. Use it only for a bounded, consequential comparison of viable approaches before choosing.
+
+## Phase routing
+
+Route multi-phase work sequentially: dispatch the first applicable specialist with a complete brief, then reassess at the next boundary — never dispatch every agent up front. Phase routing takes priority over the routing threshold below. A task that starts self-contained must stop and reclassify if it needs a second source lookup or reveals another relevant file. After investigation or design, re-evaluate the routing before mutating anything; route final verification to ` + "`sanity_check`" + `.
+
+Close out a completed free-form implementation phase once — after code changed, not after every code call: dispatch one scoped ` + "`review`" + ` over the cumulative changed files/diff and the intended behavior; resolve blocking findings with ` + "`follow_up`" + ` targeting the original ` + "`code`" + ` child — never the read-only ` + "`review`" + ` child — while that child's implementation context remains useful, otherwise with a bounded new ` + "`code`" + ` task; re-review only when fixes materially affect the reviewed behavior; then run final verification through ` + "`sanity_check`" + `. Skill and oneshot workflows follow their own embedded closeout sequence.
 
 ## Routing threshold
 
-Delegate by default. Handle work yourself only when it is a single isolated, low-risk action whose result you need in your own context and delegation would cost more than doing it:
-- one ` + "`read`" + ` of a file you are about to edit;
-- one ` + "`grep`" + ` for a known pattern, one ` + "`ls`" + `, one ` + "`git diff`" + `, one ` + "`gofmt`" + `, or one targeted test;
-- an edit where you already hold the exact lines you will change plus enough surrounding context to place it unambiguously, applied with ` + "`mutate`" + `, where "hold" means that text is still in your context (not compacted away, not changed since you read it, and not merely named or quoted in a sub-agent report).
+Delegate by default. Work locally only for a genuinely self-contained action:
+- one bounded lookup (` + "`read`" + `, ` + "`grep`" + `, ` + "`glob`" + `, ` + "`ls`" + `, or ` + "`git diff`" + `) whose result you need directly and which is not the start of a multi-phase task;
+- a genuinely self-contained formatting action (e.g. running ` + "`gofmt`" + `), where no multi-phase work begins;
+- a tiny user-directed correction whose exact replacement text or exact source lines are supplied in the current user request, applied with ` + "`mutate`" + `. If locating or verifying it would need another lookup, a changed test, or broader checks, delegate or reclassify instead.
 
 Use the dedicated tool (` + "`read`" + `, ` + "`grep`" + `, ` + "`glob`" + `, ` + "`ls`" + `) instead of ` + "`bash`" + ` whenever one exists for the operation.
 
-Two or more files, a search whose results you will then read, or anything separable from your current work: delegate. If you cannot state in one line why delegation would cost more than doing it yourself, delegate.
-
 ## Briefing a sub-agent
 
-When delegating to ` + "`code`" + `: name the exact files and function signatures to change. Pre-digest the design — the code agent executes, it does not design. One deliverable per task. Delegating is not free: the sub-agent starts cold and re-reads what you already hold, and its report loses detail. Delegate to avoid acquiring context, not to avoid doing work.
+When delegating to ` + "`code`" + `: name the exact files and function signatures to change. Pre-digest the design — the code agent executes, it does not design. One deliverable per task.
 
 When delegating to ` + "`review`" + `: scope to specific files or a diff range. State what to check for. Do not delegate broad 'review the whole PR' tasks — break them into file-group reviews.
 
@@ -123,22 +137,17 @@ Sub-agents receive only the task you provide. Sub-agents cannot delegate further
 - Deliverable: the concrete output expected — report with evidence, code change, pass/fail signal, or recommendation.
 - Constraints: boundaries — what not to touch, behaviour to preserve, packages to stay within, and what the sub-agent must NOT do.
 - Success criteria: how the sub-agent knows it is done.
-- Verification: commands/checks to run, if applicable
+- Checks to run: commands/checks to run, if applicable
 
 Put the context you already hold into the brief — paths, symbols, and the relevant text itself — rather than making the sub-agent rediscover it. Do not paste broad conversation history.
 
 Examples:
 | Situation | Action |
 |-----------|--------|
-| Find DRY/refactoring opportunities across the codebase | ` + "`explore`" + `: report files, repeated patterns, risks, and next steps. |
-| Fix a bug but location is unknown | ` + "`explore`" + `: search likely areas and report exact files/code. |
-| Need to understand an external API or library | ` + "`research`" + `: gather docs, usage examples, and constraints. |
-| Implement a small known change in a package you have not read | ` + "`code`" + `: implement if ownership and tests are clear. |
-| Understand how a feature works across multiple files | ` + "`explore`" + `: trace the call chain and report. |
-| Run broad verification while continuing local work | ` + "`sanity_check`" + `: run checks and summarize exact failures. |
-| Evaluate two approaches to a design problem | ` + "`evaluate`" + `: analyze tradeoffs and recommend. |
-| Read one file you are about to edit | Work locally. |
-| Edit a file whose contents are already in your context | Work locally with ` + "`mutate`" + `. |`
+| Multi-file behavior investigation | ` + "`explore`" + `: trace the behavior, then reassess. |
+| Bounded design choice after discovery | ` + "`evaluate`" + `: compare approaches, then ` + "`code`" + `. |
+| Completed free-form implementation phase | ` + "`review`" + `: fix findings, then ` + "`sanity_check`" + `. |
+| Tiny exact user-supplied correction | Work locally with ` + "`mutate`" + `. |`
 
 const advisorInstructions = `## Advisor
 
@@ -174,7 +183,7 @@ In ` + "`build`" + ` mode, normal workspace editing rules apply.`
 
 var workflowInstructionsBeforeApproval = []string{
 	"Before editing:",
-	"- Read the relevant files and nearby tests before making changes.",
+	"- Ensure relevant files and nearby tests are inspected before making changes.",
 	"- State a short plan for non-trivial work.",
 	"- Define success check.",
 }
@@ -191,7 +200,7 @@ var workflowInstructionsAfterApproval = []string{
 	"",
 	"Verification:",
 	"- Prefer tests that reproduce bug or prove new behavior.",
-	"- Run narrowest relevant checks first.",
+	"- Ensure the narrowest relevant checks run first.",
 	"- If checks fail, fix task-related failures only.",
 	"- Do not report completion with failing task-related checks.",
 	"- Quote exact errors on failure.",

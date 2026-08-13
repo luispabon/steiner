@@ -126,6 +126,15 @@ func TestSpecializedToolDef(t *testing.T) {
 				if len(required) > 0 && required[0] != "task" {
 					t.Errorf("required[0]=%v, want 'task'", required[0])
 				}
+				// Pin the non-vision task description so schema/canon drift is caught.
+				taskProp, ok := props["task"].(map[string]any)
+				if !ok {
+					t.Fatal("task property is not an object in schema")
+				}
+				const wantTaskDesc = "Required. Self-contained task with objective, context, deliverable, constraints, success criteria, and checks to run."
+				if desc, _ := taskProp["description"].(string); desc != wantTaskDesc {
+					t.Errorf("non-vision task description=%q, want %q", desc, wantTaskDesc)
+				}
 			}
 		})
 	}

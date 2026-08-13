@@ -2,6 +2,8 @@
 
 `steiner` exposes eight sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. When delegation is enabled, the parent's system prompt casts it as the orchestrator: it plans the work, chooses the right specialist for each piece, dispatches it with a complete brief, verifies what comes back, and integrates it — it is not the default implementation worker.
 
+Free-form sessions route work phase-first: the orchestrator classifies the whole task before substantive tool use when it spans investigation, implementation, and verification, then dispatches the first applicable specialist and reassesses at each boundary rather than launching every agent up front. Once a free-form implementation phase completes with code changed, the orchestrator closes it out once: one scoped `review` over the cumulative change, blocking findings resolved via `follow_up` targeting the original `code` child — never the read-only `review` child — while its implementation context remains useful, or a bounded new `code` task otherwise, re-review only when fixes materially affect the reviewed behavior, then final verification through `sanity_check`. Skill and oneshot workflows embed their own closeout sequence instead. Local work is reserved for genuinely self-contained actions — a single bounded lookup, a genuinely self-contained formatting action (e.g. running `gofmt`), or a tiny user-directed correction whose exact replacement text is supplied in the request.
+
 `advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. The advisor lives alongside the delegation tools in the main loop, but it is not a child agent.
 
 ---
@@ -29,17 +31,17 @@ The `advisor` tool is a pure reasoning pass for the parent agent. It reads the l
 
 ### When to use each
 
-| Situation                                              | Tool                                                           |
-|--------------------------------------------------------|----------------------------------------------------------------|
-| Find DRY/refactoring opportunities across the codebase | `explore` — report files, repeated patterns, risks, next steps |
-| Fix a bug but location is unknown                      | `explore` — search likely areas and report exact files/code    |
-| Need to understand an external API or library          | `research` — gather docs, usage examples, and constraints      |
-| Implement a small known change in one package          | `code` — implement if ownership and tests are clear            |
-| Understand how a feature works across multiple files   | `explore` — trace the call chain and report                    |
-| Evaluate two approaches to a design problem            | `evaluate` — analyse tradeoffs and recommend                   |
-| Run broad verification while continuing local work     | `sanity_check` — run checks and summarise exact failures       |
-| Review implemented changes before merge                | `review` — examine code for bugs, regressions, missing tests   |
-| Describe or query a pasted image                       | `vision` — the sub-agent receives the image and answers        |
+| Situation                                              | Tool                                                                                                                             |
+|--------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| Find DRY/refactoring opportunities across the codebase | `explore` — report files, repeated patterns, risks, next steps                                                                   |
+| Fix a bug but location is unknown                      | `explore` — search likely areas and report exact files/code                                                                      |
+| Need to understand an external API or library          | `research` — gather docs, usage examples, and constraints                                                                        |
+| Implement a small known change in one package          | `code` — implement if ownership and tests are clear                                                                              |
+| Understand how a feature works across multiple files   | `explore` — trace the call chain, then reassess before editing                                                                   |
+| Evaluate two approaches to a design problem            | `evaluate` — analyse tradeoffs, then `code` the chosen approach                                                                  |
+| Close out a free-form implementation phase             | `review` the cumulative change, fix blocking findings (`follow_up` or a bounded `code` task), then `sanity_check` for final checks |
+| Review implemented changes before merge                | `review` — examine code for bugs, regressions, missing tests                                                                     |
+| Describe or query a pasted image                       | `vision` — the sub-agent receives the image and answers                                                                          |
 
 `evaluate` is for focused sub-problem analysis, **not** overall task planning.
 

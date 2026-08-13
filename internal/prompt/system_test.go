@@ -187,23 +187,18 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"| `evaluate` | Analyze a scoped sub-problem: weigh options, produce a recommendation. Not for task planning | task planning, or questions with one obvious answer |",
 		"| `sanity_check` | Run checks: tests, lint, build. Report pass/fail. No code changes | anything that changes files |",
 		"| `review` | Examine code changes: bugs, regressions, missing tests, plan adherence. No fixes | broad 'review the whole PR' scope, or applying fixes |",
-		"Before acting on any task, classify it into one of:",
+		"Every task falls into one of the categories below.",
 		"Investigation → always `explore`",
 		"Research → always `research`",
-		"Implementation → `code`, unless the routing threshold below applies",
+		"Implementation → `code`",
 		"Verification → always `sanity_check`",
 		"Review → always `review`",
 		"`evaluate` is a reasoning aid, not a task category.",
 		"## Routing threshold",
 		"Delegate by default.",
-		"one `read` of a file you are about to edit;",
-		"one `grep` for a known pattern, one `ls`, one `git diff`, one `gofmt`, or one targeted test;",
-		"applied with `mutate`",
-		"If you cannot state in one line why delegation would cost more than doing it yourself, delegate.",
 		"Use the dedicated tool (`read`, `grep`, `glob`, `ls`) instead of `bash`",
 		"## Briefing a sub-agent",
 		"When delegating to `code`: name the exact files and function signatures to change.",
-		"Delegating is not free: the sub-agent starts cold and re-reads what you already hold",
 		"When delegating to `review`: scope to specific files or a diff range.",
 		"Sub-agents receive only the task you provide.",
 		"Sub-agents cannot delegate further or ask the user questions.",
@@ -213,22 +208,30 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"Deliverable: the concrete output expected",
 		"Constraints: boundaries",
 		"Success criteria: how the sub-agent knows it is done",
-		"Verification: commands/checks to run, if applicable",
+		"Checks to run: commands/checks to run, if applicable",
 		"Put the context you already hold into the brief",
 		"rather than making the sub-agent rediscover it",
 		"Do not paste broad conversation history.",
-		"| Find DRY/refactoring opportunities across the codebase | `explore`: report files, repeated patterns, risks, and next steps. |",
-		"| Understand how a feature works across multiple files | `explore`: trace the call chain and report. |",
-		"| Read one file you are about to edit | Work locally. |",
-		"| Edit a file whose contents are already in your context | Work locally with `mutate`. |",
-		"| Run broad verification while continuing local work | `sanity_check`: run checks and summarize exact failures. |",
-		"| Evaluate two approaches to a design problem | `evaluate`: analyze tradeoffs and recommend. |",
+		"| Multi-file behavior investigation | `explore`: trace the behavior, then reassess. |",
+		"| Bounded design choice after discovery | `evaluate`: compare approaches, then `code`. |",
+		"| Completed free-form implementation phase | `review`: fix findings, then `sanity_check`. |",
+		"| Tiny exact user-supplied correction | Work locally with `mutate`. |",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("delegation preamble missing %q", want)
 		}
 	}
 	for _, forbidden := range []string{
+		"Delegating is not free: the sub-agent starts cold",
+		"Delegate to avoid acquiring context, not to avoid doing work.",
+		"one targeted test",
+		"you already hold the exact lines",
+		"whose contents are already in your context",
+		"Read one file you are about to edit",
+		"single isolated, low-risk action",
+		"If you cannot state in one line why delegation would cost more than doing it yourself, delegate.",
+		"Two or more files, a search whose results you will then read",
+		"unless the routing threshold below applies",
 		"Prefer specialized delegate tools when the task fits.",
 		"Before starting a task locally, classify it.",
 		"One known tool call is enough",
@@ -259,6 +262,109 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("delegation preamble still contains old guidance %q", forbidden)
+		}
+	}
+}
+
+// TestSystemPreambleDelegationPhaseFirstRouting pins the phase-first routing
+// policy: whole-task classification before substantive tool use, sequential
+// dispatch with reassessment at boundaries, and local work limited to
+// genuinely self-contained actions. It also guards against the return of the
+// obsolete `one targeted test` allowance and the broad "already hold exact
+// lines" local-edit exception.
+func TestSystemPreambleDelegationPhaseFirstRouting(t *testing.T) {
+	t.Parallel()
+
+	content := SystemPreamble("", true, false, "").Content
+
+	// Whole-task categorization is required: every task falls into one of the
+	// categories, and classification before substantive tool use is required
+	// when any structural trigger holds — with no loophole for a task that
+	// matches no trigger but is not a self-contained local action.
+	for _, want := range []string{
+		"Every task falls into one of the categories below.",
+		"Classify before substantive tool use when any of these hold:",
+		"investigation is needed before editing;",
+		"multiple outcomes are requested;",
+		"implementation plus tests or checks is requested;",
+		"multiple files or components are named;",
+		"external research is needed;",
+		"a search result needs interpretation.",
+		"A task that matches none of these triggers is not exempt",
+		"genuinely self-contained local action under the routing threshold below",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("delegation preamble missing classification trigger %q in %q", want, content)
+		}
+	}
+
+	// Phases route sequentially: dispatch the first applicable specialist,
+	// reassess at the next boundary, never every agent up front.
+	for _, want := range []string{
+		"## Phase routing",
+		"dispatch the first applicable specialist",
+		"reassess at the next boundary",
+		"never dispatch every agent up front",
+		"Phase routing takes priority over the routing threshold below",
+		"must stop and reclassify if it needs a second source lookup or reveals another relevant file",
+		"After investigation or design, re-evaluate the routing before mutating anything",
+		"route final verification to `sanity_check`",
+		"`evaluate` is a reasoning aid, not a task category.",
+		"bounded, consequential comparison of viable approaches",
+		"Close out a completed free-form implementation phase once",
+		"after code changed, not after every code call",
+		"dispatch one scoped `review`",
+		"over the cumulative changed files/diff and the intended behavior",
+		"resolve blocking findings",
+		"`follow_up` targeting the original `code` child",
+		"never the read-only `review` child",
+		"while that child's implementation context remains useful",
+		"otherwise with a bounded new `code` task",
+		"re-review only when fixes materially affect the reviewed behavior",
+		"run final verification through `sanity_check`",
+		"Skill and oneshot workflows follow their own embedded closeout sequence.",
+		"Checks to run: commands/checks to run, if applicable",
+		"Ensure relevant files and nearby tests are inspected before making changes",
+		"Ensure the narrowest relevant checks run first",
+		"| Multi-file behavior investigation | `explore`: trace the behavior, then reassess. |",
+		"| Bounded design choice after discovery | `evaluate`: compare approaches, then `code`. |",
+		"| Completed free-form implementation phase | `review`: fix findings, then `sanity_check`. |",
+		"| Tiny exact user-supplied correction | Work locally with `mutate`. |",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("delegation preamble missing phase routing rule %q in %q", want, content)
+		}
+	}
+
+	// Local work stays limited to genuinely self-contained actions: one
+	// bounded lookup, one formatting action, or a tiny correction whose
+	// exact replacement text or lines come from the current user request.
+	for _, want := range []string{
+		"Work locally only for a genuinely self-contained action:",
+		"one bounded lookup",
+		"which is not the start of a multi-phase task",
+		"a genuinely self-contained formatting action",
+		"where no multi-phase work begins",
+		"exact replacement text or exact source lines are supplied in the current user request",
+		"a changed test, or broader checks, delegate or reclassify instead",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("delegation preamble missing local-work rule %q in %q", want, content)
+		}
+	}
+
+	// The old allowances must not return: the `one targeted test` example and
+	// the broad "already hold exact lines" local-edit exception.
+	for _, forbidden := range []string{
+		"one targeted test",
+		"Delegating is not free: the sub-agent starts cold",
+		"Delegate to avoid acquiring context, not to avoid doing work.",
+		"you already hold the exact lines",
+		"whose contents are already in your context",
+		"Read one file you are about to edit",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("delegation preamble still contains obsolete local-work allowance %q in %q", forbidden, content)
 		}
 	}
 }
