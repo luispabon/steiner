@@ -100,3 +100,21 @@ func (s statusState) view(width int) string {
 	}
 	return theme.WithBg(s.styles.StatusBar.Render(text), theme.BgElev)
 }
+
+// renderStatus memoizes statusState.view, keyed on the entire statusState
+// value plus width. statusState is fully comparable (strings, bools, ints,
+// and one *theme.Styles pointer), so the key IS the input: there is no
+// invalidation logic that can go stale, because any change to any field
+// changes the key. The cache lives on Model rather than statusState so that
+// comparing the key never compares the cached output against itself.
+func (m *Model) renderStatus(width int) string {
+	if m.statusViewCacheSet && m.statusViewCacheKey == m.status && m.statusViewCacheWidth == width {
+		return m.statusViewCacheRendered
+	}
+	rendered := m.status.view(width)
+	m.statusViewCacheSet = true
+	m.statusViewCacheKey = m.status
+	m.statusViewCacheWidth = width
+	m.statusViewCacheRendered = rendered
+	return rendered
+}

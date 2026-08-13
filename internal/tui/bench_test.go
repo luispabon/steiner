@@ -13,8 +13,27 @@ import (
 var benchStringSink string
 var benchViewSink string
 
-// BenchmarkView measures m.View() steady state performance.
+// BenchmarkView measures m.View() steady state performance at a realistic
+// terminal size (220x60). Every cost on the frame path is width/height
+// proportional, so a small fixture understates real usage by ~15x — see
+// BenchmarkViewSmall for the 80x24 reference point.
 func BenchmarkView(b *testing.B) {
+	m := newModel(Config{
+		Model:         "bench-model",
+		ModelContexts: map[string]int{"bench-model": 4096},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 220, Height: 60})
+	populateBenchModel(m)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchViewSink = m.View().Content
+	}
+}
+
+// BenchmarkViewSmall measures m.View() at the historical 80x24 fixture size,
+// kept as a reference point for how much a small terminal understates cost.
+func BenchmarkViewSmall(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 4096},
@@ -106,13 +125,14 @@ func BenchmarkKeystroke(b *testing.B) {
 	}
 }
 
-// BenchmarkViewHeavy measures m.View() with ~100 segments.
+// BenchmarkViewHeavy measures m.View() with ~100 segments at a realistic
+// terminal size (220x60).
 func BenchmarkViewHeavy(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 4096},
 	}, nil)
-	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 220, Height: 60})
 	populateBenchModelHeavy(m)
 
 	b.ResetTimer()
@@ -176,31 +196,16 @@ func BenchmarkContentStringUltraHeavy(b *testing.B) {
 	}
 }
 
-// BenchmarkScrollDownHeavy measures scrollDown(3) then View() with ~100 segments.
+// BenchmarkScrollDownHeavy measures scrollDown(3) then View() with ~100
+// segments at a realistic terminal size (220x60), on warmed caches. This is
+// the headline scroll frame: everything View() touches other than the
+// viewport slice is unchanged by the scroll.
 func BenchmarkScrollDownHeavy(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 4096},
 	}, nil)
-	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	populateBenchModelHeavy(m)
-
-	m.syncViewport()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		m.scrollDown(3)
-		benchViewSink = m.View().Content
-	}
-}
-
-// BenchmarkScrollFrame measures scrollDown(3) then View() on warmed caches.
-func BenchmarkScrollFrame(b *testing.B) {
-	m := newModel(Config{
-		Model:         "bench-model",
-		ModelContexts: map[string]int{"bench-model": 4096},
-	}, nil)
-	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 220, Height: 60})
 	populateBenchModelHeavy(m)
 
 	m.syncViewport()

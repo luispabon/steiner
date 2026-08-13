@@ -48,9 +48,9 @@ func (m *Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
 
 	vDivider := m.styles.VDivider.Height(m.height).Render("")
 	if m.sidebarPosition == "right" {
-		return lipgloss.JoinHorizontal(lipgloss.Top, mainColumn, vDivider, m.sidebar.View(m.width, m.height))
+		return zipColumns(mainColumn, vDivider, m.renderSidebar(m.width, m.height))
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, m.sidebar.View(m.width, m.height), vDivider, mainColumn)
+	return zipColumns(m.renderSidebar(m.width, m.height), vDivider, mainColumn)
 }
 
 func (m *Model) renderMainColumn(contentWidth int) string {
@@ -71,7 +71,7 @@ func (m *Model) renderMainColumn(contentWidth int) string {
 	mainComponents = append(mainComponents,
 		m.renderActivityRow(contentWidth),
 		m.renderInputView(contentWidth),
-		m.status.view(contentWidth),
+		m.renderStatus(contentWidth),
 	)
 
 	mainColumn := strings.Join(mainComponents, "\n")
@@ -253,10 +253,6 @@ func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) stri
 		base = m.accentPicker.PlaceBottomAnchoredAt(base, m.accentPicker.View(), offset, xOffset)
 	}
 	return base
-}
-
-func (m *Model) renderActivityRow(contentWidth int) string {
-	return m.activity.view(contentWidth, m.styles)
 }
 
 func (m *Model) applyInputStyles() {

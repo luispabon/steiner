@@ -209,6 +209,20 @@ type Model struct {
 	vpViewCacheScrollY      int
 	vpViewCacheWidth        int
 	vpViewCacheHasScrollbar bool
+
+	statusViewCacheSet      bool
+	statusViewCacheKey      statusState
+	statusViewCacheWidth    int
+	statusViewCacheRendered string
+
+	sidebarViewCacheSet      bool
+	sidebarViewCacheKey      sidebarCacheKey
+	sidebarViewCacheFiles    []gitModifiedFile
+	sidebarViewCacheRendered string
+
+	activityViewCacheSet      bool
+	activityViewCacheKey      activityCacheKey
+	activityViewCacheRendered string
 }
 
 type scrollbarCacheKey struct {
