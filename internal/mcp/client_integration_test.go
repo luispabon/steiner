@@ -28,7 +28,7 @@ import (
 // TestStdio exercises a long-lived MCP stdio server across the whole connect,
 // handshake, tool list, and tool call path, with and without the sandbox.
 func TestStdio(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 
 	t.Run("sandboxed_end_to_end", func(t *testing.T) {
 		skipIfBwrapUnavailable(t)
@@ -201,7 +201,7 @@ func TestStdio(t *testing.T) {
 // fixture server with trust_annotations: true (step 9, D6): a readOnlyHint tool
 // auto-allows with no approval prompt, while an unannotated tool still prompts.
 func TestIntegrationAnnotationAutoAllow(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	approver := &recordingApprover{allow: true}
 	cfg := config.MCPConfig{
 		Enabled: true,
@@ -267,7 +267,7 @@ func TestIntegrationAnnotationAutoAllow(t *testing.T) {
 // TestIntegrationTrustAnnotationsFalse verifies that trust_annotations: false
 // ignores readOnlyHint end to end: readonly_echo still prompts for approval.
 func TestIntegrationTrustAnnotationsFalse(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 	approver := &recordingApprover{allow: true}
 	cfg := config.MCPConfig{
 		Enabled: true,
@@ -334,13 +334,16 @@ func findToolDef(t *testing.T, defs []tool.ToolDef, name string) tool.ToolDef {
 	return tool.ToolDef{}
 }
 
-// buildFixture compiles the fixtureserver binary once per test run.
-func buildFixture(t *testing.T, dir string) string {
+// buildFixture returns the fixtureserver binary, built once per test process
+// by package mcp's TestMain. The external test package cannot define its own
+// TestMain (the go tool allows only one per test binary), so TestMain
+// publishes the built path in STEINER_MCP_FIXTURE_BIN and this helper reads
+// it back.
+func buildFixture(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(dir, "fixtureserver")
-	cmd := exec.Command("go", "build", "-o", bin, "./testdata/fixtureserver") //nolint:noctx
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fixtureserver: %v\n%s", err, out)
+	bin := os.Getenv("STEINER_MCP_FIXTURE_BIN")
+	if bin == "" {
+		t.Fatal("buildFixture: STEINER_MCP_FIXTURE_BIN not set; package mcp TestMain must run first")
 	}
 	return bin
 }

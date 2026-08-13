@@ -20,7 +20,7 @@ import (
 // internals (headers, sessions, reaping, reconnect) are intentionally out of
 // scope and covered by the per-transport tests.
 func TestMCPTransportParity(t *testing.T) {
-	fixtureBin := buildFixture(t, t.TempDir())
+	fixtureBin := buildFixture(t)
 
 	// One shared loopback HTTP peer: the SDK server registers test_tool (echo)
 	// plus an error tool via withErrorTool. Subtests connect sequentially.
