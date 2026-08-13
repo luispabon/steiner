@@ -28,6 +28,7 @@ Key environment variables:
 | `STEINER_LOG_LEVEL`           | `logging.level`                   |
 | `STEINER_LOG_FILE`            | `logging.file`                    |
 | `STEINER_TOOL_OUTPUT_MAX_BYTES` | `limits.tool_output_max_bytes`  |
+| `STEINER_TUI_FPS`             | `tui.fps`                         |
 
 ### Environment variable expansion in config values
 
@@ -74,6 +75,7 @@ If `OPENAI_API_KEY` is not set, configuration loading fails. If `OPENAI_BASE_URL
 | `oneshot`           | block    | empty       | Closeout settings for autonomous oneshot runs. Per-phase model aliases live under `models.oneshot`. |
 | `desktop_notifications` | block | see below | Desktop notification settings for run completion and events. |
 | `mcp`               | block    | see below   | Model Context Protocol server configuration. |
+| `tui`               | block    | see below   | Interactive terminal UI settings. |
 
 ## `advisor` block
 
@@ -165,6 +167,27 @@ Controls provider-level concurrency.
 ```yaml
 scheduler:
   parallelism: 1
+```
+
+---
+
+## `tui` block
+
+Interactive terminal UI settings. Ignored outside interactive mode.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `fps` | int  | `60`    | Renderer frame rate. Bubble Tea flushes the terminal on this ticker, so it bounds how long a processed keystroke waits before it becomes visible - the average wait is half a frame (~8.3ms at 60, ~4.2ms at 120). Must be between 1 and 120. |
+
+Raising `fps` reduces input latency and increases CPU proportionally: renderer
+flush is roughly three quarters of TUI CPU cost, so moving from 60 to 120
+roughly doubles the flush work (measured at +61% process CPU during a
+150 token/s stream at 220x60). Raise it if input feels sluggish and you have
+CPU headroom; leave it at 60 on battery or on a constrained machine.
+
+```yaml
+tui:
+  fps: 60
 ```
 
 ---
@@ -881,6 +904,9 @@ limits:
 ```yaml
 scheduler:
   parallelism: 2
+
+tui:
+  fps: 60
 
 providers:
   local:

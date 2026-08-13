@@ -168,6 +168,17 @@ type Config struct {
 	Search               SearchConfig               `yaml:"search"`
 	MCP                  MCPConfig                  `yaml:"mcp"`
 	Modes                ModesConfig                `yaml:"modes"`
+	TUI                  TUIConfig                  `yaml:"tui"`
+}
+
+// TUIConfig configures the interactive terminal UI.
+type TUIConfig struct {
+	// FPS is the renderer frame rate. Bubble Tea flushes the terminal on this
+	// ticker, so it bounds how long a processed keystroke waits before it is
+	// visible: the average wait is half a frame. Raising it reduces that wait
+	// and increases CPU proportionally, because renderer flush dominates TUI
+	// CPU cost. Valid range 1-120; Bubble Tea caps above 120.
+	FPS int `yaml:"fps"`
 }
 
 // ModelsConfig consolidates all model configuration: the model definitions

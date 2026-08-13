@@ -6,6 +6,13 @@ func setIfPresent[T any](dst *T, src *T) {
 	}
 }
 
+func applyTUIPatch(dst *TUIConfig, patch *tuiPatch) {
+	if patch == nil {
+		return
+	}
+	setIfPresent(&dst.FPS, patch.FPS)
+}
+
 func applySchedulerPatch(dst *SchedulerConfig, patch *schedulerPatch) {
 	setIfPresent(&dst.Parallelism, patch.Parallelism)
 }

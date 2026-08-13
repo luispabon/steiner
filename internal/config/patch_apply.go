@@ -14,6 +14,9 @@ func applyCoreConfigPatch(cfg *Config, patch configPatch) {
 	if patch.Scheduler != nil {
 		applySchedulerPatch(&cfg.Scheduler, patch.Scheduler)
 	}
+	if patch.TUI != nil {
+		applyTUIPatch(&cfg.TUI, patch.TUI)
+	}
 	if patch.Providers != nil {
 		if cfg.Providers == nil {
 			cfg.Providers = make(map[string]ProviderConfig)

@@ -11,6 +11,7 @@ func validate(cfg Config) error {
 	validateDefaultModel(&problems, cfg)
 	validateProvidersConfig(&problems, cfg.Providers)
 	validateSchedulerConfig(&problems, cfg.Scheduler)
+	validateTUIConfig(&problems, cfg.TUI)
 	validateModelsConfig(&problems, cfg.Models.Definitions, cfg.Providers)
 	validateWorkflowHandoffConfig(&problems, cfg.Models.WorkflowHandoff, cfg.Models.Definitions)
 	validateOneShotConfig(&problems, cfg.Models.OneShot, cfg.Models.Definitions)

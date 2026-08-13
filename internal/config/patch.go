@@ -4,6 +4,7 @@ package config
 type configPatch struct {
 	CaveHuman            *bool                      `yaml:"cave_human"`
 	Scheduler            *schedulerPatch            `yaml:"scheduler"`
+	TUI                  *tuiPatch                  `yaml:"tui"`
 	Providers            *map[string]providerPatch  `yaml:"providers"`
 	Sandbox              *sandboxPatch              `yaml:"sandbox"`
 	Permissions          *permissionsPatch          `yaml:"permissions"`
@@ -52,6 +53,10 @@ type contextManagementPatch struct {
 
 type schedulerPatch struct {
 	Parallelism *int `yaml:"parallelism"`
+}
+
+type tuiPatch struct {
+	FPS *int `yaml:"fps"`
 }
 
 // sandboxPatch holds sandbox config fields that can be patched from YAML.
