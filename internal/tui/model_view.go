@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
@@ -46,7 +47,15 @@ func (m *Model) renderBaseView(contentWidth int, sidebarVisible bool) string {
 		return mainColumn
 	}
 
-	vDivider := m.styles.VDivider.Height(m.height).Render("")
+	var vDivider string
+	if m.vDividerCacheStyles == m.styles && m.vDividerCacheHeight == m.height && m.vDividerCacheRendered != "" {
+		vDivider = m.vDividerCacheRendered
+	} else {
+		vDivider = m.styles.VDivider.Height(m.height).Render("")
+		m.vDividerCacheStyles = m.styles
+		m.vDividerCacheHeight = m.height
+		m.vDividerCacheRendered = vDivider
+	}
 	if m.sidebarPosition == "right" {
 		return zipColumns(mainColumn, vDivider, m.renderSidebar(m.width, m.height))
 	}
@@ -283,7 +292,35 @@ func (m *Model) applyInputStyles() {
 	}
 }
 
+// renderInputView memoizes the composer render, keyed on every model field
+// the input render path reads, plus the render dimensions. Any write to any
+// of those inputs, from anywhere, changes the key and forces a fresh render:
+// the composer is re-rendered on every frame, and a missed input would serve
+// a stale composer indefinitely. The cursor is styled with Blink: false, so
+// there is no tick/time dependency and the key needs no timestamp.
 func (m *Model) renderInputView(contentWidth int) string {
+	key := inputViewCacheKey{
+		contentWidth:   contentWidth,
+		height:         m.height,
+		value:          m.input.Value(),
+		cursorLine:     m.input.Line(),
+		cursorColumn:   m.input.Column(),
+		placeholder:    m.input.Placeholder,
+		oneshotRunning: m.oneshotRunning,
+		styles:         m.styles,
+	}
+	if m.inputViewCacheSet && m.inputViewCacheKey == key && slices.Equal(m.inputViewCacheSkills, m.skillNames) {
+		return m.inputViewCacheRendered
+	}
+	rendered := m.renderInputViewUncached(contentWidth)
+	m.inputViewCacheSet = true
+	m.inputViewCacheKey = key
+	m.inputViewCacheSkills = append([]string(nil), m.skillNames...)
+	m.inputViewCacheRendered = rendered
+	return rendered
+}
+
+func (m *Model) renderInputViewUncached(contentWidth int) string {
 	bar := m.styles.UserBar.Render("┃")
 	bodyWidth := max(1, contentWidth-inputRailWidth)
 	innerWidth := m.inputInnerWidth(contentWidth)

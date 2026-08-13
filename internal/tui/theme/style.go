@@ -195,7 +195,8 @@ func ApplyPanePadding(content string, contentWidth int, hasScrollbar bool, bg st
 	rightPad := bgStyle.Render(strings.Repeat(" ", padRight))
 
 	var sb strings.Builder
-	sb.Grow(len(content) + (padLeft+padRight+2)*strings.Count(content, "\n") + contentWidth*(padTop+1))
+	lineCount := strings.Count(content, "\n") + 1
+	sb.Grow(len(content) + (len(leftPad)+len(rightPad)+1)*lineCount + contentWidth*(padTop+1))
 
 	if padTop > 0 {
 		sb.WriteString(bgStyle.Render(strings.Repeat(" ", contentWidth)))
@@ -223,15 +224,20 @@ func ApplyPanePadding(content string, contentWidth int, hasScrollbar bool, bg st
 func TruncateAndPadVertical(s string, width, maxHeight int, bg string) string {
 	lines := 0
 	truncated := false
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines++
-			if lines >= maxHeight {
-				s = s[:i]
-				truncated = true
-				break
-			}
+	pos := 0
+	for pos < len(s) {
+		i := strings.IndexByte(s[pos:], '\n')
+		if i < 0 {
+			break
 		}
+		i += pos
+		lines++
+		if lines >= maxHeight {
+			s = s[:i]
+			truncated = true
+			break
+		}
+		pos = i + 1
 	}
 
 	actualLines := lines + 1

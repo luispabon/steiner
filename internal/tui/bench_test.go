@@ -208,11 +208,12 @@ func BenchmarkContentStringUltraHeavy(b *testing.B) {
 	}
 }
 
-// BenchmarkScrollDownHeavy measures scrollDown(3) then View() with ~100
-// segments at a realistic terminal size (220x60), on warmed caches. This is
-// the headline scroll frame: everything View() touches other than the
-// viewport slice is unchanged by the scroll.
-func BenchmarkScrollDownHeavy(b *testing.B) {
+// BenchmarkStationaryFrameHeavy measures a fully cached frame where nothing
+// changed: m.View() with ~100 segments at a realistic terminal size (220x60),
+// pinned at the bottom by autoscroll. This is the autoscroll-streaming case
+// (viewport at bottom, no scroll movement between frames); every View() cost
+// other than the viewport slice is a cache hit.
+func BenchmarkStationaryFrameHeavy(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 4096},
@@ -224,8 +225,76 @@ func BenchmarkScrollDownHeavy(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m.scrollDown(3)
 		benchViewSink = m.View().Content
+	}
+}
+
+// BenchmarkScrollDownHeavy measures a real scrolled frame: the viewport
+// actually moves every iteration, both directions (up on even i, down on
+// odd), with ~100 segments at a realistic terminal size (220x60), on warmed
+// caches. The min/max yOffset guard is the regression guard that prevents
+// this benchmark from silently measuring a stationary frame again:
+// viewport.ScrollDown early-returns at the bottom, and a start-vs-end
+// comparison would fail spuriously because the loop oscillates.
+func BenchmarkScrollDownHeavy(b *testing.B) {
+	m := newModel(Config{
+		Model:         "bench-model",
+		ModelContexts: map[string]int{"bench-model": 4096},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 220, Height: 60})
+	populateBenchModelHeavy(m)
+
+	m.syncViewport()
+	m.scrollUp(30) // leave the bottom so both directions can move
+	lo, hi := m.viewport.YOffset(), m.viewport.YOffset()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if i%2 == 0 {
+			m.scrollUp(3)
+		} else {
+			m.scrollDown(3)
+		}
+		benchViewSink = m.View().Content
+		y := m.viewport.YOffset()
+		lo, hi = min(lo, y), max(hi, y)
+	}
+	b.StopTimer()
+	if hi == lo {
+		b.Fatalf("viewport never moved: yOffset pinned at %d", lo)
+	}
+}
+
+// BenchmarkScrollDownHeavy16x is the conversation-scale flatness guard:
+// identical to BenchmarkScrollDownHeavy but with ~1600 segments (16× the
+// heavy fixture). Per-frame B/op and allocs/op must match
+// BenchmarkScrollDownHeavy regardless of conversation size.
+func BenchmarkScrollDownHeavy16x(b *testing.B) {
+	m := newModel(Config{
+		Model:         "bench-model",
+		ModelContexts: map[string]int{"bench-model": 4096},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 220, Height: 60})
+	for range 16 {
+		populateBenchModelHeavy(m)
+	}
+
+	m.syncViewport()
+	m.scrollUp(30) // leave the bottom so both directions can move
+	lo, hi := m.viewport.YOffset(), m.viewport.YOffset()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if i%2 == 0 {
+			m.scrollUp(3)
+		} else {
+			m.scrollDown(3)
+		}
+		benchViewSink = m.View().Content
+		y := m.viewport.YOffset()
+		lo, hi = min(lo, y), max(hi, y)
+	}
+	b.StopTimer()
+	if hi == lo {
+		b.Fatalf("viewport never moved: yOffset pinned at %d", lo)
 	}
 }
 
