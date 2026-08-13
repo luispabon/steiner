@@ -173,16 +173,16 @@ func TestBuildInteractiveAppSeedsConfigWarnings(t *testing.T) {
 
 	select {
 	case final := <-done:
-		model, ok := final.(tui.Model)
+		model, ok := final.(*tui.Model)
 		if !ok {
-			t.Fatalf("final model type = %T, want tui.Model", final)
+			t.Fatalf("final model type = %T, want *tui.Model", final)
 		}
 		// Apply the window size directly so the render is deterministic
 		// regardless of message ordering inside the program's event loop.
 		sized, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-		model, ok = sized.(tui.Model)
+		model, ok = sized.(*tui.Model)
 		if !ok {
-			t.Fatalf("sized model type = %T, want tui.Model", sized)
+			t.Fatalf("sized model type = %T, want *tui.Model", sized)
 		}
 		if got := model.View().Content; !strings.Contains(got, "max_tokens is deprecated") {
 			t.Fatalf("TUI view does not contain the config warning:\n%s", got)

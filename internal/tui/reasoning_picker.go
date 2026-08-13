@@ -34,10 +34,10 @@ type reasoningPickerOverlay struct {
 	selection    int
 	scrollOffset int
 	modelName    string
-	styles       theme.Styles
+	styles       *theme.Styles
 }
 
-func newReasoningPickerOverlay(styles theme.Styles) reasoningPickerOverlay {
+func newReasoningPickerOverlay(styles *theme.Styles) reasoningPickerOverlay {
 	return reasoningPickerOverlay{styles: styles}
 }
 

@@ -9,14 +9,14 @@ import (
 	"github.com/luispabon/steiner/internal/interactive"
 )
 
-func (m Model) selectedApprovalDecision() ApprovalDecision {
+func (m *Model) selectedApprovalDecision() ApprovalDecision {
 	if m.approval.selectedAction < 0 || m.approval.selectedAction >= len(approvalDecisions) {
 		return ApprovalDecisionAllowOnce
 	}
 	return approvalDecisions[m.approval.selectedAction]
 }
 
-func (m Model) moveApprovalSelection(delta int) Model {
+func (m *Model) moveApprovalSelection(delta int) *Model {
 	if !m.approval.active || len(approvalDecisions) == 0 {
 		return m
 	}
@@ -34,6 +34,7 @@ func (m Model) moveApprovalSelection(delta int) Model {
 			if seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved {
 				seg.toolData.approvalSelectedAction = next
 				seg.renderDirty = true
+				m.content.gen++
 				return m
 			}
 		case segmentToolCallGroup:
@@ -45,6 +46,7 @@ func (m Model) moveApprovalSelection(delta int) Model {
 				if entry != nil && entry.approvalPending && !entry.approvalResolved {
 					entry.approvalSelectedAction = next
 					seg.renderDirty = true
+					m.content.gen++
 					return m
 				}
 			}
@@ -53,7 +55,7 @@ func (m Model) moveApprovalSelection(delta int) Model {
 	return m
 }
 
-func (m Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, tea.Cmd) {
+func (m *Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitApproval{
 			Tool:     m.approval.tool,

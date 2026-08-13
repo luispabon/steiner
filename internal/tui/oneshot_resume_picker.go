@@ -18,10 +18,10 @@ type oneshotResumePickerOverlay struct {
 	candidates   []oneshot.ResumableRun
 	selection    int
 	scrollOffset int
-	styles       theme.Styles
+	styles       *theme.Styles
 }
 
-func newOneshotResumePickerOverlay(styles theme.Styles) oneshotResumePickerOverlay {
+func newOneshotResumePickerOverlay(styles *theme.Styles) oneshotResumePickerOverlay {
 	return oneshotResumePickerOverlay{styles: styles}
 }
 

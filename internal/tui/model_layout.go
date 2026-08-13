@@ -11,7 +11,7 @@ import (
 
 const delegationBodyOverhead = 9
 
-func (m Model) contentWidth() int {
+func (m *Model) contentWidth() int {
 	contentWidth := m.width
 	if m.sidebar.Visible(m.width) {
 		contentWidth = m.width - sidebarWidth - 1
@@ -61,8 +61,25 @@ func (m *Model) computeInputRows(contentWidth int) (inputRows, activityRows int)
 	return inputRows, activityRows
 }
 
-func (m *Model) syncViewport() {
+// setViewportContent is the single choke point for viewport content updates. It
+// keeps m.viewportLines in sync with the viewport's own line slice so that
+// visibleViewportContent can slice the visible window without re-deriving the
+// full content. Do not call m.viewport.SetContent directly.
+func (m *Model) setViewportContent(rendered string) {
+	// SetContentLines splits embedded \r\n into extra lines; normalising first
+	// keeps m.viewportLines exactly equal to the viewport's own line slice.
+	if strings.ContainsRune(rendered, '\r') {
+		rendered = strings.ReplaceAll(rendered, "\r\n", "\n")
+	}
+	m.viewport.SetContent(rendered)
+	m.viewportLines = strings.Split(rendered, "\n")
+	// vpViewCache is keyed on scroll position, width and scrollbar presence, none
+	// of which change when only the content does. Invalidating here rather than in
+	// syncViewport keeps the cache tied to the choke point this comment documents.
 	m.vpViewCache = ""
+}
+
+func (m *Model) syncViewport() {
 	rendered := m.content.String(m.viewport.Width())
 	if m.showContextDiagnostics {
 		if header := m.renderContextInfoLine(m.viewport.Width()); header != "" {
@@ -102,9 +119,7 @@ func (m *Model) syncViewport() {
 		}
 		rendered = strings.Repeat(m.padLineCacheRendered+"\n", pad) + rendered
 	}
-	m.viewport.SetContent(rendered)
-	m.viewportLines = strings.Split(rendered, "\n")
-	m.viewportContentLen = len(rendered)
+	m.setViewportContent(rendered)
 	if m.autoScroll {
 		m.viewport.GotoBottom()
 	}
@@ -148,7 +163,7 @@ func (m *Model) handleLeftClick(termY int) {
 	m.handleSegmentClick(&m.content.segments[segIndex], rowInSegment)
 }
 
-func (m Model) viewportContentTopOffset() int {
+func (m *Model) viewportContentTopOffset() int {
 	// ContentPane normally pads the viewport down by one row, and the scrollbar
 	// layout replaces that with a leading blank row, so content starts one row
 	// below the pane top in both cases.
@@ -415,6 +430,7 @@ func (m *Model) handleToolCallClick(seg *contentSegment) {
 		}
 		seg.toolData.collapsed = !seg.toolData.collapsed
 		seg.renderDirty = true
+		m.content.gen++
 		m.syncViewport()
 	}
 }
@@ -436,12 +452,14 @@ func (m *Model) handleToolCallGroupClick(seg *contentSegment, rowInSegment int) 
 	}
 	entry.collapsed = !entry.collapsed
 	seg.renderDirty = true
+	m.content.gen++
 	m.syncViewport()
 }
 
 func (m *Model) handleDelegationSegmentClick(seg *contentSegment, rowInSegment int) {
 	if m.handleDelegationClick(seg, rowInSegment) {
 		seg.renderDirty = true
+		m.content.gen++
 		m.syncViewport()
 	}
 }
@@ -450,6 +468,7 @@ func (m *Model) handleThinkingBlockClick(seg *contentSegment) {
 	if seg.thinkData != nil {
 		seg.thinkData.collapsed = !seg.thinkData.collapsed
 		seg.renderDirty = true
+		m.content.gen++
 		m.syncViewport()
 	}
 }

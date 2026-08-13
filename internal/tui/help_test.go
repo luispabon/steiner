@@ -11,7 +11,8 @@ import (
 
 func TestRenderHelpIncludesContextKeybind(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	help := renderHelp(styles, 60)
 	if !strings.Contains(help, "ctrl+t") {
 		t.Fatalf("help = %q, want ctrl+t entry", help)

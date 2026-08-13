@@ -544,7 +544,7 @@ func TestRenderAdvisorTrailingMargin(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "check the layout", []string{"internal/tui/content_render_delegation.go"}))
@@ -757,7 +757,7 @@ func TestDelegationToggleOutput(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
@@ -850,7 +850,7 @@ func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 	longOutput := strings.Repeat("x", 650) + "tail marker"
 
@@ -916,7 +916,7 @@ func TestDelegationBlockRendering(t *testing.T) {
 			buffer := &contentBuffer{
 				segments:      make([]contentSegment, 0),
 				collapseState: make(map[int]bool),
-				styles:        theme.BuildStyles(theme.AccentAmber),
+				styles:        testStyles(theme.AccentAmber),
 			}
 			tt.setup(buffer)
 			rendered := buffer.String(80)
@@ -939,7 +939,7 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
@@ -964,7 +964,7 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
@@ -1006,7 +1006,7 @@ func TestRenderDelegationPromptSubsectionCollapsedAndExpanded(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	prompt := "inspect the prompt layout\nwith a line that wraps nicely"
@@ -1078,7 +1078,7 @@ func TestRenderDelegationBlankPromptSkipsSubsection(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", ""))
@@ -1106,7 +1106,7 @@ func TestRenderNormalParentBashToolRemainsBoxed(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_bash_1", map[string]any{
@@ -1126,7 +1126,7 @@ func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
@@ -1160,7 +1160,7 @@ func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
 func TestRenderDelegationTranscriptTruncatesToRecentRows(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -1269,7 +1269,7 @@ func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *tes
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		showThinking:  true,
 	}
 
@@ -1320,7 +1320,7 @@ func TestThinkingBlockBeforeToolCallStartsToolBoxOnFreshLine(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		showThinking:  true,
 	}
 
@@ -1358,7 +1358,7 @@ func TestAPIResponseFinalizesAssistantChunksAfterThinking(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		showThinking:  true,
 	}
 
@@ -1456,7 +1456,7 @@ func TestRenderThinkingBlockSegment(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			buf := &contentBuffer{styles: theme.BuildStyles(theme.AccentAmber)}
+			buf := &contentBuffer{styles: testStyles(theme.AccentAmber)}
 			seg := contentSegment{kind: segmentThinkingBlock, thinkData: tc.thinkData}
 			result := buf.renderThinkingBlockSegment(seg, tc.width)
 			plain := stripANSI(result)
@@ -1546,7 +1546,7 @@ func TestAppendUserMarkdownSegmentKind(t *testing.T) {
 func TestRenderUserMarkdownSegmentContainsText(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 	b.segments = []contentSegment{
@@ -1565,7 +1565,7 @@ func TestRenderUserMarkdownSegmentContainsText(t *testing.T) {
 func TestRenderPlainUserSegmentUnchanged(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 	b.segments = []contentSegment{
@@ -1642,7 +1642,7 @@ func TestUserSegmentMargin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := &contentBuffer{
-				styles:        theme.BuildStyles(theme.AccentAmber),
+				styles:        testStyles(theme.AccentAmber),
 				collapseState: make(map[int]bool),
 			}
 			b.segments = tt.segments
@@ -2148,7 +2148,7 @@ func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		showThinking:  true,
 	}
 
@@ -2243,7 +2243,7 @@ func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
 func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 	buffer.segments = []contentSegment{
@@ -2274,7 +2274,7 @@ func TestRenderToolPreviewUsesStructuredFilePreview(t *testing.T) {
 func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 
 	tests := []struct {
@@ -2305,7 +2305,7 @@ func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
 func TestRenderAdjacentSameToolCallsAsOneGroupedBox(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -2341,7 +2341,7 @@ func TestRenderAdjacentSameToolCallsAsOneGroupedBox(t *testing.T) {
 func TestRenderSingleBashToolCallStaysBoxed(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -2359,7 +2359,7 @@ func TestRenderSingleBashToolCallStaysBoxed(t *testing.T) {
 func TestRenderMixedAdjacentToolsStaySeparate(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -2378,7 +2378,7 @@ func TestRenderMixedAdjacentToolsStaySeparate(t *testing.T) {
 func TestRenderNonToolSegmentBreaksToolGrouping(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -2398,7 +2398,7 @@ func TestRenderNonToolSegmentBreaksToolGrouping(t *testing.T) {
 func TestFinishGroupedToolCallUpdatesMatchingCallID(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -2435,7 +2435,7 @@ func TestRenderToolPreviewUsesChromaStylesForMarkdown(t *testing.T) {
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -2458,7 +2458,7 @@ func TestRenderToolPreviewUsesChromaStylesForMakefile(t *testing.T) {
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -2486,7 +2486,7 @@ func main() {}
 		t.Fatal("preview document is not syntax-highlighted")
 	}
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 	buffer.segments = []contentSegment{
@@ -2514,7 +2514,7 @@ func main() {}
 func TestRenderReadFilePreviewIncludesLanguageInCaption(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 	buffer.segments = []contentSegment{
@@ -2547,7 +2547,7 @@ func TestRenderToolPreviewKeepsGoSyntaxStyling(t *testing.T) {
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -2570,7 +2570,7 @@ func TestRenderToolPreviewPreservesDiffSyntaxHighlighting(t *testing.T) {
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -2596,7 +2596,7 @@ func TestRenderToolPreviewTrimsSharedMarkdownHeadingInDiffs(t *testing.T) {
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 
@@ -2623,7 +2623,7 @@ func TestRenderToolPreviewTruncatesLongFileBodies(t *testing.T) {
 	}
 
 	buffer := &contentBuffer{
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 	buffer.segments = []contentSegment{
@@ -2691,7 +2691,7 @@ func TestRenderToolPreviewUsesStructuredListViews(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			buffer := &contentBuffer{
-				styles:        theme.BuildStyles(theme.AccentAmber),
+				styles:        testStyles(theme.AccentAmber),
 				collapseState: make(map[int]bool),
 			}
 			buffer.segments = []contentSegment{
@@ -2774,7 +2774,7 @@ func TestRenderToolPreviewUsesStructuredGrepViews(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			buffer := &contentBuffer{
-				styles:        theme.BuildStyles(theme.AccentAmber),
+				styles:        testStyles(theme.AccentAmber),
 				collapseState: make(map[int]bool),
 			}
 			buffer.segments = []contentSegment{
@@ -2836,7 +2836,7 @@ func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			buffer := &contentBuffer{
-				styles:        theme.BuildStyles(theme.AccentAmber),
+				styles:        testStyles(theme.AccentAmber),
 				collapseState: make(map[int]bool),
 			}
 			buffer.segments = []contentSegment{
@@ -2972,7 +2972,7 @@ func TestDelegationHeaderRendersSpecializedToolLabel(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call-1", map[string]any{"task": "map the codebase"}))
@@ -2995,7 +2995,7 @@ func TestDelegationHeaderLabelHasNoGenericDelegateFallback(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "delegate", "call-2", map[string]any{"task": "do work"}))
@@ -3016,7 +3016,7 @@ func TestRenderReplayDelegationUsesParentToolStartForPromptAndOutput(t *testing.
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	jsonBlob := `{"agent_id":"agent-evaluate-1","status":"complete","output":"final prose output","tool_call_count":2}`
@@ -3083,7 +3083,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
@@ -3127,7 +3127,7 @@ func TestDelegationStatsFooterHiddenWhenCollapsed(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
@@ -3155,7 +3155,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "plan", "call_1", map[string]any{"task": "plan work"}))
@@ -3185,7 +3185,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 		buffer := &contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
-			styles:        theme.BuildStyles(theme.AccentAmber),
+			styles:        testStyles(theme.AccentAmber),
 		}
 
 		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
@@ -3203,7 +3203,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 		buffer := &contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
-			styles:        theme.BuildStyles(theme.AccentAmber),
+			styles:        testStyles(theme.AccentAmber),
 		}
 
 		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
@@ -3239,7 +3239,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 		buffer := &contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
-			styles:        theme.BuildStyles(theme.AccentAmber),
+			styles:        testStyles(theme.AccentAmber),
 		}
 
 		buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
@@ -3263,7 +3263,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 		buffer := &contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
-			styles:        theme.BuildStyles(theme.AccentAmber),
+			styles:        testStyles(theme.AccentAmber),
 		}
 
 		buffer.AppendEvent(output.NewDelegationExtensionEvent("missing-agent", 1, 5))
@@ -3277,7 +3277,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 func TestBuildMutateLinesRendersOperations(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 
 	tc := &toolCallSegment{
@@ -3356,7 +3356,7 @@ func TestBuildMutateLinesRendersOperations(t *testing.T) {
 func TestBuildMutateLinesFallsBackToPlainWhenEmptyOperations(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 
 	tc := &toolCallSegment{
@@ -3379,7 +3379,7 @@ func TestBuildMutateLinesFallsBackToPlainWhenEmptyOperations(t *testing.T) {
 func TestBuildMutateLinesWriteShowsModifiedBadge(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 
 	tc := &toolCallSegment{
@@ -3632,7 +3632,7 @@ func TestRenderToolApprovalBlockMCPShowsServerToolAndSessionButton(t *testing.T)
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 	buffer.segments = append(buffer.segments, contentSegment{
 		kind: segmentToolCall,
@@ -3755,7 +3755,7 @@ func TestContentBufferSegmentHeights(t *testing.T) {
 	}
 
 	useTrueColor(t)
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3862,7 +3862,7 @@ func TestFollowUpToolCallCreatesDelegationSegmentWithMatchedLabel(t *testing.T) 
 
 func TestFollowUpHeaderRendersWithChildAgentID(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	b := &contentBuffer{
 		styles:        styles,
 		segments:      nil,
@@ -3951,7 +3951,7 @@ func useTrueColor(t *testing.T) {
 }
 func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	b := &contentBuffer{
 		styles:            styles,
 		segments:          make([]contentSegment, 0),
@@ -4126,7 +4126,7 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 
 func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	b := &contentBuffer{
 		styles:            styles,
 		segments:          make([]contentSegment, 0),
@@ -4231,7 +4231,7 @@ func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
 
 func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	b := &contentBuffer{
 		styles:            styles,
 		segments:          make([]contentSegment, 0),
@@ -4344,7 +4344,7 @@ func TestAdvisorCompleteSetsCacheHitRateFromUsage(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))

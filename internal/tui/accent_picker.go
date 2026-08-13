@@ -20,11 +20,11 @@ type accentPickerOverlay struct {
 	selection    int
 	scrollOffset int
 	current      string
-	styles       theme.Styles
+	styles       *theme.Styles
 }
 
 // newAccentPickerOverlay constructs an uninitialised accent picker.
-func newAccentPickerOverlay(styles theme.Styles) accentPickerOverlay {
+func newAccentPickerOverlay(styles *theme.Styles) accentPickerOverlay {
 	return accentPickerOverlay{styles: styles}
 }
 

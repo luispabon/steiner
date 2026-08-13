@@ -7,12 +7,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestPlanPickerOpen(t *testing.T) {
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	m := newPlanPickerOverlay(s)
 	if m.IsOpen() {
 		t.Fatal("expected picker to start closed")
@@ -78,7 +76,7 @@ func TestPlanPickerOpen(t *testing.T) {
 
 func TestPlanPickerUpdate(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	m := newPlanPickerOverlay(s)
 
 	// Set up state manually
@@ -111,7 +109,7 @@ func TestPlanPickerUpdate(t *testing.T) {
 
 func TestPlanPickerSelectedName(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	m := newPlanPickerOverlay(s)
 
 	// Empty state
@@ -140,7 +138,7 @@ func TestPlanPickerSelectedName(t *testing.T) {
 
 func TestPlanPickerClose(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	m := newPlanPickerOverlay(s)
 	m = m.Open("/plan")
 	if !m.IsOpen() {
@@ -169,7 +167,7 @@ func TestPlanPickerClose(t *testing.T) {
 
 func TestPlanPickerViewShowsTriggerCommand(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 
 	t.Run("/implement", func(t *testing.T) {
 		t.Parallel()

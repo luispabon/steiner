@@ -12,7 +12,7 @@ import (
 
 func TestOneshotResumePickerOverlayOpen(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newOneshotResumePickerOverlay(styles)
 
 	if overlay.IsOpen() {
@@ -60,7 +60,7 @@ func TestOneshotResumePickerOverlayOpen(t *testing.T) {
 
 func TestOneshotResumePickerOverlayClose(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newOneshotResumePickerOverlay(styles)
 
 	runs := []oneshot.ResumableRun{
@@ -88,7 +88,7 @@ func TestOneshotResumePickerOverlayClose(t *testing.T) {
 
 func TestOneshotResumePickerOverlayNavigation(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newOneshotResumePickerOverlay(styles)
 
 	runs := []oneshot.ResumableRun{
@@ -152,7 +152,7 @@ func TestOneshotResumePickerOverlayNavigation(t *testing.T) {
 
 func TestOneshotResumePickerOverlaySelectedRunID(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newOneshotResumePickerOverlay(styles)
 
 	runs := []oneshot.ResumableRun{

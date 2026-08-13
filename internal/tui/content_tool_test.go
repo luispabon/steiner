@@ -53,7 +53,7 @@ func TestSpecializedDelegateToolAccessor(t *testing.T) {
 func TestRenderToolCallBoxKeepsRequestedWidth(t *testing.T) {
 	useTrueColor(t)
 	buffer := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 	segment := &toolCallSegment{
 		tool: "bash",

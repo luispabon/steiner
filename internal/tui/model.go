@@ -96,26 +96,30 @@ type Model struct {
 	sidebar  sidebarState
 	git      *gitState
 
-	approval                     approvalState
-	activity                     activityState
-	external                     <-chan tea.Msg
-	autoScroll                   bool
-	contentTopPad                int
-	skillNames                   []string
-	skillDescriptions            map[string]string
-	mcpEnabled                   bool
-	mcpServers                   []MCPServerStatus
-	mcpToolOrigins               map[string]MCPToolOrigin
-	mcpWarned                    map[string]bool // servers that already surfaced a failure warning in the current failure generation
-	enabledSkills                map[string]bool
-	modelNames                   []string
-	modelContexts                map[string]int
-	modelBaseURLs                map[string]string
-	modelProviderNames           map[string]string
-	controller                   interactive.Controller
-	recorder                     *usagestats.Recorder
-	activeTheme                  theme.Theme
-	styles                       theme.Styles
+	approval           approvalState
+	activity           activityState
+	external           <-chan tea.Msg
+	autoScroll         bool
+	contentTopPad      int
+	skillNames         []string
+	skillDescriptions  map[string]string
+	mcpEnabled         bool
+	mcpServers         []MCPServerStatus
+	mcpToolOrigins     map[string]MCPToolOrigin
+	mcpWarned          map[string]bool // servers that already surfaced a failure warning in the current failure generation
+	enabledSkills      map[string]bool
+	modelNames         []string
+	modelContexts      map[string]int
+	modelBaseURLs      map[string]string
+	modelProviderNames map[string]string
+	controller         interactive.Controller
+	recorder           *usagestats.Recorder
+	activeTheme        theme.Theme
+	// styles is shared by pointer across Model and every sub-component that
+	// embeds a styles field; theme.Styles must be treated as immutable after
+	// construction, and the accent-change path must allocate a fresh Styles
+	// rather than mutating this one in place.
+	styles                       *theme.Styles
 	inputHistory                 []string
 	historyIdx                   int
 	historyDraft                 string
@@ -189,8 +193,7 @@ type Model struct {
 	visionCapabilities           *agent.VisionCapabilities
 	sessionResetCleanup          func()
 
-	viewportLines      []string
-	viewportContentLen int
+	viewportLines []string
 
 	// Render caches for width/height-dependent styles.
 	hDividerCacheWidth      int
@@ -427,7 +430,7 @@ func newReasoningLabels(efforts map[string]string, caps map[string]provider.Reas
 // modelReasoningResolvedMsg arrives, so the reasoning picker step is not
 // silently skipped for a model that does support configurable effort. Once
 // the batch resolution completes, this is a no-op.
-func (m Model) resolveReasoningForAliasIfPending(alias string) Model {
+func (m *Model) resolveReasoningForAliasIfPending(alias string) *Model {
 	if m.reasoningBatchResolved || m.resolveReasoningForAliasFunc == nil {
 		return m
 	}

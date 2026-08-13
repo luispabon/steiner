@@ -21,7 +21,7 @@ type filePickerOverlay struct {
 	matchIndexes [][]int
 	selection    int
 	scrollOffset int
-	styles       theme.Styles
+	styles       *theme.Styles
 }
 
 type searchPickerUpdateResult int
@@ -32,7 +32,7 @@ const (
 	searchPickerClosed
 )
 
-func newFilePickerOverlay(styles theme.Styles) filePickerOverlay {
+func newFilePickerOverlay(styles *theme.Styles) filePickerOverlay {
 	return filePickerOverlay{styles: styles}
 }
 

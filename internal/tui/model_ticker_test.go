@@ -8,8 +8,9 @@ import (
 
 func TestNeedsTickingReturnsTrueWhenMCPConnecting(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	m := &Model{
+		styles: styles,
 		sidebar: sidebarState{
 			mcpConnecting: true,
 			styles:        styles,
@@ -23,8 +24,9 @@ func TestNeedsTickingReturnsTrueWhenMCPConnecting(t *testing.T) {
 
 func TestNeedsTickingReturnsFalseWhenMCPSettled(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	m := &Model{
+		styles: styles,
 		sidebar: sidebarState{
 			mcpConnecting: false,
 			styles:        styles,
@@ -38,8 +40,9 @@ func TestNeedsTickingReturnsFalseWhenMCPSettled(t *testing.T) {
 
 func TestHandleTickMsgAdvancesSidebarTickCountWhenMCPConnecting(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	m := Model{
+		styles: styles,
 		sidebar: sidebarState{
 			mcpConnecting: true,
 			tickCount:     0,
@@ -50,7 +53,7 @@ func TestHandleTickMsgAdvancesSidebarTickCountWhenMCPConnecting(t *testing.T) {
 
 	msg := tickMsg{}
 	updated, _ := m.Update(msg)
-	m2 := updated.(Model)
+	m2 := updated.(*Model)
 
 	// After tick, sidebar tickCount should be advanced
 	if m2.sidebar.tickCount != 1 {
@@ -65,8 +68,9 @@ func TestHandleTickMsgAdvancesSidebarTickCountWhenMCPConnecting(t *testing.T) {
 
 func TestSyncSidebarResetsAndDetectsMCPConnecting(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	m := &Model{
+		styles: styles,
 		mcpServers: []MCPServerStatus{
 			{Name: "server1", State: "connecting"},
 			{Name: "server2", State: "connected"},
@@ -88,8 +92,9 @@ func TestSyncSidebarResetsAndDetectsMCPConnecting(t *testing.T) {
 
 func TestSyncSidebarDetectsReconnecting(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	m := &Model{
+		styles: styles,
 		mcpServers: []MCPServerStatus{
 			{Name: "server1", State: "reconnecting"},
 		},
@@ -104,8 +109,9 @@ func TestSyncSidebarDetectsReconnecting(t *testing.T) {
 
 func TestSyncSidebarClearsMCPConnectingWhenSettled(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	m := &Model{
+		styles: styles,
 		mcpServers: []MCPServerStatus{
 			{Name: "server1", State: "connected"},
 		},
@@ -120,8 +126,9 @@ func TestSyncSidebarClearsMCPConnectingWhenSettled(t *testing.T) {
 
 func TestSyncSidebarExcludesDisabledServers(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	m := &Model{
+		styles: styles,
 		mcpServers: []MCPServerStatus{
 			{Name: "server1", State: "disabled"},
 			{Name: "server2", State: "connecting"},
@@ -148,8 +155,9 @@ func TestNewModelHasTickingTrue(t *testing.T) {
 
 func TestEnsureTickingReturnsNilWhenTickingAlreadyTrue(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	m := &Model{
+		styles:  styles,
 		ticking: true,
 		sidebar: sidebarState{styles: styles},
 		content: contentBuffer{styles: styles},

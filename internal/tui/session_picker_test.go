@@ -12,7 +12,7 @@ import (
 
 func TestSessionPickerOverlayOpen(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
 	if overlay.IsOpen() {
@@ -44,7 +44,7 @@ func TestSessionPickerOverlayOpen(t *testing.T) {
 
 func TestSessionPickerOverlayClose(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
 	entries := []session.IndexEntry{
@@ -64,7 +64,7 @@ func TestSessionPickerOverlayClose(t *testing.T) {
 
 func TestSessionPickerOverlayNavigation(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
 	entries := []session.IndexEntry{
@@ -104,7 +104,7 @@ func TestSessionPickerOverlayNavigation(t *testing.T) {
 
 func TestSessionPickerOverlayEscapeCloses(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
 	entries := []session.IndexEntry{
@@ -124,7 +124,7 @@ func TestSessionPickerOverlayEscapeCloses(t *testing.T) {
 
 func TestSessionPickerOverlaySearchFiltering(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
 	entries := []session.IndexEntry{
@@ -157,7 +157,7 @@ func TestSessionPickerOverlaySearchFiltering(t *testing.T) {
 
 func TestSessionPickerOverlaySearchCaseInsensitive(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
 	entries := []session.IndexEntry{
@@ -179,7 +179,7 @@ func TestSessionPickerOverlaySearchCaseInsensitive(t *testing.T) {
 
 func TestSessionPickerOverlayBackspaceDeletesQuery(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
 	entries := []session.IndexEntry{
@@ -215,7 +215,7 @@ func TestSessionPickerOverlayBackspaceDeletesQuery(t *testing.T) {
 
 func TestSessionPickerOverlaySelectionResetOnFilter(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	overlay := newSessionPickerOverlay(styles)
 
 	entries := []session.IndexEntry{

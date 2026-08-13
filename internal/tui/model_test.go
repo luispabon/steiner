@@ -497,7 +497,8 @@ func TestSkillExclusivity(t *testing.T) {
 
 func TestSidebarSkillSection(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 
 	sidebar := sidebarState{
 		activeSkill: "review",
@@ -767,7 +768,7 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	m.content.String(m.viewport.Width())
 	m.contentTopPad = 0
 	m = updateModel(t, m, mouseClickMsg{x: 0, y: nonToggleY})
-	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: nonToggleY})
+	updateModel(t, m, mouseReleaseMsg{x: 0, y: nonToggleY})
 
 	if dd.collapsed {
 		t.Fatal("transcript/body click should not collapse delegation")
@@ -805,7 +806,7 @@ func TestModelMouseDragDoesNotToggle(t *testing.T) {
 
 	// Press at (0,0), release at (0,2) — different Y = drag, should NOT toggle
 	m = updateModel(t, m, mouseClickMsg{x: 0, y: 0})
-	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: 2})
+	updateModel(t, m, mouseReleaseMsg{x: 0, y: 2})
 
 	if !dd.collapsed {
 		t.Fatal("drag (different Y) should not toggle collapse")
@@ -856,7 +857,7 @@ func TestModelMouseClickTargetsGroupedToolRow(t *testing.T) {
 	m.lastClickTime = m.lastClickTime.Add(-600 * time.Millisecond)
 
 	m = updateModel(t, m, mouseClickMsg{x: 0, y: rowForSecond + clickOffset})
-	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: rowForSecond + clickOffset})
+	updateModel(t, m, mouseReleaseMsg{x: 0, y: rowForSecond + clickOffset})
 
 	if !group.entries[0].collapsed {
 		t.Fatal("first grouped entry should remain collapsed")
@@ -886,7 +887,7 @@ func TestModelMouseClickTargetsStandaloneToolRow(t *testing.T) {
 
 	clickY := m.viewportContentTopOffset()
 	m = updateModel(t, m, mouseClickMsg{x: 0, y: clickY})
-	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: clickY})
+	updateModel(t, m, mouseReleaseMsg{x: 0, y: clickY})
 
 	if seg.collapsed {
 		t.Fatal("standalone tool call should expand on visible row click")
@@ -925,7 +926,7 @@ func TestModelMouseClickTargetsResumedToolRowAfterUserGap(t *testing.T) {
 	m.viewport.SetYOffset(0)
 	clickY := toolRow + m.viewportContentTopOffset()
 	m = updateModel(t, m, mouseClickMsg{x: 0, y: clickY})
-	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: clickY})
+	updateModel(t, m, mouseReleaseMsg{x: 0, y: clickY})
 
 	if seg.collapsed {
 		t.Fatal("standalone tool call should expand on visible row click after resumed prompt gap")
@@ -1534,17 +1535,17 @@ func TestModelPickerEnterSwitchesActiveModel(t *testing.T) {
 
 func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 	t.Parallel()
-	type checkFunc func(*testing.T, Model, bool, tea.Cmd)
+	type checkFunc func(*testing.T, *Model, bool, tea.Cmd)
 
 	tests := []struct {
 		name  string
-		setup func(*testing.T) Model
+		setup func(*testing.T) *Model
 		key   tea.KeyPressMsg
 		check checkFunc
 	}{
 		{
 			name: "no overlay",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{Model: "small", ModelNames: []string{"small", "large"}}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.input.SetValue("keep me")
@@ -1552,7 +1553,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if handled {
 					t.Fatal("handled = true, want false with no open overlays")
 				}
@@ -1566,7 +1567,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "workflow handoff model picker priority",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{Model: "small", ModelNames: []string{"small", "large"}}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.input.SetValue("/model")
@@ -1578,7 +1579,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for workflow handoff model picker")
 				}
@@ -1598,14 +1599,14 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "workflow handoff modal",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{Model: "small"}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.workflowHandoff = openWorkflowHandoffModal(100, 30, output.WorkflowHandoffEvent{Next: "review", Target: ".steiner/plans/step-3"}, interactive.WorkflowHandoffModelSelection{ModelAlias: "small", SourceLabel: "current session"})
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for workflow handoff modal")
 				}
@@ -1619,14 +1620,14 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "exit modal",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.exitModal = openExitModal(100, 30)
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEnter},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for exit modal")
 				}
@@ -1640,7 +1641,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "slash overlay",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.input.SetValue("/co")
@@ -1651,7 +1652,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for slash overlay")
 				}
@@ -1668,7 +1669,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "file list",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				root := t.TempDir()
 				writeRepoFile(t, root, "file.txt", "content\n")
 				m := newModel(Config{}, nil)
@@ -1679,7 +1680,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for file list")
 				}
@@ -1693,14 +1694,14 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "context overlay",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.contextOverlay = openContextOverlay("Context Report", strings.Repeat("line\n", 40), 100, 30, m.styles, m.content.glamourStyleSheet)
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for context overlay")
 				}
@@ -1714,7 +1715,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "file picker",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{WorkingDir: "."}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.input.SetValue("@go")
@@ -1725,7 +1726,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for file picker")
 				}
@@ -1742,7 +1743,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "session picker",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.sessionPicker = m.sessionPicker.Open([]session.IndexEntry{{ID: "session-12345678", Title: "session", Model: "small"}})
@@ -1751,7 +1752,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for session picker")
 				}
@@ -1765,7 +1766,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "oneshot resume picker",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.oneshotResumePicker = m.oneshotResumePicker.Open([]oneshot.ResumableRun{{RunID: "run-12345678", Task: "task", ResumePhase: "draft"}})
@@ -1774,7 +1775,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for oneshot resume picker")
 				}
@@ -1788,7 +1789,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "plan picker",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.planPicker = m.planPicker.Open("/implement")
@@ -1797,7 +1798,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for plan picker")
 				}
@@ -1811,7 +1812,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 		},
 		{
 			name: "model picker",
-			setup: func(t *testing.T) Model {
+			setup: func(t *testing.T) *Model {
 				m := newModel(Config{Model: "small", ModelNames: []string{"small", "large"}}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 				m.input.SetValue("/model")
@@ -1822,7 +1823,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEsc},
-			check: func(t *testing.T, got Model, handled bool, cmd tea.Cmd) {
+			check: func(t *testing.T, got *Model, handled bool, cmd tea.Cmd) {
 				if !handled {
 					t.Fatal("handled = false, want true for model picker")
 				}
@@ -1844,7 +1845,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 			t.Parallel()
 			m := tc.setup(t)
 			handled, next, cmd := m.handleOverlayKeyMsg(tc.key)
-			got, ok := next.(Model)
+			got, ok := next.(*Model)
 			if !ok {
 				t.Fatalf("next model type = %T, want tui.Model", next)
 			}
@@ -2276,7 +2277,7 @@ func TestModelIdleCtrlCOpensExitModalInsteadOfQuitting(t *testing.T) {
 
 	// Idle state: Ctrl+C should open exit modal, not quit.
 	next, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-	updated, ok := next.(Model)
+	updated, ok := next.(*Model)
 	if !ok {
 		t.Fatalf("unexpected model type %T", next)
 	}
@@ -2305,7 +2306,7 @@ func TestModelIdleCtrlDOpensExitModalInsteadOfQuitting(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	updated, ok := next.(Model)
+	updated, ok := next.(*Model)
 	if !ok {
 		t.Fatalf("unexpected model type %T", next)
 	}
@@ -2395,7 +2396,7 @@ func TestModelCtrlCInterruptsStreamingInsteadOfQuitting(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-	updated, ok := next.(Model)
+	updated, ok := next.(*Model)
 	if !ok {
 		t.Fatalf("unexpected model type %T", next)
 	}
@@ -3060,11 +3061,11 @@ func TestContentBufferReflowsMarkdownForViewportWidth(t *testing.T) {
 	}
 }
 
-func updateModel(t *testing.T, m Model, msg tea.Msg) Model {
+func updateModel(t *testing.T, m *Model, msg tea.Msg) *Model {
 	t.Helper()
 
 	next, _ := m.Update(msg)
-	updated, ok := next.(Model)
+	updated, ok := next.(*Model)
 	if !ok {
 		t.Fatalf("unexpected model type %T", next)
 	}
@@ -4123,7 +4124,7 @@ func TestModelWorkflowHandoffAcceptLaunchesLiteralPromptForBuildTarget(t *testin
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("build", ".steiner/plans/step-9", "handoff now")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{Turn: 1, ToolCalls: 1})})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
+	updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
 
 	prompts := ctrl.submitPrompts()
 	if len(prompts) != 1 || prompts[0].Text != submission {
@@ -4439,7 +4440,7 @@ func TestContentStringCacheInvalidationOnActiveDelegation(t *testing.T) {
 	cache2 := m.content.String(80)
 
 	// With active delegation, checkBufferDirty returns true (forces rebuild).
-	if !m.content.checkBufferDirty() {
+	if !m.content.checkBufferDirty(80) {
 		t.Fatal("checkBufferDirty should return true when active delegation exists")
 	}
 	if cache1 == cache2 {
@@ -4563,7 +4564,7 @@ func TestPasteGate_IncapableModelNoSubAgent_BlocksPaste(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("cmd is not nil, want nil (blocked)")
 	}
-	next := nextModel.(Model)
+	next := nextModel.(*Model)
 	content := stripANSI(next.content.String(80))
 	if !strings.Contains(content, "can't view images") {
 		t.Fatalf("content = %q, want message about images not supported", content)

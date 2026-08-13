@@ -312,16 +312,13 @@ func (m *Model) handleSuppressedWorkflowHandoffEvent(event output.Event) tea.Cmd
 		if launch == nil {
 			return nil
 		}
-		next, cmd := m.launchWorkflowHandoff(launch.next, launch.target, launch.submission)
-		if updated, ok := next.(Model); ok {
-			*m = updated
-		}
+		_, cmd := m.launchWorkflowHandoff(launch.next, launch.target, launch.submission)
 		return cmd
 	}
 	return nil
 }
 
-func (m Model) workflowHandoffModelSelection(destination string) interactive.WorkflowHandoffModelSelection {
+func (m *Model) workflowHandoffModelSelection(destination string) interactive.WorkflowHandoffModelSelection {
 	if selector, ok := m.controller.(interactive.WorkflowHandoffModelSelector); ok {
 		selection := selector.WorkflowHandoffModelSelection(destination)
 		if strings.TrimSpace(selection.ModelAlias) != "" {

@@ -19,10 +19,10 @@ type sessionPickerOverlay struct {
 	candidates   []session.IndexEntry
 	selection    int
 	scrollOffset int
-	styles       theme.Styles
+	styles       *theme.Styles
 }
 
-func newSessionPickerOverlay(styles theme.Styles) sessionPickerOverlay {
+func newSessionPickerOverlay(styles *theme.Styles) sessionPickerOverlay {
 	return sessionPickerOverlay{styles: styles}
 }
 

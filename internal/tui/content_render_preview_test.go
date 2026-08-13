@@ -11,7 +11,7 @@ import (
 func TestBuildMutateLinesInsertBefore(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 	tc := &toolCallSegment{
 		tool:     "mutate",
@@ -51,7 +51,7 @@ func TestBuildMutateLinesInsertBefore(t *testing.T) {
 func TestBuildMutateLinesInsertAfter(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 	tc := &toolCallSegment{
 		tool:     "mutate",
@@ -86,7 +86,7 @@ func TestBuildMutateLinesInsertAfter(t *testing.T) {
 func TestBuildFetchURLLines(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 	}
 
 	t.Run("markdown response shows status header", func(t *testing.T) {

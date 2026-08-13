@@ -6,15 +6,13 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
-
-	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // newTestBuffer returns a minimal contentBuffer suitable for rendering tests.
 func newTestBuffer(t *testing.T) *contentBuffer {
 	t.Helper()
 	lipgloss.Writer.Profile = colorprofile.ASCII
-	styles := theme.BuildStyles("#5599ff")
+	styles := testStyles("#5599ff")
 	return &contentBuffer{
 		styles:   styles,
 		segments: make([]contentSegment, 0),

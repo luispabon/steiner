@@ -8,13 +8,11 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestFilePickerOverlay_NewClose(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	if f.IsOpen() {
 		t.Fatal("expected picker to start closed")
@@ -36,7 +34,7 @@ func TestFilePickerOverlay_NewClose(t *testing.T) {
 
 func TestFilePickerOverlay_ViewEmpty(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	view := stripANSI(f.View())
 	if view != "" {
@@ -46,7 +44,7 @@ func TestFilePickerOverlay_ViewEmpty(t *testing.T) {
 
 func TestFilePickerOverlay_ViewNonEmpty(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.width = 80
 	f.height = 24
@@ -62,7 +60,7 @@ func TestFilePickerOverlay_ViewNonEmpty(t *testing.T) {
 
 func TestFilePickerOverlay_QueryFiltersCandidates(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(filePickerFixtureDir(t))
 	if !f.IsOpen() {
@@ -89,7 +87,7 @@ func TestFilePickerOverlay_QueryFiltersCandidates(t *testing.T) {
 
 func TestFilePickerOverlay_EmptyQueryShowsAll(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(filePickerFixtureDir(t))
 	allCount := len(f.candidates)
@@ -109,7 +107,7 @@ func TestFilePickerOverlay_EmptyQueryShowsAll(t *testing.T) {
 
 func TestFilePickerOverlay_SyncQueryFiltersCandidates(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(filePickerFixtureDir(t))
 	if len(f.candidates) == 0 {
@@ -130,7 +128,7 @@ func TestFilePickerOverlay_SyncQueryFiltersCandidates(t *testing.T) {
 
 func TestFilePickerOverlay_FuzzyQueryRanksAbbreviatedPathMatches(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.allEntries = []string{
@@ -154,7 +152,7 @@ func TestFilePickerOverlay_FuzzyQueryRanksAbbreviatedPathMatches(t *testing.T) {
 
 func TestFilePickerOverlay_Navigation(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(filePickerFixtureDir(t))
 	if len(f.candidates) == 0 {
@@ -183,7 +181,7 @@ func TestFilePickerOverlay_Navigation(t *testing.T) {
 
 func TestFilePickerOverlay_EscCloses(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
 	if !f.IsOpen() {
@@ -198,7 +196,7 @@ func TestFilePickerOverlay_EscCloses(t *testing.T) {
 
 func TestFilePickerOverlay_EnterDoesNotClose(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
 	if !f.IsOpen() {
@@ -213,7 +211,7 @@ func TestFilePickerOverlay_EnterDoesNotClose(t *testing.T) {
 
 func TestFilePickerOverlay_BackspaceRemovesQueryChar(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
 	f.query = "abc"
@@ -227,7 +225,7 @@ func TestFilePickerOverlay_BackspaceRemovesQueryChar(t *testing.T) {
 
 func TestFilePickerOverlay_KeyRunesAppendsToQuery(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
 
@@ -249,7 +247,7 @@ func TestFilePickerOverlay_KeyRunesAppendsToQuery(t *testing.T) {
 
 func TestFilePickerOverlay_RespectsExclusions(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
 	foundExcluded := false
@@ -266,7 +264,7 @@ func TestFilePickerOverlay_RespectsExclusions(t *testing.T) {
 
 func TestFilePickerOverlay_ResetsQueryOnOpen(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
 	f.query = "test"
@@ -372,7 +370,7 @@ func TestModelFilePicker_EscRemovesActiveToken(t *testing.T) {
 
 func TestFilePickerOverlay_ScrollOffsetAdvancesAfterMaxDisplay(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.candidates = make([]string, 20)
@@ -416,7 +414,7 @@ func TestFilePickerOverlay_ScrollOffsetAdvancesAfterMaxDisplay(t *testing.T) {
 
 func TestFilePickerOverlay_ScrollOffsetMovesBackOnUp(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.candidates = make([]string, 20)
@@ -440,7 +438,7 @@ func TestFilePickerOverlay_ScrollOffsetMovesBackOnUp(t *testing.T) {
 
 func TestFilePickerOverlay_FilterResetsScrollOffset(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.allEntries = make([]string, 20)
@@ -462,7 +460,7 @@ func TestFilePickerOverlay_FilterResetsScrollOffset(t *testing.T) {
 
 func TestFilePickerOverlay_OpenResetsScrollOffset(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f = f.Open(".")
 	f.selection = 5
@@ -476,7 +474,7 @@ func TestFilePickerOverlay_OpenResetsScrollOffset(t *testing.T) {
 
 func TestFilePickerOverlay_ViewRendersScrolledWindow(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.width = 80
@@ -508,7 +506,7 @@ func TestFilePickerOverlay_ViewRendersScrolledWindow(t *testing.T) {
 
 func TestFilePickerOverlay_ViewHidesMoreIndicatorAtEnd(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.width = 80
@@ -529,7 +527,7 @@ func TestFilePickerOverlay_ViewHidesMoreIndicatorAtEnd(t *testing.T) {
 
 func TestFilePickerOverlay_EmptyQueryShowsSelectedCandidate(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.width = 80
@@ -550,7 +548,7 @@ func TestFilePickerOverlay_EmptyQueryShowsSelectedCandidate(t *testing.T) {
 
 func TestFilePickerOverlay_EmptyQueryShowsPlaceholderWhenNoCandidates(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.width = 80
@@ -565,7 +563,7 @@ func TestFilePickerOverlay_EmptyQueryShowsPlaceholderWhenNoCandidates(t *testing
 
 func TestFilePickerOverlay_QueryMirrorUpdatesOnSelectionChange(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.width = 80
@@ -588,7 +586,7 @@ func TestFilePickerOverlay_QueryMirrorUpdatesOnSelectionChange(t *testing.T) {
 
 func TestFilePickerOverlay_ViewMarksSelectedRowWithPrefix(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.width = 80
@@ -623,7 +621,7 @@ func TestFilePickerOverlay_ViewMarksSelectedRowWithPrefix(t *testing.T) {
 
 func TestFilePickerOverlay_ViewHighlightsMatchedCharacters(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.width = 80
@@ -644,7 +642,7 @@ func TestFilePickerOverlay_ViewHighlightsMatchedCharacters(t *testing.T) {
 
 func TestFilePickerOverlay_ViewOmitsFooterHelpRow(t *testing.T) {
 	t.Parallel()
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
 	f.OverlayShell = f.openShell()
 	f.width = 80
@@ -738,7 +736,7 @@ func TestFilePickerOverlay_OpenIncludesSteiner(t *testing.T) {
 	mustWriteFile(t, root, "node_modules/foo.js", "module.exports = 1\n")
 	mustWriteFile(t, root, "src/main.go", "package main\n")
 
-	s := theme.BuildStyles("#ff0000")
+	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s).Open(root)
 
 	if !f.IsOpen() {

@@ -21,7 +21,7 @@ type contextOverlayState struct {
 	renderedLines     []string
 	scrollOffset      int
 	lineCount         int
-	styles            theme.Styles
+	styles            *theme.Styles
 	glamourStyleSheet glamour.TermRendererOption
 	renderer          *glamour.TermRenderer
 	renderWidth       int
@@ -29,7 +29,7 @@ type contextOverlayState struct {
 
 // openContextOverlay returns a copy of the state with the overlay open and
 // content populated.
-func openContextOverlay(title, content string, width, height int, styles theme.Styles, styleSheet glamour.TermRendererOption) contextOverlayState {
+func openContextOverlay(title, content string, width, height int, styles *theme.Styles, styleSheet glamour.TermRendererOption) contextOverlayState {
 	shell := OverlayShell{}.WithPreferredWidth(120)
 	shell = shell.WithDimensions(width, height).WithTitle(strings.TrimSpace(title)).openShell()
 	return contextOverlayState{

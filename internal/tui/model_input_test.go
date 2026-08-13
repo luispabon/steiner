@@ -7,6 +7,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func TestOneshotAllowedAction(t *testing.T) {
@@ -43,18 +44,21 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 	input := newModelInput()
 	input.SetValue("hello")
 
-	m := Model{
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{
 		oneshotRunning: true,
 		oneshotSteerCh: make(chan agent.SteerMessage, 4),
 		input:          input,
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
+			styles:        styles,
 		},
+		styles: styles,
 	}
 
 	updated, cmd := m.handleEnter()
-	m = updated.(Model)
+	m = updated.(*Model)
 	if cmd != nil {
 		t.Fatalf("handleEnter() returned a non-nil cmd, want nil (steer returns nil)")
 	}
@@ -78,7 +82,8 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 	input.InsertString(" [Image 1]")
 
 	steerCh := make(chan agent.SteerMessage, 4)
-	m := Model{
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{
 		oneshotRunning: true,
 		oneshotSteerCh: steerCh,
 		input:          input,
@@ -88,11 +93,13 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
+			styles:        styles,
 		},
+		styles: styles,
 	}
 
 	updated := m.executeSteerAction()
-	m = updated.(Model)
+	m = updated.(*Model)
 
 	if len(m.imageMarkers) != 0 {
 		t.Fatalf("imageMarkers = %d, want 0 after steer", len(m.imageMarkers))
@@ -124,7 +131,7 @@ func TestHandleEnterRoutesToSteerDuringBusyRegularRun(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m.input.SetValue("hello")
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if ctrl.countSteerPrompt() != 1 {
 		t.Fatalf("SteerPrompt count = %d, want 1 (busy regular run must queue steer)", ctrl.countSteerPrompt())
@@ -134,14 +141,17 @@ func TestHandleEnterRoutesToSteerDuringBusyRegularRun(t *testing.T) {
 	}
 }
 
-func newMinimalModel(inputValue string) Model {
+func newMinimalModel(inputValue string) *Model {
 	inp := newModelInput()
 	inp.SetValue(inputValue)
-	return Model{
-		input: inp,
+	styles := testStyles(theme.AccentAmber)
+	return &Model{
+		input:  inp,
+		styles: styles,
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
+			styles:        styles,
 		},
 	}
 }
@@ -160,7 +170,7 @@ func TestLaunchOneshotActionClearsComposer(t *testing.T) {
 			m := newMinimalModel("/oneshot build the thing")
 			m.oneshotRunnerFactory = tc.factory
 			updated, _ := m.executeLaunchOneshotAction("build the thing")
-			got := updated.(Model).input.Value()
+			got := updated.(*Model).input.Value()
 			if got != "" {
 				t.Errorf("input after oneshot dispatch = %q, want empty", got)
 			}
@@ -182,7 +192,7 @@ func TestResumeOneshotActionClearsComposer(t *testing.T) {
 			m := newMinimalModel("/oneshot --resume abc123")
 			m.oneshotRunnerFactory = tc.factory
 			updated, _ := m.executeResumeOneshotAction("abc123")
-			got := updated.(Model).input.Value()
+			got := updated.(*Model).input.Value()
 			if got != "" {
 				t.Errorf("input after resume dispatch = %q, want empty", got)
 			}
@@ -192,7 +202,7 @@ func TestResumeOneshotActionClearsComposer(t *testing.T) {
 
 func TestBuildSlashOverlayItemsAllowlistDuringOneshot(t *testing.T) {
 	t.Parallel()
-	m := Model{oneshotRunning: true}
+	m := &Model{oneshotRunning: true}
 	items := m.buildSlashOverlayItems()
 	if len(items) != 3 {
 		t.Fatalf("got %d items, want 3", len(items))
@@ -259,7 +269,7 @@ func TestArgSkillInvocationEnablesAndSubmitsArgs(t *testing.T) {
 
 func TestBuildSlashOverlayItemsIncludesCacheStats(t *testing.T) {
 	t.Parallel()
-	m := Model{}
+	m := &Model{}
 	items := m.buildSlashOverlayItems()
 
 	found := false

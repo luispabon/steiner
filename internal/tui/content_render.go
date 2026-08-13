@@ -15,35 +15,169 @@ func isUserSegment(kind contentSegmentKind) bool {
 
 func (b *contentBuffer) String(width int) string {
 	// Check if we can return cached result.
-	isBufferDirty := b.checkBufferDirty()
+	isBufferDirty := b.checkBufferDirty(width)
 	if !isBufferDirty && b.stringCacheWidth == width && b.stringCacheRendered != "" {
 		return b.stringCacheRendered
 	}
 
-	b.segmentHeights = make([]int, len(b.segments))
-	parts := make([]string, 0, len(b.segments)+2)
-	kinds := make([]contentSegmentKind, 0, len(b.segments)+2)
-	for i := range b.segments {
+	// Extend the segment-height slice in place; heights of the cached prefix are
+	// retained from the previous render, so streaming frames do not reallocate
+	// per segment.
+	if len(b.segmentHeights) < len(b.segments) {
+		b.segmentHeights = append(b.segmentHeights, make([]int, len(b.segments)-len(b.segmentHeights))...)
+	}
+
+	// Reuse the cached settled prefix when it is still valid, otherwise rebuild
+	// it. The tail after the prefix is re-walked every dirty frame.
+	start := 0
+	prefix := ""
+	var prefixLastKind contentSegmentKind
+	if b.prefixCacheValid(width) {
+		start = b.prefixCacheLen
+		prefix = b.prefixCacheRendered
+		prefixLastKind = b.prefixCacheLastKind
+	} else {
+		start, prefix, prefixLastKind = b.rebuildPrefix(width)
+	}
+
+	parts := make([]string, 0, 8)
+	kinds := make([]contentSegmentKind, 0, 8)
+	anyRerender := false
+	for i := start; i < len(b.segments); i++ {
 		if b.skipHiddenSegment(i) {
 			continue
 		}
-		b.processSegment(i, width, &parts, &kinds)
-	}
-	if preview := b.inProgressPreview(width); preview != "" {
-		parts = append(parts, strings.TrimRight(preview, "\n"))
-		kinds = append(kinds, contentSegmentKind(-1))
+		if b.processSegment(i, width, &parts, &kinds) {
+			anyRerender = true
+		}
 	}
 
-	result := joinWithUserMargin(parts, kinds)
+	// Fold the freshly settled tail into the prefix cache so the next dirty
+	// frame only walks the genuinely changing tail (preview, spinners, live
+	// segments). Anything that re-rendered this frame stays in the tail.
+	segmentJoin := joinWithUserMargin(parts, kinds)
+	if !anyRerender && start < len(b.segments) {
+		b.foldPrefix(parts, kinds, prefix, prefixLastKind, width)
+	}
+
+	result := segmentJoin
+	if prefix != "" && len(parts) > 0 {
+		result = prefix + joinSeparator(prefixLastKind, kinds[0]) + segmentJoin
+	} else if prefix != "" {
+		result = prefix
+	}
+	if preview := b.inProgressPreview(width); preview != "" {
+		result = appendStreamPreview(result, preview)
+	}
+
 	b.stringCacheWidth = width
 	b.stringCacheRendered = result
 	return result
 }
 
+// appendStreamPreview appends the trimmed streaming preview to result with a
+// single-newline separator, matching the sentinel rule of joinWithUserMargin.
+func appendStreamPreview(result, preview string) string {
+	trimmed := strings.TrimRight(preview, "\n")
+	if result == "" {
+		return trimmed
+	}
+	return result + "\n" + trimmed
+}
+
+// prefixCacheValid reports whether the settled-prefix cache can be reused for
+// the given width: no in-place mutation since it was built, the same width, and
+// the same showThinking visibility.
+func (b *contentBuffer) prefixCacheValid(width int) bool {
+	return b.prefixCacheSet &&
+		b.prefixCacheGen == b.gen &&
+		b.prefixCacheWidth == width &&
+		b.prefixCacheShowThinking == b.showThinking &&
+		b.prefixCacheLen <= len(b.segments)
+}
+
+// foldPrefix extends the settled-prefix cache to cover the whole buffer after a
+// dirty frame in which nothing in the tail re-rendered. parts/kinds must be the
+// tail's segment parts (no preview sentinel).
+func (b *contentBuffer) foldPrefix(parts []string, kinds []contentSegmentKind, prefix string, prefixLastKind contentSegmentKind, width int) {
+	segmentJoin := joinWithUserMargin(parts, kinds)
+	switch {
+	case prefix != "" && len(parts) > 0:
+		b.prefixCacheRendered = prefix + joinSeparator(prefixLastKind, kinds[0]) + segmentJoin
+		b.prefixCacheLastKind = kinds[len(kinds)-1]
+	case prefix != "":
+		b.prefixCacheRendered = prefix
+	default:
+		b.prefixCacheRendered = segmentJoin
+		b.prefixCacheLastKind = lastPartKind(kinds)
+	}
+	b.prefixCacheSet = true
+	b.prefixCacheLen = len(b.segments)
+	b.prefixCacheWidth = width
+	b.prefixCacheShowThinking = b.showThinking
+	b.prefixCacheGen = b.gen
+}
+
+// rebuildPrefix caches the joined render of every settled segment up to the
+// first segment that needs re-rendering. Returns the boundary index, the joined
+// prefix, and the kind of the last part in it.
+func (b *contentBuffer) rebuildPrefix(width int) (boundary int, prefix string, prefixLastKind contentSegmentKind) {
+	parts := make([]string, 0, 8)
+	kinds := make([]contentSegmentKind, 0, 8)
+	for i := range b.segments {
+		if b.skipHiddenSegment(i) {
+			continue
+		}
+		if b.segmentNeedsRender(&b.segments[i], width) {
+			break
+		}
+		stripped := strings.TrimRight(b.segments[i].cachedRender, "\n")
+		b.segmentHeights[i] = strings.Count(stripped, "\n") + 1
+		if stripped != "" {
+			parts = append(parts, stripped)
+			kinds = append(kinds, b.segments[i].kind)
+		}
+		boundary = i + 1
+	}
+	b.prefixCacheSet = true
+	b.prefixCacheLen = boundary
+	b.prefixCacheWidth = width
+	b.prefixCacheShowThinking = b.showThinking
+	b.prefixCacheGen = b.gen
+	b.prefixCacheRendered = joinWithUserMargin(parts, kinds)
+	b.prefixCacheLastKind = lastPartKind(kinds)
+	return boundary, b.prefixCacheRendered, b.prefixCacheLastKind
+}
+
+// segmentNeedsRender reports whether processSegment would re-render seg instead
+// of reusing its cached render. Must stay in sync with processSegment.
+func (b *contentBuffer) segmentNeedsRender(seg *contentSegment, width int) bool {
+	if seg.renderDirty {
+		return true
+	}
+	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+		return true
+	}
+	if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
+		return true
+	}
+	return seg.cachedRenderWidth != width || seg.cachedRender == ""
+}
+
+// lastPartKind returns the kind of the last non-hidden part, or -1 when empty.
+func lastPartKind(kinds []contentSegmentKind) contentSegmentKind {
+	if len(kinds) == 0 {
+		return contentSegmentKind(-1)
+	}
+	return kinds[len(kinds)-1]
+}
+
 // processSegment renders a single non-hidden segment, updating the per-segment
-// render cache and appending to parts/kinds. Extracted from String to keep the
+// render cache and appending to parts/kinds. Returns true when the segment was
+// re-rendered rather than served from its per-segment cache (which prevents the
+// settled prefix from folding over it). Extracted from String to keep the
 // outer loop readable; stays inlinable to preserve the per-frame hot path.
-func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]contentSegmentKind) {
+func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]contentSegmentKind) bool {
 	seg := &b.segments[i]
 	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
 		seg.renderDirty = true
@@ -58,7 +192,7 @@ func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]c
 			*parts = append(*parts, stripped)
 			*kinds = append(*kinds, seg.kind)
 		}
-		return
+		return false
 	}
 	rendered := b.renderSegment(*seg, width)
 	rendered = strings.TrimRight(rendered, "\n")
@@ -70,17 +204,23 @@ func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]c
 		*parts = append(*parts, rendered)
 		*kinds = append(*kinds, seg.kind)
 	}
+	return true
 }
 
 // checkBufferDirty checks if any condition requires a full re-render of the buffer.
-func (b *contentBuffer) checkBufferDirty() bool {
+func (b *contentBuffer) checkBufferDirty(width int) bool {
 	// If streaming with new content, invalidate cache.
 	if b.streaming && b.streamBuffer != "" {
 		return true
 	}
 
-	// Any segment is explicitly dirty.
-	for i := range b.segments {
+	// Any segment is explicitly dirty. When the settled-prefix cache is valid,
+	// segments before the prefix are known clean, so only the tail is scanned.
+	start := 0
+	if b.prefixCacheValid(width) {
+		start = b.prefixCacheLen
+	}
+	for i := start; i < len(b.segments); i++ {
 		if b.segments[i].renderDirty {
 			return true
 		}

@@ -17,10 +17,10 @@ type fileListOverlay struct {
 	OverlayShell
 	root    string
 	entries []string
-	styles  theme.Styles
+	styles  *theme.Styles
 }
 
-func newFileListOverlay(styles theme.Styles) fileListOverlay {
+func newFileListOverlay(styles *theme.Styles) fileListOverlay {
 	return fileListOverlay{
 		OverlayShell: OverlayShell{}.WithPreferredWidth(70),
 		styles:       styles,

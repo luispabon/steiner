@@ -94,12 +94,12 @@ func (m *Model) renderExitModalButton(label string, selected bool) string {
 		Render(label)
 }
 
-func (m Model) openExitModal() Model {
+func (m *Model) openExitModal() *Model {
 	m.exitModal = openExitModal(m.width, m.height)
 	return m
 }
 
-func (m Model) confirmExitModal() (tea.Model, tea.Cmd) {
+func (m *Model) confirmExitModal() (tea.Model, tea.Cmd) {
 	switch m.exitModal.selectedAction {
 	case exitModalActionCancel:
 		m.exitModal = m.exitModal.closeExitModal()

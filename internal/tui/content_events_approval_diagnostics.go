@@ -27,6 +27,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				seg.toolData.approvalSelectedAction = 0
 				seg.toolData.collapsed = false
 				seg.renderDirty = true
+				b.gen++
 				return
 			case segmentToolCallGroup:
 				if seg.toolGroupData == nil {
@@ -46,6 +47,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 					entry.approvalSelectedAction = 0
 					entry.collapsed = false
 					seg.renderDirty = true
+					b.gen++
 					return
 				}
 			}
@@ -86,6 +88,7 @@ func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 		b.segments[i].approvalData.resolved = true
 		b.segments[i].approvalData.accepted = accepted
 		b.segments[i].renderDirty = true
+		b.gen++
 		return
 	}
 	b.appendStyled(formatApprovalEvent(event), segmentApproval)
@@ -100,6 +103,7 @@ func (b *contentBuffer) resolveEmbeddedApproval(accepted bool, callID string) bo
 				seg.toolData.approvalResolved = true
 				seg.toolData.approvalAccepted = accepted
 				seg.renderDirty = true
+				b.gen++
 				return true
 			}
 		case segmentToolCallGroup:
@@ -112,6 +116,7 @@ func (b *contentBuffer) resolveEmbeddedApproval(accepted bool, callID string) bo
 					entry.approvalResolved = true
 					entry.approvalAccepted = accepted
 					seg.renderDirty = true
+					b.gen++
 					return true
 				}
 			}
@@ -226,6 +231,7 @@ func (b *contentBuffer) AdvanceCompactionSpinners() {
 		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
 			seg.compactionData.spinnerFrame = (seg.compactionData.spinnerFrame + 1) % len(spinnerFrames)
 			seg.renderDirty = true
+			b.gen++
 		}
 	}
 }
@@ -241,6 +247,7 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 			replacement := data
 			last.compactionData = &replacement
 			last.renderDirty = true
+			b.gen++
 			return
 		}
 	}
@@ -256,6 +263,7 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 // segments. Used when a run ends or is stopped to clear stale pending approvals
 // from the content buffer.
 func (b *contentBuffer) clearApprovalState() {
+	b.gen++
 	for i := range b.segments {
 		seg := &b.segments[i]
 		switch seg.kind {

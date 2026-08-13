@@ -11,7 +11,7 @@ import (
 )
 
 //nolint:gocyclo // command parsing branches intentionally stay explicit
-func (m Model) handleEnter() (tea.Model, tea.Cmd) {
+func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	value := strings.TrimSpace(m.input.Value())
 	if m.approval.active {
 		return m.executeApprovalDecision(m.selectedApprovalDecision())
@@ -97,7 +97,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updateSkillState(skill string, enable bool) Model {
+func (m *Model) updateSkillState(skill string, enable bool) *Model {
 	if m.enabledSkills == nil {
 		m.enabledSkills = make(map[string]bool, len(m.skillNames))
 	}
@@ -127,7 +127,7 @@ func (m Model) updateSkillState(skill string, enable bool) Model {
 	return m
 }
 
-func (m Model) sendSkillEnabledAction(skill string, enabled bool) {
+func (m *Model) sendSkillEnabledAction(skill string, enabled bool) {
 	if m.controller == nil {
 		return
 	}
@@ -137,6 +137,6 @@ func (m Model) sendSkillEnabledAction(skill string, enabled bool) {
 }
 
 // buildSlashOverlayItems builds a list of all available slash commands and skills for the overlay.
-func (m Model) buildSlashOverlayItems() []slashOverlayItem {
+func (m *Model) buildSlashOverlayItems() []slashOverlayItem {
 	return projectOverlayItems(m.oneshotRunning, m.skillNames, m.skillDescriptions)
 }

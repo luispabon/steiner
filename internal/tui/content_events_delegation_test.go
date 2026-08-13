@@ -16,7 +16,7 @@ func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:          make([]contentSegment, 0),
 		collapseState:     make(map[int]bool),
-		styles:            theme.BuildStyles(theme.AccentAmber),
+		styles:            testStyles(theme.AccentAmber),
 		activeDelegations: make(map[string]int),
 	}
 
@@ -66,7 +66,7 @@ func TestScopedDelegationCompactionStaysInsideDelegationSegment(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
@@ -115,7 +115,7 @@ func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
 		collapseState: make(map[int]bool),
-		styles:        theme.BuildStyles(theme.AccentAmber),
+		styles:        testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
@@ -180,7 +180,7 @@ func TestDelegationToolCallFinished_DrainsQueue(t *testing.T) {
 		collapseState:          make(map[int]bool),
 		pendingDelegateParents: make([]int, 0),
 		activeDelegations:      make(map[string]int),
-		styles:                 theme.BuildStyles(theme.AccentAmber),
+		styles:                 testStyles(theme.AccentAmber),
 	}
 	// Simulate a delegate tool call that will fail before spawning
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "do stuff"}))
@@ -220,7 +220,7 @@ func TestDelegationToolCallFinished_IgnoresSpawned(t *testing.T) {
 		collapseState:          make(map[int]bool),
 		pendingDelegateParents: make([]int, 0),
 		activeDelegations:      make(map[string]int),
-		styles:                 theme.BuildStyles(theme.AccentAmber),
+		styles:                 testStyles(theme.AccentAmber),
 	}
 	// Start the delegate tool
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "do stuff"}))
@@ -257,7 +257,7 @@ func TestDelegationToolCallFinished_FollowUp_DrainsQueue(t *testing.T) {
 		collapseState:          make(map[int]bool),
 		pendingDelegateParents: make([]int, 0),
 		activeDelegations:      make(map[string]int),
-		styles:                 theme.BuildStyles(theme.AccentAmber),
+		styles:                 testStyles(theme.AccentAmber),
 	}
 	// Simulate a follow_up tool call that will fail before spawning
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "call_fu_1", map[string]any{"agent_id": "child-1", "message": "continue work"}))

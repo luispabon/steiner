@@ -20,7 +20,8 @@ func candidateCommands(overlay slashOverlay) []string {
 
 func TestSlashOverlayOpen(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -43,7 +44,8 @@ func TestSlashOverlayOpen(t *testing.T) {
 
 func TestSlashOverlayClose(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 	items := []slashOverlayItem{{command: "/clear", name: "Clear", desc: "clear", source: ""}}
 	overlay = overlay.Open(items)
@@ -57,7 +59,8 @@ func TestSlashOverlayClose(t *testing.T) {
 
 func TestSlashOverlayFilterByCommand(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -80,7 +83,8 @@ func TestSlashOverlayFilterByCommand(t *testing.T) {
 
 func TestSlashOverlaySyncQueryUsesSlashToken(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -105,7 +109,8 @@ func TestSlashOverlaySyncQueryUsesSlashToken(t *testing.T) {
 
 func TestSlashOverlayFilterByName(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -127,7 +132,8 @@ func TestSlashOverlayFilterByName(t *testing.T) {
 
 func TestSlashOverlayFilterByDesc(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -149,7 +155,8 @@ func TestSlashOverlayFilterByDesc(t *testing.T) {
 
 func TestSlashOverlayNavigateUpDown(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -191,7 +198,8 @@ func TestSlashOverlayNavigateUpDown(t *testing.T) {
 
 func TestSlashOverlayTypeToFilter(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -219,7 +227,8 @@ func TestSlashOverlayTypeToFilter(t *testing.T) {
 
 func TestSlashOverlayFuzzyQueryMatchesAbbreviatedCommand(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -252,7 +261,8 @@ func TestSlashOverlayFuzzyQueryMatchesAbbreviatedCommand(t *testing.T) {
 
 func TestSlashOverlayBackspace(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -288,7 +298,8 @@ func TestSlashOverlayBackspace(t *testing.T) {
 
 func TestSlashOverlaySelectedItem(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -312,7 +323,8 @@ func TestSlashOverlaySelectedItem(t *testing.T) {
 
 func TestSlashOverlaySelectedItemNilWhenInvalid(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	// No items selected
@@ -324,7 +336,8 @@ func TestSlashOverlaySelectedItemNilWhenInvalid(t *testing.T) {
 
 func TestSlashOverlaySourceIndicator(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -349,7 +362,8 @@ func TestSlashOverlaySourceIndicator(t *testing.T) {
 
 func TestSlashOverlayViewMarksSelectedRowWithPrefix(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -387,7 +401,8 @@ func TestSlashOverlayViewMarksSelectedRowWithPrefix(t *testing.T) {
 
 func TestSlashOverlayViewRendersSkillRowsAsCommandAndDescriptionOnly(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 
 	items := []slashOverlayItem{
@@ -419,7 +434,8 @@ func TestSlashOverlayViewRendersSkillRowsAsCommandAndDescriptionOnly(t *testing.
 
 func TestSlashOverlayViewHighlightsMatchedCharacters(t *testing.T) {
 	t.Parallel()
-	styles := theme.Default().LipGlossStyles()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
 	overlay := newSlashOverlay(styles)
 	overlay.OverlayShell = overlay.openShell()
 	overlay.width = 80

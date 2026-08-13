@@ -29,7 +29,7 @@ func syncDebounceCmd(seq int) tea.Cmd {
 }
 
 // Update implements tea.Model.
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case toggleThinkingMsg:
 		return m.handleToggleThinkingMsg(msg)
@@ -73,7 +73,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleMouseEventMsg dispatches the mouse event message subtypes, keeping
 // Update's cyclomatic complexity under the gocyclo threshold.
-func (m Model) handleMouseEventMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) handleMouseEventMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case mouseClickMsg:
 		return m.handleMouseClickMsg(msg)
@@ -87,7 +87,7 @@ func (m Model) handleMouseEventMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, tea.Cmd) {
 	if msg.seq == m.syncDebounceSeq && m.contentDirty {
 		m.syncViewport()
 		m.contentDirty = false
@@ -95,7 +95,7 @@ func (m Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, 
 	return m, nil
 }
 
-func (m Model) handleModelReasoningResolvedMsg(msg modelReasoningResolvedMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleModelReasoningResolvedMsg(msg modelReasoningResolvedMsg) (tea.Model, tea.Cmd) {
 	m.modelReasoningCapabilities = msg.capabilities
 	m.modelReasoningEfforts = msg.efforts
 	m.reasoningBatchResolved = true
@@ -105,7 +105,7 @@ func (m Model) handleModelReasoningResolvedMsg(msg modelReasoningResolvedMsg) (t
 	return m, nil
 }
 
-func (m Model) clearConversationState() (tea.Model, tea.Cmd) {
+func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
@@ -133,7 +133,7 @@ func (m Model) clearConversationState() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd) {
 	m.showThinking = !m.showThinking
 	m.content.showThinking = m.showThinking
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
@@ -144,17 +144,19 @@ func (m Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd)
 			m.content.segments[i].renderDirty = true
 		}
 	}
+	m.content.gen++
 	m.syncViewport()
 	return m, nil
 }
 
-func (m Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	accentHex := resolveAccentPreset(msg.preset, rand.Intn)
 	if accentHex == "" {
 		accentHex = theme.AccentPresets["amber"]
 	}
 	m.accentPreset = msg.preset
-	m.styles = theme.BuildStyles(accentHex)
+	s := theme.BuildStyles(accentHex)
+	m.styles = &s
 	m.content.styles = m.styles
 	m.content.setGlamourStyleSheet(accentHex)
 	m.sidebar.styles = m.styles
@@ -166,17 +168,23 @@ func (m Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.mcpOverlay.styles = m.styles
 	m.filePicker.styles = m.styles
 	m.sessionPicker.styles = m.styles
+	m.modelPicker.styles = m.styles
+	m.reasoningPicker.styles = m.styles
+	m.planPicker.styles = m.styles
+	m.accentPicker.styles = m.styles
+	m.oneshotResumePicker.styles = m.styles
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
 		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
 	}
 	for i := range m.content.segments {
 		m.content.segments[i].renderDirty = true
 	}
+	m.content.gen++
 	m.syncViewport()
 	return m, nil
 }
 
-func (m Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount
 	m.activity = m.activity.advance()
@@ -210,7 +218,7 @@ func (m Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
 	m.fileList.OverlayShell = m.fileList.WithDimensions(msg.Width, msg.Height)
@@ -237,7 +245,7 @@ func (m Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) {
 	eventCmd := m.applyEvent(msg.Event)
 	var cmds []tea.Cmd
 	if eventCmd != nil {
@@ -252,14 +260,14 @@ func (m Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) handleBridgeClosedMsg(_ bridgeClosedMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleBridgeClosedMsg(_ bridgeClosedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
 // nextClickCount returns the click count for a click at clickPos/clickTime,
 // cycling 1->2->3->1 when it falls within 500ms and ±1 cell of the model's
 // last recorded click, or resetting to 1 otherwise.
-func (m Model) nextClickCount(clickPos selectionPoint, clickTime time.Time) int {
+func (m *Model) nextClickCount(clickPos selectionPoint, clickTime time.Time) int {
 	timeDiff := clickTime.Sub(m.lastClickTime)
 	const clickTimeout = 500 * time.Millisecond
 	isWithinTime := timeDiff <= clickTimeout && timeDiff >= 0
@@ -288,7 +296,7 @@ func (m Model) nextClickCount(clickPos selectionPoint, clickTime time.Time) int 
 
 // handleMultiClickSelection completes a double- or triple-click word/line
 // selection at the clamped viewport coordinates and queues a clipboard copy.
-func (m Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, tea.Cmd) {
+func (m *Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, tea.Cmd) {
 	m.populateScreenLines()
 	lines := *m.screenLines
 	left, right := m.selectionHighlightBounds()
@@ -314,7 +322,7 @@ func (m Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, tea
 	return m, nil
 }
 
-func (m Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 	clickPos := selectionPoint{line: msg.y, col: msg.x}
 	clickTime := time.Now()
 
@@ -343,7 +351,7 @@ func (m Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.mousePressX >= 0 {
 		clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
 		m.selection.end = selectionPoint{line: clampedY, col: clampedX}
@@ -351,7 +359,7 @@ func (m Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
 	// mousePressX < 0 means the press was already fully handled at click time
 	// (e.g. word/line selection from a double/triple-click); nothing left to do.
 	if m.mousePressX < 0 {
@@ -379,7 +387,7 @@ func (m Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.lastWheelMouseAt = time.Now()
 	switch msg.direction {
 	case "up":
@@ -390,7 +398,7 @@ func (m Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		return m, nil
 	}

@@ -11,7 +11,7 @@ import (
 
 func TestReasoningPickerOpenBuildsOptions(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{
 		SupportedEfforts:      []string{"low", "medium", "high"},
 		ProviderDefaultEffort: "medium",
@@ -42,7 +42,7 @@ func TestReasoningPickerOpenBuildsOptions(t *testing.T) {
 
 func TestReasoningPickerOmitsUnsupportedEfforts(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"medium", "high"}}
 
 	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "")
@@ -56,7 +56,7 @@ func TestReasoningPickerOmitsUnsupportedEfforts(t *testing.T) {
 
 func TestReasoningPickerMarksCurrentEffort(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 	current := provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "high"}
 
@@ -73,7 +73,7 @@ func TestReasoningPickerMarksCurrentEffort(t *testing.T) {
 
 func TestReasoningPickerMarksCurrentProviderDefault(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium"}}
 	current := provider.ReasoningOverride{Kind: provider.ReasoningOverrideProviderDefault}
 
@@ -90,7 +90,7 @@ func TestReasoningPickerMarksCurrentProviderDefault(t *testing.T) {
 
 func TestReasoningPickerMarksConfiguredEffortCurrentWhenNoOverride(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 
 	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "medium")
@@ -106,7 +106,7 @@ func TestReasoningPickerMarksConfiguredEffortCurrentWhenNoOverride(t *testing.T)
 
 func TestReasoningPickerMarksProviderDefaultCurrentWhenNoOverrideAndNoConfiguredEffort(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 
 	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "")
@@ -122,7 +122,7 @@ func TestReasoningPickerMarksProviderDefaultCurrentWhenNoOverrideAndNoConfigured
 
 func TestReasoningPickerOverrideWinsOverConfiguredEffort(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 	current := provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "high"}
 
@@ -139,7 +139,7 @@ func TestReasoningPickerOverrideWinsOverConfiguredEffort(t *testing.T) {
 
 func TestReasoningPickerFilter(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "medium", "high"}}
 
 	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "")
@@ -157,7 +157,7 @@ func TestReasoningPickerFilter(t *testing.T) {
 
 func TestReasoningPickerCloseOnEsc(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentPresets["amber"])
+	styles := testStyles(theme.AccentPresets["amber"])
 	caps := provider.ReasoningCapabilities{SupportedEfforts: []string{"low"}}
 
 	p := newReasoningPickerOverlay(styles).Open("gpt-5", caps, provider.ReasoningOverride{}, "")

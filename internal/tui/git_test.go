@@ -138,7 +138,7 @@ func TestSidebarLinesIncludeModifiedFilesSection(t *testing.T) {
 			{Path: "internal/tui/model_test.go", Added: 11},
 			{Path: "internal/tui/sidebar.go", Deleted: 3},
 		},
-		styles: styles,
+		styles: &styles,
 	}
 
 	joined := strings.Join(sidebar.lines(38, 50), "\n")

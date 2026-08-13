@@ -213,7 +213,7 @@ func applyScreenHighlight(frame string, state selectionState, selStyle lipgloss.
 // detectRegion classifies a screen coordinate (x, y) into a UI region.
 // Returns regionNone for dividers and status bar, regionSidebar for sidebar,
 // regionInput for the input area, and regionViewport for viewport content.
-func (m Model) detectRegion(x, y int) selectionRegion {
+func (m *Model) detectRegion(x, y int) selectionRegion {
 	contentWidth := m.contentWidth()
 	sidebarVisible := m.sidebar.Visible(m.width)
 
@@ -268,7 +268,7 @@ func (m Model) detectRegion(x, y int) selectionRegion {
 // placement) and selectionHighlightBounds (which uses the bounds verbatim to
 // constrain multi-line highlight). Returns (0, 0) for regionNone and
 // regionSidebar.
-func (m Model) regionXBounds(region selectionRegion) (left, right int) {
+func (m *Model) regionXBounds(region selectionRegion) (left, right int) {
 	contentWidth := m.contentWidth()
 	sidebarVisible := m.sidebar.Visible(m.width)
 
@@ -319,7 +319,7 @@ func (m Model) regionXBounds(region selectionRegion) (left, right int) {
 // given selection region (viewport or input), preventing multi-line selection
 // from bleeding into padding, dividers, sidebar, or the other container.
 // For regionNone and regionSidebar, returns (x, y) unchanged.
-func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
+func (m *Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
 	contentWidth := m.contentWidth()
 	sidebarVisible := m.sidebar.Visible(m.width)
 	statusRow := m.height - 1
@@ -354,7 +354,7 @@ func (m Model) clampToRegion(x, y int, region selectionRegion) (int, int) {
 // out of the sidebar, dividers, and padding. Returns (0, 0) for regionNone,
 // regionSidebar, or when no region is active, which preserves the legacy
 // unconstrained behaviour.
-func (m Model) selectionHighlightBounds() (left, right int) {
+func (m *Model) selectionHighlightBounds() (left, right int) {
 	return m.regionXBounds(m.activeRegion)
 }
 
@@ -642,7 +642,7 @@ func logicalLineBounds(lines []string, lineIdx, regionLeft, regionRight int) (st
 // because click handling runs outside the render cycle and needs a freshly
 // rendered frame on demand; having View() call this instead would double the
 // render cost on every frame with an active selection.
-func (m Model) populateScreenLines() {
+func (m *Model) populateScreenLines() {
 	if m.screenLines == nil {
 		return
 	}

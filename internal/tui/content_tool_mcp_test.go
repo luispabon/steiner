@@ -93,13 +93,13 @@ func TestMCPRenderToolCallFrameBuiltinUnchanged(t *testing.T) {
 		collapsed: true,
 	}
 
-	baseline := &contentBuffer{styles: theme.BuildStyles(theme.AccentAmber)}
+	baseline := &contentBuffer{styles: testStyles(theme.AccentAmber)}
 	baselineRender := baseline.renderToolCallFrame(segment, 60)
 
-	withNilMap := &contentBuffer{styles: theme.BuildStyles(theme.AccentAmber), mcpToolOrigins: nil}
-	withEmptyMap := &contentBuffer{styles: theme.BuildStyles(theme.AccentAmber), mcpToolOrigins: map[string]MCPToolOrigin{}}
+	withNilMap := &contentBuffer{styles: testStyles(theme.AccentAmber), mcpToolOrigins: nil}
+	withEmptyMap := &contentBuffer{styles: testStyles(theme.AccentAmber), mcpToolOrigins: map[string]MCPToolOrigin{}}
 	withUnrelatedMap := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 		mcpToolOrigins: map[string]MCPToolOrigin{
 			"mcp__other__tool": {Server: "other", Tool: "tool"},
 		},
@@ -122,7 +122,7 @@ func TestMCPRenderToolCallFrameBuiltinUnchanged(t *testing.T) {
 func TestMCPRenderToolCallFrameAttribution(t *testing.T) {
 	useTrueColor(t)
 
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	segment := &toolCallSegment{
 		tool:      "mcp__myserver__mytool",
 		args:      "some args",
@@ -167,7 +167,7 @@ func TestMCPLongTagHeaderLayout(t *testing.T) {
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
-		styles: theme.BuildStyles(theme.AccentAmber),
+		styles: testStyles(theme.AccentAmber),
 		mcpToolOrigins: map[string]MCPToolOrigin{
 			"mcp__a-very-long-descriptive-server-name__a-very-long-descriptive-tool-name": {
 				Server: "a-very-long-descriptive-server-name",

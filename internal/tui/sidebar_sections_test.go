@@ -89,6 +89,7 @@ func TestModelSectionProviderLabel(t *testing.T) {
 				provider:     tc.provider,
 				providerName: tc.providerName,
 				model:        tc.model,
+				styles:       testStyles(theme.AccentAmber),
 			}
 			lines := s.modelSection(32)
 			joined := strings.Join(lines, "\n")
@@ -111,6 +112,7 @@ func TestModelSectionFittingKeepsModelIntact(t *testing.T) {
 		provider:     "https://a-very-long-provider-hostname.example.com",
 		providerName: "",
 		model:        "short-model",
+		styles:       testStyles(theme.AccentAmber),
 	}
 	lines := s.modelSection(20)
 	joined := strings.Join(lines, "\n")
@@ -137,7 +139,7 @@ func TestModelSectionReasoningLine(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s := sidebarState{model: "gpt-5", reasoning: tc.reasoning, quant: tc.quant}
+			s := sidebarState{model: "gpt-5", reasoning: tc.reasoning, quant: tc.quant, styles: testStyles(theme.AccentAmber)}
 			lines := s.modelSection(32)
 			joined := strings.Join(lines, "\n")
 			if tc.wantShown && !strings.Contains(joined, tc.wantLine) {
@@ -152,7 +154,7 @@ func TestModelSectionReasoningLine(t *testing.T) {
 
 func TestStatusSection(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	cases := []struct {
 		name          string
 		sandboxStatus string
@@ -204,7 +206,7 @@ func TestStatusSection(t *testing.T) {
 
 func TestStatusSectionAccentKeys(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	s := sidebarState{
 		sandboxStatus: "active",
 		activeSkill:   "review",
@@ -238,7 +240,7 @@ func TestStatusSectionAccentKeys(t *testing.T) {
 
 func TestStatusSectionSandboxStatusBoundedToWidth(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	const width = 32
 	s := sidebarState{
 		sandboxStatus: strings.Repeat("x", 40),
@@ -264,7 +266,7 @@ func TestSeparatorLineMode(t *testing.T) {
 		{name: "build", mode: "build", want: " build ", hasMode: true},
 		{name: "unset", mode: "", hasMode: false},
 	}
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -318,6 +320,7 @@ func TestPerformanceSection(t *testing.T) {
 				perfOutputTPS:         tc.perfOutputTPS,
 				sessionCacheHitRate:   tc.sessionCacheHitRate,
 				sessionCacheHitRateOK: tc.sessionCacheHitRateOK,
+				styles:                testStyles(theme.AccentAmber),
 			}
 			got := s.performanceSection(32)
 			if len(got) == 0 {
@@ -336,7 +339,7 @@ func TestPerformanceSection(t *testing.T) {
 
 func TestSidebarRendersOneshotSection(t *testing.T) {
 	t.Parallel()
-	s := sidebarState{oneshotPhase: "plan"}
+	s := sidebarState{oneshotPhase: "plan", styles: testStyles(theme.AccentAmber)}
 	lines := s.staticLines(32)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "ONESHOT") {
@@ -349,7 +352,7 @@ func TestSidebarRendersOneshotSection(t *testing.T) {
 
 func TestSidebarOmitsOneshotSectionWhenEmpty(t *testing.T) {
 	t.Parallel()
-	s := sidebarState{oneshotPhase: ""}
+	s := sidebarState{oneshotPhase: "", styles: testStyles(theme.AccentAmber)}
 	lines := s.staticLines(32)
 	joined := strings.Join(lines, "\n")
 	if strings.Contains(joined, "ONESHOT") {
@@ -380,7 +383,7 @@ func TestFormatCacheHitRate(t *testing.T) {
 
 func TestContextGaugeLine(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	cases := []struct {
 		name          string
 		promptUsed    int
@@ -468,7 +471,7 @@ func TestContextGaugeLine(t *testing.T) {
 
 func TestContextSectionCompactDotOnlyWhenActive(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 
 	idle := sidebarState{styles: styles}
 	if joined := strings.Join(idle.contextSection(32), "\n"); strings.Contains(joined, "compacting") {
@@ -483,7 +486,7 @@ func TestContextSectionCompactDotOnlyWhenActive(t *testing.T) {
 
 func TestStaticLinesLineCount(t *testing.T) {
 	t.Parallel()
-	styles := theme.BuildStyles(theme.AccentAmber)
+	styles := testStyles(theme.AccentAmber)
 	s := sidebarState{
 		model:                 "gpt-5",
 		reasoning:             "medium",
