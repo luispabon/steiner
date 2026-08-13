@@ -56,7 +56,7 @@ func SpecializedToolDef(agentType AgentType, deps SpecializedToolDeps) tool.Tool
 			"properties": map[string]any{
 				"task": map[string]any{
 					"type":        "string",
-					"description": "Required. Self-contained task with objective, file paths/context, expected deliverable, constraints, and success criteria.",
+					"description": "Required. Self-contained task with objective, context, deliverable, constraints, success criteria, and checks to run.",
 				},
 			},
 			"required": []any{"task"},

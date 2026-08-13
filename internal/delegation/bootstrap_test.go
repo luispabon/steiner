@@ -26,7 +26,7 @@ func assertSharedChildSystemPrompt(t *testing.T, content string) {
 		"Core rules:",
 		"Prefer smallest correct change.",
 		"Before editing:",
-		"Read the relevant files and nearby tests before making changes.",
+		"Ensure relevant files and nearby tests are inspected before making changes.",
 		"Do not ask for permission to proceed or for confirmation before editing.",
 		"While editing:",
 		"Verification:",
