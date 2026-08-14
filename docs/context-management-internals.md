@@ -128,5 +128,5 @@ Budgets are configurable via `AssemblyPolicy` in the prompt package. Zero values
 - **Preamble never truncated**: the system prompt is always delivered in full and bypasses the budget tracker.
 - **Delegate transcripts never leak**: child agent conversation is discarded on exit; only the structured result and bounded summary persist.
 - **Children use the same compaction path**: sub-agents have the same context manager and compaction logic as the parent.
-- **Compaction is lossy but bounded**: summaries are capped; durable context entries are truncated to 160 characters each when rendered.
+- **Compaction is lossy but bounded**: summaries are capped.
 - **70% threshold**: compaction triggers when estimated prompt tokens reach 70% of the context window, reserving headroom for the model response.

@@ -1,18 +1,10 @@
 package prompt
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/luispabon/steiner/internal/provider"
 )
 
 const (
-	compactionHeadingRequestIntent       = "Request intent"
-	compactionHeadingSolutionDesign      = "Solution design"
-	compactionHeadingRecentActions       = "Recent actions"
-	compactionHeadingUnresolvedDecisions = "Unresolved decisions"
-	compactionHeadingPendingWork         = "Pending work"
 	compactionPromptSystemInstruction    = "You compress conversation history for the next model call."
 	compactionPromptEmergencyInstruction = "This is an emergency handoff. Be shorter and more lossy than usual while preserving the essential task, the current state, and any irreversible decisions."
 	compactionPromptInstructionBody      = `You are compacting the current working context for a coding agent.
@@ -112,21 +104,6 @@ const (
 	CompactionModeEmergency CompactionMode = "emergency"
 )
 
-// BuildConversationCompactionPrompt builds the prompt used to compact conversation history.
-func BuildConversationCompactionPrompt(messages []provider.Message, state DurableContextState, override string, mode CompactionMode, caveHuman bool) []provider.Message {
-	turns := splitConversationTurns(messages)
-	if len(turns) == 0 {
-		return nil
-	}
-
-	systemContent := RenderConversationCompactionInstruction(override, mode, caveHuman)
-	userPrompt := renderConversationCompactionSource(turns, state)
-	return []provider.Message{
-		{Role: provider.MessageRoleSystem, Content: systemContent},
-		{Role: provider.MessageRoleUser, Content: userPrompt},
-	}
-}
-
 // RenderConversationCompactionInstruction renders the final instruction used to
 // ask a model to compact the already-assembled conversation context.
 func RenderConversationCompactionInstruction(override string, mode CompactionMode, caveHuman bool) string {
@@ -178,70 +155,6 @@ func summarizeToolMessage(message provider.Message, policy ToolSummaryPolicy) Co
 	return block
 }
 
-func renderConversationCompactionSource(turns []conversationTurn, state DurableContextState) string {
-	sections := []string{
-		"conversation:",
-		renderConversationTranscript(turns),
-	}
-
-	if summaries := renderRetainedSummaries(state); summaries != "" {
-		sections = append(sections, "durable context:", summaries)
-	}
-
-	return strings.Join(filterNonEmptyStrings(sections), "\n\n")
-}
-
-func renderRetainedSummaries(state DurableContextState) string {
-	if len(state.RetainedSummaries) == 0 {
-		return ""
-	}
-	var lines []string
-	lines = append(lines, "retained summaries:")
-	for _, s := range state.RetainedSummaries {
-		text := truncateText(s.Text, 160)
-		if len(text) < len(s.Text) {
-			text += "..."
-		}
-		if s.Title != "" {
-			lines = append(lines, fmt.Sprintf("- %s: %s", s.Title, text))
-		} else {
-			lines = append(lines, "- "+text)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func renderConversationTranscript(turns []conversationTurn) string {
-	lines := make([]string, 0, len(turns))
-	for i, turn := range turns {
-		lines = append(lines, "- "+summarizeConversationTurn(i+1, turn))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func summarizeConversationTurn(index int, turn conversationTurn) string {
-	if len(turn.Messages) == 0 {
-		return fmt.Sprintf("turn %d: empty", index)
-	}
-
-	parts := make([]string, 0, len(turn.Messages))
-	for _, message := range turn.Messages {
-		parts = append(parts, fmt.Sprintf("%s: %s", message.Role, compactMessageContent(message.Content, 96)))
-	}
-	return fmt.Sprintf("turn %d: %s", index, strings.Join(parts, " | "))
-}
-
 func compactionPromptSystem() string {
 	return compactionPromptSystemInstruction + "\n\n" + compactionPromptInstructionBody
-}
-
-func filterNonEmptyStrings(values []string) []string {
-	filtered := make([]string, 0, len(values))
-	for _, value := range values {
-		if strings.TrimSpace(value) == "" {
-			continue
-		}
-		filtered = append(filtered, value)
-	}
-	return filtered
 }

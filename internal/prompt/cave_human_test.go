@@ -3,8 +3,6 @@ package prompt
 import (
 	"strings"
 	"testing"
-
-	"github.com/luispabon/steiner/internal/provider"
 )
 
 const (
@@ -138,56 +136,6 @@ func TestRenderConversationCompactionInstructionCaveHuman(t *testing.T) {
 	}, testEncodingDirectiveMarkers...) {
 		if strings.Contains(disabled, forbidden) {
 			t.Fatalf("disabled compaction instruction unexpectedly contains %q in %q", forbidden, disabled)
-		}
-	}
-}
-
-func TestBuildConversationCompactionPromptCaveHuman(t *testing.T) {
-	t.Parallel()
-
-	messages := []provider.Message{
-		{Role: provider.MessageRoleUser, Content: "hello"},
-		{Role: provider.MessageRoleAssistant, Content: "hi"},
-	}
-
-	enabled := BuildConversationCompactionPrompt(messages, DurableContextState{}, "", CompactionModeNormal, true)
-	if len(enabled) == 0 {
-		t.Fatal("BuildConversationCompactionPrompt returned empty result")
-	}
-	sysContent := enabled[0].Content
-	for _, want := range append([]string{testBodyMarker, testEncodingMarker}, testEncodingDirectiveMarkers...) {
-		if !strings.Contains(sysContent, want) {
-			t.Fatalf("enabled compaction prompt missing %q in %q", want, sysContent)
-		}
-	}
-	for _, forbidden := range []string{
-		testCaveHumanMarker,
-		testTerseMarker,
-		testHumanMarker,
-		testAntiTellMarkers[0],
-		testAntiTellMarkers[1],
-	} {
-		if strings.Contains(sysContent, forbidden) {
-			t.Fatalf("enabled compaction prompt unexpectedly contains generic output-voice marker %q in %q", forbidden, sysContent)
-		}
-	}
-
-	disabled := BuildConversationCompactionPrompt(messages, DurableContextState{}, "", CompactionModeNormal, false)
-	if len(disabled) == 0 {
-		t.Fatal("BuildConversationCompactionPrompt returned empty result")
-	}
-	sysContent = disabled[0].Content
-	for _, forbidden := range append([]string{
-		testCaveHumanMarker,
-		testTerseMarker,
-		testHumanMarker,
-		testBodyMarker,
-		testEncodingMarker,
-		testAntiTellMarkers[0],
-		testAntiTellMarkers[1],
-	}, testEncodingDirectiveMarkers...) {
-		if strings.Contains(sysContent, forbidden) {
-			t.Fatalf("disabled compaction prompt unexpectedly contains %q in %q", forbidden, sysContent)
 		}
 	}
 }
