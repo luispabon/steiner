@@ -61,7 +61,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			delegation:      true,
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
 			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
-			wantCoreAbsent:  []string{"Default to delegation; work locally only when the conditions below are clearly met.", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use the template below.", "Use `delegate` for separable work another agent can complete independently and summarize back."},
+			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use every section of this template:", "## Your workflow"},
 			wantIdentityCnt: 1,
 		},
 		{
@@ -70,7 +70,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			wantPresent:     []string{testIdentityMarker, testCoreRulesMarker, testWorkflowMarker},
 			wantAbsent:      []string{testDelegationMarker},
 			wantOrder:       []string{testIdentityMarker, testCoreRulesMarker, testWorkflowMarker},
-			wantCoreAbsent:  []string{"Default to delegation; work locally only when the conditions below are clearly met.", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use the template below."},
+			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use every section of this template:"},
 			wantIdentityCnt: 1,
 		},
 		{
@@ -81,7 +81,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker, testCaveHumanMarker, "system suffix"},
 			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker, testCaveHumanMarker, "system suffix"},
 			wantSuffixLast:  true,
-			wantCoreAbsent:  []string{"Default to delegation; work locally only when the conditions below are clearly met.", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use the template below."},
+			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use every section of this template:"},
 			wantIdentityCnt: 1,
 		},
 		{
@@ -174,47 +174,55 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	for _, want := range []string{
 		testDelegationMarker,
 		"You are the orchestrator.",
+		"Your job is to orchestrate sub-agents.",
 		"You are not the default implementation worker.",
-		"Your context is the scarce resource.",
-		"Every file you read locally stays in it for the rest of the conversation",
-		"Sub-agent context is ephemeral — it vanishes once the agent reports back.",
+		"Preserve your context for orchestration.",
+		"Treat every direct file read as permanent context.",
 		"You own the parts that cannot be delegated",
 		"## Your specialists",
 		"| Agent | Lane | Do not use for |",
-		"| `explore` | Navigate the codebase: find files, symbols, patterns, usages, or call sites | questions answerable from the web or docs — that is `research` |",
-		"| `research` | Gather information: search the web, read docs, synthesize across sources (read-only) | anything answerable from the repo alone — that is `explore` |",
-		"| `code` | Implement a scoped change: one deliverable, exact files named, design pre-digested | design decisions, or work whose files you have not identified |",
-		"| `evaluate` | Analyze a scoped sub-problem: weigh options, produce a recommendation. Not for task planning | task planning, or questions with one obvious answer |",
-		"| `sanity_check` | Run checks: tests, lint, build. Report pass/fail. No code changes | anything that changes files |",
-		"| `review` | Examine code changes: bugs, regressions, missing tests, plan adherence. No fixes | broad 'review the whole PR' scope, or applying fixes |",
-		"Every task falls into one of the categories below.",
-		"Investigation → always `explore`",
-		"Research → always `research`",
-		"Implementation → `code`",
-		"Verification → always `sanity_check`",
-		"Review → always `review`",
-		"`evaluate` is a reasoning aid, not a task category.",
-		"## Routing threshold",
-		"Delegate by default.",
-		"Use the dedicated tool (`read`, `grep`, `glob`, `ls`) instead of `bash`",
+		"| `explore` | Navigate the codebase: find files, symbols, patterns, usages, or call sites | questions that are answerable from the web or documentation—that is `research` |",
+		"| `research` | Search the web, read documentation, and synthesize external sources (read-only) | anything answerable from the repository alone—that is `explore` |",
+		"| `code` | Implement a scoped change: one deliverable, exact files named, design pre-digested | design decisions or work whose files have not been identified |",
+		"| `evaluate` | Analyse a scoped sub-problem, weigh options, and recommend an approach | task planning or questions with one obvious answer |",
+		"| `sanity_check` | Run tests, lint, and builds; report pass or fail; make no changes | anything that changes files |",
+		"| `review` | Examine code changes for bugs, regressions, missing tests, and plan adherence; make no fixes | broad “review the whole PR” scopes or applying fixes |",
+		"## Your workflow",
+		"Unless a skill overrides it, follow this workflow after receiving a task from the user:",
+		"1. Perform an initial code-local investigation using `explore`.",
+		"2. Ask the user clarifying questions, one at a time.",
+		"3. Perform any other required research using `research` or `explore`.",
+		"4. Summarise your understanding under Goal, Assumptions, Scope, and Unknowns, then ask the user for confirmation or further discussion. After any discussion, revise and restate the summary.",
+		"5. Present a high-level implementation plan, then ask the user for confirmation or further discussion. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After any discussion, revise and restate the plan.",
+		"6. Break the plan into implementation steps, each a single logical unit that a small model can hold in context and execute without further design decisions—for example, a type, its builder, and its tests. Merge small steps with their neighbours.",
+		"7. Dispatch one `code` sub-agent for each implementation step.",
+		"8. After implementation completes, dispatch a single `review` sub-agent to check the work.",
+		"9. If amendments are needed, dispatch a `code` sub-agent to address all review findings, then run `review` again.",
+		"10. Finally, call `sanity_check` to run the project’s tests and checks.",
+		"## Delegation vs direct work",
+		"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:",
+		"One bounded lookup (`read`, `grep`, `glob`, `ls`, or `git diff`) whose result you need directly and which won't lead to further lookups.",
+		"A self-contained formatting action, such as running `gofmt`, that does not begin a multi-phase task.",
+		"A tiny user-directed correction whose exact replacement text or source lines are supplied in the current request, applied with `mutate`.",
+		"Examples:",
 		"## Briefing a sub-agent",
-		"When delegating to `code`: name the exact files and function signatures to change.",
-		"When delegating to `review`: scope to specific files or a diff range.",
+		"When delegating to `code`, name the exact files and relevant symbols or sections to change.",
+		"Pre-digest the design: the `code` agent executes; it does not design.",
+		"When delegating to `review`, scope the task to specific files or a diff range and state what to check.",
 		"Sub-agents receive only the task you provide.",
-		"Sub-agents cannot delegate further or ask the user questions.",
-		"Every sub-agent task MUST use the template below.",
-		"Objective: what the sub-agent must accomplish",
-		"Context: file paths, symbols, or background",
-		"Deliverable: the concrete output expected",
-		"Constraints: boundaries",
-		"Success criteria: how the sub-agent knows it is done",
-		"Checks to run: commands/checks to run, if applicable",
-		"Put the context you already hold into the brief",
-		"rather than making the sub-agent rediscover it",
-		"Do not paste broad conversation history.",
-		"| Multi-file behavior investigation | `explore`: trace the behavior, then reassess. |",
-		"| Bounded design choice after discovery | `evaluate`: compare approaches, then `code`. |",
-		"| Completed free-form implementation phase | `review`: fix findings, then `sanity_check`. |",
+		"They cannot delegate or ask the user questions.",
+		"Include context you already hold (paths, symbols, and relevant excerpts), rather than making the sub-agent rediscover it.",
+		"Include only task-relevant conversation context.",
+		"Every sub-agent task MUST use every section of this template:",
+		"* Objective: What the sub-agent must accomplish—find X, change Y, or evaluate Z.",
+		"* Context: The file paths, symbols, and background it needs.",
+		"* Deliverable: The required output—an evidence-backed report, code change, pass/fail result, or recommendation.",
+		"* Constraints: What not to touch, behaviour to preserve, packages to remain within, and actions it must not take.",
+		"* Success criteria: How it knows the task is complete.",
+		"* Checks to run: Applicable commands.",
+		"| Multi-file behaviour investigation | Use `explore` to trace the behaviour, then reassess. |",
+		"| Bounded design choice after discovery | Use `evaluate` to compare approaches, then `code`. |",
+		"| Completed free-form implementation phase | Use `review`, fix findings with `code`, then `sanity_check`. |",
 		"| Tiny exact user-supplied correction | Work locally with `mutate`. |",
 	} {
 		if !strings.Contains(content, want) {
@@ -247,7 +255,6 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"Use `delegate` for separable work another agent can complete independently and summarize back.",
 		"When delegating, pass a self-contained task with paths/search terms, constraints, ownership, expected output",
 		"| Read one known file or inspect one known diff | Work locally. |",
-		"## Delegation",
 		"Work locally in exactly two cases:",
 		"Never work locally when:",
 		"Default to delegation; work locally only when the conditions below are clearly met.",
@@ -259,6 +266,19 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"You are about to grep then read the results",
 		"The task is separable from your current work",
 		"### Delegation tips",
+		"## Phase routing",
+		"## Routing threshold",
+		"Every task falls into one of the categories below.",
+		"Classify before substantive tool use",
+		"Investigation → always `explore`",
+		"`evaluate` is a reasoning aid, not a task category.",
+		"Use the dedicated tool (`read`, `grep`, `glob`, `ls`) instead of `bash`",
+		"Your context is the scarce resource.",
+		"Sub-agent context is ephemeral",
+		"Delegating is how you avoid acquiring context",
+		"Never use a single unstructured paragraph or omit sections",
+		"Do not paste broad conversation history.",
+		"Put the context you already hold into the brief",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("delegation preamble still contains old guidance %q", forbidden)
@@ -266,106 +286,108 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	}
 }
 
-// TestSystemPreambleDelegationPhaseFirstRouting pins the phase-first routing
-// policy: whole-task classification before substantive tool use, sequential
-// dispatch with reassessment at boundaries, and local work limited to
-// genuinely self-contained actions. It also guards against the return of the
-// obsolete `one targeted test` allowance and the broad "already hold exact
-// lines" local-edit exception.
-func TestSystemPreambleDelegationPhaseFirstRouting(t *testing.T) {
+// TestSystemPreambleDelegationWorkflow pins the numbered `## Your workflow`
+// list: steps 1-6 are fixed, the advisor step renders inline as step 7 only
+// when advisorEnabled, and the dispatch/review/fix/sanity steps follow,
+// renumbered (8-11 with advisor enabled, 7-10 without). The disabled form
+// must not name the `advisor` tool at all.
+func TestSystemPreambleDelegationWorkflow(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true, false, "").Content
-
-	// Whole-task categorization is required: every task falls into one of the
-	// categories, and classification before substantive tool use is required
-	// when any structural trigger holds — with no loophole for a task that
-	// matches no trigger but is not a self-contained local action.
-	for _, want := range []string{
-		"Every task falls into one of the categories below.",
-		"Classify before substantive tool use when any of these hold:",
-		"investigation is needed before editing;",
-		"multiple outcomes are requested;",
-		"implementation plus tests or checks is requested;",
-		"multiple files or components are named;",
-		"external research is needed;",
-		"a search result needs interpretation.",
-		"A task that matches none of these triggers is not exempt",
-		"genuinely self-contained local action under the routing threshold below",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("delegation preamble missing classification trigger %q in %q", want, content)
-		}
+	steps1to6 := []string{
+		"1. Perform an initial code-local investigation using `explore`.",
+		"2. Ask the user clarifying questions, one at a time.",
+		"3. Perform any other required research using `research` or `explore`.",
+		"4. Summarise your understanding under Goal, Assumptions, Scope, and Unknowns, then ask the user for confirmation or further discussion. After any discussion, revise and restate the summary.",
+		"5. Present a high-level implementation plan, then ask the user for confirmation or further discussion. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After any discussion, revise and restate the plan.",
+		"6. Break the plan into implementation steps, each a single logical unit that a small model can hold in context and execute without further design decisions—for example, a type, its builder, and its tests. Merge small steps with their neighbours.",
 	}
 
-	// Phases route sequentially: dispatch the first applicable specialist,
-	// reassess at the next boundary, never every agent up front.
-	for _, want := range []string{
-		"## Phase routing",
-		"dispatch the first applicable specialist",
-		"reassess at the next boundary",
-		"never dispatch every agent up front",
-		"Phase routing takes priority over the routing threshold below",
-		"must stop and reclassify if it needs a second source lookup or reveals another relevant file",
-		"After investigation or design, re-evaluate the routing before mutating anything",
-		"route final verification to `sanity_check`",
-		"`evaluate` is a reasoning aid, not a task category.",
-		"bounded, consequential comparison of viable approaches",
-		"Close out a completed free-form implementation phase once",
-		"after code changed, not after every code call",
-		"dispatch one scoped `review`",
-		"over the cumulative changed files/diff and the intended behavior",
-		"resolve blocking findings",
-		"`follow_up` targeting the original `code` child",
-		"never the read-only `review` child",
-		"while that child's implementation context remains useful",
-		"otherwise with a bounded new `code` task",
-		"re-review only when fixes materially affect the reviewed behavior",
-		"run final verification through `sanity_check`",
-		"Skill and oneshot workflows follow their own embedded closeout sequence.",
-		"Checks to run: commands/checks to run, if applicable",
-		"Ensure relevant files and nearby tests are inspected before making changes",
-		"Ensure the narrowest relevant checks run first",
-		"| Multi-file behavior investigation | `explore`: trace the behavior, then reassess. |",
-		"| Bounded design choice after discovery | `evaluate`: compare approaches, then `code`. |",
-		"| Completed free-form implementation phase | `review`: fix findings, then `sanity_check`. |",
-		"| Tiny exact user-supplied correction | Work locally with `mutate`. |",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("delegation preamble missing phase routing rule %q in %q", want, content)
-		}
+	cases := []struct {
+		name       string
+		advisor    bool
+		wantSteps  []string
+		wantAbsent []string
+	}{
+		{
+			name:    "advisor disabled: ten steps, no advisor",
+			advisor: false,
+			wantSteps: append(steps1to6,
+				"7. Dispatch one `code` sub-agent for each implementation step.",
+				"8. After implementation completes, dispatch a single `review` sub-agent to check the work.",
+				"9. If amendments are needed, dispatch a `code` sub-agent to address all review findings, then run `review` again.",
+				"10. Finally, call `sanity_check` to run the project’s tests and checks.",
+			),
+			wantAbsent: []string{
+				"Consult `advisor`, if available, and incorporate its feedback.",
+				"11. ",
+				"`advisor`",
+			},
+		},
+		{
+			name:    "advisor enabled: eleven steps, advisor inline",
+			advisor: true,
+			wantSteps: append(steps1to6,
+				"7. Consult `advisor`, if available, and incorporate its feedback.",
+				"8. Dispatch one `code` sub-agent for each implementation step.",
+				"9. After implementation completes, dispatch a single `review` sub-agent to check the work.",
+				"10. If amendments are needed, dispatch a `code` sub-agent to address all review findings, then run `review` again.",
+				"11. Finally, call `sanity_check` to run the project’s tests and checks.",
+			),
+		},
 	}
 
-	// Local work stays limited to genuinely self-contained actions: one
-	// bounded lookup, one formatting action, or a tiny correction whose
-	// exact replacement text or lines come from the current user request.
-	for _, want := range []string{
-		"Work locally only for a genuinely self-contained action:",
-		"one bounded lookup",
-		"which is not the start of a multi-phase task",
-		"a genuinely self-contained formatting action",
-		"where no multi-phase work begins",
-		"exact replacement text or exact source lines are supplied in the current user request",
-		"a changed test, or broader checks, delegate or reclassify instead",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("delegation preamble missing local-work rule %q in %q", want, content)
-		}
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{
+				DelegationEnabled: true,
+				AdvisorEnabled:    tc.advisor,
+				Mode:              workflowModeParent,
+			}).Content
 
-	// The old allowances must not return: the `one targeted test` example and
-	// the broad "already hold exact lines" local-edit exception.
-	for _, forbidden := range []string{
-		"one targeted test",
-		"Delegating is not free: the sub-agent starts cold",
-		"Delegate to avoid acquiring context, not to avoid doing work.",
-		"you already hold the exact lines",
-		"whose contents are already in your context",
-		"Read one file you are about to edit",
-	} {
-		if strings.Contains(content, forbidden) {
-			t.Fatalf("delegation preamble still contains obsolete local-work allowance %q in %q", forbidden, content)
+			last := -1
+			for _, step := range tc.wantSteps {
+				idx := strings.Index(content, step)
+				if idx == -1 {
+					t.Fatalf("workflow missing step %q in %q", step, content)
+				}
+				if idx <= last {
+					t.Fatalf("workflow step %q appears before or overlapping a prior step in %q", step, content)
+				}
+				last = idx
+			}
+			for _, forbidden := range tc.wantAbsent {
+				if strings.Contains(content, forbidden) {
+					t.Fatalf("workflow unexpectedly contains %q in %q", forbidden, content)
+				}
+			}
+		})
+	}
+}
+
+// TestDelegationWorkflowConsistentAcrossOverridePath pins that the normal and
+// override preamble paths both embed the same flag-aware delegation canon, so
+// the advisor step gating and renumbering behave identically in both.
+func TestDelegationWorkflowConsistentAcrossOverridePath(t *testing.T) {
+	t.Parallel()
+
+	for _, advisor := range []bool{false, true} {
+		name := "advisor disabled"
+		if advisor {
+			name = "advisor enabled"
 		}
+		t.Run(name, func(t *testing.T) {
+			canon := strings.TrimSpace(delegationInstructions(advisor))
+			normal := systemPreambleWithAdvisor(SystemPreambleParams{DelegationEnabled: true, AdvisorEnabled: advisor, Mode: workflowModeParent}).Content
+			override := systemPreambleWithAdvisor(SystemPreambleParams{Override: "Custom override content", DelegationEnabled: true, AdvisorEnabled: advisor, Mode: workflowModeParent}).Content
+
+			if !strings.Contains(normal, canon) {
+				t.Fatalf("normal preamble does not embed the rendered delegation canon in %q", normal)
+			}
+			if !strings.Contains(override, canon) {
+				t.Fatalf("override preamble does not embed the rendered delegation canon in %q", override)
+			}
+		})
 	}
 }
 
@@ -398,17 +420,31 @@ func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 // TestDelegationCanonDoesNotNameAdvisorWhenDisabled pins the fact that the
 // delegation and advisor sections are gated independently: canon must not
 // point the orchestrator at `advisor` in a session where the advisor tool is
-// not registered and the advisor section is not rendered.
+// not registered and the advisor section is not rendered. It covers both the
+// normal and override preamble paths, which share the same flag-aware canon
+// renderer.
 func TestDelegationCanonDoesNotNameAdvisorWhenDisabled(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
-
-	if !strings.Contains(content, "## Your specialists") {
-		t.Fatalf("delegation canon not rendered in %q", content)
+	cases := []struct {
+		name     string
+		override string
+	}{
+		{name: "normal preamble"},
+		{name: "override preamble", override: "Custom override content"},
 	}
-	if strings.Contains(content, "`advisor`") {
-		t.Errorf("preamble names the `advisor` tool with advisor disabled; canon must not reference a tool that is not registered:\n%s", content)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Override: tc.override, DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
+
+			if !strings.Contains(content, "## Your specialists") {
+				t.Fatalf("delegation canon not rendered in %q", content)
+			}
+			if strings.Contains(content, "`advisor`") {
+				t.Errorf("preamble names the `advisor` tool with advisor disabled; canon must not reference a tool that is not registered:\n%s", content)
+			}
+		})
 	}
 }
 
@@ -481,6 +517,16 @@ func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 	}
 	if !strings.Contains(parent, parentApprovalLine) {
 		t.Fatalf("parent preamble missing approval line %q in %q", parentApprovalLine, parent)
+	}
+	// The before-editing and verification bullets of the shared workflow block
+	// are pinned here so a regression in renderWorkflowInstructions is caught.
+	for _, want := range []string{
+		"- Ensure relevant files and nearby tests are inspected before making changes.",
+		"- Ensure the narrowest relevant checks run first.",
+	} {
+		if !strings.Contains(parent, want) {
+			t.Fatalf("parent preamble missing %q in %q", want, parent)
+		}
 	}
 
 	child := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeDelegatedChild, CaveHuman: false, SystemSuffix: ""}).Content

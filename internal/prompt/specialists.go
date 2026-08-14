@@ -23,32 +23,32 @@ var specialists = []specialist{
 	{
 		name:        "explore",
 		lane:        "Navigate the codebase: find files, symbols, patterns, usages, or call sites",
-		doNotUseFor: "questions answerable from the web or docs — that is `research`",
+		doNotUseFor: "questions that are answerable from the web or documentation—that is `research`",
 	},
 	{
 		name:        "research",
-		lane:        "Gather information: search the web, read docs, synthesize across sources (read-only)",
-		doNotUseFor: "anything answerable from the repo alone — that is `explore`",
+		lane:        "Search the web, read documentation, and synthesize external sources (read-only)",
+		doNotUseFor: "anything answerable from the repository alone—that is `explore`",
 	},
 	{
 		name:        "code",
 		lane:        "Implement a scoped change: one deliverable, exact files named, design pre-digested",
-		doNotUseFor: "design decisions, or work whose files you have not identified",
+		doNotUseFor: "design decisions or work whose files have not been identified",
 	},
 	{
 		name:        "evaluate",
-		lane:        "Analyze a scoped sub-problem: weigh options, produce a recommendation. Not for task planning",
-		doNotUseFor: "task planning, or questions with one obvious answer",
+		lane:        "Analyse a scoped sub-problem, weigh options, and recommend an approach",
+		doNotUseFor: "task planning or questions with one obvious answer",
 	},
 	{
 		name:        "sanity_check",
-		lane:        "Run checks: tests, lint, build. Report pass/fail. No code changes",
+		lane:        "Run tests, lint, and builds; report pass or fail; make no changes",
 		doNotUseFor: "anything that changes files",
 	},
 	{
 		name:        "review",
-		lane:        "Examine code changes: bugs, regressions, missing tests, plan adherence. No fixes",
-		doNotUseFor: "broad 'review the whole PR' scope, or applying fixes",
+		lane:        "Examine code changes for bugs, regressions, missing tests, and plan adherence; make no fixes",
+		doNotUseFor: "broad “review the whole PR” scopes or applying fixes",
 	},
 }
 
