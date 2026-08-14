@@ -17,6 +17,12 @@ import (
 
 type syncDebounceFiredMsg struct{ seq int }
 
+const dragAutoScrollInterval = 60 * time.Millisecond
+
+// dragAutoScrollTickMsg carries the drag epoch so a stale tick from a
+// previous press cannot scroll after a new click, release, or Esc clear.
+type dragAutoScrollTickMsg struct{ epoch int }
+
 type modelReasoningResolvedMsg struct {
 	capabilities map[string]provider.ReasoningCapabilities
 	efforts      map[string]string
@@ -55,7 +61,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case phaseTransitionFailedMsg:
 		m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", msg.err))
 		return m, nil
-	case mouseClickMsg, mouseMotionMsg, mouseReleaseMsg, mouseWheelMsg:
+	case mouseClickMsg, mouseMotionMsg, mouseReleaseMsg, mouseWheelMsg, dragAutoScrollTickMsg:
 		return m.handleMouseEventMsg(msg)
 	case tea.KeyPressMsg:
 		return m.handleKeyMsg(msg)
@@ -71,8 +77,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// handleMouseEventMsg dispatches the mouse event message subtypes, keeping
-// Update's cyclomatic complexity under the gocyclo threshold.
+// handleMouseEventMsg dispatches the mouse event message subtypes and the drag
+// auto-scroll tick, keeping Update's cyclomatic complexity under the gocyclo
+// threshold.
 func (m *Model) handleMouseEventMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case mouseClickMsg:
@@ -83,6 +90,8 @@ func (m *Model) handleMouseEventMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouseReleaseMsg(msg)
 	case mouseWheelMsg:
 		return m.handleMouseWheelMsg(msg)
+	case dragAutoScrollTickMsg:
+		return m.handleDragAutoScrollTick(msg)
 	}
 	return m, nil
 }
@@ -315,7 +324,31 @@ func (m *Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, te
 	}
 	m.mousePressX = -1
 	m.mousePressY = -1
-	text := extractText(lines, m.selection, left, right)
+	var text string
+	if m.activeRegion == regionViewport {
+		left, _ := m.regionXBounds(regionViewport)
+		// logicalLineBounds can extend endLine into the chrome rows below the
+		// viewport (divider/input); clamp the frame rows to the viewport content
+		// range before converting to content lines so a triple-click at the
+		// bottom cannot copy an off-screen line.
+		startLine = max(startLine, m.viewportContentTopRow())
+		endLine = min(endLine, m.viewportContentBottomRow())
+		if startLine > endLine {
+			m.selection = m.selection.clear()
+			return m, nil
+		}
+		startLine = m.contentLineAtScreenY(startLine)
+		endLine = m.contentLineAtScreenY(endLine)
+		startCol -= left
+		endCol -= left
+		m.selection = selectionState{
+			start: selectionPoint{line: startLine, col: startCol},
+			end:   selectionPoint{line: endLine, col: endCol},
+		}
+		text = m.extractViewportText()
+	} else {
+		text = extractText(lines, m.selection, left, right)
+	}
 	if text != "" {
 		return m, copyToClipboard(text)
 	}
@@ -323,6 +356,10 @@ func (m *Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, te
 }
 
 func (m *Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
+	m.dragScrollDir = 0
+	m.dragScrollTicking = false
+	m.dragScrollEpoch++
+
 	clickPos := selectionPoint{line: msg.y, col: msg.x}
 	clickTime := time.Now()
 
@@ -344,7 +381,7 @@ func (m *Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.handleMultiClickSelection(clampedX, clampedY)
 	}
 
-	start := selectionPoint{line: clampedY, col: clampedX}
+	start := m.anchorPoint(clampedX, clampedY)
 	m.selection = selectionState{start: start, end: start, active: true}
 	m.mousePressX = msg.x
 	m.mousePressY = msg.y
@@ -353,13 +390,38 @@ func (m *Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.mousePressX >= 0 {
+		var cmd tea.Cmd
+		// Edge auto-scroll: holding the mouse past the viewport top or bottom
+		// scrolls the view while extending the selection. A repeating tick keeps
+		// scrolling until the pointer moves back inside or the button releases.
+		if m.activeRegion == regionViewport {
+			top := m.viewportContentTopRow()
+			bottom := m.viewportContentBottomRow()
+			dir := 0
+			if msg.y <= top && !m.viewport.AtTop() {
+				dir = -1
+			} else if msg.y >= bottom && !m.viewport.AtBottom() {
+				dir = 1
+			}
+			m.dragScrollDir = dir
+			m.dragLastX, m.dragLastY = msg.x, msg.y
+			if dir != 0 && !m.dragScrollTicking {
+				m.dragScrollTicking = true
+				epoch := m.dragScrollEpoch
+				cmd = tea.Tick(dragAutoScrollInterval, func(time.Time) tea.Msg {
+					return dragAutoScrollTickMsg{epoch: epoch}
+				})
+			}
+		}
 		clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
-		m.selection.end = selectionPoint{line: clampedY, col: clampedX}
+		m.selection.end = m.anchorPoint(clampedX, clampedY)
+		return m, cmd
 	}
 	return m, nil
 }
 
 func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
+	m.dragScrollEpoch++
 	// mousePressX < 0 means the press was already fully handled at click time
 	// (e.g. word/line selection from a double/triple-click); nothing left to do.
 	if m.mousePressX < 0 {
@@ -367,12 +429,19 @@ func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) 
 	}
 
 	clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
-	m.selection.end = selectionPoint{line: clampedY, col: clampedX}
+	m.selection.end = m.anchorPoint(clampedX, clampedY)
+	m.dragScrollDir = 0
+	m.dragScrollTicking = false
 	var cmd tea.Cmd
 	if m.mousePressX != msg.x || m.mousePressY != msg.y {
 		m.selection.active = false
-		left, right := m.selectionHighlightBounds()
-		text := extractText(m.screenLines, m.selection, left, right)
+		var text string
+		if m.activeRegion == regionViewport {
+			text = m.extractViewportText()
+		} else {
+			left, right := m.selectionHighlightBounds()
+			text = extractText(m.screenLines, m.selection, left, right)
+		}
 		if text != "" {
 			m.mousePressX = -1
 			m.mousePressY = -1
@@ -385,6 +454,37 @@ func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) 
 	m.mousePressX = -1
 	m.mousePressY = -1
 	return m, cmd
+}
+
+// handleDragAutoScrollTick scrolls one line per tick while the drag hovers
+// past a viewport edge and extends the selection to the tracked pointer
+// position. Re-arms the tick so scrolling continues until the pointer moves
+// back inside the viewport or the button releases. A tick whose epoch no
+// longer matches the current drag (new click, release, or Esc) is stale and
+// stops the tick without scrolling.
+func (m *Model) handleDragAutoScrollTick(msg dragAutoScrollTickMsg) (tea.Model, tea.Cmd) {
+	// A stale tick belongs to a previous press; ignore it without touching
+	// the current drag state so dragScrollTicking stays accurate for any new
+	// drag and no duplicate tick chain is armed.
+	if msg.epoch != m.dragScrollEpoch {
+		return m, nil
+	}
+	if m.mousePressX < 0 || m.dragScrollDir == 0 {
+		m.dragScrollTicking = false
+		return m, nil
+	}
+	if m.dragScrollDir < 0 {
+		m.viewport.ScrollUp(1)
+	} else {
+		m.viewport.ScrollDown(1)
+	}
+	m.autoScroll = false
+	clampedX, clampedY := m.clampToRegion(m.dragLastX, m.dragLastY, m.activeRegion)
+	m.selection.end = m.anchorPoint(clampedX, clampedY)
+	epoch := m.dragScrollEpoch
+	return m, tea.Tick(dragAutoScrollInterval, func(time.Time) tea.Msg {
+		return dragAutoScrollTickMsg{epoch: epoch}
+	})
 }
 
 func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {

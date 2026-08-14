@@ -98,6 +98,22 @@ func (m *Model) syncViewport() {
 		m.fmtBgCacheWidth = m.viewport.Width()
 		formatted := theme.WithBg(rendered, theme.BgElev)
 		m.fmtBgCacheOutput = theme.PadLines(formatted, m.viewport.Width(), theme.BgElev)
+
+		// Content text or width reflowed, so content-anchored viewport selection
+		// coordinates no longer map to the lines they were made against. Clear the
+		// selection and cancel any in-flight drag rather than highlighting or
+		// extracting stale rows. Scroll-only and pure viewport-height changes do
+		// not enter this block, so their selections survive, and input-region
+		// drags are screen-anchored and must survive reflow untouched.
+		if m.activeRegion == regionViewport {
+			if m.selection.hasSelection() {
+				m.selection = m.selection.clear()
+			}
+			m.mousePressX = -1
+			m.mousePressY = -1
+			m.dragScrollDir = 0
+			m.dragScrollTicking = false
+		}
 	}
 	rendered = m.fmtBgCacheOutput
 
@@ -165,6 +181,31 @@ func (m *Model) viewportContentTopOffset() int {
 	// layout replaces that with a leading blank row, so content starts one row
 	// below the pane top in both cases.
 	return 1
+}
+
+// contentLineAtScreenY converts a viewport frame row to the unpadded content
+// line it currently displays, accounting for scroll offset, the content pane's
+// leading blank row, and the prepended pad rows.
+func (m *Model) contentLineAtScreenY(y int) int {
+	return y + m.viewport.YOffset() - m.viewportContentTopOffset() - m.contentTopPad
+}
+
+// screenYAtContentLine converts an unpadded content line back to the viewport
+// frame row it projects to at the current scroll offset.
+func (m *Model) screenYAtContentLine(line int) int {
+	return line - m.viewport.YOffset() + m.viewportContentTopOffset() + m.contentTopPad
+}
+
+// viewportContentTopRow returns the first frame row that displays viewport
+// content (the content pane's leading blank row is chrome, not content).
+func (m *Model) viewportContentTopRow() int {
+	return m.viewportContentTopOffset()
+}
+
+// viewportContentBottomRow returns the last frame row that displays viewport
+// content at the current viewport height.
+func (m *Model) viewportContentBottomRow() int {
+	return m.viewportContentTopRow() + m.viewport.Height() - 1
 }
 
 func (b *contentBuffer) segmentAtContentLine(contentLine int) (segIndex int, rowInSegment int, ok bool) {

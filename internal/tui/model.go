@@ -165,6 +165,11 @@ type Model struct {
 	clickCount                   int
 	activeRegion                 selectionRegion
 	screenLines                  []string
+	dragScrollDir                int // 0 none, -1 up, 1 down while drag-hovering a viewport edge
+	dragScrollTicking            bool
+	dragScrollEpoch              int
+	dragLastX                    int
+	dragLastY                    int
 	lastWheelMouseAt             time.Time
 	primaryModel                 string
 	imageMarkers                 []imageMarker

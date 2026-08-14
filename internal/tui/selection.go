@@ -53,6 +53,91 @@ func (s selectionState) clear() selectionState {
 	return selectionState{}
 }
 
+// anchorPoint converts screen coordinates to selection coordinates for the
+// active region. The viewport region anchors to unpadded content lines so the
+// selection follows text on scroll; the input region stays screen-anchored.
+func (m *Model) anchorPoint(x, y int) selectionPoint {
+	if m.activeRegion == regionViewport {
+		left, _ := m.regionXBounds(regionViewport)
+		line := max(0, m.contentLineAtScreenY(y))
+		if maxContent := len(m.viewport.Lines()) - m.contentTopPad - 1; maxContent >= 0 {
+			line = min(line, maxContent)
+		}
+		return selectionPoint{line: line, col: x - left}
+	}
+	return selectionPoint{line: y, col: x}
+}
+
+// screenSelection projects the stored selection to screen coordinates for
+// highlight rendering. Viewport selections are content-anchored and mapped
+// back through the current scroll offset and region left bound; other regions
+// are already screen-anchored and pass through unchanged. The projected span
+// is canonicalized and clamped to the viewport content rows so an off-screen
+// selection cannot highlight chrome; a partially visible span clamps its
+// endpoint to the visible row and the region edge column.
+func (m *Model) screenSelection() selectionState {
+	s := m.selection
+	if m.activeRegion == regionViewport {
+		left, right := m.regionXBounds(regionViewport)
+		s.start.line = m.screenYAtContentLine(s.start.line)
+		s.end.line = m.screenYAtContentLine(s.end.line)
+		s.start.col += left
+		s.end.col += left
+		a, b := s.canonical()
+		top := m.viewportContentTopRow()
+		bottom := m.viewportContentBottomRow()
+		if b.line < top || a.line > bottom {
+			return s.clear()
+		}
+		if a.line < top {
+			a.line = top
+			a.col = left
+		}
+		if b.line > bottom {
+			b.line = bottom
+			b.col = right
+		}
+		s.start, s.end = a, b
+	}
+	return s
+}
+
+// extractViewportText extracts plain text for a viewport selection from the
+// full viewport content lines. Selection lines are unpadded content lines and
+// columns are content-relative, so the extracted text is independent of the
+// current scroll position. Viewport content lines can carry box-drawing
+// chrome (tool and delegation frames), so each part gets the same
+// stripBoxChrome post-processing as extractText.
+func (m *Model) extractViewportText() string {
+	if !m.selection.hasSelection() {
+		return ""
+	}
+	lines := m.viewport.Lines()
+	start, end := m.selection.canonical()
+	var parts []string
+	for i := start.line; i <= end.line; i++ {
+		idx := i + m.contentTopPad
+		if idx < 0 || idx >= len(lines) {
+			continue
+		}
+		raw := ansi.Strip(lines[idx])
+		sc := 0
+		ec := len([]rune(raw))
+		if i == start.line {
+			sc = start.col
+		}
+		if i == end.line {
+			ec = end.col
+		}
+		extracted := truncateByWidth(raw, sc, ec)
+		extracted = strings.TrimRight(extracted, " ")
+		extracted = stripBoxChrome(extracted)
+		extracted = strings.TrimRight(extracted, " ")
+		parts = append(parts, extracted)
+	}
+	return strings.Join(parts, "\n")
+}
+
 // extractText extracts plain text from lines for the given selection state.
 // Lines may be pre-stripped or contain ANSI sequences (stripped internally).
 // Column values are visual column positions (terminal cells), not byte offsets.
