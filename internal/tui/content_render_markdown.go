@@ -228,6 +228,7 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width
 		return ""
 	}
 	td := segment.thinkData
+	body := stripThinkingMarkers(td.body)
 	style := b.thinkingTextStyle()
 	bar := style.Render("▎")
 	contentWidth := max(1, width-2)
@@ -235,7 +236,7 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width
 	if td.collapsed {
 		// Derive 3-line preview from body at render time.
 		allLines := []string{}
-		for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
+		for _, line := range strings.Split(strings.TrimRight(body, "\n"), "\n") {
 			wrapped := ansi.Hardwrap(ansi.Wordwrap(line, contentWidth, ""), contentWidth, true)
 			allLines = append(allLines, strings.Split(wrapped, "\n")...)
 		}
@@ -257,7 +258,7 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width
 	// Expanded state — wrap body lines.
 	var sb strings.Builder
 	sb.WriteString(style.Render("▾ Thinking") + "\n")
-	for _, line := range strings.Split(strings.TrimRight(td.body, "\n"), "\n") {
+	for _, line := range strings.Split(strings.TrimRight(body, "\n"), "\n") {
 		wrapped := ansi.Hardwrap(ansi.Wordwrap(line, contentWidth, ""), contentWidth, true)
 		for _, wl := range strings.Split(wrapped, "\n") {
 			sb.WriteString(bar + " " + style.Render(wl) + "\n")

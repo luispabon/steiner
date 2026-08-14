@@ -22,16 +22,17 @@ type responsesStreamEvent struct {
 }
 
 type responsesStreamState struct {
-	content      strings.Builder
-	thinking     strings.Builder
-	toolCalls    []ToolCall
-	usage        *UsageStats
-	finishReason string
-	reasoningID  string
-	sawDone      bool
-	sawContent   bool
-	sawToolCall  bool
-	sawThinking  bool
+	content                  strings.Builder
+	thinking                 strings.Builder
+	toolCalls                []ToolCall
+	usage                    *UsageStats
+	finishReason             string
+	reasoningID              string
+	sawDone                  bool
+	sawContent               bool
+	sawToolCall              bool
+	sawThinking              bool
+	pendingThinkingSeparator bool
 }
 
 func decodeResponsesStreamWithHandler(_ context.Context, body io.Reader, emit func(ChatChunk) error) error {
@@ -93,6 +94,9 @@ func processResponsesStreamEvent(state *responsesStreamState, event string, emit
 		return handleResponsesTextDelta(state, payload.Delta, emit)
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		return handleResponsesReasoningDelta(state, payload.Delta, emit)
+	case "response.reasoning_summary_part.added", "response.reasoning_summary_text.done":
+		state.pendingThinkingSeparator = true
+		return false, nil
 	case "response.output_item.done":
 		return handleResponsesOutputItemDone(state, payload.Item)
 	case "response.completed":
@@ -114,14 +118,20 @@ func handleResponsesReasoningDelta(state *responsesStreamState, delta string, em
 	if delta == "" {
 		return false, nil
 	}
-	state.thinking.WriteString(delta)
+	prefix := ""
+	if state.pendingThinkingSeparator && state.thinking.Len() > 0 && !strings.HasSuffix(state.thinking.String(), "\n") {
+		prefix = "\n"
+	}
+	state.pendingThinkingSeparator = false
+	state.thinking.WriteString(prefix + delta)
 	state.sawThinking = true
-	return false, emit(ChatChunk{Thinking: delta})
+	return false, emit(ChatChunk{Thinking: prefix + delta})
 }
 
 func handleResponsesOutputItemDone(state *responsesStreamState, item responsesItem) (bool, error) {
 	if item.Type == "reasoning" {
 		state.reasoningID = item.ID
+		state.pendingThinkingSeparator = true
 		return false, nil
 	}
 	if item.Type != "function_call" {

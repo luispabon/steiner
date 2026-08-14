@@ -60,6 +60,12 @@ func (b *contentBuffer) liveThinkingSegment() *thinkingBlockData {
 	return nil
 }
 
+// stripThinkingMarkers removes Codex markdown bold markers from thinking
+// text so reasoning summaries render as plain text.
+func stripThinkingMarkers(text string) string {
+	return strings.ReplaceAll(text, "**", "")
+}
+
 func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSource) {
 	if text == "" {
 		return

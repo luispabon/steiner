@@ -1315,6 +1315,100 @@ func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *tes
 	}
 }
 
+func TestThinkingChunksRenderSeparateItems(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        testStyles(theme.AccentAmber),
+		showThinking:  true,
+	}
+
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "**Inspecting configuration**", output.ChunkSourceAssistant))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "\n**Planning safe automation**", output.ChunkSourceAssistant))
+
+	thinking := buffer.segments[0].thinkData
+	if thinking == nil {
+		t.Fatal("thinkData = nil, want thinking block")
+	}
+	if got := thinking.body; got != "**Inspecting configuration**\n**Planning safe automation**" {
+		t.Fatalf("thinkData.body = %q, want %q", got, "**Inspecting configuration**\n**Planning safe automation**")
+	}
+	plain := stripANSI(buffer.String(80))
+	if strings.Contains(plain, "**") {
+		t.Fatalf("render contains markdown bold markers: %q", plain)
+	}
+	for _, want := range []string{"▎ Inspecting configuration", "▎ Planning safe automation"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("render = %q, want %q", plain, want)
+		}
+	}
+	buffer.finalizeThinkingBlock()
+	plain = stripANSI(buffer.String(80))
+	if !strings.Contains(plain, "▸ Thinking") {
+		t.Fatalf("collapsed render = %q, want collapsed header '▸ Thinking'", plain)
+	}
+	for _, want := range []string{"▎ Inspecting configuration", "▎ Planning safe automation"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("collapsed render = %q, want %q", plain, want)
+		}
+	}
+	if strings.Contains(plain, "**") {
+		t.Fatalf("collapsed render contains markdown bold markers: %q", plain)
+	}
+}
+
+func TestThinkingChunkSplitMarkerStripped(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        testStyles(theme.AccentAmber),
+		showThinking:  true,
+	}
+
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "*", output.ChunkSourceAssistant))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "*Planning safe automation", output.ChunkSourceAssistant))
+
+	thinking := buffer.segments[0].thinkData
+	if thinking == nil {
+		t.Fatal("thinkData = nil, want thinking block")
+	}
+	if got := thinking.body; got != "**Planning safe automation" {
+		t.Fatalf("thinkData.body = %q, want %q", got, "**Planning safe automation")
+	}
+	plain := stripANSI(buffer.String(80))
+	if strings.Contains(plain, "**") {
+		t.Fatalf("render contains markdown bold markers: %q", plain)
+	}
+	if !strings.Contains(plain, "▎ Planning safe automation") {
+		t.Fatalf("render = %q, want %q", plain, "▎ Planning safe automation")
+	}
+}
+
+func TestStripThinkingMarkers(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "balanced bold", in: "**bold**", want: "bold"},
+		{name: "literal star preserved", in: "a * literal * star", want: "a * literal * star"},
+		{name: "unbalanced", in: "**unbalanced", want: "unbalanced"},
+		{name: "only markers", in: "****", want: ""},
+		{name: "no markers", in: "no markers", want: "no markers"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := stripThinkingMarkers(tt.in); got != tt.want {
+				t.Fatalf("stripThinkingMarkers(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestThinkingBlockBeforeToolCallStartsToolBoxOnFreshLine(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
