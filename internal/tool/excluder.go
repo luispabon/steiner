@@ -23,21 +23,31 @@ var builtinExcludeEntries = []string{
 	".nuxt",
 }
 
-// FilePickerAlwaysInclude lists path components that are always shown in the
-// TUI file picker and file list overlays, even when the built-in heuristic
+// FilePickerAlwaysInclude lists path components that are shown in the TUI
+// file picker and file list overlays even when the built-in heuristic
 // exclusion list would otherwise hide them. Used to surface project-metadata
 // folders (such as .steiner) that are otherwise excluded by default.
 //
 // Matching is component-based, so a nested directory named .steiner at any
-// depth is also re-included.
+// depth is also re-included. Exact prefix exclusions such as
+// FilePickerExcludePaths take precedence over this list.
 var FilePickerAlwaysInclude = []string{
 	".steiner",
 }
 
+// FilePickerExcludePaths lists exact relative prefixes hidden from the TUI
+// file picker and file list overlays even when a parent directory is
+// force-included. Keeps heavy .steiner subdirectories (tmp, worktrees) out
+// of the picker while the rest of .steiner stays visible.
+var FilePickerExcludePaths = []string{
+	".steiner/tmp",
+	".steiner/worktrees",
+}
+
 // PathExcluder checks paths against exact prefix exclusions and glob patterns.
 // Built-in heuristic exclusions are always active and appended automatically.
-// An optional forceInclude set can override exclusions for specific component
-// names.
+// Exact prefix exclusions win over an optional forceInclude set, which in turn
+// overrides only the component glob patterns.
 type PathExcluder struct {
 	excludePaths    []string
 	excludePatterns []string
@@ -54,7 +64,8 @@ func NewPathExcluder(excludePaths, excludePatterns []string) PathExcluder {
 
 // NewPathExcluderWithIncludes creates a PathExcluder with always-active
 // built-in heuristic exclusions, user-configured exclusions, and an optional
-// set of component names that override exclusions. Pass nil for
+// set of component names that override glob-pattern exclusions. Exact prefix
+// exclusions still win over the force-include set. Pass nil for
 // includeComponents to disable the override (equivalent to NewPathExcluder).
 // Used by the TUI file picker to surface project-metadata folders.
 func NewPathExcluderWithIncludes(excludePaths, excludePatterns, includeComponents []string) PathExcluder {
@@ -89,13 +100,11 @@ func cleanExcludePaths(excludePaths []string) []string {
 }
 
 // ShouldExclude returns true if the path matches any exclusion rule.
-// Exact prefix exclusions are checked first, then glob patterns are matched
-// against each path component. If the path contains any component listed in
-// the forceInclude set, the path is never excluded regardless of other rules.
+// Exact prefix exclusions are checked first and take precedence over
+// force-include: a path under an excluded prefix is always excluded. If the
+// path is not prefix-excluded but contains any component listed in the
+// forceInclude set, it is not excluded by the glob patterns.
 func (e PathExcluder) ShouldExclude(path string) bool {
-	if e.shouldForceInclude(path) {
-		return false
-	}
 	for _, prefix := range e.excludePaths {
 		// filepath.Clean collapses a root separator exclude path to just the
 		// separator itself, so prefix+separator ("//") never matches any real
@@ -106,6 +115,9 @@ func (e PathExcluder) ShouldExclude(path string) bool {
 		if path == prefix || strings.HasPrefix(path, prefix+string(filepath.Separator)) {
 			return true
 		}
+	}
+	if e.shouldForceInclude(path) {
+		return false
 	}
 	parts := strings.Split(path, string(filepath.Separator))
 	for _, pattern := range e.excludePatterns {

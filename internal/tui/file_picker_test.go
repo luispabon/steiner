@@ -769,6 +769,51 @@ func TestFilePickerOverlay_OpenIncludesSteiner(t *testing.T) {
 	}
 }
 
+func TestFilePickerOverlay_ExcludesSteinerTmpAndWorktrees(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mustWriteFile(t, root, ".steiner/config.yaml", "model: foo\n")
+	mustWriteFile(t, root, ".steiner/plans/2026-01-01_x/overview.md", "# x\n")
+	mustWriteFile(t, root, ".steiner/tmp/images/shot.png", "png\n")
+	mustWriteFile(t, root, ".steiner/tmp/scratch.log", "log\n")
+	mustWriteFile(t, root, ".steiner/worktrees/oneshot-1/main.go", "package main\n")
+	mustWriteFile(t, root, ".steiner/tmpfiles/keep.txt", "keep\n")
+	mustWriteFile(t, root, "src/main.go", "package main\n")
+
+	s := testStyles("#ff0000")
+	f := newFilePickerOverlay(s).Open(root)
+
+	if !f.IsOpen() {
+		t.Fatal("expected picker to be open")
+	}
+
+	wantIncluded := []string{
+		".steiner/config.yaml",
+		".steiner/plans/2026-01-01_x/overview.md",
+		".steiner/tmpfiles/",
+		".steiner/tmpfiles/keep.txt",
+		"src/main.go",
+	}
+	for _, entry := range wantIncluded {
+		if !containsString(f.allEntries, entry) {
+			t.Errorf("expected entries to include %q, got %v", entry, f.allEntries)
+		}
+	}
+
+	wantExcluded := []string{
+		".steiner/tmp/",
+		".steiner/tmp/images/shot.png",
+		".steiner/tmp/scratch.log",
+		".steiner/worktrees/",
+		".steiner/worktrees/oneshot-1/main.go",
+	}
+	for _, entry := range wantExcluded {
+		if containsString(f.allEntries, entry) {
+			t.Errorf("expected entries to exclude %q, got %v", entry, f.allEntries)
+		}
+	}
+}
+
 // filePickerFixtureDir returns a temp directory with a known, deterministic
 // set of files so file-picker tests don't depend on the live repo cwd.
 func filePickerFixtureDir(t *testing.T) string {
