@@ -30,9 +30,21 @@ const (
 	regionSidebar
 )
 
+// selectionAnchor pins a selection endpoint to a specific rendered row of a
+// content segment. rowText is the ansi.Strip'ed text of that row at anchor
+// time, so the endpoint can be remapped onto the same text row after a
+// same-width content change moves rows around.
+type selectionAnchor struct {
+	segIndex int
+	rowInSeg int
+	rowText  string // ansi.Strip of the rendered line at anchor time
+	ok       bool
+}
+
 type selectionState struct {
-	start, end selectionPoint
-	active     bool
+	start, end             selectionPoint
+	active                 bool
+	startAnchor, endAnchor selectionAnchor
 }
 
 // hasSelection reports whether a non-trivial selection exists.
@@ -51,6 +63,123 @@ func (s selectionState) canonical() (selectionPoint, selectionPoint) {
 // clear returns the zero selectionState.
 func (s selectionState) clear() selectionState {
 	return selectionState{}
+}
+
+// segmentRenderedLines returns the lines of a segment's cached render, split
+// on newlines with trailing newlines trimmed. An empty or unrendered segment
+// yields one empty line so row math stays consistent.
+func (b *contentBuffer) segmentRenderedLines(segIndex int) []string {
+	if segIndex < 0 || segIndex >= len(b.segments) {
+		return nil
+	}
+	trimmed := strings.TrimRight(b.segments[segIndex].cachedRender, "\n")
+	return strings.Split(trimmed, "\n")
+}
+
+// selectionAnchorForSegmentRow builds a selectionAnchor for a rendered row of
+// a segment, recording the stripped row text at anchor time.
+func (b *contentBuffer) selectionAnchorForSegmentRow(segIndex, rowInSeg int) selectionAnchor {
+	lines := b.segmentRenderedLines(segIndex)
+	if rowInSeg < 0 || rowInSeg >= len(lines) {
+		return selectionAnchor{}
+	}
+	return selectionAnchor{segIndex: segIndex, rowInSeg: rowInSeg, rowText: ansi.Strip(lines[rowInSeg]), ok: true}
+}
+
+// viewportAnchorForContentLine anchors a viewport content line to its rendered
+// segment row, or returns an empty anchor when the line maps to no segment.
+func (m *Model) viewportAnchorForContentLine(line int) selectionAnchor {
+	segIndex, rowInSeg, ok := m.content.segmentAtContentLine(line)
+	if !ok {
+		return selectionAnchor{}
+	}
+	return m.content.selectionAnchorForSegmentRow(segIndex, rowInSeg)
+}
+
+// remapViewportSelection re-anchors the stored viewport selection onto the
+// current content after a same-width content change, so a live selection
+// follows the text it was made against instead of being cleared. If either
+// endpoint can no longer be matched (segment hidden, dropped, or ambiguous),
+// the selection and any in-flight drag are cleared.
+func (m *Model) remapViewportSelection() {
+	if m.activeRegion != regionViewport || !m.selection.hasSelection() {
+		return
+	}
+	if m.remapEndpoint(&m.selection.start, &m.selection.startAnchor) &&
+		m.remapEndpoint(&m.selection.end, &m.selection.endAnchor) {
+		return
+	}
+	m.clearViewportSelectionAndDrag()
+}
+
+// remapEndpoint moves a selection endpoint from its anchored segment row to the
+// current content line of the same row text. Columns are left untouched because
+// same-width content changes do not reflow rows. Returns false when the anchor
+// is stale or the row text can no longer be located unambiguously.
+func (m *Model) remapEndpoint(p *selectionPoint, anchor *selectionAnchor) bool {
+	if !anchor.ok {
+		return false
+	}
+	if anchor.segIndex < 0 || anchor.segIndex >= len(m.content.segments) || m.content.isSegmentHidden(anchor.segIndex) {
+		return false
+	}
+	lines := m.content.segmentRenderedLines(anchor.segIndex)
+	newRow, ok := matchRow(lines, anchor.rowText, anchor.rowInSeg)
+	if !ok {
+		return false
+	}
+	line, ok := m.content.contentLineForSegmentRow(anchor.segIndex, newRow)
+	if !ok {
+		return false
+	}
+	anchor.rowInSeg = newRow
+	p.line = line
+	return true
+}
+
+// clearViewportSelectionAndDrag drops the viewport selection and cancels any
+// in-flight drag (press, edge auto-scroll, and its tick epoch).
+func (m *Model) clearViewportSelectionAndDrag() {
+	if m.selection.hasSelection() {
+		m.selection = m.selection.clear()
+	}
+	m.mousePressX = -1
+	m.mousePressY = -1
+	m.dragScrollDir = 0
+	m.dragScrollTicking = false
+	m.dragScrollEpoch++
+}
+
+// matchRow locates the rendered line whose stripped text equals rowText,
+// preferring the anchor's old row and otherwise the nearest row, rejecting
+// equidistant alternatives as ambiguous. Returns false when no row matches.
+func matchRow(lines []string, rowText string, oldRow int) (int, bool) {
+	if oldRow >= 0 && oldRow < len(lines) && ansi.Strip(lines[oldRow]) == rowText {
+		return oldRow, true
+	}
+	best := -1
+	bestDist := -1
+	ambiguous := false
+	for i, line := range lines {
+		if ansi.Strip(line) != rowText {
+			continue
+		}
+		d := i - oldRow
+		if d < 0 {
+			d = -d
+		}
+		if best == -1 || d < bestDist {
+			best = i
+			bestDist = d
+			ambiguous = false
+		} else if d == bestDist {
+			ambiguous = true
+		}
+	}
+	if best == -1 || ambiguous {
+		return 0, false
+	}
+	return best, true
 }
 
 // anchorPoint converts screen coordinates to selection coordinates for the

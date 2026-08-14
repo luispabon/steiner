@@ -277,15 +277,22 @@ func joinSeparator(prev, next contentSegmentKind) string {
 	return "\n"
 }
 
+// isSegmentHidden reports whether a segment is excluded from rendering, without
+// mutating render state. Only hidden thinking blocks are ever excluded.
+func (b *contentBuffer) isSegmentHidden(index int) bool {
+	return b.segments[index].kind == segmentThinkingBlock && !b.showThinking
+}
+
 func (b *contentBuffer) skipHiddenSegment(index int) bool {
-	seg := &b.segments[index]
-	if seg.kind != segmentThinkingBlock || b.showThinking {
+	if !b.isSegmentHidden(index) {
 		return false
 	}
-	b.segmentHeights[index] = 0
+	if index < len(b.segmentHeights) {
+		b.segmentHeights[index] = 0
+	}
 	// Clear renderDirty on skipped segments so hidden-thinking toggles
 	// don't perpetually dirty the buffer cache.
-	seg.renderDirty = false
+	b.segments[index].renderDirty = false
 	return true
 }
 

@@ -2382,3 +2382,86 @@ func TestExtractViewportText(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestMatchRow
+// ---------------------------------------------------------------------------
+
+func TestMatchRow(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		lines   []string
+		rowText string
+		oldRow  int
+		wantRow int
+		wantOK  bool
+	}{
+		{
+			name:    "exact row preserved",
+			lines:   []string{"a", "b", "c"},
+			rowText: "b",
+			oldRow:  1,
+			wantRow: 1,
+			wantOK:  true,
+		},
+		{
+			name:    "nearest match above old row",
+			lines:   []string{"a", "b", "c"},
+			rowText: "a",
+			oldRow:  2,
+			wantRow: 0,
+			wantOK:  true,
+		},
+		{
+			name:    "nearest match below old row",
+			lines:   []string{"a", "b", "c"},
+			rowText: "c",
+			oldRow:  0,
+			wantRow: 2,
+			wantOK:  true,
+		},
+		{
+			name:    "ansi sequences stripped before matching",
+			lines:   []string{"\x1b[32mgreen\x1b[0m", "x"},
+			rowText: "green",
+			oldRow:  1,
+			wantRow: 0,
+			wantOK:  true,
+		},
+		{
+			name:    "old row dropped",
+			lines:   []string{"a", "b", "c"},
+			rowText: "c",
+			oldRow:  5,
+			wantRow: 2,
+			wantOK:  true,
+		},
+		{
+			name:    "no match",
+			lines:   []string{"a", "b"},
+			rowText: "z",
+			oldRow:  0,
+			wantRow: 0,
+			wantOK:  false,
+		},
+		{
+			name:    "equidistant matches ambiguous",
+			lines:   []string{"a", "b", "a"},
+			rowText: "a",
+			oldRow:  1,
+			wantRow: 0,
+			wantOK:  false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotRow, gotOK := matchRow(tc.lines, tc.rowText, tc.oldRow)
+			if gotRow != tc.wantRow || gotOK != tc.wantOK {
+				t.Errorf("matchRow(%q, %q, %d) = (%d, %v); want (%d, %v)",
+					tc.lines, tc.rowText, tc.oldRow, gotRow, gotOK, tc.wantRow, tc.wantOK)
+			}
+		})
+	}
+}

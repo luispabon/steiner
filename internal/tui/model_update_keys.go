@@ -165,6 +165,8 @@ func (m *Model) handlePasteKey() (tea.Model, tea.Cmd) {
 func (m *Model) handleSelectionEscKey() (bool, tea.Model, tea.Cmd) {
 	if m.selection.hasSelection() {
 		m.selection = m.selection.clear()
+		m.mousePressX = -1
+		m.mousePressY = -1
 		m.dragScrollDir = 0
 		m.dragScrollTicking = false
 		m.dragScrollEpoch++

@@ -93,26 +93,25 @@ func (m *Model) syncViewport() {
 	// has an explicit SGR 48 background, making content fully opaque.
 	// The cache avoids re-running the O(n) byte scan on scroll-only updates where
 	// content hasn't changed (m.content.String returns the same string value).
-	if rendered != m.fmtBgCacheInput || m.viewport.Width() != m.fmtBgCacheWidth {
+	widthChanged := m.viewport.Width() != m.fmtBgCacheWidth
+	if rendered != m.fmtBgCacheInput || widthChanged {
 		m.fmtBgCacheInput = rendered
 		m.fmtBgCacheWidth = m.viewport.Width()
 		formatted := theme.WithBg(rendered, theme.BgElev)
 		m.fmtBgCacheOutput = theme.PadLines(formatted, m.viewport.Width(), theme.BgElev)
 
-		// Content text or width reflowed, so content-anchored viewport selection
-		// coordinates no longer map to the lines they were made against. Clear the
-		// selection and cancel any in-flight drag rather than highlighting or
-		// extracting stale rows. Scroll-only and pure viewport-height changes do
-		// not enter this block, so their selections survive, and input-region
-		// drags are screen-anchored and must survive reflow untouched.
+		// A width reflow invalidates row/col anchors (wrapping changes the
+		// rendered rows), so the selection clears; same-width content changes
+		// remap the selection through segment anchors and no longer clear it.
+		// Scroll-only and pure viewport-height changes do not enter this block,
+		// so their selections survive, and input-region drags are screen-anchored
+		// and must survive reflow untouched.
 		if m.activeRegion == regionViewport {
-			if m.selection.hasSelection() {
-				m.selection = m.selection.clear()
+			if widthChanged {
+				m.clearViewportSelectionAndDrag()
+			} else {
+				m.remapViewportSelection()
 			}
-			m.mousePressX = -1
-			m.mousePressY = -1
-			m.dragScrollDir = 0
-			m.dragScrollTicking = false
 		}
 	}
 	rendered = m.fmtBgCacheOutput
@@ -208,8 +207,18 @@ func (m *Model) viewportContentBottomRow() int {
 	return m.viewportContentTopRow() + m.viewport.Height() - 1
 }
 
+// segmentHeight returns the rendered height of segment i, treating a missing
+// trailing height as 0 so the mapping walks tolerate segmentHeights being
+// shorter than segments (content appended but debounced sync not yet run).
+func (b *contentBuffer) segmentHeight(i int) int {
+	if i >= 0 && i < len(b.segmentHeights) {
+		return b.segmentHeights[i]
+	}
+	return 0
+}
+
 func (b *contentBuffer) segmentAtContentLine(contentLine int) (segIndex int, rowInSegment int, ok bool) {
-	if contentLine < 0 || len(b.segmentHeights) != len(b.segments) {
+	if contentLine < 0 {
 		return 0, 0, false
 	}
 
@@ -229,7 +238,7 @@ func (b *contentBuffer) segmentAtContentLine(contentLine int) (segIndex int, row
 			cumulative++
 		}
 
-		h := b.segmentHeights[i]
+		h := b.segmentHeight(i)
 		if h > 0 && contentLine < cumulative+h {
 			return i, contentLine - cumulative, true
 		}
@@ -239,6 +248,40 @@ func (b *contentBuffer) segmentAtContentLine(contentLine int) (segIndex int, row
 	}
 
 	return 0, 0, false
+}
+
+// contentLineForSegmentRow is the inverse of segmentAtContentLine: it maps a
+// rendered row of a segment to its absolute unpadded content line. The walk
+// mirrors segmentAtContentLine (hidden segments skipped, user-margin blank
+// lines counted) but uses the pure isSegmentHidden so it never mutates render
+// state.
+func (b *contentBuffer) contentLineForSegmentRow(segIndex, rowInSeg int) (int, bool) {
+	if segIndex < 0 || segIndex >= len(b.segments) {
+		return 0, false
+	}
+	cumulative := 0
+	lastKind := contentSegmentKind(-1)
+	firstVisible := true
+	for i := 0; i <= segIndex; i++ {
+		if b.isSegmentHidden(i) {
+			continue
+		}
+		seg := &b.segments[i]
+		if !firstVisible && joinSeparator(lastKind, seg.kind) == "\n\n" {
+			cumulative++
+		}
+		if i == segIndex {
+			h := b.segmentHeight(i)
+			if h <= 0 || rowInSeg < 0 || rowInSeg >= h {
+				return 0, false
+			}
+			return cumulative + rowInSeg, true
+		}
+		cumulative += b.segmentHeight(i)
+		lastKind = seg.kind
+		firstVisible = false
+	}
+	return 0, false
 }
 
 func (b *contentBuffer) toolCallGroupEntryAtRow(group *toolCallGroupSegment, rowInSegment, width int) int {
