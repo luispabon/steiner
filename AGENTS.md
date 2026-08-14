@@ -54,6 +54,7 @@ docs/                    Product/design docs and implementation notes
 * In `internal/tui`, keep render, update, sidebar, and event-state concerns split before files drift past the line target.
 * In `internal/output`, keep render, event, and preview/report concerns split before files drift past the line target.
 * Do not create `util`, `helper`, or `common` packages. Put shared code in the package that owns the domain.
+* When creating a branch, do it from `origin/main`, unless otherwise specified.
 
 ## Work loop
 
@@ -198,4 +199,3 @@ Steiner owns the schemas and result formats. Dive implements the behavior.
 ## Docs
 
 Do not broadly load `docs/` or `.steiner/plans/`; read only the specific file or section needed. Prefer README plus nearby code for orientation.
-
