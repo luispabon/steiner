@@ -114,9 +114,9 @@ bench:
 	go test -run=$$^ -bench=$(or $(BENCH),.) $(BENCH_FLAGS) -benchtime=$(or $(BENCHTIME),1s) -count=$(or $(COUNT),1) ./internal/tui/...
 
 # test-perf runs the allocation-ceiling guards, which are behind the perfguard
-# build tag so their ~7s of benchmark runs stay out of the normal test suite.
+# build tag so their ~14s of benchmark runs stay out of the normal test suite.
 test-perf:
-	go test -tags perfguard -run TestBenchmarkAllocationCeilings -v ./internal/tui/...
+	go test -tags perfguard -run TestBenchmarkAllocationCeilings -v ./internal/tui/... ./internal/agent/...
 
 # bench-tui runs the TUI benchmarks with -benchmem and a fixed benchtime,
 # suitable for benchstat comparison between two runs.

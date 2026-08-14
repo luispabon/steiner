@@ -411,3 +411,71 @@ func TestConversationLineageJSONRoundTripPreservesRetentionMetadata(t *testing.T
 		t.Fatalf("restored retention token count = %d, want %d", got, want)
 	}
 }
+
+func TestConversationLineageViewsAreFreshClonesAndLatestMessagesAliases(t *testing.T) {
+	lineage := newConversationLineage([]Message{
+		{Role: MessageRoleUser, Content: "user"},
+		{
+			Role:    MessageRoleAssistant,
+			Content: "assistant",
+			ToolCalls: []ToolCall{
+				{ID: "call_read", Name: "read", Arguments: map[string]any{"path": "file.go"}},
+			},
+		},
+	})
+
+	full := lineage.FullMessages()
+	if got, want := len(full), 2; got != want {
+		t.Fatalf("FullMessages() len = %d, want %d", got, want)
+	}
+	stripped := lineage.SummaryPrefixStrippedMessages()
+	if got, want := len(stripped), 2; got != want {
+		t.Fatalf("SummaryPrefixStrippedMessages() len = %d, want %d", got, want)
+	}
+
+	// Mutating the returned views must not reach the stored generation.
+	full[1].Content = "changed"
+	full[1].ToolCalls[0].Name = "mutate"
+	full[1].ToolCalls[0].Arguments["path"] = "other.go"
+	stripped[1].Content = "changed"
+	stripped[1].ToolCalls[0].Name = "mutate"
+	stripped[1].ToolCalls[0].Arguments["path"] = "other.go"
+
+	stored := lineage.Generations[0].Messages[1]
+	if got, want := stored.Content, "assistant"; got != want {
+		t.Fatalf("stored message mutated via view = %q, want %q", got, want)
+	}
+	if got, want := stored.ToolCalls[0].Name, "read"; got != want {
+		t.Fatalf("stored tool call name mutated via view = %q, want %q", got, want)
+	}
+	if got, want := stored.ToolCalls[0].Arguments["path"], "file.go"; got != want {
+		t.Fatalf("stored tool call arguments mutated via view = %v, want %q", got, want)
+	}
+
+	// latestMessages is the no-clone accessor: same content, shared backing.
+	latest := lineage.latestMessages()
+	if got, want := len(latest), 2; got != want {
+		t.Fatalf("latestMessages() len = %d, want %d", got, want)
+	}
+	if got, want := latest[1].Content, "assistant"; got != want {
+		t.Fatalf("latestMessages()[1].Content = %q, want %q", got, want)
+	}
+	if got, want := latest[1].ToolCalls[0].Name, "read"; got != want {
+		t.Fatalf("latestMessages()[1].ToolCalls[0].Name = %q, want %q", got, want)
+	}
+	if &latest[0] != &lineage.Generations[0].Messages[0] {
+		t.Fatal("latestMessages() did not share backing with the stored generation; expected no clone")
+	}
+
+	// Empty lineage: both views and the raw accessor return nil.
+	empty := ConversationLineage{}
+	if got := empty.FullMessages(); got != nil {
+		t.Fatalf("empty FullMessages() = %v, want nil", got)
+	}
+	if got := empty.SummaryPrefixStrippedMessages(); got != nil {
+		t.Fatalf("empty SummaryPrefixStrippedMessages() = %v, want nil", got)
+	}
+	if got := empty.latestMessages(); got != nil {
+		t.Fatalf("empty latestMessages() = %v, want nil", got)
+	}
+}
