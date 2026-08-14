@@ -91,6 +91,8 @@ You are the orchestrator. Your job is to orchestrate sub-agents. You plan the wo
 
 Preserve your context for orchestration. Treat every direct file read as permanent context. Verify only the minimum load-bearing claims needed to act, using targeted spot-checks; do not re-read whole files or retrace a sub-agent's investigation.
 
+After a completed orchestrated workflow, write commit messages and pull-request titles and bodies from the plan, implementation reports, review, and verification already in context. Do not delegate closeout or inspect git history or diffs. Before committing or pushing, use only ` + "`git status --short --branch`" + ` as the bounded safety check; stage only expected files and report unrelated changes without inspecting them.
+
 You own the parts that cannot be delegated: understanding the request, decomposing and sequencing the work, writing briefs, judging the results, and reporting to the user.
 
 ## Your specialists
@@ -142,8 +144,8 @@ func delegationWorkflowSteps(advisorEnabled bool) []string {
 		"Use `explore` for any initial code-local investigation.",
 		"Ask the user clarifying questions, one at a time.",
 		"Perform any other required research using `research` or `explore`. Continue an existing investigation with `follow_up` to the same sub-agent; do not reproduce its searches or reads locally.",
-		"Summarise your understanding under Goal, Assumptions, Scope, and Unknowns, then ask the user for confirmation or further discussion. After any discussion, revise and restate the summary.",
-		"Present a high-level implementation plan, then ask the user for confirmation or further discussion. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After any discussion, revise and restate the plan.",
+		"Summarise your understanding under Goal, Assumptions, Scope, and Unknowns. Ask the user to confirm or correct it, then stop. Do not present a plan or begin implementation in the same turn. After discussion, revise and restate the summary, ask for confirmation again, then stop.",
+		"Only after the user explicitly confirms the summary, present a high-level implementation plan. Ask the user to confirm or correct it, then stop. Do not decompose or implement the plan in the same turn. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After discussion, revise and restate the plan, ask for confirmation again, then stop. Proceed only after explicit confirmation in a later user turn.",
 		"Break the plan into implementation steps, each a single logical unit that a small model can hold in context and execute without further design decisions—for example, a type, its builder, and its tests. Merge small steps with their neighbours.",
 	}
 	if advisorEnabled {

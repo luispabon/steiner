@@ -179,6 +179,7 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"Preserve your context for orchestration.",
 		"Treat every direct file read as permanent context.",
 		"Verify only the minimum load-bearing claims needed to act, using targeted spot-checks; do not re-read whole files or retrace a sub-agent's investigation.",
+		"After a completed orchestrated workflow, write commit messages and pull-request titles and bodies from the plan, implementation reports, review, and verification already in context. Do not delegate closeout or inspect git history or diffs. Before committing or pushing, use only `git status --short --branch` as the bounded safety check; stage only expected files and report unrelated changes without inspecting them.",
 		"You own the parts that cannot be delegated",
 		"## Your specialists",
 		"| Agent | Lane | Do not use for |",
@@ -193,8 +194,8 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"1. Use `explore` for any initial code-local investigation.",
 		"2. Ask the user clarifying questions, one at a time.",
 		"3. Perform any other required research using `research` or `explore`. Continue an existing investigation with `follow_up` to the same sub-agent; do not reproduce its searches or reads locally.",
-		"4. Summarise your understanding under Goal, Assumptions, Scope, and Unknowns, then ask the user for confirmation or further discussion. After any discussion, revise and restate the summary.",
-		"5. Present a high-level implementation plan, then ask the user for confirmation or further discussion. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After any discussion, revise and restate the plan.",
+		"4. Summarise your understanding under Goal, Assumptions, Scope, and Unknowns. Ask the user to confirm or correct it, then stop. Do not present a plan or begin implementation in the same turn. After discussion, revise and restate the summary, ask for confirmation again, then stop.",
+		"5. Only after the user explicitly confirms the summary, present a high-level implementation plan. Ask the user to confirm or correct it, then stop. Do not decompose or implement the plan in the same turn. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After discussion, revise and restate the plan, ask for confirmation again, then stop. Proceed only after explicit confirmation in a later user turn.",
 		"6. Break the plan into implementation steps, each a single logical unit that a small model can hold in context and execute without further design decisions—for example, a type, its builder, and its tests. Merge small steps with their neighbours.",
 		"7. Dispatch one `code` sub-agent for each implementation step.",
 		"8. After implementation completes, dispatch a single `review` sub-agent to check the work.",
@@ -282,6 +283,9 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"Never use a single unstructured paragraph or omit sections",
 		"Do not paste broad conversation history.",
 		"Put the context you already hold into the brief",
+		"then ask the user for confirmation or further discussion",
+		"After any discussion, revise and restate the summary.",
+		"After any discussion, revise and restate the plan.",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("delegation preamble still contains old guidance %q", forbidden)
@@ -301,8 +305,8 @@ func TestSystemPreambleDelegationWorkflow(t *testing.T) {
 		"1. Use `explore` for any initial code-local investigation.",
 		"2. Ask the user clarifying questions, one at a time.",
 		"3. Perform any other required research using `research` or `explore`. Continue an existing investigation with `follow_up` to the same sub-agent; do not reproduce its searches or reads locally.",
-		"4. Summarise your understanding under Goal, Assumptions, Scope, and Unknowns, then ask the user for confirmation or further discussion. After any discussion, revise and restate the summary.",
-		"5. Present a high-level implementation plan, then ask the user for confirmation or further discussion. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After any discussion, revise and restate the plan.",
+		"4. Summarise your understanding under Goal, Assumptions, Scope, and Unknowns. Ask the user to confirm or correct it, then stop. Do not present a plan or begin implementation in the same turn. After discussion, revise and restate the summary, ask for confirmation again, then stop.",
+		"5. Only after the user explicitly confirms the summary, present a high-level implementation plan. Ask the user to confirm or correct it, then stop. Do not decompose or implement the plan in the same turn. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After discussion, revise and restate the plan, ask for confirmation again, then stop. Proceed only after explicit confirmation in a later user turn.",
 		"6. Break the plan into implementation steps, each a single logical unit that a small model can hold in context and execute without further design decisions—for example, a type, its builder, and its tests. Merge small steps with their neighbours.",
 	}
 
@@ -325,6 +329,9 @@ func TestSystemPreambleDelegationWorkflow(t *testing.T) {
 				"Consult `advisor`, if available, and incorporate its feedback.",
 				"11. ",
 				"`advisor`",
+				"then ask the user for confirmation or further discussion",
+				"After any discussion, revise and restate the summary.",
+				"After any discussion, revise and restate the plan.",
 			},
 		},
 		{
@@ -337,6 +344,11 @@ func TestSystemPreambleDelegationWorkflow(t *testing.T) {
 				"10. If amendments are needed, dispatch a `code` sub-agent to address all review findings, then run `review` again.",
 				"11. Finally, call `sanity_check` to run the project’s tests and checks.",
 			),
+			wantAbsent: []string{
+				"then ask the user for confirmation or further discussion",
+				"After any discussion, revise and restate the summary.",
+				"After any discussion, revise and restate the plan.",
+			},
 		},
 	}
 
@@ -657,8 +669,14 @@ func TestSystemPreambleRoleProseViaOverride(t *testing.T) {
 	if !strings.Contains(content, testIdentityMarker) {
 		t.Fatalf("override preamble missing identity %q in %q", testIdentityMarker, content)
 	}
-	if !strings.Contains(content, testRoleProseMarker) {
-		t.Fatalf("override preamble missing role prose %q in %q", testRoleProseMarker, content)
+	for _, want := range []string{
+		testRoleProseMarker,
+		"After a completed orchestrated workflow, write commit messages and pull-request titles and bodies from the plan, implementation reports, review, and verification already in context.",
+		"Only after the user explicitly confirms the summary, present a high-level implementation plan.",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("override preamble missing %q in %q", want, content)
+		}
 	}
 	if !strings.Contains(content, "Custom override content") {
 		t.Fatalf("override preamble missing override content in %q", content)
