@@ -335,3 +335,44 @@ func TestAdvisorThinkingChunkRoutingBySource(t *testing.T) {
 		t.Fatalf("segments count = %d, want 2 (advisor chunk should not create new segment)", len(buffer.segments))
 	}
 }
+
+func TestAdvisorThinkingChunkStripsMarkersAndMerges(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        testStyles(theme.AccentAmber),
+		showThinking:  true,
+	}
+
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1, "", nil))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "**step one**", output.ChunkSourceAdvisor))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "\n**step two**", output.ChunkSourceAdvisor))
+
+	dd := buffer.segments[0].delegData
+	if dd == nil {
+		t.Fatal("delegData = nil, want advisor delegation state")
+	}
+	if got := len(dd.entries); got != 1 {
+		t.Fatalf("entries count = %d, want 1 (merged thinking)", got)
+	}
+	if got := dd.entries[0].body; got != "**step one**\n**step two**" {
+		t.Fatalf("entry body = %q, want %q", got, "**step one**\n**step two**")
+	}
+
+	rows := buffer.renderDelegationThinkingEntry(dd.entries[0], 80)
+	var rendered strings.Builder
+	for _, row := range rows {
+		rendered.WriteString(stripANSI(row))
+		rendered.WriteString("\n")
+	}
+	plain := rendered.String()
+	if strings.Contains(plain, "**") {
+		t.Fatalf("render contains markdown bold markers: %q", plain)
+	}
+	for _, want := range []string{"step one", "step two"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("render = %q, want %q", plain, want)
+		}
+	}
+}

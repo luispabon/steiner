@@ -173,7 +173,7 @@ func (b *contentBuffer) applyDelegationThinkingChunk(dd *delegationDisplayState,
 		return true
 	}
 	entry := dd.appendOrMergeThinkingEntry(payload.Content, payload.Source)
-	dd.currentOperation = previewDelegationText(entry.body)
+	dd.currentOperation = previewDelegationText(stripThinkingMarkers(entry.body))
 	return true
 }
 

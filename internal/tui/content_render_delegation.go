@@ -344,7 +344,7 @@ func (b *contentBuffer) renderDelegationEntry(entry delegationTranscriptEntry, w
 
 func (b *contentBuffer) renderDelegationThinkingEntry(entry delegationTranscriptEntry, width int) []string {
 	style := b.thinkingTextStyle()
-	lines := b.wrapStyledDelegationLines(entry.body, max(1, width-2), style)
+	lines := b.wrapStyledDelegationLines(stripThinkingMarkers(entry.body), max(1, width-2), style)
 	if len(lines) == 0 {
 		return nil
 	}
