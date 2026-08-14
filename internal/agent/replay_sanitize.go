@@ -16,7 +16,7 @@ func ReplaySafeConversation(conversation []Message) []Message {
 
 	out := make([]Message, 0, len(conversation))
 	for i := 0; i < len(conversation); i++ {
-		msg := cloneMessages([]Message{conversation[i]})[0]
+		msg := cloneMessage(conversation[i])
 
 		if msg.Role == MessageRoleTool {
 			continue
@@ -71,7 +71,7 @@ func replayPairedToolMessages(conversation []Message, assistantIndex, toolCallCo
 		if expectedID != "" && toolMsg.ToolCallID != expectedID {
 			return nil, nextIndex, false
 		}
-		paired = append(paired, cloneMessages([]Message{toolMsg})...)
+		paired = append(paired, cloneMessage(toolMsg))
 		nextIndex++
 	}
 

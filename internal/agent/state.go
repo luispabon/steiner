@@ -123,20 +123,32 @@ func (l ConversationLineage) Latest() (ConversationGeneration, bool) {
 
 // FullMessages returns the full message view for the latest generation.
 func (l ConversationLineage) FullMessages() []Message {
-	latest, ok := l.Latest()
-	if !ok {
+	if len(l.Generations) == 0 {
 		return nil
 	}
-	return latest.FullMessages()
+	return l.Generations[len(l.Generations)-1].FullMessages()
 }
 
 // SummaryPrefixStrippedMessages returns only the raw messages from the latest generation.
 func (l ConversationLineage) SummaryPrefixStrippedMessages() []Message {
-	latest, ok := l.Latest()
-	if !ok {
+	if len(l.Generations) == 0 {
 		return nil
 	}
-	return latest.SummaryPrefixStrippedMessages()
+	return l.Generations[len(l.Generations)-1].SummaryPrefixStrippedMessages()
+}
+
+// latestMessages returns the raw messages of the newest generation without
+// cloning them.
+//
+// The returned slice is NOT a clone: it shares backing storage with the
+// lineage. Callers must not mutate it and must not retain it beyond the call;
+// use FullMessages or SummaryPrefixStrippedMessages when a defensive copy is
+// needed.
+func (l ConversationLineage) latestMessages() []Message {
+	if len(l.Generations) == 0 {
+		return nil
+	}
+	return l.Generations[len(l.Generations)-1].Messages
 }
 
 // WithCurrentMessages returns a copy with the latest generation's messages replaced.

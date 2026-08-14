@@ -41,12 +41,10 @@ func (p *turnProgressor) handleImagesForVision(ctx context.Context, state *RunSt
 	}
 
 	// Deliberately copies state.Conversation rather than following the
-	// SummaryPrefixStrippedMessages() pattern used elsewhere: that path
-	// round-trips messages through provider.Message, which has no ID/FilePath
-	// fields on ImageBlock and would silently drop them before routing/stripping
-	// can use them. This is a fresh user turn, so there is no summary prefix to
-	// worry about double-counting; revisit if images ever need to survive behind
-	// a post-compaction summary.
+	// SummaryPrefixStrippedMessages() pattern used elsewhere: this is a fresh
+	// user turn with no summary prefix to worry about double-counting, and the
+	// images must survive the copy so routing/stripping can use them. Revisit
+	// if images ever need to survive behind a post-compaction summary.
 	newMessages := make([]Message, len(state.Conversation))
 	copy(newMessages, state.Conversation)
 

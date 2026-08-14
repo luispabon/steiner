@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 
-	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -11,15 +10,32 @@ func cloneMessages(messages []Message) []Message {
 	if len(messages) == 0 {
 		return nil
 	}
-	providerMessages := provider.CloneMessages(ToProviderMessages(messages))
-	out := fromProviderMessages(providerMessages)
-	for i := range out {
-		if messages[i].Role == MessageRoleSummary {
-			out[i].Role = MessageRoleSummary
-		}
-		out[i].Retention = cloneMessageRetention(messages[i].Retention)
+	out := make([]Message, len(messages))
+	for i := range messages {
+		out[i] = cloneMessage(messages[i])
 	}
 	return out
+}
+
+func cloneMessage(message Message) Message {
+	cloned := message
+	if len(message.ToolCalls) > 0 {
+		cloned.ToolCalls = make([]ToolCall, len(message.ToolCalls))
+		for i := range message.ToolCalls {
+			cloned.ToolCalls[i] = ToolCall{
+				ID:           message.ToolCalls[i].ID,
+				Name:         message.ToolCalls[i].Name,
+				Arguments:    cloneInput(message.ToolCalls[i].Arguments),
+				RawArguments: message.ToolCalls[i].RawArguments,
+			}
+		}
+	}
+	// ImageBlock holds only value fields, so copying the slice is a deep copy.
+	// Unlike the old provider round-trip, this preserves images with empty Data.
+	cloned.Images = append([]ImageBlock(nil), message.Images...)
+	cloned.Retention = cloneMessageRetention(message.Retention)
+	cloned.ProviderMetadata = cloneMessageProviderMetadata(message.ProviderMetadata)
+	return cloned
 }
 
 func cloneInput(input map[string]any) map[string]any {
@@ -70,4 +86,20 @@ func cloneMessageRetention(retention *MessageRetention) *MessageRetention {
 	}
 	cloned := *retention
 	return &cloned
+}
+
+func cloneMessageProviderMetadata(metadata *MessageProviderMetadata) *MessageProviderMetadata {
+	if metadata == nil {
+		return nil
+	}
+	cloned := &MessageProviderMetadata{}
+	if metadata.Anthropic != nil {
+		anthropic := *metadata.Anthropic
+		cloned.Anthropic = &anthropic
+	}
+	if metadata.Codex != nil {
+		codex := *metadata.Codex
+		cloned.Codex = &codex
+	}
+	return cloned
 }
