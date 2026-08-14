@@ -26,7 +26,7 @@ func (m *Model) View() tea.View {
 	}
 	if m.selection.hasSelection() {
 		regionLeft, regionRight := m.selectionHighlightBounds()
-		result = applyScreenHighlight(result, m.selection, m.styles.SelectionStyle, regionLeft, regionRight)
+		result = applyScreenHighlight(result, m.screenSelection(), m.styles.SelectionStyle, regionLeft, regionRight)
 	}
 
 	v := tea.View{

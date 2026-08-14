@@ -938,11 +938,11 @@ func TestModelDoubleClickSelectsURLAndPaths(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 150, Height: 20})
 	m.content.AppendLine("See " + url + " and " + path + " and " + hidden + " for details")
 	m.syncViewport()
-	m.contentTopPad = 0
 	m.viewport.SetYOffset(0)
 
 	m.populateScreenLines()
 	lines := m.screenLines
+	left, _ := m.regionXBounds(regionViewport)
 
 	row, urlCol, pathCol, hiddenCol := -1, -1, -1, -1
 	for i, line := range lines {
@@ -966,13 +966,17 @@ func TestModelDoubleClickSelectsURLAndPaths(t *testing.T) {
 	m = updateModel(t, m, mouseClickMsg{x: urlCol + 2, y: row})
 	m = updateModel(t, m, mouseClickMsg{x: urlCol + 2, y: row})
 
+	// The viewport selection is content-anchored: the line converts back
+	// through the scroll offset and top pad, and the column is relative to the
+	// content area (frame column minus the region's left bound).
+	contentRow := m.contentLineAtScreenY(row)
 	start, end := m.selection.canonical()
-	if start.line != row || end.line != row || start.col != urlCol || end.col != urlCol+len(url) {
+	if start.line != contentRow || end.line != contentRow || start.col != urlCol-left || end.col != urlCol+len(url)-left {
 		t.Fatalf("URL selection = (%d,%d)-(%d,%d), want (%d,%d)-(%d,%d)",
-			start.line, start.col, end.line, end.col, row, urlCol, row, urlCol+len(url))
+			start.line, start.col, end.line, end.col, contentRow, urlCol-left, contentRow, urlCol+len(url)-left)
 	}
-	if got := extractText(m.screenLines, m.selection, 0, 0); got != url {
-		t.Fatalf("extractText = %q, want %q", got, url)
+	if got := m.extractViewportText(); got != url {
+		t.Fatalf("extractViewportText = %q, want %q", got, url)
 	}
 
 	// Double-click inside the bare relative path.
@@ -980,12 +984,12 @@ func TestModelDoubleClickSelectsURLAndPaths(t *testing.T) {
 	m = updateModel(t, m, mouseClickMsg{x: pathCol + 2, y: row})
 
 	start, end = m.selection.canonical()
-	if start.line != row || end.line != row || start.col != pathCol || end.col != pathCol+len(path) {
+	if start.line != contentRow || end.line != contentRow || start.col != pathCol-left || end.col != pathCol+len(path)-left {
 		t.Fatalf("path selection = (%d,%d)-(%d,%d), want (%d,%d)-(%d,%d)",
-			start.line, start.col, end.line, end.col, row, pathCol, row, pathCol+len(path))
+			start.line, start.col, end.line, end.col, contentRow, pathCol-left, contentRow, pathCol+len(path)-left)
 	}
-	if got := extractText(m.screenLines, m.selection, 0, 0); got != path {
-		t.Fatalf("extractText = %q, want %q", got, path)
+	if got := m.extractViewportText(); got != path {
+		t.Fatalf("extractViewportText = %q, want %q", got, path)
 	}
 
 	// Double-click inside the hidden folder path.
@@ -993,12 +997,12 @@ func TestModelDoubleClickSelectsURLAndPaths(t *testing.T) {
 	m = updateModel(t, m, mouseClickMsg{x: hiddenCol + 2, y: row})
 
 	start, end = m.selection.canonical()
-	if start.line != row || end.line != row || start.col != hiddenCol || end.col != hiddenCol+len(hidden) {
+	if start.line != contentRow || end.line != contentRow || start.col != hiddenCol-left || end.col != hiddenCol+len(hidden)-left {
 		t.Fatalf("hidden path selection = (%d,%d)-(%d,%d), want (%d,%d)-(%d,%d)",
-			start.line, start.col, end.line, end.col, row, hiddenCol, row, hiddenCol+len(hidden))
+			start.line, start.col, end.line, end.col, contentRow, hiddenCol-left, contentRow, hiddenCol+len(hidden)-left)
 	}
-	if got := extractText(m.screenLines, m.selection, 0, 0); got != hidden {
-		t.Fatalf("extractText = %q, want %q", got, hidden)
+	if got := m.extractViewportText(); got != hidden {
+		t.Fatalf("extractViewportText = %q, want %q", got, hidden)
 	}
 }
 
@@ -4792,5 +4796,250 @@ func TestPasteMsgRelayoutsInput(t *testing.T) {
 	heightAfter := m.viewport.Height()
 	if heightAfter >= heightBefore {
 		t.Fatalf("viewport height should shrink after paste: before=%d after=%d", heightBefore, heightAfter)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Content-anchored viewport selection and drag auto-scroll
+// ---------------------------------------------------------------------------
+
+// selectionViewportModel returns a layout-consistent model with a scrollable
+// viewport of 30 content lines (contentTopPad 0, so content lines and viewport
+// lines agree) scrolled to the given offset. The model is laid out at height 17
+// so the real viewport height is 10 and clampToRegion's viewport y bound
+// (inputStartRow-3) agrees with the viewport bottom row.
+func selectionViewportModel(t *testing.T, yOffset int) *Model {
+	t.Helper()
+	m := buildTestModel(100, 17, false, false)
+	m.layout()
+	lines := make([]string, 30)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %02d", i)
+	}
+	m.setViewportContent(strings.Join(lines, "\n"))
+	m.contentTopPad = 0
+	m.viewport.SetYOffset(yOffset)
+	m.activeRegion = regionViewport
+	return m
+}
+
+func TestSelectionFollowsScroll(t *testing.T) {
+	t.Parallel()
+	m := buildTestModel(100, 30, false, false)
+	m.viewport.SetHeight(8)
+	content := []string{"line 00", "line 01", "line 02", "line 03", "line 04", "line 05", "line 06", "line 07", "line 08", "line 09"}
+	m.setViewportContent(strings.Join(append([]string{"", "", ""}, content...), "\n"))
+	m.contentTopPad = 3
+	m.activeRegion = regionViewport
+	m.selection = selectionState{start: selectionPoint{2, 0}, end: selectionPoint{5, 7}, active: true}
+
+	// At YOffset 1 content line c sits at frame row c + 3.
+	m.viewport.SetYOffset(1)
+	screen := m.screenSelection()
+	if screen.start.line != 5 || screen.end.line != 8 {
+		t.Errorf("at YOffset 1: screenSelection rows = %d-%d; want 5-8", screen.start.line, screen.end.line)
+	}
+	if got := m.extractViewportText(); got != "line 02\nline 03\nline 04\nline 05" {
+		t.Errorf("at YOffset 1: extractViewportText = %q", got)
+	}
+
+	// Scrolling down keeps the same content selected; only the projected rows move.
+	m.viewport.SetYOffset(3)
+	screen = m.screenSelection()
+	if screen.start.line != 3 || screen.end.line != 6 {
+		t.Errorf("at YOffset 3: screenSelection rows = %d-%d; want 3-6", screen.start.line, screen.end.line)
+	}
+	if got := m.extractViewportText(); got != "line 02\nline 03\nline 04\nline 05" {
+		t.Errorf("at YOffset 3: extractViewportText = %q", got)
+	}
+}
+
+func TestDragEdgeAutoScrollUp(t *testing.T) {
+	t.Parallel()
+	m := selectionViewportModel(t, 10)
+	m = updateModel(t, m, mouseClickMsg{x: 5, y: 5})
+	if got := m.selection.start.line; got != 14 {
+		t.Fatalf("selection start line = %d; want 14", got)
+	}
+
+	// Drag to the top edge: arm the auto-scroll tick.
+	m = updateModel(t, m, mouseMotionMsg{x: 5, y: 0})
+	if m.dragScrollDir != -1 {
+		t.Fatalf("dragScrollDir = %d; want -1", m.dragScrollDir)
+	}
+	if !m.dragScrollTicking {
+		t.Fatal("dragScrollTicking = false; want true")
+	}
+	if got := m.viewport.YOffset(); got != 10 {
+		t.Fatalf("YOffset before tick = %d; want 10", got)
+	}
+
+	// Each tick scrolls up one line and extends the selection upward.
+	next, cmd := m.handleDragAutoScrollTick(dragAutoScrollTickMsg{epoch: m.dragScrollEpoch})
+	m = next.(*Model)
+	if cmd == nil {
+		t.Fatal("tick returned nil cmd; want re-arm")
+	}
+	if got := m.viewport.YOffset(); got != 9 {
+		t.Errorf("YOffset after tick = %d; want 9", got)
+	}
+	if got := m.selection.end.line; got != 8 {
+		t.Errorf("selection end line = %d; want 8", got)
+	}
+	if got := m.selection.start.line; got != 14 {
+		t.Errorf("selection start line moved; want 14, got %d", got)
+	}
+}
+
+func TestDragEdgeAutoScrollDown(t *testing.T) {
+	t.Parallel()
+	m := selectionViewportModel(t, 5)
+	m = updateModel(t, m, mouseClickMsg{x: 5, y: 5})
+	if got := m.selection.start.line; got != 9 {
+		t.Fatalf("selection start line = %d; want 9", got)
+	}
+
+	// Drag past the bottom edge: arm the auto-scroll tick.
+	m = updateModel(t, m, mouseMotionMsg{x: 5, y: 15})
+	if m.dragScrollDir != 1 {
+		t.Fatalf("dragScrollDir = %d; want 1", m.dragScrollDir)
+	}
+	if !m.dragScrollTicking {
+		t.Fatal("dragScrollTicking = false; want true")
+	}
+
+	next, cmd := m.handleDragAutoScrollTick(dragAutoScrollTickMsg{epoch: m.dragScrollEpoch})
+	m = next.(*Model)
+	if cmd == nil {
+		t.Fatal("tick returned nil cmd; want re-arm")
+	}
+	if got := m.viewport.YOffset(); got != 6 {
+		t.Errorf("YOffset after tick = %d; want 6", got)
+	}
+	// The drag is clamped to the viewport bottom row (10), so one scroll down
+	// puts the selection end at content line 10 + YOffset - 1 = 15.
+	if got := m.selection.end.line; got != 15 {
+		t.Errorf("selection end line = %d; want 15", got)
+	}
+	if m.autoScroll {
+		t.Error("autoScroll = true; want false after drag auto-scroll")
+	}
+}
+
+func TestDragAutoScrollTickStopsOnRelease(t *testing.T) {
+	t.Parallel()
+
+	// tickModel returns a model with scrollable viewport content at YOffset 5
+	// and a matching drag epoch, so a tick that wrongly scrolls is detectable
+	// and the epoch guard does not short-circuit the branch under test.
+	tickModel := func() *Model {
+		m := buildTestModel(100, 30, false, false)
+		m.viewport.SetHeight(10)
+		m.setViewportContent(strings.Repeat("line\n", 29) + "line")
+		m.viewport.SetYOffset(5)
+		m.dragScrollEpoch = 1
+		return m
+	}
+
+	// No press in flight: the tick is a no-op, stops ticking, and does not scroll.
+	m := tickModel()
+	m.mousePressX = -1
+	m.dragScrollDir = -1
+	m.dragScrollTicking = true
+	next, cmd := m.handleDragAutoScrollTick(dragAutoScrollTickMsg{epoch: 1})
+	if cmd != nil {
+		t.Errorf("tick without press returned cmd %T; want nil", cmd)
+	}
+	if next.(*Model).dragScrollTicking {
+		t.Error("dragScrollTicking = true; want false after no-press tick")
+	}
+	if got := next.(*Model).viewport.YOffset(); got != 5 {
+		t.Errorf("no-press tick scrolled to YOffset %d; want 5", got)
+	}
+
+	// Press in flight but no edge hover: same no-op.
+	m = tickModel()
+	m.mousePressX = 3
+	m.dragScrollDir = 0
+	m.dragScrollTicking = true
+	next, cmd = m.handleDragAutoScrollTick(dragAutoScrollTickMsg{epoch: 1})
+	if cmd != nil {
+		t.Errorf("tick with dir 0 returned cmd %T; want nil", cmd)
+	}
+	if next.(*Model).dragScrollTicking {
+		t.Error("dragScrollTicking = true; want false after dir-0 tick")
+	}
+	if got := next.(*Model).viewport.YOffset(); got != 5 {
+		t.Errorf("dir-0 tick scrolled to YOffset %d; want 5", got)
+	}
+
+	// Stale tick from a previous drag (epoch mismatch): ignored without
+	// touching the current drag state, so ticking stays armed and no scroll
+	// happens.
+	m = tickModel()
+	m.dragScrollEpoch = 0
+	m.mousePressX = 3
+	m.dragScrollDir = -1
+	m.dragScrollTicking = true
+	next, cmd = m.handleDragAutoScrollTick(dragAutoScrollTickMsg{epoch: 1})
+	if cmd != nil {
+		t.Errorf("stale tick returned cmd %T; want nil", cmd)
+	}
+	if !next.(*Model).dragScrollTicking {
+		t.Error("dragScrollTicking = false; want true (stale tick must not touch current drag state)")
+	}
+	if got := next.(*Model).viewport.YOffset(); got != 5 {
+		t.Errorf("stale tick scrolled to YOffset %d; want 5", got)
+	}
+}
+
+func TestSelectionClearedOnContentChange(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("first")
+	m.syncViewport()
+
+	m.activeRegion = regionViewport
+	m.selection = selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}, active: true}
+	m.mousePressX = 5
+	m.mousePressY = 5
+	m.dragScrollDir = 1
+	m.dragScrollTicking = true
+
+	m.content.AppendLine("second")
+	m.syncViewport()
+
+	if m.selection.hasSelection() {
+		t.Error("viewport selection survived content change")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 {
+		t.Errorf("mouse press not cancelled: (%d,%d); want (-1,-1)", m.mousePressX, m.mousePressY)
+	}
+	if m.dragScrollDir != 0 || m.dragScrollTicking {
+		t.Errorf("drag state not cancelled: dir=%d ticking=%v", m.dragScrollDir, m.dragScrollTicking)
+	}
+}
+
+func TestViewportSelectionExtractAcrossScroll(t *testing.T) {
+	t.Parallel()
+	// One auto-scroll tick then release: the selection spans the scroll
+	// boundary and extraction returns the full content lines in between.
+	// x=3 anchors at content col 0 and x=10 at col 7 (the full line width).
+	m := selectionViewportModel(t, 5)
+	m = updateModel(t, m, mouseClickMsg{x: 3, y: 5})
+	m = updateModel(t, m, mouseMotionMsg{x: 10, y: 15})
+	next, _ := m.handleDragAutoScrollTick(dragAutoScrollTickMsg{epoch: m.dragScrollEpoch})
+	m = next.(*Model)
+	m = updateModel(t, m, mouseReleaseMsg{x: 10, y: 15})
+
+	// The drag clamps to the viewport bottom row, so the selection covers
+	// content lines 9 through 15 (viewport.Lines() index 9..15).
+	want := strings.Join(m.viewport.Lines()[9:16], "\n")
+	if got := m.extractViewportText(); got != want {
+		t.Errorf("extractViewportText = %q; want %q", got, want)
+	}
+	if m.selection.active {
+		t.Error("selection.active = true after release")
 	}
 }

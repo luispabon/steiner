@@ -2165,3 +2165,220 @@ func TestClampToRegionScrollbar(t *testing.T) {
 		t.Errorf("with scrollbar: clampToRegion x = %d; want 96", gotX)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Content-anchored viewport selection helpers
+// ---------------------------------------------------------------------------
+
+func TestContentLineAtScreenY(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		contentTopPad int
+		yOffset       int
+		y             int
+		want          int
+	}{
+		{"zero offsets", 0, 0, 5, 4},
+		{"top pad only", 2, 0, 5, 2},
+		{"scroll only", 0, 3, 5, 7},
+		{"top pad and scroll", 2, 3, 5, 5},
+		{"first content row", 0, 0, 1, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := buildTestModel(100, 30, false, false)
+			m.viewport.SetHeight(5)
+			m.setViewportContent(strings.Repeat("\n", 19))
+			m.contentTopPad = tc.contentTopPad
+			m.viewport.SetYOffset(tc.yOffset)
+			if got := m.contentLineAtScreenY(tc.y); got != tc.want {
+				t.Errorf("contentLineAtScreenY(%d) = %d; want %d", tc.y, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestScreenYAtContentLine(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		contentTopPad int
+		yOffset       int
+		line          int
+		want          int
+	}{
+		{"zero offsets", 0, 0, 4, 5},
+		{"top pad only", 2, 0, 2, 5},
+		{"scroll only", 0, 3, 7, 5},
+		{"top pad and scroll", 2, 3, 5, 5},
+		{"first content line", 0, 0, 0, 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := buildTestModel(100, 30, false, false)
+			m.viewport.SetHeight(5)
+			m.setViewportContent(strings.Repeat("\n", 19))
+			m.contentTopPad = tc.contentTopPad
+			m.viewport.SetYOffset(tc.yOffset)
+			if got := m.screenYAtContentLine(tc.line); got != tc.want {
+				t.Errorf("screenYAtContentLine(%d) = %d; want %d", tc.line, got, tc.want)
+			}
+			// Round-trip: screen -> content -> screen must be the identity.
+			if got := m.screenYAtContentLine(m.contentLineAtScreenY(tc.want)); got != tc.want {
+				t.Errorf("round trip through screen y %d = %d", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestScreenSelectionProjection(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		contentTopPad int
+		yOffset       int
+		sidebarLeft   bool
+		selection     selectionState
+		wantStart     selectionPoint
+		wantEnd       selectionPoint
+		wantClear     bool
+	}{
+		{
+			name:          "no sidebar, no offsets, end scrolled below viewport",
+			contentTopPad: 0,
+			yOffset:       0,
+			selection:     selectionState{start: selectionPoint{2, 4}, end: selectionPoint{5, 9}, active: true},
+			wantStart:     selectionPoint{3, 7},
+			wantEnd:       selectionPoint{5, 97}, // viewport bottom row (1+5-1), full visible width
+		},
+		{
+			name:          "left sidebar and scroll, end below viewport",
+			contentTopPad: 2,
+			yOffset:       3,
+			sidebarLeft:   true,
+			selection:     selectionState{start: selectionPoint{4, 10}, end: selectionPoint{6, 20}, active: true},
+			wantStart:     selectionPoint{4, 50},
+			wantEnd:       selectionPoint{5, 97}, // viewport bottom row, full visible width (sidebar shifts left only)
+		},
+		{
+			name:          "fully below viewport clears highlight",
+			contentTopPad: 0,
+			yOffset:       10,
+			selection:     selectionState{start: selectionPoint{16, 0}, end: selectionPoint{18, 5}, active: true},
+			wantClear:     true,
+		},
+		{
+			name:          "span crossing top edge starts at top row with left column",
+			contentTopPad: 0,
+			yOffset:       2,
+			selection:     selectionState{start: selectionPoint{0, 2}, end: selectionPoint{2, 8}, active: true},
+			wantStart:     selectionPoint{1, 3}, // viewport top row, region left bound
+			wantEnd:       selectionPoint{1, 11},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := buildTestModel(100, 30, tc.sidebarLeft, false)
+			m.viewport.SetHeight(5)
+			m.setViewportContent(strings.Repeat("\n", 19))
+			m.contentTopPad = tc.contentTopPad
+			m.viewport.SetYOffset(tc.yOffset)
+			m.activeRegion = regionViewport
+			m.selection = tc.selection
+			got := m.screenSelection()
+			if tc.wantClear {
+				if got.hasSelection() {
+					t.Errorf("screenSelection() = (%v)-(%v); want cleared selection", got.start, got.end)
+				}
+				return
+			}
+			if got.start != tc.wantStart || got.end != tc.wantEnd {
+				t.Errorf("screenSelection() = (%v)-(%v); want (%v)-(%v)", got.start, got.end, tc.wantStart, tc.wantEnd)
+			}
+		})
+	}
+}
+
+func TestExtractViewportText(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		lines         []string
+		contentTopPad int
+		state         selectionState
+		want          string
+	}{
+		{
+			name:  "empty selection returns empty string",
+			lines: []string{"hello world"},
+			state: selectionState{},
+			want:  "",
+		},
+		{
+			name:  "single line partial",
+			lines: []string{"hello world"},
+			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}},
+			want:  "hello",
+		},
+		{
+			name:  "multi-line",
+			lines: []string{"hello world", "foo bar baz"},
+			state: selectionState{start: selectionPoint{0, 6}, end: selectionPoint{1, 3}},
+			want:  "world\nfoo",
+		},
+		{
+			name:          "scrolled window with top pad",
+			lines:         []string{"", "", "line A", "line B"},
+			contentTopPad: 2,
+			state:         selectionState{start: selectionPoint{0, 0}, end: selectionPoint{1, 6}},
+			want:          "line A\nline B",
+		},
+		{
+			name:  "partial first and last line",
+			lines: []string{"alpha", "beta", "gamma", "delta"},
+			state: selectionState{start: selectionPoint{0, 1}, end: selectionPoint{3, 3}},
+			want:  "lpha\nbeta\ngamma\ndel",
+		},
+		{
+			name:  "box-drawing borders stripped",
+			lines: []string{"│ content │"},
+			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 11}},
+			want:  "content",
+		},
+		{
+			name:  "multi-line tool frame borders stripped",
+			lines: []string{"│ line one │", "╰─ line two ─╯"},
+			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{1, 15}},
+			want:  "line one\nline two",
+		},
+		{
+			name:  "ANSI sequences stripped",
+			lines: []string{"\x1b[31mred text\x1b[0m"},
+			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 8}},
+			want:  "red text",
+		},
+		{
+			name:  "out-of-range lines skipped",
+			lines: []string{"only line"},
+			state: selectionState{start: selectionPoint{-1, 0}, end: selectionPoint{3, 9}},
+			want:  "only line",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := buildTestModel(100, 30, false, false)
+			m.setViewportContent(strings.Join(tc.lines, "\n"))
+			m.contentTopPad = tc.contentTopPad
+			m.activeRegion = regionViewport
+			m.selection = tc.state
+			if got := m.extractViewportText(); got != tc.want {
+				t.Errorf("extractViewportText() = %q; want %q", got, tc.want)
+			}
+		})
+	}
+}
