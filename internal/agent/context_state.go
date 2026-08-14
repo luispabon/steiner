@@ -36,14 +36,6 @@ func (s ContextState) Clone() ContextState {
 	return next
 }
 
-// WithAddedRetainedSummary returns a copy of the state with one more retained
-// summary appended.
-func (s ContextState) WithAddedRetainedSummary(summary RetainedSummary) ContextState {
-	next := s.Clone()
-	next.RetainedSummaries = append(next.RetainedSummaries, summary)
-	return next
-}
-
 func cloneRetainedSummaries(items []RetainedSummary) []RetainedSummary {
 	if len(items) == 0 {
 		return nil

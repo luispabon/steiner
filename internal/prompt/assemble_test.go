@@ -380,55 +380,6 @@ func TestAssembleRetainedSummariesAreNotInjectedIntoSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestBuildConversationCompactionPromptUsesFixedHeadings(t *testing.T) {
-	t.Parallel()
-
-	promptMessages := BuildConversationCompactionPrompt([]provider.Message{
-		{Role: provider.MessageRoleUser, Content: "please keep the request intent"},
-		{Role: provider.MessageRoleAssistant, Content: "solution design is to add compaction"},
-		{Role: provider.MessageRoleUser, Content: "what should we do next?"},
-	}, DurableContextState{
-		RetainedSummaries: []DurableSummaryEntry{
-			{Title: "prior work", Text: "do not drop constraints", Source: "user", Turn: 1},
-		},
-	}, "", CompactionModeNormal, false)
-	if got, want := len(promptMessages), 2; got != want {
-		t.Fatalf("prompt messages = %d, want %d", got, want)
-	}
-	if got, want := promptMessages[0].Role, provider.MessageRoleSystem; got != want {
-		t.Fatalf("system role = %q, want %q", got, want)
-	}
-	for _, heading := range []string{
-		"## 1. Task and Goal",
-		"## 2. Current Repository / Project State",
-		"## 3. Work Completed",
-		"## 4. Key Findings and Decisions",
-		"## 5. Problems Encountered",
-		"## 6. Remaining Work",
-	} {
-		if got := strings.Contains(promptMessages[0].Content, heading); !got {
-			t.Fatalf("system prompt = %q, want heading %q", promptMessages[0].Content, heading)
-		}
-	}
-	if got := strings.Contains(promptMessages[1].Content, "durable context:"); !got {
-		t.Fatalf("user prompt = %q, want durable context section", promptMessages[1].Content)
-	}
-}
-
-func TestBuildConversationCompactionPromptEmergencyModeIsShorterAndLossier(t *testing.T) {
-	t.Parallel()
-
-	promptMessages := BuildConversationCompactionPrompt([]provider.Message{
-		{Role: provider.MessageRoleUser, Content: "keep only what matters"},
-	}, DurableContextState{}, "", CompactionModeEmergency, false)
-	if got, want := len(promptMessages), 2; got != want {
-		t.Fatalf("prompt messages = %d, want %d", got, want)
-	}
-	if got := strings.Contains(promptMessages[0].Content, "emergency handoff"); !got {
-		t.Fatalf("system prompt = %q, want emergency handoff instruction", promptMessages[0].Content)
-	}
-}
-
 func TestRenderConversationCompactionInstructionNormalAndEmergency(t *testing.T) {
 	t.Parallel()
 

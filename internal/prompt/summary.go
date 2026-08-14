@@ -31,10 +31,3 @@ func truncateText(content string, limit int) string {
 	}
 	return strings.TrimRight(content[:end], "\n\r\t ")
 }
-
-func compactMessageContent(content string, limit int) string {
-	if limit <= 0 {
-		limit = 96
-	}
-	return truncateText(strings.TrimSpace(content), limit)
-}
