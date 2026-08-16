@@ -31,8 +31,9 @@ const (
 )
 
 type selectionState struct {
-	start, end selectionPoint
-	active     bool
+	start, end             selectionPoint
+	active                 bool
+	startAnchor, endAnchor selectionAnchor
 }
 
 // hasSelection reports whether a non-trivial selection exists.

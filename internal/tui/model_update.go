@@ -119,6 +119,8 @@ func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
 		m.sessionResetCleanup()
 	}
 	m.content.Clear()
+	m.selection = m.selection.clear()
+	m.clearDragState()
 	m.imageMarkers = nil
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
@@ -341,9 +343,13 @@ func (m *Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, te
 		endLine = m.contentLineAtScreenY(endLine)
 		startCol -= left
 		endCol -= left
+		startLine, startAnchor := m.viewportSelectionEndpoint(startLine)
+		endLine, endAnchor := m.viewportSelectionEndpoint(endLine)
 		m.selection = selectionState{
-			start: selectionPoint{line: startLine, col: startCol},
-			end:   selectionPoint{line: endLine, col: endCol},
+			start:       selectionPoint{line: startLine, col: startCol},
+			end:         selectionPoint{line: endLine, col: endCol},
+			startAnchor: startAnchor,
+			endAnchor:   endAnchor,
 		}
 		text = m.extractViewportText()
 	} else {
@@ -383,6 +389,11 @@ func (m *Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 
 	start := m.anchorPoint(clampedX, clampedY)
 	m.selection = selectionState{start: start, end: start, active: true}
+	if m.activeRegion == regionViewport {
+		m.selection.start.line, m.selection.startAnchor = m.viewportSelectionEndpoint(start.line)
+		m.selection.end.line = m.selection.start.line
+		m.selection.endAnchor = m.selection.startAnchor
+	}
 	m.mousePressX = msg.x
 	m.mousePressY = msg.y
 	return m, nil
@@ -391,6 +402,11 @@ func (m *Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.mousePressX >= 0 {
 		var cmd tea.Cmd
+		// A drag over new coordinates abandons any follow-to-bottom scrolling;
+		// the pointer position and selection define the view now.
+		if m.activeRegion == regionViewport && (msg.x != m.mousePressX || msg.y != m.mousePressY) {
+			m.autoScroll = false
+		}
 		// Edge auto-scroll: holding the mouse past the viewport top or bottom
 		// scrolls the view while extending the selection. A repeating tick keeps
 		// scrolling until the pointer moves back inside or the button releases.
@@ -415,6 +431,7 @@ func (m *Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 		}
 		clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
 		m.selection.end = m.anchorPoint(clampedX, clampedY)
+		m.anchorViewportSelectionEnd()
 		return m, cmd
 	}
 	return m, nil
@@ -430,6 +447,7 @@ func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) 
 
 	clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
 	m.selection.end = m.anchorPoint(clampedX, clampedY)
+	m.anchorViewportSelectionEnd()
 	m.dragScrollDir = 0
 	m.dragScrollTicking = false
 	var cmd tea.Cmd
@@ -481,6 +499,7 @@ func (m *Model) handleDragAutoScrollTick(msg dragAutoScrollTickMsg) (tea.Model, 
 	m.autoScroll = false
 	clampedX, clampedY := m.clampToRegion(m.dragLastX, m.dragLastY, m.activeRegion)
 	m.selection.end = m.anchorPoint(clampedX, clampedY)
+	m.anchorViewportSelectionEnd()
 	epoch := m.dragScrollEpoch
 	return m, tea.Tick(dragAutoScrollInterval, func(time.Time) tea.Msg {
 		return dragAutoScrollTickMsg{epoch: epoch}

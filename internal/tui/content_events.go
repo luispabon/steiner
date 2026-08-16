@@ -221,6 +221,10 @@ type contentSegment struct {
 	cachedRender      string
 	cachedRenderWidth int
 	renderDirty       bool
+	// renderGen increments each time processSegment re-renders this segment.
+	// Anchors record it at capture time so a same-width remap can skip the
+	// matchRow scan while the render is unchanged.
+	renderGen int
 }
 
 // spinnerFrames is the braille spinner sequence used for active delegations.

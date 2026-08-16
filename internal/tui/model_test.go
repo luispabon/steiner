@@ -4993,7 +4993,370 @@ func TestDragAutoScrollTickStopsOnRelease(t *testing.T) {
 	}
 }
 
-func TestSelectionClearedOnContentChange(t *testing.T) {
+// viewportAnchorForContentLine anchors a viewport content line to its rendered
+// segment row, or returns an empty anchor when the line maps to no segment.
+// Test-only helper for the viewport-selection tests.
+func (m *Model) viewportAnchorForContentLine(line int) selectionAnchor {
+	segIndex, rowInSeg, ok := m.content.segmentAtContentLine(line)
+	if !ok {
+		return selectionAnchor{}
+	}
+	return m.content.selectionAnchorForSegmentRow(segIndex, rowInSeg)
+}
+func TestViewportSelectionSurvivesContentAppendBelow(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("first")
+	m.syncViewport()
+
+	m = updateModel(t, m, mouseClickMsg{x: 3, y: 5})
+	m = updateModel(t, m, mouseMotionMsg{x: 10, y: 5})
+	if !m.selection.startAnchor.ok || !m.selection.endAnchor.ok {
+		t.Fatal("click/motion did not anchor the selection to the content segment")
+	}
+
+	// New content streams in below the selected line: the selection must
+	// survive and keep extracting the originally selected text.
+	m.content.AppendLine("second")
+	m.syncViewport()
+
+	if !m.selection.hasSelection() {
+		t.Error("viewport selection was cleared by appending content below")
+	}
+	if m.mousePressX < 0 {
+		t.Error("mouse press was cancelled by appending content below")
+	}
+	if got := m.extractViewportText(); got != "first" {
+		t.Errorf("extractViewportText = %q; want %q", got, "first")
+	}
+}
+
+// findUserLineAndUnmappableLine locates the rendered content line containing
+// needle, its segment index, and the first unmappable line after it. In these
+// fixtures the unmappable line is the blank user separator. Test-only helper
+// for the viewport-selection tests.
+func findUserLineAndUnmappableLine(t *testing.T, m *Model, needle string) (userLine, userSeg, blankLine int) {
+	t.Helper()
+	renderedLines := strings.Split(m.content.String(m.viewport.Width()), "\n")
+	userLine, userSeg, blankLine = -1, -1, -1
+	for i := range renderedLines {
+		segIndex, _, ok := m.content.segmentAtContentLine(i)
+		if !ok {
+			if blankLine < 0 && userLine >= 0 {
+				blankLine = i
+			}
+			continue
+		}
+		if strings.Contains(ansi.Strip(renderedLines[i]), needle) {
+			userLine, userSeg = i, segIndex
+		}
+	}
+	return userLine, userSeg, blankLine
+}
+
+func TestViewportSelectionSurvivesDragEndOnUserSeparator(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendUser("select this user line")
+	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	m.syncViewport()
+
+	// The blank separator line between the user segment and the delegation box
+	// maps to no segment. A drag ending there must snap to the nearest mappable
+	// line (the user segment row) at anchor capture so the endpoint stays
+	// anchored when content shifts.
+	userLine, userSeg, blankLine := findUserLineAndUnmappableLine(t, m, "select this user line")
+	if userLine < 0 {
+		t.Fatal("user segment text line not found in rendered content")
+	}
+	if blankLine < 0 {
+		t.Fatal("blank separator line between user segment and delegation box not found")
+	}
+
+	endLine, endAnchor := m.viewportSelectionEndpoint(blankLine)
+	if !endAnchor.ok {
+		t.Fatal("viewportSelectionEndpoint(blankLine) returned an unanchored endpoint; want it to snap to the user segment row")
+	}
+	if endLine == blankLine {
+		t.Fatal("viewportSelectionEndpoint(blankLine) kept the blank line; want it to snap to a mappable line")
+	}
+	if segIndex, _, ok := m.content.segmentAtContentLine(endLine); !ok || segIndex != userSeg {
+		t.Errorf("snapped end line %d maps to segment %d (ok=%v); want user segment %d", endLine, segIndex, ok, userSeg)
+	}
+
+	startLine, startAnchor := m.viewportSelectionEndpoint(userLine)
+	m.activeRegion = regionViewport
+	m.selection = selectionState{
+		start:       selectionPoint{line: startLine, col: 0},
+		end:         selectionPoint{line: endLine, col: 0},
+		active:      true,
+		startAnchor: startAnchor,
+		endAnchor:   endAnchor,
+	}
+
+	// The collapsed delegation header re-renders on a spinner tick, which must
+	// remap the anchored endpoints instead of clearing the selection. Assert the
+	// spinner tick actually changes the render so this exercises a real remap.
+	before := m.content.String(m.viewport.Width())
+	m.content.AdvanceDelegationSpinners()
+	m.syncViewport()
+	after := m.content.String(m.viewport.Width())
+	if before == after {
+		t.Fatal("test setup: delegation spinner tick did not change the render")
+	}
+
+	if !m.selection.hasSelection() {
+		t.Fatal("viewport selection was cleared by the delegation spinner re-render")
+	}
+	if got := m.extractViewportText(); !strings.Contains(got, "select this user line") {
+		t.Errorf("extractViewportText = %q; want it to contain the selected user text", got)
+	}
+}
+
+func TestViewportSelectionRemapsWhenContentShiftsAboveUnanchoredEndpoint(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.showThinking = true
+	m.content.showThinking = true
+	m.content.segments = []contentSegment{
+		{kind: segmentThinkingBlock, thinkData: &thinkingBlockData{body: "secret reasoning", collapsed: true}, renderDirty: true},
+	}
+	m.content.AppendUser("select this user line")
+	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	m.syncViewport()
+
+	// The blank separator below the user segment maps to no segment; the drag
+	// endpoint there snaps to the user segment row at anchor capture.
+	userLine, userSeg, blankLine := findUserLineAndUnmappableLine(t, m, "select this user line")
+	if userLine < 0 || userSeg < 0 {
+		t.Fatal("user segment text line not found in rendered content")
+	}
+	if blankLine < 0 {
+		t.Fatal("blank separator line below the user segment not found")
+	}
+
+	startLine, startAnchor := m.viewportSelectionEndpoint(userLine)
+	endLine, endAnchor := m.viewportSelectionEndpoint(blankLine)
+	m.activeRegion = regionViewport
+	m.selection = selectionState{
+		start:       selectionPoint{line: startLine, col: 0},
+		end:         selectionPoint{line: endLine, col: 0},
+		active:      true,
+		startAnchor: startAnchor,
+		endAnchor:   endAnchor,
+	}
+
+	// Hiding the thinking block shifts the user segment and everything below it
+	// up. The snapped end must follow the user segment row instead of pointing
+	// at the stale absolute line, which now lands in the delegation box. Mirror
+	// handleToggleThinkingMsg, which marks thinking segments dirty before sync.
+	m.showThinking = false
+	m.content.showThinking = false
+	for i := range m.content.segments {
+		if m.content.segments[i].kind == segmentThinkingBlock {
+			m.content.segments[i].renderDirty = true
+		}
+	}
+	m.content.gen++
+	m.syncViewport()
+
+	if !m.selection.hasSelection() {
+		t.Fatal("viewport selection was cleared by hiding the thinking block above it")
+	}
+	if segIndex, _, ok := m.content.segmentAtContentLine(m.selection.start.line); !ok || segIndex != userSeg {
+		t.Errorf("start endpoint maps to segment %d (ok=%v) after the shift; want user segment %d", segIndex, ok, userSeg)
+	}
+	if segIndex, _, ok := m.content.segmentAtContentLine(m.selection.end.line); !ok || segIndex != userSeg {
+		t.Errorf("end endpoint maps to segment %d (ok=%v) after the shift; want user segment %d", segIndex, ok, userSeg)
+	}
+	if got := m.extractViewportText(); !strings.Contains(got, "select this user line") || strings.Contains(got, "child-1") {
+		t.Errorf("extractViewportText = %q; want the user text without delegation chrome", got)
+	}
+}
+
+func TestViewportSelectionDragSnapsBlankLineViaMouseHandlers(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendUser("select this user line")
+	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	m.syncViewport()
+
+	userLine, _, blankLine := findUserLineAndUnmappableLine(t, m, "select this user line")
+	if userLine < 0 || blankLine < 0 {
+		t.Fatal("user text or blank separator line not found in rendered content")
+	}
+
+	// Drive the real capture sites: click on the user line, then drag onto the
+	// blank separator below it. The end anchor must snap back to the user row.
+	// Extra content below keeps contentTopPad small enough that the blank
+	// separator projects comfortably inside the viewport's draggable rows.
+	m.content.AppendLine("more below\nmore below 2\nmore below 3")
+	m.syncViewport()
+	userY := m.screenYAtContentLine(userLine)
+	blankY := m.screenYAtContentLine(blankLine)
+	if got := m.contentLineAtScreenY(blankY); got != blankLine {
+		t.Fatalf("test setup: blankY %d maps to content line %d; want %d", blankY, got, blankLine)
+	}
+	wantLine, wantAnchor := m.viewportSelectionEndpoint(blankLine)
+	m = updateModel(t, m, mouseClickMsg{x: 5, y: userY})
+	m = updateModel(t, m, mouseMotionMsg{x: 5, y: blankY})
+
+	if !m.selection.endAnchor.ok {
+		t.Fatal("drag end anchor = not ok; want the blank separator to snap to the user segment row")
+	}
+	if m.selection.end.line == blankLine {
+		t.Fatal("drag end kept the blank separator line; want it to snap to the user row")
+	}
+	if m.selection.end.line != wantLine {
+		t.Errorf("selection end line = %d; want snapped user row %d", m.selection.end.line, wantLine)
+	}
+	if m.selection.endAnchor != wantAnchor {
+		t.Errorf("selection end anchor = %+v; want %+v", m.selection.endAnchor, wantAnchor)
+	}
+	if segIndex, _, ok := m.content.segmentAtContentLine(m.selection.end.line); !ok || segIndex != 0 {
+		t.Errorf("selection end maps to segment %d (ok=%v); want user segment 0", segIndex, ok)
+	}
+}
+
+func TestViewportSelectionNonBlankUnmappableEndpointClears(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("alpha")
+	m.content.AppendLine("beta")
+	m.syncViewport()
+
+	// A non-blank line with no owning segment, e.g. streaming preview content
+	// that has not become a segment yet, must stay unanchored: no snapping.
+	m.fmtBgCacheInput += "\nextra streamed line"
+	lines := strings.Split(m.fmtBgCacheInput, "\n")
+	extraLine := len(lines) - 1
+	if got, anchor := m.viewportSelectionEndpoint(extraLine); anchor.ok {
+		t.Errorf("viewportSelectionEndpoint(%d) returned ok anchor %+v; want unanchored", extraLine, anchor)
+	} else if got != extraLine {
+		t.Errorf("viewportSelectionEndpoint(%d) returned line %d; want the original %d", extraLine, got, extraLine)
+	}
+
+	// An anchored selection whose end sits on that unanchored line is cleared
+	// by a same-width content change: remapEndpoint returns false for !ok.
+	m.activeRegion = regionViewport
+	m.selection = selectionState{
+		start:  selectionPoint{line: 0, col: 0},
+		end:    selectionPoint{line: extraLine, col: 0},
+		active: true,
+	}
+	m.selection.startAnchor = m.viewportAnchorForContentLine(0)
+	m.selection.endAnchor = selectionAnchor{}
+	m.mousePressX = 5
+	m.mousePressY = 5
+	m.dragScrollDir = 1
+	m.dragScrollTicking = true
+
+	m.content.AppendLine("gamma")
+	m.syncViewport()
+
+	if m.selection.hasSelection() {
+		t.Error("selection survived a content change with an unanchored non-blank endpoint")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 {
+		t.Errorf("mouse press not reset: (%d,%d); want (-1,-1)", m.mousePressX, m.mousePressY)
+	}
+	if m.dragScrollDir != 0 || m.dragScrollTicking {
+		t.Errorf("drag state not reset: dir=%d ticking=%v", m.dragScrollDir, m.dragScrollTicking)
+	}
+}
+
+func TestViewportSelectionRemapsWhenContentGrowsAbove(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("alpha")
+	m.content.AppendLine("beta")
+	m.syncViewport()
+
+	m.activeRegion = regionViewport
+	m.selection = selectionState{start: selectionPoint{1, 0}, end: selectionPoint{1, 4}, active: true}
+	m.selection.startAnchor = m.viewportAnchorForContentLine(1)
+	m.selection.endAnchor = m.viewportAnchorForContentLine(1)
+	m.mousePressX = 5
+	m.mousePressY = 5
+
+	// Grow the first segment in place so "beta" moves from content line 1 to 2.
+	m.content.segments[0].text = "alpha\nalpha2"
+	m.content.segments[0].renderDirty = true
+	m.content.gen++
+	m.syncViewport()
+
+	if m.selection.start.line != 2 || m.selection.end.line != 2 {
+		t.Errorf("selection lines = %d-%d; want 2-2", m.selection.start.line, m.selection.end.line)
+	}
+	if got := m.extractViewportText(); got != "beta" {
+		t.Errorf("extractViewportText = %q; want %q", got, "beta")
+	}
+	if m.mousePressX != 5 {
+		t.Error("mouse press was cancelled by remapping the selection")
+	}
+}
+
+func TestViewportSelectionFollowsIntraSegmentTrim(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	// A single segment whose rendered rows exceed any cap, simulating a capped
+	// delegation transcript: rows drop from the top as the transcript grows.
+	m.content.segments = []contentSegment{{
+		kind:        segmentPlain,
+		text:        "row0\nrow1\nrow2\nrow3\nrow4",
+		renderDirty: true,
+	}}
+	m.syncViewport()
+
+	m.activeRegion = regionViewport
+	m.selection = selectionState{start: selectionPoint{3, 0}, end: selectionPoint{3, 4}, active: true}
+	m.selection.startAnchor = m.viewportAnchorForContentLine(3)
+	m.selection.endAnchor = m.viewportAnchorForContentLine(3)
+	m.mousePressX = 5
+	m.mousePressY = 5
+
+	// The transcript grows so the window drops "row0": "row3" shifts up from
+	// content line 3 to line 2 and the selection follows it.
+	m.content.segments[0].text = "row1\nrow2\nrow3\nrow4"
+	m.content.segments[0].renderDirty = true
+	m.content.gen++
+	m.syncViewport()
+
+	if m.selection.start.line != 2 || m.selection.end.line != 2 {
+		t.Errorf("selection lines = %d-%d; want 2-2 after top-row drop", m.selection.start.line, m.selection.end.line)
+	}
+	if got := m.extractViewportText(); got != "row3" {
+		t.Errorf("extractViewportText = %q; want %q", got, "row3")
+	}
+
+	// The window drops the selected row itself: the selection cannot remap and
+	// is cleared along with the drag state.
+	m.dragScrollDir = 1
+	m.dragScrollTicking = true
+	m.content.segments[0].text = "row4"
+	m.content.segments[0].renderDirty = true
+	m.content.gen++
+	m.syncViewport()
+
+	if m.selection.hasSelection() {
+		t.Error("selection survived after its anchored row was dropped")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 {
+		t.Errorf("mouse press not reset after drop: (%d,%d); want (-1,-1)", m.mousePressX, m.mousePressY)
+	}
+	if m.dragScrollDir != 0 || m.dragScrollTicking {
+		t.Errorf("drag state not reset after drop: dir=%d ticking=%v", m.dragScrollDir, m.dragScrollTicking)
+	}
+}
+
+func TestViewportSelectionClearedOnWidthChange(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -5002,22 +5365,401 @@ func TestSelectionClearedOnContentChange(t *testing.T) {
 
 	m.activeRegion = regionViewport
 	m.selection = selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}, active: true}
+	m.selection.startAnchor = m.viewportAnchorForContentLine(0)
+	m.selection.endAnchor = m.viewportAnchorForContentLine(0)
 	m.mousePressX = 5
 	m.mousePressY = 5
 	m.dragScrollDir = 1
 	m.dragScrollTicking = true
 
-	m.content.AppendLine("second")
+	// A width reflow changes wrapping, so row/col anchors are invalidated.
+	m.viewport.SetWidth(50)
 	m.syncViewport()
 
 	if m.selection.hasSelection() {
-		t.Error("viewport selection survived content change")
+		t.Error("viewport selection survived a width reflow")
 	}
 	if m.mousePressX != -1 || m.mousePressY != -1 {
 		t.Errorf("mouse press not cancelled: (%d,%d); want (-1,-1)", m.mousePressX, m.mousePressY)
 	}
 	if m.dragScrollDir != 0 || m.dragScrollTicking {
 		t.Errorf("drag state not cancelled: dir=%d ticking=%v", m.dragScrollDir, m.dragScrollTicking)
+	}
+}
+
+func TestViewportSelectionClearedOnHiddenSegment(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.showThinking = true
+	m.content.showThinking = true
+	m.content.segments = []contentSegment{{
+		kind:        segmentThinkingBlock,
+		thinkData:   &thinkingBlockData{body: "secret reasoning", collapsed: true},
+		renderDirty: true,
+	}}
+	m.syncViewport()
+
+	m.activeRegion = regionViewport
+	m.selection = selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}, active: true}
+	m.selection.startAnchor = m.viewportAnchorForContentLine(0)
+	m.selection.endAnchor = m.viewportAnchorForContentLine(0)
+	m.mousePressX = 5
+	m.mousePressY = 5
+
+	// Hiding the thinking segment removes the anchored rows entirely. Mirror
+	// handleToggleThinkingMsg, which marks thinking segments dirty before sync.
+	m.showThinking = false
+	m.content.showThinking = false
+	for i := range m.content.segments {
+		if m.content.segments[i].kind == segmentThinkingBlock {
+			m.content.segments[i].renderDirty = true
+		}
+	}
+	m.content.gen++
+	m.syncViewport()
+
+	if m.selection.hasSelection() {
+		t.Error("viewport selection survived hiding its segment")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 {
+		t.Errorf("mouse press not cancelled: (%d,%d); want (-1,-1)", m.mousePressX, m.mousePressY)
+	}
+}
+
+func TestViewportSelectionClearedOnClearConversation(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("first")
+	m.syncViewport()
+
+	m.activeRegion = regionViewport
+	m.selection = selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}, active: true}
+	m.selection.startAnchor = m.viewportAnchorForContentLine(0)
+	m.selection.endAnchor = m.viewportAnchorForContentLine(0)
+	m.mousePressX = 5
+	m.mousePressY = 5
+	m.dragScrollDir = 1
+	m.dragScrollTicking = true
+
+	m.clearConversationState()
+
+	if m.selection.hasSelection() {
+		t.Error("viewport selection survived clearConversationState")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 {
+		t.Errorf("mouse press not cancelled: (%d,%d); want (-1,-1)", m.mousePressX, m.mousePressY)
+	}
+	if m.dragScrollDir != 0 || m.dragScrollTicking {
+		t.Errorf("drag state not cancelled: dir=%d ticking=%v", m.dragScrollDir, m.dragScrollTicking)
+	}
+}
+
+func TestSegmentContentLineRoundTrip(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("alpha\nalpha2")
+	m.content.AppendLine("beta")
+	m.content.AppendLine("gamma\ngamma2\ngamma3")
+	m.syncViewport()
+
+	rendered := m.content.String(m.viewport.Width())
+	lines := strings.Split(rendered, "\n")
+	if len(lines) < 6 {
+		t.Fatalf("rendered content has %d lines; want at least 6", len(lines))
+	}
+	for i := range lines {
+		segIndex, rowInSeg, ok := m.content.segmentAtContentLine(i)
+		if !ok {
+			t.Errorf("segmentAtContentLine(%d) = not ok; want ok", i)
+			continue
+		}
+		line, ok := m.content.contentLineForSegmentRow(segIndex, rowInSeg)
+		if !ok || line != i {
+			t.Errorf("round trip line %d -> segment %d row %d -> %d (ok=%v); want %d",
+				i, segIndex, rowInSeg, line, ok, i)
+		}
+	}
+	// Extended cases below assert that every mappable content line round-trips
+	// through segmentAtContentLine and contentLineForSegmentRow. Blank
+	// separator lines and empty segments are legitimately unmappable, so only
+	// lines that map are checked.
+	roundTrip := func(t *testing.T, m *Model, lines []string) {
+		t.Helper()
+		for i := range lines {
+			segIndex, rowInSeg, ok := m.content.segmentAtContentLine(i)
+			if !ok {
+				continue
+			}
+			line, ok := m.content.contentLineForSegmentRow(segIndex, rowInSeg)
+			if !ok || line != i {
+				t.Errorf("round trip line %d -> segment %d row %d -> %d (ok=%v); want %d",
+					i, segIndex, rowInSeg, line, ok, i)
+			}
+		}
+	}
+	renderedLines := func(t *testing.T, m *Model) []string {
+		t.Helper()
+		return strings.Split(m.content.String(m.viewport.Width()), "\n")
+	}
+
+	// (a) A hidden thinking segment between visible ones: both walks skip it,
+	// so the visible lines stay mappable.
+	m = newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.segments = []contentSegment{
+		{kind: segmentPlain, text: "visible one", renderDirty: true},
+		{kind: segmentThinkingBlock, thinkData: &thinkingBlockData{body: "secret", collapsed: true}, renderDirty: true},
+		{kind: segmentPlain, text: "visible two", renderDirty: true},
+	}
+	m.syncViewport()
+	roundTrip(t, m, renderedLines(t, m))
+
+	// (b) A user segment followed by another segment renders a blank margin
+	// line that maps to no segment; the real lines round-trip.
+	m = newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendUser("prompt")
+	m.content.AppendLine("answer")
+	m.syncViewport()
+	roundTrip(t, m, renderedLines(t, m))
+
+	// (c) A visible segment whose recorded height is 0 occupies no lines: both
+	// walks must never map a content line into it, and the inverse walk must
+	// refuse it outright, so the lines around it stay mappable.
+	m = newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.segments = []contentSegment{
+		{kind: segmentPlain, text: "before", renderDirty: true},
+		{kind: segmentPlain, text: "zero", renderDirty: true},
+		{kind: segmentPlain, text: "after", renderDirty: true},
+	}
+	m.syncViewport()
+	lines = renderedLines(t, m)
+	m.content.segmentHeights[1] = 0
+	for i := range lines {
+		if segIndex, _, ok := m.content.segmentAtContentLine(i); ok && segIndex == 1 {
+			t.Errorf("segmentAtContentLine(%d) mapped into zero-height segment 1", i)
+		}
+	}
+	if line, ok := m.content.contentLineForSegmentRow(1, 0); ok {
+		t.Errorf("contentLineForSegmentRow(1, 0) = %d, ok; want not ok", line)
+	}
+	roundTrip(t, m, lines)
+
+	// (d) segmentHeights shorter than segments (content appended but debounced
+	// sync not yet run): a line inside an already-rendered segment still maps
+	// and round-trips because the missing trailing heights read as 0.
+	m = newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("alpha")
+	m.content.AppendLine("beta")
+	m.syncViewport()
+	lines = renderedLines(t, m)
+	m.content.AppendLine("gamma")
+	roundTrip(t, m, lines)
+}
+
+func TestSegmentContentLineTrailingHiddenSegmentNoPanic(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.showThinking = false
+	m.content.segments = []contentSegment{
+		{kind: segmentPlain, text: "visible", renderDirty: true},
+		{kind: segmentThinkingBlock, thinkData: &thinkingBlockData{body: "secret", collapsed: true}, renderDirty: true},
+	}
+	m.syncViewport()
+
+	// Make segmentHeights shorter than segments: the panic path is a trailing
+	// hidden thinking segment whose height was never recorded.
+	m.content.segmentHeights = []int{1}
+	if len(m.content.segmentHeights) >= len(m.content.segments) {
+		t.Fatalf("test setup: segmentHeights (%d) must be shorter than segments (%d)", len(m.content.segmentHeights), len(m.content.segments))
+	}
+
+	// segmentAtContentLine walks the hidden trailing segment and must not write
+	// past the end of segmentHeights (the pre-fix guard panicked here).
+	segIndex, rowInSeg, ok := m.content.segmentAtContentLine(1)
+	if ok {
+		t.Errorf("segmentAtContentLine(1) = segment %d row %d ok; want not ok", segIndex, rowInSeg)
+	}
+	if len(m.content.segmentHeights) != 1 {
+		t.Errorf("segmentAtContentLine extended segmentHeights to %d entries; want 1", len(m.content.segmentHeights))
+	}
+}
+
+func TestSegmentContentLineOutOfSyncHeights(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("alpha")
+	m.content.AppendLine("beta")
+	m.syncViewport()
+
+	// Append a new segment without running the debounced sync: segmentHeights
+	// is now one shorter than segments, so the pre-fix guard refused to map.
+	m.content.AppendLine("gamma")
+	if len(m.content.segmentHeights) >= len(m.content.segments) {
+		t.Fatalf("test setup: segmentHeights (%d) must be shorter than segments (%d)", len(m.content.segmentHeights), len(m.content.segments))
+	}
+
+	// Line 1 ("beta") lives in an already-rendered segment and must map even
+	// while the height slice is out of sync, and the inverse walk round-trips.
+	segIndex, rowInSeg, ok := m.content.segmentAtContentLine(1)
+	if !ok {
+		t.Fatal("segmentAtContentLine(1) = not ok with out-of-sync heights; want ok")
+	}
+	if line, ok := m.content.contentLineForSegmentRow(segIndex, rowInSeg); !ok || line != 1 {
+		t.Errorf("round trip line 1 -> segment %d row %d -> %d (ok=%v); want 1", segIndex, rowInSeg, line, ok)
+	}
+
+	// An anchored selection captured in the out-of-sync state must survive the
+	// subsequent sync: the remap must not clear it.
+	m.activeRegion = regionViewport
+	m.selection = selectionState{start: selectionPoint{1, 0}, end: selectionPoint{1, 4}, active: true}
+	m.selection.startAnchor = m.viewportAnchorForContentLine(1)
+	m.selection.endAnchor = m.viewportAnchorForContentLine(1)
+	m.mousePressX = 5
+	m.mousePressY = 5
+	m.syncViewport()
+
+	if !m.selection.hasSelection() {
+		t.Error("anchored selection cleared by syncViewport after out-of-sync anchoring")
+	}
+	if m.mousePressX != 5 {
+		t.Error("mouse press cancelled by syncViewport after out-of-sync anchoring")
+	}
+	if got := m.extractViewportText(); got != "beta" {
+		t.Errorf("extractViewportText = %q; want %q", got, "beta")
+	}
+}
+
+func TestSelectionEscClearsDragPressState(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("first")
+	m.syncViewport()
+	m = updateModel(t, m, mouseClickMsg{x: 3, y: 5})
+	m = updateModel(t, m, mouseMotionMsg{x: 10, y: 5})
+	if !m.selection.hasSelection() {
+		t.Fatal("test setup: no active drag selection")
+	}
+
+	handled, next, _ := m.handleSelectionEscKey()
+	m = next.(*Model)
+	if !handled {
+		t.Error("handleSelectionEscKey returned false with an active selection")
+	}
+	if m.selection.hasSelection() {
+		t.Error("selection survived Esc")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 {
+		t.Errorf("mouse press not reset by Esc: (%d,%d); want (-1,-1)", m.mousePressX, m.mousePressY)
+	}
+	if m.dragScrollDir != 0 || m.dragScrollTicking {
+		t.Errorf("drag state not reset by Esc: dir=%d ticking=%v", m.dragScrollDir, m.dragScrollTicking)
+	}
+
+	// A content change plus sync must not leave a press that motion can
+	// resurrect into a drag.
+	m.content.AppendLine("more content")
+	m.syncViewport()
+	m = updateModel(t, m, mouseMotionMsg{x: 30, y: 15})
+	if m.selection.hasSelection() {
+		t.Error("motion after Esc resurrected a selection")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 {
+		t.Errorf("motion after Esc set a mouse press: (%d,%d)", m.mousePressX, m.mousePressY)
+	}
+}
+
+func TestDragEpochInvalidatedOnClear(t *testing.T) {
+	t.Parallel()
+
+	// clearSelectionAndDrag bumps the epoch so any pending auto-scroll
+	// tick from the cancelled drag goes stale.
+	m := buildTestModel(100, 30, false, false)
+	m.activeRegion = regionViewport
+	m.selection = selectionState{start: selectionPoint{0, 0}, end: selectionPoint{2, 2}, active: true}
+	m.mousePressX = 5
+	m.mousePressY = 5
+	m.dragScrollDir = 1
+	m.dragScrollTicking = true
+	m.dragScrollEpoch = 7
+	m.clearSelectionAndDrag()
+	if m.dragScrollEpoch != 8 {
+		t.Errorf("dragScrollEpoch = %d after clearSelectionAndDrag; want 8", m.dragScrollEpoch)
+	}
+	if m.selection.hasSelection() {
+		t.Error("selection survived clearSelectionAndDrag")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 {
+		t.Errorf("mouse press not reset: (%d,%d)", m.mousePressX, m.mousePressY)
+	}
+	if m.dragScrollDir != 0 || m.dragScrollTicking {
+		t.Errorf("drag state not reset: dir=%d ticking=%v", m.dragScrollDir, m.dragScrollTicking)
+	}
+
+	// clearConversationState resets the same fields and also invalidates any
+	// pending drag tick from the previous conversation.
+	m = newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("first")
+	m.syncViewport()
+	m.activeRegion = regionViewport
+	m.selection = selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 5}, active: true}
+	m.mousePressX = 5
+	m.mousePressY = 5
+	m.dragScrollDir = 1
+	m.dragScrollTicking = true
+	m.dragScrollEpoch = 3
+	m.clearConversationState()
+	if m.selection.hasSelection() {
+		t.Error("selection survived clearConversationState")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 {
+		t.Errorf("mouse press not reset: (%d,%d)", m.mousePressX, m.mousePressY)
+	}
+	if m.dragScrollDir != 0 || m.dragScrollTicking {
+		t.Errorf("drag state not reset: dir=%d ticking=%v", m.dragScrollDir, m.dragScrollTicking)
+	}
+	if m.dragScrollEpoch != 4 {
+		t.Errorf("dragScrollEpoch = %d after clearConversationState; want 4", m.dragScrollEpoch)
+	}
+}
+
+func TestViewportDragDisablesAutoScroll(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("first")
+	m.syncViewport()
+	m.autoScroll = true
+
+	// A drag to a new coordinate is a deliberate navigation: follow-to-bottom
+	// scrolling must stop so the view does not fight the user.
+	m = updateModel(t, m, mouseClickMsg{x: 3, y: 5})
+	m = updateModel(t, m, mouseMotionMsg{x: 10, y: 5})
+	if m.autoScroll {
+		t.Error("autoScroll still true after drag motion")
+	}
+
+	// A pure click (press then release at the same point) is not a drag and
+	// must leave follow-to-bottom scrolling untouched.
+	m = newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("first")
+	m.syncViewport()
+	m.autoScroll = true
+
+	m = updateModel(t, m, mouseClickMsg{x: 3, y: 5})
+	m = updateModel(t, m, mouseReleaseMsg{x: 3, y: 5})
+	if !m.autoScroll {
+		t.Error("autoScroll changed by pure click")
 	}
 }
 
