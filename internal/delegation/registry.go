@@ -62,6 +62,9 @@ type DelegateDeps struct {
 	// ImageStore provides image lookup for the vision sub-agent tool.
 	// When nil or when no vision model is configured, the vision tool is not registered.
 	ImageStore *agent.ImageStore
+	// CacheKeyStore is the singleton store shared across the process for
+	// cache-key reuse. Nil means no reuse: each delegation mints a fresh key.
+	CacheKeyStore *CacheKeyStore
 }
 
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
@@ -134,6 +137,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		SessionStore:         store,
 		ExtraAllowedTools:    deps.ExtraAllowedTools,
 		UsageRecorder:        deps.UsageRecorder,
+		CacheKeyStore:        deps.CacheKeyStore,
 	}
 
 	// Register the follow_up tool.

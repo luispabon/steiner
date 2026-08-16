@@ -95,6 +95,12 @@ implement changes, review code, or evaluate design approaches. `follow_up`
 replays the original child's stored request, so it is unaffected by either
 flag.
 
+**6. Prompt cache key reuse.** `buildChildRunRequest` sets `PromptCacheKey` on the child `agent.RunRequest`. When `BootstrapDeps.CacheKeyStore` is non-nil, it calls `CacheKeyStore.KeyFor(deps.AgentType, provider.NewPromptCacheKey)`, which mints a key on first use and returns the same key for every subsequent delegation of that `AgentType`. When the store is nil, or `KeyFor` fails to produce a usable key, a fresh key is minted per call via `provider.NewPromptCacheKey()` (an entropy error leaves the key empty, which only disables provider-side caching for that child run).
+
+`CacheKeyStore` (`internal/delegation/cache_keys.go`) is keyed by `AgentType`, not `AgentID`: `AgentID` is a fresh counter minted per delegation (`generateAgentID()` in `agent_id.go`) and is never stable across delegations of the same type, so keying by `AgentID` would make every lookup a guaranteed cache miss. Keying by `AgentType` instead lets repeated delegations to the same agent type (e.g. two separate `code` sub-agent calls in one session) share a provider-side cache shard. `PromptCacheKey` is a shard-routing hint consumed only by Codex/OpenAI-Responses traffic (`internal/provider/wire_responses.go`); Anthropic's wire adapter never reads it, so the store is a no-op there.
+
+`CacheKeyStore` is process-lifetime scoped, matching `SessionStore`: it is instantiated once in `cmd/steiner` (`cliRuntime.delegationCacheKeyStore`) and threaded through `DelegateDeps.CacheKeyStore` → `SubAgentHandlerDeps.CacheKeyStore` → `BootstrapDeps.CacheKeyStore` on every delegation. It is **not** reset on `/new`, the same way `SessionStore.Reset()` has zero production callers today — a stale shard hint after a conversation boundary costs at most a cache miss, never a correctness issue, so resetting it is unnecessary.
+
 ### Execution: SpawnDelegate
 
 `SpawnDelegate()` orchestrates the child lifecycle:

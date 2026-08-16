@@ -3,9 +3,12 @@ package tui
 import (
 	"reflect"
 	"testing"
+	"time"
 	"unsafe"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 // TestSidebarStateComparableFieldParity pins sidebarStateComparable's field
@@ -55,6 +58,51 @@ func TestSidebarStateComparableFieldParity(t *testing.T) {
 	// actually visited fields.
 	if len(stateFields) == 0 || len(projFields) == 0 {
 		t.Fatal("field parity walk covered zero fields on one side; test is vacuous")
+	}
+}
+
+// TestSyncSidebarUsesParentOnlySessionReport proves the sidebar's cache hit
+// rate comes from usagestats.SourceParent alone, not the blended session
+// report across all sources. A sub-agent observation with a materially
+// different hit rate must not leak into the sidebar figure.
+func TestSyncSidebarUsesParentOnlySessionReport(t *testing.T) {
+	// Not parallel: usagestats.New persists to a store file derived from
+	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if
+	// combined with t.Parallel().
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	now := time.Unix(1000, 0)
+	rec := usagestats.New(func() time.Time { return now })
+
+	// Parent observation: 0% cache hit rate (no cache reads).
+	rec.Record(usagestats.Observation{
+		ProviderAlias:  "local",
+		ProviderType:   "ollama",
+		BackendModelID: "llama2",
+		PromptTokens:   100,
+		Source:         usagestats.SourceParent,
+		At:             now,
+	})
+	// Sub-agent observation: 100% cache hit rate. If blended into the
+	// sidebar, it would pull the reported rate well above 0.
+	rec.Record(usagestats.Observation{
+		ProviderAlias:   "local",
+		ProviderType:    "ollama",
+		BackendModelID:  "llama2",
+		PromptTokens:    100,
+		CacheReadTokens: 100,
+		Source:          usagestats.SourceSubAgent,
+		At:              now,
+	})
+
+	m := newSidebarTestModel(t)
+	m.recorder = rec
+	m.syncSidebar()
+
+	if !m.sidebar.sessionCacheHitRateOK {
+		t.Fatal("sessionCacheHitRateOK = false, want true")
+	}
+	if m.sidebar.sessionCacheHitRate != 0 {
+		t.Errorf("sessionCacheHitRate = %v, want 0 (parent-only, no sub-agent blending)", m.sidebar.sessionCacheHitRate)
 	}
 }
 

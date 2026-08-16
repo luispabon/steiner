@@ -6,6 +6,21 @@ import (
 	"time"
 )
 
+// Source identifies which call surface produced an Observation, for
+// session-scoped attribution (e.g. sidebar orchestrator-only reporting).
+// It must not influence the persisted windowed store.
+type Source int
+
+const (
+	// SourceParent is the top-level orchestrator run. It is the zero value
+	// so call sites that don't set Source default to it.
+	SourceParent Source = iota
+	// SourceSubAgent is a delegated sub-agent run.
+	SourceSubAgent
+	// SourceAdvisor is the advisor tool.
+	SourceAdvisor
+)
+
 // Observation is the consumer-shaped input describing one API call's token usage.
 type Observation struct {
 	// ProviderAlias is the user-configured alias for the provider.
@@ -23,6 +38,9 @@ type Observation struct {
 	CacheReadTokens int
 	// CacheCreateTokens is the number of tokens written into the prompt cache.
 	CacheCreateTokens int
+
+	// Source identifies which call surface produced this observation.
+	Source Source
 
 	// At is the time of the observation; used for hour-bucketing. Zero means use the recorder clock.
 	At time.Time
@@ -49,8 +67,8 @@ type Recorder struct {
 	mu      sync.Mutex
 	buckets map[bucketKey]*bucket
 
-	sessionCacheRead  int64
-	sessionTotalInput int64
+	sessionCacheRead  map[Source]int64
+	sessionTotalInput map[Source]int64
 
 	now   func() time.Time
 	store *store
@@ -63,9 +81,11 @@ func New(now func() time.Time) *Recorder {
 	}
 	st := newStore(now)
 	return &Recorder{
-		buckets: st.load(),
-		now:     now,
-		store:   st,
+		buckets:           st.load(),
+		sessionCacheRead:  make(map[Source]int64),
+		sessionTotalInput: make(map[Source]int64),
+		now:               now,
+		store:             st,
 	}
 }
 
@@ -101,8 +121,8 @@ func (r *Recorder) Record(obs Observation) {
 	b.CacheCreateTokens += obs.CacheCreateTokens
 	b.CompletionTokens += obs.CompletionTokens
 
-	r.sessionCacheRead += int64(obs.CacheReadTokens)
-	r.sessionTotalInput += int64(nonCached + obs.CacheReadTokens + obs.CacheCreateTokens)
+	r.sessionCacheRead[obs.Source] += int64(obs.CacheReadTokens)
+	r.sessionTotalInput[obs.Source] += int64(nonCached + obs.CacheReadTokens + obs.CacheCreateTokens)
 	r.mu.Unlock()
 
 	// Persist this observation's delta. Wrap in a bucket for write path.
@@ -173,12 +193,27 @@ func (r *Recorder) Window(d time.Duration) Report {
 }
 
 // SessionReport returns the process-lifetime cache statistics derived from
-// the dedicated session counters, independent of the bucket map.
+// the dedicated session counters, blended across all sources, independent
+// of the bucket map.
 func (r *Recorder) SessionReport() SessionReport {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	var sr SessionReport
+	for source := range r.sessionCacheRead {
+		sr.CacheReadTokens += r.sessionCacheRead[source]
+		sr.TotalInputTokens += r.sessionTotalInput[source]
+	}
+	return sr
+}
+
+// SessionReportFor returns the process-lifetime cache statistics derived
+// from the dedicated session counters, scoped to observations recorded
+// with the given source.
+func (r *Recorder) SessionReportFor(source Source) SessionReport {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return SessionReport{
-		CacheReadTokens:  r.sessionCacheRead,
-		TotalInputTokens: r.sessionTotalInput,
+		CacheReadTokens:  r.sessionCacheRead[source],
+		TotalInputTokens: r.sessionTotalInput[source],
 	}
 }

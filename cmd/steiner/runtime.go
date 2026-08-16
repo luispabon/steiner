@@ -44,41 +44,42 @@ type cliFlags struct {
 }
 
 type cliRuntime struct {
-	cfg                    config.Config
-	sandboxStatus          string
-	configWarnings         []string
-	provider               provider.Provider
-	providerFactory        func(provider.ResolvedModel) (provider.Provider, error)
-	httpClient             *http.Client
-	registry               *tool.Registry
-	toolNames              []string
-	skillNames             []string
-	skillSources           map[string]string // skill name -> "project"/"user"/"global"
-	skillDescriptions      map[string]string // skill name -> short summary
-	skillBundledFS         fs.FS             // embedded bundled skill documents
-	projectRoot            string
-	workDir                string
-	homeDir                string
-	sandbox                *sandbox.Sandbox
-	mcpManager             *mcp.Manager
-	mcpState               *mcpStateProducer
-	mcpInit                *mcpInitOnce
-	stdin                  io.Reader
-	human                  *output.EventStream
-	status                 *output.EventStream
-	events                 output.EventSink
-	sharedInput            *bufio.Reader
-	approvalIn             *bufio.Reader
-	closeFn                func() error
-	historyWriter          *history.Writer
-	sessionStore           *session.Store
-	delegationSessionStore *delegation.SessionStore
-	delegationLogger       *delegation.TraceLogger
-	streamErrorLog         *provider.StreamErrorLogger
-	compactionLogFile      string
-	usageRecorder          *usagestats.Recorder
-	imageStore             *agent.ImageStore
-	visionCapabilities     *agent.VisionCapabilities
+	cfg                     config.Config
+	sandboxStatus           string
+	configWarnings          []string
+	provider                provider.Provider
+	providerFactory         func(provider.ResolvedModel) (provider.Provider, error)
+	httpClient              *http.Client
+	registry                *tool.Registry
+	toolNames               []string
+	skillNames              []string
+	skillSources            map[string]string // skill name -> "project"/"user"/"global"
+	skillDescriptions       map[string]string // skill name -> short summary
+	skillBundledFS          fs.FS             // embedded bundled skill documents
+	projectRoot             string
+	workDir                 string
+	homeDir                 string
+	sandbox                 *sandbox.Sandbox
+	mcpManager              *mcp.Manager
+	mcpState                *mcpStateProducer
+	mcpInit                 *mcpInitOnce
+	stdin                   io.Reader
+	human                   *output.EventStream
+	status                  *output.EventStream
+	events                  output.EventSink
+	sharedInput             *bufio.Reader
+	approvalIn              *bufio.Reader
+	closeFn                 func() error
+	historyWriter           *history.Writer
+	sessionStore            *session.Store
+	delegationSessionStore  *delegation.SessionStore
+	delegationCacheKeyStore *delegation.CacheKeyStore
+	delegationLogger        *delegation.TraceLogger
+	streamErrorLog          *provider.StreamErrorLogger
+	compactionLogFile       string
+	usageRecorder           *usagestats.Recorder
+	imageStore              *agent.ImageStore
+	visionCapabilities      *agent.VisionCapabilities
 }
 
 var buildRuntime = defaultBuildRuntime

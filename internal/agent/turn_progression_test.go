@@ -70,7 +70,7 @@ func TestFinalizeModelCallState_AccumulatesUsageTokens(t *testing.T) {
 		{
 			name: "first turn usage",
 			usage: &provider.UsageStats{
-				PromptTokens:             10,
+				PromptTokens:             100,
 				CompletionTokens:         5,
 				CacheReadInputTokens:     20,
 				CacheCreationInputTokens: 3,
@@ -79,7 +79,7 @@ func TestFinalizeModelCallState_AccumulatesUsageTokens(t *testing.T) {
 		{
 			name: "second turn usage",
 			usage: &provider.UsageStats{
-				PromptTokens:             7,
+				PromptTokens:             80,
 				CompletionTokens:         2,
 				CacheReadInputTokens:     15,
 				CacheCreationInputTokens: 1,
@@ -98,7 +98,11 @@ func TestFinalizeModelCallState_AccumulatesUsageTokens(t *testing.T) {
 			response := provider.ChatResponse{Usage: tc.usage}
 			state, _ = p.finalizeModelCallState(context.Background(), state, i+1, provider.ChatRequest{}, response)
 			if tc.usage != nil {
-				wantInput += tc.usage.PromptTokens
+				nonCached := tc.usage.PromptTokens - tc.usage.CacheReadInputTokens - tc.usage.CacheCreationInputTokens
+				if nonCached < 0 {
+					nonCached = 0
+				}
+				wantInput += nonCached
 				wantCacheRead += tc.usage.CacheReadInputTokens
 				wantCacheCreate += tc.usage.CacheCreationInputTokens
 			}

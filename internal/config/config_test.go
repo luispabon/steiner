@@ -1549,6 +1549,63 @@ sandbox:
 	}
 }
 
+// TestLoadHostMountsTildeExpansion confirms expandHomePath is applied to
+// sandbox.host_mounts paths so a `path: ~/go/` entry is resolved against the
+// home directory instead of reaching bwrap as a literal tilde path.
+func TestLoadHostMountsTildeExpansion(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+sandbox:
+  host_mounts:
+    - path: ~/go/
+      mode: rw
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	tempHome := filepath.Join(tempDir, "home")
+	cfg, err := Load(LoadOptions{
+		HomeDir: tempHome,
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.Sandbox.HostMounts) != 1 {
+		t.Fatalf("sandbox.host_mounts has %d entries, want 1", len(cfg.Sandbox.HostMounts))
+	}
+	want := filepath.Join(tempHome, "go")
+	if cfg.Sandbox.HostMounts[0].Path != want {
+		t.Fatalf("sandbox.host_mounts[0].path = %q, want %q", cfg.Sandbox.HostMounts[0].Path, want)
+	}
+	if cfg.Sandbox.HostMounts[0].Mode != "rw" {
+		t.Fatalf("sandbox.host_mounts[0].mode = %q, want rw", cfg.Sandbox.HostMounts[0].Mode)
+	}
+}
+
 // TestLoadRejectsTopLevelHostMounts guards against host_mounts being moved to
 // the sandbox block: a top-level host_mounts key must fail config loading so
 // users do not silently lose their mounts.

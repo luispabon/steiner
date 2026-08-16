@@ -43,6 +43,9 @@ func normalizePaths(cfg *Config, homeDir string) {
 		tool.Exec = expandHomePath(tool.Exec, homeDir)
 		cfg.Tools[name] = tool
 	}
+	for i := range cfg.Sandbox.HostMounts {
+		cfg.Sandbox.HostMounts[i].Path = expandHomePath(cfg.Sandbox.HostMounts[i].Path, homeDir)
+	}
 }
 
 func expandHomePath(path, homeDir string) string {
