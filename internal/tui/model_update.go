@@ -347,12 +347,14 @@ func (m *Model) handleMultiClickSelection(clampedX, clampedY int) (tea.Model, te
 		endLine = m.contentLineAtScreenY(endLine)
 		startCol -= left
 		endCol -= left
+		startLine, startAnchor := m.viewportSelectionEndpoint(startLine)
+		endLine, endAnchor := m.viewportSelectionEndpoint(endLine)
 		m.selection = selectionState{
-			start: selectionPoint{line: startLine, col: startCol},
-			end:   selectionPoint{line: endLine, col: endCol},
+			start:       selectionPoint{line: startLine, col: startCol},
+			end:         selectionPoint{line: endLine, col: endCol},
+			startAnchor: startAnchor,
+			endAnchor:   endAnchor,
 		}
-		m.selection.startAnchor = m.viewportAnchorForContentLine(startLine)
-		m.selection.endAnchor = m.viewportAnchorForContentLine(endLine)
 		text = m.extractViewportText()
 	} else {
 		text = extractText(lines, m.selection, left, right)
@@ -392,7 +394,8 @@ func (m *Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 	start := m.anchorPoint(clampedX, clampedY)
 	m.selection = selectionState{start: start, end: start, active: true}
 	if m.activeRegion == regionViewport {
-		m.selection.startAnchor = m.viewportAnchorForContentLine(start.line)
+		m.selection.start.line, m.selection.startAnchor = m.viewportSelectionEndpoint(start.line)
+		m.selection.end.line = m.selection.start.line
 		m.selection.endAnchor = m.selection.startAnchor
 	}
 	m.mousePressX = msg.x
@@ -433,7 +436,7 @@ func (m *Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 		clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
 		m.selection.end = m.anchorPoint(clampedX, clampedY)
 		if m.activeRegion == regionViewport {
-			m.selection.endAnchor = m.viewportAnchorForContentLine(m.selection.end.line)
+			m.selection.end.line, m.selection.endAnchor = m.viewportSelectionEndpoint(m.selection.end.line)
 		}
 		return m, cmd
 	}
@@ -451,7 +454,7 @@ func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) 
 	clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
 	m.selection.end = m.anchorPoint(clampedX, clampedY)
 	if m.activeRegion == regionViewport {
-		m.selection.endAnchor = m.viewportAnchorForContentLine(m.selection.end.line)
+		m.selection.end.line, m.selection.endAnchor = m.viewportSelectionEndpoint(m.selection.end.line)
 	}
 	m.dragScrollDir = 0
 	m.dragScrollTicking = false
@@ -505,7 +508,7 @@ func (m *Model) handleDragAutoScrollTick(msg dragAutoScrollTickMsg) (tea.Model, 
 	clampedX, clampedY := m.clampToRegion(m.dragLastX, m.dragLastY, m.activeRegion)
 	m.selection.end = m.anchorPoint(clampedX, clampedY)
 	if m.activeRegion == regionViewport {
-		m.selection.endAnchor = m.viewportAnchorForContentLine(m.selection.end.line)
+		m.selection.end.line, m.selection.endAnchor = m.viewportSelectionEndpoint(m.selection.end.line)
 	}
 	epoch := m.dragScrollEpoch
 	return m, tea.Tick(dragAutoScrollInterval, func(time.Time) tea.Msg {

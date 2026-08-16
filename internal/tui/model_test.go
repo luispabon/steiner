@@ -5022,6 +5022,263 @@ func TestViewportSelectionSurvivesContentAppendBelow(t *testing.T) {
 	}
 }
 
+func TestViewportSelectionSurvivesDragEndOnUserSeparator(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendUser("select this user line")
+	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	m.syncViewport()
+
+	renderedLines := strings.Split(m.content.String(m.viewport.Width()), "\n")
+
+	// The blank separator line between the user segment and the delegation box
+	// maps to no segment. A drag ending there must snap to the nearest mappable
+	// line (the user segment row) at anchor capture so the endpoint stays
+	// anchored when content shifts.
+	var userLine, userSeg, blankLine = -1, -1, -1
+	for i := range renderedLines {
+		segIndex, _, ok := m.content.segmentAtContentLine(i)
+		if !ok {
+			if blankLine < 0 {
+				blankLine = i
+			}
+			continue
+		}
+		if strings.Contains(ansi.Strip(renderedLines[i]), "select this user line") {
+			userLine, userSeg = i, segIndex
+		}
+	}
+	if userLine < 0 {
+		t.Fatal("user segment text line not found in rendered content")
+	}
+	if blankLine < 0 {
+		t.Fatal("blank separator line between user segment and delegation box not found")
+	}
+
+	endLine, endAnchor := m.viewportSelectionEndpoint(blankLine)
+	if !endAnchor.ok {
+		t.Fatal("viewportSelectionEndpoint(blankLine) returned an unanchored endpoint; want it to snap to the user segment row")
+	}
+	if endLine == blankLine {
+		t.Fatal("viewportSelectionEndpoint(blankLine) kept the blank line; want it to snap to a mappable line")
+	}
+	if segIndex, _, ok := m.content.segmentAtContentLine(endLine); !ok || segIndex != userSeg {
+		t.Errorf("snapped end line %d maps to segment %d (ok=%v); want user segment %d", endLine, segIndex, ok, userSeg)
+	}
+
+	startLine, startAnchor := m.viewportSelectionEndpoint(userLine)
+	m.activeRegion = regionViewport
+	m.selection = selectionState{
+		start:       selectionPoint{line: startLine, col: 0},
+		end:         selectionPoint{line: endLine, col: 0},
+		active:      true,
+		startAnchor: startAnchor,
+		endAnchor:   endAnchor,
+	}
+
+	// The collapsed delegation header re-renders on a spinner tick, which must
+	// remap the anchored endpoints instead of clearing the selection. Assert the
+	// spinner tick actually changes the render so this exercises a real remap.
+	before := m.content.String(m.viewport.Width())
+	m.content.AdvanceDelegationSpinners()
+	m.syncViewport()
+	after := m.content.String(m.viewport.Width())
+	if before == after {
+		t.Fatal("test setup: delegation spinner tick did not change the render")
+	}
+
+	if !m.selection.hasSelection() {
+		t.Fatal("viewport selection was cleared by the delegation spinner re-render")
+	}
+	if got := m.extractViewportText(); !strings.Contains(got, "select this user line") {
+		t.Errorf("extractViewportText = %q; want it to contain the selected user text", got)
+	}
+}
+
+func TestViewportSelectionRemapsWhenContentShiftsAboveUnanchoredEndpoint(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.showThinking = true
+	m.content.showThinking = true
+	m.content.segments = []contentSegment{
+		{kind: segmentThinkingBlock, thinkData: &thinkingBlockData{body: "secret reasoning", collapsed: true}, renderDirty: true},
+	}
+	m.content.AppendUser("select this user line")
+	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	m.syncViewport()
+
+	renderedLines := strings.Split(m.content.String(m.viewport.Width()), "\n")
+
+	// The blank separator below the user segment maps to no segment; the drag
+	// endpoint there snaps to the user segment row at anchor capture.
+	var userLine, userSeg, blankLine = -1, -1, -1
+	for i := range renderedLines {
+		segIndex, _, ok := m.content.segmentAtContentLine(i)
+		if !ok {
+			if blankLine < 0 && userLine >= 0 {
+				blankLine = i
+			}
+			continue
+		}
+		if strings.Contains(ansi.Strip(renderedLines[i]), "select this user line") {
+			userLine, userSeg = i, segIndex
+		}
+	}
+	if userLine < 0 || userSeg < 0 {
+		t.Fatal("user segment text line not found in rendered content")
+	}
+	if blankLine < 0 {
+		t.Fatal("blank separator line below the user segment not found")
+	}
+
+	startLine, startAnchor := m.viewportSelectionEndpoint(userLine)
+	endLine, endAnchor := m.viewportSelectionEndpoint(blankLine)
+	m.activeRegion = regionViewport
+	m.selection = selectionState{
+		start:       selectionPoint{line: startLine, col: 0},
+		end:         selectionPoint{line: endLine, col: 0},
+		active:      true,
+		startAnchor: startAnchor,
+		endAnchor:   endAnchor,
+	}
+
+	// Hiding the thinking block shifts the user segment and everything below it
+	// up. The snapped end must follow the user segment row instead of pointing
+	// at the stale absolute line, which now lands in the delegation box. Mirror
+	// handleToggleThinkingMsg, which marks thinking segments dirty before sync.
+	m.showThinking = false
+	m.content.showThinking = false
+	for i := range m.content.segments {
+		if m.content.segments[i].kind == segmentThinkingBlock {
+			m.content.segments[i].renderDirty = true
+		}
+	}
+	m.content.gen++
+	m.syncViewport()
+
+	if !m.selection.hasSelection() {
+		t.Fatal("viewport selection was cleared by hiding the thinking block above it")
+	}
+	if segIndex, _, ok := m.content.segmentAtContentLine(m.selection.start.line); !ok || segIndex != userSeg {
+		t.Errorf("start endpoint maps to segment %d (ok=%v) after the shift; want user segment %d", segIndex, ok, userSeg)
+	}
+	if segIndex, _, ok := m.content.segmentAtContentLine(m.selection.end.line); !ok || segIndex != userSeg {
+		t.Errorf("end endpoint maps to segment %d (ok=%v) after the shift; want user segment %d", segIndex, ok, userSeg)
+	}
+	if got := m.extractViewportText(); !strings.Contains(got, "select this user line") || strings.Contains(got, "child-1") {
+		t.Errorf("extractViewportText = %q; want the user text without delegation chrome", got)
+	}
+}
+
+func TestViewportSelectionDragSnapsBlankLineViaMouseHandlers(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendUser("select this user line")
+	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	m.syncViewport()
+
+	renderedLines := strings.Split(m.content.String(m.viewport.Width()), "\n")
+
+	var userLine, blankLine = -1, -1
+	for i := range renderedLines {
+		_, _, ok := m.content.segmentAtContentLine(i)
+		if !ok {
+			if blankLine < 0 {
+				blankLine = i
+			}
+			continue
+		}
+		if strings.Contains(ansi.Strip(renderedLines[i]), "select this user line") {
+			userLine = i
+		}
+	}
+	if userLine < 0 || blankLine < 0 {
+		t.Fatal("user text or blank separator line not found in rendered content")
+	}
+
+	// Drive the real capture sites: click on the user line, then drag onto the
+	// blank separator below it. The end anchor must snap back to the user row.
+	// Extra content below keeps contentTopPad small enough that the blank
+	// separator projects comfortably inside the viewport's draggable rows.
+	m.content.AppendLine("more below\nmore below 2\nmore below 3")
+	m.syncViewport()
+	userY := m.screenYAtContentLine(userLine)
+	blankY := m.screenYAtContentLine(blankLine)
+	if got := m.contentLineAtScreenY(blankY); got != blankLine {
+		t.Fatalf("test setup: blankY %d maps to content line %d; want %d", blankY, got, blankLine)
+	}
+	wantLine, wantAnchor := m.viewportSelectionEndpoint(blankLine)
+	m = updateModel(t, m, mouseClickMsg{x: 5, y: userY})
+	m = updateModel(t, m, mouseMotionMsg{x: 5, y: blankY})
+
+	if !m.selection.endAnchor.ok {
+		t.Fatal("drag end anchor = not ok; want the blank separator to snap to the user segment row")
+	}
+	if m.selection.end.line == blankLine {
+		t.Fatal("drag end kept the blank separator line; want it to snap to the user row")
+	}
+	if m.selection.end.line != wantLine {
+		t.Errorf("selection end line = %d; want snapped user row %d", m.selection.end.line, wantLine)
+	}
+	if m.selection.endAnchor != wantAnchor {
+		t.Errorf("selection end anchor = %+v; want %+v", m.selection.endAnchor, wantAnchor)
+	}
+	if segIndex, _, ok := m.content.segmentAtContentLine(m.selection.end.line); !ok || segIndex != 0 {
+		t.Errorf("selection end maps to segment %d (ok=%v); want user segment 0", segIndex, ok)
+	}
+}
+
+func TestViewportSelectionNonBlankUnmappableEndpointClears(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.content.AppendLine("alpha")
+	m.content.AppendLine("beta")
+	m.syncViewport()
+
+	// A non-blank line with no owning segment, e.g. streaming preview content
+	// that has not become a segment yet, must stay unanchored: no snapping.
+	m.fmtBgCacheInput += "\nextra streamed line"
+	lines := strings.Split(m.fmtBgCacheInput, "\n")
+	extraLine := len(lines) - 1
+	if got, anchor := m.viewportSelectionEndpoint(extraLine); anchor.ok {
+		t.Errorf("viewportSelectionEndpoint(%d) returned ok anchor %+v; want unanchored", extraLine, anchor)
+	} else if got != extraLine {
+		t.Errorf("viewportSelectionEndpoint(%d) returned line %d; want the original %d", extraLine, got, extraLine)
+	}
+
+	// An anchored selection whose end sits on that unanchored line is cleared
+	// by a same-width content change: remapEndpoint returns false for !ok.
+	m.activeRegion = regionViewport
+	m.selection = selectionState{
+		start:  selectionPoint{line: 0, col: 0},
+		end:    selectionPoint{line: extraLine, col: 0},
+		active: true,
+	}
+	m.selection.startAnchor = m.viewportAnchorForContentLine(0)
+	m.selection.endAnchor = selectionAnchor{}
+	m.mousePressX = 5
+	m.mousePressY = 5
+	m.dragScrollDir = 1
+	m.dragScrollTicking = true
+
+	m.content.AppendLine("gamma")
+	m.syncViewport()
+
+	if m.selection.hasSelection() {
+		t.Error("selection survived a content change with an unanchored non-blank endpoint")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 {
+		t.Errorf("mouse press not reset: (%d,%d); want (-1,-1)", m.mousePressX, m.mousePressY)
+	}
+	if m.dragScrollDir != 0 || m.dragScrollTicking {
+		t.Errorf("drag state not reset: dir=%d ticking=%v", m.dragScrollDir, m.dragScrollTicking)
+	}
+}
+
 func TestViewportSelectionRemapsWhenContentGrowsAbove(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)

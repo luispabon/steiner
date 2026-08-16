@@ -96,6 +96,65 @@ func (m *Model) viewportAnchorForContentLine(line int) selectionAnchor {
 	return m.content.selectionAnchorForSegmentRow(segIndex, rowInSeg)
 }
 
+// viewportSelectionEndpoint returns the content line and anchor to store for a
+// viewport selection endpoint at line. Mappable lines anchor to their segment
+// row. Blank unmappable lines (user separators, padding) snap to the nearest
+// mappable line at capture time so the endpoint stays anchored when content
+// above shifts; non-blank unmappable lines (e.g. the streaming preview) stay
+// unanchored and clear on content change.
+func (m *Model) viewportSelectionEndpoint(line int) (int, selectionAnchor) {
+	lines := strings.Split(m.fmtBgCacheInput, "\n")
+	if segIndex, rowInSeg, ok := m.content.segmentAtContentLine(line); ok {
+		return line, m.content.selectionAnchorForSegmentRow(segIndex, rowInSeg)
+	}
+	if m.viewportLineBlank(lines, line) {
+		if snapped, ok := m.nearestMappableContentLine(lines, line); ok {
+			if segIndex, rowInSeg, ok := m.content.segmentAtContentLine(snapped); ok {
+				return snapped, m.content.selectionAnchorForSegmentRow(segIndex, rowInSeg)
+			}
+		}
+	}
+	return line, selectionAnchor{}
+}
+
+// viewportLineBlank reports whether the rendered viewport content line is blank
+// (empty or whitespace after ANSI stripping). Lines outside the rendered
+// content count as blank so padding rows snap the same way.
+func (m *Model) viewportLineBlank(lines []string, line int) bool {
+	if line < 0 || line >= len(lines) {
+		return true
+	}
+	return strings.TrimSpace(ansi.Strip(lines[line])) == ""
+}
+
+// nearestMappableContentLine returns the content line nearest to line that maps
+// to a segment, preferring the line above on ties.
+func (m *Model) nearestMappableContentLine(lines []string, line int) (int, bool) {
+	maxLine := len(lines) - 1
+	if maxLine < 0 {
+		return 0, false
+	}
+	if line < 0 {
+		line = 0
+	}
+	if line > maxLine {
+		line = maxLine
+	}
+	for offset := 0; offset <= maxLine; offset++ {
+		if up := line - offset; up >= 0 {
+			if _, _, ok := m.content.segmentAtContentLine(up); ok {
+				return up, true
+			}
+		}
+		if down := line + offset; down <= maxLine {
+			if _, _, ok := m.content.segmentAtContentLine(down); ok {
+				return down, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // remapViewportSelection re-anchors the stored viewport selection onto the
 // current content after a same-width content change, so a live selection
 // follows the text it was made against instead of being cleared. If either
