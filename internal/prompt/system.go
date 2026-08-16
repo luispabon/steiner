@@ -174,8 +174,8 @@ const coreRules = `## Core rules:
 
 const executionModeInstructions = `## Execution modes
 
-Interactive sessions run in ` + "`plan`" + ` or ` + "`build`" + ` mode. The current mode
-arrives as a bracketed notice inside user messages.
+Interactive sessions run in ` + "`plan`" + ` or ` + "`build`" + ` mode. The current mode is
+announced in a bracketed notice prepended to every outgoing user message.
 
 In ` + "`plan`" + ` mode:
 - Project edits are restricted: ` + "`mutate`" + ` is denied outside ` + "`.steiner/plans/`" + `;
