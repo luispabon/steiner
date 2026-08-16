@@ -181,6 +181,8 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			UsageRecorder:        deps.UsageRecorder,
 			SkipProjectContext:   agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate,
 			SkipAgents:           agentType == AgentTypeVision,
+			AgentType:            agentType,
+			CacheKeyStore:        deps.CacheKeyStore,
 		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)
