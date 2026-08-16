@@ -80,12 +80,14 @@ func preambleStep(opts AssemblyOptions) sourcePlanStep {
 				}
 			} else {
 				block = systemPreambleWithAdvisor(SystemPreambleParams{
-					Override:          opts.PromptOverrides.System,
-					DelegationEnabled: opts.DelegationEnabled,
-					AdvisorEnabled:    opts.AdvisorEnabled,
-					Mode:              opts.WorkflowMode,
-					CaveHuman:         opts.CaveHuman,
-					SystemSuffix:      opts.PromptOverrides.SystemSuffix,
+					Override:              opts.PromptOverrides.System,
+					DelegationEnabled:     opts.DelegationEnabled,
+					SandboxEnabled:        opts.SandboxEnabled,
+					SandboxWritableMounts: opts.SandboxWritableMounts,
+					AdvisorEnabled:        opts.AdvisorEnabled,
+					Mode:                  opts.WorkflowMode,
+					CaveHuman:             opts.CaveHuman,
+					SystemSuffix:          opts.PromptOverrides.SystemSuffix,
 				})
 			}
 			// Bypass budget: append directly to blocks and messages so the system

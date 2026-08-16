@@ -31,10 +31,15 @@ type BootstrapDeps struct {
 	MaxTokens            *int
 	StreamingPreferred   bool
 	CaveHuman            bool
-	// Sandbox is the parent sandbox to inherit. Child sandbox permissions cannot
-	// exceed parent permissions: the parent sandbox is passed as-is to the child
-	// executor. A nil Sandbox means unsafe mode (no sandboxing).
-	Sandbox tool.SandboxWrapper
+	// SandboxEnabled reports whether the parent sandbox is active. Forwarded as
+	// a plain value into the child prompt so its system preamble renders the
+	// same sandbox section as the parent when the sandbox is active.
+	SandboxEnabled bool
+	// SandboxWritableMounts lists host paths mounted writable in the sandbox,
+	// rendered into the child system preamble when the sandbox is enabled.
+	// Derived from the parent's config at the composition root; paths are
+	// already home-expanded at config load.
+	SandboxWritableMounts []string
 	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
 	UsageRecorder *usagestats.Recorder
 	// AgentType identifies the agent type being bootstrapped, used to key
@@ -83,7 +88,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		EmergencySummaryMaxTokens: deps.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 
-	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman, deps.SkipProjectContext, deps.SkipAgents)
+	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman, deps.SkipProjectContext, deps.SkipAgents, deps.SandboxEnabled, deps.SandboxWritableMounts)
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.AllowedTools)
 	req := buildChildRunRequest(childRunRequestParams{
@@ -99,7 +104,6 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		ModelBudget:        modelBudget,
 		MaxTokens:          deps.MaxTokens,
 		StreamingPreferred: deps.StreamingPreferred,
-		Sandbox:            deps.Sandbox,
 		UsageRecorder:      deps.UsageRecorder,
 		ModeGetter:         deps.ModeGetter,
 		AgentType:          deps.AgentType,
@@ -121,7 +125,7 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 // shared system preamble is left intact. Project context (AGENTS.md,
 // configured extra files) is included so child agents inherit project
 // conventions without the parent forwarding them.
-func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, caveHuman bool, skipProjectContext bool, skipAgents bool) prompt.AssemblyOptions {
+func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, caveHuman bool, skipProjectContext bool, skipAgents bool, sandboxEnabled bool, writableMounts []string) prompt.AssemblyOptions {
 	taskContent := spec.Task
 	if spec.Context != "" {
 		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", spec.Task, spec.Context)
@@ -141,6 +145,8 @@ func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.P
 		SkipProjectContext:        skipProjectContext,
 		SkipAgents:                skipAgents,
 		CaveHuman:                 caveHuman,
+		SandboxEnabled:            sandboxEnabled,
+		SandboxWritableMounts:     append([]string(nil), writableMounts...),
 		WorkflowMode:              prompt.DelegatedChildWorkflowMode(),
 		Conversation: []provider.Message{
 			msg,
@@ -206,7 +212,6 @@ type childRunRequestParams struct {
 	ModelBudget        prompt.ModelTokenBudget
 	MaxTokens          *int
 	StreamingPreferred bool
-	Sandbox            tool.SandboxWrapper
 	UsageRecorder      *usagestats.Recorder
 	ModeGetter         func() config.ExecutionMode
 	AgentType          AgentType
@@ -216,22 +221,13 @@ type childRunRequestParams struct {
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
 // Registries and prompt must be provided pre-built; the caller (typically
 // BuildChildRun) is responsible for registry and prompt assembly.
-// p.Sandbox is the parent's SandboxWrapper; if non-nil it is applied to the child
-// executor unchanged, enforcing child sandbox ≤ parent sandbox.
 // p.ModeGetter, when non-nil, is wired into the child executor so it inherits
 // the parent's execution mode.
 func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	childCfg := config.Config{}
 	scopedEvents := withAgentScope(p.AgentID, p.Events)
 
-	sandboxTmpDir := ""
-	if p.Sandbox != nil && p.Sandbox.Enabled() {
-		sandboxTmpDir = p.Sandbox.TmpDir()
-	}
-	exec := tool.NewExecutor(p.ExecReg, childCfg, nil, p.WorkDir, sandboxTmpDir)
-	if p.Sandbox != nil {
-		exec = exec.WithSandbox(p.Sandbox)
-	}
+	exec := tool.NewExecutor(p.ExecReg, childCfg, nil, p.WorkDir, "")
 	if p.ModeGetter != nil {
 		exec = exec.WithModeGetter(p.ModeGetter)
 	}

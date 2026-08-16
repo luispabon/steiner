@@ -220,6 +220,8 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 		basePrompt.WorkflowMode,
 		basePrompt.CaveHuman,
 		basePrompt.PromptOverrides.SystemSuffix,
+		basePrompt.SandboxEnabled,
+		basePrompt.SandboxWritableMounts,
 	)
 	return basePrompt
 }

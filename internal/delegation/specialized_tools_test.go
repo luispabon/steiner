@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -799,17 +798,10 @@ func TestSpecializedHandler_SavesSessionForStructuredFailure(t *testing.T) {
 	}
 }
 
-// toolTestSandbox is a test double for tool.SandboxWrapper.
-type toolTestSandbox struct {
-	enabled bool
-}
-
-func (s *toolTestSandbox) Enabled() bool                       { return s.enabled }
-func (s *toolTestSandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd { return cmd }
-func (s *toolTestSandbox) TmpDir() string                      { return "" }
-
-func TestSubAgentHandlerDeps_SandboxInherited(t *testing.T) {
-	sb := &toolTestSandbox{enabled: true}
+// TestSubAgentHandlerDepsCarriesSandboxState proves the specialized handler
+// forwards the parent's plain sandbox state (SandboxEnabled and writable
+// mounts) into the child prompt's sandbox section.
+func TestSubAgentHandlerDepsCarriesSandboxState(t *testing.T) {
 	var capturedReq agent.RunRequest
 	firstCall := true
 
@@ -818,12 +810,13 @@ func TestSubAgentHandlerDeps_SandboxInherited(t *testing.T) {
 
 	deps := SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			Provider:    stubProvider{},
-			ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }}),
-			SubAgentCfg: config.SubAgentConfig{},
-			Events:      noopEventSink{},
-			WorkDir:     "/tmp/work",
-			Sandbox:     sb,
+			Provider:              stubProvider{},
+			ParentReg:             tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }}),
+			SubAgentCfg:           config.SubAgentConfig{},
+			Events:                noopEventSink{},
+			WorkDir:               "/tmp/work",
+			SandboxEnabled:        true,
+			SandboxWritableMounts: []string{"/host/rw"},
 			Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 				if firstCall {
 					capturedReq = req
@@ -835,28 +828,22 @@ func TestSubAgentHandlerDeps_SandboxInherited(t *testing.T) {
 	}
 
 	def := SpecializedToolDef(AgentTypeExplore, deps)
-	_, err := def.Handler(context.Background(), map[string]any{"task": "test sandbox inheritance"})
+	_, err := def.Handler(context.Background(), map[string]any{"task": "test sandbox state"})
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 
-	if capturedReq.Executor == nil {
-		t.Fatal("capturedReq.Executor is nil")
+	if !capturedReq.Prompt.SandboxEnabled {
+		t.Error("child Prompt.SandboxEnabled=false, want true")
 	}
-	concreteExec := childExecutorInner(t, capturedReq)
-	got := concreteExec.Sandbox()
-	if got == nil {
-		t.Fatal("child Executor.Sandbox() is nil, want parent sandbox")
-	}
-	if got != sb {
-		t.Error("child sandbox is not the same instance as parent sandbox")
-	}
-	if !got.Enabled() {
-		t.Error("child sandbox Enabled()=false, want true")
+	if want := []string{"/host/rw"}; !slices.Equal(capturedReq.Prompt.SandboxWritableMounts, want) {
+		t.Errorf("child Prompt.SandboxWritableMounts=%v, want %v", capturedReq.Prompt.SandboxWritableMounts, want)
 	}
 }
 
-func TestSubAgentHandlerDeps_NilSandboxNotInherited(t *testing.T) {
+// TestSubAgentHandlerDepsDisabledSandboxNotCarried proves a disabled (or
+// bypassed) parent sandbox leaves the child prompt's sandbox section off.
+func TestSubAgentHandlerDepsDisabledSandboxNotCarried(t *testing.T) {
 	var capturedReq agent.RunRequest
 	firstCall := true
 
@@ -870,7 +857,7 @@ func TestSubAgentHandlerDeps_NilSandboxNotInherited(t *testing.T) {
 			SubAgentCfg: config.SubAgentConfig{},
 			Events:      noopEventSink{},
 			WorkDir:     "/tmp/work",
-			Sandbox:     nil, // no sandbox — unsafe mode
+			// SandboxEnabled defaults to false; no writable mounts configured.
 			Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 				if firstCall {
 					capturedReq = req
@@ -882,17 +869,16 @@ func TestSubAgentHandlerDeps_NilSandboxNotInherited(t *testing.T) {
 	}
 
 	def := SpecializedToolDef(AgentTypeExplore, deps)
-	_, err := def.Handler(context.Background(), map[string]any{"task": "test nil sandbox"})
+	_, err := def.Handler(context.Background(), map[string]any{"task": "test disabled sandbox"})
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 
-	if capturedReq.Executor == nil {
-		t.Fatal("capturedReq.Executor is nil")
+	if capturedReq.Prompt.SandboxEnabled {
+		t.Error("child Prompt.SandboxEnabled=true, want false")
 	}
-	concreteExec := childExecutorInner(t, capturedReq)
-	if got := concreteExec.Sandbox(); got != nil {
-		t.Errorf("child Executor.Sandbox()=%v, want nil when parent has no sandbox", got)
+	if len(capturedReq.Prompt.SandboxWritableMounts) != 0 {
+		t.Errorf("child Prompt.SandboxWritableMounts=%v, want empty", capturedReq.Prompt.SandboxWritableMounts)
 	}
 }
 

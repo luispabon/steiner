@@ -158,11 +158,27 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
 		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
 		AdvisorEnabled:            r.runtime.cfg.Advisor.Enabled,
+		SandboxEnabled:            r.runtime.sandbox != nil && r.runtime.sandbox.Enabled(),
+		SandboxWritableMounts:     sandboxWritableMounts(r.runtime.cfg.Sandbox),
 		PhasePrompt:               r.phasePrompt,
 		WorkflowMode:              r.workflowMode,
 		Conversation:              toProviderConversation(conversation),
 		CaveHuman:                 r.runtime.cfg.CaveHuman,
 	}
+}
+
+// sandboxWritableMounts returns the sandbox host-mount paths configured
+// writable, preserving config order. Mounts with Mode other than "rw"
+// (including empty, meaning read-only) are excluded. Paths are already
+// home-expanded at config load.
+func sandboxWritableMounts(cfg config.SandboxConfig) []string {
+	var mounts []string
+	for _, m := range cfg.HostMounts {
+		if m.Mode == "rw" {
+			mounts = append(mounts, m.Path)
+		}
+	}
+	return mounts
 }
 
 func (r cliRunner) normalizedRunMode() string {

@@ -14,8 +14,8 @@ import (
 func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 	t.Run("cache hit with same parameters", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("alpha", false, false, prompt.ParentWorkflowMode(), false, "")
-		second := manager.CachedSystemPreamble("alpha", false, false, prompt.ParentWorkflowMode(), false, "")
+		first := manager.CachedSystemPreamble("alpha", false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
+		second := manager.CachedSystemPreamble("alpha", false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -26,8 +26,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different caveHuman", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), false, "")
-		second := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), true, "")
+		first := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), false, "", false, nil)
+		second := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), true, "", false, nil)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -38,8 +38,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different override", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("alpha", false, false, prompt.ParentWorkflowMode(), false, "")
-		second := manager.CachedSystemPreamble("beta", false, false, prompt.ParentWorkflowMode(), false, "")
+		first := manager.CachedSystemPreamble("alpha", false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
+		second := manager.CachedSystemPreamble("beta", false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -50,8 +50,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different systemSuffix", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "")
-		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "Extended thinking enabled")
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
+		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "Extended thinking enabled", false, nil)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -66,8 +66,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 	t.Run("cache hit with same systemSuffix", func(t *testing.T) {
 		var manager baseContextManager
 		suffix := "Custom model instruction"
-		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, suffix)
-		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, suffix)
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, suffix, false, nil)
+		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, suffix, false, nil)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -78,8 +78,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss when suffix changes from non-empty to empty", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "Some instruction")
-		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "")
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "Some instruction", false, nil)
+		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -93,8 +93,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different caveHuman", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), false, "")
-		second := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), true, "")
+		first := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), false, "", false, nil)
+		second := manager.CachedSystemPreamble("", true, false, prompt.ParentWorkflowMode(), true, "", false, nil)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -105,8 +105,8 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different advisorEnabled", func(t *testing.T) {
 		var manager baseContextManager
-		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "")
-		second := manager.CachedSystemPreamble("", false, true, prompt.ParentWorkflowMode(), false, "")
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
+		second := manager.CachedSystemPreamble("", false, true, prompt.ParentWorkflowMode(), false, "", false, nil)
 		if first == "" {
 			t.Fatal("first preamble = empty, want content")
 		}
@@ -120,9 +120,9 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 
 	t.Run("cache miss with different workflow mode and hit with same workflow mode", func(t *testing.T) {
 		var manager baseContextManager
-		parent := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "")
-		child := manager.CachedSystemPreamble("", false, false, prompt.DelegatedChildWorkflowMode(), false, "")
-		childAgain := manager.CachedSystemPreamble("", false, false, prompt.DelegatedChildWorkflowMode(), false, "")
+		parent := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
+		child := manager.CachedSystemPreamble("", false, false, prompt.DelegatedChildWorkflowMode(), false, "", false, nil)
+		childAgain := manager.CachedSystemPreamble("", false, false, prompt.DelegatedChildWorkflowMode(), false, "", false, nil)
 		if parent == "" || child == "" {
 			t.Fatal("cached preamble = empty, want content")
 		}
@@ -131,6 +131,58 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 		}
 		if childAgain != child {
 			t.Fatalf("child preamble = %q, want cached %q", childAgain, child)
+		}
+	})
+
+	t.Run("cache hit with same sandboxEnabled and mounts", func(t *testing.T) {
+		var manager baseContextManager
+		mounts := []string{"/var/log", "/home/u/go"}
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", true, mounts)
+		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", true, mounts)
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second != first {
+			t.Fatalf("second preamble = %q, want cached %q", second, first)
+		}
+		if !strings.Contains(first, "The sandbox is enabled") {
+			t.Fatal("preamble should contain sandbox instruction when sandboxEnabled")
+		}
+		if !strings.Contains(first, "Additional writable paths: /var/log, /home/u/go") {
+			t.Fatal("preamble should list the writable mounts")
+		}
+	})
+
+	t.Run("cache miss when sandboxEnabled changes", func(t *testing.T) {
+		var manager baseContextManager
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
+		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", true, nil)
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second == first {
+			t.Fatal("second preamble should differ when sandboxEnabled changes")
+		}
+		if !strings.Contains(second, "The sandbox is enabled") {
+			t.Fatal("second preamble should contain sandbox instruction")
+		}
+	})
+
+	t.Run("cache miss when sandboxWritableMounts changes", func(t *testing.T) {
+		var manager baseContextManager
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", true, []string{"/var/log"})
+		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", true, []string{"/var/log", "/home/u/go"})
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second == first {
+			t.Fatal("second preamble should differ when sandboxWritableMounts changes")
+		}
+		if !strings.Contains(first, "Additional writable paths: /var/log") {
+			t.Fatal("first preamble should list the first mount set")
+		}
+		if strings.Contains(first, "/home/u/go") {
+			t.Fatal("first preamble should not list the second mount set")
 		}
 	})
 }

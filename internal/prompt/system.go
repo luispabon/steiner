@@ -21,6 +21,7 @@ type sectionID string
 
 const (
 	sectionIdentity       sectionID = "identity"
+	sectionSandbox        sectionID = "sandbox"
 	sectionDelegation     sectionID = "delegation"
 	sectionAdvisor        sectionID = "advisor"
 	sectionCoreRules      sectionID = "core_rules"
@@ -29,9 +30,11 @@ const (
 )
 
 type sectionContext struct {
-	delegationEnabled bool
-	advisorEnabled    bool
-	workflowMode      workflowMode
+	delegationEnabled     bool
+	sandboxEnabled        bool
+	sandboxWritableMounts []string
+	advisorEnabled        bool
+	workflowMode          workflowMode
 }
 
 type sectionRenderer func(sectionContext) string
@@ -42,12 +45,19 @@ var defaultSectionOrder = []sectionID{
 	sectionAdvisor,
 	sectionCoreRules,
 	sectionWorkflow,
+	sectionSandbox,
 	sectionExecutionModes,
 }
 
 var systemSections = map[sectionID]sectionRenderer{
 	sectionIdentity: func(sectionContext) string {
 		return identity
+	},
+	sectionSandbox: func(ctx sectionContext) string {
+		if !ctx.sandboxEnabled {
+			return ""
+		}
+		return renderSandboxInstruction(ctx.sandboxWritableMounts)
 	},
 	sectionDelegation: func(ctx sectionContext) string {
 		if !ctx.delegationEnabled {
@@ -163,6 +173,19 @@ const advisorInstructions = `## Advisor
 
 If you need a stronger-model strategic check, call ` + "`advisor`" + `. Use it sparingly for ambiguity, risk, or a final sanity check. It gives strategic guidance considering the full conversation context, rather than analysis of a single scoped sub-problem you hand it. It gives steering only; it does not mutate code, run tools, or replace your judgment. Weigh its guidance seriously, but when your own evidence contradicts a specific claim it made — a step it recommended fails when you try it, or file contents disagree with what it assumed — surface the conflict explicitly rather than silently complying or silently discarding the advice. The advisor sees the conversation but cannot read files itself, so pass the paths of any artifact you want it to judge via ` + "`files`" + `, and state what you want judged via ` + "`question`" + `.`
 
+// renderSandboxInstruction renders the sandbox section, listing the host paths
+// mounted writable. With no mounts the section names only the current workdir.
+func renderSandboxInstruction(mounts []string) string {
+	const section = `## Sandbox
+
+The sandbox is enabled. The filesystem is read-only except the current
+workdir.`
+	if len(mounts) == 0 {
+		return section
+	}
+	return section + " Additional writable paths: " + strings.Join(mounts, ", ")
+}
+
 const coreRules = `## Core rules:
 - Do user's task only. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
 - The codebase's root folder is the current folder
@@ -238,12 +261,14 @@ func SystemPreamble(override string, delegationEnabled bool, caveHuman bool, sys
 
 // SystemPreambleParams holds the inputs used to build the system preamble.
 type SystemPreambleParams struct {
-	Override          string
-	DelegationEnabled bool
-	AdvisorEnabled    bool
-	Mode              WorkflowMode
-	CaveHuman         bool
-	SystemSuffix      string
+	Override              string
+	DelegationEnabled     bool
+	SandboxEnabled        bool
+	SandboxWritableMounts []string
+	AdvisorEnabled        bool
+	Mode                  WorkflowMode
+	CaveHuman             bool
+	SystemSuffix          string
 }
 
 // SystemPreambleWithAdvisor builds the system-message preamble with optional advisor guidance.
@@ -252,7 +277,7 @@ func SystemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
 }
 
 func systemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
-	content := buildSystemPreamble(params.DelegationEnabled, params.AdvisorEnabled, params.Mode)
+	content := buildSystemPreamble(params.DelegationEnabled, params.AdvisorEnabled, params.SandboxEnabled, params.SandboxWritableMounts, params.Mode)
 	if params.Override != "" {
 		content = buildOverridePreamble(strings.TrimSpace(params.Override), params.DelegationEnabled, params.AdvisorEnabled, params.Mode)
 	}
@@ -284,11 +309,13 @@ func buildOverridePreamble(override string, delegationEnabled bool, advisorEnabl
 	return strings.Join(sections, "\n\n")
 }
 
-func buildSystemPreamble(delegationEnabled bool, advisorEnabled bool, mode workflowMode) string {
+func buildSystemPreamble(delegationEnabled bool, advisorEnabled bool, sandboxEnabled bool, sandboxWritableMounts []string, mode workflowMode) string {
 	ctx := sectionContext{
-		delegationEnabled: delegationEnabled,
-		advisorEnabled:    advisorEnabled,
-		workflowMode:      normalizeWorkflowMode(mode),
+		delegationEnabled:     delegationEnabled,
+		sandboxEnabled:        sandboxEnabled,
+		sandboxWritableMounts: sandboxWritableMounts,
+		advisorEnabled:        advisorEnabled,
+		workflowMode:          normalizeWorkflowMode(mode),
 	}
 
 	sections := make([]string, 0, len(defaultSectionOrder))

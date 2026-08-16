@@ -32,9 +32,14 @@ type SubAgentHandlerDeps struct {
 	// child registries beyond the built-in allowlists. Nil or empty map grants
 	// no extra tools.
 	ExtraAllowedTools map[AgentType][]string
-	// Sandbox is the parent sandbox. Sub-agents inherit it unchanged so that
-	// child sandbox permissions cannot exceed parent permissions.
-	Sandbox tool.SandboxWrapper
+	// SandboxEnabled reports whether the parent sandbox is active. Forwarded as
+	// a plain value into child prompts so their system preamble renders the same
+	// sandbox section as the parent.
+	SandboxEnabled bool
+	// SandboxWritableMounts lists host paths mounted writable in the sandbox,
+	// forwarded to child prompts so their system preamble renders the same
+	// sandbox section as the parent.
+	SandboxWritableMounts []string
 	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
 	UsageRecorder *usagestats.Recorder
 	// CacheKeyStore is the process-lifetime store reused across all agent-type
