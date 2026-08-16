@@ -80,6 +80,9 @@ type Message struct {
 
 // UsageStats carries token accounting returned by a provider.
 type UsageStats struct {
+	// PromptTokens is the TOTAL input token count for the turn, including any
+	// cached portion (CacheReadInputTokens/CacheCreationInputTokens are not
+	// additional to this total, they are subsets of it).
 	PromptTokens             int `json:"prompt_tokens,omitempty"`
 	CompletionTokens         int `json:"completion_tokens,omitempty"`
 	TotalTokens              int `json:"total_tokens,omitempty"`

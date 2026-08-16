@@ -417,6 +417,26 @@ func TestSessionReport(t *testing.T) {
 	}
 }
 
+// TestRecord_fix0RegressionRecorderAlreadyCorrect documents that the
+// recorder's hit-rate math was already correct before issue #490's Fix 0
+// (which only touched internal/agent's turn_progression.go accumulation).
+// For a turn with 100 total prompt tokens where 50 were served from cache,
+// the recorded hit rate must be 50/100 = 50%, not 50/150.
+func TestRecord_fix0RegressionRecorderAlreadyCorrect(t *testing.T) {
+	isolateTest(t)
+	r := New(fixedClock(baseTime))
+	r.Record(Observation{PromptTokens: 100, CacheReadTokens: 50, At: baseTime})
+
+	sr := r.SessionReport()
+	rate, ok := sr.HitRate()
+	if !ok {
+		t.Fatal("HitRate ok = false, want true")
+	}
+	if rate != 0.5 {
+		t.Fatalf("HitRate rate = %v, want 0.5", rate)
+	}
+}
+
 func TestSessionReport_independentOfBuckets(t *testing.T) {
 	isolateTest(t)
 	// Record observations that span two hours (two buckets) and one observation in the future.
