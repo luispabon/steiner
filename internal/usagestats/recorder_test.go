@@ -462,3 +462,76 @@ func TestSessionReport_independentOfBuckets(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionReportFor_perSourceIsolation(t *testing.T) {
+	isolateTest(t)
+	r := New(fixedClock(baseTime))
+	r.Record(Observation{PromptTokens: 100, CacheReadTokens: 50, Source: SourceParent, At: baseTime})
+	r.Record(Observation{PromptTokens: 200, CacheReadTokens: 20, Source: SourceSubAgent, At: baseTime})
+
+	parent := r.SessionReportFor(SourceParent)
+	if parent.CacheReadTokens != 50 {
+		t.Errorf("parent CacheReadTokens: got %d, want 50", parent.CacheReadTokens)
+	}
+	if parent.TotalInputTokens != 100 {
+		t.Errorf("parent TotalInputTokens: got %d, want 100", parent.TotalInputTokens)
+	}
+
+	subAgent := r.SessionReportFor(SourceSubAgent)
+	if subAgent.CacheReadTokens != 20 {
+		t.Errorf("sub-agent CacheReadTokens: got %d, want 20", subAgent.CacheReadTokens)
+	}
+	if subAgent.TotalInputTokens != 200 {
+		t.Errorf("sub-agent TotalInputTokens: got %d, want 200", subAgent.TotalInputTokens)
+	}
+
+	advisor := r.SessionReportFor(SourceAdvisor)
+	if advisor.CacheReadTokens != 0 || advisor.TotalInputTokens != 0 {
+		t.Errorf("advisor report should be empty, got %+v", advisor)
+	}
+
+	blended := r.SessionReport()
+	if blended.CacheReadTokens != 70 {
+		t.Errorf("blended CacheReadTokens: got %d, want 70", blended.CacheReadTokens)
+	}
+	if blended.TotalInputTokens != 300 {
+		t.Errorf("blended TotalInputTokens: got %d, want 300", blended.TotalInputTokens)
+	}
+}
+
+func TestRecord_sourceDoesNotAffectBucketKey(t *testing.T) {
+	isolateTest(t)
+	r := New(fixedClock(baseTime))
+	r.Record(Observation{
+		ProviderAlias: "x", ProviderType: "openai", BackendModelID: "m",
+		PromptTokens: 100, Source: SourceParent, At: baseTime,
+	})
+	r.Record(Observation{
+		ProviderAlias: "x", ProviderType: "openai", BackendModelID: "m",
+		PromptTokens: 50, Source: SourceSubAgent, At: baseTime,
+	})
+
+	if got := len(r.buckets); got != 1 {
+		t.Fatalf("buckets: got %d, want 1 (source must not split buckets)", got)
+	}
+
+	key := bucketKey{providerAlias: "x", providerType: "openai", backendModelID: "m", hourUnix: hourStart.Unix()}
+	b := r.buckets[key]
+	if b == nil {
+		t.Fatal("expected merged bucket regardless of source")
+	}
+	if b.Requests != 2 {
+		t.Errorf("Requests: got %d, want 2", b.Requests)
+	}
+	if b.InputTokens != 150 {
+		t.Errorf("InputTokens: got %d, want 150", b.InputTokens)
+	}
+
+	report := r.Window(time.Hour)
+	if len(report.Rows) != 1 {
+		t.Fatalf("Window rows: got %d, want 1 (source must not split windowed rows)", len(report.Rows))
+	}
+	if report.Rows[0].InputTokens != 150 {
+		t.Errorf("Window InputTokens: got %d, want 150", report.Rows[0].InputTokens)
+	}
+}

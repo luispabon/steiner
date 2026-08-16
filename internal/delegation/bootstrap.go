@@ -243,6 +243,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		StreamingPreferred: p.StreamingPreferred,
 		CaveHuman:          p.PromptOpts.CaveHuman,
 		PromptCacheKey:     childCacheKey,
+		UsageSource:        usagestats.SourceSubAgent,
 	}
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder

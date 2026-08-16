@@ -69,6 +69,10 @@ type RunRequest struct {
 	// response. Nil disables recording (tests, unwired paths).
 	UsageRecorder usageRecorder
 
+	// UsageSource identifies which call surface this run represents, for
+	// session-scoped usage attribution. The zero value is usagestats.SourceParent.
+	UsageSource usagestats.Source
+
 	// VisionCapabilities tracks per-model vision capability for the session.
 	// Nil disables capability-driven retry logic (tests, unwired paths preserve old behavior).
 	VisionCapabilities *VisionCapabilities
