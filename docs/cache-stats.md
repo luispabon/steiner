@@ -45,7 +45,7 @@ hit_rate = CacheReadInputTokens / total_input_tokens
 Where:
 
 - `CacheReadInputTokens` is the count of input tokens served from cache (read from `cache_read_input_tokens` in the model response).
-- `total_input_tokens` is the sum of non-cached input tokens, cache-read tokens, and cache-creation tokens: `non_cached_input + cache_read + cache_creation`. For Anthropic models, `prompt_tokens` already equals this total.
+- `total_input_tokens` is the sum of non-cached input tokens, cache-read tokens, and cache-creation tokens: `non_cached_input + cache_read + cache_creation`. `non_cached_input` is derived by subtracting the cache-read and cache-creation counts from the provider's `prompt_tokens` field, which is always a raw total including any cached portion — true for Anthropic, OpenAI-compatible, and Codex adapters alike. Any consumer of `prompt_tokens` (a future provider adapter included) must subtract cache components before treating it as "uncached" input, or the hit-rate denominator double-counts cache reads and deflates the reported rate.
 
 **Undefined case**: When a time window contains no cache-capable model calls or zero total input tokens, the metric renders as `—` (em-dash), never NaN or an error.
 
