@@ -564,7 +564,7 @@ func TestSystemPreambleExecutionModesInParent(t *testing.T) {
 		"## Execution modes",
 		"Interactive sessions run in `plan` or `build` mode.",
 		"The current mode",
-		"arrives as a bracketed notice inside user messages.",
+		"announced in a bracketed notice prepended to every outgoing user message.",
 		"In `plan` mode:",
 		"Project edits are restricted",
 		"`.steiner/plans/`",

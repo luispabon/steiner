@@ -33,7 +33,6 @@ type Session struct {
 	sessionGroup        string
 	reasoningOverrides  map[string]provider.ReasoningOverride
 	mode                config.ExecutionMode
-	pendingModeNotice   bool
 	modeListener        func(config.ExecutionMode)
 	done                chan struct{}
 	exitOnce            sync.Once
@@ -59,7 +58,6 @@ func NewSession(deps Dependencies) (*Session, error) {
 	)
 
 	mode := deps.Config.Modes.Default
-	pendingNotice := mode == config.ExecutionModePlan
 	return &Session{
 		deps:                deps,
 		events:              events,
@@ -73,7 +71,6 @@ func NewSession(deps Dependencies) (*Session, error) {
 		lineage:             agent.ConversationLineage{},
 		reasoningOverrides:  make(map[string]provider.ReasoningOverride),
 		mode:                mode,
-		pendingModeNotice:   pendingNotice,
 		done:                make(chan struct{}),
 	}, nil
 }
@@ -252,8 +249,8 @@ func (s *Session) Mode() config.ExecutionMode {
 }
 
 // SetMode updates the execution mode. If m is the same as the current mode,
-// this is a no-op. Otherwise, it stores m, sets pendingModeNotice=true,
-// emits a mode-changed event, and notifies the mode listener if one is set.
+// this is a no-op. Otherwise, it stores m, emits a mode-changed event, and
+// notifies the mode listener if one is set.
 func (s *Session) SetMode(m config.ExecutionMode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -261,7 +258,6 @@ func (s *Session) SetMode(m config.ExecutionMode) {
 		return
 	}
 	s.mode = m
-	s.pendingModeNotice = true
 	s.events.Emit(output.NewModeChangedEvent(string(m)))
 	if s.modeListener != nil {
 		s.modeListener(m)
@@ -278,20 +274,16 @@ func (s *Session) SetModeListener(listener func(config.ExecutionMode)) {
 }
 
 // modeNotice returns the mode notice string for injection into user messages.
-// Plan mode returns a sticky notice on every turn. Build mode returns a one-shot
-// notice only when pendingModeNotice is set (mode transitions). Returns empty string
-// if neither condition is met.
+// The notice is sticky: it is returned on every call in both plan and build
+// mode, so run_flow prepends it to every outgoing user message. Returns empty
+// string for any mode ModeNotice does not cover.
 func (s *Session) modeNotice() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.mode == config.ExecutionModePlan {
-		return prompt.ModeNotice(s.mode) + "\n\n"
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if notice := prompt.ModeNotice(s.mode); notice != "" {
+		return notice + "\n\n"
 	}
-	if !s.pendingModeNotice {
-		return ""
-	}
-	s.pendingModeNotice = false
-	return prompt.ModeNotice(s.mode) + "\n\n"
+	return ""
 }
 
 func usagePercent(promptTokens, contextWindow int) float64 {

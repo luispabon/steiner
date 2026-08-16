@@ -20,7 +20,7 @@ There is no third "chat" mode and no auto-detection — plan mode itself serves 
   
   There is no model-initiated path from build back to plan; only this workflow_handoff transition and the user-driven toggle/command change mode.
 
-Switching mode emits a `status: mode → <mode>` transcript line, updates the footer badge (`⏸ plan` / `⏵⏵ build`) and the sidebar mode row, and for build-mode transitions emits a one-shot bracketed mode notice (`prompt.ModeNotice`) that is prepended to the next outgoing user message. In plan mode, the notice is prepended to every outgoing user message (sticky) and stored in the conversation, so the model can always see the current mode.
+Switching mode emits a `status: mode → <mode>` transcript line and updates the footer badge (`⏸ plan` / `⏵⏵ build`) and the sidebar mode row. A bracketed mode notice (`prompt.ModeNotice`) is prepended to every outgoing user message in both modes and stored verbatim in the conversation, so the model can always see the current mode. A restored session re-announces its mode on the next turn automatically.
 
 ## Cache safety
 
@@ -41,7 +41,7 @@ The `mutate` write restriction and the sub-agent denials are enforced in `intern
 
 ## Persistence
 
-The current mode is saved with the session (`session.Mode`) and restored on resume. If a saved session has no mode recorded, the session falls back to `modes.default`. `plan` and `build` are accepted as persisted values; any other non-empty value is rejected at restore with a `load session failed` error, so an unknown mode can never restore a writable session. Plan-mode sessions carry the sticky mode notice on every outgoing user message, so the mode is always visible in the conversation history and survives resume and compaction without special handling. Build-mode sessions carry no standing notice, only a one-shot announcement when transitioning from plan mode.
+The current mode is saved with the session (`session.Mode`) and restored on resume. If a saved session has no mode recorded, the session falls back to `modes.default`. `plan` and `build` are accepted as persisted values; any other non-empty value is rejected at restore with a `load session failed` error, so an unknown mode can never restore a writable session. Both plan- and build-mode sessions carry the mode notice on every outgoing user message, so the mode is always visible in the conversation history and survives resume and compaction without special handling. A restored session re-announces its mode on the next turn automatically.
 
 ## Configuration
 

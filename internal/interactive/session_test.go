@@ -1463,12 +1463,27 @@ func TestLoadSessionRestoresMode(t *testing.T) {
 				},
 			}
 
-			s := testNewSession(t, Dependencies{
+			var capturedConversations [][]agent.Message
+			deps := Dependencies{
 				SessionStore: mockStore,
 				Config: config.Config{
 					Modes: config.ModesConfig{Default: config.ExecutionModePlan},
 				},
-			})
+			}
+			if tc.want == config.ExecutionModeBuild {
+				// Capture the next-turn runner submission so the test proves a
+				// restored session re-announces its mode through the real
+				// submission path, not only via the private helper.
+				deps.Runner = newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+					capturedConversations = append(capturedConversations, cloneMessages(conversation))
+					result := append(append([]agent.Message(nil), conversation...), agent.Message{
+						Role:    agent.MessageRoleAssistant,
+						Content: "response",
+					})
+					return RunResult{Conversation: result}, nil
+				})
+			}
+			s := testNewSession(t, deps)
 
 			var listenerCalled bool
 			s.SetModeListener(func(config.ExecutionMode) { listenerCalled = true })
@@ -1481,6 +1496,42 @@ func TestLoadSessionRestoresMode(t *testing.T) {
 			}
 			if !listenerCalled {
 				t.Fatal("mode listener not called on successful restore")
+			}
+			wantNotice := prompt.ModeNotice(tc.want) + "\n\n"
+			if notice := s.modeNotice(); notice != wantNotice {
+				t.Fatalf("modeNotice() after restore = %q, want %q (restored session must re-announce its mode)", notice, wantNotice)
+			}
+
+			if tc.want == config.ExecutionModeBuild {
+				s.submitPrompt(context.Background(), "next prompt", nil)
+
+				if len(capturedConversations) != 1 {
+					t.Fatalf("expected 1 captured conversation after next turn, got %d", len(capturedConversations))
+				}
+				buildNotice := prompt.ModeNotice(config.ExecutionModeBuild)
+				received := capturedConversations[0]
+				foundNoticeInReceived := false
+				for _, msg := range received {
+					if msg.Role == agent.MessageRoleUser && strings.HasPrefix(msg.Content, buildNotice) {
+						foundNoticeInReceived = true
+						break
+					}
+				}
+				if !foundNoticeInReceived {
+					t.Fatalf("runner-received conversation = %#v, want a user message prefixed with build notice %q", received, buildNotice)
+				}
+
+				storedConv := s.Conversation()
+				foundNoticeInStored := false
+				for _, msg := range storedConv {
+					if msg.Role == agent.MessageRoleUser && strings.Contains(msg.Content, "[execution mode: build]") {
+						foundNoticeInStored = true
+						break
+					}
+				}
+				if !foundNoticeInStored {
+					t.Fatal("stored conversation does not retain build mode notice after the next turn")
+				}
 			}
 		})
 	}
@@ -2819,17 +2870,17 @@ func TestSessionModeListener(t *testing.T) {
 	}
 }
 
-func TestSessionModePendingNoticeFlag(t *testing.T) {
+func TestModeNoticeStickyBothModes(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
-		defaultMode  config.ExecutionMode
-		expectNotice bool
+		name        string
+		defaultMode config.ExecutionMode
 	}{
-		{config.ExecutionModePlan, true},
-		{config.ExecutionModeBuild, false},
+		{name: "plan", defaultMode: config.ExecutionModePlan},
+		{name: "build", defaultMode: config.ExecutionModeBuild},
 	}
 	for _, tc := range testCases {
-		t.Run(string(tc.defaultMode), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			deps := Dependencies{
 				Config: config.Config{
 					Modes: config.ModesConfig{
@@ -2838,14 +2889,66 @@ func TestSessionModePendingNoticeFlag(t *testing.T) {
 				},
 			}
 			s := testNewSession(t, deps)
-			notice := s.modeNotice()
-			if tc.expectNotice && notice == "" {
-				t.Error("expected mode notice for plan mode, got empty")
+			want := prompt.ModeNotice(tc.defaultMode) + "\n\n"
+			if notice := s.modeNotice(); notice != want {
+				t.Errorf("modeNotice() = %q, want %q", notice, want)
 			}
-			if !tc.expectNotice && notice != "" {
-				t.Errorf("expected no mode notice for build mode, got: %q", notice)
+			// The notice never clears: a second call returns it again.
+			if notice := s.modeNotice(); notice != want {
+				t.Errorf("modeNotice() second call = %q, want %q (notice must not clear)", notice, want)
 			}
 		})
+	}
+}
+
+func TestModeNoticeStickyBuildModeRunner(t *testing.T) {
+	t.Parallel()
+	// A fresh build-mode session announces the mode on its first turn: the
+	// conversation sent to the runner starts with the build notice and the
+	// stored conversation retains it.
+	capturedConversations := make([][]agent.Message, 0, 1)
+
+	deps := Dependencies{
+		Config: config.Config{
+			Modes: config.ModesConfig{
+				Default: config.ExecutionModeBuild,
+			},
+		},
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+			capturedConversations = append(capturedConversations, cloneMessages(conversation))
+			result := append(append([]agent.Message(nil), conversation...), agent.Message{
+				Role:    agent.MessageRoleAssistant,
+				Content: "response",
+			})
+			return RunResult{Conversation: result}, nil
+		}),
+	}
+	s := testNewSession(t, deps)
+
+	s.submitPrompt(context.Background(), "first prompt", nil)
+
+	if len(capturedConversations) != 1 {
+		t.Fatalf("expected 1 captured conversation, got %d", len(capturedConversations))
+	}
+	buildNotice := prompt.ModeNotice(config.ExecutionModeBuild)
+	first := capturedConversations[0][0]
+	if first.Role != agent.MessageRoleUser {
+		t.Fatalf("first message role = %s, want user", first.Role)
+	}
+	if !strings.HasPrefix(first.Content, buildNotice) {
+		t.Fatalf("first submitted user message does not start with build notice; got %q", first.Content)
+	}
+
+	storedConv := s.Conversation()
+	foundNoticeInStored := false
+	for _, msg := range storedConv {
+		if msg.Role == agent.MessageRoleUser && strings.Contains(msg.Content, "[execution mode: build]") {
+			foundNoticeInStored = true
+			break
+		}
+	}
+	if !foundNoticeInStored {
+		t.Fatal("stored conversation does not contain mode notice; notice is not retained")
 	}
 }
 
