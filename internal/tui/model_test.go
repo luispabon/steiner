@@ -5032,10 +5032,11 @@ func TestViewportSelectionSurvivesContentAppendBelow(t *testing.T) {
 	}
 }
 
-// findUserLineAndBlankLine locates the rendered content line containing needle,
-// its segment index, and the first unmappable blank line after it. Test-only
-// helper for the viewport-selection tests.
-func findUserLineAndBlankLine(t *testing.T, m *Model, needle string) (userLine, userSeg, blankLine int) {
+// findUserLineAndUnmappableLine locates the rendered content line containing
+// needle, its segment index, and the first unmappable line after it. In these
+// fixtures the unmappable line is the blank user separator. Test-only helper
+// for the viewport-selection tests.
+func findUserLineAndUnmappableLine(t *testing.T, m *Model, needle string) (userLine, userSeg, blankLine int) {
 	t.Helper()
 	renderedLines := strings.Split(m.content.String(m.viewport.Width()), "\n")
 	userLine, userSeg, blankLine = -1, -1, -1
@@ -5066,7 +5067,7 @@ func TestViewportSelectionSurvivesDragEndOnUserSeparator(t *testing.T) {
 	// maps to no segment. A drag ending there must snap to the nearest mappable
 	// line (the user segment row) at anchor capture so the endpoint stays
 	// anchored when content shifts.
-	userLine, userSeg, blankLine := findUserLineAndBlankLine(t, m, "select this user line")
+	userLine, userSeg, blankLine := findUserLineAndUnmappableLine(t, m, "select this user line")
 	if userLine < 0 {
 		t.Fatal("user segment text line not found in rendered content")
 	}
@@ -5129,7 +5130,7 @@ func TestViewportSelectionRemapsWhenContentShiftsAboveUnanchoredEndpoint(t *test
 
 	// The blank separator below the user segment maps to no segment; the drag
 	// endpoint there snaps to the user segment row at anchor capture.
-	userLine, userSeg, blankLine := findUserLineAndBlankLine(t, m, "select this user line")
+	userLine, userSeg, blankLine := findUserLineAndUnmappableLine(t, m, "select this user line")
 	if userLine < 0 || userSeg < 0 {
 		t.Fatal("user segment text line not found in rendered content")
 	}
@@ -5184,7 +5185,7 @@ func TestViewportSelectionDragSnapsBlankLineViaMouseHandlers(t *testing.T) {
 	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
 	m.syncViewport()
 
-	userLine, _, blankLine := findUserLineAndBlankLine(t, m, "select this user line")
+	userLine, _, blankLine := findUserLineAndUnmappableLine(t, m, "select this user line")
 	if userLine < 0 || blankLine < 0 {
 		t.Fatal("user text or blank separator line not found in rendered content")
 	}
@@ -5679,7 +5680,7 @@ func TestSelectionEscClearsDragPressState(t *testing.T) {
 func TestDragEpochInvalidatedOnClear(t *testing.T) {
 	t.Parallel()
 
-	// clearViewportSelectionAndDrag bumps the epoch so any pending auto-scroll
+	// clearSelectionAndDrag bumps the epoch so any pending auto-scroll
 	// tick from the cancelled drag goes stale.
 	m := buildTestModel(100, 30, false, false)
 	m.activeRegion = regionViewport
@@ -5689,12 +5690,12 @@ func TestDragEpochInvalidatedOnClear(t *testing.T) {
 	m.dragScrollDir = 1
 	m.dragScrollTicking = true
 	m.dragScrollEpoch = 7
-	m.clearViewportSelectionAndDrag()
+	m.clearSelectionAndDrag()
 	if m.dragScrollEpoch != 8 {
-		t.Errorf("dragScrollEpoch = %d after clearViewportSelectionAndDrag; want 8", m.dragScrollEpoch)
+		t.Errorf("dragScrollEpoch = %d after clearSelectionAndDrag; want 8", m.dragScrollEpoch)
 	}
 	if m.selection.hasSelection() {
-		t.Error("selection survived clearViewportSelectionAndDrag")
+		t.Error("selection survived clearSelectionAndDrag")
 	}
 	if m.mousePressX != -1 || m.mousePressY != -1 {
 		t.Errorf("mouse press not reset: (%d,%d)", m.mousePressX, m.mousePressY)

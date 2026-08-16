@@ -117,7 +117,7 @@ func (m *Model) remapViewportSelection() {
 		m.remapEndpoint(&m.selection.end, &m.selection.endAnchor) {
 		return
 	}
-	m.clearViewportSelectionAndDrag()
+	m.clearSelectionAndDrag()
 }
 
 // remapEndpoint moves a selection endpoint from its anchored segment row to the
@@ -153,9 +153,9 @@ func (m *Model) remapEndpoint(p *selectionPoint, anchor *selectionAnchor) bool {
 	return true
 }
 
-// clearViewportSelectionAndDrag drops the viewport selection and cancels any
-// in-flight drag (press, edge auto-scroll, and its tick epoch).
-func (m *Model) clearViewportSelectionAndDrag() {
+// clearSelectionAndDrag drops the current selection and cancels any in-flight
+// drag (press, edge auto-scroll, and its tick epoch).
+func (m *Model) clearSelectionAndDrag() {
 	if m.selection.hasSelection() {
 		m.selection = m.selection.clear()
 	}

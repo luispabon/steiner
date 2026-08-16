@@ -108,7 +108,7 @@ func (m *Model) syncViewport() {
 		// and must survive reflow untouched.
 		if m.activeRegion == regionViewport {
 			if widthChanged {
-				m.clearViewportSelectionAndDrag()
+				m.clearSelectionAndDrag()
 			} else {
 				m.remapViewportSelection()
 			}
