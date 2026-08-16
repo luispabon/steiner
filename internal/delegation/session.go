@@ -37,6 +37,14 @@ type SubAgentHandlerDeps struct {
 	Sandbox tool.SandboxWrapper
 	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
 	UsageRecorder *usagestats.Recorder
+	// CacheKeyStore is the process-lifetime store reused across all agent-type
+	// delegations in this session for prompt-cache key reuse. Nil disables key
+	// reuse: each delegation mints a fresh key, matching pre-Fix-3 behavior.
+	// Like SessionStore (whose Reset has zero production callers today), this
+	// store is process-lifetime, not conversation-scoped: it is NOT reset on
+	// /new. This is a deliberate accepted scope choice — a stale shard hint
+	// costs at most a cache miss, never a correctness issue — not a bug.
+	CacheKeyStore *CacheKeyStore
 }
 
 // ChildSession tracks persisted state for a delegated child session.

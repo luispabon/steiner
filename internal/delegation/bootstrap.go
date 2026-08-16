@@ -37,6 +37,14 @@ type BootstrapDeps struct {
 	Sandbox tool.SandboxWrapper
 	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
 	UsageRecorder *usagestats.Recorder
+	// AgentType identifies the agent type being bootstrapped, used to key
+	// CacheKeyStore lookups for prompt-cache key reuse.
+	AgentType AgentType
+	// CacheKeyStore, when non-nil, is consulted to reuse a prompt-cache key
+	// across delegations of the same AgentType. Nil means always mint a fresh
+	// key, preserving pre-Fix-3 behavior; this matters for tests and any
+	// caller that doesn't wire a store.
+	CacheKeyStore *CacheKeyStore
 	// ModeGetter returns the current execution mode. When non-nil, child executors
 	// receive this getter via WithModeGetter so they inherit the parent's execution mode.
 	ModeGetter func() config.ExecutionMode
@@ -94,6 +102,8 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		Sandbox:            deps.Sandbox,
 		UsageRecorder:      deps.UsageRecorder,
 		ModeGetter:         deps.ModeGetter,
+		AgentType:          deps.AgentType,
+		CacheKeyStore:      deps.CacheKeyStore,
 	})
 	return req, limits, nil
 }
@@ -199,6 +209,8 @@ type childRunRequestParams struct {
 	Sandbox            tool.SandboxWrapper
 	UsageRecorder      *usagestats.Recorder
 	ModeGetter         func() config.ExecutionMode
+	AgentType          AgentType
+	CacheKeyStore      *CacheKeyStore
 }
 
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
@@ -224,11 +236,20 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		exec = exec.WithModeGetter(p.ModeGetter)
 	}
 
-	// A fresh per-run cache key, distinct from the parent's, keeps sub-agent
-	// traffic off the parent conversation's cache shard. An entropy error leaves
-	// it empty, which simply disables provider-side caching for this child run
-	// rather than failing bootstrap.
-	childCacheKey, _ := provider.NewPromptCacheKey()
+	// Same-type sub-agent delegations reuse one cache key per AgentType within
+	// the process lifetime when p.CacheKeyStore is provided, still isolated
+	// from the parent's own key and from other agent types' keys. When no
+	// store is provided, or the store fails to produce a usable key, a fresh
+	// per-run key is minted instead; an entropy error leaves it empty, which
+	// simply disables provider-side caching for this child run rather than
+	// failing bootstrap.
+	var childCacheKey string
+	if p.CacheKeyStore != nil {
+		childCacheKey, _ = p.CacheKeyStore.KeyFor(p.AgentType, provider.NewPromptCacheKey)
+	}
+	if childCacheKey == "" {
+		childCacheKey, _ = provider.NewPromptCacheKey()
+	}
 
 	req := agent.RunRequest{
 		Provider:           p.Provider,

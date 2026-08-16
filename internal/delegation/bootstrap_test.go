@@ -1077,6 +1077,57 @@ func TestBuildChildRunInheritsEnabledSandbox(t *testing.T) {
 	}
 }
 
+func TestBuildChildRunRequestPromptCacheKeyFallsBackWhenStoreNil(t *testing.T) {
+	req := buildChildRunRequest(childRunRequestParams{
+		WorkDir:    "/tmp/work",
+		AgentID:    "cache-key-nil-store",
+		VisibleReg: tool.NewRegistry(),
+		ExecReg:    tool.NewRegistry(),
+	})
+	if req.PromptCacheKey == "" {
+		t.Fatal("PromptCacheKey is empty, want a freshly minted key when CacheKeyStore is nil")
+	}
+}
+
+func TestBuildChildRunRequestPromptCacheKeyReusePerAgentType(t *testing.T) {
+	store := NewCacheKeyStore()
+
+	first := buildChildRunRequest(childRunRequestParams{
+		WorkDir:       "/tmp/work",
+		AgentID:       "cache-key-1",
+		VisibleReg:    tool.NewRegistry(),
+		ExecReg:       tool.NewRegistry(),
+		AgentType:     AgentTypeCode,
+		CacheKeyStore: store,
+	})
+	second := buildChildRunRequest(childRunRequestParams{
+		WorkDir:       "/tmp/work",
+		AgentID:       "cache-key-2",
+		VisibleReg:    tool.NewRegistry(),
+		ExecReg:       tool.NewRegistry(),
+		AgentType:     AgentTypeCode,
+		CacheKeyStore: store,
+	})
+	if first.PromptCacheKey == "" {
+		t.Fatal("PromptCacheKey is empty, want a minted key")
+	}
+	if first.PromptCacheKey != second.PromptCacheKey {
+		t.Errorf("PromptCacheKey differs across same-AgentType calls: %q vs %q", first.PromptCacheKey, second.PromptCacheKey)
+	}
+
+	third := buildChildRunRequest(childRunRequestParams{
+		WorkDir:       "/tmp/work",
+		AgentID:       "cache-key-3",
+		VisibleReg:    tool.NewRegistry(),
+		ExecReg:       tool.NewRegistry(),
+		AgentType:     AgentTypeReview,
+		CacheKeyStore: store,
+	})
+	if third.PromptCacheKey == first.PromptCacheKey {
+		t.Errorf("PromptCacheKey for a different AgentType matched: %q", third.PromptCacheKey)
+	}
+}
+
 func TestMCPChildRegistryRetainsHandlersAndProvenance(t *testing.T) {
 	handler := func(_ context.Context, _ map[string]any) (any, error) { return "ok", nil }
 	prov := tool.MCPProvenance{Server: "notes", ToolName: "search"}

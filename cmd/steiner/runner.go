@@ -89,6 +89,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		SessionStore:       r.runtime.delegationSessionStore,
 		ImageStore:         r.runtime.imageStore,
 		ExtraAllowedTools:  exposure,
+		CacheKeyStore:      r.runtime.delegationCacheKeyStore,
 	})
 	if err != nil {
 		return runResult{}, err
