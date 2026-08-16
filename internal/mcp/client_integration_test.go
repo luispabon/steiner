@@ -374,7 +374,7 @@ func skipIfBwrapUnavailable(t *testing.T) {
 func newSandbox(t *testing.T, repoRoot, sandboxTmp string) *sandbox.Sandbox {
 	t.Helper()
 	cfg := config.SandboxConfig{Enabled: true}
-	s := sandbox.New(cfg, config.PermissionsConfig{}, nil, repoRoot, repoRoot, t.TempDir(), sandboxTmp)
+	s := sandbox.New(cfg, config.PermissionsConfig{}, repoRoot, repoRoot, t.TempDir(), sandboxTmp)
 	if err := s.EnsureHome(); err != nil {
 		t.Fatalf("ensure sandbox home: %v", err)
 	}

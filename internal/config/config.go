@@ -129,10 +129,11 @@ type MCPServerConfig struct {
 
 // SandboxConfig controls bubblewrap sandbox behaviour for tool execution.
 type SandboxConfig struct {
-	Enabled                      bool     `yaml:"enabled"`
-	WarningOnUnsupportedPlatform bool     `yaml:"warning_on_unsupported_platform"`
-	EnvPassthrough               []string `yaml:"env_passthrough"`
-	EnvPassthroughAll            bool     `yaml:"env_passthrough_all"`
+	Enabled                      bool        `yaml:"enabled"`
+	WarningOnUnsupportedPlatform bool        `yaml:"warning_on_unsupported_platform"`
+	EnvPassthrough               []string    `yaml:"env_passthrough"`
+	EnvPassthroughAll            bool        `yaml:"env_passthrough_all"`
+	HostMounts                   []HostMount `yaml:"host_mounts"`
 }
 
 // PermissionsConfig holds host-capability flags granted to the sandbox.
@@ -154,7 +155,6 @@ type Config struct {
 	Limits               LimitsConfig               `yaml:"limits"`
 	Sandbox              SandboxConfig              `yaml:"sandbox"`
 	Permissions          PermissionsConfig          `yaml:"permissions"`
-	HostMounts           []HostMount                `yaml:"host_mounts"`
 	SubAgent             SubAgentConfig             `yaml:"sub_agent"`
 	Advisor              AdvisorConfig              `yaml:"advisor"`
 	OneShot              oneshotConfig              `yaml:"oneshot"`

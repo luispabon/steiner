@@ -279,7 +279,7 @@ func TestBashSession_RealSandboxWrapperFiltersEnv(t *testing.T) {
 	t.Setenv("STEINER_TEST_FAKE_TOKEN", "x")
 
 	root := t.TempDir()
-	sb := sandbox.New(config.SandboxConfig{Enabled: true}, config.PermissionsConfig{}, nil, root, root, t.TempDir(), t.TempDir())
+	sb := sandbox.New(config.SandboxConfig{Enabled: true}, config.PermissionsConfig{}, root, root, t.TempDir(), t.TempDir())
 	if err := sb.EnsureHome(); err != nil {
 		t.Fatalf("EnsureHome: %v", err)
 	}
