@@ -132,7 +132,7 @@ Cache statistics are surfaced in three ways.
 The `PERFORMANCE` sidebar card includes a `cache hit` field, alongside `duration`, `ttft`, and `tps`, displaying the **current session** token-weighted cache hit rate:
 
 - **Format**: e.g., `78.2%` (session-lifetime percentage) or `—` (before the first cache-capable call).
-- **Scope**: Process-lifetime counters, independent of the global windowed store.
+- **Scope**: Process-lifetime counters for the top-level orchestrator run only (`usagestats.SourceParent`), independent of the global windowed store. Sub-agent and advisor calls are recorded separately and do not feed this figure, so the sidebar shows `—` until the orchestrator itself has made a cache-capable call, even if a sub-agent or advisor call completed first. The `/cache-stats` overlay's windowed rows remain blended across all sources; the source distinction is session-scoped only and does not affect the persisted schema.
 - **Updates**: Refreshed after each model response.
 
 ### Cache hit rate in sub-agent and advisor tool boxes

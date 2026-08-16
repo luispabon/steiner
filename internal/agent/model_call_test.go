@@ -299,6 +299,27 @@ func TestRecordModelUsage(t *testing.T) {
 	}
 }
 
+func TestRecordModelUsage_zeroValueUsageSourceIsParent(t *testing.T) {
+	recorder := &testRecorder{}
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "gpt-4-test",
+			EffectiveProviderType: config.ProviderTypeOpenAI,
+			BackendModelID:        "gpt-4",
+		},
+		UsageRecorder: recorder,
+	}
+
+	recordModelUsage(req, &provider.UsageStats{PromptTokens: 100, CompletionTokens: 50})
+
+	if len(recorder.obs) != 1 {
+		t.Fatalf("observations count = %d, want 1", len(recorder.obs))
+	}
+	if got := recorder.obs[0].Source; got != usagestats.SourceParent {
+		t.Errorf("Source = %v, want %v", got, usagestats.SourceParent)
+	}
+}
+
 func TestStreamRequiredDetection(t *testing.T) {
 	tests := []struct {
 		name     string

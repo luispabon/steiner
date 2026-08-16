@@ -282,7 +282,7 @@ func (m *Model) syncSidebar() {
 	}
 	m.sidebar.workingDir = strings.TrimSpace(m.sidebar.workingDir)
 	if m.recorder != nil {
-		sr := m.recorder.SessionReport()
+		sr := m.recorder.SessionReportFor(usagestats.SourceParent)
 		rate, ok := sr.HitRate()
 		m.sidebar.sessionCacheHitRate = rate
 		m.sidebar.sessionCacheHitRateOK = ok

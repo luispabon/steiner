@@ -34,6 +34,7 @@ func recordModelUsage(req RunRequest, usage *provider.UsageStats) {
 		CompletionTokens:  usage.CompletionTokens,
 		CacheReadTokens:   usage.CacheReadInputTokens,
 		CacheCreateTokens: usage.CacheCreationInputTokens,
+		Source:            req.UsageSource,
 	})
 }
 
