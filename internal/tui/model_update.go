@@ -120,11 +120,7 @@ func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
 	}
 	m.content.Clear()
 	m.selection = m.selection.clear()
-	m.mousePressX = -1
-	m.mousePressY = -1
-	m.dragScrollDir = 0
-	m.dragScrollTicking = false
-	m.dragScrollEpoch++
+	m.clearDragState()
 	m.imageMarkers = nil
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
@@ -435,9 +431,7 @@ func (m *Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 		}
 		clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
 		m.selection.end = m.anchorPoint(clampedX, clampedY)
-		if m.activeRegion == regionViewport {
-			m.selection.end.line, m.selection.endAnchor = m.viewportSelectionEndpoint(m.selection.end.line)
-		}
+		m.anchorViewportSelectionEnd()
 		return m, cmd
 	}
 	return m, nil
@@ -453,9 +447,7 @@ func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) 
 
 	clampedX, clampedY := m.clampToRegion(msg.x, msg.y, m.activeRegion)
 	m.selection.end = m.anchorPoint(clampedX, clampedY)
-	if m.activeRegion == regionViewport {
-		m.selection.end.line, m.selection.endAnchor = m.viewportSelectionEndpoint(m.selection.end.line)
-	}
+	m.anchorViewportSelectionEnd()
 	m.dragScrollDir = 0
 	m.dragScrollTicking = false
 	var cmd tea.Cmd
@@ -507,9 +499,7 @@ func (m *Model) handleDragAutoScrollTick(msg dragAutoScrollTickMsg) (tea.Model, 
 	m.autoScroll = false
 	clampedX, clampedY := m.clampToRegion(m.dragLastX, m.dragLastY, m.activeRegion)
 	m.selection.end = m.anchorPoint(clampedX, clampedY)
-	if m.activeRegion == regionViewport {
-		m.selection.end.line, m.selection.endAnchor = m.viewportSelectionEndpoint(m.selection.end.line)
-	}
+	m.anchorViewportSelectionEnd()
 	epoch := m.dragScrollEpoch
 	return m, tea.Tick(dragAutoScrollInterval, func(time.Time) tea.Msg {
 		return dragAutoScrollTickMsg{epoch: epoch}

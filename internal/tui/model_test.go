@@ -4993,6 +4993,16 @@ func TestDragAutoScrollTickStopsOnRelease(t *testing.T) {
 	}
 }
 
+// viewportAnchorForContentLine anchors a viewport content line to its rendered
+// segment row, or returns an empty anchor when the line maps to no segment.
+// Test-only helper for the viewport-selection tests.
+func (m *Model) viewportAnchorForContentLine(line int) selectionAnchor {
+	segIndex, rowInSeg, ok := m.content.segmentAtContentLine(line)
+	if !ok {
+		return selectionAnchor{}
+	}
+	return m.content.selectionAnchorForSegmentRow(segIndex, rowInSeg)
+}
 func TestViewportSelectionSurvivesContentAppendBelow(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
