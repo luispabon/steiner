@@ -227,6 +227,17 @@ func TestAdvisorEventsRender(t *testing.T) {
 	}
 }
 
+// TestAdvisorCompleteEventCacheHitRateNotDoubleCounted pins Fix 0 (issue
+// #490): InputTokens must already be the non-cached portion of the prompt, so
+// for a turn with 100 total prompt tokens where 50 were served from cache,
+// the rendered hit rate must be 50/100 = 50.0%, not 50/150.
+func TestAdvisorCompleteEventCacheHitRateNotDoubleCounted(t *testing.T) {
+	rendered := renderEvent(NewAdvisorCompleteEvent("advisor-model", 1, 2, "note", false, nil, 50, 0, 50))
+	if got := rendered.Text; !strings.Contains(got, "cache=50.0%") {
+		t.Fatalf("text = %q, want cache=50.0%%", got)
+	}
+}
+
 func TestDelegationCompleteEventRendersCacheHitRate(t *testing.T) {
 	noUsage := renderEvent(NewDelegationCompleteEvent(DelegationCompleteParams{
 		AgentID:       "child-1",
@@ -251,6 +262,23 @@ func TestDelegationCompleteEventRendersCacheHitRate(t *testing.T) {
 	}))
 	if got := withUsage.Text; !strings.Contains(got, "cache=95.0%") {
 		t.Fatalf("with-usage text = %q, want cache=95.0%%", got)
+	}
+}
+
+// TestDelegationCompleteEventCacheHitRateNotDoubleCounted pins Fix 0 (issue
+// #490): InputTokens must already be the non-cached portion of the prompt, so
+// for a turn with 100 total prompt tokens where 50 were served from cache,
+// the rendered hit rate must be 50/100 = 50.0%, not 50/150.
+func TestDelegationCompleteEventCacheHitRateNotDoubleCounted(t *testing.T) {
+	rendered := renderEvent(NewDelegationCompleteEvent(DelegationCompleteParams{
+		AgentID:           "child-3",
+		Status:            "complete",
+		InputTokens:       50,
+		CacheReadTokens:   50,
+		CacheCreateTokens: 0,
+	}))
+	if got := rendered.Text; !strings.Contains(got, "cache=50.0%") {
+		t.Fatalf("text = %q, want cache=50.0%%", got)
 	}
 }
 
