@@ -11,10 +11,11 @@ import (
 // time, so the endpoint can be remapped onto the same text row after a
 // same-width content change moves rows around.
 type selectionAnchor struct {
-	segIndex int
-	rowInSeg int
-	rowText  string // ansi.Strip of the rendered line at anchor time
-	ok       bool
+	segIndex  int
+	rowInSeg  int
+	rowText   string // ansi.Strip of the rendered line at anchor time
+	renderGen int    // records contentSegment.renderGen at capture time
+	ok        bool
 }
 
 // segmentRenderedLines returns the lines of a segment's cached render, split
@@ -35,7 +36,13 @@ func (b *contentBuffer) selectionAnchorForSegmentRow(segIndex, rowInSeg int) sel
 	if rowInSeg < 0 || rowInSeg >= len(lines) {
 		return selectionAnchor{}
 	}
-	return selectionAnchor{segIndex: segIndex, rowInSeg: rowInSeg, rowText: ansi.Strip(lines[rowInSeg]), ok: true}
+	return selectionAnchor{
+		segIndex:  segIndex,
+		rowInSeg:  rowInSeg,
+		rowText:   ansi.Strip(lines[rowInSeg]),
+		renderGen: b.segments[segIndex].renderGen,
+		ok:        true,
+	}
 }
 
 // viewportSelectionEndpoint returns the content line and anchor to store for a
@@ -116,7 +123,9 @@ func (m *Model) remapViewportSelection() {
 // remapEndpoint moves a selection endpoint from its anchored segment row to the
 // current content line of the same row text. Columns are left untouched because
 // same-width content changes do not reflow rows. Returns false when the anchor
-// is stale or the row text can no longer be located unambiguously.
+// is stale or the row text can no longer be located unambiguously. When the
+// segment's render generation is unchanged, the rows are identical and only the
+// absolute content line needs recomputing.
 func (m *Model) remapEndpoint(p *selectionPoint, anchor *selectionAnchor) bool {
 	if !anchor.ok {
 		return false
@@ -124,16 +133,22 @@ func (m *Model) remapEndpoint(p *selectionPoint, anchor *selectionAnchor) bool {
 	if anchor.segIndex < 0 || anchor.segIndex >= len(m.content.segments) || m.content.isSegmentHidden(anchor.segIndex) {
 		return false
 	}
-	lines := m.content.segmentRenderedLines(anchor.segIndex)
-	newRow, ok := matchRow(lines, anchor.rowText, anchor.rowInSeg)
-	if !ok {
-		return false
+	seg := &m.content.segments[anchor.segIndex]
+	newRow := anchor.rowInSeg
+	if seg.renderGen != anchor.renderGen {
+		lines := m.content.segmentRenderedLines(anchor.segIndex)
+		var ok bool
+		newRow, ok = matchRow(lines, anchor.rowText, anchor.rowInSeg)
+		if !ok {
+			return false
+		}
 	}
 	line, ok := m.content.contentLineForSegmentRow(anchor.segIndex, newRow)
 	if !ok {
 		return false
 	}
 	anchor.rowInSeg = newRow
+	anchor.renderGen = seg.renderGen
 	p.line = line
 	return true
 }

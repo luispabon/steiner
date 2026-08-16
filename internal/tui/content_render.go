@@ -199,6 +199,7 @@ func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]c
 	seg.cachedRender = rendered
 	seg.cachedRenderWidth = width
 	seg.renderDirty = false
+	seg.renderGen++
 	b.segmentHeights[i] = strings.Count(rendered, "\n") + 1
 	if rendered != "" {
 		*parts = append(*parts, rendered)

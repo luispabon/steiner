@@ -5032,6 +5032,28 @@ func TestViewportSelectionSurvivesContentAppendBelow(t *testing.T) {
 	}
 }
 
+// findUserLineAndBlankLine locates the rendered content line containing needle,
+// its segment index, and the first unmappable blank line after it. Test-only
+// helper for the viewport-selection tests.
+func findUserLineAndBlankLine(t *testing.T, m *Model, needle string) (userLine, userSeg, blankLine int) {
+	t.Helper()
+	renderedLines := strings.Split(m.content.String(m.viewport.Width()), "\n")
+	userLine, userSeg, blankLine = -1, -1, -1
+	for i := range renderedLines {
+		segIndex, _, ok := m.content.segmentAtContentLine(i)
+		if !ok {
+			if blankLine < 0 && userLine >= 0 {
+				blankLine = i
+			}
+			continue
+		}
+		if strings.Contains(ansi.Strip(renderedLines[i]), needle) {
+			userLine, userSeg = i, segIndex
+		}
+	}
+	return userLine, userSeg, blankLine
+}
+
 func TestViewportSelectionSurvivesDragEndOnUserSeparator(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
@@ -5040,25 +5062,11 @@ func TestViewportSelectionSurvivesDragEndOnUserSeparator(t *testing.T) {
 	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
 	m.syncViewport()
 
-	renderedLines := strings.Split(m.content.String(m.viewport.Width()), "\n")
-
 	// The blank separator line between the user segment and the delegation box
 	// maps to no segment. A drag ending there must snap to the nearest mappable
 	// line (the user segment row) at anchor capture so the endpoint stays
 	// anchored when content shifts.
-	var userLine, userSeg, blankLine = -1, -1, -1
-	for i := range renderedLines {
-		segIndex, _, ok := m.content.segmentAtContentLine(i)
-		if !ok {
-			if blankLine < 0 {
-				blankLine = i
-			}
-			continue
-		}
-		if strings.Contains(ansi.Strip(renderedLines[i]), "select this user line") {
-			userLine, userSeg = i, segIndex
-		}
-	}
+	userLine, userSeg, blankLine := findUserLineAndBlankLine(t, m, "select this user line")
 	if userLine < 0 {
 		t.Fatal("user segment text line not found in rendered content")
 	}
@@ -5119,23 +5127,9 @@ func TestViewportSelectionRemapsWhenContentShiftsAboveUnanchoredEndpoint(t *test
 	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
 	m.syncViewport()
 
-	renderedLines := strings.Split(m.content.String(m.viewport.Width()), "\n")
-
 	// The blank separator below the user segment maps to no segment; the drag
 	// endpoint there snaps to the user segment row at anchor capture.
-	var userLine, userSeg, blankLine = -1, -1, -1
-	for i := range renderedLines {
-		segIndex, _, ok := m.content.segmentAtContentLine(i)
-		if !ok {
-			if blankLine < 0 && userLine >= 0 {
-				blankLine = i
-			}
-			continue
-		}
-		if strings.Contains(ansi.Strip(renderedLines[i]), "select this user line") {
-			userLine, userSeg = i, segIndex
-		}
-	}
+	userLine, userSeg, blankLine := findUserLineAndBlankLine(t, m, "select this user line")
 	if userLine < 0 || userSeg < 0 {
 		t.Fatal("user segment text line not found in rendered content")
 	}
@@ -5190,21 +5184,7 @@ func TestViewportSelectionDragSnapsBlankLineViaMouseHandlers(t *testing.T) {
 	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
 	m.syncViewport()
 
-	renderedLines := strings.Split(m.content.String(m.viewport.Width()), "\n")
-
-	var userLine, blankLine = -1, -1
-	for i := range renderedLines {
-		_, _, ok := m.content.segmentAtContentLine(i)
-		if !ok {
-			if blankLine < 0 {
-				blankLine = i
-			}
-			continue
-		}
-		if strings.Contains(ansi.Strip(renderedLines[i]), "select this user line") {
-			userLine = i
-		}
-	}
+	userLine, _, blankLine := findUserLineAndBlankLine(t, m, "select this user line")
 	if userLine < 0 || blankLine < 0 {
 		t.Fatal("user text or blank separator line not found in rendered content")
 	}
