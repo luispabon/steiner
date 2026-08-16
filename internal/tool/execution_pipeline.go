@@ -51,7 +51,7 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, cal
 			Input:             input,
 			Kind:              ApprovalKindPath,
 			Reason:            policyErr.Reason,
-			GrantInstructions: "Add a host_mount in .steiner/config.yaml or re-run with --unsafe",
+			GrantInstructions: "Add a sandbox.host_mount in .steiner/config.yaml or re-run with --unsafe",
 			Response:          make(chan ApprovalResponse, 1),
 			Path: &PathApprovalDetails{
 				WorkDir:    policy.Root(),
@@ -165,8 +165,8 @@ func (e *Executor) handleBashDenial(ctx context.Context, ec *executionContext, r
 		return e.handleSandboxDenial(ctx, ec, br, sandboxDenialParams{
 			Output:            output,
 			Reason:            "command blocked by sandbox",
-			GrantInstructions: "Add a host_mount in .steiner/config.yaml or re-run with --unsafe",
-			DenialMessage:     "\nAdd a host_mount in .steiner/config.yaml or re-run with --unsafe",
+			GrantInstructions: "Add a sandbox.host_mount in .steiner/config.yaml or re-run with --unsafe",
+			DenialMessage:     "\nAdd a sandbox.host_mount in .steiner/config.yaml or re-run with --unsafe",
 		})
 	}
 

@@ -426,6 +426,14 @@ config` output and is not user-configurable.
 | `warning_on_unsupported_platform` | bool   | `true`  | When enabled, shows a warning in the TUI when sandbox is unavailable or bypassed. |
 | `env_passthrough`                 | []string | `[]`   | Additional host environment variable names (beyond the built-in allowlist) passed through to sandboxed processes. Entries may end in `*` to match by prefix (e.g. `MYAPP_*`); no other wildcard forms are supported. |
 | `env_passthrough_all`             | bool   | `false` | When `true`, disables environment filtering entirely and passes the full host environment through, including credentials. |
+| `host_mounts`                     | []object | `[]` | Additional host paths to bind-mount into the sandbox. Use `mode: rw` to grant writable access to paths outside the workspace (all host paths are already readable through the root bind). |
+
+Each entry has:
+
+| Field  | Type   | Description |
+|--------|--------|-------------|
+| `path` | string | Host path to mount (supports `~` expansion). |
+| `mode` | string | Mount mode: `rw` for writable access (host is already read-only by default) or `ro`. |
 
 ```yaml
 sandbox:
@@ -433,6 +441,11 @@ sandbox:
   warning_on_unsupported_platform: true # default; warns when sandbox is unavailable/bypassed
   env_passthrough: []                 # default; extra allowlisted env var names, "*" suffix allowed for prefix match
   env_passthrough_all: false          # default; true disables env filtering entirely
+  host_mounts:
+    - path: ~/.kube
+      mode: rw
+    - path: /opt/tools
+      mode: rw
 ```
 
 ---
@@ -448,27 +461,6 @@ Opt-in permissions for additional capabilities.
 ```yaml
 permissions:
   docker: false
-```
-
----
-
-## `host_mounts`
-
-Additional host paths to bind-mount into the sandbox. Use `mode: rw` to grant writable access to paths outside the workspace (all host paths are already readable through the root bind).
-
-Each entry has:
-
-| Field  | Type   | Description |
-|--------|--------|-------------|
-| `path` | string | Host path to mount (supports `~` expansion). |
-| `mode` | string | Mount mode: `rw` for writable access (host is already read-only by default) or `ro`. |
-
-```yaml
-host_mounts:
-  - path: ~/.kube
-    mode: rw
-  - path: /opt/tools
-    mode: rw
 ```
 
 ---
@@ -1043,15 +1035,14 @@ paths:
 
 sandbox:
   enabled: true
+  host_mounts:
+    - path: ~/.kube
+      mode: rw
+    - path: /opt/tools
+      mode: rw
 
 permissions:
   docker: false
-
-host_mounts:
-  - path: ~/.kube
-    mode: rw
-  - path: /opt/tools
-    mode: rw
 
 logging:
   enabled: true

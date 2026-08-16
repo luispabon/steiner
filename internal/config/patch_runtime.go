@@ -78,6 +78,9 @@ func applySandboxPatch(cfg *SandboxConfig, patch *sandboxPatch) {
 	if patch.EnvPassthroughAll != nil {
 		cfg.EnvPassthroughAll = *patch.EnvPassthroughAll
 	}
+	if patch.HostMounts != nil {
+		cfg.HostMounts = *patch.HostMounts
+	}
 }
 
 func applyPermissionsPatch(cfg *PermissionsConfig, patch *permissionsPatch) {

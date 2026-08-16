@@ -129,11 +129,11 @@ This strategy ensures:
 | `--proc /proc` | `/proc` | fresh | Process information (ProcFS) |
 | `--bind .steiner/tmp/sandbox-tmp/<id>` | `/tmp` | rw | Session-scoped temporary files (persists across tool invocations) |
 | `--chdir <workspace>` | — | — | Sets initial working directory |
-| `host_mounts` (config) | same as host | ro/rw | Additional paths from `host_mounts:` config |
+| `sandbox.host_mounts` (config) | same as host | ro/rw | Additional paths from `sandbox: host_mounts:` config |
 
 All host paths (toolchains, credentials, system libraries) are accessible inside the sandbox at their original locations through the read-only root bind. No per-path auto-mounting is needed — `~/.ssh`, `~/.gitconfig`, `~/.aws`, `~/go`, `~/.rustup`, `~/.nvm`, etc. are all visible by default.
 
-To grant **writable** access to a path outside the workspace, use `host_mounts` config with `mode: rw`.
+To grant **writable** access to a path outside the workspace, use `sandbox.host_mounts` config with `mode: rw`.
 
 ## Sandbox home
 
@@ -210,7 +210,7 @@ Sandbox boundary violation:
   Attempted write: /var/log/app.log
   
 Options:
-  [A] Allow for this session: add /var/log to host_mounts (rw) and continue
+  [A] Allow for this session: add /var/log to sandbox.host_mounts (rw) and continue
   [U] Use --unsafe: disable sandboxing and re-run the command
   [C] Cancel: abort the command
 ```
@@ -238,15 +238,16 @@ If steiner is started with `--unsafe`, boundary violation prompts never appear. 
 
 ## Host mounts configuration
 
-All host paths are already readable inside the sandbox through the root bind. Use `host_mounts` to grant **writable** access to paths outside the workspace:
+All host paths are already readable inside the sandbox through the root bind. Use `sandbox.host_mounts` to grant **writable** access to paths outside the workspace:
 
 ```yaml
 # .steiner/config.yaml
-host_mounts:
-  - path: /var/log
-    mode: rw
-  - path: /opt/tools
-    mode: rw
+sandbox:
+  host_mounts:
+    - path: /var/log
+      mode: rw
+    - path: /opt/tools
+      mode: rw
 ```
 
 Mounted paths are:
@@ -255,8 +256,8 @@ Mounted paths are:
 - Default mode is `ro` (read-only), which is redundant with the root bind but harmless
 
 **Use cases**:
-- CI/CD logs (writable): `host_mounts: [{path: /var/log/ci, mode: rw}]`
-- Build output dir: `host_mounts: [{path: /opt/build, mode: rw}]`
+- CI/CD logs (writable): `sandbox.host_mounts: [{path: /var/log/ci, mode: rw}]`
+- Build output dir: `sandbox.host_mounts: [{path: /opt/build, mode: rw}]`
 
 ## Docker permission
 
@@ -287,9 +288,10 @@ This tool attempted to access a path outside the workspace:
   Path: /opt/tools/script.sh
   
 To allow this access:
-  1. Add to host_mounts in .steiner/config.yaml:
-     host_mounts:
-       - /opt/tools
+  1. Add to sandbox.host_mounts in .steiner/config.yaml:
+     sandbox:
+       host_mounts:
+         - /opt/tools
   2. Re-run the command
   
 Or disable sandboxing:
@@ -300,7 +302,7 @@ Or disable sandboxing:
 
 If tools are failing unexpectedly in the sandbox:
 
-1. **Check write target**: Write failures mean the target path is outside the workspace and not in `host_mounts` with `mode: rw`
+1. **Check write target**: Write failures mean the target path is outside the workspace and not in `sandbox.host_mounts` with `mode: rw`
 2. **Check permissions**: The sandbox runs as the same user; file permissions still apply
 3. **Check mount layout**: Run `mount` or `ls` inside the sandbox to verify the root bind is active
 4. **Use --unsafe**: Temporarily disable sandboxing to isolate whether the issue is sandbox-related

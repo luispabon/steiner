@@ -1493,6 +1493,109 @@ permissions:
 	}
 }
 
+// TestLoadHostMountsConfig guards against sandbox.host_mounts being documented
+// and struct-defined but never wired into configPatch: a user writing the
+// documented `sandbox: host_mounts:` YAML would previously hit
+// "field host_mounts not found in type config.configPatch" at startup.
+func TestLoadHostMountsConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+sandbox:
+  host_mounts:
+    - path: /var/log
+      mode: rw
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.Sandbox.HostMounts) != 1 {
+		t.Fatalf("sandbox.host_mounts has %d entries, want 1", len(cfg.Sandbox.HostMounts))
+	}
+	if cfg.Sandbox.HostMounts[0].Path != "/var/log" {
+		t.Fatalf("sandbox.host_mounts[0].path = %q, want /var/log", cfg.Sandbox.HostMounts[0].Path)
+	}
+	if cfg.Sandbox.HostMounts[0].Mode != "rw" {
+		t.Fatalf("sandbox.host_mounts[0].mode = %q, want rw", cfg.Sandbox.HostMounts[0].Mode)
+	}
+}
+
+// TestLoadRejectsTopLevelHostMounts guards against host_mounts being moved to
+// the sandbox block: a top-level host_mounts key must fail config loading so
+// users do not silently lose their mounts.
+func TestLoadRejectsTopLevelHostMounts(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  default: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+host_mounts:
+  - path: /var/log
+    mode: rw
+`)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want top-level host_mounts rejected")
+	}
+	if !strings.Contains(err.Error(), "host_mounts") {
+		t.Fatalf("Load() error = %v, want it to mention host_mounts", err)
+	}
+}
+
 func TestLoadPermissionsConfigOmittedDefaultsToDenied(t *testing.T) {
 	tempDir := t.TempDir()
 	projectDir := filepath.Join(tempDir, "project")
