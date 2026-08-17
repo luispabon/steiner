@@ -61,7 +61,7 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 		return nil
 	}
 
-	responseCh := h.coordinator.Begin(toolName, "", string(req.Kind), tool.ApprovalAgentScope(ctx))
+	responseCh := h.coordinator.Begin(req.CallID, toolName, "", string(req.Kind), tool.ApprovalAgentScope(ctx))
 	defer h.coordinator.Finish(responseCh)
 
 	select {

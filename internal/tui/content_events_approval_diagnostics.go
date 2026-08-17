@@ -45,6 +45,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 					entry.approvalServer = payload.Server
 					entry.approvalMCPTool = payload.ToolName
 					entry.approvalAgentID = event.Scope.AgentID
+					entry.approvalIdentity = payload.CallID
 					entry.approvalQueueDepth = 0
 					entry.approvalPending = true
 					entry.approvalMode = payload.Mode

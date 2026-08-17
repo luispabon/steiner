@@ -119,6 +119,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			if !m.approval.active {
 				m.approval = approvalState{
 					active:         true,
+					identity:       payload.CallID,
 					tool:           payload.Tool,
 					mode:           payload.Mode,
 					preview:        payload.Preview,
@@ -135,7 +136,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			}
 		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
 			m.approval = approvalState{}
-			if !m.promoteNextApproval() {
+			if !m.promoteNextApproval(payload.CallID) {
 				m.status.mode = "running"
 				m.input.Focus()
 			}
@@ -203,29 +204,38 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	}
 	return tea.Batch(cmds...)
 }
-func (m *Model) promoteNextApproval() bool {
+
+//nolint:gocyclo // approval segment variants stay centralized
+func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
+	identity := ""
+	if coordinator, ok := m.controller.(interface{ ApprovalHeadIdentity() string }); ok {
+		identity = coordinator.ApprovalHeadIdentity()
+	}
+	if identity == "" && len(resolvedIdentities) > 0 {
+		identity = resolvedIdentities[0]
+	}
 	for i := range m.content.segments {
 		seg := &m.content.segments[i]
-		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved {
+		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved && (identity == "" || seg.toolData.approvalIdentity == identity) {
 			tc := seg.toolData
-			m.approval = approvalState{active: true, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
+			m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
 			m.status.mode = "approval"
 			m.input.Blur()
 			return true
 		}
 		if seg.kind == segmentToolCallGroup && seg.toolGroupData != nil {
 			for _, tc := range seg.toolGroupData.entries {
-				if tc != nil && tc.approvalPending && !tc.approvalResolved {
-					m.approval = approvalState{active: true, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
+				if tc != nil && tc.approvalPending && !tc.approvalResolved && (identity == "" || tc.approvalIdentity == identity) {
+					m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
 					m.status.mode = "approval"
 					m.input.Blur()
 					return true
 				}
 			}
 		}
-		if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved {
+		if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved && (identity == "" || seg.approvalData.identity == identity) {
 			ad := seg.approvalData
-			m.approval = approvalState{active: true, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName}
+			m.approval = approvalState{active: true, identity: ad.identity, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName}
 			m.status.mode = "approval"
 			m.input.Blur()
 			return true

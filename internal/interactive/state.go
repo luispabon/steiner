@@ -214,10 +214,12 @@ func (s *SnapshotStore) Snapshot() (RequestContextSnapshot, bool) {
 // pendingApproval represents an outstanding mutation-tool approval that the
 // TUI (or other client) has not yet responded to.
 type pendingApproval struct {
+	identity string
 	toolName string
 	mode     string
 	kind     string // ApprovalKind string value
 	agentID  string
+	claimed  bool
 	response chan SubmitApproval
 }
 
@@ -230,10 +232,11 @@ type ApprovalCoordinator struct {
 
 // Begin registers a new pending approval request and returns a channel that
 // will receive the decision once the client submits one.
-func (c *ApprovalCoordinator) Begin(toolName, mode, kind, agentID string) chan SubmitApproval {
+func (c *ApprovalCoordinator) Begin(identity, toolName, mode, kind, agentID string) chan SubmitApproval {
 	response := make(chan SubmitApproval, 1)
 	c.mu.Lock()
 	c.queue = append(c.queue, &pendingApproval{
+		identity: identity,
 		toolName: toolName,
 		mode:     mode,
 		kind:     kind,
@@ -258,25 +261,43 @@ func (c *ApprovalCoordinator) Finish(response chan SubmitApproval) {
 	c.mu.Unlock()
 }
 
-// Submit delivers a user's approval decision to the head request, if the tool
-// and mode match.
+// Submit delivers a user's approval decision to the first unclaimed request,
+// if the tool and mode match. The response send happens outside the mutex so a
+// duplicate submission cannot block coordinator lifecycle operations.
 func (c *ApprovalCoordinator) Submit(submission SubmitApproval) {
 	c.mu.Lock()
+	var response chan SubmitApproval
+	for _, pending := range c.queue {
+		if pending.claimed {
+			continue
+		}
+		if pending.toolName != "" && submission.Tool != "" && submission.Tool != pending.toolName {
+			break
+		}
+		if pending.mode != "" && submission.Mode != "" && submission.Mode != pending.mode {
+			break
+		}
+		pending.claimed = true
+		response = pending.response
+		break
+	}
+	c.mu.Unlock()
+	if response != nil {
+		response <- submission
+	}
+}
+
+// HeadIdentity returns the identity of the first approval not yet claimed by a
+// decision, or an empty string when no such approval exists.
+func (c *ApprovalCoordinator) HeadIdentity() string {
+	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.queue) == 0 {
-		return
+	for _, pending := range c.queue {
+		if !pending.claimed {
+			return pending.identity
+		}
 	}
-	pending := c.queue[0]
-	if pending.toolName != "" && submission.Tool != "" && submission.Tool != pending.toolName {
-		return
-	}
-	if pending.mode != "" && submission.Mode != "" && submission.Mode != pending.mode {
-		return
-	}
-	// response is buffered with capacity one, so this send cannot block. The
-	// mutex rule applies to blocking sends; holding it prevents Finish from
-	// removing the head between selection and delivery.
-	pending.response <- submission
+	return ""
 }
 
 // HasPending reports whether an approval request is currently awaiting a

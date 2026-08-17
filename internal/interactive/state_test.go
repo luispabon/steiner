@@ -100,9 +100,9 @@ func TestActiveRunControllerSteer(t *testing.T) {
 
 func TestApprovalCoordinatorQueue(t *testing.T) {
 	coord := &ApprovalCoordinator{}
-	head := coord.Begin("head", "", "", "code")
-	middle := coord.Begin("middle", "", "", "review")
-	tail := coord.Begin("tail", "", "", "plan")
+	head := coord.Begin("head", "head", "", "", "code")
+	middle := coord.Begin("middle", "middle", "", "", "review")
+	tail := coord.Begin("tail", "tail", "", "", "plan")
 	if !coord.HasPending() || coord.PendingDepth() != 3 {
 		t.Fatalf("pending state = %v/%d, want true/3", coord.HasPending(), coord.PendingDepth())
 	}
@@ -131,11 +131,32 @@ func TestApprovalCoordinatorQueue(t *testing.T) {
 	}
 }
 
+func TestApprovalCoordinatorDuplicateSubmitClaimsOnlyHead(t *testing.T) {
+	coord := &ApprovalCoordinator{}
+	head := coord.Begin("head-id", "head", "", "", "")
+	tail := coord.Begin("tail-id", "tail", "", "", "")
+
+	coord.Submit(SubmitApproval{Identity: "head-id", Tool: "head", Decision: "first"})
+	coord.Submit(SubmitApproval{Identity: "head-id", Tool: "head", Decision: "duplicate"})
+
+	if got := (<-head).Decision; got != "first" {
+		t.Fatalf("head decision = %q, want first", got)
+	}
+	select {
+	case got := <-tail:
+		t.Fatalf("tail received stale decision %q", got.Decision)
+	default:
+	}
+	if got := coord.HeadIdentity(); got != "tail-id" {
+		t.Fatalf("head identity = %q, want tail-id", got)
+	}
+}
+
 func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
 	coord := &ApprovalCoordinator{}
 	started := make(chan chan SubmitApproval, 2)
 	for _, name := range []string{"a", "b"} {
-		go func() { started <- coord.Begin(name, "", "", "") }()
+		go func() { started <- coord.Begin(name, name, "", "", "") }()
 	}
 	channels := []chan SubmitApproval{<-started, <-started}
 	coord.Submit(SubmitApproval{Decision: "first"})
@@ -166,8 +187,8 @@ func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
 
 func TestApprovalCoordinatorSubmitFinishRace(t *testing.T) {
 	coord := &ApprovalCoordinator{}
-	a := coord.Begin("a", "", "", "")
-	b := coord.Begin("b", "", "", "")
+	a := coord.Begin("a", "a", "", "", "")
+	b := coord.Begin("b", "b", "", "", "")
 	finishStarted := make(chan struct{})
 	finishDone := make(chan struct{})
 	go func() {

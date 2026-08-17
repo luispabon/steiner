@@ -32,6 +32,7 @@ type approvalState struct {
 	kind           string // "path" or "mcp"
 	server         string // MCP server name (empty for path)
 	mcpToolName    string // MCP tool name (empty for path)
+	identity       string
 	selectedAction int
 }
 
