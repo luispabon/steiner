@@ -324,6 +324,14 @@ This message is misleading: the host may support unprivileged user namespaces fi
 
 To verify the host supports sandboxing, run `bwrap --ro-bind / / true` in a **host terminal**, not inside a steiner session. Inside a session you can confirm you are in the sandbox with `cat /proc/1/comm` (prints `bwrap`) and `cat /proc/self/uid_map` (shows a user-namespace mapping).
 
+At session startup, `PrereqCheck` now proactively probes bwrap's namespace
+capability by running `bwrap --ro-bind / / true`. If the probe fails (nested
+sandbox or unprivileged user namespaces disabled), `PrereqCheck` returns an
+error and `buildRuntimeSandbox` reports sandbox status as `"unavailable"` —
+the same degrade path triggered when bwrap is not installed. This prevents
+steiner from reporting an active sandbox that cannot actually run tool
+commands.
+
 ### Troubleshooting SSH config ownership failures
 
 If `ssh -G` or another client-only SSH command fails with:
