@@ -2,9 +2,14 @@ package delegation
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +19,7 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
@@ -1080,6 +1086,55 @@ func TestBuildChildRunSandboxEnabled(t *testing.T) {
 	}
 }
 
+// TestChildBashCommandWrapperPreserved proves builtin.Env.CommandWrapper
+// survives the child bootstrap chain: parent registry def (from
+// builtin.NewBashTool) -> Registry.Subset/NewRegistry cloning -> child executor
+// -> BashSession.CommandWrapper. The sentinel must fire when the child runs bash.
+func TestChildBashCommandWrapperPreserved(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skipf("bash not available: %v", err)
+	}
+
+	var calls atomic.Int32
+	workDir := t.TempDir()
+	pp := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	env := builtin.Env{
+		PathPolicy: &pp,
+		CommandWrapper: func(cmd *exec.Cmd) *exec.Cmd {
+			calls.Add(1)
+			return cmd
+		},
+	}
+	parent := tool.NewRegistry(builtin.NewBashTool(env))
+
+	deps := BootstrapDeps{
+		ParentReg:    parent,
+		SubAgentCfg:  config.SubAgentConfig{},
+		AllowedTools: []string{"bash"},
+		Events:       output.NoopSink{},
+		WorkDir:      workDir,
+		Provider:     stubProvider{},
+	}
+	spec := DelegationSpec{
+		Task:    "task",
+		AgentID: "child-bash-wrapper",
+		Limits:  DelegationLimits{MaxTurns: 1},
+	}
+
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+
+	if _, err := req.Executor.Execute(context.Background(), "bash", "", map[string]any{"command": "echo hello"}); err != nil {
+		t.Fatalf("Execute(bash) error = %v", err)
+	}
+
+	if calls.Load() == 0 {
+		t.Error("sentinel CommandWrapper was not called: bash handler lost the wrapper through the child bootstrap chain")
+	}
+}
+
 func TestBuildChildRunRequestPromptCacheKeyFallsBackWhenStoreNil(t *testing.T) {
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:    "/tmp/work",
@@ -1156,5 +1211,79 @@ func TestMCPChildRegistryRetainsHandlersAndProvenance(t *testing.T) {
 	}
 	if got.MCP != prov {
 		t.Errorf("child MCP ToolDef provenance = %+v, want %+v", got.MCP, prov)
+	}
+}
+
+// TestBuildChildRunSandboxTmpDir proves the child executor inherits the
+// sandbox tmp dir so mutate can rewrite /tmp paths into it. With an empty
+// SandboxTmpDir the same mutation is denied because /tmp is outside the
+// project root and the child has no approver.
+func TestBuildChildRunSandboxTmpDir(t *testing.T) {
+	workDir := t.TempDir()
+	sandboxTmpDir := filepath.Join(workDir, "sandbox-tmp")
+	if err := os.MkdirAll(sandboxTmpDir, 0o755); err != nil {
+		t.Fatalf("mkdir sandbox tmp dir: %v", err)
+	}
+
+	pp := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	parent := tool.NewRegistry(builtin.NewMutateTool(builtin.Env{WorkDir: workDir, PathPolicy: &pp}))
+
+	spec := DelegationSpec{
+		Task:    "task",
+		AgentID: "child-sandbox-tmp",
+		Limits:  DelegationLimits{MaxTurns: 1},
+	}
+
+	tests := []struct {
+		name          string
+		sandboxTmpDir string
+		wantLanded    bool
+	}{
+		{name: "sandbox tmpdir set rewrites /tmp into it", sandboxTmpDir: sandboxTmpDir, wantLanded: true},
+		{name: "empty sandbox tmpdir denies /tmp", sandboxTmpDir: "", wantLanded: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := BootstrapDeps{
+				ParentReg:     parent,
+				SubAgentCfg:   config.SubAgentConfig{},
+				AllowedTools:  []string{"mutate"},
+				Events:        output.NoopSink{},
+				WorkDir:       workDir,
+				Provider:      stubProvider{},
+				SandboxTmpDir: tt.sandboxTmpDir,
+			}
+			req, _, err := BuildChildRun(context.Background(), deps, spec)
+			if err != nil {
+				t.Fatalf("BuildChildRun() error = %v", err)
+			}
+
+			_, err = req.Executor.Execute(context.Background(), "mutate", "", map[string]any{
+				"operations": []any{
+					map[string]any{"type": "create", "path": "/tmp/test-file", "content": "hello\n"},
+				},
+			})
+			if !tt.wantLanded {
+				var execErr *tool.ToolExecutionError
+				if !errors.As(err, &execErr) {
+					t.Fatalf("Execute(mutate /tmp) error = %v, want *tool.ToolExecutionError policy_denied", err)
+				}
+				if execErr.Kind != "policy_denied" {
+					t.Fatalf("Execute(mutate /tmp) error kind = %q, want %q", execErr.Kind, "policy_denied")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Execute(mutate /tmp) error = %v", err)
+			}
+			got, err := os.ReadFile(filepath.Join(sandboxTmpDir, "test-file"))
+			if err != nil {
+				t.Fatalf("read under sandbox tmp dir: %v", err)
+			}
+			if string(got) != "hello\n" {
+				t.Errorf("file content = %q, want %q", string(got), "hello\n")
+			}
+		})
 	}
 }
