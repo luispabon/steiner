@@ -70,6 +70,10 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 	// already WaitInit'ed and re-registered late MCP defs before this run, so
 	// the projection always sees the final tool list.
 	exposure := BuildMCPExposure(r.runtime.registry.Definitions(), r.runtime.cfg.MCP.Servers)
+	sandboxTmpDir := ""
+	if r.sandboxEnabled() {
+		sandboxTmpDir = r.runtime.sandbox.TmpDir()
+	}
 	activeRegistry, err := delegation.BuildDelegateRegistry(delegation.DelegateDeps{
 		BaseRegistry:          r.runtime.registry,
 		SubAgentCfg:           r.runtime.cfg.SubAgent,
@@ -91,6 +95,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		ImageStore:            r.runtime.imageStore,
 		ExtraAllowedTools:     exposure,
 		CacheKeyStore:         r.runtime.delegationCacheKeyStore,
+		SandboxTmpDir:         sandboxTmpDir,
 		SandboxEnabled:        r.sandboxEnabled(),
 		SandboxWritableMounts: sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
 	})

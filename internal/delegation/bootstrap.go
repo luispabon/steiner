@@ -31,6 +31,10 @@ type BootstrapDeps struct {
 	MaxTokens            *int
 	StreamingPreferred   bool
 	CaveHuman            bool
+	// SandboxTmpDir is the path to the sandbox temporary directory inside the
+	// project root. When non-empty, child executors inherit it so that /tmp
+	// path rewriting works for tools like mutate.
+	SandboxTmpDir string
 	// SandboxEnabled reports whether the parent sandbox is active. Forwarded as
 	// a plain value into the child prompt so its system preamble renders the
 	// same sandbox section as the parent when the sandbox is active.
@@ -81,6 +85,7 @@ func handlerBootstrapDeps(agentType AgentType, deps SubAgentHandlerDeps, resolve
 		MaxTokens:             deps.MaxTokens,
 		StreamingPreferred:    deps.StreamingPreferred,
 		CaveHuman:             deps.CaveHuman,
+		SandboxTmpDir:         deps.SandboxTmpDir,
 		SandboxEnabled:        deps.SandboxEnabled,
 		SandboxWritableMounts: deps.SandboxWritableMounts,
 		UsageRecorder:         deps.UsageRecorder,
@@ -145,6 +150,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		ModeGetter:         deps.ModeGetter,
 		AgentType:          deps.AgentType,
 		CacheKeyStore:      deps.CacheKeyStore,
+		SandboxTmpDir:      deps.SandboxTmpDir,
 	})
 	return req, limits, nil
 }
@@ -268,6 +274,7 @@ type childRunRequestParams struct {
 	ModeGetter         func() config.ExecutionMode
 	AgentType          AgentType
 	CacheKeyStore      *CacheKeyStore
+	SandboxTmpDir      string
 }
 
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
@@ -279,7 +286,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	childCfg := config.Config{}
 	scopedEvents := withAgentScope(p.AgentID, p.Events)
 
-	exec := tool.NewExecutor(p.ExecReg, childCfg, nil, p.WorkDir, "")
+	exec := tool.NewExecutor(p.ExecReg, childCfg, nil, p.WorkDir, p.SandboxTmpDir)
 	if p.ModeGetter != nil {
 		exec = exec.WithModeGetter(p.ModeGetter)
 	}

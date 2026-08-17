@@ -75,8 +75,27 @@ func validateLoggingConfig(problems *[]string, cfg LoggingConfig) {
 	}
 }
 
+// reservedToolNames lists built-in tool names that must not be overridden
+// by user config tools. Source of truth: internal/tool/builtin/builtins.go
+// (the ToolDef.Name values returned by Builtins). This set is declared here
+// to avoid an import cycle (internal/tool imports internal/config).
+var reservedToolNames = map[string]bool{
+	"read":             true,
+	"glob":             true,
+	"grep":             true,
+	"ls":               true,
+	"bash":             true,
+	"display_file":     true,
+	"mutate":           true,
+	"fetch_url":        true,
+	"workflow_handoff": true,
+}
+
 func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 	for name, tool := range tools {
+		if reservedToolNames[name] {
+			*problems = append(*problems, fmt.Sprintf("tools[%q]: name is reserved by a built-in tool", name))
+		}
 		if strings.TrimSpace(name) == "" {
 			*problems = append(*problems, "tools contains an empty tool name")
 		}
