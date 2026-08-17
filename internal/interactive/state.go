@@ -262,24 +262,21 @@ func (c *ApprovalCoordinator) Finish(response chan SubmitApproval) {
 // and mode match.
 func (c *ApprovalCoordinator) Submit(submission SubmitApproval) {
 	c.mu.Lock()
-	var pending *pendingApproval
-	if len(c.queue) > 0 {
-		pending = c.queue[0]
-	}
-	c.mu.Unlock()
-	if pending == nil {
+	defer c.mu.Unlock()
+	if len(c.queue) == 0 {
 		return
 	}
+	pending := c.queue[0]
 	if pending.toolName != "" && submission.Tool != "" && submission.Tool != pending.toolName {
 		return
 	}
 	if pending.mode != "" && submission.Mode != "" && submission.Mode != pending.mode {
 		return
 	}
-	select {
-	case pending.response <- submission:
-	default:
-	}
+	// response is buffered with capacity one, so this send cannot block. The
+	// mutex rule applies to blocking sends; holding it prevents Finish from
+	// removing the head between selection and delivery.
+	pending.response <- submission
 }
 
 // HasPending reports whether an approval request is currently awaiting a

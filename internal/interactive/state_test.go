@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 )
@@ -127,5 +128,57 @@ func TestApprovalCoordinatorQueue(t *testing.T) {
 	coord.Finish(tail)
 	if coord.HasPending() || coord.PendingDepth() != 0 {
 		t.Fatalf("final pending state = %v/%d, want false/0", coord.HasPending(), coord.PendingDepth())
+	}
+}
+
+func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
+	coord := &ApprovalCoordinator{}
+	started := make(chan chan SubmitApproval, 2)
+	for _, name := range []string{"a", "b"} {
+		go func() { started <- coord.Begin(name, "", "", "") }()
+	}
+	first := <-started
+	second := <-started
+	coord.Submit(SubmitApproval{Decision: "first"})
+	select {
+	case <-first:
+	case <-time.After(time.Second):
+		t.Fatal("first response timed out")
+	}
+	coord.Finish(first)
+	coord.Submit(SubmitApproval{Decision: "second"})
+	select {
+	case <-second:
+	case <-time.After(time.Second):
+		t.Fatal("second response timed out")
+	}
+}
+
+func TestApprovalCoordinatorSubmitFinishRace(t *testing.T) {
+	coord := &ApprovalCoordinator{}
+	a := coord.Begin("a", "", "", "")
+	b := coord.Begin("b", "", "", "")
+	finishStarted := make(chan struct{})
+	finishDone := make(chan struct{})
+	go func() {
+		close(finishStarted)
+		coord.Finish(a)
+		close(finishDone)
+	}()
+	<-finishStarted
+	coord.Submit(SubmitApproval{Tool: "b", Decision: "allow_once"})
+	<-finishDone
+	select {
+	case got := <-b:
+		if got.Decision != "allow_once" {
+			t.Fatalf("b decision = %q", got.Decision)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("b did not receive submission")
+	}
+	select {
+	case <-a:
+		t.Fatal("removed a received submission")
+	default:
 	}
 }
