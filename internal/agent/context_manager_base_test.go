@@ -185,6 +185,49 @@ func TestBaseContextManagerCachedSystemPreamble(t *testing.T) {
 			t.Fatal("first preamble should not list the second mount set")
 		}
 	})
+
+	t.Run("defensive copy of sandbox mounts on cache miss", func(t *testing.T) {
+		var manager baseContextManager
+		mounts := []string{"/var/log"}
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", true, mounts)
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if !strings.Contains(first, "## Sandbox") {
+			t.Fatal("preamble should contain sandbox section when sandboxEnabled")
+		}
+
+		mounts[0] = "/home/u/go"
+		mounts = append(mounts, "/tmp")
+
+		unchanged := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", true, []string{"/var/log"})
+		if unchanged != first {
+			t.Fatalf("cached preamble changed after caller mutated its mounts slice: %q, want %q", unchanged, first)
+		}
+
+		regenerated := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", true, mounts)
+		if regenerated == first {
+			t.Fatal("preamble should regenerate when the mutated mounts slice differs")
+		}
+		if !strings.Contains(regenerated, "Additional writable paths: /home/u/go, /tmp") {
+			t.Fatalf("regenerated preamble should list the mutated mounts, got %q", regenerated)
+		}
+	})
+
+	t.Run("cache hit between nil and empty sandbox mounts", func(t *testing.T) {
+		var manager baseContextManager
+		first := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", true, nil)
+		second := manager.CachedSystemPreamble("", false, false, prompt.ParentWorkflowMode(), false, "", true, []string{})
+		if first == "" {
+			t.Fatal("first preamble = empty, want content")
+		}
+		if second != first {
+			t.Fatalf("second preamble = %q, want cached %q when nil and empty mounts are equivalent", second, first)
+		}
+		if !strings.Contains(first, "## Sandbox") {
+			t.Fatal("preamble should contain sandbox section when sandboxEnabled")
+		}
+	})
 }
 
 func TestBaseContextManagerRecordMutation(t *testing.T) {
