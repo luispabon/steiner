@@ -296,8 +296,8 @@ func TestLoadRejectsRemovedConcurrencyConfig(t *testing.T) {
 	if err == nil {
 		t.Fatal("Load() error = nil, want unknown field error")
 	}
-	if !strings.Contains(err.Error(), "sched"+"uler") {
-		t.Fatalf("Load() error = %v, want unknown field name", err)
+	if !strings.Contains(err.Error(), "field sched"+"uler not found") {
+		t.Fatalf("Load() error = %v, want unknown field decode error", err)
 	}
 }
 

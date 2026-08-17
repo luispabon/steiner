@@ -404,7 +404,7 @@ func TestValidate(t *testing.T) {
 
 		// Max parallel validation
 		{
-			name: "bad parallelism",
+			name: "negative max_parallel",
 			cfg: func() Config {
 				c := validBase()
 				c.SubAgent.MaxParallel = -1
