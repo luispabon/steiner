@@ -77,12 +77,6 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 
 	if td := b.liveThinkingSegment(); td != nil {
 		td.body += text
-		runes := []rune(td.body)
-		if len(runes) > 80 {
-			td.preview = string(runes[:80])
-		} else {
-			td.preview = td.body
-		}
 		for i := len(b.segments) - 1; i >= 0; i-- {
 			if b.segments[i].kind == segmentThinkingBlock && b.segments[i].thinkData == td {
 				b.segments[i].renderDirty = true
@@ -94,14 +88,9 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 	}
 
 	idx := len(b.segments)
-	preview := text
-	if runes := []rune(text); len(runes) > 80 {
-		preview = string(runes[:80])
-	}
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentThinkingBlock,
 		thinkData: &thinkingBlockData{
-			preview:   preview,
 			collapsed: false,
 			streaming: true,
 			body:      text,

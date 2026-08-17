@@ -4600,8 +4600,7 @@ func TestHiddenThinkingSegmentCleared(t *testing.T) {
 		text:        "thinking content",
 		renderDirty: true,
 		thinkData: &thinkingBlockData{
-			preview: "thinking",
-			body:    "thinking content",
+			body: "thinking content",
 		},
 	})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "regular content", output.ChunkSourceAssistant)})

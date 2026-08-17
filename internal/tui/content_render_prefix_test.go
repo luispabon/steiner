@@ -77,7 +77,7 @@ func TestContentStringPrefixCache(t *testing.T) {
 			build: func(b *contentBuffer) {
 				b.segments = append(b.segments,
 					contentSegment{kind: segmentPlain, text: "visible first", renderDirty: true},
-					contentSegment{kind: segmentThinkingBlock, thinkData: &thinkingBlockData{preview: "hidden thought", body: "hidden thought body", collapsed: true}, renderDirty: true},
+					contentSegment{kind: segmentThinkingBlock, thinkData: &thinkingBlockData{body: "hidden thought body", collapsed: true}, renderDirty: true},
 					contentSegment{kind: segmentPlain, text: "visible last", renderDirty: true},
 				)
 			},

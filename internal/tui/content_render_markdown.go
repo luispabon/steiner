@@ -228,39 +228,59 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width
 		return ""
 	}
 	td := segment.thinkData
-	body := stripThinkingMarkers(td.body)
 	style := b.thinkingTextStyle()
-	contentWidth := max(1, width)
+	if width < 4 {
+		marker := "▾"
+		if td.collapsed {
+			marker = "▸"
+		}
+		return style.Render(marker) + "\n"
+	}
+	body := stripThinkingMarkers(td.body)
+	contentWidth := max(1, width-2)
 
 	if td.collapsed {
-		// Derive 3-line preview from body at render time.
-		allLines := []string{}
-		for _, line := range strings.Split(strings.TrimRight(body, "\n"), "\n") {
-			wrapped := ansi.Hardwrap(ansi.Wordwrap(line, contentWidth, ""), contentWidth, true)
-			allLines = append(allLines, strings.Split(wrapped, "\n")...)
+		bodyLines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+		first := bodyLines[0]
+		wrapped := ansi.Hardwrap(ansi.Wordwrap(first, contentWidth, ""), contentWidth, true)
+		wrappedLines := strings.Split(wrapped, "\n")
+		line := wrappedLines[0]
+		ellipsis := len(wrappedLines) > 1 || len(bodyLines) > 1
+		if ellipsis {
+			rewrapWidth := max(1, contentWidth-1)
+			rewrap := ansi.Hardwrap(ansi.Wordwrap(first, rewrapWidth, ""), rewrapWidth, true)
+			line = strings.Split(rewrap, "\n")[0]
 		}
-		truncated := len(allLines) > 3
-		if truncated {
-			allLines = allLines[:3]
+
+		content := "▸"
+		if line != "" || ellipsis {
+			content += " " + line
 		}
-		var sb strings.Builder
-		sb.WriteString(style.Render("▸ Thinking") + "\n")
-		for _, wl := range allLines {
-			sb.WriteString(style.Render(wl) + "\n")
+		if ellipsis {
+			content += "…"
 		}
-		if truncated {
-			sb.WriteString(style.Render("…") + "\n")
-		}
-		return sb.String()
+		return style.Render(content) + "\n"
 	}
 
 	// Expanded state — wrap body lines.
 	var sb strings.Builder
-	sb.WriteString(style.Render("▾ Thinking") + "\n")
+	firstWrappedLine := true
 	for _, line := range strings.Split(strings.TrimRight(body, "\n"), "\n") {
 		wrapped := ansi.Hardwrap(ansi.Wordwrap(line, contentWidth, ""), contentWidth, true)
 		for _, wl := range strings.Split(wrapped, "\n") {
-			sb.WriteString(style.Render(wl) + "\n")
+			switch {
+			case firstWrappedLine:
+				content := "▾"
+				if wl != "" {
+					content += " " + wl
+				}
+				sb.WriteString(style.Render(content) + "\n")
+				firstWrappedLine = false
+			case wl != "":
+				sb.WriteString(style.Render("  "+wl) + "\n")
+			default:
+				sb.WriteString("\n")
+			}
 		}
 	}
 	return sb.String()
