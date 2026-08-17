@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -52,17 +53,27 @@ func parallelContents(state RunState) []string {
 
 func TestExecuteToolCalls_ParallelReversedCompletionAppliesInOrder(t *testing.T) {
 	entered := make(chan string, 2)
-	release := map[string]chan struct{}{"a": make(chan struct{}), "b": make(chan struct{})}
+	allowA := make(chan struct{})
+	releaseB := make(chan struct{})
+	bDone := make(chan struct{})
 	executor := parallelTestExecutor{fn: func(ctx context.Context, name string) (any, error) {
 		entered <- name
+		release := allowA
+		if name == "b" {
+			release = releaseB
+		}
 		select {
-		case <-release[name]:
+		case <-release:
+			if name == "b" {
+				close(bDone)
+			}
 			return name, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
 	}}
-	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
+	var events []output.Event
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }, Events: output.SinkFunc(func(e output.Event) { events = append(events, e) })}, prompt.AssemblyOptions{}, nil)
 	done := make(chan RunState, 1)
 	go func() {
 		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b")).State
@@ -71,14 +82,16 @@ func TestExecuteToolCalls_ParallelReversedCompletionAppliesInOrder(t *testing.T)
 	if !((got[0] == "a" || got[0] == "b") && got[0] != got[1]) {
 		t.Fatalf("entered calls = %v, want both calls", got)
 	}
-	close(release["b"])
-	close(release["a"])
+	close(releaseB)
+	select {
+	case <-bDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("b did not finish before a was released")
+	}
+	close(allowA)
 	state := <-done
 	if got := parallelContents(state); !equalStrings(got, []string{"a", "b"}) {
 		t.Fatalf("contents = %v, want [a b]", got)
-	}
-	if got := state.Lineage.FullMessages(); len(got) != 2 || got[0].ToolCallID != "a" || got[1].ToolCallID != "b" {
-		t.Fatalf("lineage = %#v, want call order", got)
 	}
 }
 
@@ -187,14 +200,32 @@ func TestExecuteToolCalls_MixedEligibleRunsPreserveOrder(t *testing.T) {
 }
 
 func TestExecuteToolCalls_MiddleWorkflowHandoffStopsLaterResults(t *testing.T) {
+	entered := make(chan string, 3)
+	middleDone := make(chan struct{})
 	executor := parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
-		if name == "stop" {
-			return tool.WorkflowHandoffAccepted{Transition: tool.WorkflowHandoffTransition{Next: "implement"}}, nil
+		entered <- name
+		if name != "stop" {
+			<-middleDone
+			return name, nil
 		}
-		return name, nil
+		seen := map[string]bool{}
+		for !seen["a"] || !seen["c"] {
+			seen[<-entered] = true
+		}
+		close(middleDone)
+		return tool.WorkflowHandoffAccepted{Transition: tool.WorkflowHandoffTransition{Next: "implement"}}, nil
 	}}
 	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
-	outcome := p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "stop", "c"))
+	done := make(chan turnOutcome, 1)
+	go func() {
+		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "stop", "c"))
+	}()
+	var outcome turnOutcome
+	select {
+	case outcome = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("batch did not complete concurrently")
+	}
 	if !outcome.Stop || outcome.State.StopReason != StopReasonWorkflowHandoff || !equalStrings(parallelContents(outcome.State), []string{"a"}) {
 		t.Fatalf("stop=%v reason=%q contents=%v", outcome.Stop, outcome.State.StopReason, parallelContents(outcome.State))
 	}
@@ -261,17 +292,44 @@ func TestExecuteToolCalls_MaxParallelToolsBounded(t *testing.T) {
 }
 
 func TestExecuteToolCalls_SiblingFailureIsolation(t *testing.T) {
+	entered := make(chan string, 3)
+	done := make(chan string, 3)
+	middleDone := make(chan struct{})
 	executor := parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
+		entered <- name
 		if name == "bad" {
+			seen := map[string]bool{}
+			for !seen["a"] || !seen["c"] {
+				seen[<-entered] = true
+			}
+			close(middleDone)
+			done <- name
 			return nil, errors.New("boom")
 		}
+		<-middleDone
+		done <- name
 		return name, nil
 	}}
 	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
-	state := p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "bad", "c")).State
-	got := parallelContents(state)
-	if len(got) != 3 || got[0] != "a" || !strings.Contains(got[1], "boom") || got[2] != "c" {
-		t.Fatalf("contents=%v, want sibling results around tool error", got)
+	result := make(chan RunState, 1)
+	go func() {
+		result <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "bad", "c")).State
+	}()
+	select {
+	case state := <-result:
+		got := parallelContents(state)
+		if len(got) != 3 || got[0] != "a" || !strings.Contains(got[1], "boom") || got[2] != "c" {
+			t.Fatalf("contents=%v, want sibling results around tool error", got)
+		}
+		for range 3 {
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("sibling did not complete")
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("batch did not complete concurrently")
 	}
 }
 

@@ -207,9 +207,6 @@ type batchResult struct {
 func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, turn int, calls []provider.ToolCall) []batchResult {
 	batchCtx := WithConversationSnapshot(ctx, liveConversationSnapshot(state))
 	results := make([]batchResult, len(calls))
-	for _, call := range calls {
-		emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
-	}
 
 	var gate *semaphore.Weighted
 	if p.request.MaxParallelTools > 0 {
@@ -222,6 +219,7 @@ func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, tur
 				break
 			}
 		}
+		emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
 		wg.Add(1)
 		go func(i int, call provider.ToolCall) {
 			defer wg.Done()
