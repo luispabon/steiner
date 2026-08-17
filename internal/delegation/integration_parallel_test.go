@@ -64,6 +64,8 @@ type parallelHarness struct {
 	started        atomic.Int32
 	completed      atomic.Int32
 	completedTasks sync.Map
+	taskCalls      sync.Map
+	summaries      sync.Map
 	allStarted     chan struct{}
 	done           chan struct{}
 	events         chan output.Event
@@ -107,6 +109,13 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 			}
 		}
 		if !h.blockOnCtx {
+			calls := h.taskCallsFor(task).Add(1)
+			if calls == 2 {
+				h.signalSummary(task)
+				h.countCompleted(task)
+				h.active.Add(-1)
+				return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "summary"}, FinishReason: "stop"}, nil
+			}
 			select {
 			case <-h.release(task):
 			case <-ctx.Done():
@@ -117,6 +126,29 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 		return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: task}, FinishReason: "stop"}, nil
 	}
 	return h
+}
+
+func (h *parallelHarness) taskCallsFor(task string) *atomic.Int32 {
+	calls, _ := h.taskCalls.LoadOrStore(task, &atomic.Int32{})
+	return calls.(*atomic.Int32)
+}
+
+func (h *parallelHarness) signalSummary(task string) {
+	channel, _ := h.summaries.LoadOrStore(task, make(chan struct{}, 1))
+	select {
+	case channel.(chan struct{}) <- struct{}{}:
+	default:
+	}
+}
+
+func (h *parallelHarness) waitSummary(t *testing.T, task, message string) {
+	t.Helper()
+	channel, _ := h.summaries.LoadOrStore(task, make(chan struct{}, 1))
+	select {
+	case <-channel.(chan struct{}):
+	case <-time.After(10 * time.Second):
+		t.Fatal(message)
+	}
 }
 
 func (h *parallelHarness) countCompleted(task string) {
@@ -244,6 +276,9 @@ func TestParallelDelegationEndToEndUnbounded(t *testing.T) {
 	}
 }
 
+// TestParallelDelegationEndToEndOrdering proves result finalization order is forced task-2, task-1, task-0.
+// The parent applies results in call order after the batch joins (D7), so this test cannot inspect an intermediate parent application.
+// The deterministic unit-level reversed-completion coverage lives in internal/agent/turn_progression_test.go (TestExecuteToolCalls_ParallelReversedCompletionAppliesInOrder).
 func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
 	releases := map[string]chan struct{}{"task-0": make(chan struct{}), "task-1": make(chan struct{}), "task-2": make(chan struct{})}
@@ -273,10 +308,13 @@ func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 	waitParallel(t, h.allStarted, "ordering batch did not start three children")
 	close(releases["task-2"])
 	waitCompletions(1, "task-2 did not complete (parent side)")
+	h.waitSummary(t, "task-2", "task-2 summary was not served")
 	close(releases["task-1"])
 	waitCompletions(2, "task-1 did not complete (parent side)")
+	h.waitSummary(t, "task-1", "task-1 summary was not served")
 	close(releases["task-0"])
 	waitCompletions(3, "task-0 did not complete (parent side)")
+	h.waitSummary(t, "task-0", "task-0 summary was not served")
 	run := receiveParallel(t, result, "ordering parallel run did not finish")
 	if run.err != nil {
 		t.Fatal(run.err)
