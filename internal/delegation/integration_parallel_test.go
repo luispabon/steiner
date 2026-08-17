@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -29,6 +30,7 @@ func (p *parallelProvider) ChatCompletion(ctx context.Context, req provider.Chat
 	}
 	return p.child(ctx, childTask(req))
 }
+
 func (p *parallelProvider) StreamChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
 	resp, err := p.ChatCompletion(ctx, req)
 	if err != nil {
@@ -39,6 +41,7 @@ func (p *parallelProvider) StreamChatCompletion(ctx context.Context, req provide
 	close(ch)
 	return ch, nil
 }
+
 func (*parallelProvider) SupportsUsageStats() bool { return false }
 
 func childTask(req provider.ChatRequest) string {
@@ -55,16 +58,23 @@ type parallelHarness struct {
 	active         atomic.Int32
 	max            atomic.Int32
 	started        atomic.Int32
+	completed      atomic.Int32
+	completedTasks sync.Map
 	allStarted     chan struct{}
 	done           chan struct{}
-	cancelChildren bool
 	target         int
-	mu             sync.Mutex
-	notified       bool
+	release        func(string) <-chan struct{}
+	failTask       string
+	blockOnCtx     bool
 }
 
 func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
-	h := &parallelHarness{allStarted: make(chan struct{}), done: make(chan struct{}), target: n}
+	h := &parallelHarness{
+		allStarted: make(chan struct{}),
+		done:       make(chan struct{}),
+		target:     n,
+	}
+	h.release = func(string) <-chan struct{} { return h.done }
 	h.provider = &parallelProvider{parent: parent}
 	h.provider.child = func(ctx context.Context, task string) (provider.ChatResponse, error) {
 		cur := h.active.Add(1)
@@ -74,25 +84,41 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 				break
 			}
 		}
-		if h.started.Add(1) >= int32(h.target) {
-			h.mu.Lock()
-			if !h.notified {
-				close(h.allStarted)
-				h.notified = true
-			}
-			h.mu.Unlock()
+		if h.started.Add(1) == int32(h.target) {
+			close(h.allStarted)
 		}
-		select {
-		case <-h.done:
-		case <-ctx.Done():
-			if h.cancelChildren {
-				<-ctx.Done()
+		if h.failTask == task {
+			h.countCompleted(task)
+			h.active.Add(-1)
+			return provider.ChatResponse{}, errors.New("child failed")
+		}
+		if h.blockOnCtx {
+			select {
+			case <-ctx.Done():
+				h.countCompleted(task)
+				h.active.Add(-1)
+				return provider.ChatResponse{}, ctx.Err()
 			}
 		}
+		if !h.blockOnCtx {
+			select {
+			case <-h.release(task):
+			case <-ctx.Done():
+			}
+		}
+		h.countCompleted(task)
 		h.active.Add(-1)
 		return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: task}, FinishReason: "stop"}, nil
 	}
 	return h
+}
+
+func (h *parallelHarness) countCompleted(task string) {
+	if strings.HasPrefix(task, "task-") {
+		if _, loaded := h.completedTasks.LoadOrStore(task, struct{}{}); !loaded {
+			h.completed.Add(1)
+		}
+	}
 }
 
 func delegationParentResponse(names ...string) provider.ChatResponse {
@@ -112,18 +138,69 @@ func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *t
 	return agent.NewRunner().Run(ctx, req)
 }
 
+type parallelRunResult struct {
+	state agent.RunState
+	err   error
+}
+
+func startParallelParent(ctx context.Context, h *parallelHarness, max int, base *tool.Registry) <-chan parallelRunResult {
+	result := make(chan parallelRunResult, 1)
+	go func() {
+		state, err := runParallelParent(ctx, h, max, base)
+		result <- parallelRunResult{state: state, err: err}
+	}()
+	return result
+}
+
+func waitParallel(t *testing.T, ch <-chan struct{}, message string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(10 * time.Second):
+		t.Fatal(message)
+	}
+}
+
+func receiveParallel(t *testing.T, ch <-chan parallelRunResult, message string) parallelRunResult {
+	t.Helper()
+	select {
+	case result := <-ch:
+		return result
+	case <-time.After(10 * time.Second):
+		t.Fatal(message)
+		return parallelRunResult{}
+	}
+}
+
+func toolResults(state agent.RunState) []string {
+	var results []string
+	for _, msg := range state.Conversation {
+		if msg.Role == agent.MessageRoleTool {
+			results = append(results, msg.Content)
+		}
+	}
+	return results
+}
+
+func assertTaskOrder(t *testing.T, results, want []string) {
+	t.Helper()
+	if len(results) != len(want) {
+		t.Fatalf("tool result count = %d, want %d", len(results), len(want))
+	}
+	for i := range want {
+		if !strings.Contains(results[i], want[i]) {
+			t.Errorf("tool result %d = %q, want identity %q", i, results[i], want[i])
+		}
+	}
+}
+
 func TestParallelDelegationEndToEndOverlap(t *testing.T) {
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
-	result := make(chan error, 1)
-	go func() { _, err := runParallelParent(context.Background(), h, 3, tool.NewRegistry()); result <- err }()
-	select {
-	case <-h.allStarted:
-		close(h.done)
-	case err := <-result:
-		t.Fatalf("run ended before overlap: %v", err)
-	}
-	if err := <-result; err != nil {
-		t.Fatal(err)
+	result := startParallelParent(context.Background(), h, 3, tool.NewRegistry())
+	waitParallel(t, h.allStarted, "three children did not become active")
+	close(h.done)
+	if run := receiveParallel(t, result, "parallel run did not finish"); run.err != nil {
+		t.Fatal(run.err)
 	}
 	if got := h.max.Load(); got != 3 {
 		t.Fatalf("max active children = %d, want 3", got)
@@ -132,95 +209,94 @@ func TestParallelDelegationEndToEndOverlap(t *testing.T) {
 
 func TestParallelDelegationEndToEndBounded(t *testing.T) {
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore", "explore"), 2)
-	result := make(chan error, 1)
-	go func() { _, err := runParallelParent(context.Background(), h, 2, tool.NewRegistry()); result <- err }()
-	<-h.allStarted
+	result := startParallelParent(context.Background(), h, 2, tool.NewRegistry())
+	waitParallel(t, h.allStarted, "bounded batch did not start two children")
 	close(h.done)
-	if err := <-result; err != nil {
-		t.Fatal(err)
+	run := receiveParallel(t, result, "bounded parallel run did not finish")
+	if run.err != nil {
+		t.Fatal(run.err)
 	}
 	if got := h.max.Load(); got > 2 {
 		t.Fatalf("max active children = %d, want <= 2", got)
+	}
+	if got := h.completed.Load(); got != 4 {
+		t.Fatalf("completed child runs = %d, want 4", got)
 	}
 }
 
 func TestParallelDelegationEndToEndUnbounded(t *testing.T) {
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore", "explore"), 4)
-	result := make(chan error, 1)
-	go func() { _, err := runParallelParent(context.Background(), h, 0, tool.NewRegistry()); result <- err }()
-	<-h.allStarted
+	result := startParallelParent(context.Background(), h, 0, tool.NewRegistry())
+	waitParallel(t, h.allStarted, "unbounded batch did not start four children")
 	if got := h.active.Load(); got != 4 {
 		t.Fatalf("active children = %d, want 4", got)
 	}
 	close(h.done)
-	if err := <-result; err != nil {
-		t.Fatal(err)
+	if run := receiveParallel(t, result, "unbounded parallel run did not finish"); run.err != nil {
+		t.Fatal(run.err)
 	}
 }
 
 func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
-	stateCh := make(chan agent.RunState, 1)
-	go func() {
-		state, _ := runParallelParent(context.Background(), h, 3, tool.NewRegistry())
-		stateCh <- state
-	}()
-	<-h.allStarted
-	close(h.done)
-	state := <-stateCh
-	var got []string
-	for _, msg := range state.Conversation {
-		if msg.Role == agent.MessageRoleTool {
-			got = append(got, msg.Content)
+	releases := map[string]chan struct{}{"task-0": make(chan struct{}), "task-1": make(chan struct{}), "task-2": make(chan struct{})}
+	ready := make(chan struct{})
+	close(ready)
+	h.release = func(task string) <-chan struct{} {
+		if release, ok := releases[task]; ok {
+			return release
 		}
+		return ready
+	}
+	result := startParallelParent(context.Background(), h, 3, tool.NewRegistry())
+	waitParallel(t, h.allStarted, "ordering batch did not start three children")
+	close(releases["task-2"])
+	close(releases["task-1"])
+	close(releases["task-0"])
+	run := receiveParallel(t, result, "ordering parallel run did not finish")
+	if run.err != nil {
+		t.Fatal(run.err)
 	}
 	want := []string{"task-0", "task-1", "task-2"}
-	if len(got) != len(want) {
-		t.Fatalf("tool result count = %d, want %d", len(got), len(want))
-	}
-	for i := range got {
-		if !strings.Contains(got[i], want[i]) {
-			t.Fatalf("tool order = %v, want tasks %v", got, want)
-		}
-	}
-	if len(state.Lineage.FullMessages()) != len(state.Conversation) {
-		t.Fatal("lineage and conversation lengths differ")
-	}
+	assertTaskOrder(t, toolResults(run.state), want)
+	assertTaskOrder(t, toolResults(agent.RunState{Conversation: run.state.Lineage.FullMessages()}), want)
 }
 
 func TestParallelDelegationEndToEndMixedBatch(t *testing.T) {
-	base := tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(context.Context, map[string]any) (any, error) { return "read", nil }})
+	base := tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(context.Context, map[string]any) (any, error) { return "read-result", nil }})
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "read", "explore", "explore"), 2)
-	result := make(chan error, 1)
-	go func() { _, err := runParallelParent(context.Background(), h, 2, base); result <- err }()
-	<-h.allStarted
-	if got := h.active.Load(); got != 2 {
-		t.Fatalf("delegations did not overlap: %d", got)
-	}
+	result := startParallelParent(context.Background(), h, 2, base)
+	waitParallel(t, h.allStarted, "delegation run did not overlap")
 	close(h.done)
-	if err := <-result; err != nil {
-		t.Fatal(err)
+	run := receiveParallel(t, result, "mixed parallel run did not finish")
+	if run.err != nil {
+		t.Fatal(run.err)
+	}
+	assertTaskOrder(t, toolResults(run.state), []string{"task-0", "task-1", "read-result", "task-3", "task-4"})
+	if got := h.max.Load(); got != 2 {
+		t.Fatalf("max active children across mixed batch = %d, want 2", got)
 	}
 }
 
 func TestParallelDelegationEndToEndFailureIsolation(t *testing.T) {
-	var calls atomic.Int32
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
-	h.provider.child = func(_ context.Context, task string) (provider.ChatResponse, error) {
-		if calls.Add(1) == 2 {
-			return provider.ChatResponse{}, errors.New("child failed")
-		}
-		return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: task}, FinishReason: "stop"}, nil
-	}
+	h.failTask = "task-1"
+	ready := make(chan struct{})
+	close(ready)
+	h.release = func(string) <-chan struct{} { return ready }
 	state, err := runParallelParent(context.Background(), h, 3, tool.NewRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.Conversation) == 0 {
-		t.Fatal("missing conversation after sibling failure")
+	results := toolResults(state)
+	if len(results) != 3 {
+		t.Fatalf("tool result count = %d, want 3", len(results))
 	}
-	if !strings.Contains(fmt.Sprint(state.Conversation), "task-0") || !strings.Contains(fmt.Sprint(state.Conversation), "task-2") {
-		t.Fatal("successful siblings missing after child failure")
+	if !strings.Contains(results[0], "task-0") || !strings.Contains(results[2], "task-2") {
+		t.Fatalf("successful sibling results = %v", results)
+	}
+	if !strings.Contains(results[1], `"status":"failed"`) || !strings.Contains(results[1], "child failed") {
+		t.Fatalf("failed task result = %q, want structured tool error", results[1])
 	}
 }
 
@@ -239,14 +315,12 @@ func TestParallelDelegationEndToEndNoNesting(t *testing.T) {
 func TestParallelDelegationEndToEndCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
-	h.cancelChildren = true
-	result := make(chan error, 1)
-	go func() { _, err := runParallelParent(ctx, h, 3, tool.NewRegistry()); result <- err }()
-	<-h.allStarted
+	h.blockOnCtx = true
+	result := startParallelParent(ctx, h, 3, tool.NewRegistry())
+	waitParallel(t, h.allStarted, "cancellation batch did not start three children")
 	cancel()
-	close(h.done)
-	if err := <-result; err != nil {
-		t.Fatal(err)
+	if run := receiveParallel(t, result, "cancelled parent run did not return"); run.err != nil {
+		t.Fatal(run.err)
 	}
 	if got := h.active.Load(); got != 0 {
 		t.Fatalf("active children after cancellation = %d", got)
