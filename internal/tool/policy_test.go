@@ -634,6 +634,43 @@ func TestPolicy_ResolvePath_RewritesTompPath(t *testing.T) {
 	}
 }
 
+func TestResolvePathTmpIdempotent(t *testing.T) {
+	tests := []struct {
+		name          string
+		sandboxTmpDir string
+	}{
+		{
+			name:          "sandboxTmpDir under /tmp",
+			sandboxTmpDir: t.TempDir(),
+		},
+		{
+			name:          "sandboxTmpDir outside /tmp",
+			sandboxTmpDir: "/var/tmp/sandbox",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := NewPathPolicyWithSandbox("", config.PathsConfig{}, tc.sandboxTmpDir)
+
+			first, err := policy.ResolvePath("/tmp/x", false)
+			if err != nil {
+				t.Fatalf("ResolvePath(/tmp/x) error = %v", err)
+			}
+			second, err := policy.ResolvePath(first, false)
+			if err != nil {
+				t.Fatalf("ResolvePath(%q) error = %v", first, err)
+			}
+			want, err := policy.ResolvePath("/tmp/x", false)
+			if err != nil {
+				t.Fatalf("ResolvePath(/tmp/x) error = %v", err)
+			}
+			if second != want {
+				t.Fatalf("ResolvePath(ResolvePath(/tmp/x)) = %q, want %q", second, want)
+			}
+		})
+	}
+}
 func TestPolicy_ResolveReadPath_RewritesTompPath(t *testing.T) {
 	sandboxTmpDir := "/var/tmp/steiner-session-456"
 	policy := NewPathPolicyWithSandbox("/project", config.PathsConfig{}, sandboxTmpDir)
