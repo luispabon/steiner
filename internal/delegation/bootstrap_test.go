@@ -200,7 +200,12 @@ func TestBuildChildPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			promptOpts := buildChildPrompt(tt.spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false, false, false, nil)
+			promptOpts := buildChildPrompt(childPromptParams{
+				spec:      tt.spec,
+				workDir:   "/tmp/work",
+				homeDir:   "",
+				caveHuman: false,
+			})
 			if len(promptOpts.Conversation) != tt.wantLen {
 				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
 			}
@@ -240,11 +245,16 @@ func TestBuildChildPrompt(t *testing.T) {
 func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 	t.Parallel()
 
-	promptOpts := buildChildPrompt(DelegationSpec{
-		Task:         "do something",
-		SystemPrompt: "Custom prompt",
-		AgentID:      "test-single-system",
-	}, "/tmp/work", "", config.ProjectContextConfig{}, false, false, false, false, nil)
+	promptOpts := buildChildPrompt(childPromptParams{
+		spec: DelegationSpec{
+			Task:         "do something",
+			SystemPrompt: "Custom prompt",
+			AgentID:      "test-single-system",
+		},
+		workDir:   "/tmp/work",
+		homeDir:   "",
+		caveHuman: false,
+	})
 
 	assembly, err := prompt.Assemble(context.Background(), promptOpts)
 	if err != nil {
@@ -277,10 +287,15 @@ func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 func TestBuildChildPromptUsesSharedSystemPreambleWhenOverrideEmpty(t *testing.T) {
 	t.Parallel()
 
-	promptOpts := buildChildPrompt(DelegationSpec{
-		Task:    "do something",
-		AgentID: "test-shared-system",
-	}, t.TempDir(), "", config.ProjectContextConfig{}, false, false, false, false, nil)
+	promptOpts := buildChildPrompt(childPromptParams{
+		spec: DelegationSpec{
+			Task:    "do something",
+			AgentID: "test-shared-system",
+		},
+		workDir:   t.TempDir(),
+		homeDir:   "",
+		caveHuman: false,
+	})
 
 	if promptOpts.PromptOverrides.System != defaultChildSystemPrompt {
 		t.Fatalf("PromptOverrides.System = %q, want empty shared base", promptOpts.PromptOverrides.System)
@@ -464,7 +479,12 @@ func TestBuildChildRegistriesContainsAllowedTools(t *testing.T) {
 
 func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
 	spec := DelegationSpec{Task: "do something"}
-	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false, false, false, nil)
+	opts := buildChildPrompt(childPromptParams{
+		spec:      spec,
+		workDir:   "/tmp/work",
+		homeDir:   "",
+		caveHuman: false,
+	})
 	if opts.PromptOverrides.System != defaultChildSystemPrompt {
 		t.Errorf("default system prompt = %q, want %q", opts.PromptOverrides.System, defaultChildSystemPrompt)
 	}
@@ -502,10 +522,18 @@ func TestBuildChildPromptSkipProjectContext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := buildChildPrompt(DelegationSpec{
-				Task:    "do something",
-				AgentID: "test-skip",
-			}, "/tmp/work", "", config.ProjectContextConfig{MaxBytes: 4000}, false, tt.skipProjectContext, tt.skipAgents, false, nil)
+			opts := buildChildPrompt(childPromptParams{
+				spec: DelegationSpec{
+					Task:    "do something",
+					AgentID: "test-skip",
+				},
+				workDir:            "/tmp/work",
+				homeDir:            "",
+				projectContextCfg:  config.ProjectContextConfig{MaxBytes: 4000},
+				caveHuman:          false,
+				skipProjectContext: tt.skipProjectContext,
+				skipAgents:         tt.skipAgents,
+			})
 
 			if opts.SkipProjectContext != tt.wantSkip {
 				t.Errorf("SkipProjectContext = %v, want %v", opts.SkipProjectContext, tt.wantSkip)

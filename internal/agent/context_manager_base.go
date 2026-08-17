@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -21,14 +22,13 @@ type baseContextManager struct {
 		caveHuman             bool
 		systemSuffix          string
 		sandboxEnabled        bool
-		sandboxWritableMounts string
+		sandboxWritableMounts []string
 	}
 	minVisibleTurn int
 	events         output.EventSink
 }
 
 func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, advisorEnabled bool, workflowMode prompt.WorkflowMode, caveHuman bool, systemSuffix string, sandboxEnabled bool, sandboxWritableMounts []string) string {
-	sandboxWritableMountsKey := strings.Join(sandboxWritableMounts, "\x00")
 	if b.cachedPreamble.content == "" ||
 		b.cachedPreamble.override != override ||
 		b.cachedPreamble.delegationEnabled != delegationEnabled ||
@@ -37,7 +37,7 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		b.cachedPreamble.caveHuman != caveHuman ||
 		b.cachedPreamble.systemSuffix != systemSuffix ||
 		b.cachedPreamble.sandboxEnabled != sandboxEnabled ||
-		b.cachedPreamble.sandboxWritableMounts != sandboxWritableMountsKey {
+		!slices.Equal(b.cachedPreamble.sandboxWritableMounts, sandboxWritableMounts) {
 		b.cachedPreamble.content = prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{
 			Override:              override,
 			DelegationEnabled:     delegationEnabled,
@@ -55,7 +55,7 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		b.cachedPreamble.caveHuman = caveHuman
 		b.cachedPreamble.systemSuffix = systemSuffix
 		b.cachedPreamble.sandboxEnabled = sandboxEnabled
-		b.cachedPreamble.sandboxWritableMounts = sandboxWritableMountsKey
+		b.cachedPreamble.sandboxWritableMounts = append([]string(nil), sandboxWritableMounts...)
 	}
 	return b.cachedPreamble.content
 }

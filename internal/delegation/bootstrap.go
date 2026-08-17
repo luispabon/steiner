@@ -64,6 +64,33 @@ type BootstrapDeps struct {
 	SkipAgents bool
 }
 
+// handlerBootstrapDeps maps the SubAgentHandlerDeps fields shared by all
+// specialized handlers into a BootstrapDeps, keeping per-type divergent values
+// as explicit parameters so field additions to the shared set touch one place.
+func handlerBootstrapDeps(agentType AgentType, deps SubAgentHandlerDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, skipProjectContext, skipAgents bool) BootstrapDeps {
+	return BootstrapDeps{
+		Provider:              resolvedProvider,
+		ParentReg:             deps.ParentReg,
+		SubAgentCfg:           deps.SubAgentCfg,
+		AllowedTools:          allowedTools,
+		Events:                deps.Events,
+		WorkDir:               deps.WorkDir,
+		HomeDir:               deps.HomeDir,
+		ProjectContextConfig:  deps.ProjectContextConfig,
+		ResolvedModel:         resolvedModel,
+		MaxTokens:             deps.MaxTokens,
+		StreamingPreferred:    deps.StreamingPreferred,
+		CaveHuman:             deps.CaveHuman,
+		SandboxEnabled:        deps.SandboxEnabled,
+		SandboxWritableMounts: deps.SandboxWritableMounts,
+		UsageRecorder:         deps.UsageRecorder,
+		SkipProjectContext:    skipProjectContext,
+		SkipAgents:            skipAgents,
+		AgentType:             agentType,
+		CacheKeyStore:         deps.CacheKeyStore,
+	}
+}
+
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
 // It derives final limits by combining SubAgentConfig defaults with spec-level
 // overrides, builds child prompt and tool registries, and returns the assembled
@@ -88,7 +115,17 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		EmergencySummaryMaxTokens: deps.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 
-	promptOpts := buildChildPrompt(spec, deps.WorkDir, deps.HomeDir, deps.ProjectContextConfig, deps.CaveHuman, deps.SkipProjectContext, deps.SkipAgents, deps.SandboxEnabled, deps.SandboxWritableMounts)
+	promptOpts := buildChildPrompt(childPromptParams{
+		spec:               spec,
+		workDir:            deps.WorkDir,
+		homeDir:            deps.HomeDir,
+		projectContextCfg:  deps.ProjectContextConfig,
+		caveHuman:          deps.CaveHuman,
+		skipProjectContext: deps.SkipProjectContext,
+		skipAgents:         deps.SkipAgents,
+		sandboxEnabled:     deps.SandboxEnabled,
+		writableMounts:     deps.SandboxWritableMounts,
+	})
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.AllowedTools)
 	req := buildChildRunRequest(childRunRequestParams{
@@ -125,38 +162,53 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) De
 // shared system preamble is left intact. Project context (AGENTS.md,
 // configured extra files) is included so child agents inherit project
 // conventions without the parent forwarding them.
-func buildChildPrompt(spec DelegationSpec, workDir, homeDir string, pcc config.ProjectContextConfig, caveHuman bool, skipProjectContext bool, skipAgents bool, sandboxEnabled bool, writableMounts []string) prompt.AssemblyOptions {
-	taskContent := spec.Task
-	if spec.Context != "" {
-		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", spec.Task, spec.Context)
+func buildChildPrompt(p childPromptParams) prompt.AssemblyOptions {
+	taskContent := p.spec.Task
+	if p.spec.Context != "" {
+		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", p.spec.Task, p.spec.Context)
 	}
 
 	msg := provider.Message{Role: provider.MessageRoleUser, Content: taskContent}
-	if len(spec.Images) > 0 {
-		msg.Images = spec.Images
+	if len(p.spec.Images) > 0 {
+		msg.Images = p.spec.Images
 	}
 
 	opts := prompt.AssemblyOptions{
-		HomeDir:                   homeDir,
-		ProjectRoot:               workDir,
-		ProjectContextExtraFiles:  pcc.ExtraFiles,
-		ProjectContextIgnoreFiles: pcc.IgnoreFiles,
-		ProjectContextBudgetBytes: pcc.MaxBytes,
-		SkipProjectContext:        skipProjectContext,
-		SkipAgents:                skipAgents,
-		CaveHuman:                 caveHuman,
-		SandboxEnabled:            sandboxEnabled,
-		SandboxWritableMounts:     append([]string(nil), writableMounts...),
+		HomeDir:                   p.homeDir,
+		ProjectRoot:               p.workDir,
+		ProjectContextExtraFiles:  p.projectContextCfg.ExtraFiles,
+		ProjectContextIgnoreFiles: p.projectContextCfg.IgnoreFiles,
+		ProjectContextBudgetBytes: p.projectContextCfg.MaxBytes,
+		SkipProjectContext:        p.skipProjectContext,
+		SkipAgents:                p.skipAgents,
+		CaveHuman:                 p.caveHuman,
+		SandboxEnabled:            p.sandboxEnabled,
+		SandboxWritableMounts:     append([]string(nil), p.writableMounts...),
 		WorkflowMode:              prompt.DelegatedChildWorkflowMode(),
 		Conversation: []provider.Message{
 			msg,
 		},
 	}
-	if spec.SystemPrompt != "" {
-		opts.PromptOverrides.System = spec.SystemPrompt
+	if p.spec.SystemPrompt != "" {
+		opts.PromptOverrides.System = p.spec.SystemPrompt
 	}
 
 	return opts
+}
+
+// childPromptParams holds the arguments for buildChildPrompt. It exists to
+// avoid a long positional parameter list where adjacent same-typed values
+// (e.g. multiple bools) could be transposed without compiler protection.
+type childPromptParams struct {
+	spec               DelegationSpec
+	workDir            string
+	homeDir            string
+	projectContextCfg  config.ProjectContextConfig
+	caveHuman          bool
+	skipProjectContext bool
+	skipAgents         bool
+	sandboxEnabled     bool
+	writableMounts     []string
 }
 
 // buildChildToolRegistry creates a new tool registry from the parent registry,

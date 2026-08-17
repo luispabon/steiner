@@ -57,27 +57,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			allowedTools = mergedAllowedTools(allowedTools, deps.ExtraAllowedTools[AgentTypeVision])
 		}
 
-		req, limits, err := BuildChildRun(ctx, BootstrapDeps{
-			Provider:              resolvedProvider,
-			ParentReg:             deps.ParentReg,
-			SubAgentCfg:           deps.SubAgentCfg,
-			AllowedTools:          allowedTools,
-			Events:                deps.Events,
-			WorkDir:               deps.WorkDir,
-			HomeDir:               deps.HomeDir,
-			ProjectContextConfig:  deps.ProjectContextConfig,
-			ResolvedModel:         resolvedModel,
-			MaxTokens:             deps.MaxTokens,
-			StreamingPreferred:    deps.StreamingPreferred,
-			CaveHuman:             deps.CaveHuman,
-			SandboxEnabled:        deps.SandboxEnabled,
-			SandboxWritableMounts: deps.SandboxWritableMounts,
-			UsageRecorder:         deps.UsageRecorder,
-			SkipProjectContext:    true,
-			SkipAgents:            true,
-			AgentType:             AgentTypeVision,
-			CacheKeyStore:         deps.CacheKeyStore,
-		}, spec)
+		req, limits, err := BuildChildRun(ctx, handlerBootstrapDeps(AgentTypeVision, deps.SubAgentHandlerDeps, resolvedProvider, resolvedModel, allowedTools, true, true), spec)
 		if err != nil {
 			return nil, fmt.Errorf("vision: build child run: %w", err)
 		}
