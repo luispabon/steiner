@@ -303,6 +303,12 @@ func (b *contentBuffer) renderToolApprovalBlock(tc *toolCallSegment, width int) 
 	if tc.approvalKind == "mcp" && tc.approvalServer != "" {
 		label = tc.approvalServer + " → " + tc.approvalMCPTool
 	}
+	if tc.approvalAgentID != "" {
+		label += " [agent: " + tc.approvalAgentID + "]"
+	}
+	if tc.approvalQueueDepth > 1 {
+		label += " +" + fmt.Sprint(tc.approvalQueueDepth-1) + " waiting"
+	}
 	header := dot + " " + accentStyle.Bold(true).Render(label)
 
 	// Preview: parse JSON key-value pairs and format as bold-key lines with 1-line padding.

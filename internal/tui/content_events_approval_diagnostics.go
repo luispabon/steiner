@@ -24,6 +24,8 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				seg.toolData.approvalKind = payload.Kind
 				seg.toolData.approvalServer = payload.Server
 				seg.toolData.approvalMCPTool = payload.ToolName
+				seg.toolData.approvalAgentID = event.Scope.AgentID
+				seg.toolData.approvalQueueDepth = approvalQueueDepth(b) + 1
 				seg.toolData.approvalSelectedAction = 0
 				seg.toolData.collapsed = false
 				seg.renderDirty = true
@@ -41,6 +43,8 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 					entry.approvalKind = payload.Kind
 					entry.approvalServer = payload.Server
 					entry.approvalMCPTool = payload.ToolName
+					entry.approvalAgentID = event.Scope.AgentID
+					entry.approvalQueueDepth = approvalQueueDepth(b) + 1
 					entry.approvalPending = true
 					entry.approvalMode = payload.Mode
 					entry.approvalPreview = payload.Preview
@@ -62,6 +66,8 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				kind:        payload.Kind,
 				server:      payload.Server,
 				mcpToolName: payload.ToolName,
+				agentID:     event.Scope.AgentID,
+				queueDepth:  approvalQueueDepth(b) + 1,
 			},
 			renderDirty: true,
 		})
@@ -106,6 +112,7 @@ func (b *contentBuffer) resolveEmbeddedApproval(accepted bool, callID string) bo
 				b.gen++
 				return true
 			}
+
 		case segmentToolCallGroup:
 			if seg.toolGroupData == nil {
 				continue
@@ -283,4 +290,17 @@ func (b *contentBuffer) clearApprovalState() {
 			}
 		}
 	}
+}
+
+func approvalQueueDepth(b *contentBuffer) int {
+	depth := 0
+	for _, segment := range b.segments {
+		if segment.kind == segmentApprovalPill && segment.approvalData != nil && !segment.approvalData.resolved {
+			depth++
+		}
+		if segment.kind == segmentToolCall && segment.toolData != nil && segment.toolData.approvalPending && !segment.toolData.approvalResolved {
+			depth++
+		}
+	}
+	return depth
 }

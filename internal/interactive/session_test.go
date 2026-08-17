@@ -301,7 +301,7 @@ func TestApprovalCoordinatorLifecycle(t *testing.T) {
 		t.Fatal("expected no pending initially")
 	}
 
-	ch := coord.Begin("write", "auto", string(tool.ApprovalKindPath))
+	ch := coord.Begin("write", "auto", string(tool.ApprovalKindPath), "")
 	if !coord.HasPending() {
 		t.Fatal("expected pending after Begin")
 	}
@@ -330,7 +330,7 @@ func TestApprovalCoordinatorLifecycle(t *testing.T) {
 func TestApprovalCoordinatorMismatch(t *testing.T) {
 	t.Parallel()
 	coord := &ApprovalCoordinator{}
-	ch := coord.Begin("write", "auto", string(tool.ApprovalKindPath))
+	ch := coord.Begin("write", "auto", string(tool.ApprovalKindPath), "")
 
 	coord.Submit(SubmitApproval{
 		Tool: "not-write",

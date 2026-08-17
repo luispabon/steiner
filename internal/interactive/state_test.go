@@ -96,3 +96,36 @@ func TestActiveRunControllerSteer(t *testing.T) {
 		t.Run(tt.name, tt.test)
 	}
 }
+
+func TestApprovalCoordinatorQueue(t *testing.T) {
+	coord := &ApprovalCoordinator{}
+	head := coord.Begin("head", "", "", "code")
+	middle := coord.Begin("middle", "", "", "review")
+	tail := coord.Begin("tail", "", "", "plan")
+	if !coord.HasPending() || coord.PendingDepth() != 3 {
+		t.Fatalf("pending state = %v/%d, want true/3", coord.HasPending(), coord.PendingDepth())
+	}
+
+	coord.Finish(middle)
+	if coord.PendingDepth() != 2 {
+		t.Fatalf("depth after middle Finish = %d, want 2", coord.PendingDepth())
+	}
+	coord.Submit(SubmitApproval{Tool: "head", Decision: "allow_once"})
+	if got := (<-head).Decision; got != "allow_once" {
+		t.Errorf("head decision = %q, want allow_once", got)
+	}
+	select {
+	case <-tail:
+		t.Fatal("tail received submission before head was finished")
+	default:
+	}
+	coord.Finish(head)
+	coord.Submit(SubmitApproval{Tool: "tail", Decision: "deny"})
+	if got := (<-tail).Decision; got != "deny" {
+		t.Errorf("tail decision = %q, want deny", got)
+	}
+	coord.Finish(tail)
+	if coord.HasPending() || coord.PendingDepth() != 0 {
+		t.Fatalf("final pending state = %v/%d, want false/0", coord.HasPending(), coord.PendingDepth())
+	}
+}
