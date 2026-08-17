@@ -2127,7 +2127,7 @@ func TestModelApprovalFIFOSkipsCancelledMiddleRequest(t *testing.T) {
 	default:
 	}
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	submissions = ctrl.submitApprovals()
 	if len(submissions) != 2 {
 		t.Fatalf("approval count = %d, want 2", len(submissions))
