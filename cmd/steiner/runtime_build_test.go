@@ -18,18 +18,15 @@ import (
 )
 
 func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.T) {
-	oldNewScheduler := newScheduler
 	oldNewOpenAICompat := newOpenAICompat
 	oldNewAnthropic := newAnthropic
 	oldNewCodexResponses := newCodexResponses
 	t.Cleanup(func() {
-		newScheduler = oldNewScheduler
 		newOpenAICompat = oldNewOpenAICompat
 		newAnthropic = oldNewAnthropic
 		newCodexResponses = oldNewCodexResponses
 	})
 
-	const wantParallelism = 7
 	httpClient := &http.Client{}
 	streamErrorLog, err := provider.NewStreamErrorLogger(filepath.Join(t.TempDir(), "stream-errors.log"))
 	if err != nil {
@@ -59,12 +56,6 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 		t.Helper()
 
 		var got capture
-		newScheduler = func(parallelism int) (*provider.Scheduler, error) {
-			if parallelism != wantParallelism {
-				t.Fatalf("scheduler parallelism = %d, want %d", parallelism, wantParallelism)
-			}
-			return provider.NewScheduler(parallelism)
-		}
 		newOpenAICompat = func(cfg provider.ClientConfig) (provider.Provider, error) {
 			got.openAICompatCalls++
 			got.openAICompatCfg = cfg
@@ -81,12 +72,7 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 			return &fakeProvider{}, nil
 		}
 
-		factory, err := buildRuntimeProviderFactory(config.Config{
-			Scheduler: config.SchedulerConfig{Parallelism: wantParallelism},
-		}, httpClient, streamErrorLog)
-		if err != nil {
-			t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
-		}
+		factory := buildRuntimeProviderFactory(config.Config{}, httpClient, streamErrorLog)
 
 		gotProvider, err := factory(rm)
 		if wantErr != "" {
@@ -320,12 +306,7 @@ func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKe
 		return &fakeProvider{}, nil
 	}
 
-	factory, err := buildRuntimeProviderFactory(config.Config{
-		Scheduler: config.SchedulerConfig{Parallelism: 1},
-	}, &http.Client{}, nil)
-	if err != nil {
-		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
-	}
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -358,12 +339,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 
-	factory, err := buildRuntimeProviderFactory(config.Config{
-		Scheduler: config.SchedulerConfig{Parallelism: 1},
-	}, &http.Client{}, nil)
-	if err != nil {
-		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
-	}
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -371,7 +347,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 		BackendModelID:        "codex-default",
 		EffectiveProviderType: config.ProviderTypeCodex,
 	}
-	_, err = factory(codexRM)
+	_, err := factory(codexRM)
 	if err == nil {
 		t.Fatal("factory() error = nil, want actionable error")
 	}
@@ -384,12 +360,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	factory, err := buildRuntimeProviderFactory(config.Config{
-		Scheduler: config.SchedulerConfig{Parallelism: 1},
-	}, &http.Client{}, nil)
-	if err != nil {
-		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
-	}
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -397,7 +368,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 		BackendModelID:        "codex-default",
 		EffectiveProviderType: config.ProviderTypeCodex,
 	}
-	_, err = factory(codexRM)
+	_, err := factory(codexRM)
 	if err == nil {
 		t.Fatal("factory() error = nil, want actionable error")
 	}

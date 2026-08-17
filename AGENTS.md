@@ -12,7 +12,7 @@
 cmd/steiner/             CLI entry and subcommands
 internal/agent/          Loop orchestration, state, limits
 internal/config/         Config loading, merging, validation, defaults
-internal/provider/       Model transport and scheduler
+internal/provider/       Model transport
 internal/tool/           Registry, schema, policy, executor, output shaping
 internal/prompt/         Context gathering, budgeting, assembly, compaction
 internal/skill/          Skill discovery and loading
@@ -29,7 +29,7 @@ docs/                    Product/design docs and implementation notes
 
 * Keep package boundaries strict.
 * `cmd/steiner` is the composition root; it wires dependencies and flags only, and must not accumulate business logic.
-* `internal/agent` must not bypass provider abstractions or scheduler parallelism.
+* `internal/agent` must not bypass provider abstractions, and concurrent tool execution must respect the configured `MaxParallelTools` bound rather than spawning unbounded goroutines.
 * `internal/prompt` owns context assembly and stays separate from execution.
 * `internal/prompt` must not import `internal/delegation`; `internal/delegation/bootstrap.go` imports `internal/prompt`, so the reverse import would be a cycle.
 * Context assembly order is intentional; update `internal/prompt` tests when changing precedence.

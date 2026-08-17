@@ -64,7 +64,10 @@ type toolCallSegment struct {
 	approvalKind           string // "path" or "mcp"
 	approvalServer         string // MCP server name (empty for path)
 	approvalMCPTool        string // MCP tool name (empty for path)
-	approvalSelectedAction int    // 0=allow once, 1=always allow, 2=deny
+	approvalAgentID        string
+	approvalIdentity       string
+	approvalQueueDepth     int
+	approvalSelectedAction int // 0=allow once, 1=always allow, 2=deny
 }
 
 type toolCallGroupSegment struct {
@@ -79,6 +82,9 @@ type approvalPillData struct {
 	kind        string // "path" or "mcp"
 	server      string // MCP server name (empty for path)
 	mcpToolName string // MCP tool name (empty for path)
+	agentID     string
+	identity    string
+	queueDepth  int
 	resolved    bool
 	accepted    bool
 }

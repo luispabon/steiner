@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/semaphore"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -160,23 +163,91 @@ func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, state RunSta
 //   - StopReason / finished-turn handling after all tools
 func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, response provider.ChatResponse) turnOutcome {
 	turn := state.TurnCount
-
-	for _, call := range response.Message.ToolCalls {
-		var outcome turnOutcome
-		state, outcome = p.executeSingleToolCall(ctx, state, turn, call)
-		if outcome.Stop {
-			return outcome
+	calls := response.Message.ToolCalls
+	for i := 0; i < len(calls); {
+		n := p.parallelRunLength(calls, i)
+		if n <= 1 {
+			var outcome turnOutcome
+			state, outcome = p.executeSingleToolCall(ctx, state, turn, calls[i])
+			if outcome.Stop {
+				return outcome
+			}
+			i++
+			continue
 		}
+		results := p.invokeParallel(ctx, state, turn, calls[i:i+n])
+		for k := 0; k < n; k++ {
+			var outcome turnOutcome
+			state, outcome = p.applyToolResult(ctx, state, turn, calls[i+k], results[k].value, results[k].err)
+			if outcome.Stop {
+				return outcome
+			}
+		}
+		i += n
 	}
-
 	return p.finalizeToolTurn(ctx, state, turn, response)
+}
+
+func (p *turnProgressor) parallelRunLength(calls []provider.ToolCall, start int) int {
+	if p.request.MaxParallelTools == 1 || p.request.ParallelTool == nil || !p.request.ParallelTool(calls[start].Name) {
+		return 1
+	}
+	n := 1
+	for start+n < len(calls) && p.request.ParallelTool(calls[start+n].Name) {
+		n++
+	}
+	return n
+}
+
+type batchResult struct {
+	value any
+	err   error
+}
+
+func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, turn int, calls []provider.ToolCall) []batchResult {
+	batchCtx := WithConversationSnapshot(ctx, liveConversationSnapshot(state))
+	results := make([]batchResult, len(calls))
+
+	var gate *semaphore.Weighted
+	if p.request.MaxParallelTools > 0 {
+		gate = semaphore.NewWeighted(int64(p.request.MaxParallelTools))
+	}
+	var wg sync.WaitGroup
+	for i, call := range calls {
+		if gate != nil {
+			if err := gate.Acquire(batchCtx, 1); err != nil {
+				break
+			}
+		}
+		emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
+		wg.Add(1)
+		go func(i int, call provider.ToolCall) {
+			defer wg.Done()
+			if gate != nil {
+				defer gate.Release(1)
+			}
+			results[i].value, results[i].err = p.invokeTool(batchCtx, turn, call)
+		}(i, call)
+	}
+	wg.Wait()
+	return results
 }
 
 func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunState, turn int, call provider.ToolCall) (RunState, turnOutcome) {
 	emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
-
 	ctx = WithConversationSnapshot(ctx, liveConversationSnapshot(state))
-	result, err := p.request.Executor.Execute(ctx, call.Name, call.ID, cloneInput(call.Arguments))
+	result, err := p.invokeTool(ctx, turn, call)
+	return p.applyToolResult(ctx, state, turn, call, result, err)
+}
+
+// invokeTool runs the executor and returns the raw outcome. It does not emit
+// events or touch RunState.
+func (p *turnProgressor) invokeTool(ctx context.Context, _ int, call provider.ToolCall) (any, error) {
+	return p.request.Executor.Execute(ctx, call.Name, call.ID, cloneInput(call.Arguments))
+}
+
+// applyToolResult applies an executor outcome to the conversation state.
+func (p *turnProgressor) applyToolResult(ctx context.Context, state RunState, turn int, call provider.ToolCall, result any, err error) (RunState, turnOutcome) {
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
 		cancelled = replaySafeRunState(cancelled)
 		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
@@ -187,17 +258,12 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunSta
 		state.StopReason = StopReasonWorkflowHandoff
 		state.WorkflowHandoff = transition
 		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
-
 		emitStop(p.request.Events, state, nil)
 		return state, turnOutcome{State: state, Stop: true}
-
 	}
 	toolMessage := p.buildToolMessage(turn, call, result, err)
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
-
-	// Emit an updated context budget event so the TUI context meter
-	// reflects the token cost of the newly appended tool result.
 	if p.lastBudget != nil && p.lastBudget.ContextSize > 0 {
 		provMsg := toProviderMessage(toolMessage)
 		delta, err := provider.EstimateMessageTokens(ctx, p.request.ResolvedModel.BackendModelID, provMsg)
@@ -208,7 +274,6 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunSta
 			emitRequestTokenDiagnostic(p.request.Events, turn, *p.lastBudget, false)
 		}
 	}
-
 	return state, turnOutcome{}
 }
 

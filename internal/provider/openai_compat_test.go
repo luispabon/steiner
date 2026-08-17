@@ -13,9 +13,8 @@ import (
 
 func TestOpenAICompatNewOpenAICompat_EmptyBaseURL(t *testing.T) {
 	_, err := NewOpenAICompat(ClientConfig{
-		BaseURL:   "",
-		Model:     "gpt-4",
-		Scheduler: &Scheduler{},
+		BaseURL: "",
+		Model:   "gpt-4",
 	})
 	if err == nil {
 		t.Fatal("expected error for empty base URL")
@@ -24,9 +23,8 @@ func TestOpenAICompatNewOpenAICompat_EmptyBaseURL(t *testing.T) {
 
 func TestOpenAICompatNewOpenAICompat_InvalidURL(t *testing.T) {
 	_, err := NewOpenAICompat(ClientConfig{
-		BaseURL:   "://invalid",
-		Model:     "gpt-4",
-		Scheduler: &Scheduler{},
+		BaseURL: "://invalid",
+		Model:   "gpt-4",
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
@@ -35,30 +33,18 @@ func TestOpenAICompatNewOpenAICompat_InvalidURL(t *testing.T) {
 
 func TestOpenAICompatNewOpenAICompat_EmptyModel(t *testing.T) {
 	_, err := NewOpenAICompat(ClientConfig{
-		BaseURL:   "http://localhost:11434/v1",
-		Model:     "",
-		Scheduler: &Scheduler{},
+		BaseURL: "http://localhost:11434/v1",
+		Model:   "",
 	})
 	if err == nil {
 		t.Fatal("expected error for empty model")
 	}
 }
 
-func TestOpenAICompatNewOpenAICompat_NilScheduler(t *testing.T) {
-	_, err := NewOpenAICompat(ClientConfig{
-		BaseURL: "http://localhost:11434/v1",
-		Model:   "gpt-4",
-	})
-	if err == nil {
-		t.Fatal("expected error for nil scheduler")
-	}
-}
-
 func TestOpenAICompatNewOpenAICompat_DefaultHTTPClient(t *testing.T) {
 	p, err := NewOpenAICompat(ClientConfig{
-		BaseURL:   "http://localhost:11434/v1",
-		Model:     "gpt-4",
-		Scheduler: &Scheduler{},
+		BaseURL: "http://localhost:11434/v1",
+		Model:   "gpt-4",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -76,7 +62,6 @@ func TestOpenAICompatNewOpenAICompat_Success(t *testing.T) {
 		Headers:    map[string]string{"X-Test-Header": "configured"},
 		Model:      "gpt-4",
 		HTTPClient: customClient,
-		Scheduler:  &Scheduler{},
 	}
 	p, err := NewOpenAICompat(cfg)
 	if err != nil {
@@ -106,7 +91,6 @@ func TestOpenAICompatNewOpenAICompat_TimeoutClonesHTTPClient(t *testing.T) {
 		Model:      "gpt-4",
 		Timeout:    45 * time.Second,
 		HTTPClient: customClient,
-		Scheduler:  &Scheduler{},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -138,7 +122,6 @@ func TestOpenAICompatNewOpenAICompat_TimeoutDisablesResponseHeaderTimeout(t *tes
 		Model:      "gpt-4",
 		Timeout:    45 * time.Second,
 		HTTPClient: customClient,
-		Scheduler:  &Scheduler{},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

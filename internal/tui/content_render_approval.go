@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+
 	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -28,6 +30,13 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 		if ad.mode != "" {
 			label += " · " + ad.mode
 		}
+	}
+
+	if ad.agentID != "" {
+		label += " [agent: " + ad.agentID + "]"
+	}
+	if ad.queueDepth > 0 {
+		label += " +" + fmt.Sprint(ad.queueDepth) + " waiting"
 	}
 
 	if ad.resolved {

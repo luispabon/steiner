@@ -8,6 +8,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -47,14 +48,7 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 	if err != nil {
 		return runnerSetup{}, err
 	}
-	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:               rm.EffectiveLimits.ContextWindow,
-		MaxCompletionTokens:       rm.EffectiveLimits.MaxOutputTokens,
-		SafetyMarginTokens:        rm.EffectiveLimits.EstimatorPadTokens,
-		SummaryMaxTokens:          rm.EffectiveLimits.NormalSummaryMaxTokens,
-		NormalSummaryMaxTokens:    rm.EffectiveLimits.NormalSummaryMaxTokens,
-		EmergencySummaryMaxTokens: rm.EffectiveLimits.EmergencySummaryMaxTokens,
-	}
+	modelBudget := prompt.ModelBudgetFromEffectiveLimits(rm.EffectiveLimits)
 
 	return runnerSetup{
 		resolvedModel: rm,
@@ -227,6 +221,14 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		DrainSteers:        drainSteers,
 		PromptCacheKey:     r.promptCacheKey,
 		VisionCapabilities: r.runtime.visionCapabilities,
+	}
+	if r.runtime.cfg.SubAgent.Enabled {
+		req.ParallelTool = delegation.IsDelegationTool
+		req.MaxParallelTools = r.runtime.cfg.SubAgent.MaxParallel
+	} else {
+		// Leave parallel delegation fields unset when delegation is disabled.
+		req.ParallelTool = nil
+		req.MaxParallelTools = 0
 	}
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder

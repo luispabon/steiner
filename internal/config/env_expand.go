@@ -91,7 +91,10 @@ func (e *envExpander) expandBraceToken(input string, i int, b *strings.Builder) 
 
 func (e *envExpander) expandBareToken(input string, i int, b *strings.Builder) (int, bool) {
 	j := i + 1
-	for j < len(input) && isEnvContinue(input[j], j == i+1) {
+	for j < len(input) && isEnvContinue(input[j]) {
+		if j == i+1 && !isEnvStart(input[j]) {
+			break
+		}
 		j++
 	}
 	if j == i+1 {

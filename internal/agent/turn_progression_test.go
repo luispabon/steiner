@@ -2,16 +2,361 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+type parallelTestExecutor struct {
+	fn func(context.Context, string) (any, error)
+}
+
+func (e parallelTestExecutor) Execute(ctx context.Context, name, _ string, _ map[string]any) (any, error) {
+	return e.fn(ctx, name)
+}
+
+func parallelCalls(names ...string) provider.ChatResponse {
+	calls := make([]provider.ToolCall, len(names))
+	for i, name := range names {
+		calls[i] = provider.ToolCall{ID: name, Name: name}
+	}
+	return provider.ChatResponse{Message: provider.Message{ToolCalls: calls}}
+}
+
+func runParallel(t *testing.T, req RunRequest, names ...string) RunState {
+	t.Helper()
+	req.Events = output.NoopSink{}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+	return p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls(names...)).State
+}
+
+func parallelContents(state RunState) []string {
+	var out []string
+	for _, msg := range state.Conversation {
+		if msg.Role == MessageRoleTool {
+			out = append(out, msg.Content)
+		}
+	}
+	return out
+}
+
+func TestExecuteToolCalls_ParallelReversedCompletionAppliesInOrder(t *testing.T) {
+	entered := make(chan string, 2)
+	allowA := make(chan struct{})
+	releaseB := make(chan struct{})
+	bDone := make(chan struct{})
+	executor := parallelTestExecutor{fn: func(ctx context.Context, name string) (any, error) {
+		entered <- name
+		release := allowA
+		if name == "b" {
+			release = releaseB
+		}
+		select {
+		case <-release:
+			if name == "b" {
+				close(bDone)
+			}
+			return name, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}}
+	var events []output.Event
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }, Events: output.SinkFunc(func(e output.Event) { events = append(events, e) })}, prompt.AssemblyOptions{}, nil)
+	done := make(chan RunState, 1)
+	go func() {
+		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b")).State
+	}()
+	got := []string{<-entered, <-entered}
+	if (got[0] != "a" && got[0] != "b") || got[0] == got[1] {
+		t.Fatalf("entered calls = %v, want both calls", got)
+	}
+	close(releaseB)
+	select {
+	case <-bDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("b did not finish before a was released")
+	}
+	close(allowA)
+	state := <-done
+	if got := parallelContents(state); !equalStrings(got, []string{"a", "b"}) {
+		t.Fatalf("contents = %v, want [a b]", got)
+	}
+}
+
+func TestExecuteToolCalls_NilParallelToolIsSerial(t *testing.T) {
+	var order []string
+	state := runParallel(t, RunRequest{Executor: parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
+		order = append(order, name)
+		return name, nil
+	}}}, "a", "b")
+	if !equalStrings(order, []string{"a", "b"}) || !equalStrings(parallelContents(state), []string{"a", "b"}) {
+		t.Fatalf("order=%v contents=%v, want serial call order and results", order, parallelContents(state))
+	}
+}
+
+func TestExecuteToolCalls_MaxParallelOneHasSerialEvents(t *testing.T) {
+	var events []output.Event
+	req := RunRequest{Executor: parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) { return name, nil }}, ParallelTool: func(string) bool { return true }, MaxParallelTools: 1, Events: output.SinkFunc(func(e output.Event) { events = append(events, e) })}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+	p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b"))
+	want := []string{output.EventTypeToolCallStarted, output.EventTypeToolCallFinished, output.EventTypeToolCallStarted, output.EventTypeToolCallFinished}
+	if got := eventTypes(events); !equalStrings(got, want) {
+		t.Fatalf("events = %v, want serial sequence %v", got, want)
+	}
+}
+
+func TestExecuteToolCalls_UnboundedBatchAllInFlight(t *testing.T) {
+	const n = 4
+	var entered int32
+	barrier := make(chan struct{})
+	executor := parallelTestExecutor{fn: func(ctx context.Context, name string) (any, error) {
+		atomic.AddInt32(&entered, 1)
+		select {
+		case <-barrier:
+			return name, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
+	done := make(chan RunState, 1)
+	go func() {
+		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b", "c", "d")).State
+	}()
+	runtime.Gosched()
+	if !waitForAtomic(t, &entered, n) {
+		return
+	}
+	close(barrier)
+	if got := parallelContents(<-done); len(got) != n {
+		t.Fatalf("results=%v, want %d", got, n)
+	}
+}
+
+func waitForAtomic(t *testing.T, value *int32, want int32) bool {
+	t.Helper()
+	for i := 0; i < 100000; i++ {
+		if atomic.LoadInt32(value) >= want {
+			return true
+		}
+		runtime.Gosched()
+	}
+	t.Fatalf("counter did not reach %d, got %d", want, atomic.LoadInt32(value))
+	return false
+}
+
+func TestExecuteToolCalls_MixedEligibleRunsPreserveOrder(t *testing.T) {
+	var mu sync.Mutex
+	var entered []string
+	release := make(chan struct{})
+	executor := parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
+		mu.Lock()
+		runtime.Gosched()
+		entered = append(entered, name)
+		mu.Unlock()
+		if name == "a" || name == "b" {
+			<-release
+		}
+		return name, nil
+	}}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(name string) bool { return name != "x" }}, prompt.AssemblyOptions{}, nil)
+	done := make(chan RunState, 1)
+	go func() {
+		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b", "x", "c")).State
+	}()
+	for i := 0; i < 100000; i++ {
+		mu.Lock()
+		count := len(entered)
+		mu.Unlock()
+		runtime.Gosched()
+		if count == 2 {
+			break
+		}
+		if i == 99999 {
+			t.Fatalf("eligible calls did not overlap: entered=%v", entered)
+		}
+	}
+	close(release)
+	state := <-done
+	if got := parallelContents(state); !equalStrings(got, []string{"a", "b", "x", "c"}) {
+		t.Fatalf("contents=%v", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(entered) < 3 || entered[2] != "x" {
+		t.Fatalf("executor order=%v, want x after eligible run", entered)
+	}
+}
+
+func TestExecuteToolCalls_MiddleWorkflowHandoffStopsLaterResults(t *testing.T) {
+	entered := make(chan string, 3)
+	middleDone := make(chan struct{})
+	executor := parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
+		entered <- name
+		if name != "stop" {
+			<-middleDone
+			return name, nil
+		}
+		seen := map[string]bool{}
+		for !seen["a"] || !seen["c"] {
+			seen[<-entered] = true
+		}
+		close(middleDone)
+		return tool.WorkflowHandoffAccepted{Transition: tool.WorkflowHandoffTransition{Next: "implement"}}, nil
+	}}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
+	done := make(chan turnOutcome, 1)
+	go func() {
+		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "stop", "c"))
+	}()
+	var outcome turnOutcome
+	select {
+	case outcome = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("batch did not complete concurrently")
+	}
+	if !outcome.Stop || outcome.State.StopReason != StopReasonWorkflowHandoff || !equalStrings(parallelContents(outcome.State), []string{"a"}) {
+		t.Fatalf("stop=%v reason=%q contents=%v", outcome.Stop, outcome.State.StopReason, parallelContents(outcome.State))
+	}
+}
+
+func TestExecuteToolCalls_CancelledBatchExitsAllExecutors(t *testing.T) {
+	var inFlight int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executor := parallelTestExecutor{fn: func(ctx context.Context, _ string) (any, error) {
+		atomic.AddInt32(&inFlight, 1)
+		defer atomic.AddInt32(&inFlight, -1)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }, MaxParallelTools: 2}, prompt.AssemblyOptions{}, nil)
+	done := make(chan turnOutcome, 1)
+	go func() {
+		done <- p.executeToolCalls(ctx, RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b", "c", "d"))
+	}()
+	if !waitForAtomic(t, &inFlight, 2) {
+		return
+	}
+	cancel()
+	outcome := <-done
+	if atomic.LoadInt32(&inFlight) != 0 || !outcome.Stop || len(outcome.State.Conversation) != 0 {
+		t.Fatalf("inFlight=%d stop=%v conversation=%v", inFlight, outcome.Stop, outcome.State.Conversation)
+	}
+}
+
+func TestExecuteToolCalls_MaxParallelToolsBounded(t *testing.T) {
+	var inFlight, max int32
+	barrier := make(chan struct{})
+	executor := parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
+		current := atomic.AddInt32(&inFlight, 1)
+		for {
+			old := atomic.LoadInt32(&max)
+			if current <= old || atomic.CompareAndSwapInt32(&max, old, current) {
+				break
+			}
+		}
+		<-barrier
+		atomic.AddInt32(&inFlight, -1)
+		return name, nil
+	}}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }, MaxParallelTools: 2}, prompt.AssemblyOptions{}, nil)
+	done := make(chan RunState, 1)
+	go func() {
+		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b", "c", "d")).State
+	}()
+	if !waitForAtomic(t, &inFlight, 2) {
+		return
+	}
+	if atomic.LoadInt32(&inFlight) > 2 {
+		t.Fatalf("in-flight=%d, want <=2", inFlight)
+	}
+	close(barrier)
+	if got := parallelContents(<-done); len(got) != 4 {
+		t.Fatalf("results=%v", got)
+	}
+	if atomic.LoadInt32(&max) > 2 {
+		t.Fatalf("max in-flight=%d, want <=2", max)
+	}
+}
+
+func TestExecuteToolCalls_SiblingFailureIsolation(t *testing.T) {
+	entered := make(chan string, 3)
+	done := make(chan string, 3)
+	middleDone := make(chan struct{})
+	executor := parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
+		entered <- name
+		if name == "bad" {
+			seen := map[string]bool{}
+			for !seen["a"] || !seen["c"] {
+				seen[<-entered] = true
+			}
+			close(middleDone)
+			done <- name
+			return nil, errors.New("boom")
+		}
+		<-middleDone
+		done <- name
+		return name, nil
+	}}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
+	result := make(chan RunState, 1)
+	go func() {
+		result <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "bad", "c")).State
+	}()
+	select {
+	case state := <-result:
+		got := parallelContents(state)
+		if len(got) != 3 || got[0] != "a" || !strings.Contains(got[1], "boom") || got[2] != "c" {
+			t.Fatalf("contents=%v, want sibling results around tool error", got)
+		}
+		for range 3 {
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("sibling did not complete")
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("batch did not complete concurrently")
+	}
+}
+
+func TestExecuteToolCalls_SharedPreBatchSnapshot(t *testing.T) {
+	initial := []Message{{Role: MessageRoleUser, Content: "A"}}
+	var mu sync.Mutex
+	var snapshots [][]provider.Message
+	executor := parallelTestExecutor{fn: func(ctx context.Context, name string) (any, error) {
+		snapshot, ok := ConversationSnapshotFromContext(ctx)
+		if !ok {
+			t.Errorf("%s missing snapshot", name)
+		}
+		mu.Lock()
+		snapshots = append(snapshots, snapshot)
+		mu.Unlock()
+		return name, nil
+	}}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
+	state := RunState{Conversation: initial, Lineage: newConversationLineage(initial)}
+	p.executeToolCalls(context.Background(), state, parallelCalls("a", "b"))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(snapshots) != 2 || len(snapshots[0]) != 1 || len(snapshots[1]) != 1 || snapshots[0][0].Content != "A" || snapshots[1][0].Content != "A" {
+		t.Fatalf("snapshots=%#v, want both [A]", snapshots)
+	}
+}
 func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 	state := RunState{
 		TurnCount:    0,
@@ -46,7 +391,7 @@ func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 		t.Fatalf("chatRequest.Model = %q, want %q", chatRequest.Model, "test-model")
 	}
 	if chatRequest.PromptCacheKey == "" {
-		t.Fatal("chatRequest.PromptCacheKey = empty, want stable session key")
+		t.Fatalf("chatRequest.PromptCacheKey = empty, want stable session key")
 	}
 	if chatRequest.MaxTokens != nil {
 		t.Fatalf("chatRequest.MaxTokens = %v, want nil for normal turns", *chatRequest.MaxTokens)

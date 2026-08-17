@@ -1147,6 +1147,21 @@ func TestBuildChildRunRequestPromptCacheKeyFallsBackWhenStoreNil(t *testing.T) {
 	}
 }
 
+func TestBuildChildRunRequestDoesNotEnableParallelTools(t *testing.T) {
+	req := buildChildRunRequest(childRunRequestParams{
+		WorkDir:    "/tmp/work",
+		AgentID:    "no-nesting",
+		VisibleReg: tool.NewRegistry(),
+		ExecReg:    tool.NewRegistry(),
+	})
+	if req.ParallelTool != nil {
+		t.Fatal("child ParallelTool is non-nil, want nil")
+	}
+	if req.MaxParallelTools != 0 {
+		t.Fatalf("child MaxParallelTools = %d, want 0", req.MaxParallelTools)
+	}
+}
+
 func TestBuildChildRunRequestPromptCacheKeyReusePerAgentType(t *testing.T) {
 	store := NewCacheKeyStore()
 

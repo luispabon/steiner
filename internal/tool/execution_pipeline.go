@@ -119,6 +119,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		NormalizedInput: normalizedInput,
 	}
 
+	toolCtx = context.WithValue(toolCtx, ExecutionCallIDKey{}, ec.CallID)
 	return e.executeTool(toolCtx, &ec)
 }
 

@@ -24,7 +24,6 @@ type Client struct {
 	model          string
 	retry          RetryConfig
 	httpClient     *http.Client
-	scheduler      *Scheduler
 	providerType   string
 	streamErrorLog *StreamErrorLogger
 	wire           Wire
@@ -52,11 +51,6 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 	if err := c.pace(ctx); err != nil {
 		return ChatResponse{}, err
 	}
-	if err := c.acquire(ctx); err != nil {
-		return ChatResponse{}, err
-	}
-	defer c.release()
-
 	body, err := c.wire.Payload(request, false)
 	if err != nil {
 		return ChatResponse{}, err
@@ -113,11 +107,6 @@ func (c *Client) StreamChatCompletion(ctx context.Context, request ChatRequest) 
 // streamWithRetry runs the retry loop for a streaming request, forwarding chunks
 // to out and tracking how much of the stream each attempt already delivered.
 func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out chan<- ChatChunk) error {
-	if err := c.acquire(ctx); err != nil {
-		return err
-	}
-	defer c.release()
-
 	body, err := c.wire.Payload(request, true)
 	if err != nil {
 		return err
@@ -201,20 +190,6 @@ func (c *Client) executeRequest(ctx context.Context, request ChatRequest, body [
 		return nil, err
 	}
 	return c.executeHTTP(ctx, req)
-}
-
-func (c *Client) acquire(ctx context.Context) error {
-	if c.scheduler == nil {
-		return nil
-	}
-	return c.scheduler.Acquire(ctx)
-}
-
-func (c *Client) release() {
-	if c.scheduler == nil {
-		return
-	}
-	c.scheduler.Release()
 }
 
 // pace enforces the minimum interval between consecutive requests. It is a no-op

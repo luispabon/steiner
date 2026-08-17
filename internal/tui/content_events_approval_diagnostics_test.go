@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // TestApprovalCorrelatesByCallIDAcrossConcurrentCalls reproduces the bug where
@@ -107,5 +109,98 @@ func TestApprovalCorrelatesByCallIDAcrossConcurrentCalls(t *testing.T) {
 	}
 	if firstCall.approvalAccepted {
 		t.Fatal("first call should have been denied, not accepted")
+	}
+}
+
+func TestApprovalRequestedRetainsCallIDInToolCallAndFallbackPill(t *testing.T) {
+	b := &contentBuffer{collapseState: make(map[int]bool)}
+	call := &toolCallSegment{tool: "bash", callID: "call-normal"}
+	b.segments = []contentSegment{{kind: segmentToolCall, toolData: call}}
+	b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{Tool: "bash", CallID: "call-normal"}})
+	if call.approvalIdentity != "call-normal" {
+		t.Fatalf("tool call identity = %q, want call-normal", call.approvalIdentity)
+	}
+
+	b.segments = nil
+	b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{Tool: "bash", CallID: "call-fallback"}})
+	if got := b.segments[0].approvalData.identity; got != "call-fallback" {
+		t.Fatalf("fallback identity = %q, want call-fallback", got)
+	}
+}
+
+func TestApprovalFallbackDecisionCorrelatesByCallID(t *testing.T) {
+	b := &contentBuffer{collapseState: make(map[int]bool)}
+	for _, callID := range []string{"call-A", "call-B"} {
+		b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{
+			Tool:   "bash",
+			CallID: callID,
+		}})
+	}
+
+	b.appendApprovalDecisionEvent(output.Event{
+		Type:    output.EventTypeApprovalAccepted,
+		Payload: output.ApprovalEvent{CallID: "call-B"},
+	})
+
+	first := b.segments[0].approvalData
+	second := b.segments[1].approvalData
+	if first.resolved {
+		t.Fatal("call-A fallback pill should remain pending")
+	}
+	if second == nil || !second.resolved || !second.accepted {
+		t.Fatal("call-B fallback pill should be resolved and accepted")
+	}
+	if first.queueDepth != 0 {
+		t.Fatalf("call-A queue depth = %d, want 0 after call-B resolves", first.queueDepth)
+	}
+}
+
+func TestApprovalQueueDepthsAreHeadRelativeAndRecomputed(t *testing.T) {
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber), collapseState: make(map[int]bool)}
+	head := &approvalPillData{tool: "bash", agentID: "worker", queueDepth: 9}
+	tail := &approvalPillData{tool: "read", queueDepth: 9}
+	b.segments = []contentSegment{
+		{kind: segmentApprovalPill, approvalData: head},
+		{kind: segmentApprovalPill, approvalData: tail},
+	}
+	b.recomputeApprovalQueueDepths()
+	if head.queueDepth != 1 || tail.queueDepth != 0 {
+		t.Fatalf("depths = %d/%d, want 1/0", head.queueDepth, tail.queueDepth)
+	}
+	if rendered := stripANSI(b.renderApprovalPill(head, 100)); !strings.Contains(rendered, "+1 waiting") {
+		t.Errorf("head render = %q, want +1 waiting", rendered)
+	}
+	if rendered := stripANSI(b.renderApprovalPill(tail, 100)); strings.Contains(rendered, "waiting") {
+		t.Errorf("queued tail render = %q, want no waiting suffix", rendered)
+	}
+	head.resolved = true
+	b.recomputeApprovalQueueDepths()
+	if tail.queueDepth != 0 {
+		t.Fatalf("tail depth after resolution = %d, want 0", tail.queueDepth)
+	}
+	if rendered := stripANSI(b.renderApprovalPill(tail, 100)); strings.Contains(rendered, "waiting") {
+		t.Errorf("promoted sole head render = %q, want no waiting suffix", rendered)
+	}
+}
+
+func TestApprovalPillAgentLabel(t *testing.T) {
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	for _, test := range []struct {
+		name  string
+		agent string
+		want  string
+	}{
+		{name: "delegated", agent: "worker-1", want: "[agent: worker-1]"},
+		{name: "parent", want: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rendered := stripANSI(b.renderApprovalPill(&approvalPillData{tool: "bash", agentID: test.agent}, 100))
+			if strings.Contains(rendered, "[agent:") != (test.want != "") {
+				t.Errorf("render = %q, agent suffix presence = %v, want %v", rendered, strings.Contains(rendered, "[agent:"), test.want != "")
+			}
+			if test.want != "" && !strings.Contains(rendered, test.want) {
+				t.Errorf("render = %q, want %q", rendered, test.want)
+			}
+		})
 	}
 }

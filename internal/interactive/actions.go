@@ -44,6 +44,7 @@ func (RequestConfigReport) isInteractiveAction() {}
 // SubmitApproval represents a user decision on an outstanding approval
 // request during an interactive session.
 type SubmitApproval struct {
+	Identity string
 	Tool     string
 	Mode     string
 	Decision string

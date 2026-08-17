@@ -25,32 +25,23 @@ func stringSlicePtr(v []string) *[]string {
 	return &v
 }
 
-func TestApplySchedulerPatch(t *testing.T) {
+func TestApplySubAgentPatchMaxParallel(t *testing.T) {
 	tests := []struct {
 		name    string
-		initial SchedulerConfig
-		patch   schedulerPatch
-		want    SchedulerConfig
+		initial SubAgentConfig
+		patch   subAgentPatch
+		want    SubAgentConfig
 	}{
-		{
-			name:    "sets parallelism",
-			initial: SchedulerConfig{Parallelism: 1},
-			patch:   schedulerPatch{Parallelism: intPtr(4)},
-			want:    SchedulerConfig{Parallelism: 4},
-		},
-		{
-			name:    "nil parallelism leaves value untouched",
-			initial: SchedulerConfig{Parallelism: 2},
-			patch:   schedulerPatch{},
-			want:    SchedulerConfig{Parallelism: 2},
-		},
+		{name: "unset max_parallel leaves default", initial: SubAgentConfig{MaxParallel: 3}, patch: subAgentPatch{}, want: SubAgentConfig{MaxParallel: 3}},
+		{name: "zero max_parallel is preserved", initial: SubAgentConfig{MaxParallel: 3}, patch: subAgentPatch{MaxParallel: intPtr(0)}, want: SubAgentConfig{MaxParallel: 0}},
+		{name: "sets max_parallel", initial: SubAgentConfig{MaxParallel: 3}, patch: subAgentPatch{MaxParallel: intPtr(4)}, want: SubAgentConfig{MaxParallel: 4}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dst := tt.initial
-			applySchedulerPatch(&dst, &tt.patch)
+			applySubAgentPatch(&dst, &tt.patch)
 			if !reflect.DeepEqual(dst, tt.want) {
-				t.Fatalf("applySchedulerPatch() = %#v, want %#v", dst, tt.want)
+				t.Fatalf("applySubAgentPatch() = %#v, want %#v", dst, tt.want)
 			}
 		})
 	}

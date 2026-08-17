@@ -105,8 +105,10 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 			}, nil
 		}
 
+		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
 		req := tool.ApprovalRequest{
 			Tool:              def,
+			CallID:            callID,
 			Input:             input,
 			Kind:              tool.ApprovalKindMCP,
 			Reason:            "MCP tool call",

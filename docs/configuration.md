@@ -22,7 +22,7 @@ Key environment variables:
 | Variable                      | Maps to                           |
 |-------------------------------|-----------------------------------|
 | `STEINER_MODEL`               | `models.default`                  |
-| `STEINER_SCHEDULER_PARALLELISM` | `scheduler.parallelism`         |
+| `STEINER_SUB_AGENTS_MAX_PARALLEL` | `sub_agent.max_parallel`       |
 | `STEINER_MAX_TURNS`           | `limits.max_turns`                |
 | `STEINER_MAX_TOKENS`          | `limits.max_tokens`               |
 | `STEINER_LOG_LEVEL`           | `logging.level`                   |
@@ -152,21 +152,6 @@ Setting `duration: 0` creates permanent notifications that the user must manuall
 desktop_notifications:
   enabled: true
   duration: 0
-```
-
----
-
-## `scheduler` block
-
-Controls provider-level concurrency.
-
-| Field         | Type | Default | Description |
-|---------------|------|---------|-------------|
-| `parallelism` | int  | `1`     | Maximum number of concurrent in-flight provider requests. Set higher only when using a provider that supports parallel calls. |
-
-```yaml
-scheduler:
-  parallelism: 1
 ```
 
 ---
@@ -518,6 +503,7 @@ do and tool allowlists for each specialised agent type, see
 | `enabled`      | bool                       | `true`                                   | Master switch. Set to `false` to remove all delegation tools from the model. |
 | `max_turns`    | int                        | `30`                                     | Maximum turns allowed for each child agent run. A floor of 15 turns is enforced internally. |
 | `max_tokens`   | int                        | `100000`                                 | Maximum tokens a child agent may consume. |
+| `max_parallel` | int                        | `3`                                      | Maximum concurrent delegation tool calls within one turn. `0` means unbounded; `1` means serial. |
 
 Each specialised agent type (`explore`, `research`, `code`, `plan`, `verify`,
 `vision`) has its own hardcoded tool allowlist; there is no user-configurable
@@ -531,6 +517,7 @@ the same model as the parent.
 ```yaml
 sub_agent:
   enabled: true
+  max_parallel: 3
   max_turns: 30
   max_tokens: 100000
 
@@ -895,9 +882,6 @@ limits:
 ### Example 5: kitchen-sink — every block populated
 
 ```yaml
-scheduler:
-  parallelism: 2
-
 tui:
   fps: 60
 

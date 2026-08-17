@@ -25,6 +25,15 @@ func AllAgentTypes() []AgentType {
 	return []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeCode, AgentTypeEvaluate, AgentTypeSanityCheck, AgentTypeReview, AgentTypeVision}
 }
 
+// IsDelegationTool reports whether name is a delegation tool registered by
+// BuildDelegateRegistry: a specialized agent-type tool or follow_up.
+func IsDelegationTool(name string) bool {
+	if name == FollowUpToolName {
+		return true
+	}
+	return ValidAgentType(name)
+}
+
 // AllSpecializedDelegateTools returns the canonical specialized delegate tool
 // names used by delegation-aware UIs and other cross-package callers. It
 // includes all agent types plus follow_up because follow_up is not an AgentType

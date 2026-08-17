@@ -214,30 +214,35 @@ func (s *SnapshotStore) Snapshot() (RequestContextSnapshot, bool) {
 // pendingApproval represents an outstanding mutation-tool approval that the
 // TUI (or other client) has not yet responded to.
 type pendingApproval struct {
+	identity string
 	toolName string
 	mode     string
 	kind     string // ApprovalKind string value
+	agentID  string
+	claimed  bool
 	response chan SubmitApproval
 }
 
 // ApprovalCoordinator manages the lifecycle of pending approval requests
 // during an interactive session.
 type ApprovalCoordinator struct {
-	mu      sync.Mutex
-	pending *pendingApproval
+	mu    sync.Mutex
+	queue []*pendingApproval
 }
 
 // Begin registers a new pending approval request and returns a channel that
 // will receive the decision once the client submits one.
-func (c *ApprovalCoordinator) Begin(toolName, mode, kind string) chan SubmitApproval {
+func (c *ApprovalCoordinator) Begin(identity, toolName, mode, kind, agentID string) chan SubmitApproval {
 	response := make(chan SubmitApproval, 1)
 	c.mu.Lock()
-	c.pending = &pendingApproval{
+	c.queue = append(c.queue, &pendingApproval{
+		identity: identity,
 		toolName: toolName,
 		mode:     mode,
 		kind:     kind,
+		agentID:  agentID,
 		response: response,
-	}
+	})
 	c.mu.Unlock()
 	return response
 }
@@ -246,31 +251,56 @@ func (c *ApprovalCoordinator) Begin(toolName, mode, kind string) chan SubmitAppr
 // channel.
 func (c *ApprovalCoordinator) Finish(response chan SubmitApproval) {
 	c.mu.Lock()
-	if c.pending != nil && c.pending.response == response {
-		c.pending = nil
+	for i, pending := range c.queue {
+		if pending.response == response {
+			copy(c.queue[i:], c.queue[i+1:])
+			c.queue = c.queue[:len(c.queue)-1]
+			break
+		}
 	}
 	c.mu.Unlock()
 }
 
-// Submit delivers a user's approval decision to the pending request, if the
-// tool and mode match.
+// Submit delivers a user's approval decision to the first unclaimed request,
+// if the tool and mode match. The response send happens outside the mutex so a
+// duplicate submission cannot block coordinator lifecycle operations.
 func (c *ApprovalCoordinator) Submit(submission SubmitApproval) {
 	c.mu.Lock()
-	pending := c.pending
+	var response chan SubmitApproval
+	for _, pending := range c.queue {
+		if pending.claimed {
+			continue
+		}
+		if pending.identity == "" || submission.Identity == "" || submission.Identity != pending.identity {
+			continue
+		}
+		if pending.toolName != "" && submission.Tool != "" && submission.Tool != pending.toolName {
+			break
+		}
+		if pending.mode != "" && submission.Mode != "" && submission.Mode != pending.mode {
+			break
+		}
+		pending.claimed = true
+		response = pending.response
+		break
+	}
 	c.mu.Unlock()
-	if pending == nil {
-		return
+	if response != nil {
+		response <- submission
 	}
-	if pending.toolName != "" && submission.Tool != "" && submission.Tool != pending.toolName {
-		return
+}
+
+// HeadIdentity returns the identity of the first approval not yet claimed by a
+// decision, or an empty string when no such approval exists.
+func (c *ApprovalCoordinator) HeadIdentity() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, pending := range c.queue {
+		if !pending.claimed {
+			return pending.identity
+		}
 	}
-	if pending.mode != "" && submission.Mode != "" && submission.Mode != pending.mode {
-		return
-	}
-	select {
-	case pending.response <- submission:
-	default:
-	}
+	return ""
 }
 
 // HasPending reports whether an approval request is currently awaiting a
@@ -278,7 +308,14 @@ func (c *ApprovalCoordinator) Submit(submission SubmitApproval) {
 func (c *ApprovalCoordinator) HasPending() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.pending != nil
+	return len(c.queue) > 0
+}
+
+// PendingDepth reports the number of approval requests awaiting a decision.
+func (c *ApprovalCoordinator) PendingDepth() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.queue)
 }
 
 type pendingWorkflowHandoff struct {
@@ -287,7 +324,8 @@ type pendingWorkflowHandoff struct {
 }
 
 // WorkflowHandoffCoordinator manages pending workflow handoff requests during
-// an interactive session.
+// an interactive session. It intentionally keeps a single pending request because
+// handoffs are parent-only and cannot be concurrent.
 type WorkflowHandoffCoordinator struct {
 	mu      sync.Mutex
 	pending *pendingWorkflowHandoff

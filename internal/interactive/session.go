@@ -125,6 +125,11 @@ func (s *Session) ApprovalCoordinator() *ApprovalCoordinator {
 	return s.approvalCoordinator
 }
 
+// ApprovalHeadIdentity returns the identity of the next FIFO approval.
+func (s *Session) ApprovalHeadIdentity() string {
+	return s.approvalCoordinator.HeadIdentity()
+}
+
 // WorkflowHandoffCoordinator returns the session's workflow handoff
 // coordinator, which manages pending handoff requests.
 func (s *Session) WorkflowHandoffCoordinator() *WorkflowHandoffCoordinator {

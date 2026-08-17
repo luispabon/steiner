@@ -118,6 +118,14 @@ A child "needs extension" when `StopReason == StopReasonMaxTurns` AND the last a
 
 `StopReasonMaxTurns` and `StopReasonMaxTokens` map to `StatusPartial`. A partial result means the child's budget was exhausted before it could finish. Parent models must treat partial results conservatively — do not assume the delegated task succeeded, and retry or narrow scope rather than treating partial output as authoritative.
 
+### Parallel tool execution
+
+The parent `agent.RunRequest` may set `ParallelTool func(string) bool`, a predicate identifying tool calls eligible for concurrent execution. Child runs receive a nil predicate and remain serial; the predicate is consumed by `internal/agent`. `MaxParallelTools` bounds eligible calls, with zero meaning unbounded and one meaning serial execution.
+
+`executeToolCalls` splits invocation from application. The execution path emits `ToolCallStarted` and `invokeTool` runs the executor, while `applyToolResult` updates `Conversation` and `Lineage`, emits budget events, and performs stop detection. Parallel results are applied in original call order, even when children finish in another order. This keeps conversation state and the prompt prefix deterministic.
+
+A parallel batch receives one shared pre-batch conversation snapshot. Siblings therefore cannot see each other's results during execution; each result is applied only after invocation completes. Approval requests use the `ApprovalCoordinator` FIFO queue, so concurrent requests are presented and matched in queue order rather than racing user decisions.
+
 ### Result and retention
 
 **DelegationResult** (returned to the parent model):
@@ -210,3 +218,4 @@ Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate �
 11. **Enforced allowlist**: `BootstrapDeps.AllowedTools` is enforced during child registry construction; only listed tools (minus `follow_up` and `workflow_handoff`) are visible and executable.
 12. **Per-type allowlists**: each specialised agent type has its own tool allowlist, resolved via `AgentAllowedTools(agentType)` and passed as `BootstrapDeps.AllowedTools` — there is no user-configurable global allowlist.
 13. **Extra tool projection**: `DelegateDeps.ExtraAllowedTools` adds per-agent-type registered tool names to child registries. Nil or empty projections grant nothing; unknown names are ignored by `Registry.Subset`; merged lists are sorted and deduplicated without mutating the built-in allowlists; original ToolDef handlers and MCP provenance are retained.
+14. **Parallel fan-out**: eligible parent tool calls may execute concurrently within `MaxParallelTools`; child runs remain serial because their `ParallelTool` predicate is nil. Results are applied in call order against a shared pre-batch snapshot.

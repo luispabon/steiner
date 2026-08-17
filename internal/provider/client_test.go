@@ -75,10 +75,10 @@ func (w *refiningWire) RefineRetry(err error, decision retryDecision) retryDecis
 func newFakeWireClient(t *testing.T, wire Wire, retry RetryConfig) (*Client, *[]time.Duration) {
 	t.Helper()
 	client, err := NewOpenAICompat(ClientConfig{
-		BaseURL:   "http://fake.invalid/v1",
-		Model:     "test-model",
-		Scheduler: mustTestScheduler(t, 1),
-		Retry:     retry,
+		BaseURL: "http://fake.invalid/v1",
+		Model:   "test-model",
+
+		Retry: retry,
 	})
 	if err != nil {
 		t.Fatalf("NewOpenAICompat() error = %v", err)
@@ -329,34 +329,6 @@ func TestClientStreamChatCompletionSuppressesRetryResetWithoutPartialStream(t *t
 	}
 }
 
-func TestClientStreamChatCompletionReleasesSchedulerSlot(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
-	defer server.Close()
-
-	client, _ := newFakeWireClient(t, &fakeWire{target: server.URL}, RetryConfig{})
-	scheduler := client.scheduler
-
-	for i := 0; i < 3; i++ {
-		ch, err := client.StreamChatCompletion(context.Background(), ChatRequest{
-			Messages: []Message{{Role: MessageRoleUser, Content: "hi"}},
-			Stream:   true,
-		})
-		if err != nil {
-			t.Fatalf("StreamChatCompletion() error = %v", err)
-		}
-		for range ch {
-		}
-	}
-
-	// A leaked slot would block here: the scheduler has a parallelism of one.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := scheduler.Acquire(ctx); err != nil {
-		t.Fatalf("scheduler slot not released after streaming: %v", err)
-	}
-	scheduler.Release()
-}
-
 func TestClientPaceEnforcesMinInterval(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -380,9 +352,9 @@ func TestClientPaceEnforcesMinInterval(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client, err := NewCodexResponses(ClientConfig{
-				BaseURL:            "https://chatgpt.com/backend-api/codex",
-				Model:              "gpt-5.4-mini",
-				Scheduler:          mustTestScheduler(t, 1),
+				BaseURL: "https://chatgpt.com/backend-api/codex",
+				Model:   "gpt-5.4-mini",
+
 				MinRequestInterval: tt.minInterval,
 			})
 			if err != nil {
@@ -404,9 +376,9 @@ func TestClientPaceEnforcesMinInterval(t *testing.T) {
 
 func TestClientPaceHonoursContextCancellation(t *testing.T) {
 	client, err := NewCodexResponses(ClientConfig{
-		BaseURL:            "https://chatgpt.com/backend-api/codex",
-		Model:              "gpt-5.4-mini",
-		Scheduler:          mustTestScheduler(t, 1),
+		BaseURL: "https://chatgpt.com/backend-api/codex",
+		Model:   "gpt-5.4-mini",
+
 		MinRequestInterval: time.Second,
 	})
 	if err != nil {
@@ -551,9 +523,9 @@ func TestClientStreamRetryIsLoggedForEveryWire(t *testing.T) {
 			}()
 
 			client, err := tt.newClient(ClientConfig{
-				BaseURL:   server.URL + "/v1",
-				Model:     "test-model",
-				Scheduler: mustTestScheduler(t, 1),
+				BaseURL: server.URL + "/v1",
+				Model:   "test-model",
+
 				Retry: RetryConfig{
 					Enabled:        true,
 					MaxAttempts:    2,
@@ -688,10 +660,10 @@ func TestClientCodexCacheHintsReachTheBackend(t *testing.T) {
 				// The real Codex backend host: it is what makes the wire ask for
 				// store: false, so the request is routed to the test server by
 				// transport rather than by base URL.
-				BaseURL:    "https://chatgpt.com/backend-api/codex",
-				APIKey:     "codex-token",
-				Model:      "gpt-5.4-mini",
-				Scheduler:  mustTestScheduler(t, 1),
+				BaseURL: "https://chatgpt.com/backend-api/codex",
+				APIKey:  "codex-token",
+				Model:   "gpt-5.4-mini",
+
 				HTTPClient: &http.Client{Transport: mustHostRewriteTransport(t, server.URL)},
 			})
 			if err != nil {
@@ -763,9 +735,8 @@ func TestClientOpenAICompatSendsNoCodexAffinityHeaders(t *testing.T) {
 	defer server.Close()
 
 	client, err := NewOpenAICompat(ClientConfig{
-		BaseURL:   server.URL + "/v1",
-		Model:     "gpt-4",
-		Scheduler: mustTestScheduler(t, 1),
+		BaseURL: server.URL + "/v1",
+		Model:   "gpt-4",
 	})
 	if err != nil {
 		t.Fatalf("NewOpenAICompat() error = %v", err)

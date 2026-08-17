@@ -115,11 +115,14 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.ApprovalEvent:
 		switch event.Type {
 		case output.EventTypeApprovalRequested:
-			// Guard: do not open a new approval tray if one is already active
-			// (prevents visual duplicate when content buffer pill is already present).
+			// Content retains every request. The tray only prompts the first.
 			if !m.approval.active {
+				if coordinator, ok := m.controller.(interface{ ApprovalHeadIdentity() string }); ok && coordinator.ApprovalHeadIdentity() != "" && coordinator.ApprovalHeadIdentity() != payload.CallID {
+					break
+				}
 				m.approval = approvalState{
 					active:         true,
+					identity:       payload.CallID,
 					tool:           payload.Tool,
 					mode:           payload.Mode,
 					preview:        payload.Preview,
@@ -136,9 +139,11 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			}
 		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
 			m.approval = approvalState{}
-			m.status.mode = "running"
+			if !m.promoteNextApproval(payload.CallID) {
+				m.status.mode = "running"
+				m.input.Focus()
+			}
 			m.activity = m.activity.static(approvalResultLabel(event.Type), approvalDetail(payload))
-			m.input.Focus()
 		}
 	case output.WorkflowHandoffEvent:
 		switch event.Type {
@@ -201,6 +206,45 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		cmds = append(cmds, syncDebounceCmd(m.syncDebounceSeq))
 	}
 	return tea.Batch(cmds...)
+}
+
+//nolint:gocyclo // approval segment variants stay centralized
+func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
+	identity := ""
+	if coordinator, ok := m.controller.(interface{ ApprovalHeadIdentity() string }); ok {
+		identity = coordinator.ApprovalHeadIdentity()
+	}
+	if identity == "" && len(resolvedIdentities) > 0 {
+		identity = resolvedIdentities[0]
+	}
+	for i := range m.content.segments {
+		seg := &m.content.segments[i]
+		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved && (identity == "" || seg.toolData.approvalIdentity == identity) {
+			tc := seg.toolData
+			m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
+			m.status.mode = "approval"
+			m.input.Blur()
+			return true
+		}
+		if seg.kind == segmentToolCallGroup && seg.toolGroupData != nil {
+			for _, tc := range seg.toolGroupData.entries {
+				if tc != nil && tc.approvalPending && !tc.approvalResolved && (identity == "" || tc.approvalIdentity == identity) {
+					m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
+					m.status.mode = "approval"
+					m.input.Blur()
+					return true
+				}
+			}
+		}
+		if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved && (identity == "" || seg.approvalData.identity == identity) {
+			ad := seg.approvalData
+			m.approval = approvalState{active: true, identity: ad.identity, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName}
+			m.status.mode = "approval"
+			m.input.Blur()
+			return true
+		}
+	}
+	return false
 }
 
 // applyMCPStatusEvent replaces the TUI's MCP snapshot with the fresh values

@@ -12,6 +12,18 @@ import (
 	"time"
 )
 
+func mustTestOpenAICompat(t *testing.T, baseURL string) *Client {
+	t.Helper()
+	provider, err := NewOpenAICompat(ClientConfig{
+		BaseURL: baseURL + "/v1",
+		Model:   "test-model",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompat() error = %v", err)
+	}
+	return provider
+}
+
 func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 	t.Run("sends authorization header when API key is set", func(t *testing.T) {
 		var authHeader string
@@ -22,10 +34,9 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 		defer server.Close()
 
 		provider, err := NewOpenAICompat(ClientConfig{
-			BaseURL:   server.URL + "/v1",
-			APIKey:    "sk-test-key",
-			Model:     "gpt-4",
-			Scheduler: mustTestScheduler(t, 1),
+			BaseURL: server.URL + "/v1",
+			APIKey:  "sk-test-key",
+			Model:   "gpt-4",
 		})
 		if err != nil {
 			t.Fatalf("NewOpenAICompat() error = %v", err)
@@ -78,9 +89,8 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 		defer server.Close()
 
 		provider, err := NewOpenAICompat(ClientConfig{
-			BaseURL:   server.URL + "/v1",
-			Model:     "gpt-4",
-			Scheduler: mustTestScheduler(t, 1),
+			BaseURL: server.URL + "/v1",
+			Model:   "gpt-4",
 		})
 		if err != nil {
 			t.Fatalf("NewOpenAICompat() error = %v", err)
@@ -156,10 +166,9 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 		defer server.Close()
 
 		provider, err := NewAnthropic(ClientConfig{
-			BaseURL:   server.URL + "/v1",
-			APIKey:    "sk-ant-test",
-			Model:     "claude-3-7-sonnet",
-			Scheduler: mustTestScheduler(t, 1),
+			BaseURL: server.URL + "/v1",
+			APIKey:  "sk-ant-test",
+			Model:   "claude-3-7-sonnet",
 		})
 		if err != nil {
 			t.Fatalf("NewAnthropic() error = %v", err)
@@ -407,10 +416,9 @@ func TestIntegrationStreamChatCompletionSendsCorrectRequest(t *testing.T) {
 	defer server.Close()
 
 	provider, err := NewOpenAICompat(ClientConfig{
-		BaseURL:   server.URL + "/v1",
-		APIKey:    "sk-stream-key",
-		Model:     "gpt-4",
-		Scheduler: mustTestScheduler(t, 1),
+		BaseURL: server.URL + "/v1",
+		APIKey:  "sk-stream-key",
+		Model:   "gpt-4",
 	})
 	if err != nil {
 		t.Fatalf("NewOpenAICompat() error = %v", err)
@@ -525,7 +533,6 @@ func TestIntegrationH2TimeoutDoesNotBreakTransport(t *testing.T) {
 				Model:      "gpt-4",
 				Timeout:    tc.timeout,
 				HTTPClient: httpClient,
-				Scheduler:  mustTestScheduler(t, 1),
 			})
 			if err != nil {
 				t.Fatalf("NewOpenAICompat() error = %v", err)

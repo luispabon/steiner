@@ -46,13 +46,7 @@ func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (co
 	if modelAlias == "" {
 		overrides.Model = flags.model
 	}
-	cfg, err := config.Load(config.LoadOptions{
-		CLI: overrides,
-	})
-	if err != nil {
-		return config.Config{}, err
-	}
-	return cfg, nil
+	return config.Load(config.LoadOptions{CLI: overrides})
 }
 
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
@@ -76,10 +70,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	if err != nil {
 		return cliRuntime{}, fmt.Errorf("build stream error logger: %w", err)
 	}
-	providerFactory, err := buildRuntimeProviderFactory(cfg, httpClient, streamErrorLog)
-	if err != nil {
-		return cliRuntime{}, err
-	}
+	providerFactory := buildRuntimeProviderFactory(cfg, httpClient, streamErrorLog)
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
 	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
@@ -163,11 +154,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}, nil
 }
 
-func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (func(provider.ResolvedModel) (provider.Provider, error), error) {
-	scheduler, err := newScheduler(cfg.Scheduler.Parallelism)
-	if err != nil {
-		return nil, err
-	}
+func buildRuntimeProviderFactory(_ config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) func(provider.ResolvedModel) (provider.Provider, error) {
 	return func(rm provider.ResolvedModel) (provider.Provider, error) {
 		providerType := rm.EffectiveProviderType
 		if providerType == "" {
@@ -180,18 +167,18 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, str
 		switch providerType {
 		case config.ProviderTypeOpenAICompat, config.ProviderTypeOllama, config.ProviderTypeLMStudio,
 			config.ProviderTypeOpenRouter, config.ProviderTypeOpenAI, config.ProviderTypeLiteLLM:
-			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, scheduler, httpClient, streamErrorLog))
+			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog))
 		case config.ProviderTypeAnthropic:
-			return newAnthropic(runtimeProviderConfig(rm, providerType, scheduler, httpClient, streamErrorLog))
+			return newAnthropic(runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog))
 		case config.ProviderTypeCodex:
-			return newCodexProvider(rm, providerType, scheduler, httpClient, streamErrorLog)
+			return newCodexProvider(rm, providerType, httpClient, streamErrorLog)
 		default:
 			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
 		}
-	}, nil
+	}
 }
 
-func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, scheduler *provider.Scheduler, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (provider.Provider, error) {
+func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (provider.Provider, error) {
 	path, err := oauth.DefaultTokenPath()
 	if err != nil {
 		return nil, fmt.Errorf("resolve token path: %w", err)
@@ -210,7 +197,7 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 	if err != nil {
 		return nil, fmt.Errorf("refresh codex token: %w", err)
 	}
-	cfg := runtimeProviderConfig(rm, providerType, scheduler, httpClient, streamErrorLog)
+	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog)
 	if apiKey := oauth.TokenOpenAIAPIKey(token); apiKey != "" {
 		cfg.APIKey = apiKey
 	} else {
@@ -226,7 +213,7 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 	return newCodexResponses(cfg)
 }
 
-func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, scheduler *provider.Scheduler, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.ClientConfig {
+func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.ClientConfig {
 	return provider.ClientConfig{
 		BaseURL: rm.ProviderConfig.BaseURL,
 		APIKey:  rm.ProviderConfig.APIKey,
@@ -241,7 +228,6 @@ func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.Provid
 			RetryAfterMax:  time.Duration(rm.Retry.RetryAfterMax.Duration()),
 		},
 		ProviderType:       string(providerType),
-		Scheduler:          scheduler,
 		HTTPClient:         httpClient,
 		StreamErrorLog:     streamErrorLog,
 		MinRequestInterval: time.Duration(rm.ProviderConfig.Codex.MinRequestInterval.Duration()),

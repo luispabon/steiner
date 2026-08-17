@@ -3,7 +3,6 @@ package config
 // configPatch represents a partial config update from YAML.
 type configPatch struct {
 	CaveHuman            *bool                      `yaml:"cave_human"`
-	Scheduler            *schedulerPatch            `yaml:"scheduler"`
 	TUI                  *tuiPatch                  `yaml:"tui"`
 	Providers            *map[string]providerPatch  `yaml:"providers"`
 	Sandbox              *sandboxPatch              `yaml:"sandbox"`
@@ -49,10 +48,6 @@ type codexPatch struct {
 
 type contextManagementPatch struct {
 	ReadAnnotations *bool `yaml:"read_annotations"`
-}
-
-type schedulerPatch struct {
-	Parallelism *int `yaml:"parallelism"`
 }
 
 type tuiPatch struct {
@@ -125,9 +120,10 @@ type limitsPatch struct {
 }
 
 type subAgentPatch struct {
-	Enabled   *bool `yaml:"enabled"`
-	MaxTurns  *int  `yaml:"max_turns"`
-	MaxTokens *int  `yaml:"max_tokens"`
+	Enabled     *bool `yaml:"enabled"`
+	MaxTurns    *int  `yaml:"max_turns"`
+	MaxTokens   *int  `yaml:"max_tokens"`
+	MaxParallel *int  `yaml:"max_parallel"`
 }
 
 type advisorPatch struct {

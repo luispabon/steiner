@@ -92,6 +92,35 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 	})
 }
 
+func TestMCPApprovalRetainsExecutionCallID(t *testing.T) {
+	fixtureBin := buildFixture(t)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+	if err != nil {
+		t.Fatalf("connect fixture: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	approver := &recordingApprover{allow: true}
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, func() tool.ApprovalResponder { return approver }, func() bool { return false }, config.MCPServerConfig{Approval: "ask"}, config.LimitsConfig{})
+	executor := tool.NewExecutor(tool.NewRegistry(def), config.Config{}, approver, t.TempDir(), "")
+	const callID = "mcp-call-42"
+
+	result, err := executor.Execute(context.Background(), def.Name, callID, map[string]any{"text": "hi"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	envelope, ok := result.(tool.JSONEnvelope)
+	if !ok || !envelope.OK || envelope.Result != "hi" {
+		t.Fatalf("result = %#v, want successful MCP response", result)
+	}
+	if len(approver.reqs) != 1 {
+		t.Fatalf("approval requests = %d, want 1", len(approver.reqs))
+	}
+	if approver.reqs[0].CallID != callID {
+		t.Fatalf("approval CallID = %q, want %q", approver.reqs[0].CallID, callID)
+	}
+}
+
 // TestMCPHandlerPlanModeDynamic proves the handler reads plan mode from the
 // closure at call time: toggling the mode changes approval behaviour without
 // rebuilding the tool definition.

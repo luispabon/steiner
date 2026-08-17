@@ -11,9 +11,6 @@ func applyCoreConfigPatch(cfg *Config, patch configPatch) {
 	if patch.CaveHuman != nil {
 		cfg.CaveHuman = *patch.CaveHuman
 	}
-	if patch.Scheduler != nil {
-		applySchedulerPatch(&cfg.Scheduler, patch.Scheduler)
-	}
 	if patch.TUI != nil {
 		applyTUIPatch(&cfg.TUI, patch.TUI)
 	}

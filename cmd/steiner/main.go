@@ -12,7 +12,6 @@ var commit = "none"
 var buildDate = "unknown"
 var goVersion = runtime.Version()
 
-var newScheduler = provider.NewScheduler
 var newOpenAICompat = func(cfg provider.ClientConfig) (provider.Provider, error) {
 	return provider.NewOpenAICompat(cfg)
 }

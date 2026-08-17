@@ -58,6 +58,7 @@ func (m *Model) moveApprovalSelection(delta int) *Model {
 func (m *Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitApproval{
+			Identity: m.approval.identity,
 			Tool:     m.approval.tool,
 			Mode:     m.approval.mode,
 			Decision: string(decision),

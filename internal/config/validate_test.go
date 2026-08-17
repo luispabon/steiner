@@ -14,8 +14,8 @@ func validBase() Config {
 		RetryAfterMax:  MustDuration("30s"),
 	}
 	return Config{
-		Scheduler: SchedulerConfig{Parallelism: 1},
-		TUI:       TUIConfig{FPS: 60},
+
+		TUI: TUIConfig{FPS: 60},
 		Models: ModelsConfig{
 			Default: "default",
 			Definitions: map[string]ModelConfig{
@@ -402,15 +402,15 @@ func TestValidate(t *testing.T) {
 			wantErr: `models["default"].retry.max_backoff must be greater than or equal to`,
 		},
 
-		// Scheduler validation
+		// Max parallel validation
 		{
-			name: "bad parallelism",
+			name: "negative max_parallel",
 			cfg: func() Config {
 				c := validBase()
-				c.Scheduler.Parallelism = 0
+				c.SubAgent.MaxParallel = -1
 				return c
 			}(),
-			wantErr: "scheduler.parallelism must be at least 1",
+			wantErr: "sub_agent.max_parallel must not be negative",
 		},
 
 		// Sub-agent enabled with bad limits
@@ -967,8 +967,8 @@ func TestSearchConfigValidation(t *testing.T) {
 				RetryAfterMax:  MustDuration("30s"),
 			}
 			cfg := Config{
-				Scheduler: SchedulerConfig{Parallelism: 1},
-				TUI:       TUIConfig{FPS: 60},
+
+				TUI: TUIConfig{FPS: 60},
 				Models: ModelsConfig{
 					Default: "default",
 					Definitions: map[string]ModelConfig{

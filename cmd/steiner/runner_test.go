@@ -24,6 +24,40 @@ import (
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
+func TestBuildRunRequestDelegationParallelism(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		enabled bool
+		width   int
+		wantFn  bool
+		wantMax int
+	}{
+		{name: "enabled", enabled: true, width: 5, wantFn: true, wantMax: 5},
+		{name: "disabled", enabled: false, width: 5, wantFn: false, wantMax: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := cliRunner{runtime: cliRuntime{cfg: config.Config{
+				SubAgent: config.SubAgentConfig{Enabled: tt.enabled, MaxParallel: tt.width},
+			}}}
+			req := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+			if (req.ParallelTool != nil) != tt.wantFn {
+				t.Fatalf("ParallelTool set = %v, want %v", req.ParallelTool != nil, tt.wantFn)
+			}
+			if req.MaxParallelTools != tt.wantMax {
+				t.Fatalf("MaxParallelTools = %d, want %d", req.MaxParallelTools, tt.wantMax)
+			}
+			if tt.enabled {
+				if !req.ParallelTool("code") {
+					t.Fatal("ParallelTool(code) = false, want true")
+				}
+				if req.ParallelTool("read") {
+					t.Fatal("ParallelTool(read) = true, want false")
+				}
+			}
+		})
+	}
+}
+
 func TestToProviderConversationPreservesTurn(t *testing.T) {
 	messages := []agent.Message{
 		{Role: agent.MessageRoleUser, Content: "hello", Turn: 4},
@@ -589,6 +623,9 @@ func TestRunnerDelegateDepsCarryRuntimeSandboxState(t *testing.T) {
 			})
 
 			cfg := testRuntimeConfig("test-model")
+			def := cfg.Models.Definitions["test-model"]
+			def.Advanced.Limits.ContextWindow = 32768
+			cfg.Models.Definitions["test-model"] = def
 			cfg.Sandbox = tt.sandboxCfg
 			cfg.SubAgent = config.SubAgentConfig{Enabled: true}
 			sessions := delegation.NewSessionStore()
