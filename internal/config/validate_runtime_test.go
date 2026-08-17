@@ -8,7 +8,7 @@ import (
 )
 
 func TestValidateToolsConfigReservedNames(t *testing.T) {
-	builtinNames := []string{"read", "glob", "grep", "ls", "bash", "display_file", "mutate", "fetch_url", "workflow_handoff"}
+	builtinNames := ReservedToolNames()
 	validTool := ToolConfig{Exec: "/bin/true", Timeout: MustDuration("30s")}
 
 	tests := []struct {

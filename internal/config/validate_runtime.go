@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -89,6 +90,18 @@ var reservedToolNames = map[string]bool{
 	"mutate":           true,
 	"fetch_url":        true,
 	"workflow_handoff": true,
+}
+
+// ReservedToolNames returns a sorted copy of the built-in tool names that
+// config tools may not override. The set mirrors internal/tool/builtin/builtins.go
+// and is declared here to avoid an import cycle.
+func ReservedToolNames() []string {
+	names := make([]string, 0, len(reservedToolNames))
+	for name := range reservedToolNames {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
