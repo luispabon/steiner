@@ -59,6 +59,48 @@ func TestAllSpecializedDelegateTools(t *testing.T) {
 	}
 }
 
+func TestIsDelegationTool(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: FollowUpToolName, want: true},
+		{name: "read", want: false},
+		{name: "mutate", want: false},
+		{name: "bash", want: false},
+		{name: "glob", want: false},
+		{name: "grep", want: false},
+		{name: "ls", want: false},
+		{name: "scratchpad", want: false},
+		{name: "fetch_url", want: false},
+		{name: "display_file", want: false},
+		{name: "advisor", want: false},
+		{name: "workflow_handoff", want: false},
+		{name: "mcp__server__tool", want: false},
+	}
+	for _, agentType := range AllAgentTypes() {
+		tests = append(tests, struct {
+			name string
+			want bool
+		}{name: string(agentType), want: true})
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsDelegationTool(tt.name); got != tt.want {
+				t.Fatalf("IsDelegationTool(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsDelegationToolCoversAllAgentTypes(t *testing.T) {
+	for _, agentType := range AllAgentTypes() {
+		if !IsDelegationTool(string(agentType)) {
+			t.Errorf("IsDelegationTool(%q) = false, want true", agentType)
+		}
+	}
+}
+
 func TestAgentSystemPrompt(t *testing.T) {
 	for _, at := range AllAgentTypes() {
 		t.Run(string(at), func(t *testing.T) {
