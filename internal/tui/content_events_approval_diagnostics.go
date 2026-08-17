@@ -319,17 +319,7 @@ func (b *contentBuffer) recomputeApprovalQueueDepths() {
 				}
 			}
 		case segmentToolCallGroup:
-			if seg.toolGroupData != nil {
-				for _, entry := range seg.toolGroupData.entries {
-					if entry == nil {
-						continue
-					}
-					entry.approvalQueueDepth = 0
-					if entry.approvalPending && !entry.approvalResolved {
-						queued = append(queued, &entry.approvalQueueDepth)
-					}
-				}
-			}
+			queued = appendToolGroupApprovalQueueDepths(seg, queued)
 		}
 	}
 	if len(queued) > 0 {
@@ -337,15 +327,18 @@ func (b *contentBuffer) recomputeApprovalQueueDepths() {
 	}
 }
 
-func approvalQueueDepth(b *contentBuffer) int {
-	depth := 0
-	for _, segment := range b.segments {
-		if segment.kind == segmentApprovalPill && segment.approvalData != nil && !segment.approvalData.resolved {
-			depth++
+func appendToolGroupApprovalQueueDepths(seg *contentSegment, queued []*int) []*int {
+	if seg.toolGroupData == nil {
+		return queued
+	}
+	for _, entry := range seg.toolGroupData.entries {
+		if entry == nil {
+			continue
 		}
-		if segment.kind == segmentToolCall && segment.toolData != nil && segment.toolData.approvalPending && !segment.toolData.approvalResolved {
-			depth++
+		entry.approvalQueueDepth = 0
+		if entry.approvalPending && !entry.approvalResolved {
+			queued = append(queued, &entry.approvalQueueDepth)
 		}
 	}
-	return depth
+	return queued
 }

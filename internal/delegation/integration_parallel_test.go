@@ -101,12 +101,10 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 			return provider.ChatResponse{}, errors.New("child failed")
 		}
 		if h.blockOnCtx {
-			select {
-			case <-ctx.Done():
-				h.countCompleted(task)
-				h.active.Add(-1)
-				return provider.ChatResponse{}, ctx.Err()
-			}
+			<-ctx.Done()
+			h.countCompleted(task)
+			h.active.Add(-1)
+			return provider.ChatResponse{}, ctx.Err()
 		}
 		if !h.blockOnCtx {
 			calls := h.taskCallsFor(task).Add(1)

@@ -76,10 +76,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	if err != nil {
 		return cliRuntime{}, fmt.Errorf("build stream error logger: %w", err)
 	}
-	providerFactory, err := buildRuntimeProviderFactory(cfg, httpClient, streamErrorLog)
-	if err != nil {
-		return cliRuntime{}, err
-	}
+	providerFactory := buildRuntimeProviderFactory(cfg, httpClient, streamErrorLog)
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
 	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
@@ -163,7 +160,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}, nil
 }
 
-func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (func(provider.ResolvedModel) (provider.Provider, error), error) {
+func buildRuntimeProviderFactory(_ config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) func(provider.ResolvedModel) (provider.Provider, error) {
 	return func(rm provider.ResolvedModel) (provider.Provider, error) {
 		providerType := rm.EffectiveProviderType
 		if providerType == "" {
@@ -184,7 +181,7 @@ func buildRuntimeProviderFactory(cfg config.Config, httpClient *http.Client, str
 		default:
 			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
 		}
-	}, nil
+	}
 }
 
 func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (provider.Provider, error) {

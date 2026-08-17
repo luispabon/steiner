@@ -27,7 +27,6 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 		newCodexResponses = oldNewCodexResponses
 	})
 
-	const wantParallelism = 7
 	httpClient := &http.Client{}
 	streamErrorLog, err := provider.NewStreamErrorLogger(filepath.Join(t.TempDir(), "stream-errors.log"))
 	if err != nil {
@@ -73,10 +72,7 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 			return &fakeProvider{}, nil
 		}
 
-		factory, err := buildRuntimeProviderFactory(config.Config{}, httpClient, streamErrorLog)
-		if err != nil {
-			t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
-		}
+		factory := buildRuntimeProviderFactory(config.Config{}, httpClient, streamErrorLog)
 
 		gotProvider, err := factory(rm)
 		if wantErr != "" {
@@ -310,10 +306,7 @@ func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKe
 		return &fakeProvider{}, nil
 	}
 
-	factory, err := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
-	if err != nil {
-		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
-	}
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -346,10 +339,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 
-	factory, err := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
-	if err != nil {
-		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
-	}
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -357,7 +347,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 		BackendModelID:        "codex-default",
 		EffectiveProviderType: config.ProviderTypeCodex,
 	}
-	_, err = factory(codexRM)
+	_, err := factory(codexRM)
 	if err == nil {
 		t.Fatal("factory() error = nil, want actionable error")
 	}
@@ -370,10 +360,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	factory, err := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
-	if err != nil {
-		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
-	}
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -381,7 +368,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 		BackendModelID:        "codex-default",
 		EffectiveProviderType: config.ProviderTypeCodex,
 	}
-	_, err = factory(codexRM)
+	_, err := factory(codexRM)
 	if err == nil {
 		t.Fatal("factory() error = nil, want actionable error")
 	}

@@ -79,7 +79,7 @@ func TestExecuteToolCalls_ParallelReversedCompletionAppliesInOrder(t *testing.T)
 		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b")).State
 	}()
 	got := []string{<-entered, <-entered}
-	if !((got[0] == "a" || got[0] == "b") && got[0] != got[1]) {
+	if (got[0] != "a" && got[0] != "b") || got[0] == got[1] {
 		t.Fatalf("entered calls = %v, want both calls", got)
 	}
 	close(releaseB)

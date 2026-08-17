@@ -60,10 +60,7 @@ func TestRuntimeStreamErrorLoggerReachesProvider(t *testing.T) {
 		_ = streamErrorLog.Close()
 	}()
 
-	factory, err := buildRuntimeProviderFactory(cfg, &http.Client{}, streamErrorLog)
-	if err != nil {
-		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
-	}
+	factory := buildRuntimeProviderFactory(cfg, &http.Client{}, streamErrorLog)
 
 	p, err := factory(provider.ResolvedModel{
 		Alias:                 "anthropic",
