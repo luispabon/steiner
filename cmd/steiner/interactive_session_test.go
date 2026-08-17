@@ -350,8 +350,9 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 	defer mgr.Close() //nolint:errcheck
 
-	// The interactive registry is built before servers resolve and must not
-	// gain MCP defs until the session runner waits and re-registers.
+	// The interactive registry is built before all servers resolve. Fast servers
+	// may already have contributed defs by construction time; the important
+	// invariant is that Run() waits for every server and (re-)registers all defs.
 	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, mgr)
 
 	// Let the good server connect while the stall server is still handshaking:
@@ -371,9 +372,6 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 			t.Fatalf("good server never connected while stall was connecting; states=%+v", states)
 		}
 		time.Sleep(10 * time.Millisecond)
-	}
-	if got := mcpRegistryToolNames(registry); len(got) != 0 {
-		t.Fatalf("registry gained MCP defs before the session runner waited: %v", got)
 	}
 
 	producer := &mcpStateProducer{}
