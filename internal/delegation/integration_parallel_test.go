@@ -53,6 +53,10 @@ func childTask(req provider.ChatRequest) string {
 	return ""
 }
 
+type eventChSink struct{ ch chan output.Event }
+
+func (s eventChSink) Emit(e output.Event) { s.ch <- e }
+
 type parallelHarness struct {
 	provider       *parallelProvider
 	active         atomic.Int32
@@ -62,9 +66,9 @@ type parallelHarness struct {
 	completedTasks sync.Map
 	allStarted     chan struct{}
 	done           chan struct{}
+	events         chan output.Event
 	target         int
 	release        func(string) <-chan struct{}
-	completion     func(string)
 	failTask       string
 	blockOnCtx     bool
 }
@@ -73,6 +77,7 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 	h := &parallelHarness{
 		allStarted: make(chan struct{}),
 		done:       make(chan struct{}),
+		events:     make(chan output.Event, 1024),
 		target:     n,
 	}
 	h.release = func(string) <-chan struct{} { return h.done }
@@ -108,9 +113,6 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 			}
 		}
 		h.countCompleted(task)
-		if h.completion != nil {
-			h.completion(task)
-		}
 		h.active.Add(-1)
 		return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: task}, FinishReason: "stop"}, nil
 	}
@@ -134,11 +136,12 @@ func delegationParentResponse(names ...string) provider.ChatResponse {
 }
 
 func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *tool.Registry) (agent.RunState, error) {
-	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxParallel: max}, Provider: h.provider, Config: config.Config{}, WorkDir: "/tmp", Events: output.NoopSink{}})
+	events := output.EventSink(eventChSink{ch: h.events})
+	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxParallel: max}, Provider: h.provider, Config: config.Config{}, WorkDir: "/tmp", Events: events})
 	if err != nil {
 		return agent.RunState{}, err
 	}
-	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, "/tmp", ""), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelTool: IsDelegationTool, MaxParallelTools: max}
+	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, "/tmp", ""), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelTool: IsDelegationTool, MaxParallelTools: max, Events: events}
 	return agent.NewRunner().Run(ctx, req)
 }
 
@@ -243,13 +246,6 @@ func TestParallelDelegationEndToEndUnbounded(t *testing.T) {
 
 func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
-	done := map[string]chan struct{}{"task-0": make(chan struct{}, 1), "task-1": make(chan struct{}, 1), "task-2": make(chan struct{}, 1)}
-	h.completion = func(task string) {
-		select {
-		case done[task] <- struct{}{}:
-		default:
-		}
-	}
 	releases := map[string]chan struct{}{"task-0": make(chan struct{}), "task-1": make(chan struct{}), "task-2": make(chan struct{})}
 	ready := make(chan struct{})
 	close(ready)
@@ -259,14 +255,28 @@ func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 		}
 		return ready
 	}
+	completions := 0
+	waitCompletions := func(want int, message string) {
+		t.Helper()
+		for completions < want {
+			select {
+			case event := <-h.events:
+				if event.Type == output.EventTypeDelegationComplete {
+					completions++
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal(message)
+			}
+		}
+	}
 	result := startParallelParent(context.Background(), h, 3, tool.NewRegistry())
 	waitParallel(t, h.allStarted, "ordering batch did not start three children")
 	close(releases["task-2"])
-	waitParallel(t, done["task-2"], "task-2 did not complete")
+	waitCompletions(1, "task-2 did not complete (parent side)")
 	close(releases["task-1"])
-	waitParallel(t, done["task-1"], "task-1 did not complete")
+	waitCompletions(2, "task-1 did not complete (parent side)")
 	close(releases["task-0"])
-	waitParallel(t, done["task-0"], "task-0 did not complete")
+	waitCompletions(3, "task-0 did not complete (parent side)")
 	run := receiveParallel(t, result, "ordering parallel run did not finish")
 	if run.err != nil {
 		t.Fatal(run.err)
