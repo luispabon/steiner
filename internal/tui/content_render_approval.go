@@ -35,8 +35,8 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 	if ad.agentID != "" {
 		label += " [agent: " + ad.agentID + "]"
 	}
-	if ad.queueDepth > 1 {
-		label += " +" + fmt.Sprint(ad.queueDepth-1) + " waiting"
+	if ad.queueDepth > 0 {
+		label += " +" + fmt.Sprint(ad.queueDepth) + " waiting"
 	}
 
 	if ad.resolved {

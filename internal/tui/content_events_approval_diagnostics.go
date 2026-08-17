@@ -25,7 +25,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				seg.toolData.approvalServer = payload.Server
 				seg.toolData.approvalMCPTool = payload.ToolName
 				seg.toolData.approvalAgentID = event.Scope.AgentID
-				seg.toolData.approvalQueueDepth = 1
+				seg.toolData.approvalQueueDepth = 0
 				seg.toolData.approvalSelectedAction = 0
 				seg.toolData.collapsed = false
 				seg.renderDirty = true
@@ -45,7 +45,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 					entry.approvalServer = payload.Server
 					entry.approvalMCPTool = payload.ToolName
 					entry.approvalAgentID = event.Scope.AgentID
-					entry.approvalQueueDepth = 1
+					entry.approvalQueueDepth = 0
 					entry.approvalPending = true
 					entry.approvalMode = payload.Mode
 					entry.approvalPreview = payload.Preview
@@ -69,7 +69,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				server:      payload.Server,
 				mcpToolName: payload.ToolName,
 				agentID:     event.Scope.AgentID,
-				queueDepth:  1,
+				queueDepth:  0,
 			},
 			renderDirty: true,
 		})
@@ -87,10 +87,11 @@ func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 		callID = payload.CallID
 	}
 	if b.resolveEmbeddedApproval(accepted, callID) {
+		b.recomputeApprovalQueueDepths()
 		return
 	}
 	// Fallback: resolve a standalone approval pill.
-	for i := len(b.segments) - 1; i >= 0; i-- {
+	for i := range b.segments {
 		if b.segments[i].kind != segmentApprovalPill || b.segments[i].approvalData == nil || b.segments[i].approvalData.resolved {
 			continue
 		}
@@ -98,6 +99,7 @@ func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 		b.segments[i].approvalData.accepted = accepted
 		b.segments[i].renderDirty = true
 		b.gen++
+		b.recomputeApprovalQueueDepths()
 		return
 	}
 	b.appendStyled(formatApprovalEvent(event), segmentApproval)
@@ -295,26 +297,43 @@ func (b *contentBuffer) clearApprovalState() {
 	}
 }
 
+// recomputeApprovalQueueDepths sets depth to the number of unresolved approval
+// requests queued behind each request. Only the FIFO head receives a suffix.
 func (b *contentBuffer) recomputeApprovalQueueDepths() {
-	depth := 0
+	var queued []*int
 	for i := range b.segments {
 		seg := &b.segments[i]
-		if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved {
-			depth++
-			seg.approvalData.queueDepth = depth
-		}
-		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved {
-			depth++
-			seg.toolData.approvalQueueDepth = depth
-		}
-		if seg.kind == segmentToolCallGroup && seg.toolGroupData != nil {
-			for _, entry := range seg.toolGroupData.entries {
-				if entry != nil && entry.approvalPending && !entry.approvalResolved {
-					depth++
-					entry.approvalQueueDepth = depth
+		switch seg.kind {
+		case segmentApprovalPill:
+			if seg.approvalData != nil {
+				seg.approvalData.queueDepth = 0
+				if !seg.approvalData.resolved {
+					queued = append(queued, &seg.approvalData.queueDepth)
+				}
+			}
+		case segmentToolCall:
+			if seg.toolData != nil {
+				seg.toolData.approvalQueueDepth = 0
+				if seg.toolData.approvalPending && !seg.toolData.approvalResolved {
+					queued = append(queued, &seg.toolData.approvalQueueDepth)
+				}
+			}
+		case segmentToolCallGroup:
+			if seg.toolGroupData != nil {
+				for _, entry := range seg.toolGroupData.entries {
+					if entry == nil {
+						continue
+					}
+					entry.approvalQueueDepth = 0
+					if entry.approvalPending && !entry.approvalResolved {
+						queued = append(queued, &entry.approvalQueueDepth)
+					}
 				}
 			}
 		}
+	}
+	if len(queued) > 0 {
+		*queued[0] = len(queued) - 1
 	}
 }
 

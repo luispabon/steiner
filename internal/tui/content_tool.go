@@ -306,8 +306,8 @@ func (b *contentBuffer) renderToolApprovalBlock(tc *toolCallSegment, width int) 
 	if tc.approvalAgentID != "" {
 		label += " [agent: " + tc.approvalAgentID + "]"
 	}
-	if tc.approvalQueueDepth > 1 {
-		label += " +" + fmt.Sprint(tc.approvalQueueDepth-1) + " waiting"
+	if tc.approvalQueueDepth > 0 {
+		label += " +" + fmt.Sprint(tc.approvalQueueDepth) + " waiting"
 	}
 	header := dot + " " + accentStyle.Bold(true).Render(label)
 

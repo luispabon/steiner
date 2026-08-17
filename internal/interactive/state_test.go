@@ -137,21 +137,31 @@ func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
 	for _, name := range []string{"a", "b"} {
 		go func() { started <- coord.Begin(name, "", "", "") }()
 	}
-	first := <-started
-	second := <-started
+	channels := []chan SubmitApproval{<-started, <-started}
 	coord.Submit(SubmitApproval{Decision: "first"})
+	var first chan SubmitApproval
 	select {
-	case <-first:
+	case <-channels[0]:
+		first = channels[0]
+	case <-channels[1]:
+		first = channels[1]
 	case <-time.After(time.Second):
 		t.Fatal("first response timed out")
 	}
 	coord.Finish(first)
 	coord.Submit(SubmitApproval{Decision: "second"})
+	var second chan SubmitApproval
+	if first == channels[0] {
+		second = channels[1]
+	} else {
+		second = channels[0]
+	}
 	select {
 	case <-second:
 	case <-time.After(time.Second):
 		t.Fatal("second response timed out")
 	}
+	coord.Finish(second)
 }
 
 func TestApprovalCoordinatorSubmitFinishRace(t *testing.T) {
