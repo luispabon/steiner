@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -14,8 +15,53 @@ func TestPrereqCheck_WhenBwrapInstalled(t *testing.T) {
 	}
 	t.Cleanup(func() { lookupBwrap = prevLookup })
 
+	prevProbe := bwrapProbe
+	bwrapProbe = func(string) error { return nil }
+	t.Cleanup(func() { bwrapProbe = prevProbe })
+	t.Cleanup(resetProbeCache)
+
 	if err := PrereqCheck(); err != nil {
 		t.Errorf("expected PrereqCheck to return nil when bwrap is installed, got: %v", err)
+	}
+}
+
+func TestPrereqCheck_BwrapExistsButUnusable(t *testing.T) {
+	prevLookup := lookupBwrap
+	lookupBwrap = func(_ string) (string, error) {
+		return "/usr/bin/bwrap", nil
+	}
+	t.Cleanup(func() { lookupBwrap = prevLookup })
+
+	prevProbe := bwrapProbe
+	bwrapProbe = func(string) error {
+		return fmt.Errorf("bwrap cannot create a namespace here")
+	}
+	t.Cleanup(func() { bwrapProbe = prevProbe })
+	t.Cleanup(resetProbeCache)
+
+	err := PrereqCheck()
+	if err == nil {
+		t.Fatal("expected non-nil error when bwrap exists but cannot create a namespace")
+	}
+	if !strings.Contains(err.Error(), "bwrap found but unusable") {
+		t.Errorf("error message missing 'bwrap found but unusable': %q", err.Error())
+	}
+}
+
+func TestPrereqCheck_BwrapUsable(t *testing.T) {
+	prevLookup := lookupBwrap
+	lookupBwrap = func(_ string) (string, error) {
+		return "/usr/bin/bwrap", nil
+	}
+	t.Cleanup(func() { lookupBwrap = prevLookup })
+
+	prevProbe := bwrapProbe
+	bwrapProbe = func(string) error { return nil }
+	t.Cleanup(func() { bwrapProbe = prevProbe })
+	t.Cleanup(resetProbeCache)
+
+	if err := PrereqCheck(); err != nil {
+		t.Errorf("expected PrereqCheck to return nil when bwrap is usable, got: %v", err)
 	}
 }
 

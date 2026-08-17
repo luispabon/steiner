@@ -275,6 +275,9 @@ func TestBashSession_RealSandboxWrapperFiltersEnv(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
 	}
+	if err := sandbox.PrereqCheck(); err != nil {
+		t.Skipf("bwrap unusable in this environment: %v", err)
+	}
 
 	t.Setenv("STEINER_TEST_FAKE_TOKEN", "x")
 
@@ -298,10 +301,6 @@ func TestBashSession_RealSandboxWrapperFiltersEnv(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	if code != 0 {
-		if strings.Contains(strings.ToLower(stderr), "operation not permitted") ||
-			strings.Contains(strings.ToLower(stderr), "creating new namespace failed") {
-			t.Skipf("sandbox unavailable in this environment: %s", stderr)
-		}
 		t.Fatalf("exit code = %d, want 0 (stderr=%q)", code, stderr)
 	}
 	if !strings.Contains(stdout, "[]") {

@@ -359,6 +359,11 @@ func copyFile(t *testing.T, src, dst string) {
 	}
 }
 
+// These bwrap integration tests must be run from an unsandboxed host shell —
+// i.e. sandbox.enabled: false for the steiner session driving go test, or a
+// plain terminal outside steiner. When run from a nested bwrap sandbox, they
+// skip cleanly instead of hard-failing.
+//
 // skipIfBwrapUnavailable mirrors the skip convention at
 // internal/sandbox/sandbox_test.go:325.
 func skipIfBwrapUnavailable(t *testing.T) {
@@ -368,6 +373,9 @@ func skipIfBwrapUnavailable(t *testing.T) {
 	}
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
+	}
+	if err := sandbox.PrereqCheck(); err != nil {
+		t.Skipf("bwrap unusable in this environment: %v", err)
 	}
 }
 

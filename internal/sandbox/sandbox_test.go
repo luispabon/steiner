@@ -412,12 +412,17 @@ func TestWrapCommandMode_NilEnv_PassthroughAll(t *testing.T) {
 	}
 }
 
+// bwrap integration tests must be run from an unsandboxed host shell
+// (sandbox.enabled: false or plain terminal) to exercise real namespace creation.
 func TestWrapCommand_NilEnv_Integration_HostVarNotVisibleInSandbox(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("bwrap integration only runs on Linux")
 	}
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
+	}
+	if err := PrereqCheck(); err != nil {
+		t.Skipf("bwrap unusable in this environment: %v", err)
 	}
 
 	t.Setenv("STEINER_TEST_FAKE_TOKEN", "x")
@@ -434,10 +439,6 @@ func TestWrapCommand_NilEnv_Integration_HostVarNotVisibleInSandbox(t *testing.T)
 
 	out, err := wrapped.CombinedOutput()
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()+" "+string(out)), "operation not permitted") ||
-			strings.Contains(strings.ToLower(err.Error()+" "+string(out)), "creating new namespace failed") {
-			t.Skipf("sandbox unavailable in this environment: %v\n%s", err, out)
-		}
 		t.Fatalf("sandboxed env failed: %v\n%s", err, out)
 	}
 	if strings.Contains(string(out), "STEINER_TEST_FAKE_TOKEN") {
@@ -453,6 +454,9 @@ func TestWrapCommand_AllowsGitCommitInWorktreeSubdir(t *testing.T) {
 	bwrapPath, err := exec.LookPath("bwrap")
 	if err != nil {
 		t.Skip("bwrap not installed")
+	}
+	if err := PrereqCheck(); err != nil {
+		t.Skipf("bwrap unusable in this environment: %v", err)
 	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
@@ -504,10 +508,6 @@ func TestWrapCommand_AllowsGitCommitInWorktreeSubdir(t *testing.T) {
 	}
 	statusOut, err := statusWrapped.CombinedOutput()
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()+" "+string(statusOut)), "operation not permitted") ||
-			strings.Contains(strings.ToLower(err.Error()+" "+string(statusOut)), "creating new namespace failed") {
-			t.Skipf("sandbox unavailable in this environment: %v\n%s", err, statusOut)
-		}
 		t.Fatalf("git status failed: %v\n%s", err, statusOut)
 	}
 	if got := strings.TrimSpace(string(statusOut)); got != "?? worktree.txt" {
@@ -521,10 +521,6 @@ func TestWrapCommand_AllowsGitCommitInWorktreeSubdir(t *testing.T) {
 		wrapped := s.WrapCommand(cmd)
 		out, err := wrapped.CombinedOutput()
 		if err != nil {
-			if strings.Contains(strings.ToLower(err.Error()+" "+string(out)), "operation not permitted") ||
-				strings.Contains(strings.ToLower(err.Error()+" "+string(out)), "creating new namespace failed") {
-				t.Skipf("sandbox unavailable in this environment: %v\n%s", err, out)
-			}
 			t.Fatalf("git %v failed: %v\n%s", args, err, out)
 		}
 	}
@@ -542,6 +538,9 @@ func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
 	bwrapPath, err := exec.LookPath("bwrap")
 	if err != nil {
 		t.Skip("bwrap not installed")
+	}
+	if err := PrereqCheck(); err != nil {
+		t.Skipf("bwrap unusable in this environment: %v", err)
 	}
 	sshPath, err := exec.LookPath("ssh")
 	if err != nil {
@@ -634,6 +633,9 @@ func TestWrapCommand_DockerDenied_SandboxStartsSuccessfully(t *testing.T) {
 	if err != nil {
 		t.Skip("bwrap not installed")
 	}
+	if err := PrereqCheck(); err != nil {
+		t.Skipf("bwrap unusable in this environment: %v", err)
+	}
 
 	root := t.TempDir()
 	cfg := config.SandboxConfig{Enabled: true}
@@ -650,10 +652,6 @@ func TestWrapCommand_DockerDenied_SandboxStartsSuccessfully(t *testing.T) {
 
 	out, err := wrapped.CombinedOutput()
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()+" "+string(out)), "operation not permitted") ||
-			strings.Contains(strings.ToLower(err.Error()+" "+string(out)), "creating new namespace failed") {
-			t.Skipf("sandbox unavailable in this environment: %v\n%s", err, out)
-		}
 		t.Fatalf("sandboxed command with docker denied failed to start: %v\n%s", err, out)
 	}
 }

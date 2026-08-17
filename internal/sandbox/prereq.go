@@ -12,7 +12,8 @@ func IsSupportedPlatform() bool {
 }
 
 // PrereqCheck returns nil if the platform is supported and bwrap is found on
-// PATH, or a descriptive error with install instructions.
+// PATH and can create a namespace, or a descriptive error with install
+// instructions.
 func PrereqCheck() error {
 	if !IsSupportedPlatform() {
 		return fmt.Errorf(
@@ -20,11 +21,14 @@ func PrereqCheck() error {
 			runtime.GOOS,
 		)
 	}
-	_, err := lookupBwrap("bwrap")
+	bwrapPath, err := lookupBwrap("bwrap")
 	if err != nil {
 		return fmt.Errorf(
 			"bwrap not found on PATH: install bubblewrap: apt install bubblewrap / dnf install bubblewrap",
 		)
+	}
+	if err := probeBwrapUsable(bwrapPath); err != nil {
+		return fmt.Errorf("bwrap found but unusable: %w", err)
 	}
 	return nil
 }
