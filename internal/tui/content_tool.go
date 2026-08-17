@@ -101,7 +101,11 @@ func (b *contentBuffer) renderToolCallGroup(group *toolCallGroupSegment, width i
 		}
 	}
 
-	return b.renderToolCallBox(strings.Join(parts, "\n"), group.tool, width)
+	toolForBox := group.tool
+	if group.mixed {
+		toolForBox = ""
+	}
+	return b.renderToolCallBox(strings.Join(parts, "\n"), toolForBox, width)
 }
 
 func (b *contentBuffer) renderToolCallFrame(tc *toolCallSegment, width int) string {
@@ -156,8 +160,10 @@ func (b *contentBuffer) renderToolCallFrame(tc *toolCallSegment, width int) stri
 
 func (b *contentBuffer) renderToolCallBox(content, tool string, width int) string {
 	borderStyle := b.toolBorderStyle(tool)
-	if _, ok := b.mcpOrigin(tool); ok {
-		borderStyle = b.styles.ToolBorderMCP
+	if tool != "" {
+		if _, ok := b.mcpOrigin(tool); ok {
+			borderStyle = b.styles.ToolBorderMCP
+		}
 	}
 	boxStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color(theme.BgElev)).

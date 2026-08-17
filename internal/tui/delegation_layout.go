@@ -20,7 +20,6 @@ const (
 	delegationRowSeparator
 	delegationRowStats
 	delegationRowBorderBottom
-	delegationRowHint
 )
 
 type delegationRow struct {
@@ -65,7 +64,6 @@ func (b *contentBuffer) delegationRows(dd *delegationDisplayState, width int) []
 	}
 	rows = append(rows,
 		delegationRow{kind: delegationRowBorderBottom},
-		delegationRow{kind: delegationRowHint, text: b.renderDelegationHint(dd)},
 	)
 	return rows
 }

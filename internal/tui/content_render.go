@@ -246,9 +246,9 @@ func (b *contentBuffer) checkBufferDirty(width int) bool {
 	return false
 }
 
-// joinWithUserMargin joins parts with "\n", inserting a blank line ("\n\n")
-// above and below any user-prompt segment. Parts whose kind entry is -1 are
-// preview sentinels and only receive single-newline separators.
+// joinWithUserMargin joins parts using separators selected by segment kind.
+// Parts whose kind entry is -1 are preview sentinels and only receive
+// single-newline separators.
 func joinWithUserMargin(parts []string, kinds []contentSegmentKind) string {
 	var sb strings.Builder
 	lastKind := contentSegmentKind(-1)
@@ -272,10 +272,13 @@ func joinSeparator(prev, next contentSegmentKind) string {
 	if prev < 0 || next < 0 {
 		return "\n"
 	}
-	if isUserSegment(prev) || isUserSegment(next) {
-		return "\n\n"
+	if prev == next {
+		return "\n"
 	}
-	return "\n"
+	if isUserSegment(prev) && isUserSegment(next) {
+		return "\n"
+	}
+	return "\n\n"
 }
 
 // isSegmentHidden reports whether a segment is excluded from rendering, without
@@ -334,7 +337,7 @@ func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width 
 	case segmentSeparator:
 		return b.renderSeparatorSegment(segment, width)
 	case segmentInterrupted:
-		return b.styles.FgMute.Render("interrupted") + "\n\n"
+		return b.styles.FgMute.Render("interrupted") + "\n"
 	case segmentDelegation:
 		return b.renderDelegationSegment(segment, width)
 	case segmentStatus:

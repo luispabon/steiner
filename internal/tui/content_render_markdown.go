@@ -15,9 +15,9 @@ import (
 func (b *contentBuffer) renderAssistantMarkdownSegment(segment contentSegment, width int) string {
 	rendered := b.renderMarkdown(segment.text, true, width)
 	if strings.TrimSpace(rendered) != "" {
-		return strings.TrimRight(rendered, "\n") + "\n\n"
+		return strings.TrimRight(rendered, "\n") + "\n"
 	}
-	return b.styles.AssistantProse.Render(segment.text) + "\n\n"
+	return b.styles.AssistantProse.Render(segment.text) + "\n"
 }
 
 func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) string {
@@ -230,8 +230,7 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width
 	td := segment.thinkData
 	body := stripThinkingMarkers(td.body)
 	style := b.thinkingTextStyle()
-	bar := style.Render("▎")
-	contentWidth := max(1, width-2)
+	contentWidth := max(1, width)
 
 	if td.collapsed {
 		// Derive 3-line preview from body at render time.
@@ -247,10 +246,10 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width
 		var sb strings.Builder
 		sb.WriteString(style.Render("▸ Thinking") + "\n")
 		for _, wl := range allLines {
-			sb.WriteString(bar + " " + style.Render(wl) + "\n")
+			sb.WriteString(style.Render(wl) + "\n")
 		}
 		if truncated {
-			sb.WriteString(bar + " " + style.Render("…") + "\n")
+			sb.WriteString(style.Render("…") + "\n")
 		}
 		return sb.String()
 	}
@@ -261,7 +260,7 @@ func (b *contentBuffer) renderThinkingBlockSegment(segment contentSegment, width
 	for _, line := range strings.Split(strings.TrimRight(body, "\n"), "\n") {
 		wrapped := ansi.Hardwrap(ansi.Wordwrap(line, contentWidth, ""), contentWidth, true)
 		for _, wl := range strings.Split(wrapped, "\n") {
-			sb.WriteString(bar + " " + style.Render(wl) + "\n")
+			sb.WriteString(style.Render(wl) + "\n")
 		}
 	}
 	return sb.String()

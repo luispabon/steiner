@@ -694,7 +694,7 @@ func TestModelCtrlXTogglesDelegationWhileConversationActive(t *testing.T) {
 	m = updateModel(t, m, tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 
 	if dd.collapsed {
-		t.Fatal("delegation should expand on ctrl+x during active conversation")
+		t.Fatal("delegation should expand while conversation is active")
 	}
 	rendered := m.content.String(m.viewport.Width())
 	if !strings.Contains(rendered, "result text") {

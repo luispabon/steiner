@@ -69,6 +69,38 @@ func TestRenderToolCallBoxKeepsRequestedWidth(t *testing.T) {
 	}
 }
 
+func TestRenderToolCallGroupMixedUsesDefaultBorder(t *testing.T) {
+	t.Parallel()
+
+	styles := testStyles(theme.AccentAmber)
+	buffer := &contentBuffer{
+		styles: styles,
+		mcpToolOrigins: map[string]MCPToolOrigin{
+			"mcp__server__read": {Server: "server", Tool: "read"},
+		},
+	}
+	group := &toolCallGroupSegment{
+		tool:  "mcp__server__read",
+		mixed: true,
+		entries: []*toolCallSegment{
+			{tool: "mcp__server__read", args: "first", collapsed: true},
+			{tool: "bash", args: "second", collapsed: true},
+		},
+	}
+	const width = 60
+	innerWidth := width - 4
+	parts := []string{
+		buffer.renderToolCallFrame(group.entries[0], innerWidth),
+		buffer.renderToolCallDivider(width - 4),
+		buffer.renderToolCallFrame(group.entries[1], innerWidth),
+	}
+	want := buffer.renderToolCallBox(strings.Join(parts, "\n"), "", width)
+
+	if got := buffer.renderToolCallGroup(group, width); got != want {
+		t.Fatalf("mixed group rendering did not use default border\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
 func TestSummarizeGrepArgs(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

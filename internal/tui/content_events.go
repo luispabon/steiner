@@ -72,6 +72,7 @@ type toolCallSegment struct {
 
 type toolCallGroupSegment struct {
 	tool    string
+	mixed   bool
 	entries []*toolCallSegment
 }
 

@@ -42,10 +42,10 @@ func (b *contentBuffer) renderSeparatorSegment(segment contentSegment, width int
 	}
 	line := b.renderCenteredDashes(label, width)
 	if sd.phase {
-		return "\n" + line + "\n"
+		return line + "\n"
 	}
 	if sd.closing {
-		return "\n" + line + "\n"
+		return line + "\n"
 	}
 	return line + "\n"
 }

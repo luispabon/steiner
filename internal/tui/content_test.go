@@ -952,7 +952,7 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 	))
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"explore", "child-1", "⠋", "read: README.md:1–200", "ctrl+x or click header to expand"} {
+	for _, want := range []string{"explore", "child-1", "⠋", "read: README.md:1–200"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("collapsed active delegation render %q missing %q", rendered, want)
 		}
@@ -991,7 +991,7 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"explore", "child-1", "prompt", "child assistant reply", "bash", "pwd", "✓", "output", "final child output", "ctrl+x or click header to collapse"} {
+	for _, want := range []string{"explore", "child-1", "prompt", "child assistant reply", "bash", "pwd", "✓", "output", "final child output"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
 		}
@@ -1308,7 +1308,7 @@ func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *tes
 		t.Fatalf("collapseState[0] = %v, want true after finalize", got)
 	}
 	renderedCollapsed := buffer.String(80)
-	// New collapsed format has "▸ Thinking" on its own line and "▎ first line" on a separate line
+	// New collapsed format has "▸ Thinking" on its own line and "first line" on a separate line
 	plain := stripANSI(renderedCollapsed)
 	if !strings.Contains(plain, "▸ Thinking") || !strings.Contains(plain, "first line") {
 		t.Fatalf("collapsed render = %q, want collapsed with '▸ Thinking' and 'first line' separately", plain)
@@ -1338,7 +1338,7 @@ func TestThinkingChunksRenderSeparateItems(t *testing.T) {
 	if strings.Contains(plain, "**") {
 		t.Fatalf("render contains markdown bold markers: %q", plain)
 	}
-	for _, want := range []string{"▎ Inspecting configuration", "▎ Planning safe automation"} {
+	for _, want := range []string{"Inspecting configuration", "Planning safe automation"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("render = %q, want %q", plain, want)
 		}
@@ -1348,7 +1348,7 @@ func TestThinkingChunksRenderSeparateItems(t *testing.T) {
 	if !strings.Contains(plain, "▸ Thinking") {
 		t.Fatalf("collapsed render = %q, want collapsed header '▸ Thinking'", plain)
 	}
-	for _, want := range []string{"▎ Inspecting configuration", "▎ Planning safe automation"} {
+	for _, want := range []string{"Inspecting configuration", "Planning safe automation"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("collapsed render = %q, want %q", plain, want)
 		}
@@ -1381,8 +1381,8 @@ func TestThinkingChunkSplitMarkerStripped(t *testing.T) {
 	if strings.Contains(plain, "**") {
 		t.Fatalf("render contains markdown bold markers: %q", plain)
 	}
-	if !strings.Contains(plain, "▎ Planning safe automation") {
-		t.Fatalf("render = %q, want %q", plain, "▎ Planning safe automation")
+	if !strings.Contains(plain, "Planning safe automation") {
+		t.Fatalf("render = %q, want %q", plain, "Planning safe automation")
 	}
 }
 
@@ -1498,8 +1498,8 @@ func TestRenderThinkingBlockSegment(t *testing.T) {
 				collapsed: false,
 				streaming: false,
 			},
-			want:    []string{"▾ Thinking", "short thought", "▎"},
-			notWant: []string{"▸", "…"},
+			want:    []string{"▾ Thinking", "short thought"},
+			notWant: []string{"▸", "…", "▎"},
 		},
 		{
 			name:  "expanded state, long line wraps",
@@ -1579,8 +1579,8 @@ func TestRenderThinkingBlockSegment(t *testing.T) {
 			// For the "long line wraps" case, verify no line exceeds width
 			if tc.name == "expanded state, long line wraps" {
 				for _, line := range strings.Split(plain, "\n") {
-					// Remove the "▎ " or "▾ " or "▸ " prefix for width check
-					content := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, "▎ "), "▾ "), "▸ ")
+					// Remove the "▾ " or "▸ " prefix for width check
+					content := strings.TrimPrefix(strings.TrimPrefix(line, "▾ "), "▸ ")
 					if len([]rune(content)) > tc.width {
 						t.Errorf("line exceeds width %d: %q (content: %q)", tc.width, line, content)
 					}
@@ -1711,7 +1711,7 @@ func TestUserSegmentMargin(t *testing.T) {
 			},
 			wantMarginAbove:   false,
 			wantMarginBelow:   false,
-			wantMarginBetween: true,
+			wantMarginBetween: false,
 		},
 		{
 			name: "single user alone",
@@ -1791,17 +1791,54 @@ func TestUserSegmentMargin(t *testing.T) {
 			}
 
 			// Margin between consecutive user segments.
-			if tt.wantMarginBetween {
-				foundGap := false
-				for i := 1; i < len(userLineIdxs); i++ {
-					if userLineIdxs[i] > userLineIdxs[i-1]+1 {
-						foundGap = true
-						break
-					}
+			foundGap := false
+			for i := 1; i < len(userLineIdxs); i++ {
+				if userLineIdxs[i] > userLineIdxs[i-1]+1 {
+					foundGap = true
+					break
 				}
-				if !foundGap {
-					t.Errorf("want blank line between consecutive user segments, but all user lines are contiguous")
-				}
+			}
+			if tt.wantMarginBetween && !foundGap {
+				t.Errorf("want blank line between consecutive user segments, but all user lines are contiguous")
+			}
+			if !tt.wantMarginBetween && foundGap {
+				t.Errorf("no blank line expected between consecutive user segments")
+			}
+		})
+	}
+}
+
+func TestJoinSeparatorBySegmentKind(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		kinds []contentSegmentKind
+		want  string
+	}{
+		{
+			name:  "same assistant kind hugs",
+			kinds: []contentSegmentKind{segmentAssistantMarkdown, segmentAssistantMarkdown},
+			want:  "first\nsecond",
+		},
+		{
+			name:  "different kinds have blank line",
+			kinds: []contentSegmentKind{segmentAssistantMarkdown, segmentDelegation},
+			want:  "first\n\nsecond",
+		},
+		{
+			name:  "user kinds hug",
+			kinds: []contentSegmentKind{segmentUser, segmentUserMarkdown},
+			want:  "first\nsecond",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := joinWithUserMargin([]string{"first", "second"}, tt.kinds)
+			if got != tt.want {
+				t.Errorf("joinWithUserMargin(%v) = %q, want %q", tt.kinds, got, tt.want)
 			}
 		})
 	}
@@ -2450,7 +2487,7 @@ func TestRenderSingleBashToolCallStaysBoxed(t *testing.T) {
 	}
 }
 
-func TestRenderMixedAdjacentToolsStaySeparate(t *testing.T) {
+func TestRenderMixedAdjacentToolsAsOneGroupedBox(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
 		styles:        testStyles(theme.AccentAmber),
@@ -2460,12 +2497,16 @@ func TestRenderMixedAdjacentToolsStaySeparate(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "read", "call_2", map[string]any{"path": "README.md"}))
 
-	if got := len(buffer.segments); got != 2 {
-		t.Fatalf("segments = %d, want 2 separate segments", got)
+	if got := len(buffer.segments); got != 1 {
+		t.Fatalf("segments = %d, want 1 grouped segment", got)
+	}
+	group := buffer.segments[0].toolGroupData
+	if group == nil || !group.mixed {
+		t.Fatalf("group = %#v, want mixed group", group)
 	}
 	rendered := stripANSI(buffer.String(140))
-	if got := strings.Count(rendered, "┌"); got != 2 {
-		t.Fatalf("mixed top borders = %d, want 2", got)
+	if got := strings.Count(rendered, "┌"); got != 1 {
+		t.Fatalf("mixed top borders = %d, want 1", got)
 	}
 }
 
