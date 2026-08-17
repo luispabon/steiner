@@ -83,3 +83,17 @@ func cacheMountPath(userHome string) string {
 	}
 	return cacheDir
 }
+
+// WritableHostMounts returns the sandbox host-mount paths configured
+// writable, preserving config order. Mounts with Mode other than "rw"
+// (including empty, meaning read-only) are excluded. Paths are already
+// home-expanded at config load.
+func WritableHostMounts(cfg config.SandboxConfig) []string {
+	var mounts []string
+	for _, m := range cfg.HostMounts {
+		if m.Mode == "rw" {
+			mounts = append(mounts, m.Path)
+		}
+	}
+	return mounts
+}

@@ -48,6 +48,16 @@ type DelegateDeps struct {
 	HTTPClient *http.Client
 	// Searcher provides the web search backend when available.
 	Searcher web.Searcher
+	// SandboxEnabled reports whether the parent sandbox is active. Forwarded as
+	// a plain value into child prompts so their system preamble renders the same
+	// sandbox section as the parent. Derived from the parent's runtime sandbox
+	// at the composition root in cmd/steiner.
+	SandboxEnabled bool
+	// SandboxWritableMounts lists host paths mounted writable in the sandbox,
+	// forwarded to child prompts so their system preamble renders the same
+	// sandbox section as the parent. Derived from the parent's config at the
+	// composition root in cmd/steiner.
+	SandboxWritableMounts []string
 	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
 	UsageRecorder *usagestats.Recorder
 	// SessionStore holds child sessions across turns for follow_up resumption.
@@ -121,23 +131,25 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	}
 
 	subAgentDeps := SubAgentHandlerDeps{
-		Provider:             deps.Provider,
-		ParentReg:            extendedBase,
-		SubAgentCfg:          deps.SubAgentCfg,
-		Events:               deps.Events,
-		Runner:               agent.NewRunner(),
-		WorkDir:              deps.WorkDir,
-		HomeDir:              deps.HomeDir,
-		ProjectContextConfig: deps.Config.ProjectContext,
-		ResolvedModel:        deps.ResolvedModel,
-		MaxTokens:            &mt,
-		StreamingPreferred:   deps.StreamingPreferred,
-		CaveHuman:            deps.Config.CaveHuman,
-		TraceLogger:          deps.TraceLogger,
-		SessionStore:         store,
-		ExtraAllowedTools:    deps.ExtraAllowedTools,
-		UsageRecorder:        deps.UsageRecorder,
-		CacheKeyStore:        deps.CacheKeyStore,
+		Provider:              deps.Provider,
+		ParentReg:             extendedBase,
+		SubAgentCfg:           deps.SubAgentCfg,
+		Events:                deps.Events,
+		Runner:                agent.NewRunner(),
+		WorkDir:               deps.WorkDir,
+		HomeDir:               deps.HomeDir,
+		ProjectContextConfig:  deps.Config.ProjectContext,
+		ResolvedModel:         deps.ResolvedModel,
+		MaxTokens:             &mt,
+		StreamingPreferred:    deps.StreamingPreferred,
+		CaveHuman:             deps.Config.CaveHuman,
+		TraceLogger:           deps.TraceLogger,
+		SessionStore:          store,
+		ExtraAllowedTools:     deps.ExtraAllowedTools,
+		UsageRecorder:         deps.UsageRecorder,
+		SandboxEnabled:        deps.SandboxEnabled,
+		SandboxWritableMounts: deps.SandboxWritableMounts,
+		CacheKeyStore:         deps.CacheKeyStore,
 	}
 
 	// Register the follow_up tool.

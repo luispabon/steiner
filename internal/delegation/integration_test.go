@@ -111,7 +111,12 @@ func (r *scopedEventRunner) Run(_ context.Context, req agent.RunRequest) (agent.
 
 // testBuildPrompt is a test helper that builds prompt options for a spec.
 func testBuildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
-	return buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false, false)
+	return buildChildPrompt(childPromptParams{
+		spec:      spec,
+		workDir:   "/tmp/work",
+		homeDir:   "",
+		caveHuman: false,
+	})
 }
 
 // testChildRegistries is a test helper that builds visible and execution registries
@@ -142,7 +147,6 @@ func testChildRunRequest(spec DelegationSpec, prov provider.Provider, visibleReg
 		ModelBudget:        prompt.ModelTokenBudget{},
 		MaxTokens:          nil,
 		StreamingPreferred: false,
-		Sandbox:            nil,
 		UsageRecorder:      nil,
 		ModeGetter:         nil,
 	})

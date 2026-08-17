@@ -2,7 +2,6 @@ package delegation
 
 import (
 	"context"
-	"os/exec"
 	"reflect"
 	"slices"
 	"strings"
@@ -201,7 +200,12 @@ func TestBuildChildPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			promptOpts := buildChildPrompt(tt.spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false, false)
+			promptOpts := buildChildPrompt(childPromptParams{
+				spec:      tt.spec,
+				workDir:   "/tmp/work",
+				homeDir:   "",
+				caveHuman: false,
+			})
 			if len(promptOpts.Conversation) != tt.wantLen {
 				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
 			}
@@ -241,11 +245,16 @@ func TestBuildChildPrompt(t *testing.T) {
 func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 	t.Parallel()
 
-	promptOpts := buildChildPrompt(DelegationSpec{
-		Task:         "do something",
-		SystemPrompt: "Custom prompt",
-		AgentID:      "test-single-system",
-	}, "/tmp/work", "", config.ProjectContextConfig{}, false, false, false)
+	promptOpts := buildChildPrompt(childPromptParams{
+		spec: DelegationSpec{
+			Task:         "do something",
+			SystemPrompt: "Custom prompt",
+			AgentID:      "test-single-system",
+		},
+		workDir:   "/tmp/work",
+		homeDir:   "",
+		caveHuman: false,
+	})
 
 	assembly, err := prompt.Assemble(context.Background(), promptOpts)
 	if err != nil {
@@ -278,10 +287,15 @@ func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 func TestBuildChildPromptUsesSharedSystemPreambleWhenOverrideEmpty(t *testing.T) {
 	t.Parallel()
 
-	promptOpts := buildChildPrompt(DelegationSpec{
-		Task:    "do something",
-		AgentID: "test-shared-system",
-	}, t.TempDir(), "", config.ProjectContextConfig{}, false, false, false)
+	promptOpts := buildChildPrompt(childPromptParams{
+		spec: DelegationSpec{
+			Task:    "do something",
+			AgentID: "test-shared-system",
+		},
+		workDir:   t.TempDir(),
+		homeDir:   "",
+		caveHuman: false,
+	})
 
 	if promptOpts.PromptOverrides.System != defaultChildSystemPrompt {
 		t.Fatalf("PromptOverrides.System = %q, want empty shared base", promptOpts.PromptOverrides.System)
@@ -465,7 +479,12 @@ func TestBuildChildRegistriesContainsAllowedTools(t *testing.T) {
 
 func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
 	spec := DelegationSpec{Task: "do something"}
-	opts := buildChildPrompt(spec, "/tmp/work", "", config.ProjectContextConfig{}, false, false, false)
+	opts := buildChildPrompt(childPromptParams{
+		spec:      spec,
+		workDir:   "/tmp/work",
+		homeDir:   "",
+		caveHuman: false,
+	})
 	if opts.PromptOverrides.System != defaultChildSystemPrompt {
 		t.Errorf("default system prompt = %q, want %q", opts.PromptOverrides.System, defaultChildSystemPrompt)
 	}
@@ -503,10 +522,18 @@ func TestBuildChildPromptSkipProjectContext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := buildChildPrompt(DelegationSpec{
-				Task:    "do something",
-				AgentID: "test-skip",
-			}, "/tmp/work", "", config.ProjectContextConfig{MaxBytes: 4000}, false, tt.skipProjectContext, tt.skipAgents)
+			opts := buildChildPrompt(childPromptParams{
+				spec: DelegationSpec{
+					Task:    "do something",
+					AgentID: "test-skip",
+				},
+				workDir:            "/tmp/work",
+				homeDir:            "",
+				projectContextCfg:  config.ProjectContextConfig{MaxBytes: 4000},
+				caveHuman:          false,
+				skipProjectContext: tt.skipProjectContext,
+				skipAgents:         tt.skipAgents,
+			})
 
 			if opts.SkipProjectContext != tt.wantSkip {
 				t.Errorf("SkipProjectContext = %v, want %v", opts.SkipProjectContext, tt.wantSkip)
@@ -991,89 +1018,65 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 	})
 }
 
-// childExecutorInner unwraps the child executor to the underlying *tool.Executor,
-// which carries the inherited sandbox and mode getter.
-func childExecutorInner(t *testing.T, req agent.RunRequest) *tool.Executor {
-	t.Helper()
-	scoped, ok := req.Executor.(scopedToolExecutor)
-	if !ok {
-		t.Fatalf("Executor type=%T, want scopedToolExecutor", req.Executor)
-	}
-	inner, ok := scoped.inner.(*tool.Executor)
-	if !ok {
-		t.Fatalf("Executor inner type=%T, want *tool.Executor", scoped.inner)
-	}
-	return inner
-}
-
-// mockSandbox is a test double for tool.SandboxWrapper.
-type mockSandbox struct {
-	enabled bool
-}
-
-func (m *mockSandbox) Enabled() bool                       { return m.enabled }
-func (m *mockSandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd { return cmd }
-func (m *mockSandbox) TmpDir() string                      { return "" }
-
-func TestBuildChildRunInheritsNilSandbox(t *testing.T) {
+// TestBuildChildRunSandboxDisabled proves the child prompt's sandbox section
+// follows the plain SandboxEnabled value on BootstrapDeps: when the parent
+// sandbox is disabled (or bypassed), the child preamble renders no sandbox
+// section and carries no writable mounts.
+func TestBuildChildRunSandboxDisabled(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"read"},
-		Events:       output.NoopSink{},
-		WorkDir:      "/tmp/work",
-		Provider:     stubProvider{},
-		Sandbox:      nil, // no sandbox
+		ParentReg:      parent,
+		SubAgentCfg:    config.SubAgentConfig{},
+		AllowedTools:   []string{"read"},
+		Events:         output.NoopSink{},
+		WorkDir:        "/tmp/work",
+		Provider:       stubProvider{},
+		SandboxEnabled: false, // no sandbox
 	}
-	spec := DelegationSpec{Task: "task", AgentID: "sandbox-nil", Limits: DelegationLimits{MaxTurns: 1}}
+	spec := DelegationSpec{Task: "task", AgentID: "sandbox-disabled", Limits: DelegationLimits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
-	if req.Executor == nil {
-		t.Fatal("Executor is nil")
+	if req.Prompt.SandboxEnabled {
+		t.Error("Prompt.SandboxEnabled=true, want false when sandbox is disabled")
 	}
-	concreteExec := childExecutorInner(t, req)
-	if got := concreteExec.Sandbox(); got != nil {
-		t.Errorf("Sandbox=%v, want nil when parent sandbox is nil", got)
+	if len(req.Prompt.SandboxWritableMounts) != 0 {
+		t.Errorf("Prompt.SandboxWritableMounts=%v, want empty when sandbox is disabled", req.Prompt.SandboxWritableMounts)
 	}
 }
 
-func TestBuildChildRunInheritsEnabledSandbox(t *testing.T) {
+// TestBuildChildRunSandboxEnabled proves the child prompt's sandbox section
+// follows the plain SandboxEnabled and SandboxWritableMounts values on
+// BootstrapDeps: when the parent sandbox is active, the child preamble renders
+// the same sandbox section with the writable mount paths.
+func TestBuildChildRunSandboxEnabled(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
-	sb := &mockSandbox{enabled: true}
 	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"read"},
-		Events:       output.NoopSink{},
-		WorkDir:      "/tmp/work",
-		Provider:     stubProvider{},
-		Sandbox:      sb,
+		ParentReg:             parent,
+		SubAgentCfg:           config.SubAgentConfig{},
+		AllowedTools:          []string{"read"},
+		Events:                output.NoopSink{},
+		WorkDir:               "/tmp/work",
+		Provider:              stubProvider{},
+		SandboxEnabled:        true,
+		SandboxWritableMounts: []string{"/var/log", "/srv/data"},
 	}
 	spec := DelegationSpec{Task: "task", AgentID: "sandbox-enabled", Limits: DelegationLimits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
-	if req.Executor == nil {
-		t.Fatal("Executor is nil")
+	if !req.Prompt.SandboxEnabled {
+		t.Error("Prompt.SandboxEnabled=false, want true when sandbox is enabled")
 	}
-	concreteExec := childExecutorInner(t, req)
-	got := concreteExec.Sandbox()
-	if got == nil {
-		t.Fatal("Sandbox is nil, want inherited parent sandbox")
-	}
-	if !got.Enabled() {
-		t.Error("Sandbox.Enabled()=false, want true (inherited from parent)")
-	}
-	if got != sb {
-		t.Error("Sandbox is not the parent sandbox instance (must be same, not a copy)")
+	wantMounts := []string{"/var/log", "/srv/data"}
+	if !slices.Equal(req.Prompt.SandboxWritableMounts, wantMounts) {
+		t.Errorf("Prompt.SandboxWritableMounts=%v, want %v", req.Prompt.SandboxWritableMounts, wantMounts)
 	}
 }
 

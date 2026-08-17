@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +17,9 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -481,5 +484,163 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 	}
 	if got, want := capturedModel.EffectiveLimits.MaxOutputTokens, 16384; got != want {
 		t.Fatalf("captured max output tokens = %d, want %d", got, want)
+	}
+}
+
+func TestPromptAssemblyCarriesSandboxState(t *testing.T) {
+	t.Run("sandbox active", func(t *testing.T) {
+		cfg := config.Config{
+			Sandbox: config.SandboxConfig{
+				Enabled: true,
+				HostMounts: []config.HostMount{
+					{Path: "/host/ro", Mode: "ro"},
+					{Path: "/host/rw", Mode: "rw"},
+				},
+			},
+		}
+		rt := cliRuntime{
+			cfg:     cfg,
+			sandbox: sandbox.New(cfg.Sandbox, config.PermissionsConfig{}, "/tmp", "/tmp", "/tmp", "/tmp/tmp"),
+		}
+		runner := cliRunner{runtime: rt}
+
+		opts := runner.promptAssembly(nil, nil, prompt.ModelTokenBudget{}, config.ModelPrompts{})
+
+		if !opts.SandboxEnabled {
+			t.Error("AssemblyOptions.SandboxEnabled = false, want true when sandbox is active")
+		}
+		if got, want := opts.SandboxWritableMounts, []string{"/host/rw"}; !slices.Equal(got, want) {
+			t.Errorf("AssemblyOptions.SandboxWritableMounts = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("sandbox bypassed", func(t *testing.T) {
+		rt := cliRuntime{cfg: config.Config{Sandbox: config.SandboxConfig{Enabled: false}}}
+		runner := cliRunner{runtime: rt}
+
+		opts := runner.promptAssembly(nil, nil, prompt.ModelTokenBudget{}, config.ModelPrompts{})
+
+		if opts.SandboxEnabled {
+			t.Error("AssemblyOptions.SandboxEnabled = true, want false when sandbox is bypassed")
+		}
+		if len(opts.SandboxWritableMounts) != 0 {
+			t.Errorf("AssemblyOptions.SandboxWritableMounts = %v, want empty when sandbox is bypassed", opts.SandboxWritableMounts)
+		}
+	})
+}
+
+// TestRunnerDelegateDepsCarryRuntimeSandboxState proves the production
+// delegation-deps construction inside cliRunner.run threads the runtime sandbox
+// state into delegated children. It drives a real cliRunner run that spawns an
+// explore sub-agent, then inspects the child session the delegation handler
+// saves. buildChildPrompt derives AssemblyOptions.SandboxEnabled and
+// SandboxWritableMounts exclusively from DelegateDeps.SandboxEnabled and
+// DelegateDeps.SandboxWritableMounts (via SubAgentHandlerDeps and
+// BootstrapDeps), so removing either wiring line in runner.go flips these
+// fields and fails this test.
+//
+// The bypassed case is the real production shape where runtime.sandbox is a
+// nil *sandbox.Sandbox (sandbox disabled via config/--unsafe, or
+// unavailable): SandboxEnabled derives from
+// `runtime.sandbox != nil && runtime.sandbox.Enabled()`, which is false for a
+// nil pointer without any wrapper normalization.
+func TestRunnerDelegateDepsCarryRuntimeSandboxState(t *testing.T) {
+	tests := []struct {
+		name        string
+		sandboxCfg  config.SandboxConfig
+		sb          *sandbox.Sandbox
+		wantEnabled bool
+		wantMounts  []string
+	}{
+		{
+			name: "active sandbox",
+			sandboxCfg: config.SandboxConfig{
+				Enabled: true,
+				HostMounts: []config.HostMount{
+					{Path: "/host/ro", Mode: "ro"},
+					{Path: "/host/rw1", Mode: "rw"},
+					{Path: "/host/rw2", Mode: "rw"},
+				},
+			},
+			sb:          sandbox.New(config.SandboxConfig{Enabled: true}, config.PermissionsConfig{}, "/tmp", "/tmp", "/tmp", "/tmp/tmp"),
+			wantEnabled: true,
+			wantMounts:  []string{"/host/rw1", "/host/rw2"},
+		},
+		{
+			name:        "sandbox nil pointer (bypassed)",
+			sandboxCfg:  config.SandboxConfig{Enabled: false},
+			sb:          nil,
+			wantEnabled: false,
+			wantMounts:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var agentID string
+			events := output.SinkFunc(func(event output.Event) {
+				if event.Type != output.EventTypeDelegationStarted {
+					return
+				}
+				if payload, ok := event.Payload.(output.DelegationStartedEvent); ok {
+					agentID = payload.AgentID
+				}
+			})
+
+			cfg := testRuntimeConfig("test-model")
+			cfg.Sandbox = tt.sandboxCfg
+			cfg.SubAgent = config.SubAgentConfig{Enabled: true}
+			sessions := delegation.NewSessionStore()
+			runner := cliRunner{
+				runtime: cliRuntime{
+					cfg:                    cfg,
+					provider:               &fakeProvider{responses: exploreDelegationResponses()},
+					registry:               tool.NewRegistry(),
+					workDir:                t.TempDir(),
+					homeDir:                t.TempDir(),
+					events:                 events,
+					sandbox:                tt.sb,
+					delegationSessionStore: sessions,
+				},
+				maxTurns: 4,
+			}
+
+			if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "delegate a task"}}, nil, nil); err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if agentID == "" {
+				t.Fatal("no delegation started event captured; explore sub-agent did not run")
+			}
+			session, ok := sessions.Get(agentID)
+			if !ok {
+				t.Fatalf("child session for agent %q not saved", agentID)
+			}
+			if got := session.Request.Prompt.SandboxEnabled; got != tt.wantEnabled {
+				t.Errorf("child Prompt.SandboxEnabled = %v, want %v", got, tt.wantEnabled)
+			}
+			if got := session.Request.Prompt.SandboxWritableMounts; !slices.Equal(got, tt.wantMounts) {
+				t.Errorf("child Prompt.SandboxWritableMounts = %v, want %v", got, tt.wantMounts)
+			}
+		})
+	}
+}
+
+// exploreDelegationResponses returns the fake provider responses for a parent
+// run that spawns one explore sub-agent: parent tool call, child answer, child
+// summary turn, then the parent's final answer.
+func exploreDelegationResponses() []provider.ChatResponse {
+	return []provider.ChatResponse{
+		{
+			Message: provider.Message{
+				Role: provider.MessageRoleAssistant,
+				ToolCalls: []provider.ToolCall{
+					{ID: "call_1", Name: "explore", Arguments: map[string]any{"task": "analyze"}},
+				},
+			},
+			FinishReason: "tool_calls",
+		},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "child answer"}, FinishReason: "stop"},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "child summary"}, FinishReason: "stop"},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "parent answer"}, FinishReason: "stop"},
 	}
 }

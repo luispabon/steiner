@@ -13,6 +13,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
@@ -70,26 +71,28 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 	// the projection always sees the final tool list.
 	exposure := BuildMCPExposure(r.runtime.registry.Definitions(), r.runtime.cfg.MCP.Servers)
 	activeRegistry, err := delegation.BuildDelegateRegistry(delegation.DelegateDeps{
-		BaseRegistry:       r.runtime.registry,
-		SubAgentCfg:        r.runtime.cfg.SubAgent,
-		AdvisorCfg:         r.runtime.cfg.Advisor,
-		Provider:           setup.provider,
-		Events:             events,
-		WorkDir:            r.runtime.workDir,
-		HomeDir:            r.runtime.homeDir,
-		ResolvedModel:      setup.resolvedModel,
-		MaxTokens:          setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
-		StreamingPreferred: r.streamingPreferred,
-		TraceLogger:        r.runtime.delegationLogger,
-		Config:             r.runtime.cfg,
-		ProviderFactory:    r.runtime.providerFactory,
-		HTTPClient:         r.runtime.httpClient,
-		Searcher:           searcher,
-		UsageRecorder:      r.runtime.usageRecorder,
-		SessionStore:       r.runtime.delegationSessionStore,
-		ImageStore:         r.runtime.imageStore,
-		ExtraAllowedTools:  exposure,
-		CacheKeyStore:      r.runtime.delegationCacheKeyStore,
+		BaseRegistry:          r.runtime.registry,
+		SubAgentCfg:           r.runtime.cfg.SubAgent,
+		AdvisorCfg:            r.runtime.cfg.Advisor,
+		Provider:              setup.provider,
+		Events:                events,
+		WorkDir:               r.runtime.workDir,
+		HomeDir:               r.runtime.homeDir,
+		ResolvedModel:         setup.resolvedModel,
+		MaxTokens:             setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
+		StreamingPreferred:    r.streamingPreferred,
+		TraceLogger:           r.runtime.delegationLogger,
+		Config:                r.runtime.cfg,
+		ProviderFactory:       r.runtime.providerFactory,
+		HTTPClient:            r.runtime.httpClient,
+		Searcher:              searcher,
+		UsageRecorder:         r.runtime.usageRecorder,
+		SessionStore:          r.runtime.delegationSessionStore,
+		ImageStore:            r.runtime.imageStore,
+		ExtraAllowedTools:     exposure,
+		CacheKeyStore:         r.runtime.delegationCacheKeyStore,
+		SandboxEnabled:        r.sandboxEnabled(),
+		SandboxWritableMounts: sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
 	})
 	if err != nil {
 		return runResult{}, err

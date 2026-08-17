@@ -8,6 +8,7 @@ import (
 const (
 	testIdentityMarker   = "You are steiner, a lean coding agent."
 	testDelegationMarker = "## Your role"
+	testSandboxMarker    = "## Sandbox\n\nThe sandbox is enabled. The filesystem is read-only except the current\nworkdir."
 	testCoreRulesMarker  = "Core rules:"
 	testWorkflowMarker   = "Before editing:"
 	testCaveHumanMarker  = "## Output voice"
@@ -46,6 +47,8 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 		name            string
 		override        string
 		delegation      bool
+		sandbox         bool
+		mounts          []string
 		advisor         bool
 		caveHuman       bool
 		suffix          string
@@ -60,6 +63,25 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			name:            "delegation enabled",
 			delegation:      true,
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use every section of this template:", "## Your workflow"},
+			wantIdentityCnt: 1,
+		},
+		{
+			name:            "sandbox enabled between workflow and execution modes",
+			delegation:      true,
+			sandbox:         true,
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker, testSandboxMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker, testSandboxMarker},
+			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use every section of this template:", "## Your workflow"},
+			wantIdentityCnt: 1,
+		},
+		{
+			name:            "sandbox disabled",
+			delegation:      true,
+			sandbox:         false,
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantAbsent:      []string{testSandboxMarker},
 			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
 			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "Every sub-agent task MUST use every section of this template:", "## Your workflow"},
 			wantIdentityCnt: 1,
@@ -96,6 +118,19 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			wantIdentityCnt: 1,
 		},
 		{
+			name:            "override drops sandbox section even when sandbox enabled",
+			override:        "Custom override content",
+			delegation:      true,
+			sandbox:         true,
+			mounts:          []string{"/host/rw"},
+			suffix:          "suffix",
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, "Custom override content", "suffix"},
+			wantAbsent:      []string{testCoreRulesMarker, testWorkflowMarker, testSandboxMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, "Custom override content", "suffix"},
+			wantSuffixLast:  true,
+			wantIdentityCnt: 1,
+		},
+		{
 			name:            "override without delegation",
 			override:        "Custom override content",
 			delegation:      false,
@@ -116,12 +151,14 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			content := systemPreambleWithAdvisor(SystemPreambleParams{
-				Override:          tc.override,
-				DelegationEnabled: tc.delegation,
-				AdvisorEnabled:    tc.advisor,
-				Mode:              workflowModeParent,
-				CaveHuman:         tc.caveHuman,
-				SystemSuffix:      tc.suffix,
+				Override:              tc.override,
+				DelegationEnabled:     tc.delegation,
+				AdvisorEnabled:        tc.advisor,
+				SandboxEnabled:        tc.sandbox,
+				SandboxWritableMounts: tc.mounts,
+				Mode:                  workflowModeParent,
+				CaveHuman:             tc.caveHuman,
+				SystemSuffix:          tc.suffix,
 			}).Content
 
 			for _, want := range tc.wantPresent {
@@ -162,6 +199,54 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 						t.Fatalf("core rules section unexpectedly contains %q in %q", forbidden, coreSection)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestSandboxInstructionRendering(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		enabled bool
+		mounts  []string
+		want    string
+	}{
+		{
+			name:    "enabled with no mounts",
+			enabled: true,
+			want:    "## Sandbox\n\nThe sandbox is enabled. The filesystem is read-only except the current\nworkdir.",
+		},
+		{
+			name:    "enabled with writable mounts",
+			enabled: true,
+			mounts:  []string{"/var/log", "/home/u/go"},
+			want:    "## Sandbox\n\nThe sandbox is enabled. The filesystem is read-only except the current\nworkdir. Additional writable paths: /var/log, /home/u/go",
+		},
+		{
+			name:    "disabled with mounts",
+			enabled: false,
+			mounts:  []string{"/var/log"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{
+				SandboxEnabled:        tc.enabled,
+				SandboxWritableMounts: tc.mounts,
+				Mode:                  workflowModeParent,
+			}).Content
+
+			if !tc.enabled {
+				if strings.Contains(content, "## Sandbox") {
+					t.Fatalf("sandbox section present when disabled in %q", content)
+				}
+				return
+			}
+			if !strings.Contains(content, tc.want) {
+				t.Fatalf("sandbox section missing %q in %q", tc.want, content)
 			}
 		})
 	}

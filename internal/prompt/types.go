@@ -141,6 +141,10 @@ type AssemblyOptions struct {
 	ContextState              DurableContextState
 	DelegationEnabled         bool
 	AdvisorEnabled            bool
+	SandboxEnabled            bool
+	// SandboxWritableMounts lists host paths mounted writable in the sandbox,
+	// rendered into the sandbox system preamble section when SandboxEnabled.
+	SandboxWritableMounts []string
 	// WorkflowMode selects the shared workflow wording for the system preamble.
 	WorkflowMode workflowMode
 	// PhasePrompt carries the oneshot phase orchestration prompt. Empty outside oneshot runs.

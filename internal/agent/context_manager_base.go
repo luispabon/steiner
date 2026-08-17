@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -13,33 +14,39 @@ type baseContextManager struct {
 	readAnnotations       bool
 	annotationsConfigured bool
 	cachedPreamble        struct {
-		content           string
-		override          string
-		delegationEnabled bool
-		advisorEnabled    bool
-		workflowMode      prompt.WorkflowMode
-		caveHuman         bool
-		systemSuffix      string
+		content               string
+		override              string
+		delegationEnabled     bool
+		advisorEnabled        bool
+		workflowMode          prompt.WorkflowMode
+		caveHuman             bool
+		systemSuffix          string
+		sandboxEnabled        bool
+		sandboxWritableMounts []string
 	}
 	minVisibleTurn int
 	events         output.EventSink
 }
 
-func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, advisorEnabled bool, workflowMode prompt.WorkflowMode, caveHuman bool, systemSuffix string) string {
+func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, advisorEnabled bool, workflowMode prompt.WorkflowMode, caveHuman bool, systemSuffix string, sandboxEnabled bool, sandboxWritableMounts []string) string {
 	if b.cachedPreamble.content == "" ||
 		b.cachedPreamble.override != override ||
 		b.cachedPreamble.delegationEnabled != delegationEnabled ||
 		b.cachedPreamble.advisorEnabled != advisorEnabled ||
 		b.cachedPreamble.workflowMode != workflowMode ||
 		b.cachedPreamble.caveHuman != caveHuman ||
-		b.cachedPreamble.systemSuffix != systemSuffix {
+		b.cachedPreamble.systemSuffix != systemSuffix ||
+		b.cachedPreamble.sandboxEnabled != sandboxEnabled ||
+		!slices.Equal(b.cachedPreamble.sandboxWritableMounts, sandboxWritableMounts) {
 		b.cachedPreamble.content = prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{
-			Override:          override,
-			DelegationEnabled: delegationEnabled,
-			AdvisorEnabled:    advisorEnabled,
-			Mode:              workflowMode,
-			CaveHuman:         caveHuman,
-			SystemSuffix:      systemSuffix,
+			Override:              override,
+			DelegationEnabled:     delegationEnabled,
+			AdvisorEnabled:        advisorEnabled,
+			Mode:                  workflowMode,
+			CaveHuman:             caveHuman,
+			SystemSuffix:          systemSuffix,
+			SandboxEnabled:        sandboxEnabled,
+			SandboxWritableMounts: sandboxWritableMounts,
 		}).Content
 		b.cachedPreamble.override = override
 		b.cachedPreamble.delegationEnabled = delegationEnabled
@@ -47,6 +54,8 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		b.cachedPreamble.workflowMode = workflowMode
 		b.cachedPreamble.caveHuman = caveHuman
 		b.cachedPreamble.systemSuffix = systemSuffix
+		b.cachedPreamble.sandboxEnabled = sandboxEnabled
+		b.cachedPreamble.sandboxWritableMounts = append([]string(nil), sandboxWritableMounts...)
 	}
 	return b.cachedPreamble.content
 }
