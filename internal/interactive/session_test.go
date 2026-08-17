@@ -307,6 +307,7 @@ func TestApprovalCoordinatorLifecycle(t *testing.T) {
 	}
 
 	coord.Submit(SubmitApproval{
+		Identity: "write",
 		Tool:     "write",
 		Mode:     "auto",
 		Decision: "allow_once",
@@ -343,6 +344,7 @@ func TestApprovalCoordinatorMismatch(t *testing.T) {
 	}
 
 	coord.Submit(SubmitApproval{
+		Identity: "write",
 		Tool:     "write",
 		Mode:     "auto",
 		Decision: "deny",

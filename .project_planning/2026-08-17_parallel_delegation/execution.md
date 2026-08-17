@@ -75,9 +75,8 @@
 ## Deviations / blockers
 
 ## Review remediation
-- Delegated review provisioning was blocked by worktree path policy, so approved PD-01 and PD-02 fixes were applied directly on the feature branch.
-- PD-01: approval submissions claim FIFO entries under the coordinator mutex, deliver outside it, and reject duplicate/stale identity submissions without advancing the queue.
-- PD-02: approval CallID is carried through coordinator, transcript segments, TUI state, and submission. Initial display and promotion use coordinator FIFO identity, including same-tool requests and cancellation/Finish paths.
-- Focused regressions added for duplicate submission and exact-one delivery. Model lifecycle coverage uses existing approval event tests; broader model identity coverage remains part of targeted verification.
-- Verification: targeted `go test -race ./internal/interactive ./internal/tui` passed. `golangci-lint cache clean` passed. First `make check` ran all test, vet, build, and vulnerability stages successfully but failed lint on the new `promoteNextApproval` complexity; added the local gocyclo suppression, rerunning full check.
-(none)
+- Review fixes were applied in isolated worktree `review-fix/2026-08-17_parallel-delegation-v2`.
+- PD-01: submissions require a non-empty exact identity match before claiming a pending approval. Duplicate, stale, and empty identities leave FIFO state unchanged; delivery remains outside the coordinator mutex.
+- PD-02: CallID is retained by ordinary tool-call segments and fallback approval pills. Initial prompts and identity-based promotion use the coordinator FIFO head, including same-tool requests.
+- Regression coverage verifies duplicate same-tool submissions do not advance the tail and CallID retention in both content paths.
+- Verification: `go test -race ./internal/interactive ./internal/tui`, `golangci-lint cache clean`, `make check`, and `git diff --check` passed.

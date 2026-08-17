@@ -79,6 +79,7 @@ func TestApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 	go func() {
 		firstDone <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
 			Tool:     tool.ToolDef{Name: "write"},
+			CallID:   "call-write-1",
 			Reason:   "sandbox_violation",
 			Response: firstResponse,
 			Kind:     tool.ApprovalKindPath,
@@ -87,6 +88,7 @@ func TestApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 	waitForPendingApproval(t, coordinator)
 
 	coordinator.Submit(SubmitApproval{
+		Identity: coordinator.HeadIdentity(),
 		Tool:     "write",
 		Mode:     "prompt",
 		Decision: "always_allow",
@@ -103,6 +105,7 @@ func TestApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 	secondDone := make(chan error, 1)
 	go func() {
 		secondDone <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+			CallID:   "call-write-2",
 			Tool:     tool.ToolDef{Name: "write"},
 			Reason:   "sandbox_violation",
 			Response: secondResponse,
@@ -132,6 +135,7 @@ func TestApprovalResponderDeniesDecisions(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+			CallID:   "call-bash-1",
 			Tool:     tool.ToolDef{Name: "bash"},
 			Reason:   "sandbox_violation",
 			Response: responseCh,
@@ -141,6 +145,7 @@ func TestApprovalResponderDeniesDecisions(t *testing.T) {
 	waitForPendingApproval(t, coordinator)
 
 	coordinator.Submit(SubmitApproval{
+		Identity: coordinator.HeadIdentity(),
 		Tool:     "bash",
 		Mode:     "prompt",
 		Decision: "deny",
@@ -163,6 +168,7 @@ func TestApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
 	go func() {
 		done <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
 			Tool:     tool.ToolDef{Name: "edit"},
+			CallID:   "call-edit-1",
 			Reason:   "sandbox_violation",
 			Response: responseCh,
 			Kind:     tool.ApprovalKindPath,
@@ -171,6 +177,7 @@ func TestApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
 	waitForPendingApproval(t, coordinator)
 
 	coordinator.Submit(SubmitApproval{
+		Identity: coordinator.HeadIdentity(),
 		Tool:     "edit",
 		Mode:     "prompt",
 		Decision: "allow_once",
@@ -208,6 +215,7 @@ func TestApprovalResponderCachesMCPToolsByServerAndTool(t *testing.T) {
 			done <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
 				Tool:     td,
 				Reason:   "MCP tool call",
+				CallID:   toolName,
 				Response: responseCh,
 				Kind:     tool.ApprovalKindMCP,
 				MCP: &tool.MCPApprovalDetails{
@@ -222,6 +230,7 @@ func TestApprovalResponderCachesMCPToolsByServerAndTool(t *testing.T) {
 	firstResponse, firstDone := request(mcpTool, "fixture", "echo")
 	waitForPendingApproval(t, coordinator)
 	coordinator.Submit(SubmitApproval{
+		Identity: coordinator.HeadIdentity(),
 		Tool:     mcpTool.Name,
 		Mode:     "prompt",
 		Decision: "always_allow",
@@ -231,8 +240,8 @@ func TestApprovalResponderCachesMCPToolsByServerAndTool(t *testing.T) {
 	}
 	if got, want := <-firstResponse, (tool.ApprovalResponse{Allow: true, Message: "always allowed"}); got != want {
 		t.Fatalf("first response = %#v, want %#v", got, want)
-	}
 
+	}
 	// The second request for the same server+tool is served from the cache.
 	secondResponse, secondDone := request(mcpTool, "fixture", "echo")
 	select {
@@ -257,6 +266,7 @@ func TestApprovalResponderCachesMCPToolsByServerAndTool(t *testing.T) {
 
 	waitForPendingApproval(t, coordinator)
 	coordinator.Submit(SubmitApproval{
+		Identity: coordinator.HeadIdentity(),
 		Tool:     otherTool.Name,
 		Mode:     "prompt",
 		Decision: "deny",

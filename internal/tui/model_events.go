@@ -117,6 +117,9 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		case output.EventTypeApprovalRequested:
 			// Content retains every request. The tray only prompts the first.
 			if !m.approval.active {
+				if coordinator, ok := m.controller.(interface{ ApprovalHeadIdentity() string }); ok && coordinator.ApprovalHeadIdentity() != "" && coordinator.ApprovalHeadIdentity() != payload.CallID {
+					break
+				}
 				m.approval = approvalState{
 					active:         true,
 					identity:       payload.CallID,

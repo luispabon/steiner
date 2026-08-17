@@ -271,6 +271,9 @@ func (c *ApprovalCoordinator) Submit(submission SubmitApproval) {
 		if pending.claimed {
 			continue
 		}
+		if pending.identity == "" || submission.Identity == "" || submission.Identity != pending.identity {
+			continue
+		}
 		if pending.toolName != "" && submission.Tool != "" && submission.Tool != pending.toolName {
 			break
 		}

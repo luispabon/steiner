@@ -112,6 +112,22 @@ func TestApprovalCorrelatesByCallIDAcrossConcurrentCalls(t *testing.T) {
 	}
 }
 
+func TestApprovalRequestedRetainsCallIDInToolCallAndFallbackPill(t *testing.T) {
+	b := &contentBuffer{collapseState: make(map[int]bool)}
+	call := &toolCallSegment{tool: "bash", callID: "call-normal"}
+	b.segments = []contentSegment{{kind: segmentToolCall, toolData: call}}
+	b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{Tool: "bash", CallID: "call-normal"}})
+	if call.approvalIdentity != "call-normal" {
+		t.Fatalf("tool call identity = %q, want call-normal", call.approvalIdentity)
+	}
+
+	b.segments = nil
+	b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{Tool: "bash", CallID: "call-fallback"}})
+	if got := b.segments[0].approvalData.identity; got != "call-fallback" {
+		t.Fatalf("fallback identity = %q, want call-fallback", got)
+	}
+}
+
 func TestApprovalQueueDepthsAreHeadRelativeAndRecomputed(t *testing.T) {
 	b := &contentBuffer{styles: testStyles(theme.AccentAmber), collapseState: make(map[int]bool)}
 	head := &approvalPillData{tool: "bash", agentID: "worker", queueDepth: 9}

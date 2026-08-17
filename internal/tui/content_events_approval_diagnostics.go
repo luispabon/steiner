@@ -21,6 +21,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				seg.toolData.approvalPending = true
 				seg.toolData.approvalMode = payload.Mode
 				seg.toolData.approvalPreview = payload.Preview
+				seg.toolData.approvalIdentity = payload.CallID
 				seg.toolData.approvalKind = payload.Kind
 				seg.toolData.approvalServer = payload.Server
 				seg.toolData.approvalMCPTool = payload.ToolName
@@ -69,6 +70,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				kind:        payload.Kind,
 				server:      payload.Server,
 				mcpToolName: payload.ToolName,
+				identity:    payload.CallID,
 				agentID:     event.Scope.AgentID,
 				queueDepth:  0,
 			},

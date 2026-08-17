@@ -111,7 +111,7 @@ func TestApprovalCoordinatorQueue(t *testing.T) {
 	if coord.PendingDepth() != 2 {
 		t.Fatalf("depth after middle Finish = %d, want 2", coord.PendingDepth())
 	}
-	coord.Submit(SubmitApproval{Tool: "head", Decision: "allow_once"})
+	coord.Submit(SubmitApproval{Identity: "head", Tool: "head", Decision: "allow_once"})
 	if got := (<-head).Decision; got != "allow_once" {
 		t.Errorf("head decision = %q, want allow_once", got)
 	}
@@ -121,7 +121,7 @@ func TestApprovalCoordinatorQueue(t *testing.T) {
 	default:
 	}
 	coord.Finish(head)
-	coord.Submit(SubmitApproval{Tool: "tail", Decision: "deny"})
+	coord.Submit(SubmitApproval{Identity: "tail", Tool: "tail", Decision: "deny"})
 	if got := (<-tail).Decision; got != "deny" {
 		t.Errorf("tail decision = %q, want deny", got)
 	}
@@ -152,6 +152,28 @@ func TestApprovalCoordinatorDuplicateSubmitClaimsOnlyHead(t *testing.T) {
 	}
 }
 
+func TestApprovalCoordinatorDuplicateSameToolIdentityDoesNotAdvanceTail(t *testing.T) {
+	coord := &ApprovalCoordinator{}
+	first := coord.Begin("call-1", "bash", "", "", "")
+	second := coord.Begin("call-2", "bash", "", "", "")
+
+	coord.Submit(SubmitApproval{Identity: "call-1", Tool: "bash", Decision: "allow_once"})
+	if got := <-first; got.Decision != "allow_once" {
+		t.Fatalf("first decision = %q, want allow_once", got.Decision)
+	}
+	for i := 0; i < 2; i++ {
+		coord.Submit(SubmitApproval{Identity: "call-1", Tool: "bash", Decision: "duplicate"})
+	}
+	select {
+	case got := <-second:
+		t.Fatalf("second received duplicate decision %q", got.Decision)
+	default:
+	}
+	if got := coord.HeadIdentity(); got != "call-2" {
+		t.Fatalf("head identity = %q, want call-2", got)
+	}
+}
+
 func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
 	coord := &ApprovalCoordinator{}
 	started := make(chan chan SubmitApproval, 2)
@@ -159,7 +181,7 @@ func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
 		go func() { started <- coord.Begin(name, name, "", "", "") }()
 	}
 	channels := []chan SubmitApproval{<-started, <-started}
-	coord.Submit(SubmitApproval{Decision: "first"})
+	coord.Submit(SubmitApproval{Identity: "a", Decision: "first"})
 	var first chan SubmitApproval
 	select {
 	case <-channels[0]:
@@ -170,7 +192,7 @@ func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
 		t.Fatal("first response timed out")
 	}
 	coord.Finish(first)
-	coord.Submit(SubmitApproval{Decision: "second"})
+	coord.Submit(SubmitApproval{Identity: "b", Decision: "second"})
 	var second chan SubmitApproval
 	if first == channels[0] {
 		second = channels[1]
@@ -197,7 +219,7 @@ func TestApprovalCoordinatorSubmitFinishRace(t *testing.T) {
 		close(finishDone)
 	}()
 	<-finishStarted
-	coord.Submit(SubmitApproval{Tool: "b", Decision: "allow_once"})
+	coord.Submit(SubmitApproval{Identity: "b", Tool: "b", Decision: "allow_once"})
 	<-finishDone
 	select {
 	case got := <-b:
