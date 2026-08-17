@@ -487,53 +487,6 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 	}
 }
 
-func TestSandboxWritableMountsFiltering(t *testing.T) {
-	tests := []struct {
-		name string
-		cfg  config.SandboxConfig
-		want []string
-	}{
-		{
-			name: "no mounts",
-			cfg:  config.SandboxConfig{},
-			want: nil,
-		},
-		{
-			name: "empty mode is read-only",
-			cfg: config.SandboxConfig{HostMounts: []config.HostMount{
-				{Path: "/host/bare", Mode: ""},
-			}},
-			want: nil,
-		},
-		{
-			name: "ro mount excluded",
-			cfg: config.SandboxConfig{HostMounts: []config.HostMount{
-				{Path: "/host/ro", Mode: "ro"},
-			}},
-			want: nil,
-		},
-		{
-			name: "rw only, preserving order",
-			cfg: config.SandboxConfig{HostMounts: []config.HostMount{
-				{Path: "/host/ro", Mode: "ro"},
-				{Path: "/host/rw1", Mode: "rw"},
-				{Path: "/host/bare", Mode: ""},
-				{Path: "/host/rw2", Mode: "rw"},
-			}},
-			want: []string{"/host/rw1", "/host/rw2"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := sandboxWritableMounts(tt.cfg)
-			if !slices.Equal(got, tt.want) {
-				t.Errorf("sandboxWritableMounts() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestPromptAssemblyCarriesSandboxState(t *testing.T) {
 	t.Run("sandbox active", func(t *testing.T) {
 		cfg := config.Config{

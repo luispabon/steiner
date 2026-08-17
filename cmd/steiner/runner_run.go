@@ -11,6 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -158,8 +159,8 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
 		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
 		AdvisorEnabled:            r.runtime.cfg.Advisor.Enabled,
-		SandboxEnabled:            r.runtime.sandbox != nil && r.runtime.sandbox.Enabled(),
-		SandboxWritableMounts:     sandboxWritableMounts(r.runtime.cfg.Sandbox),
+		SandboxEnabled:            r.sandboxEnabled(),
+		SandboxWritableMounts:     sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
 		PhasePrompt:               r.phasePrompt,
 		WorkflowMode:              r.workflowMode,
 		Conversation:              toProviderConversation(conversation),
@@ -167,18 +168,9 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 	}
 }
 
-// sandboxWritableMounts returns the sandbox host-mount paths configured
-// writable, preserving config order. Mounts with Mode other than "rw"
-// (including empty, meaning read-only) are excluded. Paths are already
-// home-expanded at config load.
-func sandboxWritableMounts(cfg config.SandboxConfig) []string {
-	var mounts []string
-	for _, m := range cfg.HostMounts {
-		if m.Mode == "rw" {
-			mounts = append(mounts, m.Path)
-		}
-	}
-	return mounts
+// sandboxEnabled reports whether the runtime sandbox is active.
+func (r cliRunner) sandboxEnabled() bool {
+	return r.runtime.sandbox != nil && r.runtime.sandbox.Enabled()
 }
 
 func (r cliRunner) normalizedRunMode() string {
@@ -205,7 +197,7 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, drainSteers func() []agent.SteerMessage) agent.RunRequest {
 	maxTokens := setup.resolvedModel.EffectiveLimits.MaxOutputTokens
 	sandboxTmpDir := ""
-	if r.runtime.sandbox != nil && r.runtime.sandbox.Enabled() {
+	if r.sandboxEnabled() {
 		sandboxTmpDir = r.runtime.sandbox.TmpDir()
 	}
 	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir, sandboxTmpDir)

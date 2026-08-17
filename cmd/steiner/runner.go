@@ -13,6 +13,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
@@ -90,8 +91,8 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		ImageStore:            r.runtime.imageStore,
 		ExtraAllowedTools:     exposure,
 		CacheKeyStore:         r.runtime.delegationCacheKeyStore,
-		SandboxEnabled:        r.runtime.sandbox != nil && r.runtime.sandbox.Enabled(),
-		SandboxWritableMounts: sandboxWritableMounts(r.runtime.cfg.Sandbox),
+		SandboxEnabled:        r.sandboxEnabled(),
+		SandboxWritableMounts: sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
 	})
 	if err != nil {
 		return runResult{}, err
