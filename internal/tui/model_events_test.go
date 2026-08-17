@@ -44,6 +44,30 @@ func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 	}
 }
 
+func TestApplyEventPromotesQueuedStandaloneApprovalPill(t *testing.T) {
+	first := &approvalPillData{tool: "bash", mode: "prompt", preview: `{"command":"pwd"}`}
+	second := &approvalPillData{tool: "read", mode: "prompt", preview: `{"path":"note.txt"}`}
+	m := newModel(Config{}, nil)
+	m.content.segments = []contentSegment{
+		{kind: segmentApprovalPill, approvalData: first},
+		{kind: segmentApprovalPill, approvalData: second},
+	}
+
+	first.resolved = true
+	if !m.promoteNextApproval() {
+		t.Fatal("promoteNextApproval() = false, want true")
+	}
+	if second.resolved {
+		t.Fatal("queued approval = resolved, want unresolved")
+	}
+	if !m.approval.active || m.approval.tool != second.tool {
+		t.Fatalf("active approval = %#v, want queued %q", m.approval, second.tool)
+	}
+	if m.status.mode != "approval" {
+		t.Fatalf("status.mode = %q, want approval", m.status.mode)
+	}
+}
+
 func TestApplyEventConfigWarningAppendsWithoutTouchingSandbox(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)

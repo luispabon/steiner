@@ -222,13 +222,13 @@ func (m *Model) promoteNextApproval() bool {
 					return true
 				}
 			}
-			if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved {
-				ad := seg.approvalData
-				m.approval = approvalState{active: true, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName}
-				m.status.mode = "approval"
-				m.input.Blur()
-				return true
-			}
+		}
+		if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved {
+			ad := seg.approvalData
+			m.approval = approvalState{active: true, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName}
+			m.status.mode = "approval"
+			m.input.Blur()
+			return true
 		}
 	}
 	return false
