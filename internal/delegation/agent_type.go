@@ -31,12 +31,7 @@ func IsDelegationTool(name string) bool {
 	if name == FollowUpToolName {
 		return true
 	}
-	for _, t := range AllAgentTypes() {
-		if name == string(t) {
-			return true
-		}
-	}
-	return false
+	return ValidAgentType(name)
 }
 
 // AllSpecializedDelegateTools returns the canonical specialized delegate tool

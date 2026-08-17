@@ -41,20 +41,13 @@ func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, subAgents ma
 }
 
 func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig, model string) {
-	if !cfg.Enabled {
-		if cfg.MaxTokens != nil && *cfg.MaxTokens < 1 {
-			*problems = append(*problems, "advisor.max_tokens must be greater than zero when set")
+	if cfg.Enabled {
+		if strings.TrimSpace(model) == "" {
+			*problems = append(*problems, "models.advisor is required when enabled")
 		}
-		if cfg.Timeout != nil && cfg.Timeout.IsZero() {
-			*problems = append(*problems, "advisor.timeout must be greater than zero when set")
+		if cfg.MaxUsesPerRun < 1 {
+			*problems = append(*problems, "advisor.max_uses_per_run must be at least 1 when enabled")
 		}
-		return
-	}
-	if strings.TrimSpace(model) == "" {
-		*problems = append(*problems, "models.advisor is required when enabled")
-	}
-	if cfg.MaxUsesPerRun < 1 {
-		*problems = append(*problems, "advisor.max_uses_per_run must be at least 1 when enabled")
 	}
 	if cfg.MaxTokens != nil && *cfg.MaxTokens < 1 {
 		*problems = append(*problems, "advisor.max_tokens must be greater than zero when set")

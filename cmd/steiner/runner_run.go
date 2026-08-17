@@ -48,14 +48,7 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 	if err != nil {
 		return runnerSetup{}, err
 	}
-	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:               rm.EffectiveLimits.ContextWindow,
-		MaxCompletionTokens:       rm.EffectiveLimits.MaxOutputTokens,
-		SafetyMarginTokens:        rm.EffectiveLimits.EstimatorPadTokens,
-		SummaryMaxTokens:          rm.EffectiveLimits.NormalSummaryMaxTokens,
-		NormalSummaryMaxTokens:    rm.EffectiveLimits.NormalSummaryMaxTokens,
-		EmergencySummaryMaxTokens: rm.EffectiveLimits.EmergencySummaryMaxTokens,
-	}
+	modelBudget := prompt.ModelBudgetFromEffectiveLimits(rm.EffectiveLimits)
 
 	return runnerSetup{
 		resolvedModel: rm,

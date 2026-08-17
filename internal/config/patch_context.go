@@ -6,9 +6,7 @@ func applyProjectContextPatch(dst *ProjectContextConfig, patch *projectContextPa
 	} else if patch.MaxTokens != nil {
 		dst.MaxBytes = *patch.MaxTokens * 4
 	}
-	if patch.MaxTokens != nil {
-		dst.MaxTokens = *patch.MaxTokens
-	}
+	setIfPresent(&dst.MaxTokens, patch.MaxTokens)
 	if patch.ExtraFiles != nil {
 		dst.ExtraFiles = append([]string(nil), (*patch.ExtraFiles)...)
 	}
@@ -18,9 +16,7 @@ func applyProjectContextPatch(dst *ProjectContextConfig, patch *projectContextPa
 }
 
 func applyPathsPatch(dst *PathsConfig, patch *pathsPatch) {
-	if patch.ProjectRootOnly != nil {
-		dst.ProjectRootOnly = *patch.ProjectRootOnly
-	}
+	setIfPresent(&dst.ProjectRootOnly, patch.ProjectRootOnly)
 	if patch.WritablePaths != nil {
 		dst.WritablePaths = append([]string(nil), (*patch.WritablePaths)...)
 	}
@@ -36,22 +32,12 @@ func applyPathsPatch(dst *PathsConfig, patch *pathsPatch) {
 }
 
 func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
-	if patch.Enabled != nil {
-		dst.Enabled = *patch.Enabled
-	}
-	if patch.Level != nil {
-		dst.Level = *patch.Level
-	}
-	if patch.File != nil {
-		dst.File = *patch.File
-	}
-	if patch.ThinkingChunk != nil {
-		dst.ThinkingChunk = *patch.ThinkingChunk
-	}
+	setIfPresent(&dst.Enabled, patch.Enabled)
+	setIfPresent(&dst.Level, patch.Level)
+	setIfPresent(&dst.File, patch.File)
+	setIfPresent(&dst.ThinkingChunk, patch.ThinkingChunk)
 }
 
 func applyContextManagementPatch(dst *ContextManagementConfig, patch *contextManagementPatch) {
-	if patch.ReadAnnotations != nil {
-		dst.ReadAnnotations = *patch.ReadAnnotations
-	}
+	setIfPresent(&dst.ReadAnnotations, patch.ReadAnnotations)
 }

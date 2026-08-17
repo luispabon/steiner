@@ -46,13 +46,7 @@ func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (co
 	if modelAlias == "" {
 		overrides.Model = flags.model
 	}
-	cfg, err := config.Load(config.LoadOptions{
-		CLI: overrides,
-	})
-	if err != nil {
-		return config.Config{}, err
-	}
-	return cfg, nil
+	return config.Load(config.LoadOptions{CLI: overrides})
 }
 
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {

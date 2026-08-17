@@ -111,7 +111,7 @@ func isEnvName(name string) bool {
 			}
 			continue
 		}
-		if !isEnvContinue(name[i], false) {
+		if !isEnvContinue(name[i]) {
 			return false
 		}
 	}
@@ -122,10 +122,7 @@ func isEnvStart(ch byte) bool {
 	return ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
 }
 
-func isEnvContinue(ch byte, first bool) bool {
-	if first {
-		return isEnvStart(ch)
-	}
+func isEnvContinue(ch byte) bool {
 	return isEnvStart(ch) || (ch >= '0' && ch <= '9')
 }
 
