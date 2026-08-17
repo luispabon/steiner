@@ -276,9 +276,10 @@ func TestParallelDelegationEndToEndUnbounded(t *testing.T) {
 	}
 }
 
-// TestParallelDelegationEndToEndOrdering proves result finalization order is forced task-2, task-1, task-0.
-// The parent applies results in call order after the batch joins (D7), so this test cannot inspect an intermediate parent application.
-// The deterministic unit-level reversed-completion coverage lives in internal/agent/turn_progression_test.go (TestExecuteToolCalls_ParallelReversedCompletionAppliesInOrder).
+// TestParallelDelegationEndToEndOrdering forces each child's child-run completion and summary-provider call to be served strictly in reverse call order: task-2 before task-1 is released, and task-1 before task-0.
+// This makes result values available in reverse call order, while the parent joins the whole batch before applying results and the assertions verify that conversation and lineage retain original call order.
+// The harness observes provider-level completion, not the delegate handler's final return, so a scheduler preemption in the handler's final steps could in theory let a completion-order applier sneak through.
+// That corner is covered deterministically at the unit level by internal/agent/turn_progression_test.go (TestExecuteToolCalls_ParallelReversedCompletionAppliesInOrder), which the batch-join architecture makes the authoritative check.
 func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
 	releases := map[string]chan struct{}{"task-0": make(chan struct{}), "task-1": make(chan struct{}), "task-2": make(chan struct{})}
