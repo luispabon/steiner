@@ -2,16 +2,117 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+func TestExecuteToolCalls_ParallelMaxOneSerial(t *testing.T) {
+	var calls int32
+	state := runParallel(t, RunRequest{Executor: parallelTestExecutor{fn: func(context.Context, string) (any, error) { atomic.AddInt32(&calls, 1); return "ok", nil }}, ParallelTool: func(string) bool { return true }, MaxParallelTools: 1}, "a", "b")
+	if calls != 2 || len(parallelContents(state)) != 2 {
+		t.Fatalf("calls=%d results=%d", calls, len(parallelContents(state)))
+	}
+}
+
+type parallelTestExecutor struct {
+	fn func(context.Context, string) (any, error)
+}
+
+func (e parallelTestExecutor) Execute(ctx context.Context, name, _ string, _ map[string]any) (any, error) {
+	return e.fn(ctx, name)
+}
+func parallelCalls(names ...string) provider.ChatResponse {
+	calls := make([]provider.ToolCall, len(names))
+	for i, name := range names {
+		calls[i] = provider.ToolCall{ID: name, Name: name}
+	}
+	return provider.ChatResponse{Message: provider.Message{ToolCalls: calls}}
+}
+func runParallel(t *testing.T, req RunRequest, names ...string) RunState {
+	t.Helper()
+	req.Events = output.NoopSink{}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+	return p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls(names...)).State
+}
+func parallelContents(state RunState) []string {
+	var out []string
+	for _, msg := range state.Conversation {
+		if msg.Role == MessageRoleTool {
+			out = append(out, msg.Content)
+		}
+	}
+	return out
+}
+
+func TestExecuteToolCalls_ParallelOrderAndFailure(t *testing.T) {
+	release := map[string]chan struct{}{"a": make(chan struct{}), "b": make(chan struct{})}
+	executor := parallelTestExecutor{fn: func(ctx context.Context, name string) (any, error) {
+		if name == "bad" {
+			return nil, errors.New("boom")
+		}
+		if ch, ok := release[name]; ok {
+			select {
+			case <-ch:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return name, nil
+	}}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
+	done := make(chan RunState, 1)
+	go func() {
+		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b", "bad")).State
+	}()
+	close(release["b"])
+	close(release["a"])
+	state := <-done
+	want := []string{"a", "b", `{"ok":false,"error":{"kind":"tool_error","message":"boom","details":null}}`}
+	if got := parallelContents(state); !equalStrings(got, want) {
+		t.Fatalf("contents = %v, want %v", got, want)
+	}
+}
+
+func TestExecuteToolCalls_ParallelBoundAndCancellation(t *testing.T) {
+	var inFlight, max int32
+	executor := parallelTestExecutor{fn: func(ctx context.Context, _ string) (any, error) {
+		current := atomic.AddInt32(&inFlight, 1)
+		for {
+			old := atomic.LoadInt32(&max)
+			if current <= old || atomic.CompareAndSwapInt32(&max, old, current) {
+				break
+			}
+		}
+		<-ctx.Done()
+		atomic.AddInt32(&inFlight, -1)
+		return nil, ctx.Err()
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }, MaxParallelTools: 2}, prompt.AssemblyOptions{}, nil)
+	done := make(chan turnOutcome, 1)
+	go func() {
+		done <- p.executeToolCalls(ctx, RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b", "c", "d"))
+	}()
+	for atomic.LoadInt32(&max) < 2 {
+	}
+	cancel()
+	outcome := <-done
+	if max > 2 || atomic.LoadInt32(&inFlight) != 0 {
+		t.Fatalf("max=%d inFlight=%d", max, inFlight)
+	}
+	if !outcome.Stop {
+		t.Fatal("cancelled batch did not stop")
+	}
+}
 func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 	state := RunState{
 		TurnCount:    0,
@@ -46,7 +147,7 @@ func TestPrepareTurn_SuccessfulFit(t *testing.T) {
 		t.Fatalf("chatRequest.Model = %q, want %q", chatRequest.Model, "test-model")
 	}
 	if chatRequest.PromptCacheKey == "" {
-		t.Fatal("chatRequest.PromptCacheKey = empty, want stable session key")
+		t.Fatalf("chatRequest.PromptCacheKey = empty, want stable session key")
 	}
 	if chatRequest.MaxTokens != nil {
 		t.Fatalf("chatRequest.MaxTokens = %v, want nil for normal turns", *chatRequest.MaxTokens)

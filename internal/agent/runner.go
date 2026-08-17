@@ -76,6 +76,15 @@ type RunRequest struct {
 	// VisionCapabilities tracks per-model vision capability for the session.
 	// Nil disables capability-driven retry logic (tests, unwired paths preserve old behavior).
 	VisionCapabilities *VisionCapabilities
+
+	// ParallelTool reports whether a tool call may execute concurrently with its
+	// siblings in the same assistant turn. Nil means every call runs serially,
+	// which is the pre-existing behaviour and what child runs receive.
+	ParallelTool func(toolName string) bool
+
+	// MaxParallelTools bounds how many eligible tool calls execute concurrently
+	// within a turn. Zero means unbounded; one is equivalent to serial execution.
+	MaxParallelTools int
 }
 
 // Runner executes the main turn loop for an agent run.
