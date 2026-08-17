@@ -298,6 +298,9 @@ func (p PathPolicy) rewriteTmpPath(path string) string {
 	if p.sandboxTmpDir == "" {
 		return path
 	}
+	if p.IsSandboxTmpPath(path) {
+		return path
+	}
 	if path == "/tmp" {
 		return p.sandboxTmpDir
 	}
