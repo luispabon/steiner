@@ -21,6 +21,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 func TestToProviderConversationPreservesTurn(t *testing.T) {
@@ -635,6 +636,134 @@ func exploreDelegationResponses() []provider.ChatResponse {
 				Role: provider.MessageRoleAssistant,
 				ToolCalls: []provider.ToolCall{
 					{ID: "call_1", Name: "explore", Arguments: map[string]any{"task": "analyze"}},
+				},
+			},
+			FinishReason: "tool_calls",
+		},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "child answer"}, FinishReason: "stop"},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "child summary"}, FinishReason: "stop"},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "parent answer"}, FinishReason: "stop"},
+	}
+}
+
+// TestRunnerDelegateDepsCarrySandboxTmpDir verifies the composition root feeds
+// the runtime sandbox tmp dir into DelegateDeps so child executors (here the
+// code sub-agent) can rewrite /tmp paths for mutate. With an active sandbox a
+// child mutate on /tmp lands under the sandbox tmp dir; in --unsafe mode (nil
+// sandbox) the same call is denied for lack of an approver.
+func TestRunnerDelegateDepsCarrySandboxTmpDir(t *testing.T) {
+	workDir := t.TempDir()
+	sandboxTmpDir := filepath.Join(workDir, "sandbox-tmp")
+	mustMkdirAll(t, sandboxTmpDir)
+
+	pp := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	baseRegistry := tool.NewRegistry(builtin.NewMutateTool(builtin.Env{WorkDir: workDir, PathPolicy: &pp}))
+
+	tests := []struct {
+		name       string
+		sandboxCfg config.SandboxConfig
+		sb         *sandbox.Sandbox
+		wantLanded bool
+	}{
+		{
+			name:       "active sandbox passes tmp dir to child executor",
+			sandboxCfg: config.SandboxConfig{Enabled: true},
+			sb:         sandbox.New(config.SandboxConfig{Enabled: true}, config.PermissionsConfig{}, workDir, workDir, t.TempDir(), sandboxTmpDir),
+			wantLanded: true,
+		},
+		{
+			name:       "unsafe mode passes no tmp dir",
+			sandboxCfg: config.SandboxConfig{Enabled: false},
+			sb:         nil,
+			wantLanded: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var agentID string
+			events := output.SinkFunc(func(event output.Event) {
+				if event.Type != output.EventTypeDelegationStarted {
+					return
+				}
+				if payload, ok := event.Payload.(output.DelegationStartedEvent); ok {
+					agentID = payload.AgentID
+				}
+			})
+
+			cfg := testRuntimeConfig("test-model")
+			// The code sub-agent's system prompt plus sandbox preamble exceeds the
+			// 4096-token default test context; widen it so the child run fits.
+			def := cfg.Models.Definitions["test-model"]
+			def.Advanced.Limits.ContextWindow = 32768
+			cfg.Models.Definitions["test-model"] = def
+			cfg.Sandbox = tt.sandboxCfg
+			cfg.SubAgent = config.SubAgentConfig{Enabled: true}
+			sessions := delegation.NewSessionStore()
+			runner := cliRunner{
+				runtime: cliRuntime{
+					cfg:                    cfg,
+					provider:               &fakeProvider{responses: codeDelegationResponses()},
+					registry:               baseRegistry,
+					workDir:                workDir,
+					homeDir:                t.TempDir(),
+					events:                 events,
+					sandbox:                tt.sb,
+					delegationSessionStore: sessions,
+				},
+				maxTurns: 4,
+			}
+
+			if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "delegate a coding task"}}, nil, nil); err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if agentID == "" {
+				t.Fatal("no delegation started event captured; code sub-agent did not run")
+			}
+			session, ok := sessions.Get(agentID)
+			if !ok {
+				t.Fatalf("child session for agent %q not saved", agentID)
+			}
+
+			_, err := session.Request.Executor.Execute(context.Background(), "mutate", "", map[string]any{
+				"operations": []any{
+					map[string]any{"type": "create", "path": "/tmp/test-file", "content": "hello\n"},
+				},
+			})
+			if tt.wantLanded {
+				if err != nil {
+					t.Fatalf("Execute(mutate /tmp) error = %v", err)
+				}
+				got, err := os.ReadFile(filepath.Join(sandboxTmpDir, "test-file"))
+				if err != nil {
+					t.Fatalf("read under sandbox tmp dir: %v", err)
+				}
+				if string(got) != "hello\n" {
+					t.Errorf("file content = %q, want %q", string(got), "hello\n")
+				}
+				return
+			}
+			var execErr *tool.ToolExecutionError
+			if !errors.As(err, &execErr) {
+				t.Fatalf("Execute(mutate /tmp) error = %v, want *tool.ToolExecutionError policy_denied", err)
+			}
+			if execErr.Kind != "policy_denied" {
+				t.Fatalf("Execute(mutate /tmp) error kind = %q, want %q", execErr.Kind, "policy_denied")
+			}
+		})
+	}
+}
+
+// codeDelegationResponses returns the fake provider responses for a parent run
+// that spawns one code sub-agent: parent tool call, child answer, child summary
+// turn, then the parent's final answer.
+func codeDelegationResponses() []provider.ChatResponse {
+	return []provider.ChatResponse{
+		{
+			Message: provider.Message{
+				Role: provider.MessageRoleAssistant,
+				ToolCalls: []provider.ToolCall{
+					{ID: "call_1", Name: "code", Arguments: map[string]any{"task": "write a file"}},
 				},
 			},
 			FinishReason: "tool_calls",

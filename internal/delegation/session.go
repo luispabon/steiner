@@ -32,6 +32,10 @@ type SubAgentHandlerDeps struct {
 	// child registries beyond the built-in allowlists. Nil or empty map grants
 	// no extra tools.
 	ExtraAllowedTools map[AgentType][]string
+	// SandboxTmpDir is the path to the sandbox temporary directory inside the
+	// project root. When non-empty, child executors inherit it so that /tmp
+	// path rewriting works for tools like mutate.
+	SandboxTmpDir string
 	// SandboxEnabled reports whether the parent sandbox is active. Forwarded as
 	// a plain value into child prompts so their system preamble renders the same
 	// sandbox section as the parent.

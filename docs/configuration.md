@@ -549,6 +549,7 @@ The `vision` agent type requires a vision-capable model. When `models.sub_agents
 
 A map of externally configured tools registered alongside the built-in tools.
 Each key becomes the tool name the model uses.
+Tool names that collide with a built-in (`read`, `glob`, `grep`, `ls`, `bash`, `display_file`, `mutate`, `fetch_url`, `workflow_handoff`) are rejected at config load — a config tool replaces the built-in definition, dropping its sandbox `CommandWrapper` and leaving an `ExecPath`-only tool that cannot be sandbox-wrapped for child agents.
 
 ```yaml
 tools:

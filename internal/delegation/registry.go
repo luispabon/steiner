@@ -48,6 +48,11 @@ type DelegateDeps struct {
 	HTTPClient *http.Client
 	// Searcher provides the web search backend when available.
 	Searcher web.Searcher
+	// SandboxTmpDir is the path to the sandbox temporary directory inside the
+	// project root. When non-empty, child executors inherit it so that /tmp
+	// path rewriting works for tools like mutate. Derived from the parent's
+	// runtime sandbox at the composition root in cmd/steiner.
+	SandboxTmpDir string
 	// SandboxEnabled reports whether the parent sandbox is active. Forwarded as
 	// a plain value into child prompts so their system preamble renders the same
 	// sandbox section as the parent. Derived from the parent's runtime sandbox
@@ -147,6 +152,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		SessionStore:          store,
 		ExtraAllowedTools:     deps.ExtraAllowedTools,
 		UsageRecorder:         deps.UsageRecorder,
+		SandboxTmpDir:         deps.SandboxTmpDir,
 		SandboxEnabled:        deps.SandboxEnabled,
 		SandboxWritableMounts: deps.SandboxWritableMounts,
 		CacheKeyStore:         deps.CacheKeyStore,
