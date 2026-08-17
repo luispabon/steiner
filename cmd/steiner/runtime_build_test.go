@@ -18,12 +18,10 @@ import (
 )
 
 func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.T) {
-	oldNewScheduler := newScheduler
 	oldNewOpenAICompat := newOpenAICompat
 	oldNewAnthropic := newAnthropic
 	oldNewCodexResponses := newCodexResponses
 	t.Cleanup(func() {
-		newScheduler = oldNewScheduler
 		newOpenAICompat = oldNewOpenAICompat
 		newAnthropic = oldNewAnthropic
 		newCodexResponses = oldNewCodexResponses
@@ -59,12 +57,6 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 		t.Helper()
 
 		var got capture
-		newScheduler = func(parallelism int) (*provider.Scheduler, error) {
-			if parallelism != wantParallelism {
-				t.Fatalf("scheduler parallelism = %d, want %d", parallelism, wantParallelism)
-			}
-			return provider.NewScheduler(parallelism)
-		}
 		newOpenAICompat = func(cfg provider.ClientConfig) (provider.Provider, error) {
 			got.openAICompatCalls++
 			got.openAICompatCfg = cfg

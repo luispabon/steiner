@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -282,88 +281,6 @@ func TestOpenAICompatChatCompletionCancellationDuringBackoffStopsImmediately(t *
 	}
 	if got := atomic.LoadInt32(&attempts); got != 1 {
 		t.Fatalf("attempts = %d, want 1", got)
-	}
-}
-
-func TestOpenAICompatSchedulerParallelismRespectedAcrossRetries(t *testing.T) {
-	var attempts int32
-	firstAttemptSeen := make(chan struct{})
-	releaseSleep := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		switch atomic.AddInt32(&attempts, 1) {
-		case 1:
-			close(firstAttemptSeen)
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = fmt.Fprint(w, "busy")
-		case 2, 3:
-			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
-		default:
-			t.Fatalf("unexpected attempt %d", attempts)
-		}
-	}))
-	defer server.Close()
-
-	provider := mustRetryTestOpenAICompat(t, server.URL, RetryConfig{
-		Enabled:        true,
-		MaxAttempts:    2,
-		InitialBackoff: time.Second,
-		MaxBackoff:     time.Second,
-	})
-	var sleepOnce sync.Once
-	sleepStarted := make(chan struct{})
-	provider.sleep = func(ctx context.Context, _ time.Duration) error {
-		sleepOnce.Do(func() { close(sleepStarted) })
-		select {
-		case <-releaseSleep:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	provider.jitter = func(cap time.Duration) time.Duration { return cap }
-
-	firstErr := make(chan error, 1)
-	go func() {
-		_, err := provider.ChatCompletion(context.Background(), ChatRequest{
-			Messages: []Message{{Role: MessageRoleUser, Content: "one"}},
-		})
-		firstErr <- err
-	}()
-
-	select {
-	case <-firstAttemptSeen:
-	case <-time.After(time.Second):
-		t.Fatal("first request did not reach server")
-	}
-	select {
-	case <-sleepStarted:
-	case <-time.After(time.Second):
-		t.Fatal("retry sleep did not start")
-	}
-
-	secondErr := make(chan error, 1)
-	go func() {
-		_, err := provider.ChatCompletion(context.Background(), ChatRequest{
-			Messages: []Message{{Role: MessageRoleUser, Content: "two"}},
-		})
-		secondErr <- err
-	}()
-
-	<-time.After(50 * time.Millisecond)
-	if got := atomic.LoadInt32(&attempts); got != 1 {
-		t.Fatalf("attempts during sleep = %d, want 1", got)
-	}
-
-	close(releaseSleep)
-
-	if err := <-firstErr; err != nil {
-		t.Fatalf("first ChatCompletion() error = %v", err)
-	}
-	if err := <-secondErr; err != nil {
-		t.Fatalf("second ChatCompletion() error = %v", err)
-	}
-	if got := atomic.LoadInt32(&attempts); got != 3 {
-		t.Fatalf("attempts = %d, want 3", got)
 	}
 }
 

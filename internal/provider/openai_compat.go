@@ -20,7 +20,6 @@ type ClientConfig struct {
 	Timeout            time.Duration
 	Retry              RetryConfig
 	HTTPClient         *http.Client
-	Scheduler          *Scheduler
 	ProviderType       string
 	StreamErrorLog     *StreamErrorLogger
 	MinRequestInterval time.Duration
@@ -97,9 +96,6 @@ func newClient(cfg ClientConfig) (*Client, error) {
 	if strings.TrimSpace(cfg.Model) == "" {
 		return nil, fmt.Errorf("model is required")
 	}
-	if cfg.Scheduler == nil {
-		return nil, fmt.Errorf("scheduler is required")
-	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = defaultHTTPClient
@@ -127,7 +123,6 @@ func newClient(cfg ClientConfig) (*Client, error) {
 		model:          cfg.Model,
 		retry:          cfg.Retry,
 		httpClient:     httpClient,
-		scheduler:      cfg.Scheduler,
 		providerType:   cfg.ProviderType,
 		streamErrorLog: cfg.StreamErrorLog,
 		sleep:          defaultRetrySleep,
