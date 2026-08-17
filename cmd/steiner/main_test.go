@@ -157,9 +157,7 @@ func TestConfigCommandPrintsResolvedConfig(t *testing.T) {
 	mustMkdirAll(t, globalDir)
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
-  parallelism: 2
-providers:
+	writeFile(t, filepath.Join(globalDir, "config.yaml"), `providers:
   global-provider:
     type: openai_compat
     base_url: http://global.example/v1
@@ -257,9 +255,6 @@ logging:
 	}
 	if got.Models.Definitions["cli"].ID != "cli-backend" {
 		t.Fatalf("models[cli].ID = %q, want cli-backend", got.Models.Definitions["cli"].ID)
-	}
-	if got.Scheduler.Parallelism != 2 {
-		t.Fatalf("scheduler.parallelism = %d, want 2", got.Scheduler.Parallelism)
 	}
 	if got.Limits.MaxTurns != 10 {
 		t.Fatalf("limits.max_turns = %d, want 10", got.Limits.MaxTurns)
@@ -393,16 +388,14 @@ func TestConfigCommandFailsForInvalidConfigContent(t *testing.T) {
 	}
 }
 
-func TestDefaultBuildRuntimeResolvesSelectedModelAndScheduler(t *testing.T) {
+func TestDefaultBuildRuntimeResolvesSelectedModel(t *testing.T) {
 	tempDir := t.TempDir()
 	homeDir := filepath.Join(tempDir, "home")
 	projectDir := filepath.Join(tempDir, "project")
 	projectConfigDir := filepath.Join(projectDir, ".steiner")
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `scheduler:
-  parallelism: 7
-providers:
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
   fast-provider:
     type: openai_compat
     base_url: http://fast.example/v1
@@ -985,9 +978,6 @@ func testRuntimeConfig(alias string) config.Config {
 		},
 	}
 	return config.Config{
-		Scheduler: config.SchedulerConfig{
-			Parallelism: 1,
-		},
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},

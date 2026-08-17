@@ -285,6 +285,22 @@ func TestApplyAdvisorPatch(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsRemovedConcurrencyConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	globalDir := filepath.Join(homeDir, ".config", "steiner")
+	mustMkdirAll(t, globalDir)
+	writeFile(t, filepath.Join(globalDir, "config.yaml"), "sched"+"uler:\n  parallelism: 1\n")
+
+	_, err := Load(LoadOptions{HomeDir: homeDir, WorkingDir: tempDir, Env: map[string]string{}})
+	if err == nil {
+		t.Fatal("Load() error = nil, want unknown field error")
+	}
+	if !strings.Contains(err.Error(), "sched"+"uler") {
+		t.Fatalf("Load() error = %v, want unknown field name", err)
+	}
+}
+
 func TestLoadPrecedence(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -296,9 +312,7 @@ func TestLoadPrecedence(t *testing.T) {
 	mustMkdirAll(t, globalDir)
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
-  parallelism: 2
-providers:
+	writeFile(t, filepath.Join(globalDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://global.example/v1
@@ -330,6 +344,7 @@ paths:
 `)
 
 	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+
   local:
     type: openai_compat
     base_url: http://project.example/v1
@@ -374,10 +389,10 @@ logging:
 	cfg, err := Load(LoadOptions{
 		HomeDir: homeDir,
 		Env: map[string]string{
-			"STEINER_MODEL":                 "env",
-			"STEINER_MAX_TURNS":             "77",
-			"STEINER_LOG_LEVEL":             "trace",
-			"STEINER_SCHEDULER_PARALLELISM": "4",
+			"STEINER_MODEL":                   "env",
+			"STEINER_MAX_TURNS":               "77",
+			"STEINER_LOG_LEVEL":               "trace",
+			"STEINER_SUB_AGENTS_MAX_PARALLEL": "4",
 		},
 		CLI: CLIOverrides{
 			Model:   "cli",
@@ -394,8 +409,8 @@ logging:
 	if got := cfg.Models.Definitions["cli"].ID; got != "cli-backend" {
 		t.Fatalf("models[cli].id = %q, want %q", got, "cli-backend")
 	}
-	if got := cfg.Scheduler.Parallelism; got != 4 {
-		t.Fatalf("scheduler.parallelism = %d, want %d", got, 4)
+	if got := cfg.SubAgent.MaxParallel; got != 4 {
+		t.Fatalf("sub_agent.max_parallel = %d, want %d", got, 4)
 	}
 	if got := cfg.Limits.MaxTurns; got != 77 {
 		t.Fatalf("limits.max_turns = %d, want %d", got, 77)
@@ -1112,9 +1127,7 @@ func TestLoadSearchConfigEmpty(t *testing.T) {
 	mustMkdirAll(t, globalDir)
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
-  parallelism: 1
-providers:
+	writeFile(t, filepath.Join(globalDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
@@ -1171,9 +1184,7 @@ func TestLoadSearchConfigDeserializes(t *testing.T) {
 	mustMkdirAll(t, globalDir)
 	mustMkdirAll(t, projectConfigDir)
 
-	writeFile(t, filepath.Join(globalDir, "config.yaml"), `scheduler:
-  parallelism: 1
-providers:
+	writeFile(t, filepath.Join(globalDir, "config.yaml"), `providers:
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1

@@ -94,12 +94,6 @@ func validateTUIConfig(problems *[]string, cfg TUIConfig) {
 	}
 }
 
-func validateSchedulerConfig(problems *[]string, cfg SchedulerConfig) {
-	if cfg.Parallelism < 1 {
-		*problems = append(*problems, "scheduler.parallelism must be at least 1")
-	}
-}
-
 func validateProvidersConfig(problems *[]string, providers map[string]ProviderConfig) {
 	if len(providers) == 0 {
 		*problems = append(*problems, "providers is required")

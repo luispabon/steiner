@@ -149,7 +149,6 @@ type HostMount struct {
 
 // Config is the complete application configuration.
 type Config struct {
-	Scheduler            SchedulerConfig            `yaml:"scheduler"`
 	Providers            map[string]ProviderConfig  `yaml:"providers"`
 	Models               ModelsConfig               `yaml:"models"`
 	Limits               LimitsConfig               `yaml:"limits"`
@@ -190,11 +189,6 @@ type ModelsConfig struct {
 	SubAgents       map[string]string      `yaml:"sub_agents"`
 	OneShot         map[string]string      `yaml:"oneshot"`
 	WorkflowHandoff map[string]string      `yaml:"workflow_handoff"`
-}
-
-// SchedulerConfig controls provider concurrency.
-type SchedulerConfig struct {
-	Parallelism int `yaml:"parallelism"`
 }
 
 // ModelConfig configures a model instance.
@@ -241,6 +235,8 @@ type SubAgentConfig struct {
 	Enabled   bool `yaml:"enabled"`
 	MaxTurns  int  `yaml:"max_turns"`
 	MaxTokens int  `yaml:"max_tokens"`
+	// MaxParallel bounds how many delegation tool calls run concurrently within one turn; 0 = unbounded; 1 = serial.
+	MaxParallel int `yaml:"max_parallel"`
 }
 
 // AdvisorConfig controls the optional advisor reasoning pass.

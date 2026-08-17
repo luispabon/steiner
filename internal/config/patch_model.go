@@ -13,10 +13,6 @@ func applyTUIPatch(dst *TUIConfig, patch *tuiPatch) {
 	setIfPresent(&dst.FPS, patch.FPS)
 }
 
-func applySchedulerPatch(dst *SchedulerConfig, patch *schedulerPatch) {
-	setIfPresent(&dst.Parallelism, patch.Parallelism)
-}
-
 func newModelConfigBase(cfg Config) ModelConfig {
 	if base, ok := cfg.Models.Definitions["default"]; ok {
 		cloned := cloneModelConfig(base)

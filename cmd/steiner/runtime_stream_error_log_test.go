@@ -47,7 +47,7 @@ func TestRuntimeStreamErrorLoggerReachesProvider(t *testing.T) {
 
 	sessionLog := filepath.Join(t.TempDir(), "session.log")
 	flags := &cliFlags{logFile: sessionLog}
-	cfg := config.Config{Scheduler: config.SchedulerConfig{Parallelism: 1}}
+	cfg := config.Config{}
 
 	streamErrorLog, err := buildStreamErrorLogger(cfg, flags)
 	if err != nil {

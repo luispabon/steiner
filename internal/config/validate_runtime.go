@@ -26,6 +26,9 @@ var validOneShotPhases = map[string]bool{
 
 func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, subAgents map[string]string, models map[string]ModelConfig) {
 	validateModelAliasMap(problems, "models.sub_agents", "agent type", subAgents, validAgentTypes, models)
+	if cfg.MaxParallel < 0 {
+		*problems = append(*problems, "sub_agent.max_parallel must not be negative")
+	}
 	if !cfg.Enabled {
 		return
 	}

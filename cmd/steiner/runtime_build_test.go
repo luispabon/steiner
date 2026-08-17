@@ -73,9 +73,7 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 			return &fakeProvider{}, nil
 		}
 
-		factory, err := buildRuntimeProviderFactory(config.Config{
-			Scheduler: config.SchedulerConfig{Parallelism: wantParallelism},
-		}, httpClient, streamErrorLog)
+		factory, err := buildRuntimeProviderFactory(config.Config{}, httpClient, streamErrorLog)
 		if err != nil {
 			t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
 		}
@@ -312,9 +310,7 @@ func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKe
 		return &fakeProvider{}, nil
 	}
 
-	factory, err := buildRuntimeProviderFactory(config.Config{
-		Scheduler: config.SchedulerConfig{Parallelism: 1},
-	}, &http.Client{}, nil)
+	factory, err := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
 	if err != nil {
 		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
 	}
@@ -350,9 +346,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 
-	factory, err := buildRuntimeProviderFactory(config.Config{
-		Scheduler: config.SchedulerConfig{Parallelism: 1},
-	}, &http.Client{}, nil)
+	factory, err := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
 	if err != nil {
 		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
 	}
@@ -376,9 +370,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	factory, err := buildRuntimeProviderFactory(config.Config{
-		Scheduler: config.SchedulerConfig{Parallelism: 1},
-	}, &http.Client{}, nil)
+	factory, err := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
 	if err != nil {
 		t.Fatalf("buildRuntimeProviderFactory() error = %v", err)
 	}

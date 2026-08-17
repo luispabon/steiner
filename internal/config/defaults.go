@@ -43,9 +43,6 @@ func defaultConfig() Config {
 		},
 	}
 	return Config{
-		Scheduler: SchedulerConfig{
-			Parallelism: 1,
-		},
 		TUI: TUIConfig{
 			FPS: 60,
 		},
@@ -75,9 +72,10 @@ func defaultConfig() Config {
 			WarningOnUnsupportedPlatform: true,
 		},
 		SubAgent: SubAgentConfig{
-			Enabled:   true,
-			MaxTurns:  30,
-			MaxTokens: 100000,
+			Enabled:     true,
+			MaxTurns:    30,
+			MaxTokens:   100000,
+			MaxParallel: 3,
 		},
 		Advisor: AdvisorConfig{
 			Enabled:       false,

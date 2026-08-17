@@ -10,6 +10,9 @@ func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 	if patch.MaxTokens != nil {
 		dst.MaxTokens = *patch.MaxTokens
 	}
+	if patch.MaxParallel != nil {
+		dst.MaxParallel = *patch.MaxParallel
+	}
 }
 
 func applyAdvisorPatch(dst *AdvisorConfig, patch *advisorPatch) {

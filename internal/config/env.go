@@ -31,7 +31,7 @@ func applyEnvIntOverrides(cfg *Config, lookup func(string) (string, bool)) error
 		target *int
 		name   string
 	}{
-		{&cfg.Scheduler.Parallelism, "STEINER_SCHEDULER_PARALLELISM"},
+		{&cfg.SubAgent.MaxParallel, "STEINER_SUB_AGENTS_MAX_PARALLEL"},
 		{&cfg.TUI.FPS, "STEINER_TUI_FPS"},
 		{&cfg.Limits.MaxTurns, "STEINER_MAX_TURNS"},
 		{&cfg.Limits.MaxTokens, "STEINER_MAX_TOKENS"},

@@ -9,6 +9,9 @@ func TestDefaultSubAgentMaxTurns(t *testing.T) {
 	if cfg.SubAgent.MaxTurns != 30 {
 		t.Errorf("SubAgent.MaxTurns = %d, want 30", cfg.SubAgent.MaxTurns)
 	}
+	if cfg.SubAgent.MaxParallel != 3 {
+		t.Errorf("SubAgent.MaxParallel = %d, want 3", cfg.SubAgent.MaxParallel)
+	}
 }
 
 func TestDefaultModesExecutionMode(t *testing.T) {
