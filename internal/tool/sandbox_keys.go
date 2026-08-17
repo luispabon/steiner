@@ -16,6 +16,10 @@ type EffectivePolicyKey struct{}
 // configured on the executor, allowing tool handlers to make mode-aware decisions.
 type ExecutionModeKey struct{}
 
+// ExecutionCallIDKey is a context key used to carry the originating tool-call
+// ID through handler execution for approval correlation.
+type ExecutionCallIDKey struct{}
+
 // BashDenialResult is implemented by builtin.BashResult to allow sandbox
 // denial detection in the execution pipeline without an import cycle.
 type BashDenialResult interface {

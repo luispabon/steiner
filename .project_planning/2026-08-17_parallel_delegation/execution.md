@@ -83,3 +83,6 @@
 - v3 PD-02 remediation: fallback approval decisions now resolve only the standalone pill whose identity exactly matches `ApprovalEvent.CallID`; tool name and agent ID are not used for fallback correlation. Added out-of-order fallback regression coverage for `call-A` and `call-B`.
 - v3 verification: `go test ./internal/tui`, `golangci-lint cache clean`, `make check`, and `git diff --check` passed; committed on `review-fix/2026-08-17_parallel-delegation-v3`.
 - Verification: `go test -race ./internal/interactive ./internal/tui`, `golangci-lint cache clean`, `make check`, and `git diff --check` passed.
+
+- v4 PD-03 remediation: execution pipeline now carries the originating CallID in a typed handler context key; MCP ask-mode approval requests copy it into `ApprovalRequest.CallID`. Production-lifecycle regression executes an MCP tool through `tool.Executor`, approves it, verifies the exact CallID, and verifies the MCP response completes.
+- v4 verification: `go test ./internal/mcp ./internal/tool`, `go test -race ./internal/mcp ./internal/tool ./internal/interactive`, `golangci-lint cache clean`, `make check`, and `git diff --check` passed. Residual coverage: model-level tests for reversed initial event order and middle-request cancellation remain limited; concurrent mutating child working-tree sharing is accepted/deferred as #500.
