@@ -180,6 +180,7 @@ func TestExecuteToolCalls_MixedEligibleRunsPreserveOrder(t *testing.T) {
 		mu.Lock()
 		count := len(entered)
 		mu.Unlock()
+		runtime.Gosched()
 		if count == 2 {
 			break
 		}
