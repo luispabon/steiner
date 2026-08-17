@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -735,10 +734,9 @@ func TestRunnerDelegateDepsCarrySandboxTmpDir(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Execute(mutate /tmp) error = %v", err)
 				}
-				gotPath := findTestFileUnderRun(t, sandboxTmpDir, "test-file")
-				got, err := os.ReadFile(gotPath)
+				got, err := os.ReadFile(filepath.Join(sandboxTmpDir, "test-file"))
 				if err != nil {
-					t.Fatalf("read %s: %v", gotPath, err)
+					t.Fatalf("read under sandbox tmp dir: %v", err)
 				}
 				if string(got) != "hello\n" {
 					t.Errorf("file content = %q, want %q", string(got), "hello\n")
@@ -754,31 +752,6 @@ func TestRunnerDelegateDepsCarrySandboxTmpDir(t *testing.T) {
 			}
 		})
 	}
-}
-
-// findTestFileUnderRun walks root and returns the path of the first regular
-// file named name, failing if none exists. Used to assert sandbox-tmp rewrites
-// land under the sandbox tmp dir even when that dir itself lives under /tmp.
-func findTestFileUnderRun(t *testing.T, root, name string) string {
-	t.Helper()
-	var found string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && d.Name() == name {
-			found = path
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk %s: %v", root, err)
-	}
-	if found == "" {
-		t.Fatalf("file %q not found under %s", name, root)
-	}
-	return found
 }
 
 // codeDelegationResponses returns the fake provider responses for a parent run
