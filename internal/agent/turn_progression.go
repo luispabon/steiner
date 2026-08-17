@@ -189,7 +189,7 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 }
 
 func (p *turnProgressor) parallelRunLength(calls []provider.ToolCall, start int) int {
-	if p.request.ParallelTool == nil || !p.request.ParallelTool(calls[start].Name) {
+	if p.request.MaxParallelTools == 1 || p.request.ParallelTool == nil || !p.request.ParallelTool(calls[start].Name) {
 		return 1
 	}
 	n := 1
@@ -207,20 +207,25 @@ type batchResult struct {
 func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, turn int, calls []provider.ToolCall) []batchResult {
 	batchCtx := WithConversationSnapshot(ctx, liveConversationSnapshot(state))
 	results := make([]batchResult, len(calls))
+	for _, call := range calls {
+		emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
+	}
+
 	var gate *semaphore.Weighted
 	if p.request.MaxParallelTools > 0 {
 		gate = semaphore.NewWeighted(int64(p.request.MaxParallelTools))
 	}
 	var wg sync.WaitGroup
-	wg.Add(len(calls))
 	for i, call := range calls {
+		if gate != nil {
+			if err := gate.Acquire(batchCtx, 1); err != nil {
+				break
+			}
+		}
+		wg.Add(1)
 		go func(i int, call provider.ToolCall) {
 			defer wg.Done()
 			if gate != nil {
-				if err := gate.Acquire(batchCtx, 1); err != nil {
-					results[i].err = err
-					return
-				}
 				defer gate.Release(1)
 			}
 			results[i].value, results[i].err = p.invokeTool(batchCtx, turn, call)
@@ -231,15 +236,15 @@ func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, tur
 }
 
 func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunState, turn int, call provider.ToolCall) (RunState, turnOutcome) {
+	emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
 	ctx = WithConversationSnapshot(ctx, liveConversationSnapshot(state))
 	result, err := p.invokeTool(ctx, turn, call)
 	return p.applyToolResult(ctx, state, turn, call, result, err)
 }
 
-// invokeTool emits ToolCallStarted, runs the executor, and returns the raw outcome.
-// It does not touch RunState.
-func (p *turnProgressor) invokeTool(ctx context.Context, turn int, call provider.ToolCall) (any, error) {
-	emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
+// invokeTool runs the executor and returns the raw outcome. It does not emit
+// events or touch RunState.
+func (p *turnProgressor) invokeTool(ctx context.Context, _ int, call provider.ToolCall) (any, error) {
 	return p.request.Executor.Execute(ctx, call.Name, call.ID, cloneInput(call.Arguments))
 }
 
