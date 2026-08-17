@@ -73,6 +73,12 @@ Key behaviours:
 - **Auto-approved** — the `follow_up` tool is approval mode `auto` (no user gate).
 - **No nesting** — `follow_up` is stripped from child agent registries, so sub-agents cannot follow-up on other sub-agents.
 
+### Parallel fan-out
+
+Multiple delegation calls made in one turn execute concurrently. `sub_agent.max_parallel` bounds the fan-out width: the default is `3`, `0` means unbounded, and `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
+
+Concurrent mutating children share the parent's working tree. Give them disjoint file sets or use separate git worktrees; otherwise concurrent edits to the same files can silently lose writes. See [issue #500](https://github.com/luispabon/steiner/issues/500) for planned isolation.
+
 ### Safety
 
 - A sub-agent **cannot delegate further** — `follow_up` and `workflow_handoff` tools are always stripped from child registries.

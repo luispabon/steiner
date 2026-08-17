@@ -197,7 +197,7 @@ Delegation is steiner's primary context management strategy. `steiner` exposes e
 | `vision` | Analyze a pasted image by ID — sub-agent receives the image directly | No |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message | No |
 
-See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
+Delegation calls can fan out in parallel; configure the width with `sub_agent.max_parallel` (default `3`, `0` unbounded, `1` serial). See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
 
 ## Execution modes
 

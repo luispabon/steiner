@@ -623,6 +623,9 @@ func TestRunnerDelegateDepsCarryRuntimeSandboxState(t *testing.T) {
 			})
 
 			cfg := testRuntimeConfig("test-model")
+			def := cfg.Models.Definitions["test-model"]
+			def.Advanced.Limits.ContextWindow = 32768
+			cfg.Models.Definitions["test-model"] = def
 			cfg.Sandbox = tt.sandboxCfg
 			cfg.SubAgent = config.SubAgentConfig{Enabled: true}
 			sessions := delegation.NewSessionStore()
