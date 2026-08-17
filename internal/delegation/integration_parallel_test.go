@@ -64,6 +64,7 @@ type parallelHarness struct {
 	done           chan struct{}
 	target         int
 	release        func(string) <-chan struct{}
+	completion     func(string)
 	failTask       string
 	blockOnCtx     bool
 }
@@ -107,6 +108,9 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 			}
 		}
 		h.countCompleted(task)
+		if h.completion != nil {
+			h.completion(task)
+		}
 		h.active.Add(-1)
 		return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: task}, FinishReason: "stop"}, nil
 	}
@@ -239,6 +243,13 @@ func TestParallelDelegationEndToEndUnbounded(t *testing.T) {
 
 func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
+	done := map[string]chan struct{}{"task-0": make(chan struct{}, 1), "task-1": make(chan struct{}, 1), "task-2": make(chan struct{}, 1)}
+	h.completion = func(task string) {
+		select {
+		case done[task] <- struct{}{}:
+		default:
+		}
+	}
 	releases := map[string]chan struct{}{"task-0": make(chan struct{}), "task-1": make(chan struct{}), "task-2": make(chan struct{})}
 	ready := make(chan struct{})
 	close(ready)
@@ -251,8 +262,11 @@ func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 	result := startParallelParent(context.Background(), h, 3, tool.NewRegistry())
 	waitParallel(t, h.allStarted, "ordering batch did not start three children")
 	close(releases["task-2"])
+	waitParallel(t, done["task-2"], "task-2 did not complete")
 	close(releases["task-1"])
+	waitParallel(t, done["task-1"], "task-1 did not complete")
 	close(releases["task-0"])
+	waitParallel(t, done["task-0"], "task-0 did not complete")
 	run := receiveParallel(t, result, "ordering parallel run did not finish")
 	if run.err != nil {
 		t.Fatal(run.err)
@@ -284,10 +298,12 @@ func TestParallelDelegationEndToEndFailureIsolation(t *testing.T) {
 	ready := make(chan struct{})
 	close(ready)
 	h.release = func(string) <-chan struct{} { return ready }
-	state, err := runParallelParent(context.Background(), h, 3, tool.NewRegistry())
-	if err != nil {
-		t.Fatal(err)
+	result := startParallelParent(context.Background(), h, 3, tool.NewRegistry())
+	run := receiveParallel(t, result, "failure-isolation run did not finish")
+	if run.err != nil {
+		t.Fatal(run.err)
 	}
+	state := run.state
 	results := toolResults(state)
 	if len(results) != 3 {
 		t.Fatalf("tool result count = %d, want 3", len(results))
