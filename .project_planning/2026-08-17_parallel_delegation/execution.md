@@ -79,4 +79,7 @@
 - PD-01: submissions require a non-empty exact identity match before claiming a pending approval. Duplicate, stale, and empty identities leave FIFO state unchanged; delivery remains outside the coordinator mutex.
 - PD-02: CallID is retained by ordinary tool-call segments and fallback approval pills. Initial prompts and identity-based promotion use the coordinator FIFO head, including same-tool requests.
 - Regression coverage verifies duplicate same-tool submissions do not advance the tail and CallID retention in both content paths.
+
+- v3 PD-02 remediation: fallback approval decisions now resolve only the standalone pill whose identity exactly matches `ApprovalEvent.CallID`; tool name and agent ID are not used for fallback correlation. Added out-of-order fallback regression coverage for `call-A` and `call-B`.
+- v3 verification: `go test ./internal/tui`, `golangci-lint cache clean`, `make check`, and `git diff --check` passed; committed on `review-fix/2026-08-17_parallel-delegation-v3`.
 - Verification: `go test -race ./internal/interactive ./internal/tui`, `golangci-lint cache clean`, `make check`, and `git diff --check` passed.

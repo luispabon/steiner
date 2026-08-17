@@ -128,6 +128,33 @@ func TestApprovalRequestedRetainsCallIDInToolCallAndFallbackPill(t *testing.T) {
 	}
 }
 
+func TestApprovalFallbackDecisionCorrelatesByCallID(t *testing.T) {
+	b := &contentBuffer{collapseState: make(map[int]bool)}
+	for _, callID := range []string{"call-A", "call-B"} {
+		b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{
+			Tool:   "bash",
+			CallID: callID,
+		}})
+	}
+
+	b.appendApprovalDecisionEvent(output.Event{
+		Type:    output.EventTypeApprovalAccepted,
+		Payload: output.ApprovalEvent{CallID: "call-B"},
+	})
+
+	first := b.segments[0].approvalData
+	second := b.segments[1].approvalData
+	if first.resolved {
+		t.Fatal("call-A fallback pill should remain pending")
+	}
+	if second == nil || !second.resolved || !second.accepted {
+		t.Fatal("call-B fallback pill should be resolved and accepted")
+	}
+	if first.queueDepth != 0 {
+		t.Fatalf("call-A queue depth = %d, want 0 after call-B resolves", first.queueDepth)
+	}
+}
+
 func TestApprovalQueueDepthsAreHeadRelativeAndRecomputed(t *testing.T) {
 	b := &contentBuffer{styles: testStyles(theme.AccentAmber), collapseState: make(map[int]bool)}
 	head := &approvalPillData{tool: "bash", agentID: "worker", queueDepth: 9}

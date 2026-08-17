@@ -95,7 +95,7 @@ func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 	}
 	// Fallback: resolve a standalone approval pill.
 	for i := range b.segments {
-		if b.segments[i].kind != segmentApprovalPill || b.segments[i].approvalData == nil || b.segments[i].approvalData.resolved {
+		if b.segments[i].kind != segmentApprovalPill || b.segments[i].approvalData == nil || b.segments[i].approvalData.resolved || b.segments[i].approvalData.identity != callID {
 			continue
 		}
 		b.segments[i].approvalData.resolved = true
