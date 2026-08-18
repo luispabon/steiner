@@ -224,7 +224,7 @@ func TestListCodeWorktrees_Empty(t *testing.T) {
 	}
 }
 
-func TestListCodeWorktrees_FiltersDelegationPath(t *testing.T) {
+func TestListCodeWorktrees_FiltersDelegationPathAndBranch(t *testing.T) {
 	ctx := context.Background()
 	repo, cleanup := setupTestRepo(t)
 	defer cleanup()
@@ -243,19 +243,26 @@ func TestListCodeWorktrees_FiltersDelegationPath(t *testing.T) {
 	}
 	runCmd(t, repo, "git", "worktree", "add", "-b", "other-branch", otherPath, "HEAD")
 
-	// ListCodeWorktrees should only return the delegation worktrees.
+	// Create a non-delegation worktree under .steiner/worktrees (e.g., oneshot-style).
+	foreignPath := filepath.Join(repo, ".steiner", "worktrees", "foreign-oneshot-run")
+	if err := os.MkdirAll(foreignPath, 0o755); err != nil {
+		t.Fatalf("create foreign worktree dir: %v", err)
+	}
+	runCmd(t, repo, "git", "worktree", "add", "-b", "oneshot-run-1", foreignPath, "HEAD")
+
+	// ListCodeWorktrees should only return the two delegation worktrees.
 	worktrees, err := ListCodeWorktrees(repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
 	if len(worktrees) != 2 {
-		t.Errorf("ListCodeWorktrees returned %d worktrees, want 2", len(worktrees))
+		t.Errorf("ListCodeWorktrees returned %d worktrees, want 2 (excluding foreign)", len(worktrees))
 	}
 
-	// Verify both are delegation worktrees.
+	// Verify both returned worktrees are delegation-owned.
 	for _, wt := range worktrees {
-		if !strings.Contains(wt.Path, ".steiner/worktrees") {
-			t.Errorf("worktree path not under .steiner/worktrees: %s", wt.Path)
+		if !strings.HasPrefix(wt.Branch, "delegate-") {
+			t.Errorf("worktree branch does not start with 'delegate-': %s", wt.Branch)
 		}
 	}
 }
@@ -312,6 +319,45 @@ func TestPruneCodeWorktree_ToleratesMissing(t *testing.T) {
 	}
 }
 
+func TestPruneCodeWorktree_RefusesForeignWorktree(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Create a foreign (non-delegation) worktree under .steiner/worktrees.
+	foreignPath := filepath.Join(repo, ".steiner", "worktrees", "foreign-run")
+	if err := os.MkdirAll(foreignPath, 0o755); err != nil {
+		t.Fatalf("create foreign worktree dir: %v", err)
+	}
+	runCmd(t, repo, "git", "worktree", "add", "-b", "oneshot-run-1", foreignPath, "HEAD")
+
+	// Attempt to prune it by directory name should fail.
+	err := PruneCodeWorktree(ctx, repo, "foreign-run")
+	if err == nil {
+		t.Fatalf("PruneCodeWorktree should refuse foreign worktree, got nil error")
+	}
+	if !errors.Is(err, ErrWorktreeNotDelegation) {
+		t.Errorf("expected ErrWorktreeNotDelegation, got: %v", err)
+	}
+
+	// Verify the foreign worktree's directory still exists.
+	if _, err := os.Stat(foreignPath); os.IsNotExist(err) {
+		t.Errorf("foreign worktree directory should still exist after refused prune")
+	}
+
+	// Verify it's still in git worktree list.
+	list, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListCodeWorktrees failed: %v", err)
+	}
+	// Should not appear in delegation list.
+	for _, wt := range list {
+		if strings.Contains(wt.Path, "foreign-run") {
+			t.Errorf("foreign worktree should not appear in ListCodeWorktrees")
+		}
+	}
+}
+
 func TestPruneAllCodeWorktrees_RemovesAll(t *testing.T) {
 	ctx := context.Background()
 	repo, cleanup := setupTestRepo(t)
@@ -365,42 +411,130 @@ func TestPruneAllCodeWorktrees_RemovesAll(t *testing.T) {
 	}
 }
 
-func TestPruneAllCodeWorktrees_CollectsErrors(t *testing.T) {
+func TestPruneAllCodeWorktrees_WithForeignWorktreePresent(t *testing.T) {
 	ctx := context.Background()
 	repo, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	// Provision one worktree normally.
-	_, err := ProvisionCodeWorktree(ctx, repo, "good-agent")
+	// Provision two delegation worktrees.
+	_, err1 := ProvisionCodeWorktree(ctx, repo, "delegate-1")
+	_, err2 := ProvisionCodeWorktree(ctx, repo, "delegate-2")
+	if err1 != nil || err2 != nil {
+		t.Fatalf("ProvisionCodeWorktree failed: %v, %v", err1, err2)
+	}
+
+	// Create a foreign worktree under .steiner/worktrees.
+	foreignPath := filepath.Join(repo, ".steiner", "worktrees", "oneshot-run-foreign")
+	if err := os.MkdirAll(foreignPath, 0o755); err != nil {
+		t.Fatalf("create foreign worktree dir: %v", err)
+	}
+	runCmd(t, repo, "git", "worktree", "add", "-b", "oneshot-run-1", foreignPath, "HEAD")
+
+	// Verify initial state: 2 delegation + 1 foreign.
+	list, err := ListCodeWorktrees(repo)
 	if err != nil {
-		t.Fatalf("ProvisionCodeWorktree failed: %v", err)
+		t.Fatalf("ListCodeWorktrees failed: %v", err)
+	}
+	if len(list) != 2 {
+		t.Errorf("before prune-all: expected 2 delegation worktrees, got %d", len(list))
 	}
 
-	// Manually corrupt the worktree admin dir to cause a removal error.
-	goodPath := filepath.Join(repo, ".steiner", "worktrees", "good-agent")
-	commonDir := runCmdOutput(t, repo, "git", "rev-parse", "--git-common-dir")
-	commonDir = strings.TrimSpace(commonDir)
-	if !filepath.IsAbs(commonDir) {
-		commonDir = filepath.Join(repo, commonDir)
-	}
-	adminDir := filepath.Join(commonDir, "worktrees", "good-agent")
-
-	// Remove the admin dir but leave the checkout path to simulate a corruption.
-	if err := os.RemoveAll(adminDir); err != nil {
-		t.Fatalf("remove admin dir for corruption: %v", err)
+	// Prune all delegation worktrees.
+	if err := PruneAllCodeWorktrees(ctx, repo); err != nil {
+		t.Fatalf("PruneAllCodeWorktrees failed: %v", err)
 	}
 
-	// PruneAllCodeWorktrees should still succeed (tolerating the missing admin dir
-	// and removing the checkout path).
+	// Verify delegation worktrees are gone.
+	list, err = ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListCodeWorktrees failed: %v", err)
+	}
+	if len(list) != 0 {
+		t.Errorf("after prune-all: expected 0 delegation worktrees, got %d", len(list))
+	}
+
+	// Verify the foreign worktree still exists.
+	if _, err := os.Stat(foreignPath); os.IsNotExist(err) {
+		t.Errorf("foreign worktree directory should survive prune-all")
+	}
+}
+
+func TestPruneAllCodeWorktrees_SkipsForeignWorktreeInDelegationPath(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Provision two delegation worktrees.
+	_, err1 := ProvisionCodeWorktree(ctx, repo, "good-agent-1")
+	_, err2 := ProvisionCodeWorktree(ctx, repo, "good-agent-2")
+	if err1 != nil || err2 != nil {
+		t.Fatalf("ProvisionCodeWorktree failed: %v, %v", err1, err2)
+	}
+
+	// Create a foreign (non-delegation) worktree under .steiner/worktrees.
+	foreignPath := filepath.Join(repo, ".steiner", "worktrees", "foreign-oneshot")
+	if err := os.MkdirAll(foreignPath, 0o755); err != nil {
+		t.Fatalf("create foreign worktree dir: %v", err)
+	}
+	runCmd(t, repo, "git", "worktree", "add", "-b", "oneshot-run-1", foreignPath, "HEAD")
+
+	// Verify we have 2 delegation + 1 foreign in the list initially.
+	beforeList, err := listWorktreeEntries(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("listWorktreeEntries failed: %v", err)
+	}
+	delegationCount := 0
+	foreignFound := false
+	for _, entry := range beforeList {
+		if strings.HasPrefix(entry.Path, filepath.Join(repo, ".steiner", "worktrees")) {
+			if strings.HasPrefix(entry.Branch, "delegate-") {
+				delegationCount++
+			} else if strings.Contains(entry.Path, "foreign-oneshot") {
+				foreignFound = true
+			}
+		}
+	}
+	if delegationCount != 2 {
+		t.Errorf("expected 2 delegation worktrees before prune, got %d", delegationCount)
+	}
+	if !foreignFound {
+		t.Fatalf("foreign worktree not found in git list before prune")
+	}
+
+	// Prune all delegation worktrees.
 	err = PruneAllCodeWorktrees(ctx, repo)
 	if err != nil {
-		t.Logf("PruneAllCodeWorktrees returned error (may collect partial errors): %v", err)
-		// We don't fail here because the error collection behavior is tested above.
+		t.Fatalf("PruneAllCodeWorktrees failed: %v", err)
 	}
 
-	// Verify the checkout path is gone even if git worktree remove fails.
-	if _, err := os.Stat(goodPath); !os.IsNotExist(err) {
-		t.Errorf("worktree checkout path should be removed despite admin dir removal failure")
+	// Verify all delegation worktrees are gone.
+	afterList, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListCodeWorktrees failed: %v", err)
+	}
+	if len(afterList) != 0 {
+		t.Errorf("after prune-all: expected 0 delegation worktrees, got %d", len(afterList))
+	}
+
+	// Verify the foreign worktree's directory still exists.
+	if _, err := os.Stat(foreignPath); os.IsNotExist(err) {
+		t.Errorf("foreign worktree directory should survive prune-all")
+	}
+
+	// Verify the foreign worktree is still in git list (albeit not in ListCodeWorktrees).
+	stillInGit, err := listWorktreeEntries(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("listWorktreeEntries after prune failed: %v", err)
+	}
+	foreignStillExists := false
+	for _, entry := range stillInGit {
+		if strings.Contains(entry.Path, "foreign-oneshot") {
+			foreignStillExists = true
+			break
+		}
+	}
+	if !foreignStillExists {
+		t.Errorf("foreign worktree should still be in git list after prune-all")
 	}
 }
 
