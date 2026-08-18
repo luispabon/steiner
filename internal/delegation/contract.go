@@ -40,6 +40,9 @@ type DelegationSpec struct {
 	// SystemPrompt is an optional override of the system prompt.
 	SystemPrompt string `json:"system_prompt,omitempty"`
 
+	// SystemSuffix is appended after the shared system preamble; it does not replace it.
+	SystemSuffix string `json:"system_suffix,omitempty"`
+
 	// Images are optional image blocks to include in the first child message.
 	Images []provider.ImageBlock `json:"images,omitempty"`
 

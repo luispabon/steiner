@@ -198,6 +198,9 @@ func buildChildPrompt(p childPromptParams) prompt.AssemblyOptions {
 	if p.spec.SystemPrompt != "" {
 		opts.PromptOverrides.System = p.spec.SystemPrompt
 	}
+	if p.spec.SystemSuffix != "" {
+		opts.PromptOverrides.SystemSuffix = p.spec.SystemSuffix
+	}
 
 	return opts
 }
