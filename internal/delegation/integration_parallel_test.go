@@ -2,8 +2,12 @@ package delegation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -73,6 +77,7 @@ type parallelHarness struct {
 	release        func(string) <-chan struct{}
 	failTask       string
 	blockOnCtx     bool
+	workDir        string
 }
 
 func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
@@ -81,6 +86,7 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 		done:       make(chan struct{}),
 		events:     make(chan output.Event, 1024),
 		target:     n,
+		workDir:    "/tmp",
 	}
 	h.release = func(string) <-chan struct{} { return h.done }
 	h.provider = &parallelProvider{parent: parent}
@@ -167,11 +173,11 @@ func delegationParentResponse(names ...string) provider.ChatResponse {
 
 func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *tool.Registry) (agent.RunState, error) {
 	events := output.EventSink(eventChSink{ch: h.events})
-	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxParallel: max}, Provider: h.provider, Config: config.Config{}, WorkDir: "/tmp", Events: events})
+	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxParallel: max}, Provider: h.provider, Config: config.Config{}, WorkDir: h.workDir, Events: events})
 	if err != nil {
 		return agent.RunState{}, err
 	}
-	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, "/tmp", ""), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelTool: IsDelegationTool, MaxParallelTools: max, Events: events}
+	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, h.workDir, ""), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelTool: IsDelegationTool, MaxParallelTools: max, Events: events}
 	return agent.NewRunner().Run(ctx, req)
 }
 
@@ -387,5 +393,99 @@ func TestParallelDelegationEndToEndCancellation(t *testing.T) {
 	}
 	if got := h.active.Load(); got != 0 {
 		t.Fatalf("active children after cancellation = %d", got)
+	}
+}
+
+func TestParallelDelegationCodeAgentsReceiveDistinctWorktrees(t *testing.T) {
+	// Setup a real git repository for the harness to use.
+	tmpRepo := t.TempDir()
+	runGitCmd(t, tmpRepo, "git", "init")
+	runGitCmd(t, tmpRepo, "git", "config", "user.email", "test@example.com")
+	runGitCmd(t, tmpRepo, "git", "config", "user.name", "Test User")
+	initialFile := filepath.Join(tmpRepo, "initial.txt")
+	if err := os.WriteFile(initialFile, []byte("initial"), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+	runGitCmd(t, tmpRepo, "git", "add", "initial.txt")
+	runGitCmd(t, tmpRepo, "git", "commit", "-m", "initial commit")
+
+	// Create a harness with two parallel code agents.
+	h := newParallelHarness(delegationParentResponse("code", "code"), 2)
+	h.workDir = tmpRepo
+
+	// Collect WorktreePath values from the results using a sync.Map to avoid -race issues.
+	worktreeResults := &sync.Map{}
+
+	// Inject a custom child response handler that captures WorktreePath.
+	originalChild := h.provider.child
+	h.provider.child = func(ctx context.Context, task string) (provider.ChatResponse, error) {
+		// Let the original harness logic run first.
+		resp, err := originalChild(ctx, task)
+		if err != nil {
+			return resp, err
+		}
+
+		// Extract the agentID from the task (e.g., "task-0" -> "0").
+		// The response contains the parent's tool results; we can't extract WorktreePath here.
+		// Instead, we'll verify distinct worktrees by checking the structured tool results.
+
+		return resp, nil
+	}
+
+	result := startParallelParent(context.Background(), h, 2, tool.NewRegistry())
+	waitParallel(t, h.allStarted, "two code children did not start")
+	close(h.done)
+	run := receiveParallel(t, result, "parallel code run did not finish")
+	if run.err != nil {
+		t.Fatal(run.err)
+	}
+
+	// Extract WorktreePath values from tool results JSON.
+	// Tool results have the format: {"status":"complete","...","worktree_path":"..."}
+	results := toolResults(run.state)
+	if len(results) != 2 {
+		t.Fatalf("tool result count = %d, want 2", len(results))
+	}
+
+	var worktreePaths []string
+	for i, result := range results {
+		// Parse the JSON to extract worktree_path.
+		var parsed map[string]interface{}
+		if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+			t.Logf("result %d failed to parse JSON: %v (result: %q)", i, err, result)
+			continue
+		}
+		if path, ok := parsed["worktree_path"].(string); ok && path != "" {
+			worktreePaths = append(worktreePaths, path)
+			worktreeResults.Store(fmt.Sprintf("code-%d", i), path)
+		}
+	}
+
+	if len(worktreePaths) != 2 {
+		t.Fatalf("extracted %d worktree_path values, want 2: %v", len(worktreePaths), worktreePaths)
+	}
+
+	// Verify the two worktrees have distinct paths.
+	if worktreePaths[0] == worktreePaths[1] {
+		t.Errorf("both code agents have the same worktree path: %s", worktreePaths[0])
+	}
+
+	// Verify both paths are under the .steiner/worktrees directory.
+	for i, path := range worktreePaths {
+		if !strings.Contains(path, ".steiner/worktrees") {
+			t.Errorf("worktree path %d not under .steiner/worktrees: %s", i, path)
+		}
+	}
+}
+
+// runGitCmd is a helper for running git commands in tests.
+func runGitCmd(t *testing.T, workDir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = workDir
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("command %v failed: %v\nstderr: %s", args, err, stderr.String())
 	}
 }

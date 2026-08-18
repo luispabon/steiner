@@ -107,7 +107,47 @@ func TestDelegationResultJSONRoundTrip(t *testing.T) {
 			"follow_up_count",
 			"session_resumable",
 			"trace",
+			"worktree_path",
+			"worktree_branch",
+			"warnings",
 		})
+	})
+
+	t.Run("code result with worktree includes path, branch, and warnings", func(t *testing.T) {
+		result := DelegationResult{
+			AgentID:        "agent-code",
+			Status:         StatusComplete,
+			Output:         "test output",
+			WorktreePath:   "/tmp/work/.steiner/worktrees/agent-code",
+			WorktreeBranch: "delegate-agent-code",
+			Warnings:       []string{"parent tree has changes"},
+		}
+		keys, data := marshalKeys(t, result)
+		assertKeys(t, keys, data, []string{
+			"agent_id",
+			"status",
+			"output",
+			"turn_count",
+			"token_count",
+			"tool_call_count",
+			"worktree_path",
+			"worktree_branch",
+			"warnings",
+		}, []string{
+			"summary",
+			"stop_reason",
+			"follow_up_count",
+			"session_resumable",
+			"trace",
+		})
+
+		var decoded DelegationResult
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+		if !reflect.DeepEqual(decoded, result) {
+			t.Errorf("round-tripped result = %+v, want %+v", decoded, result)
+		}
 	})
 
 	// touched_files was removed from the contract; the wire format must not

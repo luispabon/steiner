@@ -1217,3 +1217,219 @@ func TestVisionHandler_ExtraAllowedTools(t *testing.T) {
 		t.Errorf("vision child tools = %v, want %v", names, want)
 	}
 }
+
+func TestSpecializedHandler_CodeProvisionesWorktree(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	var capturedReq agent.RunRequest
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		capturedReq = req
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{},
+			Provider:    stubProvider{},
+			ParentReg:   tool.NewRegistry(),
+			Runner:      runner,
+			Events:      noopEventSink{},
+			WorkDir:     repo,
+		},
+		ModelResolver: nil,
+	}
+
+	def := SpecializedToolDef(AgentTypeCode, deps)
+	raw, err := def.Handler(ctx, map[string]any{"task": "implement a feature"})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	result, ok := raw.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", raw)
+	}
+
+	delegationResult, ok := result.Value.(DelegationResult)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+	}
+
+	if delegationResult.WorktreePath == "" {
+		t.Error("WorktreePath is empty; expected provisioned worktree path")
+	}
+	if delegationResult.WorktreeBranch == "" {
+		t.Error("WorktreeBranch is empty; expected provisioned worktree branch")
+	}
+	if len(delegationResult.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want empty for clean repo", delegationResult.Warnings)
+	}
+
+	if capturedReq.Prompt.ProjectRoot != delegationResult.WorktreePath {
+		t.Errorf("child ProjectRoot = %q, want %q (the WorktreePath)", capturedReq.Prompt.ProjectRoot, delegationResult.WorktreePath)
+	}
+	if capturedReq.Prompt.ProjectRoot == repo {
+		t.Errorf("child ProjectRoot should not equal parent repo path %q", repo)
+	}
+}
+
+func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Create an untracked file to make the tree dirty.
+	dirtyFile := filepath.Join(repo, "dirty.txt")
+	if err := os.WriteFile(dirtyFile, []byte("dirty"), 0o644); err != nil {
+		t.Fatalf("write dirty file: %v", err)
+	}
+
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{},
+			Provider:    stubProvider{},
+			ParentReg:   tool.NewRegistry(),
+			Runner:      runner,
+			Events:      noopEventSink{},
+			WorkDir:     repo,
+		},
+		ModelResolver: nil,
+	}
+
+	def := SpecializedToolDef(AgentTypeCode, deps)
+	raw, err := def.Handler(ctx, map[string]any{"task": "implement a feature"})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	result := raw.(tool.ExecutionResult)
+	delegationResult := result.Value.(DelegationResult)
+
+	if len(delegationResult.Warnings) == 0 {
+		t.Error("Warnings is empty; expected dirty-tree warning")
+	}
+
+	// Verify the warning mentions the dirty file.
+	hasWarning := false
+	for _, w := range delegationResult.Warnings {
+		if strings.Contains(w, "dirty.txt") {
+			hasWarning = true
+			break
+		}
+	}
+	if !hasWarning {
+		t.Errorf("Warnings do not mention dirty.txt: %v", delegationResult.Warnings)
+	}
+
+	// Verify that despite the dirty tree, provisioning succeeded.
+	if delegationResult.WorktreePath == "" {
+		t.Error("WorktreePath is empty; worktree should still be provisioned with dirty tree")
+	}
+}
+
+func TestSpecializedHandler_CodeFallsBackOnProvisioningFailure(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Point at a nonexistent path to force provisioning to fail.
+	badRepo := filepath.Join(repo, "nonexistent")
+
+	var capturedReq agent.RunRequest
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		capturedReq = req
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{},
+			Provider:    stubProvider{},
+			ParentReg:   tool.NewRegistry(),
+			Runner:      runner,
+			Events:      noopEventSink{},
+			WorkDir:     badRepo,
+		},
+		ModelResolver: nil,
+	}
+
+	def := SpecializedToolDef(AgentTypeCode, deps)
+	raw, err := def.Handler(ctx, map[string]any{"task": "implement a feature"})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	result := raw.(tool.ExecutionResult)
+	delegationResult := result.Value.(DelegationResult)
+
+	// Verify fallback warning is present.
+	hasWarning := false
+	for _, w := range delegationResult.Warnings {
+		if strings.Contains(w, "falling back to the shared working tree") {
+			hasWarning = true
+			break
+		}
+	}
+	if !hasWarning {
+		t.Errorf("Warnings do not contain fallback message: %v", delegationResult.Warnings)
+	}
+
+	// Verify WorktreePath is empty (fell back to parent).
+	if delegationResult.WorktreePath != "" {
+		t.Errorf("WorktreePath = %q, want empty on fallback", delegationResult.WorktreePath)
+	}
+
+	// Verify the child's ProjectRoot equals the parent's (the fallback).
+	if capturedReq.Prompt.ProjectRoot != badRepo {
+		t.Errorf("child ProjectRoot = %q, want %q (parent's badRepo)", capturedReq.Prompt.ProjectRoot, badRepo)
+	}
+}
+
+func TestSpecializedHandler_NonCodeAgentsNoWorktreeFields(t *testing.T) {
+	ctx := context.Background()
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}}
+
+	for _, agentType := range []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeEvaluate, AgentTypeSanityCheck, AgentTypeReview} {
+		agentType := agentType
+		t.Run(string(agentType), func(t *testing.T) {
+			deps := SpecializedToolDeps{
+				SubAgentHandlerDeps: SubAgentHandlerDeps{
+					SubAgentCfg: config.SubAgentConfig{},
+					Provider:    stubProvider{},
+					ParentReg:   tool.NewRegistry(),
+					Runner:      runner,
+					Events:      noopEventSink{},
+					WorkDir:     "/tmp/work",
+				},
+				ModelResolver: nil,
+			}
+
+			def := SpecializedToolDef(agentType, deps)
+			raw, err := def.Handler(ctx, map[string]any{"task": "test task"})
+			if err != nil {
+				t.Fatalf("handler error: %v", err)
+			}
+
+			result := raw.(tool.ExecutionResult)
+			delegationResult := result.Value.(DelegationResult)
+
+			if delegationResult.WorktreePath != "" {
+				t.Errorf("WorktreePath = %q, want empty for non-code agent", delegationResult.WorktreePath)
+			}
+			if delegationResult.WorktreeBranch != "" {
+				t.Errorf("WorktreeBranch = %q, want empty for non-code agent", delegationResult.WorktreeBranch)
+			}
+			if len(delegationResult.Warnings) != 0 {
+				t.Errorf("Warnings = %v, want empty for non-code agent", delegationResult.Warnings)
+			}
+		})
+	}
+}
