@@ -15,6 +15,9 @@ import (
 // ErrWorktreeProvisioning is a sentinel error for worktree provisioning failures.
 var ErrWorktreeProvisioning = errors.New("git worktree provisioning failed")
 
+// ErrWorktreeNotDelegation indicates an attempt to prune a worktree that is not owned by delegation.
+var ErrWorktreeNotDelegation = errors.New("worktree is not delegation-owned")
+
 // worktreeMu serializes concurrent git worktree add calls against the same .git
 // metadata store to avoid index-lock races.
 var worktreeMu sync.Mutex
@@ -102,10 +105,11 @@ func DirtyPaths(ctx context.Context, projectRoot string) ([]string, error) {
 	return paths, nil
 }
 
-// ListCodeWorktrees lists all provisioned code worktrees under
+// ListCodeWorktrees lists all provisioned code worktrees owned by delegation under
 // projectRoot/.steiner/worktrees, parsing git worktree list --porcelain.
+// Only includes worktrees whose branch name starts with "delegate-" (the delegation ownership marker).
 func ListCodeWorktrees(projectRoot string) ([]CodeWorktree, error) {
-	out, err := gitOutput(context.Background(), projectRoot, "worktree", "list", "--porcelain")
+	entries, err := listWorktreeEntries(context.Background(), projectRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +117,33 @@ func ListCodeWorktrees(projectRoot string) ([]CodeWorktree, error) {
 	delegationPath := filepath.Join(projectRoot, ".steiner", "worktrees")
 	var worktrees []CodeWorktree
 
+	for _, entry := range entries {
+		// Only include worktrees under .steiner/worktrees AND with delegate- branch.
+		if !strings.HasPrefix(entry.Path, delegationPath) {
+			continue
+		}
+		if !strings.HasPrefix(entry.Branch, "delegate-") {
+			continue
+		}
+
+		worktrees = append(worktrees, entry)
+	}
+
+	return worktrees, nil
+}
+
+// listWorktreeEntries parses git worktree list --porcelain and returns all entries.
+// Branch may be empty for detached-HEAD worktrees.
+func listWorktreeEntries(ctx context.Context, projectRoot string) ([]CodeWorktree, error) {
+	out, err := gitOutput(ctx, projectRoot, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+
+	var worktrees []CodeWorktree
 	lines := strings.Split(out, "\n")
 	i := 0
+
 	for i < len(lines) {
 		line := strings.TrimSpace(lines[i])
 		i++
@@ -130,15 +159,6 @@ func ListCodeWorktrees(projectRoot string) ([]CodeWorktree, error) {
 		}
 
 		worktreePath := parts[1]
-
-		// Only include worktrees under .steiner/worktrees.
-		if !strings.HasPrefix(worktreePath, delegationPath) {
-			// Skip all lines until the next empty line (end of this worktree entry).
-			for i < len(lines) && strings.TrimSpace(lines[i]) != "" {
-				i++
-			}
-			continue
-		}
 
 		// Extract branch name from following lines (skip HEAD line, look for branch line).
 		branch := ""
@@ -164,24 +184,50 @@ func ListCodeWorktrees(projectRoot string) ([]CodeWorktree, error) {
 			i++
 		}
 
-		if branch != "" {
-			worktrees = append(worktrees, CodeWorktree{
-				Path:   worktreePath,
-				Branch: branch,
-			})
-		}
+		worktrees = append(worktrees, CodeWorktree{
+			Path:   worktreePath,
+			Branch: branch,
+		})
 	}
 
 	return worktrees, nil
 }
 
-// PruneCodeWorktree removes the code worktree for the given agentID.
-// It tolerates "not a working tree" errors as already-removed.
+// PruneCodeWorktree removes the code worktree for the given agentID if and only if
+// it is owned by delegation (branch starts with "delegate-").
+// It tolerates "not a working tree" errors (already-removed paths) as idempotent no-ops,
+// but refuses to remove worktrees not owned by delegation.
 func PruneCodeWorktree(ctx context.Context, projectRoot, agentID string) error {
-	worktreePath := filepath.Join(projectRoot, ".steiner", "worktrees", agentID)
+	worktreePath := filepath.Clean(filepath.Join(projectRoot, ".steiner", "worktrees", agentID))
+
+	// Check if the worktree is known to git and what branch it has.
+	entries, err := listWorktreeEntries(ctx, projectRoot)
+	if err != nil {
+		return err
+	}
+
+	// Look for a matching worktree in the list.
+	var foundEntry *CodeWorktree
+	for i := range entries {
+		cleanEntryPath := filepath.Clean(entries[i].Path)
+		if cleanEntryPath == worktreePath {
+			foundEntry = &entries[i]
+			break
+		}
+	}
+
+	// If found, verify it's delegation-owned (branch starts with "delegate-").
+	if foundEntry != nil {
+		if !strings.HasPrefix(foundEntry.Branch, "delegate-") {
+			return fmt.Errorf("prune code worktree: %w: branch %q does not start with \"delegate-\"",
+				ErrWorktreeNotDelegation, foundEntry.Branch)
+		}
+	}
+	// If not found, it's either already-removed or a stale directory.
+	// Treat as idempotent no-op (tolerate missing paths).
 
 	// Attempt to remove via git worktree remove.
-	err := runGit(ctx, projectRoot, "worktree", "remove", "--force", worktreePath)
+	err = runGit(ctx, projectRoot, "worktree", "remove", "--force", worktreePath)
 	if err != nil && !isGitWorktreeRemovalMissingPath(err) {
 		return err
 	}
@@ -199,49 +245,20 @@ func PruneCodeWorktree(ctx context.Context, projectRoot, agentID string) error {
 	return nil
 }
 
-// PruneAllCodeWorktrees prunes all code worktrees under projectRoot/.steiner/worktrees,
+// PruneAllCodeWorktrees prunes all delegation-owned code worktrees under projectRoot/.steiner/worktrees,
 // collecting errors with errors.Join rather than stopping at the first failure.
-// It discovers worktrees both via git worktree list and by scanning the filesystem,
-// to handle corrupted worktrees whose admin dirs have been removed.
+// Only prunes worktrees known to git with branches starting with "delegate-".
 func PruneAllCodeWorktrees(ctx context.Context, projectRoot string) error {
-	// First, prune all worktrees known to git.
 	worktrees, err := ListCodeWorktrees(projectRoot)
 	if err != nil {
 		return err
 	}
 
-	seenAgentIDs := make(map[string]struct{})
 	var errs []error
 	for _, wt := range worktrees {
 		agentID := filepath.Base(wt.Path)
-		seenAgentIDs[agentID] = struct{}{}
 		if err := PruneCodeWorktree(ctx, projectRoot, agentID); err != nil {
 			errs = append(errs, err)
-		}
-	}
-
-	// Also scan the filesystem for worktrees that git no longer knows about
-	// (e.g., due to missing or corrupted admin dirs).
-	delegationPath := filepath.Join(projectRoot, ".steiner", "worktrees")
-	entries, err := os.ReadDir(delegationPath)
-	if err != nil {
-		// If the directory doesn't exist, that's fine.
-		if !os.IsNotExist(err) {
-			errs = append(errs, err)
-		}
-	} else {
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			agentID := entry.Name()
-			if _, seen := seenAgentIDs[agentID]; seen {
-				continue
-			}
-			// Attempt to prune this undiscovered worktree.
-			if err := PruneCodeWorktree(ctx, projectRoot, agentID); err != nil {
-				errs = append(errs, err)
-			}
 		}
 	}
 
