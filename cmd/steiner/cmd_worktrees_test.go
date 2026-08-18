@@ -21,7 +21,7 @@ func TestWorktreesListEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get current directory: %v", err)
 	}
-	defer os.Chdir(cwd)
+	defer func() { _ = os.Chdir(cwd) }()
 
 	if err := os.Chdir(repo); err != nil {
 		t.Fatalf("chdir to repo: %v", err)
@@ -65,7 +65,7 @@ func TestWorktreesListWithProvisioned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get current directory: %v", err)
 	}
-	defer os.Chdir(cwd)
+	defer func() { _ = os.Chdir(cwd) }()
 
 	if err := os.Chdir(repo); err != nil {
 		t.Fatalf("chdir to repo: %v", err)
@@ -130,7 +130,7 @@ func TestWorktreesPruneSingle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get current directory: %v", err)
 	}
-	defer os.Chdir(cwd)
+	defer func() { _ = os.Chdir(cwd) }()
 
 	if err := os.Chdir(repo); err != nil {
 		t.Fatalf("chdir to repo: %v", err)
@@ -187,7 +187,7 @@ func TestWorktreesPruneAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get current directory: %v", err)
 	}
-	defer os.Chdir(cwd)
+	defer func() { _ = os.Chdir(cwd) }()
 
 	if err := os.Chdir(repo); err != nil {
 		t.Fatalf("chdir to repo: %v", err)
@@ -229,7 +229,7 @@ func TestWorktreesFlagValidation_ListAndPrune(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get current directory: %v", err)
 	}
-	defer os.Chdir(cwd)
+	defer func() { _ = os.Chdir(cwd) }()
 
 	if err := os.Chdir(repo); err != nil {
 		t.Fatalf("chdir to repo: %v", err)
@@ -268,7 +268,7 @@ func TestWorktreesFlagValidation_PruneAndPruneAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get current directory: %v", err)
 	}
-	defer os.Chdir(cwd)
+	defer func() { _ = os.Chdir(cwd) }()
 
 	if err := os.Chdir(repo); err != nil {
 		t.Fatalf("chdir to repo: %v", err)
@@ -298,7 +298,7 @@ func TestWorktreesFlagValidation_NoFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get current directory: %v", err)
 	}
-	defer os.Chdir(cwd)
+	defer func() { _ = os.Chdir(cwd) }()
 
 	if err := os.Chdir(repo); err != nil {
 		t.Fatalf("chdir to repo: %v", err)
@@ -336,7 +336,7 @@ func TestWorktreesListSingleWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get current directory: %v", err)
 	}
-	defer os.Chdir(cwd)
+	defer func() { _ = os.Chdir(cwd) }()
 
 	if err := os.Chdir(repo); err != nil {
 		t.Fatalf("chdir to repo: %v", err)
@@ -389,7 +389,7 @@ func setupTestRepo(t *testing.T) (string, func()) {
 }
 
 func runCmd(t *testing.T, workDir string, args ...string) {
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.CommandContext(context.Background(), args[0], args[1:]...)
 	cmd.Dir = workDir
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

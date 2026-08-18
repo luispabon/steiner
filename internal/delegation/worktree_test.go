@@ -427,7 +427,7 @@ func setupTestRepo(t *testing.T) (string, func()) {
 }
 
 func runCmd(t *testing.T, workDir string, args ...string) {
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.CommandContext(context.Background(), args[0], args[1:]...)
 	cmd.Dir = workDir
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -437,7 +437,7 @@ func runCmd(t *testing.T, workDir string, args ...string) {
 }
 
 func runCmdOutput(t *testing.T, workDir string, args ...string) string {
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.CommandContext(context.Background(), args[0], args[1:]...)
 	cmd.Dir = workDir
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
