@@ -384,8 +384,7 @@ func (b *contentBuffer) renderDelegationThinkingEntry(entry delegationTranscript
 	if len(lines) == 0 {
 		return nil
 	}
-	rows := make([]string, 0, len(lines)+1)
-	rows = append(rows, style.Render("Thinking"))
+	rows := make([]string, 0, len(lines))
 	rows = append(rows, lines...)
 	return rows
 }
