@@ -68,20 +68,45 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 }
 
 // applyFinishedToolCallToDelegation handles a ToolCallFinishedEvent for a
-// segmentDelegation segment. Returns true if the segment matched and was
-// handled (caller should stop scanning).
+// segmentDelegation or segmentDelegationGroup segment. Returns true if the
+// segment matched and was handled (caller should stop scanning).
 func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload output.ToolCallFinishedEvent) bool {
-	dd := b.segments[idx].delegData
-	if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
+	seg := &b.segments[idx]
+	switch seg.kind {
+	case segmentDelegation:
+		dd := seg.delegData
+		if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
+			return false
+		}
+		if dd.agentID == "" && payload.Error != "" {
+			b.removeFromPendingDelegateParents(dd)
+			dd.status = "failed"
+			seg.renderDirty = true
+			b.gen++
+		}
+		return true
+	case segmentDelegationGroup:
+		group := seg.delegGroupData
+		if group == nil {
+			return false
+		}
+		for j := len(group.entries) - 1; j >= 0; j-- {
+			dd := group.entries[j]
+			if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
+				continue
+			}
+			if dd.agentID == "" && payload.Error != "" {
+				b.removeFromPendingDelegateParents(dd)
+				dd.status = "failed"
+				seg.renderDirty = true
+				b.gen++
+			}
+			return true
+		}
+		return false
+	default:
 		return false
 	}
-	if dd.agentID == "" && payload.Error != "" {
-		b.removeFromPendingDelegateParents(dd)
-		dd.status = "failed"
-		b.segments[idx].renderDirty = true
-		b.gen++
-	}
-	return true
 }
 
 func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
@@ -110,7 +135,7 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 					b.applyFinishedToolCallResult(&b.segments[i], td, payload)
 					return
 				}
-			case segmentDelegation:
+			case segmentDelegation, segmentDelegationGroup:
 				if b.applyFinishedToolCallToDelegation(i, payload) {
 					return
 				}

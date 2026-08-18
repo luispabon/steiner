@@ -30,6 +30,7 @@ const (
 	segmentSeparator
 	segmentInterrupted
 	segmentDelegation
+	segmentDelegationGroup
 	segmentPendingSteer
 	segmentStatus
 	segmentImagesAttached
@@ -73,6 +74,13 @@ type toolCallGroupSegment struct {
 	tool    string
 	mixed   bool
 	entries []*toolCallSegment
+}
+
+// delegationGroupSegment holds consecutive specialist delegations rendered in one
+// bordered box. Never holds an advisor delegation. Entries are append-only and
+// never reordered, so an entry pointer stays valid for the segment's lifetime.
+type delegationGroupSegment struct {
+	entries []*delegationDisplayState
 }
 
 type approvalPillData struct {
@@ -230,6 +238,7 @@ type contentSegment struct {
 	compactionData     *compactionBannerData   // non-nil only for segmentCompactionBanner
 	separatorData      *separatorData          // non-nil only for segmentSeparator
 	delegData          *delegationDisplayState // non-nil only for segmentDelegation
+	delegGroupData     *delegationGroupSegment // non-nil only for segmentDelegationGroup
 	imagesAttachedData *imagesAttachedData     // non-nil only for segmentImagesAttached
 	// render cache
 	cachedRender      string
