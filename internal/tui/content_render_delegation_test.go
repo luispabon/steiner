@@ -45,7 +45,6 @@ func TestDelegationCompleteMetaOmitsCacheHitRateWhenNotOK(t *testing.T) {
 }
 
 func TestRenderDelegationGroupSegmentRendersBothEntriesWithDivider(t *testing.T) {
-	t.Parallel()
 	useTrueColor(t)
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
@@ -109,7 +108,6 @@ func TestRenderDelegationGroupSegmentRendersBothEntriesWithDivider(t *testing.T)
 }
 
 func TestRenderDelegationGroupSegmentWithMixedLabelUsesDefaultBorder(t *testing.T) {
-	t.Parallel()
 	useTrueColor(t)
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
