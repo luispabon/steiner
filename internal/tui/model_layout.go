@@ -517,12 +517,13 @@ func (m *Model) handleDelegationGroupClick(seg *contentSegment, rowInSegment int
 		return
 	}
 	action := m.delegationRowAction(seg.delegGroupData.entries[entry], rowInEntry)
-	if action == 0 {
+	switch action {
+	case 0:
 		seg.delegGroupData.entries[entry].collapsed = !seg.delegGroupData.entries[entry].collapsed
 		seg.renderDirty = true
 		m.content.gen++
 		m.syncViewport()
-	} else if action == 1 {
+	case 1:
 		seg.delegGroupData.entries[entry].promptCollapsed = !seg.delegGroupData.entries[entry].promptCollapsed
 		seg.renderDirty = true
 		m.content.gen++

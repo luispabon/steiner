@@ -4095,20 +4095,9 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 	// Find the original child segment and snapshot its state for later comparison.
 	// With merging, it may be in a group or standalone.
 	var originalDD *delegationDisplayState
-	for _, seg := range b.segments {
-		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.agentID == "child-7" {
-			originalDD = seg.delegData
-			break
-		}
-		if seg.kind == segmentDelegationGroup && seg.delegGroupData != nil {
-			for _, dd := range seg.delegGroupData.entries {
-				if dd.agentID == "child-7" {
-					originalDD = dd
-					break
-				}
-			}
-		}
-		if originalDD != nil {
+	for _, dd := range delegationStates(b) {
+		if dd.agentID == "child-7" {
+			originalDD = dd
 			break
 		}
 	}
@@ -4426,21 +4415,11 @@ func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 	// Locate the follow-up and original segments. With merging, both may be in a group or standalone.
 	var followUpDD *delegationDisplayState
 	var originalDD *delegationDisplayState
-	for _, seg := range b.segments {
-		if seg.kind == segmentDelegation && seg.delegData != nil {
-			if seg.delegData.isFollowUp {
-				followUpDD = seg.delegData
-			} else if seg.delegData.agentID == "child-8" && originalDD == nil {
-				originalDD = seg.delegData
-			}
-		} else if seg.kind == segmentDelegationGroup && seg.delegGroupData != nil {
-			for _, dd := range seg.delegGroupData.entries {
-				if dd.isFollowUp && followUpDD == nil {
-					followUpDD = dd
-				} else if dd.agentID == "child-8" && originalDD == nil {
-					originalDD = dd
-				}
-			}
+	for _, dd := range delegationStates(b) {
+		if dd.isFollowUp && followUpDD == nil {
+			followUpDD = dd
+		} else if dd.agentID == "child-8" && originalDD == nil {
+			originalDD = dd
 		}
 	}
 	if followUpDD == nil {
