@@ -117,3 +117,22 @@ func (b *contentBuffer) delegationSectionRows(dd *delegationDisplayState, width 
 func delegationRowIsInteractive(row delegationRowKind) bool {
 	return row == delegationRowHeader || row == delegationRowPromptHeader
 }
+
+// delegationContentRows returns the rows renderDelegationBoxRows actually emits:
+// delegationRows minus the two border rows and minus empty-text rows. Single
+// source of truth for both an entry's rendered line count and the row-kind
+// lookup used by click handling — these must not be computed from two
+// different lists or clicks will silently hit the wrong row.
+func (b *contentBuffer) delegationContentRows(dd *delegationDisplayState, width int) []delegationRow {
+	rows := b.delegationRows(dd, width)
+	filtered := make([]delegationRow, 0, len(rows))
+	for _, row := range rows {
+		if row.kind == delegationRowBorderTop || row.kind == delegationRowBorderBottom {
+			continue
+		}
+		if row.text != "" {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
+}
