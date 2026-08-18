@@ -185,6 +185,17 @@ func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree,
 	return result
 }
 
+// resolveToolsAndModel resolves the allowed tools list and model for the agent type.
+func resolveToolsAndModel(agentType AgentType, deps SpecializedToolDeps) ([]string, provider.Provider, provider.ResolvedModel, error) {
+	allowedTools := AgentAllowedTools(agentType)
+	if deps.ExtraAllowedTools != nil {
+		allowedTools = mergedAllowedTools(allowedTools, deps.ExtraAllowedTools[agentType])
+	}
+
+	resolvedProvider, resolvedModel, err := resolveModel(agentType, deps)
+	return allowedTools, resolvedProvider, resolvedModel, err
+}
+
 // newSpecializedHandler returns a handler for the given agent type.
 // It uses the per-type system prompt and allowed-tool list, leaving other
 // delegation parameters at their configured defaults.
@@ -199,12 +210,12 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			return nil, fmt.Errorf("%s: task is required", agentType)
 		}
 
-		allowedTools := AgentAllowedTools(agentType)
-		if deps.ExtraAllowedTools != nil {
-			allowedTools = mergedAllowedTools(allowedTools, deps.ExtraAllowedTools[agentType])
-		}
-
 		agentID := generateAgentID()
+
+		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, deps)
+		if err != nil {
+			return nil, err
+		}
 
 		// For code agents, check for dirty changes in the parent tree and
 		// provision an isolated worktree.
@@ -212,12 +223,6 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		var provisionedWorktree CodeWorktree
 		if agentType == AgentTypeCode {
 			provisionedWorktree, warnings = provisionCodeWorktreeAndWarnings(ctx, deps.WorkDir, agentID)
-		}
-
-		// Resolve per-type model if configured.
-		resolvedProvider, resolvedModel, err := resolveModel(agentType, deps)
-		if err != nil {
-			return nil, err
 		}
 
 		// Build bootstrap deps and override WorkDir for code agents that provisioned successfully.
