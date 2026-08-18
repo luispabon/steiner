@@ -46,7 +46,7 @@ func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, wid
 	}
 
 	for i, dd := range group.entries {
-		lines := b.renderDelegationBoxRows(dd, width-4)
+		lines := b.renderDelegationBoxRows(dd, width)
 		parts = append(parts, strings.Join(lines, "\n"))
 		if i < len(group.entries)-1 {
 			parts = append(parts, b.renderToolCallDivider(dividerWidth))
