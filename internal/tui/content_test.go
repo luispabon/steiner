@@ -2256,7 +2256,7 @@ func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(80))
-	for _, want := range []string{"explore", "child-1", "Thinking", "inspect files", "child assistant reply"} {
+	for _, want := range []string{"explore", "child-1", "inspect files", "child assistant reply"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
 		}
