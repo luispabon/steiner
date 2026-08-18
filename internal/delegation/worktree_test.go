@@ -295,8 +295,12 @@ func TestPruneCodeWorktree_RemovesWorktree(t *testing.T) {
 	}
 
 	// Prune it.
-	if err := PruneCodeWorktree(ctx, repo, relID); err != nil {
+	removed, err := PruneCodeWorktree(ctx, repo, relID)
+	if err != nil {
 		t.Fatalf("PruneCodeWorktree failed: %v", err)
+	}
+	if !removed {
+		t.Errorf("PruneCodeWorktree should report removed=true for existing worktree")
 	}
 
 	// Verify it's gone from the list.
@@ -321,9 +325,12 @@ func TestPruneCodeWorktree_ToleratesMissing(t *testing.T) {
 
 	// Attempt to prune a non-existent worktree (should not error).
 	// Use a relID path structure (hash/branch/agentid).
-	err := PruneCodeWorktree(ctx, repo, "abcd1234/main/nonexistent")
+	removed, err := PruneCodeWorktree(ctx, repo, "abcd1234/main/nonexistent")
 	if err != nil {
 		t.Errorf("PruneCodeWorktree should tolerate missing worktree, got error: %v", err)
+	}
+	if removed {
+		t.Errorf("PruneCodeWorktree should report removed=false for non-existent worktree")
 	}
 }
 
@@ -340,12 +347,15 @@ func TestPruneCodeWorktree_RefusesForeignWorktree(t *testing.T) {
 	runCmd(t, repo, "git", "worktree", "add", "-b", "oneshot-run-1", foreignPath, "HEAD")
 
 	// Attempt to prune it by directory name should fail.
-	err := PruneCodeWorktree(ctx, repo, "foreign-run")
+	removed, err := PruneCodeWorktree(ctx, repo, "foreign-run")
 	if err == nil {
 		t.Fatalf("PruneCodeWorktree should refuse foreign worktree, got nil error")
 	}
 	if !errors.Is(err, ErrWorktreeNotDelegation) {
 		t.Errorf("expected ErrWorktreeNotDelegation, got: %v", err)
+	}
+	if removed {
+		t.Errorf("PruneCodeWorktree should report removed=false when refusing foreign worktree")
 	}
 
 	// Verify the foreign worktree's directory still exists.
@@ -391,8 +401,12 @@ func TestPruneAllCodeWorktrees_RemovesAll(t *testing.T) {
 	}
 
 	// Prune all.
-	if err := PruneAllCodeWorktrees(ctx, repo); err != nil {
+	removedCount, err := PruneAllCodeWorktrees(ctx, repo)
+	if err != nil {
 		t.Fatalf("PruneAllCodeWorktrees failed: %v", err)
+	}
+	if removedCount != n {
+		t.Errorf("PruneAllCodeWorktrees returned removedCount=%d, want %d", removedCount, n)
 	}
 
 	// Verify all are gone.
@@ -448,8 +462,12 @@ func TestPruneAllCodeWorktrees_WithForeignWorktreePresent(t *testing.T) {
 	}
 
 	// Prune all delegation worktrees.
-	if err := PruneAllCodeWorktrees(ctx, repo); err != nil {
+	removedCount, err := PruneAllCodeWorktrees(ctx, repo)
+	if err != nil {
 		t.Fatalf("PruneAllCodeWorktrees failed: %v", err)
+	}
+	if removedCount != 2 {
+		t.Errorf("PruneAllCodeWorktrees returned removedCount=%d, want 2", removedCount)
 	}
 
 	// Verify delegation worktrees are gone.
@@ -510,9 +528,12 @@ func TestPruneAllCodeWorktrees_SkipsForeignWorktreeInDelegationPath(t *testing.T
 	}
 
 	// Prune all delegation worktrees.
-	err = PruneAllCodeWorktrees(ctx, repo)
+	removedCount, err := PruneAllCodeWorktrees(ctx, repo)
 	if err != nil {
 		t.Fatalf("PruneAllCodeWorktrees failed: %v", err)
+	}
+	if removedCount != 2 {
+		t.Errorf("PruneAllCodeWorktrees returned removedCount=%d, want 2", removedCount)
 	}
 
 	// Verify all delegation worktrees are gone.
@@ -575,8 +596,12 @@ func TestProvisionCodeWorktree_CollisionFix(t *testing.T) {
 		t.Fatalf("extract relID: %v", err)
 	}
 
-	if err := PruneCodeWorktree(ctx, repo, relID1); err != nil {
+	removed, err := PruneCodeWorktree(ctx, repo, relID1)
+	if err != nil {
 		t.Fatalf("PruneCodeWorktree failed: %v", err)
+	}
+	if !removed {
+		t.Errorf("PruneCodeWorktree should report removed=true for existing worktree")
 	}
 
 	// Verify it's gone.
@@ -849,7 +874,7 @@ func TestPruneCodeWorktree_RejectsPathTraversal(t *testing.T) {
 	relID := "../../../" + strings.TrimPrefix(canaryPath, "/")
 
 	// Attempt to prune with the path-traversal relID.
-	err := PruneCodeWorktree(ctx, repo, relID)
+	removed, err := PruneCodeWorktree(ctx, repo, relID)
 	if err == nil {
 		t.Fatalf("PruneCodeWorktree should reject path traversal, got nil error")
 	}
@@ -857,6 +882,9 @@ func TestPruneCodeWorktree_RejectsPathTraversal(t *testing.T) {
 	// Verify it's the path-escape error.
 	if !errors.Is(err, ErrWorktreePathEscape) {
 		t.Errorf("expected ErrWorktreePathEscape, got: %v", err)
+	}
+	if removed {
+		t.Errorf("PruneCodeWorktree should report removed=false when rejecting path traversal")
 	}
 
 	// Verify the canary file still exists (not deleted).
@@ -874,7 +902,7 @@ func TestPruneCodeWorktree_RejectsRelIDWithDotDot(t *testing.T) {
 	relID := "../../parent-dir-escape"
 
 	// Attempt to prune with the escaping relID.
-	err := PruneCodeWorktree(ctx, repo, relID)
+	removed, err := PruneCodeWorktree(ctx, repo, relID)
 	if err == nil {
 		t.Fatalf("PruneCodeWorktree should reject relID with .., got nil error")
 	}
@@ -882,6 +910,50 @@ func TestPruneCodeWorktree_RejectsRelIDWithDotDot(t *testing.T) {
 	// Verify it's the path-escape error.
 	if !errors.Is(err, ErrWorktreePathEscape) {
 		t.Errorf("expected ErrWorktreePathEscape, got: %v", err)
+	}
+	if removed {
+		t.Errorf("PruneCodeWorktree should report removed=false when rejecting relID with ..")
+	}
+}
+
+func TestPruneCodeWorktree_DeletesBranch(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Provision a worktree.
+	wt, err := ProvisionCodeWorktree(ctx, repo, "branch-deletion-test")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree failed: %v", err)
+	}
+
+	// Extract the relID and branch name for verification.
+	delegationBase := filepath.Join(repo, ".steiner", "worktrees")
+	relID, err := filepath.Rel(delegationBase, wt.Path)
+	if err != nil {
+		t.Fatalf("extract relID: %v", err)
+	}
+	branchName := wt.Branch
+
+	// Verify the branch exists before pruning.
+	branchListOutput := runCmdOutput(t, repo, "git", "branch", "--list", branchName)
+	if !strings.Contains(branchListOutput, branchName) {
+		t.Errorf("branch %q should exist before prune, got: %q", branchName, branchListOutput)
+	}
+
+	// Prune the worktree.
+	removed, err := PruneCodeWorktree(ctx, repo, relID)
+	if err != nil {
+		t.Fatalf("PruneCodeWorktree failed: %v", err)
+	}
+	if !removed {
+		t.Errorf("PruneCodeWorktree should report removed=true for existing worktree")
+	}
+
+	// Verify the branch is gone after pruning.
+	branchListOutput = runCmdOutput(t, repo, "git", "branch", "--list", branchName)
+	if strings.TrimSpace(branchListOutput) != "" {
+		t.Errorf("branch %q should not exist after prune, got: %q", branchName, branchListOutput)
 	}
 }
 

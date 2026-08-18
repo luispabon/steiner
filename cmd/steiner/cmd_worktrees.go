@@ -94,29 +94,26 @@ func runWorktreesPrune(cmd *cobra.Command, projectRoot, relID string) error {
 		return fmt.Errorf("--prune requires a non-empty worktree ID")
 	}
 
-	err := delegation.PruneCodeWorktree(cmd.Context(), projectRoot, relID)
+	removed, err := delegation.PruneCodeWorktree(cmd.Context(), projectRoot, relID)
 	if err != nil {
 		return fmt.Errorf("prune code worktree: %w", err)
 	}
 
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "removed worktree: %s\n", relID)
+	if removed {
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "removed worktree: %s\n", relID)
+	} else {
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "no such worktree: %s (already removed or unknown)\n", relID)
+	}
 	return err
 }
 
 func runWorktreesPruneAll(cmd *cobra.Command, projectRoot string) error {
-	// Get the count before pruning.
-	worktrees, err := delegation.ListCodeWorktrees(projectRoot)
-	if err != nil {
-		return fmt.Errorf("list code worktrees: %w", err)
-	}
-	count := len(worktrees)
-
 	// Prune all.
-	err = delegation.PruneAllCodeWorktrees(cmd.Context(), projectRoot)
+	removedCount, err := delegation.PruneAllCodeWorktrees(cmd.Context(), projectRoot)
 	if err != nil {
 		return fmt.Errorf("prune all code worktrees: %w", err)
 	}
 
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "removed %d worktree(s)\n", count)
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "removed %d worktree(s)\n", removedCount)
 	return err
 }

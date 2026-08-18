@@ -253,23 +253,24 @@ func listWorktreeEntries(ctx context.Context, projectRoot string) ([]CodeWorktre
 
 // PruneCodeWorktree removes the code worktree identified by relID (relative path
 // under .steiner/worktrees/) if and only if it is owned by delegation
-// (branch starts with "delegate/").
-// It tolerates "not a working tree" errors (already-removed paths) as idempotent no-ops,
-// but refuses to remove worktrees not owned by delegation.
-func PruneCodeWorktree(ctx context.Context, projectRoot, relID string) error {
+// (branch starts with "delegate/"). Returns (removed, error) where removed is true
+// if a worktree was actually found and removed, false if nothing was found.
+// It tolerates "not a working tree" errors (already-removed paths) and missing branches
+// as idempotent no-ops, but refuses to remove worktrees not owned by delegation.
+func PruneCodeWorktree(ctx context.Context, projectRoot, relID string) (bool, error) {
 	delegationBase := filepath.Clean(filepath.Join(projectRoot, ".steiner", "worktrees"))
 	worktreePath := filepath.Clean(filepath.Join(delegationBase, relID))
 
 	// Verify the resolved path is contained within the delegation base directory.
 	// Reject path traversal attempts (e.g., relID containing ".." segments).
 	if worktreePath != delegationBase && !strings.HasPrefix(worktreePath, delegationBase+string(filepath.Separator)) {
-		return fmt.Errorf("prune code worktree: %w", ErrWorktreePathEscape)
+		return false, fmt.Errorf("prune code worktree: %w", ErrWorktreePathEscape)
 	}
 
 	// Check if the worktree is known to git and what branch it has.
 	entries, err := listWorktreeEntries(ctx, projectRoot)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Look for a matching worktree in the list.
@@ -286,45 +287,56 @@ func PruneCodeWorktree(ctx context.Context, projectRoot, relID string) error {
 	if foundEntry == nil {
 		// Worktree not found in git list: either already-removed or unrecognized path.
 		// Treat as idempotent no-op (nothing to remove).
-		return nil
+		return false, nil
 	}
 
 	// Verify it's delegation-owned (branch starts with "delegate/").
 	if !strings.HasPrefix(foundEntry.Branch, "delegate/") {
-		return fmt.Errorf("prune code worktree: %w: branch %q does not start with \"delegate/\"",
+		return false, fmt.Errorf("prune code worktree: %w: branch %q does not start with \"delegate/\"",
 			ErrWorktreeNotDelegation, foundEntry.Branch)
 	}
 
 	// Attempt to remove via git worktree remove.
 	err = runGit(ctx, projectRoot, "worktree", "remove", "--force", worktreePath)
 	if err != nil && !isGitWorktreeRemovalMissingPath(err) {
-		return err
+		return false, err
 	}
 
 	// Remove stale checkout path.
 	if err := os.RemoveAll(worktreePath); err != nil {
-		return fmt.Errorf("remove worktree path: %w", err)
+		return false, fmt.Errorf("remove worktree path: %w", err)
 	}
 
 	// Remove stale admin dir under the common .git dir.
 	if err := removeWorktreeAdminDirForRelID(ctx, projectRoot, relID); err != nil {
-		return err
+		return false, err
 	}
 
-	return nil
+	// Delete the branch ref if it exists and is non-empty.
+	if foundEntry.Branch != "" {
+		err := runGit(ctx, projectRoot, "branch", "-D", foundEntry.Branch)
+		if err != nil && !isGitBranchNotFound(err) {
+			return false, err
+		}
+	}
+
+	return true, nil
 }
 
 // PruneAllCodeWorktrees prunes all delegation-owned code worktrees under projectRoot/.steiner/worktrees,
 // collecting errors with errors.Join rather than stopping at the first failure.
+// Returns (removedCount, error) where removedCount is the number of worktrees successfully removed
+// (this is accurate even if err != nil, reflecting partial progress).
 // Only prunes worktrees known to git with branches starting with "delegate/".
-func PruneAllCodeWorktrees(ctx context.Context, projectRoot string) error {
+func PruneAllCodeWorktrees(ctx context.Context, projectRoot string) (int, error) {
 	worktrees, err := ListCodeWorktrees(projectRoot)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	delegationBase := filepath.Join(projectRoot, ".steiner", "worktrees")
 	var errs []error
+	removedCount := 0
 	for _, wt := range worktrees {
 		// Extract the relative ID (path suffix under .steiner/worktrees/).
 		relID, err := filepath.Rel(delegationBase, wt.Path)
@@ -332,15 +344,19 @@ func PruneAllCodeWorktrees(ctx context.Context, projectRoot string) error {
 			errs = append(errs, fmt.Errorf("extract relative worktree ID: %w", err))
 			continue
 		}
-		if err := PruneCodeWorktree(ctx, projectRoot, relID); err != nil {
+		removed, err := PruneCodeWorktree(ctx, projectRoot, relID)
+		if removed {
+			removedCount++
+		}
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	if len(errs) > 0 {
-		return errors.Join(errs...)
+		return removedCount, errors.Join(errs...)
 	}
-	return nil
+	return removedCount, nil
 }
 
 // Internal helpers.
@@ -426,4 +442,12 @@ func isGitWorktreeRemovalMissingPath(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "not a working tree") || strings.Contains(msg, "is not a working tree") || strings.Contains(msg, "is not a valid working tree")
+}
+
+func isGitBranchNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "not found")
 }
