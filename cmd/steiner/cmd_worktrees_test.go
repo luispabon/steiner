@@ -171,8 +171,8 @@ func TestWorktreesPruneSingle(t *testing.T) {
 	}
 
 	output := out.String()
-	if !strings.Contains(output, "removed worktree:") {
-		t.Errorf("expected success message, got: %q", output)
+	if !strings.Contains(output, "removed worktree:") || !strings.Contains(output, relID1) {
+		t.Errorf("expected success message with 'removed worktree:' and relID, got: %q", output)
 	}
 
 	// Verify only test-agent-2 remains.
