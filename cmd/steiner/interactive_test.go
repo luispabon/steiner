@@ -17,6 +17,7 @@ import (
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -318,5 +319,50 @@ func TestInteractiveEventSinkDoesNotDuplicateTUIEvents(t *testing.T) {
 				t.Fatalf("TUI sink received %d events, want %d", count, tt.want)
 			}
 		})
+
 	}
+}
+
+func TestResumeInteractiveSessionClosesRuntimeOnLoadFailure(t *testing.T) {
+	storeErr := errors.New("load session failed")
+	sess, err := interactive.NewSession(interactive.Dependencies{
+		BaseEvents: output.NoopSink{},
+		SessionStore: resumeFailureSessionStore{
+			err: storeErr,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+
+	closed := false
+	rt := cliRuntime{
+		events: output.NoopSink{},
+		closeFn: func() error {
+			closed = true
+			return nil
+		},
+	}
+	if err := resumeInteractiveSession(context.Background(), sess, "id", &rt); !errors.Is(err, storeErr) {
+		t.Fatalf("resumeInteractiveSession() error = %v, want %v", err, storeErr)
+	}
+	if !closed {
+		t.Fatal("runtime closer was not called")
+	}
+}
+
+type resumeFailureSessionStore struct {
+	err error
+}
+
+func (s resumeFailureSessionStore) Save(session.Session) error {
+	return nil
+}
+
+func (s resumeFailureSessionStore) Load(string) (session.Session, error) {
+	return session.Session{}, s.err
+}
+
+func (s resumeFailureSessionStore) List() ([]session.IndexEntry, error) {
+	return nil, nil
 }

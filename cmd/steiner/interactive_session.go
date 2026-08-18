@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"sync"
@@ -400,13 +399,11 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 	}
 	sess.SetRunner(sessionRunner{runner: runner, mcpInit: rt.mcpInit})
 }
-func resumeInteractiveSession(ctx context.Context, sess *interactive.Session, resumeID string, p *tea.Program, out io.Writer, rt *cliRuntime) error {
+func resumeInteractiveSession(ctx context.Context, sess *interactive.Session, resumeID string, rt *cliRuntime) error {
 	if resumeID == "" {
 		return nil
 	}
 	if err := sess.LoadSessionByID(ctx, resumeID); err != nil {
-		stopInteractiveProgram(p)
-		clearTerminalScreen(out)
 		closeRuntime(rt)
 		return err
 	}

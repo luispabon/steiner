@@ -153,6 +153,13 @@ func NewApp(cfg Config) *App {
 	}
 }
 
+// SetInitialMode overrides the execution mode used to seed the TUI model when
+// the program is next created. Safe only before NewProgram and not
+// concurrency-safe.
+func (a *App) SetInitialMode(mode string) {
+	a.cfg.InitialMode = mode
+}
+
 // Subscriber returns the event subscriber exposed to the runtime.
 func (a *App) Subscriber() output.Subscriber {
 	if a == nil {
