@@ -1224,8 +1224,13 @@ func TestSpecializedHandler_CodeProvisionesWorktree(t *testing.T) {
 	defer cleanup()
 
 	var capturedReq agent.RunRequest
+	runCount := 0
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-		capturedReq = req
+		// Capture only the first run (the main delegation), not the summary run.
+		if runCount == 0 {
+			capturedReq = req
+		}
+		runCount++
 		return successRunState(), nil
 	}}
 
@@ -1272,6 +1277,21 @@ func TestSpecializedHandler_CodeProvisionesWorktree(t *testing.T) {
 	}
 	if capturedReq.Prompt.ProjectRoot == repo {
 		t.Errorf("child ProjectRoot should not equal parent repo path %q", repo)
+	}
+
+	// Verify the child executor's actual working root equals the worktree path.
+	// The executor is wrapped in scopedToolExecutor, so unwrap it to reach the real *tool.Executor.
+	scopedExec, ok := capturedReq.Executor.(scopedToolExecutor)
+	if !ok {
+		t.Fatalf("executor type = %T, want scopedToolExecutor", capturedReq.Executor)
+	}
+	execInner, ok := scopedExec.inner.(*tool.Executor)
+	if !ok {
+		t.Fatalf("scoped executor inner type = %T, want *tool.Executor", scopedExec.inner)
+	}
+	execWorkDir := execInner.WorkDir()
+	if execWorkDir != delegationResult.WorktreePath {
+		t.Errorf("executor WorkDir = %q, want %q (the WorktreePath)", execWorkDir, delegationResult.WorktreePath)
 	}
 }
 
@@ -1342,8 +1362,13 @@ func TestSpecializedHandler_CodeFallsBackOnProvisioningFailure(t *testing.T) {
 	badRepo := filepath.Join(repo, "nonexistent")
 
 	var capturedReq agent.RunRequest
+	runCount := 0
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-		capturedReq = req
+		// Capture only the first run (the main delegation), not the summary run.
+		if runCount == 0 {
+			capturedReq = req
+		}
+		runCount++
 		return successRunState(), nil
 	}}
 
@@ -1388,6 +1413,21 @@ func TestSpecializedHandler_CodeFallsBackOnProvisioningFailure(t *testing.T) {
 	// Verify the child's ProjectRoot equals the parent's (the fallback).
 	if capturedReq.Prompt.ProjectRoot != badRepo {
 		t.Errorf("child ProjectRoot = %q, want %q (parent's badRepo)", capturedReq.Prompt.ProjectRoot, badRepo)
+	}
+
+	// Verify the child executor's working root also equals the parent's (the fallback).
+	// On provisioning failure, both prompt root and executor root must fall back to parent.
+	scopedExec, ok := capturedReq.Executor.(scopedToolExecutor)
+	if !ok {
+		t.Fatalf("executor type = %T, want scopedToolExecutor", capturedReq.Executor)
+	}
+	execInner, ok := scopedExec.inner.(*tool.Executor)
+	if !ok {
+		t.Fatalf("scoped executor inner type = %T, want *tool.Executor", scopedExec.inner)
+	}
+	execWorkDir := execInner.WorkDir()
+	if execWorkDir != badRepo {
+		t.Errorf("executor WorkDir = %q, want %q (parent's badRepo on fallback)", execWorkDir, badRepo)
 	}
 }
 

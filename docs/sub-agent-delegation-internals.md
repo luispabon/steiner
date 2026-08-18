@@ -56,6 +56,25 @@ When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the
 
 `fetch_url` is registered unconditionally in the base built-in tool set. `web_search` is registered conditionally — it is added to both the parent registry and the extended base registry (used for child bootstrapping) only when a `web.Searcher` backend is configured. When no search backend is configured, the `research` sub-agent type is excluded from delegation entirely, so no stub or unavailable tool is ever exposed.
 
+### Code worktree provisioning
+
+For `AgentTypeCode` only, `newSpecializedHandler` (`internal/delegation/specialized_tools.go`) runs a provisioning step **before** `BuildChildRun` is called. This step:
+
+1. **Calls `DirtyPaths`** (`internal/delegation/worktree.go`) to collect any uncommitted or untracked files in the parent working tree, as best-effort information (failures are silently skipped). If changes are found, a warning is recorded describing them — the child worktree will not see these changes, which may be significant context loss.
+
+2. **Calls `ProvisionCodeWorktree`** (`internal/delegation/worktree.go`) to create an isolated git worktree for the child agent. The worktree is created under `.steiner/worktrees/<processHash>/<sanitizedParentBranch>/<agentID>`, branched from the parent repository's current HEAD. The process hash and parent branch name are baked into the path to ensure collision-free isolation across process restarts and parallel executions. On provisioning success, `ProvisionCodeWorktree` returns a `CodeWorktree{Path, Branch}` struct. On failure, it returns an empty struct and a wrapped error; `newSpecializedHandler` records a fallback warning instead of failing the call.
+
+3. **Overrides `BootstrapDeps.WorkDir`** to the provisioned worktree path (if provisioning succeeded). This field is subsequently consumed by `buildChildPrompt` (via `childPromptParams.workDir`) to set the child's `Prompt.ProjectRoot`, and by `buildChildRunRequest` (via `childRunRequestParams.WorkDir`) to construct the child's tool executor. Both paths use the same `BootstrapDeps.WorkDir` value, ensuring consistent isolation: the child's prompt context and its actual tool-execution root (for `mutate` writes, bash cwd, and `PathPolicy` enforcement) are both rooted at the isolated worktree, not the shared parent tree.
+
+4. **Populates `DelegationResult` fields** (only for `AgentTypeCode`):
+   - `WorktreePath` — the absolute path to the provisioned worktree, or empty if provisioning failed and fell back to the parent.
+   - `WorktreeBranch` — the branch name of the provisioned worktree (e.g. `delegate/a1b2c3d4/main/child-1`), or empty on fallback.
+   - `Warnings` — a slice of human-readable warning strings covering dirty-tree changes and provisioning failures. Empty for successful provisioning of a clean tree.
+
+All other agent types (`explore`, `research`, `evaluate`, `sanity_check`, `review`, `vision`) skip worktree provisioning entirely; their results always have empty `WorktreePath`, `WorktreeBranch`, and `Warnings` fields. `follow_up` reuses the child's originally-captured `agent.RunRequest` from `SessionStore` verbatim, including its executor already rooted at the worktree from the original delegate call, so follow-up calls execute in the same isolated worktree without re-provisioning.
+
+**Known limitation**: worktrees are never automatically removed. The `steiner worktrees --list`, `--prune`, and `--prune-all` commands manage cleanup, and operate only on worktrees git itself currently reports as real and delegation-owned (with `delegate/`-prefixed branches). A directory under `.steiner/worktrees/` that becomes orphaned or untracked by git (e.g. after a crash mid-provision, or after a manual `git worktree prune` outside the CLI) is not reachable by any of these commands and requires manual `rm -rf` by a human. This is a deliberate safety tradeoff — never delete a path git doesn't vouch for — rather than an oversight. Future extensions to the cleanup tooling should respect this constraint: only remove paths that git reports as real worktrees.
+
 ### Bootstrapping a child run
 
 `BuildChildRun()` assembles the full `agent.RunRequest`:
