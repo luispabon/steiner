@@ -47,8 +47,9 @@ func TestProvisionCodeWorktree_BranchesFromCurrentHead(t *testing.T) {
 	if got := strings.TrimSpace(currentBranch); got != wt.Branch {
 		t.Errorf("worktree branch mismatch: got %q, want %q", got, wt.Branch)
 	}
-	if got := wt.Branch; got != "delegate-test-agent-1" {
-		t.Errorf("CodeWorktree.Branch mismatch: got %q, want delegate-test-agent-1", got)
+	// Branch should start with delegate/ and contain test-agent-1.
+	if got := wt.Branch; !strings.HasPrefix(got, "delegate/") || !strings.Contains(got, "test-agent-1") {
+		t.Errorf("CodeWorktree.Branch format wrong: got %q, should start with 'delegate/' and contain 'test-agent-1'", got)
 	}
 
 	// Verify the worktree's HEAD is the same as the parent's.
@@ -102,9 +103,8 @@ func TestProvisionCodeWorktree_ConcurrentProvisioning(t *testing.T) {
 		seen[wt.Path] = struct{}{}
 
 		agentID := fmt.Sprintf("concurrent-agent-%d", i)
-		expectedBranch := "delegate-" + agentID
-		if wt.Branch != expectedBranch {
-			t.Errorf("result %d branch mismatch: got %q, want %q", i, wt.Branch, expectedBranch)
+		if !strings.HasPrefix(wt.Branch, "delegate/") || !strings.Contains(wt.Branch, agentID) {
+			t.Errorf("result %d branch format wrong: got %q, should start with 'delegate/' and contain %q", i, wt.Branch, agentID)
 		}
 
 		// Verify the worktree directory exists.
@@ -261,8 +261,8 @@ func TestListCodeWorktrees_FiltersDelegationPathAndBranch(t *testing.T) {
 
 	// Verify both returned worktrees are delegation-owned.
 	for _, wt := range worktrees {
-		if !strings.HasPrefix(wt.Branch, "delegate-") {
-			t.Errorf("worktree branch does not start with 'delegate-': %s", wt.Branch)
+		if !strings.HasPrefix(wt.Branch, "delegate/") {
+			t.Errorf("worktree branch does not start with 'delegate/': %s", wt.Branch)
 		}
 	}
 }
@@ -287,8 +287,15 @@ func TestPruneCodeWorktree_RemovesWorktree(t *testing.T) {
 		t.Errorf("before prune: ListCodeWorktrees returned %d, want 1", len(list))
 	}
 
+	// Extract the relID from the worktree path for pruning.
+	delegationBase := filepath.Join(repo, ".steiner", "worktrees")
+	relID, err := filepath.Rel(delegationBase, wt.Path)
+	if err != nil {
+		t.Fatalf("extract relID: %v", err)
+	}
+
 	// Prune it.
-	if err := PruneCodeWorktree(ctx, repo, "prune-test"); err != nil {
+	if err := PruneCodeWorktree(ctx, repo, relID); err != nil {
 		t.Fatalf("PruneCodeWorktree failed: %v", err)
 	}
 
@@ -313,7 +320,8 @@ func TestPruneCodeWorktree_ToleratesMissing(t *testing.T) {
 	defer cleanup()
 
 	// Attempt to prune a non-existent worktree (should not error).
-	err := PruneCodeWorktree(ctx, repo, "nonexistent")
+	// Use a relID path structure (hash/branch/agentid).
+	err := PruneCodeWorktree(ctx, repo, "abcd1234/main/nonexistent")
 	if err != nil {
 		t.Errorf("PruneCodeWorktree should tolerate missing worktree, got error: %v", err)
 	}
@@ -345,7 +353,7 @@ func TestPruneCodeWorktree_RefusesForeignWorktree(t *testing.T) {
 		t.Errorf("foreign worktree directory should still exist after refused prune")
 	}
 
-	// Verify it's still in git worktree list.
+	// Verify it's still in git worktree list (not in delegation list).
 	list, err := ListCodeWorktrees(repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
@@ -487,7 +495,7 @@ func TestPruneAllCodeWorktrees_SkipsForeignWorktreeInDelegationPath(t *testing.T
 	foreignFound := false
 	for _, entry := range beforeList {
 		if strings.HasPrefix(entry.Path, filepath.Join(repo, ".steiner", "worktrees")) {
-			if strings.HasPrefix(entry.Branch, "delegate-") {
+			if strings.HasPrefix(entry.Branch, "delegate/") {
 				delegationCount++
 			} else if strings.Contains(entry.Path, "foreign-oneshot") {
 				foreignFound = true
@@ -535,6 +543,138 @@ func TestPruneAllCodeWorktrees_SkipsForeignWorktreeInDelegationPath(t *testing.T
 	}
 	if !foreignStillExists {
 		t.Errorf("foreign worktree should still be in git list after prune-all")
+	}
+}
+
+func TestProvisionCodeWorktree_CollisionFix(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Provision a worktree with agentID "child-1" in the first "process".
+	wt1, err := ProvisionCodeWorktree(ctx, repo, "child-1")
+	if err != nil {
+		t.Fatalf("first ProvisionCodeWorktree failed: %v", err)
+	}
+
+	// Verify it's in the list.
+	list1, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListCodeWorktrees after first provision failed: %v", err)
+	}
+	if len(list1) != 1 {
+		t.Fatalf("expected 1 worktree after first provision, got %d", len(list1))
+	}
+	firstPath := list1[0].Path
+	firstBranch := list1[0].Branch
+
+	// Extract relID and prune it.
+	delegationBase := filepath.Join(repo, ".steiner", "worktrees")
+	relID1, err := filepath.Rel(delegationBase, wt1.Path)
+	if err != nil {
+		t.Fatalf("extract relID: %v", err)
+	}
+
+	if err := PruneCodeWorktree(ctx, repo, relID1); err != nil {
+		t.Fatalf("PruneCodeWorktree failed: %v", err)
+	}
+
+	// Verify it's gone.
+	list, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListCodeWorktrees after prune failed: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 worktrees after prune, got %d", len(list))
+	}
+
+	// Simulate a new process by resetting the process hash.
+	resetProcessHashForTesting()
+
+	// Provision a worktree with the same agentID "child-1" in the "new process".
+	// This should succeed without collision because the process hash is different.
+	_, err = ProvisionCodeWorktree(ctx, repo, "child-1")
+	if err != nil {
+		t.Fatalf("second ProvisionCodeWorktree failed (this was the bug): %v", err)
+	}
+
+	// Verify it's in the list.
+	list2, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListCodeWorktrees after second provision failed: %v", err)
+	}
+	if len(list2) != 1 {
+		t.Fatalf("expected 1 worktree after second provision, got %d", len(list2))
+	}
+	secondPath := list2[0].Path
+	secondBranch := list2[0].Branch
+
+	// Verify the paths are different (different process hashes mean different paths).
+	if firstPath == secondPath {
+		t.Errorf("paths should be different due to different process hashes: %s == %s", firstPath, secondPath)
+	}
+
+	// Verify the branches are different (different process hashes mean different branches).
+	if firstBranch == secondBranch {
+		t.Errorf("branches should be different due to different process hashes: %s == %s", firstBranch, secondBranch)
+	}
+
+	// Both should start with "delegate/".
+	if !strings.HasPrefix(firstBranch, "delegate/") {
+		t.Errorf("first branch should start with 'delegate/': %s", firstBranch)
+	}
+	if !strings.HasPrefix(secondBranch, "delegate/") {
+		t.Errorf("second branch should start with 'delegate/': %s", secondBranch)
+	}
+}
+
+func TestProvisionCodeWorktree_SameBranchDifferentAgents(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Provision two worktrees with different agentIDs in the same process (same hash, same branch).
+	wt1, err := ProvisionCodeWorktree(ctx, repo, "agent-1")
+	if err != nil {
+		t.Fatalf("first ProvisionCodeWorktree failed: %v", err)
+	}
+
+	wt2, err := ProvisionCodeWorktree(ctx, repo, "agent-2")
+	if err != nil {
+		t.Fatalf("second ProvisionCodeWorktree failed: %v", err)
+	}
+
+	// Verify both are in the list.
+	list, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListCodeWorktrees failed: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 worktrees, got %d", len(list))
+	}
+
+	// Verify they have different paths (nested under same hash/branch but different agentID).
+	if wt1.Path == wt2.Path {
+		t.Errorf("worktree paths should be different: %s == %s", wt1.Path, wt2.Path)
+	}
+
+	// Verify they have different branches.
+	if wt1.Branch == wt2.Branch {
+		t.Errorf("worktree branches should be different: %s == %s", wt1.Branch, wt2.Branch)
+	}
+
+	// Both should be under the same hash/branch prefix (same process, same parent branch).
+	// Extract the process hash and branch from the paths.
+	// wt1.Path is like: <projectRoot>/.steiner/worktrees/<hash>/<branch>/agent-1
+	// wt2.Path is like: <projectRoot>/.steiner/worktrees/<hash>/<branch>/agent-2
+	rel1, _ := filepath.Rel(filepath.Join(repo, ".steiner", "worktrees"), wt1.Path)
+	rel2, _ := filepath.Rel(filepath.Join(repo, ".steiner", "worktrees"), wt2.Path)
+
+	// Both should have the same prefix (hash/branch), differing only in agentID.
+	rel1Prefix := filepath.Dir(rel1)
+	rel2Prefix := filepath.Dir(rel2)
+	if rel1Prefix != rel2Prefix {
+		t.Errorf("siblings should share hash/branch prefix: %s != %s", rel1Prefix, rel2Prefix)
 	}
 }
 

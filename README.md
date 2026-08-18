@@ -199,7 +199,7 @@ Delegation is steiner's primary context management strategy. `steiner` exposes e
 
 Delegation calls can fan out in parallel; configure the width with `sub_agent.max_parallel` (default `3`, `0` unbounded, `1` serial). See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
 
-Every `code` sub-agent automatically runs in its own isolated, runtime-provisioned git worktree under `.steiner/worktrees/`. Worktrees are automatically cleaned up when the child session ends, but can also be managed manually with `steiner worktrees --list` (show all delegation worktrees), `steiner worktrees --prune <id>` (remove a worktree by agent ID), or `steiner worktrees --prune-all` (remove all delegation worktrees).
+Every `code` sub-agent automatically runs in its own isolated, runtime-provisioned git worktree under `.steiner/worktrees/`. Worktrees persist until explicitly pruned via the CLI: `steiner worktrees --list` (show all delegation worktrees), `steiner worktrees --prune <id>` (remove a worktree by its ID), or `steiner worktrees --prune-all` (remove all delegation worktrees).
 
 ## Execution modes
 

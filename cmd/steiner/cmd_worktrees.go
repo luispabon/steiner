@@ -20,7 +20,7 @@ func newWorktreesCommand(_ *cliFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "worktrees",
 		Short: "List or prune code delegation worktrees",
-		Long:  "Manage code worktrees provisioned by the code sub-agent delegation.\n\nUse --list to show all provisioned worktrees, --prune <id> to remove a specific worktree by agent ID, or --prune-all to remove all worktrees.",
+		Long:  "Manage code worktrees provisioned by the code sub-agent delegation.\n\nUse --list to show all provisioned worktrees, --prune <id> to remove a specific worktree by its ID (shown in --list output), or --prune-all to remove all worktrees.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			flagsSet := 0
@@ -58,7 +58,7 @@ func newWorktreesCommand(_ *cliFlags) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&list, "list", false, "list all provisioned worktrees")
-	cmd.Flags().StringVar(&prune, "prune", "", "remove a worktree by agent ID")
+	cmd.Flags().StringVar(&prune, "prune", "", "remove a worktree by its ID (copy from --list output)")
 	cmd.Flags().BoolVar(&pruneAll, "prune-all", false, "remove all provisioned worktrees")
 	return cmd
 }
@@ -75,27 +75,31 @@ func runWorktreesList(cmd *cobra.Command, projectRoot string) error {
 		return nil
 	}
 
-	stream.Printf("%-40s %-30s %s\n", "Agent ID", "Branch", "Path")
+	delegationBase := filepath.Join(projectRoot, ".steiner", "worktrees")
+	stream.Printf("%-50s %-30s %s\n", "ID", "Branch", "Path")
 	for _, wt := range worktrees {
-		agentID := filepath.Base(wt.Path)
-		stream.Printf("%-40s %-30s %s\n", agentID, wt.Branch, wt.Path)
+		relID, err := filepath.Rel(delegationBase, wt.Path)
+		if err != nil {
+			relID = wt.Path
+		}
+		stream.Printf("%-50s %-30s %s\n", relID, wt.Branch, wt.Path)
 	}
 
 	return nil
 }
 
-func runWorktreesPrune(cmd *cobra.Command, projectRoot, agentID string) error {
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" {
-		return fmt.Errorf("--prune requires a non-empty agent ID")
+func runWorktreesPrune(cmd *cobra.Command, projectRoot, relID string) error {
+	relID = strings.TrimSpace(relID)
+	if relID == "" {
+		return fmt.Errorf("--prune requires a non-empty worktree ID")
 	}
 
-	err := delegation.PruneCodeWorktree(cmd.Context(), projectRoot, agentID)
+	err := delegation.PruneCodeWorktree(cmd.Context(), projectRoot, relID)
 	if err != nil {
 		return fmt.Errorf("prune code worktree: %w", err)
 	}
 
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "removed worktree: %s\n", agentID)
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "removed worktree: %s\n", relID)
 	return err
 }
 

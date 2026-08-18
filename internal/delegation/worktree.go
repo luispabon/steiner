@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -28,16 +29,70 @@ type CodeWorktree struct {
 	Branch string
 }
 
+// getParentBranchName returns the current branch of the parent repo, or "detached" if HEAD is detached.
+func getParentBranchName(ctx context.Context, projectRoot string) (string, error) {
+	out, err := gitOutput(ctx, projectRoot, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	branch := strings.TrimSpace(out)
+	if branch == "HEAD" {
+		branch = "detached"
+	}
+	return branch, nil
+}
+
+// sanitizeBranchName removes or replaces characters that are unsafe in git branch names
+// or filesystem paths. It preserves "/" for nested namespacing.
+func sanitizeBranchName(name string) string {
+	// Git disallows these characters in branch names:
+	// space, ~, ^, :, ?, *, [, leading/trailing /, consecutive /, trailing .lock, ..
+	// Also disallow backslash for cross-platform safety.
+	// We'll replace these with underscores, and strip leading/trailing slashes.
+
+	// Replace problematic characters with underscores.
+	name = regexp.MustCompile(`[~^:?\[\]\\*\x00]`).ReplaceAllString(name, "_")
+
+	// Replace spaces with underscores.
+	name = strings.ReplaceAll(name, " ", "_")
+
+	// Remove leading/trailing slashes.
+	name = strings.Trim(name, "/")
+
+	// Replace consecutive slashes with a single slash.
+	name = regexp.MustCompile(`/+`).ReplaceAllString(name, "/")
+
+	// Remove trailing .lock suffix (not strictly necessary but defensive).
+	name = strings.TrimSuffix(name, ".lock")
+
+	// Handle double-dot path component edge case.
+	name = strings.ReplaceAll(name, "..", "_")
+
+	return name
+}
+
 // ProvisionCodeWorktree provisions a new code worktree for the given agentID,
 // branching from the current HEAD. It holds worktreeMu for the entire
 // provisioning and verification critical section to serialize concurrent
-// git worktree add calls.
+// git worktree add calls. The worktree path and branch are derived from the
+// process hash, parent branch name, and agentID to ensure collision-free
+// isolation across process restarts.
 func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (CodeWorktree, error) {
 	worktreeMu.Lock()
 	defer worktreeMu.Unlock()
 
-	worktreePath := filepath.Join(projectRoot, ".steiner", "worktrees", agentID)
-	branchName := "delegate-" + agentID
+	// Derive the parent branch name and process hash for collision-free identity.
+	parentBranch, err := getParentBranchName(ctx, projectRoot)
+	if err != nil {
+		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
+	}
+	sanitizedBranch := sanitizeBranchName(parentBranch)
+	processHash := getProcessHash()
+
+	// Construct the nested worktree path and branch name.
+	relID := filepath.Join(processHash, sanitizedBranch, agentID)
+	worktreePath := filepath.Join(projectRoot, ".steiner", "worktrees", relID)
+	branchName := "delegate/" + strings.ReplaceAll(relID, string(filepath.Separator), "/")
 
 	// Prune stale metadata and remove any existing path at this location.
 	if err := runGit(ctx, projectRoot, "worktree", "prune"); err != nil {
@@ -45,7 +100,7 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 	}
 
 	// Remove stale admin dir under the common .git dir.
-	if err := removeWorktreeAdminDirForAgentID(ctx, projectRoot, agentID); err != nil {
+	if err := removeWorktreeAdminDirForRelID(ctx, projectRoot, relID); err != nil {
 		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
 	}
 
@@ -63,7 +118,7 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 	if err := runGit(ctx, projectRoot, "worktree", "add", "-b", branchName, worktreePath, "HEAD"); err != nil {
 		// Best-effort cleanup on failure.
 		_ = runGit(ctx, projectRoot, "worktree", "prune")
-		_ = removeWorktreeAdminDirForAgentID(ctx, projectRoot, agentID)
+		_ = removeWorktreeAdminDirForRelID(ctx, projectRoot, relID)
 		_ = os.RemoveAll(worktreePath)
 		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
 	}
@@ -72,7 +127,7 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 	if err := verifyCodeWorktree(ctx, worktreePath, branchName); err != nil {
 		// Best-effort cleanup on failure.
 		_ = runGit(ctx, projectRoot, "worktree", "prune")
-		_ = removeWorktreeAdminDirForAgentID(ctx, projectRoot, agentID)
+		_ = removeWorktreeAdminDirForRelID(ctx, projectRoot, relID)
 		_ = os.RemoveAll(worktreePath)
 		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
 	}
@@ -107,7 +162,7 @@ func DirtyPaths(ctx context.Context, projectRoot string) ([]string, error) {
 
 // ListCodeWorktrees lists all provisioned code worktrees owned by delegation under
 // projectRoot/.steiner/worktrees, parsing git worktree list --porcelain.
-// Only includes worktrees whose branch name starts with "delegate-" (the delegation ownership marker).
+// Only includes worktrees whose branch name starts with "delegate/" (the delegation ownership marker).
 func ListCodeWorktrees(projectRoot string) ([]CodeWorktree, error) {
 	entries, err := listWorktreeEntries(context.Background(), projectRoot)
 	if err != nil {
@@ -118,11 +173,11 @@ func ListCodeWorktrees(projectRoot string) ([]CodeWorktree, error) {
 	var worktrees []CodeWorktree
 
 	for _, entry := range entries {
-		// Only include worktrees under .steiner/worktrees AND with delegate- branch.
+		// Only include worktrees under .steiner/worktrees AND with delegate/ branch.
 		if !strings.HasPrefix(entry.Path, delegationPath) {
 			continue
 		}
-		if !strings.HasPrefix(entry.Branch, "delegate-") {
+		if !strings.HasPrefix(entry.Branch, "delegate/") {
 			continue
 		}
 
@@ -193,12 +248,13 @@ func listWorktreeEntries(ctx context.Context, projectRoot string) ([]CodeWorktre
 	return worktrees, nil
 }
 
-// PruneCodeWorktree removes the code worktree for the given agentID if and only if
-// it is owned by delegation (branch starts with "delegate-").
+// PruneCodeWorktree removes the code worktree identified by relID (relative path
+// under .steiner/worktrees/) if and only if it is owned by delegation
+// (branch starts with "delegate/").
 // It tolerates "not a working tree" errors (already-removed paths) as idempotent no-ops,
 // but refuses to remove worktrees not owned by delegation.
-func PruneCodeWorktree(ctx context.Context, projectRoot, agentID string) error {
-	worktreePath := filepath.Clean(filepath.Join(projectRoot, ".steiner", "worktrees", agentID))
+func PruneCodeWorktree(ctx context.Context, projectRoot, relID string) error {
+	worktreePath := filepath.Clean(filepath.Join(projectRoot, ".steiner", "worktrees", relID))
 
 	// Check if the worktree is known to git and what branch it has.
 	entries, err := listWorktreeEntries(ctx, projectRoot)
@@ -216,10 +272,10 @@ func PruneCodeWorktree(ctx context.Context, projectRoot, agentID string) error {
 		}
 	}
 
-	// If found, verify it's delegation-owned (branch starts with "delegate-").
+	// If found, verify it's delegation-owned (branch starts with "delegate/").
 	if foundEntry != nil {
-		if !strings.HasPrefix(foundEntry.Branch, "delegate-") {
-			return fmt.Errorf("prune code worktree: %w: branch %q does not start with \"delegate-\"",
+		if !strings.HasPrefix(foundEntry.Branch, "delegate/") {
+			return fmt.Errorf("prune code worktree: %w: branch %q does not start with \"delegate/\"",
 				ErrWorktreeNotDelegation, foundEntry.Branch)
 		}
 	}
@@ -238,7 +294,7 @@ func PruneCodeWorktree(ctx context.Context, projectRoot, agentID string) error {
 	}
 
 	// Remove stale admin dir under the common .git dir.
-	if err := removeWorktreeAdminDirForAgentID(ctx, projectRoot, agentID); err != nil {
+	if err := removeWorktreeAdminDirForRelID(ctx, projectRoot, relID); err != nil {
 		return err
 	}
 
@@ -247,17 +303,23 @@ func PruneCodeWorktree(ctx context.Context, projectRoot, agentID string) error {
 
 // PruneAllCodeWorktrees prunes all delegation-owned code worktrees under projectRoot/.steiner/worktrees,
 // collecting errors with errors.Join rather than stopping at the first failure.
-// Only prunes worktrees known to git with branches starting with "delegate-".
+// Only prunes worktrees known to git with branches starting with "delegate/".
 func PruneAllCodeWorktrees(ctx context.Context, projectRoot string) error {
 	worktrees, err := ListCodeWorktrees(projectRoot)
 	if err != nil {
 		return err
 	}
 
+	delegationBase := filepath.Join(projectRoot, ".steiner", "worktrees")
 	var errs []error
 	for _, wt := range worktrees {
-		agentID := filepath.Base(wt.Path)
-		if err := PruneCodeWorktree(ctx, projectRoot, agentID); err != nil {
+		// Extract the relative ID (path suffix under .steiner/worktrees/).
+		relID, err := filepath.Rel(delegationBase, wt.Path)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("extract relative worktree ID: %w", err))
+			continue
+		}
+		if err := PruneCodeWorktree(ctx, projectRoot, relID); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -319,7 +381,7 @@ func gitOutput(ctx context.Context, workDir string, args ...string) (string, err
 	return stdout.String(), nil
 }
 
-func removeWorktreeAdminDirForAgentID(ctx context.Context, projectRoot, agentID string) error {
+func removeWorktreeAdminDirForRelID(ctx context.Context, projectRoot, relID string) error {
 	commonDir, err := gitOutput(ctx, projectRoot, "rev-parse", "--git-common-dir")
 	if err != nil {
 		return err
@@ -329,7 +391,7 @@ func removeWorktreeAdminDirForAgentID(ctx context.Context, projectRoot, agentID 
 	if !filepath.IsAbs(adminDir) {
 		adminDir = filepath.Join(projectRoot, adminDir)
 	}
-	adminDir = filepath.Join(adminDir, "worktrees", agentID)
+	adminDir = filepath.Join(adminDir, "worktrees", relID)
 
 	if err := os.RemoveAll(adminDir); err != nil {
 		return fmt.Errorf("remove worktree admin dir: %w", err)
