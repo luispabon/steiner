@@ -399,15 +399,15 @@ func TestParallelDelegationEndToEndCancellation(t *testing.T) {
 func TestParallelDelegationCodeAgentsReceiveDistinctWorktrees(t *testing.T) {
 	// Setup a real git repository for the harness to use.
 	tmpRepo := t.TempDir()
-	runCmd(t, tmpRepo, "git", "init")
-	runCmd(t, tmpRepo, "git", "config", "user.email", "test@example.com")
-	runCmd(t, tmpRepo, "git", "config", "user.name", "Test User")
+	runGitCmd(t, tmpRepo, "git", "init")
+	runGitCmd(t, tmpRepo, "git", "config", "user.email", "test@example.com")
+	runGitCmd(t, tmpRepo, "git", "config", "user.name", "Test User")
 	initialFile := filepath.Join(tmpRepo, "initial.txt")
 	if err := os.WriteFile(initialFile, []byte("initial"), 0o644); err != nil {
 		t.Fatalf("write initial file: %v", err)
 	}
-	runCmd(t, tmpRepo, "git", "add", "initial.txt")
-	runCmd(t, tmpRepo, "git", "commit", "-m", "initial commit")
+	runGitCmd(t, tmpRepo, "git", "add", "initial.txt")
+	runGitCmd(t, tmpRepo, "git", "commit", "-m", "initial commit")
 
 	// Create a harness with two parallel code agents.
 	h := newParallelHarness(delegationParentResponse("code", "code"), 2)
@@ -435,7 +435,8 @@ func TestParallelDelegationCodeAgentsReceiveDistinctWorktrees(t *testing.T) {
 	result := startParallelParent(context.Background(), h, 2, tool.NewRegistry())
 	waitParallel(t, h.allStarted, "two code children did not start")
 	close(h.done)
-	if run := receiveParallel(t, result, "parallel code run did not finish"); run.err != nil {
+	run := receiveParallel(t, result, "parallel code run did not finish")
+	if run.err != nil {
 		t.Fatal(run.err)
 	}
 
@@ -477,8 +478,8 @@ func TestParallelDelegationCodeAgentsReceiveDistinctWorktrees(t *testing.T) {
 	}
 }
 
-// runCmd is a helper for running git commands in tests.
-func runCmd(t *testing.T, workDir string, args ...string) {
+// runGitCmd is a helper for running git commands in tests.
+func runGitCmd(t *testing.T, workDir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = workDir
