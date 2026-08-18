@@ -591,8 +591,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 			dd.output = payload.Output
 		}
-		b.segments[loc.seg].renderDirty = true
-		b.gen++
+		b.markDelegationDirty(loc.seg)
 		delete(b.activeDelegations, payload.AgentID)
 		return
 	}
@@ -626,8 +625,7 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 			dd.status = "failed"
 			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 		}
-		b.segments[loc.seg].renderDirty = true
-		b.gen++
+		b.markDelegationDirty(loc.seg)
 		delete(b.activeDelegations, payload.AgentID)
 		return
 	}
