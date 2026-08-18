@@ -145,6 +145,10 @@ Mirror the review skill's fix loop exactly:
 - After fixes, run verification (scoped checks or `make check`)
 - Lightweight re-review: check whether fixes introduced new quality issues in the same four categories. Repeat only if new blocking findings emerge. Cap at 2 fix iterations.
 
+### Warm Follow-Up Policy
+
+Resume a suitable warm agent before cold dispatch only when it remains available for the same bounded deliverable in the same still-live workspace and scope. Follow-ups are sequential. For direct delegation, retain the responsible implementation agent through related correction loops. For isolated delegation, cold-dispatch after the agent is closed or its worktree is merged and deleted, even if the session reports resumable. A resumable session alone does not prove that an isolated worktree still exists. Use the responsible implementation agent for related corrections and the original reviewer only for a narrow re-check. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees. Workflow handoffs are not safe continuation boundaries.
+
 ### Worktree Provisioning
 
 Always create worktrees under `.steiner/worktrees/` inside the project root. Do not use `/tmp` or other system temporary directories — they may be sandboxed and silently fail.

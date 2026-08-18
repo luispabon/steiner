@@ -117,6 +117,9 @@ When dispatching several mutating sub-agents in one turn, remember that they run
 // advisorEnabled; later steps renumber so the list stays contiguous.
 func delegationRouting(advisorEnabled bool) string {
 	var b strings.Builder
+	b.WriteString("\n## Continuing sub-agents\n\n")
+	b.WriteString("Use a reuse-first lifecycle within each bounded deliverable. After each sub-agent result, inspect `session_resumable`, but treat it as session state, not workspace validation: prefer `follow_up` before cold dispatch only when the session is resumable, the next request remains within the same bounded deliverable, and the same live workspace is available. `follow_up` resumes the saved agent session, retaining its conversation and tools; it can use the workspace only when that same live workspace still exists. Use warm `follow_up` for continuation of the same discovery, implementation step, or narrow review scope.\n\n")
+	b.WriteString("A stored session can remain `session_resumable` after its worktree is destroyed, so that result alone never authorises continuation. Do not continue after isolated worktree cleanup, a completed workflow handoff, a changed branch or workspace, plan/build incompatibility, a cleared session, a material scope or lane change, or concurrent calls. Follow-ups must be sequential, never concurrent. Cold dispatch is for a new bounded deliverable, no owner meeting all continuation conditions, or one of those exceptions. Reuse a reviewer only for narrow confirmation of the same review scope in the same live workspace; use a fresh independent reviewer for wider or high-risk review.\n\n")
 	b.WriteString("\n## Your workflow\n\n")
 	b.WriteString("Unless a skill overrides it, follow this workflow after receiving a task from the user:\n\n")
 	for i, step := range delegationWorkflowSteps(advisorEnabled) {
@@ -138,13 +141,14 @@ func delegationRouting(advisorEnabled bool) string {
 	b.WriteString("When delegating to `code`, name the exact files and relevant symbols or sections to change. Pre-digest the design: the `code` agent executes; it does not design. Assign one deliverable per task.\n\n")
 	b.WriteString("When delegating to `review`, scope the task to specific files or a diff range and state what to check.\n\n")
 	b.WriteString("Sub-agents receive only the task you provide. They cannot delegate or ask the user questions. Include context you already hold (paths, symbols, and relevant excerpts), rather than making the sub-agent rediscover it. Include only task-relevant conversation context.\n\n")
-	b.WriteString("Every sub-agent task MUST use every section of this template:\n\n")
+	b.WriteString("A cold initial sub-agent brief is six-part and MUST use every section of this template:\n\n")
 	b.WriteString("* Objective: What the sub-agent must accomplish—find X, change Y, or evaluate Z.\n")
 	b.WriteString("* Context: The file paths, symbols, and background it needs.\n")
 	b.WriteString("* Deliverable: The required output—an evidence-backed report, code change, pass/fail result, or recommendation.\n")
 	b.WriteString("* Constraints: What not to touch, behaviour to preserve, packages to remain within, and actions it must not take.\n")
 	b.WriteString("* Success criteria: How it knows the task is complete.\n")
-	b.WriteString("* Checks to run: Applicable commands.\n")
+	b.WriteString("* Checks to run: Applicable commands.\n\n")
+	b.WriteString("A `follow_up` message is delta-focused and stays within the same bounded deliverable and same live workspace, not a new six-part brief: state what changed, the next action, and any new constraints, success criteria, or checks. Confirm the workspace is still live; do not use it after cleanup or a completed workflow handoff. Rely on the retained session context and do not repeat unchanged sections.\n")
 	return b.String()
 }
 
@@ -155,7 +159,7 @@ func delegationWorkflowSteps(advisorEnabled bool) []string {
 	steps := []string{
 		"Use `explore` for any initial code-local investigation.",
 		"Ask the user clarifying questions, one at a time.",
-		"Perform any other required research using `research` or `explore`. Continue an existing investigation with `follow_up` to the same sub-agent; do not reproduce its searches or reads locally.",
+		"Perform any other required research using `research` or `explore`. For continuation of the same bounded discovery deliverable, prefer `follow_up` to a suitable agent only when its session is resumable and the same live workspace remains available; otherwise cold-dispatch. Do not reproduce its searches or reads locally.",
 		"Summarise your understanding under Goal, Assumptions, Scope, and Unknowns. Ask the user to confirm or correct it, then stop. Do not present a plan or begin implementation in the same turn. After discussion, revise and restate the summary, ask for confirmation again, then stop.",
 		"Only after the user explicitly confirms the summary, present a high-level implementation plan. Ask the user to confirm or correct it, then stop. Do not decompose or implement the plan in the same turn. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After discussion, revise and restate the plan, ask for confirmation again, then stop. Proceed only after explicit confirmation in a later user turn.",
 		"Break the plan into implementation steps, each a single logical unit that a small model can hold in context and execute without further design decisions—for example, a type, its builder, and its tests. Merge small steps with their neighbours.",
@@ -164,9 +168,9 @@ func delegationWorkflowSteps(advisorEnabled bool) []string {
 		steps = append(steps, "Consult `advisor`, if available, and incorporate its feedback.")
 	}
 	return append(steps,
-		"Dispatch one `code` sub-agent for each implementation step.",
-		"After implementation completes, dispatch a single `review` sub-agent to check the work.",
-		"If amendments are needed, dispatch a `code` sub-agent to address all review findings, then run `review` again.",
+		"For each new implementation step, dispatch one cold `code` sub-agent. For continuation within that same step's bounded deliverable, use `follow_up` to its `code` agent only when its session is resumable and the same live workspace remains available; never reuse it across isolated worktree cleanup or a completed workflow handoff.",
+		"After implementation completes, dispatch a fresh independent `review` sub-agent to check the work.",
+		"If amendments are needed within the same implementation step's bounded deliverable, use `follow_up` to the implementing `code` agent only when its session is resumable and the same live workspace remains available; otherwise cold-dispatch `code`. Use `follow_up` to the reviewer only for narrow confirmation of the same review scope in the same live workspace; dispatch a fresh independent `review` for wider or high-risk review.",
 		"Finally, call `sanity_check` to run the project’s tests and checks.",
 	)
 }
