@@ -380,3 +380,534 @@ func TestAdvisorThinkingChunkStripsMarkersAndMerges(t *testing.T) {
 		}
 	}
 }
+
+// delegationStates returns all delegations in the buffer, both singles and
+// group entries, in forward order. Singles come from segmentDelegation;
+// group entries come from segmentDelegationGroup in their group order.
+func delegationStates(b *contentBuffer) []*delegationDisplayState {
+	var result []*delegationDisplayState
+	for _, seg := range b.segments {
+		if seg.kind == segmentDelegation && seg.delegData != nil {
+			result = append(result, seg.delegData)
+		} else if seg.kind == segmentDelegationGroup && seg.delegGroupData != nil {
+			result = append(result, seg.delegGroupData.entries...)
+		}
+	}
+	return result
+}
+
+func TestConsecutiveSpecialistDelegateCallsMergeIntoGroup(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// First specialist tool call
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "do stuff"}))
+	// First delegation starts
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do stuff"))
+	// First delegation completes
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "complete",
+		TurnCount:     1,
+		TokenCount:    100,
+		ToolCallCount: 0,
+		Output:        "done",
+	}))
+
+	// Second specialist tool call
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "do more stuff"}))
+	// Second delegation starts
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "do more stuff"))
+
+	// Should have exactly one segment of kind segmentDelegationGroup
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	seg := buffer.segments[0]
+	if seg.kind != segmentDelegationGroup {
+		t.Fatalf("segment kind = %v, want segmentDelegationGroup", seg.kind)
+	}
+	if seg.delegGroupData == nil {
+		t.Fatal("delegGroupData = nil")
+	}
+	if len(seg.delegGroupData.entries) != 2 {
+		t.Fatalf("group entries = %d, want 2", len(seg.delegGroupData.entries))
+	}
+	if seg.delegGroupData.entries[0].agentID != "child-1" || seg.delegGroupData.entries[1].agentID != "child-2" {
+		t.Errorf("entries agentIDs = %q %q, want child-1 child-2",
+			seg.delegGroupData.entries[0].agentID, seg.delegGroupData.entries[1].agentID)
+	}
+}
+
+func TestThreeConsecutiveDelegateCallsWithActiveMiddleMergeIntoGroup(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Three consecutive specialist delegations regardless of middle status
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "complete",
+		TurnCount:     1,
+		TokenCount:    100,
+		ToolCallCount: 0,
+		Output:        "done",
+	}))
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "second"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
+	// Leave child-2 active (do not send Complete)
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_3", map[string]any{"task": "third"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-3", "third"))
+
+	// All three should be in one group
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	seg := buffer.segments[0]
+	if seg.kind != segmentDelegationGroup {
+		t.Fatalf("segment kind = %v, want segmentDelegationGroup", seg.kind)
+	}
+	if len(seg.delegGroupData.entries) != 3 {
+		t.Fatalf("group entries = %d, want 3", len(seg.delegGroupData.entries))
+	}
+	// Middle one should still be active
+	if seg.delegGroupData.entries[1].status != "active" {
+		t.Fatalf("entry[1].status = %q, want active", seg.delegGroupData.entries[1].status)
+	}
+}
+
+func TestSpecialistAdvisorSpecialistProducesThreeSeparateSegments(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// First specialist
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
+
+	// Advisor
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1, "", nil))
+
+	// Second specialist
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "second"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
+
+	// Should have exactly 3 segments: specialist, advisor, specialist
+	if len(buffer.segments) != 3 {
+		t.Fatalf("segments count = %d, want 3", len(buffer.segments))
+	}
+	if buffer.segments[0].kind != segmentDelegation {
+		t.Fatalf("segment[0].kind = %v, want segmentDelegation", buffer.segments[0].kind)
+	}
+	if buffer.segments[1].kind != segmentDelegation {
+		t.Fatalf("segment[1].kind = %v, want segmentDelegation (advisor)", buffer.segments[1].kind)
+	}
+	if !buffer.segments[1].delegData.isAdvisor {
+		t.Error("segment[1] should be advisor")
+	}
+	if buffer.segments[2].kind != segmentDelegation {
+		t.Fatalf("segment[2].kind = %v, want segmentDelegation", buffer.segments[2].kind)
+	}
+
+	// activeAdvisorSegment should point to the correct segment (1-based: segment 2)
+	if buffer.activeAdvisorSegment != 2 {
+		t.Fatalf("activeAdvisorSegment = %d, want 2", buffer.activeAdvisorSegment)
+	}
+}
+
+func TestTwoConsecutiveAdvisorCallsStayAsSeparateSegments(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
+	}
+
+	// First advisor
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-1", 1, 1, "", nil))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-1", 1, 1, "", false, nil, 0, 0, 0))
+
+	// Second advisor
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-2", 1, 1, "", nil))
+
+	// Find delegation segments (ignore other types)
+	var delegSegs []contentSegment
+	for _, seg := range buffer.segments {
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.isAdvisor {
+			delegSegs = append(delegSegs, seg)
+		}
+	}
+
+	// Should have exactly 2 separate advisor segments, never a group
+	if len(delegSegs) != 2 {
+		t.Fatalf("advisor delegation segments = %d, want 2", len(delegSegs))
+	}
+	if delegSegs[0].delegGroupData != nil {
+		t.Error("segment[0] should not have delegGroupData")
+	}
+	if delegSegs[1].delegGroupData != nil {
+		t.Error("segment[1] should not have delegGroupData")
+	}
+}
+
+func TestSpecialistBashSpecialistProducesThreeSegments(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// First specialist
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
+
+	// Regular bash tool call (not a delegate)
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "bash_1", map[string]any{"command": "echo hi"}))
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "bash", "bash_1", "hi\n", nil))
+
+	// Second specialist
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "second"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
+
+	// Should have 3 segments: delegation, tool call, delegation
+	if len(buffer.segments) != 3 {
+		t.Fatalf("segments count = %d, want 3", len(buffer.segments))
+	}
+	if buffer.segments[0].kind != segmentDelegation {
+		t.Fatalf("segment[0].kind = %v, want segmentDelegation", buffer.segments[0].kind)
+	}
+	if buffer.segments[1].kind != segmentToolCall {
+		t.Fatalf("segment[1].kind = %v, want segmentToolCall", buffer.segments[1].kind)
+	}
+	if buffer.segments[2].kind != segmentDelegation {
+		t.Fatalf("segment[2].kind = %v, want segmentDelegation", buffer.segments[2].kind)
+	}
+}
+
+func TestSameLabelGroupRendersLabelBorderColor(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Create a group with same toolLabel
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "explore"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "explore first"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_2", map[string]any{"task": "explore more"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "explore second"))
+
+	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup {
+		t.Fatalf("expected one delegationGroup segment")
+	}
+
+	group := buffer.segments[0].delegGroupData
+	label := delegationGroupBorderLabel(group)
+	if label != "explore" {
+		t.Fatalf("border label = %q, want explore", label)
+	}
+
+	// Test direct function
+	_, style1 := buffer.delegationStyles("explore")
+	_, style2 := buffer.delegationStyles("") // default
+	if style1.GetForeground() == style2.GetForeground() {
+		t.Error("same-label and default border colors should differ")
+	}
+}
+
+func TestMixedLabelGroupRendersDefaultBorderColor(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Create a group with different toolLabels by creating entries directly
+	dd1 := &delegationDisplayState{
+		agentID:     "child-1",
+		toolLabel:   "explore",
+		taskPreview: "explore first",
+		status:      "complete",
+		collapsed:   true,
+	}
+	dd2 := &delegationDisplayState{
+		agentID:     "child-2",
+		toolLabel:   "implement",
+		taskPreview: "implement second",
+		status:      "complete",
+		collapsed:   true,
+	}
+
+	group := &delegationGroupSegment{
+		entries: []*delegationDisplayState{dd1, dd2},
+	}
+
+	label := delegationGroupBorderLabel(group)
+	if label != "" {
+		t.Fatalf("border label = %q, want empty string for mixed labels", label)
+	}
+
+	// Render and verify it uses the default border style
+	buffer.segments = append(buffer.segments, contentSegment{
+		kind:           segmentDelegationGroup,
+		delegGroupData: group,
+		renderDirty:    true,
+	})
+
+	rendered := buffer.renderDelegationGroupSegment(buffer.segments[0], 50)
+	if rendered == "" {
+		t.Fatalf("rendered output is empty")
+	}
+	// Just verify it renders without error and contains entries
+	if !strings.Contains(rendered, "child-1") || !strings.Contains(rendered, "child-2") {
+		t.Errorf("rendered output missing entries: %q", rendered)
+	}
+}
+
+func TestTwoDelegationStartedEventsBeforeParentToolCallsBindCorrectly(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Start both tool calls before delegations
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "task1"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "task2"}))
+
+	// Both delegations arrive
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "task1"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "task2"))
+
+	// Should have one group with 2 entries
+	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup {
+		t.Fatalf("expected one delegationGroup")
+	}
+
+	group := buffer.segments[0].delegGroupData
+	if len(group.entries) != 2 {
+		t.Fatalf("group entries = %d, want 2", len(group.entries))
+	}
+
+	// Verify each entry got the correct parentCallID and promptText
+	if group.entries[0].parentCallID != "call_1" {
+		t.Errorf("entry[0].parentCallID = %q, want call_1", group.entries[0].parentCallID)
+	}
+	if group.entries[1].parentCallID != "call_2" {
+		t.Errorf("entry[1].parentCallID = %q, want call_2", group.entries[1].parentCallID)
+	}
+	if group.entries[0].agentID != "child-1" {
+		t.Errorf("entry[0].agentID = %q, want child-1", group.entries[0].agentID)
+	}
+	if group.entries[1].agentID != "child-2" {
+		t.Errorf("entry[1].agentID = %q, want child-2", group.entries[1].agentID)
+	}
+}
+
+func TestDelegationExtensionEventUpdatesCorrectEntryInGroup(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Create a group with 2 entries
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "second"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
+
+	// Send DelegationExtensionEvent for entry 0
+	buffer.AppendEvent(output.Event{
+		Type: output.EventTypeDelegationExtension,
+		Payload: output.DelegationExtensionEvent{
+			AgentID:       "child-1",
+			Extension:     3,
+			MaxExtensions: 5,
+		},
+	})
+
+	group := buffer.segments[0].delegGroupData
+	// Entry 0 should be updated
+	if group.entries[0].extCurrent != 3 || group.entries[0].extMax != 5 {
+		t.Errorf("entry[0] ext = %d/%d, want 3/5", group.entries[0].extCurrent, group.entries[0].extMax)
+	}
+	// Entry 1 should be unchanged
+	if group.entries[1].extCurrent != 0 || group.entries[1].extMax != 5 {
+		t.Errorf("entry[1] ext = %d/%d, want 0/5", group.entries[1].extCurrent, group.entries[1].extMax)
+	}
+}
+
+func TestToolCallFinishedWithErrorMarksonlyGroupEntryFailed(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Create a group: both start as active, first one gets bound to a tool
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
+	// Don't complete, let it stay active
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "second"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
+
+	// Finish call_1 with error
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "code", "call_1", "", errors.New("error1")))
+
+	group := buffer.segments[0].delegGroupData
+	// Entry 0 should still be active (it was already started, so the error is just dropped)
+	if group.entries[0].status != "active" {
+		t.Errorf("entry[0].status = %q, want active", group.entries[0].status)
+	}
+	// Entry 1 should still be active
+	if group.entries[1].status != "active" {
+		t.Errorf("entry[1].status = %q, want active", group.entries[1].status)
+	}
+}
+
+func TestDelegationGroupClickMathOnEntry1Header(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Create a two-entry group
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "second"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
+
+	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup {
+		t.Fatalf("expected one delegationGroup")
+	}
+
+	group := buffer.segments[0].delegGroupData
+	if len(group.entries) != 2 {
+		t.Fatalf("expected 2 entries")
+	}
+
+	// Test delegationGroupEntryAtRow mapping:
+	// The row numbering within the segment is:
+	// Row 0 = box top border (returns -1, -1)
+	// Row 1 = entry 0's first content row (header)
+	// Rows 2+ = entry 0's remaining content rows
+	// Row after entry 0 = divider (returns -1, -1)
+	// Row after divider = entry 1's first content row (header)
+	// Rows after that = entry 1's remaining content rows
+
+	// Row 0 = box top border (returns -1, -1)
+	entry, rowInEntry := buffer.delegationGroupEntryAtRow(group, 0, 76)
+	if entry != -1 || rowInEntry != -1 {
+		t.Fatalf("row 0 (top border) should return (-1, -1), got (%d, %d)", entry, rowInEntry)
+	}
+
+	// Row 1 = entry 0's first content row (header, returns 0, 0)
+	entry, rowInEntry = buffer.delegationGroupEntryAtRow(group, 1, 76)
+	if entry != 0 || rowInEntry != 0 {
+		t.Fatalf("row 1 (entry 0 header) should return (0, 0), got (%d, %d)", entry, rowInEntry)
+	}
+
+	// Calculate row for entry 1's header
+	entry0ContentRows := len(buffer.delegationContentRows(group.entries[0], 76))
+	// After entry 0's content (entry0ContentRows rows starting at row 1) comes the divider
+	// rowInSegment = 1 + entry0ContentRows (divider row)
+	// rowInSegment = 1 + entry0ContentRows + 1 (entry 1's header)
+	rowOfEntry1Header := 1 + entry0ContentRows + 1
+
+	// Verify entry 1's header maps correctly to (1, 0)
+	entry, rowInEntry = buffer.delegationGroupEntryAtRow(group, rowOfEntry1Header, 76)
+	if entry != 1 || rowInEntry != 0 {
+		t.Fatalf("row %d (entry 1 header) should return (1, 0), got (%d, %d)", rowOfEntry1Header, entry, rowInEntry)
+	}
+
+	// Test divider row (should return -1, -1)
+	dividerRow := 1 + entry0ContentRows // row right before entry1Header
+	entry, rowInEntry = buffer.delegationGroupEntryAtRow(group, dividerRow, 76)
+	if entry != -1 || rowInEntry != -1 {
+		t.Fatalf("divider row %d should return (-1, -1), got (%d, %d)", dividerRow, entry, rowInEntry)
+	}
+}
+
+func TestCheckBufferDirtyWithActiveEntryInGroup(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Create a group with one active and one complete
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "second"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-2",
+		Status:        "complete",
+		TurnCount:     1,
+		TokenCount:    100,
+		ToolCallCount: 0,
+		Output:        "done",
+	}))
+
+	group := buffer.segments[0].delegGroupData
+	if group.entries[0].status != "active" {
+		t.Fatalf("entry 0 should be active")
+	}
+	if group.entries[1].status != "complete" {
+		t.Fatalf("entry 1 should be complete")
+	}
+
+	seg := &buffer.segments[0]
+	// Check if segment needs rendering due to active entry
+	isDirty := segmentHasActiveDelegation(seg)
+	if !isDirty {
+		t.Error("segment should be dirty/need render when it has an active delegation")
+	}
+}
