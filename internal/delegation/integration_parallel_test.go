@@ -481,7 +481,7 @@ func TestParallelDelegationCodeAgentsReceiveDistinctWorktrees(t *testing.T) {
 // runGitCmd is a helper for running git commands in tests.
 func runGitCmd(t *testing.T, workDir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.CommandContext(context.Background(), args[0], args[1:]...)
 	cmd.Dir = workDir
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

@@ -1286,7 +1286,7 @@ func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
 		t.Fatalf("write dirty file: %v", err)
 	}
 
-	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}}
 
@@ -1393,7 +1393,7 @@ func TestSpecializedHandler_CodeFallsBackOnProvisioningFailure(t *testing.T) {
 
 func TestSpecializedHandler_NonCodeAgentsNoWorktreeFields(t *testing.T) {
 	ctx := context.Background()
-	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}}
 

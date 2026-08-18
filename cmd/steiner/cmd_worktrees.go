@@ -12,7 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-func newWorktreesCommand(flags *cliFlags) *cobra.Command {
+func newWorktreesCommand(_ *cliFlags) *cobra.Command {
 	var list bool
 	var prune string
 	var pruneAll bool
@@ -22,7 +22,7 @@ func newWorktreesCommand(flags *cliFlags) *cobra.Command {
 		Short: "List or prune code delegation worktrees",
 		Long:  "Manage code worktrees provisioned by the code sub-agent delegation.\n\nUse --list to show all provisioned worktrees, --prune <id> to remove a specific worktree by agent ID, or --prune-all to remove all worktrees.",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			flagsSet := 0
 			if list {
 				flagsSet++
