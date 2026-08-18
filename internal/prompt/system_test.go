@@ -524,6 +524,7 @@ func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 		"It gives steering only; it does not mutate code, run tools, or replace your judgment.",
 		"It gives strategic guidance considering the full conversation context, rather than analysis of a single scoped sub-problem you hand it.",
 		"surface the conflict explicitly rather than silently complying or silently discarding the advice.",
+		"Use `files` only for artifacts whose contents are not already present in your context",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("advisor preamble missing %q in %q", want, content)
