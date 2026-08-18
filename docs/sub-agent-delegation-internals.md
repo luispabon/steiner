@@ -68,7 +68,7 @@ For `AgentTypeCode` only, `newSpecializedHandler` (`internal/delegation/speciali
 
 4. **Populates `DelegationResult` fields** (only for `AgentTypeCode`):
    - `WorktreePath` — the absolute path to the provisioned worktree, or empty if provisioning failed and fell back to the parent.
-   - `WorktreeBranch` — the branch name of the provisioned worktree (e.g. `delegate/main/agent-123`), or empty on fallback.
+   - `WorktreeBranch` — the branch name of the provisioned worktree (e.g. `delegate/a1b2c3d4/main/child-1`), or empty on fallback.
    - `Warnings` — a slice of human-readable warning strings covering dirty-tree changes and provisioning failures. Empty for successful provisioning of a clean tree.
 
 All other agent types (`explore`, `research`, `evaluate`, `sanity_check`, `review`, `vision`) skip worktree provisioning entirely; their results always have empty `WorktreePath`, `WorktreeBranch`, and `Warnings` fields. `follow_up` reuses the child's originally-captured `agent.RunRequest` from `SessionStore` verbatim, including its executor already rooted at the worktree from the original delegate call, so follow-up calls execute in the same isolated worktree without re-provisioning.
