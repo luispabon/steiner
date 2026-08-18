@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -128,17 +129,80 @@ func mergedAllowedTools(base, extras []string) []string {
 	return merged
 }
 
+// checkPlanModeCodeDenial returns an error if code agent is attempted in plan mode.
+func checkPlanModeCodeDenial(ctx context.Context, agentType AgentType) error {
+	if agentType == AgentTypeCode {
+		if mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode); ok && mode == config.ExecutionModePlan {
+			return fmt.Errorf("code: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
+				"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
+		}
+	}
+	return nil
+}
+
+// provisionCodeWorktreeAndWarnings checks for dirty changes and provisions an isolated
+// worktree for code agents, collecting warnings for any issues encountered.
+func provisionCodeWorktreeAndWarnings(ctx context.Context, workDir string, agentID string) (CodeWorktree, []string) {
+	var warnings []string
+	var provisionedWorktree CodeWorktree
+
+	// Best-effort dirty-tree check; skip silently on error.
+	if paths, err := DirtyPaths(ctx, workDir); err == nil && len(paths) > 0 {
+		shown := paths
+		if len(paths) > 10 {
+			shown = paths[:10]
+		}
+		warnings = append(warnings, fmt.Sprintf(
+			"parent working tree has %d uncommitted change(s) not visible to the isolated worktree: %s",
+			len(paths), strings.Join(shown, ", ")))
+		if len(paths) > 10 {
+			warnings[len(warnings)-1] = warnings[len(warnings)-1] + fmt.Sprintf(
+				"...and %d more", len(paths)-10)
+		}
+	}
+
+	// Provision the worktree; on failure, fall back to the parent tree with a warning.
+	var err error
+	provisionedWorktree, err = ProvisionCodeWorktree(ctx, workDir, agentID)
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf(
+			"failed to provision isolated worktree, falling back to the shared working tree: %v", err))
+	}
+
+	return provisionedWorktree, warnings
+}
+
+// applyCodeWorktreeResult updates the delegation result with worktree path, branch, and warnings.
+func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree, warnings []string) tool.ExecutionResult {
+	if delegationResult, ok := result.Value.(DelegationResult); ok {
+		if worktree.Path != "" {
+			delegationResult.WorktreePath = worktree.Path
+			delegationResult.WorktreeBranch = worktree.Branch
+		}
+		delegationResult.Warnings = warnings
+		result.Value = delegationResult
+	}
+	return result
+}
+
+// resolveToolsAndModel resolves the allowed tools list and model for the agent type.
+func resolveToolsAndModel(agentType AgentType, deps SpecializedToolDeps) ([]string, provider.Provider, provider.ResolvedModel, error) {
+	allowedTools := AgentAllowedTools(agentType)
+	if deps.ExtraAllowedTools != nil {
+		allowedTools = mergedAllowedTools(allowedTools, deps.ExtraAllowedTools[agentType])
+	}
+
+	resolvedProvider, resolvedModel, err := resolveModel(agentType, deps)
+	return allowedTools, resolvedProvider, resolvedModel, err
+}
+
 // newSpecializedHandler returns a handler for the given agent type.
 // It uses the per-type system prompt and allowed-tool list, leaving other
 // delegation parameters at their configured defaults.
 func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
-		// Deny code agent in plan mode (it can mutate files).
-		if agentType == AgentTypeCode {
-			if mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode); ok && mode == config.ExecutionModePlan {
-				return nil, fmt.Errorf("code: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
-					"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
-			}
+		if err := checkPlanModeCodeDenial(ctx, agentType); err != nil {
+			return nil, err
 		}
 
 		task, _ := input["task"].(string)
@@ -146,25 +210,34 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			return nil, fmt.Errorf("%s: task is required", agentType)
 		}
 
-		allowedTools := AgentAllowedTools(agentType)
-		if deps.ExtraAllowedTools != nil {
-			allowedTools = mergedAllowedTools(allowedTools, deps.ExtraAllowedTools[agentType])
+		agentID := generateAgentID()
+
+		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, deps)
+		if err != nil {
+			return nil, err
 		}
 
-		agentID := generateAgentID()
+		// For code agents, check for dirty changes in the parent tree and
+		// provision an isolated worktree.
+		var warnings []string
+		var provisionedWorktree CodeWorktree
+		if agentType == AgentTypeCode {
+			provisionedWorktree, warnings = provisionCodeWorktreeAndWarnings(ctx, deps.WorkDir, agentID)
+		}
+
+		// Build bootstrap deps and override WorkDir for code agents that provisioned successfully.
+		bdeps := handlerBootstrapDeps(agentType, deps.SubAgentHandlerDeps, resolvedProvider, resolvedModel, allowedTools, agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate, agentType == AgentTypeVision)
+		if agentType == AgentTypeCode && provisionedWorktree.Path != "" {
+			bdeps.WorkDir = provisionedWorktree.Path
+		}
+
 		spec := DelegationSpec{
 			Task:         task,
 			SystemPrompt: AgentSystemPrompt(agentType),
 			AgentID:      agentID,
 		}
 
-		// Resolve per-type model if configured.
-		resolvedProvider, resolvedModel, err := resolveModel(agentType, deps)
-		if err != nil {
-			return nil, err
-		}
-
-		req, limits, err := BuildChildRun(ctx, handlerBootstrapDeps(agentType, deps.SubAgentHandlerDeps, resolvedProvider, resolvedModel, allowedTools, agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate, agentType == AgentTypeVision), spec)
+		req, limits, err := BuildChildRun(ctx, bdeps, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)
 		}
@@ -180,6 +253,12 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			}
 			return nil, fmt.Errorf("%s failed: %w", agentType, err)
 		}
+
+		// For code agents, set the result fields with worktree info and warnings.
+		if agentType == AgentTypeCode {
+			result = applyCodeWorktreeResult(result, provisionedWorktree, warnings)
+		}
+
 		return result, nil
 	}
 }

@@ -67,6 +67,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd.AddCommand(newModelCommand(flags))
 	rootCmd.AddCommand(newModelMetadataCommand())
 	rootCmd.AddCommand(newOneshotCommand(flags))
+	rootCmd.AddCommand(newWorktreesCommand(flags))
 	rootCmd.AddCommand(newUpdateCommand())
 	rootCmd.AddCommand(newLoginCommand())
 	rootCmd.SetVersionTemplate(versionPanelString)

@@ -730,3 +730,75 @@ func TestFollowUpHandler_AccumulatesCacheUsageFromPriorSession(t *testing.T) {
 		t.Fatalf("stored CacheUsage=%+v, want %+v", session.CacheUsage, wantUsage)
 	}
 }
+
+func TestFollowUpHandler_ReusesOriginalProjectRoot(t *testing.T) {
+	// Verify that follow_up reuses the original session's ProjectRoot,
+	// which was set from the provisioned worktree path in the original
+	// delegate call. This ensures the follow-up call operates in the same
+	// isolated worktree, not a fresh location.
+
+	originalProjectRoot := "/tmp/.steiner/worktrees/original-agent"
+
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: DelegationSpec{
+			AgentID: "code-agent",
+			Task:    "implement feature",
+		},
+		Request: agent.RunRequest{
+			Prompt: prompt.AssemblyOptions{
+				ProjectRoot:  originalProjectRoot,
+				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "initial task"}},
+			},
+			Limits: agent.Limits{MaxTurns: 2, MaxTokens: 100},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+			{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		},
+		TurnCount:  1,
+		TokenCount: 50,
+	})
+
+	var capturedReq agent.RunRequest
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 100},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+				return agent.RunState{
+					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
+					TurnCount:    1,
+					TokenCount:   1,
+					StopReason:   agent.StopReasonComplete,
+				}, nil
+			}
+			capturedReq = req
+			return agent.RunState{
+				Conversation: []agent.Message{
+					{Role: agent.MessageRoleUser, Content: "initial task"},
+					{Role: agent.MessageRoleAssistant, Content: "first answer"},
+					{Role: agent.MessageRoleUser, Content: "continue"},
+					{Role: agent.MessageRoleAssistant, Content: "second answer"},
+				},
+				TurnCount:  2,
+				TokenCount: 75,
+				StopReason: agent.StopReasonComplete,
+			}, nil
+		}},
+	})
+
+	_, err := handler(context.Background(), map[string]any{
+		"agent_id": "code-agent",
+		"message":  "continue with more detail",
+	})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	// The follow-up request should preserve the original ProjectRoot from the session.
+	if capturedReq.Prompt.ProjectRoot != originalProjectRoot {
+		t.Errorf("follow-up ProjectRoot = %q, want %q (original worktree path)",
+			capturedReq.Prompt.ProjectRoot, originalProjectRoot)
+	}
+}
