@@ -53,6 +53,26 @@ func ValidAgentType(s string) bool {
 	return ok
 }
 
+const codeAgentSuffix = `## Code agent duties
+
+You are working on a branch owned by the orchestrator for this task, normally
+as an isolated worktree.
+
+Before reporting successful completion:
+- Stage only the intended, in-scope changes (do not blanket ` + "`git add`" + `).
+- Commit with a clear message describing what changed and why.
+- Verify the worktree is clean: ` + "`git status --porcelain`" + ` must be empty.
+
+If no changes are needed, verify the tree is clean without creating a commit.
+If task-related checks fail, do not commit broken work. Report the failure
+and the exact final status.
+
+Rules:
+- Do not discard, reset, restore, stash, switch branches, or remove the worktree.
+- Do not create or switch branches.
+- Do not merge, rebase, or push.
+`
+
 var agentPrompts = map[AgentType]string{
 	AgentTypeExplore: `You are an exploration agent navigating a codebase.
 
@@ -186,4 +206,12 @@ func AgentAllowedTools(t AgentType) []string {
 		return append([]string(nil), tools...)
 	}
 	return nil
+}
+
+// AgentSystemSuffix returns the system suffix for the given agent type.
+func AgentSystemSuffix(t AgentType) string {
+	if t == AgentTypeCode {
+		return codeAgentSuffix
+	}
+	return ""
 }
