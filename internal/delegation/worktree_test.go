@@ -678,6 +678,213 @@ func TestProvisionCodeWorktree_SameBranchDifferentAgents(t *testing.T) {
 	}
 }
 
+func TestSanitizeBranchName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "normal clean branch name",
+			input:    "main",
+			expected: "main",
+		},
+		{
+			name:     "branch with spaces",
+			input:    "feature branch name",
+			expected: "feature_branch_name",
+		},
+		{
+			name:     "branch with problematic characters",
+			input:    "feat~issue^1:special?chars",
+			expected: "feat_issue_1_special_chars",
+		},
+		{
+			name:     "branch with square brackets",
+			input:    "feature[abc]",
+			expected: "feature_abc_",
+		},
+		{
+			name:     "branch with asterisk",
+			input:    "release*1.0",
+			expected: "release_1.0",
+		},
+		{
+			name:     "branch with consecutive slashes",
+			input:    "feature//nested//branch",
+			expected: "feature/nested/branch",
+		},
+		{
+			name:     "branch with leading slashes",
+			input:    "/leading/branch",
+			expected: "leading/branch",
+		},
+		{
+			name:     "branch with trailing slashes",
+			input:    "trailing/branch/",
+			expected: "trailing/branch",
+		},
+		{
+			name:     "branch with double dots",
+			input:    "feature..issue",
+			expected: "feature_issue",
+		},
+		{
+			name:     "branch with .lock suffix",
+			input:    "feature.lock",
+			expected: "feature",
+		},
+		{
+			name:     "branch with nested slashes and spaces",
+			input:    "feature / nested  branch",
+			expected: "feature_/_nested__branch",
+		},
+		{
+			name:     "detached (HEAD literal)",
+			input:    "HEAD",
+			expected: "HEAD",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeBranchName(tt.input)
+			if got != tt.expected {
+				t.Errorf("sanitizeBranchName(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestProvisionCodeWorktree_DetachedHead(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Get the current HEAD commit hash to detach to.
+	currentHeadCommit := runCmdOutput(t, repo, "git", "rev-parse", "HEAD")
+	currentHeadCommit = strings.TrimSpace(currentHeadCommit)
+
+	// Detach HEAD by checking out the commit directly.
+	runCmd(t, repo, "git", "checkout", currentHeadCommit)
+
+	// Verify HEAD is detached.
+	branchOutput := runCmdOutput(t, repo, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	if strings.TrimSpace(branchOutput) != "HEAD" {
+		t.Fatalf("HEAD should be detached, got: %s", branchOutput)
+	}
+
+	// Provision a worktree with detached HEAD.
+	wt, err := ProvisionCodeWorktree(ctx, repo, "detached-agent")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree with detached HEAD failed: %v", err)
+	}
+
+	// Verify the worktree's path contains "detached" as the branch-name segment.
+	// Path format: <root>/.steiner/worktrees/<hash>/detached/<agentID>
+	rel, err := filepath.Rel(filepath.Join(repo, ".steiner", "worktrees"), wt.Path)
+	if err != nil {
+		t.Fatalf("extract relative path: %v", err)
+	}
+
+	pathParts := strings.Split(rel, string(filepath.Separator))
+	if len(pathParts) < 2 {
+		t.Fatalf("path has too few parts: %s", rel)
+	}
+
+	// The second part (index 1) should be "detached".
+	if pathParts[1] != "detached" {
+		t.Errorf("expected 'detached' in path segment 1, got %q in path %s", pathParts[1], rel)
+	}
+
+	// Verify the worktree's branch includes "detached".
+	if !strings.Contains(wt.Branch, "detached") {
+		t.Errorf("worktree branch should contain 'detached', got: %s", wt.Branch)
+	}
+
+	// Verify the worktree is usable (can run git commands).
+	headInWT := runCmdOutput(t, wt.Path, "git", "rev-parse", "HEAD")
+	headInWT = strings.TrimSpace(headInWT)
+	if headInWT != currentHeadCommit {
+		t.Errorf("worktree HEAD commit %q does not match parent %q", headInWT, currentHeadCommit)
+	}
+
+	// Verify it's in the delegation list.
+	list, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListCodeWorktrees failed: %v", err)
+	}
+	found := false
+	for _, wt2 := range list {
+		if wt2.Path == wt.Path {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("worktree not found in delegation list")
+	}
+}
+
+func TestPruneCodeWorktree_RejectsPathTraversal(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Create a canary directory outside the repo for testing.
+	tmpDir := t.TempDir()
+	canaryPath := filepath.Join(tmpDir, "canary-outside-repo")
+	if err := os.MkdirAll(canaryPath, 0o755); err != nil {
+		t.Fatalf("create canary dir: %v", err)
+	}
+
+	// Create a file in the canary directory to verify it's not deleted.
+	canaryFile := filepath.Join(canaryPath, "canary.txt")
+	if err := os.WriteFile(canaryFile, []byte("canary"), 0o644); err != nil {
+		t.Fatalf("write canary file: %v", err)
+	}
+
+	// Construct a relID that contains ".." segments to try to escape.
+	// If we join this with .steiner/worktrees, it should try to reach outside the repo.
+	relID := "../../../" + strings.TrimPrefix(canaryPath, "/")
+
+	// Attempt to prune with the path-traversal relID.
+	err := PruneCodeWorktree(ctx, repo, relID)
+	if err == nil {
+		t.Fatalf("PruneCodeWorktree should reject path traversal, got nil error")
+	}
+
+	// Verify it's the path-escape error.
+	if !errors.Is(err, ErrWorktreePathEscape) {
+		t.Errorf("expected ErrWorktreePathEscape, got: %v", err)
+	}
+
+	// Verify the canary file still exists (not deleted).
+	if _, err := os.Stat(canaryFile); os.IsNotExist(err) {
+		t.Errorf("canary file was deleted by path traversal!")
+	}
+}
+
+func TestPruneCodeWorktree_RejectsRelIDWithDotDot(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Use a relID with .. segments that would escape the delegation directory.
+	relID := "../../parent-dir-escape"
+
+	// Attempt to prune with the escaping relID.
+	err := PruneCodeWorktree(ctx, repo, relID)
+	if err == nil {
+		t.Fatalf("PruneCodeWorktree should reject relID with .., got nil error")
+	}
+
+	// Verify it's the path-escape error.
+	if !errors.Is(err, ErrWorktreePathEscape) {
+		t.Errorf("expected ErrWorktreePathEscape, got: %v", err)
+	}
+}
+
 // Helper functions.
 
 func setupTestRepo(t *testing.T) (string, func()) {

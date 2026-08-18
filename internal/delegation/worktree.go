@@ -19,6 +19,9 @@ var ErrWorktreeProvisioning = errors.New("git worktree provisioning failed")
 // ErrWorktreeNotDelegation indicates an attempt to prune a worktree that is not owned by delegation.
 var ErrWorktreeNotDelegation = errors.New("worktree is not delegation-owned")
 
+// ErrWorktreePathEscape indicates that the worktree path would escape the delegation directory.
+var ErrWorktreePathEscape = errors.New("worktree id escapes the delegation worktrees directory")
+
 // worktreeMu serializes concurrent git worktree add calls against the same .git
 // metadata store to avoid index-lock races.
 var worktreeMu sync.Mutex
@@ -254,7 +257,14 @@ func listWorktreeEntries(ctx context.Context, projectRoot string) ([]CodeWorktre
 // It tolerates "not a working tree" errors (already-removed paths) as idempotent no-ops,
 // but refuses to remove worktrees not owned by delegation.
 func PruneCodeWorktree(ctx context.Context, projectRoot, relID string) error {
-	worktreePath := filepath.Clean(filepath.Join(projectRoot, ".steiner", "worktrees", relID))
+	delegationBase := filepath.Clean(filepath.Join(projectRoot, ".steiner", "worktrees"))
+	worktreePath := filepath.Clean(filepath.Join(delegationBase, relID))
+
+	// Verify the resolved path is contained within the delegation base directory.
+	// Reject path traversal attempts (e.g., relID containing ".." segments).
+	if worktreePath != delegationBase && !strings.HasPrefix(worktreePath, delegationBase+string(filepath.Separator)) {
+		return fmt.Errorf("prune code worktree: %w", ErrWorktreePathEscape)
+	}
 
 	// Check if the worktree is known to git and what branch it has.
 	entries, err := listWorktreeEntries(ctx, projectRoot)
@@ -272,15 +282,18 @@ func PruneCodeWorktree(ctx context.Context, projectRoot, relID string) error {
 		}
 	}
 
-	// If found, verify it's delegation-owned (branch starts with "delegate/").
-	if foundEntry != nil {
-		if !strings.HasPrefix(foundEntry.Branch, "delegate/") {
-			return fmt.Errorf("prune code worktree: %w: branch %q does not start with \"delegate/\"",
-				ErrWorktreeNotDelegation, foundEntry.Branch)
-		}
+	// Only proceed with removal if the worktree is known to git AND delegation-owned.
+	if foundEntry == nil {
+		// Worktree not found in git list: either already-removed or unrecognized path.
+		// Treat as idempotent no-op (nothing to remove).
+		return nil
 	}
-	// If not found, it's either already-removed or a stale directory.
-	// Treat as idempotent no-op (tolerate missing paths).
+
+	// Verify it's delegation-owned (branch starts with "delegate/").
+	if !strings.HasPrefix(foundEntry.Branch, "delegate/") {
+		return fmt.Errorf("prune code worktree: %w: branch %q does not start with \"delegate/\"",
+			ErrWorktreeNotDelegation, foundEntry.Branch)
+	}
 
 	// Attempt to remove via git worktree remove.
 	err = runGit(ctx, projectRoot, "worktree", "remove", "--force", worktreePath)
@@ -391,6 +404,14 @@ func removeWorktreeAdminDirForRelID(ctx context.Context, projectRoot, relID stri
 	if !filepath.IsAbs(adminDir) {
 		adminDir = filepath.Join(projectRoot, adminDir)
 	}
+	// NOTE: Git names a worktree's admin directory by the basename of its checkout path,
+	// not by the full relID path. This function reconstructs a path using the full relID
+	// (e.g., "<hash>/<branch>/<agentID>"), which does not match git's actual admin-dir
+	// naming, making this lookup a silent no-op in practice. The primary cleanup paths
+	// (git worktree remove --force and git worktree prune) already handle real admin-dir
+	// cleanup correctly, which is why this hasn't caused observed breakage. If real
+	// per-relID admin-dir cleanup becomes necessary, it should look up the actual admin
+	// dir via `git worktree list --porcelain` and extract admin paths from the entries.
 	adminDir = filepath.Join(adminDir, "worktrees", relID)
 
 	if err := os.RemoveAll(adminDir); err != nil {
