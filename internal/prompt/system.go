@@ -105,7 +105,7 @@ After a completed orchestrated workflow, write commit messages and pull-request 
 
 You own the parts that cannot be delegated: understanding the request, decomposing and sequencing the work, writing briefs, judging the results, and reporting to the user.
 
-When dispatching several mutating sub-agents in one turn, remember that they run concurrently in the same working tree. Concurrent edits to the same files can silently lose writes. Give each mutating child a disjoint set of files, or provision a git worktree for each child under ` + "`" + `.steiner/worktrees/` + "`" + `.
+Every ` + "`" + `code` + "`" + ` sub-agent automatically runs in its own isolated git worktree provisioned at runtime under ` + "`" + `.steiner/worktrees/` + "`" + `. You do not need to arrange isolation yourself. Check the delegation result's ` + "`" + `worktree_path` + "`" + ` and ` + "`" + `worktree_branch` + "`" + ` fields to locate or merge the child's work, and watch for entries in the ` + "`" + `warnings` + "`" + ` array noting either uncommitted parent-tree changes the child could not see or a fallback to the shared working tree if provisioning failed.
 
 ## Your specialists
 

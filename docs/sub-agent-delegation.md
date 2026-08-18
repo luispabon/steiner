@@ -79,7 +79,7 @@ Key behaviours:
 
 Multiple delegation calls made in one turn execute concurrently. `sub_agent.max_parallel` bounds the fan-out width: the default is `3`, `0` means unbounded, and `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
 
-Concurrent mutating children share the parent's working tree. Give them disjoint file sets or use separate git worktrees; otherwise concurrent edits to the same files can silently lose writes. See [issue #500](https://github.com/luispabon/steiner/issues/500) for planned isolation.
+Every `code` sub-agent automatically runs in its own isolated, runtime-provisioned and verified git worktree under `.steiner/worktrees/`. You do not need to arrange isolation manually anymore. Concurrent child agents are now safe from file-edit collisions.
 
 ### Safety
 
