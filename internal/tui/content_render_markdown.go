@@ -15,7 +15,7 @@ import (
 func (b *contentBuffer) renderAssistantMarkdownSegment(segment contentSegment, width int) string {
 	rendered := b.renderMarkdown(segment.text, true, width)
 	if strings.TrimSpace(rendered) != "" {
-		return strings.TrimRight(rendered, "\n") + "\n"
+		return strings.TrimLeft(strings.TrimRight(rendered, "\n"), "\n") + "\n"
 	}
 	return b.styles.AssistantProse.Render(segment.text) + "\n"
 }
