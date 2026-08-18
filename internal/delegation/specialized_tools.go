@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -152,6 +153,36 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		agentID := generateAgentID()
+
+		// For code agents, check for dirty changes in the parent tree and
+		// provision an isolated worktree.
+		var warnings []string
+		var provisionedWorktree CodeWorktree
+		if agentType == AgentTypeCode {
+			// Best-effort dirty-tree check; skip silently on error.
+			if paths, err := DirtyPaths(ctx, deps.WorkDir); err == nil && len(paths) > 0 {
+				shown := paths
+				if len(paths) > 10 {
+					shown = paths[:10]
+				}
+				warnings = append(warnings, fmt.Sprintf(
+					"parent working tree has %d uncommitted change(s) not visible to the isolated worktree: %s",
+					len(paths), strings.Join(shown, ", ")))
+				if len(paths) > 10 {
+					warnings[len(warnings)-1] = warnings[len(warnings)-1] + fmt.Sprintf(
+						"...and %d more", len(paths)-10)
+				}
+			}
+
+			// Provision the worktree; on failure, fall back to the parent tree with a warning.
+			var err error
+			provisionedWorktree, err = ProvisionCodeWorktree(ctx, deps.WorkDir, agentID)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf(
+					"failed to provision isolated worktree, falling back to the shared working tree: %v", err))
+			}
+		}
+
 		spec := DelegationSpec{
 			Task:         task,
 			SystemPrompt: AgentSystemPrompt(agentType),
@@ -164,7 +195,13 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			return nil, err
 		}
 
-		req, limits, err := BuildChildRun(ctx, handlerBootstrapDeps(agentType, deps.SubAgentHandlerDeps, resolvedProvider, resolvedModel, allowedTools, agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate, agentType == AgentTypeVision), spec)
+		// Build bootstrap deps and override WorkDir for code agents that provisioned successfully.
+		bdeps := handlerBootstrapDeps(agentType, deps.SubAgentHandlerDeps, resolvedProvider, resolvedModel, allowedTools, agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate, agentType == AgentTypeVision)
+		if agentType == AgentTypeCode && provisionedWorktree.Path != "" {
+			bdeps.WorkDir = provisionedWorktree.Path
+		}
+
+		req, limits, err := BuildChildRun(ctx, bdeps, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)
 		}
@@ -180,6 +217,19 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			}
 			return nil, fmt.Errorf("%s failed: %w", agentType, err)
 		}
+
+		// For code agents, set the result fields with worktree info and warnings.
+		if agentType == AgentTypeCode {
+			if delegationResult, ok := result.Value.(DelegationResult); ok {
+				if provisionedWorktree.Path != "" {
+					delegationResult.WorktreePath = provisionedWorktree.Path
+					delegationResult.WorktreeBranch = provisionedWorktree.Branch
+				}
+				delegationResult.Warnings = warnings
+				result.Value = delegationResult
+			}
+		}
+
 		return result, nil
 	}
 }

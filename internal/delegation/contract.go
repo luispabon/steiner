@@ -122,6 +122,21 @@ type DelegationResult struct {
 
 	// Trace captures lifecycle events for delegation diagnostics.
 	Trace []TraceEntry `json:"trace,omitempty"`
+
+	// WorktreePath is the absolute path to the code agent's isolated git
+	// worktree, or empty if provisioning failed and it fell back to the
+	// shared parent working tree. Only set for AgentTypeCode.
+	WorktreePath string `json:"worktree_path,omitempty"`
+
+	// WorktreeBranch is the branch name of the code agent's isolated
+	// worktree. Only set for AgentTypeCode when provisioning succeeded.
+	WorktreeBranch string `json:"worktree_branch,omitempty"`
+
+	// Warnings holds human-readable warnings surfaced to the orchestrator,
+	// e.g. uncommitted parent-tree changes the isolated child could not see,
+	// or a fallback to the shared working tree after worktree provisioning
+	// failed. Only populated for AgentTypeCode.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // DelegationLimits defines resource constraints for a child execution.
