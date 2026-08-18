@@ -322,9 +322,9 @@ func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 func (b *contentBuffer) applyFinishedToolCallResult(seg *contentSegment, td *toolCallSegment, payload output.ToolCallFinishedEvent) {
 	td.body = payload.Result
 	td.hasError = payload.Error != ""
-	td.meta = "✅"
+	td.meta = "✓"
 	if td.hasError {
-		td.meta = "❌"
+		td.meta = "✗"
 	}
 	if payload.Preview.Kind != "" && payload.Preview.Kind != output.ToolPreviewKindPlain {
 		td.preview = payload.Preview
@@ -333,7 +333,7 @@ func (b *contentBuffer) applyFinishedToolCallResult(seg *contentSegment, td *too
 	}
 	if td.tool == "mutate" && td.preview.HunksFailed > 0 {
 		td.hasError = true
-		td.meta = "❌"
+		td.meta = "✗"
 	}
 	if td.preview.Kind != output.ToolPreviewKindPlain {
 		td.bodyKind = previewBodyKind(td.tool, td.preview)

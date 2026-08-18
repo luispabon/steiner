@@ -2505,8 +2505,8 @@ func TestFinishGroupedToolCallUpdatesMatchingCallID(t *testing.T) {
 	if got := group.entries[0].body; got != "ok" {
 		t.Fatalf("first grouped call body = %q, want ok", got)
 	}
-	if got := group.entries[0].meta; got != "✅" {
-		t.Fatalf("first grouped call meta = %q, want ✅", got)
+	if got := group.entries[0].meta; got != "✓" {
+		t.Fatalf("first grouped call meta = %q, want ✓", got)
 	}
 	if group.entries[0].hasError {
 		t.Fatal("first grouped call hasError = true, want false")
@@ -2514,8 +2514,8 @@ func TestFinishGroupedToolCallUpdatesMatchingCallID(t *testing.T) {
 	if got := group.entries[1].body; got != "bad" {
 		t.Fatalf("second grouped call body = %q, want bad", got)
 	}
-	if got := group.entries[1].meta; got != "❌" {
-		t.Fatalf("second grouped call meta = %q, want ❌", got)
+	if got := group.entries[1].meta; got != "✗" {
+		t.Fatalf("second grouped call meta = %q, want ✗", got)
 	}
 	if !group.entries[1].hasError {
 		t.Fatal("second grouped call hasError = false, want true")
@@ -3631,7 +3631,7 @@ func TestApprovalRequestedTargetsGroupedToolCall(t *testing.T) {
 		toolGroupData: &toolCallGroupSegment{
 			tool: "mutate",
 			entries: []*toolCallSegment{
-				{tool: "mutate", args: "replace foo.go", meta: "✅", collapsed: true},
+				{tool: "mutate", args: "replace foo.go", meta: "✓", collapsed: true},
 				{tool: "mutate", args: "create bar.go", collapsed: true},
 			},
 		},
@@ -3691,7 +3691,7 @@ func TestApprovalDecisionTargetsGroupedToolCall(t *testing.T) {
 		toolGroupData: &toolCallGroupSegment{
 			tool: "mutate",
 			entries: []*toolCallSegment{
-				{tool: "mutate", meta: "✅"},
+				{tool: "mutate", meta: "✓"},
 				{tool: "mutate", approvalPending: true},
 			},
 		},
