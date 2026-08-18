@@ -30,6 +30,19 @@ func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (an
 	}
 }
 
+// buildContinuationRequest prepares a request for a continuation agent run.
+func buildContinuationRequest(base agent.RunRequest, conversation []agent.Message, message string, priorTurns int, freshLimits DelegationLimits) agent.RunRequest {
+	base.Prompt.Conversation = agent.ToReplaySafeProviderMessages(conversation)
+	base.Prompt.Conversation = append(base.Prompt.Conversation, provider.Message{
+		Role:    provider.MessageRoleUser,
+		Content: message,
+	})
+	base.Limits.MaxTurns = priorTurns + freshLimits.MaxTurns
+	base.Limits.MaxTokens = freshLimits.OutputLimitTokens
+	base.Limits.TurnTimeout = freshLimits.Timeout
+	return base
+}
+
 // NewFollowUpHandler returns the in-process handler for the follow-up tool.
 func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
@@ -59,18 +72,8 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 					"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
 			}
 		}
-		req := session.Request
-		req.Prompt.Conversation = agent.ToReplaySafeProviderMessages(session.Conversation)
-		req.Prompt.Conversation = append(req.Prompt.Conversation, provider.Message{
-			Role:    provider.MessageRoleUser,
-			Content: message,
-		})
-
 		freshLimits := DefaultLimits(deps.SubAgentCfg)
-		// Include prior turn count so runner does not immediately stop with StopReasonMaxTurns.
-		req.Limits.MaxTurns = session.TurnCount + freshLimits.MaxTurns
-		req.Limits.MaxTokens = freshLimits.OutputLimitTokens
-		req.Limits.TurnTimeout = freshLimits.Timeout
+		req := buildContinuationRequest(session.Request, session.Conversation, message, session.TurnCount, freshLimits)
 
 		spec := session.Spec
 		spec.Limits = freshLimits
