@@ -2708,8 +2708,8 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	for _, seg := range m.content.segments {
 		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.callID == "call_0" {
 			foundCall = true
-			if seg.toolData.meta != "✅" {
-				t.Fatalf("tool segment meta = %q, want ✅ after ToolCallFinishedEvent", seg.toolData.meta)
+			if seg.toolData.meta != "✓" {
+				t.Fatalf("tool segment meta = %q, want ✓ after ToolCallFinishedEvent", seg.toolData.meta)
 			}
 			if seg.toolData.hasError {
 				t.Fatal("tool segment hasError = true, want false after successful finish")

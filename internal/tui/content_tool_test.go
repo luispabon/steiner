@@ -501,7 +501,7 @@ func TestApplyFinishedToolCallResultMutateStatus(t *testing.T) {
 				HunksFailed:      0,
 				MutateOperations: []output.ToolPreviewMutateOperation{{Type: "replace", Path: "file.go"}},
 			},
-			wantMeta:  "✅",
+			wantMeta:  "✓",
 			wantError: false,
 		},
 		{
@@ -512,7 +512,7 @@ func TestApplyFinishedToolCallResultMutateStatus(t *testing.T) {
 				HunksFailed:      1,
 				MutateOperations: []output.ToolPreviewMutateOperation{{Type: "replace", Path: "file.go"}},
 			},
-			wantMeta:  "❌",
+			wantMeta:  "✗",
 			wantError: true,
 		},
 		{
@@ -524,7 +524,7 @@ func TestApplyFinishedToolCallResultMutateStatus(t *testing.T) {
 				MutateOperations: []output.ToolPreviewMutateOperation{{Type: "replace", Path: "file.go"}},
 			},
 			err:       errors.New("boom"),
-			wantMeta:  "❌",
+			wantMeta:  "✗",
 			wantError: true,
 		},
 	}

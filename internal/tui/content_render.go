@@ -13,6 +13,32 @@ func isUserSegment(kind contentSegmentKind) bool {
 	return kind == segmentUser || kind == segmentUserMarkdown
 }
 
+// isDelegationSegment reports whether kind is a delegation segment kind.
+func isDelegationSegment(kind contentSegmentKind) bool {
+	return kind == segmentDelegation || kind == segmentDelegationGroup
+}
+
+// segmentHasActiveDelegation reports whether seg renders at least one delegation
+// with status "active" (needing a per-frame re-render for its spinner).
+func segmentHasActiveDelegation(seg *contentSegment) bool {
+	switch seg.kind {
+	case segmentDelegation:
+		return seg.delegData != nil && seg.delegData.status == "active"
+	case segmentDelegationGroup:
+		if seg.delegGroupData == nil {
+			return false
+		}
+		for _, dd := range seg.delegGroupData.entries {
+			if dd != nil && dd.status == "active" {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 func (b *contentBuffer) String(width int) string {
 	// Check if we can return cached result.
 	isBufferDirty := b.checkBufferDirty(width)
@@ -158,7 +184,7 @@ func (b *contentBuffer) segmentNeedsRender(seg *contentSegment, width int) bool 
 	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
 		return true
 	}
-	if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
+	if segmentHasActiveDelegation(seg) {
 		return true
 	}
 	return seg.cachedRenderWidth != width || seg.cachedRender == ""
@@ -182,7 +208,7 @@ func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]c
 	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
 		seg.renderDirty = true
 	}
-	if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
+	if segmentHasActiveDelegation(seg) {
 		seg.renderDirty = true
 	}
 	if !seg.renderDirty && seg.cachedRenderWidth == width && seg.cachedRender != "" {
@@ -230,11 +256,11 @@ func (b *contentBuffer) checkBufferDirty(width int) bool {
 	if b.compaction.Active() {
 		return true
 	}
-	for _, seg := range b.segments {
-		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.status == "active" {
+	for i := range b.segments {
+		if segmentHasActiveDelegation(&b.segments[i]) {
 			return true
 		}
-		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+		if b.segments[i].kind == segmentCompactionBanner && b.segments[i].compactionData != nil && !b.segments[i].compactionData.finished {
 			return true
 		}
 	}
@@ -276,6 +302,9 @@ func joinSeparator(prev, next contentSegmentKind) string {
 		return "\n"
 	}
 	if isUserSegment(prev) && isUserSegment(next) {
+		return "\n"
+	}
+	if isDelegationSegment(prev) && isDelegationSegment(next) {
 		return "\n"
 	}
 	return "\n\n"
@@ -340,6 +369,8 @@ func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width 
 		return b.styles.FgMute.Render("interrupted") + "\n"
 	case segmentDelegation:
 		return b.renderDelegationSegment(segment, width)
+	case segmentDelegationGroup:
+		return b.renderDelegationGroupSegment(segment, width)
 	case segmentStatus:
 		return b.renderStatusSegment(segment, width)
 	case segmentImagesAttached:

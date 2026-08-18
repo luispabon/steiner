@@ -2305,11 +2305,15 @@ func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
 	))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "second child answer", output.ChunkSourceAssistant), "child-2"))
 
-	first := buffer.segments[0].delegData
-	second := buffer.segments[1].delegData
-	if first == nil || second == nil {
-		t.Fatal("delegData = nil, want delegation state on both segments")
+	if buffer.segments[0].kind != segmentDelegationGroup {
+		t.Fatalf("segment 0 kind = %v, want segmentDelegationGroup (consecutive delegations merge)", buffer.segments[0].kind)
 	}
+	group := buffer.segments[0].delegGroupData
+	if group == nil || len(group.entries) != 2 {
+		t.Fatalf("group has %d entries, want 2", len(group.entries))
+	}
+	first := group.entries[0]
+	second := group.entries[1]
 	if got := len(first.entries); got != 1 {
 		t.Fatalf("child-1 entries count = %d, want 1", got)
 	}
@@ -2505,8 +2509,8 @@ func TestFinishGroupedToolCallUpdatesMatchingCallID(t *testing.T) {
 	if got := group.entries[0].body; got != "ok" {
 		t.Fatalf("first grouped call body = %q, want ok", got)
 	}
-	if got := group.entries[0].meta; got != "✅" {
-		t.Fatalf("first grouped call meta = %q, want ✅", got)
+	if got := group.entries[0].meta; got != "✓" {
+		t.Fatalf("first grouped call meta = %q, want ✓", got)
 	}
 	if group.entries[0].hasError {
 		t.Fatal("first grouped call hasError = true, want false")
@@ -2514,8 +2518,8 @@ func TestFinishGroupedToolCallUpdatesMatchingCallID(t *testing.T) {
 	if got := group.entries[1].body; got != "bad" {
 		t.Fatalf("second grouped call body = %q, want bad", got)
 	}
-	if got := group.entries[1].meta; got != "❌" {
-		t.Fatalf("second grouped call meta = %q, want ❌", got)
+	if got := group.entries[1].meta; got != "✗" {
+		t.Fatalf("second grouped call meta = %q, want ✗", got)
 	}
 	if !group.entries[1].hasError {
 		t.Fatal("second grouped call hasError = false, want true")
@@ -3631,7 +3635,7 @@ func TestApprovalRequestedTargetsGroupedToolCall(t *testing.T) {
 		toolGroupData: &toolCallGroupSegment{
 			tool: "mutate",
 			entries: []*toolCallSegment{
-				{tool: "mutate", args: "replace foo.go", meta: "✅", collapsed: true},
+				{tool: "mutate", args: "replace foo.go", meta: "✓", collapsed: true},
 				{tool: "mutate", args: "create bar.go", collapsed: true},
 			},
 		},
@@ -3691,7 +3695,7 @@ func TestApprovalDecisionTargetsGroupedToolCall(t *testing.T) {
 		toolGroupData: &toolCallGroupSegment{
 			tool: "mutate",
 			entries: []*toolCallSegment{
-				{tool: "mutate", meta: "✅"},
+				{tool: "mutate", meta: "✓"},
 				{tool: "mutate", approvalPending: true},
 			},
 		},
@@ -3915,19 +3919,24 @@ func TestFollowUpToolCallCreatesDelegationSegmentWithMatchedLabel(t *testing.T) 
 		},
 	})
 
-	// Verify two delegation segments exist
-	if len(b.segments) < 2 {
-		t.Fatalf("got %d segments, want at least 2", len(b.segments))
+	// Verify delegation group exists (consecutive delegations merge)
+	if len(b.segments) < 1 {
+		t.Fatalf("got %d segments, want at least 1", len(b.segments))
 	}
 
-	// Verify second segment is delegation (follow_up)
-	if b.segments[1].kind != segmentDelegation {
-		t.Errorf("segments[1].kind = %v, want segmentDelegation", b.segments[1].kind)
+	// Verify the merged group contains two delegations
+	if b.segments[0].kind != segmentDelegationGroup {
+		t.Fatalf("segments[0].kind = %v, want segmentDelegationGroup", b.segments[0].kind)
 	}
 
-	dd := b.segments[1].delegData
+	group := b.segments[0].delegGroupData
+	if group == nil || len(group.entries) != 2 {
+		t.Fatalf("group has %d entries, want 2", len(group.entries))
+	}
+
+	dd := group.entries[1]
 	if dd == nil {
-		t.Fatal("segments[1].delegData is nil")
+		t.Fatal("group.entries[1] is nil")
 	}
 
 	// Verify it's marked as follow_up
@@ -4048,7 +4057,7 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 		segments:          make([]contentSegment, 0),
 		collapseState:     make(map[int]bool),
 		showThinking:      true,
-		activeDelegations: make(map[string]int),
+		activeDelegations: make(map[string]delegationLocator),
 	}
 
 	// 1. Parent calls the specialized "code" delegation tool.
@@ -4084,17 +4093,17 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 	})
 
 	// Find the original child segment and snapshot its state for later comparison.
-	var originalIdx = -1
-	for i, seg := range b.segments {
-		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.agentID == "child-7" {
-			originalIdx = i
+	// With merging, it may be in a group or standalone.
+	var originalDD *delegationDisplayState
+	for _, dd := range delegationStates(b) {
+		if dd.agentID == "child-7" {
+			originalDD = dd
 			break
 		}
 	}
-	if originalIdx < 0 {
+	if originalDD == nil {
 		t.Fatalf("original child segment not found")
 	}
-	originalDD := b.segments[originalIdx].delegData
 	if originalDD.turnCount != 58 || originalDD.toolCallCount != 59 {
 		t.Fatalf("original child stats not recorded: turns=%d toolcalls=%d", originalDD.turnCount, originalDD.toolCallCount)
 	}
@@ -4140,21 +4149,28 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 	})
 
 	// Locate the follow-up segment: it is the most recent delegation
-	// segment marked as a follow-up.
-	var followUpIdx = -1
+	// segment marked as a follow-up. With merging, it may be in a group or standalone.
+	var followUpDD *delegationDisplayState
 	for i := len(b.segments) - 1; i >= 0; i-- {
 		seg := b.segments[i]
 		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.isFollowUp {
-			followUpIdx = i
+			followUpDD = seg.delegData
+			break
+		}
+		if seg.kind == segmentDelegationGroup && seg.delegGroupData != nil {
+			for j := len(seg.delegGroupData.entries) - 1; j >= 0; j-- {
+				if seg.delegGroupData.entries[j].isFollowUp {
+					followUpDD = seg.delegGroupData.entries[j]
+					break
+				}
+			}
+		}
+		if followUpDD != nil {
 			break
 		}
 	}
-	if followUpIdx < 0 {
-		t.Fatalf("follow-up segment not found")
-	}
-	followUpDD := b.segments[followUpIdx].delegData
 	if followUpDD == nil {
-		t.Fatalf("follow-up segment has nil delegData")
+		t.Fatalf("follow-up segment not found")
 	}
 
 	// The follow-up must remain marked as a follow-up.
@@ -4198,9 +4214,9 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 
 	// The original child segment must not have been mutated by the
 	// follow-up's completion event.
-	if b.segments[originalIdx].delegData.output != "original child output" {
+	if originalDD.output != "original child output" {
 		t.Errorf("original child output = %q, want %q (must not be overwritten by follow-up)",
-			b.segments[originalIdx].delegData.output, "original child output")
+			originalDD.output, "original child output")
 	}
 
 	// Render the follow-up header and confirm it does not display the
@@ -4223,7 +4239,7 @@ func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
 		segments:          make([]contentSegment, 0),
 		collapseState:     make(map[int]bool),
 		showThinking:      true,
-		activeDelegations: make(map[string]int),
+		activeDelegations: make(map[string]delegationLocator),
 	}
 
 	// 1. The original child completes with its own run's cache stats
@@ -4292,18 +4308,28 @@ func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
 		},
 	})
 
-	var followUpIdx = -1
+	var followUpDD *delegationDisplayState
 	for i := len(b.segments) - 1; i >= 0; i-- {
 		seg := b.segments[i]
 		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.isFollowUp {
-			followUpIdx = i
+			followUpDD = seg.delegData
+			break
+		}
+		if seg.kind == segmentDelegationGroup && seg.delegGroupData != nil {
+			for j := len(seg.delegGroupData.entries) - 1; j >= 0; j-- {
+				if seg.delegGroupData.entries[j].isFollowUp {
+					followUpDD = seg.delegGroupData.entries[j]
+					break
+				}
+			}
+		}
+		if followUpDD != nil {
 			break
 		}
 	}
-	if followUpIdx < 0 {
+	if followUpDD == nil {
 		t.Fatalf("follow-up segment not found")
 	}
-	followUpDD := b.segments[followUpIdx].delegData
 
 	if !followUpDD.cacheHitOK {
 		t.Fatalf("follow-up cacheHitOK = false, want true (cumulative rate must not be dropped)")
@@ -4328,7 +4354,7 @@ func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 		segments:          make([]contentSegment, 0),
 		collapseState:     make(map[int]bool),
 		showThinking:      true,
-		activeDelegations: make(map[string]int),
+		activeDelegations: make(map[string]delegationLocator),
 	}
 
 	// Original child delegation lifecycle.
@@ -4386,28 +4412,24 @@ func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 		"child-8",
 	))
 
-	// Locate the follow-up segment.
-	var followUpIdx = -1
-	var originalIdx = -1
-	for i, seg := range b.segments {
-		if seg.kind != segmentDelegation || seg.delegData == nil {
-			continue
-		}
-		if seg.delegData.isFollowUp {
-			followUpIdx = i
-		} else if seg.delegData.agentID == "child-8" {
-			originalIdx = i
+	// Locate the follow-up and original segments. With merging, both may be in a group or standalone.
+	var followUpDD *delegationDisplayState
+	var originalDD *delegationDisplayState
+	for _, dd := range delegationStates(b) {
+		if dd.isFollowUp && followUpDD == nil {
+			followUpDD = dd
+		} else if dd.agentID == "child-8" && originalDD == nil {
+			originalDD = dd
 		}
 	}
-	if followUpIdx < 0 {
+	if followUpDD == nil {
 		t.Fatalf("follow-up segment not found")
 	}
-	if originalIdx < 0 {
+	if originalDD == nil {
 		t.Fatalf("original child segment not found")
 	}
 
 	// The follow-up segment's transcript must contain the scoped message.
-	followUpDD := b.segments[followUpIdx].delegData
 	foundInFollowUp := false
 	for _, entry := range followUpDD.entries {
 		if entry.kind == delegationTranscriptEntryAssistant &&
@@ -4421,7 +4443,6 @@ func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 	}
 
 	// The original child segment's transcript must not contain it.
-	originalDD := b.segments[originalIdx].delegData
 	for _, entry := range originalDD.entries {
 		if entry.kind == delegationTranscriptEntryAssistant &&
 			strings.Contains(entry.body, "follow-up transcript body") {

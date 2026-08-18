@@ -29,16 +29,60 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 	return box
 }
 
+func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, width int) string {
+	group := segment.delegGroupData
+	if group == nil || len(group.entries) == 0 {
+		return ""
+	}
+
+	if width < 12 {
+		width = 12
+	}
+
+	parts := make([]string, 0, len(group.entries)*2-1)
+	dividerWidth := width - 4
+	if dividerWidth < 1 {
+		dividerWidth = 1
+	}
+
+	for i, dd := range group.entries {
+		lines := b.renderDelegationBoxRows(dd, width)
+		parts = append(parts, strings.Join(lines, "\n"))
+		if i < len(group.entries)-1 {
+			parts = append(parts, b.renderToolCallDivider(dividerWidth))
+		}
+	}
+
+	borderLabel := delegationGroupBorderLabel(group)
+	_, borderStyle := b.delegationStyles(borderLabel)
+	box := renderStyledBox(strings.Join(parts, "\n"), borderStyle.GetForeground(), lipgloss.Color(theme.BgElev), width) + "\n"
+	return box
+}
+
+// delegationGroupBorderLabel returns the shared toolLabel of every entry, or ""
+// when they differ. "" resolves to DelegateBorderDefault via delegationStyles,
+// matching the tool-call precedent where a mixed group falls back to the
+// default border. Derived at render time, not stored, because toolLabel is
+// filled in late by bindParentDelegateCall — an append-time mixed flag would
+// be stale.
+func delegationGroupBorderLabel(group *delegationGroupSegment) string {
+	if group == nil || len(group.entries) == 0 {
+		return ""
+	}
+	first := strings.ToLower(strings.TrimSpace(group.entries[0].toolLabel))
+	for _, dd := range group.entries[1:] {
+		if strings.ToLower(strings.TrimSpace(dd.toolLabel)) != first {
+			return ""
+		}
+	}
+	return first
+}
+
 func (b *contentBuffer) renderDelegationBoxRows(dd *delegationDisplayState, width int) []string {
-	rows := b.delegationRows(dd, width)
+	rows := b.delegationContentRows(dd, width)
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
-		if row.kind == delegationRowBorderTop || row.kind == delegationRowBorderBottom {
-			continue
-		}
-		if row.text != "" {
-			lines = append(lines, row.text)
-		}
+		lines = append(lines, row.text)
 	}
 	return lines
 }

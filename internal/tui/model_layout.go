@@ -305,6 +305,30 @@ func (b *contentBuffer) toolCallGroupEntryAtRow(group *toolCallGroupSegment, row
 	return -1
 }
 
+// delegationGroupEntryAtRow maps a rendered row of a delegation group segment to
+// the entry it belongs to and the row within that entry's content rows.
+// Returns (-1, -1) for the box borders and inter-entry dividers.
+func (b *contentBuffer) delegationGroupEntryAtRow(group *delegationGroupSegment, rowInSegment, width int) (entry, rowInEntry int) {
+	if group == nil || rowInSegment <= 0 {
+		return -1, -1
+	}
+	row := rowInSegment - 1
+	for i, dd := range group.entries {
+		contentRowCount := len(b.delegationContentRows(dd, width))
+		if row < contentRowCount {
+			return i, row
+		}
+		row -= contentRowCount
+		if i < len(group.entries)-1 {
+			if row == 0 {
+				return -1, -1
+			}
+			row--
+		}
+	}
+	return -1, -1
+}
+
 func (b *contentBuffer) toolCallFrameRowCount(tc *toolCallSegment, width int) int {
 	if tc == nil {
 		return 0
@@ -314,6 +338,29 @@ func (b *contentBuffer) toolCallFrameRowCount(tc *toolCallSegment, width int) in
 		return 0
 	}
 	return strings.Count(frame, "\n") + 1
+}
+
+// delegationRowAction maps a row of one delegation's content rows to a click
+// action: 0 = toggle the box, 1 = toggle the prompt, -1 = no action.
+func (m *Model) delegationRowAction(dd *delegationDisplayState, contentRow int) int {
+	if dd == nil || contentRow < 0 {
+		return -1
+	}
+	contentRows := m.content.delegationContentRows(dd, m.viewport.Width())
+	if contentRow >= len(contentRows) {
+		return -1
+	}
+	row := contentRows[contentRow]
+	switch {
+	case row.kind == delegationRowHeader:
+		return 0
+	case row.kind == delegationRowPromptHeader && !dd.collapsed && strings.TrimSpace(dd.promptText) != "":
+		return 1
+	case delegationRowIsInteractive(row.kind):
+		return -1
+	default:
+		return -1
+	}
 }
 
 func (m *Model) handleDelegationClick(seg *contentSegment, rowInSegment int) bool {
@@ -345,16 +392,10 @@ func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment 
 		return -1
 	}
 	row := rows[rowInSegment]
-	switch {
-	case row.kind == delegationRowBorderTop, row.kind == delegationRowHeader:
+	if row.kind == delegationRowBorderTop || row.kind == delegationRowHeader {
 		return 0
-	case row.kind == delegationRowPromptHeader && !dd.collapsed && strings.TrimSpace(dd.promptText) != "":
-		return 1
-	case delegationRowIsInteractive(row.kind):
-		return -1
-	default:
-		return -1
 	}
+	return m.delegationRowAction(dd, rowInSegment-1)
 }
 
 func (m *Model) renderScrollbar() string {
@@ -412,6 +453,8 @@ func (m *Model) handleSegmentClick(seg *contentSegment, rowInSegment int) {
 		m.handleToolCallGroupClick(seg, rowInSegment)
 	case segmentDelegation:
 		m.handleDelegationSegmentClick(seg, rowInSegment)
+	case segmentDelegationGroup:
+		m.handleDelegationGroupClick(seg, rowInSegment)
 	case segmentThinkingBlock:
 		m.handleThinkingBlockClick(seg)
 	}
@@ -452,6 +495,29 @@ func (m *Model) handleToolCallGroupClick(seg *contentSegment, rowInSegment int) 
 
 func (m *Model) handleDelegationSegmentClick(seg *contentSegment, rowInSegment int) {
 	if m.handleDelegationClick(seg, rowInSegment) {
+		seg.renderDirty = true
+		m.content.gen++
+		m.syncViewport()
+	}
+}
+
+func (m *Model) handleDelegationGroupClick(seg *contentSegment, rowInSegment int) {
+	if seg.delegGroupData == nil {
+		return
+	}
+	entry, rowInEntry := m.content.delegationGroupEntryAtRow(seg.delegGroupData, rowInSegment, m.viewport.Width())
+	if entry < 0 {
+		return
+	}
+	action := m.delegationRowAction(seg.delegGroupData.entries[entry], rowInEntry)
+	switch action {
+	case 0:
+		seg.delegGroupData.entries[entry].collapsed = !seg.delegGroupData.entries[entry].collapsed
+		seg.renderDirty = true
+		m.content.gen++
+		m.syncViewport()
+	case 1:
+		seg.delegGroupData.entries[entry].promptCollapsed = !seg.delegGroupData.entries[entry].promptCollapsed
 		seg.renderDirty = true
 		m.content.gen++
 		m.syncViewport()

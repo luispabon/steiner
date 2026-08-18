@@ -125,8 +125,7 @@ func (b *contentBuffer) renderToolCallFrame(tc *toolCallSegment, width int) stri
 		disclosure = "▸"
 	}
 
-	// Build header: tag [gap] args [gap] meta
-	// Args column width accounts for meta on the right
+	// Build header: tag [gap] args [pad] meta, with meta right-aligned to width.
 	const gap = 2
 	metaParts, metaWidth := b.renderToolCallMeta(tc)
 	metaStr := ""
@@ -144,10 +143,19 @@ func (b *contentBuffer) renderToolCallFrame(tc *toolCallSegment, width int) stri
 	if len([]rune(argsText)) > argsAvail {
 		argsText = string([]rune(argsText)[:argsAvail-1]) + "…"
 	}
+	styledArgs := ""
+	if argsText != "" {
+		styledArgs = b.styles.FgDim.Render(argsText)
+	}
 
-	header := disclosure + " " + tag + strings.Repeat(" ", gap) + argsText
+	left := disclosure + " " + tag + strings.Repeat(" ", gap) + styledArgs
+	header := left
 	if metaStr != "" {
-		header = header + strings.Repeat(" ", gap) + metaStr
+		padding := width - lipgloss.Width(left) - metaWidth
+		if padding < gap {
+			padding = gap
+		}
+		header = left + strings.Repeat(" ", padding) + metaStr
 	}
 	if tc.collapsed {
 		return header
