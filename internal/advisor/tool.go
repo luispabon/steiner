@@ -36,7 +36,7 @@ func ToolDef(handler func(context.Context, map[string]any) (any, error)) tool.To
 				},
 				"files": map[string]any{
 					"type":        "array",
-					"description": "Workspace paths to include verbatim in the advisor's context. The advisor has no tool access and cannot read files itself, so pass the paths of any artifact you want it to review.",
+					"description": "Workspace paths to include verbatim in the advisor's context. Use only when their contents are not already present in the conversation; otherwise they will be duplicated.",
 					"items":       map[string]any{"type": "string"},
 				},
 			},
