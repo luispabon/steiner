@@ -182,6 +182,16 @@ func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree,
 	return result
 }
 
+func nonEmptyLines(s string) []string {
+	var lines []string
+	for _, line := range strings.Split(s, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
 // resolveToolsAndModel resolves the allowed tools list and model for the agent type.
 func resolveToolsAndModel(agentType AgentType, deps SpecializedToolDeps) ([]string, provider.Provider, provider.ResolvedModel, error) {
 	allowedTools := AgentAllowedTools(agentType)
@@ -246,7 +256,49 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 		spec.Limits = limits
 
-		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
+		var remediation *RemediationConfig
+		if agentType == AgentTypeCode && provisionedWorktree.Path != "" {
+			worktree := provisionedWorktree
+			remediation = &RemediationConfig{
+				WorktreePath:   worktree.Path,
+				ExpectedBranch: worktree.Branch,
+				IsDirty: func(ctx context.Context) ([]string, error) {
+					return DirtyPaths(ctx, worktree.Path)
+				},
+				Head: func(ctx context.Context) (string, error) {
+					out, err := gitOutput(ctx, worktree.Path, "rev-parse", "HEAD")
+					if err != nil {
+						return "", err
+					}
+					return strings.TrimSpace(out), nil
+				},
+				Committed: func(ctx context.Context, preHEAD string, initialDirty []string) (bool, error) {
+					diffOut, err := gitOutput(ctx, worktree.Path, "diff", "--name-only", preHEAD+"..HEAD")
+					if err != nil {
+						return false, err
+					}
+					committedPaths := nonEmptyLines(diffOut)
+					// Every initially-dirty path must appear in the committed diff.
+					for _, p := range initialDirty {
+						if !slices.Contains(committedPaths, p) {
+							return false, nil
+						}
+					}
+					// Tree must now be clean.
+					stillDirty, err := DirtyPaths(ctx, worktree.Path)
+					if err != nil {
+						return false, err
+					}
+					return len(stillDirty) == 0, nil
+				},
+			}
+		}
+
+		var opts []spawnOption
+		if remediation != nil {
+			opts = append(opts, WithRemediation(remediation))
+		}
+		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 		if err == nil && deps.SessionStore != nil {
 			saveChildSession(deps.SessionStore, spec, req, state, runUsage)
 		}
