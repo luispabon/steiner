@@ -368,7 +368,7 @@ func (b *contentBuffer) renderDelegationTranscript(dd *delegationDisplayState, w
 func (b *contentBuffer) renderDelegationEntry(entry delegationTranscriptEntry, width int) []string {
 	switch entry.kind {
 	case delegationTranscriptEntryAssistant:
-		return b.wrapStyledDelegationLines(entry.body, width, b.styles.FgMute)
+		return b.wrapStyledDelegationLines(entry.body, width, b.styles.FgDim)
 	case delegationTranscriptEntryThinking:
 		return b.renderDelegationThinkingEntry(entry, width)
 	case delegationTranscriptEntryTool:
@@ -379,7 +379,7 @@ func (b *contentBuffer) renderDelegationEntry(entry delegationTranscriptEntry, w
 }
 
 func (b *contentBuffer) renderDelegationThinkingEntry(entry delegationTranscriptEntry, width int) []string {
-	style := b.thinkingTextStyle()
+	style := b.styles.FgMute.Italic(true)
 	lines := b.wrapStyledDelegationLines(stripThinkingMarkers(entry.body), max(1, width), style)
 	if len(lines) == 0 {
 		return nil
