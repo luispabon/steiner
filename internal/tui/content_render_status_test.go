@@ -223,14 +223,14 @@ func TestPhaseSeparatorHasBlankLinesAboveAndBelow(t *testing.T) {
 	out := b.renderSeparatorSegment(seg, 80)
 
 	lines := strings.Split(out, "\n")
-	// Expected: blank line, separator line, blank line
-	// When split by \n, we get 4 elements (including trailing empty after final newline)
-	if len(lines) < 3 {
-		t.Errorf("phase separator output has too few lines: %q (expected blank line, separator, blank line)", out)
+	// The joiner supplies the leading blank line; the segment supplies its trailing newline.
+	// When split by \n, we get 2 elements (including trailing empty after final newline).
+	if len(lines) < 2 {
+		t.Errorf("phase separator output has too few lines: %q", out)
 	}
-	// First character should be newline, meaning blank line before
-	if !strings.HasPrefix(out, "\n") {
-		t.Errorf("phase separator should start with blank line: %q", out)
+	// The segment should not add a leading newline; joinSeparator adds the margin.
+	if strings.HasPrefix(out, "\n") {
+		t.Errorf("phase separator should not start with a newline: %q", out)
 	}
 	// Should end with newline, creating blank line after
 	if !strings.HasSuffix(out, "\n") {

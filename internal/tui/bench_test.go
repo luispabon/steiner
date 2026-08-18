@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"testing"
@@ -137,7 +139,7 @@ func BenchmarkKeystroke(b *testing.B) {
 	}
 }
 
-// BenchmarkViewHeavy measures m.View() with ~100 segments at a realistic
+// BenchmarkViewHeavy measures m.View() with ~100 fixture events at a realistic
 // terminal size (220x60).
 func BenchmarkViewHeavy(b *testing.B) {
 	m := newModel(Config{
@@ -153,7 +155,7 @@ func BenchmarkViewHeavy(b *testing.B) {
 	}
 }
 
-// BenchmarkSyncViewportHeavy measures m.syncViewport() with ~100 segments.
+// BenchmarkSyncViewportHeavy measures m.syncViewport() with ~100 fixture events.
 func BenchmarkSyncViewportHeavy(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
@@ -168,7 +170,7 @@ func BenchmarkSyncViewportHeavy(b *testing.B) {
 	}
 }
 
-// BenchmarkContentStringHeavy measures dirty String() path with ~100 segments.
+// BenchmarkContentStringHeavy measures dirty String() path with ~100 fixture events.
 func BenchmarkContentStringHeavy(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
@@ -187,7 +189,7 @@ func BenchmarkContentStringHeavy(b *testing.B) {
 }
 
 // BenchmarkContentStringUltraHeavy measures dirty String() path with ~400
-// segments (4× the heavy fixture), the streaming-conversation worst case.
+// fixture events (4× the heavy fixture), the streaming-conversation worst case.
 func BenchmarkContentStringUltraHeavy(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
@@ -208,12 +210,12 @@ func BenchmarkContentStringUltraHeavy(b *testing.B) {
 	}
 }
 
-// BenchmarkStationaryFrameHeavy measures a fully cached frame where nothing
-// changed: m.View() with ~100 segments at a realistic terminal size (220x60),
+// BenchmarkStationaryFrameBottomPinnedHeavy measures a fully cached frame where nothing
+// changed: m.View() with ~100 fixture events at a realistic terminal size (220x60),
 // pinned at the bottom by autoscroll. This is the autoscroll-streaming case
 // (viewport at bottom, no scroll movement between frames); every View() cost
 // other than the viewport slice is a cache hit.
-func BenchmarkStationaryFrameHeavy(b *testing.B) {
+func BenchmarkStationaryFrameBottomPinnedHeavy(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 4096},
@@ -229,9 +231,63 @@ func BenchmarkStationaryFrameHeavy(b *testing.B) {
 	}
 }
 
+// BenchmarkStationaryFrameFixedViewport measures a fully cached frame with a
+// deterministic 53-row ANSI payload at a realistic terminal size (220x60).
+func BenchmarkStationaryFrameFixedViewport(b *testing.B) {
+	m, err := setupFixedViewportBenchmark()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchViewSink = m.View().Content
+	}
+}
+
+func setupFixedViewportBenchmark() (*Model, error) {
+	m := newModel(Config{
+		Model:         "bench-model",
+		ModelContexts: map[string]int{"bench-model": 4096},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 220, Height: 60})
+
+	const (
+		wantLines  = 53
+		wantBytes  = 12189
+		wantSHA256 = "6f0b5b12ee83b86e2d52efd82579a0f8fa4b0ee8771d7cc9050da65e84897e49"
+	)
+	m.setViewportContent(benchFixedViewportPayload())
+	benchViewSink = m.View().Content
+
+	visible := m.visibleViewportContent()
+	if lines := strings.Count(visible, "\n") + 1; lines != wantLines {
+		return nil, fmt.Errorf("visible viewport lines = %d, want %d", lines, wantLines)
+	}
+	if len(visible) != wantBytes {
+		return nil, fmt.Errorf("visible viewport bytes = %d, want %d", len(visible), wantBytes)
+	}
+	sum := sha256.Sum256([]byte(visible))
+	if got := hex.EncodeToString(sum[:]); got != wantSHA256 {
+		return nil, fmt.Errorf("visible viewport SHA-256 = %s, want %s", got, wantSHA256)
+	}
+
+	return m, nil
+}
+
+func benchFixedViewportPayload() string {
+	const rowWidth = 214
+	rows := make([]string, 53)
+	for i := range rows {
+		prefix := fmt.Sprintf("fixed viewport row %02d ", i)
+		rows[i] = "\x1b[38;5;252m" + prefix + strings.Repeat("x", rowWidth-len(prefix)) + "\x1b[0m"
+	}
+	return strings.Join(rows, "\n")
+}
+
 // BenchmarkScrollDownHeavy measures a real scrolled frame: the viewport
 // actually moves every iteration, both directions (up on even i, down on
-// odd), with ~100 segments at a realistic terminal size (220x60), on warmed
+// odd), with ~100 fixture events at a realistic terminal size (220x60), on warmed
 // caches. The min/max yOffset guard is the regression guard that prevents
 // this benchmark from silently measuring a stationary frame again:
 // viewport.ScrollDown early-returns at the bottom, and a start-vs-end
@@ -265,7 +321,7 @@ func BenchmarkScrollDownHeavy(b *testing.B) {
 }
 
 // BenchmarkScrollDownHeavy16x is the conversation-scale flatness guard:
-// identical to BenchmarkScrollDownHeavy but with ~1600 segments (16× the
+// identical to BenchmarkScrollDownHeavy but with ~1600 fixture events (16× the
 // heavy fixture). Per-frame B/op and allocs/op must match
 // BenchmarkScrollDownHeavy regardless of conversation size.
 func BenchmarkScrollDownHeavy16x(b *testing.B) {
@@ -348,7 +404,7 @@ func populateBenchModel(m *Model) {
 	updateModelDirect(m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 500, 4096, 2, 70, 32, 600, "ok", false)})
 }
 
-// populateBenchModelHeavy populates a Model with ~100 segments of mixed types:
+// populateBenchModelHeavy populates a Model with ~100 fixture events of mixed types:
 // 30 assistant markdown chunks, 20 tool calls, 10 user messages, 5 thinking blocks,
 // 5 delegations, and 5 tool call groups (2-3 calls each).
 func populateBenchModelHeavy(m *Model) {

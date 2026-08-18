@@ -36,7 +36,6 @@ const (
 )
 
 type thinkingBlockData struct {
-	preview   string // first 80 chars
 	collapsed bool   // default true
 	body      string // full content
 	streaming bool   // true while chunks are still arriving
@@ -72,6 +71,7 @@ type toolCallSegment struct {
 
 type toolCallGroupSegment struct {
 	tool    string
+	mixed   bool
 	entries []*toolCallSegment
 }
 

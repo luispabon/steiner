@@ -26,14 +26,14 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 
 	_, borderStyle := b.delegationStyles(dd.toolLabel)
 	box := renderStyledBox(strings.Join(lines, "\n"), borderStyle.GetForeground(), lipgloss.Color(theme.BgElev), width) + "\n"
-	return box + b.renderDelegationHint(dd) + "\n"
+	return box
 }
 
 func (b *contentBuffer) renderDelegationBoxRows(dd *delegationDisplayState, width int) []string {
 	rows := b.delegationRows(dd, width)
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
-		if row.kind == delegationRowBorderTop || row.kind == delegationRowBorderBottom || row.kind == delegationRowHint {
+		if row.kind == delegationRowBorderTop || row.kind == delegationRowBorderBottom {
 			continue
 		}
 		if row.text != "" {
@@ -41,14 +41,6 @@ func (b *contentBuffer) renderDelegationBoxRows(dd *delegationDisplayState, widt
 		}
 	}
 	return lines
-}
-
-func (b *contentBuffer) renderDelegationHint(dd *delegationDisplayState) string {
-	action := "expand"
-	if !dd.collapsed {
-		action = "collapse"
-	}
-	return b.styles.FgDim.Render("ctrl+x or click header to " + action)
 }
 
 func (b *contentBuffer) renderDelegationPromptHeader(dd *delegationDisplayState) string {
@@ -344,15 +336,13 @@ func (b *contentBuffer) renderDelegationEntry(entry delegationTranscriptEntry, w
 
 func (b *contentBuffer) renderDelegationThinkingEntry(entry delegationTranscriptEntry, width int) []string {
 	style := b.thinkingTextStyle()
-	lines := b.wrapStyledDelegationLines(stripThinkingMarkers(entry.body), max(1, width-2), style)
+	lines := b.wrapStyledDelegationLines(stripThinkingMarkers(entry.body), max(1, width), style)
 	if len(lines) == 0 {
 		return nil
 	}
 	rows := make([]string, 0, len(lines)+1)
 	rows = append(rows, style.Render("Thinking"))
-	for _, line := range lines {
-		rows = append(rows, style.Render("▎")+" "+line)
-	}
+	rows = append(rows, lines...)
 	return rows
 }
 

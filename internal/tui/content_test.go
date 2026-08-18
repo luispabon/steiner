@@ -952,7 +952,7 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 	))
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"explore", "child-1", "⠋", "read: README.md:1–200", "ctrl+x or click header to expand"} {
+	for _, want := range []string{"explore", "child-1", "⠋", "read: README.md:1–200"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("collapsed active delegation render %q missing %q", rendered, want)
 		}
@@ -991,7 +991,7 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := buffer.String(80)
-	for _, want := range []string{"explore", "child-1", "prompt", "child assistant reply", "bash", "pwd", "✓", "output", "final child output", "ctrl+x or click header to collapse"} {
+	for _, want := range []string{"explore", "child-1", "prompt", "child assistant reply", "bash", "pwd", "✓", "output", "final child output"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expanded delegation render %q missing %q", rendered, want)
 		}
@@ -1290,7 +1290,7 @@ func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *tes
 		t.Fatal("thinking block streaming = false, want true")
 	}
 	renderedStreaming := buffer.String(80)
-	for _, want := range []string{"▾ Thinking", "first line", "second line"} {
+	for _, want := range []string{"▾ first line", "second line"} {
 		if !strings.Contains(renderedStreaming, want) {
 			t.Fatalf("streaming render = %q, want %q", renderedStreaming, want)
 		}
@@ -1308,10 +1308,13 @@ func TestThinkingBlocksStartExpandedWhileStreamingAndCollapseWhenFinished(t *tes
 		t.Fatalf("collapseState[0] = %v, want true after finalize", got)
 	}
 	renderedCollapsed := buffer.String(80)
-	// New collapsed format has "▸ Thinking" on its own line and "▎ first line" on a separate line
+	// Collapsed format keeps first line and marks continuation with an ellipsis.
 	plain := stripANSI(renderedCollapsed)
-	if !strings.Contains(plain, "▸ Thinking") || !strings.Contains(plain, "first line") {
-		t.Fatalf("collapsed render = %q, want collapsed with '▸ Thinking' and 'first line' separately", plain)
+	if !strings.Contains(plain, "▸ first line") || !strings.Contains(plain, "…") {
+		t.Fatalf("collapsed render = %q, want '▸ first line' with ellipsis", plain)
+	}
+	if strings.Contains(plain, "second line") {
+		t.Fatalf("collapsed render = %q, must not contain %q", plain, "second line")
 	}
 }
 
@@ -1338,20 +1341,18 @@ func TestThinkingChunksRenderSeparateItems(t *testing.T) {
 	if strings.Contains(plain, "**") {
 		t.Fatalf("render contains markdown bold markers: %q", plain)
 	}
-	for _, want := range []string{"▎ Inspecting configuration", "▎ Planning safe automation"} {
+	for _, want := range []string{"Inspecting configuration", "Planning safe automation"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("render = %q, want %q", plain, want)
 		}
 	}
 	buffer.finalizeThinkingBlock()
 	plain = stripANSI(buffer.String(80))
-	if !strings.Contains(plain, "▸ Thinking") {
-		t.Fatalf("collapsed render = %q, want collapsed header '▸ Thinking'", plain)
+	if !strings.Contains(plain, "▸ Inspecting configuration") {
+		t.Fatalf("collapsed render = %q, want %q", plain, "▸ Inspecting configuration")
 	}
-	for _, want := range []string{"▎ Inspecting configuration", "▎ Planning safe automation"} {
-		if !strings.Contains(plain, want) {
-			t.Fatalf("collapsed render = %q, want %q", plain, want)
-		}
+	if strings.Contains(plain, "Planning safe automation") {
+		t.Fatalf("collapsed render = %q, must not contain %q", plain, "Planning safe automation")
 	}
 	if strings.Contains(plain, "**") {
 		t.Fatalf("collapsed render contains markdown bold markers: %q", plain)
@@ -1381,8 +1382,8 @@ func TestThinkingChunkSplitMarkerStripped(t *testing.T) {
 	if strings.Contains(plain, "**") {
 		t.Fatalf("render contains markdown bold markers: %q", plain)
 	}
-	if !strings.Contains(plain, "▎ Planning safe automation") {
-		t.Fatalf("render = %q, want %q", plain, "▎ Planning safe automation")
+	if !strings.Contains(plain, "Planning safe automation") {
+		t.Fatalf("render = %q, want %q", plain, "Planning safe automation")
 	}
 }
 
@@ -1427,7 +1428,7 @@ func TestThinkingBlockBeforeToolCallStartsToolBoxOnFreshLine(t *testing.T) {
 
 	thinkingLine := -1
 	for i, line := range lines {
-		if strings.Contains(line, "Thinking") {
+		if strings.Contains(line, "inspect renderer") {
 			thinkingLine = i
 			break
 		}
@@ -1480,85 +1481,34 @@ func TestRenderThinkingBlockSegment(t *testing.T) {
 		name      string
 		width     int
 		thinkData *thinkingBlockData
-		want      []string // strings that must appear in result
-		notWant   []string // strings that must NOT appear
+		want      []string
+		notWant   []string
+		exact     string
 	}{
-		{
-			name:      "nil thinkData",
-			width:     80,
-			thinkData: nil,
-			want:      []string{""},
-			notWant:   []string{"Thinking"},
-		},
-		{
-			name:  "expanded state, short text",
-			width: 80,
-			thinkData: &thinkingBlockData{
-				body:      "short thought",
-				collapsed: false,
-				streaming: false,
-			},
-			want:    []string{"▾ Thinking", "short thought", "▎"},
-			notWant: []string{"▸", "…"},
-		},
-		{
-			name:  "expanded state, long line wraps",
-			width: 40,
-			thinkData: &thinkingBlockData{
-				body:      strings.Repeat("a", 80),
-				collapsed: false,
-				streaming: false,
-			},
-			want:    []string{"▾ Thinking"},
-			notWant: []string{"▸"},
-		},
-		{
-			name:  "collapsed state, 2 lines (≤3)",
-			width: 80,
-			thinkData: &thinkingBlockData{
-				body:      "first line\nsecond line",
-				collapsed: true,
-				streaming: false,
-			},
-			want:    []string{"▸ Thinking", "first line", "second line"},
-			notWant: []string{"…", "▾"},
-		},
-		{
-			name:  "collapsed state, 5 lines (>3)",
-			width: 80,
-			thinkData: &thinkingBlockData{
-				body:      "line1\nline2\nline3\nline4\nline5",
-				collapsed: true,
-				streaming: false,
-			},
-			want:    []string{"▸ Thinking", "line1", "line2", "line3", "…"},
-			notWant: []string{"line4", "line5", "▾"},
-		},
-		{
-			name:  "collapsed state at wide width",
-			width: 120,
-			thinkData: &thinkingBlockData{
-				body:      "first\nsecond\nthird",
-				collapsed: true,
-				streaming: false,
-			},
-			want:    []string{"▸ Thinking", "first", "second", "third"},
-			notWant: []string{"…", "▾"},
-		},
+		{name: "nil thinkData", width: 80, thinkData: nil, want: []string{""}, notWant: []string{"Thinking"}},
+		{name: "expanded state, short text", width: 80, thinkData: &thinkingBlockData{body: "short thought"}, want: []string{"▾ short thought"}, notWant: []string{"▸", "…", "▎", "Thinking"}},
+		{name: "expanded state, long line wraps", width: 40, thinkData: &thinkingBlockData{body: strings.Repeat("a", 80)}, want: []string{"▾"}, notWant: []string{"▸", "Thinking"}},
+		{name: "expanded state, empty body", width: 80, thinkData: &thinkingBlockData{}, want: []string{"▾"}, notWant: []string{"Thinking"}, exact: "▾"},
+		{name: "collapsed state, empty body", width: 80, thinkData: &thinkingBlockData{collapsed: true}, want: []string{"▸"}, notWant: []string{"▸ ", "…", "Thinking"}, exact: "▸"},
+		{name: "collapsed state, single line fits, no ellipsis", width: 80, thinkData: &thinkingBlockData{body: "short thought", collapsed: true, streaming: false}, want: []string{"▸ short thought"}, notWant: []string{"…"}, exact: "▸ short thought"},
+		{name: "collapsed state, blank first line with more lines", width: 80, thinkData: &thinkingBlockData{body: "\nsecond line", collapsed: true}, want: []string{"▸ …"}, notWant: []string{"second line", "Thinking"}},
+		{name: "collapsed state, exact fill with more lines", width: 20, thinkData: &thinkingBlockData{body: strings.Repeat("a", 18) + "\nmore", collapsed: true}, want: []string{"▸ " + strings.Repeat("a", 17) + "…"}, notWant: []string{"more", "Thinking"}},
+		{name: "expanded state, continuation indent", width: 40, thinkData: &thinkingBlockData{body: strings.Repeat("a", 60) + "\nlast line"}, want: []string{"▾ ", "last line"}, notWant: []string{"Thinking"}},
+		{name: "collapsed state, 2 lines", width: 80, thinkData: &thinkingBlockData{body: "first line\nsecond line", collapsed: true}, want: []string{"▸ first line…"}, notWant: []string{"second line", "▾", "Thinking"}},
+		{name: "collapsed state, 5 lines", width: 80, thinkData: &thinkingBlockData{body: "line1\nline2\nline3\nline4\nline5", collapsed: true}, want: []string{"▸ line1…"}, notWant: []string{"line2", "line3", "line4", "line5", "▾", "Thinking"}},
+		{name: "collapsed state at wide width", width: 120, thinkData: &thinkingBlockData{body: "first\nsecond\nthird", collapsed: true}, want: []string{"▸ first…"}, notWant: []string{"second", "third", "▾", "Thinking"}},
+		{name: "collapsed state, long first line truncates to width", width: 20, thinkData: &thinkingBlockData{body: strings.Repeat("a", 100) + "\nmore lines", collapsed: true}, want: []string{"▸ a", "…"}, notWant: []string{"more lines", "▾", "Thinking"}},
+		{name: "collapsed state, degenerate width", width: 2, thinkData: &thinkingBlockData{body: "short thought", collapsed: true}, want: []string{"▸"}, notWant: []string{"▸ ", "short thought", "Thinking"}, exact: "▸"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			buf := &contentBuffer{styles: testStyles(theme.AccentAmber)}
-			seg := contentSegment{kind: segmentThinkingBlock, thinkData: tc.thinkData}
-			result := buf.renderThinkingBlockSegment(seg, tc.width)
+			result := buf.renderThinkingBlockSegment(contentSegment{kind: segmentThinkingBlock, thinkData: tc.thinkData}, tc.width)
 			plain := stripANSI(result)
-
-			// Check want strings
 			for _, w := range tc.want {
 				if w == "" {
-					// Special case: empty string check means result should be empty
 					if plain != "" {
 						t.Errorf("result should be empty, got: %q", plain)
 					}
@@ -1568,28 +1518,34 @@ func TestRenderThinkingBlockSegment(t *testing.T) {
 					t.Errorf("result missing %q\ngot: %q", w, plain)
 				}
 			}
-
-			// Check notWant strings
 			for _, n := range tc.notWant {
 				if strings.Contains(plain, n) {
 					t.Errorf("result should not contain %q\ngot: %q", n, plain)
 				}
 			}
-
-			// For the "long line wraps" case, verify no line exceeds width
-			if tc.name == "expanded state, long line wraps" {
-				for _, line := range strings.Split(plain, "\n") {
-					// Remove the "▎ " or "▾ " or "▸ " prefix for width check
-					content := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, "▎ "), "▾ "), "▸ ")
-					if len([]rune(content)) > tc.width {
-						t.Errorf("line exceeds width %d: %q (content: %q)", tc.width, line, content)
-					}
+			if tc.exact != "" && strings.TrimSpace(plain) != tc.exact {
+				t.Errorf("trimmed result = %q, want %q", strings.TrimSpace(plain), tc.exact)
+			}
+			for _, line := range strings.Split(plain, "\n") {
+				if len([]rune(line)) > tc.width {
+					t.Errorf("line exceeds width %d: %q", tc.width, line)
+				}
+			}
+			if tc.name == "expanded state, continuation indent" {
+				lines := strings.Split(plain, "\n")
+				if len(lines) < 3 || !strings.HasPrefix(lines[0], "▾ ") || !strings.HasPrefix(lines[1], "  ") || !strings.Contains(lines[2], "last line") {
+					t.Errorf("continuation render = %q, want marker, indented continuation, and last line", plain)
+				}
+			}
+			if tc.name == "collapsed state, exact fill with more lines" {
+				line := strings.Split(plain, "\n")[0]
+				if len([]rune(line)) != 20 {
+					t.Errorf("exact-fill line length = %d, want 20: %q", len([]rune(line)), line)
 				}
 			}
 		})
 	}
 }
-
 func TestAppendUserMarkdownSegmentKind(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -1711,7 +1667,7 @@ func TestUserSegmentMargin(t *testing.T) {
 			},
 			wantMarginAbove:   false,
 			wantMarginBelow:   false,
-			wantMarginBetween: true,
+			wantMarginBetween: false,
 		},
 		{
 			name: "single user alone",
@@ -1791,17 +1747,54 @@ func TestUserSegmentMargin(t *testing.T) {
 			}
 
 			// Margin between consecutive user segments.
-			if tt.wantMarginBetween {
-				foundGap := false
-				for i := 1; i < len(userLineIdxs); i++ {
-					if userLineIdxs[i] > userLineIdxs[i-1]+1 {
-						foundGap = true
-						break
-					}
+			foundGap := false
+			for i := 1; i < len(userLineIdxs); i++ {
+				if userLineIdxs[i] > userLineIdxs[i-1]+1 {
+					foundGap = true
+					break
 				}
-				if !foundGap {
-					t.Errorf("want blank line between consecutive user segments, but all user lines are contiguous")
-				}
+			}
+			if tt.wantMarginBetween && !foundGap {
+				t.Errorf("want blank line between consecutive user segments, but all user lines are contiguous")
+			}
+			if !tt.wantMarginBetween && foundGap {
+				t.Errorf("no blank line expected between consecutive user segments")
+			}
+		})
+	}
+}
+
+func TestJoinSeparatorBySegmentKind(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		kinds []contentSegmentKind
+		want  string
+	}{
+		{
+			name:  "same assistant kind hugs",
+			kinds: []contentSegmentKind{segmentAssistantMarkdown, segmentAssistantMarkdown},
+			want:  "first\nsecond",
+		},
+		{
+			name:  "different kinds have blank line",
+			kinds: []contentSegmentKind{segmentAssistantMarkdown, segmentDelegation},
+			want:  "first\n\nsecond",
+		},
+		{
+			name:  "user kinds hug",
+			kinds: []contentSegmentKind{segmentUser, segmentUserMarkdown},
+			want:  "first\nsecond",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := joinWithUserMargin([]string{"first", "second"}, tt.kinds)
+			if got != tt.want {
+				t.Errorf("joinWithUserMargin(%v) = %q, want %q", tt.kinds, got, tt.want)
 			}
 		})
 	}
@@ -2450,7 +2443,7 @@ func TestRenderSingleBashToolCallStaysBoxed(t *testing.T) {
 	}
 }
 
-func TestRenderMixedAdjacentToolsStaySeparate(t *testing.T) {
+func TestRenderMixedAdjacentToolsAsOneGroupedBox(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
 		styles:        testStyles(theme.AccentAmber),
@@ -2460,12 +2453,16 @@ func TestRenderMixedAdjacentToolsStaySeparate(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "read", "call_2", map[string]any{"path": "README.md"}))
 
-	if got := len(buffer.segments); got != 2 {
-		t.Fatalf("segments = %d, want 2 separate segments", got)
+	if got := len(buffer.segments); got != 1 {
+		t.Fatalf("segments = %d, want 1 grouped segment", got)
+	}
+	group := buffer.segments[0].toolGroupData
+	if group == nil || !group.mixed {
+		t.Fatalf("group = %#v, want mixed group", group)
 	}
 	rendered := stripANSI(buffer.String(140))
-	if got := strings.Count(rendered, "┌"); got != 2 {
-		t.Fatalf("mixed top borders = %d, want 2", got)
+	if got := strings.Count(rendered, "┌"); got != 1 {
+		t.Fatalf("mixed top borders = %d, want 1", got)
 	}
 }
 
@@ -3796,7 +3793,7 @@ func TestContentBufferSegmentHeights(t *testing.T) {
 					},
 				},
 			},
-			checks: map[int]int{0: 2}, // header + 1 preview line
+			checks: map[int]int{0: 1}, // one collapsed content line
 		},
 		{
 			name: "expanded thinking block",
@@ -3809,7 +3806,7 @@ func TestContentBufferSegmentHeights(t *testing.T) {
 					},
 				},
 			},
-			checks: map[int]int{0: 2}, // header + 1 body line
+			checks: map[int]int{0: 1}, // one expanded content line
 		},
 		{
 			name: "adjacent thinking block and tool call",
@@ -3830,7 +3827,7 @@ func TestContentBufferSegmentHeights(t *testing.T) {
 					},
 				},
 			},
-			checks: map[int]int{0: 2, 1: 3}, // thinking=2, tool=3; blank line between not attributed
+			checks: map[int]int{0: 1, 1: 3}, // thinking=1, tool=3; blank line between not attributed
 		},
 		{
 			name: "empty rendered segment filtered from output",

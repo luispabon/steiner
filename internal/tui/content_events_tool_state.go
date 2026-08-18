@@ -292,11 +292,12 @@ func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 	last := &b.segments[len(b.segments)-1]
 	switch last.kind {
 	case segmentToolCall:
-		if last.toolData == nil || last.toolData.tool != tc.tool {
+		if last.toolData == nil {
 			return false
 		}
 		last.toolGroupData = &toolCallGroupSegment{
 			tool:    tc.tool,
+			mixed:   last.toolData.tool != tc.tool,
 			entries: []*toolCallSegment{last.toolData, tc},
 		}
 		last.toolData = nil
@@ -305,9 +306,10 @@ func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 		b.gen++
 		return true
 	case segmentToolCallGroup:
-		if last.toolGroupData == nil || last.toolGroupData.tool != tc.tool {
+		if last.toolGroupData == nil {
 			return false
 		}
+		last.toolGroupData.mixed = last.toolGroupData.mixed || last.toolGroupData.tool != tc.tool
 		last.toolGroupData.entries = append(last.toolGroupData.entries, tc)
 		last.renderDirty = true
 		b.gen++

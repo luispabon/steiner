@@ -324,7 +324,14 @@ func TestRenderClosingSeparatorHasBlankLineMargin(t *testing.T) {
 	if bodyIndex+1 >= len(lines) || strings.TrimSpace(lines[bodyIndex+1]) != "" {
 		t.Errorf("expected blank line immediately after body, got %q:\n%s", lines[bodyIndex+1], plain)
 	}
-	if bodyIndex+2 >= len(lines) || !strings.Contains(lines[bodyIndex+2], "End of Compaction") {
-		t.Errorf("expected closing delimiter after blank line:\n%s", plain)
+	closingIndex := -1
+	for i := bodyIndex + 2; i < len(lines); i++ {
+		if strings.Contains(lines[i], "End of Compaction") {
+			closingIndex = i
+			break
+		}
+	}
+	if closingIndex != bodyIndex+2 {
+		t.Errorf("closing delimiter index = %d, want %d:\n%s", closingIndex, bodyIndex+2, plain)
 	}
 }
