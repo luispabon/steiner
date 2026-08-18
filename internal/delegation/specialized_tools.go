@@ -142,7 +142,7 @@ func checkPlanModeCodeDenial(ctx context.Context, agentType AgentType) error {
 
 // provisionCodeWorktreeAndWarnings checks for dirty changes and provisions an isolated
 // worktree for code agents, collecting warnings for any issues encountered.
-func provisionCodeWorktreeAndWarnings(ctx context.Context, workDir string, agentID string) (CodeWorktree, []string) {
+func provisionCodeWorktreeAndWarnings(ctx context.Context, workDir string, agentID string) (CodeWorktree, []string, error) {
 	var warnings []string
 	var provisionedWorktree CodeWorktree
 
@@ -161,15 +161,12 @@ func provisionCodeWorktreeAndWarnings(ctx context.Context, workDir string, agent
 		}
 	}
 
-	// Provision the worktree; on failure, fall back to the parent tree with a warning.
-	var err error
-	provisionedWorktree, err = ProvisionCodeWorktree(ctx, workDir, agentID)
+	provisionedWorktree, err := ProvisionCodeWorktree(ctx, workDir, agentID)
 	if err != nil {
-		warnings = append(warnings, fmt.Sprintf(
-			"failed to provision isolated worktree, falling back to the shared working tree: %v", err))
+		return provisionedWorktree, warnings, err
 	}
 
-	return provisionedWorktree, warnings
+	return provisionedWorktree, warnings, nil
 }
 
 // applyCodeWorktreeResult updates the delegation result with worktree path, branch, and warnings.
@@ -222,7 +219,10 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		var warnings []string
 		var provisionedWorktree CodeWorktree
 		if agentType == AgentTypeCode {
-			provisionedWorktree, warnings = provisionCodeWorktreeAndWarnings(ctx, deps.WorkDir, agentID)
+			provisionedWorktree, warnings, err = provisionCodeWorktreeAndWarnings(ctx, deps.WorkDir, agentID)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", agentType, err)
+			}
 		}
 
 		// Build bootstrap deps and override WorkDir for code agents that provisioned successfully.
@@ -235,6 +235,9 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			Task:         task,
 			SystemPrompt: AgentSystemPrompt(agentType),
 			AgentID:      agentID,
+		}
+		if agentType == AgentTypeCode {
+			spec.SystemSuffix = AgentSystemSuffix(agentType)
 		}
 
 		req, limits, err := BuildChildRun(ctx, bdeps, spec)
