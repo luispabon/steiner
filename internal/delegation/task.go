@@ -48,7 +48,12 @@ func truncateTaskPreview(s string, max int) string {
 // SpawnDelegate executes a child agent with the given specification and runner.
 // It always runs a follow-up summarisation turn after successful completion and
 // returns the full visible output plus hidden retention metadata.
-func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger) (tool.ExecutionResult, agent.RunState, CacheUsage, error) {
+func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger, opts ...spawnOption) (tool.ExecutionResult, agent.RunState, CacheUsage, error) {
+	var o spawnOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	tc := newTraceCollector(spec.AgentID, spec.Task)
 
 	childCtx := ctx
@@ -88,8 +93,19 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		return failedDelegateExecution(spec, state, extErr, tc, logger), state, runUsage, nil
 	}
 
+	var remediationResult DelegationResult
+	if o.remediation != nil {
+		state, runUsage, remediationResult, _, _ = applyRemediation(childCtx, spec, req, runner, state, runUsage, o.remediation, tc)
+	}
+
 	total := spec.PriorCacheUsage.Add(runUsage)
 	result := buildResultWithTrace(spec.AgentID, state, tc, total)
+	if o.remediation != nil {
+		result.Status = remediationResult.Status
+		result.Output = remediationResult.Output
+		result.Warnings = remediationResult.Warnings
+		result.SessionResumable = remediationResult.SessionResumable
+	}
 
 	tc.add("result", "status mapped", map[string]any{
 		"status":             string(result.Status),
