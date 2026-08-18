@@ -138,8 +138,13 @@ func (b *contentBuffer) renderToolCallFrame(tc *toolCallSegment, width int) stri
 		argsAvail = 1
 	}
 
-	// Build header as plain text
-	argsText := tc.args
+	// Build header as plain text. Real line breaks in the args (e.g. multiline
+	// bash commands) must not reach the header, or the single-line header wraps
+	// and inflates the collapsed box height. Collapse them to a visible
+	// separator before truncating to argsAvail.
+	argsText := strings.ReplaceAll(tc.args, "\r\n", "\n")
+	argsText = strings.ReplaceAll(argsText, "\n", " ⏎ ")
+	argsText = strings.ReplaceAll(argsText, "\r", " ⏎ ")
 	if len([]rune(argsText)) > argsAvail {
 		argsText = string([]rune(argsText)[:argsAvail-1]) + "…"
 	}
