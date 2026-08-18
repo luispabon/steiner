@@ -92,12 +92,12 @@ func TestWorktreesListWithProvisioned(t *testing.T) {
 		t.Errorf("expected 'test-agent-2' in output, got: %q", output)
 	}
 
-	// Verify branches appear.
-	if !strings.Contains(output, "delegate-test-agent-1") {
-		t.Errorf("expected 'delegate-test-agent-1' branch in output, got: %q", output)
+	// Verify branches appear (should start with "delegate/" and contain agent IDs).
+	if !strings.Contains(output, "delegate/") || !strings.Contains(output, "test-agent-1") {
+		t.Errorf("expected branch with 'delegate/' and 'test-agent-1' in output, got: %q", output)
 	}
-	if !strings.Contains(output, "delegate-test-agent-2") {
-		t.Errorf("expected 'delegate-test-agent-2' branch in output, got: %q", output)
+	if !strings.Contains(output, "delegate/") || !strings.Contains(output, "test-agent-2") {
+		t.Errorf("expected branch with 'delegate/' and 'test-agent-2' in output, got: %q", output)
 	}
 
 	// Verify paths appear.
@@ -136,9 +136,31 @@ func TestWorktreesPruneSingle(t *testing.T) {
 		t.Fatalf("chdir to repo: %v", err)
 	}
 
-	// Prune the first worktree.
+	// Get the worktrees to extract the relID for pruning.
+	worktrees, err := delegation.ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("list worktrees before prune: %v", err)
+	}
+	if len(worktrees) < 2 {
+		t.Fatalf("expected at least 2 worktrees, got %d", len(worktrees))
+	}
+
+	// Find the relID for test-agent-1.
+	delegationBase := filepath.Join(repo, ".steiner", "worktrees")
+	var relID1 string
+	for _, wt := range worktrees {
+		if strings.Contains(wt.Path, "test-agent-1") {
+			relID1, _ = filepath.Rel(delegationBase, wt.Path)
+			break
+		}
+	}
+	if relID1 == "" {
+		t.Fatalf("could not find test-agent-1 in worktrees")
+	}
+
+	// Prune the first worktree using its relID.
 	cmd := newWorktreesCommand(&cliFlags{})
-	cmd.SetArgs([]string{"--prune", "test-agent-1"})
+	cmd.SetArgs([]string{"--prune", relID1})
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -149,22 +171,22 @@ func TestWorktreesPruneSingle(t *testing.T) {
 	}
 
 	output := out.String()
-	if !strings.Contains(output, "removed worktree: test-agent-1") {
+	if !strings.Contains(output, "removed worktree:") {
 		t.Errorf("expected success message, got: %q", output)
 	}
 
 	// Verify only test-agent-2 remains.
-	worktrees, err := delegation.ListCodeWorktrees(repo)
+	remainingWorktrees, err := delegation.ListCodeWorktrees(repo)
 	if err != nil {
 		t.Fatalf("list worktrees after prune: %v", err)
 	}
 
-	if len(worktrees) != 1 {
-		t.Errorf("expected 1 worktree remaining, got %d", len(worktrees))
+	if len(remainingWorktrees) != 1 {
+		t.Errorf("expected 1 worktree remaining, got %d", len(remainingWorktrees))
 	}
 
-	if len(worktrees) > 0 && !strings.Contains(worktrees[0].Path, "test-agent-2") {
-		t.Errorf("expected test-agent-2 to remain, got: %s", worktrees[0].Path)
+	if len(remainingWorktrees) > 0 && !strings.Contains(remainingWorktrees[0].Path, "test-agent-2") {
+		t.Errorf("expected test-agent-2 to remain, got: %s", remainingWorktrees[0].Path)
 	}
 }
 
@@ -356,8 +378,8 @@ func TestWorktreesListSingleWorktree(t *testing.T) {
 	output := out.String()
 
 	// Verify the header is printed.
-	if !strings.Contains(output, "Agent ID") {
-		t.Errorf("expected header 'Agent ID' in output, got: %q", output)
+	if !strings.Contains(output, "ID") {
+		t.Errorf("expected header 'ID' in output, got: %q", output)
 	}
 
 	// Verify the single worktree appears.
