@@ -4048,7 +4048,7 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 		segments:          make([]contentSegment, 0),
 		collapseState:     make(map[int]bool),
 		showThinking:      true,
-		activeDelegations: make(map[string]int),
+		activeDelegations: make(map[string]delegationLocator),
 	}
 
 	// 1. Parent calls the specialized "code" delegation tool.
@@ -4223,7 +4223,7 @@ func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
 		segments:          make([]contentSegment, 0),
 		collapseState:     make(map[int]bool),
 		showThinking:      true,
-		activeDelegations: make(map[string]int),
+		activeDelegations: make(map[string]delegationLocator),
 	}
 
 	// 1. The original child completes with its own run's cache stats
@@ -4328,7 +4328,7 @@ func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 		segments:          make([]contentSegment, 0),
 		collapseState:     make(map[int]bool),
 		showThinking:      true,
-		activeDelegations: make(map[string]int),
+		activeDelegations: make(map[string]delegationLocator),
 	}
 
 	// Original child delegation lifecycle.

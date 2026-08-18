@@ -76,7 +76,7 @@ func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload outpu
 		return false
 	}
 	if dd.agentID == "" && payload.Error != "" {
-		b.removeFromPendingDelegateParents(idx)
+		b.removeFromPendingDelegateParents(dd)
 		dd.status = "failed"
 		b.segments[idx].renderDirty = true
 		b.gen++

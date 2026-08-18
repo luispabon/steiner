@@ -17,7 +17,7 @@ func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
 		segments:          make([]contentSegment, 0),
 		collapseState:     make(map[int]bool),
 		styles:            testStyles(theme.AccentAmber),
-		activeDelegations: make(map[string]int),
+		activeDelegations: make(map[string]delegationLocator),
 	}
 
 	buffer.AppendEvent(output.Event{
@@ -143,31 +143,35 @@ func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
 
 func TestRemoveFromPendingDelegateParents(t *testing.T) {
 	t.Parallel()
+	dd3 := &delegationDisplayState{}
+	dd7 := &delegationDisplayState{}
+	dd10 := &delegationDisplayState{}
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
-		pendingDelegateParents: []int{3, 7, 10},
+		pendingDelegateParents: []delegationLocator{{seg: 3, dd: dd3}, {seg: 7, dd: dd7}, {seg: 10, dd: dd10}},
 	}
 	// Remove an existing element
-	buffer.removeFromPendingDelegateParents(7)
+	buffer.removeFromPendingDelegateParents(dd7)
 	if len(buffer.pendingDelegateParents) != 2 {
 		t.Fatalf("len = %d, want 2", len(buffer.pendingDelegateParents))
 	}
-	if buffer.pendingDelegateParents[0] != 3 || buffer.pendingDelegateParents[1] != 10 {
-		t.Fatalf("got %v, want [3, 10]", buffer.pendingDelegateParents)
+	if buffer.pendingDelegateParents[0].dd != dd3 || buffer.pendingDelegateParents[1].dd != dd10 {
+		t.Fatalf("got unexpected locators after remove")
 	}
 	// Remove a non-existent element — no-op
-	buffer.removeFromPendingDelegateParents(99)
+	otherDD := &delegationDisplayState{}
+	buffer.removeFromPendingDelegateParents(otherDD)
 	if len(buffer.pendingDelegateParents) != 2 {
 		t.Fatalf("len = %d, want 2 after no-op", len(buffer.pendingDelegateParents))
 	}
 	// Remove last element
-	buffer.removeFromPendingDelegateParents(10)
-	if len(buffer.pendingDelegateParents) != 1 || buffer.pendingDelegateParents[0] != 3 {
-		t.Fatalf("got %v, want [3]", buffer.pendingDelegateParents)
+	buffer.removeFromPendingDelegateParents(dd10)
+	if len(buffer.pendingDelegateParents) != 1 || buffer.pendingDelegateParents[0].dd != dd3 {
+		t.Fatalf("got unexpected locators, want [dd3]")
 	}
 	// Remove first/only element
-	buffer.removeFromPendingDelegateParents(3)
+	buffer.removeFromPendingDelegateParents(dd3)
 	if len(buffer.pendingDelegateParents) != 0 {
 		t.Fatalf("len = %d, want 0", len(buffer.pendingDelegateParents))
 	}
@@ -178,8 +182,8 @@ func TestDelegationToolCallFinished_DrainsQueue(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]int, 0),
-		activeDelegations:      make(map[string]int),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
 		styles:                 testStyles(theme.AccentAmber),
 	}
 	// Simulate a delegate tool call that will fail before spawning
@@ -218,8 +222,8 @@ func TestDelegationToolCallFinished_IgnoresSpawned(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]int, 0),
-		activeDelegations:      make(map[string]int),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
 		styles:                 testStyles(theme.AccentAmber),
 	}
 	// Start the delegate tool
@@ -255,8 +259,8 @@ func TestDelegationToolCallFinished_FollowUp_DrainsQueue(t *testing.T) {
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]int, 0),
-		activeDelegations:      make(map[string]int),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
 		styles:                 testStyles(theme.AccentAmber),
 	}
 	// Simulate a follow_up tool call that will fail before spawning

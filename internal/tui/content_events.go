@@ -145,6 +145,14 @@ type delegationTranscriptEntry struct {
 	hasError bool
 }
 
+// delegationLocator identifies one delegation: the segment that renders it and
+// the state it renders. The segment may hold a single delegation or be a group,
+// so a segment index alone no longer identifies a delegation.
+type delegationLocator struct {
+	seg int
+	dd  *delegationDisplayState
+}
+
 // delegationDisplayState tracks in-flight or finished delegation state for rendering.
 type delegationDisplayState struct {
 	isAdvisor       bool
@@ -256,13 +264,13 @@ type contentBuffer struct {
 	tickCount         int   // incremented by 500ms tick, used for cursor blink
 	lastRenderErr     error // captures the last render error for logging
 	// delegation tracking
-	activeDelegations       map[string]int           // agentID → segment index (for in-flight delegations)
-	pendingDelegateParents  []int                    // segment indexes awaiting DelegationStartedEvent binding
-	pendingDelegationStarts []int                    // segment indexes awaiting parent delegate tool binding
-	activeAdvisorSegment    int                      // 1-based segment index; 0 means none active
-	skillNames              []string                 // skill names for command prefix matching
-	mcpToolOrigins          map[string]MCPToolOrigin // registry tool name -> MCP server/tool it came from
-	maxDelegationBodyLines  int                      // max lines for delegation body (transcript + prompt); 0 = uncapped
+	activeDelegations       map[string]delegationLocator // agentID → delegation locator (for in-flight delegations)
+	pendingDelegateParents  []delegationLocator          // delegations awaiting DelegationStartedEvent binding
+	pendingDelegationStarts []delegationLocator          // delegations awaiting parent delegate tool binding
+	activeAdvisorSegment    int                          // 1-based segment index; 0 means none active
+	skillNames              []string                     // skill names for command prefix matching
+	mcpToolOrigins          map[string]MCPToolOrigin     // registry tool name -> MCP server/tool it came from
+	maxDelegationBodyLines  int                          // max lines for delegation body (transcript + prompt); 0 = uncapped
 
 	// Render cache.
 	stringCacheWidth    int
