@@ -136,6 +136,10 @@ There is no inline execution tier. If delegation itself is unavailable, stop and
 
 Prefer isolated delegation. Fall back to direct delegation only when `git worktree add` fails, worktree provisioning checks fail, or sub-agent dispatch returns an error for the worktree path. A judgment that isolation is unnecessary or that the edits are simple does not justify skipping to direct delegation — only concrete errors do.
 
+### Warm Follow-Up Policy
+
+Resume a suitable warm agent before cold dispatch only when it remains available for the same bounded deliverable in the same still-live workspace and scope. Follow-ups are sequential. For direct delegation, retain the responsible implementation agent through related verification failures and correction loops. For isolated delegation, cold-dispatch after the agent is closed or its worktree is merged and deleted, even if the session reports resumable. A resumable session alone does not prove that an isolated worktree still exists. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees. Workflow handoffs are not safe continuation boundaries.
+
 ### Worktree Provisioning
 
 Always create worktrees under `.steiner/worktrees/` inside the project root. Do not use `/tmp` or other system temporary directories — they may be sandboxed and silently fail.
@@ -172,7 +176,7 @@ When using direct delegation, the executor must:
 3. review the result against the step contract
 4. run required verification for that point in the flow
 5. update `execution.md`
-6. close the delegated agent
+6. retain the delegated agent for related verification and correction follow-ups; close it only after that work finishes
 
 ### Pre-Commit Checklist
 
