@@ -69,6 +69,95 @@ func TestRenderToolCallBoxKeepsRequestedWidth(t *testing.T) {
 	}
 }
 
+// TestRenderToolCallFrameCollapsesMultilineArgs proves the collapsed tool box
+// header stays a single line even when the argument summary contains real line
+// breaks (e.g. a multiline bash command), collapsing them to the ⏎ separator
+// while preserving literal backslash-n sequences and the existing rune-count
+// truncation with "…".
+func TestRenderToolCallFrameCollapsesMultilineArgs(t *testing.T) {
+	useTrueColor(t)
+
+	tests := []struct {
+		name   string
+		args   string
+		width  int
+		assert func(t *testing.T, plain string)
+	}{
+		{
+			name:  "multiline command collapses to one line",
+			args:  "set -euo pipefail\nprintf 'CONTEXT\\n'; kubectl config current-context\nkubectl get ns",
+			width: 200,
+			assert: func(t *testing.T, plain string) {
+				t.Helper()
+				if strings.Contains(plain, "\n") {
+					t.Fatalf("header contains a newline, want single line: %q", plain)
+				}
+				if !strings.Contains(plain, "⏎") {
+					t.Fatalf("header = %q, want collapsed line-break separator ⏎", plain)
+				}
+				if !strings.Contains(plain, "printf 'CONTEXT\\n'") {
+					t.Fatalf("header = %q, want literal backslash-n preserved", plain)
+				}
+			},
+		},
+		{
+			name:  "crlf collapses too",
+			args:  "line one\r\nline two\r",
+			width: 200,
+			assert: func(t *testing.T, plain string) {
+				t.Helper()
+				if strings.Contains(plain, "\n") || strings.Contains(plain, "\r") {
+					t.Fatalf("header contains a line break, want single line: %q", plain)
+				}
+				if strings.Count(plain, "⏎") != 2 {
+					t.Fatalf("header = %q, want 2 ⏎ separators", plain)
+				}
+			},
+		},
+		{
+			name:  "long single-line command still truncates with ellipsis",
+			args:  strings.Repeat("x", 500),
+			width: 40,
+			assert: func(t *testing.T, plain string) {
+				t.Helper()
+				if !strings.Contains(plain, "…") {
+					t.Fatalf("header = %q, want trailing ellipsis after truncation", plain)
+				}
+				if strings.Contains(plain, "\n") {
+					t.Fatalf("header contains a newline, want single line: %q", plain)
+				}
+			},
+		},
+		{
+			name:  "short single-line command unchanged",
+			args:  "printf hello",
+			width: 200,
+			assert: func(t *testing.T, plain string) {
+				t.Helper()
+				if !strings.Contains(plain, "printf hello") {
+					t.Fatalf("header = %q, want short command preserved", plain)
+				}
+				if strings.Contains(plain, "⏎") || strings.Contains(plain, "\n") {
+					t.Fatalf("header = %q, want no collapse markers on single-line input", plain)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buffer := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+			segment := &toolCallSegment{
+				tool:      "bash",
+				args:      tt.args,
+				meta:      "✓",
+				collapsed: true,
+			}
+			rendered := buffer.renderToolCallFrame(segment, tt.width)
+			tt.assert(t, stripANSI(rendered))
+		})
+	}
+}
 func TestRenderToolCallGroupMixedUsesDefaultBorder(t *testing.T) {
 	t.Parallel()
 

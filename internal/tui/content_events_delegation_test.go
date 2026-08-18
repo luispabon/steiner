@@ -379,6 +379,9 @@ func TestAdvisorThinkingChunkStripsMarkersAndMerges(t *testing.T) {
 			t.Fatalf("render = %q, want %q", plain, want)
 		}
 	}
+	if strings.Contains(plain, "Thinking") {
+		t.Fatalf("render = %q, want no standalone Thinking label", plain)
+	}
 }
 
 // delegationStates returns all delegations in the buffer, both singles and
