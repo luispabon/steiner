@@ -288,6 +288,11 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 				},
 				ModelResolver: nil,
 			}
+			if agentType == AgentTypeCode {
+				repo, cleanup := setupTestRepo(t)
+				t.Cleanup(cleanup)
+				deps.WorkDir = repo
+			}
 			def := SpecializedToolDef(agentType, deps)
 
 			_, err := def.Handler(context.Background(), map[string]any{"task": "test task"})
@@ -924,6 +929,11 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 					return successRunState(), nil
 				}}
 				deps := minimalDeps(runner)
+				if agentType == AgentTypeCode {
+					repo, cleanup := setupTestRepo(t)
+					t.Cleanup(cleanup)
+					deps.WorkDir = repo
+				}
 				def := SpecializedToolDef(agentType, deps)
 
 				_, err := def.Handler(context.Background(), map[string]any{"task": "test task"})
@@ -1043,6 +1053,12 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 
 	runHandler := func(t *testing.T, agentType AgentType, extras map[AgentType][]string) (agent.RunRequest, *SessionStore) {
 		t.Helper()
+		workDir := "/tmp/work"
+		if agentType == AgentTypeCode {
+			repo, cleanup := setupTestRepo(t)
+			t.Cleanup(cleanup)
+			workDir = repo
+		}
 		store := NewSessionStore()
 		var capturedReq agent.RunRequest
 		runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -1059,7 +1075,7 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 				ParentReg:         tool.NewRegistry(parentDefs...),
 				Runner:            runner,
 				Events:            noopEventSink{},
-				WorkDir:           "/tmp/work",
+				WorkDir:           workDir,
 				SessionStore:      store,
 				ExtraAllowedTools: extras,
 			},
@@ -1353,81 +1369,58 @@ func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
 	}
 }
 
-func TestSpecializedHandler_CodeFallsBackOnProvisioningFailure(t *testing.T) {
+func TestSpecializedHandler_CodeFatalOnProvisioningFailure(t *testing.T) {
 	ctx := context.Background()
 	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
-
-	// Point at a nonexistent path to force provisioning to fail.
+	t.Cleanup(cleanup)
 	badRepo := filepath.Join(repo, "nonexistent")
 
-	var capturedReq agent.RunRequest
 	runCount := 0
-	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-		// Capture only the first run (the main delegation), not the summary run.
-		if runCount == 0 {
-			capturedReq = req
-		}
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		runCount++
 		return successRunState(), nil
 	}}
-
 	deps := SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{},
-			Provider:    stubProvider{},
-			ParentReg:   tool.NewRegistry(),
-			Runner:      runner,
-			Events:      noopEventSink{},
-			WorkDir:     badRepo,
+			Provider:  stubProvider{},
+			ParentReg: tool.NewRegistry(),
+			Runner:    runner,
+			Events:    noopEventSink{},
+			WorkDir:   badRepo,
 		},
-		ModelResolver: nil,
 	}
 
 	def := SpecializedToolDef(AgentTypeCode, deps)
 	raw, err := def.Handler(ctx, map[string]any{"task": "implement a feature"})
-	if err != nil {
-		t.Fatalf("handler error: %v", err)
+	if err == nil {
+		t.Fatal("expected fatal worktree provisioning error")
 	}
-
-	result := raw.(tool.ExecutionResult)
-	delegationResult := result.Value.(DelegationResult)
-
-	// Verify fallback warning is present.
-	hasWarning := false
-	for _, w := range delegationResult.Warnings {
-		if strings.Contains(w, "falling back to the shared working tree") {
-			hasWarning = true
-			break
-		}
+	if !strings.Contains(err.Error(), "provision code worktree") && !strings.Contains(err.Error(), "worktree provisioning") {
+		t.Errorf("error %q does not mention worktree provisioning", err)
 	}
-	if !hasWarning {
-		t.Errorf("Warnings do not contain fallback message: %v", delegationResult.Warnings)
+	if raw != nil {
+		t.Errorf("result = %#v, want nil on fatal provisioning failure", raw)
 	}
-
-	// Verify WorktreePath is empty (fell back to parent).
-	if delegationResult.WorktreePath != "" {
-		t.Errorf("WorktreePath = %q, want empty on fallback", delegationResult.WorktreePath)
+	if runCount != 0 {
+		t.Errorf("runner calls = %d, want 0", runCount)
 	}
+}
 
-	// Verify the child's ProjectRoot equals the parent's (the fallback).
-	if capturedReq.Prompt.ProjectRoot != badRepo {
-		t.Errorf("child ProjectRoot = %q, want %q (parent's badRepo)", capturedReq.Prompt.ProjectRoot, badRepo)
-	}
-
-	// Verify the child executor's working root also equals the parent's (the fallback).
-	// On provisioning failure, both prompt root and executor root must fall back to parent.
-	scopedExec, ok := capturedReq.Executor.(scopedToolExecutor)
+func TestApplyCodeWorktreeResult_MergesWarnings(t *testing.T) {
+	result := tool.ExecutionResult{Value: DelegationResult{
+		Warnings: []string{"dirty worktree after failed remediation"},
+	}}
+	got := applyCodeWorktreeResult(result, CodeWorktree{Path: "/tmp/worktree", Branch: "delegate/test"}, []string{"parent tree was dirty"})
+	delegationResult, ok := got.Value.(DelegationResult)
 	if !ok {
-		t.Fatalf("executor type = %T, want scopedToolExecutor", capturedReq.Executor)
+		t.Fatalf("result.Value type = %T, want DelegationResult", got.Value)
 	}
-	execInner, ok := scopedExec.inner.(*tool.Executor)
-	if !ok {
-		t.Fatalf("scoped executor inner type = %T, want *tool.Executor", scopedExec.inner)
+	wantWarnings := []string{"parent tree was dirty", "dirty worktree after failed remediation"}
+	if !slices.Equal(delegationResult.Warnings, wantWarnings) {
+		t.Errorf("Warnings = %v, want %v", delegationResult.Warnings, wantWarnings)
 	}
-	execWorkDir := execInner.WorkDir()
-	if execWorkDir != badRepo {
-		t.Errorf("executor WorkDir = %q, want %q (parent's badRepo on fallback)", execWorkDir, badRepo)
+	if delegationResult.WorktreePath != "/tmp/worktree" || delegationResult.WorktreeBranch != "delegate/test" {
+		t.Errorf("worktree fields = %q, %q, want %q, %q", delegationResult.WorktreePath, delegationResult.WorktreeBranch, "/tmp/worktree", "delegate/test")
 	}
 }
 

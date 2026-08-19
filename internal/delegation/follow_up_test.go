@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -318,6 +319,118 @@ func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 	}
 	if len(session.Conversation) != 2 {
 		t.Fatalf("stored conversation length=%d, want 2", len(session.Conversation))
+	}
+}
+func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing.T) {
+	tests := []struct {
+		name               string
+		tools              []provider.ToolSpec
+		remediation        *RemediationConfig
+		wantRemediation    bool
+		wantExpectedPath   string
+		wantExpectedBranch string
+	}{
+		{
+			name:  "code session",
+			tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}},
+			remediation: &RemediationConfig{
+				WorktreePath:   "/tmp/code-worktree",
+				ExpectedBranch: "delegate/code-session",
+				IsDirty: func(context.Context) ([]string, error) {
+					return []string{"changed.go"}, nil
+				},
+				Head:      func(context.Context) (string, error) { return "before-remediation", nil },
+				Committed: func(context.Context, string, []string) (bool, error) { return true, nil },
+			},
+			wantRemediation:    true,
+			wantExpectedPath:   "/tmp/code-worktree",
+			wantExpectedBranch: "delegate/code-session",
+		},
+		{
+			name:  "non-code session",
+			tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "read"}}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewSessionStore()
+			store.Save(&ChildSession{
+				Spec:         DelegationSpec{AgentID: "follow-up-agent", Task: "continue work"},
+				Request:      agent.RunRequest{Prompt: promptWithConversation("initial task"), Tools: tt.tools},
+				Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "initial result"}},
+				TurnCount:    1,
+				Remediation:  tt.remediation,
+			})
+
+			remediationCalls := 0
+			remediationDirtyChecks := 0
+			var remediationRequest agent.RunRequest
+			if tt.remediation != nil {
+				isDirty := tt.remediation.IsDirty
+				tt.remediation.IsDirty = func(ctx context.Context) ([]string, error) {
+					remediationDirtyChecks++
+					if remediationDirtyChecks == 1 {
+						return isDirty(ctx)
+					}
+					return nil, nil
+				}
+			}
+			handler := NewFollowUpHandler(SubAgentHandlerDeps{
+				SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
+				SessionStore: store,
+				Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+					if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+						return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete}, nil
+					}
+					if len(req.Prompt.Conversation) > 0 && strings.Contains(req.Prompt.Conversation[len(req.Prompt.Conversation)-1].Content, "Pre-remediation HEAD") {
+						remediationCalls++
+						remediationRequest = req
+					}
+					return agent.RunState{
+						Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "follow-up result"}},
+						TurnCount:    1,
+						TokenCount:   5,
+						StopReason:   agent.StopReasonComplete,
+					}, nil
+				}},
+			})
+
+			got, err := handler(context.Background(), map[string]any{
+				"agent_id": "follow-up-agent",
+				"message":  "continue",
+			})
+			if err != nil {
+				t.Fatalf("handler returned error: %v", err)
+			}
+			result := got.(tool.ExecutionResult).Value.(DelegationResult)
+			if (remediationCalls > 0) != tt.wantRemediation {
+				t.Fatalf("remediation calls = %d, want remediation=%t", remediationCalls, tt.wantRemediation)
+			}
+			if tt.wantRemediation {
+				if !strings.Contains(result.Output, "<remediation note: committed remaining changes; worktree left clean>") {
+					t.Fatalf("output = %q, missing remediation note", result.Output)
+				}
+				prompt := remediationRequest.Prompt.Conversation[len(remediationRequest.Prompt.Conversation)-1].Content
+				if !strings.Contains(prompt, tt.wantExpectedPath) || !strings.Contains(prompt, tt.wantExpectedBranch) {
+					t.Fatalf("remediation prompt = %q, want path %q and branch %q", prompt, tt.wantExpectedPath, tt.wantExpectedBranch)
+				}
+			} else if strings.Contains(result.Output, "<remediation note:") {
+				t.Fatalf("non-code follow-up output = %q, unexpectedly contains remediation note", result.Output)
+			}
+			if tt.wantRemediation {
+				session, ok := store.Get("follow-up-agent")
+				if !ok {
+					t.Fatal("session missing after code follow-up")
+				}
+				if session.Remediation != tt.remediation {
+					t.Fatal("remediation state was not preserved in session")
+				}
+				if session.FollowUpCount != 1 || session.TurnCount != 2 || session.TokenCount != 5 {
+					t.Fatalf("session stats = (follow-ups=%d, turns=%d, tokens=%d), want (1, 2, 5)", session.FollowUpCount, session.TurnCount, session.TokenCount)
+				}
+			}
+		})
 	}
 }
 

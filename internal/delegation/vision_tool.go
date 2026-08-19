@@ -65,7 +65,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 
 		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
 		if err == nil && deps.SessionStore != nil {
-			saveChildSession(deps.SessionStore, spec, req, state, runUsage)
+			saveChildSession(deps.SessionStore, spec, req, state, runUsage, nil)
 		}
 		if err != nil {
 			if result != (tool.ExecutionResult{}) {

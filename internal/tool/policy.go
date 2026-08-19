@@ -154,11 +154,30 @@ func (p PathPolicy) ResolvePath(raw string, writable bool) (string, error) {
 	return normalized, nil
 }
 
+func (p PathPolicy) pathWithinSandboxTmp(path string) bool {
+	if p.sandboxTmpDir == "" || path == "" {
+		return false
+	}
+	return pathWithinRoot(p.sandboxTmpDir, path)
+}
+
+// allowed reports whether a path is inside the project root, or, for a
+// writable operation, inside the configured sandbox tmp dir.
+func (p PathPolicy) allowed(path string, writable bool) bool {
+	if p.root == "" {
+		return true
+	}
+	if pathWithinRoot(p.root, path) {
+		return true
+	}
+	return writable && p.pathWithinSandboxTmp(path)
+}
+
 func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}
-	if p.root != "" && !pathWithinRoot(p.root, path) {
+	if !p.allowed(path, writable) {
 		return &PathPolicyError{
 			Path:       path,
 			Reason:     fmt.Sprintf("path %q is outside project root %q", path, p.root),

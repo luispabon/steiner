@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -123,6 +124,46 @@ func TestAgentSystemPrompt(t *testing.T) {
 			t.Fatalf("AgentSystemPrompt(unknown) = %q, want empty", got)
 		}
 	})
+}
+
+func TestAgentSystemSuffix(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentType AgentType
+		contains  []string
+		wantEmpty bool
+	}{
+		{
+			name:      "code agent suffix",
+			agentType: AgentTypeCode,
+			contains: []string{
+				"git status --porcelain",
+				"Do not merge, rebase, or push",
+				"Do not discard, reset, restore, stash, switch branches",
+			},
+		},
+		{name: "explore agent has no suffix", agentType: AgentTypeExplore, wantEmpty: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := AgentSystemSuffix(tt.agentType)
+			if tt.wantEmpty {
+				if got != "" {
+					t.Fatalf("AgentSystemSuffix(%q) = %q, want empty", tt.agentType, got)
+				}
+				return
+			}
+			if got == "" {
+				t.Fatal("AgentSystemSuffix(code) returned empty string")
+			}
+			for _, phrase := range tt.contains {
+				if !strings.Contains(got, phrase) {
+					t.Errorf("AgentSystemSuffix(code) does not contain %q", phrase)
+				}
+			}
+		})
+	}
 }
 
 func TestAgentAllowedTools(t *testing.T) {

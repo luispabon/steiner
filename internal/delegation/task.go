@@ -48,7 +48,12 @@ func truncateTaskPreview(s string, max int) string {
 // SpawnDelegate executes a child agent with the given specification and runner.
 // It always runs a follow-up summarisation turn after successful completion and
 // returns the full visible output plus hidden retention metadata.
-func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger) (tool.ExecutionResult, agent.RunState, CacheUsage, error) {
+func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger, opts ...spawnOption) (tool.ExecutionResult, agent.RunState, CacheUsage, error) {
+	var o spawnOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	tc := newTraceCollector(spec.AgentID, spec.Task)
 
 	childCtx := ctx
@@ -88,8 +93,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 		return failedDelegateExecution(spec, state, extErr, tc, logger), state, runUsage, nil
 	}
 
-	total := spec.PriorCacheUsage.Add(runUsage)
-	result := buildResultWithTrace(spec.AgentID, state, tc, total)
+	state, runUsage, result := applyRemediationResult(childCtx, spec, req, runner, state, runUsage, o.remediation, tc)
 
 	tc.add("result", "status mapped", map[string]any{
 		"status":             string(result.Status),
@@ -161,6 +165,32 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	}
 
 	return executionResult, state, runUsage, nil
+}
+
+func applyRemediationResult(
+	ctx context.Context,
+	spec DelegationSpec,
+	req agent.RunRequest,
+	runner AgentRunner,
+	state agent.RunState,
+	runUsage CacheUsage,
+	remediation *RemediationConfig,
+	tc *traceCollector,
+) (agent.RunState, CacheUsage, DelegationResult) {
+	var remediationResult DelegationResult
+	if remediation != nil {
+		state, runUsage, remediationResult, _, _ = applyRemediation(ctx, spec, req, runner, state, runUsage, remediation, tc)
+	}
+
+	total := spec.PriorCacheUsage.Add(runUsage)
+	result := buildResultWithTrace(spec.AgentID, state, tc, total)
+	if remediation != nil {
+		result.Status = remediationResult.Status
+		result.Output = remediationResult.Output
+		result.Warnings = remediationResult.Warnings
+		result.SessionResumable = remediationResult.SessionResumable
+	}
+	return state, runUsage, result
 }
 
 // runChildToCompletion executes the Delegate Extension loop.

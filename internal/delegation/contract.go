@@ -40,6 +40,9 @@ type DelegationSpec struct {
 	// SystemPrompt is an optional override of the system prompt.
 	SystemPrompt string `json:"system_prompt,omitempty"`
 
+	// SystemSuffix is appended after the shared system preamble; it does not replace it.
+	SystemSuffix string `json:"system_suffix,omitempty"`
+
 	// Images are optional image blocks to include in the first child message.
 	Images []provider.ImageBlock `json:"images,omitempty"`
 
@@ -124,18 +127,18 @@ type DelegationResult struct {
 	Trace []TraceEntry `json:"trace,omitempty"`
 
 	// WorktreePath is the absolute path to the code agent's isolated git
-	// worktree, or empty if provisioning failed and it fell back to the
-	// shared parent working tree. Only set for AgentTypeCode.
+	// worktree. It is empty only when no worktree was provisioned, in which
+	// case a code-agent delegation fails. Only set for AgentTypeCode.
 	WorktreePath string `json:"worktree_path,omitempty"`
 
 	// WorktreeBranch is the branch name of the code agent's isolated
 	// worktree. Only set for AgentTypeCode when provisioning succeeded.
 	WorktreeBranch string `json:"worktree_branch,omitempty"`
 
-	// Warnings holds human-readable warnings surfaced to the orchestrator,
-	// e.g. uncommitted parent-tree changes the isolated child could not see,
-	// or a fallback to the shared working tree after worktree provisioning
-	// failed. Only populated for AgentTypeCode.
+	// Warnings holds human-readable code-agent warnings surfaced to the
+	// orchestrator, such as uncommitted parent-tree changes not visible to
+	// the isolated worktree or a dirty-worktree warning after failed commit
+	// remediation. Only populated for AgentTypeCode.
 	Warnings []string `json:"warnings,omitempty"`
 }
 

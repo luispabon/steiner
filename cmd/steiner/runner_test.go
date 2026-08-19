@@ -689,7 +689,7 @@ func exploreDelegationResponses() []provider.ChatResponse {
 // child mutate on /tmp lands under the sandbox tmp dir; in --unsafe mode (nil
 // sandbox) the same call is denied for lack of an approver.
 func TestRunnerDelegateDepsCarrySandboxTmpDir(t *testing.T) {
-	workDir := t.TempDir()
+	workDir, _ := setupTestRepo(t)
 	sandboxTmpDir := filepath.Join(workDir, "sandbox-tmp")
 	mustMkdirAll(t, sandboxTmpDir)
 
