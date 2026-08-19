@@ -35,6 +35,7 @@ func TestApplyRemediation(t *testing.T) {
 		wantStatus      DelegationStatus
 		wantOutput      string
 		wantWarning     bool
+		warningContains string
 		wantRunnerCalls int
 		wantError       bool
 		wantResumable   bool
@@ -89,7 +90,7 @@ func TestApplyRemediation(t *testing.T) {
 			name: "initial dirty check errors", state: initialState,
 			cfg:         remediationConfigWithInitialError(errors.New("cannot inspect worktree")),
 			wantOutcome: remediationAttempted, wantStatus: StatusFailed, wantOutput: originalOutput,
-			wantWarning: true, wantError: true,
+			wantWarning: true, warningContains: "could not verify", wantError: true,
 		},
 		{
 			name: "pre-head check errors", state: initialState,
@@ -121,7 +122,11 @@ func TestApplyRemediation(t *testing.T) {
 			if tt.wantOutput != "" && result.Output != tt.wantOutput {
 				t.Errorf("output = %q, want %q", result.Output, tt.wantOutput)
 			}
-			if tt.wantWarning && !containsWarning(result.Warnings) {
+			if tt.warningContains != "" {
+				if !containsWarningText(result.Warnings, tt.warningContains) {
+					t.Errorf("warnings = %v, want warning containing %q", result.Warnings, tt.warningContains)
+				}
+			} else if tt.wantWarning && !containsWarning(result.Warnings) {
 				t.Errorf("warnings = %v, want dirty-worktree warning", result.Warnings)
 			}
 			if calls != tt.wantRunnerCalls {
@@ -143,6 +148,15 @@ func TestApplyRemediation(t *testing.T) {
 func containsWarning(warnings []string) bool {
 	for _, warning := range warnings {
 		if strings.Contains(warning, "is not clean") {
+			return true
+		}
+	}
+	return false
+}
+
+func containsWarningText(warnings []string, text string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning, text) {
 			return true
 		}
 	}
