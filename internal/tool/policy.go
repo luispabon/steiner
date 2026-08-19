@@ -154,11 +154,18 @@ func (p PathPolicy) ResolvePath(raw string, writable bool) (string, error) {
 	return normalized, nil
 }
 
+func (p PathPolicy) pathWithinSandboxTmp(path string) bool {
+	if p.sandboxTmpDir == "" || path == "" {
+		return false
+	}
+	return pathWithinRoot(p.sandboxTmpDir, path)
+}
+
 func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}
-	if p.root != "" && !pathWithinRoot(p.root, path) {
+	if p.root != "" && !pathWithinRoot(p.root, path) && !(writable && p.pathWithinSandboxTmp(path)) {
 		return &PathPolicyError{
 			Path:       path,
 			Reason:     fmt.Sprintf("path %q is outside project root %q", path, p.root),

@@ -340,6 +340,61 @@ func TestPolicy_EnsureAllowed_OutsideRoot(t *testing.T) {
 	}
 }
 
+func TestPolicy_ResolvePath_SandboxTmpOutsideRoot(t *testing.T) {
+	sandboxTmpDir := "/var/tmp/steiner-session-789"
+
+	tests := []struct {
+		name          string
+		raw           string
+		sandboxTmpDir string
+		want          string
+		wantErr       bool
+	}{
+		{
+			name:          "rewritten path under sandbox tmp dir is allowed",
+			raw:           "/tmp/file.txt",
+			sandboxTmpDir: sandboxTmpDir,
+			want:          filepath.Join(sandboxTmpDir, "file.txt"),
+		},
+		{
+			name:          "sandbox tmp sibling prefix is denied",
+			raw:           filepath.Join(sandboxTmpDir+"-sibling", "file.txt"),
+			sandboxTmpDir: sandboxTmpDir,
+			wantErr:       true,
+		},
+		{
+			name:          "path outside root and sandbox tmp is denied",
+			raw:           "/etc/passwd",
+			sandboxTmpDir: sandboxTmpDir,
+			wantErr:       true,
+		},
+		{
+			name:    "empty sandbox tmp dir does not exempt rewritten path",
+			raw:     "/tmp/file.txt",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := NewPathPolicyWithSandbox("/project", config.PathsConfig{}, tc.sandboxTmpDir)
+			got, err := policy.ResolvePath(tc.raw, true)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("ResolvePath(%q) = %q, want error", tc.raw, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResolvePath(%q) error = %v", tc.raw, err)
+			}
+			if got != tc.want {
+				t.Fatalf("ResolvePath(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPolicy_EnsureAllowed_EmptyPath(t *testing.T) {
 	policy := NewPathPolicy("/project", config.PathsConfig{})
 
