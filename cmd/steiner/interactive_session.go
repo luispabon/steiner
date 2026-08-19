@@ -60,7 +60,7 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntim
 			rt.mcpManager.UpdatePlanMode(m == config.ExecutionModePlan)
 		}
 	})
-	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, sess, rt.mcpManager)
+	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, rt.mcpManager)
 	rt.registry = registry
 	rt.toolNames = registry.Names()
 	rt.mcpInit = &mcpInitOnce{}

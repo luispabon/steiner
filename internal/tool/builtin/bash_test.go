@@ -13,6 +13,27 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// withUnsandboxedWrapper injects an explicitly-unsandboxed ResolvedSandbox into
+// ctx, matching what the execution pipeline sets for every call.
+func withUnsandboxedWrapper(ctx context.Context) context.Context {
+	return context.WithValue(ctx, tool.SandboxWrapperKey{}, tool.ResolvedSandbox{Wrapper: tool.Unsandboxed{}})
+}
+
+// recordingWrapper satisfies tool.SandboxWrapper for testing, recording the
+// number of calls and the last readOnlyProject value it was wrapped with.
+type recordingWrapper struct {
+	calls               int
+	lastReadOnlyProject bool
+}
+
+func (w *recordingWrapper) Enabled() bool { return true }
+
+func (w *recordingWrapper) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd {
+	w.calls++
+	w.lastReadOnlyProject = readOnlyProject
+	return cmd
+}
+
 func TestBashTool(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -23,7 +44,7 @@ func TestBashTool(t *testing.T) {
 	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
 	env := Env{WorkDir: tmpDir, PathPolicy: &policy}
 	toolDef := NewBashTool(env)
-	ctx := context.Background()
+	ctx := withUnsandboxedWrapper(context.Background())
 
 	t.Run("executes simple command", func(t *testing.T) {
 		resultI, err := toolDef.Handler(ctx, map[string]any{
@@ -118,54 +139,29 @@ func TestBashTool(t *testing.T) {
 	})
 }
 
-func TestBashToolWrapperSelection(t *testing.T) {
+// TestBashToolUsesResolvedSandboxWrapper proves bash applies exactly the
+// ResolvedSandbox decision found in context: it calls WrapCommandMode with the
+// baked-in readOnlyProject value, and never needs a readOnlyProject bool of its
+// own to pass alongside it.
+func TestBashToolUsesResolvedSandboxWrapper(t *testing.T) {
 	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
-	var commandCalls, readOnlyCalls int
-	commandWrapper := func(cmd *exec.Cmd) *exec.Cmd {
-		commandCalls++
-		return cmd
-	}
-	readOnlyWrapper := func(cmd *exec.Cmd) *exec.Cmd {
-		readOnlyCalls++
-		return cmd
-	}
 
 	tests := []struct {
-		name             string
-		readOnly         bool
-		unsandboxed      bool
-		readOnlyWrapper  func(*exec.Cmd) *exec.Cmd
-		wantCommandCalls int
-		wantReadOnly     int
-		wantExitCode     int
-		wantMessage      string
+		name            string
+		readOnlyProject bool
 	}{
-		{name: "read-only uses read-only wrapper", readOnly: true, wantReadOnly: 1},
-		{name: "default uses command wrapper", wantCommandCalls: 1},
-		{name: "read-only wins over unsandboxed", readOnly: true, unsandboxed: true, wantReadOnly: 1},
-		{name: "missing read-only wrapper fails closed", readOnly: true, readOnlyWrapper: nil, wantExitCode: 255, wantMessage: "read-only bash requested but sandbox read-only wrapper is unavailable"},
+		{name: "read-only project", readOnlyProject: true},
+		{name: "default (writable) project", readOnlyProject: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			commandCalls = 0
-			readOnlyCalls = 0
-			roWrapper := tt.readOnlyWrapper
-			if tt.name != "missing read-only wrapper fails closed" {
-				roWrapper = readOnlyWrapper
-			}
-			toolDef := NewBashTool(Env{
-				PathPolicy:                    &policy,
-				CommandWrapper:                commandWrapper,
-				ReadOnlyProjectCommandWrapper: roWrapper,
+			toolDef := NewBashTool(Env{PathPolicy: &policy})
+			wrapper := &recordingWrapper{}
+			ctx := context.WithValue(context.Background(), tool.SandboxWrapperKey{}, tool.ResolvedSandbox{
+				Wrapper:         wrapper,
+				ReadOnlyProject: tt.readOnlyProject,
 			})
-			ctx := context.Background()
-			if tt.readOnly {
-				ctx = tool.WithReadOnlyProjectBash(ctx, true)
-			}
-			if tt.unsandboxed {
-				ctx = context.WithValue(ctx, tool.BashUnsandboxedKey{}, true)
-			}
 
 			resultValue, err := toolDef.Handler(ctx, map[string]any{"command": "true"})
 			if err != nil {
@@ -175,18 +171,38 @@ func TestBashToolWrapperSelection(t *testing.T) {
 			if !ok {
 				t.Fatalf("Handler() result type = %T, want *BashResult", resultValue)
 			}
-			if result.ExitCode != tt.wantExitCode {
-				t.Errorf("ExitCode = %d, want %d", result.ExitCode, tt.wantExitCode)
+			if result.ExitCode != 0 {
+				t.Errorf("ExitCode = %d, want 0", result.ExitCode)
 			}
-			if result.Message != tt.wantMessage {
-				t.Errorf("Message = %q, want %q", result.Message, tt.wantMessage)
+			if wrapper.calls != 1 {
+				t.Fatalf("wrapper calls = %d, want 1", wrapper.calls)
 			}
-			if commandCalls != tt.wantCommandCalls {
-				t.Errorf("CommandWrapper calls = %d, want %d", commandCalls, tt.wantCommandCalls)
-			}
-			if readOnlyCalls != tt.wantReadOnly {
-				t.Errorf("ReadOnlyProjectCommandWrapper calls = %d, want %d", readOnlyCalls, tt.wantReadOnly)
+			if wrapper.lastReadOnlyProject != tt.readOnlyProject {
+				t.Errorf("readOnlyProject = %v, want %v", wrapper.lastReadOnlyProject, tt.readOnlyProject)
 			}
 		})
+	}
+}
+
+// TestBashToolFailsClosedWithoutSandboxWrapperKey proves bash refuses to run
+// when invoked outside the execution pipeline (no SandboxWrapperKey in
+// context), rather than silently assuming unsandboxed execution.
+func TestBashToolFailsClosedWithoutSandboxWrapperKey(t *testing.T) {
+	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+	toolDef := NewBashTool(Env{PathPolicy: &policy})
+
+	resultValue, err := toolDef.Handler(context.Background(), map[string]any{"command": "true"})
+	if err != nil {
+		t.Fatalf("Handler() error = %v", err)
+	}
+	result, ok := resultValue.(*BashResult)
+	if !ok {
+		t.Fatalf("Handler() result type = %T, want *BashResult", resultValue)
+	}
+	if result.ExitCode != 255 {
+		t.Errorf("ExitCode = %d, want 255", result.ExitCode)
+	}
+	if result.Message == "" {
+		t.Error("Message is empty, want an explanation of the fail-closed behavior")
 	}
 }

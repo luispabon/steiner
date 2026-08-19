@@ -351,13 +351,13 @@ func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandb
 }
 
 func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry) {
-	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, nil, nil)
+	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, nil)
 	return workDir, registry
 }
 
 // buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox and MCP tools.
 func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox, mgr *mcp.Manager) *tool.Registry {
-	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, nil, mgr)
+	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, mgr)
 	return registry
 }
 

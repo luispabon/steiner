@@ -90,9 +90,14 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		return nil, err
 	}
 
+	mode := config.ExecutionModeBuild
+	if e.modeGetter != nil {
+		mode = e.modeGetter()
+	}
+
 	// Compute the effective policy: apply plan mode restriction if needed.
 	effectivePolicy := e.pathPolicy
-	if e.modeGetter != nil && e.modeGetter() == config.ExecutionModePlan {
+	if mode == config.ExecutionModePlan {
 		effectivePolicy = e.pathPolicy.RestrictWritesTo(filepath.Join(e.pathPolicy.Root(), ".steiner", "plans"))
 	}
 
@@ -109,9 +114,14 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 	}
 
 	if e.modeGetter != nil {
-		mode := e.modeGetter()
 		toolCtx = context.WithValue(toolCtx, ExecutionModeKey{}, mode)
 	}
+
+	// Resolve the sandbox decision for this call once, so bash and
+	// subprocess-backed tools apply the same read-only-project rule instead of
+	// computing it independently.
+	readOnlyProject := mode == config.ExecutionModePlan || ctx.Value(BashReadOnlyProjectKey{}) == true
+	toolCtx = context.WithValue(toolCtx, SandboxWrapperKey{}, ResolvedSandbox{Wrapper: e.sandbox, ReadOnlyProject: readOnlyProject})
 
 	ec := executionContext{
 		Def:             def,
@@ -214,8 +224,16 @@ func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext
 	if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr == nil {
 		resp := <-req.Response
 		if resp.Allow {
-			unsandboxedCtx := context.WithValue(ctx, BashUnsandboxedKey{}, true)
-			return ec.Def.Handler(unsandboxedCtx, ec.NormalizedInput)
+			// Retrying escapes the sandbox by default. A child forced read-only
+			// (BashReadOnlyProjectKey) must not be able to reach an unsandboxed
+			// retry via this approval escape hatch, so it keeps its read-only
+			// wrapper instead of falling back to Unsandboxed{}.
+			retry := ResolvedSandbox{Wrapper: Unsandboxed{}}
+			if ctx.Value(BashReadOnlyProjectKey{}) == true {
+				retry = ResolvedSandbox{Wrapper: e.sandbox, ReadOnlyProject: true}
+			}
+			retryCtx := context.WithValue(ctx, SandboxWrapperKey{}, retry)
+			return ec.Def.Handler(retryCtx, ec.NormalizedInput)
 		}
 	}
 	// Denied or approval error — append the localized denial guidance and return original.
@@ -229,11 +247,14 @@ func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext
 //     work-dir selection, and output decoding via decodeExecutionOutput
 func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, error) {
 	if ec.Def.Handler != nil {
+		// Handler tools (e.g. bash) receive the resolved sandbox decision via
+		// SandboxWrapperKey in ctx, set once above by runPipeline, rather than
+		// as a parameter here.
 		result, err := ec.Def.Handler(ctx, ec.NormalizedInput)
 		if err != nil {
 			return result, err
 		}
-		if e.sandbox != nil && e.approver != nil {
+		if e.approver != nil && e.sandbox.Enabled() {
 			return e.handleBashDenial(ctx, ec, result)
 		}
 		return result, nil
@@ -258,7 +279,16 @@ func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, 
 		}
 	}
 
-	stdout, _, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit, e.sandbox)
+	resolved, ok := ctx.Value(SandboxWrapperKey{}).(ResolvedSandbox)
+	if !ok {
+		return nil, &ToolExecutionError{
+			Tool:    ec.Def.Name,
+			Kind:    "sandbox_wrapper_missing",
+			Message: "sandbox wrapper not resolved; tool invoked outside execution pipeline",
+		}
+	}
+
+	stdout, _, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit, resolved)
 	if runErr != nil && !isExitStatusError(runErr) {
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			return nil, runErr
@@ -315,7 +345,7 @@ func decodeExecutionOutput(stdout []byte, metadata ExecutionMetadata, toolName s
 	}, nil
 }
 
-func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int, sandbox SandboxWrapper) ([]byte, []byte, ExecutionMetadata, error) {
+func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int, resolved ResolvedSandbox) ([]byte, []byte, ExecutionMetadata, error) {
 	if def.ExecPath == "" {
 		return nil, nil, ExecutionMetadata{}, &ToolExecutionError{
 			Tool:    def.Name,
@@ -333,9 +363,7 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 	if workDir != "" {
 		cmd.Dir = workDir
 	}
-	if sandbox != nil {
-		cmd = sandbox.WrapCommand(cmd)
-	}
+	cmd = resolved.Wrap(cmd)
 	cmd.Stdin = bytes.NewReader(payload)
 
 	stdoutCapture := newBoundedCapture(limit)
