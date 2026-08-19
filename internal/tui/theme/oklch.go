@@ -1,8 +1,10 @@
 package theme
 
 import (
+	"cmp"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -160,24 +162,75 @@ var (
 
 // AccentPresets maps accent preset names to their hex values.
 //
-// The six presets added for #246 (coral, gold, green, teal, blue, indigo) are
-// derived via OklchToHex at L=0.74, C=0.16 and are verified against it in
-// TestNewAccentPresetsAreOklchDerived. The original seven (amber, rose,
-// magenta, violet, cyan, mint, lime) are hand-tuned brand accents kept for
-// visual continuity; their values are not OklchToHex outputs, so they carry no
-// derivation comment.
+// AccentPresets contains 20 presets total. The six presets added for #246
+// (coral, gold, green, teal, blue, indigo) are derived via OklchToHex at
+// L=0.74, C=0.16 and are verified against it in
+// TestNewAccentPresetsAreOklchDerived. The 14 hand-tuned brand accents include
+// the original seven (amber, rose, magenta, violet, cyan, mint, lime) and the
+// seven new presets (red, pink, sky, lavender, terracotta, yellow, purple).
 var AccentPresets = map[string]string{
-	"amber":   "#E8814B", // hand-tuned brand accent
-	"coral":   "#FF7C80", // OklchToHex(0.74, 0.16, 20)
-	"rose":    "#E36F8E", // hand-tuned brand accent
-	"magenta": "#C977D3", // hand-tuned brand accent
-	"violet":  "#9D8DF1", // hand-tuned brand accent
-	"indigo":  "#A29AFF", // OklchToHex(0.74, 0.16, 285)
-	"blue":    "#3FB3FF", // OklchToHex(0.74, 0.16, 245)
-	"cyan":    "#5EC9D6", // hand-tuned brand accent
-	"teal":    "#00C8CA", // OklchToHex(0.74, 0.16, 195)
-	"mint":    "#6FCFA3", // hand-tuned brand accent
-	"green":   "#51C672", // OklchToHex(0.74, 0.16, 150)
-	"gold":    "#E49900", // OklchToHex(0.74, 0.16, 75)
-	"lime":    "#B6D45F", // hand-tuned brand accent
+	"amber":      "#E8814B", // hand-tuned brand accent
+	"coral":      "#FF7C80", // OklchToHex(0.74, 0.16, 20)
+	"rose":       "#E36F8E", // hand-tuned brand accent
+	"magenta":    "#C977D3", // hand-tuned brand accent
+	"violet":     "#9D8DF1", // hand-tuned brand accent
+	"indigo":     "#A29AFF", // OklchToHex(0.74, 0.16, 285)
+	"blue":       "#3FB3FF", // OklchToHex(0.74, 0.16, 245)
+	"cyan":       "#5EC9D6", // hand-tuned brand accent
+	"teal":       "#00C8CA", // OklchToHex(0.74, 0.16, 195)
+	"mint":       "#6FCFA3", // hand-tuned brand accent
+	"green":      "#51C672", // OklchToHex(0.74, 0.16, 150)
+	"gold":       "#E49900", // OklchToHex(0.74, 0.16, 75)
+	"lime":       "#B6D45F", // hand-tuned brand accent
+	"red":        "#F5384B", // hand-tuned
+	"pink":       "#FF5C9E", // hand-tuned
+	"sky":        "#7CC7FF", // hand-tuned
+	"lavender":   "#C4B5FD", // hand-tuned
+	"terracotta": "#E07856", // hand-tuned
+	"yellow":     "#FFD400", // hand-tuned
+	"purple":     "#B14FFF", // hand-tuned
+}
+
+// accentHue returns the HSV hue in degrees [0, 360) for a hex colour.
+func accentHue(hex string) float64 {
+	r, g, b := hexToRGB(hex)
+	rf, gf, bf := float64(r)/255, float64(g)/255, float64(b)/255
+	max := math.Max(rf, math.Max(gf, bf))
+	min := math.Min(rf, math.Min(gf, bf))
+	delta := max - min
+	if delta == 0 {
+		return 0
+	}
+	var h float64
+	switch max {
+	case rf:
+		h = 60 * (((gf - bf) / delta) + 6)
+	case gf:
+		h = 60 * (((bf - rf) / delta) + 2)
+	case bf:
+		h = 60 * (((rf - gf) / delta) + 4)
+	}
+	h = math.Mod(h, 360)
+	if h < 0 {
+		h += 360
+	}
+	return h
+}
+
+// SortedAccentPresetNames returns accent preset names in chromatic order
+// (ascending hue, red through the spectrum). "random" is not a preset and is
+// excluded; callers append it separately.
+func SortedAccentPresetNames() []string {
+	names := make([]string, 0, len(AccentPresets))
+	for name := range AccentPresets {
+		names = append(names, name)
+	}
+	slices.SortStableFunc(names, func(a, b string) int {
+		ha, hb := accentHue(AccentPresets[a]), accentHue(AccentPresets[b])
+		if ha != hb {
+			return cmp.Compare(ha, hb)
+		}
+		return cmp.Compare(a, b)
+	})
+	return names
 }

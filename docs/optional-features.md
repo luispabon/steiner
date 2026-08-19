@@ -15,14 +15,14 @@ cave_human: true
 
 ## Accent colour
 
-The TUI accent colour can be changed with `/accent`. With no argument it opens a colour picker showing all 13 presets with colour swatches. With a preset name it sets the colour directly:
+The TUI accent colour can be changed with `/accent`. With no argument it opens a colour picker showing all 20 presets in chromatic (hue) order with colour swatches. With a preset name it sets the colour directly:
 
 ```
 /accent          # open picker
 /accent violet   # set directly
 ```
 
-**Available presets:** `amber` (default), `coral`, `rose`, `magenta`, `gold`, `violet`, `indigo`, `blue`, `cyan`, `teal`, `green`, `mint`, `lime`.
+**Available presets:** `amber` (default), `coral`, `rose`, `magenta`, `gold`, `violet`, `indigo`, `blue`, `cyan`, `teal`, `green`, `mint`, `lime`, `red`, `pink`, `sky`, `lavender`, `terracotta`, `yellow`, `purple`.
 
 Use `random` to pick a different preset on each startup:
 

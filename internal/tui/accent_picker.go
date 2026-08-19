@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -36,11 +35,7 @@ func (m accentPickerOverlay) Open(current string) accentPickerOverlay {
 	m.scrollOffset = 0
 	m.current = current
 
-	names := make([]string, 0, len(theme.AccentPresets)+1)
-	for name := range theme.AccentPresets {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := theme.SortedAccentPresetNames()
 	names = append(names, "random")
 
 	m.allNames = names
