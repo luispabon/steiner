@@ -54,6 +54,18 @@ func (r ResolvedSandbox) Wrap(cmd *exec.Cmd) *exec.Cmd {
 // unsandboxed execution.
 type SandboxWrapperKey struct{}
 
+// ResolvedSandboxFrom returns the sandbox decision runPipeline attached to ctx.
+// ok is false when the decision is missing or carries no Wrapper, which can only
+// happen when the caller was invoked outside the execution pipeline; callers must
+// fail closed rather than treat that as unsandboxed execution.
+func ResolvedSandboxFrom(ctx context.Context) (ResolvedSandbox, bool) {
+	resolved, ok := ctx.Value(SandboxWrapperKey{}).(ResolvedSandbox)
+	if !ok || resolved.Wrapper == nil {
+		return ResolvedSandbox{}, false
+	}
+	return resolved, true
+}
+
 // BashDenialResult is implemented by builtin.BashResult to allow sandbox
 // denial detection in the execution pipeline without an import cycle.
 type BashDenialResult interface {

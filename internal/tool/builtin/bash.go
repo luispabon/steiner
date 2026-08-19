@@ -59,10 +59,9 @@ func NewBashTool(env Env) tool.ToolDef {
 			execCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
-			resolved, ok := ctx.Value(tool.SandboxWrapperKey{}).(tool.ResolvedSandbox)
+			resolved, ok := tool.ResolvedSandboxFrom(ctx)
 			if !ok {
-				// Fail closed: no resolved sandbox decision in context means bash
-				// was invoked outside the execution pipeline.
+				// Fail closed: bash was invoked outside the execution pipeline.
 				return &BashResult{ExitCode: 255, Output: "", Message: "sandbox wrapper not resolved; bash invoked outside execution pipeline"}, nil
 			}
 

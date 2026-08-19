@@ -964,23 +964,43 @@ func TestRunPipeline_PlanMode_BashAndSubprocessBothReadOnly(t *testing.T) {
 // runPipeline, which always sets one. This can only happen via a direct
 // executeTool call bypassing the pipeline, which no production code does.
 func TestExecuteToolSubprocess_MissingSandboxWrapperKey_FailsClosed(t *testing.T) {
-	helper := mustBuildHelperBinary(t)
-	executor := NewExecutor(NewRegistry(), config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
-	ec := &executionContext{
-		Def: ToolDef{
-			Name:     "probe",
-			ExecPath: helper,
+	tests := []struct {
+		name string
+		ctx  func() context.Context
+	}{
+		{
+			name: "key absent",
+			ctx:  context.Background,
+		},
+		{
+			name: "key present with nil wrapper",
+			ctx: func() context.Context {
+				return context.WithValue(context.Background(), SandboxWrapperKey{}, ResolvedSandbox{})
+			},
 		},
 	}
-	_, err := executor.executeTool(context.Background(), ec)
-	if err == nil {
-		t.Fatal("executeTool() error = nil, want sandbox_wrapper_missing")
-	}
-	var toolErr *ToolExecutionError
-	if !errors.As(err, &toolErr) {
-		t.Fatalf("error type = %T, want *ToolExecutionError", err)
-	}
-	if toolErr.Kind != "sandbox_wrapper_missing" {
-		t.Fatalf("error kind = %q, want sandbox_wrapper_missing", toolErr.Kind)
+
+	helper := mustBuildHelperBinary(t)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			executor := NewExecutor(NewRegistry(), config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
+			ec := &executionContext{
+				Def: ToolDef{
+					Name:     "probe",
+					ExecPath: helper,
+				},
+			}
+			_, err := executor.executeTool(tc.ctx(), ec)
+			if err == nil {
+				t.Fatal("executeTool() error = nil, want sandbox_wrapper_missing")
+			}
+			var toolErr *ToolExecutionError
+			if !errors.As(err, &toolErr) {
+				t.Fatalf("error type = %T, want *ToolExecutionError", err)
+			}
+			if toolErr.Kind != "sandbox_wrapper_missing" {
+				t.Fatalf("error kind = %q, want sandbox_wrapper_missing", toolErr.Kind)
+			}
+		})
 	}
 }

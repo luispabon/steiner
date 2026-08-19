@@ -279,7 +279,8 @@ func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, 
 		}
 	}
 
-	resolved, ok := ctx.Value(SandboxWrapperKey{}).(ResolvedSandbox)
+	// Fail closed: this tool was invoked outside runPipeline.
+	resolved, ok := ResolvedSandboxFrom(ctx)
 	if !ok {
 		return nil, &ToolExecutionError{
 			Tool:    ec.Def.Name,

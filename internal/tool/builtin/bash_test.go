@@ -188,21 +188,41 @@ func TestBashToolUsesResolvedSandboxWrapper(t *testing.T) {
 // when invoked outside the execution pipeline (no SandboxWrapperKey in
 // context), rather than silently assuming unsandboxed execution.
 func TestBashToolFailsClosedWithoutSandboxWrapperKey(t *testing.T) {
-	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
-	toolDef := NewBashTool(Env{PathPolicy: &policy})
+	tests := []struct {
+		name string
+		ctx  func() context.Context
+	}{
+		{
+			name: "key absent",
+			ctx:  context.Background,
+		},
+		{
+			name: "key present with nil wrapper",
+			ctx: func() context.Context {
+				return context.WithValue(context.Background(), tool.SandboxWrapperKey{}, tool.ResolvedSandbox{})
+			},
+		},
+	}
 
-	resultValue, err := toolDef.Handler(context.Background(), map[string]any{"command": "true"})
-	if err != nil {
-		t.Fatalf("Handler() error = %v", err)
-	}
-	result, ok := resultValue.(*BashResult)
-	if !ok {
-		t.Fatalf("Handler() result type = %T, want *BashResult", resultValue)
-	}
-	if result.ExitCode != 255 {
-		t.Errorf("ExitCode = %d, want 255", result.ExitCode)
-	}
-	if result.Message == "" {
-		t.Error("Message is empty, want an explanation of the fail-closed behavior")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+			toolDef := NewBashTool(Env{PathPolicy: &policy})
+
+			resultValue, err := toolDef.Handler(tc.ctx(), map[string]any{"command": "true"})
+			if err != nil {
+				t.Fatalf("Handler() error = %v", err)
+			}
+			result, ok := resultValue.(*BashResult)
+			if !ok {
+				t.Fatalf("Handler() result type = %T, want *BashResult", resultValue)
+			}
+			if result.ExitCode != 255 {
+				t.Errorf("ExitCode = %d, want 255", result.ExitCode)
+			}
+			if result.Message == "" {
+				t.Error("Message is empty, want an explanation of the fail-closed behavior")
+			}
+		})
 	}
 }
