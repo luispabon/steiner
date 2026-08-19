@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Execute an approved coding plan as serial-first implementation steps with tight scope control, planner-defined verification strategy, and isolated Steiner delegation/worktree execution when available. Use when planning is complete and the task should be implemented from the planner's artifacts.
+description: Execute an approved coding plan as serial-first implementation steps with tight scope control, planner-defined verification strategy, and isolated Steiner delegation/worktree execution. Use when planning is complete and the task should be implemented from the planner's artifacts.
 ---
 
 # Coding Loop Executor
@@ -94,7 +94,7 @@ Use `depends_on` only to block a step until real prerequisites are implemented.
 Use `parallel_group` only when all of these are true:
 
 - the plan explicitly marks the steps as independent
-- the runtime can isolate work safely
+- the steps touch disjoint file sets — every worktree branches from the parent's HEAD at dispatch time, so children cannot see each other's uncommitted work
 - parallelism is likely to save meaningful time
 - coordination and merge risk are low
 
@@ -110,7 +110,7 @@ The executor performs these actions directly using the native tool for each:
 
 - artifact loading — `read` to load plan files; `grep` and `glob` to locate files
 - `execution.md` creation and updates — `mutate`
-- branch checkout, worktree provisioning, merge/conflict handling, cleanup — `bash` for git operations
+- branch checkout, merge/conflict handling, cleanup — `bash` for git operations
 - step scheduling and Steiner delegation dispatch
 - verification orchestration — `bash` for running checks; `read` to inspect results
 - reviewer handoff
@@ -121,83 +121,56 @@ Everything else is delegated.
 
 The executor MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on **implementation-scoped files** — the files listed in step `files` fields. All implementation edits, verification-failure fixes, and manual-verification issue fixes MUST be performed by delegated Steiner `code` sub-agents. Doing so directly is a skill violation, not a fallback. Deliberate tightening of the routing threshold in your system prompt: the executor owns the feature branch, so even a small in-context edit must go through a `code` sub-agent — delegation is this workflow's entire purpose, not just its default.
 
-This restriction does not apply to executor-owned artifacts (`execution.md`, worktree provisioning, branch operations). Steps marked `no_delegate` in the plan are also exempt.
+This restriction does not apply to executor-owned artifacts (`execution.md`, branch operations). Steps marked `no_delegate` in the plan are also exempt.
 
-Before any implementation action, ask: have I dispatched a sub-agent for this step? If no — stop, provision, delegate.
+Before any implementation action, ask: have I dispatched a sub-agent for this step? If no — stop, delegate.
 
 ## Delegation Model
 
-The feature branch is owned by the executor. Implementation-scoped code must be changed only by delegated sub-agents (see Implementation code restriction above). The executor prefers the highest available delegation tier:
-
-1. **Isolated delegation** (preferred): sub-agent works in a dedicated worktree on a temporary branch. Provides full isolation from the feature branch.
-2. **Direct delegation** (fallback): sub-agent works directly on the feature branch. Used when worktrees are unavailable or provisioning fails.
+The feature branch is owned by the executor. Implementation-scoped code must be changed only by delegated sub-agents (see Implementation code restriction above). Every `code` sub-agent is automatically placed in a runtime-provisioned, runtime-verified worktree on a `delegate/` branch — the executor arranges nothing.
 
 There is no inline execution tier. If delegation itself is unavailable, stop and report a blocker. Exception: steps marked `no_delegate` in the plan are applied inline by the executor. (Same deliberate tightening as the Implementation code restriction above — the routing threshold's local-edit permission does not apply to implementation-scoped files in this workflow.)
 
-Prefer isolated delegation. Fall back to direct delegation only when `git worktree add` fails, worktree provisioning checks fail, or sub-agent dispatch returns an error for the worktree path. A judgment that isolation is unnecessary or that the edits are simple does not justify skipping to direct delegation — only concrete errors do.
+If provisioning fails, the `code` call fails outright — that is a blocker to report, not a cue to work on the feature branch directly.
 
 ### Warm Follow-Up Policy
 
-Resume a suitable warm agent before cold dispatch only when it remains available for the same bounded deliverable in the same still-live workspace and scope. Follow-ups are sequential. For direct delegation, retain the responsible implementation agent through related verification failures and correction loops. For isolated delegation, cold-dispatch after the agent is closed or its worktree is merged and deleted, even if the session reports resumable. A resumable session alone does not prove that an isolated worktree still exists. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees. Workflow handoffs are not safe continuation boundaries.
+Resume a suitable warm agent before cold dispatch only when it remains available for the same bounded deliverable in the same still-live workspace and scope. Follow-ups are sequential. Do not close the agent or remove its worktree until the step's verification and correction loop finishes — warm follow-up within a step, cold dispatch across steps. Cold-dispatch after the agent is closed or its worktree is merged and deleted, even if the session reports resumable. A resumable session alone does not prove that an isolated worktree still exists. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees. Workflow handoffs are not safe continuation boundaries.
 
-### Worktree Provisioning
+### Worktree Handling
 
-Always create worktrees under `.steiner/worktrees/` inside the project root. Do not use `/tmp` or other system temporary directories — they may be sandboxed and silently fail.
+Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.
 
-After running `git worktree add`, verify the directory actually exists:
+1. Read `worktree_path` and `worktree_branch` from the delegation result.
+2. Check `warnings` for entries noting uncommitted parent-tree changes the child could not see — every worktree branches from the parent's HEAD, so commit those on the feature branch before the next dispatch if the child needs them.
+3. `follow_up` results do not repopulate `worktree_path`/`worktree_branch`; retain the values from the initial `code` result across any follow-up calls on the same agent.
+4. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <worktree-branch>`.
 
-1. Run `ls -d <worktree-path>` to confirm the directory was created.
-2. Run `git -C <worktree-path> branch --show-current` to confirm it is on the expected temporary branch.
-3. If either check fails, prune the worktree entry with `git worktree remove <worktree-path>` and fall back to direct delegation.
+### Delegation Steps
 
-### Isolated Delegation Steps
-
-When using isolated delegation, the executor must:
-
-1. create the temporary branch and worktree under `.steiner/worktrees/`
-2. verify the worktree is accessible (see provisioning checks above)
-3. delegate the scoped task inside that worktree
-4. require the delegated agent to commit on the temporary branch
-5. review the result against the step contract
-6. merge it back to the feature branch
-7. run required verification for that point in the flow
-8. update `execution.md`
-9. close the delegated agent
-10. delete the worktree and merged temporary branch
+1. dispatch the scoped task to a `code` sub-agent
+2. read the result: `worktree_path`, `worktree_branch`, and any `warnings`
+3. review the result against the step contract
+4. merge the returned branch into the feature branch
+5. run required verification for that point in the flow
+6. update `execution.md`
+7. close the delegated agent
+8. remove the worktree and delete the merged branch (see Worktree Handling above)
 
 Sub-agents must not merge, rebase, clean up executor-owned git state, or commit directly to the feature branch.
 
-### Direct Delegation Steps
-
-When using direct delegation, the executor must:
-
-1. delegate the scoped task on the feature branch
-2. require the delegated agent to commit on the feature branch
-3. review the result against the step contract
-4. run required verification for that point in the flow
-5. update `execution.md`
-6. retain the delegated agent for related verification and correction follow-ups; close it only after that work finishes
-
 ### Pre-Commit Checklist
 
-Include the appropriate checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`.
+Include this checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`.
 
-**Isolated delegation mode:**
-
-1. `git branch --show-current` — must equal the temporary branch name given in the task. If it shows the feature branch, STOP and report without committing.
-2. `git rev-parse --show-toplevel` — must equal the worktree path given in the task. If it shows a different path, STOP and report without committing.
-3. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
-
-**Direct delegation mode:**
-
-1. `git branch --show-current` — must equal the feature branch name given in the task. If it shows a different branch, STOP and report without committing.
+1. `git branch --show-current` — must start with `delegate/`. If it shows the feature branch, STOP and report without committing.
 2. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
 
 If any check fails, the sub-agent must not commit. It must report the mismatch and let the executor recover.
 
 ## Steiner Delegation
 
-Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the parent step id and goal, the step's resolved cited decisions, and the appropriate pre-commit checklist from the Delegation Model section.
+Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the parent step id and goal, the step's resolved cited decisions, and the pre-commit checklist from the Delegation Model section.
 
 If an advisor tool is available, consult it before locking an implementation approach
 and again after an unresolved verification failure before choosing the next fix path.
@@ -230,7 +203,7 @@ Reviewer handoff requires:
 - all planned steps are implemented
 - required verification is passing
 - `execution.md` is updated with compact final state
-- temporary branches/worktrees are cleaned up
+- `delegate/` branches and worktrees returned by delegated steps are merged and cleaned up
 - feature branch working tree is clean
 
 Failed verification blocks reviewer handoff by default. Proceed to review with known blockers only if the user explicitly asks for review of a blocked implementation, and record that exception in `execution.md`.
