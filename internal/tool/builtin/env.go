@@ -24,4 +24,7 @@ type Env struct {
 	// CommandWrapper, if non-nil, is applied to exec.Cmd instances before the bash
 	// process is started. Used to wrap the process in a sandbox (e.g. bubblewrap).
 	CommandWrapper func(*exec.Cmd) *exec.Cmd
+	// ReadOnlyProjectCommandWrapper, if non-nil, wraps bash commands with the project
+	// mounted read-only.
+	ReadOnlyProjectCommandWrapper func(*exec.Cmd) *exec.Cmd
 }

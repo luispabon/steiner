@@ -38,14 +38,21 @@ func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.E
 			commandWrapper = sb.WrapCommand
 		}
 	}
+	var readOnlyProjectWrapper func(*exec.Cmd) *exec.Cmd
+	if sb != nil {
+		readOnlyProjectWrapper = func(cmd *exec.Cmd) *exec.Cmd {
+			return sb.WrapCommandMode(cmd, true)
+		}
+	}
 	env := builtin.Env{
-		WorkDir:                  workDir,
-		PathPolicy:               &pp,
-		Excluder:                 &excluder,
-		EventSink:                displaySink,
-		Interactive:              interactive,
-		WorkflowHandoffResponder: handoffResponder,
-		CommandWrapper:           commandWrapper,
+		WorkDir:                       workDir,
+		PathPolicy:                    &pp,
+		Excluder:                      &excluder,
+		EventSink:                     displaySink,
+		Interactive:                   interactive,
+		WorkflowHandoffResponder:      handoffResponder,
+		CommandWrapper:                commandWrapper,
+		ReadOnlyProjectCommandWrapper: readOnlyProjectWrapper,
 	}
 	return builtin.Builtins(env)
 }

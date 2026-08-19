@@ -27,7 +27,7 @@ func (r *BashResult) BashOutput() string { return r.Output }
 func (r *BashResult) AppendOutput(s string) { r.Output += s }
 
 // NewBashTool creates a ToolDef for the bash tool backed by a local BashSession.
-func NewBashTool(env Env) tool.ToolDef {
+func NewBashTool(env Env) tool.ToolDef { //nolint:gocyclo // wrapper precedence is required for read-only bash
 	return tool.ToolDef{
 		Name:            "bash",
 		Description:     "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
@@ -60,9 +60,14 @@ func NewBashTool(env Env) tool.ToolDef {
 			defer cancel()
 
 			session := NewBashSession()
-			// Skip the sandbox CommandWrapper when the context signals an approved
-			// bypass (user allowed a previously-denied sandbox violation).
-			if ctx.Value(tool.BashUnsandboxedKey{}) != true {
+			switch {
+			case ctx.Value(tool.BashReadOnlyProjectKey{}) == true:
+				if env.ReadOnlyProjectCommandWrapper == nil {
+					// Fail closed: marker set but no read-only wrapper available.
+					return &BashResult{ExitCode: 255, Output: "", Message: "read-only bash requested but sandbox read-only wrapper is unavailable"}, nil
+				}
+				session.CommandWrapper = env.ReadOnlyProjectCommandWrapper
+			case ctx.Value(tool.BashUnsandboxedKey{}) != true:
 				session.CommandWrapper = env.CommandWrapper
 			}
 			if err := session.Start(); err != nil {
