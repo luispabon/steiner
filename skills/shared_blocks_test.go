@@ -12,29 +12,20 @@ import (
 // The blocks below are deliberately duplicated verbatim across bundled
 // skills. This test fails if any copy drifts from the others. Each block
 // declares which skills carry it — not every block is in all three.
-const worktreeProvisioningBlock = "### Worktree Provisioning\n" +
+const worktreeProvisioningBlock = "### Worktree Handling\n" +
 	"\n" +
-	"Always create worktrees under `.steiner/worktrees/` inside the project root. Do not use `/tmp` or other system temporary directories — they may be sandboxed and silently fail.\n" +
+	"Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.\n" +
 	"\n" +
-	"After running `git worktree add`, verify the directory actually exists:\n" +
-	"\n" +
-	"1. Run `ls -d <worktree-path>` to confirm the directory was created.\n" +
-	"2. Run `git -C <worktree-path> branch --show-current` to confirm it is on the expected temporary branch.\n" +
-	"3. If either check fails, prune the worktree entry with `git worktree remove <worktree-path>` and fall back to direct delegation.\n"
+	"1. Read `worktree_path` and `worktree_branch` from the delegation result.\n" +
+	"2. Check `warnings` for entries noting uncommitted parent-tree changes the child could not see — merge those back before the next dispatch.\n" +
+	"3. `follow_up` results do not repopulate `worktree_path`/`worktree_branch`; retain the values from the initial `code` result across any follow-up calls on the same agent.\n" +
+	"4. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <worktree-branch>`.\n"
 
 const preCommitChecklistBlock = "### Pre-Commit Checklist\n" +
 	"\n" +
-	"Include the appropriate checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`.\n" +
+	"Include this checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`.\n" +
 	"\n" +
-	"**Isolated delegation mode:**\n" +
-	"\n" +
-	"1. `git branch --show-current` — must equal the temporary branch name given in the task. If it shows the feature branch, STOP and report without committing.\n" +
-	"2. `git rev-parse --show-toplevel` — must equal the worktree path given in the task. If it shows a different path, STOP and report without committing.\n" +
-	"3. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.\n" +
-	"\n" +
-	"**Direct delegation mode:**\n" +
-	"\n" +
-	"1. `git branch --show-current` — must equal the feature branch name given in the task. If it shows a different branch, STOP and report without committing.\n" +
+	"1. `git branch --show-current` — must start with `delegate/`. If it shows the feature branch, STOP and report without committing.\n" +
 	"2. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.\n"
 
 // fixDelegationBulletsBlock is shared by the review and simplify fix loops
@@ -43,7 +34,7 @@ const preCommitChecklistBlock = "### Pre-Commit Checklist\n" +
 // bullet list itself rather than the whole section.
 const fixDelegationBulletsBlock = "- receive only the approved findings, fix plan, relevant files, constraints, and verification strategy\n" +
 	"- run the pre-commit checklist before committing (see below)\n" +
-	"- commit its changes on the working branch (temporary branch for isolated delegation, feature branch for direct delegation)\n" +
+	"- commit its changes on the runtime-provided `delegate/` branch\n" +
 	"- avoid unrelated cleanup or scope expansion\n" +
 	"- not merge, rebase, or clean up reviewer-owned git state\n"
 
