@@ -2379,7 +2379,7 @@ func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
 		{name: "grep", tool: "grep", want: lipgloss.Color(theme.ToolMagLine)},
 		{name: "glob", tool: "glob", want: lipgloss.Color(theme.ToolBlueLine)},
 		{name: "todo", tool: "todo", want: lipgloss.Color(theme.WarnLine)},
-		{name: "default", tool: "ls", want: lipgloss.Color(theme.ToolBlueLine)},
+		{name: "default", tool: "ls", want: lipgloss.Color(theme.AccentLine)},
 	}
 
 	for _, tt := range tests {
