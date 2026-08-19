@@ -21,12 +21,17 @@ func (r *mockBashResult) BashExitCode() int     { return r.exitCode }
 func (r *mockBashResult) BashOutput() string    { return r.output }
 func (r *mockBashResult) AppendOutput(s string) { r.output += s }
 
-// testSandbox satisfies SandboxWrapper for testing.
-type testSandbox struct{}
+// testSandbox satisfies SandboxWrapper for testing. It records the
+// readOnlyProject bool passed to the most recent WrapCommandMode call.
+type testSandbox struct {
+	lastReadOnlyProject bool
+}
 
-func (s *testSandbox) Enabled() bool                       { return true }
-func (s *testSandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd { return cmd }
-func (s *testSandbox) TmpDir() string                      { return "" }
+func (s *testSandbox) Enabled() bool { return true }
+func (s *testSandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd {
+	s.lastReadOnlyProject = readOnlyProject
+	return cmd
+}
 
 // mockApprover tracks calls to RequestApproval and sends a preconfigured response.
 type mockApprover struct {
@@ -34,6 +39,13 @@ type mockApprover struct {
 	lastReq  ApprovalRequest
 	response ApprovalResponse
 	err      error
+}
+
+// isIdentityWrapped reports whether ctx carries a SandboxWrapperKey resolved
+// to an identity (Unsandboxed{}) wrapper.
+func isIdentityWrapped(ctx context.Context) bool {
+	resolved, ok := ctx.Value(SandboxWrapperKey{}).(ResolvedSandbox)
+	return ok && resolved.Wrapper == SandboxWrapper(Unsandboxed{})
 }
 
 func (m *mockApprover) RequestApproval(_ context.Context, req ApprovalRequest) error {
@@ -48,7 +60,7 @@ func (m *mockApprover) RequestApproval(_ context.Context, req ApprovalRequest) e
 
 func TestRunPipelineUnknownTool(t *testing.T) {
 	reg := NewRegistry()
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
 	_, err := executor.Execute(context.Background(), "nonexistent", "", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want error")
@@ -63,7 +75,7 @@ func TestRunPipelinePolicyDenied(t *testing.T) {
 		Name:    "mutate",
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
 	_, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
 		"operations": []any{
 			map[string]any{"type": "write", "path": "/etc/passwd", "content": "x"},
@@ -87,7 +99,7 @@ func TestRunPipelineResolveAndNormalizeSuccess(t *testing.T) {
 		Name:     "probe",
 		ExecPath: helper,
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
 	result, err := executor.Execute(context.Background(), "probe", "", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -108,7 +120,7 @@ func TestExecuteToolHandlerSuccess(t *testing.T) {
 			return map[string]any{"message": "hello"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
 	result, err := executor.Execute(context.Background(), "greeter", "", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -128,7 +140,7 @@ func TestExecuteToolSubprocessSuccess(t *testing.T) {
 		Name:     "probe",
 		ExecPath: helper,
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
 	result, err := executor.Execute(context.Background(), "probe", "", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -150,7 +162,7 @@ func TestExecuteToolTimeout(t *testing.T) {
 		Subcommand: "sleep",
 		Timeout:    15 * time.Millisecond,
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
 	_, err := executor.Execute(context.Background(), "probe", "", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want DeadlineExceeded")
@@ -165,7 +177,7 @@ func TestDecodeExecutionOutputCommandNotFound(t *testing.T) {
 		Name:     "nonexistent",
 		ExecPath: "/path/to/nonexistent/binary",
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
 	_, err := executor.Execute(context.Background(), "nonexistent", "", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want subprocess_failed")
@@ -229,7 +241,7 @@ func TestExecuteToolBashCwdOverride(t *testing.T) {
 		ExecPath: helper,
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, nil, workDir, "")
+	executor := NewExecutor(reg, config.Config{}, nil, workDir, "", Unsandboxed{})
 	result, err := executor.Execute(context.Background(), "bash", "", map[string]any{
 		"cwd": workDir,
 	})
@@ -272,7 +284,7 @@ func TestRunPipelineInvalidJSON(t *testing.T) {
 		ExecPath:   "echo",
 		Subcommand: "not json",
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
 	_, err := executor.Execute(context.Background(), "echoer", "", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want invalid_json")
@@ -290,7 +302,7 @@ func TestRunPipelineInvalidJSON(t *testing.T) {
 }
 
 func TestRunPipelineNilRegistry(t *testing.T) {
-	_, err := NewExecutor(nil, config.Config{}, nil, t.TempDir(), "").Execute(context.Background(), "test", "", nil)
+	_, err := NewExecutor(nil, config.Config{}, nil, t.TempDir(), "", Unsandboxed{}).Execute(context.Background(), "test", "", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want error")
 	}
@@ -314,7 +326,7 @@ func TestExecuteTool_BashDenialDetection_ApproverCalled(t *testing.T) {
 			}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "", &testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", "", map[string]any{"command": "cat /host/path"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -347,13 +359,13 @@ func TestExecuteTool_BashDenialRetry_AllowRetries(t *testing.T) {
 		Name: "bash",
 		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
 			callContexts = append(callContexts, ctx)
-			if ctx.Value(BashUnsandboxedKey{}) == true {
+			if isIdentityWrapped(ctx) {
 				return &mockBashResult{exitCode: 0, output: "success"}, nil
 			}
 			return &mockBashResult{exitCode: 1, output: "Permission denied /host/path"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "", &testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", "", map[string]any{"command": "cat /host/path"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -361,9 +373,10 @@ func TestExecuteTool_BashDenialRetry_AllowRetries(t *testing.T) {
 	if len(callContexts) != 2 {
 		t.Fatalf("handler call count = %d, want 2 (initial + retry)", len(callContexts))
 	}
-	// Second call must carry the unsandboxed key.
-	if callContexts[1].Value(BashUnsandboxedKey{}) != true {
-		t.Fatal("retry context does not carry BashUnsandboxedKey")
+	// Second call must carry an identity (Unsandboxed{}) SandboxWrapperKey: the
+	// escape hatch actually escapes the sandbox.
+	if !isIdentityWrapped(callContexts[1]) {
+		t.Fatal("retry context does not carry an identity SandboxWrapperKey")
 	}
 	br, ok := result.(*mockBashResult)
 	if !ok {
@@ -382,7 +395,7 @@ func TestExecuteTool_BashDenialNoRetry_Denied(t *testing.T) {
 			return &mockBashResult{exitCode: 1, output: "Permission denied /secret"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "", &testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", "", map[string]any{"command": "cat /secret"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -407,8 +420,8 @@ func TestExecuteTool_BashNoDenialPrompt_SandboxNil(t *testing.T) {
 			return &mockBashResult{exitCode: 1, output: "Permission denied /host/path"}, nil
 		},
 	})
-	// No sandbox set — unsafe mode.
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "")
+	// Explicitly unsandboxed — sandboxing off by choice, not by omission.
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "", Unsandboxed{})
 	result, err := executor.Execute(context.Background(), "bash", "", map[string]any{"command": "cat /host/path"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -434,7 +447,7 @@ func TestExecuteTool_BashNoDenialPrompt_ApproverNil(t *testing.T) {
 		},
 	})
 	// Sandbox set but no approver.
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", &testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", "", map[string]any{"command": "cat /host/path"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -455,13 +468,13 @@ func TestExecuteTool_BashSSHConfigDenial_AllowRetriesOutsideSandbox(t *testing.T
 		Name: "bash",
 		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
 			callContexts = append(callContexts, ctx)
-			if ctx.Value(BashUnsandboxedKey{}) == true {
+			if isIdentityWrapped(ctx) {
 				return &mockBashResult{exitCode: 0, output: "ssh config accepted"}, nil
 			}
 			return &mockBashResult{exitCode: 1, output: "Bad owner or permissions on /etc/ssh/ssh_config.d/10-main.conf"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "", &testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", "", map[string]any{"command": "ssh -G github.com"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -478,8 +491,8 @@ func TestExecuteTool_BashSSHConfigDenial_AllowRetriesOutsideSandbox(t *testing.T
 	if len(callContexts) != 2 {
 		t.Fatalf("handler call count = %d, want 2 (initial + retry)", len(callContexts))
 	}
-	if callContexts[1].Value(BashUnsandboxedKey{}) != true {
-		t.Fatal("retry context does not carry BashUnsandboxedKey")
+	if !isIdentityWrapped(callContexts[1]) {
+		t.Fatal("retry context does not carry an identity SandboxWrapperKey")
 	}
 	br, ok := result.(*mockBashResult)
 	if !ok {
@@ -487,6 +500,44 @@ func TestExecuteTool_BashSSHConfigDenial_AllowRetriesOutsideSandbox(t *testing.T
 	}
 	if br.exitCode != 0 || br.output != "ssh config accepted" {
 		t.Fatalf("result = %+v, want exitCode=0 output='ssh config accepted'", br)
+	}
+}
+
+// TestExecuteTool_BashDenialRetry_ReadOnlyProjectWinsOverEscapeHatch pins the
+// precedence rule: a child forced read-only via BashReadOnlyProjectKey must not
+// be able to reach an unsandboxed retry through the sandbox-denial approval
+// escape hatch. The retry must stay read-only-wrapped.
+func TestExecuteTool_BashDenialRetry_ReadOnlyProjectWinsOverEscapeHatch(t *testing.T) {
+	approver := &mockApprover{response: ApprovalResponse{Allow: true}}
+	var callContexts []context.Context
+	reg := NewRegistry(ToolDef{
+		Name: "bash",
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+			callContexts = append(callContexts, ctx)
+			if len(callContexts) == 1 {
+				return &mockBashResult{exitCode: 1, output: "Permission denied /host/path"}, nil
+			}
+			return &mockBashResult{exitCode: 0, output: "success"}, nil
+		},
+	})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "", &testSandbox{})
+	ctx := WithReadOnlyProjectBash(context.Background(), true)
+	_, err := executor.Execute(ctx, "bash", "", map[string]any{"command": "cat /host/path"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+	if len(callContexts) != 2 {
+		t.Fatalf("handler call count = %d, want 2 (initial + retry)", len(callContexts))
+	}
+	resolved, ok := callContexts[1].Value(SandboxWrapperKey{}).(ResolvedSandbox)
+	if !ok {
+		t.Fatal("retry context missing SandboxWrapperKey")
+	}
+	if resolved.Wrapper == SandboxWrapper(Unsandboxed{}) {
+		t.Fatal("retry context was identity-wrapped despite BashReadOnlyProjectKey being set")
+	}
+	if !resolved.ReadOnlyProject {
+		t.Fatal("retry context lost ReadOnlyProject despite BashReadOnlyProjectKey being set")
 	}
 }
 
@@ -498,7 +549,7 @@ func TestExecuteTool_BashSSHConfigDenial_DeniedAppendsExplanation(t *testing.T) 
 			return &mockBashResult{exitCode: 1, output: "Bad owner or permissions on /etc/ssh/ssh_config.d/10-main.conf"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "", &testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", "", map[string]any{"command": "ssh -G github.com"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -523,7 +574,7 @@ func TestExecuteTool_BashSSHConfigSyntaxErrorNotClassified(t *testing.T) {
 			return &mockBashResult{exitCode: 1, output: "Bad configuration option: FooBar"}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "", &testSandbox{})
 	result, err := executor.Execute(context.Background(), "bash", "", map[string]any{"command": "ssh -G github.com"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -557,7 +608,7 @@ func TestNormalizeExecutionInput_PathViolation_ApproverCalled(t *testing.T) {
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, approver, workDir, "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, workDir, "", &testSandbox{})
 	_, err := executor.Execute(context.Background(), "mutate", "", mutateOutsideRoot(workDir))
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied")
@@ -598,7 +649,7 @@ func TestNormalizeExecutionInput_PathViolation_Allow(t *testing.T) {
 			return map[string]any{"ok": true}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, workDir, "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, workDir, "", &testSandbox{})
 	result, err := executor.Execute(context.Background(), "mutate", "", mutateOutsideRoot(workDir))
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil on approval", err)
@@ -624,7 +675,7 @@ func TestNormalizeExecutionInput_PathViolation_Deny(t *testing.T) {
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, approver, workDir, "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, config.Config{}, approver, workDir, "", &testSandbox{})
 	_, err := executor.Execute(context.Background(), "mutate", "", mutateOutsideRoot(workDir))
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied after denial")
@@ -646,7 +697,7 @@ func TestNormalizeExecutionInput_PathViolation_ApprovalWithoutSandbox(t *testing
 	})
 	workDir := t.TempDir()
 	// No sandbox — approval must still be requested.
-	executor := NewExecutor(reg, config.Config{}, approver, workDir, "")
+	executor := NewExecutor(reg, config.Config{}, approver, workDir, "", Unsandboxed{})
 	_, err := executor.Execute(context.Background(), "mutate", "", mutateOutsideRoot(workDir))
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied")
@@ -673,7 +724,7 @@ func TestNormalizeExecutionInput_NonPromptableError_NoPrompt(t *testing.T) {
 	workDir := t.TempDir()
 	cfg := config.Config{}
 	cfg.Paths.BlockedPaths = []string{workDir + "/secrets"}
-	executor := NewExecutor(reg, cfg, approver, workDir, "").WithSandbox(&testSandbox{})
+	executor := NewExecutor(reg, cfg, approver, workDir, "", &testSandbox{})
 	_, err := executor.Execute(context.Background(), "read", "", map[string]any{"path": workDir + "/secrets/key.txt"})
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied")
@@ -701,7 +752,7 @@ func TestRunPipeline_ModeGetter_NilGetter_NoModeInContext(t *testing.T) {
 			return nil, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "")
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
 	_, err := executor.Execute(context.Background(), "probe", "", nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -724,7 +775,7 @@ func TestRunPipeline_ModeGetter_BuildMode_NoRestriction(t *testing.T) {
 			return nil, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "").
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{}).
 		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModeBuild })
 	_, err := executor.Execute(context.Background(), "probe", "", nil)
 	if err != nil {
@@ -739,7 +790,7 @@ func TestRunPipeline_ModeGetter_PlanMode_RestrictsWrites(t *testing.T) {
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, nil, workDir, "").
+	executor := NewExecutor(reg, config.Config{}, nil, workDir, "", Unsandboxed{}).
 		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModePlan })
 	_, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
 		"operations": []any{
@@ -782,7 +833,7 @@ func TestRunPipeline_ModeGetter_PlanMode_AllowsSteinerWrites(t *testing.T) {
 		},
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, nil, workDir, "").
+	executor := NewExecutor(reg, config.Config{}, nil, workDir, "", Unsandboxed{}).
 		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModePlan })
 	result, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
 		"operations": []any{
@@ -825,7 +876,7 @@ func TestRunPipeline_ModeGetter_PlanMode_AllowsSteinerPlansPath(t *testing.T) {
 		},
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, nil, workDir, "").
+	executor := NewExecutor(reg, config.Config{}, nil, workDir, "", Unsandboxed{}).
 		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModePlan })
 	_, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
 		"operations": []any{
@@ -845,7 +896,7 @@ func TestRunPipeline_PlanMode_DeniesTypoPath(t *testing.T) {
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, nil, workDir, "").
+	executor := NewExecutor(reg, config.Config{}, nil, workDir, "", Unsandboxed{}).
 		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModePlan })
 	_, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
 		"operations": []any{
@@ -864,5 +915,72 @@ func TestRunPipeline_PlanMode_DeniesTypoPath(t *testing.T) {
 	}
 	if !strings.Contains(toolErr.Message, "plan mode") {
 		t.Fatalf("error message = %q, want 'plan mode'", toolErr.Message)
+	}
+}
+
+// TestRunPipeline_PlanMode_BashAndSubprocessBothReadOnly is a regression test
+// for the plan-mode divergence that motivated this refactor: bash and
+// subprocess-backed tools must receive the same readOnlyProject decision from
+// a single resolution point, instead of computing it independently.
+func TestRunPipeline_PlanMode_BashAndSubprocessBothReadOnly(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	var bashCtx context.Context
+	reg := NewRegistry(
+		ToolDef{
+			Name: "bash",
+			Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+				bashCtx = ctx
+				return &mockBashResult{exitCode: 0, output: "ok"}, nil
+			},
+		},
+		ToolDef{
+			Name:     "probe",
+			ExecPath: helper,
+		},
+	)
+	sb := &testSandbox{}
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", sb).
+		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModePlan })
+
+	if _, err := executor.Execute(context.Background(), "bash", "", map[string]any{"command": "true"}); err != nil {
+		t.Fatalf("bash Execute() error = %v", err)
+	}
+	bashResolved, ok := bashCtx.Value(SandboxWrapperKey{}).(ResolvedSandbox)
+	if !ok || !bashResolved.ReadOnlyProject {
+		t.Fatalf("bash readOnlyProject = %v (present=%v), want true in plan mode", bashResolved.ReadOnlyProject, ok)
+	}
+
+	if _, err := executor.Execute(context.Background(), "probe", "", nil); err != nil {
+		t.Fatalf("probe Execute() error = %v", err)
+	}
+	if !sb.lastReadOnlyProject {
+		t.Fatal("subprocess-backed tool readOnlyProject = false, want true in plan mode (the bug this refactor fixes)")
+	}
+}
+
+// TestExecuteToolSubprocess_MissingSandboxWrapperKey_FailsClosed proves the
+// subprocess dispatch path fails closed with a structured error when invoked
+// with a bare context that carries no SandboxWrapperKey — i.e. outside
+// runPipeline, which always sets one. This can only happen via a direct
+// executeTool call bypassing the pipeline, which no production code does.
+func TestExecuteToolSubprocess_MissingSandboxWrapperKey_FailsClosed(t *testing.T) {
+	helper := mustBuildHelperBinary(t)
+	executor := NewExecutor(NewRegistry(), config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
+	ec := &executionContext{
+		Def: ToolDef{
+			Name:     "probe",
+			ExecPath: helper,
+		},
+	}
+	_, err := executor.executeTool(context.Background(), ec)
+	if err == nil {
+		t.Fatal("executeTool() error = nil, want sandbox_wrapper_missing")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "sandbox_wrapper_missing" {
+		t.Fatalf("error kind = %q, want sandbox_wrapper_missing", toolErr.Kind)
 	}
 }

@@ -44,6 +44,10 @@ type BootstrapDeps struct {
 	// Derived from the parent's config at the composition root; paths are
 	// already home-expanded at config load.
 	SandboxWritableMounts []string
+	// Sandbox is the parent's sandbox wrapper, threaded to the child executor so
+	// it sandboxes commands identically to the parent. Must not be nil
+	// (tool.Unsandboxed{} when sandboxing is off).
+	Sandbox tool.SandboxWrapper
 	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
 	UsageRecorder *usagestats.Recorder
 	// AgentType identifies the agent type being bootstrapped, used to key
@@ -88,6 +92,8 @@ func handlerBootstrapDeps(agentType AgentType, deps SubAgentHandlerDeps, resolve
 		SandboxTmpDir:         deps.SandboxTmpDir,
 		SandboxEnabled:        deps.SandboxEnabled,
 		SandboxWritableMounts: deps.SandboxWritableMounts,
+		Sandbox:               deps.Sandbox,
+		ModeGetter:            deps.ModeGetter,
 		UsageRecorder:         deps.UsageRecorder,
 		SkipProjectContext:    skipProjectContext,
 		SkipAgents:            skipAgents,
@@ -152,6 +158,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		AgentType:          deps.AgentType,
 		CacheKeyStore:      deps.CacheKeyStore,
 		SandboxTmpDir:      deps.SandboxTmpDir,
+		Sandbox:            deps.Sandbox,
 		ReadOnlyBash:       readOnlyBash,
 	})
 	return req, limits, nil
@@ -280,6 +287,7 @@ type childRunRequestParams struct {
 	AgentType          AgentType
 	CacheKeyStore      *CacheKeyStore
 	SandboxTmpDir      string
+	Sandbox            tool.SandboxWrapper
 	ReadOnlyBash       bool
 }
 
@@ -292,7 +300,11 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	childCfg := config.Config{}
 	scopedEvents := withAgentScope(p.AgentID, p.Events)
 
-	exec := tool.NewExecutor(p.ExecReg, childCfg, nil, p.WorkDir, p.SandboxTmpDir)
+	// p.Sandbox must not be nil: the composition root (cmd/steiner) always
+	// passes an explicit wrapper (tool.Unsandboxed{} when sandboxing is off).
+	// No silent fallback here — an omitted Sandbox is a caller bug, not a
+	// default to paper over.
+	exec := tool.NewExecutor(p.ExecReg, childCfg, nil, p.WorkDir, p.SandboxTmpDir, p.Sandbox)
 	if p.ModeGetter != nil {
 		exec = exec.WithModeGetter(p.ModeGetter)
 	}

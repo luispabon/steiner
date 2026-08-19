@@ -167,6 +167,16 @@ func (r cliRunner) sandboxEnabled() bool {
 	return r.runtime.sandbox != nil && r.runtime.sandbox.Enabled()
 }
 
+// sandboxWrapper returns the tool.SandboxWrapper for this runtime, explicitly
+// tool.Unsandboxed{} when no sandbox is configured, so callers never need to
+// nil-check the runtime sandbox before constructing an Executor.
+func (r cliRunner) sandboxWrapper() tool.SandboxWrapper {
+	if r.runtime.sandbox == nil {
+		return tool.Unsandboxed{}
+	}
+	return r.runtime.sandbox
+}
+
 func (r cliRunner) normalizedRunMode() string {
 	runMode := strings.TrimSpace(r.runMode)
 	if runMode == "" {
@@ -194,10 +204,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	if r.sandboxEnabled() {
 		sandboxTmpDir = r.runtime.sandbox.TmpDir()
 	}
-	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir, sandboxTmpDir)
-	if r.runtime.sandbox != nil {
-		executor = executor.WithSandbox(r.runtime.sandbox)
-	}
+	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir, sandboxTmpDir, r.sandboxWrapper())
 	if r.modeGetterFunc != nil {
 		executor = executor.WithModeGetter(r.modeGetterFunc)
 	}

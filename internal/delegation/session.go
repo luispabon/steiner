@@ -44,6 +44,14 @@ type SubAgentHandlerDeps struct {
 	// forwarded to child prompts so their system preamble renders the same
 	// sandbox section as the parent.
 	SandboxWritableMounts []string
+	// Sandbox is the parent's sandbox wrapper, threaded to child executors so
+	// they sandbox commands identically to the parent. Must not be nil
+	// (tool.Unsandboxed{} when sandboxing is off).
+	Sandbox tool.SandboxWrapper
+	// ModeGetter returns the current execution mode. When non-nil, threaded to
+	// child executors so they inherit the parent's live execution mode for
+	// plan-mode restrictions (path policy and sandbox readOnlyProject).
+	ModeGetter func() config.ExecutionMode
 	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
 	UsageRecorder *usagestats.Recorder
 	// CacheKeyStore is the process-lifetime store reused across all agent-type

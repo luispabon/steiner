@@ -83,7 +83,7 @@ func registryTestConfig() config.Config {
 }
 
 func TestRuntimeRegistryWithNilManagerRegistersNoMCPTools(t *testing.T) {
-	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, nil)
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil)
 	for _, name := range registry.Names() {
 		if strings.HasPrefix(name, "mcp__") {
 			t.Fatalf("nil manager produced MCP tool %q", name)
@@ -100,11 +100,11 @@ func TestRuntimeRegistryMCPEnabledWithoutServersIsInert(t *testing.T) {
 	cfg.MCP = config.MCPConfig{Enabled: true}
 	mgr := mcp.Connect(context.Background(), cfg.MCP, cfg.Limits, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 	t.Cleanup(func() { _ = mgr.Close() })
-	enabled := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, mgr)
+	enabled := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, mgr)
 
 	disabledCfg := registryTestConfig()
 	disabledCfg.MCP = config.MCPConfig{Enabled: false}
-	disabled := runtimeRegistryWithSinkAndMode(disabledCfg, t.TempDir(), nil, false, nil, nil, nil, nil)
+	disabled := runtimeRegistryWithSinkAndMode(disabledCfg, t.TempDir(), nil, false, nil, nil, nil)
 
 	for _, name := range enabled.Names() {
 		if strings.HasPrefix(name, "mcp__") {
@@ -117,7 +117,7 @@ func TestRuntimeRegistryMCPEnabledWithoutServersIsInert(t *testing.T) {
 }
 
 func TestRuntimeRegistryRegistersMCPToolsAlongsideBuiltins(t *testing.T) {
-	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, mcpFixtureManager(t))
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mcpFixtureManager(t))
 
 	for _, want := range []string{"bash", "read", "mcp__fixture__echo", "mcp__fixture__boom"} {
 		if _, ok := registry.Get(want); !ok {
@@ -127,7 +127,7 @@ func TestRuntimeRegistryRegistersMCPToolsAlongsideBuiltins(t *testing.T) {
 }
 
 func TestSubAgentSubsetExcludesMCPToolsByDefault(t *testing.T) {
-	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, mcpFixtureManager(t))
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mcpFixtureManager(t))
 
 	// Missing or empty sub_agents grants no MCP tools to any child (D6).
 	exposure := BuildMCPExposure(registry.Definitions(), nil)
@@ -147,7 +147,7 @@ func TestSubAgentSubsetExcludesMCPToolsByDefault(t *testing.T) {
 func TestSubAgentSubsetResearchOnlyExposesMCPTools(t *testing.T) {
 	srv := config.MCPServerConfig{Enabled: true, Approval: "ask", SubAgents: []string{"research"}}
 	mgr := mcpFixtureManagerWithCfg(t, srv)
-	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, mgr)
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr)
 
 	cfg := registryTestConfig()
 	cfg.MCP = config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": srv}}
@@ -174,7 +174,7 @@ func TestSubAgentSubsetFilteredAndDeniedToolsAbsent(t *testing.T) {
 	t.Run("filtered tools are absent from every child", func(t *testing.T) {
 		srv := config.MCPServerConfig{Enabled: true, Approval: "ask", AllowedTools: []string{"echo"}, SubAgents: []string{"research"}}
 		mgr := mcpFixtureManagerWithCfg(t, srv)
-		registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, mgr)
+		registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr)
 
 		cfg := registryTestConfig()
 		cfg.MCP = config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": srv}}
@@ -191,7 +191,7 @@ func TestSubAgentSubsetFilteredAndDeniedToolsAbsent(t *testing.T) {
 	t.Run("denied tools are absent from every child", func(t *testing.T) {
 		srv := config.MCPServerConfig{Enabled: true, Approval: "deny", SubAgents: []string{"research"}}
 		mgr := mcpFixtureManagerWithCfg(t, srv)
-		registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, mgr)
+		registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr)
 
 		cfg := registryTestConfig()
 		cfg.MCP = config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": srv}}
@@ -240,7 +240,7 @@ func TestMCPToolExposedToChildStillRequiresApproval(t *testing.T) {
 
 	cfg := registryTestConfig()
 	cfg.MCP = config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": srv}}
-	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, mgr)
+	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, mgr)
 
 	exposure := BuildMCPExposure(registry.Definitions(), cfg.MCP.Servers)
 	if want := []string{"mcp__fixture__big_output", "mcp__fixture__boom", "mcp__fixture__die", "mcp__fixture__echo", "mcp__fixture__readonly_echo", "mcp__fixture__sleep"}; !reflect.DeepEqual(exposure[delegation.AgentTypeResearch], want) {
