@@ -234,7 +234,11 @@ func TestSpawnDelegate_RemediationSurvivesSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create trace logger: %v", err)
 	}
-	defer traceLogger.Close()
+	defer func() {
+		if cerr := traceLogger.Close(); cerr != nil {
+			t.Errorf("close trace logger: %v", cerr)
+		}
+	}()
 	result, state, _, err := SpawnDelegate(context.Background(), remediationTestSpec(), remediationTestRequest(), runner, noopEventSink{}, traceLogger, WithRemediation(cfg))
 	if err != nil {
 		t.Fatalf("SpawnDelegate error: %v", err)
