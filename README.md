@@ -316,7 +316,7 @@ See [Desktop Notifications](docs/desktop-notifications.md) for platform support 
 These features are documented in [Optional Features](docs/optional-features.md):
 
 - [**`cave_human`**](docs/optional-features.md#cave_human) — terse output with anti-AI-writing style instruction
-- [**Accent colour**](docs/optional-features.md#accent-colour) — customizable TUI accent with 13 presets and `/accent` picker
+- [**Accent colour**](docs/optional-features.md#accent-colour) — customizable TUI accent with 20 presets and `/accent` picker
 - [**Web search**](docs/optional-features.md#web-search) — model-facing search tool with Google, Kagi, Brave, and SearXNG backends
 - [**Image paste and recall**](docs/optional-features.md#image-paste) — Ctrl+V image input with auto-resize, token accounting, and vision sub-agent re-examination
 - [**Conversation forking**](docs/optional-features.md#conversation-forking) — fork live or saved sessions into independent copies

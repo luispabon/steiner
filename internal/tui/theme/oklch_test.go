@@ -66,8 +66,8 @@ func TestToolBorderLineColors(t *testing.T) {
 }
 
 func TestAccentPresets(t *testing.T) {
-	if len(AccentPresets) != 13 {
-		t.Errorf("AccentPresets has %d entries, want 13", len(AccentPresets))
+	if len(AccentPresets) != 20 {
+		t.Errorf("AccentPresets has %d entries, want 20", len(AccentPresets))
 	}
 
 	// Valid hex regex pattern: #[0-9A-Fa-f]{6}
@@ -87,8 +87,8 @@ func TestAccentPresets(t *testing.T) {
 
 func TestNewAccentPresetsAreOklchDerived(t *testing.T) {
 	// The six presets added for #246 must be OklchToHex-derived at L=0.74, C=0.16
-	// (per the plan's "derive, don't hand-pick" constraint). The original seven
-	// are intentionally hand-tuned brand accents and are not checked here.
+	// (per the plan's "derive, don't hand-pick" constraint). The 14 hand-tuned
+	// brand accents are not checked here.
 	derived := map[string]float64{
 		"coral":  20,
 		"gold":   75,
@@ -132,5 +132,29 @@ func TestHexToRGB(t *testing.T) {
 					tt.hex, r, g, b, tt.wantR, tt.wantG, tt.wantB)
 			}
 		})
+	}
+}
+
+func TestSortedAccentPresetNames(t *testing.T) {
+	want := []string{
+		"terracotta", "amber", "gold", "yellow", "lime",
+		"green", "mint", "teal", "cyan", "blue",
+		"sky", "indigo", "violet", "lavender", "purple",
+		"magenta", "pink", "rose", "red", "coral",
+	}
+	got := SortedAccentPresetNames()
+	if len(got) != len(want) {
+		t.Fatalf("SortedAccentPresetNames() returned %d names, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("SortedAccentPresetNames()[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+		}
+	}
+	// "random" is not a concrete preset and must not appear.
+	for _, name := range got {
+		if name == "random" {
+			t.Errorf("SortedAccentPresetNames() unexpectedly contains %q", name)
+		}
 	}
 }

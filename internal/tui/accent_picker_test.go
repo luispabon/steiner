@@ -18,12 +18,12 @@ func TestAccentPickerOpen(t *testing.T) {
 	if !p.IsOpen() {
 		t.Fatal("expected picker to be open")
 	}
-	// 13 concrete presets + "random"
-	if len(p.allNames) != 14 {
-		t.Fatalf("expected 14 entries, got %d", len(p.allNames))
+	// 20 concrete presets + "random"
+	if len(p.allNames) != 21 {
+		t.Fatalf("expected 21 entries, got %d", len(p.allNames))
 	}
-	if len(p.candidates) != 14 {
-		t.Fatalf("expected 14 candidates, got %d", len(p.candidates))
+	if len(p.candidates) != 21 {
+		t.Fatalf("expected 21 candidates, got %d", len(p.candidates))
 	}
 }
 
