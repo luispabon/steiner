@@ -42,6 +42,8 @@ The `mutate` write restriction and the sub-agent denials are enforced in `intern
 
 `bash` and subprocess tools receive identical `readOnlyProject` treatment because the executor resolves the sandbox decision exactly once per tool call, in `internal/tool.Executor.runPipeline`, and both dispatch paths consume that same resolved decision (see [Tool sandboxing](tool-sandboxing.md#sandbox-wrapper-resolution)). Earlier, `bash` and subprocess tools computed their sandbox mode independently, which let a config-defined subprocess tool run with an unrestricted (writable) project mount in plan mode while `bash` was correctly read-only.
 
+Child agents (see [Sub-agent delegation](sub-agent-delegation.md)) inherit the parent's live execution mode: the composition root threads a `ModeGetter` into every child executor the same way it threads the sandbox wrapper. A child's own `mutate` calls are restricted to `.steiner/plans/` and its `bash`/subprocess calls get the read-only project mount whenever the parent session is in plan mode, exactly as if the parent had run the command itself.
+
 ## Persistence
 
 The current mode is saved with the session (`session.Mode`) and restored on resume. If a saved session has no mode recorded, the session falls back to `modes.default`. `plan` and `build` are accepted as persisted values; any other non-empty value is rejected at restore with a `load session failed` error, so an unknown mode can never restore a writable session. Both plan- and build-mode sessions carry the mode notice on every outgoing user message, so the mode is always visible in the conversation history and survives resume and compaction without special handling. A restored session re-announces its mode on the next turn automatically.
