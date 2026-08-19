@@ -65,6 +65,8 @@ type ChildSession struct {
 	TokenCount    int
 	ToolCallCount int
 	CacheUsage    CacheUsage
+	// Remediation is set only for code sessions with a successfully provisioned worktree.
+	Remediation   *RemediationConfig
 	FollowUpCount int
 }
 
@@ -142,7 +144,7 @@ func (s *SessionStore) Count() int {
 	return len(s.sessions)
 }
 
-func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunRequest, state agent.RunState, cache CacheUsage) {
+func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunRequest, state agent.RunState, cache CacheUsage, remediation *RemediationConfig) {
 	store.Save(&ChildSession{
 		Spec:          spec,
 		Request:       req,
@@ -151,5 +153,6 @@ func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunReq
 		TokenCount:    state.TokenCount,
 		ToolCallCount: countToolCalls(state.Conversation),
 		CacheUsage:    cache,
+		Remediation:   remediation,
 	})
 }

@@ -79,7 +79,11 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 		spec.Limits = freshLimits
 		spec.PriorCacheUsage = session.CacheUsage
 
-		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
+		var opts []spawnOption
+		if childHasMutateTool(session.Request) && session.Remediation != nil {
+			opts = append(opts, WithRemediation(session.Remediation))
+		}
+		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 		if err == nil {
 			deps.SessionStore.Update(agentID, SessionUpdateParams{
 				Conversation:  state.Conversation,

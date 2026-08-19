@@ -319,7 +319,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 		if err == nil && deps.SessionStore != nil {
-			saveChildSession(deps.SessionStore, spec, req, state, runUsage)
+			saveChildSession(deps.SessionStore, spec, req, state, runUsage, remediation)
 		}
 		if err != nil {
 			if result != (tool.ExecutionResult{}) {
