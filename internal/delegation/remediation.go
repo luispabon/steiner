@@ -70,10 +70,18 @@ func applyRemediation(
 
 	dirty, err := cfg.IsDirty(ctx)
 	if err != nil {
-		return failedRemediation(
-			spec, state, runUsage, result.Output, cfg.WorktreePath, dirty, tc,
-			fmt.Errorf("check worktree cleanliness: %w", err),
-		)
+		originalOutput := result.Output
+		checkErr := fmt.Errorf("check worktree cleanliness: %w", err)
+		result = buildResultWithTrace(spec.AgentID, state, tc, spec.PriorCacheUsage.Add(runUsage))
+		result.Status = StatusFailed
+		result.Output = originalOutput
+		result.Warnings = append(result.Warnings, fmt.Sprintf("code agent worktree %s: could not verify the working tree is clean: %v", cfg.WorktreePath, err))
+		result.SessionResumable = false
+		tc.add("remediation", "remediation failed", map[string]any{
+			"verification_error": checkErr.Error(),
+			"initial_dirty":      dirtyPathsForTrace(dirty),
+		})
+		return state, runUsage, result, remediationAttempted, checkErr
 	}
 	if len(dirty) == 0 {
 		return state, runUsage, result, remediationNotAttempted, nil
