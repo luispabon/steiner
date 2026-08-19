@@ -35,7 +35,7 @@ You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on i
 
 There is no inline execution tier. If delegation itself is unavailable, stop and report a blocker.
 
-This restriction does not apply to executor-owned artifacts (`execution.md`, branch operations, worktree provisioning). Steps explicitly marked `no_delegate: true` are also exempt — apply those inline and state in `execution.md` why the step was not delegated.
+This restriction does not apply to executor-owned artifacts (`execution.md`, branch operations). Steps explicitly marked `no_delegate: true` are also exempt — apply those inline and state in `execution.md` why the step was not delegated.
 
 **Closed rationalization loopholes**: Do not rationalize skipping delegation by claiming low ambiguity, small testable chunks, or cheap-feeling mutate calls are sufficient justification. These are not exceptions. The only exemptions are the executor-owned artifacts listed above and steps explicitly marked `no_delegate: true`. When in doubt, delegate.
 

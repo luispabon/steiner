@@ -133,6 +133,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	})
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.AllowedTools)
+	readOnlyBash := deps.SandboxEnabled && deps.AgentType == AgentTypeExplore
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:            deps.WorkDir,
 		AgentID:            spec.AgentID,
@@ -151,6 +152,7 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		AgentType:          deps.AgentType,
 		CacheKeyStore:      deps.CacheKeyStore,
 		SandboxTmpDir:      deps.SandboxTmpDir,
+		ReadOnlyBash:       readOnlyBash,
 	})
 	return req, limits, nil
 }
@@ -278,6 +280,7 @@ type childRunRequestParams struct {
 	AgentType          AgentType
 	CacheKeyStore      *CacheKeyStore
 	SandboxTmpDir      string
+	ReadOnlyBash       bool
 }
 
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
@@ -311,7 +314,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 
 	req := agent.RunRequest{
 		Provider:           p.Provider,
-		Executor:           scopedToolExecutor{inner: exec, agentID: p.AgentID},
+		Executor:           scopedToolExecutor{inner: exec, agentID: p.AgentID, readOnlyBash: p.ReadOnlyBash},
 		Tools:              p.VisibleReg.ToProviderSpecs(),
 		Limits:             p.BaseLimits,
 		Events:             scopedEvents,
@@ -355,10 +358,14 @@ func withAgentScope(agentID string, sink output.EventSink) output.EventSink {
 // context so approval events emitted by tool handlers (e.g. MCP tools) during
 // a delegated child run carry the child's agent ID.
 type scopedToolExecutor struct {
-	inner   agent.ToolExecutor
-	agentID string
+	inner        agent.ToolExecutor
+	agentID      string
+	readOnlyBash bool
 }
 
 func (e scopedToolExecutor) Execute(ctx context.Context, toolName, callID string, input map[string]any) (any, error) {
+	if e.readOnlyBash {
+		ctx = tool.WithReadOnlyProjectBash(ctx, true)
+	}
 	return e.inner.Execute(tool.WithApprovalAgentScope(ctx, e.agentID), toolName, callID, input)
 }

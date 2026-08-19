@@ -1135,6 +1135,50 @@ func TestChildBashCommandWrapperPreserved(t *testing.T) {
 	}
 }
 
+func TestChildExploreBashContextIsReadOnly(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentType AgentType
+		want      bool
+	}{
+		{name: "explore with sandbox", agentType: AgentTypeExplore, want: true},
+		{name: "code with sandbox", agentType: AgentTypeCode, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got bool
+			parent := tool.NewRegistry(tool.ToolDef{
+				Name: "probe",
+				Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+					got = ctx.Value(tool.BashReadOnlyProjectKey{}) == true
+					return nil, nil
+				},
+			})
+			deps := BootstrapDeps{
+				ParentReg:      parent,
+				SubAgentCfg:    config.SubAgentConfig{},
+				AllowedTools:   []string{"probe"},
+				Events:         output.NoopSink{},
+				WorkDir:        "/tmp/work",
+				Provider:       stubProvider{},
+				AgentType:      tt.agentType,
+				SandboxEnabled: true,
+			}
+			req, _, err := BuildChildRun(context.Background(), deps, DelegationSpec{Task: "task", AgentID: tt.name, Limits: DelegationLimits{MaxTurns: 1}})
+			if err != nil {
+				t.Fatalf("BuildChildRun() error = %v", err)
+			}
+			if _, err := req.Executor.Execute(context.Background(), "probe", "", nil); err != nil {
+				t.Fatalf("Execute(probe) error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("BashReadOnlyProjectKey = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildChildRunRequestPromptCacheKeyFallsBackWhenStoreNil(t *testing.T) {
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:    "/tmp/work",

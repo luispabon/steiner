@@ -79,7 +79,7 @@ var agentPrompts = map[AgentType]string{
 Your role: locate files, symbols, and patterns relevant to the given task.
 
 How to work:
-- Use read, glob, grep, and ls to find relevant files and code.
+- Use read, glob, grep, and ls to find relevant files and code. You may use bash for targeted shell queries such as grep, find, git log, or running small read-only checks; bash runs sandboxed with the project mounted read-only, so writes to the workspace will fail.
 - Follow import chains and call sites to understand relationships.
 - Stop exploring when you have enough to answer the question confidently.
 
@@ -173,7 +173,7 @@ How to respond:
 }
 
 var agentAllowlists = map[AgentType][]string{
-	AgentTypeExplore:     {"read", "glob", "grep", "ls"},
+	AgentTypeExplore:     {"read", "glob", "grep", "ls", "bash"},
 	AgentTypeResearch:    {"read", "glob", "grep", "ls", "web_search", "fetch_url"},
 	AgentTypeCode:        {"read", "glob", "grep", "ls", "mutate", "bash"},
 	AgentTypeEvaluate:    {"read", "glob", "grep", "ls"},

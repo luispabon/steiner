@@ -98,7 +98,7 @@ Every `code` sub-agent automatically runs in its own isolated, runtime-provision
 
 | Agent      | Tools available                                             |
 |------------|-------------------------------------------------------------|
-| `explore`  | `read`, `glob`, `grep`, `ls`                                |
+| `explore`  | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox) |
 | `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url`\* |
 | `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`              |
 | `evaluate`    | `read`, `glob`, `grep`, `ls`                                |

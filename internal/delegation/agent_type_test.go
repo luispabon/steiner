@@ -178,9 +178,12 @@ func TestAgentAllowedTools(t *testing.T) {
 		})
 	}
 
-	t.Run("explore has no mutation tools", func(t *testing.T) {
+	t.Run("explore has bash but no mutation tools", func(t *testing.T) {
 		tools := AgentAllowedTools(AgentTypeExplore)
-		for _, m := range append(legacyMutationTools, "bash", "mutate") {
+		if !slices.Contains(tools, "bash") {
+			t.Fatal("AgentAllowedTools(explore) missing bash")
+		}
+		for _, m := range append(legacyMutationTools, "mutate") {
 			if slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(explore) should not contain %q", m)
 			}

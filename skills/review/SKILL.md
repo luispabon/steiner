@@ -101,29 +101,27 @@ Do not edit code before a review pass has produced concrete findings and the use
 
 Each review pass may produce one consolidated fix plan. The plan must map fixes to blocking finding ids and state which verification will be rerun.
 
-The reviewer prefers the highest available delegation tier for fix passes:
+The reviewer prefers delegated fixes over inline work:
 
-1. **Isolated delegation** (preferred): fix pass runs in a dedicated worktree on a temporary branch. Provides full isolation from the feature branch.
-2. **Direct delegation** (fallback): fix pass runs directly on the feature branch via a `code` sub-agent. Used when worktrees are unavailable or provisioning fails.
-3. **Inline fixes** (last resort): reviewer applies fixes directly. Used only when delegation tools themselves are unavailable. Deliberate exception to the routing threshold in your system prompt: review-fix work must have a guaranteed way to close out even when delegation tooling itself is down.
+1. **Delegated fix pass** (preferred): a `code` sub-agent runs the fix in its own runtime-provisioned, runtime-verified worktree on a `delegate/` branch. Provisioning failure fails the `code` call outright — that is a blocker to report, not a cue to fix inline.
+2. **Inline fixes** (last resort): reviewer applies fixes directly. Used only when delegation tools themselves are unavailable. Deliberate exception to the routing threshold in your system prompt: review-fix work must have a guaranteed way to close out even when delegation tooling itself is down.
 
-Prefer isolated delegation. Fall back through tiers in order. Do not skip direct delegation and jump to inline fixes just because worktrees failed. A judgment that isolation is unnecessary or that the fixes are simple does not justify skipping isolated delegation — only concrete errors (worktree provisioning failure, sub-agent dispatch error) do.
+A judgment that the fixes are simple does not justify skipping delegation — only delegation tooling itself being unavailable does.
 
-The reviewer owns provisioning, merge, verification, cleanup, and any `review.md` updates.
+The reviewer owns merge, verification, cleanup, and any `review.md` updates.
 
 ### Warm Follow-Up Policy
 
-Resume a suitable warm agent before cold dispatch only when it remains available for the same bounded deliverable in the same still-live workspace and scope. Follow-ups are sequential. For direct delegation, retain the responsible implementation agent through related correction loops. For isolated delegation, cold-dispatch after the agent is closed or its worktree is merged and deleted, even if the session reports resumable. A resumable session alone does not prove that an isolated worktree still exists. Use the responsible implementation agent for related corrections and the original reviewer only for a narrow re-check. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees. Workflow handoffs are not safe continuation boundaries.
+Resume a suitable warm agent before cold dispatch only when it remains available for the same bounded deliverable in the same still-live workspace and scope. Follow-ups are sequential. Retain the responsible fix agent through related correction loops until it is closed or its worktree is merged and deleted, even if the session reports resumable. A resumable session alone does not prove that an isolated worktree still exists. Use the responsible implementation agent for related corrections and the original reviewer only for a narrow re-check. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees. Workflow handoffs are not safe continuation boundaries.
 
-### Worktree Provisioning
+### Worktree Handling
 
-Always create worktrees under `.steiner/worktrees/` inside the project root. Do not use `/tmp` or other system temporary directories — they may be sandboxed and silently fail.
+Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.
 
-After running `git worktree add`, verify the directory actually exists:
-
-1. Run `ls -d <worktree-path>` to confirm the directory was created.
-2. Run `git -C <worktree-path> branch --show-current` to confirm it is on the expected temporary branch.
-3. If either check fails, prune the worktree entry with `git worktree remove <worktree-path>` and fall back to direct delegation.
+1. Read `worktree_path` and `worktree_branch` from the delegation result.
+2. Check `warnings` for entries noting uncommitted parent-tree changes the child could not see — every worktree branches from the parent's HEAD, so commit those on the feature branch before the next dispatch if the child needs them.
+3. `follow_up` results do not repopulate `worktree_path`/`worktree_branch`; retain the values from the initial `code` result across any follow-up calls on the same agent.
+4. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <worktree-branch>`.
 
 ### Review-Fix Delegation
 
@@ -131,7 +129,7 @@ The review-fix delegated agent must:
 
 - receive only the approved findings, fix plan, relevant files, constraints, and verification strategy
 - run the pre-commit checklist before committing (see below)
-- commit its changes on the working branch (temporary branch for isolated delegation, feature branch for direct delegation)
+- commit its changes on the runtime-provided `delegate/` branch
 - avoid unrelated cleanup or scope expansion
 - not merge, rebase, or clean up reviewer-owned git state
 
@@ -139,17 +137,9 @@ Review-fix work is sequential. Do not parallelize it.
 
 ### Pre-Commit Checklist
 
-Include the appropriate checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`.
+Include this checklist verbatim in every delegated task that commits. The sub-agent must run all checks before `git commit`.
 
-**Isolated delegation mode:**
-
-1. `git branch --show-current` — must equal the temporary branch name given in the task. If it shows the feature branch, STOP and report without committing.
-2. `git rev-parse --show-toplevel` — must equal the worktree path given in the task. If it shows a different path, STOP and report without committing.
-3. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
-
-**Direct delegation mode:**
-
-1. `git branch --show-current` — must equal the feature branch name given in the task. If it shows a different branch, STOP and report without committing.
+1. `git branch --show-current` — must start with `delegate/`. If it shows the feature branch, STOP and report without committing.
 2. `git status` — must show only files within the declared scope as modified. If unexpected files appear, STOP and report.
 
 If any check fails, the sub-agent must not commit. It must report the mismatch and let the reviewer recover.
@@ -170,7 +160,7 @@ If verification fails, either run another approved review-fix pass or report a b
 
 ## Steiner Delegation
 
-Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the appropriate pre-commit checklist from the Review-Fix Loop section.
+Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the pre-commit checklist from the Review-Fix Loop section.
 
 ## Closeout
 
