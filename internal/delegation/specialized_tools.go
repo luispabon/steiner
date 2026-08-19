@@ -176,7 +176,7 @@ func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree,
 			delegationResult.WorktreePath = worktree.Path
 			delegationResult.WorktreeBranch = worktree.Branch
 		}
-		delegationResult.Warnings = warnings
+		delegationResult.Warnings = append(append([]string(nil), warnings...), delegationResult.Warnings...)
 		result.Value = delegationResult
 	}
 	return result

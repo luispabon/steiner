@@ -70,7 +70,10 @@ func applyRemediation(
 
 	dirty, err := cfg.IsDirty(ctx)
 	if err != nil {
-		return state, runUsage, result, remediationNotAttempted, nil
+		return failedRemediation(
+			spec, state, runUsage, result.Output, cfg.WorktreePath, dirty, tc,
+			fmt.Errorf("check worktree cleanliness: %w", err),
+		)
 	}
 	if len(dirty) == 0 {
 		return state, runUsage, result, remediationNotAttempted, nil
@@ -114,7 +117,7 @@ Uncommitted paths: %s`, cfg.WorktreePath, cfg.ExpectedBranch, preHEAD, strings.J
 	succeeded := remErr == nil && dirtyErr == nil && committedErr == nil && len(stillDirty) == 0 && committed
 	if succeeded {
 		result = buildResultWithTrace(spec.AgentID, state, tc, spec.PriorCacheUsage.Add(runUsage))
-		result.Output = originalOutput + "\n\n<remdiation note: committed remaining changes; worktree left clean>"
+		result.Output = originalOutput + "\n\n<remediation note: committed remaining changes; worktree left clean>"
 		tc.add("remediation", "remediation succeeded", map[string]any{
 			"pre_head":      preHEAD,
 			"initial_dirty": dirtyPathsForTrace(dirty),
