@@ -1086,27 +1086,38 @@ func TestBuildChildRunSandboxEnabled(t *testing.T) {
 	}
 }
 
-// TestChildBashCommandWrapperPreserved proves builtin.Env.CommandWrapper
-// survives the child bootstrap chain: parent registry def (from
-// builtin.NewBashTool) -> Registry.Subset/NewRegistry cloning -> child executor
-// -> BashSession.CommandWrapper. The sentinel must fire when the child runs bash.
-func TestChildBashCommandWrapperPreserved(t *testing.T) {
+// recordingSandboxWrapper is a tool.SandboxWrapper fake that counts calls to
+// WrapCommandMode and records the last readOnlyProject value it was called
+// with, used to prove sandbox wrapping (and mode-aware read-only-ness)
+// survives the child bootstrap chain.
+type recordingSandboxWrapper struct {
+	calls               atomic.Int32
+	lastReadOnlyProject atomic.Bool
+}
+
+func (w *recordingSandboxWrapper) Enabled() bool { return true }
+
+func (w *recordingSandboxWrapper) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd {
+	w.calls.Add(1)
+	w.lastReadOnlyProject.Store(readOnlyProject)
+	return cmd
+}
+
+// TestChildBashIsSandboxed proves the parent's sandbox wrapper survives the
+// child bootstrap chain: BootstrapDeps.Sandbox -> child tool.Executor ->
+// SandboxWrapperKey resolved per call -> bash handler. The sentinel wrapper
+// must fire when the child runs bash. This is what #507 doubted.
+func TestChildBashIsSandboxed(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skipf("bash not available: %v", err)
 	}
 
-	var calls atomic.Int32
 	workDir := t.TempDir()
 	pp := tool.NewPathPolicy(workDir, config.PathsConfig{})
-	env := builtin.Env{
-		PathPolicy: &pp,
-		CommandWrapper: func(cmd *exec.Cmd) *exec.Cmd {
-			calls.Add(1)
-			return cmd
-		},
-	}
+	env := builtin.Env{PathPolicy: &pp}
 	parent := tool.NewRegistry(builtin.NewBashTool(env))
 
+	wrapper := &recordingSandboxWrapper{}
 	deps := BootstrapDeps{
 		ParentReg:    parent,
 		SubAgentCfg:  config.SubAgentConfig{},
@@ -1114,6 +1125,7 @@ func TestChildBashCommandWrapperPreserved(t *testing.T) {
 		Events:       output.NoopSink{},
 		WorkDir:      workDir,
 		Provider:     stubProvider{},
+		Sandbox:      wrapper,
 	}
 	spec := DelegationSpec{
 		Task:    "task",
@@ -1130,8 +1142,54 @@ func TestChildBashCommandWrapperPreserved(t *testing.T) {
 		t.Fatalf("Execute(bash) error = %v", err)
 	}
 
-	if calls.Load() == 0 {
-		t.Error("sentinel CommandWrapper was not called: bash handler lost the wrapper through the child bootstrap chain")
+	if wrapper.calls.Load() == 0 {
+		t.Error("sandbox wrapper was not called: bash handler lost sandbox wrapping through the child bootstrap chain")
+	}
+}
+
+// TestChildModeGetterAppliesReadOnlyProjectInPlanMode proves a non-explore
+// child (which gets no readOnlyBash flag) still inherits the parent's live
+// execution mode via BootstrapDeps.ModeGetter, so its own executor resolves
+// readOnlyProject the same way the parent's would in plan mode.
+func TestChildModeGetterAppliesReadOnlyProjectInPlanMode(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skipf("bash not available: %v", err)
+	}
+
+	workDir := t.TempDir()
+	pp := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	env := builtin.Env{PathPolicy: &pp}
+	parent := tool.NewRegistry(builtin.NewBashTool(env))
+
+	wrapper := &recordingSandboxWrapper{}
+	deps := BootstrapDeps{
+		ParentReg:    parent,
+		SubAgentCfg:  config.SubAgentConfig{},
+		AllowedTools: []string{"bash"},
+		Events:       output.NoopSink{},
+		WorkDir:      workDir,
+		Provider:     stubProvider{},
+		Sandbox:      wrapper,
+		AgentType:    AgentTypeResearch,
+		ModeGetter:   func() config.ExecutionMode { return config.ExecutionModePlan },
+	}
+	spec := DelegationSpec{
+		Task:    "task",
+		AgentID: "child-plan-mode",
+		Limits:  DelegationLimits{MaxTurns: 1},
+	}
+
+	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+
+	if _, err := req.Executor.Execute(context.Background(), "bash", "", map[string]any{"command": "echo hello"}); err != nil {
+		t.Fatalf("Execute(bash) error = %v", err)
+	}
+
+	if !wrapper.lastReadOnlyProject.Load() {
+		t.Error("child bash readOnlyProject = false, want true when the parent is in plan mode, even for a non-explore child")
 	}
 }
 

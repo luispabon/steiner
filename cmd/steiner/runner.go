@@ -98,6 +98,8 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		SandboxTmpDir:         sandboxTmpDir,
 		SandboxEnabled:        r.sandboxEnabled(),
 		SandboxWritableMounts: sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
+		Sandbox:               r.sandboxWrapper(),
+		ModeGetter:            r.modeGetterFunc,
 	})
 	if err != nil {
 		return runResult{}, err

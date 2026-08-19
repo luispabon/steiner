@@ -9,15 +9,27 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
-// SandboxWrapper wraps commands with sandbox execution. A nil SandboxWrapper means unsafe mode.
+// SandboxWrapper wraps commands for sandboxed or unsandboxed execution. Every
+// Executor carries an explicit, non-nil SandboxWrapper: Unsandboxed{} means
+// sandboxing is deliberately off, not merely unconfigured.
 type SandboxWrapper interface {
 	// Enabled reports whether sandboxing is active.
 	Enabled() bool
-	// WrapCommand wraps cmd for sandboxed execution.
-	WrapCommand(cmd *exec.Cmd) *exec.Cmd
-	// TmpDir returns the session-scoped temporary directory for sandbox.
-	TmpDir() string
+	// WrapCommandMode wraps cmd for execution, optionally with the project
+	// mounted read-only.
+	WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
 }
+
+// Unsandboxed is a SandboxWrapper that runs commands unwrapped. Passing it to
+// NewExecutor is an explicit choice that sandboxing is off for this executor,
+// not an absence of configuration.
+type Unsandboxed struct{}
+
+// Enabled always reports false: Unsandboxed never sandboxes.
+func (Unsandboxed) Enabled() bool { return false }
+
+// WrapCommandMode returns cmd unchanged.
+func (Unsandboxed) WrapCommandMode(cmd *exec.Cmd, _ bool) *exec.Cmd { return cmd }
 
 // Executor runs tool definitions through a resolution, normalization, and dispatch
 // pipeline. The caller-facing seam is Execute.
@@ -31,9 +43,12 @@ type Executor struct {
 	outputLimit int
 }
 
-// NewExecutor creates a new tool executor with the given registry, config, approver, and working directory.
-// sandboxTmpDir is optional; when non-empty, /tmp paths in tool input are rewritten to sandboxTmpDir.
-func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalResponder, workDir, sandboxTmpDir string) *Executor {
+// NewExecutor creates a new tool executor with the given registry, config, approver,
+// working directory, sandbox temp directory, and sandbox wrapper. sandboxTmpDir is
+// optional; when non-empty, /tmp paths in tool input are rewritten to sandboxTmpDir.
+// sandbox must not be nil; callers should pass Unsandboxed{} explicitly when
+// sandboxing is off.
+func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalResponder, workDir, sandboxTmpDir string, sandbox SandboxWrapper) *Executor {
 	root := normalizeExecutionRoot(workDir)
 	outputLimit := cfg.Limits.ToolOutputMaxBytes
 	if outputLimit < 1 {
@@ -42,22 +57,11 @@ func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalRespond
 	return &Executor{
 		registry:    registry,
 		approver:    approver,
+		sandbox:     sandbox,
 		workDir:     root,
 		pathPolicy:  NewPathPolicyWithSandbox(root, cfg.Paths, sandboxTmpDir),
 		outputLimit: outputLimit,
 	}
-}
-
-// WithSandbox sets the sandbox wrapper on the executor and returns it for chaining.
-func (e *Executor) WithSandbox(s SandboxWrapper) *Executor {
-	e.sandbox = s
-	return e
-}
-
-// Sandbox returns the sandbox wrapper currently set on this executor.
-// A nil return means no sandboxing is active (unsafe mode).
-func (e *Executor) Sandbox() SandboxWrapper {
-	return e.sandbox
 }
 
 // WithModeGetter sets the execution mode getter on the executor and returns it

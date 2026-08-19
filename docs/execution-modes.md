@@ -32,12 +32,17 @@ Mode never changes the system preamble, tool schemas, or any other part of the c
 |---|---|---|---|
 | `mutate` (and other path-writing tools) | Denied outside `.steiner/plans/` at the tool-policy layer | Denied outside `.steiner/plans/` at the tool-policy layer (same as sandboxed) | Allowed |
 | `bash` | Project bind-mounted read-only under bubblewrap, except `.steiner/plans/` which stays writable | Unenforced — the command runs with no sandbox wrapping at all | Allowed, sandboxed as normal |
+| Config-defined subprocess tools | Project bind-mounted read-only under bubblewrap, same as `bash` | Unenforced — no sandbox wrapping | Allowed, sandboxed as normal |
 | MCP tools | Available; `allow` approval downgrades to `ask` (see [MCP servers](mcp.md)) | Available; `allow` approval downgrades to `ask` (same) | Available |
 | `code` sub-agent tool | Denied | Denied | Allowed |
 | `review` sub-agent tool | Allowed | Allowed | Allowed |
 | `follow_up` targeting a `code`-derived child | Denied | Denied | Allowed |
 
-The `mutate` write restriction and the sub-agent denials are enforced in `internal/tool` and `internal/delegation` regardless of sandbox state — they do not depend on bubblewrap being available. Only `bash`'s filesystem read-only enforcement depends on the sandbox: without a working sandbox (`sandbox.enabled: false`, a non-Linux platform, or `bwrap` missing from `PATH`), a plan-mode `bash` command can still write to `.steiner/plans/` via direct filesystem access. In that state plan mode is an agent/tool policy, not a filesystem-level guarantee: `mutate` and sub-agent denials still hold, but `bash` runs unenforced.
+The `mutate` write restriction and the sub-agent denials are enforced in `internal/tool` and `internal/delegation` regardless of sandbox state — they do not depend on bubblewrap being available. `bash`'s and config-defined subprocess tools' filesystem read-only enforcement depends on the sandbox: without a working sandbox (`sandbox.enabled: false`, a non-Linux platform, or `bwrap` missing from `PATH`), a plan-mode `bash` or subprocess-tool command can still write to `.steiner/plans/` via direct filesystem access. In that state plan mode is an agent/tool policy, not a filesystem-level guarantee: `mutate` and sub-agent denials still hold, but `bash` and subprocess tools run unenforced.
+
+`bash` and subprocess tools receive identical `readOnlyProject` treatment because the executor resolves the sandbox decision exactly once per tool call, in `internal/tool.Executor.runPipeline`, and both dispatch paths consume that same resolved decision (see [Tool sandboxing](tool-sandboxing.md#sandbox-wrapper-resolution)). Earlier, `bash` and subprocess tools computed their sandbox mode independently, which let a config-defined subprocess tool run with an unrestricted (writable) project mount in plan mode while `bash` was correctly read-only.
+
+Child agents (see [Sub-agent delegation](sub-agent-delegation.md)) inherit the parent's live execution mode: the composition root threads a `ModeGetter` into every child executor the same way it threads the sandbox wrapper. A child's own `mutate` calls are restricted to `.steiner/plans/` and its `bash`/subprocess calls get the read-only project mount whenever the parent session is in plan mode, exactly as if the parent had run the command itself.
 
 ## Persistence
 

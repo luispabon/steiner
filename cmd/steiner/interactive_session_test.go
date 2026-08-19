@@ -353,7 +353,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 	// The interactive registry is built before all servers resolve. Fast servers
 	// may already have contributed defs by construction time; the important
 	// invariant is that Run() waits for every server and (re-)registers all defs.
-	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, mgr)
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr)
 
 	// Let the good server connect while the stall server is still handshaking:
 	// the manager holds the defs, the registry still does not.
@@ -467,7 +467,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 	defer mgr.Close() //nolint:errcheck
 
-	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, mgr)
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr)
 
 	producer := &mcpStateProducer{}
 	rt := cliRuntime{

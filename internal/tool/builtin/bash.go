@@ -27,7 +27,7 @@ func (r *BashResult) BashOutput() string { return r.Output }
 func (r *BashResult) AppendOutput(s string) { r.Output += s }
 
 // NewBashTool creates a ToolDef for the bash tool backed by a local BashSession.
-func NewBashTool(env Env) tool.ToolDef { //nolint:gocyclo // wrapper precedence is required for read-only bash
+func NewBashTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "bash",
 		Description:     "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
@@ -59,17 +59,14 @@ func NewBashTool(env Env) tool.ToolDef { //nolint:gocyclo // wrapper precedence 
 			execCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
-			session := NewBashSession()
-			switch {
-			case ctx.Value(tool.BashReadOnlyProjectKey{}) == true:
-				if env.ReadOnlyProjectCommandWrapper == nil {
-					// Fail closed: marker set but no read-only wrapper available.
-					return &BashResult{ExitCode: 255, Output: "", Message: "read-only bash requested but sandbox read-only wrapper is unavailable"}, nil
-				}
-				session.CommandWrapper = env.ReadOnlyProjectCommandWrapper
-			case ctx.Value(tool.BashUnsandboxedKey{}) != true:
-				session.CommandWrapper = env.CommandWrapper
+			resolved, ok := tool.ResolvedSandboxFrom(ctx)
+			if !ok {
+				// Fail closed: bash was invoked outside the execution pipeline.
+				return &BashResult{ExitCode: 255, Output: "", Message: "sandbox wrapper not resolved; bash invoked outside execution pipeline"}, nil
 			}
+
+			session := NewBashSession()
+			session.CommandWrapper = resolved.Wrap
 			if err := session.Start(); err != nil {
 				return nil, fmt.Errorf("bash: start session: %w", err)
 			}

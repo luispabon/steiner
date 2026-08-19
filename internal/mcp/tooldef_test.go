@@ -102,7 +102,7 @@ func TestMCPApprovalRetainsExecutionCallID(t *testing.T) {
 
 	approver := &recordingApprover{allow: true}
 	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "echo"}, func() tool.ApprovalResponder { return approver }, func() bool { return false }, config.MCPServerConfig{Approval: "ask"}, config.LimitsConfig{})
-	executor := tool.NewExecutor(tool.NewRegistry(def), config.Config{}, approver, t.TempDir(), "")
+	executor := tool.NewExecutor(tool.NewRegistry(def), config.Config{}, approver, t.TempDir(), "", tool.Unsandboxed{})
 	const callID = "mcp-call-42"
 
 	result, err := executor.Execute(context.Background(), def.Name, callID, map[string]any{"text": "hi"})

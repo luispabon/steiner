@@ -177,7 +177,7 @@ func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *t
 	if err != nil {
 		return agent.RunState{}, err
 	}
-	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, h.workDir, ""), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelTool: IsDelegationTool, MaxParallelTools: max, Events: events}
+	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, h.workDir, "", tool.Unsandboxed{}), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelTool: IsDelegationTool, MaxParallelTools: max, Events: events}
 	return agent.NewRunner().Run(ctx, req)
 }
 

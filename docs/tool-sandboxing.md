@@ -70,6 +70,12 @@ go run ./cmd/steiner --unsafe
 
 **Warning**: Unsafe mode disables the primary protection mechanism. Use it sparingly and only when you understand the consequences.
 
+Internally, "unsafe mode" is not the absence of a sandbox wrapper — it is the explicit `Unsandboxed` wrapper (`internal/tool.Unsandboxed{}`), which every `tool.Executor` (parent and child alike) carries in place of a nil value. There is no code path where the sandbox wrapper is unset.
+
+### Sandbox wrapper resolution
+
+Every tool call — `bash` and subprocess-backed tools alike — is sandboxed or not through exactly one decision point: `internal/tool.Executor.runPipeline` resolves a `ResolvedSandbox` (the active `SandboxWrapper` plus whether the project must be mounted read-only) once per call and carries it through the execution context. Handlers and subprocess execution both consume that same resolved decision instead of computing sandbox mode independently, which is what keeps `bash` and config-defined subprocess tools consistent (e.g. in plan mode, both get a read-only project mount, not just `bash`). A tool handler invoked without a resolved sandbox decision in context (i.e. outside the pipeline) fails closed rather than assuming unsandboxed execution.
+
 ### MCP stdio servers
 
 MCP servers using the `stdio` transport are always sandbox-wrapped, in both standard and unsafe modes. Each server process runs under a sandbox that pins the project directory read-only, preventing the server from modifying workspace files. Network access is preserved via `--share-net`.

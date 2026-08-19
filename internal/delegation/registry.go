@@ -63,6 +63,15 @@ type DelegateDeps struct {
 	// sandbox section as the parent. Derived from the parent's config at the
 	// composition root in cmd/steiner.
 	SandboxWritableMounts []string
+	// Sandbox is the parent's sandbox wrapper, threaded to child executors so
+	// they sandbox commands identically to the parent. Derived from the
+	// parent's runtime sandbox at the composition root in cmd/steiner; must
+	// not be nil (tool.Unsandboxed{} when sandboxing is off).
+	Sandbox tool.SandboxWrapper
+	// ModeGetter returns the current execution mode. When non-nil, threaded to
+	// child executors so they inherit the parent's live execution mode for
+	// plan-mode restrictions (path policy and sandbox readOnlyProject).
+	ModeGetter func() config.ExecutionMode
 	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
 	UsageRecorder *usagestats.Recorder
 	// SessionStore holds child sessions across turns for follow_up resumption.
@@ -155,6 +164,8 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		SandboxTmpDir:         deps.SandboxTmpDir,
 		SandboxEnabled:        deps.SandboxEnabled,
 		SandboxWritableMounts: deps.SandboxWritableMounts,
+		Sandbox:               deps.Sandbox,
+		ModeGetter:            deps.ModeGetter,
 		CacheKeyStore:         deps.CacheKeyStore,
 	}
 

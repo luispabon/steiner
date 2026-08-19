@@ -1,11 +1,9 @@
 package tool
 
-import "context"
-
-// BashUnsandboxedKey is a context key used to signal that the bash handler
-// should skip the CommandWrapper and run without sandbox wrapping.
-// Set when the user approves a sandbox boundary violation via the approver.
-type BashUnsandboxedKey struct{}
+import (
+	"context"
+	"os/exec"
+)
 
 // BashReadOnlyProjectKey is a context key used to signal that bash must force the
 // read-only project mount.
@@ -33,6 +31,40 @@ type ExecutionModeKey struct{}
 // ExecutionCallIDKey is a context key used to carry the originating tool-call
 // ID through handler execution for approval correlation.
 type ExecutionCallIDKey struct{}
+
+// ResolvedSandbox is the sandbox decision resolved for a single tool call: which
+// SandboxWrapper applies, and whether the project must be mounted read-only. It
+// bakes readOnlyProject into the decision so call sites only ever call Wrap(cmd)
+// and cannot pass a mismatched or stale readOnlyProject value.
+type ResolvedSandbox struct {
+	Wrapper         SandboxWrapper
+	ReadOnlyProject bool
+}
+
+// Wrap applies the resolved sandbox decision to cmd.
+func (r ResolvedSandbox) Wrap(cmd *exec.Cmd) *exec.Cmd {
+	return r.Wrapper.WrapCommandMode(cmd, r.ReadOnlyProject)
+}
+
+// SandboxWrapperKey is a context key carrying the ResolvedSandbox decision for
+// the current tool call. It is set exactly once per call, by the execution
+// pipeline in runPipeline, and is always non-nil there (Wrapper is Unsandboxed{}
+// when sandboxing is off). Its absence from context means the handler was
+// invoked outside the pipeline; callers must fail closed rather than assume
+// unsandboxed execution.
+type SandboxWrapperKey struct{}
+
+// ResolvedSandboxFrom returns the sandbox decision runPipeline attached to ctx.
+// ok is false when the decision is missing or carries no Wrapper, which can only
+// happen when the caller was invoked outside the execution pipeline; callers must
+// fail closed rather than treat that as unsandboxed execution.
+func ResolvedSandboxFrom(ctx context.Context) (ResolvedSandbox, bool) {
+	resolved, ok := ctx.Value(SandboxWrapperKey{}).(ResolvedSandbox)
+	if !ok || resolved.Wrapper == nil {
+		return ResolvedSandbox{}, false
+	}
+	return resolved, true
+}
 
 // BashDenialResult is implemented by builtin.BashResult to allow sandbox
 // denial detection in the execution pipeline without an import cycle.
