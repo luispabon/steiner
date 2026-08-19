@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -115,4 +116,77 @@ func TestBashTool(t *testing.T) {
 			t.Errorf("ExitCode = 0, want non-zero for 'false' command")
 		}
 	})
+}
+
+func TestBashToolWrapperSelection(t *testing.T) {
+	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+	var commandCalls, readOnlyCalls int
+	commandWrapper := func(cmd *exec.Cmd) *exec.Cmd {
+		commandCalls++
+		return cmd
+	}
+	readOnlyWrapper := func(cmd *exec.Cmd) *exec.Cmd {
+		readOnlyCalls++
+		return cmd
+	}
+
+	tests := []struct {
+		name             string
+		readOnly         bool
+		unsandboxed      bool
+		readOnlyWrapper  func(*exec.Cmd) *exec.Cmd
+		wantCommandCalls int
+		wantReadOnly     int
+		wantExitCode     int
+		wantMessage      string
+	}{
+		{name: "read-only uses read-only wrapper", readOnly: true, wantReadOnly: 1},
+		{name: "default uses command wrapper", wantCommandCalls: 1},
+		{name: "read-only wins over unsandboxed", readOnly: true, unsandboxed: true, wantReadOnly: 1},
+		{name: "missing read-only wrapper fails closed", readOnly: true, readOnlyWrapper: nil, wantExitCode: 255, wantMessage: "read-only bash requested but sandbox read-only wrapper is unavailable"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			commandCalls = 0
+			readOnlyCalls = 0
+			roWrapper := tt.readOnlyWrapper
+			if tt.name != "missing read-only wrapper fails closed" {
+				roWrapper = readOnlyWrapper
+			}
+			toolDef := NewBashTool(Env{
+				PathPolicy:                    &policy,
+				CommandWrapper:                commandWrapper,
+				ReadOnlyProjectCommandWrapper: roWrapper,
+			})
+			ctx := context.Background()
+			if tt.readOnly {
+				ctx = tool.WithReadOnlyProjectBash(ctx, true)
+			}
+			if tt.unsandboxed {
+				ctx = context.WithValue(ctx, tool.BashUnsandboxedKey{}, true)
+			}
+
+			resultValue, err := toolDef.Handler(ctx, map[string]any{"command": "true"})
+			if err != nil {
+				t.Fatalf("Handler() error = %v", err)
+			}
+			result, ok := resultValue.(*BashResult)
+			if !ok {
+				t.Fatalf("Handler() result type = %T, want *BashResult", resultValue)
+			}
+			if result.ExitCode != tt.wantExitCode {
+				t.Errorf("ExitCode = %d, want %d", result.ExitCode, tt.wantExitCode)
+			}
+			if result.Message != tt.wantMessage {
+				t.Errorf("Message = %q, want %q", result.Message, tt.wantMessage)
+			}
+			if commandCalls != tt.wantCommandCalls {
+				t.Errorf("CommandWrapper calls = %d, want %d", commandCalls, tt.wantCommandCalls)
+			}
+			if readOnlyCalls != tt.wantReadOnly {
+				t.Errorf("ReadOnlyProjectCommandWrapper calls = %d, want %d", readOnlyCalls, tt.wantReadOnly)
+			}
+		})
+	}
 }

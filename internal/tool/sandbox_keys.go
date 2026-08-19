@@ -1,9 +1,23 @@
 package tool
 
+import "context"
+
 // BashUnsandboxedKey is a context key used to signal that the bash handler
 // should skip the CommandWrapper and run without sandbox wrapping.
 // Set when the user approves a sandbox boundary violation via the approver.
 type BashUnsandboxedKey struct{}
+
+// BashReadOnlyProjectKey is a context key used to signal that bash must force the
+// read-only project mount.
+type BashReadOnlyProjectKey struct{}
+
+// WithReadOnlyProjectBash returns a context that requests read-only project bash.
+func WithReadOnlyProjectBash(ctx context.Context, on bool) context.Context {
+	if !on {
+		return ctx
+	}
+	return context.WithValue(ctx, BashReadOnlyProjectKey{}, on)
+}
 
 // EffectivePolicyKey is a context key used to carry the effective (possibly relaxed)
 // PathPolicy through the execution pipeline. Set when the user approves a path
