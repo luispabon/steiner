@@ -154,7 +154,7 @@ Resume a suitable warm agent before cold dispatch only when it remains available
 Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.
 
 1. Read `worktree_path` and `worktree_branch` from the delegation result.
-2. Check `warnings` for entries noting uncommitted parent-tree changes the child could not see — merge those back before the next dispatch.
+2. Check `warnings` for entries noting uncommitted parent-tree changes the child could not see — every worktree branches from the parent's HEAD, so commit those on the feature branch before the next dispatch if the child needs them.
 3. `follow_up` results do not repopulate `worktree_path`/`worktree_branch`; retain the values from the initial `code` result across any follow-up calls on the same agent.
 4. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <worktree-branch>`.
 

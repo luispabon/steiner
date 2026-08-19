@@ -12,12 +12,12 @@ import (
 // The blocks below are deliberately duplicated verbatim across bundled
 // skills. This test fails if any copy drifts from the others. Each block
 // declares which skills carry it — not every block is in all three.
-const worktreeProvisioningBlock = "### Worktree Handling\n" +
+const worktreeHandlingBlock = "### Worktree Handling\n" +
 	"\n" +
 	"Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.\n" +
 	"\n" +
 	"1. Read `worktree_path` and `worktree_branch` from the delegation result.\n" +
-	"2. Check `warnings` for entries noting uncommitted parent-tree changes the child could not see — merge those back before the next dispatch.\n" +
+	"2. Check `warnings` for entries noting uncommitted parent-tree changes the child could not see — every worktree branches from the parent's HEAD, so commit those on the feature branch before the next dispatch if the child needs them.\n" +
 	"3. `follow_up` results do not repopulate `worktree_path`/`worktree_branch`; retain the values from the initial `code` result across any follow-up calls on the same agent.\n" +
 	"4. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <worktree-branch>`.\n"
 
@@ -46,7 +46,7 @@ func TestSharedBlocksAreByteIdenticalAcrossSkills(t *testing.T) {
 		text   string
 		skills []string
 	}{
-		{"worktree provisioning", worktreeProvisioningBlock, skillNames},
+		{"worktree handling", worktreeHandlingBlock, skillNames},
 		{"pre-commit checklist", preCommitChecklistBlock, skillNames},
 		{"fix delegation bullets", fixDelegationBulletsBlock, []string{"review", "simplify"}},
 	}
