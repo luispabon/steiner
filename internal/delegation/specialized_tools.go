@@ -203,6 +203,71 @@ func resolveToolsAndModel(agentType AgentType, deps SpecializedToolDeps) ([]stri
 	return allowedTools, resolvedProvider, resolvedModel, err
 }
 
+func specializedWorktree(ctx context.Context, agentType AgentType, workDir, agentID string) (CodeWorktree, []string, error) {
+	if agentType != AgentTypeCode {
+		return CodeWorktree{}, nil, nil
+	}
+	worktree, warnings, err := provisionCodeWorktreeAndWarnings(ctx, workDir, agentID)
+	if err != nil {
+		return CodeWorktree{}, nil, fmt.Errorf("%s: %w", agentType, err)
+	}
+	return worktree, warnings, nil
+}
+
+func codeRemediationConfig(worktree CodeWorktree) *RemediationConfig {
+	if worktree.Path == "" {
+		return nil
+	}
+	return &RemediationConfig{
+		WorktreePath:   worktree.Path,
+		ExpectedBranch: worktree.Branch,
+		IsDirty: func(ctx context.Context) ([]string, error) {
+			return DirtyPaths(ctx, worktree.Path)
+		},
+		Head: func(ctx context.Context) (string, error) {
+			out, err := gitOutput(ctx, worktree.Path, "rev-parse", "HEAD")
+			if err != nil {
+				return "", err
+			}
+			return strings.TrimSpace(out), nil
+		},
+		Committed: func(ctx context.Context, preHEAD string, initialDirty []string) (bool, error) {
+			diffOut, err := gitOutput(ctx, worktree.Path, "diff", "--name-only", preHEAD+"..HEAD")
+			if err != nil {
+				return false, err
+			}
+			committedPaths := nonEmptyLines(diffOut)
+			// Every initially-dirty path must appear in the committed diff.
+			for _, p := range initialDirty {
+				if !slices.Contains(committedPaths, p) {
+					return false, nil
+				}
+			}
+			// Tree must now be clean.
+			stillDirty, err := DirtyPaths(ctx, worktree.Path)
+			if err != nil {
+				return false, err
+			}
+			return len(stillDirty) == 0, nil
+		},
+	}
+}
+
+func applySpecializedWorktreeResult(agentType AgentType, result tool.ExecutionResult, worktree CodeWorktree, warnings []string) tool.ExecutionResult {
+	if agentType == AgentTypeCode {
+		return applyCodeWorktreeResult(result, worktree, warnings)
+	}
+	return result
+}
+
+func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) BootstrapDeps {
+	bootstrap := handlerBootstrapDeps(agentType, deps.SubAgentHandlerDeps, resolvedProvider, resolvedModel, allowedTools, agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate, agentType == AgentTypeVision)
+	if agentType == AgentTypeCode && worktree.Path != "" {
+		bootstrap.WorkDir = worktree.Path
+	}
+	return bootstrap
+}
+
 // newSpecializedHandler returns a handler for the given agent type.
 // It uses the per-type system prompt and allowed-tool list, leaving other
 // delegation parameters at their configured defaults.
@@ -224,22 +289,12 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			return nil, err
 		}
 
-		// For code agents, check for dirty changes in the parent tree and
-		// provision an isolated worktree.
-		var warnings []string
-		var provisionedWorktree CodeWorktree
-		if agentType == AgentTypeCode {
-			provisionedWorktree, warnings, err = provisionCodeWorktreeAndWarnings(ctx, deps.WorkDir, agentID)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", agentType, err)
-			}
+		provisionedWorktree, warnings, err := specializedWorktree(ctx, agentType, deps.WorkDir, agentID)
+		if err != nil {
+			return nil, err
 		}
 
-		// Build bootstrap deps and override WorkDir for code agents that provisioned successfully.
-		bdeps := handlerBootstrapDeps(agentType, deps.SubAgentHandlerDeps, resolvedProvider, resolvedModel, allowedTools, agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate, agentType == AgentTypeVision)
-		if agentType == AgentTypeCode && provisionedWorktree.Path != "" {
-			bdeps.WorkDir = provisionedWorktree.Path
-		}
+		bdeps := specializedBootstrapDeps(agentType, deps, resolvedProvider, resolvedModel, allowedTools, provisionedWorktree)
 
 		spec := DelegationSpec{
 			Task:         task,
@@ -256,43 +311,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 		spec.Limits = limits
 
-		var remediation *RemediationConfig
-		if agentType == AgentTypeCode && provisionedWorktree.Path != "" {
-			worktree := provisionedWorktree
-			remediation = &RemediationConfig{
-				WorktreePath:   worktree.Path,
-				ExpectedBranch: worktree.Branch,
-				IsDirty: func(ctx context.Context) ([]string, error) {
-					return DirtyPaths(ctx, worktree.Path)
-				},
-				Head: func(ctx context.Context) (string, error) {
-					out, err := gitOutput(ctx, worktree.Path, "rev-parse", "HEAD")
-					if err != nil {
-						return "", err
-					}
-					return strings.TrimSpace(out), nil
-				},
-				Committed: func(ctx context.Context, preHEAD string, initialDirty []string) (bool, error) {
-					diffOut, err := gitOutput(ctx, worktree.Path, "diff", "--name-only", preHEAD+"..HEAD")
-					if err != nil {
-						return false, err
-					}
-					committedPaths := nonEmptyLines(diffOut)
-					// Every initially-dirty path must appear in the committed diff.
-					for _, p := range initialDirty {
-						if !slices.Contains(committedPaths, p) {
-							return false, nil
-						}
-					}
-					// Tree must now be clean.
-					stillDirty, err := DirtyPaths(ctx, worktree.Path)
-					if err != nil {
-						return false, err
-					}
-					return len(stillDirty) == 0, nil
-				},
-			}
-		}
+		remediation := codeRemediationConfig(provisionedWorktree)
 
 		var opts []spawnOption
 		if remediation != nil {
@@ -309,10 +328,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			return nil, fmt.Errorf("%s failed: %w", agentType, err)
 		}
 
-		// For code agents, set the result fields with worktree info and warnings.
-		if agentType == AgentTypeCode {
-			result = applyCodeWorktreeResult(result, provisionedWorktree, warnings)
-		}
+		result = applySpecializedWorktreeResult(agentType, result, provisionedWorktree, warnings)
 
 		return result, nil
 	}
