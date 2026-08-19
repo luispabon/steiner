@@ -270,7 +270,7 @@ func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 		{name: "tool border search", got: styleFromMap(styles.ToolBorderStyles, "search", styles.ToolBorderDefault), want: "fg=" + strings.ToLower(ToolBlueLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "tool border glob", got: styleFromMap(styles.ToolBorderStyles, "glob", styles.ToolBorderDefault), want: "fg=" + strings.ToLower(ToolBlueLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "tool border todo", got: styleFromMap(styles.ToolBorderStyles, "todo", styles.ToolBorderDefault), want: "fg=" + strings.ToLower(WarnLine) + " bg= bold=false italic=false padding=0,0,0,0"},
-		{name: "tool border fallback", got: styleFromMap(styles.ToolBorderStyles, "unknown", styles.ToolBorderDefault), want: "fg=" + strings.ToLower(ToolBlueLine) + " bg= bold=false italic=false padding=0,0,0,0"},
+		{name: "tool border fallback", got: styleFromMap(styles.ToolBorderStyles, "unknown", styles.ToolBorderDefault), want: "fg=" + strings.ToLower(AccentLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate explore", got: styleFromMap(styles.DelegateTagStyles, "explore", styles.ToolTagDefault), want: "fg=" + strings.ToLower(ToolCyan) + " bg= bold=true italic=false padding=0,0,0,0"},
 		{name: "delegate research", got: styleFromMap(styles.DelegateTagStyles, "research", styles.ToolTagDefault), want: "fg=" + strings.ToLower(DelegateViolet) + " bg= bold=true italic=false padding=0,0,0,0"},
 		{name: "delegate code", got: styleFromMap(styles.DelegateTagStyles, "code", styles.ToolTagDefault), want: "fg=" + strings.ToLower(AccentAmber) + " bg= bold=true italic=false padding=0,0,0,0"},
@@ -288,7 +288,7 @@ func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 		{name: "delegate border review", got: styleFromMap(styles.DelegateBorderStyles, "review", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(DelegateReviewLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border vision", got: styleFromMap(styles.DelegateBorderStyles, "vision", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolBlueLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border advisor", got: styleFromMap(styles.DelegateBorderStyles, "advisor", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(AdvisorGreenLine) + " bg= bold=false italic=false padding=0,0,0,0"},
-		{name: "delegate border fallback", got: styleFromMap(styles.DelegateBorderStyles, "delegate", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolGrnLine) + " bg= bold=false italic=false padding=0,0,0,0"},
+		{name: "delegate border fallback", got: styleFromMap(styles.DelegateBorderStyles, "delegate", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(AccentLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 	}
 
 	for _, tt := range tests {

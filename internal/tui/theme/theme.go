@@ -207,7 +207,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 			"glob":      ToolBlueLine,
 			"grep":      ToolMagLine,
 		}),
-		ToolBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlueLine)),
+		ToolBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
 
 		ToolTagMCP:    lipgloss.NewStyle().Background(lipgloss.Color(DelegateViolet)).Foreground(lipgloss.Color(Black)).Padding(0, 1).Bold(true),
 		ToolBorderMCP: lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateVioletLine)),
@@ -233,7 +233,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 			"vision":       ToolBlueLine,
 			"advisor":      AdvisorGreenLine,
 		}),
-		DelegateBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(ToolGrnLine)),
+		DelegateBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),
 
 		Added:   lipgloss.NewStyle().Foreground(lipgloss.Color(Added)),
 		Removed: lipgloss.NewStyle().Foreground(lipgloss.Color(Removed)),
