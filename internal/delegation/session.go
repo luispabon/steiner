@@ -72,7 +72,7 @@ type ChildSession struct {
 	TurnCount     int
 	TokenCount    int
 	ToolCallCount int
-	CacheUsage    CacheUsage
+	TokenUsage    TokenUsage
 	// Remediation is set only for code sessions with a successfully provisioned worktree.
 	Remediation   *RemediationConfig
 	FollowUpCount int
@@ -114,7 +114,7 @@ type SessionUpdateParams struct {
 	TurnCount     int
 	TokenCount    int
 	ToolCallCount int
-	CacheUsage    CacheUsage
+	TokenUsage    TokenUsage
 }
 
 // Update replaces the conversation and accumulates session usage counters.
@@ -131,7 +131,7 @@ func (s *SessionStore) Update(id string, params SessionUpdateParams) {
 	session.TurnCount += params.TurnCount
 	session.TokenCount += params.TokenCount
 	session.ToolCallCount += params.ToolCallCount
-	session.CacheUsage = session.CacheUsage.Add(params.CacheUsage)
+	session.TokenUsage = session.TokenUsage.Add(params.TokenUsage)
 	session.FollowUpCount++
 }
 
@@ -152,7 +152,7 @@ func (s *SessionStore) Count() int {
 	return len(s.sessions)
 }
 
-func saveChildSession(store *SessionStore, spec Spec, req agent.RunRequest, state agent.RunState, cache CacheUsage, remediation *RemediationConfig) {
+func saveChildSession(store *SessionStore, spec Spec, req agent.RunRequest, state agent.RunState, cache TokenUsage, remediation *RemediationConfig) {
 	store.Save(&ChildSession{
 		Spec:          spec,
 		Request:       req,
@@ -160,7 +160,7 @@ func saveChildSession(store *SessionStore, spec Spec, req agent.RunRequest, stat
 		TurnCount:     state.TurnCount,
 		TokenCount:    state.TokenCount,
 		ToolCallCount: countToolCalls(state.Conversation),
-		CacheUsage:    cache,
+		TokenUsage:    cache,
 		Remediation:   remediation,
 	})
 }

@@ -50,11 +50,11 @@ func applyRemediation(
 	req agent.RunRequest,
 	runner AgentRunner,
 	state agent.RunState,
-	runUsage CacheUsage,
+	runUsage TokenUsage,
 	cfg *RemediationConfig,
 	tc *traceCollector,
-) (agent.RunState, CacheUsage, Result, remediationOutcome, error) {
-	total := spec.PriorCacheUsage.Add(runUsage)
+) (agent.RunState, TokenUsage, Result, remediationOutcome, error) {
+	total := spec.PriorTokenUsage.Add(runUsage)
 	result := buildResultWithTrace(spec.AgentID, state, tc, total)
 	if cfg == nil {
 		return state, runUsage, result, remediationNotAttempted, nil
@@ -72,7 +72,7 @@ func applyRemediation(
 	if err != nil {
 		originalOutput := result.Output
 		checkErr := fmt.Errorf("check worktree cleanliness: %w", err)
-		result = buildResultWithTrace(spec.AgentID, state, tc, spec.PriorCacheUsage.Add(runUsage))
+		result = buildResultWithTrace(spec.AgentID, state, tc, spec.PriorTokenUsage.Add(runUsage))
 		result.Status = StatusFailed
 		result.Output = originalOutput
 		result.Warnings = append(result.Warnings, fmt.Sprintf("code agent worktree %s: could not verify the working tree is clean: %v", cfg.WorktreePath, err))
@@ -116,7 +116,7 @@ Uncommitted paths: %s`, cfg.WorktreePath, cfg.ExpectedBranch, preHEAD, strings.J
 		"expected_branch": cfg.ExpectedBranch,
 	})
 	remedState, remErr := runner.Run(ctx, remedReq)
-	runUsage = runUsage.Add(cacheUsageOf(remedState))
+	runUsage = runUsage.Add(tokenUsageOf(remedState))
 	state = remedState
 	tc.add("remediation", "remediation run complete", runStateFields(ctx, remedState, remErr))
 
@@ -124,7 +124,7 @@ Uncommitted paths: %s`, cfg.WorktreePath, cfg.ExpectedBranch, preHEAD, strings.J
 	committed, committedErr := cfg.Committed(ctx, preHEAD, dirty)
 	succeeded := remErr == nil && dirtyErr == nil && committedErr == nil && len(stillDirty) == 0 && committed
 	if succeeded {
-		result = buildResultWithTrace(spec.AgentID, state, tc, spec.PriorCacheUsage.Add(runUsage))
+		result = buildResultWithTrace(spec.AgentID, state, tc, spec.PriorTokenUsage.Add(runUsage))
 		result.Output = originalOutput + "\n\n<remediation note: committed remaining changes; worktree left clean>"
 		tc.add("remediation", "remediation succeeded", map[string]any{
 			"pre_head":      preHEAD,
@@ -134,7 +134,7 @@ Uncommitted paths: %s`, cfg.WorktreePath, cfg.ExpectedBranch, preHEAD, strings.J
 	}
 
 	verificationErr := remediationVerificationError(remErr, dirtyErr, committedErr, stillDirty, committed)
-	failedStateResult := buildResultWithTrace(spec.AgentID, state, tc, spec.PriorCacheUsage.Add(runUsage))
+	failedStateResult := buildResultWithTrace(spec.AgentID, state, tc, spec.PriorTokenUsage.Add(runUsage))
 	failedStateResult.Status = StatusFailed
 	failedStateResult.Output = originalOutput
 	failedStateResult.Warnings = append(failedStateResult.Warnings, dirtyWorktreeWarning(cfg.WorktreePath, dirty))
@@ -152,14 +152,14 @@ Uncommitted paths: %s`, cfg.WorktreePath, cfg.ExpectedBranch, preHEAD, strings.J
 func failedRemediation(
 	spec Spec,
 	state agent.RunState,
-	runUsage CacheUsage,
+	runUsage TokenUsage,
 	originalOutput string,
 	worktreePath string,
 	dirty []string,
 	tc *traceCollector,
 	err error,
-) (agent.RunState, CacheUsage, Result, remediationOutcome, error) {
-	result := buildResultWithTrace(spec.AgentID, state, tc, spec.PriorCacheUsage.Add(runUsage))
+) (agent.RunState, TokenUsage, Result, remediationOutcome, error) {
+	result := buildResultWithTrace(spec.AgentID, state, tc, spec.PriorTokenUsage.Add(runUsage))
 	result.Status = StatusFailed
 	result.Output = originalOutput
 	result.Warnings = append(result.Warnings, dirtyWorktreeWarning(worktreePath, dirty))

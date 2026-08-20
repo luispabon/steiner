@@ -48,7 +48,7 @@ func truncateTaskPreview(s string, max int) string {
 // SpawnDelegate executes a child agent with the given specification and runner.
 // It always runs a follow-up summarisation turn after successful completion and
 // returns the full visible output plus hidden retention metadata.
-func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger, opts ...spawnOption) (tool.ExecutionResult, agent.RunState, CacheUsage, error) {
+func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger, opts ...spawnOption) (tool.ExecutionResult, agent.RunState, TokenUsage, error) {
 	var o spawnOptions
 	for _, opt := range opts {
 		opt(&o)
@@ -82,7 +82,8 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		if events != nil {
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), err.Error()))
 		}
-		return failedDelegateExecution(spec, state, err, tc, logger), state, CacheUsage{}, nil
+		runUsage := tokenUsageOf(state)
+		return failedDelegateExecution(spec, state, runUsage, err, tc, logger), state, runUsage, nil
 	}
 
 	state, runUsage, extensionsGranted, extErr := runChildToCompletion(childCtx, req, runner, spec.Limits.MaxTurns, events, tc, state, spec.AgentID)
@@ -90,7 +91,7 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		if events != nil {
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extErr.Error()))
 		}
-		return failedDelegateExecution(spec, state, extErr, tc, logger), state, runUsage, nil
+		return failedDelegateExecution(spec, state, runUsage, extErr, tc, logger), state, runUsage, nil
 	}
 
 	state, runUsage, result := applyRemediationResult(childCtx, spec, req, runner, state, runUsage, o.remediation, tc)
@@ -104,23 +105,15 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		"has_output":         strings.TrimSpace(result.Output) != "",
 	})
 
-	if events != nil {
-		events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-			AgentID:           spec.AgentID,
-			Status:            string(result.Status),
-			TurnCount:         result.TurnCount,
-			TokenCount:        result.TokenCount,
-			ToolCallCount:     result.ToolCallCount,
-			Output:            result.Output,
-			InputTokens:       result.InputTokens,
-			CacheReadTokens:   result.CacheReadTokens,
-			CacheCreateTokens: result.CacheCreateTokens,
-		}))
-	}
-
 	summaryCtx, summaryCancel := context.WithTimeout(childCtx, 30*time.Second)
 	defer summaryCancel()
-	summaryText := retainedDelegateSummary(summaryCtx, runner, req, state)
+	summaryText, summaryUsage := retainedDelegateSummary(summaryCtx, runner, req, state)
+	result.TokenCount += summaryUsage.OutputTokens
+	result.InputTokens += summaryUsage.InputTokens
+	result.CacheReadTokens += summaryUsage.CacheReadTokens
+	result.CacheCreateTokens += summaryUsage.CacheCreateTokens
+	runUsage = runUsage.Add(summaryUsage)
+	tc.add("result_final", "usage folded (incl. summary)", map[string]any{"tokens_used": result.TokenCount, "status": string(result.Status)})
 	if summaryText == "" {
 		needsSynthetic := result.Status == StatusCancelled ||
 			(strings.TrimSpace(result.Output) == "" && countToolCalls(state.Conversation) > 0)
@@ -148,6 +141,19 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		tc.add("summary", "summary generated", map[string]any{"length": len(summaryText)})
 	}
 	result.Summary = summaryText
+	if events != nil {
+		events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+			AgentID:           spec.AgentID,
+			Status:            string(result.Status),
+			TurnCount:         result.TurnCount,
+			TokenCount:        result.TokenCount,
+			ToolCallCount:     result.ToolCallCount,
+			Output:            result.Output,
+			InputTokens:       result.InputTokens,
+			CacheReadTokens:   result.CacheReadTokens,
+			CacheCreateTokens: result.CacheCreateTokens,
+		}))
+	}
 	result.Trace = tc.result()
 
 	logger.WriteTrace(tc)
@@ -173,16 +179,16 @@ func applyRemediationResult(
 	req agent.RunRequest,
 	runner AgentRunner,
 	state agent.RunState,
-	runUsage CacheUsage,
+	runUsage TokenUsage,
 	remediation *RemediationConfig,
 	tc *traceCollector,
-) (agent.RunState, CacheUsage, Result) {
+) (agent.RunState, TokenUsage, Result) {
 	var remediationResult Result
 	if remediation != nil {
 		state, runUsage, remediationResult, _, _ = applyRemediation(ctx, spec, req, runner, state, runUsage, remediation, tc)
 	}
 
-	total := spec.PriorCacheUsage.Add(runUsage)
+	total := spec.PriorTokenUsage.Add(runUsage)
 	result := buildResultWithTrace(spec.AgentID, state, tc, total)
 	if remediation != nil {
 		result.Status = remediationResult.Status
@@ -207,9 +213,9 @@ func runChildToCompletion(
 	tc *traceCollector,
 	state agent.RunState,
 	agentID string,
-) (agent.RunState, CacheUsage, int, error) {
+) (agent.RunState, TokenUsage, int, error) {
 	extensionsGranted := 0
-	usage := cacheUsageOf(state)
+	usage := tokenUsageOf(state)
 	for ext := 0; ext < maxDelegateExtensions; ext++ {
 		if !delegateNeedsExtension(state) {
 			tc.add("extension_check", "extension not needed", map[string]any{
@@ -235,15 +241,16 @@ func runChildToCompletion(
 		tc.add("extension_run_complete", fmt.Sprintf("extension %d finished", ext+1), runStateFields(ctx, nextState, extensionErr))
 
 		if extensionErr != nil {
+			usage = usage.Add(tokenUsageOf(nextState))
 			return state, usage, extensionsGranted, extensionErr
 		}
 		state = nextState
-		usage = usage.Add(cacheUsageOf(nextState))
+		usage = usage.Add(tokenUsageOf(nextState))
 	}
 	return state, usage, extensionsGranted, nil
 }
 
-func failedDelegateExecution(spec Spec, state agent.RunState, err error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
+func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsage, err error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
 	status := StatusFailed
 	ctxCancelled := errors.Is(err, context.Canceled)
 	ctxDeadline := errors.Is(err, context.DeadlineExceeded)
@@ -258,16 +265,19 @@ func failedDelegateExecution(spec Spec, state agent.RunState, err error, tc *tra
 		"context_deadline":  ctxDeadline,
 		"child_stop_reason": string(state.StopReason),
 		"child_turns":       state.TurnCount,
-		"child_tokens":      state.TokenCount,
+		"child_tokens":      runUsage.OutputTokens,
 	})
 
 	result := Result{
-		AgentID:          spec.AgentID,
-		Status:           status,
-		TurnCount:        state.TurnCount,
-		TokenCount:       state.TokenCount,
-		ToolCallCount:    countToolCalls(state.Conversation),
-		SessionResumable: status == StatusCancelled,
+		AgentID:           spec.AgentID,
+		Status:            status,
+		TurnCount:         state.TurnCount,
+		TokenCount:        runUsage.OutputTokens,
+		InputTokens:       runUsage.InputTokens,
+		CacheReadTokens:   runUsage.CacheReadTokens,
+		CacheCreateTokens: runUsage.CacheCreateTokens,
+		ToolCallCount:     countToolCalls(state.Conversation),
+		SessionResumable:  status == StatusCancelled,
 	}
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		result.Output = msg.Content
@@ -310,7 +320,7 @@ func failedDelegateSummaryText(err error, state agent.RunState) string {
 	return truncateUTF8(strings.Join(parts, "\n"))
 }
 
-func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.RunRequest, state agent.RunState) string {
+func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.RunRequest, state agent.RunState) (string, TokenUsage) {
 	summaryReq := req
 	summaryReq.Events = nil
 	summaryReq.Limits.MaxTurns = 1
@@ -328,8 +338,9 @@ func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.
 	})
 
 	summaryState, err := runner.Run(ctx, summaryReq)
+	usage := tokenUsageOf(summaryState)
 	if err != nil {
-		return ""
+		return "", usage
 	}
 	summaryOutput := ""
 	if msg, ok := agent.LastAssistantMessage(summaryState.Conversation); ok {
@@ -337,9 +348,9 @@ func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.
 	}
 	summaryOutput = strings.TrimSpace(summaryOutput)
 	if summaryOutput == "" {
-		return ""
+		return "", usage
 	}
-	return truncateUTF8(summaryOutput)
+	return truncateUTF8(summaryOutput), usage
 }
 
 func cancelledActivitySummary(state agent.RunState) string {
