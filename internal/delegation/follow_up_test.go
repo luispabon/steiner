@@ -171,8 +171,8 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 	if session.TurnCount != 5 {
 		t.Fatalf("stored TurnCount=%d, want 5", session.TurnCount)
 	}
-	if session.TokenCount != 55 {
-		t.Fatalf("stored TokenCount=%d, want 55", session.TokenCount)
+	if session.TokenCount != 56 {
+		t.Fatalf("stored TokenCount=%d, want 56", session.TokenCount)
 	}
 	if session.ToolCallCount != 2 {
 		t.Fatalf("stored ToolCallCount=%d, want 2", session.ToolCallCount)
@@ -247,8 +247,8 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 	if session.TurnCount != 4 {
 		t.Fatalf("stored TurnCount=%d, want 4", session.TurnCount)
 	}
-	if session.TokenCount != 25 {
-		t.Fatalf("stored TokenCount=%d, want 25", session.TokenCount)
+	if session.TokenCount != 27 {
+		t.Fatalf("stored TokenCount=%d, want 27", session.TokenCount)
 	}
 }
 
@@ -426,8 +426,8 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 				if session.Remediation != tt.remediation {
 					t.Fatal("remediation state was not preserved in session")
 				}
-				if session.FollowUpCount != 1 || session.TurnCount != 2 || session.TokenCount != 5 {
-					t.Fatalf("session stats = (follow-ups=%d, turns=%d, tokens=%d), want (1, 2, 5)", session.FollowUpCount, session.TurnCount, session.TokenCount)
+				if session.FollowUpCount != 1 || session.TurnCount != 2 || session.TokenCount != 10 {
+					t.Fatalf("session stats = (follow-ups=%d, turns=%d, tokens=%d), want (1, 2, 10)", session.FollowUpCount, session.TurnCount, session.TokenCount)
 				}
 			}
 		})
@@ -744,7 +744,7 @@ func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
 	}
 }
 
-func TestFollowUpHandler_AccumulatesCacheUsageFromPriorSession(t *testing.T) {
+func TestFollowUpHandler_AccumulatesTokenUsageFromPriorSession(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{
@@ -763,7 +763,7 @@ func TestFollowUpHandler_AccumulatesCacheUsageFromPriorSession(t *testing.T) {
 		TurnCount:     1,
 		TokenCount:    10,
 		ToolCallCount: 0,
-		CacheUsage:    CacheUsage{InputTokens: 100, CacheReadTokens: 900, CacheCreateTokens: 0},
+		TokenUsage:    TokenUsage{InputTokens: 100, CacheReadTokens: 900, CacheCreateTokens: 0, OutputTokens: 10},
 	})
 
 	var capturedEvent *output.DelegationCompleteEvent
@@ -838,9 +838,9 @@ func TestFollowUpHandler_AccumulatesCacheUsageFromPriorSession(t *testing.T) {
 	if !ok {
 		t.Fatal("session missing after follow-up")
 	}
-	wantUsage := CacheUsage{InputTokens: 120, CacheReadTokens: 905, CacheCreateTokens: 0}
-	if session.CacheUsage != wantUsage {
-		t.Fatalf("stored CacheUsage=%+v, want %+v", session.CacheUsage, wantUsage)
+	wantUsage := TokenUsage{InputTokens: 120, CacheReadTokens: 905, CacheCreateTokens: 0, OutputTokens: 16}
+	if session.TokenUsage != wantUsage {
+		t.Fatalf("stored TokenUsage=%+v, want %+v", session.TokenUsage, wantUsage)
 	}
 }
 

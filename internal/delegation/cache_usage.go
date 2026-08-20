@@ -2,26 +2,29 @@ package delegation
 
 import "github.com/luispabon/steiner/internal/agent"
 
-// CacheUsage holds cumulative prompt-cache token counts for a child agent.
-type CacheUsage struct {
+// TokenUsage holds cumulative token usage (input, cache, and output/completion) for a child agent across all runs in its life.
+type TokenUsage struct {
 	InputTokens       int // uncached prompt tokens
+	OutputTokens      int // completion/output tokens
 	CacheReadTokens   int
 	CacheCreateTokens int
 }
 
 // Add returns u plus v's counters.
-func (u CacheUsage) Add(v CacheUsage) CacheUsage {
-	return CacheUsage{
+func (u TokenUsage) Add(v TokenUsage) TokenUsage {
+	return TokenUsage{
 		InputTokens:       u.InputTokens + v.InputTokens,
 		CacheReadTokens:   u.CacheReadTokens + v.CacheReadTokens,
+		OutputTokens:      u.OutputTokens + v.OutputTokens,
 		CacheCreateTokens: u.CacheCreateTokens + v.CacheCreateTokens,
 	}
 }
 
-// cacheUsageOf extracts a run's cache counters from its final state.
-func cacheUsageOf(state agent.RunState) CacheUsage {
-	return CacheUsage{
+// tokenUsageOf extracts a run's token counters from its final state.
+func tokenUsageOf(state agent.RunState) TokenUsage {
+	return TokenUsage{
 		InputTokens:       state.InputTokens,
+		OutputTokens:      state.TokenCount,
 		CacheReadTokens:   state.CacheReadTokens,
 		CacheCreateTokens: state.CacheCreateTokens,
 	}
