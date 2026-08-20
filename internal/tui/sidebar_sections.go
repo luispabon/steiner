@@ -53,7 +53,8 @@ func (s sidebarState) modelSection(width int) []string {
 	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Background(lipgloss.Color(theme.Black))
 	fgDim := s.styles.FgDim.Background(lipgloss.Color(theme.Black))
 
-	model := fitText(safeText(s.model), width)
+	reasoning := strings.TrimSpace(s.reasoning)
+	model := fitText(formatModelEffort(safeText(s.model), reasoning), width)
 	provider := strings.TrimSpace(s.providerName)
 	if provider == "" {
 		provider = stripProviderURL(s.provider)
@@ -76,14 +77,8 @@ func (s sidebarState) modelSection(width int) []string {
 
 	lines := []string{"", cardLabel("model", s.styles), line1}
 
-	reasoning := strings.TrimSpace(s.reasoning)
 	quant := strings.TrimSpace(s.quant)
-	switch {
-	case reasoning != "" && quant != "":
-		lines = append(lines, s.styledWithBg(s.styles.FgDim, fitText(fmt.Sprintf("reasoning: %s · %s", reasoning, quant), width)))
-	case reasoning != "":
-		lines = append(lines, s.styledWithBg(s.styles.FgDim, fitText("reasoning: "+reasoning, width)))
-	case quant != "":
+	if quant != "" {
 		lines = append(lines, s.styledWithBg(s.styles.FgDim, fitText("quant: "+quant, width)))
 	}
 

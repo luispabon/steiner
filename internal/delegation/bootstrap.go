@@ -42,10 +42,10 @@ func childContextSkips(agentType AgentType) (skipProjectContext, skipAgents bool
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
 // It derives final limits by combining SubAgentConfig defaults with spec-level
 // overrides, builds child prompt and tool registries, and returns the assembled
-// request together with the computed DelegationLimits.
-func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override ChildBootstrapOverrides, spec DelegationSpec) (agent.RunRequest, DelegationLimits, error) {
+// request together with the computed Limits.
+func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override ChildBootstrapOverrides, spec Spec) (agent.RunRequest, Limits, error) {
 	if err := ctx.Err(); err != nil {
-		return agent.RunRequest{}, DelegationLimits{}, err
+		return agent.RunRequest{}, Limits{}, err
 	}
 	limits := deriveChildLimits(deps.SubAgentCfg, spec.Limits)
 	skipProjectContext, skipAgents := childContextSkips(override.AgentType)
@@ -105,7 +105,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 // deriveChildLimits combines SubAgentConfig defaults with overrides from the
 // spec using tighten-only semantics. The returned Limits have all unset override
 // fields filled from configuration defaults.
-func deriveChildLimits(cfg config.SubAgentConfig, overrides DelegationLimits) DelegationLimits {
+func deriveChildLimits(cfg config.SubAgentConfig, overrides Limits) Limits {
 	base := DefaultLimits(cfg)
 	return ApplyOverrides(base, overrides)
 }
@@ -156,7 +156,7 @@ func buildChildPrompt(p childPromptParams) prompt.AssemblyOptions {
 // avoid a long positional parameter list where adjacent same-typed values
 // (e.g. multiple bools) could be transposed without compiler protection.
 type childPromptParams struct {
-	spec               DelegationSpec
+	spec               Spec
 	workDir            string
 	homeDir            string
 	projectContextCfg  config.ProjectContextConfig

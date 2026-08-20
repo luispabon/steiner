@@ -886,7 +886,7 @@ func TestDelegationBlockRendering(t *testing.T) {
 			checks: []string{"render-agent", "preview text"},
 		},
 		{
-			name: "complete_has_turns",
+			name: "complete_has_agent_id",
 			setup: func(b *contentBuffer) {
 				b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 					AgentID:       "c-agent",
@@ -897,7 +897,7 @@ func TestDelegationBlockRendering(t *testing.T) {
 					Output:        "",
 				}))
 			},
-			checks: []string{"c-agent", "7 turns", "3 tool calls"},
+			checks: []string{"c-agent"},
 		},
 		{
 			name: "failed_has_agent_id",
@@ -1061,14 +1061,14 @@ func TestRenderDelegationPromptSubsectionCollapsedAndExpanded(t *testing.T) {
 		if promptLine == -1 && strings.Contains(line, "▾ prompt") {
 			promptLine = i
 		}
-		if assistantLine == -1 && strings.Contains(line, "child assistant reply") {
+		if assistantLine == -1 && strings.Contains(line, "│ child assistant reply") {
 			assistantLine = i
 		}
 	}
 	if promptLine == -1 || assistantLine == -1 || assistantLine <= promptLine {
 		t.Fatalf("expanded prompt render %q ordered incorrectly", renderedExpanded)
 	}
-	if idxPrompt := strings.Index(renderedExpanded, "prompt"); idxPrompt == -1 || strings.Index(renderedExpanded, "child assistant reply") < idxPrompt {
+	if idxPrompt := strings.Index(renderedExpanded, "prompt"); idxPrompt == -1 || strings.Index(renderedExpanded, "│ child assistant reply") < idxPrompt {
 		t.Fatalf("expanded prompt render %q ordered incorrectly", renderedExpanded)
 	}
 }
@@ -3231,18 +3231,21 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 	))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "working on it"), "agent-1"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		AgentID:       "agent-1",
-		Status:        "complete",
-		TurnCount:     5,
-		TokenCount:    1234,
-		ToolCallCount: 3,
-		Output:        "result",
+		AgentID:           "agent-1",
+		Status:            "complete",
+		TurnCount:         5,
+		TokenCount:        1234,
+		ToolCallCount:     3,
+		Output:            "result",
+		InputTokens:       50,
+		CacheReadTokens:   900,
+		CacheCreateTokens: 50,
 	}))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(100))
 	normalized := strings.Join(strings.Fields(rendered), " ")
-	for _, want := range []string{"model qwen3-coder-", "30b", "Turns: 5", "Tool Calls: 3", "Tokens: 1234", "Duration:", "Ctx: 1%"} {
+	for _, want := range []string{"model qwen3-coder-", "30b", "Turns: 5", "Tool Calls: 3", "Tokens: 1.0k in / 1.2k out", "Duration:", "Ctx: 1%"} {
 		if !strings.Contains(normalized, want) {
 			t.Errorf("expanded delegation render missing %q:\n%s", want, rendered)
 		}

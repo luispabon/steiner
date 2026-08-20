@@ -25,12 +25,12 @@ func TestReasoningPickerOpenBuildsOptions(t *testing.T) {
 	if p.modelName != "gpt-5" {
 		t.Fatalf("expected modelName gpt-5, got %q", p.modelName)
 	}
-	// provider default + 3 concrete efforts
+	// default + 3 concrete efforts
 	if len(p.candidates) != 4 {
 		t.Fatalf("expected 4 candidates, got %d", len(p.candidates))
 	}
 	if !p.candidates[0].IsProviderDefault {
-		t.Fatalf("expected first candidate to be provider default, got %+v", p.candidates[0])
+		t.Fatalf("expected first candidate to be default, got %+v", p.candidates[0])
 	}
 	wantValues := []string{"", "low", "medium", "high"}
 	for i, want := range wantValues {
@@ -84,7 +84,7 @@ func TestReasoningPickerMarksCurrentProviderDefault(t *testing.T) {
 		t.Fatal("expected a selected option")
 	}
 	if !opt.IsCurrent || !opt.IsProviderDefault {
-		t.Fatalf("expected selection to land on provider default, got %+v", opt)
+		t.Fatalf("expected selection to land on default, got %+v", opt)
 	}
 }
 
@@ -116,7 +116,7 @@ func TestReasoningPickerMarksProviderDefaultCurrentWhenNoOverrideAndNoConfigured
 		t.Fatal("expected a selected option")
 	}
 	if !opt.IsCurrent || !opt.IsProviderDefault {
-		t.Fatalf("expected selection to land on provider default, got %+v", opt)
+		t.Fatalf("expected selection to land on default, got %+v", opt)
 	}
 }
 
@@ -176,7 +176,7 @@ func TestReasoningOverrideFromOption(t *testing.T) {
 		want provider.ReasoningOverride
 	}{
 		{
-			name: "provider default",
+			name: "default",
 			opt:  reasoningEffortOption{IsProviderDefault: true},
 			want: provider.ReasoningOverride{Kind: provider.ReasoningOverrideProviderDefault},
 		},
@@ -205,7 +205,7 @@ func TestReasoningOverrideLabel(t *testing.T) {
 		want string
 	}{
 		{"effort", provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "medium"}, "medium"},
-		{"provider default", provider.ReasoningOverride{Kind: provider.ReasoningOverrideProviderDefault}, "provider default"},
+		{"default", provider.ReasoningOverride{Kind: provider.ReasoningOverrideProviderDefault}, "default"},
 		{"none", provider.ReasoningOverride{Kind: provider.ReasoningOverrideNone}, ""},
 	}
 	for _, tt := range tests {

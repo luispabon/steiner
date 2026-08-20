@@ -46,6 +46,7 @@ type ApprovalSubmission struct {
 type Config struct {
 	Model              string
 	ModelNames         []string
+	ModelBackendAlias  map[string]string
 	ModelContexts      map[string]int
 	ModelBaseURLs      map[string]string
 	ModelProviderNames map[string]string
@@ -55,7 +56,7 @@ type Config struct {
 	// having no configurable reasoning effort.
 	ModelReasoningCapabilities map[string]provider.ReasoningCapabilities
 	// ModelReasoningEfforts maps model alias to its config-declared effective
-	// reasoning effort (empty when the model uses the provider default).
+	// reasoning effort (empty when the model uses the default).
 	ModelReasoningEfforts map[string]string
 	// ResolveReasoningFunc, when non-nil, is invoked asynchronously after the TUI
 	// has rendered to resolve reasoning capabilities/efforts for all configured

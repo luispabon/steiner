@@ -266,23 +266,11 @@ func delegationCompleteMeta(dd *delegationDisplayState) []string {
 		status = "complete"
 	}
 	meta := []string{status}
-	if dd.turnCount > 0 {
-		meta = append(meta, pluralTurns(dd.turnCount))
-	}
-	if dd.toolCallCount > 0 {
-		meta = append(meta, pluralToolCalls(dd.toolCallCount))
-	}
-	if dd.tokenCount > 0 {
-		meta = append(meta, fmt.Sprintf("%d tokens", dd.tokenCount))
-	}
 	if dd.elapsed != "" {
 		meta = append(meta, dd.elapsed)
 	}
 	if dd.cacheHitOK {
 		meta = append(meta, "cache "+formatCacheHitRate(dd.cacheHitRate, dd.cacheHitOK))
-	}
-	if dd.advisorUse > 0 && dd.advisorMaxUses > 0 {
-		meta = append(meta, fmt.Sprintf("%d/%d", dd.advisorUse, dd.advisorMaxUses))
 	}
 	return meta
 }
@@ -497,7 +485,7 @@ func (b *contentBuffer) renderDelegationStatsRow(dd *delegationDisplayState) str
 
 func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string {
 	parts := make([]string, 0, 7)
-	if badge := renderModelBadge(b.styles, dd.modelName); badge != "" {
+	if badge := renderModelBadge(b.styles, dd.modelName, dd.reasoning); badge != "" {
 		parts = append(parts, badge)
 	}
 	if dd.isAdvisor && dd.advisorUse > 0 && dd.advisorMaxUses > 0 {
@@ -510,7 +498,7 @@ func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Tool Calls: %d", dd.toolCallCount)))
 	}
 	if dd.tokenCount > 0 {
-		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Tokens: %d", dd.tokenCount)))
+		parts = append(parts, b.styles.FgDim.Render("Tokens: "+formatTokenPair(dd.cacheReadTokens+dd.inputTokens+dd.cacheCreateTokens, dd.tokenCount)))
 	}
 	if duration := delegationStatsDuration(dd); duration != "" {
 		parts = append(parts, b.styles.FgDim.Render("Duration: "+duration))
@@ -582,4 +570,8 @@ func formatCompactCount(value int) string {
 	default:
 		return fmt.Sprintf("%d", value)
 	}
+}
+
+func formatTokenPair(input, output int) string {
+	return fmt.Sprintf("%s in / %s out", formatCompactCount(input), formatCompactCount(output))
 }

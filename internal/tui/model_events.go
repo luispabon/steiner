@@ -81,7 +81,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
 		m.resetTopLevelTerminalState(true)
 	case output.ModelCallStartedEvent:
-		m.activity = m.activity.waiting("waiting on model", strings.TrimSpace(payload.Model))
+		m.activity = m.activity.waiting("waiting", "")
 	case output.ModelCallFinishedEvent:
 		detail := strings.TrimSpace(payload.FinishReason)
 		if detail == "" && payload.CompletionTokens > 0 {
@@ -92,7 +92,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.sidebar.perfTTFTMs = payload.TTFTMs
 		m.sidebar.perfOutputTPS = payload.OutputTPS
 	case output.APIRequestEvent:
-		m.activity = m.activity.waiting("waiting on model", strings.TrimSpace(payload.Model))
+		m.activity = m.activity.waiting("waiting", "")
 	case output.APIResponseEvent:
 		detail := strings.TrimSpace(payload.FinishReason)
 		m.activity = m.activity.waiting("receiving response", detail)
@@ -405,6 +405,7 @@ func (m *Model) handlePhaseTransition(payload output.PhaseTransitionEvent) tea.C
 		if modelName := strings.TrimSpace(payload.Model); modelName != "" {
 			m.primaryModel = modelName
 			m.status.model = modelName
+			m.status.reasoning = m.reasoningLabels[modelName]
 			m.sidebar.model = modelName
 			m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
 			m.sidebar.reasoning = m.reasoningLabels[modelName]

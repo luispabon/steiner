@@ -61,69 +61,69 @@ func TestDefaultLimits(t *testing.T) {
 func TestApplyOverridesTightenOnly(t *testing.T) {
 	tests := []struct {
 		name      string
-		base      DelegationLimits
-		overrides DelegationLimits
-		want      DelegationLimits
+		base      Limits
+		overrides Limits
+		want      Limits
 	}{
 		{
 			name:      "zero overrides apply no changes",
-			base:      DelegationLimits{MaxTurns: 20, OutputLimitTokens: 100000, Timeout: time.Minute},
-			overrides: DelegationLimits{},
-			want:      DelegationLimits{MaxTurns: 20, OutputLimitTokens: 100000, Timeout: time.Minute},
+			base:      Limits{MaxTurns: 20, OutputLimitTokens: 100000, Timeout: time.Minute},
+			overrides: Limits{},
+			want:      Limits{MaxTurns: 20, OutputLimitTokens: 100000, Timeout: time.Minute},
 		},
 		{
 			name:      "tighter MaxTurns is applied",
-			base:      DelegationLimits{MaxTurns: 20},
-			overrides: DelegationLimits{MaxTurns: 10},
-			want:      DelegationLimits{MaxTurns: 10},
+			base:      Limits{MaxTurns: 20},
+			overrides: Limits{MaxTurns: 10},
+			want:      Limits{MaxTurns: 10},
 		},
 		{
 			name:      "looser MaxTurns is not applied",
-			base:      DelegationLimits{MaxTurns: 10},
-			overrides: DelegationLimits{MaxTurns: 20},
-			want:      DelegationLimits{MaxTurns: 10},
+			base:      Limits{MaxTurns: 10},
+			overrides: Limits{MaxTurns: 20},
+			want:      Limits{MaxTurns: 10},
 		},
 		{
 			name:      "tighter OutputLimitTokens is applied",
-			base:      DelegationLimits{OutputLimitTokens: 100000},
-			overrides: DelegationLimits{OutputLimitTokens: 50000},
-			want:      DelegationLimits{OutputLimitTokens: 50000},
+			base:      Limits{OutputLimitTokens: 100000},
+			overrides: Limits{OutputLimitTokens: 50000},
+			want:      Limits{OutputLimitTokens: 50000},
 		},
 		{
 			name:      "looser OutputLimitTokens is not applied",
-			base:      DelegationLimits{OutputLimitTokens: 50000},
-			overrides: DelegationLimits{OutputLimitTokens: 100000},
-			want:      DelegationLimits{OutputLimitTokens: 50000},
+			base:      Limits{OutputLimitTokens: 50000},
+			overrides: Limits{OutputLimitTokens: 100000},
+			want:      Limits{OutputLimitTokens: 50000},
 		},
 		{
 			name:      "tighter Timeout is applied",
-			base:      DelegationLimits{Timeout: time.Minute},
-			overrides: DelegationLimits{Timeout: 30 * time.Second},
-			want:      DelegationLimits{Timeout: 30 * time.Second},
+			base:      Limits{Timeout: time.Minute},
+			overrides: Limits{Timeout: 30 * time.Second},
+			want:      Limits{Timeout: 30 * time.Second},
 		},
 		{
 			name:      "looser Timeout is not applied",
-			base:      DelegationLimits{Timeout: 30 * time.Second},
-			overrides: DelegationLimits{Timeout: time.Minute},
-			want:      DelegationLimits{Timeout: 30 * time.Second},
+			base:      Limits{Timeout: 30 * time.Second},
+			overrides: Limits{Timeout: time.Minute},
+			want:      Limits{Timeout: 30 * time.Second},
 		},
 		{
 			name:      "zero base timeout can be overridden",
-			base:      DelegationLimits{Timeout: 0},
-			overrides: DelegationLimits{Timeout: time.Minute},
-			want:      DelegationLimits{Timeout: time.Minute},
+			base:      Limits{Timeout: 0},
+			overrides: Limits{Timeout: time.Minute},
+			want:      Limits{Timeout: time.Minute},
 		},
 		{
 			name:      "multiple tightenings applied together",
-			base:      DelegationLimits{MaxTurns: 30, OutputLimitTokens: 200000, Timeout: 2 * time.Minute},
-			overrides: DelegationLimits{MaxTurns: 10, OutputLimitTokens: 50000, Timeout: 30 * time.Second},
-			want:      DelegationLimits{MaxTurns: 10, OutputLimitTokens: 50000, Timeout: 30 * time.Second},
+			base:      Limits{MaxTurns: 30, OutputLimitTokens: 200000, Timeout: 2 * time.Minute},
+			overrides: Limits{MaxTurns: 10, OutputLimitTokens: 50000, Timeout: 30 * time.Second},
+			want:      Limits{MaxTurns: 10, OutputLimitTokens: 50000, Timeout: 30 * time.Second},
 		},
 		{
 			name:      "partial overrides with selective tightening",
-			base:      DelegationLimits{MaxTurns: 20, OutputLimitTokens: 100000},
-			overrides: DelegationLimits{MaxTurns: 5}, // Only override MaxTurns, tighter
-			want:      DelegationLimits{MaxTurns: 5, OutputLimitTokens: 100000},
+			base:      Limits{MaxTurns: 20, OutputLimitTokens: 100000},
+			overrides: Limits{MaxTurns: 5}, // Only override MaxTurns, tighter
+			want:      Limits{MaxTurns: 5, OutputLimitTokens: 100000},
 		},
 	}
 

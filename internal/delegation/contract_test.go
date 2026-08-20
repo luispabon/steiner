@@ -10,8 +10,8 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func populatedResult() DelegationResult {
-	return DelegationResult{
+func populatedResult() Result {
+	return Result{
 		AgentID:          "agent-123",
 		Status:           StatusPartial,
 		Output:           "test output",
@@ -61,7 +61,7 @@ func assertKeys(t *testing.T, keys map[string]json.RawMessage, data []byte, want
 	}
 }
 
-func TestDelegationResultJSONRoundTrip(t *testing.T) {
+func TestResultJSONRoundTrip(t *testing.T) {
 	t.Run("populated result keeps every wire field", func(t *testing.T) {
 		result := populatedResult()
 		keys, data := marshalKeys(t, result)
@@ -79,7 +79,7 @@ func TestDelegationResultJSONRoundTrip(t *testing.T) {
 			"trace",
 		}, nil)
 
-		var decoded DelegationResult
+		var decoded Result
 		if err := json.Unmarshal(data, &decoded); err != nil {
 			t.Fatalf("unmarshal result: %v", err)
 		}
@@ -89,7 +89,7 @@ func TestDelegationResultJSONRoundTrip(t *testing.T) {
 	})
 
 	t.Run("optional result fields are omitted when empty", func(t *testing.T) {
-		keys, data := marshalKeys(t, DelegationResult{
+		keys, data := marshalKeys(t, Result{
 			AgentID: "agent-123",
 			Status:  StatusComplete,
 			Output:  "test output",
@@ -114,7 +114,7 @@ func TestDelegationResultJSONRoundTrip(t *testing.T) {
 	})
 
 	t.Run("code result with worktree includes path, branch, and warnings", func(t *testing.T) {
-		result := DelegationResult{
+		result := Result{
 			AgentID:        "agent-code",
 			Status:         StatusComplete,
 			Output:         "test output",
@@ -141,7 +141,7 @@ func TestDelegationResultJSONRoundTrip(t *testing.T) {
 			"trace",
 		})
 
-		var decoded DelegationResult
+		var decoded Result
 		if err := json.Unmarshal(data, &decoded); err != nil {
 			t.Fatalf("unmarshal result: %v", err)
 		}
@@ -153,7 +153,7 @@ func TestDelegationResultJSONRoundTrip(t *testing.T) {
 	// touched_files was removed from the contract; the wire format must not
 	// grow it back under any field name.
 	t.Run("touched_files is absent from the wire format", func(t *testing.T) {
-		for _, result := range []DelegationResult{{}, populatedResult()} {
+		for _, result := range []Result{{}, populatedResult()} {
 			data, err := json.Marshal(result)
 			if err != nil {
 				t.Fatalf("marshal result: %v", err)
@@ -165,14 +165,14 @@ func TestDelegationResultJSONRoundTrip(t *testing.T) {
 	})
 }
 
-func TestDelegationSpecJSONRoundTrip(t *testing.T) {
+func TestSpecJSONRoundTrip(t *testing.T) {
 	t.Run("populated spec keeps every wire field", func(t *testing.T) {
-		spec := DelegationSpec{
+		spec := Spec{
 			Task:         "test task",
 			Context:      "test context",
 			SystemPrompt: "test prompt",
 			Images:       []provider.ImageBlock{{MediaType: "image/png", Data: "aGk="}},
-			Limits: DelegationLimits{
+			Limits: Limits{
 				MaxTurns:          10,
 				OutputLimitTokens: 50000,
 				Timeout:           60 * time.Second,
@@ -189,7 +189,7 @@ func TestDelegationSpecJSONRoundTrip(t *testing.T) {
 			"agent_id",
 		}, nil)
 
-		var decoded DelegationSpec
+		var decoded Spec
 		if err := json.Unmarshal(data, &decoded); err != nil {
 			t.Fatalf("unmarshal spec: %v", err)
 		}
@@ -199,7 +199,7 @@ func TestDelegationSpecJSONRoundTrip(t *testing.T) {
 	})
 
 	t.Run("optional spec fields are omitted when empty", func(t *testing.T) {
-		keys, data := marshalKeys(t, DelegationSpec{Task: "test task", AgentID: "agent-123"})
+		keys, data := marshalKeys(t, Spec{Task: "test task", AgentID: "agent-123"})
 		assertKeys(t, keys, data, []string{
 			"task",
 			"limits",

@@ -63,6 +63,7 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		mcpServers:                   cfg.MCPServers,
 		mcpToolOrigins:               cfg.MCPToolOrigins,
 		modelNames:                   append([]string(nil), cfg.ModelNames...),
+		modelBackendAlias:            cloneStringMap(cfg.ModelBackendAlias),
 		modelContexts:                cloneModelContexts(cfg.ModelContexts),
 		modelBaseURLs:                cloneModelBaseURLs(cfg.ModelBaseURLs),
 		modelProviderNames:           cloneModelProviderNames(cfg.ModelProviderNames),
@@ -254,6 +255,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.primaryModel = strings.TrimSpace(cfg.Model)
 	m.currentModelAlias = strings.TrimSpace(cfg.CurrentModelAlias)
 	m.status.model = m.primaryModel
+	m.status.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.sidebar.model = m.primaryModel
 	m.sidebar.version = cfg.Version
 	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)
@@ -294,6 +296,9 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 		if mcpFailureState(s.State) {
 			m.mcpWarned[s.Name] = true
 		}
+	}
+	m.content.modelBadge = func(backend string) (string, string) {
+		return resolveModelBadge(backend, m.modelBackendAlias, m.reasoningLabels)
 	}
 	m.content.styles = m.styles
 	m.content.skillNames = m.skillNames

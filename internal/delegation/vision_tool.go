@@ -13,7 +13,7 @@ import (
 
 // newVisionHandler returns a handler for the vision agent type.
 // It reads the image from the ImageStore, base64-encodes it, injects it into the
-// DelegationSpec, and spawns a child agent. The result includes the agent_id so
+// Spec, and spawns a child agent. The result includes the agent_id so
 // the caller can use follow_up for additional questions about the same image.
 func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
@@ -33,7 +33,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 
 		agentID := generateAgentID()
 		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
-		spec := DelegationSpec{
+		spec := Spec{
 			Task:         task,
 			SystemPrompt: AgentSystemPrompt(AgentTypeVision),
 			ParentCallID: callID,
@@ -71,7 +71,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			return nil, fmt.Errorf("vision failed: %w", err)
 		}
 
-		if dr, ok := result.Value.(DelegationResult); ok {
+		if dr, ok := result.Value.(Result); ok {
 			dr.Output += fmt.Sprintf("\n\nTo ask follow-up questions about this image, use follow_up with agent_id: %q", agentID)
 			result.Value = dr
 		}

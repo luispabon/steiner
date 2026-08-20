@@ -75,6 +75,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	tuiCfg := tui.Config{
 		Model:              selected.ID,
 		ModelNames:         modelAliasNames(rt.cfg),
+		ModelBackendAlias:  modelBackendAliases(rt.cfg),
 		ModelContexts:      modelContextSizes(rt.cfg),
 		ModelBaseURLs:      modelBaseURLs(rt.cfg),
 		ModelProviderNames: modelProviderNames(rt.cfg),
@@ -323,6 +324,17 @@ func modelAliasNames(cfg config.Config) []string {
 		names = append(names, k)
 	}
 	return names
+}
+
+func modelBackendAliases(cfg config.Config) map[string]string {
+	if len(cfg.Models.Definitions) == 0 {
+		return nil
+	}
+	aliases := make(map[string]string, len(cfg.Models.Definitions))
+	for alias, model := range cfg.Models.Definitions {
+		aliases[model.ID] = alias
+	}
+	return aliases
 }
 
 func modelContextSizes(cfg config.Config) map[string]int {

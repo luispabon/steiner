@@ -4,10 +4,10 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
-// DefaultLimits creates DelegationLimits from SubAgentConfig.
+// DefaultLimits creates Limits from SubAgentConfig.
 // MaxTurns defaults to 15, OutputLimitTokens from MaxTokens (default 100000),
 // Timeout defaults to 0 (no timeout).
-func DefaultLimits(cfg config.SubAgentConfig) DelegationLimits {
+func DefaultLimits(cfg config.SubAgentConfig) Limits {
 	maxTurns := cfg.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 15
@@ -18,7 +18,7 @@ func DefaultLimits(cfg config.SubAgentConfig) DelegationLimits {
 		maxTokens = 100000
 	}
 
-	return DelegationLimits{
+	return Limits{
 		MaxTurns:          maxTurns,
 		OutputLimitTokens: maxTokens,
 		Timeout:           0,
@@ -28,7 +28,7 @@ func DefaultLimits(cfg config.SubAgentConfig) DelegationLimits {
 // ApplyOverrides merges overrides into base limits with tighten-only semantics.
 // An override is applied only if it is more restrictive (lower/shorter).
 // Zero values in overrides are treated as "no override".
-func ApplyOverrides(base, overrides DelegationLimits) DelegationLimits {
+func ApplyOverrides(base, overrides Limits) Limits {
 	result := base
 
 	// MaxTurns: override if it's positive and lower than base

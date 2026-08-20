@@ -13,6 +13,7 @@ import (
 type statusState struct {
 	model          string
 	context        string
+	reasoning      string
 	mode           string
 	execMode       string // execution mode: "plan" or "build"
 	styles         *theme.Styles
@@ -37,7 +38,7 @@ func (s statusState) view(width int) string {
 	}
 	// Segment 1: model (stable left)
 	if s.model != "" {
-		parts = append(parts, renderModelBadge(s.styles, s.model))
+		parts = append(parts, renderModelBadge(s.styles, s.model, s.reasoning))
 	}
 
 	// Segment 1b: execution mode badge

@@ -188,6 +188,7 @@ type delegationDisplayState struct {
 	inputTokens       int
 	cacheCreateTokens int
 	modelName         string
+	reasoning         string
 	promptTokens      int
 	contextWindow     int
 	contextFillPct    float64 // last known context window occupancy %, 0 if unknown
@@ -263,6 +264,7 @@ type contentBuffer struct {
 	renderer          *glamour.TermRenderer
 	renderWidth       int
 	styles            *theme.Styles
+	modelBadge        func(backend string) (alias, effort string)
 	glamourStyleSheet glamour.TermRendererOption
 	previewStyleCache map[chroma.TokenType]lipgloss.Style
 	collapseState     map[int]bool    // segment index → collapsed (for tool calls and thinking)
@@ -303,6 +305,14 @@ type contentBuffer struct {
 	prefixCacheWidth        int
 	prefixCacheShowThinking bool
 	prefixCacheGen          int
+}
+
+func (b *contentBuffer) resolveDelegationModel(model string) (name, effort string) {
+	model = strings.TrimSpace(model)
+	if b.modelBadge != nil {
+		return b.modelBadge(model)
+	}
+	return model, ""
 }
 
 type contentEventHandler func(*contentBuffer, output.Event)

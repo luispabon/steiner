@@ -12,11 +12,11 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 )
 
-func remediationTestSpec() DelegationSpec {
-	return DelegationSpec{
+func remediationTestSpec() Spec {
+	return Spec{
 		AgentID: "remediation-agent",
 		Task:    "implement the task",
-		Limits:  DelegationLimits{MaxTurns: 5, OutputLimitTokens: 1000, Timeout: time.Minute},
+		Limits:  Limits{MaxTurns: 5, OutputLimitTokens: 1000, Timeout: time.Minute},
 	}
 }
 
@@ -32,7 +32,7 @@ func TestApplyRemediation(t *testing.T) {
 		state           agent.RunState
 		cfg             *RemediationConfig
 		wantOutcome     remediationOutcome
-		wantStatus      DelegationStatus
+		wantStatus      Status
 		wantOutput      string
 		wantWarning     bool
 		warningContains string
@@ -243,7 +243,7 @@ func TestSpawnDelegate_RemediationSurvivesSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SpawnDelegate error: %v", err)
 	}
-	delegationResult := result.Value.(DelegationResult)
+	delegationResult := result.Value.(Result)
 	if delegationResult.Status != StatusComplete {
 		t.Errorf("status = %q, want %q", delegationResult.Status, StatusComplete)
 	}
@@ -281,7 +281,7 @@ func TestSpawnDelegate_NonCompleteDirtySkipsRemediation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SpawnDelegate error: %v", err)
 	}
-	delegationResult := result.Value.(DelegationResult)
+	delegationResult := result.Value.(Result)
 	if delegationResult.Status != StatusFailed {
 		t.Errorf("status = %q, want %q", delegationResult.Status, StatusFailed)
 	}

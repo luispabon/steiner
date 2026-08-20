@@ -36,7 +36,7 @@ func TestBuildResult(t *testing.T) {
 		name                 string
 		agentID              string
 		state                agent.RunState
-		wantStatus           DelegationStatus
+		wantStatus           Status
 		wantTurnCount        int
 		wantTokenCount       int
 		wantOutput           string

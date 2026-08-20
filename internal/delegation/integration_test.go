@@ -110,7 +110,7 @@ func (r *scopedEventRunner) Run(_ context.Context, req agent.RunRequest) (agent.
 }
 
 // testBuildPrompt is a test helper that builds prompt options for a spec.
-func testBuildPrompt(spec DelegationSpec) prompt.AssemblyOptions {
+func testBuildPrompt(spec Spec) prompt.AssemblyOptions {
 	return buildChildPrompt(childPromptParams{
 		spec:      spec,
 		workDir:   "/tmp/work",
@@ -133,7 +133,7 @@ func testChildRegistries(parent *tool.Registry) (*tool.Registry, *tool.Registry)
 
 // testChildRunRequest is a test helper that builds a child run request with the
 // common defaults shared across delegation tests.
-func testChildRunRequest(spec DelegationSpec, prov provider.Provider, visibleReg, execReg *tool.Registry, limits agent.Limits, sink output.EventSink) agent.RunRequest {
+func testChildRunRequest(spec Spec, prov provider.Provider, visibleReg, execReg *tool.Registry, limits agent.Limits, sink output.EventSink) agent.RunRequest {
 	return buildChildRunRequest(childRunRequestParams{
 		WorkDir:            "/tmp/work",
 		AgentID:            spec.AgentID,
@@ -152,18 +152,18 @@ func testChildRunRequest(spec DelegationSpec, prov provider.Provider, visibleReg
 	})
 }
 
-func makeSpec(agentID string, outputLimitTokens int) DelegationSpec {
-	return DelegationSpec{
+func makeSpec(agentID string, outputLimitTokens int) Spec {
+	return Spec{
 		Task:    "test task",
 		AgentID: agentID,
-		Limits: DelegationLimits{
+		Limits: Limits{
 			MaxTurns:          5,
 			OutputLimitTokens: outputLimitTokens,
 		},
 	}
 }
 
-func TestBasicDelegationResult(t *testing.T) {
+func TestBasicResult(t *testing.T) {
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{Message: provider.Message{Content: "done"}, FinishReason: "stop"},
@@ -181,9 +181,9 @@ func TestBasicDelegationResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if typedResult.AgentID != "agent-1" {
 		t.Errorf("AgentID: got %q, want %q", typedResult.AgentID, "agent-1")
@@ -305,9 +305,9 @@ func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 		t.Fatalf("runner.calls = %d, want 1", runner.calls)
 	}
 
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if typedResult.Status != StatusFailed {
 		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusFailed)
@@ -351,10 +351,10 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 		},
 	}
 
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "test task",
 		AgentID: "agent-4",
-		Limits: DelegationLimits{
+		Limits: Limits{
 			MaxTurns:          5,
 			OutputLimitTokens: 100,
 		},
@@ -412,10 +412,10 @@ func TestOversizedOutputKeepsFullVisibleOutput(t *testing.T) {
 		},
 	}
 
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "test task",
 		AgentID: "agent-5",
-		Limits: DelegationLimits{
+		Limits: Limits{
 			MaxTurns:          5,
 			OutputLimitTokens: 100,
 		},
@@ -432,9 +432,9 @@ func TestOversizedOutputKeepsFullVisibleOutput(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if typedResult.Output != longContent {
 		t.Fatalf("Output was overwritten: got %q, want full output", typedResult.Output)
@@ -474,10 +474,10 @@ func TestSummaryFailureFallsBackToCappedPreview(t *testing.T) {
 		},
 	}
 
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "test task",
 		AgentID: "agent-8",
-		Limits: DelegationLimits{
+		Limits: Limits{
 			MaxTurns:          5,
 			OutputLimitTokens: 100,
 		},
@@ -491,9 +491,9 @@ func TestSummaryFailureFallsBackToCappedPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if strings.TrimSpace(typedResult.Output) == "" {
 		t.Fatal("typedResult.Output = empty, want full visible output")
@@ -560,10 +560,10 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 }
 
 func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "test task",
 		AgentID: "agent-7",
-		Limits: DelegationLimits{
+		Limits: Limits{
 			MaxTurns:          5,
 			OutputLimitTokens: 100,
 			Timeout:           2 * time.Millisecond,
@@ -617,9 +617,9 @@ func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
 		t.Fatalf("summary request TurnTimeout = %v, want 0", got)
 	}
 
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if len(typedResult.Output) != 5000 {
 		t.Fatalf("Output length %d, want full visible output", len(typedResult.Output))
@@ -659,7 +659,7 @@ func (r *summaryCtxInspector) Run(ctx context.Context, req agent.RunRequest) (ag
 
 // TestParentContextIsolation verifies that a child doing multi-turn work with
 // a helper tool does not pollute the parent conversation. The parent only
-// receives the DelegationResult; child internal messages stay in the child.
+// receives the Result; child internal messages stay in the child.
 func TestParentContextIsolation(t *testing.T) {
 	helperCallCount := 0
 	parentReg := tool.NewRegistry(
@@ -698,10 +698,10 @@ func TestParentContextIsolation(t *testing.T) {
 	}
 
 	override := ChildBootstrapOverrides{Provider: childProv, AllowedTools: []string{"helper"}}
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "use the helper tool",
 		AgentID: "parent-isolation",
-		Limits:  DelegationLimits{MaxTurns: 5},
+		Limits:  Limits{MaxTurns: 5},
 	}
 
 	req, limits, err := BuildChildRun(context.Background(), deps, override, spec)
@@ -714,9 +714,9 @@ func TestParentContextIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SpawnDelegate error: %v", err)
 	}
-	result, ok := execResult.Value.(DelegationResult)
+	result, ok := execResult.Value.(Result)
 	if !ok {
-		t.Fatalf("execResult.Value type = %T, want DelegationResult", execResult.Value)
+		t.Fatalf("execResult.Value type = %T, want Result", execResult.Value)
 	}
 	if result.Output != "child final answer" {
 		t.Errorf("Output: got %q, want %q", result.Output, "child final answer")
@@ -743,7 +743,7 @@ func TestParentContextIsolation(t *testing.T) {
 		t.Error("expected second child provider request to include a tool result message")
 	}
 
-	// The parent only receives the DelegationResult struct. There is no parent
+	// The parent only receives the Result struct. There is no parent
 	// provider call in this test since we invoked the handler directly.
 	// Verify that child turn count reflects multi-turn execution.
 	if result.TurnCount < 2 {
@@ -850,9 +850,9 @@ func TestExtensionTriggersWhenMidWork(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if typedResult.Output != "final answer" {
 		t.Errorf("Output = %q, want %q", typedResult.Output, "final answer")
@@ -1071,9 +1071,9 @@ func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
 		t.Fatalf("SpawnDelegate returned error: %v", err)
 	}
 
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if typedResult.Status != StatusFailed {
 		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusFailed)
@@ -1140,9 +1140,9 @@ func TestExtensionCancellationReturnsCancelledStatus(t *testing.T) {
 		t.Fatalf("SpawnDelegate returned error: %v", err)
 	}
 
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if typedResult.Status != StatusCancelled {
 		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusCancelled)
@@ -1166,7 +1166,7 @@ func TestExtensionCancellationReturnsCancelledStatus(t *testing.T) {
 
 // TestZeroTurnCancellationTellsParentSessionPreserved reproduces the screenshot
 // bug: a follow-up is cancelled before any turn runs, leaving an empty
-// DelegationResult. The parent's tool result must clearly say the child session
+// Result. The parent's tool result must clearly say the child session
 // is still resumable, not just hand back an empty result.
 func TestZeroTurnCancellationTellsParentSessionPreserved(t *testing.T) {
 	spec := makeSpec("zero-turn-cancel-agent", 1000)
@@ -1190,9 +1190,9 @@ func TestZeroTurnCancellationTellsParentSessionPreserved(t *testing.T) {
 		t.Fatalf("SpawnDelegate returned error: %v", err)
 	}
 
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if typedResult.Status != StatusCancelled {
 		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusCancelled)
@@ -1364,9 +1364,9 @@ func TestSummarySanitizesDanglingToolCalls(t *testing.T) {
 	}
 }
 
-// TestDelegationResultSummaryPopulated verifies that DelegationResult.Summary is
+// TestResultSummaryPopulated verifies that Result.Summary is
 // populated after a successful SpawnDelegate call.
-func TestDelegationResultSummaryPopulated(t *testing.T) {
+func TestResultSummaryPopulated(t *testing.T) {
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{Message: provider.Message{Content: "task output"}, FinishReason: "stop"},
@@ -1386,12 +1386,12 @@ func TestDelegationResultSummaryPopulated(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if typedResult.Summary == "" {
-		t.Fatal("DelegationResult.Summary = empty, want populated summary text")
+		t.Fatal("Result.Summary = empty, want populated summary text")
 	}
 }
 
@@ -1517,9 +1517,9 @@ func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	typedResult, ok := result.Value.(DelegationResult)
+	typedResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if typedResult.Status != StatusPartial {
 		t.Errorf("Status = %q, want %q", typedResult.Status, StatusPartial)
@@ -1545,7 +1545,7 @@ func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
 func TestFollowUpSanitizesSavedDanglingToolCalls(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{
+		Spec: Spec{
 			AgentID: "child-follow-up",
 			Task:    "investigate",
 		},
@@ -1631,9 +1631,9 @@ func TestSummaryUsesChildContext(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	delResult, ok := result.Value.(DelegationResult)
+	delResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatal("expected DelegationResult")
+		t.Fatal("expected Result")
 	}
 	if delResult.Status != StatusCancelled {
 		t.Errorf("expected StatusCancelled, got: %v", delResult.Status)
@@ -1648,7 +1648,7 @@ func TestCrossTurnSessionStorePreservesSessions(t *testing.T) {
 
 	// Turn 1: Save a session simulating what delegate/explore does on success.
 	sharedStore.Save(&ChildSession{
-		Spec: DelegationSpec{
+		Spec: Spec{
 			AgentID: "child-1",
 			Task:    "find test files",
 		},
@@ -1692,9 +1692,9 @@ func TestCrossTurnSessionStorePreservesSessions(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
 	}
-	delegationResult, ok := execResult.Value.(DelegationResult)
+	delegationResult, ok := execResult.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", execResult.Value)
+		t.Fatalf("result.Value type = %T, want Result", execResult.Value)
 	}
 	if delegationResult.Status != StatusComplete {
 		t.Errorf("Status = %q, want %q", delegationResult.Status, StatusComplete)

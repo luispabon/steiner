@@ -121,32 +121,35 @@ func TestModelSectionFittingKeepsModelIntact(t *testing.T) {
 	}
 }
 
-func TestModelSectionReasoningLine(t *testing.T) {
+func TestModelSectionReasoningAndQuant(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name      string
-		reasoning string
-		quant     string
-		wantShown bool
-		wantLine  string
+		name         string
+		reasoning    string
+		quant        string
+		wantModel    string
+		wantQuant    string
+		wantNoReason bool
 	}{
-		{name: "hidden when empty", reasoning: "", wantShown: false},
-		{name: "shows effort", reasoning: "medium", wantShown: true, wantLine: "reasoning: medium"},
-		{name: "shows provider default", reasoning: "provider default", wantShown: true, wantLine: "reasoning: provider default"},
-		{name: "reasoning and quant combine on one line", reasoning: "high", quant: "q4_k_m", wantShown: true, wantLine: "reasoning: high · q4_k_m"},
-		{name: "quant alone when reasoning empty", reasoning: "", quant: "q4_k_m", wantShown: true, wantLine: "quant: q4_k_m"},
+		{name: "hidden when empty", wantModel: "gpt-5", wantNoReason: true},
+		{name: "folds effort into model", reasoning: "medium", wantModel: "gpt-5/medium", wantNoReason: true},
+		{name: "folds default into model", reasoning: "default", wantModel: "gpt-5/default", wantNoReason: true},
+		{name: "keeps quant separate", reasoning: "high", quant: "q4_k_m", wantModel: "gpt-5/high", wantQuant: "quant: q4_k_m", wantNoReason: true},
+		{name: "quant alone", quant: "q4_k_m", wantModel: "gpt-5", wantQuant: "quant: q4_k_m", wantNoReason: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			s := sidebarState{model: "gpt-5", reasoning: tc.reasoning, quant: tc.quant, styles: testStyles(theme.AccentAmber)}
-			lines := s.modelSection(32)
-			joined := strings.Join(lines, "\n")
-			if tc.wantShown && !strings.Contains(joined, tc.wantLine) {
-				t.Errorf("modelSection() missing line %q in %q", tc.wantLine, joined)
+			joined := strings.Join(s.modelSection(32), "\n")
+			if !strings.Contains(joined, tc.wantModel) {
+				t.Errorf("modelSection() missing model %q in %q", tc.wantModel, joined)
 			}
-			if !tc.wantShown && strings.Contains(joined, "reasoning") {
-				t.Errorf("modelSection() should not contain 'reasoning' label, got %q", joined)
+			if tc.wantQuant != "" && !strings.Contains(joined, tc.wantQuant) {
+				t.Errorf("modelSection() missing quant line %q in %q", tc.wantQuant, joined)
+			}
+			if tc.wantNoReason && strings.Contains(joined, "reasoning:") {
+				t.Errorf("modelSection() should not contain reasoning label, got %q", joined)
 			}
 		})
 	}
@@ -507,7 +510,7 @@ func TestStaticLinesLineCount(t *testing.T) {
 		workingDir:            "/home/user/project",
 		styles:                styles,
 	}
-	const want = 29
+	const want = 28
 	if got := len(s.staticLines(32)); got != want {
 		t.Errorf("len(staticLines(32)) = %d, want %d", got, want)
 	}

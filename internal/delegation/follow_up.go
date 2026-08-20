@@ -31,7 +31,7 @@ func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (an
 }
 
 // buildContinuationRequest prepares a request for a continuation agent run.
-func buildContinuationRequest(base agent.RunRequest, conversation []agent.Message, message string, priorTurns int, freshLimits DelegationLimits) agent.RunRequest {
+func buildContinuationRequest(base agent.RunRequest, conversation []agent.Message, message string, priorTurns int, freshLimits Limits) agent.RunRequest {
 	base.Prompt.Conversation = agent.ToReplaySafeProviderMessages(conversation)
 	base.Prompt.Conversation = append(base.Prompt.Conversation, provider.Message{
 		Role:    provider.MessageRoleUser,
@@ -96,7 +96,7 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 			if !ok {
 				return nil, fmt.Errorf("follow_up: session disappeared for agent %q", agentID)
 			}
-			if delegationResult, ok := result.Value.(DelegationResult); ok {
+			if delegationResult, ok := result.Value.(Result); ok {
 				delegationResult.FollowUpCount = updated.FollowUpCount
 				result.Value = delegationResult
 			}
