@@ -30,7 +30,9 @@ type noopEventSink struct{}
 
 func (noopEventSink) Emit(output.Event) {}
 
-type stubProvider struct{}
+type stubProvider struct {
+	name string
+}
 
 func (stubProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
 	return provider.ChatResponse{}, nil

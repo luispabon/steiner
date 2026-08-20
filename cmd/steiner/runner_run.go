@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -129,13 +130,23 @@ func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider
 	return prov, nil
 }
 
-// PromptAssembly returns the assembly options used for a normal turn, with an
-// empty conversation. Manual compaction reuses these options so its request
-// replays the identical cached prefix (system + tools + skills + project
-// context) that a normal turn would use, supplying its own conversation via
-// agent.RunRequest.
-func (r cliRunner) PromptAssembly(skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
-	return r.promptAssembly(nil, skillNames, modelBudget, prompts)
+func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec) ([]agent.Message, error) {
+	setup, err := r.prepareRun(nil, skillNames)
+	if err != nil {
+		return nil, err
+	}
+	req := agent.RunRequest{
+		Provider:          setup.provider,
+		Tools:             provider.CloneTools(tools),
+		Prompt:            setup.assembly,
+		ModelBudget:       setup.modelBudget,
+		ResolvedModel:     setup.resolvedModel,
+		Events:            r.runtime.events,
+		CaveHuman:         r.runtime.cfg.CaveHuman,
+		CompactionLogPath: r.runtime.compactionLogFile,
+		PromptCacheKey:    r.promptCacheKey,
+	}
+	return agent.NewRunner().Compact(ctx, req, conversation)
 }
 
 func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {

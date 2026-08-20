@@ -798,13 +798,10 @@ func TestClearConversationResetsSkills(t *testing.T) {
 	}
 }
 
-// runExecutorFunc adapts a function to the runExecutor interface, optionally
-// recording PromptAssembly calls and returning a caller-supplied assembly.
+// runExecutorFunc adapts functions to the runExecutor interface.
 type runExecutorFunc struct {
-	run                func(context.Context, []agent.Message, []string) (RunResult, error)
-	assembly           prompt.AssemblyOptions
-	promptAssemblyFn   func([]string, prompt.ModelTokenBudget, config.ModelPrompts) prompt.AssemblyOptions
-	promptAssemblyCall func([]string, prompt.ModelTokenBudget, config.ModelPrompts)
+	run     func(context.Context, []agent.Message, []string) (RunResult, error)
+	compact func(context.Context, []agent.Message, []string, []provider.ToolSpec) ([]agent.Message, error)
 }
 
 func newRunExecutorFunc(run func(context.Context, []agent.Message, []string) (RunResult, error)) *runExecutorFunc {
@@ -815,14 +812,11 @@ func (f *runExecutorFunc) Run(ctx context.Context, conversation []agent.Message,
 	return f.run(ctx, conversation, skillNames)
 }
 
-func (f *runExecutorFunc) PromptAssembly(skillNames []string, budget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
-	if f.promptAssemblyCall != nil {
-		f.promptAssemblyCall(skillNames, budget, prompts)
+func (f *runExecutorFunc) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec) ([]agent.Message, error) {
+	if f.compact == nil {
+		return conversation, nil
 	}
-	if f.promptAssemblyFn != nil {
-		return f.promptAssemblyFn(skillNames, budget, prompts)
-	}
-	return f.assembly
+	return f.compact(ctx, conversation, skillNames, tools)
 }
 
 // recordingHistoryWriter implements historyWriter for testing.

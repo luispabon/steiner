@@ -46,9 +46,6 @@ func (m *Model) recentWheelMouseInput() bool {
 }
 
 func (m *Model) handleOverlayKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
-	if !m.hasOpenOverlay() {
-		return false, m, nil
-	}
 	for _, handler := range overlayKeyHandlers {
 		if !handler.matches(m) {
 			continue
@@ -168,22 +165,6 @@ func (m *Model) handleSelectionEscKey() (bool, tea.Model, tea.Cmd) {
 		return true, m, nil
 	}
 	return false, m, nil
-}
-
-func (m *Model) hasOpenOverlay() bool {
-	return m.modelPicker.IsOpen() ||
-		m.reasoningPicker.IsOpen() ||
-		m.workflowHandoff.IsOpen() ||
-		m.exitModal.IsOpen() ||
-		m.slashOverlay.IsOpen() ||
-		m.fileList.IsOpen() ||
-		m.mcpOverlay.IsOpen() ||
-		m.contextOverlay.IsOpen() ||
-		m.filePicker.IsOpen() ||
-		m.sessionPicker.IsOpen() ||
-		m.oneshotResumePicker.IsOpen() ||
-		m.planPicker.IsOpen() ||
-		m.accentPicker.IsOpen()
 }
 
 func (m *Model) openContextOverlayImmediate() {

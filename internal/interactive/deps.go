@@ -7,7 +7,6 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
@@ -27,9 +26,9 @@ type runExecutor interface {
 	// Returns the updated conversation on success.
 	Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (RunResult, error)
 
-	// PromptAssembly returns the assembly options used for a normal turn, so
-	// compaction replays the identical cached prefix.
-	PromptAssembly(skillNames []string, budget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions
+	// Compact reduces the conversation through the same runner seam used by
+	// normal runs.
+	Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec) ([]agent.Message, error)
 }
 
 // historyWriter persists and loads prompt history for an interactive session.
@@ -42,6 +41,7 @@ type historyWriter interface {
 }
 
 // sessionStore persists and loads conversation sessions with lineage metadata.
+// Consumer-defined to avoid coupling to cmd/steiner or internal/history.
 type sessionStore interface {
 	// Save persists a session to disk.
 	Save(session.Session) error
@@ -61,8 +61,6 @@ type Dependencies struct {
 	SessionStore      sessionStore
 	SkillNames        []string
 	Config            config.Config
-	Provider          provider.Provider
-	ProviderFactory   func(provider.ResolvedModel) (provider.Provider, error)
 	HTTPClient        *http.Client
 	HomeDir           string
 	WorkDir           string

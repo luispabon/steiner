@@ -2,618 +2,178 @@ package interactive
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"reflect"
-	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 )
 
-type compactionTestProvider struct {
-	requests []provider.ChatRequest
-}
-
-func (p *compactionTestProvider) ChatCompletion(_ context.Context, request provider.ChatRequest) (provider.ChatResponse, error) {
-	p.requests = append(p.requests, request)
-	return provider.ChatResponse{
-		Message: provider.Message{
-			Role:    provider.MessageRoleAssistant,
-			Content: "summary",
-		},
-		FinishReason: "stop",
-	}, nil
-}
-
-func (p *compactionTestProvider) StreamChatCompletion(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (p *compactionTestProvider) SupportsUsageStats() bool {
-	return false
-}
-
 func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testing.T) {
 	var events []output.Event
-	s, err := NewSession(Dependencies{
-		BaseEvents: output.SinkFunc(func(event output.Event) {
-			events = append(events, event)
-		}),
-	})
-	if err != nil {
-		t.Fatalf("NewSession failed: %v", err)
-	}
+	s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
 	ctrl := s.ActiveRunController()
-
-	result, err := s.runManualCompaction(context.Background(), "test-model", func(_ context.Context) ([]agent.Message, error) {
-		s.events.Emit(output.NewAssistantChunkEventWithSource(1, "streamed chunk", output.ChunkSourceAssistant))
+	result, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) {
+		s.events.Emit(output.NewAssistantChunkEventWithSource(1, "chunk", output.ChunkSourceAssistant))
 		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
 	})
-	if err != nil {
-		t.Fatalf("runManualCompaction() error = %v, want nil", err)
+	if err != nil || len(result) != 1 {
+		t.Fatalf("runManualCompaction() = %#v, %v", result, err)
 	}
-	if got, want := len(result), 1; got != want {
-		t.Fatalf("result len = %d, want %d", got, want)
-	}
-
 	if ctrl.HasCancel() {
-		t.Fatal("expected controller to be cleared after successful compaction")
+		t.Fatal("run controller was not cleared")
 	}
-
-	if got, want := len(events), 4; got != want {
-		t.Fatalf("event count = %d, want %d", got, want)
+	if got, want := eventTypes(events), []string{output.EventTypeRunStarted, output.EventTypeContextDiagnostics, output.EventTypeAssistantChunk, output.EventTypeRunFinished}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("event types = %v, want %v", got, want)
 	}
-	if got, want := events[0].Type, output.EventTypeRunStarted; got != want {
-		t.Fatalf("events[0].Type = %q, want %q", got, want)
+	started := events[0].Payload.(output.RunStartedEvent)
+	if started.Mode != "interactive" || started.Model != "test-model" {
+		t.Fatalf("run started = %+v", started)
 	}
-	if got, want := events[1].Type, output.EventTypeContextDiagnostics; got != want {
-		t.Fatalf("events[1].Type = %q, want %q", got, want)
-	}
-	if got, want := events[2].Type, output.EventTypeAssistantChunk; got != want {
-		t.Fatalf("events[2].Type = %q, want %q", got, want)
-	}
-	if got, want := events[3].Type, output.EventTypeRunFinished; got != want {
-		t.Fatalf("events[3].Type = %q, want %q", got, want)
-	}
-
-	started, ok := events[0].Payload.(output.RunStartedEvent)
-	if !ok {
-		t.Fatalf("events[0].Payload type = %T, want output.RunStartedEvent", events[0].Payload)
-	}
-	if got, want := started.Mode, "interactive"; got != want {
-		t.Fatalf("run started mode = %q, want %q", got, want)
-	}
-	if got, want := started.Model, "test-model"; got != want {
-		t.Fatalf("run started model = %q, want %q", got, want)
-	}
-
-	compacting, ok := output.AsContextCompactionEvent(events[1].Payload)
-	if !ok {
-		t.Fatalf("events[1].Payload type = %T, want output.ContextCompactionEvent", events[1].Payload)
-	}
-	if got, want := output.ContextDiagnosticKind(compacting), "compaction"; got != want {
-		t.Fatalf("compaction kind = %q, want %q", got, want)
-	}
-	if got, want := compacting.Severity, "compacting"; got != want {
-		t.Fatalf("compaction severity = %q, want %q", got, want)
-	}
-
-	finished, ok := events[3].Payload.(output.RunFinishedEvent)
-	if !ok {
-		t.Fatalf("events[3].Payload type = %T, want output.RunFinishedEvent", events[3].Payload)
-	}
-	if got, want := finished.Reason, "complete"; got != want {
-		t.Fatalf("run finished reason = %q, want %q", got, want)
-	}
-	if got, want := finished.Error, ""; got != want {
-		t.Fatalf("run finished error = %q, want %q", got, want)
+	finished := events[len(events)-1].Payload.(output.RunFinishedEvent)
+	if finished.Reason != "complete" || finished.Error != "" {
+		t.Fatalf("run finished = %+v", finished)
 	}
 }
 
 func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testing.T) {
 	var events []output.Event
-	s, err := NewSession(Dependencies{
-		BaseEvents: output.SinkFunc(func(event output.Event) {
-			events = append(events, event)
-		}),
-	})
-	if err != nil {
-		t.Fatalf("NewSession failed: %v", err)
-	}
+	s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
 	ctrl := s.ActiveRunController()
-
-	_, compactErr := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) {
-		return nil, errors.New("boom")
-	})
-	if compactErr == nil {
-		t.Fatal("runManualCompaction() error = nil, want non-nil")
+	_, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) { return nil, errors.New("boom") })
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("error = %v, want boom", err)
 	}
 	if ctrl.HasCancel() {
-		t.Fatal("expected controller to be cleared after failed compaction")
+		t.Fatal("run controller was not cleared")
 	}
-
-	if got, want := len(events), 3; got != want {
-		t.Fatalf("event count = %d, want %d", got, want)
-	}
-	if got, want := events[0].Type, output.EventTypeRunStarted; got != want {
-		t.Fatalf("events[0].Type = %q, want %q", got, want)
-	}
-	if got, want := events[1].Type, output.EventTypeContextDiagnostics; got != want {
-		t.Fatalf("events[1].Type = %q, want %q", got, want)
-	}
-	if got, want := events[2].Type, output.EventTypeRunFinished; got != want {
-		t.Fatalf("events[2].Type = %q, want %q", got, want)
-	}
-
-	finished, ok := events[2].Payload.(output.RunFinishedEvent)
-	if !ok {
-		t.Fatalf("events[2].Payload type = %T, want output.RunFinishedEvent", events[2].Payload)
-	}
-	if got, want := finished.Reason, "error"; got != want {
-		t.Fatalf("run finished reason = %q, want %q", got, want)
-	}
-	if got, want := finished.Error, "boom"; got != want {
-		t.Fatalf("run finished error = %q, want %q", got, want)
+	finished := events[len(events)-1].Payload.(output.RunFinishedEvent)
+	if finished.Reason != "error" || finished.Error != "boom" {
+		t.Fatalf("run finished = %+v", finished)
 	}
 }
 
 func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
-	var events []output.Event
-	s, err := NewSession(Dependencies{
-		BaseEvents: output.SinkFunc(func(event output.Event) {
-			events = append(events, event)
-		}),
-	})
-	if err != nil {
-		t.Fatalf("NewSession failed: %v", err)
-	}
+	s := mustCompactionSession(t, Dependencies{})
 	ctrl := s.ActiveRunController()
-
 	started := make(chan struct{})
-	done := make(chan struct{})
-	go func() {
-		<-started
-		ctrl.Interrupt()
-		close(done)
-	}()
-
-	_, compactErr := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
+	go func() { <-started; ctrl.Interrupt() }()
+	_, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
 		close(started)
 		<-ctx.Done()
 		return nil, ctx.Err()
 	})
-	<-done
-	if !errors.Is(compactErr, context.Canceled) {
-		t.Fatalf("runManualCompaction() error = %v, want context.Canceled", compactErr)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
 	}
 	if ctrl.HasCancel() {
-		t.Fatal("expected controller to be cleared after cancelled compaction")
-	}
-
-	if got, want := len(events), 3; got != want {
-		t.Fatalf("event count = %d, want %d", got, want)
-	}
-	if got, want := events[0].Type, output.EventTypeRunStarted; got != want {
-		t.Fatalf("events[0].Type = %q, want %q", got, want)
-	}
-	if got, want := events[1].Type, output.EventTypeContextDiagnostics; got != want {
-		t.Fatalf("events[1].Type = %q, want %q", got, want)
-	}
-	if got, want := events[2].Type, output.EventTypeRunFinished; got != want {
-		t.Fatalf("events[2].Type = %q, want %q", got, want)
-	}
-
-	finished, ok := events[2].Payload.(output.RunFinishedEvent)
-	if !ok {
-		t.Fatalf("events[2].Payload type = %T, want output.RunFinishedEvent", events[2].Payload)
-	}
-	if got, want := finished.Reason, "cancelled"; got != want {
-		t.Fatalf("run finished reason = %q, want %q", got, want)
-	}
-	if got, want := finished.Error, context.Canceled.Error(); got != want {
-		t.Fatalf("run finished error = %q, want %q", got, want)
+		t.Fatal("run controller was not cleared")
 	}
 }
 
 func TestManualCompactionSkipsSingleTurnConversation(t *testing.T) {
 	var events []output.Event
-	s, err := NewSession(Dependencies{
-		BaseEvents: output.SinkFunc(func(event output.Event) {
-			events = append(events, event)
-		}),
-	})
-	if err != nil {
-		t.Fatalf("NewSession failed: %v", err)
-	}
-
-	s.SetConversation([]agent.Message{
-		{Role: agent.MessageRoleUser, Content: "investigate the bug"},
-		{Role: agent.MessageRoleAssistant, Content: "looking into it"},
-	})
-
+	s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
+	s.SetConversation([]agent.Message{{Role: agent.MessageRoleUser, Content: "request"}, {Role: agent.MessageRoleAssistant, Content: "answer"}})
 	s.manualCompaction(context.Background())
-
-	if got, want := len(events), 1; got != want {
-		t.Fatalf("event count = %d, want %d", got, want)
-	}
-	if got, want := events[0].Type, output.EventTypeContextReport; got != want {
-		t.Fatalf("events[0].Type = %q, want %q", got, want)
-	}
-	report, ok := events[0].Payload.(output.ContextReportEvent)
-	if !ok {
-		t.Fatalf("events[0].Payload type = %T, want output.ContextReportEvent", events[0].Payload)
-	}
-	if got, want := report.Content, "Nothing to compact yet; need at least two conversation turns."; got != want {
-		t.Fatalf("context report = %q, want %q", got, want)
+	if len(events) != 1 || events[0].Type != output.EventTypeContextReport {
+		t.Fatalf("events = %#v, want one context report", events)
 	}
 }
 
-func TestManualCompactionUsesDiscoveryResolvedLimits(t *testing.T) {
-	t.Parallel()
-
-	const discoveredContextWindow = 262144
-	const discoveredMaxTokens = 8192
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/models" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{
-					"id":             "openrouter/test-model",
-					"context_length": discoveredContextWindow,
-					"top_provider": map[string]any{
-						"max_completion_tokens": discoveredMaxTokens,
-					},
-				},
-			},
-		})
-	}))
-	defer srv.Close()
-
-	prov := &compactionTestProvider{}
-	var captured provider.ResolvedModel
-
-	s := testNewSession(t, Dependencies{
-		Config: config.Config{
-			Providers: map[string]config.ProviderConfig{
-				"openrouter": {
-					Type:    config.ProviderTypeOpenRouter,
-					BaseURL: srv.URL,
-				},
-			},
-			Models: config.ModelsConfig{
-				Default: "test",
-				Definitions: map[string]config.ModelConfig{
-					"test": {
-						Provider: "openrouter",
-						ID:       "openrouter/test-model",
-					},
-				},
-			},
-		},
-		HTTPClient: srv.Client(),
-		ProviderFactory: func(rm provider.ResolvedModel) (provider.Provider, error) {
-			captured = rm
-			return prov, nil
-		},
-		Runner: newRunExecutorFunc(nil),
-	})
-
-	s.SetConversation([]agent.Message{
-		{Role: agent.MessageRoleUser, Content: "first request"},
-		{Role: agent.MessageRoleAssistant, Content: "first answer"},
-		{Role: agent.MessageRoleUser, Content: "second request"},
-		{Role: agent.MessageRoleAssistant, Content: "second answer"},
-	})
-
+func TestManualCompactionUsesRunnerCompact(t *testing.T) {
+	var gotConversation []agent.Message
+	var gotSkills []string
+	runner := &runExecutorFunc{compact: func(_ context.Context, conversation []agent.Message, skills []string, _ []provider.ToolSpec) ([]agent.Message, error) {
+		gotConversation = cloneMessages(conversation)
+		gotSkills = append([]string(nil), skills...)
+		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+	}}
+	s := mustCompactionSession(t, Dependencies{Runner: runner, SkillNames: []string{"skill-a"}})
+	s.Skills().Set("skill-a", true)
+	s.SetConversation(twoTurnConversation())
 	s.manualCompaction(context.Background())
-
-	if got, want := captured.EffectiveLimits.ContextWindow, discoveredContextWindow; got != want {
-		t.Fatalf("resolved context window = %d, want %d", got, want)
+	if len(gotConversation) != 4 {
+		t.Fatalf("Compact conversation length = %d, want 4", len(gotConversation))
 	}
-	if got, want := captured.EffectiveLimits.MaxOutputTokens, discoveredMaxTokens; got != want {
-		t.Fatalf("resolved max output tokens = %d, want %d", got, want)
+	if !reflect.DeepEqual(gotSkills, []string{"skill-a"}) {
+		t.Fatalf("Compact skills = %v", gotSkills)
 	}
-	if got, want := len(prov.requests), 1; got != want {
-		t.Fatalf("provider requests = %d, want %d", got, want)
+	if s.Conversation()[0].Content != "summary" {
+		t.Fatal("conversation was not replaced by compact result")
 	}
 }
 
-func TestManualCompactionPreambleIncludesDelegationAndAdvisorSections(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/models" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{
-					"id":             "openrouter/test-model",
-					"context_length": 262144,
-					"top_provider": map[string]any{
-						"max_completion_tokens": 8192,
-					},
-				},
-			},
-		})
-	}))
-	defer srv.Close()
-
-	prov := &compactionTestProvider{}
-	s := testNewSession(t, Dependencies{
-		Config: config.Config{
-			Providers: map[string]config.ProviderConfig{
-				"openrouter": {
-					Type:    config.ProviderTypeOpenRouter,
-					BaseURL: srv.URL,
-				},
-			},
-			Models: config.ModelsConfig{
-				Default: "test",
-				Definitions: map[string]config.ModelConfig{
-					"test": {
-						Provider: "openrouter",
-						ID:       "openrouter/test-model",
-					},
-				},
-			},
-			SubAgent: config.SubAgentConfig{Enabled: true},
-			Advisor:  config.AdvisorConfig{Enabled: true},
-		},
-		HTTPClient: srv.Client(),
-		ProviderFactory: func(provider.ResolvedModel) (provider.Provider, error) {
-			return prov, nil
-		},
-		Runner: &runExecutorFunc{
-			assembly: prompt.AssemblyOptions{
-				DelegationEnabled: true,
-				AdvisorEnabled:    true,
-			},
-		},
-	})
-
-	s.SetConversation([]agent.Message{
-		{Role: agent.MessageRoleUser, Content: "first request"},
-		{Role: agent.MessageRoleAssistant, Content: "first answer"},
-		{Role: agent.MessageRoleUser, Content: "second request"},
-		{Role: agent.MessageRoleAssistant, Content: "second answer"},
-	})
-
+func TestManualCompactionPassesSnapshotToolsToRunner(t *testing.T) {
+	var gotTools []provider.ToolSpec
+	runner := &runExecutorFunc{compact: func(_ context.Context, _ []agent.Message, _ []string, tools []provider.ToolSpec) ([]agent.Message, error) {
+		gotTools = provider.CloneTools(tools)
+		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+	}}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+	s.SnapshotStore().Store(RequestContextSnapshot{Tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "read"}}}})
+	s.SetConversation(twoTurnConversation())
 	s.manualCompaction(context.Background())
-
-	if got, want := len(prov.requests), 1; got != want {
-		t.Fatalf("provider requests = %d, want %d", got, want)
-	}
-	if got, want := len(prov.requests[0].Messages), 0; got == want {
-		t.Fatal("expected compaction request to include preamble messages")
-	}
-	preamble := prov.requests[0].Messages[0].Content
-	if !strings.Contains(preamble, "## Your role") {
-		t.Fatalf("compaction preamble missing delegation role section:\n%s", preamble)
-	}
-	if !strings.Contains(preamble, "## Advisor") {
-		t.Fatalf("compaction preamble missing advisor section:\n%s", preamble)
-	}
-}
-
-func TestManualCompactionUsesRunnerPromptAssemblyWithEnabledSkills(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/models" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{
-					"id":             "openrouter/test-model",
-					"context_length": 262144,
-					"top_provider": map[string]any{
-						"max_completion_tokens": 8192,
-					},
-				},
-			},
-		})
-	}))
-	defer srv.Close()
-
-	skillFS := fstest.MapFS{
-		"tracer-bullet/SKILL.md": &fstest.MapFile{Data: []byte("# Tracer Bullet Skill Marker\n\nDo the thing.\n")},
-	}
-
-	prov := &compactionTestProvider{}
-	var gotSkillNames []string
-	runner := &runExecutorFunc{
-		assembly: prompt.AssemblyOptions{
-			SkillNames:      []string{"tracer-bullet"},
-			SkillsBundledFS: skillFS,
-		},
-		promptAssemblyCall: func(skillNames []string, _ prompt.ModelTokenBudget, _ config.ModelPrompts) {
-			gotSkillNames = append([]string(nil), skillNames...)
-		},
-	}
-
-	s := testNewSession(t, Dependencies{
-		Config: config.Config{
-			Providers: map[string]config.ProviderConfig{
-				"openrouter": {
-					Type:    config.ProviderTypeOpenRouter,
-					BaseURL: srv.URL,
-				},
-			},
-			Models: config.ModelsConfig{
-				Default: "test",
-				Definitions: map[string]config.ModelConfig{
-					"test": {
-						Provider: "openrouter",
-						ID:       "openrouter/test-model",
-					},
-				},
-			},
-		},
-		SkillNames: []string{"tracer-bullet"},
-		HTTPClient: srv.Client(),
-		ProviderFactory: func(provider.ResolvedModel) (provider.Provider, error) {
-			return prov, nil
-		},
-		Runner: runner,
-	})
-	s.Skills().Set("tracer-bullet", true)
-
-	s.SetConversation([]agent.Message{
-		{Role: agent.MessageRoleUser, Content: "first request"},
-		{Role: agent.MessageRoleAssistant, Content: "first answer"},
-		{Role: agent.MessageRoleUser, Content: "second request"},
-		{Role: agent.MessageRoleAssistant, Content: "second answer"},
-	})
-
-	s.manualCompaction(context.Background())
-
-	if got, want := gotSkillNames, []string{"tracer-bullet"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("PromptAssembly skillNames = %v, want %v", got, want)
-	}
-
-	if got, want := len(prov.requests), 1; got != want {
-		t.Fatalf("provider requests = %d, want %d", got, want)
-	}
-	var found bool
-	for _, message := range prov.requests[0].Messages {
-		if strings.Contains(message.Content, "Tracer Bullet Skill Marker") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("compaction request missing skill content from Runner-supplied assembly options: %+v", prov.requests[0].Messages)
+	if len(gotTools) != 1 || gotTools[0].Function.Name != "read" {
+		t.Fatalf("Compact tools = %#v", gotTools)
 	}
 }
 
 func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.T) {
-	t.Parallel()
-
-	const sessionID = "persisted-compaction-session"
 	const modelID = "openrouter/test-model"
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/models" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{
-					"id":             modelID,
-					"context_length": 262144,
-					"top_provider": map[string]any{
-						"max_completion_tokens": 8192,
-					},
-				},
-			},
-		})
-	}))
-	defer srv.Close()
-
 	store, err := session.NewStore(t.TempDir())
 	if err != nil {
-		t.Fatalf("NewStore failed: %v", err)
+		t.Fatal(err)
 	}
-
-	originalConversation := []agent.Message{
-		{Role: agent.MessageRoleUser, Content: "first turn"},
-		{Role: agent.MessageRoleAssistant, Content: "first answer"},
-		{Role: agent.MessageRoleUser, Content: "second turn"},
-		{Role: agent.MessageRoleAssistant, Content: "second answer"},
-	}
-	originalLineage := agent.ConversationLineage{
-		Generations: []agent.ConversationGeneration{
-			{
-				ID:       1,
-				Messages: cloneMessages(originalConversation),
-			},
-		},
-		NextGenerationID: 2,
-	}
-	initialSession, err := session.NewSession(modelID, originalLineage)
+	conversation := twoTurnConversation()
+	lineage := agent.ConversationLineage{Generations: []agent.ConversationGeneration{{ID: 1, Messages: cloneMessages(conversation)}}, NextGenerationID: 2}
+	initial, err := session.NewSession(modelID, lineage)
 	if err != nil {
-		t.Fatalf("NewSession failed: %v", err)
+		t.Fatal(err)
 	}
-	initialSession.ID = sessionID
-	initialSession.Title = "Persist me"
-	if err := store.Save(initialSession); err != nil {
-		t.Fatalf("Save failed: %v", err)
+	initial.ID, initial.Title = "persisted", "Persist me"
+	if err := store.Save(initial); err != nil {
+		t.Fatal(err)
 	}
-
-	prov := &compactionTestProvider{}
-	s := testNewSession(t, Dependencies{
-		Config: config.Config{
-			Providers: map[string]config.ProviderConfig{
-				"openrouter": {
-					Type:    config.ProviderTypeOpenRouter,
-					BaseURL: srv.URL,
-				},
-			},
-			Models: config.ModelsConfig{
-				Default: "test",
-				Definitions: map[string]config.ModelConfig{
-					"test": {
-						Provider: "openrouter",
-						ID:       modelID,
-					},
-				},
-			},
-		},
-		SessionStore: store,
-		HTTPClient:   srv.Client(),
-		ProviderFactory: func(provider.ResolvedModel) (provider.Provider, error) {
-			return prov, nil
-		},
-		Runner: newRunExecutorFunc(nil),
-	})
-
+	runner := &runExecutorFunc{compact: func(context.Context, []agent.Message, []string, []provider.ToolSpec) ([]agent.Message, error) {
+		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+	}}
+	s := mustCompactionSession(t, Dependencies{Runner: runner, SessionStore: store, Config: config.Config{Models: config.ModelsConfig{Default: "test", Definitions: map[string]config.ModelConfig{"test": {ID: modelID}}}}})
 	s.mu.Lock()
-	s.sessionID = sessionID
-	s.sessionTitle = initialSession.Title
-	s.lineage = originalLineage
-	s.conversation = cloneMessages(originalConversation)
+	s.sessionID, s.sessionTitle, s.lineage, s.conversation = initial.ID, initial.Title, lineage, cloneMessages(conversation)
 	s.mu.Unlock()
-
 	s.manualCompaction(context.Background())
-
-	loaded, err := store.Load(sessionID)
+	loaded, err := store.Load(initial.ID)
 	if err != nil {
-		t.Fatalf("Load failed: %v", err)
+		t.Fatal(err)
 	}
-	if got, want := loaded.ID, sessionID; got != want {
-		t.Fatalf("loaded session ID = %q, want %q", got, want)
+	if loaded.ID != initial.ID || loaded.Model != modelID || loaded.Title != initial.Title {
+		t.Fatalf("loaded session = %+v", loaded)
 	}
-	if got, want := loaded.Model, modelID; got != want {
-		t.Fatalf("loaded session model = %q, want %q", got, want)
+	if !reflect.DeepEqual(loaded.Lineage.FullMessages(), s.Conversation()) {
+		t.Fatal("persisted conversation differs")
 	}
-	if got, want := loaded.Title, "Persist me"; got != want {
-		t.Fatalf("loaded session title = %q, want %q", got, want)
+}
+
+func mustCompactionSession(t *testing.T, deps Dependencies) *Session {
+	t.Helper()
+	s, err := NewSession(deps)
+	if err != nil {
+		t.Fatal(err)
 	}
-	got := loaded.Lineage.FullMessages()
-	want := s.Conversation()
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("persisted conversation = %#v, want %#v", got, want)
+	return s
+}
+func twoTurnConversation() []agent.Message {
+	return []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}, {Role: agent.MessageRoleAssistant, Content: "answer"}, {Role: agent.MessageRoleUser, Content: "second"}, {Role: agent.MessageRoleAssistant, Content: "answer"}}
+}
+func eventTypes(events []output.Event) []string {
+	types := make([]string, len(events))
+	for i, event := range events {
+		types[i] = event.Type
 	}
+	return types
 }

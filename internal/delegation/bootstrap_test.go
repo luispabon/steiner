@@ -54,6 +54,85 @@ func assertSharedChildSystemPrompt(t *testing.T, content string) {
 	}
 }
 
+func testChildOverride(deps SubAgentHandlerDeps) ChildBootstrapOverrides {
+	var names []string
+	if deps.ParentReg != nil {
+		for _, def := range deps.ParentReg.Definitions() {
+			names = append(names, def.Name)
+		}
+	}
+	var allowedTools []string
+	switch {
+	case slices.Contains(names, "probe"):
+		allowedTools = []string{"probe"}
+	case slices.Contains(names, "mutate"):
+		allowedTools = []string{"mutate"}
+	case slices.Contains(names, "bash") && !slices.Contains(names, "read"):
+		allowedTools = []string{"bash"}
+	case slices.Contains(names, "write"):
+		allowedTools = []string{"read", "write"}
+	default:
+		allowedTools = []string{"read"}
+	}
+	return ChildBootstrapOverrides{
+		AllowedTools:  allowedTools,
+		AgentType:     AgentTypeCode,
+		Provider:      deps.Provider,
+		ResolvedModel: deps.ResolvedModel,
+	}
+}
+
+func TestChildContextSkips(t *testing.T) {
+	tests := []struct {
+		agentType          AgentType
+		skipProjectContext bool
+		skipAgents         bool
+	}{
+		{AgentTypeExplore, true, false},
+		{AgentTypeResearch, true, false},
+		{AgentTypeCode, false, false},
+		{AgentTypeEvaluate, false, false},
+		{AgentTypeSanityCheck, true, false},
+		{AgentTypeReview, false, false},
+		{AgentTypeVision, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.agentType), func(t *testing.T) {
+			gotProjectContext, gotAgents := childContextSkips(tt.agentType)
+			if gotProjectContext != tt.skipProjectContext || gotAgents != tt.skipAgents {
+				t.Errorf("childContextSkips(%q) = (%v, %v), want (%v, %v)", tt.agentType, gotProjectContext, gotAgents, tt.skipProjectContext, tt.skipAgents)
+			}
+		})
+	}
+}
+
+func TestBuildChildRunUsesOverrideProviderAndModel(t *testing.T) {
+	rawProvider := stubProvider{name: "raw"}
+	resolvedProvider := stubProvider{name: "resolved"}
+	deps := SubAgentHandlerDeps{
+		Provider:      rawProvider,
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "raw-model"},
+		ParentReg:     tool.NewRegistry(tool.ToolDef{Name: "read"}),
+	}
+	override := ChildBootstrapOverrides{
+		Provider:      resolvedProvider,
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "resolved-model"},
+		AllowedTools:  []string{"read"},
+	}
+
+	req, _, err := BuildChildRun(context.Background(), deps, override, DelegationSpec{Task: "t", AgentID: "a", Limits: DelegationLimits{MaxTurns: 1}})
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.ResolvedModel.BackendModelID != "resolved-model" {
+		t.Errorf("req.ResolvedModel.BackendModelID = %q, want %q", req.ResolvedModel.BackendModelID, "resolved-model")
+	}
+	gotProvider, ok := req.Provider.(stubProvider)
+	if !ok || gotProvider.name != "resolved" {
+		t.Errorf("req.Provider = %#v, want resolved provider", req.Provider)
+	}
+}
+
 func TestDeriveChildLimits(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -559,13 +638,12 @@ func TestBuildChildRunDoesNotInheritActiveSkills(t *testing.T) {
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 
-	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"read"},
-		Events:       output.NoopSink{},
-		WorkDir:      "/tmp/work",
-		Provider:     stubProvider{},
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
 	}
 
 	spec := DelegationSpec{
@@ -574,7 +652,7 @@ func TestBuildChildRunDoesNotInheritActiveSkills(t *testing.T) {
 		Limits:  DelegationLimits{MaxTurns: 5},
 	}
 
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -592,13 +670,12 @@ func TestBuildChildRunAllowedTools(t *testing.T) {
 		tool.ToolDef{Name: "delegate"},
 	)
 
-	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"read"},
-		Events:       output.NoopSink{},
-		WorkDir:      "/tmp/work",
-		Provider:     stubProvider{},
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
 	}
 
 	spec := DelegationSpec{
@@ -607,7 +684,8 @@ func TestBuildChildRunAllowedTools(t *testing.T) {
 		Limits:  DelegationLimits{MaxTurns: 5},
 	}
 
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	override := ChildBootstrapOverrides{AgentType: AgentTypeCode, AllowedTools: []string{"read"}, Provider: deps.Provider, ResolvedModel: deps.ResolvedModel}
+	req, _, err := BuildChildRun(context.Background(), deps, override, spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -635,12 +713,11 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 		tool.ToolDef{Name: "write", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 
-	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"read", "write"},
-		Events:       output.NoopSink{},
-		WorkDir:      "/tmp/work",
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
 	}
 
 	spec := DelegationSpec{
@@ -649,7 +726,7 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 		Limits:  DelegationLimits{MaxTurns: 5},
 	}
 
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -685,13 +762,12 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 
-	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"read"},
-		Events:       output.NoopSink{},
-		WorkDir:      "/tmp/work",
-		Provider:     stubProvider{},
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
 	}
 
 	spec := DelegationSpec{
@@ -700,7 +776,7 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 		Limits:  DelegationLimits{MaxTurns: 5},
 	}
 
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -714,17 +790,16 @@ func TestBuildChildRunIncludesModel(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
-	deps := BootstrapDeps{
+	deps := SubAgentHandlerDeps{
 		ParentReg:     parent,
 		SubAgentCfg:   config.SubAgentConfig{},
-		AllowedTools:  []string{"read"},
 		Events:        output.NoopSink{},
 		WorkDir:       "/tmp/work",
 		Provider:      stubProvider{},
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 	}
 	spec := DelegationSpec{Task: "task", AgentID: "m1", Limits: DelegationLimits{MaxTurns: 1}}
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -738,17 +813,16 @@ func TestBuildChildRunIncludesMaxTokens(t *testing.T) {
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 	mt := 42000
-	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"read"},
-		Events:       output.NoopSink{},
-		WorkDir:      "/tmp/work",
-		Provider:     stubProvider{},
-		MaxTokens:    &mt,
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+		MaxTokens:   &mt,
 	}
 	spec := DelegationSpec{Task: "task", AgentID: "m2", Limits: DelegationLimits{MaxTurns: 1}}
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -764,13 +838,12 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
-	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"read"},
-		Events:       output.NoopSink{},
-		WorkDir:      "/tmp/work",
-		Provider:     stubProvider{},
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
 		ResolvedModel: provider.ResolvedModel{
 			EffectiveLimits: provider.EffectiveLimits{
 				ContextWindow:             128000,
@@ -784,7 +857,7 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 	}
 	wantBudget := prompt.ModelBudgetFromEffectiveLimits(deps.ResolvedModel.EffectiveLimits)
 	spec := DelegationSpec{Task: "task", AgentID: "m3", Limits: DelegationLimits{MaxTurns: 1}}
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -797,17 +870,16 @@ func TestBuildChildRunIncludesStreamingPreferred(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
-	deps := BootstrapDeps{
+	deps := SubAgentHandlerDeps{
 		ParentReg:          parent,
 		SubAgentCfg:        config.SubAgentConfig{},
-		AllowedTools:       []string{"read"},
 		Events:             output.NoopSink{},
 		WorkDir:            "/tmp/work",
 		Provider:           stubProvider{},
 		StreamingPreferred: true,
 	}
 	spec := DelegationSpec{Task: "task", AgentID: "m4", Limits: DelegationLimits{MaxTurns: 1}}
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -820,16 +892,15 @@ func TestBuildChildRunIncludesTurnTimeout(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
-	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"read"},
-		Events:       output.NoopSink{},
-		WorkDir:      "/tmp/work",
-		Provider:     stubProvider{},
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
 	}
 	spec := DelegationSpec{Task: "task", AgentID: "m5", Limits: DelegationLimits{MaxTurns: 1, Timeout: 42 * time.Second}}
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -961,15 +1032,14 @@ func TestBuildChildRun(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			deps := BootstrapDeps{
-				ParentReg:    parent,
-				SubAgentCfg:  config.SubAgentConfig{},
-				AllowedTools: []string{"read", "write"},
-				Events:       output.NoopSink{},
-				WorkDir:      "/tmp/work",
-				Provider:     stubProvider{},
+			deps := SubAgentHandlerDeps{
+				ParentReg:   parent,
+				SubAgentCfg: config.SubAgentConfig{},
+				Events:      output.NoopSink{},
+				WorkDir:     "/tmp/work",
+				Provider:    stubProvider{},
 			}
-			req, _, err := BuildChildRun(context.Background(), deps, tt.spec)
+			req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), tt.spec)
 			if err != nil {
 				t.Fatalf("BuildChildRun() error = %v", err)
 			}
@@ -986,16 +1056,15 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 
 	t.Run("recorder set when non-nil", func(t *testing.T) {
 		rec := usagestats.New(nil)
-		deps := BootstrapDeps{
+		deps := SubAgentHandlerDeps{
 			ParentReg:     parent,
 			SubAgentCfg:   config.SubAgentConfig{},
-			AllowedTools:  []string{"read"},
 			Events:        output.NoopSink{},
 			WorkDir:       "/tmp/work",
 			Provider:      stubProvider{},
 			UsageRecorder: rec,
 		}
-		req, _, err := BuildChildRun(context.Background(), deps, spec)
+		req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 		if err != nil {
 			t.Fatalf("BuildChildRun() error = %v", err)
 		}
@@ -1005,16 +1074,15 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 	})
 
 	t.Run("recorder stays nil when not provided", func(t *testing.T) {
-		deps := BootstrapDeps{
+		deps := SubAgentHandlerDeps{
 			ParentReg:     parent,
 			SubAgentCfg:   config.SubAgentConfig{},
-			AllowedTools:  []string{"read"},
 			Events:        output.NoopSink{},
 			WorkDir:       "/tmp/work",
 			Provider:      stubProvider{},
 			UsageRecorder: nil,
 		}
-		req, _, err := BuildChildRun(context.Background(), deps, spec)
+		req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 		if err != nil {
 			t.Fatalf("BuildChildRun() error = %v", err)
 		}
@@ -1025,24 +1093,23 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 }
 
 // TestBuildChildRunSandboxDisabled proves the child prompt's sandbox section
-// follows the plain SandboxEnabled value on BootstrapDeps: when the parent
+// follows the plain SandboxEnabled value on SubAgentHandlerDeps: when the parent
 // sandbox is disabled (or bypassed), the child preamble renders no sandbox
 // section and carries no writable mounts.
 func TestBuildChildRunSandboxDisabled(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
-	deps := BootstrapDeps{
+	deps := SubAgentHandlerDeps{
 		ParentReg:      parent,
 		SubAgentCfg:    config.SubAgentConfig{},
-		AllowedTools:   []string{"read"},
 		Events:         output.NoopSink{},
 		WorkDir:        "/tmp/work",
 		Provider:       stubProvider{},
 		SandboxEnabled: false, // no sandbox
 	}
 	spec := DelegationSpec{Task: "task", AgentID: "sandbox-disabled", Limits: DelegationLimits{MaxTurns: 1}}
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -1056,16 +1123,15 @@ func TestBuildChildRunSandboxDisabled(t *testing.T) {
 
 // TestBuildChildRunSandboxEnabled proves the child prompt's sandbox section
 // follows the plain SandboxEnabled and SandboxWritableMounts values on
-// BootstrapDeps: when the parent sandbox is active, the child preamble renders
+// SubAgentHandlerDeps: when the parent sandbox is active, the child preamble renders
 // the same sandbox section with the writable mount paths.
 func TestBuildChildRunSandboxEnabled(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
-	deps := BootstrapDeps{
+	deps := SubAgentHandlerDeps{
 		ParentReg:             parent,
 		SubAgentCfg:           config.SubAgentConfig{},
-		AllowedTools:          []string{"read"},
 		Events:                output.NoopSink{},
 		WorkDir:               "/tmp/work",
 		Provider:              stubProvider{},
@@ -1073,7 +1139,7 @@ func TestBuildChildRunSandboxEnabled(t *testing.T) {
 		SandboxWritableMounts: []string{"/var/log", "/srv/data"},
 	}
 	spec := DelegationSpec{Task: "task", AgentID: "sandbox-enabled", Limits: DelegationLimits{MaxTurns: 1}}
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -1104,7 +1170,7 @@ func (w *recordingSandboxWrapper) WrapCommandMode(cmd *exec.Cmd, readOnlyProject
 }
 
 // TestChildBashIsSandboxed proves the parent's sandbox wrapper survives the
-// child bootstrap chain: BootstrapDeps.Sandbox -> child tool.Executor ->
+// child bootstrap chain: SubAgentHandlerDeps.Sandbox -> child tool.Executor ->
 // SandboxWrapperKey resolved per call -> bash handler. The sentinel wrapper
 // must fire when the child runs bash. This is what #507 doubted.
 func TestChildBashIsSandboxed(t *testing.T) {
@@ -1118,14 +1184,13 @@ func TestChildBashIsSandboxed(t *testing.T) {
 	parent := tool.NewRegistry(builtin.NewBashTool(env))
 
 	wrapper := &recordingSandboxWrapper{}
-	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"bash"},
-		Events:       output.NoopSink{},
-		WorkDir:      workDir,
-		Provider:     stubProvider{},
-		Sandbox:      wrapper,
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     workDir,
+		Provider:    stubProvider{},
+		Sandbox:     wrapper,
 	}
 	spec := DelegationSpec{
 		Task:    "task",
@@ -1133,7 +1198,7 @@ func TestChildBashIsSandboxed(t *testing.T) {
 		Limits:  DelegationLimits{MaxTurns: 1},
 	}
 
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -1149,7 +1214,7 @@ func TestChildBashIsSandboxed(t *testing.T) {
 
 // TestChildModeGetterAppliesReadOnlyProjectInPlanMode proves a non-explore
 // child (which gets no readOnlyBash flag) still inherits the parent's live
-// execution mode via BootstrapDeps.ModeGetter, so its own executor resolves
+// execution mode via SubAgentHandlerDeps.ModeGetter, so its own executor resolves
 // readOnlyProject the same way the parent's would in plan mode.
 func TestChildModeGetterAppliesReadOnlyProjectInPlanMode(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
@@ -1162,16 +1227,14 @@ func TestChildModeGetterAppliesReadOnlyProjectInPlanMode(t *testing.T) {
 	parent := tool.NewRegistry(builtin.NewBashTool(env))
 
 	wrapper := &recordingSandboxWrapper{}
-	deps := BootstrapDeps{
-		ParentReg:    parent,
-		SubAgentCfg:  config.SubAgentConfig{},
-		AllowedTools: []string{"bash"},
-		Events:       output.NoopSink{},
-		WorkDir:      workDir,
-		Provider:     stubProvider{},
-		Sandbox:      wrapper,
-		AgentType:    AgentTypeResearch,
-		ModeGetter:   func() config.ExecutionMode { return config.ExecutionModePlan },
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     workDir,
+		Provider:    stubProvider{},
+		Sandbox:     wrapper,
+		ModeGetter:  func() config.ExecutionMode { return config.ExecutionModePlan },
 	}
 	spec := DelegationSpec{
 		Task:    "task",
@@ -1179,7 +1242,7 @@ func TestChildModeGetterAppliesReadOnlyProjectInPlanMode(t *testing.T) {
 		Limits:  DelegationLimits{MaxTurns: 1},
 	}
 
-	req, _, err := BuildChildRun(context.Background(), deps, spec)
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -1213,17 +1276,17 @@ func TestChildExploreBashContextIsReadOnly(t *testing.T) {
 					return nil, nil
 				},
 			})
-			deps := BootstrapDeps{
+			deps := SubAgentHandlerDeps{
 				ParentReg:      parent,
 				SubAgentCfg:    config.SubAgentConfig{},
-				AllowedTools:   []string{"probe"},
 				Events:         output.NoopSink{},
 				WorkDir:        "/tmp/work",
 				Provider:       stubProvider{},
-				AgentType:      tt.agentType,
 				SandboxEnabled: true,
 			}
-			req, _, err := BuildChildRun(context.Background(), deps, DelegationSpec{Task: "task", AgentID: tt.name, Limits: DelegationLimits{MaxTurns: 1}})
+			override := testChildOverride(deps)
+			override.AgentType = tt.agentType
+			req, _, err := BuildChildRun(context.Background(), deps, override, DelegationSpec{Task: "task", AgentID: tt.name, Limits: DelegationLimits{MaxTurns: 1}})
 			if err != nil {
 				t.Fatalf("BuildChildRun() error = %v", err)
 			}
@@ -1362,16 +1425,15 @@ func TestBuildChildRunSandboxTmpDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			deps := BootstrapDeps{
+			deps := SubAgentHandlerDeps{
 				ParentReg:     parent,
 				SubAgentCfg:   config.SubAgentConfig{},
-				AllowedTools:  []string{"mutate"},
 				Events:        output.NoopSink{},
 				WorkDir:       workDir,
 				Provider:      stubProvider{},
 				SandboxTmpDir: tt.sandboxTmpDir,
 			}
-			req, _, err := BuildChildRun(context.Background(), deps, spec)
+			req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 			if err != nil {
 				t.Fatalf("BuildChildRun() error = %v", err)
 			}
