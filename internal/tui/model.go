@@ -108,6 +108,7 @@ type Model struct {
 	mcpWarned          map[string]bool // servers that already surfaced a failure warning in the current failure generation
 	enabledSkills      map[string]bool
 	modelNames         []string
+	modelBackendAlias  map[string]string
 	modelContexts      map[string]int
 	modelBaseURLs      map[string]string
 	modelProviderNames map[string]string
@@ -428,6 +429,14 @@ func cloneStringMap(src map[string]string) map[string]string {
 		dst[k] = v
 	}
 	return dst
+}
+
+func resolveModelBadge(backend string, aliases, reasoningLabels map[string]string) (string, string) {
+	alias := backend
+	if a, ok := aliases[backend]; ok {
+		alias = a
+	}
+	return alias, reasoningLabels[alias]
 }
 
 // reasoningSidebarLabel derives the sidebar/picker label for a model's

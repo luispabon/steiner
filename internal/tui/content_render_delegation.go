@@ -485,7 +485,7 @@ func (b *contentBuffer) renderDelegationStatsRow(dd *delegationDisplayState) str
 
 func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string {
 	parts := make([]string, 0, 7)
-	if badge := renderModelBadge(b.styles, dd.modelName, ""); badge != "" {
+	if badge := renderModelBadge(b.styles, dd.modelName, dd.reasoning); badge != "" {
 		parts = append(parts, badge)
 	}
 	if dd.isAdvisor && dd.advisorUse > 0 && dd.advisorMaxUses > 0 {

@@ -128,7 +128,7 @@ func (b *contentBuffer) applyDelegationModelCallStarted(dd *delegationDisplaySta
 		return false
 	}
 	if strings.TrimSpace(payload.Model) != "" {
-		dd.modelName = strings.TrimSpace(payload.Model)
+		dd.modelName, dd.reasoning = b.resolveDelegationModel(payload.Model)
 	}
 	return true
 }
@@ -139,7 +139,7 @@ func (b *contentBuffer) applyDelegationAPIRequest(dd *delegationDisplayState, ev
 		return false
 	}
 	if strings.TrimSpace(payload.Model) != "" {
-		dd.modelName = strings.TrimSpace(payload.Model)
+		dd.modelName, dd.reasoning = b.resolveDelegationModel(payload.Model)
 	}
 	return true
 }
@@ -689,6 +689,7 @@ func (b *contentBuffer) handleAdvisorStarted(event output.Event) {
 		return
 	}
 	idx := len(b.segments)
+	modelName, reasoning := b.resolveDelegationModel(payload.Model)
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
@@ -698,7 +699,8 @@ func (b *contentBuffer) handleAdvisorStarted(event output.Event) {
 			currentOperation: "consulting stronger-model advisor",
 			status:           "active",
 			collapsed:        true,
-			modelName:        payload.Model,
+			modelName:        modelName,
+			reasoning:        reasoning,
 			advisorUse:       payload.UseNumber,
 			advisorMaxUses:   payload.MaxUses,
 			advisorQuestion:  payload.Question,
@@ -726,7 +728,7 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 		})
 	}
 	dd := b.segments[idx].delegData
-	dd.modelName = payload.Model
+	dd.modelName, dd.reasoning = b.resolveDelegationModel(payload.Model)
 	dd.advisorUse = payload.UseNumber
 	dd.advisorMaxUses = payload.MaxUses
 	dd.elapsed = formatElapsed(dd.startTime, nanoNow())
@@ -762,6 +764,7 @@ func (b *contentBuffer) handleAdvisorBudgetExhausted(event output.Event) {
 		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
 		return
 	}
+	modelName, reasoning := b.resolveDelegationModel(payload.Model)
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
 		delegData: &delegationDisplayState{
@@ -772,7 +775,8 @@ func (b *contentBuffer) handleAdvisorBudgetExhausted(event output.Event) {
 			resultStatus:    "budget exhausted",
 			output:          payload.Message,
 			collapsed:       true,
-			modelName:       payload.Model,
+			modelName:       modelName,
+			reasoning:       reasoning,
 			advisorUse:      payload.Used,
 			advisorMaxUses:  payload.MaxUses,
 			advisorQuestion: payload.Question,

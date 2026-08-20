@@ -46,6 +46,7 @@ type ApprovalSubmission struct {
 type Config struct {
 	Model              string
 	ModelNames         []string
+	ModelBackendAlias  map[string]string
 	ModelContexts      map[string]int
 	ModelBaseURLs      map[string]string
 	ModelProviderNames map[string]string
