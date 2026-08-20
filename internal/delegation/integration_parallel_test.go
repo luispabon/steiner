@@ -62,25 +62,29 @@ type eventChSink struct{ ch chan output.Event }
 func (s eventChSink) Emit(e output.Event) { s.ch <- e }
 
 type parallelHarness struct {
-	provider            *parallelProvider
-	active              atomic.Int32
-	max                 atomic.Int32
-	started             atomic.Int32
-	completed           atomic.Int32
-	completedTasks      sync.Map
-	taskCalls           sync.Map
-	summaries           sync.Map
-	allStarted          chan struct{}
-	providerStarted     chan struct{}
-	providerStartedOnce sync.Once
-	done                chan struct{}
-	providerGate        <-chan struct{}
-	events              chan output.Event
-	target              int
-	release             func(string) <-chan struct{}
-	failTask            string
-	blockOnCtx          bool
-	workDir             string
+	provider             *parallelProvider
+	active               atomic.Int32
+	max                  atomic.Int32
+	started              atomic.Int32
+	completed            atomic.Int32
+	completedTasks       sync.Map
+	taskCalls            sync.Map
+	summaries            sync.Map
+	allStarted           chan struct{}
+	providerStarted      chan struct{}
+	providerStartedOnce  sync.Once
+	done                 chan struct{}
+	providerGate         <-chan struct{}
+	leaderTask           atomic.Value
+	providerFollowerHold chan struct{}
+	providerOverlap      chan struct{}
+	providerOverlapOnce  sync.Once
+	events               chan output.Event
+	target               int
+	release              func(string) <-chan struct{}
+	failTask             string
+	blockOnCtx           bool
+	workDir              string
 }
 
 func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
@@ -96,7 +100,10 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 	h.provider = &parallelProvider{parent: parent}
 	h.provider.child = func(ctx context.Context, task string) (provider.ChatResponse, error) {
 		cur := h.active.Add(1)
-		h.providerStartedOnce.Do(func() { close(h.providerStarted) })
+		h.providerStartedOnce.Do(func() {
+			h.leaderTask.Store(task)
+			close(h.providerStarted)
+		})
 		for {
 			old := h.max.Load()
 			if cur <= old || h.max.CompareAndSwap(old, cur) {
@@ -114,6 +121,18 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 		if h.providerGate != nil {
 			select {
 			case <-h.providerGate:
+			case <-ctx.Done():
+				h.countCompleted(task)
+				h.active.Add(-1)
+				return provider.ChatResponse{}, ctx.Err()
+			}
+		}
+		if h.providerFollowerHold != nil && task != h.leaderTask.Load().(string) {
+			if h.active.Load() >= 2 {
+				h.providerOverlapOnce.Do(func() { close(h.providerOverlap) })
+			}
+			select {
+			case <-h.providerFollowerHold:
 			case <-ctx.Done():
 				h.countCompleted(task)
 				h.active.Add(-1)
@@ -309,6 +328,8 @@ func TestParallelDelegationEndToEndOverlap(t *testing.T) {
 func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 	store := NewCacheKeyStore()
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
+	h.providerOverlap = make(chan struct{})
+	h.providerFollowerHold = make(chan struct{})
 	// Keep every child provider call behind the test signal. The leader's first
 	// chunk releases the two followers after this signal is closed.
 	h.providerGate = h.done
@@ -331,6 +352,15 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 		}
 	}
 	close(h.done)
+	select {
+	case <-h.providerOverlap:
+	case <-time.After(2 * time.Second):
+		t.Fatal("follower provider calls did not overlap after gate release")
+	}
+	if got := h.max.Load(); got < 2 {
+		t.Fatalf("max simultaneous provider calls after release = %d, want at least 2", got)
+	}
+	close(h.providerFollowerHold)
 	run := receiveParallelWithin(t, result, 3*time.Second, "gated parallel run did not finish")
 	if run.err != nil {
 		t.Fatal(run.err)

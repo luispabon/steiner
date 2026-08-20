@@ -26,6 +26,8 @@ type CacheKeyStore struct {
 	mu    sync.Mutex
 	keys  map[AgentType]string
 	gates map[string]*dispatchGate
+	// testWaitTimeout overrides dispatchGateTimeout for same-package tests.
+	testWaitTimeout time.Duration
 }
 
 // NewCacheKeyStore returns an initialized, empty CacheKeyStore.
@@ -88,14 +90,20 @@ func (s *CacheKeyStore) releaseFor(cacheKey string, g *dispatchGate) func() {
 }
 
 func (s *CacheKeyStore) waitFor(g *dispatchGate) func(ctx context.Context) {
-	return waitForTimeout(g, dispatchGateTimeout)
+	timeout := dispatchGateTimeout
+	if s.testWaitTimeout > 0 {
+		timeout = s.testWaitTimeout
+	}
+	return waitForTimeout(g, timeout)
 }
 
 func waitForTimeout(g *dispatchGate, timeout time.Duration) func(ctx context.Context) {
 	return func(ctx context.Context) {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
 		select {
 		case <-g.ready:
-		case <-time.After(timeout):
+		case <-timer.C:
 		case <-ctx.Done():
 		}
 	}

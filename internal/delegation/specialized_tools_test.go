@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -207,6 +208,102 @@ func TestSpecializedHandler_DispatchGateFollowerWaits(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for follower handler")
+	}
+}
+
+type dispatchGateEventSink struct {
+	recordingEventSink
+	waiting      chan struct{}
+	once         sync.Once
+	order        *atomic.Int32
+	waitingOrder *atomic.Int32
+}
+
+func (s *dispatchGateEventSink) Emit(event output.Event) {
+	s.recordingEventSink.Emit(event)
+	if event.Type == output.EventTypeDelegationCacheWaiting {
+		if s.order != nil && s.waitingOrder != nil {
+			s.waitingOrder.Store(s.order.Add(1))
+		}
+		s.once.Do(func() { close(s.waiting) })
+	}
+}
+
+func TestSpecializedHandler_DispatchGateTimeoutFallbackDispatchesFollower(t *testing.T) {
+	store := NewCacheKeyStore()
+	store.testWaitTimeout = 20 * time.Millisecond
+	leaderStarted := make(chan struct{})
+	leaderRelease := make(chan struct{})
+	followerDispatched := make(chan struct{})
+	var calls atomic.Int32
+	var order atomic.Int32
+	var waitingOrder atomic.Int32
+	events := &dispatchGateEventSink{
+		waiting:      make(chan struct{}),
+		order:        &order,
+		waitingOrder: &waitingOrder,
+	}
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		switch calls.Add(1) {
+		case 1:
+			close(leaderStarted)
+			<-leaderRelease
+		case 2:
+			order.Store(order.Add(1))
+			close(followerDispatched)
+		}
+		return agent.RunState{}, nil
+	}}
+	deps := minimalDeps(runner)
+	deps.Events = events
+	deps.CacheKeyStore = store
+
+	handler := newSpecializedHandler(AgentTypeExplore, deps)
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := handler(context.Background(), map[string]any{"task": "leader"})
+		leaderDone <- err
+	}()
+	select {
+	case <-leaderStarted:
+	case <-time.After(time.Second):
+		t.Fatal("leader did not reach runner")
+	}
+
+	followerDone := make(chan error, 1)
+	go func() {
+		_, err := handler(context.Background(), map[string]any{"task": "follower"})
+		followerDone <- err
+	}()
+	select {
+	case <-events.waiting:
+	case <-time.After(time.Second):
+		t.Fatal("follower did not emit DelegationCacheWaitingEvent")
+	}
+	select {
+	case <-followerDispatched:
+	case <-time.After(time.Second):
+		t.Fatal("follower did not dispatch after gate timeout")
+	}
+	if waitingOrder.Load() >= order.Load() {
+		t.Fatalf("follower dispatch order = %d, waiting event order = %d, want waiting first", order.Load(), waitingOrder.Load())
+	}
+	select {
+	case err := <-followerDone:
+		if err != nil {
+			t.Fatalf("follower returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("follower handler did not finish")
+	}
+	close(leaderRelease)
+	select {
+	case err := <-leaderDone:
+		if err != nil {
+			t.Fatalf("leader returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("leader handler did not finish")
 	}
 }
 
