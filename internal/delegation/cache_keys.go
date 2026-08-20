@@ -54,6 +54,12 @@ func (s *CacheKeyStore) KeyFor(agentType AgentType, mintKey func() (string, erro
 	return key, nil
 }
 
+// BeginDispatch coordinates same-cache-key sibling delegations. The first caller for
+// cacheKey is the leader: it returns release and wait functions that proceed immediately
+// so it can dispatch at once; followers are told isLeader=false and must call the
+// returned wait before spawning. release is idempotent and clears a follower wait for
+// this cacheKey. An empty cacheKey is ungated: it always returns isLeader=true with a
+// no-op release and wait.
 func (s *CacheKeyStore) BeginDispatch(cacheKey string) (isLeader bool, release func(), wait func(ctx context.Context)) {
 	if cacheKey == "" {
 		return true, func() {}, func(context.Context) {}

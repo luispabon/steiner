@@ -446,9 +446,9 @@ func (b *contentBuffer) markDelegationDirty(idx int) {
 	b.gen++
 }
 
-func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload output.ToolCallStartedEvent) bool {
+func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload output.ToolCallStartedEvent) {
 	if loc.dd == nil {
-		return false
+		return
 	}
 	dd := loc.dd
 	dd.parentCallID = payload.CallID
@@ -461,7 +461,6 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 		dd.toolLabel = strings.ToLower(strings.TrimSpace(payload.Tool))
 	}
 	b.markDelegationDirty(loc.seg)
-	return true
 }
 
 func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallStartedEvent) {
