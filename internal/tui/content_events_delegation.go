@@ -40,6 +40,8 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 	switch event.Type {
 	case output.EventTypeDelegationStarted:
 		b.handleDelegationStarted(event)
+	case output.EventTypeDelegationCacheWaiting:
+		b.handleDelegationCacheWaiting(event)
 	case output.EventTypeDelegationComplete:
 		b.handleDelegationComplete(event)
 	case output.EventTypeDelegationFailed:
@@ -548,6 +550,22 @@ func (b *contentBuffer) handleDelegationExtension(event output.Event) {
 	}
 }
 
+func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {
+	payload, ok := event.Payload.(output.DelegationCacheWaitingEvent)
+	if !ok {
+		return
+	}
+	loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID)
+	if !found {
+		return
+	}
+	loc.dd.agentID = payload.AgentID
+	loc.dd.cacheWaiting = true
+	loc.dd.cacheWaitDeadline = payload.DeadlineUnixNano
+	b.activeDelegations[payload.AgentID] = loc
+	b.markDelegationDirty(loc.seg)
+}
+
 func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	payload, ok := event.Payload.(output.DelegationStartedEvent)
 	if !ok {
@@ -564,12 +582,17 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		if preview != "" {
 			dd.taskPreview = preview
 		}
+		dd.cacheWaiting = false
 		dd.startTime = nanoNow()
 		dd.status = "active"
 		dd.collapsed = true
 		dd.extMax = defaultDelegationExtensionMax
 		b.activeDelegations[payload.AgentID] = loc
 		b.markDelegationDirty(loc.seg)
+	}
+	if loc, active := b.activeDelegations[payload.AgentID]; active && loc.dd != nil && loc.dd.cacheWaiting && loc.dd.parentCallID == payload.CallID {
+		bind(loc)
+		return
 	}
 	if loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID); found {
 		bind(loc)

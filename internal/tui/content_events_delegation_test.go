@@ -4,12 +4,51 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
+
+func TestDelegationCacheWaitingBindsAndClears(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+	deadline := time.Now().Add(10 * time.Second)
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "inspect cache"}))
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("child-1", "call_1", deadline))
+
+	loc, ok := buffer.activeDelegations["child-1"]
+	if !ok || loc.dd == nil {
+		t.Fatal("active delegation child-1 not found")
+	}
+	if !loc.dd.cacheWaiting {
+		t.Fatal("cacheWaiting = false, want true")
+	}
+	if loc.dd.cacheWaitDeadline != deadline.UnixNano() {
+		t.Fatalf("cacheWaitDeadline = %d, want %d", loc.dd.cacheWaitDeadline, deadline.UnixNano())
+	}
+
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("unknown", "", deadline))
+	if _, ok := buffer.activeDelegations["unknown"]; ok {
+		t.Fatal("unknown delegation was added for empty CallID")
+	}
+	if !loc.dd.cacheWaiting || loc.dd.cacheWaitDeadline != deadline.UnixNano() {
+		t.Fatal("empty-CallID event changed existing delegation state")
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect cache", "call_1"))
+	if loc.dd.cacheWaiting {
+		t.Fatal("cacheWaiting = true after DelegationStarted, want false")
+	}
+}
 
 func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
 	t.Parallel()

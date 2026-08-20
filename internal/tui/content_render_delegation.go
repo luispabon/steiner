@@ -222,8 +222,12 @@ func (b *contentBuffer) renderDelegationHeaderStatus(dd *delegationDisplayState)
 	var styled string
 	switch dd.status {
 	case "active":
-		frame := spinnerFrames[dd.spinnerFrame%len(spinnerFrames)]
-		styled = b.styles.FgMute.Render(frame)
+		if dd.cacheWaiting {
+			styled = b.styles.FgMute.Render("⧖")
+		} else {
+			frame := spinnerFrames[dd.spinnerFrame%len(spinnerFrames)]
+			styled = b.styles.FgMute.Render(frame)
+		}
 	case "complete":
 		styled = b.styles.SuccessStyle.Render("✓")
 	case "budget_exhausted":
@@ -241,7 +245,9 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 	parts := []string{status}
 	switch dd.status {
 	case "active":
-		if dd.startTime > 0 {
+		if dd.cacheWaiting {
+			parts = append(parts, b.styles.FgDim.Render(formatCountdown(dd.cacheWaitDeadline, nanoNow())))
+		} else if dd.startTime > 0 {
 			parts = append(parts, b.styles.FgDim.Render(formatElapsed(dd.startTime, nanoNow())))
 		}
 	case "complete":
@@ -316,7 +322,9 @@ func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplaySta
 		}
 	} else {
 		operation = strings.TrimSpace(dd.currentOperation)
-		if operation == "" && dd.status == "active" {
+		if operation == "" && dd.cacheWaiting {
+			operation = "waiting for cache warm-up…"
+		} else if operation == "" && dd.status == "active" {
 			operation = strings.TrimSpace(dd.taskPreview)
 		}
 	}

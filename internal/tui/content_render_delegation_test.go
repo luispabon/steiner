@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDelegationCompleteMetaIncludesCacheHitRateWhenOK(t *testing.T) {
@@ -21,6 +23,40 @@ func TestDelegationCompleteMetaIncludesCacheHitRateWhenOK(t *testing.T) {
 
 	if len(meta) == 0 || meta[len(meta)-1] != "cache 95.2%" {
 		t.Errorf("delegationCompleteMeta() = %v, want last entry %q", meta, "cache 95.2%")
+	}
+}
+
+func TestDelegationCacheWaitingHeaderRendering(t *testing.T) {
+	buffer := &contentBuffer{styles: testStyles("#5599ff")}
+	dd := &delegationDisplayState{
+		status:            "active",
+		cacheWaiting:      true,
+		cacheWaitDeadline: nanoNow() + 9_600_000_000,
+	}
+
+	status, width := buffer.renderDelegationHeaderStatus(dd)
+	if !strings.Contains(status, "⧖") {
+		t.Fatalf("status = %q, want hourglass", status)
+	}
+	if width != 1 {
+		t.Fatalf("status width = %d, want 1", width)
+	}
+	meta := buffer.renderDelegationHeaderMeta(dd)
+	if !regexp.MustCompile(`\d+\.\ds`).MatchString(meta) {
+		t.Fatalf("meta = %q, want countdown", meta)
+	}
+	if operation := buffer.renderDelegationHeaderOperation(dd, 80); !strings.Contains(operation, "waiting for cache warm-up…") {
+		t.Fatalf("operation = %q, want cache warm-up text", operation)
+	}
+
+	dd.cacheWaiting = false
+	dd.startTime = time.Now().Add(-2 * time.Second).UnixNano()
+	status, _ = buffer.renderDelegationHeaderStatus(dd)
+	if strings.Contains(status, "⧖") {
+		t.Fatalf("status = %q after clear, still contains hourglass", status)
+	}
+	if !regexp.MustCompile(`\d+(ms|s|m\ds)`).MatchString(buffer.renderDelegationHeaderMeta(dd)) {
+		t.Fatalf("meta after clear = %q, want elapsed", buffer.renderDelegationHeaderMeta(dd))
 	}
 }
 

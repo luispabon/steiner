@@ -110,6 +110,14 @@ func formatElapsed(startNano, endNano int64) string {
 	return fmt.Sprintf("%dm%ds", s/60, s%60)
 }
 
+func formatCountdown(deadlineNano, nowNano int64) string {
+	remaining := deadlineNano - nowNano
+	if remaining < 0 {
+		remaining = 0
+	}
+	return fmt.Sprintf("%.1fs", float64(remaining)/1e9)
+}
+
 func previewDelegationOperation(tool, args string) string {
 	head := strings.TrimSpace(tool)
 	tail := normalizeDelegationText(args)
