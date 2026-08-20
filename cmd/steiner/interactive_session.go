@@ -19,7 +19,6 @@ import (
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
@@ -30,8 +29,6 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		BaseEvents:        rt.events,
 		SkillNames:        rt.skillNames,
 		Config:            rt.cfg,
-		Provider:          rt.provider,
-		ProviderFactory:   rt.providerFactory,
 		HTTPClient:        rt.httpClient,
 		HomeDir:           rt.homeDir,
 		WorkDir:           rt.workDir,
@@ -494,8 +491,8 @@ type sessionRunner struct {
 	mcpInit *mcpInitOnce
 }
 
-func (r sessionRunner) PromptAssembly(skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
-	return r.runner.PromptAssembly(skillNames, modelBudget, prompts)
+func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec) ([]agent.Message, error) {
+	return r.runner.Compact(ctx, conversation, skillNames, tools)
 }
 
 func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (interactive.RunResult, error) {
