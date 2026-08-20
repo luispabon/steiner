@@ -191,6 +191,17 @@ func TestCacheKeyStoreDispatchGateTimeout(t *testing.T) {
 	if dispatchGateTimeout != 10*time.Second {
 		t.Fatalf("dispatchGateTimeout = %s, want 10s", dispatchGateTimeout)
 	}
-	// The fixed production timeout is not injectable. Release and cancellation
-	// paths above cover wait completion without making this suite wait 10 seconds.
+
+	gate := &dispatchGate{ready: make(chan struct{})}
+	waitDone := make(chan struct{})
+	go func() {
+		waitForTimeout(gate, 20*time.Millisecond)(context.Background())
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(time.Second):
+		t.Fatal("waitForTimeout did not return after its timeout")
+	}
 }

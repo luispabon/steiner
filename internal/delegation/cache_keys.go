@@ -82,10 +82,14 @@ func (s *CacheKeyStore) releaseFor(cacheKey string, g *dispatchGate) func() {
 }
 
 func (s *CacheKeyStore) waitFor(g *dispatchGate) func(ctx context.Context) {
+	return waitForTimeout(g, dispatchGateTimeout)
+}
+
+func waitForTimeout(g *dispatchGate, timeout time.Duration) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		select {
 		case <-g.ready:
-		case <-time.After(dispatchGateTimeout):
+		case <-time.After(timeout):
 		case <-ctx.Done():
 		}
 	}
