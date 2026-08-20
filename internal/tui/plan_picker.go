@@ -2,7 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -40,11 +42,29 @@ func (m planPickerOverlay) Open(triggerCommand string) planPickerOverlay {
 		return m
 	}
 
-	m.allNames = make([]string, 0, len(entries))
+	dirs := make([]fs.FileInfo, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() {
-			m.allNames = append(m.allNames, ".steiner/plans/"+entry.Name())
+		if !entry.IsDir() {
+			continue
 		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		dirs = append(dirs, info)
+	}
+	// Newest first, with name as a stable tiebreaker.
+	sort.SliceStable(dirs, func(i, j int) bool {
+		ti, tj := dirs[i].ModTime(), dirs[j].ModTime()
+		if !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return dirs[i].Name() < dirs[j].Name()
+	})
+
+	m.allNames = make([]string, 0, len(dirs))
+	for _, info := range dirs {
+		m.allNames = append(m.allNames, ".steiner/plans/"+info.Name())
 	}
 	m.candidates = append([]string(nil), m.allNames...)
 	return m

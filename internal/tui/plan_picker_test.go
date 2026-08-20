@@ -3,8 +3,10 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -71,6 +73,56 @@ func TestPlanPickerOpen(t *testing.T) {
 	}
 	if len(m.candidates) != 4 {
 		t.Fatalf("expected 4 candidates, got %d", len(m.candidates))
+	}
+}
+
+func TestPlanPickerOpenSortsNewestFirst(t *testing.T) {
+	s := testStyles("#ff0000")
+
+	tmpDir := t.TempDir()
+	plansDir := filepath.Join(tmpDir, ".steiner", "plans")
+	if err := os.MkdirAll(plansDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create plan dirs, then assign distinct, increasing modtimes.
+	names := []string{"step-1", "step-2", "research", "bugfix"}
+	for _, name := range names {
+		if err := os.MkdirAll(filepath.Join(plansDir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := time.Now().Add(-time.Hour)
+	for i, name := range names {
+		mt := base.Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(filepath.Join(plansDir, name), mt, mt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Change into tmpDir so the picker reads .steiner/plans/ from there.
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newPlanPickerOverlay(s).Open("/plan")
+	want := []string{
+		".steiner/plans/bugfix",
+		".steiner/plans/research",
+		".steiner/plans/step-2",
+		".steiner/plans/step-1",
+	}
+	if got := m.candidates; !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected newest-first order %v, got %v", want, got)
 	}
 }
 
