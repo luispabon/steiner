@@ -1,6 +1,21 @@
 package delegation
 
-import "sync"
+import (
+	"context"
+	"sync"
+	"time"
+)
+
+const dispatchGateTimeout = 10 * time.Second
+
+type dispatchGate struct {
+	ready chan struct{}
+	once  sync.Once
+}
+
+func (g *dispatchGate) release() {
+	g.once.Do(func() { close(g.ready) })
+}
 
 // CacheKeyStore caches one prompt-cache key per AgentType so repeated
 // delegations to the same agent type reuse the same provider-side cache
@@ -8,13 +23,19 @@ import "sync"
 // scoped (see doc comment on the zero-caller SessionStore.Reset in session.go
 // for why this is a deliberate choice, not an oversight).
 type CacheKeyStore struct {
-	mu   sync.Mutex
-	keys map[AgentType]string
+	mu    sync.Mutex
+	keys  map[AgentType]string
+	gates map[string]*dispatchGate
+	// testWaitTimeout overrides dispatchGateTimeout for same-package tests.
+	testWaitTimeout time.Duration
 }
 
 // NewCacheKeyStore returns an initialized, empty CacheKeyStore.
 func NewCacheKeyStore() *CacheKeyStore {
-	return &CacheKeyStore{keys: make(map[AgentType]string)}
+	return &CacheKeyStore{
+		keys:  make(map[AgentType]string),
+		gates: make(map[string]*dispatchGate),
+	}
 }
 
 // KeyFor returns the cache key for agentType, minting and caching a new one
@@ -33,4 +54,57 @@ func (s *CacheKeyStore) KeyFor(agentType AgentType, mintKey func() (string, erro
 	}
 	s.keys[agentType] = key
 	return key, nil
+}
+
+// BeginDispatch coordinates same-cache-key sibling delegations. The first caller for
+// cacheKey is the leader: it returns release and wait functions that proceed immediately
+// so it can dispatch at once; followers are told isLeader=false and must call the
+// returned wait before spawning. release is idempotent and clears a follower wait for
+// this cacheKey. An empty cacheKey is ungated: it always returns isLeader=true with a
+// no-op release and wait.
+func (s *CacheKeyStore) BeginDispatch(cacheKey string) (isLeader bool, release func(), wait func(ctx context.Context)) {
+	if cacheKey == "" {
+		return true, func() {}, func(context.Context) {}
+	}
+
+	s.mu.Lock()
+	if g, ok := s.gates[cacheKey]; ok {
+		s.mu.Unlock()
+		return false, func() {}, s.waitFor(g)
+	}
+	g := &dispatchGate{ready: make(chan struct{})}
+	s.gates[cacheKey] = g
+	s.mu.Unlock()
+	return true, s.releaseFor(cacheKey, g), func(context.Context) {}
+}
+
+func (s *CacheKeyStore) releaseFor(cacheKey string, g *dispatchGate) func() {
+	return func() {
+		g.release()
+		s.mu.Lock()
+		if s.gates[cacheKey] == g {
+			delete(s.gates, cacheKey)
+		}
+		s.mu.Unlock()
+	}
+}
+
+func (s *CacheKeyStore) waitFor(g *dispatchGate) func(ctx context.Context) {
+	timeout := dispatchGateTimeout
+	if s.testWaitTimeout > 0 {
+		timeout = s.testWaitTimeout
+	}
+	return waitForTimeout(g, timeout)
+}
+
+func waitForTimeout(g *dispatchGate, timeout time.Duration) func(ctx context.Context) {
+	return func(ctx context.Context) {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case <-g.ready:
+		case <-timer.C:
+		case <-ctx.Done():
+		}
+	}
 }

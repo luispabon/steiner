@@ -1,0 +1,53 @@
+package delegation
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
+)
+
+func TestVisionHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "test.png")
+	if err := os.WriteFile(imgPath, []byte("fake-png-content"), 0o600); err != nil {
+		t.Fatalf("write temp image: %v", err)
+	}
+	store := agent.NewImageStore(dir)
+	ref := store.Register(imgPath, "image/png", 10, 20, 15)
+
+	var capturedReq agent.RunRequest
+	var runCount int
+	events := &recordingEventSink{}
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		runCount++
+		if runCount == 1 {
+			capturedReq = req
+			if _, ok := req.Events.(*dispatchReleaseSink); !ok {
+				t.Errorf("req.Events=%T, want *dispatchReleaseSink", req.Events)
+			}
+			req.Events.Emit(output.NewThinkingChunkEventWithSource(1, "thinking", output.ChunkSourceAssistant))
+		}
+		return agent.RunState{}, nil
+	}})
+	deps.Events = events
+	deps.ImageStore = store
+	deps.CacheKeyStore = NewCacheKeyStore()
+
+	handler := newVisionHandler(deps)
+	if _, err := handler(context.Background(), map[string]any{
+		"task":     "describe image",
+		"image_id": ref.ID,
+	}); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if capturedReq.Events == nil {
+		t.Fatal("runner did not capture req.Events")
+	}
+	if got := waitingEvents(events.Events()); len(got) != 0 {
+		t.Fatalf("leader emitted %d waiting events, want none", len(got))
+	}
+}

@@ -58,6 +58,11 @@ type DelegationSpec struct {
 	// cache figures describe the agent's whole life rather than a single run.
 	// Zero for a fresh spawn.
 	PriorCacheUsage CacheUsage `json:"-"`
+	// ParentCallID is the ID of the tool call that triggered this delegation,
+	// threaded through from tool.ExecutionCallIDKey{} in the handler's context.
+	// Used by the TUI to bind this delegation's display box without relying on
+	// event-arrival order. Internal bookkeeping only, not part of the wire contract.
+	ParentCallID string `json:"-"`
 }
 
 // GetAgentID returns the AgentID from this DelegationSpec.

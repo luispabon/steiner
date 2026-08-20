@@ -163,18 +163,20 @@ type delegationLocator struct {
 
 // delegationDisplayState tracks in-flight or finished delegation state for rendering.
 type delegationDisplayState struct {
-	isAdvisor       bool
-	agentID         string
-	toolLabel       string // specialized tool name used for rendering (e.g. "explore")
-	taskPreview     string // truncated to ~80 chars
-	promptText      string
-	promptCollapsed bool
-	parentCallID    string
-	parentArgs      string
-	startTime       int64  // unix nano, set on DelegationStarted
-	elapsed         string // formatted elapsed, set on Complete/Failed
-	spinnerFrame    int    // index into spinnerFrames
-	status          string // "active" | "complete" | "failed"
+	isAdvisor         bool
+	agentID           string
+	toolLabel         string // specialized tool name used for rendering (e.g. "explore")
+	taskPreview       string // truncated to ~80 chars
+	promptText        string
+	promptCollapsed   bool
+	parentCallID      string
+	parentArgs        string
+	startTime         int64 // unix nano, set on DelegationStarted
+	cacheWaiting      bool
+	cacheWaitDeadline int64  // unix nano, valid only when cacheWaiting
+	elapsed           string // formatted elapsed, set on Complete/Failed
+	spinnerFrame      int    // index into spinnerFrames
+	status            string // "active" | "complete" | "failed"
 	// result fields (Complete)
 	resultStatus      string
 	turnCount         int
@@ -313,6 +315,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeApprovalDenied:         (*contentBuffer).appendApprovalDecisionEvent,
 	output.EventTypeDelegationStarted:      (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationComplete:     (*contentBuffer).appendDelegationEvent,
+	output.EventTypeDelegationCacheWaiting: (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationFailed:       (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationExtension:    (*contentBuffer).appendDelegationEvent,
 	output.EventTypeAdvisorStarted:         (*contentBuffer).appendAdvisorEvent,

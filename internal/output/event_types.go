@@ -69,6 +69,8 @@ const (
 	EventTypeDelegationFailed = "delegation_failed"
 	// EventTypeDelegationExtension records delegation-specific auxiliary events.
 	EventTypeDelegationExtension = "delegation_extension"
+	// EventTypeDelegationCacheWaiting marks a sub-agent delegation gated behind a shared prompt-cache dispatch slot.
+	EventTypeDelegationCacheWaiting = "delegation_cache_waiting"
 	// EventTypeAdvisorStarted marks the start of an advisor call.
 	EventTypeAdvisorStarted = "advisor_started"
 	// EventTypeAdvisorComplete marks the end of an advisor call.
@@ -365,6 +367,15 @@ type ProviderDiagnosticEvent struct {
 type DelegationStartedEvent struct {
 	AgentID     string `json:"agent_id"`
 	TaskPreview string `json:"task_preview"`
+	CallID      string `json:"call_id,omitempty"`
+}
+
+// DelegationCacheWaitingEvent records a sub-agent delegation waiting behind a
+// shared prompt-cache dispatch slot for the leader's first streamed token.
+type DelegationCacheWaitingEvent struct {
+	AgentID          string `json:"agent_id"`
+	CallID           string `json:"call_id"`
+	DeadlineUnixNano int64  `json:"deadline_unix_nano"`
 }
 
 // DelegationCompleteEvent records a successful delegated child task.

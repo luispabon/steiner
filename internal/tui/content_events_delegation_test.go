@@ -4,12 +4,51 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
+
+func TestDelegationCacheWaitingBindsAndClears(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+	deadline := time.Now().Add(10 * time.Second)
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "inspect cache"}))
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("child-1", "call_1", deadline))
+
+	loc, ok := buffer.activeDelegations["child-1"]
+	if !ok || loc.dd == nil {
+		t.Fatal("active delegation child-1 not found")
+	}
+	if !loc.dd.cacheWaiting {
+		t.Fatal("cacheWaiting = false, want true")
+	}
+	if loc.dd.cacheWaitDeadline != deadline.UnixNano() {
+		t.Fatalf("cacheWaitDeadline = %d, want %d", loc.dd.cacheWaitDeadline, deadline.UnixNano())
+	}
+
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("unknown", "", deadline))
+	if _, ok := buffer.activeDelegations["unknown"]; ok {
+		t.Fatal("unknown delegation was added for empty CallID")
+	}
+	if !loc.dd.cacheWaiting || loc.dd.cacheWaitDeadline != deadline.UnixNano() {
+		t.Fatal("empty-CallID event changed existing delegation state")
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect cache", "call_1"))
+	if loc.dd.cacheWaiting {
+		t.Fatal("cacheWaiting = true after DelegationStarted, want false")
+	}
+}
 
 func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
 	t.Parallel()
@@ -138,6 +177,79 @@ func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
 		if lipgloss.Width(line) > 50 {
 			t.Fatalf("line width = %d, want <= 50 for line %q", lipgloss.Width(line), stripANSI(line))
 		}
+	}
+}
+
+func TestPendingDelegationDequeueHelpers(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		set   func(*contentBuffer, []delegationLocator)
+		byID  func(*contentBuffer, string) (delegationLocator, bool)
+		drain func(*contentBuffer) (delegationLocator, bool)
+		get   func(*contentBuffer) []delegationLocator
+	}{
+		{
+			name: "delegate parent",
+			set:  func(b *contentBuffer, locs []delegationLocator) { b.pendingDelegateParents = locs },
+			byID: func(b *contentBuffer, callID string) (delegationLocator, bool) {
+				return b.dequeuePendingDelegateParentByCallID(callID)
+			},
+			drain: func(b *contentBuffer) (delegationLocator, bool) {
+				return b.dequeuePendingDelegateParentSegment()
+			},
+			get: func(b *contentBuffer) []delegationLocator { return b.pendingDelegateParents },
+		},
+		{
+			name: "delegation start",
+			set:  func(b *contentBuffer, locs []delegationLocator) { b.pendingDelegationStarts = locs },
+			byID: func(b *contentBuffer, callID string) (delegationLocator, bool) {
+				return b.dequeuePendingDelegationStartByCallID(callID)
+			},
+			drain: func(b *contentBuffer) (delegationLocator, bool) {
+				return b.dequeuePendingDelegationStartSegment()
+			},
+			get: func(b *contentBuffer) []delegationLocator { return b.pendingDelegationStarts },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buffer := &contentBuffer{segments: make([]contentSegment, 1)}
+			byID := &delegationDisplayState{parentCallID: "target"}
+			other := &delegationDisplayState{parentCallID: "other", agentID: "child"}
+			tc.set(buffer, []delegationLocator{
+				{seg: 0, dd: nil},
+				{seg: -1, dd: other},
+				{seg: 0, dd: other},
+				{seg: 0, dd: byID},
+			})
+
+			if _, ok := tc.byID(buffer, ""); ok {
+				t.Fatal("empty call ID matched pending locator")
+			}
+			got, ok := tc.byID(buffer, "target")
+			if !ok || got.dd != byID {
+				t.Fatalf("by-call-ID result = %#v, %t, want target locator", got, ok)
+			}
+			if remaining := tc.get(buffer); len(remaining) != 3 {
+				t.Fatalf("remaining after by-call-ID dequeue = %d, want 3", len(remaining))
+			}
+
+			tc.set(buffer, []delegationLocator{
+				{seg: 0, dd: nil},
+				{seg: -1, dd: other},
+				{seg: 0, dd: other},
+				{seg: 0, dd: &delegationDisplayState{}},
+			})
+			got, ok = tc.drain(buffer)
+			if !ok || got.dd == nil {
+				t.Fatalf("segment drain result = %#v, %t, want eligible locator", got, ok)
+			}
+			if remaining := tc.get(buffer); len(remaining) != 0 {
+				t.Fatalf("remaining after segment drain = %d, want 0", len(remaining))
+			}
+		})
 	}
 }
 
@@ -912,5 +1024,53 @@ func TestCheckBufferDirtyWithActiveEntryInGroup(t *testing.T) {
 	isDirty := segmentHasActiveDelegation(seg)
 	if !isDirty {
 		t.Error("segment should be dirty/need render when it has an active delegation")
+	}
+}
+
+func TestDelegationStartedBindsPendingBoxByCallID(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "second"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second preview", "call_2"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first preview", "call_1"))
+
+	if len(buffer.segments) != 1 || buffer.segments[0].delegGroupData == nil {
+		t.Fatalf("segments = %#v, want one delegation group", buffer.segments)
+	}
+	entries := buffer.segments[0].delegGroupData.entries
+	if len(entries) != 2 {
+		t.Fatalf("delegation entries = %d, want 2", len(entries))
+	}
+	if entries[0].agentID != "child-1" || entries[0].taskPreview != "first preview" {
+		t.Errorf("first entry = (%q, %q), want (child-1, first preview)", entries[0].agentID, entries[0].taskPreview)
+	}
+	if entries[1].agentID != "child-2" || entries[1].taskPreview != "second preview" {
+		t.Errorf("second entry = (%q, %q), want (child-2, second preview)", entries[1].agentID, entries[1].taskPreview)
+	}
+}
+
+func TestDelegationStartedEmptyCallIDUsesFIFO(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first preview"))
+
+	if len(buffer.segments) != 1 || buffer.segments[0].delegData == nil {
+		t.Fatalf("delegation segment missing")
+	}
+	if got := buffer.segments[0].delegData.agentID; got != "child-1" {
+		t.Errorf("agentID = %q, want child-1", got)
 	}
 }

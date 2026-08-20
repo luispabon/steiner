@@ -310,10 +310,23 @@ func NewAssistantChunkEventWithSource(turn int, content string, source ChunkSour
 }
 
 // NewDelegationStartedEvent creates a new delegation started event.
-func NewDelegationStartedEvent(agentID, taskPreview string) Event {
-	return newEvent(EventTypeDelegationStarted, DelegationStartedEvent{
+func NewDelegationStartedEvent(agentID, taskPreview string, callID ...string) Event {
+	payload := DelegationStartedEvent{
 		AgentID:     agentID,
 		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
+	}
+	if len(callID) > 0 {
+		payload.CallID = callID[0]
+	}
+	return newEvent(EventTypeDelegationStarted, payload)
+}
+
+// NewDelegationCacheWaitingEvent creates the event marking a gated delegation follower.
+func NewDelegationCacheWaitingEvent(agentID, callID string, deadline time.Time) Event {
+	return newEvent(EventTypeDelegationCacheWaiting, DelegationCacheWaitingEvent{
+		AgentID:          agentID,
+		CallID:           callID,
+		DeadlineUnixNano: deadline.UnixNano(),
 	})
 }
 

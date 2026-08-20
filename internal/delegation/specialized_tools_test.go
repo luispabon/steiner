@@ -9,7 +9,10 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -69,6 +72,260 @@ func minimalDeps(runner AgentRunner) SpecializedToolDeps {
 			WorkDir:     "/tmp/work",
 		},
 		ModelResolver: nil,
+	}
+}
+
+type recordingEventSink struct {
+	mu     sync.Mutex
+	events []output.Event
+}
+
+func (s *recordingEventSink) Emit(event output.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, event)
+}
+
+func (s *recordingEventSink) Events() []output.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]output.Event(nil), s.events...)
+}
+
+func waitingEvents(events []output.Event) []output.Event {
+	var waiting []output.Event
+	for _, event := range events {
+		if event.Type == output.EventTypeDelegationCacheWaiting {
+			waiting = append(waiting, event)
+		}
+	}
+	return waiting
+}
+
+func TestSpecializedHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
+	var capturedReq agent.RunRequest
+	events := &recordingEventSink{}
+	var runCount int
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		runCount++
+		if runCount == 1 {
+			capturedReq = req
+			if _, ok := req.Events.(*dispatchReleaseSink); !ok {
+				t.Errorf("req.Events=%T, want *dispatchReleaseSink", req.Events)
+			}
+			req.Events.Emit(output.NewThinkingChunkEventWithSource(1, "thinking", output.ChunkSourceAssistant))
+		}
+		return agent.RunState{}, nil
+	}})
+	deps.Events = events
+	deps.CacheKeyStore = NewCacheKeyStore()
+
+	handler := newSpecializedHandler(AgentTypeExplore, deps)
+	if _, err := handler(context.Background(), map[string]any{"task": "explore"}); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	if capturedReq.Events == nil {
+		t.Fatal("runner did not capture req.Events")
+	}
+	if got := waitingEvents(events.Events()); len(got) != 0 {
+		t.Fatalf("leader emitted %d waiting events, want none", len(got))
+	}
+}
+
+func TestSpecializedHandler_DispatchGateFollowerWaits(t *testing.T) {
+	store := NewCacheKeyStore()
+	key, err := store.KeyFor(AgentTypeExplore, provider.NewPromptCacheKey)
+	if err != nil {
+		t.Fatalf("mint cache key: %v", err)
+	}
+	_, release, _ := store.BeginDispatch(key)
+	defer release()
+
+	events := &recordingEventSink{}
+	runCalled := make(chan struct{}, 2)
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		if _, ok := req.Events.(*dispatchReleaseSink); ok {
+			t.Error("follower req.Events was wrapped in *dispatchReleaseSink")
+		}
+		runCalled <- struct{}{}
+		return agent.RunState{}, nil
+	}}
+	deps := minimalDeps(runner)
+	deps.Events = events
+	deps.CacheKeyStore = store
+
+	origIDGen := idGen
+	idGen = func() string { return "child-follower" }
+	defer func() { idGen = origIDGen }()
+
+	ctx := context.WithValue(context.Background(), tool.ExecutionCallIDKey{}, "call_X")
+	handler := newSpecializedHandler(AgentTypeExplore, deps)
+	done := make(chan error, 1)
+	go func() {
+		_, err := handler(ctx, map[string]any{"task": "explore"})
+		done <- err
+	}()
+
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	var waiting []output.Event
+	for len(waiting) == 0 {
+		select {
+		case <-deadline.C:
+			t.Fatal("timed out waiting for DelegationCacheWaitingEvent")
+		case <-time.After(time.Millisecond):
+			waiting = waitingEvents(events.Events())
+		}
+	}
+	if len(waiting) != 1 {
+		t.Fatalf("got %d waiting events, want one", len(waiting))
+	}
+	payload, ok := waiting[0].Payload.(output.DelegationCacheWaitingEvent)
+	if !ok {
+		t.Fatalf("waiting payload=%T, want output.DelegationCacheWaitingEvent", waiting[0].Payload)
+	}
+	if payload.AgentID != "child-follower" {
+		t.Errorf("waiting AgentID=%q, want %q", payload.AgentID, "child-follower")
+	}
+	if payload.CallID != "call_X" {
+		t.Errorf("waiting CallID=%q, want %q", payload.CallID, "call_X")
+	}
+	if payload.DeadlineUnixNano <= time.Now().UnixNano() {
+		t.Errorf("waiting deadline=%d is not in the future", payload.DeadlineUnixNano)
+	}
+	select {
+	case <-runCalled:
+		t.Fatal("follower spawned before gate release")
+	default:
+	}
+
+	release()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("handler returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for follower handler")
+	}
+}
+
+type dispatchGateEventSink struct {
+	recordingEventSink
+	waiting      chan struct{}
+	once         sync.Once
+	order        *atomic.Int32
+	waitingOrder *atomic.Int32
+}
+
+func (s *dispatchGateEventSink) Emit(event output.Event) {
+	s.recordingEventSink.Emit(event)
+	if event.Type == output.EventTypeDelegationCacheWaiting {
+		if s.order != nil && s.waitingOrder != nil {
+			s.waitingOrder.Store(s.order.Add(1))
+		}
+		s.once.Do(func() { close(s.waiting) })
+	}
+}
+
+func TestSpecializedHandler_DispatchGateTimeoutFallbackDispatchesFollower(t *testing.T) {
+	store := NewCacheKeyStore()
+	store.testWaitTimeout = 20 * time.Millisecond
+	leaderStarted := make(chan struct{})
+	leaderRelease := make(chan struct{})
+	followerDispatched := make(chan struct{})
+	var calls atomic.Int32
+	var order atomic.Int32
+	var waitingOrder atomic.Int32
+	events := &dispatchGateEventSink{
+		waiting:      make(chan struct{}),
+		order:        &order,
+		waitingOrder: &waitingOrder,
+	}
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		switch calls.Add(1) {
+		case 1:
+			close(leaderStarted)
+			<-leaderRelease
+		case 2:
+			order.Store(order.Add(1))
+			close(followerDispatched)
+		}
+		return agent.RunState{}, nil
+	}}
+	deps := minimalDeps(runner)
+	deps.Events = events
+	deps.CacheKeyStore = store
+
+	handler := newSpecializedHandler(AgentTypeExplore, deps)
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := handler(context.Background(), map[string]any{"task": "leader"})
+		leaderDone <- err
+	}()
+	select {
+	case <-leaderStarted:
+	case <-time.After(time.Second):
+		t.Fatal("leader did not reach runner")
+	}
+
+	followerDone := make(chan error, 1)
+	go func() {
+		_, err := handler(context.Background(), map[string]any{"task": "follower"})
+		followerDone <- err
+	}()
+	select {
+	case <-events.waiting:
+	case <-time.After(time.Second):
+		t.Fatal("follower did not emit DelegationCacheWaitingEvent")
+	}
+	select {
+	case <-followerDispatched:
+	case <-time.After(time.Second):
+		t.Fatal("follower did not dispatch after gate timeout")
+	}
+	if waitingOrder.Load() >= order.Load() {
+		t.Fatalf("follower dispatch order = %d, waiting event order = %d, want waiting first", order.Load(), waitingOrder.Load())
+	}
+	select {
+	case err := <-followerDone:
+		if err != nil {
+			t.Fatalf("follower returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("follower handler did not finish")
+	}
+	close(leaderRelease)
+	select {
+	case err := <-leaderDone:
+		if err != nil {
+			t.Fatalf("leader returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("leader handler did not finish")
+	}
+}
+
+func TestSpecializedHandler_DispatchGateNilStore(t *testing.T) {
+	var capturedReq agent.RunRequest
+	events := &recordingEventSink{}
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		capturedReq = req
+		return agent.RunState{}, nil
+	}})
+	deps.Events = events
+	deps.CacheKeyStore = nil
+
+	handler := newSpecializedHandler(AgentTypeExplore, deps)
+	if _, err := handler(context.Background(), map[string]any{"task": "explore"}); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if _, ok := capturedReq.Events.(*dispatchReleaseSink); ok {
+		t.Error("nil store wrapped req.Events in *dispatchReleaseSink")
+	}
+	if got := waitingEvents(events.Events()); len(got) != 0 {
+		t.Fatalf("nil store emitted %d waiting events, want none", len(got))
 	}
 }
 
@@ -1466,5 +1723,58 @@ func TestSpecializedHandler_NonCodeAgentsNoWorktreeFields(t *testing.T) {
 				t.Errorf("Warnings = %v, want empty for non-code agent", delegationResult.Warnings)
 			}
 		})
+	}
+}
+func TestSpecializedHandler_ParentCallIDFromContext(t *testing.T) {
+	sink := &collectingSink{}
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+	deps.Events = sink
+	ctx := context.WithValue(context.Background(), tool.ExecutionCallIDKey{}, "call_ABC")
+
+	if _, err := SpecializedToolDef(AgentTypeExplore, deps).Handler(ctx, map[string]any{"task": "inspect"}); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if len(sink.events) == 0 {
+		t.Fatal("handler emitted no events")
+	}
+	started, ok := sink.events[0].Payload.(output.DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("first event payload = %T, want DelegationStartedEvent", sink.events[0].Payload)
+	}
+	if started.CallID != "call_ABC" {
+		t.Errorf("started CallID = %q, want call_ABC", started.CallID)
+	}
+}
+
+func TestVisionHandler_ParentCallIDFromContext(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "test.png")
+	if err := os.WriteFile(imgPath, []byte("fake-png-content"), 0o600); err != nil {
+		t.Fatalf("write temp image: %v", err)
+	}
+	store := agent.NewImageStore(dir)
+	ref := store.Register(imgPath, "image/png", 100, 200, 15)
+	sink := &collectingSink{}
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+	deps.Events = sink
+	deps.ImageStore = store
+	ctx := context.WithValue(context.Background(), tool.ExecutionCallIDKey{}, "call_VISION")
+
+	if _, err := SpecializedToolDef(AgentTypeVision, deps).Handler(ctx, map[string]any{"task": "describe", "image_id": ref.ID}); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if len(sink.events) == 0 {
+		t.Fatal("handler emitted no events")
+	}
+	started, ok := sink.events[0].Payload.(output.DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("first event payload = %T, want DelegationStartedEvent", sink.events[0].Payload)
+	}
+	if started.CallID != "call_VISION" {
+		t.Errorf("started CallID = %q, want call_VISION", started.CallID)
 	}
 }

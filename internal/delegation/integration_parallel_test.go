@@ -62,36 +62,48 @@ type eventChSink struct{ ch chan output.Event }
 func (s eventChSink) Emit(e output.Event) { s.ch <- e }
 
 type parallelHarness struct {
-	provider       *parallelProvider
-	active         atomic.Int32
-	max            atomic.Int32
-	started        atomic.Int32
-	completed      atomic.Int32
-	completedTasks sync.Map
-	taskCalls      sync.Map
-	summaries      sync.Map
-	allStarted     chan struct{}
-	done           chan struct{}
-	events         chan output.Event
-	target         int
-	release        func(string) <-chan struct{}
-	failTask       string
-	blockOnCtx     bool
-	workDir        string
+	provider             *parallelProvider
+	active               atomic.Int32
+	max                  atomic.Int32
+	started              atomic.Int32
+	completed            atomic.Int32
+	completedTasks       sync.Map
+	taskCalls            sync.Map
+	summaries            sync.Map
+	allStarted           chan struct{}
+	providerStarted      chan struct{}
+	providerStartedOnce  sync.Once
+	done                 chan struct{}
+	providerGate         <-chan struct{}
+	leaderTask           atomic.Value
+	providerFollowerHold chan struct{}
+	providerOverlap      chan struct{}
+	providerOverlapOnce  sync.Once
+	events               chan output.Event
+	target               int
+	release              func(string) <-chan struct{}
+	failTask             string
+	blockOnCtx           bool
+	workDir              string
 }
 
 func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 	h := &parallelHarness{
-		allStarted: make(chan struct{}),
-		done:       make(chan struct{}),
-		events:     make(chan output.Event, 1024),
-		target:     n,
-		workDir:    "/tmp",
+		allStarted:      make(chan struct{}),
+		providerStarted: make(chan struct{}),
+		done:            make(chan struct{}),
+		events:          make(chan output.Event, 1024),
+		target:          n,
+		workDir:         "/tmp",
 	}
 	h.release = func(string) <-chan struct{} { return h.done }
 	h.provider = &parallelProvider{parent: parent}
 	h.provider.child = func(ctx context.Context, task string) (provider.ChatResponse, error) {
 		cur := h.active.Add(1)
+		h.providerStartedOnce.Do(func() {
+			h.leaderTask.Store(task)
+			close(h.providerStarted)
+		})
 		for {
 			old := h.max.Load()
 			if cur <= old || h.max.CompareAndSwap(old, cur) {
@@ -105,6 +117,27 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 			h.countCompleted(task)
 			h.active.Add(-1)
 			return provider.ChatResponse{}, errors.New("child failed")
+		}
+		if h.providerGate != nil {
+			select {
+			case <-h.providerGate:
+			case <-ctx.Done():
+				h.countCompleted(task)
+				h.active.Add(-1)
+				return provider.ChatResponse{}, ctx.Err()
+			}
+		}
+		if h.providerFollowerHold != nil && task != h.leaderTask.Load().(string) {
+			if h.active.Load() >= 2 {
+				h.providerOverlapOnce.Do(func() { close(h.providerOverlap) })
+			}
+			select {
+			case <-h.providerFollowerHold:
+			case <-ctx.Done():
+				h.countCompleted(task)
+				h.active.Add(-1)
+				return provider.ChatResponse{}, ctx.Err()
+			}
 		}
 		if h.blockOnCtx {
 			<-ctx.Done()
@@ -181,6 +214,16 @@ func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *t
 	return agent.NewRunner().Run(ctx, req)
 }
 
+func runParallelParentGated(ctx context.Context, h *parallelHarness, max int, base *tool.Registry, store *CacheKeyStore) (agent.RunState, error) {
+	events := output.EventSink(eventChSink{ch: h.events})
+	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxParallel: max}, Provider: h.provider, Config: config.Config{}, WorkDir: h.workDir, Events: events, CacheKeyStore: store})
+	if err != nil {
+		return agent.RunState{}, err
+	}
+	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, h.workDir, "", tool.Unsandboxed{}), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelTool: IsDelegationTool, MaxParallelTools: max, Events: events}
+	return agent.NewRunner().Run(ctx, req)
+}
+
 type parallelRunResult struct {
 	state agent.RunState
 	err   error
@@ -193,6 +236,38 @@ func startParallelParent(ctx context.Context, h *parallelHarness, max int, base 
 		result <- parallelRunResult{state: state, err: err}
 	}()
 	return result
+}
+
+func startParallelParentGated(ctx context.Context, h *parallelHarness, max int, base *tool.Registry, store *CacheKeyStore) <-chan parallelRunResult {
+	result := make(chan parallelRunResult, 1)
+	go func() {
+		state, err := runParallelParentGated(ctx, h, max, base, store)
+		result <- parallelRunResult{state: state, err: err}
+	}()
+	return result
+}
+
+func receiveParallelWithin(t *testing.T, ch <-chan parallelRunResult, timeout time.Duration, message string) parallelRunResult {
+	t.Helper()
+	select {
+	case result := <-ch:
+		return result
+	case <-time.After(timeout):
+		t.Fatal(message)
+		return parallelRunResult{}
+	}
+}
+
+func drainParallelEvents(ch <-chan output.Event) []output.Event {
+	var events []output.Event
+	for {
+		select {
+		case event := <-ch:
+			events = append(events, event)
+		default:
+			return events
+		}
+	}
 }
 
 func waitParallel(t *testing.T, ch <-chan struct{}, message string) {
@@ -247,6 +322,180 @@ func TestParallelDelegationEndToEndOverlap(t *testing.T) {
 	}
 	if got := h.max.Load(); got != 3 {
 		t.Fatalf("max active children = %d, want 3", got)
+	}
+}
+
+// waitParallelCacheWaiting blocks until at least n DelegationCacheWaiting events
+// have been observed, returning every event read up to and including the nth so
+// callers can still assert against them. It is a synchronization barrier used to
+// guarantee follower delegations have joined the dispatch gate before the test
+// releases or cancels the leader; it does not drain events emitted afterwards.
+// The timeout is deadlock protection only, not a latency expectation.
+func waitParallelCacheWaiting(t *testing.T, h *parallelHarness, n int, timeout time.Duration) []output.Event {
+	t.Helper()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	var seen []output.Event
+	waiting := 0
+	for waiting < n {
+		select {
+		case ev := <-h.events:
+			seen = append(seen, ev)
+			if ev.Type == output.EventTypeDelegationCacheWaiting {
+				waiting++
+			}
+		case <-timer.C:
+			t.Fatalf("timed out waiting for %d cache-waiting events, got %d", n, waiting)
+		}
+	}
+	return seen
+}
+
+func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store := NewCacheKeyStore()
+	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
+	h.providerOverlap = make(chan struct{})
+	h.providerFollowerHold = make(chan struct{})
+	// Keep every child provider call behind the test signal. The leader's first
+	// chunk releases the two followers only after this signal is closed.
+	h.providerGate = h.done
+	result := startParallelParentGated(ctx, h, 3, tool.NewRegistry(), store)
+	select {
+	case <-h.providerStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("leader child did not reach the provider")
+	}
+	if got := h.active.Load(); got != 1 {
+		t.Fatalf("active child provider calls before release = %d, want 1", got)
+	}
+	// Block until both followers have joined the dispatch gate so the release and
+	// overlap assertions below are deterministic regardless of how the scheduler
+	// interleaves the three sibling delegations.
+	observed := waitParallelCacheWaiting(t, h, 2, 10*time.Second)
+	if got := h.completed.Load(); got != 0 {
+		t.Fatalf("completed children before release = %d, want 0", got)
+	}
+	for _, event := range observed {
+		if event.Type == output.EventTypeDelegationComplete {
+			t.Fatal("DelegationComplete emitted before provider release")
+		}
+	}
+	close(h.done)
+	select {
+	case <-h.providerOverlap:
+	case <-time.After(10 * time.Second):
+		t.Fatal("follower provider calls did not overlap after gate release")
+	}
+	if got := h.max.Load(); got < 2 {
+		t.Fatalf("max simultaneous provider calls after release = %d, want at least 2", got)
+	}
+	close(h.providerFollowerHold)
+	run := receiveParallelWithin(t, result, 10*time.Second, "gated parallel run did not finish")
+	if run.err != nil {
+		t.Fatal(run.err)
+	}
+	observed = append(observed, drainParallelEvents(h.events)...)
+	if got := h.completed.Load(); got != 3 {
+		t.Fatalf("completed children = %d, want 3", got)
+	}
+
+	agentByTask := make(map[string]string, 3)
+	taskByAgent := make(map[string]string, 3)
+	completeByAgent := make(map[string]output.DelegationCompleteEvent, 3)
+	for _, event := range observed {
+		switch event.Type {
+		case output.EventTypeDelegationStarted:
+			started, ok := event.Payload.(output.DelegationStartedEvent)
+			if !ok || !strings.HasPrefix(started.TaskPreview, "task-") {
+				continue
+			}
+			wantCallID := "call-" + strings.TrimPrefix(started.TaskPreview, "task-")
+			if started.CallID != wantCallID {
+				t.Errorf("task %q started with call ID %q, want %q", started.TaskPreview, started.CallID, wantCallID)
+			}
+			if prior, ok := agentByTask[started.TaskPreview]; ok && prior != started.AgentID {
+				t.Errorf("task %q started with multiple agent IDs %q and %q", started.TaskPreview, prior, started.AgentID)
+			}
+			if prior, ok := taskByAgent[started.AgentID]; ok && prior != started.TaskPreview {
+				t.Errorf("agent ID %q reused for tasks %q and %q", started.AgentID, prior, started.TaskPreview)
+			}
+			agentByTask[started.TaskPreview] = started.AgentID
+			taskByAgent[started.AgentID] = started.TaskPreview
+		case output.EventTypeDelegationComplete:
+			complete, ok := event.Payload.(output.DelegationCompleteEvent)
+			if ok {
+				completeByAgent[complete.AgentID] = complete
+			}
+		}
+	}
+	for i := 0; i < 3; i++ {
+		task := fmt.Sprintf("task-%d", i)
+		agentID, ok := agentByTask[task]
+		if !ok {
+			t.Errorf("missing DelegationStarted event for %s", task)
+			continue
+		}
+		if _, ok := completeByAgent[agentID]; !ok {
+			t.Errorf("missing DelegationComplete event for %s with agent ID %q", task, agentID)
+		}
+	}
+	results := toolResults(run.state)
+	for i := 0; i < 3; i++ {
+		task := fmt.Sprintf("task-%d", i)
+		found := false
+		for _, result := range results {
+			if strings.Contains(result, task) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("tool results do not contain %s: %v", task, results)
+		}
+	}
+}
+
+func TestParallelDelegationGateCancellationReleasesFollowers(t *testing.T) {
+	// The fixed 10-second dispatchGateTimeout fallback is not tested end to end
+	// here. It is not injectable, and waiting 10 seconds would violate the
+	// fast-test convention, especially under go test -race. The timeout unit path
+	// is covered by TestCacheKeyStoreDispatchGateTimeout.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store := NewCacheKeyStore()
+	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
+	h.blockOnCtx = true
+	result := startParallelParentGated(ctx, h, 3, tool.NewRegistry(), store)
+	select {
+	case <-h.providerStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("leader child did not reach the provider")
+	}
+	// Block until both followers are confirmed waiting on the dispatch gate, then
+	// cancel. This makes the follower-release assertion deterministic: it depends
+	// on the followers existing, not on the scheduler reaching them in time.
+	observed := waitParallelCacheWaiting(t, h, 2, 10*time.Second)
+	cancel()
+	run := receiveParallelWithin(t, result, 10*time.Second, "cancelled gated parallel run did not return")
+	if run.err != nil {
+		t.Fatal(run.err)
+	}
+	if got := h.active.Load(); got != 0 {
+		t.Fatalf("active children after cancellation = %d", got)
+	}
+	if got := h.completed.Load(); got == 0 {
+		t.Fatal("no child provider call completed after cancellation")
+	}
+	waiting := 0
+	for _, event := range append(observed, drainParallelEvents(h.events)...) {
+		if event.Type == output.EventTypeDelegationCacheWaiting {
+			waiting++
+		}
+	}
+	if waiting < 2 {
+		t.Fatalf("cache-waiting events = %d, want at least 2 followers", waiting)
 	}
 }
 

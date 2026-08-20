@@ -288,6 +288,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		agentID := generateAgentID()
+		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
 
 		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, deps)
 		if err != nil {
@@ -304,6 +305,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		spec := DelegationSpec{
 			Task:         task,
 			SystemPrompt: AgentSystemPrompt(agentType),
+			ParentCallID: callID,
 			AgentID:      agentID,
 		}
 		if agentType == AgentTypeCode {
@@ -314,6 +316,9 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)
 		}
+		var gateRelease func()
+		req.Events, gateRelease = applyDispatchGate(ctx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
+		defer gateRelease()
 		spec.Limits = limits
 
 		remediation := codeRemediationConfig(provisionedWorktree)

@@ -40,6 +40,8 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 	switch event.Type {
 	case output.EventTypeDelegationStarted:
 		b.handleDelegationStarted(event)
+	case output.EventTypeDelegationCacheWaiting:
+		b.handleDelegationCacheWaiting(event)
 	case output.EventTypeDelegationComplete:
 		b.handleDelegationComplete(event)
 	case output.EventTypeDelegationFailed:
@@ -310,22 +312,46 @@ func (b *contentBuffer) findDelegation(agentID string) (delegationLocator, bool)
 	return result, found
 }
 
-func (b *contentBuffer) dequeuePendingDelegateParentSegment() (delegationLocator, bool) {
-	for len(b.pendingDelegateParents) > 0 {
-		loc := b.pendingDelegateParents[0]
-		b.pendingDelegateParents = b.pendingDelegateParents[1:]
+func (b *contentBuffer) dequeuePendingByCallID(list *[]delegationLocator, callID string) (delegationLocator, bool) {
+	if callID == "" {
+		return delegationLocator{}, false
+	}
+	for i, loc := range *list {
+		if loc.dd == nil || loc.seg < 0 || loc.seg >= len(b.segments) || loc.dd.parentCallID != callID {
+			continue
+		}
+		*list = append((*list)[:i], (*list)[i+1:]...)
+		return loc, true
+	}
+	return delegationLocator{}, false
+}
+
+func (b *contentBuffer) dequeuePendingDelegateParentByCallID(callID string) (delegationLocator, bool) {
+	return b.dequeuePendingByCallID(&b.pendingDelegateParents, callID)
+}
+
+func (b *contentBuffer) drainPending(list *[]delegationLocator, eligible func(delegationLocator) bool) (delegationLocator, bool) {
+	for len(*list) > 0 {
+		loc := (*list)[0]
+		*list = (*list)[1:]
 		if loc.dd == nil {
 			continue
 		}
 		if loc.seg < 0 || loc.seg >= len(b.segments) {
 			continue
 		}
-		if loc.dd.agentID != "" {
+		if !eligible(loc) {
 			continue
 		}
 		return loc, true
 	}
 	return delegationLocator{}, false
+}
+
+func (b *contentBuffer) dequeuePendingDelegateParentSegment() (delegationLocator, bool) {
+	return b.drainPending(&b.pendingDelegateParents, func(loc delegationLocator) bool {
+		return loc.dd.agentID == ""
+	})
 }
 
 func (b *contentBuffer) removeFromPendingDelegateParents(dd *delegationDisplayState) {
@@ -379,22 +405,14 @@ func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int 
 	return len(b.segments) - 1
 }
 
+func (b *contentBuffer) dequeuePendingDelegationStartByCallID(callID string) (delegationLocator, bool) {
+	return b.dequeuePendingByCallID(&b.pendingDelegationStarts, callID)
+}
+
 func (b *contentBuffer) dequeuePendingDelegationStartSegment() (delegationLocator, bool) {
-	for len(b.pendingDelegationStarts) > 0 {
-		loc := b.pendingDelegationStarts[0]
-		b.pendingDelegationStarts = b.pendingDelegationStarts[1:]
-		if loc.dd == nil {
-			continue
-		}
-		if loc.seg < 0 || loc.seg >= len(b.segments) {
-			continue
-		}
-		if loc.dd.parentCallID != "" {
-			continue
-		}
-		return loc, true
-	}
-	return delegationLocator{}, false
+	return b.drainPending(&b.pendingDelegationStarts, func(loc delegationLocator) bool {
+		return loc.dd.parentCallID == ""
+	})
 }
 
 func (b *contentBuffer) markDelegationDirty(idx int) {
@@ -417,9 +435,9 @@ func (b *contentBuffer) markDelegationDirty(idx int) {
 	b.gen++
 }
 
-func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload output.ToolCallStartedEvent) bool {
+func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload output.ToolCallStartedEvent) {
 	if loc.dd == nil {
-		return false
+		return
 	}
 	dd := loc.dd
 	dd.parentCallID = payload.CallID
@@ -432,7 +450,6 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 		dd.toolLabel = strings.ToLower(strings.TrimSpace(payload.Tool))
 	}
 	b.markDelegationDirty(loc.seg)
-	return true
 }
 
 func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallStartedEvent) {
@@ -468,6 +485,10 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 }
 
 func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolCallStartedEvent) {
+	if loc, found := b.dequeuePendingDelegationStartByCallID(payload.CallID); found {
+		b.bindParentDelegateCall(loc, payload)
+		return
+	}
 	if loc, found := b.dequeuePendingDelegationStartSegment(); found {
 		b.bindParentDelegateCall(loc, payload)
 		return
@@ -517,6 +538,22 @@ func (b *contentBuffer) handleDelegationExtension(event output.Event) {
 	}
 }
 
+func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {
+	payload, ok := event.Payload.(output.DelegationCacheWaitingEvent)
+	if !ok {
+		return
+	}
+	loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID)
+	if !found {
+		return
+	}
+	loc.dd.agentID = payload.AgentID
+	loc.dd.cacheWaiting = true
+	loc.dd.cacheWaitDeadline = payload.DeadlineUnixNano
+	b.activeDelegations[payload.AgentID] = loc
+	b.markDelegationDirty(loc.seg)
+}
+
 func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	payload, ok := event.Payload.(output.DelegationStartedEvent)
 	if !ok {
@@ -527,18 +564,30 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	if runes := []rune(preview); len(runes) > 80 {
 		preview = string(runes[:77]) + "..."
 	}
-	if loc, found := b.dequeuePendingDelegateParentSegment(); found {
+	bind := func(loc delegationLocator) {
 		dd := loc.dd
 		dd.agentID = payload.AgentID
 		if preview != "" {
 			dd.taskPreview = preview
 		}
+		dd.cacheWaiting = false
 		dd.startTime = nanoNow()
 		dd.status = "active"
 		dd.collapsed = true
 		dd.extMax = defaultDelegationExtensionMax
 		b.activeDelegations[payload.AgentID] = loc
 		b.markDelegationDirty(loc.seg)
+	}
+	if loc, active := b.activeDelegations[payload.AgentID]; active && loc.dd != nil && loc.dd.cacheWaiting && loc.dd.parentCallID == payload.CallID {
+		bind(loc)
+		return
+	}
+	if loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID); found {
+		bind(loc)
+		return
+	}
+	if loc, found := b.dequeuePendingDelegateParentSegment(); found {
+		bind(loc)
 		return
 	}
 	dd := &delegationDisplayState{

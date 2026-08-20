@@ -32,29 +32,18 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		}
 
 		agentID := generateAgentID()
+		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
 		spec := DelegationSpec{
 			Task:         task,
 			SystemPrompt: AgentSystemPrompt(AgentTypeVision),
+			ParentCallID: callID,
 			AgentID:      agentID,
 			Images:       []provider.ImageBlock{imgBlock},
 		}
 
-		resolvedProvider := deps.Provider
-		resolvedModel := deps.ResolvedModel
-		if deps.ModelResolver != nil {
-			if alias, ok := deps.AgentModels[string(AgentTypeVision)]; ok && alias != "" {
-				p, rm, err := deps.ModelResolver(alias)
-				if err != nil {
-					return nil, fmt.Errorf("vision: resolve model %q: %w", alias, err)
-				}
-				resolvedProvider = p
-				resolvedModel = rm
-			}
-		}
-
-		allowedTools := AgentAllowedTools(AgentTypeVision)
-		if deps.ExtraAllowedTools != nil {
-			allowedTools = mergedAllowedTools(allowedTools, deps.ExtraAllowedTools[AgentTypeVision])
+		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(AgentTypeVision, deps)
+		if err != nil {
+			return nil, err
 		}
 
 		req, limits, err := BuildChildRun(ctx, deps.SubAgentHandlerDeps, ChildBootstrapOverrides{
@@ -66,6 +55,9 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		if err != nil {
 			return nil, fmt.Errorf("vision: build child run: %w", err)
 		}
+		var gateRelease func()
+		req.Events, gateRelease = applyDispatchGate(ctx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
+		defer gateRelease()
 		spec.Limits = limits
 
 		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
