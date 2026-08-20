@@ -10,11 +10,11 @@ import (
 // BuildResult constructs a Result from an agent.RunState.
 // Maps StopReason to Status and captures state metrics.
 func BuildResult(agentID string, state agent.RunState) Result {
-	return buildResultInternal(agentID, state, nil, cacheUsageOf(state))
+	return buildResultInternal(agentID, state, nil, tokenUsageOf(state))
 }
 
 // buildResultWithTrace is the trace-aware variant used by SpawnDelegate.
-func buildResultWithTrace(agentID string, state agent.RunState, tc *traceCollector, cache CacheUsage) Result {
+func buildResultWithTrace(agentID string, state agent.RunState, tc *traceCollector, cache TokenUsage) Result {
 	return buildResultInternal(agentID, state, tc, cache)
 }
 
@@ -28,7 +28,7 @@ func countToolCalls(conversation []agent.Message) int {
 	return n
 }
 
-func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector, cache CacheUsage) Result {
+func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector, cache TokenUsage) Result {
 	output := ""
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		output = msg.Content
@@ -38,7 +38,7 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 		AgentID:           agentID,
 		Output:            output,
 		TurnCount:         state.TurnCount,
-		TokenCount:        state.TokenCount,
+		TokenCount:        cache.OutputTokens,
 		ToolCallCount:     countToolCalls(state.Conversation),
 		InputTokens:       cache.InputTokens,
 		CacheReadTokens:   cache.CacheReadTokens,

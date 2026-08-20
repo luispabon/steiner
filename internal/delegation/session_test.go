@@ -22,7 +22,7 @@ func TestSessionStoreSaveGetUpdate(t *testing.T) {
 		TurnCount:     1,
 		TokenCount:    10,
 		ToolCallCount: 2,
-		CacheUsage:    CacheUsage{InputTokens: 1, CacheReadTokens: 2, CacheCreateTokens: 3},
+		TokenUsage:    TokenUsage{InputTokens: 1, CacheReadTokens: 2, CacheCreateTokens: 3, OutputTokens: 10},
 	}
 
 	store.Save(session)
@@ -41,7 +41,7 @@ func TestSessionStoreSaveGetUpdate(t *testing.T) {
 		TurnCount:     2,
 		TokenCount:    20,
 		ToolCallCount: 3,
-		CacheUsage:    CacheUsage{InputTokens: 4, CacheReadTokens: 5, CacheCreateTokens: 6},
+		TokenUsage:    TokenUsage{InputTokens: 4, CacheReadTokens: 5, CacheCreateTokens: 6, OutputTokens: 20},
 	})
 
 	got, ok = store.Get("child-1")
@@ -63,9 +63,9 @@ func TestSessionStoreSaveGetUpdate(t *testing.T) {
 	if got.FollowUpCount != 1 {
 		t.Fatalf("FollowUpCount = %d, want 1", got.FollowUpCount)
 	}
-	wantCache := CacheUsage{InputTokens: 5, CacheReadTokens: 7, CacheCreateTokens: 9}
-	if got.CacheUsage != wantCache {
-		t.Fatalf("CacheUsage = %+v, want %+v (seeded plus update delta)", got.CacheUsage, wantCache)
+	wantCache := TokenUsage{InputTokens: 5, CacheReadTokens: 7, CacheCreateTokens: 9, OutputTokens: 30}
+	if got.TokenUsage != wantCache {
+		t.Fatalf("TokenUsage = %+v, want %+v (seeded plus update delta)", got.TokenUsage, wantCache)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestSessionStoreConcurrentAccess(t *testing.T) {
 					TurnCount:     1,
 					TokenCount:    2,
 					ToolCallCount: 3,
-					CacheUsage:    CacheUsage{InputTokens: 4, CacheReadTokens: 5, CacheCreateTokens: 6},
+					TokenUsage:    TokenUsage{InputTokens: 4, CacheReadTokens: 5, CacheCreateTokens: 6, OutputTokens: 2},
 				})
 			}
 		}(i)
@@ -142,13 +142,14 @@ func TestSessionStoreConcurrentAccess(t *testing.T) {
 		if session.FollowUpCount != updatesPerSession {
 			t.Fatalf("FollowUpCount for %q = %d, want %d", id, session.FollowUpCount, updatesPerSession)
 		}
-		wantCache := CacheUsage{
+		wantCache := TokenUsage{
 			InputTokens:       updatesPerSession * 4,
 			CacheReadTokens:   updatesPerSession * 5,
 			CacheCreateTokens: updatesPerSession * 6,
+			OutputTokens:      updatesPerSession * 2,
 		}
-		if session.CacheUsage != wantCache {
-			t.Fatalf("CacheUsage for %q = %+v, want %+v", id, session.CacheUsage, wantCache)
+		if session.TokenUsage != wantCache {
+			t.Fatalf("TokenUsage for %q = %+v, want %+v", id, session.TokenUsage, wantCache)
 		}
 		if len(session.Conversation) != 1 {
 			t.Fatalf("Conversation length for %q = %d, want 1", id, len(session.Conversation))

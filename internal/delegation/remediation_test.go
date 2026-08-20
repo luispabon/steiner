@@ -111,7 +111,7 @@ func TestApplyRemediation(t *testing.T) {
 			}}
 			gotState, _, result, outcome, err := applyRemediation(
 				context.Background(), remediationTestSpec(), remediationTestRequest(), runner,
-				tt.state, CacheUsage{}, tt.cfg, newTraceCollector("remediation-agent", "implement the task"),
+				tt.state, TokenUsage{}, tt.cfg, newTraceCollector("remediation-agent", "implement the task"),
 			)
 			if outcome != tt.wantOutcome {
 				t.Errorf("outcome = %q, want %q", outcome, tt.wantOutcome)
@@ -250,8 +250,8 @@ func TestSpawnDelegate_RemediationSurvivesSummary(t *testing.T) {
 	if !strings.Contains(delegationResult.Output, "<remediation note: committed remaining changes; worktree left clean>") {
 		t.Errorf("output = %q, missing remediation note", delegationResult.Output)
 	}
-	if delegationResult.TurnCount != 2 || delegationResult.TokenCount != 200 {
-		t.Errorf("counts = (%d, %d), want (2, 200)", delegationResult.TurnCount, delegationResult.TokenCount)
+	if delegationResult.TurnCount != 2 || delegationResult.TokenCount != 500 {
+		t.Errorf("counts = (%d, %d), want (2, 500)", delegationResult.TurnCount, delegationResult.TokenCount)
 	}
 	if state.TurnCount != 2 || remediationCalls != 1 || calls != 3 {
 		t.Errorf("state turn=%d, remediation calls=%d, total calls=%d; want 2, 1, 3", state.TurnCount, remediationCalls, calls)

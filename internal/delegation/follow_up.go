@@ -77,7 +77,7 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 
 		spec := session.Spec
 		spec.Limits = freshLimits
-		spec.PriorCacheUsage = session.CacheUsage
+		spec.PriorTokenUsage = session.TokenUsage
 
 		var opts []spawnOption
 		if childHasMutateTool(session.Request) && session.Remediation != nil {
@@ -88,9 +88,9 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 			deps.SessionStore.Update(agentID, SessionUpdateParams{
 				Conversation:  state.Conversation,
 				TurnCount:     state.TurnCount,
-				TokenCount:    state.TokenCount,
+				TokenCount:    runUsage.OutputTokens,
 				ToolCallCount: countToolCalls(state.Conversation),
-				CacheUsage:    runUsage,
+				TokenUsage:    runUsage,
 			})
 			updated, ok := deps.SessionStore.Get(agentID)
 			if !ok {

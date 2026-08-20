@@ -1423,15 +1423,15 @@ func TestTruncateTaskPreviewRuneSafe(t *testing.T) {
 	}
 }
 
-func TestDelegationCompleteEventEmittedBeforeSummary(t *testing.T) {
+func TestDelegationCompleteEventEmittedAfterSummary(t *testing.T) {
 	spec := makeSpec("event-order-agent", 10000)
 	sink := &collectingSink{}
 
 	var summaryCallSawCompleteEvent bool
 	runner := &presetRunner{
 		states: []agent.RunState{
-			completeState("task done"),
-			completeState("summary text"),
+			{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "task done"}}, StopReason: agent.StopReasonComplete, TokenCount: 10, InputTokens: 20, CacheReadTokens: 30, CacheCreateTokens: 40},
+			{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary text"}}, StopReason: agent.StopReasonComplete, TokenCount: 3, InputTokens: 4, CacheReadTokens: 5, CacheCreateTokens: 6},
 		},
 	}
 
@@ -1452,8 +1452,17 @@ func TestDelegationCompleteEventEmittedBeforeSummary(t *testing.T) {
 	}
 
 	summaryCallSawCompleteEvent = wrappedRunner.sawCompleteAtSummaryCall
-	if !summaryCallSawCompleteEvent {
-		t.Error("DelegationComplete event was not emitted before the summary call")
+	if summaryCallSawCompleteEvent {
+		t.Error("DelegationComplete event was emitted before the summary call")
+	}
+	var complete output.DelegationCompleteEvent
+	for _, ev := range sink.events {
+		if ev.Type == output.EventTypeDelegationComplete {
+			complete = ev.Payload.(output.DelegationCompleteEvent)
+		}
+	}
+	if complete.TokenCount != 13 || complete.InputTokens != 24 || complete.CacheReadTokens != 35 || complete.CacheCreateTokens != 46 {
+		t.Fatalf("complete event usage = (output=%d, input=%d, read=%d, create=%d), want (13, 24, 35, 46)", complete.TokenCount, complete.InputTokens, complete.CacheReadTokens, complete.CacheCreateTokens)
 	}
 }
 

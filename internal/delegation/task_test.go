@@ -125,8 +125,8 @@ func TestRunChildToCompletion_NoExtensionNeeded(t *testing.T) {
 	if finalState.StopReason != agent.StopReasonComplete {
 		t.Errorf("state stop reason = %s, want %s", finalState.StopReason, agent.StopReasonComplete)
 	}
-	if usage != cacheUsageOf(state) {
-		t.Errorf("usage = %+v, want %+v (cacheUsageOf initial state)", usage, cacheUsageOf(state))
+	if usage != tokenUsageOf(state) {
+		t.Errorf("usage = %+v, want %+v (tokenUsageOf initial state)", usage, tokenUsageOf(state))
 	}
 }
 
@@ -251,10 +251,10 @@ func TestRunChildToCompletion_MultipleExtensionsThenComplete(t *testing.T) {
 	if finalState.TurnCount != 4 {
 		t.Errorf("final state TurnCount = %d, want 4", finalState.TurnCount)
 	}
-	wantUsage := cacheUsageOf(initialState).
-		Add(cacheUsageOf(responses[0].state)).
-		Add(cacheUsageOf(responses[1].state)).
-		Add(cacheUsageOf(responses[2].state))
+	wantUsage := tokenUsageOf(initialState).
+		Add(tokenUsageOf(responses[0].state)).
+		Add(tokenUsageOf(responses[1].state)).
+		Add(tokenUsageOf(responses[2].state))
 	if usage != wantUsage {
 		t.Errorf("usage = %+v, want %+v (sum across initial run and all extensions)", usage, wantUsage)
 	}
@@ -321,7 +321,7 @@ func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
 				CacheReadTokens:   200,
 				CacheCreateTokens: 2,
 			}},
-			{err: fmt.Errorf("provider error")},
+			{state: agent.RunState{TokenCount: 30, InputTokens: 30, CacheReadTokens: 300, CacheCreateTokens: 3}, err: fmt.Errorf("provider error")},
 		},
 	}
 	initialState := agent.RunState{
@@ -360,9 +360,75 @@ func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
 	if finalState.TurnCount != 2 {
 		t.Errorf("final state TurnCount = %d, want 2 (state before failed run)", finalState.TurnCount)
 	}
-	wantUsage := cacheUsageOf(initialState).Add(cacheUsageOf(runner.responses[0].state))
+	wantUsage := tokenUsageOf(initialState).Add(tokenUsageOf(runner.responses[0].state)).Add(tokenUsageOf(runner.responses[1].state))
 	if usage != wantUsage {
-		t.Errorf("usage = %+v, want %+v (usage through last successful state, excluding failed run)", usage, wantUsage)
+		t.Errorf("usage = %+v, want %+v (usage through the failed run)", usage, wantUsage)
+	}
+}
+
+func TestSpawnDelegateAccumulatesExtensionUsage(t *testing.T) {
+	calls := 0
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		calls++
+		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete, TokenCount: 1}, nil
+		}
+		if calls == 1 {
+			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{Name: "read"}}}}, StopReason: agent.StopReasonMaxTurns, TokenCount: 10}, nil
+		}
+		return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "done"}}, StopReason: agent.StopReasonComplete, TokenCount: 20}, nil
+	}}
+
+	result, _, usage, err := SpawnDelegate(context.Background(), Spec{AgentID: "extension-usage", Limits: Limits{MaxTurns: 1}}, agent.RunRequest{}, runner, nil, nil)
+	if err != nil {
+		t.Fatalf("SpawnDelegate error: %v", err)
+	}
+	got := result.Value.(Result)
+	if got.TokenCount != 31 || usage.OutputTokens != 31 {
+		t.Fatalf("output usage = (%d, %d), want (31, 31)", got.TokenCount, usage.OutputTokens)
+	}
+}
+
+func TestSpawnDelegateAccumulatesErroredExtensionUsage(t *testing.T) {
+	calls := 0
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		calls++
+		if calls == 1 {
+			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{Name: "read"}}}}, StopReason: agent.StopReasonMaxTurns, TokenCount: 10}, nil
+		}
+		return agent.RunState{TokenCount: 20, InputTokens: 2, CacheReadTokens: 3, CacheCreateTokens: 4}, errors.New("extension failed")
+	}}
+
+	result, _, usage, err := SpawnDelegate(context.Background(), Spec{AgentID: "errored-extension", Limits: Limits{MaxTurns: 1}}, agent.RunRequest{}, runner, nil, nil)
+	if err != nil {
+		t.Fatalf("SpawnDelegate error: %v", err)
+	}
+	got := result.Value.(Result)
+	if got.TokenCount != 30 || usage.OutputTokens != 30 || got.InputTokens != 2 || got.CacheReadTokens != 3 || got.CacheCreateTokens != 4 {
+		t.Fatalf("errored extension usage = result(%d,%d,%d,%d), usage output=%d; want (30,2,3,4), 30", got.TokenCount, got.InputTokens, got.CacheReadTokens, got.CacheCreateTokens, usage.OutputTokens)
+	}
+}
+
+func TestSpawnDelegateAccumulatesSummaryUsage(t *testing.T) {
+	calls := 0
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		calls++
+		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete, TokenCount: 7, InputTokens: 11, CacheReadTokens: 13, CacheCreateTokens: 17}, nil
+		}
+		return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "done"}}, StopReason: agent.StopReasonComplete, TokenCount: 5, InputTokens: 2, CacheReadTokens: 3, CacheCreateTokens: 4}, nil
+	}}
+
+	result, _, usage, err := SpawnDelegate(context.Background(), Spec{AgentID: "summary-usage"}, agent.RunRequest{}, runner, nil, nil)
+	if err != nil {
+		t.Fatalf("SpawnDelegate error: %v", err)
+	}
+	got := result.Value.(Result)
+	if got.TokenCount != 12 || got.InputTokens != 13 || got.CacheReadTokens != 16 || got.CacheCreateTokens != 21 {
+		t.Fatalf("summary usage result = (%d,%d,%d,%d), want (12,13,16,21)", got.TokenCount, got.InputTokens, got.CacheReadTokens, got.CacheCreateTokens)
+	}
+	if usage != (TokenUsage{OutputTokens: 12, InputTokens: 13, CacheReadTokens: 16, CacheCreateTokens: 21}) {
+		t.Fatalf("summary usage = %+v, want cumulative usage", usage)
 	}
 }
 func TestSpawnDelegate_StartedEventIncludesParentCallID(t *testing.T) {

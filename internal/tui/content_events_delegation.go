@@ -620,13 +620,11 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 			if dd.isFollowUp {
 				dd.turnCount = max(0, payload.TurnCount-dd.baselineTurnCount)
 				dd.toolCallCount = max(0, payload.ToolCallCount-dd.baselineToolCallCount)
-				dd.tokenCount = max(0, payload.TokenCount-dd.baselineTokenCount)
-				// Unlike TurnCount, the cache counters are cumulative across
-				// follow-ups: the payload carries the child's whole-life totals
-				// (accumulated in internal/delegation), so they are rendered
-				// verbatim with no baseline subtraction.
-				dd.cacheReadTokens = payload.CacheReadTokens
+				dd.tokenCount = payload.TokenCount
+				// All token counters are whole-life totals for follow-ups, so
+				// they are rendered verbatim with no baseline subtraction.
 				dd.inputTokens = payload.InputTokens
+				dd.cacheReadTokens = payload.CacheReadTokens
 				dd.cacheCreateTokens = payload.CacheCreateTokens
 			} else {
 				dd.turnCount = payload.TurnCount
@@ -846,10 +844,10 @@ func (b *contentBuffer) findChildDelegationInfo(agentID string) (label, toolLabe
 }
 
 // captureChildBaselineStats searches for the most recent delegation segment
-// with the given agentID and returns its cumulative turn, tool-call, and
-// token counts. These form the baseline that must be subtracted from
-// follow-up DelegationCompleteEvent payload values to obtain per-follow-up
-// deltas. Returns zeroes when the segment is not found or has no data.
+// with the given agentID and returns its cumulative turn and tool-call counts.
+// These form the baseline that must be subtracted from follow-up
+// DelegationCompleteEvent payload values. Token counts remain whole-life totals.
+// Returns zeroes when the segment is not found or has no data.
 //
 // Cache token counts are deliberately excluded: they are cumulative across
 // follow-ups by construction (accumulated in internal/delegation and carried

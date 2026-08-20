@@ -230,6 +230,10 @@ func renderDelegationCompleteEvent(payload DelegationCompleteEvent) Segment {
 	parts = appendField(parts, "status", payload.Status)
 	parts = appendIntField(parts, "turns", payload.TurnCount)
 	parts = appendIntField(parts, "tokens", payload.TokenCount)
+	inTokens := payload.InputTokens + payload.CacheReadTokens + payload.CacheCreateTokens
+	parts = appendIntField(parts, "tokens_in", inTokens)
+	parts = appendIntField(parts, "tokens_out", payload.TokenCount)
+	parts = appendIntField(parts, "tokens_total", inTokens+payload.TokenCount)
 	parts = appendIntField(parts, "tool_calls", payload.ToolCallCount)
 	if rate, ok := usagestats.HitRate(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens); ok {
 		parts = appendField(parts, "cache", fmt.Sprintf("%.1f%%", rate*100))

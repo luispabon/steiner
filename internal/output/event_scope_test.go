@@ -263,6 +263,11 @@ func TestDelegationCompleteEventRendersCacheHitRate(t *testing.T) {
 	if got := withUsage.Text; !strings.Contains(got, "cache=95.0%") {
 		t.Fatalf("with-usage text = %q, want cache=95.0%%", got)
 	}
+	for _, field := range []string{"tokens=8123", "tokens_in=1000", "tokens_out=8123", "tokens_total=9123"} {
+		if !strings.Contains(withUsage.Text, field) {
+			t.Fatalf("with-usage text = %q, missing %s", withUsage.Text, field)
+		}
+	}
 }
 
 // TestDelegationCompleteEventCacheHitRateNotDoubleCounted pins Fix 0 (issue
