@@ -570,8 +570,8 @@ func TestPromptAssemblyCarriesSandboxState(t *testing.T) {
 // explore sub-agent, then inspects the child session the delegation handler
 // saves. buildChildPrompt derives AssemblyOptions.SandboxEnabled and
 // SandboxWritableMounts exclusively from DelegateDeps.SandboxEnabled and
-// DelegateDeps.SandboxWritableMounts (via SubAgentHandlerDeps and
-// BootstrapDeps), so removing either wiring line in runner.go flips these
+// DelegateDeps.SandboxWritableMounts (via SubAgentHandlerDeps), so removing
+// either wiring line in runner.go flips these
 // fields and fails this test.
 //
 // The bypassed case is the real production shape where runtime.sandbox is a

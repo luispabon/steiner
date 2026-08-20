@@ -12,7 +12,7 @@ import (
 
 func (s *Session) compactRunner(conversation []agent.Message) func(context.Context) ([]agent.Message, error) {
 	return func(ctx context.Context) ([]agent.Message, error) {
-		return s.deps.Runner.Compact(ctx, conversation, s.skills.Snapshot(), cloneSnapshotTools(s.snapshots))
+		return s.deps.Runner.Compact(ctx, conversation, s.skills.Snapshot(), snapshotTools(s.snapshots))
 	}
 }
 
@@ -75,10 +75,14 @@ func manualCompactionHasSource(messages []agent.Message) bool {
 	return turns > 1
 }
 
-func cloneSnapshotTools(store *SnapshotStore) []provider.ToolSpec {
+// snapshotTools returns the tools the last request sent, so the compaction is
+// built from the same prefix a normal turn would replay. The runExecutor seam
+// (cliRunner.Compact) clones them before handing them to the agent runner; here
+// we pass the reference without duplicating it.
+func snapshotTools(store *SnapshotStore) []provider.ToolSpec {
 	snapshot, ok := store.Snapshot()
 	if !ok {
 		return nil
 	}
-	return provider.CloneTools(snapshot.Tools)
+	return snapshot.Tools
 }
