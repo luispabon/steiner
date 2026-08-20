@@ -6,6 +6,8 @@ A minimal, local-first Go coding agent with bounded context and sandboxed execut
 - **Sandboxed execution**: bash and subprocess tools run inside a bubblewrap sandbox; sandbox violations prompt for user decision
 - **Provider-agnostic**: same config shape for local and cloud providers
 
+![Steiner](docs/screenshot.png)
+
 ## Why steiner
 
 Most coding agents are designed for cloud models with large context windows. Steiner is designed for the opposite constraint: local LLMs where context is expensive, reasoning quality degrades as the window fills, and you want to know exactly what is happening before anything changes on disk.
