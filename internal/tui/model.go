@@ -253,6 +253,7 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 	m.primaryModel = strings.TrimSpace(modelName)
 	m.currentModelAlias = m.primaryModel
 	m.status.model = m.primaryModel
+	m.status.reasoning = m.reasoningLabels[modelName]
 	m.sidebar.model = modelName
 	m.sidebar.provider = strings.TrimSpace(providerBaseURL)
 	if name, ok := m.modelProviderNames[modelName]; ok {
@@ -430,7 +431,7 @@ func cloneStringMap(src map[string]string) map[string]string {
 }
 
 // reasoningSidebarLabel derives the sidebar/picker label for a model's
-// reasoning state: the effective effort when set, "provider default" when
+// reasoning state: the effective effort when set, "default" when
 // the model is reasoning-capable but uses no explicit effort, or "" when the
 // model has no reasoning capability at all.
 func reasoningSidebarLabel(effort string, caps provider.ReasoningCapabilities) string {
@@ -438,7 +439,7 @@ func reasoningSidebarLabel(effort string, caps provider.ReasoningCapabilities) s
 		return effort
 	}
 	if len(caps.SupportedEfforts) > 0 {
-		return "provider default"
+		return "default"
 	}
 	return ""
 }

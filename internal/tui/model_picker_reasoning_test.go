@@ -92,7 +92,7 @@ func TestReasoningPickerEnterCommitsModelAndReasoning(t *testing.T) {
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown}) // select "large"
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	// reasoningPicker: index 0 is "provider default", move down twice for "medium"
+	// reasoningPicker: index 0 is "default", move down twice for "medium"
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -134,7 +134,7 @@ func TestReasoningPickerProviderDefaultOption(t *testing.T) {
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	// First candidate is already "provider default"; commit without moving.
+	// First candidate is already "default"; commit without moving.
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	sw, ok := lastSwitchModelAction(t, ctrl)
@@ -142,9 +142,9 @@ func TestReasoningPickerProviderDefaultOption(t *testing.T) {
 		t.Fatal("expected a SwitchModel action")
 	}
 	if sw.Reasoning == nil || sw.Reasoning.Kind != provider.ReasoningOverrideProviderDefault {
-		t.Fatalf("Reasoning = %+v, want provider default override", sw.Reasoning)
+		t.Fatalf("Reasoning = %+v, want default override", sw.Reasoning)
 	}
-	if got, want := m.sidebar.reasoning, "provider default"; got != want {
+	if got, want := m.sidebar.reasoning, "default"; got != want {
 		t.Fatalf("sidebar.reasoning = %q, want %q", got, want)
 	}
 }

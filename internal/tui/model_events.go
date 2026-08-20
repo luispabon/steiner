@@ -405,6 +405,7 @@ func (m *Model) handlePhaseTransition(payload output.PhaseTransitionEvent) tea.C
 		if modelName := strings.TrimSpace(payload.Model); modelName != "" {
 			m.primaryModel = modelName
 			m.status.model = modelName
+			m.status.reasoning = m.reasoningLabels[modelName]
 			m.sidebar.model = modelName
 			m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
 			m.sidebar.reasoning = m.reasoningLabels[modelName]

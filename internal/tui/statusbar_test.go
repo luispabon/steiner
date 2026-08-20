@@ -29,6 +29,32 @@ func TestRenderStatusCachesOnIdenticalInput(t *testing.T) {
 	}
 }
 
+func TestStatusBarRendersModelReasoningEffort(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	for _, tc := range []struct {
+		name      string
+		reasoning string
+		want      string
+		noSuffix  bool
+	}{
+		{name: "reasoning effort", reasoning: "medium", want: "gpt/medium"},
+		{name: "no reasoning effort", want: "gpt", noSuffix: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := statusState{model: "gpt", reasoning: tc.reasoning, styles: styles}
+			got := stripANSI(s.view(120))
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("status bar = %q, want %q", got, tc.want)
+			}
+			if tc.noSuffix && strings.Contains(got, "gpt/") {
+				t.Fatalf("status bar = %q, must not contain a reasoning suffix", got)
+			}
+		})
+	}
+}
+
 // TestRenderStatusNeverServesStale walks every field of statusState,
 // mutates it in turn, and asserts the memoized wrapper's output matches a
 // fresh direct call to statusState.view. This is a differential check

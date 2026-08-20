@@ -36,7 +36,7 @@ func TestNewModelSeedsReasoningSidebarProviderDefaultWhenNoConfiguredEffort(t *t
 		},
 	}, nil)
 
-	if got, want := m.sidebar.reasoning, "provider default"; got != want {
+	if got, want := m.sidebar.reasoning, "default"; got != want {
 		t.Fatalf("sidebar.reasoning = %q, want %q", got, want)
 	}
 }
@@ -72,7 +72,7 @@ func TestReasoningSidebarLabel(t *testing.T) {
 			name:   "no effort but reasoning capable",
 			effort: "",
 			caps:   provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "high"}},
-			want:   "provider default",
+			want:   "default",
 		},
 		{
 			name:   "no reasoning capability",

@@ -3231,18 +3231,21 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 	))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "working on it"), "agent-1"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		AgentID:       "agent-1",
-		Status:        "complete",
-		TurnCount:     5,
-		TokenCount:    1234,
-		ToolCallCount: 3,
-		Output:        "result",
+		AgentID:           "agent-1",
+		Status:            "complete",
+		TurnCount:         5,
+		TokenCount:        1234,
+		ToolCallCount:     3,
+		Output:            "result",
+		InputTokens:       50,
+		CacheReadTokens:   900,
+		CacheCreateTokens: 50,
 	}))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(100))
 	normalized := strings.Join(strings.Fields(rendered), " ")
-	for _, want := range []string{"model qwen3-coder-", "30b", "Turns: 5", "Tool Calls: 3", "Tokens: 0 in / 1.2k out", "Duration:", "Ctx: 1%"} {
+	for _, want := range []string{"model qwen3-coder-", "30b", "Turns: 5", "Tool Calls: 3", "Tokens: 1.0k in / 1.2k out", "Duration:", "Ctx: 1%"} {
 		if !strings.Contains(normalized, want) {
 			t.Errorf("expanded delegation render missing %q:\n%s", want, rendered)
 		}

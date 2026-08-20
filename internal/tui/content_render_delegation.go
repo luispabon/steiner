@@ -498,7 +498,7 @@ func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Tool Calls: %d", dd.toolCallCount)))
 	}
 	if dd.tokenCount > 0 {
-		parts = append(parts, b.styles.FgDim.Render("Tokens: "+formatTokenPair(dd.inputTokens, dd.tokenCount)))
+		parts = append(parts, b.styles.FgDim.Render("Tokens: "+formatTokenPair(dd.cacheReadTokens+dd.inputTokens+dd.cacheCreateTokens, dd.tokenCount)))
 	}
 	if duration := delegationStatsDuration(dd); duration != "" {
 		parts = append(parts, b.styles.FgDim.Render("Duration: "+duration))

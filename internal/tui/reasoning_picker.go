@@ -54,7 +54,7 @@ func (m reasoningPickerOverlay) Open(modelName string, caps provider.ReasoningCa
 
 	defaultDesc := "let the provider decide"
 	if strings.TrimSpace(caps.ProviderDefaultEffort) != "" {
-		defaultDesc = "provider default (" + caps.ProviderDefaultEffort + ")"
+		defaultDesc = "default (" + caps.ProviderDefaultEffort + ")"
 	}
 
 	hasOverride := current.Kind == provider.ReasoningOverrideProviderDefault || current.Kind == provider.ReasoningOverrideEffort
@@ -69,7 +69,7 @@ func (m reasoningPickerOverlay) Open(modelName string, caps provider.ReasoningCa
 
 	options := make([]reasoningEffortOption, 0, len(caps.SupportedEfforts)+1)
 	options = append(options, reasoningEffortOption{
-		Label:             "provider default",
+		Label:             "default",
 		Description:       defaultDesc,
 		IsProviderDefault: true,
 		IsCurrent:         isCurrentDefault,
@@ -202,13 +202,13 @@ func (m reasoningPickerOverlay) render(innerW int) string {
 }
 
 // reasoningOverrideLabel renders a compact sidebar label for a reasoning
-// override, e.g. "medium" or "provider default".
+// override, e.g. "medium" or "default".
 func reasoningOverrideLabel(o provider.ReasoningOverride) string {
 	switch o.Kind {
 	case provider.ReasoningOverrideEffort:
 		return o.Effort
 	case provider.ReasoningOverrideProviderDefault:
-		return "provider default"
+		return "default"
 	default:
 		return ""
 	}

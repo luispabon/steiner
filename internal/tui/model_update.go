@@ -109,6 +109,7 @@ func (m *Model) handleModelReasoningResolvedMsg(msg modelReasoningResolvedMsg) (
 	m.modelReasoningEfforts = msg.efforts
 	m.reasoningBatchResolved = true
 	m.reasoningLabels = newReasoningLabels(m.modelReasoningEfforts, m.modelReasoningCapabilities)
+	m.status.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.sidebar.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.syncSidebar()
 	return m, nil

@@ -133,7 +133,7 @@ func TestModelSectionReasoningAndQuant(t *testing.T) {
 	}{
 		{name: "hidden when empty", wantModel: "gpt-5", wantNoReason: true},
 		{name: "folds effort into model", reasoning: "medium", wantModel: "gpt-5/medium", wantNoReason: true},
-		{name: "folds provider default into model", reasoning: "provider default", wantModel: "gpt-5/provider default", wantNoReason: true},
+		{name: "folds default into model", reasoning: "default", wantModel: "gpt-5/default", wantNoReason: true},
 		{name: "keeps quant separate", reasoning: "high", quant: "q4_k_m", wantModel: "gpt-5/high", wantQuant: "quant: q4_k_m", wantNoReason: true},
 		{name: "quant alone", quant: "q4_k_m", wantModel: "gpt-5", wantQuant: "quant: q4_k_m", wantNoReason: true},
 	}

@@ -254,6 +254,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.primaryModel = strings.TrimSpace(cfg.Model)
 	m.currentModelAlias = strings.TrimSpace(cfg.CurrentModelAlias)
 	m.status.model = m.primaryModel
+	m.status.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.sidebar.model = m.primaryModel
 	m.sidebar.version = cfg.Version
 	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)

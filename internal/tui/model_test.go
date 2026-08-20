@@ -241,6 +241,9 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	if got := m.status.model; got != "gpt-test" {
 		t.Fatalf("status.model = %q, want gpt-test", got)
 	}
+	if got := m.status.reasoning; got != "" {
+		t.Fatalf("status.reasoning = %q, want empty for non-reasoning model", got)
+	}
 	if got := m.status.context; got != "ctx 100/4096" {
 		t.Fatalf("status.context = %q, want ctx 100/4096", got)
 	}
@@ -1443,6 +1446,9 @@ func TestModelPhaseTransitionUpdatesModelDisplay(t *testing.T) {
 
 	if got, want := m.primaryModel, "plan-model"; got != want {
 		t.Fatalf("primaryModel = %q, want %q", got, want)
+	}
+	if got, want := m.status.reasoning, "medium"; got != want {
+		t.Fatalf("status.reasoning = %q, want %q", got, want)
 	}
 	if got, want := m.status.model, "plan-model"; got != want {
 		t.Fatalf("status.model = %q, want %q", got, want)
@@ -4858,7 +4864,7 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 			wantSidebarLabel: "medium",
 		},
 		{
-			name: "provider default (no explicit effort)",
+			name: "default (no explicit effort)",
 			initialCaps: map[string]provider.ReasoningCapabilities{
 				"claude": {
 					SupportedEfforts: []string{"low", "high"},
@@ -4881,7 +4887,7 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 				},
 			},
 			wantEfforts:      map[string]string{},
-			wantSidebarLabel: "provider default",
+			wantSidebarLabel: "default",
 		},
 		{
 			name:           "no reasoning capability",
@@ -4967,6 +4973,14 @@ func TestModelReasoningResolvedMsg_UpdatesCapabilitiesEffortsAndLabels(t *testin
 			// Check sidebar reasoning label was updated
 			if got, want := m.sidebar.reasoning, tt.wantSidebarLabel; got != want {
 				t.Fatalf("sidebar.reasoning = %q, want %q", got, want)
+			}
+
+			if got, want := m.status.reasoning, tt.wantSidebarLabel; got != want {
+				t.Fatalf("status.reasoning = %q, want %q", got, want)
+			}
+			badge := stripANSI(renderModelBadge(m.styles, m.status.model, m.status.reasoning))
+			if !strings.Contains(badge, m.status.model+"/"+tt.wantSidebarLabel) && tt.wantSidebarLabel != "" {
+				t.Fatalf("status model badge = %q, want effort suffix %q", badge, "/"+tt.wantSidebarLabel)
 			}
 		})
 	}
