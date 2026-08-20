@@ -260,12 +260,17 @@ func applySpecializedWorktreeResult(agentType AgentType, result tool.ExecutionRe
 	return result
 }
 
-func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) BootstrapDeps {
-	bootstrap := handlerBootstrapDeps(agentType, deps.SubAgentHandlerDeps, resolvedProvider, resolvedModel, allowedTools, agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate, agentType == AgentTypeVision)
+func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) (SubAgentHandlerDeps, ChildBootstrapOverrides) {
+	handlerDeps := deps.SubAgentHandlerDeps
 	if agentType == AgentTypeCode && worktree.Path != "" {
-		bootstrap.WorkDir = worktree.Path
+		handlerDeps.WorkDir = worktree.Path
 	}
-	return bootstrap
+	return handlerDeps, ChildBootstrapOverrides{
+		AgentType:     agentType,
+		AllowedTools:  allowedTools,
+		Provider:      resolvedProvider,
+		ResolvedModel: resolvedModel,
+	}
 }
 
 // newSpecializedHandler returns a handler for the given agent type.
@@ -294,7 +299,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			return nil, err
 		}
 
-		bdeps := specializedBootstrapDeps(agentType, deps, resolvedProvider, resolvedModel, allowedTools, provisionedWorktree)
+		handlerDeps, override := specializedBootstrapDeps(agentType, deps, resolvedProvider, resolvedModel, allowedTools, provisionedWorktree)
 
 		spec := DelegationSpec{
 			Task:         task,
@@ -305,7 +310,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			spec.SystemSuffix = AgentSystemSuffix(agentType)
 		}
 
-		req, limits, err := BuildChildRun(ctx, bdeps, spec)
+		req, limits, err := BuildChildRun(ctx, handlerDeps, override, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)
 		}
