@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -315,6 +317,19 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		req, limits, err := BuildChildRun(ctx, handlerDeps, override, spec)
 		if err != nil {
 			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)
+		}
+		if deps.CacheKeyStore != nil {
+			isLeader, release, wait := deps.CacheKeyStore.BeginDispatch(req.PromptCacheKey)
+			if isLeader {
+				req.Events = newDispatchReleaseSink(req.Events, release)
+				defer release()
+			} else {
+				deadline := time.Now().Add(dispatchGateTimeout)
+				if deps.Events != nil {
+					deps.Events.Emit(output.NewDelegationCacheWaitingEvent(spec.AgentID, spec.ParentCallID, deadline))
+				}
+				wait(ctx)
+			}
 		}
 		spec.Limits = limits
 
