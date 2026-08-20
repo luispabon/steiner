@@ -48,7 +48,7 @@ func truncateTaskPreview(s string, max int) string {
 // SpawnDelegate executes a child agent with the given specification and runner.
 // It always runs a follow-up summarisation turn after successful completion and
 // returns the full visible output plus hidden retention metadata.
-func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger, opts ...spawnOption) (tool.ExecutionResult, agent.RunState, CacheUsage, error) {
+func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger, opts ...spawnOption) (tool.ExecutionResult, agent.RunState, CacheUsage, error) {
 	var o spawnOptions
 	for _, opt := range opts {
 		opt(&o)
@@ -169,15 +169,15 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 
 func applyRemediationResult(
 	ctx context.Context,
-	spec DelegationSpec,
+	spec Spec,
 	req agent.RunRequest,
 	runner AgentRunner,
 	state agent.RunState,
 	runUsage CacheUsage,
 	remediation *RemediationConfig,
 	tc *traceCollector,
-) (agent.RunState, CacheUsage, DelegationResult) {
-	var remediationResult DelegationResult
+) (agent.RunState, CacheUsage, Result) {
+	var remediationResult Result
 	if remediation != nil {
 		state, runUsage, remediationResult, _, _ = applyRemediation(ctx, spec, req, runner, state, runUsage, remediation, tc)
 	}
@@ -243,7 +243,7 @@ func runChildToCompletion(
 	return state, usage, extensionsGranted, nil
 }
 
-func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
+func failedDelegateExecution(spec Spec, state agent.RunState, err error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
 	status := StatusFailed
 	ctxCancelled := errors.Is(err, context.Canceled)
 	ctxDeadline := errors.Is(err, context.DeadlineExceeded)
@@ -261,7 +261,7 @@ func failedDelegateExecution(spec DelegationSpec, state agent.RunState, err erro
 		"child_tokens":      state.TokenCount,
 	})
 
-	result := DelegationResult{
+	result := Result{
 		AgentID:          spec.AgentID,
 		Status:           status,
 		TurnCount:        state.TurnCount,

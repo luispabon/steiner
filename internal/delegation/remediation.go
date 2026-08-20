@@ -46,14 +46,14 @@ const (
 
 func applyRemediation(
 	ctx context.Context,
-	spec DelegationSpec,
+	spec Spec,
 	req agent.RunRequest,
 	runner AgentRunner,
 	state agent.RunState,
 	runUsage CacheUsage,
 	cfg *RemediationConfig,
 	tc *traceCollector,
-) (agent.RunState, CacheUsage, DelegationResult, remediationOutcome, error) {
+) (agent.RunState, CacheUsage, Result, remediationOutcome, error) {
 	total := spec.PriorCacheUsage.Add(runUsage)
 	result := buildResultWithTrace(spec.AgentID, state, tc, total)
 	if cfg == nil {
@@ -150,7 +150,7 @@ Uncommitted paths: %s`, cfg.WorktreePath, cfg.ExpectedBranch, preHEAD, strings.J
 }
 
 func failedRemediation(
-	spec DelegationSpec,
+	spec Spec,
 	state agent.RunState,
 	runUsage CacheUsage,
 	originalOutput string,
@@ -158,7 +158,7 @@ func failedRemediation(
 	dirty []string,
 	tc *traceCollector,
 	err error,
-) (agent.RunState, CacheUsage, DelegationResult, remediationOutcome, error) {
+) (agent.RunState, CacheUsage, Result, remediationOutcome, error) {
 	result := buildResultWithTrace(spec.AgentID, state, tc, spec.PriorCacheUsage.Add(runUsage))
 	result.Status = StatusFailed
 	result.Output = originalOutput

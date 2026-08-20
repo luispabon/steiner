@@ -7,14 +7,14 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 )
 
-// BuildResult constructs a DelegationResult from an agent.RunState.
-// Maps StopReason to DelegationStatus and captures state metrics.
-func BuildResult(agentID string, state agent.RunState) DelegationResult {
+// BuildResult constructs a Result from an agent.RunState.
+// Maps StopReason to Status and captures state metrics.
+func BuildResult(agentID string, state agent.RunState) Result {
 	return buildResultInternal(agentID, state, nil, cacheUsageOf(state))
 }
 
 // buildResultWithTrace is the trace-aware variant used by SpawnDelegate.
-func buildResultWithTrace(agentID string, state agent.RunState, tc *traceCollector, cache CacheUsage) DelegationResult {
+func buildResultWithTrace(agentID string, state agent.RunState, tc *traceCollector, cache CacheUsage) Result {
 	return buildResultInternal(agentID, state, tc, cache)
 }
 
@@ -28,13 +28,13 @@ func countToolCalls(conversation []agent.Message) int {
 	return n
 }
 
-func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector, cache CacheUsage) DelegationResult {
+func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector, cache CacheUsage) Result {
 	output := ""
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		output = msg.Content
 	}
 
-	result := DelegationResult{
+	result := Result{
 		AgentID:           agentID,
 		Output:            output,
 		TurnCount:         state.TurnCount,

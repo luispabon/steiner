@@ -120,7 +120,7 @@ func TestBuildChildRunUsesOverrideProviderAndModel(t *testing.T) {
 		AllowedTools:  []string{"read"},
 	}
 
-	req, _, err := BuildChildRun(context.Background(), deps, override, DelegationSpec{Task: "t", AgentID: "a", Limits: DelegationLimits{MaxTurns: 1}})
+	req, _, err := BuildChildRun(context.Background(), deps, override, Spec{Task: "t", AgentID: "a", Limits: Limits{MaxTurns: 1}})
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
@@ -137,7 +137,7 @@ func TestDeriveChildLimits(t *testing.T) {
 	tests := []struct {
 		name        string
 		cfg         config.SubAgentConfig
-		overrides   DelegationLimits
+		overrides   Limits
 		wantTurns   int
 		wantTokens  int
 		wantTimeout time.Duration
@@ -145,7 +145,7 @@ func TestDeriveChildLimits(t *testing.T) {
 		{
 			name:        "empty config and no overrides uses defaults",
 			cfg:         config.SubAgentConfig{},
-			overrides:   DelegationLimits{},
+			overrides:   Limits{},
 			wantTurns:   15,
 			wantTokens:  100000,
 			wantTimeout: 0,
@@ -153,7 +153,7 @@ func TestDeriveChildLimits(t *testing.T) {
 		{
 			name:        "config defaults used when no overrides",
 			cfg:         config.SubAgentConfig{MaxTurns: 20, MaxTokens: 200000},
-			overrides:   DelegationLimits{},
+			overrides:   Limits{},
 			wantTurns:   20,
 			wantTokens:  200000,
 			wantTimeout: 0,
@@ -161,7 +161,7 @@ func TestDeriveChildLimits(t *testing.T) {
 		{
 			name:        "override tightens max turns",
 			cfg:         config.SubAgentConfig{MaxTurns: 15},
-			overrides:   DelegationLimits{MaxTurns: 5},
+			overrides:   Limits{MaxTurns: 5},
 			wantTurns:   5,
 			wantTokens:  100000,
 			wantTimeout: 0,
@@ -169,7 +169,7 @@ func TestDeriveChildLimits(t *testing.T) {
 		{
 			name:        "looser override is ignored",
 			cfg:         config.SubAgentConfig{MaxTurns: 15},
-			overrides:   DelegationLimits{MaxTurns: 30},
+			overrides:   Limits{MaxTurns: 30},
 			wantTurns:   15,
 			wantTokens:  100000,
 			wantTimeout: 0,
@@ -177,7 +177,7 @@ func TestDeriveChildLimits(t *testing.T) {
 		{
 			name:        "timeout override applied",
 			cfg:         config.SubAgentConfig{},
-			overrides:   DelegationLimits{Timeout: 30 * time.Second},
+			overrides:   Limits{Timeout: 30 * time.Second},
 			wantTurns:   15,
 			wantTokens:  100000,
 			wantTimeout: 30 * time.Second,
@@ -185,7 +185,7 @@ func TestDeriveChildLimits(t *testing.T) {
 		{
 			name:        "tokens override tightens",
 			cfg:         config.SubAgentConfig{MaxTokens: 100000},
-			overrides:   DelegationLimits{OutputLimitTokens: 50000},
+			overrides:   Limits{OutputLimitTokens: 50000},
 			wantTurns:   15,
 			wantTokens:  50000,
 			wantTimeout: 0,
@@ -193,7 +193,7 @@ func TestDeriveChildLimits(t *testing.T) {
 		{
 			name:        "all fields override together",
 			cfg:         config.SubAgentConfig{MaxTurns: 20, MaxTokens: 200000},
-			overrides:   DelegationLimits{MaxTurns: 10, OutputLimitTokens: 50000, Timeout: time.Minute},
+			overrides:   Limits{MaxTurns: 10, OutputLimitTokens: 50000, Timeout: time.Minute},
 			wantTurns:   10,
 			wantTokens:  50000,
 			wantTimeout: time.Minute,
@@ -219,7 +219,7 @@ func TestDeriveChildLimits(t *testing.T) {
 func TestBuildChildPrompt(t *testing.T) {
 	tests := []struct {
 		name          string
-		spec          DelegationSpec
+		spec          Spec
 		wantFirstRole provider.MessageRole
 		wantFirstText string
 		wantSystem    string
@@ -228,7 +228,7 @@ func TestBuildChildPrompt(t *testing.T) {
 	}{
 		{
 			name: "default system prompt with task only",
-			spec: DelegationSpec{
+			spec: Spec{
 				Task:    "do something",
 				AgentID: "test-1",
 			},
@@ -240,7 +240,7 @@ func TestBuildChildPrompt(t *testing.T) {
 		},
 		{
 			name: "custom system prompt",
-			spec: DelegationSpec{
+			spec: Spec{
 				Task:         "do something",
 				SystemPrompt: "Custom prompt",
 				AgentID:      "test-2",
@@ -253,7 +253,7 @@ func TestBuildChildPrompt(t *testing.T) {
 		},
 		{
 			name: "task with context formats correctly",
-			spec: DelegationSpec{
+			spec: Spec{
 				Task:    "do something",
 				Context: "relevant info",
 				AgentID: "test-3",
@@ -266,7 +266,7 @@ func TestBuildChildPrompt(t *testing.T) {
 		},
 		{
 			name: "task with images included in first message",
-			spec: DelegationSpec{
+			spec: Spec{
 				Task:    "analyze this image",
 				AgentID: "test-4",
 				Images: []provider.ImageBlock{
@@ -331,7 +331,7 @@ func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 	t.Parallel()
 
 	promptOpts := buildChildPrompt(childPromptParams{
-		spec: DelegationSpec{
+		spec: Spec{
 			Task:         "do something",
 			SystemPrompt: "Custom prompt",
 			AgentID:      "test-single-system",
@@ -373,7 +373,7 @@ func TestBuildChildPromptUsesSharedSystemPreambleWhenOverrideEmpty(t *testing.T)
 	t.Parallel()
 
 	promptOpts := buildChildPrompt(childPromptParams{
-		spec: DelegationSpec{
+		spec: Spec{
 			Task:    "do something",
 			AgentID: "test-shared-system",
 		},
@@ -563,7 +563,7 @@ func TestBuildChildRegistriesContainsAllowedTools(t *testing.T) {
 }
 
 func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
-	spec := DelegationSpec{Task: "do something"}
+	spec := Spec{Task: "do something"}
 	opts := buildChildPrompt(childPromptParams{
 		spec:      spec,
 		workDir:   "/tmp/work",
@@ -608,7 +608,7 @@ func TestBuildChildPromptSkipProjectContext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := buildChildPrompt(childPromptParams{
-				spec: DelegationSpec{
+				spec: Spec{
 					Task:    "do something",
 					AgentID: "test-skip",
 				},
@@ -646,10 +646,10 @@ func TestBuildChildRunDoesNotInheritActiveSkills(t *testing.T) {
 		Provider:    stubProvider{},
 	}
 
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "investigate this file",
 		AgentID: "child-no-skills",
-		Limits:  DelegationLimits{MaxTurns: 5},
+		Limits:  Limits{MaxTurns: 5},
 	}
 
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
@@ -678,10 +678,10 @@ func TestBuildChildRunAllowedTools(t *testing.T) {
 		Provider:    stubProvider{},
 	}
 
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "test allowed tools",
 		AgentID: "test-allowed",
-		Limits:  DelegationLimits{MaxTurns: 5},
+		Limits:  Limits{MaxTurns: 5},
 	}
 
 	override := ChildBootstrapOverrides{AgentType: AgentTypeCode, AllowedTools: []string{"read"}, Provider: deps.Provider, ResolvedModel: deps.ResolvedModel}
@@ -720,10 +720,10 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 		WorkDir:     "/tmp/work",
 	}
 
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "test",
 		AgentID: "test-bootstrap",
-		Limits:  DelegationLimits{MaxTurns: 5},
+		Limits:  Limits{MaxTurns: 5},
 	}
 
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
@@ -770,10 +770,10 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 		Provider:    stubProvider{},
 	}
 
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "test",
 		AgentID: "test-workdir",
-		Limits:  DelegationLimits{MaxTurns: 5},
+		Limits:  Limits{MaxTurns: 5},
 	}
 
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
@@ -798,7 +798,7 @@ func TestBuildChildRunIncludesModel(t *testing.T) {
 		Provider:      stubProvider{},
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 	}
-	spec := DelegationSpec{Task: "task", AgentID: "m1", Limits: DelegationLimits{MaxTurns: 1}}
+	spec := Spec{Task: "task", AgentID: "m1", Limits: Limits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
@@ -821,7 +821,7 @@ func TestBuildChildRunIncludesMaxTokens(t *testing.T) {
 		Provider:    stubProvider{},
 		MaxTokens:   &mt,
 	}
-	spec := DelegationSpec{Task: "task", AgentID: "m2", Limits: DelegationLimits{MaxTurns: 1}}
+	spec := Spec{Task: "task", AgentID: "m2", Limits: Limits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
@@ -856,7 +856,7 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 		},
 	}
 	wantBudget := prompt.ModelBudgetFromEffectiveLimits(deps.ResolvedModel.EffectiveLimits)
-	spec := DelegationSpec{Task: "task", AgentID: "m3", Limits: DelegationLimits{MaxTurns: 1}}
+	spec := Spec{Task: "task", AgentID: "m3", Limits: Limits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
@@ -878,7 +878,7 @@ func TestBuildChildRunIncludesStreamingPreferred(t *testing.T) {
 		Provider:           stubProvider{},
 		StreamingPreferred: true,
 	}
-	spec := DelegationSpec{Task: "task", AgentID: "m4", Limits: DelegationLimits{MaxTurns: 1}}
+	spec := Spec{Task: "task", AgentID: "m4", Limits: Limits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
@@ -899,7 +899,7 @@ func TestBuildChildRunIncludesTurnTimeout(t *testing.T) {
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
 	}
-	spec := DelegationSpec{Task: "task", AgentID: "m5", Limits: DelegationLimits{MaxTurns: 1, Timeout: 42 * time.Second}}
+	spec := Spec{Task: "task", AgentID: "m5", Limits: Limits{MaxTurns: 1, Timeout: 42 * time.Second}}
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
@@ -918,15 +918,15 @@ func TestBuildChildRun(t *testing.T) {
 
 	tests := []struct {
 		name string
-		spec DelegationSpec
+		spec Spec
 		want func(t *testing.T, req agent.RunRequest)
 	}{
 		{
 			name: "default limits and prompt",
-			spec: DelegationSpec{
+			spec: Spec{
 				Task:    "do something",
 				AgentID: "test-1",
-				Limits:  DelegationLimits{},
+				Limits:  Limits{},
 			},
 			want: func(t *testing.T, req agent.RunRequest) {
 				if req.Limits.MaxTurns != 15 {
@@ -979,10 +979,10 @@ func TestBuildChildRun(t *testing.T) {
 		},
 		{
 			name: "with overrides",
-			spec: DelegationSpec{
+			spec: Spec{
 				Task:    "do something",
 				AgentID: "test-2",
-				Limits:  DelegationLimits{MaxTurns: 5, OutputLimitTokens: 50000},
+				Limits:  Limits{MaxTurns: 5, OutputLimitTokens: 50000},
 			},
 			want: func(t *testing.T, req agent.RunRequest) {
 				if req.Limits.MaxTurns != 5 {
@@ -995,11 +995,11 @@ func TestBuildChildRun(t *testing.T) {
 		},
 		{
 			name: "with system prompt override",
-			spec: DelegationSpec{
+			spec: Spec{
 				Task:         "do something",
 				AgentID:      "test-3",
 				SystemPrompt: "custom",
-				Limits:       DelegationLimits{},
+				Limits:       Limits{},
 			},
 			want: func(t *testing.T, req agent.RunRequest) {
 				if len(req.Prompt.Conversation) < 1 {
@@ -1012,11 +1012,11 @@ func TestBuildChildRun(t *testing.T) {
 		},
 		{
 			name: "with context",
-			spec: DelegationSpec{
+			spec: Spec{
 				Task:    "do something",
 				AgentID: "test-4",
 				Context: "extra",
-				Limits:  DelegationLimits{},
+				Limits:  Limits{},
 			},
 			want: func(t *testing.T, req agent.RunRequest) {
 				if len(req.Prompt.Conversation) != 1 {
@@ -1052,7 +1052,7 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
-	spec := DelegationSpec{Task: "task", AgentID: "rec-test", Limits: DelegationLimits{MaxTurns: 1}}
+	spec := Spec{Task: "task", AgentID: "rec-test", Limits: Limits{MaxTurns: 1}}
 
 	t.Run("recorder set when non-nil", func(t *testing.T) {
 		rec := usagestats.New(nil)
@@ -1108,7 +1108,7 @@ func TestBuildChildRunSandboxDisabled(t *testing.T) {
 		Provider:       stubProvider{},
 		SandboxEnabled: false, // no sandbox
 	}
-	spec := DelegationSpec{Task: "task", AgentID: "sandbox-disabled", Limits: DelegationLimits{MaxTurns: 1}}
+	spec := Spec{Task: "task", AgentID: "sandbox-disabled", Limits: Limits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
@@ -1138,7 +1138,7 @@ func TestBuildChildRunSandboxEnabled(t *testing.T) {
 		SandboxEnabled:        true,
 		SandboxWritableMounts: []string{"/var/log", "/srv/data"},
 	}
-	spec := DelegationSpec{Task: "task", AgentID: "sandbox-enabled", Limits: DelegationLimits{MaxTurns: 1}}
+	spec := Spec{Task: "task", AgentID: "sandbox-enabled", Limits: Limits{MaxTurns: 1}}
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
@@ -1192,10 +1192,10 @@ func TestChildBashIsSandboxed(t *testing.T) {
 		Provider:    stubProvider{},
 		Sandbox:     wrapper,
 	}
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "task",
 		AgentID: "child-bash-wrapper",
-		Limits:  DelegationLimits{MaxTurns: 1},
+		Limits:  Limits{MaxTurns: 1},
 	}
 
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
@@ -1236,10 +1236,10 @@ func TestChildModeGetterAppliesReadOnlyProjectInPlanMode(t *testing.T) {
 		Sandbox:     wrapper,
 		ModeGetter:  func() config.ExecutionMode { return config.ExecutionModePlan },
 	}
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "task",
 		AgentID: "child-plan-mode",
-		Limits:  DelegationLimits{MaxTurns: 1},
+		Limits:  Limits{MaxTurns: 1},
 	}
 
 	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
@@ -1286,7 +1286,7 @@ func TestChildExploreBashContextIsReadOnly(t *testing.T) {
 			}
 			override := testChildOverride(deps)
 			override.AgentType = tt.agentType
-			req, _, err := BuildChildRun(context.Background(), deps, override, DelegationSpec{Task: "task", AgentID: tt.name, Limits: DelegationLimits{MaxTurns: 1}})
+			req, _, err := BuildChildRun(context.Background(), deps, override, Spec{Task: "task", AgentID: tt.name, Limits: Limits{MaxTurns: 1}})
 			if err != nil {
 				t.Fatalf("BuildChildRun() error = %v", err)
 			}
@@ -1408,10 +1408,10 @@ func TestBuildChildRunSandboxTmpDir(t *testing.T) {
 	pp := tool.NewPathPolicy(workDir, config.PathsConfig{})
 	parent := tool.NewRegistry(builtin.NewMutateTool(builtin.Env{WorkDir: workDir, PathPolicy: &pp}))
 
-	spec := DelegationSpec{
+	spec := Spec{
 		Task:    "task",
 		AgentID: "child-sandbox-tmp",
-		Limits:  DelegationLimits{MaxTurns: 1},
+		Limits:  Limits{MaxTurns: 1},
 	}
 
 	tests := []struct {

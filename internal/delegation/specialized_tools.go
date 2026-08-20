@@ -171,7 +171,7 @@ func provisionCodeWorktreeAndWarnings(ctx context.Context, workDir string, agent
 
 // applyCodeWorktreeResult updates the delegation result with worktree path, branch, and warnings.
 func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree, warnings []string) tool.ExecutionResult {
-	if delegationResult, ok := result.Value.(DelegationResult); ok {
+	if delegationResult, ok := result.Value.(Result); ok {
 		if worktree.Path != "" {
 			delegationResult.WorktreePath = worktree.Path
 			delegationResult.WorktreeBranch = worktree.Branch
@@ -302,7 +302,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 
 		handlerDeps, override := specializedBootstrapDeps(agentType, deps, resolvedProvider, resolvedModel, allowedTools, provisionedWorktree)
 
-		spec := DelegationSpec{
+		spec := Spec{
 			Task:         task,
 			SystemPrompt: AgentSystemPrompt(agentType),
 			ParentCallID: callID,

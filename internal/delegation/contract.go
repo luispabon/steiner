@@ -6,31 +6,27 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-// DelegationStatus represents the lifecycle state of a delegation.
-//
-//nolint:revive // package API keeps delegation-prefixed names for compatibility.
-type DelegationStatus string
+// Status represents the lifecycle state of a delegation.
+type Status string
 
 const (
 	// StatusPending indicates the delegation has been created but not started.
-	StatusPending DelegationStatus = "pending"
+	StatusPending Status = "pending"
 	// StatusRunning indicates the child agent is actively executing.
-	StatusRunning DelegationStatus = "running"
+	StatusRunning Status = "running"
 	// StatusComplete indicates the child agent finished successfully.
-	StatusComplete DelegationStatus = "complete"
+	StatusComplete Status = "complete"
 	// StatusPartial indicates the child stopped due to a resource budget (turn or
 	// token limit) rather than completing its task. The result may be incomplete.
-	StatusPartial DelegationStatus = "partial"
+	StatusPartial Status = "partial"
 	// StatusFailed indicates the child agent terminated with an error.
-	StatusFailed DelegationStatus = "failed"
+	StatusFailed Status = "failed"
 	// StatusCancelled indicates the delegation was cancelled before completion.
-	StatusCancelled DelegationStatus = "cancelled"
+	StatusCancelled Status = "cancelled"
 )
 
-// DelegationSpec defines what the parent sends to the child agent.
-//
-//nolint:revive // package API keeps delegation-prefixed names for compatibility.
-type DelegationSpec struct {
+// Spec defines what the parent sends to the child agent.
+type Spec struct {
 	// Task is the required task description.
 	Task string `json:"task"`
 
@@ -47,7 +43,7 @@ type DelegationSpec struct {
 	Images []provider.ImageBlock `json:"images,omitempty"`
 
 	// Limits define resource constraints for the child execution.
-	Limits DelegationLimits `json:"limits"`
+	Limits Limits `json:"limits"`
 
 	// AgentID is a unique identifier for this delegation.
 	AgentID string `json:"agent_id"`
@@ -65,21 +61,19 @@ type DelegationSpec struct {
 	ParentCallID string `json:"-"`
 }
 
-// GetAgentID returns the AgentID from this DelegationSpec.
+// GetAgentID returns the AgentID from this Spec.
 // This implements the agent.DelegationSpec interface to avoid circular imports.
-func (s DelegationSpec) GetAgentID() string {
+func (s Spec) GetAgentID() string {
 	return s.AgentID
 }
 
-// DelegationResult defines what the child returns to the parent.
-//
-//nolint:revive // package API keeps delegation-prefixed names for compatibility.
-type DelegationResult struct {
+// Result defines what the child returns to the parent.
+type Result struct {
 	// AgentID matches the request.
 	AgentID string `json:"agent_id"`
 
 	// Status indicates the final state of the child.
-	Status DelegationStatus `json:"status"`
+	Status Status `json:"status"`
 
 	// Output is the child's final answer or result.
 	Output string `json:"output"`
@@ -147,10 +141,8 @@ type DelegationResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// DelegationLimits defines resource constraints for a child execution.
-//
-//nolint:revive // package API keeps delegation-prefixed names for compatibility.
-type DelegationLimits struct {
+// Limits defines resource constraints for a child execution.
+type Limits struct {
 	// MaxTurns limits the number of agent turns.
 	MaxTurns int `json:"max_turns"`
 

@@ -69,10 +69,10 @@ func TestFollowUpHandler_UnknownAgentID(t *testing.T) {
 func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{
+		Spec: Spec{
 			AgentID: "child-1",
 			Task:    "inspect code",
-			Limits: DelegationLimits{
+			Limits: Limits{
 				MaxTurns:          2,
 				OutputLimitTokens: 9,
 			},
@@ -153,9 +153,9 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type = %T, want tool.ExecutionResult", got)
 	}
-	delegationResult, ok := result.Value.(DelegationResult)
+	delegationResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if delegationResult.FollowUpCount != 1 {
 		t.Fatalf("FollowUpCount=%d, want 1", delegationResult.FollowUpCount)
@@ -182,7 +182,7 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{AgentID: "child-2", Task: "inspect code"},
+		Spec: Spec{AgentID: "child-2", Task: "inspect code"},
 		Request: agent.RunRequest{
 			Prompt: promptWithConversation("initial task"),
 			Limits: agent.Limits{MaxTurns: 1, MaxTokens: 1},
@@ -228,8 +228,8 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 		t.Fatalf("second follow-up error: %v", err)
 	}
 
-	firstResult := first.(tool.ExecutionResult).Value.(DelegationResult)
-	secondResult := second.(tool.ExecutionResult).Value.(DelegationResult)
+	firstResult := first.(tool.ExecutionResult).Value.(Result)
+	secondResult := second.(tool.ExecutionResult).Value.(Result)
 	if firstResult.FollowUpCount != 1 {
 		t.Fatalf("first FollowUpCount=%d, want 1", firstResult.FollowUpCount)
 	}
@@ -255,7 +255,7 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec:          DelegationSpec{AgentID: "child-failed", Task: "inspect code"},
+		Spec:          Spec{AgentID: "child-failed", Task: "inspect code"},
 		Request:       agent.RunRequest{Prompt: promptWithConversation("initial task")},
 		Conversation:  nil,
 		TurnCount:     0,
@@ -302,7 +302,7 @@ func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 		t.Fatalf("handler returned error: %v", err)
 	}
 
-	result := got.(tool.ExecutionResult).Value.(DelegationResult)
+	result := got.(tool.ExecutionResult).Value.(Result)
 	if result.Status != StatusComplete {
 		t.Fatalf("Status=%q, want %q", result.Status, StatusComplete)
 	}
@@ -356,7 +356,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 		t.Run(tt.name, func(t *testing.T) {
 			store := NewSessionStore()
 			store.Save(&ChildSession{
-				Spec:         DelegationSpec{AgentID: "follow-up-agent", Task: "continue work"},
+				Spec:         Spec{AgentID: "follow-up-agent", Task: "continue work"},
 				Request:      agent.RunRequest{Prompt: promptWithConversation("initial task"), Tools: tt.tools},
 				Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "initial result"}},
 				TurnCount:    1,
@@ -403,7 +403,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 			if err != nil {
 				t.Fatalf("handler returned error: %v", err)
 			}
-			result := got.(tool.ExecutionResult).Value.(DelegationResult)
+			result := got.(tool.ExecutionResult).Value.(Result)
 			if (remediationCalls > 0) != tt.wantRemediation {
 				t.Fatalf("remediation calls = %d, want remediation=%t", remediationCalls, tt.wantRemediation)
 			}
@@ -437,7 +437,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 func TestFollowUpHandler_DeniesMutateChildInPlanMode(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{AgentID: "child-mutate", Task: "fix bug"},
+		Spec: Spec{AgentID: "child-mutate", Task: "fix bug"},
 		Request: agent.RunRequest{
 			Prompt: promptWithConversation("initial task"),
 			Tools:  []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}},
@@ -477,7 +477,7 @@ func TestFollowUpHandler_DeniesMutateChildInPlanMode(t *testing.T) {
 func TestFollowUpHandler_AllowsMutateChildInBuildMode(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{AgentID: "child-mutate", Task: "fix bug"},
+		Spec: Spec{AgentID: "child-mutate", Task: "fix bug"},
 		Request: agent.RunRequest{
 			Prompt: promptWithConversation("initial task"),
 			Tools:  []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}},
@@ -528,7 +528,7 @@ func TestFollowUpHandler_AllowsMutateChildInBuildMode(t *testing.T) {
 func TestFollowUpHandler_NonMutateChildNotDeniedInPlanMode(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{AgentID: "child-readonly", Task: "investigate"},
+		Spec: Spec{AgentID: "child-readonly", Task: "investigate"},
 		Request: agent.RunRequest{
 			Prompt: promptWithConversation("initial task"),
 			Tools: []provider.ToolSpec{
@@ -654,10 +654,10 @@ func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
 	}
 
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{
+		Spec: Spec{
 			AgentID: "child-budget",
 			Task:    "big task",
-			Limits:  DelegationLimits{MaxTurns: 58, OutputLimitTokens: 100000},
+			Limits:  Limits{MaxTurns: 58, OutputLimitTokens: 100000},
 		},
 		Request: agent.RunRequest{
 			Prompt: promptWithConversation("initial task"),
@@ -735,9 +735,9 @@ func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type = %T, want tool.ExecutionResult", got)
 	}
-	delegationResult, ok := result.Value.(DelegationResult)
+	delegationResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 	if delegationResult.FollowUpCount != 1 {
 		t.Fatalf("FollowUpCount=%d, want 1", delegationResult.FollowUpCount)
@@ -747,10 +747,10 @@ func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
 func TestFollowUpHandler_AccumulatesCacheUsageFromPriorSession(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{
+		Spec: Spec{
 			AgentID: "child-cache",
 			Task:    "inspect code",
-			Limits:  DelegationLimits{MaxTurns: 5, OutputLimitTokens: 50},
+			Limits:  Limits{MaxTurns: 5, OutputLimitTokens: 50},
 		},
 		Request: agent.RunRequest{
 			Prompt: promptWithConversation("initial task"),
@@ -810,7 +810,7 @@ func TestFollowUpHandler_AccumulatesCacheUsageFromPriorSession(t *testing.T) {
 		t.Fatalf("handler returned error: %v", err)
 	}
 
-	result := got.(tool.ExecutionResult).Value.(DelegationResult)
+	result := got.(tool.ExecutionResult).Value.(Result)
 	if result.InputTokens != 120 {
 		t.Fatalf("InputTokens=%d, want 120 (prior 100 + run 20)", result.InputTokens)
 	}
@@ -854,7 +854,7 @@ func TestFollowUpHandler_ReusesOriginalProjectRoot(t *testing.T) {
 
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{
+		Spec: Spec{
 			AgentID: "code-agent",
 			Task:    "implement feature",
 		},

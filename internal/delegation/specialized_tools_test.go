@@ -987,13 +987,13 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 	}
 
 	// The child RunRequest prompt must include the image in the first user message.
-	_ = capturedReq // runner captured the request; build verification via DelegationResult
+	_ = capturedReq // runner captured the request; build verification via Result
 
 	// Verify the result contains the follow-up reminder.
 	execResult, _ := raw.(tool.ExecutionResult)
-	dr, ok := execResult.Value.(DelegationResult)
+	dr, ok := execResult.Value.(Result)
 	if !ok {
-		t.Fatalf("ExecutionResult.Value is %T, want DelegationResult", execResult.Value)
+		t.Fatalf("ExecutionResult.Value is %T, want Result", execResult.Value)
 	}
 	if !strings.Contains(dr.Output, "follow_up") {
 		t.Errorf("result output %q should mention 'follow_up'", dr.Output)
@@ -1532,9 +1532,9 @@ func TestSpecializedHandler_CodeProvisionesWorktree(t *testing.T) {
 		t.Fatalf("result type = %T, want tool.ExecutionResult", raw)
 	}
 
-	delegationResult, ok := result.Value.(DelegationResult)
+	delegationResult, ok := result.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", result.Value)
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
 
 	if delegationResult.WorktreePath == "" {
@@ -1604,7 +1604,7 @@ func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
 	}
 
 	result := raw.(tool.ExecutionResult)
-	delegationResult := result.Value.(DelegationResult)
+	delegationResult := result.Value.(Result)
 
 	if len(delegationResult.Warnings) == 0 {
 		t.Error("Warnings is empty; expected dirty-tree warning")
@@ -1666,13 +1666,13 @@ func TestSpecializedHandler_CodeFatalOnProvisioningFailure(t *testing.T) {
 }
 
 func TestApplyCodeWorktreeResult_MergesWarnings(t *testing.T) {
-	result := tool.ExecutionResult{Value: DelegationResult{
+	result := tool.ExecutionResult{Value: Result{
 		Warnings: []string{"dirty worktree after failed remediation"},
 	}}
 	got := applyCodeWorktreeResult(result, CodeWorktree{Path: "/tmp/worktree", Branch: "delegate/test"}, []string{"parent tree was dirty"})
-	delegationResult, ok := got.Value.(DelegationResult)
+	delegationResult, ok := got.Value.(Result)
 	if !ok {
-		t.Fatalf("result.Value type = %T, want DelegationResult", got.Value)
+		t.Fatalf("result.Value type = %T, want Result", got.Value)
 	}
 	wantWarnings := []string{"parent tree was dirty", "dirty worktree after failed remediation"}
 	if !slices.Equal(delegationResult.Warnings, wantWarnings) {
@@ -1711,7 +1711,7 @@ func TestSpecializedHandler_NonCodeAgentsNoWorktreeFields(t *testing.T) {
 			}
 
 			result := raw.(tool.ExecutionResult)
-			delegationResult := result.Value.(DelegationResult)
+			delegationResult := result.Value.(Result)
 
 			if delegationResult.WorktreePath != "" {
 				t.Errorf("WorktreePath = %q, want empty for non-code agent", delegationResult.WorktreePath)

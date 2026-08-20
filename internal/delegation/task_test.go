@@ -370,7 +370,7 @@ func TestSpawnDelegate_StartedEventIncludesParentCallID(t *testing.T) {
 	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}}
-	spec := DelegationSpec{AgentID: "child-callid", Task: "inspect", ParentCallID: "call_parent"}
+	spec := Spec{AgentID: "child-callid", Task: "inspect", ParentCallID: "call_parent"}
 
 	_, _, _, err := SpawnDelegate(context.Background(), spec, agent.RunRequest{}, runner, sink, nil)
 	if err != nil {

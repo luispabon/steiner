@@ -66,7 +66,7 @@ type SubAgentHandlerDeps struct {
 
 // ChildSession tracks persisted state for a delegated child session.
 type ChildSession struct {
-	Spec          DelegationSpec
+	Spec          Spec
 	Request       agent.RunRequest
 	Conversation  []agent.Message
 	TurnCount     int
@@ -152,7 +152,7 @@ func (s *SessionStore) Count() int {
 	return len(s.sessions)
 }
 
-func saveChildSession(store *SessionStore, spec DelegationSpec, req agent.RunRequest, state agent.RunState, cache CacheUsage, remediation *RemediationConfig) {
+func saveChildSession(store *SessionStore, spec Spec, req agent.RunRequest, state agent.RunState, cache CacheUsage, remediation *RemediationConfig) {
 	store.Save(&ChildSession{
 		Spec:          spec,
 		Request:       req,

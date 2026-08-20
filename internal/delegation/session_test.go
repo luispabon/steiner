@@ -14,7 +14,7 @@ func TestSessionStoreSaveGetUpdate(t *testing.T) {
 	store := NewSessionStore()
 	initialConversation := []agent.Message{{Role: agent.MessageRoleUser, Content: "task"}}
 	session := &ChildSession{
-		Spec: DelegationSpec{AgentID: "child-1", Task: "delegate"},
+		Spec: Spec{AgentID: "child-1", Task: "delegate"},
 		Request: agent.RunRequest{
 			Limits: agent.Limits{MaxTurns: 3},
 		},
@@ -97,7 +97,7 @@ func TestSessionStoreConcurrentAccess(t *testing.T) {
 		go func(i int) {
 			defer saveWG.Done()
 			store.Save(&ChildSession{
-				Spec: DelegationSpec{
+				Spec: Spec{
 					AgentID: fmt.Sprintf("child-%d", i),
 				},
 			})
@@ -161,10 +161,10 @@ func TestSessionStore_Reset(t *testing.T) {
 
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{AgentID: "child-1"},
+		Spec: Spec{AgentID: "child-1"},
 	})
 	store.Save(&ChildSession{
-		Spec: DelegationSpec{AgentID: "child-2"},
+		Spec: Spec{AgentID: "child-2"},
 	})
 
 	if got, want := store.Count(), 2; got != want {
@@ -193,12 +193,12 @@ func TestSessionStore_Count(t *testing.T) {
 		t.Fatalf("Count() on empty store = %d, want %d", got, want)
 	}
 
-	store.Save(&ChildSession{Spec: DelegationSpec{AgentID: "a"}})
+	store.Save(&ChildSession{Spec: Spec{AgentID: "a"}})
 	if got, want := store.Count(), 1; got != want {
 		t.Fatalf("Count() after one save = %d, want %d", got, want)
 	}
 
-	store.Save(&ChildSession{Spec: DelegationSpec{AgentID: "b"}})
+	store.Save(&ChildSession{Spec: Spec{AgentID: "b"}})
 	if got, want := store.Count(), 2; got != want {
 		t.Fatalf("Count() after two saves = %d, want %d", got, want)
 	}
