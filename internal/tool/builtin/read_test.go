@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,7 +228,7 @@ func TestReadTool(t *testing.T) {
 	})
 
 	t.Run("huge single line is truncated with marker", func(t *testing.T) {
-		hugeLine := strings.Repeat("x", 500) + "\n"
+		hugeLine := strings.Repeat("x", 2500) + "\n"
 		if err := os.WriteFile(filepath.Join(tmpDir, "huge.txt"), []byte(hugeLine), 0o644); err != nil {
 			t.Fatalf("write huge file: %v", err)
 		}
@@ -290,10 +291,9 @@ func TestReadTool(t *testing.T) {
 		}
 	})
 	t.Run("exact-boundary line length is not truncated", func(t *testing.T) {
-		// Dive adds a "%6d\t" prefix (8 chars for line 1) when offset/limit
-		// are set.  Use 392 runes so the total rendered line (392 + 8) is
-		// exactly 400, right at the default line cap.
-		exactLine := strings.Repeat("y", 392) + "\n"
+		// Dive adds a "%6d\t" prefix (7 runes for line 1) when offset/limit
+		// Use 1990 content runes, genuinely under 2000 after the rendered prefix.
+		exactLine := strings.Repeat("y", 1990) + "\n"
 		if err := os.WriteFile(filepath.Join(tmpDir, "exact.txt"), []byte(exactLine), 0o644); err != nil {
 			t.Fatalf("write exact file: %v", err)
 		}
@@ -329,15 +329,75 @@ func TestReadTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want ReadResult", resultI)
 		}
-		found := false
-		for _, r := range result.TruncationReasons {
-			if r == "paged" {
-				found = true
+		if !hasReason(result.TruncationReasons, "paged") {
+			t.Errorf("TruncationReasons = %v, want paged", result.TruncationReasons)
+		}
+	})
+
+	t.Run("long prose lines are preserved", func(t *testing.T) {
+		lines := []string{strings.Repeat("a", 600), strings.Repeat("b", 600), strings.Repeat("c", 600)}
+		if err := os.WriteFile(filepath.Join(tmpDir, "prose.md"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+			t.Fatalf("write prose file: %v", err)
+		}
+		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "prose.md"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result := resultI.(ReadResult)
+		if strings.Contains(result.Output, "…<truncated>") || hasReason(result.TruncationReasons, "line_length_capped") {
+			t.Errorf("prose read was line-truncated: reasons=%v", result.TruncationReasons)
+		}
+	})
+
+	t.Run("total output capped is recoverable via NextOffset", func(t *testing.T) {
+		const lineCount = 80
+		const contentLength = 1896
+		lines := make([]string, lineCount)
+		for i := range lines {
+			lines[i] = fmt.Sprintf("%02d:%s", i, strings.Repeat("x", contentLength-3))
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "paged-large.txt"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+			t.Fatalf("write paged file: %v", err)
+		}
+		offset := 1
+		var collected []string
+		for {
+			resultI, err := toolDef.Handler(ctx, map[string]any{"path": "paged-large.txt", "offset": offset, "limit": 1000})
+			if err != nil {
+				t.Fatalf("read page at offset %d: %v", offset, err)
+			}
+			result := resultI.(ReadResult)
+			if result.StartLine != offset {
+				t.Fatalf("StartLine = %d, want %d", result.StartLine, offset)
+			}
+			for _, rendered := range strings.Split(result.Output, "\n") {
+				parts := strings.SplitN(rendered, "\t", 2)
+				if len(parts) != 2 {
+					t.Fatalf("rendered line = %q, want line number and content", rendered)
+				}
+				collected = append(collected, parts[1])
+			}
+			if result.NextOffset == 0 {
+				if hasReason(result.TruncationReasons, "output_length_capped") {
+					t.Errorf("final page is output-capped: %v", result.TruncationReasons)
+				}
 				break
 			}
+			if result.NextOffset <= offset || result.EndLine != result.NextOffset-1 {
+				t.Fatalf("page bounds: offset=%d end=%d next=%d", offset, result.EndLine, result.NextOffset)
+			}
+			if !hasReason(result.TruncationReasons, "output_length_capped") || !hasReason(result.TruncationReasons, "paged") {
+				t.Fatalf("capped page reasons = %v", result.TruncationReasons)
+			}
+			offset = result.NextOffset
 		}
-		if !found {
-			t.Errorf("TruncationReasons = %v, want to include paged when NextOffset is set", result.TruncationReasons)
+		if len(collected) != len(lines) {
+			t.Fatalf("collected %d lines, want %d", len(collected), len(lines))
+		}
+		for i := range lines {
+			if collected[i] != lines[i] {
+				t.Fatalf("collected line %d differs from source", i+1)
+			}
 		}
 	})
 }
@@ -371,4 +431,13 @@ func TestReadTool_RejectsSpecialFile(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("read of FIFO blocked instead of being rejected by policy")
 	}
+}
+
+func hasReason(reasons []string, want string) bool {
+	for _, reason := range reasons {
+		if reason == want {
+			return true
+		}
+	}
+	return false
 }
