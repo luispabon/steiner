@@ -61,15 +61,18 @@ func testChildOverride(deps SubAgentHandlerDeps) ChildBootstrapOverrides {
 			names = append(names, def.Name)
 		}
 	}
-	allowedTools := []string{"read"}
-	if slices.Contains(names, "probe") {
+	var allowedTools []string
+	switch {
+	case slices.Contains(names, "probe"):
 		allowedTools = []string{"probe"}
-	} else if slices.Contains(names, "mutate") {
+	case slices.Contains(names, "mutate"):
 		allowedTools = []string{"mutate"}
-	} else if slices.Contains(names, "bash") && !slices.Contains(names, "read") {
+	case slices.Contains(names, "bash") && !slices.Contains(names, "read"):
 		allowedTools = []string{"bash"}
-	} else if slices.Contains(names, "write") {
+	case slices.Contains(names, "write"):
 		allowedTools = []string{"read", "write"}
+	default:
+		allowedTools = []string{"read"}
 	}
 	return ChildBootstrapOverrides{
 		AllowedTools:  allowedTools,
