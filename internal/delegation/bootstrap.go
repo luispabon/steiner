@@ -17,100 +17,38 @@ import (
 // preamble unless a spec provides an explicit override.
 const defaultChildSystemPrompt = ""
 
-// BootstrapDeps holds the dependencies needed to assemble a child agent run request.
-type BootstrapDeps struct {
-	Provider             provider.Provider
-	ParentReg            *tool.Registry
-	SubAgentCfg          config.SubAgentConfig
-	AllowedTools         []string
-	Events               output.EventSink
-	WorkDir              string
-	HomeDir              string
-	ProjectContextConfig config.ProjectContextConfig
-	ResolvedModel        provider.ResolvedModel
-	MaxTokens            *int
-	StreamingPreferred   bool
-	CaveHuman            bool
-	// SandboxTmpDir is the path to the sandbox temporary directory inside the
-	// project root. When non-empty, child executors inherit it so that /tmp
-	// path rewriting works for tools like mutate.
-	SandboxTmpDir string
-	// SandboxEnabled reports whether the parent sandbox is active. Forwarded as
-	// a plain value into the child prompt so its system preamble renders the
-	// same sandbox section as the parent when the sandbox is active.
-	SandboxEnabled bool
-	// SandboxWritableMounts lists host paths mounted writable in the sandbox,
-	// rendered into the child system preamble when the sandbox is enabled.
-	// Derived from the parent's config at the composition root; paths are
-	// already home-expanded at config load.
-	SandboxWritableMounts []string
-	// Sandbox is the parent's sandbox wrapper, threaded to the child executor so
-	// it sandboxes commands identically to the parent. Must not be nil
-	// (tool.Unsandboxed{} when sandboxing is off).
-	Sandbox tool.SandboxWrapper
-	// UsageRecorder is the singleton recorder shared across the process for cache-hit-rate tracking.
-	UsageRecorder *usagestats.Recorder
-	// AgentType identifies the agent type being bootstrapped, used to key
-	// CacheKeyStore lookups for prompt-cache key reuse.
-	AgentType AgentType
-	// CacheKeyStore, when non-nil, is consulted to reuse a prompt-cache key
-	// across delegations of the same AgentType. Nil means always mint a fresh
-	// key, preserving pre-Fix-3 behavior; this matters for tests and any
-	// caller that doesn't wire a store.
-	CacheKeyStore *CacheKeyStore
-	// ModeGetter returns the current execution mode. When non-nil, child executors
-	// receive this getter via WithModeGetter so they inherit the parent's execution mode.
-	ModeGetter func() config.ExecutionMode
-
-	// SkipProjectContext skips only the project-context extra files in the child
-	// prompt. AGENTS.md delivery is controlled separately by SkipAgents.
-	// Used for lean sub-agents (explore, research, sanity_check, vision)
-	// that don't need project-level conventions.
-	SkipProjectContext bool
-	// SkipAgents skips AGENTS.md delivery in the child prompt. Used for
-	// sub-agents that cannot read the repo (vision).
-	SkipAgents bool
+// ChildBootstrapOverrides holds the values BuildChildRun needs beyond
+// SubAgentHandlerDeps: the model resolved for this specific delegation
+// (which may differ from anything in deps — deps.Provider/deps.ResolvedModel
+// are never read by BuildChildRun; use Provider/ResolvedModel here instead),
+// which agent type is being bootstrapped, and which tools it may use.
+type ChildBootstrapOverrides struct {
+	AgentType     AgentType
+	AllowedTools  []string
+	Provider      provider.Provider
+	ResolvedModel provider.ResolvedModel
 }
 
-// handlerBootstrapDeps maps the SubAgentHandlerDeps fields shared by all
-// specialized handlers into a BootstrapDeps, keeping per-type divergent values
-// as explicit parameters so field additions to the shared set touch one place.
-func handlerBootstrapDeps(agentType AgentType, deps SubAgentHandlerDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, skipProjectContext, skipAgents bool) BootstrapDeps {
-	return BootstrapDeps{
-		Provider:              resolvedProvider,
-		ParentReg:             deps.ParentReg,
-		SubAgentCfg:           deps.SubAgentCfg,
-		AllowedTools:          allowedTools,
-		Events:                deps.Events,
-		WorkDir:               deps.WorkDir,
-		HomeDir:               deps.HomeDir,
-		ProjectContextConfig:  deps.ProjectContextConfig,
-		ResolvedModel:         resolvedModel,
-		MaxTokens:             deps.MaxTokens,
-		StreamingPreferred:    deps.StreamingPreferred,
-		CaveHuman:             deps.CaveHuman,
-		SandboxTmpDir:         deps.SandboxTmpDir,
-		SandboxEnabled:        deps.SandboxEnabled,
-		SandboxWritableMounts: deps.SandboxWritableMounts,
-		Sandbox:               deps.Sandbox,
-		ModeGetter:            deps.ModeGetter,
-		UsageRecorder:         deps.UsageRecorder,
-		SkipProjectContext:    skipProjectContext,
-		SkipAgents:            skipAgents,
-		AgentType:             agentType,
-		CacheKeyStore:         deps.CacheKeyStore,
-	}
+// childContextSkips reports which context sections a delegated child of the
+// given agent type should skip. Explore, research, and sanity-check children
+// are lean and don't need project-level conventions; vision children can't
+// read the repo at all, so they skip both.
+func childContextSkips(agentType AgentType) (skipProjectContext, skipAgents bool) {
+	skipProjectContext = agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate
+	skipAgents = agentType == AgentTypeVision
+	return
 }
 
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
 // It derives final limits by combining SubAgentConfig defaults with spec-level
 // overrides, builds child prompt and tool registries, and returns the assembled
 // request together with the computed DelegationLimits.
-func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec) (agent.RunRequest, DelegationLimits, error) {
+func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override ChildBootstrapOverrides, spec DelegationSpec) (agent.RunRequest, DelegationLimits, error) {
 	if err := ctx.Err(); err != nil {
 		return agent.RunRequest{}, DelegationLimits{}, err
 	}
 	limits := deriveChildLimits(deps.SubAgentCfg, spec.Limits)
+	skipProjectContext, skipAgents := childContextSkips(override.AgentType)
 	agentLimits := agent.Limits{
 		MaxTurns:    limits.MaxTurns,
 		MaxTokens:   limits.OutputLimitTokens,
@@ -118,12 +56,12 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 	}
 
 	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:               deps.ResolvedModel.EffectiveLimits.ContextWindow,
-		MaxCompletionTokens:       deps.ResolvedModel.EffectiveLimits.MaxOutputTokens,
-		SafetyMarginTokens:        deps.ResolvedModel.EffectiveLimits.EstimatorPadTokens,
-		SummaryMaxTokens:          deps.ResolvedModel.EffectiveLimits.NormalSummaryMaxTokens,
-		NormalSummaryMaxTokens:    deps.ResolvedModel.EffectiveLimits.NormalSummaryMaxTokens,
-		EmergencySummaryMaxTokens: deps.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
+		ContextSize:               override.ResolvedModel.EffectiveLimits.ContextWindow,
+		MaxCompletionTokens:       override.ResolvedModel.EffectiveLimits.MaxOutputTokens,
+		SafetyMarginTokens:        override.ResolvedModel.EffectiveLimits.EstimatorPadTokens,
+		SummaryMaxTokens:          override.ResolvedModel.EffectiveLimits.NormalSummaryMaxTokens,
+		NormalSummaryMaxTokens:    override.ResolvedModel.EffectiveLimits.NormalSummaryMaxTokens,
+		EmergencySummaryMaxTokens: override.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
 	}
 
 	promptOpts := buildChildPrompt(childPromptParams{
@@ -132,30 +70,30 @@ func BuildChildRun(ctx context.Context, deps BootstrapDeps, spec DelegationSpec)
 		homeDir:            deps.HomeDir,
 		projectContextCfg:  deps.ProjectContextConfig,
 		caveHuman:          deps.CaveHuman,
-		skipProjectContext: deps.SkipProjectContext,
-		skipAgents:         deps.SkipAgents,
+		skipProjectContext: skipProjectContext,
+		skipAgents:         skipAgents,
 		sandboxEnabled:     deps.SandboxEnabled,
 		writableMounts:     deps.SandboxWritableMounts,
 	})
 
-	visibleReg, execReg := buildChildRegistries(deps.ParentReg, deps.AllowedTools)
-	readOnlyBash := deps.SandboxEnabled && deps.AgentType == AgentTypeExplore
+	visibleReg, execReg := buildChildRegistries(deps.ParentReg, override.AllowedTools)
+	readOnlyBash := deps.SandboxEnabled && override.AgentType == AgentTypeExplore
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:            deps.WorkDir,
 		AgentID:            spec.AgentID,
-		Provider:           deps.Provider,
+		Provider:           override.Provider,
 		VisibleReg:         visibleReg,
 		ExecReg:            execReg,
 		BaseLimits:         agentLimits,
 		Events:             deps.Events,
 		PromptOpts:         promptOpts,
-		ResolvedModel:      deps.ResolvedModel,
+		ResolvedModel:      override.ResolvedModel,
 		ModelBudget:        modelBudget,
 		MaxTokens:          deps.MaxTokens,
 		StreamingPreferred: deps.StreamingPreferred,
 		UsageRecorder:      deps.UsageRecorder,
 		ModeGetter:         deps.ModeGetter,
-		AgentType:          deps.AgentType,
+		AgentType:          override.AgentType,
 		CacheKeyStore:      deps.CacheKeyStore,
 		SandboxTmpDir:      deps.SandboxTmpDir,
 		Sandbox:            deps.Sandbox,

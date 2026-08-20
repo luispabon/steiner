@@ -57,7 +57,12 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			allowedTools = mergedAllowedTools(allowedTools, deps.ExtraAllowedTools[AgentTypeVision])
 		}
 
-		req, limits, err := BuildChildRun(ctx, handlerBootstrapDeps(AgentTypeVision, deps.SubAgentHandlerDeps, resolvedProvider, resolvedModel, allowedTools, true, true), spec)
+		req, limits, err := BuildChildRun(ctx, deps.SubAgentHandlerDeps, ChildBootstrapOverrides{
+			AgentType:     AgentTypeVision,
+			AllowedTools:  allowedTools,
+			Provider:      resolvedProvider,
+			ResolvedModel: resolvedModel,
+		}, spec)
 		if err != nil {
 			return nil, fmt.Errorf("vision: build child run: %w", err)
 		}

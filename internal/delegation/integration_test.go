@@ -689,22 +689,22 @@ func TestParentContextIsolation(t *testing.T) {
 		},
 	}
 
-	deps := BootstrapDeps{
-		Provider:     childProv,
-		ParentReg:    parentReg,
-		SubAgentCfg:  config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000},
-		AllowedTools: []string{"helper"},
-		Events:       output.NoopSink{},
-		WorkDir:      "/tmp/work",
+	deps := SubAgentHandlerDeps{
+		Provider:    childProv,
+		ParentReg:   parentReg,
+		SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
 	}
 
+	override := ChildBootstrapOverrides{Provider: childProv, AllowedTools: []string{"helper"}}
 	spec := DelegationSpec{
 		Task:    "use the helper tool",
 		AgentID: "parent-isolation",
 		Limits:  DelegationLimits{MaxTurns: 5},
 	}
 
-	req, limits, err := BuildChildRun(context.Background(), deps, spec)
+	req, limits, err := BuildChildRun(context.Background(), deps, override, spec)
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
