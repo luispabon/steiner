@@ -312,36 +312,46 @@ func (b *contentBuffer) findDelegation(agentID string) (delegationLocator, bool)
 	return result, found
 }
 
-func (b *contentBuffer) dequeuePendingDelegateParentByCallID(callID string) (delegationLocator, bool) {
+func (b *contentBuffer) dequeuePendingByCallID(list *[]delegationLocator, callID string) (delegationLocator, bool) {
 	if callID == "" {
 		return delegationLocator{}, false
 	}
-	for i, loc := range b.pendingDelegateParents {
+	for i, loc := range *list {
 		if loc.dd == nil || loc.seg < 0 || loc.seg >= len(b.segments) || loc.dd.parentCallID != callID {
 			continue
 		}
-		b.pendingDelegateParents = append(b.pendingDelegateParents[:i], b.pendingDelegateParents[i+1:]...)
+		*list = append((*list)[:i], (*list)[i+1:]...)
 		return loc, true
 	}
 	return delegationLocator{}, false
 }
 
-func (b *contentBuffer) dequeuePendingDelegateParentSegment() (delegationLocator, bool) {
-	for len(b.pendingDelegateParents) > 0 {
-		loc := b.pendingDelegateParents[0]
-		b.pendingDelegateParents = b.pendingDelegateParents[1:]
+func (b *contentBuffer) dequeuePendingDelegateParentByCallID(callID string) (delegationLocator, bool) {
+	return b.dequeuePendingByCallID(&b.pendingDelegateParents, callID)
+}
+
+func (b *contentBuffer) drainPending(list *[]delegationLocator, eligible func(delegationLocator) bool) (delegationLocator, bool) {
+	for len(*list) > 0 {
+		loc := (*list)[0]
+		*list = (*list)[1:]
 		if loc.dd == nil {
 			continue
 		}
 		if loc.seg < 0 || loc.seg >= len(b.segments) {
 			continue
 		}
-		if loc.dd.agentID != "" {
+		if !eligible(loc) {
 			continue
 		}
 		return loc, true
 	}
 	return delegationLocator{}, false
+}
+
+func (b *contentBuffer) dequeuePendingDelegateParentSegment() (delegationLocator, bool) {
+	return b.drainPending(&b.pendingDelegateParents, func(loc delegationLocator) bool {
+		return loc.dd.agentID == ""
+	})
 }
 
 func (b *contentBuffer) removeFromPendingDelegateParents(dd *delegationDisplayState) {
@@ -394,36 +404,15 @@ func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int 
 	b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: dd, renderDirty: true})
 	return len(b.segments) - 1
 }
+
 func (b *contentBuffer) dequeuePendingDelegationStartByCallID(callID string) (delegationLocator, bool) {
-	if callID == "" {
-		return delegationLocator{}, false
-	}
-	for i, loc := range b.pendingDelegationStarts {
-		if loc.dd == nil || loc.seg < 0 || loc.seg >= len(b.segments) || loc.dd.parentCallID != callID {
-			continue
-		}
-		b.pendingDelegationStarts = append(b.pendingDelegationStarts[:i], b.pendingDelegationStarts[i+1:]...)
-		return loc, true
-	}
-	return delegationLocator{}, false
+	return b.dequeuePendingByCallID(&b.pendingDelegationStarts, callID)
 }
 
 func (b *contentBuffer) dequeuePendingDelegationStartSegment() (delegationLocator, bool) {
-	for len(b.pendingDelegationStarts) > 0 {
-		loc := b.pendingDelegationStarts[0]
-		b.pendingDelegationStarts = b.pendingDelegationStarts[1:]
-		if loc.dd == nil {
-			continue
-		}
-		if loc.seg < 0 || loc.seg >= len(b.segments) {
-			continue
-		}
-		if loc.dd.parentCallID != "" {
-			continue
-		}
-		return loc, true
-	}
-	return delegationLocator{}, false
+	return b.drainPending(&b.pendingDelegationStarts, func(loc delegationLocator) bool {
+		return loc.dd.parentCallID == ""
+	})
 }
 
 func (b *contentBuffer) markDelegationDirty(idx int) {

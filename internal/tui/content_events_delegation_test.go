@@ -180,6 +180,79 @@ func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
 	}
 }
 
+func TestPendingDelegationDequeueHelpers(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		set   func(*contentBuffer, []delegationLocator)
+		byID  func(*contentBuffer, string) (delegationLocator, bool)
+		drain func(*contentBuffer) (delegationLocator, bool)
+		get   func(*contentBuffer) []delegationLocator
+	}{
+		{
+			name: "delegate parent",
+			set:  func(b *contentBuffer, locs []delegationLocator) { b.pendingDelegateParents = locs },
+			byID: func(b *contentBuffer, callID string) (delegationLocator, bool) {
+				return b.dequeuePendingDelegateParentByCallID(callID)
+			},
+			drain: func(b *contentBuffer) (delegationLocator, bool) {
+				return b.dequeuePendingDelegateParentSegment()
+			},
+			get: func(b *contentBuffer) []delegationLocator { return b.pendingDelegateParents },
+		},
+		{
+			name: "delegation start",
+			set:  func(b *contentBuffer, locs []delegationLocator) { b.pendingDelegationStarts = locs },
+			byID: func(b *contentBuffer, callID string) (delegationLocator, bool) {
+				return b.dequeuePendingDelegationStartByCallID(callID)
+			},
+			drain: func(b *contentBuffer) (delegationLocator, bool) {
+				return b.dequeuePendingDelegationStartSegment()
+			},
+			get: func(b *contentBuffer) []delegationLocator { return b.pendingDelegationStarts },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buffer := &contentBuffer{segments: make([]contentSegment, 1)}
+			byID := &delegationDisplayState{parentCallID: "target"}
+			other := &delegationDisplayState{parentCallID: "other", agentID: "child"}
+			tc.set(buffer, []delegationLocator{
+				{seg: 0, dd: nil},
+				{seg: -1, dd: other},
+				{seg: 0, dd: other},
+				{seg: 0, dd: byID},
+			})
+
+			if _, ok := tc.byID(buffer, ""); ok {
+				t.Fatal("empty call ID matched pending locator")
+			}
+			got, ok := tc.byID(buffer, "target")
+			if !ok || got.dd != byID {
+				t.Fatalf("by-call-ID result = %#v, %t, want target locator", got, ok)
+			}
+			if remaining := tc.get(buffer); len(remaining) != 3 {
+				t.Fatalf("remaining after by-call-ID dequeue = %d, want 3", len(remaining))
+			}
+
+			tc.set(buffer, []delegationLocator{
+				{seg: 0, dd: nil},
+				{seg: -1, dd: other},
+				{seg: 0, dd: other},
+				{seg: 0, dd: &delegationDisplayState{}},
+			})
+			got, ok = tc.drain(buffer)
+			if !ok || got.dd == nil {
+				t.Fatalf("segment drain result = %#v, %t, want eligible locator", got, ok)
+			}
+			if remaining := tc.get(buffer); len(remaining) != 0 {
+				t.Fatalf("remaining after segment drain = %d, want 0", len(remaining))
+			}
+		})
+	}
+}
+
 func TestRemoveFromPendingDelegateParents(t *testing.T) {
 	t.Parallel()
 	dd3 := &delegationDisplayState{}
