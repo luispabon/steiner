@@ -25,7 +25,7 @@ func NewReadTool(env Env) tool.ToolDef {
 	readTool := toolkit.NewReadFileTool()
 	return tool.ToolDef{
 		Name:            "read",
-		Description:     "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Returns line-numbered content and pagination metadata for text files.",
+		Description:     "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Returns line-numbered content and pagination metadata for text files. Output is bounded; continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
 		ParameterSchema: ReadSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[ReadInput](input)
@@ -96,9 +96,12 @@ func NewReadTool(env Env) tool.ToolDef {
 			}
 
 			// Bound lines to cap per-line rune count.
-			boundedLines, reasons := boundLines(outputLines, lineBoundingConfig{})
+			boundedLines, reasons := boundLines(outputLines, lineBoundingConfig{
+				maxLineRunes:   readMaxLineRunes,
+				maxOutputRunes: readMaxOutputRunes,
+			})
 			boundedOutput := strings.Join(boundedLines, "\n")
-			numLines := len(outputLines)
+			numLines := len(boundedLines)
 
 			startLine := in.Offset
 			endLine := startLine + numLines - 1
