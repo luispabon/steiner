@@ -136,7 +136,7 @@ Beyond key reuse, `CacheKeyStore` also **staggers concurrent same-key dispatches
 2. **Emit** `DelegationStartedEvent` with agent ID and task preview (120 chars max).
 3. **Run** the child agent loop via the `AgentRunner` interface.
 4. **Auto-extension loop** (up to 5 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
-5. **Build result** from final state (maps `StopReason` → `Status`). Cache counters are accumulated across extension re-runs and prior follow-ups (`Spec.PriorCacheUsage`) rather than taken from the final state alone.
+5. **Build result** from final state (maps `StopReason` → `Status`). Token counters (input, cache, and output) are accumulated across extension re-runs and prior follow-ups (`Spec.PriorTokenUsage`) rather than taken from the final state alone.
 6. **Summarisation turn**: runs a single no-tool turn asking the model to summarise its work in ≤1000 chars.
 7. **Emit** `DelegationCompleteEvent` or `DelegationFailedEvent`. `DelegationCompleteEvent` carries `InputTokens`/`CacheReadTokens`/`CacheCreateTokens` alongside the existing turn/tool/token counts; it is constructed via `NewDelegationCompleteEvent`, which takes a `DelegationCompleteParams` struct rather than positional arguments, so the TUI can render the child agent's cumulative cache hit rate in the tool box.
 8. **Return** `tool.ExecutionResult` with `ToolRetention` metadata attached.
@@ -171,7 +171,7 @@ A parallel batch receives one shared pre-batch conversation snapshot. Siblings t
 | `StopReason`        | Populated on partial: `"max_turns"` or `"max_tokens"` |
 | `Error`             | Populated on failure                                  |
 
-The `follow_up` handler seeds `Spec.PriorCacheUsage` from the stored `ChildSession.CacheUsage`, so these fields report the child agent's whole-life totals.
+The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSession.TokenUsage`, so these token counters report the child agent's whole-life totals.
 
 **ToolRetention** persists on the parent conversation message as metadata that is not sent to the provider:
 
