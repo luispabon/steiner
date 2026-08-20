@@ -1475,6 +1475,47 @@ func TestAPIResponseFinalizesAssistantChunksAfterThinking(t *testing.T) {
 	}
 }
 
+func TestThinkingBlockSurvivesInterleavedContentChunk(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        testStyles(theme.AccentAmber),
+		showThinking:  true,
+	}
+
+	// Simulate a turn where thinking chunks interleave with content chunks,
+	// as happens with deepseek-v4-flash: thinking, content, thinking.
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, "first reasoning", output.ChunkSourceAssistant))
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, "visible content", output.ChunkSourceAssistant))
+	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, " more reasoning", output.ChunkSourceAssistant))
+
+	// Should have exactly 1 thinking block segment, not 2.
+	if got := len(buffer.segments); got != 1 {
+		t.Fatalf("segments count = %d, want 1 (single thinking block)", got)
+	}
+
+	if buffer.segments[0].kind != segmentThinkingBlock {
+		t.Fatalf("segment[0].kind = %v, want segmentThinkingBlock", buffer.segments[0].kind)
+	}
+
+	thinkData := buffer.segments[0].thinkData
+	if thinkData == nil {
+		t.Fatal("thinkData = nil, want thinking block")
+	}
+
+	// Verify the merged thinking block contains both reasoning chunks.
+	expectedBody := "first reasoning more reasoning"
+	if got := thinkData.body; got != expectedBody {
+		t.Fatalf("thinkData.body = %q, want %q", got, expectedBody)
+	}
+
+	// Verify stream buffer contains the visible content.
+	if got := strings.TrimSpace(buffer.streamBuffer); !strings.Contains(got, "visible content") {
+		t.Fatalf("streamBuffer = %q, want to contain 'visible content'", got)
+	}
+}
+
 func TestRenderThinkingBlockSegment(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
