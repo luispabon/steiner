@@ -20,7 +20,6 @@ func (b *contentBuffer) appendAssistantChunkEvent(event output.Event) {
 		return
 	}
 	if payload, ok := event.Payload.(output.AssistantChunkEvent); ok {
-		b.finalizeThinkingBlock()
 		b.appendAssistantChunk(payload.Content, payload.Source)
 	}
 }
