@@ -8,13 +8,22 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-func renderModelBadge(styles *theme.Styles, model string) string {
+func formatModelEffort(model, effort string) string {
+	model = strings.TrimSpace(model)
+	effort = strings.TrimSpace(effort)
+	if effort == "" {
+		return model
+	}
+	return model + "/" + effort
+}
+
+func renderModelBadge(styles *theme.Styles, model, effort string) string {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return ""
 	}
 	label := styles.FgMute.Render("model ")
-	value := lipgloss.NewStyle().Foreground(styles.AccentColor).Render(model)
+	value := lipgloss.NewStyle().Foreground(styles.AccentColor).Render(formatModelEffort(model, effort))
 	return label + value
 }
 

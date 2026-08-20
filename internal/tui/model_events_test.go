@@ -8,6 +8,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -373,5 +374,32 @@ func TestAdvisorFlagResetOnInterruptedRunCompletion(t *testing.T) {
 	}
 	if !foundThinking {
 		t.Fatal("thinking segment not found (primary thinking should create normal segment)")
+	}
+}
+
+func TestApplyEventModelWaitingStateOmitsModelDetail(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		event output.Event
+	}{
+		{name: "model call started", event: output.NewModelCallStartedEvent(1, "gpt-test", 2)},
+		{name: "api request", event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{}, nil)
+			_ = m.applyEvent(tc.event)
+			if m.activity.label != "waiting" {
+				t.Errorf("activity.label = %q, want %q", m.activity.label, "waiting")
+			}
+			if m.activity.detail != "" {
+				t.Errorf("activity.detail = %q, want empty", m.activity.detail)
+			}
+			if !m.activity.spinning {
+				t.Error("activity.spinning = false, want true")
+			}
+		})
 	}
 }

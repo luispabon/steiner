@@ -1203,10 +1203,13 @@ func TestModelActivityRowShowsSpinnerAfterApiRequestBeforeFirstChunk(t *testing.
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
 
 	row := m.renderActivityRow(m.viewport.Width())
-	for _, want := range []string{"waiting on model", "gpt-test", "⠋"} {
+	for _, want := range []string{"waiting", "⠋"} {
 		if !strings.Contains(row, want) {
 			t.Fatalf("activity row = %q, want %q", row, want)
 		}
+	}
+	if strings.Contains(row, "gpt-test") {
+		t.Fatalf("activity row = %q, want no model detail", row)
 	}
 }
 
@@ -1318,7 +1321,7 @@ func TestModelInterruptClearsActivityImmediately(t *testing.T) {
 	if m.activity.label != "" || m.activity.detail != "" {
 		t.Fatalf("activity = %#v, want cleared", m.activity)
 	}
-	if got := strings.ToLower(m.renderActivityRow(m.viewport.Width())); strings.Contains(got, "waiting on model") || strings.Contains(got, "running tool") {
+	if got := strings.ToLower(m.renderActivityRow(m.viewport.Width())); strings.Contains(got, "waiting") || strings.Contains(got, "running tool") {
 		t.Fatalf("activity row = %q, want cleared", got)
 	}
 }

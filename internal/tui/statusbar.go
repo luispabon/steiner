@@ -37,7 +37,7 @@ func (s statusState) view(width int) string {
 	}
 	// Segment 1: model (stable left)
 	if s.model != "" {
-		parts = append(parts, renderModelBadge(s.styles, s.model))
+		parts = append(parts, renderModelBadge(s.styles, s.model, ""))
 	}
 
 	// Segment 1b: execution mode badge

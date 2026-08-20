@@ -1,28 +1,31 @@
 package tui
 
 import (
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestDelegationCompleteMetaIncludesCacheHitRateWhenOK(t *testing.T) {
+func TestDelegationCompleteMetaIncludesOnlyStatusDurationAndCache(t *testing.T) {
 	t.Parallel()
 	dd := &delegationDisplayState{
-		resultStatus:  "complete",
-		turnCount:     4,
-		toolCallCount: 12,
-		tokenCount:    8123,
-		elapsed:       "12.4s",
-		cacheHitRate:  0.952,
-		cacheHitOK:    true,
+		resultStatus:   "complete",
+		turnCount:      4,
+		toolCallCount:  12,
+		tokenCount:     8123,
+		elapsed:        "12.4s",
+		cacheHitRate:   0.952,
+		cacheHitOK:     true,
+		advisorUse:     1,
+		advisorMaxUses: 2,
 	}
 
-	meta := delegationCompleteMeta(dd)
-
-	if len(meta) == 0 || meta[len(meta)-1] != "cache 95.2%" {
-		t.Errorf("delegationCompleteMeta() = %v, want last entry %q", meta, "cache 95.2%")
+	got := delegationCompleteMeta(dd)
+	want := []string{"complete", "12.4s", "cache 95.2%"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
 	}
 }
 
@@ -63,20 +66,37 @@ func TestDelegationCacheWaitingHeaderRendering(t *testing.T) {
 func TestDelegationCompleteMetaOmitsCacheHitRateWhenNotOK(t *testing.T) {
 	t.Parallel()
 	dd := &delegationDisplayState{
-		resultStatus:  "complete",
-		turnCount:     4,
-		toolCallCount: 12,
-		tokenCount:    8123,
-		elapsed:       "12.4s",
-		cacheHitOK:    false,
+		resultStatus: "complete",
+		elapsed:      "12.4s",
+		cacheHitOK:   false,
 	}
 
-	meta := delegationCompleteMeta(dd)
+	got := delegationCompleteMeta(dd)
+	want := []string{"complete", "12.4s"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
+	}
+}
 
-	for _, part := range meta {
-		if part == "cache 95.2%" || part == "cache 0.0%" {
-			t.Errorf("delegationCompleteMeta() = %v, want no cache entry when cacheHitOK is false", meta)
-		}
+func TestFormatTokenPair(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name          string
+		input, output int
+		want          string
+	}{
+		{name: "zero", input: 0, output: 0, want: "0 in / 0 out"},
+		{name: "zero input", input: 0, output: 15000, want: "0 in / 15k out"},
+		{name: "compact thousands", input: 15000, output: 15900, want: "15k in / 16k out"},
+		{name: "compact millions", input: 2_000_000, output: 1234, want: "2.0m in / 1.2k out"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := formatTokenPair(tc.input, tc.output); got != tc.want {
+				t.Errorf("formatTokenPair(%d, %d) = %q, want %q", tc.input, tc.output, got, tc.want)
+			}
+		})
 	}
 }
 
