@@ -325,15 +325,43 @@ func TestParallelDelegationEndToEndOverlap(t *testing.T) {
 	}
 }
 
+// waitParallelCacheWaiting blocks until at least n DelegationCacheWaiting events
+// have been observed, returning every event read up to and including the nth so
+// callers can still assert against them. It is a synchronization barrier used to
+// guarantee follower delegations have joined the dispatch gate before the test
+// releases or cancels the leader; it does not drain events emitted afterwards.
+// The timeout is deadlock protection only, not a latency expectation.
+func waitParallelCacheWaiting(t *testing.T, h *parallelHarness, n int, timeout time.Duration) []output.Event {
+	t.Helper()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	var seen []output.Event
+	waiting := 0
+	for waiting < n {
+		select {
+		case ev := <-h.events:
+			seen = append(seen, ev)
+			if ev.Type == output.EventTypeDelegationCacheWaiting {
+				waiting++
+			}
+		case <-timer.C:
+			t.Fatalf("timed out waiting for %d cache-waiting events, got %d", n, waiting)
+		}
+	}
+	return seen
+}
+
 func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	store := NewCacheKeyStore()
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
 	h.providerOverlap = make(chan struct{})
 	h.providerFollowerHold = make(chan struct{})
 	// Keep every child provider call behind the test signal. The leader's first
-	// chunk releases the two followers after this signal is closed.
+	// chunk releases the two followers only after this signal is closed.
 	h.providerGate = h.done
-	result := startParallelParentGated(context.Background(), h, 3, tool.NewRegistry(), store)
+	result := startParallelParentGated(ctx, h, 3, tool.NewRegistry(), store)
 	select {
 	case <-h.providerStarted:
 	case <-time.After(2 * time.Second):
@@ -342,7 +370,10 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 	if got := h.active.Load(); got != 1 {
 		t.Fatalf("active child provider calls before release = %d, want 1", got)
 	}
-	observed := drainParallelEvents(h.events)
+	// Block until both followers have joined the dispatch gate so the release and
+	// overlap assertions below are deterministic regardless of how the scheduler
+	// interleaves the three sibling delegations.
+	observed := waitParallelCacheWaiting(t, h, 2, 10*time.Second)
 	if got := h.completed.Load(); got != 0 {
 		t.Fatalf("completed children before release = %d, want 0", got)
 	}
@@ -354,14 +385,14 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 	close(h.done)
 	select {
 	case <-h.providerOverlap:
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("follower provider calls did not overlap after gate release")
 	}
 	if got := h.max.Load(); got < 2 {
 		t.Fatalf("max simultaneous provider calls after release = %d, want at least 2", got)
 	}
 	close(h.providerFollowerHold)
-	run := receiveParallelWithin(t, result, 3*time.Second, "gated parallel run did not finish")
+	run := receiveParallelWithin(t, result, 10*time.Second, "gated parallel run did not finish")
 	if run.err != nil {
 		t.Fatal(run.err)
 	}
@@ -442,8 +473,12 @@ func TestParallelDelegationGateCancellationReleasesFollowers(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("leader child did not reach the provider")
 	}
+	// Block until both followers are confirmed waiting on the dispatch gate, then
+	// cancel. This makes the follower-release assertion deterministic: it depends
+	// on the followers existing, not on the scheduler reaching them in time.
+	observed := waitParallelCacheWaiting(t, h, 2, 10*time.Second)
 	cancel()
-	run := receiveParallelWithin(t, result, 3*time.Second, "cancelled gated parallel run did not return")
+	run := receiveParallelWithin(t, result, 10*time.Second, "cancelled gated parallel run did not return")
 	if run.err != nil {
 		t.Fatal(run.err)
 	}
@@ -454,7 +489,7 @@ func TestParallelDelegationGateCancellationReleasesFollowers(t *testing.T) {
 		t.Fatal("no child provider call completed after cancellation")
 	}
 	waiting := 0
-	for _, event := range drainParallelEvents(h.events) {
+	for _, event := range append(observed, drainParallelEvents(h.events)...) {
 		if event.Type == output.EventTypeDelegationCacheWaiting {
 			waiting++
 		}
