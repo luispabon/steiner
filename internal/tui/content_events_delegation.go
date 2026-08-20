@@ -310,6 +310,20 @@ func (b *contentBuffer) findDelegation(agentID string) (delegationLocator, bool)
 	return result, found
 }
 
+func (b *contentBuffer) dequeuePendingDelegateParentByCallID(callID string) (delegationLocator, bool) {
+	if callID == "" {
+		return delegationLocator{}, false
+	}
+	for i, loc := range b.pendingDelegateParents {
+		if loc.dd == nil || loc.seg < 0 || loc.seg >= len(b.segments) || loc.dd.parentCallID != callID {
+			continue
+		}
+		b.pendingDelegateParents = append(b.pendingDelegateParents[:i], b.pendingDelegateParents[i+1:]...)
+		return loc, true
+	}
+	return delegationLocator{}, false
+}
+
 func (b *contentBuffer) dequeuePendingDelegateParentSegment() (delegationLocator, bool) {
 	for len(b.pendingDelegateParents) > 0 {
 		loc := b.pendingDelegateParents[0]
@@ -377,6 +391,19 @@ func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int 
 	}
 	b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: dd, renderDirty: true})
 	return len(b.segments) - 1
+}
+func (b *contentBuffer) dequeuePendingDelegationStartByCallID(callID string) (delegationLocator, bool) {
+	if callID == "" {
+		return delegationLocator{}, false
+	}
+	for i, loc := range b.pendingDelegationStarts {
+		if loc.dd == nil || loc.seg < 0 || loc.seg >= len(b.segments) || loc.dd.parentCallID != callID {
+			continue
+		}
+		b.pendingDelegationStarts = append(b.pendingDelegationStarts[:i], b.pendingDelegationStarts[i+1:]...)
+		return loc, true
+	}
+	return delegationLocator{}, false
 }
 
 func (b *contentBuffer) dequeuePendingDelegationStartSegment() (delegationLocator, bool) {
@@ -468,6 +495,10 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 }
 
 func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolCallStartedEvent) {
+	if loc, found := b.dequeuePendingDelegationStartByCallID(payload.CallID); found {
+		b.bindParentDelegateCall(loc, payload)
+		return
+	}
 	if loc, found := b.dequeuePendingDelegationStartSegment(); found {
 		b.bindParentDelegateCall(loc, payload)
 		return
@@ -527,7 +558,7 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	if runes := []rune(preview); len(runes) > 80 {
 		preview = string(runes[:77]) + "..."
 	}
-	if loc, found := b.dequeuePendingDelegateParentSegment(); found {
+	bind := func(loc delegationLocator) {
 		dd := loc.dd
 		dd.agentID = payload.AgentID
 		if preview != "" {
@@ -539,6 +570,13 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		dd.extMax = defaultDelegationExtensionMax
 		b.activeDelegations[payload.AgentID] = loc
 		b.markDelegationDirty(loc.seg)
+	}
+	if loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID); found {
+		bind(loc)
+		return
+	}
+	if loc, found := b.dequeuePendingDelegateParentSegment(); found {
+		bind(loc)
 		return
 	}
 	dd := &delegationDisplayState{

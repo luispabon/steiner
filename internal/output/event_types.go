@@ -365,6 +365,7 @@ type ProviderDiagnosticEvent struct {
 type DelegationStartedEvent struct {
 	AgentID     string `json:"agent_id"`
 	TaskPreview string `json:"task_preview"`
+	CallID      string `json:"call_id,omitempty"`
 }
 
 // DelegationCompleteEvent records a successful delegated child task.

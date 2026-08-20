@@ -1468,3 +1468,56 @@ func TestSpecializedHandler_NonCodeAgentsNoWorktreeFields(t *testing.T) {
 		})
 	}
 }
+func TestSpecializedHandler_ParentCallIDFromContext(t *testing.T) {
+	sink := &collectingSink{}
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+	deps.Events = sink
+	ctx := context.WithValue(context.Background(), tool.ExecutionCallIDKey{}, "call_ABC")
+
+	if _, err := SpecializedToolDef(AgentTypeExplore, deps).Handler(ctx, map[string]any{"task": "inspect"}); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if len(sink.events) == 0 {
+		t.Fatal("handler emitted no events")
+	}
+	started, ok := sink.events[0].Payload.(output.DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("first event payload = %T, want DelegationStartedEvent", sink.events[0].Payload)
+	}
+	if started.CallID != "call_ABC" {
+		t.Errorf("started CallID = %q, want call_ABC", started.CallID)
+	}
+}
+
+func TestVisionHandler_ParentCallIDFromContext(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "test.png")
+	if err := os.WriteFile(imgPath, []byte("fake-png-content"), 0o600); err != nil {
+		t.Fatalf("write temp image: %v", err)
+	}
+	store := agent.NewImageStore(dir)
+	ref := store.Register(imgPath, "image/png", 100, 200, 15)
+	sink := &collectingSink{}
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+	deps.Events = sink
+	deps.ImageStore = store
+	ctx := context.WithValue(context.Background(), tool.ExecutionCallIDKey{}, "call_VISION")
+
+	if _, err := SpecializedToolDef(AgentTypeVision, deps).Handler(ctx, map[string]any{"task": "describe", "image_id": ref.ID}); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if len(sink.events) == 0 {
+		t.Fatal("handler emitted no events")
+	}
+	started, ok := sink.events[0].Payload.(output.DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("first event payload = %T, want DelegationStartedEvent", sink.events[0].Payload)
+	}
+	if started.CallID != "call_VISION" {
+		t.Errorf("started CallID = %q, want call_VISION", started.CallID)
+	}
+}

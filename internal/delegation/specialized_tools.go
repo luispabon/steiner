@@ -288,6 +288,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		agentID := generateAgentID()
+		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
 
 		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, deps)
 		if err != nil {
@@ -304,6 +305,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		spec := DelegationSpec{
 			Task:         task,
 			SystemPrompt: AgentSystemPrompt(agentType),
+			ParentCallID: callID,
 			AgentID:      agentID,
 		}
 		if agentType == AgentTypeCode {

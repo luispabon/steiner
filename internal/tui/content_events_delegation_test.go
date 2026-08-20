@@ -914,3 +914,51 @@ func TestCheckBufferDirtyWithActiveEntryInGroup(t *testing.T) {
 		t.Error("segment should be dirty/need render when it has an active delegation")
 	}
 }
+
+func TestDelegationStartedBindsPendingBoxByCallID(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_2", map[string]any{"task": "second"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second preview", "call_2"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first preview", "call_1"))
+
+	if len(buffer.segments) != 1 || buffer.segments[0].delegGroupData == nil {
+		t.Fatalf("segments = %#v, want one delegation group", buffer.segments)
+	}
+	entries := buffer.segments[0].delegGroupData.entries
+	if len(entries) != 2 {
+		t.Fatalf("delegation entries = %d, want 2", len(entries))
+	}
+	if entries[0].agentID != "child-1" || entries[0].taskPreview != "first preview" {
+		t.Errorf("first entry = (%q, %q), want (child-1, first preview)", entries[0].agentID, entries[0].taskPreview)
+	}
+	if entries[1].agentID != "child-2" || entries[1].taskPreview != "second preview" {
+		t.Errorf("second entry = (%q, %q), want (child-2, second preview)", entries[1].agentID, entries[1].taskPreview)
+	}
+}
+
+func TestDelegationStartedEmptyCallIDUsesFIFO(t *testing.T) {
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "first"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first preview"))
+
+	if len(buffer.segments) != 1 || buffer.segments[0].delegData == nil {
+		t.Fatalf("delegation segment missing")
+	}
+	if got := buffer.segments[0].delegData.agentID; got != "child-1" {
+		t.Errorf("agentID = %q, want child-1", got)
+	}
+}

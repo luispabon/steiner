@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestFailedDelegateSummaryText_NoPreviousOutput(t *testing.T) {
@@ -362,5 +363,27 @@ func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
 	wantUsage := cacheUsageOf(initialState).Add(cacheUsageOf(runner.responses[0].state))
 	if usage != wantUsage {
 		t.Errorf("usage = %+v, want %+v (usage through last successful state, excluding failed run)", usage, wantUsage)
+	}
+}
+func TestSpawnDelegate_StartedEventIncludesParentCallID(t *testing.T) {
+	sink := &collectingSink{}
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}}
+	spec := DelegationSpec{AgentID: "child-callid", Task: "inspect", ParentCallID: "call_parent"}
+
+	_, _, _, err := SpawnDelegate(context.Background(), spec, agent.RunRequest{}, runner, sink, nil)
+	if err != nil {
+		t.Fatalf("SpawnDelegate error: %v", err)
+	}
+	if len(sink.events) == 0 {
+		t.Fatal("SpawnDelegate emitted no events")
+	}
+	started, ok := sink.events[0].Payload.(output.DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("first event payload = %T, want DelegationStartedEvent", sink.events[0].Payload)
+	}
+	if started.CallID != spec.ParentCallID {
+		t.Errorf("started CallID = %q, want %q", started.CallID, spec.ParentCallID)
 	}
 }

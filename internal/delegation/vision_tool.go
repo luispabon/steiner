@@ -32,9 +32,11 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		}
 
 		agentID := generateAgentID()
+		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
 		spec := DelegationSpec{
 			Task:         task,
 			SystemPrompt: AgentSystemPrompt(AgentTypeVision),
+			ParentCallID: callID,
 			AgentID:      agentID,
 			Images:       []provider.ImageBlock{imgBlock},
 		}

@@ -71,7 +71,7 @@ func SpawnDelegate(ctx context.Context, spec DelegationSpec, req agent.RunReques
 	})
 
 	if events != nil {
-		events.Emit(output.NewDelegationStartedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120)))
+		events.Emit(output.NewDelegationStartedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), spec.ParentCallID))
 	}
 
 	state, err := runner.Run(childCtx, req)
