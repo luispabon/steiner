@@ -50,9 +50,8 @@ func (s statusState) view(width int) string {
 		parts = append(parts, badge)
 	}
 
-	// Segments 2-4: stable commands and navigation
+	// Segments 2-3: stable commands and navigation
 	parts = append(parts, s.styles.KeyChip.Render("^B")+" sidebar")
-	parts = append(parts, s.styles.KeyChip.Render("/model")+" switch")
 	parts = append(parts, s.styles.KeyChip.Render("?")+" help")
 
 	// Segment 6: ctx (static, infrequently changing)
