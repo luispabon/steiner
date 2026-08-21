@@ -6,6 +6,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // newTestBuffer returns a minimal contentBuffer suitable for rendering tests.
@@ -94,6 +96,148 @@ func TestCompactionBoxCollapsedFinished(t *testing.T) {
 	}
 	if strings.Contains(out, "▾") {
 		t.Errorf("output should not contain '▾' disclosure triangle: %q", out)
+	}
+}
+
+func TestCompactionFinishedHeaderShowsCacheRateBeforeElapsed(t *testing.T) {
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:          true,
+		elapsed:           "3s",
+		compactionCount:   2,
+		cacheReadTokens:   950,
+		inputTokens:       50,
+		cacheCreateTokens: 0,
+	}
+
+	out := b.renderCompactionBanner(cd, 80)
+	cacheIndex := strings.Index(out, "cache 95.0%")
+	glyphIndex := strings.Index(out, "✓")
+	elapsedIndex := strings.Index(out, "3s")
+	countIndex := strings.Index(out, "#2")
+	if cacheIndex < 0 {
+		t.Fatalf("output missing cache rate: %q", out)
+	}
+	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
+		t.Fatalf("output missing metadata: %q", out)
+	}
+	if glyphIndex >= cacheIndex || cacheIndex >= elapsedIndex || elapsedIndex >= countIndex {
+		t.Errorf("metadata order = glyph:%d cache:%d elapsed:%d count:%d, want glyph < cache < elapsed < count", glyphIndex, cacheIndex, elapsedIndex, countIndex)
+	}
+}
+
+func TestCompactionFinishedHeaderShowsZeroCacheRate(t *testing.T) {
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:        true,
+		elapsed:         "3s",
+		compactionCount: 2,
+		inputTokens:     100,
+	}
+
+	out := b.renderCompactionBanner(cd, 80)
+	cacheIndex := strings.Index(out, "cache 0.0%")
+	glyphIndex := strings.Index(out, "✓")
+	elapsedIndex := strings.Index(out, "3s")
+	countIndex := strings.Index(out, "#2")
+	if cacheIndex < 0 {
+		t.Fatalf("output missing zero cache rate: %q", out)
+	}
+	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
+		t.Fatalf("output missing metadata: %q", out)
+	}
+	if glyphIndex >= cacheIndex || cacheIndex >= elapsedIndex || elapsedIndex >= countIndex {
+		t.Errorf("metadata order = glyph:%d cache:%d elapsed:%d count:%d, want glyph < cache < elapsed < count", glyphIndex, cacheIndex, elapsedIndex, countIndex)
+	}
+}
+
+func TestCompactionHeaderOmitsCacheRateWithoutUsage(t *testing.T) {
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:        true,
+		elapsed:         "3s",
+		compactionCount: 2,
+	}
+
+	out := b.renderCompactionBanner(cd, 80)
+	if strings.Contains(out, "cache") {
+		t.Fatalf("output should omit cache rate: %q", out)
+	}
+	glyphIndex := strings.Index(out, "✓")
+	elapsedIndex := strings.Index(out, "3s")
+	countIndex := strings.Index(out, "#2")
+	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
+		t.Fatalf("output missing metadata: %q", out)
+	}
+	if glyphIndex >= elapsedIndex || elapsedIndex >= countIndex {
+		t.Errorf("metadata order = glyph:%d elapsed:%d count:%d, want glyph < elapsed < count", glyphIndex, elapsedIndex, countIndex)
+	}
+}
+
+func TestCompactionDiagnosticsWiresBannerUsage(t *testing.T) {
+	b := newTestBuffer(t)
+	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
+		Severity:          "ok",
+		CompactionCount:   1,
+		SummaryTitle:      "ctx",
+		CacheReadTokens:   30,
+		InputTokens:       50,
+		CacheCreateTokens: 20,
+	})
+
+	if len(b.segments) == 0 {
+		t.Fatal("finished compaction diagnostics created no segments")
+	}
+	seg := b.segments[len(b.segments)-1]
+	if seg.kind != segmentCompactionBanner || seg.compactionData == nil {
+		t.Fatalf("last segment = %#v, want compaction banner with data", seg)
+	}
+	data := seg.compactionData
+	if !data.finished {
+		t.Fatal("finished compaction banner has finished = false")
+	}
+	if data.cacheReadTokens != 30 || data.inputTokens != 50 || data.cacheCreateTokens != 20 {
+		t.Fatalf("banner usage = %d/%d/%d, want 30/50/20", data.cacheReadTokens, data.inputTokens, data.cacheCreateTokens)
+	}
+	if rendered := b.renderCompactionBanner(data, 80); !strings.Contains(rendered, "cache ") {
+		t.Fatalf("rendered banner = %q, want cache rate", rendered)
+	}
+
+	b = newTestBuffer(t)
+	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
+		Severity:        "compacting",
+		CompactionCount: 1,
+	})
+	if len(b.segments) == 0 {
+		t.Fatal("in-progress compaction diagnostics created no segments")
+	}
+	seg = b.segments[len(b.segments)-1]
+	if seg.kind != segmentCompactionBanner || seg.compactionData == nil {
+		t.Fatalf("last in-progress segment = %#v, want compaction banner with data", seg)
+	}
+	data = seg.compactionData
+	if data.cacheReadTokens != 0 || data.inputTokens != 0 || data.cacheCreateTokens != 0 {
+		t.Fatalf("in-progress banner usage = %d/%d/%d, want 0/0/0", data.cacheReadTokens, data.inputTokens, data.cacheCreateTokens)
+	}
+}
+
+func TestCompactionInProgressHeaderOmitsCacheRate(t *testing.T) {
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:          false,
+		elapsed:           "3s",
+		compactionCount:   2,
+		cacheReadTokens:   950,
+		inputTokens:       50,
+		cacheCreateTokens: 0,
+	}
+
+	out := b.renderCompactionBanner(cd, 80)
+	if strings.Contains(out, "cache") {
+		t.Fatalf("in-progress output should omit cache rate: %q", out)
+	}
+	if !strings.Contains(out, "3s") || !strings.Contains(out, "#2") {
+		t.Fatalf("output missing elapsed or count: %q", out)
 	}
 }
 

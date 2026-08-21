@@ -38,6 +38,37 @@ func TestContextCompactionEventBudgetSnapshot(t *testing.T) {
 	}
 }
 
+func TestContextCompactionEventUsageRoundTrip(t *testing.T) {
+	want := ContextCompactionEvent{
+		CacheReadTokens:   11,
+		InputTokens:       22,
+		CacheCreateTokens: 33,
+	}
+
+	legacy := want.toLegacyContextDiagnostics()
+	got, ok := contextDiagnosticFromLegacy(legacy).(ContextCompactionEvent)
+	if !ok {
+		t.Fatal("contextDiagnosticFromLegacy() type assertion failed")
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("contextDiagnosticFromLegacy() = %+v, want %+v", got, want)
+	}
+
+	legacy = ContextDiagnosticsEvent{
+		Kind:              "compaction",
+		CacheReadTokens:   want.CacheReadTokens,
+		InputTokens:       want.InputTokens,
+		CacheCreateTokens: want.CacheCreateTokens,
+	}
+	got, ok = AsContextCompactionEvent(legacy)
+	if !ok {
+		t.Fatal("AsContextCompactionEvent() ok = false, want true")
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("AsContextCompactionEvent() = %+v, want %+v", got, want)
+	}
+}
+
 func TestAsContextBudgetEventSessionLoaded(t *testing.T) {
 	payload := ContextDiagnosticsEvent{
 		Kind:                "session_loaded",
