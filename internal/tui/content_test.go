@@ -2419,6 +2419,7 @@ func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
 		{name: "mutate", tool: "mutate", want: lipgloss.Color(theme.ToolGrnLine)},
 		{name: "grep", tool: "grep", want: lipgloss.Color(theme.ToolMagLine)},
 		{name: "glob", tool: "glob", want: lipgloss.Color(theme.ToolBlueLine)},
+		{name: "fetch_url", tool: "fetch_url", want: lipgloss.Color(theme.ToolBlueLine)},
 		{name: "todo", tool: "todo", want: lipgloss.Color(theme.WarnLine)},
 		{name: "default", tool: "ls", want: lipgloss.Color(theme.AccentLine)},
 	}
