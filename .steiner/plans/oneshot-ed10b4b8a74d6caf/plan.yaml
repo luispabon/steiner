@@ -1,0 +1,122 @@
+steps:
+  - id: step-1
+    title: Render runtime model and reasoning in delegation headers
+    scope: Add model/reasoning metadata to active and terminal delegate and advisor box headers, and correct terminal-header metadata ordering.
+    decisions: [D1, D2, D3]
+    approach: >-
+      In internal/tui/content_render_delegation.go, derive an optional model/effort
+      segment with formatModelEffort(dd.modelName, dd.reasoning). In the active
+      branch of renderDelegationHeaderMeta, append that segment after status and
+      before countdown or elapsed time. For every terminal branch retaining display
+      state, build status, optional model/effort, optional cache rate, then elapsed
+      time while preserving existing status-specific fields. Append the segment when
+      formatModelEffort returns non-empty. Do not change event handlers:
+      delegationDisplayState already receives actual delegate and advisor
+      model/reasoning values through runtime bindings.
+    files:
+      - internal/tui/content_render_delegation.go
+      - internal/tui/content_render_delegation_test.go
+    constraints:
+      - Preserve existing right-aligned header calculation and existing terminal status-specific fields.
+      - Append model/effort when the existing formatter returns non-empty; do not add placeholders or static config lookup.
+      - Keep advisor behavior through the shared delegation display path.
+    acceptance:
+      - Active delegate or advisor header with bound model and reasoning shows model/effort before time.
+      - Every terminal header retaining runtime state emits status, model/effort when formatted, cache if available, then elapsed time.
+      - Headers without model or cache data remain valid and retain existing status/time behavior.
+      - Focused tests prove ordering and formatter fallback behavior with active, completed, failed or budget-exhausted, and rendered advisor header cases.
+    verification:
+      - go test ./internal/tui -run 'TestDelegation'
+
+  - id: step-2
+    title: Preserve compaction usage in context diagnostics
+    scope: Carry summarizer response usage through compaction outcome, emitted diagnostics, and legacy/current diagnostics conversions.
+    decisions: [D4]
+    depends_on: step-1
+    approach: >-
+      Add cache-read, non-cached input, and cache-create token fields to both
+      ContextDiagnosticsEvent and ContextCompactionEvent in
+      internal/output/context_diagnostics_types.go, retaining omitempty JSON tags,
+      and map the fields in toLegacyContextDiagnostics and
+      contextDiagnosticFromLegacy. Extend internal/agent CompactionOutcome to retain
+      the summarizer response usage, set it after successful summarizeCompactionStage
+      execution, and populate the new event fields in emitCompactionDiagnostics using
+      UsageStats.NonCachedPromptTokens for input tokens. Zero-value or unapplied
+      outcomes emit no cache rate.
+    files:
+      - internal/agent/compaction.go
+      - internal/agent/compaction_escalation.go
+      - internal/agent/events.go
+      - internal/agent/runner_compaction_test.go
+      - internal/output/context_diagnostics_types.go
+      - internal/output/context_diagnostics_types_test.go
+    constraints:
+      - Do not alter compaction control flow, token budgeting, provider contracts, or unrelated diagnostic fields.
+      - Preserve compatibility between legacy and current diagnostic event forms in both directions.
+      - Use the repository's existing cache-hit input convention, not total prompt tokens.
+    acceptance:
+      - Successful compaction diagnostics contain all three usage counts derived from its summarizer response.
+      - Legacy/current conversion round trips retain new counts.
+      - Missing response usage and unapplied compaction leave counts at zero without errors.
+      - Tests cover propagation and conversion behavior.
+    verification:
+      - go test ./internal/output -run 'TestContext'
+      - go test ./internal/agent -run 'Test.*Compaction'
+
+  - id: step-3
+    title: Show cache rate before time in compaction banners
+    scope: Store compaction usage in TUI banner state and render optional per-compaction cache rate ahead of elapsed time.
+    decisions: [D4, D5]
+    depends_on: step-2
+    approach: >-
+      Extend compactionBannerData in internal/tui/content_events.go with the three
+      usage counts, and copy them when handleCompactionDiagnostics updates the
+      finished banner. In renderCompactionHeaderMeta, calculate the rate with
+      usagestats.HitRate and, only when it is valid, add the existing formatted
+      cache segment after the completion glyph or spinner and before elapsed time.
+      Keep the existing compaction count after time and omit cache metadata for
+      in-progress or no-usage banners.
+    files:
+      - internal/tui/content_events.go
+      - internal/tui/content_events_approval_diagnostics.go
+      - internal/tui/content_render_compaction.go
+      - internal/tui/content_render_chrome_test.go
+    constraints:
+      - Do not change compaction banner lifecycle, fitting diagnostics, spinner behavior, or width/alignment mechanics.
+      - Reuse formatCacheHitRate and usagestats.HitRate; do not duplicate their arithmetic.
+    acceptance:
+      - Completed banner with valid usage renders cache rate before elapsed time.
+      - Banner with invalid or absent usage omits cache rate.
+      - Existing completion glyph/spinner and compaction count remain present in their current positions.
+      - Tests assert ordered metadata, not only independent substring presence, for a nonzero rate, a valid 0% rate, and absent or invalid usage.
+    verification:
+      - go test ./internal/tui -run 'TestCompaction'
+
+  - id: step-4
+    title: Document expanded cache-rate surfacing and validate change
+    scope: Update cache-stat documentation and run formatting, focused package tests, then repository checks.
+    decisions: [D6]
+    depends_on: step-3
+    approach: >-
+      Update docs/cache-stats.md to describe delegate/advisor header model-effort
+      ordering and per-compaction summarizer cache rate, including when it is absent.
+      Update the README cache hit rate tracking summary if its current surfacing
+      sentence requires expansion for the new compaction banner. Format changed Go
+      files, run affected package suites, build, then make check; address only
+      task-related failures.
+    files:
+      - docs/cache-stats.md
+      - README.md
+    constraints:
+      - Do not change unrelated documentation or claim aggregate compaction cache rates.
+      - README edit is conditional on its existing high-level cache-stat summary needing this new surface documented.
+    acceptance:
+      - Documentation matches rendered header order and explains compaction rate provenance and absence conditions.
+      - All changed Go files are formatted and imports are clean.
+      - Focused affected-package tests, build, and make check pass.
+    verification:
+      - gofmt -w <changed-go-files>
+      - goimports -w <changed-go-files>
+      - go test ./internal/tui ./internal/agent ./internal/output
+      - go build ./...
+      - make check
