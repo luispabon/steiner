@@ -265,6 +265,7 @@ type contentBuffer struct {
 	renderWidth       int
 	styles            *theme.Styles
 	modelBadge        func(backend string) (alias, effort string)
+	modelAliasBadge   func(alias string) (name, effort string)
 	glamourStyleSheet glamour.TermRendererOption
 	previewStyleCache map[chroma.TokenType]lipgloss.Style
 	collapseState     map[int]bool    // segment index → collapsed (for tool calls and thinking)
@@ -313,6 +314,15 @@ func (b *contentBuffer) resolveDelegationModel(model string) (name, effort strin
 		return b.modelBadge(model)
 	}
 	return model, ""
+}
+
+// resolveAliasBadge resolves a badge from a delegation's already-known model
+// alias, bypassing the ambiguous backend ID to alias reverse map.
+func (b *contentBuffer) resolveAliasBadge(alias string) (string, string) {
+	if b.modelAliasBadge != nil {
+		return b.modelAliasBadge(alias)
+	}
+	return alias, ""
 }
 
 type contentEventHandler func(*contentBuffer, output.Event)

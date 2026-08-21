@@ -308,6 +308,9 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.content.modelBadge = func(backend string) (string, string) {
 		return resolveModelBadge(backend, m.modelBackendAlias, m.reasoningLabels)
 	}
+	m.content.modelAliasBadge = func(alias string) (string, string) {
+		return alias, m.reasoningLabels[alias]
+	}
 	m.content.styles = m.styles
 	m.content.skillNames = m.skillNames
 	m.content.mcpToolOrigins = m.mcpToolOrigins

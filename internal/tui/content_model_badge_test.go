@@ -43,22 +43,25 @@ func TestDelegationModelBadgeResolution(t *testing.T) {
 			}
 			return strings.TrimSpace(backend), ""
 		},
+		modelAliasBadge: func(alias string) (string, string) {
+			return alias, "high"
+		},
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call-1", map[string]any{"task": "inspect"}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "inspect", "call-1"))
+	buffer.AppendEvent(output.NewDelegationStartedEventWithModel("agent-1", "inspect", "call-1", "deepseek-v4-flash"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewModelCallStartedEvent(1, " backend-model ", 1), "agent-1"))
 
 	loc, ok := buffer.activeDelegations["agent-1"]
 	if !ok || loc.dd == nil {
 		t.Fatal("delegation state not found")
 	}
-	if loc.dd.modelName != "configured" || loc.dd.reasoning != "high" {
-		t.Fatalf("delegation model = (%q, %q), want (%q, %q)", loc.dd.modelName, loc.dd.reasoning, "configured", "high")
+	if loc.dd.modelName != "deepseek-v4-flash" || loc.dd.reasoning != "high" {
+		t.Fatalf("delegation model = (%q, %q), want (%q, %q)", loc.dd.modelName, loc.dd.reasoning, "deepseek-v4-flash", "high")
 	}
 	parts := delegationStatsParts(buffer, loc.dd)
-	if len(parts) == 0 || !strings.Contains(stripANSI(parts[0]), "model configured/high") {
-		t.Fatalf("delegation stats badge = %q, want configured/high", strings.Join(parts, " "))
+	if len(parts) == 0 || !strings.Contains(stripANSI(parts[0]), "model deepseek-v4-flash/high") {
+		t.Fatalf("delegation stats badge = %q, want deepseek-v4-flash/high", strings.Join(parts, " "))
 	}
 }
 

@@ -127,7 +127,7 @@ func (b *contentBuffer) applyDelegationModelCallStarted(dd *delegationDisplaySta
 	if !ok {
 		return false
 	}
-	if strings.TrimSpace(payload.Model) != "" {
+	if strings.TrimSpace(payload.Model) != "" && dd.modelName == "" {
 		dd.modelName, dd.reasoning = b.resolveDelegationModel(payload.Model)
 	}
 	return true
@@ -138,7 +138,7 @@ func (b *contentBuffer) applyDelegationAPIRequest(dd *delegationDisplayState, ev
 	if !ok {
 		return false
 	}
-	if strings.TrimSpace(payload.Model) != "" {
+	if strings.TrimSpace(payload.Model) != "" && dd.modelName == "" {
 		dd.modelName, dd.reasoning = b.resolveDelegationModel(payload.Model)
 	}
 	return true
@@ -561,6 +561,7 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		return
 	}
 	preview := payload.TaskPreview
+	modelAlias := strings.TrimSpace(payload.ModelAlias)
 	if runes := []rune(preview); len(runes) > 80 {
 		preview = string(runes[:77]) + "..."
 	}
@@ -569,6 +570,9 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		dd.agentID = payload.AgentID
 		if preview != "" {
 			dd.taskPreview = preview
+		}
+		if modelAlias != "" {
+			dd.modelName, dd.reasoning = b.resolveAliasBadge(modelAlias)
 		}
 		dd.cacheWaiting = false
 		dd.startTime = nanoNow()
@@ -599,6 +603,9 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		status:          "active",
 		collapsed:       true,
 		extMax:          defaultDelegationExtensionMax,
+	}
+	if modelAlias != "" {
+		dd.modelName, dd.reasoning = b.resolveAliasBadge(modelAlias)
 	}
 	idx := b.appendDelegationSegment(dd)
 	loc := delegationLocator{seg: idx, dd: dd}
