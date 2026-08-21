@@ -27,7 +27,7 @@ type cliRunner struct {
 	currentModel             func() config.ModelConfig
 	currentAlias             func() string
 	currentReasoningOverride func() provider.ReasoningOverride
-	promptCacheKey           string
+	promptCacheKeyFn         func() string
 	modeGetterFunc           func() config.ExecutionMode
 	phasePrompt              string
 	projectAgentsPath        string
@@ -35,6 +35,15 @@ type cliRunner struct {
 }
 
 type runResult = oneshot.RunResult
+
+// promptCacheKey returns the current prompt cache key, or empty when no
+// source function was wired.
+func (r cliRunner) promptCacheKey() string {
+	if r.promptCacheKeyFn == nil {
+		return ""
+	}
+	return r.promptCacheKeyFn()
+}
 
 func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)

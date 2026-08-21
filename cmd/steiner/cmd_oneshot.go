@@ -75,7 +75,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 		runMode:            params.RunMode,
 		streamingPreferred: params.StreamingPreferred,
 		projectAgentsPath:  params.ProjectAgentsPath,
-		promptCacheKey:     params.PromptCacheKey,
+		promptCacheKeyFn:   func() string { return params.PromptCacheKey },
 		phasePrompt:        params.PhasePrompt,
 		workflowMode:       params.WorkflowMode,
 	}

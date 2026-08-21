@@ -60,6 +60,11 @@ type HandlerDeps struct {
 	// same policy the read tool enforces. Required only when a caller passes
 	// files.
 	PathPolicy *tool.PathPolicy
+	// CacheKey is the prompt cache key used for every advisor call made
+	// through this handler. When empty, NewHandler mints a fresh one so the
+	// package keeps working standalone (e.g. in tests that construct
+	// HandlerDeps directly).
+	CacheKey string
 }
 
 // Config configures the per-run advisor handler.
@@ -70,7 +75,10 @@ type Config struct {
 
 // NewHandler returns a fresh per-run advisor handler.
 func NewHandler(deps HandlerDeps) func(context.Context, map[string]any) (any, error) {
-	cacheKey, _ := provider.NewPromptCacheKey()
+	cacheKey := deps.CacheKey
+	if cacheKey == "" {
+		cacheKey, _ = provider.NewPromptCacheKey()
+	}
 	state := &handlerState{cacheKey: cacheKey}
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		return state.handle(ctx, deps, input)

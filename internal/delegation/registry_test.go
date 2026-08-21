@@ -1,13 +1,138 @@
 package delegation
 
 import (
+	"context"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/advisor"
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+func advisorTestConfig() config.Config {
+	return config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"testprov": {
+				Type:    config.ProviderTypeOpenAICompat,
+				BaseURL: "http://example.invalid",
+				Timeout: config.MustDuration("180s"),
+			},
+		},
+		Models: config.ModelsConfig{
+			Advisor: "advisor",
+			Definitions: map[string]config.ModelConfig{
+				"advisor": {
+					Provider: "testprov",
+					ID:       "advisor-model",
+					Advanced: config.AdvancedConfig{
+						Limits: config.AdvancedLimitsConfig{
+							ContextWindow:   8192,
+							MaxOutputTokens: 1024,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func callAdvisorHandler(t *testing.T, reg *tool.Registry) {
+	t.Helper()
+	def, ok := reg.Get(advisor.ToolName)
+	if !ok {
+		t.Fatal("advisor tool not registered")
+	}
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "hi"},
+	})
+	if _, err := def.Handler(ctx, map[string]any{"question": "test"}); err != nil {
+		t.Fatalf("advisor handler() error = %v", err)
+	}
+}
+
+func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
+	store := NewCacheKeyStore()
+	prov := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
+	}}
+	providerFactory := func(provider.ResolvedModel) (provider.Provider, error) { return prov, nil }
+
+	deps := DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 5},
+		Provider:     prov,
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens:       256,
+		Config:          advisorTestConfig(),
+		ProviderFactory: providerFactory,
+		CacheKeyStore:   store,
+	}
+
+	reg1, err := BuildDelegateRegistry(deps)
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() call 1 error = %v", err)
+	}
+	reg2, err := BuildDelegateRegistry(deps)
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() call 2 error = %v", err)
+	}
+
+	callAdvisorHandler(t, reg1)
+	callAdvisorHandler(t, reg2)
+
+	if len(prov.requests) != 2 {
+		t.Fatalf("captured %d requests, want 2", len(prov.requests))
+	}
+	if prov.requests[0].PromptCacheKey == "" {
+		t.Fatal("first request PromptCacheKey is empty, want a minted key")
+	}
+	if prov.requests[0].PromptCacheKey != prov.requests[1].PromptCacheKey {
+		t.Errorf("advisor PromptCacheKey differs across BuildDelegateRegistry calls sharing a CacheKeyStore: %q vs %q",
+			prov.requests[0].PromptCacheKey, prov.requests[1].PromptCacheKey)
+	}
+}
+
+func TestBuildDelegateRegistryAdvisorCacheKeyFallsBackWhenStoreNil(t *testing.T) {
+	prov := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
+	}}
+
+	reg, err := BuildDelegateRegistry(DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 5},
+		Provider:     prov,
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens: 256,
+		Config:    advisorTestConfig(),
+	})
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+
+	callAdvisorHandler(t, reg)
+
+	if len(prov.requests) != 1 {
+		t.Fatalf("captured %d requests, want 1", len(prov.requests))
+	}
+	if prov.requests[0].PromptCacheKey == "" {
+		t.Fatal("PromptCacheKey is empty, want a freshly minted key when CacheKeyStore is nil")
+	}
+}
 
 func TestBuildDelegateRegistryAppliesAdvisorTimeout(t *testing.T) {
 	// Build a minimal config that allows ResolveWithDiscovery to succeed

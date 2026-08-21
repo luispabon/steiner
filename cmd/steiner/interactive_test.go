@@ -254,8 +254,8 @@ func TestInteractiveRunnerSendsStableSessionPromptCacheKeyAcrossTurns(t *testing
 			homeDir:  t.TempDir(),
 			events:   output.NoopSink{},
 		},
-		runMode:        "interactive",
-		promptCacheKey: sess.SessionID(),
+		runMode:          "interactive",
+		promptCacheKeyFn: sess.PromptCacheKey,
 	}
 
 	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first prompt"}}, nil, nil); err != nil {

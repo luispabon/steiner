@@ -269,3 +269,72 @@ func TestNewSessionWithGroup(t *testing.T) {
 		t.Fatalf("session group = %q, want %q", got, want)
 	}
 }
+
+func TestNewSessionDoesNotMintPromptCacheKey(t *testing.T) {
+	t.Parallel()
+
+	sess, err := NewSession("gpt-4", agent.ConversationLineage{})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	if sess.PromptCacheKey != "" {
+		t.Fatalf("PromptCacheKey = %q, want empty (NewSession must not mint a key)", sess.PromptCacheKey)
+	}
+}
+
+func TestCacheKeyFallsBackToID(t *testing.T) {
+	t.Parallel()
+
+	sess := Session{ID: "session-id-only"}
+	if got, want := sess.CacheKey(), "session-id-only"; got != want {
+		t.Fatalf("CacheKey() = %q, want %q", got, want)
+	}
+}
+
+func TestCacheKeyPrefersStoredValue(t *testing.T) {
+	t.Parallel()
+
+	sess := Session{ID: "session-id", PromptCacheKey: "stored-key"}
+	if got, want := sess.CacheKey(), "stored-key"; got != want {
+		t.Fatalf("CacheKey() = %q, want %q", got, want)
+	}
+}
+
+func TestForkPropagatesStoredPromptCacheKey(t *testing.T) {
+	t.Parallel()
+
+	original := Session{ID: "parent-id", PromptCacheKey: "parent-cache-key"}
+	forked, err := Fork(original)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	if got, want := forked.PromptCacheKey, "parent-cache-key"; got != want {
+		t.Fatalf("forked PromptCacheKey = %q, want %q (inherited from parent)", got, want)
+	}
+	if forked.ID == original.ID {
+		t.Fatalf("forked ID should differ from original")
+	}
+}
+
+func TestForkOfKeylessRecordMaterializesKeyOnFirstFork(t *testing.T) {
+	t.Parallel()
+
+	// A pre-change record has no stored PromptCacheKey.
+	original := Session{ID: "legacy-id"}
+
+	firstFork, err := Fork(original)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	if got, want := firstFork.PromptCacheKey, "legacy-id"; got != want {
+		t.Fatalf("first fork PromptCacheKey = %q, want %q (healed to parent ID)", got, want)
+	}
+
+	secondFork, err := Fork(firstFork)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	if got, want := secondFork.PromptCacheKey, "legacy-id"; got != want {
+		t.Fatalf("fork-of-fork PromptCacheKey = %q, want %q (propagated, not empty)", got, want)
+	}
+}

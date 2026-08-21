@@ -19,6 +19,20 @@ type Session struct {
 	Group     string                    `json:"group,omitempty"`
 	Mode      string                    `json:"mode,omitempty"`
 	Lineage   agent.ConversationLineage `json:"lineage"`
+	// PromptCacheKey identifies the prefix family this session's payload belongs
+	// to, for provider-side cache routing. NOT an identifier: a fork deliberately
+	// shares its parent's value, so two session files can carry the same key.
+	// Empty on records written before this field existed; always read via CacheKey.
+	PromptCacheKey string `json:"prompt_cache_key,omitempty"`
+}
+
+// CacheKey returns the session's prompt cache key, falling back to the session ID
+// for records written before the field existed.
+func (s Session) CacheKey() string {
+	if s.PromptCacheKey != "" {
+		return s.PromptCacheKey
+	}
+	return s.ID
 }
 
 // IndexEntry is a lightweight version of Session without Lineage for index listings.
@@ -103,5 +117,9 @@ func Fork(s Session) (Session, error) {
 		Model:     s.Model,
 		Group:     strings.TrimSpace(s.Group),
 		Lineage:   s.Lineage.Clone(),
+		// The fork deliberately shares the parent's prompt cache key so the
+		// warm prefix carries over; CacheKey() heals pre-change records that
+		// have no stored key instead of propagating an empty one.
+		PromptCacheKey: s.CacheKey(),
 	}, nil
 }

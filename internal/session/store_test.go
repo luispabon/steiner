@@ -94,6 +94,75 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadPreservesPromptCacheKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	original := Session{
+		ID:             "test-session-cache-key",
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+		Title:          "Test Session",
+		Model:          "test-model",
+		PromptCacheKey: "explicit-cache-key",
+	}
+
+	if err := store.Save(original); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := store.Load(original.ID)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if got, want := loaded.PromptCacheKey, "explicit-cache-key"; got != want {
+		t.Errorf("PromptCacheKey mismatch: got %q, want %q", got, want)
+	}
+	if got, want := loaded.CacheKey(), "explicit-cache-key"; got != want {
+		t.Errorf("CacheKey() mismatch: got %q, want %q", got, want)
+	}
+}
+
+func TestLoadFallsBackToIDForRecordWrittenWithoutPromptCacheKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	// Simulate a session file written before the prompt_cache_key field
+	// existed: no such key present in the JSON at all.
+	legacy := map[string]any{
+		"id":         "legacy-session",
+		"created_at": time.Now().UTC(),
+		"updated_at": time.Now().UTC(),
+		"title":      "Legacy Session",
+		"model":      "test-model",
+		"lineage":    agent.ConversationLineage{},
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal legacy session: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "legacy-session.json"), data, 0o644); err != nil {
+		t.Fatalf("write legacy session file: %v", err)
+	}
+
+	loaded, err := store.Load("legacy-session")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.PromptCacheKey != "" {
+		t.Errorf("PromptCacheKey = %q, want empty for a record with no stored key", loaded.PromptCacheKey)
+	}
+	if got, want := loaded.CacheKey(), "legacy-session"; got != want {
+		t.Errorf("CacheKey() = %q, want fallback to session ID %q", got, want)
+	}
+}
+
 func TestSaveAndLoadPreservesToolCallTranscript(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := NewStore(tmpDir)
