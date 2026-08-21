@@ -27,6 +27,12 @@ func (w *openaiWire) Payload(request ChatRequest, stream bool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// prompt_cache_key is only emitted for native OpenAI: ollama and lmstudio
+	// may reject unknown top-level fields, and openai_compat/openrouter/litellm
+	// backends have no verified support for it.
+	if w.providerType == "openai" {
+		wire.PromptCacheKey = request.PromptCacheKey
+	}
 	if shouldDisableRemoteStorage(w.baseURL) {
 		wire.Store = boolValuePtr(false)
 	}

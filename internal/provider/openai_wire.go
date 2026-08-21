@@ -9,16 +9,18 @@ import (
 // Wire types for OpenAI-compatible API requests and responses
 
 type openAIRequest struct {
-	Model         string               `json:"model"`
-	Messages      []openAIMessage      `json:"messages"`
-	MaxTokens     *int                 `json:"max_tokens,omitempty"`
-	Store         *bool                `json:"store,omitempty"`
-	Stream        bool                 `json:"stream,omitempty"`
-	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
-	Tools         []openAITool         `json:"tools,omitempty"`
-	Reasoning     *ReasoningRequest    `json:"-"`
-	Params        map[string]any       `json:"-"` // Normalized generation params
-	ExtraParams   map[string]any       `json:"-"` // Raw provider-specific passthrough
+	Model                string               `json:"model"`
+	Messages             []openAIMessage      `json:"messages"`
+	MaxTokens            *int                 `json:"max_tokens,omitempty"`
+	Store                *bool                `json:"store,omitempty"`
+	Stream               bool                 `json:"stream,omitempty"`
+	StreamOptions        *openAIStreamOptions `json:"stream_options,omitempty"`
+	Tools                []openAITool         `json:"tools,omitempty"`
+	Reasoning            *ReasoningRequest    `json:"-"`
+	PromptCacheKey       string               `json:"-"`
+	PromptCacheRetention string               `json:"-"`
+	Params               map[string]any       `json:"-"` // Normalized generation params
+	ExtraParams          map[string]any       `json:"-"` // Raw provider-specific passthrough
 }
 
 func (r openAIRequest) MarshalJSON() ([]byte, error) {
@@ -43,6 +45,17 @@ func (r openAIRequest) MarshalJSON() ([]byte, error) {
 	}
 	if r.Reasoning != nil {
 		base["reasoning_effort"] = r.Reasoning.Effort
+	}
+	if r.PromptCacheKey != "" {
+		base["prompt_cache_key"] = r.PromptCacheKey
+	}
+	// prompt_cache_retention is wired through but never set by any caller yet
+	// (see openaiWire.Payload). On GPT-5.6 and later, OpenAI replaces this
+	// parameter with prompt_cache_options.ttl and switches to exact-match
+	// breakpoint caching with a 1.25x cache-write surcharge; this field will
+	// need a model-generation branch when that lands.
+	if r.PromptCacheRetention != "" {
+		base["prompt_cache_retention"] = r.PromptCacheRetention
 	}
 	m := mergeRequestParams(base, r.Params, r.ExtraParams)
 	return json.Marshal(m)

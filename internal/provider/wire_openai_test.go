@@ -111,6 +111,48 @@ func TestOpenAIWirePayload_Store(t *testing.T) {
 	}
 }
 
+func TestOpenAIWirePayload_PromptCacheKey(t *testing.T) {
+	tests := []struct {
+		name         string
+		providerType string
+		cacheKey     string
+		wantPresent  bool
+	}{
+		{name: "openai emits key when set", providerType: "openai", cacheKey: "session-123", wantPresent: true},
+		{name: "openai omits key when unset", providerType: "openai", cacheKey: "", wantPresent: false},
+		{name: "ollama omits key even when set", providerType: "ollama", cacheKey: "session-123", wantPresent: false},
+		{name: "lmstudio omits key even when set", providerType: "lmstudio", cacheKey: "session-123", wantPresent: false},
+		{name: "openai_compat omits key even when set", providerType: "openai_compat", cacheKey: "session-123", wantPresent: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := testOpenAIWire(t, "http://localhost:11434/v1", "gpt-4")
+			w.providerType = tt.providerType
+
+			data, err := w.Payload(ChatRequest{
+				Messages:       []Message{{Role: MessageRoleUser, Content: "hello"}},
+				PromptCacheKey: tt.cacheKey,
+			}, false)
+			if err != nil {
+				t.Fatalf("Payload() error = %v", err)
+			}
+
+			var payload map[string]any
+			if err := json.Unmarshal(data, &payload); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+			key, ok := payload["prompt_cache_key"]
+			if ok != tt.wantPresent {
+				t.Fatalf("prompt_cache_key present = %v, want %v", ok, tt.wantPresent)
+			}
+			if tt.wantPresent && key != tt.cacheKey {
+				t.Fatalf("prompt_cache_key = %v, want %v", key, tt.cacheKey)
+			}
+		})
+	}
+}
+
 func TestOpenAIWireHTTPRequest(t *testing.T) {
 	w := testOpenAIWire(t, "http://localhost:11434/v1", "gpt-4")
 	w.apiKey = "secret"

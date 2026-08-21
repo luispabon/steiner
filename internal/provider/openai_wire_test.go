@@ -212,6 +212,50 @@ func TestOpenAIMessageMarshalJSON_EmptyStringReasoningContentPresent(t *testing.
 	}
 }
 
+func TestOpenAIRequestMarshalJSON_PromptCacheKeyAndRetention(t *testing.T) {
+	req := openAIRequest{
+		Model:                "gpt-4",
+		Messages:             []openAIMessage{{Role: "user", Content: "hello"}},
+		PromptCacheKey:       "session-123",
+		PromptCacheRetention: "24h",
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal error = %v", err)
+	}
+	if got, want := m["prompt_cache_key"], "session-123"; got != want {
+		t.Fatalf("prompt_cache_key = %v, want %v", got, want)
+	}
+	if got, want := m["prompt_cache_retention"], "24h"; got != want {
+		t.Fatalf("prompt_cache_retention = %v, want %v", got, want)
+	}
+}
+
+func TestOpenAIRequestMarshalJSON_OmitsPromptCacheFieldsWhenUnset(t *testing.T) {
+	req := openAIRequest{
+		Model:    "gpt-4",
+		Messages: []openAIMessage{{Role: "user", Content: "hello"}},
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal error = %v", err)
+	}
+	if _, ok := m["prompt_cache_key"]; ok {
+		t.Fatal("prompt_cache_key present, want absent when unset")
+	}
+	if _, ok := m["prompt_cache_retention"]; ok {
+		t.Fatal("prompt_cache_retention present, want absent when unset")
+	}
+}
+
 func TestOpenAIRequestMarshalJSONFlattensExtraParams(t *testing.T) {
 	req := openAIRequest{
 		Model:    "gpt-4",
