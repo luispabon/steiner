@@ -25,7 +25,11 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 func (s *Session) handleImmediateAction(ctx context.Context, action Action) bool {
 	switch a := action.(type) {
 	case SubmitPrompt:
-		go s.submitPrompt(ctx, a.Text, a.Images)
+		s.runs.Add(1)
+		go func() {
+			defer s.runs.Done()
+			s.submitPrompt(ctx, a.Text, a.Images)
+		}()
 		return true
 	case SteerPrompt:
 		s.runController.Steer(a.Text, a.Images)
@@ -40,7 +44,11 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) bool
 		s.emitConfigReport()
 		return true
 	case TriggerManualCompaction:
-		go s.manualCompaction(ctx)
+		s.runs.Add(1)
+		go func() {
+			defer s.runs.Done()
+			s.manualCompaction(ctx)
+		}()
 		return true
 	case RequestExit:
 		s.exitOnce.Do(func() { close(s.done) })

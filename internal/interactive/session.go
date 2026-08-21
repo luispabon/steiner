@@ -35,6 +35,7 @@ type Session struct {
 	mode                config.ExecutionMode
 	modeListener        func(config.ExecutionMode)
 	done                chan struct{}
+	runs                sync.WaitGroup
 	exitOnce            sync.Once
 }
 
@@ -276,6 +277,11 @@ func (s *Session) SetModeListener(listener func(config.ExecutionMode)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.modeListener = listener
+}
+
+// WaitRuns blocks until all run goroutines launched by this session have exited.
+func (s *Session) WaitRuns() {
+	s.runs.Wait()
 }
 
 // modeNotice returns the mode notice string for injection into user messages.
