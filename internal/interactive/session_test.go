@@ -430,6 +430,71 @@ func TestSessionHandleNoop(t *testing.T) {
 	}
 }
 
+func TestSessionWaitRunsWaitsForSubmittedPrompt(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	s := testNewSession(t, Dependencies{
+		Runner: newRunExecutorFunc(func(ctx context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			close(started)
+			select {
+			case <-release:
+				return RunResult{}, nil
+			case <-ctx.Done():
+				return RunResult{}, ctx.Err()
+			}
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			recordFn: func(string) error {
+				close(finished)
+				return nil
+			},
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := s.Handle(ctx, SubmitPrompt{Text: "wait for me"}); err != nil {
+		t.Fatalf("Handle(SubmitPrompt) = %v, want nil", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("submitted prompt did not start")
+	}
+
+	waitStarted := make(chan struct{})
+	waitDone := make(chan struct{})
+	go func() {
+		close(waitStarted)
+		s.WaitRuns()
+		close(waitDone)
+	}()
+	<-waitStarted
+	select {
+	case <-waitDone:
+		t.Fatal("WaitRuns returned before the run finished")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("submitted prompt did not finish")
+	}
+	select {
+	case <-waitDone:
+	case <-time.After(time.Second):
+		t.Fatal("WaitRuns did not return after the run finished")
+	}
+	select {
+	case <-finished:
+	default:
+		t.Fatal("WaitRuns returned before the run completion side effect")
+	}
+}
+
 func TestRotateSession(t *testing.T) {
 	t.Parallel()
 
