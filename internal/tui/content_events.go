@@ -125,7 +125,9 @@ type compactionBannerData struct {
 	afterTokens       int     // prompt tokens after compaction
 	afterPct          float64 // context usage % after compaction
 	summaryTitle      string  // human-readable summary title
-
+	cacheReadTokens   int
+	inputTokens       int
+	cacheCreateTokens int
 }
 
 type separatorData struct {

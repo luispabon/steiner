@@ -205,6 +205,9 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 		afterPct:          payload.AfterUsagePercent,
 		summaryTitle:      payload.SummaryTitle,
 		elapsed:           finishElapsed(b, nanoNow()),
+		cacheReadTokens:   payload.CacheReadTokens,
+		inputTokens:       payload.InputTokens,
+		cacheCreateTokens: payload.CacheCreateTokens,
 	})
 }
 

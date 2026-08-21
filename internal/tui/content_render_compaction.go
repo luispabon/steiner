@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 func (b *contentBuffer) renderCompactionBannerSegment(segment contentSegment, width int) string {
@@ -69,6 +70,11 @@ func (b *contentBuffer) renderCompactionHeaderMeta(cd *compactionBannerData) str
 	} else {
 		frame := spinnerFrames[cd.spinnerFrame%len(spinnerFrames)]
 		parts = append(parts, b.styles.FgMute.Render(frame))
+	}
+	if cd.finished {
+		if rate, ok := usagestats.HitRate(cd.cacheReadTokens, cd.inputTokens, cd.cacheCreateTokens); ok {
+			parts = append(parts, b.styles.FgDim.Render("cache "+formatCacheHitRate(rate, ok)))
+		}
 	}
 
 	if cd.elapsed != "" {
