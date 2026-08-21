@@ -464,15 +464,14 @@ func TestSessionWaitRunsWaitsForSubmittedPrompt(t *testing.T) {
 	}
 
 	waitStarted := make(chan struct{})
-	waitDone := make(chan struct{})
+	waitResult := make(chan bool, 1)
 	go func() {
 		close(waitStarted)
-		s.WaitRuns()
-		close(waitDone)
+		waitResult <- s.WaitRuns(context.Background())
 	}()
 	<-waitStarted
 	select {
-	case <-waitDone:
+	case <-waitResult:
 		t.Fatal("WaitRuns returned before the run finished")
 	case <-time.After(100 * time.Millisecond):
 	}
@@ -484,7 +483,10 @@ func TestSessionWaitRunsWaitsForSubmittedPrompt(t *testing.T) {
 		t.Fatal("submitted prompt did not finish")
 	}
 	select {
-	case <-waitDone:
+	case got := <-waitResult:
+		if !got {
+			t.Fatal("WaitRuns returned false after the run finished")
+		}
 	case <-time.After(time.Second):
 		t.Fatal("WaitRuns did not return after the run finished")
 	}
@@ -492,6 +494,47 @@ func TestSessionWaitRunsWaitsForSubmittedPrompt(t *testing.T) {
 	case <-finished:
 	default:
 		t.Fatal("WaitRuns returned before the run completion side effect")
+	}
+}
+
+func TestSessionWaitRunsReturnsFalseWhenContextDone(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s := testNewSession(t, Dependencies{
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			close(started)
+			<-release
+			return RunResult{}, nil
+		}),
+	})
+
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "wait for cancellation"}); err != nil {
+		t.Fatalf("Handle(SubmitPrompt) = %v, want nil", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("submitted prompt did not start")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	waitResult := make(chan bool, 1)
+	go func() {
+		waitResult <- s.WaitRuns(ctx)
+	}()
+	select {
+	case got := <-waitResult:
+		if got {
+			t.Fatal("WaitRuns returned true for an already-cancelled context")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitRuns did not return promptly for an already-cancelled context")
+	}
+
+	close(release)
+	if !s.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns returned false after the blocked run was released")
 	}
 }
 

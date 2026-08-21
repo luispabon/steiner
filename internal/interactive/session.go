@@ -1,6 +1,7 @@
 package interactive
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -279,9 +280,20 @@ func (s *Session) SetModeListener(listener func(config.ExecutionMode)) {
 	s.modeListener = listener
 }
 
-// WaitRuns blocks until all run goroutines launched by this session have exited.
-func (s *Session) WaitRuns() {
-	s.runs.Wait()
+// WaitRuns blocks until all run goroutines launched by this session have exited,
+// or the context is done. It reports whether the runs finished before ctx was done.
+func (s *Session) WaitRuns(ctx context.Context) bool {
+	done := make(chan struct{})
+	go func() {
+		s.runs.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // modeNotice returns the mode notice string for injection into user messages.
