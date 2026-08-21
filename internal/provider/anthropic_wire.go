@@ -190,18 +190,21 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 	return wire
 }
 
+func markStaticPrefixBreakpoint(wire *anthropicRequest, cc *anthropicCacheControl) int {
+	if len(wire.System) > 0 {
+		wire.System[len(wire.System)-1].CacheControl = cc
+		return 1
+	}
+	if len(wire.Tools) > 0 {
+		wire.Tools[len(wire.Tools)-1].CacheControl = cc
+		return 1
+	}
+	return 0
+}
+
 func assignCacheBreakpoints(wire *anthropicRequest) {
 	cacheControl := &anthropicCacheControl{Type: "ephemeral"}
-	numBreakpoints := 0
-
-	// STATIC PREFIX: Mark last system block (caches tools+system), or last tool if no system.
-	if len(wire.System) > 0 {
-		wire.System[len(wire.System)-1].CacheControl = cacheControl
-		numBreakpoints++
-	} else if len(wire.Tools) > 0 {
-		wire.Tools[len(wire.Tools)-1].CacheControl = cacheControl
-		numBreakpoints++
-	}
+	numBreakpoints := markStaticPrefixBreakpoint(wire, cacheControl)
 
 	// ROLLING CONVERSATION: Find last two user-turn boundaries and mark final message's last block.
 	if len(wire.Messages) == 0 {
@@ -233,15 +236,7 @@ func assignCacheBreakpoints(wire *anthropicRequest) {
 // breakpoints carry the extended anthropicAdvisorCacheTTL.
 func assignAdvisorCacheBreakpoints(wire *anthropicRequest) {
 	cacheControl := &anthropicCacheControl{Type: "ephemeral", TTL: anthropicAdvisorCacheTTL}
-	numBreakpoints := 0
-
-	if len(wire.System) > 0 {
-		wire.System[len(wire.System)-1].CacheControl = cacheControl
-		numBreakpoints++
-	} else if len(wire.Tools) > 0 {
-		wire.Tools[len(wire.Tools)-1].CacheControl = cacheControl
-		numBreakpoints++
-	}
+	numBreakpoints := markStaticPrefixBreakpoint(wire, cacheControl)
 
 	// Exclude the final message (the unique per-call suffix) from the
 	// reusable tail eligible for breakpoints.

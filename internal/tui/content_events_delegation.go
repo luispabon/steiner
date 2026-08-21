@@ -613,6 +613,14 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	b.pendingDelegationStarts = append(b.pendingDelegationStarts, loc)
 }
 
+func (dd *delegationDisplayState) applyUsage(cacheRead, input, cacheCreate, tokenCount int) {
+	dd.cacheReadTokens = cacheRead
+	dd.inputTokens = input
+	dd.cacheCreateTokens = cacheCreate
+	dd.tokenCount = tokenCount
+	dd.cacheHitRate, dd.cacheHitOK = usagestats.HitRate(cacheRead, input, cacheCreate)
+}
+
 func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 	payload, ok := event.Payload.(output.DelegationCompleteEvent)
 	if !ok {
@@ -627,21 +635,14 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 			if dd.isFollowUp {
 				dd.turnCount = max(0, payload.TurnCount-dd.baselineTurnCount)
 				dd.toolCallCount = max(0, payload.ToolCallCount-dd.baselineToolCallCount)
-				dd.tokenCount = payload.TokenCount
 				// All token counters are whole-life totals for follow-ups, so
 				// they are rendered verbatim with no baseline subtraction.
-				dd.inputTokens = payload.InputTokens
-				dd.cacheReadTokens = payload.CacheReadTokens
-				dd.cacheCreateTokens = payload.CacheCreateTokens
+				dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
 			} else {
 				dd.turnCount = payload.TurnCount
-				dd.tokenCount = payload.TokenCount
 				dd.toolCallCount = payload.ToolCallCount
-				dd.cacheReadTokens = payload.CacheReadTokens
-				dd.inputTokens = payload.InputTokens
-				dd.cacheCreateTokens = payload.CacheCreateTokens
+				dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
 			}
-			dd.cacheHitRate, dd.cacheHitOK = usagestats.HitRate(dd.cacheReadTokens, dd.inputTokens, dd.cacheCreateTokens)
 			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 			dd.output = payload.Output
 		}
@@ -649,22 +650,16 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 		delete(b.activeDelegations, payload.AgentID)
 		return
 	}
-	cacheHitRate, cacheHitOK := usagestats.HitRate(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens)
 	dd := &delegationDisplayState{
-		agentID:           payload.AgentID,
-		status:            "complete",
-		resultStatus:      payload.Status,
-		turnCount:         payload.TurnCount,
-		tokenCount:        payload.TokenCount,
-		toolCallCount:     payload.ToolCallCount,
-		cacheReadTokens:   payload.CacheReadTokens,
-		inputTokens:       payload.InputTokens,
-		cacheCreateTokens: payload.CacheCreateTokens,
-		cacheHitRate:      cacheHitRate,
-		cacheHitOK:        cacheHitOK,
-		output:            payload.Output,
-		collapsed:         true,
+		agentID:       payload.AgentID,
+		status:        "complete",
+		resultStatus:  payload.Status,
+		turnCount:     payload.TurnCount,
+		toolCallCount: payload.ToolCallCount,
+		output:        payload.Output,
+		collapsed:     true,
 	}
+	dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
 	b.appendDelegationSegment(dd)
 }
 
@@ -740,11 +735,7 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 	dd.output = payload.Note
 	dd.status = "complete"
 	dd.resultStatus = "complete"
-	dd.cacheReadTokens = payload.CacheReadTokens
-	dd.inputTokens = payload.InputTokens
-	dd.cacheCreateTokens = payload.CacheCreateTokens
-	dd.tokenCount = payload.TokenCount
-	dd.cacheHitRate, dd.cacheHitOK = usagestats.HitRate(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens)
+	dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
 	if strings.TrimSpace(payload.Error) != "" {
 		dd.output = payload.Error
 		dd.status = "failed"

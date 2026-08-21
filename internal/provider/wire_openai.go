@@ -94,19 +94,10 @@ func (w *openaiWire) chatCompletionsURL() string {
 // gpt-5.4-mini is a real model that is absent from this list and sending
 // prompt_cache_retention for an unsupported model risks a 400 error.
 func supportsExtendedCacheRetention(model string) bool {
-	supportedModels := map[string]bool{
-		"gpt-5.5":             true,
-		"gpt-5.5-pro":         true,
-		"gpt-5.4":             true,
-		"gpt-5.2":             true,
-		"gpt-5.1-codex-max":   true,
-		"gpt-5.1":             true,
-		"gpt-5.1-codex":       true,
-		"gpt-5.1-codex-mini":  true,
-		"gpt-5.1-chat-latest": true,
-		"gpt-5":               true,
-		"gpt-5-codex":         true,
-		"gpt-4.1":             true,
+	switch model {
+	case "gpt-5.5", "gpt-5.5-pro", "gpt-5.4", "gpt-5.2", "gpt-5.1-codex-max", "gpt-5.1", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1-chat-latest", "gpt-5", "gpt-5-codex", "gpt-4.1":
+		return true
+	default:
+		return false
 	}
-	return supportedModels[model]
 }

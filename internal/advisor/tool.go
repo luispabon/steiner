@@ -152,10 +152,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 		cacheCreateTokens = response.Usage.CacheCreationInputTokens
 		// HitRate's second argument is the NON-cached portion of the prompt
 		// (see usagestats.Report.InputTokens); Usage.PromptTokens is the total.
-		inputTokens = response.Usage.PromptTokens - cacheReadTokens - cacheCreateTokens
-		if inputTokens < 0 {
-			inputTokens = 0
-		}
+		inputTokens = response.Usage.NonCachedPromptTokens()
 	}
 
 	emitEvent(deps.Events, output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{

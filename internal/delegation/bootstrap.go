@@ -254,13 +254,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	// per-run key is minted instead; an entropy error leaves it empty, which
 	// simply disables provider-side caching for this child run rather than
 	// failing bootstrap.
-	var childCacheKey string
-	if p.CacheKeyStore != nil {
-		childCacheKey, _ = p.CacheKeyStore.KeyFor(p.AgentType, provider.NewPromptCacheKey)
-	}
-	if childCacheKey == "" {
-		childCacheKey, _ = provider.NewPromptCacheKey()
-	}
+	childCacheKey := cacheKeyOrMint(p.CacheKeyStore, p.AgentType)
 
 	req := agent.RunRequest{
 		Provider:           p.Provider,

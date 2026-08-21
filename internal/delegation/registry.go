@@ -128,14 +128,7 @@ func registerAdvisorTool(cloned *tool.Registry, deps DelegateDeps) error {
 // provided, falling back to a freshly minted key when store is nil or fails
 // to mint one.
 func resolveAdvisorCacheKey(store *CacheKeyStore) string {
-	var key string
-	if store != nil {
-		key, _ = store.KeyFor(cacheKeyAgentTypeAdvisor, provider.NewPromptCacheKey)
-	}
-	if key == "" {
-		key, _ = provider.NewPromptCacheKey()
-	}
-	return key
+	return cacheKeyOrMint(store, cacheKeyAgentTypeAdvisor)
 }
 
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry

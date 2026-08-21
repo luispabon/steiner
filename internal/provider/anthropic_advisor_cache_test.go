@@ -104,8 +104,8 @@ func TestAnthropicAdvisorCacheProfile_OptedIn_LongTail(t *testing.T) {
 	if hasSystemBreakpoint {
 		total++
 	}
-	if total > 4 {
-		t.Fatalf("total breakpoints = %d, want <= 4", total)
+	if total != 4 {
+		t.Fatalf("total breakpoints = %d, want exactly 4", total)
 	}
 }
 

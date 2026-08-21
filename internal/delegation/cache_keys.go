@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 const dispatchGateTimeout = 10 * time.Second
@@ -54,6 +56,18 @@ func (s *CacheKeyStore) KeyFor(agentType AgentType, mintKey func() (string, erro
 	}
 	s.keys[agentType] = key
 	return key, nil
+}
+
+func cacheKeyOrMint(store *CacheKeyStore, agentType AgentType) string {
+	var key string
+	if store != nil {
+		// Intentionally ignore the error: an empty key falls through to a fresh mint.
+		key, _ = store.KeyFor(agentType, provider.NewPromptCacheKey)
+	}
+	if key == "" {
+		key, _ = provider.NewPromptCacheKey()
+	}
+	return key
 }
 
 // BeginDispatch coordinates same-cache-key sibling delegations. The first caller for
