@@ -147,7 +147,7 @@ Sub-agent delegation tool boxes report the child agent's cumulative cache hit ra
 
 ### Compaction banners
 
-Finished compaction banners show the per-request summarizer cache rate in the order `✓ cache NN.N% <elapsed> #count`. The rate comes from the summarizer response usage for that banner's one summarizer request and uses the same `usagestats.HitRate` formula: `cache_read / (input + cache_read + cache_create)`, where `input` is non-cached prompt tokens. It is omitted when the summarizer response has no cache-bearing usage, and in-progress banners never show it.
+Finished compaction banners show the per-request summarizer cache rate in the order `✓ cache NN.N% <elapsed> #count`. The rate comes from the summarizer response usage for that banner's one summarizer request and uses the same `usagestats.HitRate` formula: `cache_read / (input + cache_read + cache_create)`, where `input` is non-cached prompt tokens. It is omitted when the summarizer response carries no usage at all (zero input, cache-read, and cache-create tokens, so the hit-rate total is zero); a response with non-zero input but zero cache reads still renders `cache 0.0%`. In-progress banners never show it.
 
 ### /cache-stats overlay
 
