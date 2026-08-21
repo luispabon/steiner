@@ -153,7 +153,6 @@ type Model struct {
 	resolveReasoningFunc         func() (map[string]provider.ReasoningCapabilities, map[string]string)
 	worktreePlan                 *WorktreeCleanupPlan
 	exitFlowPhase                int
-	exitFlowCount                int
 	worktreeCleanupModal         worktreeCleanupModalState
 	resolveReasoningForAliasFunc func(alias string) (provider.ReasoningCapabilities, string)
 	reasoningBatchResolved       bool
