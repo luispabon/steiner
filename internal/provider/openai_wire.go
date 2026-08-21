@@ -49,9 +49,9 @@ func (r openAIRequest) MarshalJSON() ([]byte, error) {
 	if r.PromptCacheKey != "" {
 		base["prompt_cache_key"] = r.PromptCacheKey
 	}
-	// prompt_cache_retention is wired through but never set by any caller yet
-	// (see openaiWire.Payload). On GPT-5.6 and later, OpenAI replaces this
-	// parameter with prompt_cache_options.ttl and switches to exact-match
+	// prompt_cache_retention is set by openaiWire.Payload for OpenAI models
+	// that support extended retention. On GPT-5.6 and later, OpenAI replaces
+	// this parameter with prompt_cache_options.ttl and switches to exact-match
 	// breakpoint caching with a 1.25x cache-write surcharge; this field will
 	// need a model-generation branch when that lands.
 	if r.PromptCacheRetention != "" {

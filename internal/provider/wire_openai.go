@@ -29,9 +29,14 @@ func (w *openaiWire) Payload(request ChatRequest, stream bool) ([]byte, error) {
 	}
 	// prompt_cache_key is only emitted for native OpenAI: ollama and lmstudio
 	// may reject unknown top-level fields, and openai_compat/openrouter/litellm
-	// backends have no verified support for it.
+	// backends have no verified support for it. prompt_cache_retention follows
+	// the same gating and is only set for OpenAI models that support extended
+	// retention (24h idle, vs. the default 5-10 minutes).
 	if w.providerType == "openai" {
 		wire.PromptCacheKey = request.PromptCacheKey
+		if supportsExtendedCacheRetention(wire.Model) {
+			wire.PromptCacheRetention = "24h"
+		}
 	}
 	if shouldDisableRemoteStorage(w.baseURL) {
 		wire.Store = boolValuePtr(false)
@@ -82,4 +87,26 @@ func (w *openaiWire) chatCompletionsURL() string {
 	base := *w.baseURL
 	base.Path = strings.TrimRight(base.Path, "/") + "/chat/completions"
 	return base.String()
+}
+
+// supportsExtendedCacheRetention checks if a model supports 24-hour prompt
+// cache retention. Match by EXACT model ID only — do NOT use prefix matching.
+// gpt-5.4-mini is a real model that is absent from this list and sending
+// prompt_cache_retention for an unsupported model risks a 400 error.
+func supportsExtendedCacheRetention(model string) bool {
+	supportedModels := map[string]bool{
+		"gpt-5.5":             true,
+		"gpt-5.5-pro":         true,
+		"gpt-5.4":             true,
+		"gpt-5.2":             true,
+		"gpt-5.1-codex-max":   true,
+		"gpt-5.1":             true,
+		"gpt-5.1-codex":       true,
+		"gpt-5.1-codex-mini":  true,
+		"gpt-5.1-chat-latest": true,
+		"gpt-5":               true,
+		"gpt-5-codex":         true,
+		"gpt-4.1":             true,
+	}
+	return supportedModels[model]
 }

@@ -153,6 +153,55 @@ func TestOpenAIWirePayload_PromptCacheKey(t *testing.T) {
 	}
 }
 
+func TestOpenAIWirePayload_PromptCacheRetention(t *testing.T) {
+	tests := []struct {
+		name         string
+		providerType string
+		model        string
+		wantPresent  bool
+		wantValue    string
+	}{
+		// Supported models — exact matches only
+		{name: "openai gpt-5.5 emits 24h", providerType: "openai", model: "gpt-5.5", wantPresent: true, wantValue: "24h"},
+		{name: "openai gpt-5.1 emits 24h", providerType: "openai", model: "gpt-5.1", wantPresent: true, wantValue: "24h"},
+		{name: "openai gpt-4.1 emits 24h", providerType: "openai", model: "gpt-4.1", wantPresent: true, wantValue: "24h"},
+		{name: "openai gpt-5.5-pro emits 24h", providerType: "openai", model: "gpt-5.5-pro", wantPresent: true, wantValue: "24h"},
+		// Unsupported models — exact matching, not prefix (regression guard)
+		{name: "openai gpt-5.4-mini absent (not in support list)", providerType: "openai", model: "gpt-5.4-mini", wantPresent: false},
+		{name: "openai gpt-4.0 absent (not in support list)", providerType: "openai", model: "gpt-4.0", wantPresent: false},
+		// Non-openai provider types — always absent
+		{name: "ollama gpt-5.1 absent", providerType: "ollama", model: "gpt-5.1", wantPresent: false},
+		{name: "openai_compat gpt-5.1 absent", providerType: "openai_compat", model: "gpt-5.1", wantPresent: false},
+		{name: "lmstudio gpt-5.1 absent", providerType: "lmstudio", model: "gpt-5.1", wantPresent: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := testOpenAIWire(t, "http://localhost:11434/v1", tt.model)
+			w.providerType = tt.providerType
+
+			data, err := w.Payload(ChatRequest{
+				Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+			}, false)
+			if err != nil {
+				t.Fatalf("Payload() error = %v", err)
+			}
+
+			var payload map[string]any
+			if err := json.Unmarshal(data, &payload); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+			value, ok := payload["prompt_cache_retention"]
+			if ok != tt.wantPresent {
+				t.Fatalf("prompt_cache_retention present = %v, want %v", ok, tt.wantPresent)
+			}
+			if tt.wantPresent && value != tt.wantValue {
+				t.Fatalf("prompt_cache_retention = %v, want %v", value, tt.wantValue)
+			}
+		})
+	}
+}
+
 func TestOpenAIWireHTTPRequest(t *testing.T) {
 	w := testOpenAIWire(t, "http://localhost:11434/v1", "gpt-4")
 	w.apiKey = "secret"
@@ -516,5 +565,29 @@ func TestOpenAIWireDecodeStream_Malformed(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("DecodeStream() error = nil, want decode error")
+	}
+}
+
+func TestSupportsExtendedCacheRetention(t *testing.T) {
+	tests := []struct {
+		model string
+		want  bool
+	}{
+		{model: "gpt-5.5", want: true},
+		{model: "gpt-5.1", want: true},
+		{model: "gpt-4.1", want: true},
+		{model: "gpt-5.4", want: true},
+		{model: "gpt-5.5-pro", want: true},
+		{model: "gpt-5.4-mini", want: false},
+		{model: "gpt-4.0", want: false},
+		{model: "gpt-3.5-turbo", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			got := supportsExtendedCacheRetention(tt.model)
+			if got != tt.want {
+				t.Fatalf("supportsExtendedCacheRetention(%q) = %v, want %v", tt.model, got, tt.want)
+			}
+		})
 	}
 }
