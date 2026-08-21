@@ -281,13 +281,18 @@ func (s *Session) SetModeListener(listener func(config.ExecutionMode)) {
 }
 
 // WaitRuns blocks until all run goroutines launched by this session have exited,
-// or the context is done. It reports whether the runs finished before ctx was done.
+// or the context is done. If both are ready, it prefers the finished wait report.
 func (s *Session) WaitRuns(ctx context.Context) bool {
 	done := make(chan struct{})
 	go func() {
 		s.runs.Wait()
 		close(done)
 	}()
+	select {
+	case <-done:
+		return true
+	default:
+	}
 	select {
 	case <-done:
 		return true

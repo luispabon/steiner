@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -536,6 +537,30 @@ func TestSessionWaitRunsReturnsFalseWhenContextDone(t *testing.T) {
 	if !s.WaitRuns(context.Background()) {
 		t.Fatal("WaitRuns returned false after the blocked run was released")
 	}
+}
+
+func TestSessionWaitRunsPrefersFinishedRunWithCancelledContext(t *testing.T) {
+	s := testNewSession(t, Dependencies{
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{}, nil
+		}),
+	})
+
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "quick run"}); err != nil {
+		t.Fatalf("Handle(SubmitPrompt) = %v, want nil", err)
+	}
+	if !s.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns returned false after the run finished")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		runtime.Gosched()
+		if s.WaitRuns(ctx) {
+			return
+		}
+	}
+	t.Fatal("WaitRuns did not prefer the finished run with a cancelled context")
 }
 
 func TestRotateSession(t *testing.T) {
