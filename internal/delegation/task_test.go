@@ -9,6 +9,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func TestFailedDelegateSummaryText_NoPreviousOutput(t *testing.T) {
@@ -436,9 +437,10 @@ func TestSpawnDelegate_StartedEventIncludesParentCallID(t *testing.T) {
 	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}}
+	req := agent.RunRequest{ResolvedModel: provider.ResolvedModel{Alias: "inferx/deepseek-v4-flash"}}
 	spec := Spec{AgentID: "child-callid", Task: "inspect", ParentCallID: "call_parent"}
 
-	_, _, _, err := SpawnDelegate(context.Background(), spec, agent.RunRequest{}, runner, sink, nil)
+	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("SpawnDelegate error: %v", err)
 	}
@@ -448,6 +450,9 @@ func TestSpawnDelegate_StartedEventIncludesParentCallID(t *testing.T) {
 	started, ok := sink.events[0].Payload.(output.DelegationStartedEvent)
 	if !ok {
 		t.Fatalf("first event payload = %T, want DelegationStartedEvent", sink.events[0].Payload)
+	}
+	if started.ModelAlias != req.ResolvedModel.Alias {
+		t.Errorf("started ModelAlias = %q, want %q", started.ModelAlias, req.ResolvedModel.Alias)
 	}
 	if started.CallID != spec.ParentCallID {
 		t.Errorf("started CallID = %q, want %q", started.CallID, spec.ParentCallID)

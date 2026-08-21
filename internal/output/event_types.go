@@ -368,6 +368,7 @@ type DelegationStartedEvent struct {
 	AgentID     string `json:"agent_id"`
 	TaskPreview string `json:"task_preview"`
 	CallID      string `json:"call_id,omitempty"`
+	ModelAlias  string `json:"model_alias,omitempty"`
 }
 
 // DelegationCacheWaitingEvent records a sub-agent delegation waiting behind a

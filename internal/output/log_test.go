@@ -85,6 +85,26 @@ func TestDelegationStartedEvent(t *testing.T) {
 	}
 }
 
+func TestDelegationStartedEventWithModel(t *testing.T) {
+	event := NewDelegationStartedEventWithModel("child-1", "inspect", "call-1", "  deepseek-v4-flash  ")
+	if event.Type != EventTypeDelegationStarted {
+		t.Fatalf("Type = %s, want %s", event.Type, EventTypeDelegationStarted)
+	}
+	payload, ok := event.Payload.(DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("Payload type assertion failed")
+	}
+	if payload.AgentID != "child-1" {
+		t.Errorf("AgentID = %q, want %q", payload.AgentID, "child-1")
+	}
+	if payload.CallID != "call-1" {
+		t.Errorf("CallID = %q, want %q", payload.CallID, "call-1")
+	}
+	if payload.ModelAlias != "deepseek-v4-flash" {
+		t.Errorf("ModelAlias = %q, want %q", payload.ModelAlias, "deepseek-v4-flash")
+	}
+}
+
 func TestDelegationCompleteEvent(t *testing.T) {
 	tests := []struct {
 		name    string

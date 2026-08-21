@@ -133,7 +133,7 @@ Beyond key reuse, `CacheKeyStore` also **staggers concurrent same-key dispatches
 `SpawnDelegate()` orchestrates the child lifecycle:
 
 1. **Timeout**: if `spec.Limits.Timeout > 0`, wraps context with `context.WithTimeout`.
-2. **Emit** `DelegationStartedEvent` with agent ID and task preview (120 chars max).
+2. **Emit** `DelegationStartedEvent` with agent ID, task preview (120 chars max), and the resolved model alias (`req.ResolvedModel.Alias`) so the tool box badge shows the alias assigned to the child instead of reverse-mapping its backend API ID.
 3. **Run** the child agent loop via the `AgentRunner` interface.
 4. **Auto-extension loop** (up to 5 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
 5. **Build result** from final state (maps `StopReason` → `Status`). Token counters (input, cache, and output) are accumulated across extension re-runs and prior follow-ups (`Spec.PriorTokenUsage`) rather than taken from the final state alone.
