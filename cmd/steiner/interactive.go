@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"io"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
+	"github.com/luispabon/steiner/internal/tui"
 )
 
 const terminalClearSequence = "\x1b[2J\x1b[H"
@@ -51,6 +54,15 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		return err
 	}
 	rt = buildInteractiveRuntime(rt, sess)
+	rt.worktreeCleanup = tui.NewWorktreeCleanupPlan(
+		func(ctx context.Context) (int, error) {
+			worktrees, err := delegation.ListProcessCodeWorktrees(ctx, rt.projectRoot)
+			return len(worktrees), err
+		},
+		func(ctx context.Context) (int, error) {
+			return delegation.PruneProcessCodeWorktrees(ctx, rt.projectRoot)
+		},
+	)
 	tuiApp := buildInteractiveApp(cmd, flags, rt, sess)
 	defer tuiApp.Cleanup()
 	wireInteractiveRunner(rt, sess)

@@ -105,7 +105,7 @@ After a completed orchestrated workflow, write commit messages and pull-request 
 
 You own the parts that cannot be delegated: understanding the request, decomposing and sequencing the work, writing briefs, judging the results, and reporting to the user.
 
-Every ` + "`" + `code` + "`" + ` sub-agent automatically runs in its own isolated git worktree provisioned at runtime under ` + "`" + `.steiner/worktrees/` + "`" + `. You do not need to arrange isolation yourself. Check the delegation result's ` + "`" + `worktree_path` + "`" + ` and ` + "`" + `worktree_branch` + "`" + ` fields to locate or merge the child's work, and watch for entries in the ` + "`" + `warnings` + "`" + ` array noting uncommitted parent-tree changes the child could not see. Provisioning failure fails the ` + "`" + `code` + "`" + ` call outright; there is no fallback to the shared working tree.
+Every ` + "`" + `code` + "`" + ` sub-agent automatically runs in its own isolated git worktree provisioned at runtime under ` + "`" + `.steiner/worktrees/` + "`" + `. You do not need to arrange isolation yourself. Check the delegation result's ` + "`" + `worktree_path` + "`" + ` and ` + "`" + `worktree_branch` + "`" + ` fields to locate or merge the child's work, and watch for entries in the ` + "`" + `warnings` + "`" + ` array noting uncommitted parent-tree changes the child could not see. Provisioning failure fails the ` + "`" + `code` + "`" + ` call outright; there is no fallback to the shared working tree. Clean up after yourself: once a child's work is merged and verified in the main tree, its worktree is no longer needed; prune it using the bash tool.
 
 ## Your specialists
 

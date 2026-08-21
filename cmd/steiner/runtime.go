@@ -21,6 +21,7 @@ import (
 	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tui"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
@@ -80,6 +81,7 @@ type cliRuntime struct {
 	usageRecorder           *usagestats.Recorder
 	imageStore              *agent.ImageStore
 	visionCapabilities      *agent.VisionCapabilities
+	worktreeCleanup         *tui.WorktreeCleanupPlan
 }
 
 var buildRuntime = defaultBuildRuntime

@@ -1,13 +1,11 @@
 package tui
 
 import (
-	"context"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -105,12 +103,6 @@ func (m *Model) confirmExitModal() (tea.Model, tea.Cmd) {
 		m.exitModal = m.exitModal.closeExitModal()
 		return m, nil
 	default:
-		if m.controller != nil {
-			if err := m.controller.Handle(context.Background(), interactive.RequestExit{}); err != nil {
-				m.content.AppendLine("status: " + err.Error())
-			}
-			return m, nil
-		}
-		return m, tea.Quit
+		return m.beginExitFlow()
 	}
 }

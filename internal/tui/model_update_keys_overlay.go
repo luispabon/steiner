@@ -29,6 +29,26 @@ func (m *Model) handleExitModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+//nolint:unparam // handler returns tea.Model to match overlay dispatch conventions
+func (m *Model) handleWorktreeCleanupModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
+	case tea.KeyLeft, tea.KeyUp:
+		m.worktreeCleanupModal = m.worktreeCleanupModal.moveSelection(-1)
+	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
+		m.worktreeCleanupModal = m.worktreeCleanupModal.moveSelection(1)
+	case tea.KeyEnter:
+		return m.confirmWorktreeCleanupModal()
+	case tea.KeyEsc:
+		m.worktreeCleanupModal = m.worktreeCleanupModal.closeWorktreeCleanupModal()
+		m.exitFlowPhase = exitFlowPhaseNone
+		return m, nil
+	}
+	if isCtrl(msg, 'c') || isCtrl(msg, 'd') {
+		return m.confirmWorktreeCleanupModal()
+	}
+	return m, nil
+}
+
 func (m *Model) handleContextOverlayKey(msg tea.KeyPressMsg) tea.Model {
 	switch msg.Code {
 	case tea.KeyEsc:

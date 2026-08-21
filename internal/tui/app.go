@@ -105,6 +105,8 @@ type Config struct {
 	// Must reset session-scoped sandbox state (e.g., empty /tmp contents) without
 	// tearing down the sandbox itself. May be nil.
 	SessionResetCleanup func()
+	// WorktreeCleanup coordinates counting worktrees and recording cleanup intent on exit.
+	WorktreeCleanup *WorktreeCleanupPlan
 	// SandboxStatus seeds the initial sandbox status at startup.
 	SandboxStatus string
 	// ConfigWarnings are user-facing configuration warnings shown once at

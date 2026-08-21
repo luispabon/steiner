@@ -190,6 +190,27 @@ func ListCodeWorktrees(projectRoot string) ([]CodeWorktree, error) {
 	return worktrees, nil
 }
 
+// ListProcessCodeWorktrees lists delegation-owned code worktrees created by this process.
+func ListProcessCodeWorktrees(_ context.Context, projectRoot string) ([]CodeWorktree, error) {
+	worktrees, err := ListCodeWorktrees(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	return filterProcessCodeWorktrees(worktrees), nil
+}
+
+func filterProcessCodeWorktrees(worktrees []CodeWorktree) []CodeWorktree {
+	processPrefix := "delegate/" + getProcessHash() + "/"
+	filtered := make([]CodeWorktree, 0, len(worktrees))
+	for _, worktree := range worktrees {
+		if strings.HasPrefix(worktree.Branch, processPrefix) {
+			filtered = append(filtered, worktree)
+		}
+	}
+	return filtered
+}
+
 // listWorktreeEntries parses git worktree list --porcelain and returns all entries.
 // Branch may be empty for detached-HEAD worktrees.
 func listWorktreeEntries(ctx context.Context, projectRoot string) ([]CodeWorktree, error) {
@@ -378,6 +399,39 @@ func verifyCodeWorktree(ctx context.Context, worktreePath, wantBranch string) er
 	}
 
 	return nil
+}
+
+// PruneProcessCodeWorktrees prunes delegation-owned code worktrees created by this process.
+// It continues after per-worktree errors and returns the number of worktrees actually pruned,
+// including when some worktrees fail to prune.
+func PruneProcessCodeWorktrees(ctx context.Context, projectRoot string) (int, error) {
+	worktrees, err := ListCodeWorktrees(projectRoot)
+	if err != nil {
+		return 0, err
+	}
+
+	delegationBase := filepath.Join(projectRoot, ".steiner", "worktrees")
+	var errs []error
+	removedCount := 0
+	for _, worktree := range filterProcessCodeWorktrees(worktrees) {
+		relID, err := filepath.Rel(delegationBase, worktree.Path)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("extract relative worktree ID: %w", err))
+			continue
+		}
+		removed, err := PruneCodeWorktree(ctx, projectRoot, relID)
+		if removed {
+			removedCount++
+		}
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return removedCount, fmt.Errorf("prune process worktrees: %w", errors.Join(errs...))
+	}
+	return removedCount, nil
 }
 
 func runGit(ctx context.Context, workDir string, args ...string) error {

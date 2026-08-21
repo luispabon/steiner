@@ -1,17 +1,25 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tui"
 )
 
 func TestMCPTUIStateEnabledMix(t *testing.T) {
@@ -424,6 +432,151 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 	}
 }
 
+func TestPruneWorktreesOnExitSkipsActiveRun(t *testing.T) {
+	oldTimeout := worktreeCleanupJoinTimeout
+	worktreeCleanupJoinTimeout = 10 * time.Millisecond
+	defer func() { worktreeCleanupJoinTimeout = oldTimeout }()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	sess, err := interactive.NewSession(interactive.Dependencies{
+		Runner: &blockedCleanupTestRunner{started: started, release: release},
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+		if !sess.WaitRuns(context.Background()) {
+			t.Error("WaitRuns returned false after releasing blocked run")
+		}
+	}()
+	if err := sess.Handle(context.Background(), interactive.SubmitPrompt{Text: "blocked"}); err != nil {
+		t.Fatalf("Handle(SubmitPrompt): %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("submitted prompt did not start")
+	}
+
+	pruned := false
+	plan := tui.NewWorktreeCleanupPlan(nil, func(context.Context) (int, error) {
+		pruned = true
+		return 1, nil
+	})
+	plan.Request()
+	var got output.Event
+	rt := &cliRuntime{
+		worktreeCleanup: plan,
+		events:          output.SinkFunc(func(event output.Event) { got = event }),
+	}
+	cmd := &cobra.Command{}
+	cmd.SetErr(&bytes.Buffer{})
+
+	start := time.Now()
+	pruneWorktreesOnExit(cmd, sess, rt)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("pruneWorktreesOnExit took %v, want prompt return", elapsed)
+	}
+	if pruned {
+		t.Fatal("prune called while an active run was still finishing")
+	}
+	if got.Type != output.EventTypeContextDiagnostics {
+		t.Fatalf("event type = %q, want %q", got.Type, output.EventTypeContextDiagnostics)
+	}
+	payload, ok := got.Payload.(output.ContextSessionHealthEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want output.ContextSessionHealthEvent", got.Payload)
+	}
+	if len(payload.Notes) != 1 || !strings.Contains(payload.Notes[0], "worktree cleanup: skipped because an active run was still finishing") {
+		t.Fatalf("warning notes = %v, want active-run cleanup warning", payload.Notes)
+	}
+}
+
+func TestPruneWorktreesOnExitWithoutIntent(t *testing.T) {
+	pruned := false
+	plan := tui.NewWorktreeCleanupPlan(nil, func(context.Context) (int, error) {
+		pruned = true
+		return 2, nil
+	})
+	var stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&stderr)
+
+	pruneWorktreesOnExit(cmd, nil, &cliRuntime{worktreeCleanup: plan})
+
+	if pruned {
+		t.Fatal("prune called without cleanup intent")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestPruneWorktreesOnExitReportsCount(t *testing.T) {
+	pruned := 0
+	plan := tui.NewWorktreeCleanupPlan(nil, func(context.Context) (int, error) {
+		pruned++
+		return 2, nil
+	})
+	plan.Request()
+	sess, err := interactive.NewSession(interactive.Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	var stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&stderr)
+
+	pruneWorktreesOnExit(cmd, sess, &cliRuntime{worktreeCleanup: plan})
+
+	if pruned != 1 {
+		t.Fatalf("prune calls = %d, want 1", pruned)
+	}
+	if got, want := stderr.String(), "\nCleaned up 2 worktree(s).\n\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestPruneWorktreesOnExitReportsWarning(t *testing.T) {
+	wantErr := errors.New("prune failed")
+	plan := tui.NewWorktreeCleanupPlan(nil, func(context.Context) (int, error) {
+		return 0, wantErr
+	})
+	plan.Request()
+	sess, err := interactive.NewSession(interactive.Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	var got output.Event
+	cmd := &cobra.Command{}
+	cmd.SetErr(&bytes.Buffer{})
+	rt := &cliRuntime{
+		worktreeCleanup: plan,
+		events: output.SinkFunc(func(event output.Event) {
+			got = event
+		}),
+	}
+
+	pruneWorktreesOnExit(cmd, sess, rt)
+
+	if got.Type != output.EventTypeContextDiagnostics {
+		t.Fatalf("event type = %q, want %q", got.Type, output.EventTypeContextDiagnostics)
+	}
+	payload, ok := got.Payload.(output.ContextSessionHealthEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want output.ContextSessionHealthEvent", got.Payload)
+	}
+	if len(payload.Notes) != 1 || !strings.Contains(payload.Notes[0], "worktree cleanup: prune failed") {
+		t.Fatalf("warning notes = %v, want cleanup error", payload.Notes)
+	}
+}
+
 func mcpRegistryToolNames(registry *tool.Registry) []string {
 	var names []string
 	for _, name := range registry.Names() {
@@ -525,4 +678,19 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 			t.Fatal("preListener was not called, want states-only mode on error path")
 		}
 	}
+}
+
+type blockedCleanupTestRunner struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *blockedCleanupTestRunner) Run(context.Context, []agent.Message, []string, func() []agent.SteerMessage) (interactive.RunResult, error) {
+	close(r.started)
+	<-r.release
+	return interactive.RunResult{}, nil
+}
+
+func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []string, _ []provider.ToolSpec) ([]agent.Message, error) {
+	return conversation, nil
 }

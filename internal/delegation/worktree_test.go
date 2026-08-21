@@ -267,6 +267,143 @@ func TestListCodeWorktrees_FiltersDelegationPathAndBranch(t *testing.T) {
 	}
 }
 
+func TestListProcessCodeWorktrees_FiltersForeignProcess(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+	t.Cleanup(resetProcessHashForTesting)
+
+	foreign, err := ProvisionCodeWorktree(ctx, repo, "foreign-agent")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree foreign failed: %v", err)
+	}
+	resetProcessHashForTesting()
+	current, err := ProvisionCodeWorktree(ctx, repo, "current-agent")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree current failed: %v", err)
+	}
+
+	worktrees, err := ListProcessCodeWorktrees(ctx, repo)
+	if err != nil {
+		t.Fatalf("ListProcessCodeWorktrees failed: %v", err)
+	}
+	if len(worktrees) != 1 {
+		t.Fatalf("ListProcessCodeWorktrees returned %d worktrees, want 1", len(worktrees))
+	}
+	if worktrees[0] != current {
+		t.Errorf("ListProcessCodeWorktrees returned %+v, want %+v", worktrees[0], current)
+	}
+	if worktrees[0] == foreign {
+		t.Errorf("ListProcessCodeWorktrees returned foreign worktree %+v", worktrees[0])
+	}
+}
+
+func TestPruneProcessCodeWorktrees_LeavesForeignProcess(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+	t.Cleanup(resetProcessHashForTesting)
+
+	foreign, err := ProvisionCodeWorktree(ctx, repo, "foreign-agent")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree foreign failed: %v", err)
+	}
+	resetProcessHashForTesting()
+	currentOne, err := ProvisionCodeWorktree(ctx, repo, "current-agent-1")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree current one failed: %v", err)
+	}
+	currentTwo, err := ProvisionCodeWorktree(ctx, repo, "current-agent-2")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree current two failed: %v", err)
+	}
+
+	removedCount, err := PruneProcessCodeWorktrees(ctx, repo)
+	if err != nil {
+		t.Fatalf("PruneProcessCodeWorktrees failed: %v", err)
+	}
+	if removedCount != 2 {
+		t.Fatalf("PruneProcessCodeWorktrees returned %d, want 2", removedCount)
+	}
+
+	worktrees, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListCodeWorktrees after prune failed: %v", err)
+	}
+	if len(worktrees) != 1 {
+		t.Fatalf("ListCodeWorktrees after prune returned %d worktrees, want 1", len(worktrees))
+	}
+	if worktrees[0] != foreign {
+		t.Errorf("remaining worktree is %+v, want foreign %+v", worktrees[0], foreign)
+	}
+
+	processWorktrees, err := ListProcessCodeWorktrees(ctx, repo)
+	if err != nil {
+		t.Fatalf("ListProcessCodeWorktrees after prune failed: %v", err)
+	}
+	if len(processWorktrees) != 0 {
+		t.Errorf("ListProcessCodeWorktrees after prune returned %d worktrees, want 0", len(processWorktrees))
+	}
+
+	removedCount, err = PruneProcessCodeWorktrees(ctx, repo)
+	if err != nil {
+		t.Fatalf("PruneProcessCodeWorktrees empty failed: %v", err)
+	}
+	if removedCount != 0 {
+		t.Errorf("PruneProcessCodeWorktrees empty returned %d, want 0", removedCount)
+	}
+
+	for _, current := range []CodeWorktree{currentOne, currentTwo} {
+		if _, err := os.Stat(current.Path); !os.IsNotExist(err) {
+			t.Errorf("pruned worktree path %q still exists", current.Path)
+		}
+	}
+}
+
+func TestPruneProcessCodeWorktrees_ContinuesAfterPruneError(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+	t.Cleanup(resetProcessHashForTesting)
+
+	first, err := ProvisionCodeWorktree(ctx, repo, "first")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree first failed: %v", err)
+	}
+
+	// Put a second worktree on the first worktree's branch. Pruning the first
+	// removes it, but branch deletion fails while the second worktree uses it.
+	secondPath := filepath.Join(repo, ".steiner", "worktrees", getProcessHash(), "main", "second")
+	if err := os.MkdirAll(filepath.Dir(secondPath), 0o755); err != nil {
+		t.Fatalf("create second worktree parent: %v", err)
+	}
+	runCmd(t, repo, "git", "worktree", "add", "--force", secondPath, first.Branch)
+
+	removedCount, err := PruneProcessCodeWorktrees(ctx, repo)
+	if err == nil {
+		t.Fatal("PruneProcessCodeWorktrees returned nil error after a prune failure")
+	}
+	if !strings.Contains(err.Error(), "prune process worktrees") {
+		t.Fatalf("PruneProcessCodeWorktrees error = %v, want process-prune context", err)
+	}
+	if removedCount != 1 {
+		t.Fatalf("PruneProcessCodeWorktrees returned %d, want 1 successful prune", removedCount)
+	}
+
+	worktrees, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListCodeWorktrees after prune failed: %v", err)
+	}
+	if len(worktrees) != 0 {
+		t.Fatalf("ListCodeWorktrees after prune returned %d worktrees, want 0", len(worktrees))
+	}
+	for _, path := range []string{first.Path, secondPath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("pruned worktree path %q still exists", path)
+		}
+	}
+}
+
 func TestPruneCodeWorktree_RemovesWorktree(t *testing.T) {
 	ctx := context.Background()
 	repo, cleanup := setupTestRepo(t)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -428,6 +429,138 @@ func TestSessionHandleNoop(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSessionWaitRunsWaitsForSubmittedPrompt(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	s := testNewSession(t, Dependencies{
+		Runner: newRunExecutorFunc(func(ctx context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			close(started)
+			select {
+			case <-release:
+				return RunResult{}, nil
+			case <-ctx.Done():
+				return RunResult{}, ctx.Err()
+			}
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			recordFn: func(string) error {
+				close(finished)
+				return nil
+			},
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := s.Handle(ctx, SubmitPrompt{Text: "wait for me"}); err != nil {
+		t.Fatalf("Handle(SubmitPrompt) = %v, want nil", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("submitted prompt did not start")
+	}
+
+	waitStarted := make(chan struct{})
+	waitResult := make(chan bool, 1)
+	go func() {
+		close(waitStarted)
+		waitResult <- s.WaitRuns(context.Background())
+	}()
+	<-waitStarted
+	select {
+	case <-waitResult:
+		t.Fatal("WaitRuns returned before the run finished")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("submitted prompt did not finish")
+	}
+	select {
+	case got := <-waitResult:
+		if !got {
+			t.Fatal("WaitRuns returned false after the run finished")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitRuns did not return after the run finished")
+	}
+	select {
+	case <-finished:
+	default:
+		t.Fatal("WaitRuns returned before the run completion side effect")
+	}
+}
+
+func TestSessionWaitRunsReturnsFalseWhenContextDone(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s := testNewSession(t, Dependencies{
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			close(started)
+			<-release
+			return RunResult{}, nil
+		}),
+	})
+
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "wait for cancellation"}); err != nil {
+		t.Fatalf("Handle(SubmitPrompt) = %v, want nil", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("submitted prompt did not start")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	waitResult := make(chan bool, 1)
+	go func() {
+		waitResult <- s.WaitRuns(ctx)
+	}()
+	select {
+	case got := <-waitResult:
+		if got {
+			t.Fatal("WaitRuns returned true for an already-cancelled context")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitRuns did not return promptly for an already-cancelled context")
+	}
+
+	close(release)
+	if !s.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns returned false after the blocked run was released")
+	}
+}
+
+func TestSessionWaitRunsPrefersFinishedRunWithCancelledContext(t *testing.T) {
+	s := testNewSession(t, Dependencies{
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{}, nil
+		}),
+	})
+
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "quick run"}); err != nil {
+		t.Fatalf("Handle(SubmitPrompt) = %v, want nil", err)
+	}
+	if !s.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns returned false after the run finished")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		runtime.Gosched()
+		if s.WaitRuns(ctx) {
+			return
+		}
+	}
+	t.Fatal("WaitRuns did not prefer the finished run with a cancelled context")
 }
 
 func TestRotateSession(t *testing.T) {

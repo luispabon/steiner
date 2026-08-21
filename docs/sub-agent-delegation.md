@@ -81,6 +81,10 @@ Multiple delegation calls made in one turn execute concurrently. `sub_agent.max_
 
 Every `code` sub-agent automatically runs in its own isolated, runtime-provisioned and verified git worktree under `.steiner/worktrees/`. You do not need to arrange isolation manually anymore. Concurrent child agents are now safe from file-edit collisions.
 
+### Exit-time worktree cleanup
+
+When an interactive TUI session is idle and this process has delegate worktrees, exiting through the exit modal, Ctrl-C, Ctrl-D, or `/exit` opens a `Clean up N worktrees?` offer. `Exit without cleaning` is the default; `Clean up on exit` records cleanup intent. The actual prune runs during session teardown, after the agent run has stopped; if a run is still finishing, cleanup waits only briefly, then is skipped with a non-blocking warning so exiting is never blocked. It only targets this process's worktrees under `.steiner/worktrees/<processhash>/...` (branch prefix `delegate/<processhash>/`), never worktrees from another process. A successful cleanup prints `Cleaned up N worktree(s).` to stderr; failures produce a non-blocking warning. Esc cancels the exit. No offer appears during an active run or when no worktrees exist.
+
 ### Safety
 
 - A sub-agent **cannot delegate further** — `follow_up` and `workflow_handoff` tools are always stripped from child registries.

@@ -1,6 +1,7 @@
 package interactive
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -35,6 +36,7 @@ type Session struct {
 	mode                config.ExecutionMode
 	modeListener        func(config.ExecutionMode)
 	done                chan struct{}
+	runs                sync.WaitGroup
 	exitOnce            sync.Once
 }
 
@@ -276,6 +278,27 @@ func (s *Session) SetModeListener(listener func(config.ExecutionMode)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.modeListener = listener
+}
+
+// WaitRuns blocks until all run goroutines launched by this session have exited,
+// or the context is done. If both are ready, it prefers the finished wait report.
+func (s *Session) WaitRuns(ctx context.Context) bool {
+	done := make(chan struct{})
+	go func() {
+		s.runs.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	default:
+	}
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // modeNotice returns the mode notice string for injection into user messages.

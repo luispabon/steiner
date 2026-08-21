@@ -93,6 +93,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		Controller:         sess,
 		SandboxStatus:      rt.sandboxStatus,
 		ConfigWarnings:     rt.configWarnings,
+		WorktreeCleanup:    rt.worktreeCleanup,
 	}
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
@@ -429,12 +430,48 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	err := sess.Run(ctx)
 	stopInteractiveProgram(p)
 	wait()
+	pruneWorktreesOnExit(cmd, sess, rt)
 	clearTerminalScreen(cmd.OutOrStdout())
 	if err == nil && sess.SessionTitle() != "" {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nResume this session:\n  steiner --resume %s\n\n", sess.SessionID())
 	}
 	closeRuntime(rt)
 	return err
+}
+
+var worktreeCleanupJoinTimeout = 5 * time.Second
+
+func pruneWorktreesOnExit(cmd *cobra.Command, sess *interactive.Session, rt *cliRuntime) {
+	if rt == nil || rt.worktreeCleanup == nil || !rt.worktreeCleanup.ShouldPrune() {
+		return
+	}
+
+	if sess != nil {
+		joinCtx, cancel := context.WithTimeout(context.Background(), worktreeCleanupJoinTimeout)
+		finished := sess.WaitRuns(joinCtx)
+		cancel()
+		if !finished {
+			warning := errors.New("skipped because an active run was still finishing")
+			if rt.events != nil {
+				emitCloseWarning(rt.events, "worktree cleanup", warning)
+			} else {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: worktree cleanup: %v.\n", warning)
+			}
+			return
+		}
+	}
+	pruneCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	n, err := rt.worktreeCleanup.Prune(pruneCtx)
+	if err != nil {
+		if rt.events != nil {
+			emitCloseWarning(rt.events, "worktree cleanup", err)
+		}
+		return
+	}
+	if n > 0 {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nCleaned up %d worktree(s).\n\n", n)
+	}
 }
 
 func startInteractiveProgram(p *tea.Program, events output.EventSink, stop context.CancelFunc) func() {
