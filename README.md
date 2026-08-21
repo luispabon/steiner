@@ -203,6 +203,8 @@ Delegation calls can fan out in parallel; configure the width with `sub_agent.ma
 
 Every `code` sub-agent automatically runs in its own isolated, runtime-provisioned git worktree under `.steiner/worktrees/`. Worktrees persist until explicitly pruned via the CLI: `steiner worktrees --list` (show all delegation worktrees), `steiner worktrees --prune <id>` (remove a worktree by its ID), or `steiner worktrees --prune-all` (remove all delegation worktrees).
 
+In interactive TUI sessions, leftover delegate worktrees are offered for cleanup on exit when the session is idle; the offer only covers worktrees created by the current process.
+
 ## Execution modes
 
 Interactive sessions run in `plan` or `build` mode. In `plan` mode project edits are restricted: `mutate` writes are limited to `.steiner/plans/`, the `code` sub-agent tool and any `follow_up` targeting a mutation-capable child are denied, and when the bubblewrap sandbox is active the rest of the project is bind-mounted read-only for `bash` as well. Plan artifacts may be written under `.steiner/plans/`. Plan mode doubles as a chat/Q&A mode: discuss freely, and write a plan file only when handing off. Call `workflow_handoff` to hand an approved plan off: `implement` and `review` start structured `/implement` and `/review` workflows from `overview.md` + `plan.yaml`, while `build` directly executes a standalone `plan.md` in build mode without skill discovery.
