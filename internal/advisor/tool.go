@@ -17,9 +17,9 @@ import (
 const ToolName = "advisor"
 
 // BudgetExhaustedMessage returns the exact model-visible message used when the
-// per-run advisor cap is exhausted.
+// per-session advisor cap is exhausted.
 func BudgetExhaustedMessage(used, max int) string {
-	return fmt.Sprintf("advisor budget exhausted for this run (%d/%d); proceed on your own judgment", used, max)
+	return fmt.Sprintf("advisor budget exhausted for this session (%d/%d); proceed on your own judgment", used, max)
 }
 
 // ToolDef returns the provider-facing advisor tool definition.
@@ -65,29 +65,54 @@ type HandlerDeps struct {
 	// package keeps working standalone (e.g. in tests that construct
 	// HandlerDeps directly).
 	CacheKey string
+	// SharedState carries the advisor use counter across every NewHandler
+	// call it's passed to, so the budget in Config.MaxUsesPerRun is enforced
+	// for the session (the handler's caller decides the shared state's
+	// lifetime) instead of resetting each time a new handler is built. When
+	// nil, NewHandler allocates a private one, so the package keeps working
+	// standalone (e.g. in tests that construct HandlerDeps directly).
+	SharedState *SharedState
 }
 
-// Config configures the per-run advisor handler.
+// Config configures the per-session advisor handler.
 type Config struct {
 	MaxUsesPerRun int
 	MaxTokens     *int
 }
 
-// NewHandler returns a fresh per-run advisor handler.
+// SharedState tracks the advisor use counter across every handler built from
+// it. Callers that want Config.MaxUsesPerRun enforced across multiple
+// NewHandler calls (e.g. one per conversation turn) must pass the same
+// *SharedState to HandlerDeps.SharedState each time. Safe for concurrent use.
+type SharedState struct {
+	mu   sync.Mutex
+	uses int
+}
+
+// NewSharedState returns a fresh, empty SharedState.
+func NewSharedState() *SharedState {
+	return &SharedState{}
+}
+
+// NewHandler returns a fresh advisor handler backed by deps.SharedState, or a
+// private one when deps.SharedState is nil.
 func NewHandler(deps HandlerDeps) func(context.Context, map[string]any) (any, error) {
 	cacheKey := deps.CacheKey
 	if cacheKey == "" {
 		cacheKey, _ = provider.NewPromptCacheKey()
 	}
-	state := &handlerState{cacheKey: cacheKey}
+	shared := deps.SharedState
+	if shared == nil {
+		shared = NewSharedState()
+	}
+	state := &handlerState{shared: shared, cacheKey: cacheKey}
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		return state.handle(ctx, deps, input)
 	}
 }
 
 type handlerState struct {
-	mu       sync.Mutex
-	uses     int
+	shared   *SharedState
 	cacheKey string
 }
 
@@ -101,18 +126,18 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 		return nil, err
 	}
 
-	s.mu.Lock()
-	nextUse := s.uses + 1
+	s.shared.mu.Lock()
+	nextUse := s.shared.uses + 1
 	maxUses := deps.Config.MaxUsesPerRun
 	if nextUse > maxUses {
-		used := s.uses
-		s.mu.Unlock()
+		used := s.shared.uses
+		s.shared.mu.Unlock()
 		message := BudgetExhaustedMessage(used, maxUses)
 		emitEvent(deps.Events, output.NewAdvisorBudgetExhaustedEvent(deps.Model.BackendModelID, used, maxUses, message, in.Question, advisorDisplayPaths(files)))
 		return message, nil
 	}
-	s.uses = nextUse
-	s.mu.Unlock()
+	s.shared.uses = nextUse
+	s.shared.mu.Unlock()
 
 	snapshot, ok := agent.ConversationSnapshotFromContext(ctx)
 	if !ok {
@@ -120,8 +145,9 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	}
 
 	// Keep the provider-visible tool list stable for the whole run so prompt/KV
-	// cache prefixes stay reusable. The per-run cap lives in handler state on
-	// purpose, even though Anthropic guidance often suggests removing spent tools.
+	// cache prefixes stay reusable. The per-session cap lives in shared handler
+	// state on purpose, even though Anthropic guidance often suggests removing
+	// spent tools.
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses, in.Question, advisorDisplayPaths(files)))
 	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, in.Question, files, deps.Config.MaxTokens, deps.Events, s.cacheKey)
 	if err != nil {

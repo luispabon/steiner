@@ -145,6 +145,48 @@ func TestNewHandlerStopsAtBudgetWithoutCallingProvider(t *testing.T) {
 	}
 }
 
+func TestNewHandlerSharesBudgetAcrossHandlersViaSharedState(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "first"},
+		},
+	}
+	shared := NewSharedState()
+	deps := HandlerDeps{
+		Provider:    prov,
+		Model:       provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Config:      Config{MaxUsesPerRun: 1},
+		SharedState: shared,
+	}
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+	})
+
+	// Two independently-built handlers, as if BuildDelegateRegistry ran once
+	// per turn, sharing the same SharedState the way a persistent process
+	// singleton would.
+	firstTurnHandler := NewHandler(deps)
+	if _, err := firstTurnHandler(ctx, nil); err != nil {
+		t.Fatalf("first turn handler() error = %v", err)
+	}
+
+	secondTurnHandler := NewHandler(deps)
+	got, err := secondTurnHandler(ctx, nil)
+	if err != nil {
+		t.Fatalf("second turn handler() error = %v", err)
+	}
+
+	want := BudgetExhaustedMessage(1, 1)
+	if got != want {
+		t.Fatalf("second turn handler() = %#v, want %q (budget should persist across handlers sharing SharedState)", got, want)
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(prov.requests))
+	}
+}
+
 func TestNewHandlerRequiresConversationSnapshot(t *testing.T) {
 	t.Parallel()
 

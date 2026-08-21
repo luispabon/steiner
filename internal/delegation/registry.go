@@ -89,6 +89,12 @@ type DelegateDeps struct {
 	// CacheKeyStore is the singleton store shared across the process for
 	// cache-key reuse. Nil means no reuse: each delegation mints a fresh key.
 	CacheKeyStore *CacheKeyStore
+	// AdvisorState is the singleton advisor use-counter shared across the
+	// process, so advisor.Config.MaxUsesPerRun is enforced for the whole
+	// session instead of resetting every time BuildDelegateRegistry runs
+	// (once per turn). Nil means no reuse: each call gets a private counter,
+	// so the cap is enforced per BuildDelegateRegistry call only.
+	AdvisorState *advisor.SharedState
 }
 
 // registerAdvisorTool resolves the advisor model and provider, then registers
@@ -120,6 +126,7 @@ func registerAdvisorTool(cloned *tool.Registry, deps DelegateDeps) error {
 		WorkDir:       deps.WorkDir,
 		PathPolicy:    &advisorPolicy,
 		CacheKey:      resolveAdvisorCacheKey(deps.CacheKeyStore),
+		SharedState:   deps.AdvisorState,
 	})))
 	return nil
 }

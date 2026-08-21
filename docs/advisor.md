@@ -60,7 +60,7 @@ Fields:
 |-------|---------|-------------|
 | `enabled` | `false` | Enables the advisor tool and advisor prompt steering. |
 | `model` | `""` | Model alias used for advisor calls. Required when enabled, and must exist in `models`. |
-| `max_uses_per_run` | `3` | Per-run call cap. Required to be at least `1` when enabled. |
+| `max_uses_per_run` | `3` | Per-session call cap, enforced across every turn in the process (see [Tool behavior](#tool-behavior)). Required to be at least `1` when enabled. |
 | `max_tokens` | `nil` | Optional output-token limit forwarded to the advisor provider request. |
 | `timeout` | `180s` | Optional HTTP timeout override applied only to advisor calls. Overrides `providers.<name>.timeout` for the advisor's provider only, leaving the main chat model and other models unaffected. The default `180s` is higher than the typical 30s provider default because advisor calls send a large parent-conversation prompt. |
 
@@ -70,10 +70,10 @@ The advisor model is resolved through the same model configuration and provider 
 
 The model-facing tool is named `advisor`. Its schema accepts two optional properties: `question` (free text describing what to judge) and `files` (an array of workspace paths to include verbatim, since the advisor has no tool access and cannot read files itself). Both are optional; a bare call with neither behaves as a pure timing signal over the live conversation, same as before.
 
-The handler keeps a per-run use counter. Calls within `max_uses_per_run` invoke the advisor model. Calls after the cap return:
+The handler keeps a use counter in `advisor.SharedState`, a process-lifetime singleton threaded through `delegation.DelegateDeps.AdvisorState` the same way `CacheKeyStore` is (see the cache-key paragraph above). Because `BuildDelegateRegistry` runs once per turn and builds a fresh advisor handler each time, the counter would reset every turn if it lived on the handler alone; sharing `AdvisorState` across those per-turn handlers is what makes `max_uses_per_run` a true per-session cap instead of a per-turn one. Calls within `max_uses_per_run` invoke the advisor model. Calls after the cap return:
 
 ```text
-advisor budget exhausted for this run (N/N); proceed on your own judgment
+advisor budget exhausted for this session (N/N); proceed on your own judgment
 ```
 
 Steiner deliberately keeps the advisor tool definition registered for the whole run instead of removing it when the cap is reached. The cap is enforced inside the handler so provider-visible tool schemas stay stable and prompt-cache prefixes can remain reusable.

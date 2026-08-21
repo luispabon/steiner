@@ -82,13 +82,14 @@ If `OPENAI_API_KEY` is not set, configuration loading fails. If `OPENAI_BASE_URL
 Controls the optional advisor reasoning pass. The advisor is disabled by default.
 When enabled, it uses a stronger model to review the live parent conversation and
 return concise strategic guidance. The tool definition stays stable for the whole
-run; the `max_uses_per_run` cap is enforced in handler state rather than by
-removing or mutating the tool mid-conversation.
+session; the `max_uses_per_run` cap is enforced in shared handler state, persisted
+for the life of the process rather than reset each turn, rather than by removing
+or mutating the tool mid-conversation.
 
 | Field              | Type   | Default | Description |
 |--------------------|--------|---------|-------------|
 | `enabled`          | bool   | `false` | Master switch. Set to `true` to enable the advisor tool and prompt steering. |
-| `max_uses_per_run` | int    | `3`     | Per-run use cap enforced in handler state. When the cap is exhausted, the handler returns a budget-exhausted result instead of calling the advisor model. |
+| `max_uses_per_run` | int    | `3`     | Per-session use cap enforced in shared handler state. When the cap is exhausted, the handler returns a budget-exhausted result instead of calling the advisor model. |
 | `max_tokens`       | *int   | `nil`   | Optional output-token ceiling for advisor calls. When set, the value is forwarded to the provider request. |
 | `timeout`          | *Duration | `180s`  | Optional HTTP timeout override applied only to advisor calls. When set, it overrides `providers.<name>.timeout` for the advisor model only; the main chat model and other models using the same provider are unaffected. Useful because advisor calls send a large parent-conversation prompt and frequently hit the provider's default header-read timeout. |
 

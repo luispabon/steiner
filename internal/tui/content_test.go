@@ -405,7 +405,7 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Errorf("segment[4] text = %q, want single space", s.text)
 	}
 
-	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment", "", nil))
+	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this session (2/2); proceed on your own judgment", "", nil))
 	if len(buffer.segments) != 6 {
 		t.Fatalf("segments count after budget event = %d, want 6", len(buffer.segments))
 	}

@@ -101,6 +101,65 @@ func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
 	}
 }
 
+func TestBuildDelegateRegistryAdvisorBudgetPersistsAcrossCallsViaAdvisorState(t *testing.T) {
+	state := advisor.NewSharedState()
+	prov := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
+	}}
+	providerFactory := func(provider.ResolvedModel) (provider.Provider, error) { return prov, nil }
+
+	deps := DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
+		Provider:     prov,
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens:       256,
+		Config:          advisorTestConfig(),
+		ProviderFactory: providerFactory,
+		AdvisorState:    state,
+	}
+
+	// Simulate two turns: BuildDelegateRegistry runs once per turn, each time
+	// building a fresh advisor handler, but both share the process-lifetime
+	// AdvisorState.
+	reg1, err := BuildDelegateRegistry(deps)
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() call 1 error = %v", err)
+	}
+	reg2, err := BuildDelegateRegistry(deps)
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() call 2 error = %v", err)
+	}
+
+	callAdvisorHandler(t, reg1)
+
+	def, ok := reg2.Get(advisor.ToolName)
+	if !ok {
+		t.Fatal("advisor tool not registered on reg2")
+	}
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "hi"},
+	})
+	got, err := def.Handler(ctx, map[string]any{"question": "test"})
+	if err != nil {
+		t.Fatalf("second-turn advisor handler() error = %v", err)
+	}
+
+	want := advisor.BudgetExhaustedMessage(1, 1)
+	if got != want {
+		t.Fatalf("second-turn handler() = %#v, want %q (budget should persist across turns via AdvisorState)", got, want)
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("captured %d provider requests, want 1", len(prov.requests))
+	}
+}
+
 func TestBuildDelegateRegistryAdvisorCacheKeyFallsBackWhenStoreNil(t *testing.T) {
 	prov := &fakeProvider{responses: []provider.ChatResponse{
 		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},

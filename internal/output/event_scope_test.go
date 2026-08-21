@@ -221,7 +221,7 @@ func TestAdvisorEventsRender(t *testing.T) {
 		t.Fatalf("complete-with-usage text = %q, want %q", got, wantCacheField)
 	}
 
-	exhausted := renderEvent(NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment", "", nil))
+	exhausted := renderEvent(NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this session (2/2); proceed on your own judgment", "", nil))
 	if got := exhausted.Text; !strings.Contains(got, "advisor budget exhausted") || !strings.Contains(got, "use=2/2") {
 		t.Fatalf("exhausted text = %q, want advisor budget summary", got)
 	}

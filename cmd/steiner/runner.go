@@ -104,6 +104,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		ImageStore:            r.runtime.imageStore,
 		ExtraAllowedTools:     exposure,
 		CacheKeyStore:         r.runtime.delegationCacheKeyStore,
+		AdvisorState:          r.runtime.advisorState,
 		SandboxTmpDir:         sandboxTmpDir,
 		SandboxEnabled:        r.sandboxEnabled(),
 		SandboxWritableMounts: sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
