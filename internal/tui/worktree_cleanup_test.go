@@ -15,7 +15,7 @@ func TestWorktreeCleanupPlan(t *testing.T) {
 	pruneCalls := 0
 	wantErr := errors.New("prune failed")
 	plan := NewWorktreeCleanupPlan(
-		func() (int, error) {
+		func(context.Context) (int, error) {
 			listCalls++
 			return 3, nil
 		},
@@ -25,7 +25,7 @@ func TestWorktreeCleanupPlan(t *testing.T) {
 		},
 	)
 
-	count, err := plan.Count()
+	count, err := plan.Count(context.Background())
 	if err != nil || count != 3 || listCalls != 1 {
 		t.Fatalf("Count() = (%d, %v), list calls = %d", count, err, listCalls)
 	}
@@ -39,6 +39,20 @@ func TestWorktreeCleanupPlan(t *testing.T) {
 	count, err = plan.Prune(context.Background())
 	if !errors.Is(err, wantErr) || count != 2 || pruneCalls != 1 {
 		t.Fatalf("Prune() = (%d, %v), prune calls = %d", count, err, pruneCalls)
+	}
+}
+
+func TestWorktreeCleanupPlanNilReceiver(t *testing.T) {
+	var plan *WorktreeCleanupPlan
+	if count, err := plan.Count(context.Background()); count != 0 || err != nil {
+		t.Fatalf("nil Count() = (%d, %v), want (0, nil)", count, err)
+	}
+	plan.Request()
+	if plan.ShouldPrune() {
+		t.Fatal("nil ShouldPrune() = true, want false")
+	}
+	if count, err := plan.Prune(context.Background()); count != 0 || err != nil {
+		t.Fatalf("nil Prune() = (%d, %v), want (0, nil)", count, err)
 	}
 }
 
@@ -72,9 +86,9 @@ func TestExitFlowDecisionLogic(t *testing.T) {
 		wantPhase   int
 	}{
 		{name: "no plan exits", wantActions: 1},
-		{name: "running exits", plan: NewWorktreeCleanupPlan(func() (int, error) { return 2, nil }, nil), statusMode: "running", wantActions: 1},
-		{name: "empty count exits", plan: NewWorktreeCleanupPlan(func() (int, error) { return 0, nil }, nil), countMsg: worktreeCountMsg{count: 0}, wantActions: 1},
-		{name: "positive count offers cleanup", plan: NewWorktreeCleanupPlan(func() (int, error) { return 2, nil }, nil), countMsg: worktreeCountMsg{count: 2}, wantModal: true, wantPhase: exitFlowPhaseCleanup},
+		{name: "running exits", plan: NewWorktreeCleanupPlan(func(context.Context) (int, error) { return 2, nil }, nil), statusMode: "running", wantActions: 1},
+		{name: "empty count exits", plan: NewWorktreeCleanupPlan(func(context.Context) (int, error) { return 0, nil }, nil), countMsg: worktreeCountMsg{count: 0}, wantActions: 1},
+		{name: "positive count offers cleanup", plan: NewWorktreeCleanupPlan(func(context.Context) (int, error) { return 2, nil }, nil), countMsg: worktreeCountMsg{count: 2}, wantModal: true, wantPhase: exitFlowPhaseCleanup},
 	}
 
 	for _, tt := range tests {
@@ -104,9 +118,102 @@ func TestExitFlowDecisionLogic(t *testing.T) {
 	}
 }
 
+func TestExitFlowCountingCtrlCIgnored(t *testing.T) {
+	m := newModel(Config{Controller: &testController{}}, nil)
+	m.exitFlowPhase = exitFlowPhaseCounting
+
+	handled, _, cmd := m.handleNavigationKeyMsg(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if !handled {
+		t.Fatal("Ctrl-C was not handled")
+	}
+	if cmd != nil {
+		t.Fatal("Ctrl-C during counting produced a command")
+	}
+	if m.exitModal.IsOpen() {
+		t.Fatal("Ctrl-C during counting opened exit modal")
+	}
+	if m.exitFlowPhase != exitFlowPhaseCounting {
+		t.Fatalf("exit phase = %d, want counting", m.exitFlowPhase)
+	}
+}
+
+func TestExitFlowCountErrorExits(t *testing.T) {
+	controller := &testController{}
+	m := newModel(Config{Controller: controller}, nil)
+	m.exitFlowPhase = exitFlowPhaseCounting
+
+	m.handleWorktreeCountMsg(worktreeCountMsg{err: errors.New("count failed")})
+	if m.exitFlowPhase != exitFlowPhaseNone {
+		t.Fatalf("exit phase = %d, want none", m.exitFlowPhase)
+	}
+	if m.worktreeCleanupModal.IsOpen() {
+		t.Fatal("count error opened cleanup modal")
+	}
+	if got := controller.countRequestExit(); got != 1 {
+		t.Fatalf("RequestExit count = %d, want 1", got)
+	}
+}
+
+func TestExitFlowStaleCountIgnored(t *testing.T) {
+	controller := &testController{}
+	m := newModel(Config{Controller: controller}, nil)
+	m.exitFlowPhase = exitFlowPhaseCleanup
+
+	m.handleWorktreeCountMsg(worktreeCountMsg{count: 2})
+	if m.exitFlowPhase != exitFlowPhaseCleanup {
+		t.Fatalf("exit phase = %d, want cleanup", m.exitFlowPhase)
+	}
+	if m.worktreeCleanupModal.IsOpen() {
+		t.Fatal("stale count opened cleanup modal")
+	}
+	if got := controller.countRequestExit(); got != 0 {
+		t.Fatalf("RequestExit count = %d, want 0", got)
+	}
+}
+
+func TestExitFlowCountThenEscape(t *testing.T) {
+	m := newModel(Config{Controller: &testController{}}, nil)
+	m.exitFlowPhase = exitFlowPhaseCounting
+	m.handleWorktreeCountMsg(worktreeCountMsg{count: 2})
+	if !m.worktreeCleanupModal.IsOpen() || m.exitFlowPhase != exitFlowPhaseCleanup {
+		t.Fatal("positive count did not open cleanup modal")
+	}
+
+	m.handleWorktreeCleanupModalKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if m.worktreeCleanupModal.IsOpen() {
+		t.Fatal("escape did not close cleanup modal")
+	}
+	if m.exitFlowPhase != exitFlowPhaseNone {
+		t.Fatalf("exit phase = %d, want none", m.exitFlowPhase)
+	}
+}
+
+func TestWorktreeCleanupPlanCountCancelled(t *testing.T) {
+	plan := NewWorktreeCleanupPlan(func(ctx context.Context) (int, error) {
+		return 0, ctx.Err()
+	}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := plan.Count(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Count() error = %v, want context.Canceled", err)
+	}
+
+	controller := &testController{}
+	m := newModel(Config{Controller: controller}, nil)
+	m.exitFlowPhase = exitFlowPhaseCounting
+	m.handleWorktreeCountMsg(worktreeCountMsg{err: err})
+	if got := controller.countRequestExit(); got != 1 {
+		t.Fatalf("RequestExit count = %d, want 1", got)
+	}
+	if m.exitFlowPhase != exitFlowPhaseNone {
+		t.Fatalf("exit phase = %d, want none", m.exitFlowPhase)
+	}
+}
+
 func TestExitFlowReentryGuard(t *testing.T) {
 	calls := 0
-	plan := NewWorktreeCleanupPlan(func() (int, error) {
+	plan := NewWorktreeCleanupPlan(func(context.Context) (int, error) {
 		calls++
 		return 1, nil
 	}, nil)

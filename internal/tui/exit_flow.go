@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -33,7 +34,9 @@ func (m *Model) beginExitFlow() (tea.Model, tea.Cmd) {
 	m.exitModal = m.exitModal.closeExitModal()
 	m.exitFlowPhase = exitFlowPhaseCounting
 	return m, func() tea.Msg {
-		count, err := m.worktreePlan.Count()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		count, err := m.worktreePlan.Count(ctx)
 		return worktreeCountMsg{count: count, err: err}
 	}
 }
@@ -46,7 +49,6 @@ func (m *Model) handleWorktreeCountMsg(msg worktreeCountMsg) (tea.Model, tea.Cmd
 		m.exitFlowPhase = exitFlowPhaseNone
 		return m.doExit()
 	}
-	m.exitFlowCount = msg.count
 	m.exitFlowPhase = exitFlowPhaseCleanup
 	m.openWorktreeCleanupModal(m.width, m.height, msg.count)
 	return m, nil

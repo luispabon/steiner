@@ -105,6 +105,9 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 			_, cmd := m.beginExitFlow()
 			return true, m, cmd
 		}
+		if m.exitFlowPhase != exitFlowPhaseNone {
+			return true, m, nil
+		}
 		return true, m.openExitModal(), nil
 	case isCtrl(msg, 'b'):
 		m.sidebar.Toggle()
