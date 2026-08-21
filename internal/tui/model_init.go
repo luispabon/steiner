@@ -88,6 +88,7 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		imageStore:                   cfg.ImageStore,
 		visionCapabilities:           cfg.VisionCapabilities,
 		sessionResetCleanup:          cfg.SessionResetCleanup,
+		worktreePlan:                 cfg.WorktreeCleanup,
 		resolveReasoningFunc:         cfg.ResolveReasoningFunc,
 		resolveReasoningForAliasFunc: cfg.ResolveReasoningForAliasFunc,
 		mode:                         cfg.InitialMode,
@@ -145,6 +146,13 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		match: func(m *Model) bool { return m.workflowHandoff.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			_, cmd := m.handleWorkflowHandoffModalKey(msg)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.worktreeCleanupModal.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			_, cmd := m.handleWorktreeCleanupModalKey(msg)
 			return cmd
 		},
 	},

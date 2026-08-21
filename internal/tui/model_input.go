@@ -23,7 +23,7 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 
 	action := parseInputWithSkills(value, m.enabledSkills, m.skillNames)
 	if action.quit {
-		return m, tea.Quit
+		return m.beginExitFlow()
 	}
 	if action.clear {
 		return m.executeClearAction()

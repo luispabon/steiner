@@ -93,12 +93,17 @@ func (m *Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation
 	return false, m
 }
 
+//nolint:gocyclo // navigation shortcuts intentionally stay explicit
 func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 	// Handle Ctrl-key shortcuts before the switch (msg.Code alone can't match ctrl keys).
 	switch {
 	case isCtrl(msg, 'c') || isCtrl(msg, 'd'):
-		if m.controller == nil {
+		if m.controller == nil && m.worktreePlan == nil {
 			return true, m, tea.Quit
+		}
+		if m.controller == nil {
+			_, cmd := m.beginExitFlow()
+			return true, m, cmd
 		}
 		return true, m.openExitModal(), nil
 	case isCtrl(msg, 'b'):

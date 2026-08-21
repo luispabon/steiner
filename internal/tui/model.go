@@ -78,6 +78,12 @@ type setAccentMsg struct{ preset string }
 type toggleThinkingMsg struct{}
 
 const (
+	exitFlowPhaseNone = iota
+	exitFlowPhaseCounting
+	exitFlowPhaseCleanup
+)
+
+const (
 	inputRailWidth = 1
 	inputPadX      = 1
 	inputPadY      = 1
@@ -145,6 +151,10 @@ type Model struct {
 	reasoningPicker              reasoningPickerOverlay
 	reasoningLabels              map[string]string
 	resolveReasoningFunc         func() (map[string]provider.ReasoningCapabilities, map[string]string)
+	worktreePlan                 *WorktreeCleanupPlan
+	exitFlowPhase                int
+	exitFlowCount                int
+	worktreeCleanupModal         worktreeCleanupModalState
 	resolveReasoningForAliasFunc func(alias string) (provider.ReasoningCapabilities, string)
 	reasoningBatchResolved       bool
 	planPicker                   planPickerOverlay

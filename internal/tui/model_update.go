@@ -35,6 +35,8 @@ func syncDebounceCmd(seq int) tea.Cmd {
 }
 
 // Update implements tea.Model.
+//
+//nolint:gocyclo // message dispatch intentionally stays explicit
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case toggleThinkingMsg:
@@ -45,6 +47,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTickMsg(msg)
 	case tea.WindowSizeMsg:
 		return m.handleWindowSizeMsg(msg)
+	case worktreeCountMsg:
+		return m.handleWorktreeCountMsg(msg)
 	case runtimeEventMsg:
 		return m.handleRuntimeEventMsg(msg)
 	case bridgeClosedMsg:
@@ -243,6 +247,7 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 		m.contextOverlay = m.contextOverlay.reflow()
 	}
 	m.exitModal.OverlayShell = m.exitModal.WithDimensions(msg.Width, msg.Height)
+	m.worktreeCleanupModal.OverlayShell = m.worktreeCleanupModal.WithDimensions(msg.Width, msg.Height)
 	m.workflowHandoff.OverlayShell = m.workflowHandoff.WithDimensions(msg.Width, msg.Height)
 
 	// Use content area width for bottom-anchored overlays so they don't
