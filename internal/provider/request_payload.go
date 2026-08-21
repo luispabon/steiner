@@ -76,3 +76,9 @@ func UsageCompletionTokenCount(usage *UsageStats) int {
 	}
 	return 0
 }
+
+// NonCachedPromptTokens returns prompt tokens not covered by provider cache reads
+// or cache creation. Negative results are clamped to zero.
+func (u UsageStats) NonCachedPromptTokens() int {
+	return max(0, u.PromptTokens-u.CacheReadInputTokens-u.CacheCreationInputTokens)
+}

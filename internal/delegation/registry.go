@@ -89,6 +89,53 @@ type DelegateDeps struct {
 	// CacheKeyStore is the singleton store shared across the process for
 	// cache-key reuse. Nil means no reuse: each delegation mints a fresh key.
 	CacheKeyStore *CacheKeyStore
+	// AdvisorState is the singleton advisor use-counter shared across the
+	// process, so advisor.Config.MaxUsesPerRun is enforced for the whole
+	// session instead of resetting every time BuildDelegateRegistry runs
+	// (once per turn). Nil means no reuse: each call gets a private counter,
+	// so the cap is enforced per BuildDelegateRegistry call only.
+	AdvisorState *advisor.SharedState
+}
+
+// registerAdvisorTool resolves the advisor model and provider, then registers
+// the advisor tool on cloned. Split out of BuildDelegateRegistry to keep its
+// cyclomatic complexity down.
+func registerAdvisorTool(cloned *tool.Registry, deps DelegateDeps) error {
+	advisorResolved, err := provider.ResolveWithDiscovery(deps.Config, deps.Config.Models.Advisor, deps.HTTPClient)
+	if err != nil {
+		return fmt.Errorf("resolve advisor model %q: %w", deps.Config.Models.Advisor, err)
+	}
+	if deps.AdvisorCfg.Timeout != nil {
+		advisorResolved.ProviderConfig.Timeout = *deps.AdvisorCfg.Timeout
+	}
+	advisorProvider, err := resolveToolProvider(deps.Provider, deps.ResolvedModel, advisorResolved, deps.ProviderFactory)
+	if err != nil {
+		return fmt.Errorf("build advisor provider for %q: %w", deps.Config.Models.Advisor, err)
+	}
+	advisorPolicy := tool.NewPathPolicy(deps.WorkDir, deps.Config.Paths)
+
+	cloned.Register(advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
+		Provider: advisorProvider,
+		Model:    advisorResolved,
+		Events:   deps.Events,
+		Config: advisor.Config{
+			MaxUsesPerRun: deps.AdvisorCfg.MaxUsesPerRun,
+			MaxTokens:     deps.AdvisorCfg.MaxTokens,
+		},
+		UsageRecorder: deps.UsageRecorder,
+		WorkDir:       deps.WorkDir,
+		PathPolicy:    &advisorPolicy,
+		CacheKey:      resolveAdvisorCacheKey(deps.CacheKeyStore),
+		SharedState:   deps.AdvisorState,
+	})))
+	return nil
+}
+
+// resolveAdvisorCacheKey returns the advisor's cache key from store when
+// provided, falling back to a freshly minted key when store is nil or fails
+// to mint one.
+func resolveAdvisorCacheKey(store *CacheKeyStore) string {
+	return cacheKeyOrMint(store, cacheKeyAgentTypeAdvisor)
 }
 
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
@@ -101,30 +148,9 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	cloned := deps.BaseRegistry.Clone()
 
 	if deps.AdvisorCfg.Enabled {
-		advisorResolved, err := provider.ResolveWithDiscovery(deps.Config, deps.Config.Models.Advisor, deps.HTTPClient)
-		if err != nil {
-			return nil, fmt.Errorf("resolve advisor model %q: %w", deps.Config.Models.Advisor, err)
+		if err := registerAdvisorTool(cloned, deps); err != nil {
+			return nil, err
 		}
-		if deps.AdvisorCfg.Timeout != nil {
-			advisorResolved.ProviderConfig.Timeout = *deps.AdvisorCfg.Timeout
-		}
-		advisorProvider, err := resolveToolProvider(deps.Provider, deps.ResolvedModel, advisorResolved, deps.ProviderFactory)
-		if err != nil {
-			return nil, fmt.Errorf("build advisor provider for %q: %w", deps.Config.Models.Advisor, err)
-		}
-		advisorPolicy := tool.NewPathPolicy(deps.WorkDir, deps.Config.Paths)
-		cloned.Register(advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
-			Provider: advisorProvider,
-			Model:    advisorResolved,
-			Events:   deps.Events,
-			Config: advisor.Config{
-				MaxUsesPerRun: deps.AdvisorCfg.MaxUsesPerRun,
-				MaxTokens:     deps.AdvisorCfg.MaxTokens,
-			},
-			UsageRecorder: deps.UsageRecorder,
-			WorkDir:       deps.WorkDir,
-			PathPolicy:    &advisorPolicy,
-		})))
 	}
 
 	if !deps.SubAgentCfg.Enabled {

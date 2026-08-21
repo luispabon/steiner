@@ -144,7 +144,7 @@ func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, sk
 		Events:            r.runtime.events,
 		CaveHuman:         r.runtime.cfg.CaveHuman,
 		CompactionLogPath: r.runtime.compactionLogFile,
-		PromptCacheKey:    r.promptCacheKey,
+		PromptCacheKey:    r.promptCacheKey(),
 	}
 	return agent.NewRunner().Compact(ctx, req, conversation)
 }
@@ -237,7 +237,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
 		DrainSteers:        drainSteers,
-		PromptCacheKey:     r.promptCacheKey,
+		PromptCacheKey:     r.promptCacheKey(),
 		VisionCapabilities: r.runtime.visionCapabilities,
 	}
 	if r.runtime.cfg.SubAgent.Enabled {

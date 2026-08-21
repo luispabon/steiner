@@ -132,10 +132,7 @@ func (p *turnProgressor) finalizeModelCallState(ctx context.Context, state RunSt
 	turnTokens := tokenCount(ctx, chatRequest, response.Usage)
 	state.TokenCount += turnTokens
 	if response.Usage != nil {
-		nonCached := response.Usage.PromptTokens - response.Usage.CacheReadInputTokens - response.Usage.CacheCreationInputTokens
-		if nonCached < 0 {
-			nonCached = 0
-		}
+		nonCached := response.Usage.NonCachedPromptTokens()
 		state.InputTokens += nonCached
 		state.CacheReadTokens += response.Usage.CacheReadInputTokens
 		state.CacheCreateTokens += response.Usage.CacheCreationInputTokens

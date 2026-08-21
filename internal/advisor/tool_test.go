@@ -13,6 +13,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 type toolSink struct {
@@ -144,6 +145,48 @@ func TestNewHandlerStopsAtBudgetWithoutCallingProvider(t *testing.T) {
 	}
 }
 
+func TestNewHandlerSharesBudgetAcrossHandlersViaSharedState(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "first"},
+		},
+	}
+	shared := NewSharedState()
+	deps := HandlerDeps{
+		Provider:    prov,
+		Model:       provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Config:      Config{MaxUsesPerRun: 1},
+		SharedState: shared,
+	}
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+	})
+
+	// Two independently-built handlers, as if BuildDelegateRegistry ran once
+	// per turn, sharing the same SharedState the way a persistent process
+	// singleton would.
+	firstTurnHandler := NewHandler(deps)
+	if _, err := firstTurnHandler(ctx, nil); err != nil {
+		t.Fatalf("first turn handler() error = %v", err)
+	}
+
+	secondTurnHandler := NewHandler(deps)
+	got, err := secondTurnHandler(ctx, nil)
+	if err != nil {
+		t.Fatalf("second turn handler() error = %v", err)
+	}
+
+	want := BudgetExhaustedMessage(1, 1)
+	if got != want {
+		t.Fatalf("second turn handler() = %#v, want %q (budget should persist across handlers sharing SharedState)", got, want)
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(prov.requests))
+	}
+}
+
 func TestNewHandlerRequiresConversationSnapshot(t *testing.T) {
 	t.Parallel()
 
@@ -198,43 +241,100 @@ func TestNewHandlerEmitsCompleteEventOnProviderError(t *testing.T) {
 func TestNewHandlerPopulatesInputTokensFromUsage(t *testing.T) {
 	t.Parallel()
 
-	prov := &fakeProvider{
-		response: provider.ChatResponse{
-			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "Looks good."},
-			Usage: &provider.UsageStats{
-				PromptTokens:             42,
-				CacheReadInputTokens:     100,
-				CacheCreationInputTokens: 5,
-			},
+	tests := []struct {
+		name         string
+		promptTokens int
+		cacheRead    int
+		cacheCreate  int
+		wantInput    int
+		wantRate     float64
+		wantRateOK   bool
+	}{
+		{
+			name:         "no cache activity",
+			promptTokens: 1000,
+			wantInput:    1000,
+			wantRate:     0,
+			wantRateOK:   true,
+		},
+		{
+			name:         "partial cache hit",
+			promptTokens: 1000,
+			cacheRead:    900,
+			cacheCreate:  50,
+			wantInput:    50,
+			wantRate:     0.9,
+			wantRateOK:   true,
+		},
+		{
+			name:         "full cache hit",
+			promptTokens: 1000,
+			cacheRead:    1000,
+			wantInput:    0,
+			wantRate:     1,
+			wantRateOK:   true,
+		},
+		{
+			name:         "malformed provider data clamps to zero",
+			promptTokens: 100,
+			cacheRead:    900,
+			wantInput:    0,
+			wantRate:     1,
+			wantRateOK:   true,
 		},
 	}
-	sink := &toolSink{}
-	handler := NewHandler(HandlerDeps{
-		Provider: prov,
-		Model:    provider.ResolvedModel{BackendModelID: "advisor-model"},
-		Events:   sink,
-		Config:   Config{MaxUsesPerRun: 1},
-	})
-	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
-		{Role: provider.MessageRoleUser, Content: "review this"},
-	})
 
-	if _, err := handler(ctx, nil); err != nil {
-		t.Fatalf("handler() error = %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	completed, ok := sink.events[1].Payload.(output.AdvisorCompleteEvent)
-	if !ok {
-		t.Fatalf("event[1] payload = %T, want AdvisorCompleteEvent", sink.events[1].Payload)
-	}
-	if completed.InputTokens != 42 {
-		t.Fatalf("completed.InputTokens = %d, want 42", completed.InputTokens)
-	}
-	if completed.CacheReadTokens != 100 {
-		t.Fatalf("completed.CacheReadTokens = %d, want 100", completed.CacheReadTokens)
-	}
-	if completed.CacheCreateTokens != 5 {
-		t.Fatalf("completed.CacheCreateTokens = %d, want 5", completed.CacheCreateTokens)
+			prov := &fakeProvider{
+				response: provider.ChatResponse{
+					Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "Looks good."},
+					Usage: &provider.UsageStats{
+						PromptTokens:             tt.promptTokens,
+						CacheReadInputTokens:     tt.cacheRead,
+						CacheCreationInputTokens: tt.cacheCreate,
+					},
+				},
+			}
+			sink := &toolSink{}
+			handler := NewHandler(HandlerDeps{
+				Provider: prov,
+				Model:    provider.ResolvedModel{BackendModelID: "advisor-model"},
+				Events:   sink,
+				Config:   Config{MaxUsesPerRun: 1},
+			})
+			ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "review this"},
+			})
+
+			if _, err := handler(ctx, nil); err != nil {
+				t.Fatalf("handler() error = %v", err)
+			}
+
+			completed, ok := sink.events[1].Payload.(output.AdvisorCompleteEvent)
+			if !ok {
+				t.Fatalf("event[1] payload = %T, want AdvisorCompleteEvent", sink.events[1].Payload)
+			}
+			if completed.InputTokens != tt.wantInput {
+				t.Fatalf("completed.InputTokens = %d, want %d", completed.InputTokens, tt.wantInput)
+			}
+			if completed.CacheReadTokens != tt.cacheRead {
+				t.Fatalf("completed.CacheReadTokens = %d, want %d", completed.CacheReadTokens, tt.cacheRead)
+			}
+			if completed.CacheCreateTokens != tt.cacheCreate {
+				t.Fatalf("completed.CacheCreateTokens = %d, want %d", completed.CacheCreateTokens, tt.cacheCreate)
+			}
+
+			gotRate, gotOK := usagestats.HitRate(completed.CacheReadTokens, completed.InputTokens, completed.CacheCreateTokens)
+			if gotOK != tt.wantRateOK {
+				t.Fatalf("HitRate() ok = %v, want %v", gotOK, tt.wantRateOK)
+			}
+			if gotOK && gotRate != tt.wantRate {
+				t.Fatalf("HitRate() = %v, want %v", gotRate, tt.wantRate)
+			}
+		})
 	}
 }
 

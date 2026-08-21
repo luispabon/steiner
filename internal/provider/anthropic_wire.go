@@ -45,7 +45,19 @@ type anthropicMessage struct {
 
 type anthropicCacheControl struct {
 	Type string `json:"type"`
+	TTL  string `json:"ttl,omitempty"`
 }
+
+// anthropicAdvisorCacheTTL is the extended ephemeral cache TTL used for
+// advisor-shaped requests, in place of the provider's default 5m window.
+const anthropicAdvisorCacheTTL = "1h"
+
+// anthropicAdvisorBreakpointSpacing is the number of content blocks between
+// intermediate cache breakpoints placed in the reusable conversation tail of
+// an advisor-shaped request. It must stay at or below the provider's 20-block
+// backward lookback so a later request's breakpoint can still find an
+// earlier one's cached entry.
+const anthropicAdvisorBreakpointSpacing = 15
 
 type anthropicTool struct {
 	Name         string                 `json:"name"`
@@ -170,22 +182,29 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 		}
 	}
 
-	assignCacheBreakpoints(&wire)
+	if request.AdvisorCacheProfile {
+		assignAdvisorCacheBreakpoints(&wire)
+	} else {
+		assignCacheBreakpoints(&wire)
+	}
 	return wire
+}
+
+func markStaticPrefixBreakpoint(wire *anthropicRequest, cc *anthropicCacheControl) int {
+	if len(wire.System) > 0 {
+		wire.System[len(wire.System)-1].CacheControl = cc
+		return 1
+	}
+	if len(wire.Tools) > 0 {
+		wire.Tools[len(wire.Tools)-1].CacheControl = cc
+		return 1
+	}
+	return 0
 }
 
 func assignCacheBreakpoints(wire *anthropicRequest) {
 	cacheControl := &anthropicCacheControl{Type: "ephemeral"}
-	numBreakpoints := 0
-
-	// STATIC PREFIX: Mark last system block (caches tools+system), or last tool if no system.
-	if len(wire.System) > 0 {
-		wire.System[len(wire.System)-1].CacheControl = cacheControl
-		numBreakpoints++
-	} else if len(wire.Tools) > 0 {
-		wire.Tools[len(wire.Tools)-1].CacheControl = cacheControl
-		numBreakpoints++
-	}
+	numBreakpoints := markStaticPrefixBreakpoint(wire, cacheControl)
 
 	// ROLLING CONVERSATION: Find last two user-turn boundaries and mark final message's last block.
 	if len(wire.Messages) == 0 {
@@ -206,6 +225,38 @@ func assignCacheBreakpoints(wire *anthropicRequest) {
 	secondLastUserMsgIdx := userMsgIndices[0]
 	if len(wire.Messages[secondLastUserMsgIdx].Content) > 0 {
 		wire.Messages[secondLastUserMsgIdx].Content[len(wire.Messages[secondLastUserMsgIdx].Content)-1].CacheControl = cacheControl
+	}
+}
+
+// assignAdvisorCacheBreakpoints places cache breakpoints for advisor-shaped
+// requests: the last system block, then breakpoints spaced every
+// anthropicAdvisorBreakpointSpacing content blocks walking backward from the
+// end of the reusable conversation tail (i.e. excluding the final message,
+// which is the per-call unique suffix and can never be read back). All
+// breakpoints carry the extended anthropicAdvisorCacheTTL.
+func assignAdvisorCacheBreakpoints(wire *anthropicRequest) {
+	cacheControl := &anthropicCacheControl{Type: "ephemeral", TTL: anthropicAdvisorCacheTTL}
+	numBreakpoints := markStaticPrefixBreakpoint(wire, cacheControl)
+
+	// Exclude the final message (the unique per-call suffix) from the
+	// reusable tail eligible for breakpoints.
+	if len(wire.Messages) <= 1 {
+		return
+	}
+	tail := wire.Messages[:len(wire.Messages)-1]
+
+	// distanceFromEnd counts content blocks walking backward from the last
+	// block of the tail (distance 0). Breakpoints land at distance 0, 15,
+	// 30, 45, ... until the 4-breakpoint budget is spent.
+	distanceFromEnd := 0
+	for i := len(tail) - 1; i >= 0 && numBreakpoints < 4; i-- {
+		for j := len(tail[i].Content) - 1; j >= 0 && numBreakpoints < 4; j-- {
+			if distanceFromEnd%anthropicAdvisorBreakpointSpacing == 0 {
+				tail[i].Content[j].CacheControl = cacheControl
+				numBreakpoints++
+			}
+			distanceFromEnd++
+		}
 	}
 }
 

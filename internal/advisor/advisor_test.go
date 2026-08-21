@@ -436,6 +436,9 @@ func TestAdviseSucceedsWithEmptyCacheKey(t *testing.T) {
 	if prov.requests[0].PromptCacheKey != "" {
 		t.Fatalf("request PromptCacheKey = %q, want empty string", prov.requests[0].PromptCacheKey)
 	}
+	if !prov.requests[0].AdvisorCacheProfile {
+		t.Fatal("request AdvisorCacheProfile = false, want true for every advisor call")
+	}
 }
 
 func intPtr(v int) *int { return &v }

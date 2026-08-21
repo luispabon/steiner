@@ -401,20 +401,35 @@ func NewAdvisorStartedEvent(model string, useNumber, maxUses int, question strin
 	})
 }
 
+// AdvisorCompleteParams holds the arguments for NewAdvisorCompleteEvent.
+type AdvisorCompleteParams struct {
+	Model             string
+	UseNumber         int
+	MaxUses           int
+	Note              string
+	Truncated         bool
+	Err               error
+	CacheReadTokens   int
+	CacheCreateTokens int
+	InputTokens       int
+	TokenCount        int
+}
+
 // NewAdvisorCompleteEvent creates an advisor_complete event.
-func NewAdvisorCompleteEvent(model string, useNumber, maxUses int, note string, truncated bool, err error, cacheReadTokens, cacheCreateTokens, inputTokens int) Event {
+func NewAdvisorCompleteEvent(p AdvisorCompleteParams) Event {
 	payload := AdvisorCompleteEvent{
-		Model:             strings.TrimSpace(model),
-		UseNumber:         useNumber,
-		MaxUses:           maxUses,
-		Note:              strings.TrimSpace(note),
-		Truncated:         truncated,
-		CacheReadTokens:   cacheReadTokens,
-		CacheCreateTokens: cacheCreateTokens,
-		InputTokens:       inputTokens,
+		Model:             strings.TrimSpace(p.Model),
+		UseNumber:         p.UseNumber,
+		MaxUses:           p.MaxUses,
+		Note:              strings.TrimSpace(p.Note),
+		Truncated:         p.Truncated,
+		CacheReadTokens:   p.CacheReadTokens,
+		CacheCreateTokens: p.CacheCreateTokens,
+		InputTokens:       p.InputTokens,
+		TokenCount:        p.TokenCount,
 	}
-	if err != nil {
-		payload.Error = err.Error()
+	if p.Err != nil {
+		payload.Error = p.Err.Error()
 	}
 	return newEvent(EventTypeAdvisorComplete, payload)
 }

@@ -20,6 +20,11 @@ const (
 	AgentTypeVision AgentType = "vision"
 )
 
+// cacheKeyAgentTypeAdvisor names the advisor's slot in the CacheKeyStore. The
+// advisor is not a delegation agent type — this value is deliberately absent
+// from AllAgentTypes and validAgentTypeSet (see below).
+const cacheKeyAgentTypeAdvisor AgentType = "advisor"
+
 // AllAgentTypes returns all valid agent type values.
 func AllAgentTypes() []AgentType {
 	return []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeCode, AgentTypeEvaluate, AgentTypeSanityCheck, AgentTypeReview, AgentTypeVision}

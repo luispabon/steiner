@@ -30,6 +30,7 @@ type Session struct {
 	conversation        []agent.Message
 	lineage             agent.ConversationLineage
 	sessionID           string
+	promptCacheKey      string
 	sessionTitle        string
 	sessionGroup        string
 	reasoningOverrides  map[string]provider.ReasoningOverride
@@ -70,6 +71,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 		approvalCoordinator: &ApprovalCoordinator{},
 		handoffCoordinator:  &WorkflowHandoffCoordinator{},
 		sessionID:           sessionID,
+		promptCacheKey:      sessionID,
 		lineage:             agent.ConversationLineage{},
 		reasoningOverrides:  make(map[string]provider.ReasoningOverride),
 		mode:                mode,
@@ -238,6 +240,13 @@ func (s *Session) SessionID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.sessionID
+}
+
+// PromptCacheKey returns the session's current prompt cache key.
+func (s *Session) PromptCacheKey() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.promptCacheKey
 }
 
 // SessionTitle returns the current session's title, which is empty until

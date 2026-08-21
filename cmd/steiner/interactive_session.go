@@ -399,7 +399,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		streamingPreferred:       true,
 		currentAlias:             sess.CurrentModelAlias,
 		currentReasoningOverride: sess.CurrentReasoningOverride,
-		promptCacheKey:           sess.SessionID(),
+		promptCacheKeyFn:         sess.PromptCacheKey,
 		modeGetterFunc:           sess.Mode,
 	}
 	runner.approver = sess.Approver(rt.events)

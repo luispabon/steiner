@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -147,6 +148,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		streamErrorLog:          streamErrorLog,
 		delegationSessionStore:  delegation.NewSessionStore(),
 		delegationCacheKeyStore: delegation.NewCacheKeyStore(),
+		advisorState:            advisor.NewSharedState(),
 		compactionLogFile:       compactionLogFile,
 		usageRecorder:           usagestats.New(nil),
 		imageStore:              agent.NewImageStore(filepath.Join(workDir, ".steiner", "tmp", "images")),

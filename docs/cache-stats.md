@@ -13,7 +13,7 @@ These headers, derived from a stable session key (`prompt_cache_key`), enable se
 
 The `prompt_cache_key` field alone (without the affinity headers) was not sufficient to achieve the improvement; the headers are required for the Codex backend to route correctly. The headers are set in `buildResponsesHTTPRequest` (`internal/provider/codex_responses.go`), keyed from the same stable per-conversation ID carried on `ChatRequest.PromptCacheKey`.
 
-An earlier draft also sent `prompt_cache_retention: "24h"`, intending to extend cache lifetime. That parameter is valid on OpenAI's Platform API (`api.openai.com/v1`) but is **unsupported by the Codex/ChatGPT backend** that steiner's OAuth path talks to — a live request confirmed `400 Bad Request: {"detail":"Unsupported parameter: prompt_cache_retention"}`. It has been removed from the request payload and must not be reintroduced on this path.
+An earlier draft also sent `prompt_cache_retention: "24h"`, intending to extend cache lifetime. That parameter is valid on OpenAI's Platform API (`api.openai.com/v1`) but is **unsupported by the Codex/ChatGPT backend** that steiner's OAuth path talks to — a live request confirmed `400 Bad Request: {"detail":"Unsupported parameter: prompt_cache_retention"}`. It has been removed from the Codex request payload and must not be reintroduced on that path. However, the native-OpenAI chat-completions path (openaiWire) does send `prompt_cache_retention: "24h"` for models that support extended cache retention, because OpenAI documents that prompt cache pricing is identical for `in_memory` and `24h` retention, so extended retention is free — which materially helps sparsely-spaced requests where the default 5–10 minute idle timeout would otherwise evict the cache.
 
 ### Request pacing (min-request-interval)
 
@@ -140,7 +140,7 @@ The `PERFORMANCE` sidebar card includes a `cache hit` field, alongside `duration
 Sub-agent delegation tool boxes report the child agent's cumulative cache hit rate (across auto-extension re-runs and `follow_up` calls); advisor tool boxes report each one-shot consultation's per-call rate. Both are computed with the same `usagestats.HitRate` formula as the session and overlay figures, rather than the session-wide aggregate:
 
 - **Collapsed meta line**: shown as `cache NN.N%` alongside turn/tool/token counts, e.g. `✓ complete · 4 turns · 12 tools · 8123 tokens · 12.4s · cache 95.2%`.
-- **Expanded stats block**: shown as `Cache: NN.N%`.
+- **Expanded stats block**: shown as `Tokens: X in / Y out` (X is cache-read + non-cached input + cache-create tokens, Y is completion tokens) and `Cache: NN.N%`.
 - **Follow-ups**: Cache figures are cumulative for the child agent: they are accumulated across auto-extension re-runs and carried across `follow_up` calls (via `Spec.PriorTokenUsage`), so a follow-up box reports the child's overall rate rather than that one call's rate. Turn/tool counts remain per call, but token counts are now cumulative (whole-life) across extension re-runs and `follow_up` calls, so a follow-up box's `cache NN.N%` and its token counts describe the same cumulative scope while its turn/tool counts describe that one call.
 - **Compaction/escalation caveat**: Compaction and context-escalation model calls within a run do not feed these per-run counters; they report to the session-wide recorder through a separate path. A run that included heavy compaction will not have that portion reflected in its own reported cache rate.
 - **Undefined case**: `—` is shown, never `0.0%`, when the run had no cache-bearing usage.

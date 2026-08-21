@@ -53,6 +53,7 @@ func (s *Session) saveSession() error {
 	}
 
 	sess.ID = s.sessionID
+	sess.PromptCacheKey = s.promptCacheKey
 	sess.Mode = string(s.mode)
 	if s.sessionTitle != "" {
 		sess = sess.WithTitle(s.sessionTitle)
@@ -75,6 +76,7 @@ func (s *Session) rotateSession(group string, updateGroup bool) error {
 		return fmt.Errorf("rotate session id: %w", err)
 	}
 	s.sessionID = id
+	s.promptCacheKey = id
 	s.sessionTitle = ""
 	if updateGroup {
 		s.sessionGroup = strings.TrimSpace(group)
@@ -113,6 +115,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.lineage = sess.Lineage
 	s.conversation = sess.Lineage.FullMessages()
 	s.sessionID = sess.ID
+	s.promptCacheKey = sess.CacheKey()
 	s.sessionTitle = sess.Title
 	s.sessionGroup = strings.TrimSpace(sess.Group)
 	s.mode = mode
@@ -178,11 +181,12 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 
 	s.mu.RLock()
 	currentSession := session.Session{
-		ID:      s.sessionID,
-		Title:   s.sessionTitle,
-		Model:   s.deps.Config.Models.Definitions[s.deps.Config.Models.Default].ID,
-		Group:   s.sessionGroup,
-		Lineage: s.lineage,
+		ID:             s.sessionID,
+		Title:          s.sessionTitle,
+		Model:          s.deps.Config.Models.Definitions[s.deps.Config.Models.Default].ID,
+		Group:          s.sessionGroup,
+		Lineage:        s.lineage,
+		PromptCacheKey: s.promptCacheKey,
 	}
 	originalTitle := s.sessionTitle
 	s.mu.RUnlock()

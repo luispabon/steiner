@@ -347,7 +347,7 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Fatalf("status after start = %q, want active", got)
 	}
 
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "check tests first"}))
 	seg = buffer.segments[0]
 	if got := seg.delegData.status; got != "complete" {
 		t.Fatalf("status after complete = %q, want complete", got)
@@ -405,7 +405,7 @@ func TestAppendEventAdvisorLifecycle(t *testing.T) {
 		t.Errorf("segment[4] text = %q, want single space", s.text)
 	}
 
-	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this run (2/2); proceed on your own judgment", "", nil))
+	buffer.AppendEvent(output.NewAdvisorBudgetExhaustedEvent("advisor-model", 2, 2, "advisor budget exhausted for this session (2/2); proceed on your own judgment", "", nil))
 	if len(buffer.segments) != 6 {
 		t.Fatalf("segments count after budget event = %d, want 6", len(buffer.segments))
 	}
@@ -428,7 +428,7 @@ func TestAppendEventAdvisorLifecycleFailure(t *testing.T) {
 	}
 
 	// Complete with an error.
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "", false, errors.New("something went wrong"), 0, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Err: errors.New("something went wrong")}))
 
 	if len(buffer.segments) != 5 {
 		t.Fatalf("segments count after complete with error = %d, want 5 (advisor box + labeled block + blank margin)", len(buffer.segments))
@@ -521,7 +521,7 @@ func TestAdvisorThinkingChunkRouting(t *testing.T) {
 	}
 
 	// Emit complete with output.
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "Final advice here", false, nil, 0, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "Final advice here"}))
 
 	// Verify the advisor box status is complete.
 	if got := dd.status; got != "complete" {
@@ -548,7 +548,7 @@ func TestRenderAdvisorTrailingMargin(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "check the layout", []string{"internal/tui/content_render_delegation.go"}))
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "some advisor note", false, nil, 0, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "some advisor note"}))
 
 	rendered := stripANSI(buffer.String(80))
 
@@ -4505,7 +4505,7 @@ func TestAdvisorCompleteSetsCacheHitRateFromUsage(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 900, 0, 100))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "check tests first", CacheReadTokens: 900, InputTokens: 100}))
 
 	seg := buffer.segments[0]
 	wantRate, wantOK := usagestats.HitRate(900, 100, 0)
@@ -4522,5 +4522,40 @@ func TestAdvisorCompleteSetsCacheHitRateFromUsage(t *testing.T) {
 	rendered := stripANSI(buffer.String(80))
 	if !strings.Contains(rendered, "cache 90.0%") {
 		t.Fatalf("rendered box = %q, want it to contain %q", rendered, "cache 90.0%")
+	}
+}
+
+func TestAdvisorCompleteRendersTokensAndCacheRowsWhenExpanded(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        testStyles(theme.AccentAmber),
+	}
+
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{
+		Model:             "advisor-model",
+		UseNumber:         1,
+		MaxUses:           2,
+		Note:              "check tests first",
+		CacheReadTokens:   900,
+		CacheCreateTokens: 50,
+		InputTokens:       50,
+		TokenCount:        200,
+	}))
+
+	seg := buffer.segments[0]
+	seg.delegData.collapsed = false
+
+	rendered := stripANSI(buffer.String(80))
+	if !strings.Contains(rendered, "Tokens:") {
+		t.Fatalf("rendered box = %q, want it to contain %q", rendered, "Tokens:")
+	}
+	if !strings.Contains(rendered, "1.0k in / 200 out") {
+		t.Fatalf("rendered box = %q, want it to contain %q", rendered, "1.0k in / 200 out")
+	}
+	if !strings.Contains(rendered, "Cache:") || !strings.Contains(rendered, "90.0%") {
+		t.Fatalf("rendered box = %q, want it to contain Cache: 90.0%%", rendered)
 	}
 }

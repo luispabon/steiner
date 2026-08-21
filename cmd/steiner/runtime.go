@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -75,6 +76,7 @@ type cliRuntime struct {
 	sessionStore            *session.Store
 	delegationSessionStore  *delegation.SessionStore
 	delegationCacheKeyStore *delegation.CacheKeyStore
+	advisorState            *advisor.SharedState
 	delegationLogger        *delegation.TraceLogger
 	streamErrorLog          *provider.StreamErrorLogger
 	compactionLogFile       string

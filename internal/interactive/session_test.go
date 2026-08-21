@@ -2178,6 +2178,151 @@ func TestForkSavedSession(t *testing.T) {
 	})
 }
 
+func TestPromptCacheKeyNewSessionMatchesSessionID(t *testing.T) {
+	t.Parallel()
+
+	s := testNewSession(t, Dependencies{})
+	if got, want := s.PromptCacheKey(), s.SessionID(); got != want {
+		t.Fatalf("PromptCacheKey() = %q, want byte-identical session ID %q", got, want)
+	}
+}
+
+func TestPromptCacheKeyRotateMatchesNewID(t *testing.T) {
+	t.Parallel()
+
+	s := testNewSession(t, Dependencies{
+		SessionStore: newMockSessionStore(),
+		Config: config.Config{
+			Models: config.ModelsConfig{
+				Default:     "test",
+				Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
+			},
+		},
+	})
+	oldKey := s.PromptCacheKey()
+
+	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+		t.Fatalf("RotateSession: %v", err)
+	}
+	newKey := s.PromptCacheKey()
+	if newKey == oldKey {
+		t.Fatal("PromptCacheKey unchanged after rotation, want a fresh key")
+	}
+	if newKey != s.SessionID() {
+		t.Fatalf("PromptCacheKey() = %q after rotation, want it to match the new session ID %q", newKey, s.SessionID())
+	}
+}
+
+func TestPromptCacheKeyLoadUsesStoredValue(t *testing.T) {
+	t.Parallel()
+
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions["with-key"] = session.Session{
+		ID:             "with-key",
+		Title:          "Has Stored Key",
+		PromptCacheKey: "stored-cache-key",
+	}
+	mockStore.loadedSessions["legacy"] = session.Session{
+		ID:    "legacy",
+		Title: "No Stored Key",
+	}
+
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+		Config: config.Config{
+			Models: config.ModelsConfig{
+				Default:     "test",
+				Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
+			},
+		},
+	})
+
+	if err := s.LoadSessionByID(context.Background(), "with-key"); err != nil {
+		t.Fatalf("LoadSessionByID(with-key): %v", err)
+	}
+	if got, want := s.PromptCacheKey(), "stored-cache-key"; got != want {
+		t.Fatalf("PromptCacheKey() = %q, want stored value %q", got, want)
+	}
+
+	// A record with no stored prompt_cache_key falls back to its session ID.
+	if err := s.LoadSessionByID(context.Background(), "legacy"); err != nil {
+		t.Fatalf("LoadSessionByID(legacy): %v", err)
+	}
+	if got, want := s.PromptCacheKey(), "legacy"; got != want {
+		t.Fatalf("PromptCacheKey() = %q, want fallback to session ID %q", got, want)
+	}
+}
+
+func TestPromptCacheKeyForkInheritsLiveSessionKey(t *testing.T) {
+	t.Parallel()
+
+	mockStore := newMockSessionStore()
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+		Config: config.Config{
+			Models: config.ModelsConfig{
+				Default:     "test",
+				Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
+			},
+		},
+	})
+
+	parentKey := s.PromptCacheKey()
+
+	if err := s.Handle(context.Background(), ForkSession{}); err != nil {
+		t.Fatalf("Handle(ForkSession): %v", err)
+	}
+
+	if got := s.PromptCacheKey(); got != parentKey {
+		t.Fatalf("PromptCacheKey() after fork = %q, want inherited parent key %q", got, parentKey)
+	}
+
+	// The saved fork record on disk must carry the same key, otherwise
+	// loading the fork later regresses to its own ID.
+	forked, ok := mockStore.savedSessions[s.SessionID()]
+	if !ok {
+		t.Fatal("forked session was not saved to store")
+	}
+	if got := forked.PromptCacheKey; got != parentKey {
+		t.Fatalf("saved fork PromptCacheKey = %q, want inherited parent key %q", got, parentKey)
+	}
+}
+
+func TestPromptCacheKeyForkOfForkOfSavedSessionMaterializesOnFirstFork(t *testing.T) {
+	t.Parallel()
+
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions["legacy-root"] = session.Session{
+		ID:    "legacy-root",
+		Title: "Legacy",
+	}
+
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+		Config: config.Config{
+			Models: config.ModelsConfig{
+				Default:     "test",
+				Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), ForkSavedSession{SessionID: "legacy-root"}); err != nil {
+		t.Fatalf("Handle(ForkSavedSession): %v", err)
+	}
+	firstForkKey := s.PromptCacheKey()
+	if firstForkKey != "legacy-root" {
+		t.Fatalf("first fork PromptCacheKey() = %q, want healed to root ID %q", firstForkKey, "legacy-root")
+	}
+
+	if err := s.Handle(context.Background(), ForkSession{}); err != nil {
+		t.Fatalf("Handle(ForkSession) on fork-of-fork: %v", err)
+	}
+	if got := s.PromptCacheKey(); got != firstForkKey {
+		t.Fatalf("fork-of-fork PromptCacheKey() = %q, want propagated key %q", got, firstForkKey)
+	}
+}
+
 func TestLoadSessionRestoresDelegationBoxes(t *testing.T) {
 	t.Parallel()
 

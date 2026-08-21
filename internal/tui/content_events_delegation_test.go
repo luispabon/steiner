@@ -661,7 +661,7 @@ func TestTwoConsecutiveAdvisorCallsStayAsSeparateSegments(t *testing.T) {
 
 	// First advisor
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-1", 1, 1, "", nil))
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent("advisor-1", 1, 1, "", false, nil, 0, 0, 0))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Model: "advisor-1", UseNumber: 1, MaxUses: 1}))
 
 	// Second advisor
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-2", 1, 1, "", nil))

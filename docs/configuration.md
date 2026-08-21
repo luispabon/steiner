@@ -82,13 +82,14 @@ If `OPENAI_API_KEY` is not set, configuration loading fails. If `OPENAI_BASE_URL
 Controls the optional advisor reasoning pass. The advisor is disabled by default.
 When enabled, it uses a stronger model to review the live parent conversation and
 return concise strategic guidance. The tool definition stays stable for the whole
-run; the `max_uses_per_run` cap is enforced in handler state rather than by
-removing or mutating the tool mid-conversation.
+session; the `max_uses_per_run` cap is enforced in shared handler state, persisted
+for the life of the process rather than reset each turn, rather than by removing
+or mutating the tool mid-conversation.
 
 | Field              | Type   | Default | Description |
 |--------------------|--------|---------|-------------|
 | `enabled`          | bool   | `false` | Master switch. Set to `true` to enable the advisor tool and prompt steering. |
-| `max_uses_per_run` | int    | `3`     | Per-run use cap enforced in handler state. When the cap is exhausted, the handler returns a budget-exhausted result instead of calling the advisor model. |
+| `max_uses_per_run` | int    | `3`     | Per-session use cap enforced in shared handler state. When the cap is exhausted, the handler returns a budget-exhausted result instead of calling the advisor model. |
 | `max_tokens`       | *int   | `nil`   | Optional output-token ceiling for advisor calls. When set, the value is forwarded to the provider request. |
 | `timeout`          | *Duration | `180s`  | Optional HTTP timeout override applied only to advisor calls. When set, it overrides `providers.<name>.timeout` for the advisor model only; the main chat model and other models using the same provider are unaffected. Useful because advisor calls send a large parent-conversation prompt and frequently hit the provider's default header-read timeout. |
 
@@ -212,13 +213,13 @@ providers:
 | `openrouter`     | OpenRouter cloud gateway. Requires `api_key` or `api_key_env`. No `base_url` needed. |
 | `openai`         | Native OpenAI API. Requires `api_key` or `api_key_env`. No `base_url` needed. |
 | `anthropic`      | Native Anthropic API. Requires `api_key` or `api_key_env`. No `base_url` needed. |
-| `gemini`         | Native Google Gemini API. Requires `api_key` or `api_key_env`. No `base_url` needed. |
+| `gemini`         | **Not implemented by the runtime provider factory** — configuring `type: gemini` passes config validation but fails at startup with `provider type "gemini" is not implemented by the runtime provider factory`. As a workaround, use `type: openai_compat` against a Gemini-compatible OpenAI endpoint and set `models.<alias>.advanced.transport: openai_compat` as an explicit override. |
 | `litellm`        | LiteLLM gateway endpoint. Works like `openai_compat` but with LiteLLM-specific retry handling: when a 429 response lacks a `Retry-After` header, steiner parses the delay from the response body (e.g. "Try again in N seconds"). Budget-exhaustion 429s are detected and treated as non-retryable. Set `base_url` to your LiteLLM server. |
 | `codex`          | OpenAI Codex subscription via OAuth. Authenticates using your OpenAI account instead of an API key and uses the Responses wire format. Run `steiner login codex` before use. When login can exchange the ChatGPT ID token for an API-key style credential, Steiner sends requests to `https://api.openai.com/v1/responses`; otherwise it uses `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and `ChatGPT-Account-ID`. `api_key` and `api_key_env` are not used - authentication is managed by the OAuth token stored at `~/.config/steiner/codex_auth.json`. Older token files still load, but re-running `steiner login codex` refreshes stored ChatGPT account metadata and the optional exchanged API credential used for direct OpenAI Responses API calls. |
 
 **Field applicability by provider type:**
 
-| Field         | openai_compat | ollama | lmstudio | openrouter | openai | anthropic | gemini | litellm | codex |
+| Field         | openai_compat | ollama | lmstudio | openrouter | openai | anthropic | gemini¹ | litellm | codex |
 |---------------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `base_url`    | required | optional | required | — | — | — | — | required | optional |
 | `api_key`     | optional | — | — | ✓ | ✓ | ✓ | ✓ | optional | — |
@@ -226,6 +227,8 @@ providers:
 | `headers`     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `timeout`     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `codex`       | — | — | — | — | — | — | — | — | ✓ |
+
+¹ `gemini` passes config validation but is not implemented by the runtime provider factory; see the [Provider types](#provider-types) table above for the workaround.
 
 ### `codex` sub-block
 

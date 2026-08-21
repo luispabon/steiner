@@ -169,3 +169,22 @@ func TestBuildRequestPayload_PreservesEmptyNestedToolSchemaMaps(t *testing.T) {
 		t.Fatalf("len(properties) = %d, want 0", len(properties))
 	}
 }
+
+func TestUsageStatsNonCachedPromptTokens(t *testing.T) {
+	tests := []struct {
+		name  string
+		usage UsageStats
+		want  int
+	}{
+		{name: "zero value", want: 0},
+		{name: "positive non-cached remainder", usage: UsageStats{PromptTokens: 100, CacheReadInputTokens: 30, CacheCreationInputTokens: 20}, want: 50},
+		{name: "negative remainder clamps to zero", usage: UsageStats{PromptTokens: 10, CacheReadInputTokens: 8, CacheCreationInputTokens: 5}, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.usage.NonCachedPromptTokens(); got != tt.want {
+				t.Fatalf("NonCachedPromptTokens() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
