@@ -740,6 +740,10 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 	dd.output = payload.Note
 	dd.status = "complete"
 	dd.resultStatus = "complete"
+	dd.cacheReadTokens = payload.CacheReadTokens
+	dd.inputTokens = payload.InputTokens
+	dd.cacheCreateTokens = payload.CacheCreateTokens
+	dd.tokenCount = payload.TokenCount
 	dd.cacheHitRate, dd.cacheHitOK = usagestats.HitRate(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens)
 	if strings.TrimSpace(payload.Error) != "" {
 		dd.output = payload.Error

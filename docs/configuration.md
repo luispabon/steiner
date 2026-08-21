@@ -212,13 +212,13 @@ providers:
 | `openrouter`     | OpenRouter cloud gateway. Requires `api_key` or `api_key_env`. No `base_url` needed. |
 | `openai`         | Native OpenAI API. Requires `api_key` or `api_key_env`. No `base_url` needed. |
 | `anthropic`      | Native Anthropic API. Requires `api_key` or `api_key_env`. No `base_url` needed. |
-| `gemini`         | Native Google Gemini API. Requires `api_key` or `api_key_env`. No `base_url` needed. |
+| `gemini`         | **Not implemented by the runtime provider factory** — configuring `type: gemini` passes config validation but fails at startup with `provider type "gemini" is not implemented by the runtime provider factory`. As a workaround, use `type: openai_compat` against a Gemini-compatible OpenAI endpoint and set `models.<alias>.advanced.transport: openai_compat` as an explicit override. |
 | `litellm`        | LiteLLM gateway endpoint. Works like `openai_compat` but with LiteLLM-specific retry handling: when a 429 response lacks a `Retry-After` header, steiner parses the delay from the response body (e.g. "Try again in N seconds"). Budget-exhaustion 429s are detected and treated as non-retryable. Set `base_url` to your LiteLLM server. |
 | `codex`          | OpenAI Codex subscription via OAuth. Authenticates using your OpenAI account instead of an API key and uses the Responses wire format. Run `steiner login codex` before use. When login can exchange the ChatGPT ID token for an API-key style credential, Steiner sends requests to `https://api.openai.com/v1/responses`; otherwise it uses `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and `ChatGPT-Account-ID`. `api_key` and `api_key_env` are not used - authentication is managed by the OAuth token stored at `~/.config/steiner/codex_auth.json`. Older token files still load, but re-running `steiner login codex` refreshes stored ChatGPT account metadata and the optional exchanged API credential used for direct OpenAI Responses API calls. |
 
 **Field applicability by provider type:**
 
-| Field         | openai_compat | ollama | lmstudio | openrouter | openai | anthropic | gemini | litellm | codex |
+| Field         | openai_compat | ollama | lmstudio | openrouter | openai | anthropic | gemini¹ | litellm | codex |
 |---------------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `base_url`    | required | optional | required | — | — | — | — | required | optional |
 | `api_key`     | optional | — | — | ✓ | ✓ | ✓ | ✓ | optional | — |
@@ -226,6 +226,8 @@ providers:
 | `headers`     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `timeout`     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `codex`       | — | — | — | — | — | — | — | — | ✓ |
+
+¹ `gemini` passes config validation but is not implemented by the runtime provider factory; see the [Provider types](#provider-types) table above for the workaround.
 
 ### `codex` sub-block
 

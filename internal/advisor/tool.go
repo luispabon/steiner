@@ -117,7 +117,12 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses, in.Question, advisorDisplayPaths(files)))
 	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, in.Question, files, deps.Config.MaxTokens, deps.Events, s.cacheKey)
 	if err != nil {
-		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, "", false, err, 0, 0, 0))
+		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{
+			Model:     deps.Model.BackendModelID,
+			UseNumber: nextUse,
+			MaxUses:   maxUses,
+			Err:       err,
+		}))
 		return nil, err
 	}
 
@@ -137,10 +142,25 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	if response.Usage != nil {
 		cacheReadTokens = response.Usage.CacheReadInputTokens
 		cacheCreateTokens = response.Usage.CacheCreationInputTokens
-		inputTokens = response.Usage.PromptTokens
+		// HitRate's second argument is the NON-cached portion of the prompt
+		// (see usagestats.Report.InputTokens); Usage.PromptTokens is the total.
+		inputTokens = response.Usage.PromptTokens - cacheReadTokens - cacheCreateTokens
+		if inputTokens < 0 {
+			inputTokens = 0
+		}
 	}
 
-	emitEvent(deps.Events, output.NewAdvisorCompleteEvent(deps.Model.BackendModelID, nextUse, maxUses, note, truncated, nil, cacheReadTokens, cacheCreateTokens, inputTokens))
+	emitEvent(deps.Events, output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{
+		Model:             deps.Model.BackendModelID,
+		UseNumber:         nextUse,
+		MaxUses:           maxUses,
+		Note:              note,
+		Truncated:         truncated,
+		CacheReadTokens:   cacheReadTokens,
+		CacheCreateTokens: cacheCreateTokens,
+		InputTokens:       inputTokens,
+		TokenCount:        provider.UsageCompletionTokenCount(response.Usage),
+	}))
 	return note, nil
 }
 

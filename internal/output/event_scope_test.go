@@ -199,7 +199,7 @@ func TestAdvisorEventsRender(t *testing.T) {
 		t.Fatalf("started text = %q, want advisor lifecycle summary", got)
 	}
 
-	complete := renderEvent(NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 0, 0, 0))
+	complete := renderEvent(NewAdvisorCompleteEvent(AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "check tests first"}))
 	if got := complete.Text; !strings.Contains(got, "advisor complete") || !strings.Contains(got, "note=check tests first") {
 		t.Fatalf("complete text = %q, want advisor note summary", got)
 	}
@@ -207,7 +207,7 @@ func TestAdvisorEventsRender(t *testing.T) {
 		t.Fatalf("complete text = %q, want no cache= field when there is no cache-bearing usage", got)
 	}
 
-	completeWithUsage := NewAdvisorCompleteEvent("advisor-model", 1, 2, "check tests first", false, nil, 10, 20, 30)
+	completeWithUsage := NewAdvisorCompleteEvent(AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "check tests first", CacheReadTokens: 10, CacheCreateTokens: 20, InputTokens: 30})
 	payload, ok := completeWithUsage.Payload.(AdvisorCompleteEvent)
 	if !ok {
 		t.Fatalf("payload = %T, want AdvisorCompleteEvent", completeWithUsage.Payload)
@@ -232,7 +232,7 @@ func TestAdvisorEventsRender(t *testing.T) {
 // for a turn with 100 total prompt tokens where 50 were served from cache,
 // the rendered hit rate must be 50/100 = 50.0%, not 50/150.
 func TestAdvisorCompleteEventCacheHitRateNotDoubleCounted(t *testing.T) {
-	rendered := renderEvent(NewAdvisorCompleteEvent("advisor-model", 1, 2, "note", false, nil, 50, 0, 50))
+	rendered := renderEvent(NewAdvisorCompleteEvent(AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "note", CacheReadTokens: 50, InputTokens: 50}))
 	if got := rendered.Text; !strings.Contains(got, "cache=50.0%") {
 		t.Fatalf("text = %q, want cache=50.0%%", got)
 	}
