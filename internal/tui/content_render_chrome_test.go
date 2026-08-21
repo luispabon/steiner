@@ -97,6 +97,101 @@ func TestCompactionBoxCollapsedFinished(t *testing.T) {
 	}
 }
 
+func TestCompactionFinishedHeaderShowsCacheRateBeforeElapsed(t *testing.T) {
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:          true,
+		elapsed:           "3s",
+		compactionCount:   2,
+		cacheReadTokens:   950,
+		inputTokens:       50,
+		cacheCreateTokens: 0,
+	}
+
+	out := b.renderCompactionBanner(cd, 80)
+	cacheIndex := strings.Index(out, "cache 95.0%")
+	glyphIndex := strings.Index(out, "✓")
+	elapsedIndex := strings.Index(out, "3s")
+	countIndex := strings.Index(out, "#2")
+	if cacheIndex < 0 {
+		t.Fatalf("output missing cache rate: %q", out)
+	}
+	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
+		t.Fatalf("output missing metadata: %q", out)
+	}
+	if glyphIndex >= cacheIndex || cacheIndex >= elapsedIndex || elapsedIndex >= countIndex {
+		t.Errorf("metadata order = glyph:%d cache:%d elapsed:%d count:%d, want glyph < cache < elapsed < count", glyphIndex, cacheIndex, elapsedIndex, countIndex)
+	}
+}
+
+func TestCompactionFinishedHeaderShowsZeroCacheRate(t *testing.T) {
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:        true,
+		elapsed:         "3s",
+		compactionCount: 2,
+		inputTokens:     100,
+	}
+
+	out := b.renderCompactionBanner(cd, 80)
+	cacheIndex := strings.Index(out, "cache 0.0%")
+	glyphIndex := strings.Index(out, "✓")
+	elapsedIndex := strings.Index(out, "3s")
+	countIndex := strings.Index(out, "#2")
+	if cacheIndex < 0 {
+		t.Fatalf("output missing zero cache rate: %q", out)
+	}
+	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
+		t.Fatalf("output missing metadata: %q", out)
+	}
+	if glyphIndex >= cacheIndex || cacheIndex >= elapsedIndex || elapsedIndex >= countIndex {
+		t.Errorf("metadata order = glyph:%d cache:%d elapsed:%d count:%d, want glyph < cache < elapsed < count", glyphIndex, cacheIndex, elapsedIndex, countIndex)
+	}
+}
+
+func TestCompactionHeaderOmitsCacheRateWithoutUsage(t *testing.T) {
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:        true,
+		elapsed:         "3s",
+		compactionCount: 2,
+	}
+
+	out := b.renderCompactionBanner(cd, 80)
+	if strings.Contains(out, "cache") {
+		t.Fatalf("output should omit cache rate: %q", out)
+	}
+	glyphIndex := strings.Index(out, "✓")
+	elapsedIndex := strings.Index(out, "3s")
+	countIndex := strings.Index(out, "#2")
+	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
+		t.Fatalf("output missing metadata: %q", out)
+	}
+	if glyphIndex >= elapsedIndex || elapsedIndex >= countIndex {
+		t.Errorf("metadata order = glyph:%d elapsed:%d count:%d, want glyph < elapsed < count", glyphIndex, elapsedIndex, countIndex)
+	}
+}
+
+func TestCompactionInProgressHeaderOmitsCacheRate(t *testing.T) {
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:          false,
+		elapsed:           "3s",
+		compactionCount:   2,
+		cacheReadTokens:   950,
+		inputTokens:       50,
+		cacheCreateTokens: 0,
+	}
+
+	out := b.renderCompactionBanner(cd, 80)
+	if strings.Contains(out, "cache") {
+		t.Fatalf("in-progress output should omit cache rate: %q", out)
+	}
+	if !strings.Contains(out, "3s") || !strings.Contains(out, "#2") {
+		t.Fatalf("output missing elapsed or count: %q", out)
+	}
+}
+
 func TestCompactionBoxUsesNilGuard(t *testing.T) {
 	b := newTestBuffer(t)
 	seg := contentSegment{compactionData: nil}
