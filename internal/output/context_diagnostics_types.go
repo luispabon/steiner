@@ -30,6 +30,9 @@ type ContextDiagnosticsEvent struct {
 	SummaryBytes        int      `json:"summary_bytes,omitempty"`
 	BudgetBytes         int      `json:"budget_bytes,omitempty"`
 	UsedBytes           int      `json:"used_bytes,omitempty"`
+	CacheReadTokens     int      `json:"cache_read_tokens,omitempty"`
+	InputTokens         int      `json:"input_tokens,omitempty"`
+	CacheCreateTokens   int      `json:"cache_create_tokens,omitempty"`
 	PromptTokens        int      `json:"prompt_tokens,omitempty"`
 	ContextTokens       int      `json:"context_tokens,omitempty"`
 	TotalTokens         int      `json:"total_tokens,omitempty"`
@@ -66,6 +69,9 @@ type ContextCompactionEvent struct {
 	SummaryPreview      string   `json:"summary_preview,omitempty"`
 	SummaryText         string   `json:"summary_text,omitempty"`
 	SummaryBytes        int      `json:"summary_bytes,omitempty"`
+	CacheReadTokens     int      `json:"cache_read_tokens,omitempty"`
+	InputTokens         int      `json:"input_tokens,omitempty"`
+	CacheCreateTokens   int      `json:"cache_create_tokens,omitempty"`
 	PromptTokens        int      `json:"prompt_tokens,omitempty"`
 	ContextTokens       int      `json:"context_tokens,omitempty"`
 	TotalTokens         int      `json:"total_tokens,omitempty"`
@@ -179,6 +185,9 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		SummaryPreview:      payload.SummaryPreview,
 		SummaryText:         payload.SummaryText,
 		SummaryBytes:        payload.SummaryBytes,
+		CacheReadTokens:     payload.CacheReadTokens,
+		InputTokens:         payload.InputTokens,
+		CacheCreateTokens:   payload.CacheCreateTokens,
 		PromptTokens:        payload.PromptTokens,
 		ContextTokens:       payload.ContextTokens,
 		TotalTokens:         payload.TotalTokens,
@@ -273,6 +282,9 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			SummaryPreview:      payload.SummaryPreview,
 			SummaryText:         payload.SummaryText,
 			SummaryBytes:        payload.SummaryBytes,
+			CacheReadTokens:     payload.CacheReadTokens,
+			InputTokens:         payload.InputTokens,
+			CacheCreateTokens:   payload.CacheCreateTokens,
 			PromptTokens:        payload.PromptTokens,
 			ContextTokens:       payload.ContextTokens,
 			TotalTokens:         payload.TotalTokens,
