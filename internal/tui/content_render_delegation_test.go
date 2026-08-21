@@ -23,7 +23,7 @@ func TestDelegationCompleteMetaIncludesOnlyStatusDurationAndCache(t *testing.T) 
 	}
 
 	got := delegationCompleteMeta(dd)
-	want := []string{"complete", "12.4s", "cache 95.2%"}
+	want := []string{"complete", "cache 95.2%", "12.4s"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
 	}
@@ -75,6 +75,93 @@ func TestDelegationCompleteMetaOmitsCacheHitRateWhenNotOK(t *testing.T) {
 	want := []string{"complete", "12.4s"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
+	}
+}
+
+func TestDelegationActiveHeaderMetaPlacesModelBeforeElapsed(t *testing.T) {
+	b := newTestBuffer(t)
+	for _, isAdvisor := range []bool{false, true} {
+		dd := &delegationDisplayState{
+			status:    "active",
+			isAdvisor: isAdvisor,
+			modelName: "gpt-x",
+			reasoning: "high",
+			startTime: nanoNow() - 10_000_000_000,
+		}
+
+		meta := b.renderDelegationHeaderMeta(dd)
+		modelIndex := strings.Index(meta, "gpt-x/high")
+		elapsedIndex := regexp.MustCompile(`\d+(ms|s|m\ds)`).FindStringIndex(meta)
+		if modelIndex < 0 || elapsedIndex == nil {
+			t.Fatalf("meta = %q, want model and elapsed", meta)
+		}
+		if modelIndex >= elapsedIndex[0] {
+			t.Errorf("meta = %q, model/effort after elapsed", meta)
+		}
+	}
+}
+
+func TestDelegationCompleteMetaOrdersModelCacheAndElapsed(t *testing.T) {
+	t.Parallel()
+	dd := &delegationDisplayState{
+		resultStatus: "complete",
+		modelName:    "gpt-x",
+		reasoning:    "high",
+		cacheHitRate: 0.952,
+		cacheHitOK:   true,
+		elapsed:      "12.4s",
+	}
+
+	got := delegationCompleteMeta(dd)
+	want := []string{"complete", "gpt-x/high", "cache 95.2%", "12.4s"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
+	}
+}
+
+func TestDelegationBudgetMetaOrdersModelBeforeAdvisorUse(t *testing.T) {
+	t.Parallel()
+	dd := &delegationDisplayState{
+		isAdvisor:      true,
+		modelName:      "gpt-x",
+		reasoning:      "high",
+		advisorUse:     1,
+		advisorMaxUses: 2,
+	}
+
+	got := delegationBudgetMeta(dd)
+	want := []string{"budget exhausted", "gpt-x/high", "1/2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("delegationBudgetMeta() = %v, want %v", got, want)
+	}
+}
+
+func TestDelegationFailedMetaOrdersModelBeforeElapsed(t *testing.T) {
+	t.Parallel()
+	dd := &delegationDisplayState{
+		modelName: "gpt-x",
+		reasoning: "high",
+		elapsed:   "12.4s",
+	}
+
+	got := delegationFailedMeta(dd)
+	want := []string{"failed", "gpt-x/high", "12.4s"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("delegationFailedMeta() = %v, want %v", got, want)
+	}
+}
+
+func TestDelegationHeaderMetaOmitsModelWhenModelNameEmpty(t *testing.T) {
+	b := newTestBuffer(t)
+	dd := &delegationDisplayState{
+		status:    "active",
+		reasoning: "high",
+		startTime: nanoNow() - 10_000_000_000,
+	}
+
+	meta := b.renderDelegationHeaderMeta(dd)
+	if strings.Contains(meta, "high") || strings.Contains(meta, "/high") {
+		t.Fatalf("meta = %q, contains model/effort without model", meta)
 	}
 }
 
