@@ -231,6 +231,10 @@ func TestPhaseParamsCarryPhasePrompt(t *testing.T) {
 				t.Errorf("phaseParams(%s).WorkflowMode = %q, want %q",
 					tt.phase, params.WorkflowMode, prompt.DelegatedChildWorkflowMode())
 			}
+
+			if !params.StreamingPreferred {
+				t.Errorf("phaseParams(%s).StreamingPreferred = false, want true", tt.phase)
+			}
 		})
 	}
 }
