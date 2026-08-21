@@ -206,12 +206,13 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 	}
 
 	req := provider.ChatRequest{
-		Model:          rm.BackendModelID,
-		Messages:       buildMessages(conversation, question, files),
-		MaxTokens:      maxTokens,
-		Params:         rm.Params,
-		ExtraParams:    rm.ExtraParams,
-		PromptCacheKey: cacheKey,
+		Model:               rm.BackendModelID,
+		Messages:            buildMessages(conversation, question, files),
+		MaxTokens:           maxTokens,
+		Params:              rm.Params,
+		ExtraParams:         rm.ExtraParams,
+		PromptCacheKey:      cacheKey,
+		AdvisorCacheProfile: true,
 	}
 	if rm.ReasoningEffectiveEffort != "" {
 		req.Reasoning = &provider.ReasoningRequest{Effort: rm.ReasoningEffectiveEffort}

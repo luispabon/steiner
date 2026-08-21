@@ -102,6 +102,12 @@ type ChatRequest struct {
 	ExtraParams           map[string]any    `json:"-"` // Raw provider-specific passthrough
 	IncludeEmptyReasoning bool              `json:"-"` // Fill empty reasoning_content on assistant messages before sending
 	Reasoning             *ReasoningRequest `json:"-"` // Resolved reasoning effort; nil means provider default applies
+	// AdvisorCacheProfile opts an Anthropic request into the advisor-shaped
+	// cache profile: an extended 1h cache TTL on breakpoints, and breakpoint
+	// placement redistributed across the reusable conversation tail instead
+	// of wasting a breakpoint on the per-call unique final message. Defaults
+	// to false for every other caller, leaving their requests unchanged.
+	AdvisorCacheProfile bool `json:"-"`
 }
 
 // ChatResponse is the normalized provider response payload.
