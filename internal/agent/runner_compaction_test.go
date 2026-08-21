@@ -233,6 +233,11 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 					Content: "first handoff",
 				},
 				FinishReason: "stop",
+				Usage: &provider.UsageStats{
+					PromptTokens:             100,
+					CacheReadInputTokens:     30,
+					CacheCreationInputTokens: 20,
+				},
 			},
 			{
 				Message: provider.Message{
@@ -240,6 +245,11 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 					Content: "second handoff",
 				},
 				FinishReason: "stop",
+				Usage: &provider.UsageStats{
+					PromptTokens:             100,
+					CacheReadInputTokens:     30,
+					CacheCreationInputTokens: 20,
+				},
 			},
 			{
 				Message: provider.Message{
@@ -247,6 +257,11 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 					Content: "done",
 				},
 				FinishReason: "stop",
+				Usage: &provider.UsageStats{
+					PromptTokens:             100,
+					CacheReadInputTokens:     30,
+					CacheCreationInputTokens: 20,
+				},
 			},
 		},
 	}
@@ -330,6 +345,9 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 			}
 			if payload.RestartGuidance == "" {
 				t.Fatalf("compaction payload = %#v, want restart guidance", payload)
+			}
+			if payload.CacheReadTokens != 30 || payload.InputTokens != 50 || payload.CacheCreateTokens != 20 {
+				t.Fatalf("compaction usage = cache_read=%d input=%d cache_create=%d, want 30, 50, 20", payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens)
 			}
 		case "session_health":
 			payload, ok := output.AsContextSessionHealthEvent(event.Payload)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func emitEvent(sink output.EventSink, event output.Event) {
@@ -61,9 +62,15 @@ func emitCompactionStartedEvent(sink output.EventSink, turn int) {
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", turn, 0, "compacting", "compacting", "compacting in progress", "starting compaction"))
 }
 
-func emitCompactionDiagnostics(sink output.EventSink, turn, compactionCount int, beforeFit, afterFit prompt.RequestTokenBudget, mode prompt.CompactionMode, summaryTokenBudget int, retainedMessages []Message, candidate ConversationCandidate, summaryText, promptText string) {
+func emitCompactionDiagnostics(sink output.EventSink, turn, compactionCount int, beforeFit, afterFit prompt.RequestTokenBudget, mode prompt.CompactionMode, summaryTokenBudget int, retainedMessages []Message, candidate ConversationCandidate, summaryText, promptText string, usage *provider.UsageStats) {
 	if sink == nil {
 		return
+	}
+	var cacheReadTokens, inputTokens, cacheCreateTokens int
+	if usage != nil {
+		cacheReadTokens = usage.CacheReadInputTokens
+		inputTokens = usage.NonCachedPromptTokens()
+		cacheCreateTokens = usage.CacheCreationInputTokens
 	}
 
 	escalation := compactionEscalationForFit(compactionCount, afterFit)
@@ -95,6 +102,9 @@ func emitCompactionDiagnostics(sink output.EventSink, turn, compactionCount int,
 		SummaryPreview:      summarizeTextPreview(summaryText, 120),
 		SummaryText:         summaryText,
 		SummaryBytes:        len(summaryText),
+		CacheReadTokens:     cacheReadTokens,
+		InputTokens:         inputTokens,
+		CacheCreateTokens:   cacheCreateTokens,
 		Mode:                string(mode),
 		BeforePromptTokens:  beforeFit.EstimatedPromptTokens,
 		BeforeUsagePercent:  beforeFit.PromptUsage * 100,

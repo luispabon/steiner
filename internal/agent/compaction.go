@@ -38,6 +38,8 @@ type CompactionOutcome struct {
 	RetainedMessages   []Message
 	SummaryText        string
 	PromptText         string
+	// Usage is the summarizer response token accounting.
+	Usage *provider.UsageStats
 }
 
 type summarizeCompactor struct{}
@@ -192,6 +194,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		RetainedMessages:   retained,
 		SummaryText:        summaryText,
 		PromptText:         plan.promptText,
+		Usage:              response.Usage,
 	}, nil
 }
 
@@ -262,7 +265,7 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 	*state = outcome.State
 	if compactionCount != nil {
 		(*compactionCount)++
-		emitCompactionDiagnostics(req.Events, turn, *compactionCount, currentFit, outcome.Fit, outcome.Mode, outcome.SummaryTokenBudget, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText)
+		emitCompactionDiagnostics(req.Events, turn, *compactionCount, currentFit, outcome.Fit, outcome.Mode, outcome.SummaryTokenBudget, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText, outcome.Usage)
 	}
 	skipped[compactionCandidateKey(candidate)] = true
 	return true, nil
