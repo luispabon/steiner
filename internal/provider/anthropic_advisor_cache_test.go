@@ -148,8 +148,8 @@ func TestAnthropicAdvisorCacheProfile_NotOptedIn_MatchesDefaultPlacement(t *test
 	}
 
 	// Default placement marks: last system block, last block of the final
-	// message (Messages[31]), and last block of the second-to-last user
-	// message (Messages[30]) — 3 breakpoints total, since there is no
+	// message (Messages[lastIdx]), and last block of the second-to-last user
+	// message (Messages[lastIdx-1]) — 3 breakpoints total, since there is no
 	// assistant message to separate them here.
 	lastIdx := len(wire.Messages) - 1
 	if wire.Messages[lastIdx].Content[0].CacheControl == nil {
