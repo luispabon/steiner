@@ -55,8 +55,8 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 	rt = buildInteractiveRuntime(rt, sess)
 	rt.worktreeCleanup = tui.NewWorktreeCleanupPlan(
-		func() (int, error) {
-			worktrees, err := delegation.ListProcessCodeWorktrees(context.Background(), rt.projectRoot)
+		func(ctx context.Context) (int, error) {
+			worktrees, err := delegation.ListProcessCodeWorktrees(ctx, rt.projectRoot)
 			return len(worktrees), err
 		},
 		func(ctx context.Context) (int, error) {

@@ -439,13 +439,26 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	return err
 }
 
+var worktreeCleanupJoinTimeout = 5 * time.Second
+
 func pruneWorktreesOnExit(cmd *cobra.Command, sess *interactive.Session, rt *cliRuntime) {
 	if rt == nil || rt.worktreeCleanup == nil || !rt.worktreeCleanup.ShouldPrune() {
 		return
 	}
 
 	if sess != nil {
-		sess.WaitRuns()
+		joinCtx, cancel := context.WithTimeout(context.Background(), worktreeCleanupJoinTimeout)
+		finished := sess.WaitRuns(joinCtx)
+		cancel()
+		if !finished {
+			warning := errors.New("skipped because an active run was still finishing")
+			if rt.events != nil {
+				emitCloseWarning(rt.events, "worktree cleanup", warning)
+			} else {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: worktree cleanup: %v.\n", warning)
+			}
+			return
+		}
 	}
 	pruneCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
