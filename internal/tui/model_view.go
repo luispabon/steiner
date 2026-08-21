@@ -210,6 +210,8 @@ func (m *Model) renderOverlayView(base string, contentWidth int) string {
 		return composeCenteredOverlay(base, m.renderWorkflowHandoffModal(), m.width, m.height)
 	case m.contextOverlay.IsOpen():
 		return composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height)
+	case m.worktreeCleanupModal.IsOpen():
+		return composeCenteredOverlay(base, m.renderWorktreeCleanupModal(), m.width, m.height)
 	case m.exitModal.IsOpen():
 		return composeCenteredOverlay(base, m.renderExitModal(), m.width, m.height)
 	default:
