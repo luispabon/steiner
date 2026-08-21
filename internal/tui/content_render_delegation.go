@@ -245,6 +245,9 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 	parts := []string{status}
 	switch dd.status {
 	case "active":
+		if modelEffort := delegationModelEffort(dd); modelEffort != "" {
+			parts = append(parts, b.styles.FgDim.Render(modelEffort))
+		}
 		if dd.cacheWaiting {
 			parts = append(parts, b.styles.FgDim.Render(formatCountdown(dd.cacheWaitDeadline, nanoNow())))
 		} else if dd.startTime > 0 {
@@ -260,23 +263,36 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 	return strings.Join(parts, " ")
 }
 
+func delegationModelEffort(dd *delegationDisplayState) string {
+	if strings.TrimSpace(dd.modelName) == "" {
+		return ""
+	}
+	return formatModelEffort(dd.modelName, dd.reasoning)
+}
+
 func delegationCompleteMeta(dd *delegationDisplayState) []string {
 	status := strings.TrimSpace(dd.resultStatus)
 	if status == "" {
 		status = "complete"
 	}
 	meta := []string{status}
-	if dd.elapsed != "" {
-		meta = append(meta, dd.elapsed)
+	if modelEffort := delegationModelEffort(dd); modelEffort != "" {
+		meta = append(meta, modelEffort)
 	}
 	if dd.cacheHitOK {
 		meta = append(meta, "cache "+formatCacheHitRate(dd.cacheHitRate, dd.cacheHitOK))
+	}
+	if dd.elapsed != "" {
+		meta = append(meta, dd.elapsed)
 	}
 	return meta
 }
 
 func delegationBudgetMeta(dd *delegationDisplayState) []string {
 	meta := []string{"budget exhausted"}
+	if modelEffort := delegationModelEffort(dd); modelEffort != "" {
+		meta = append(meta, modelEffort)
+	}
 	if dd.advisorUse > 0 && dd.advisorMaxUses > 0 {
 		meta = append(meta, fmt.Sprintf("%d/%d", dd.advisorUse, dd.advisorMaxUses))
 	}
@@ -285,6 +301,9 @@ func delegationBudgetMeta(dd *delegationDisplayState) []string {
 
 func delegationFailedMeta(dd *delegationDisplayState) []string {
 	meta := []string{"failed"}
+	if modelEffort := delegationModelEffort(dd); modelEffort != "" {
+		meta = append(meta, modelEffort)
+	}
 	if dd.elapsed != "" {
 		meta = append(meta, dd.elapsed)
 	}
