@@ -98,7 +98,7 @@ var systemSections = map[sectionID]sectionRenderer{
 		if !ctx.caveHuman {
 			return ""
 		}
-		return caveHumanInstruction
+		return caveHumanInstruction()
 	},
 }
 

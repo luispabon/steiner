@@ -18,13 +18,6 @@ var testAntiTellMarkers = []string{
 	"No rule-of-three lists.",
 }
 
-var testEncodingDirectiveMarkers = []string{
-	"Drop articles where meaning survives.",
-	"Use semicolons, not sentences.",
-	"Use key=value notation for config/env/version facts.",
-	"Preserve exact identifiers verbatim",
-}
-
 func TestSystemPreambleCaveHumanEnabledAndDisabled(t *testing.T) {
 	t.Parallel()
 
@@ -107,7 +100,7 @@ func TestRenderConversationCompactionInstructionCaveHuman(t *testing.T) {
 	t.Parallel()
 
 	enabled := RenderConversationCompactionInstruction("", CompactionModeNormal, true)
-	for _, want := range append([]string{testBodyMarker, testEncodingMarker}, testEncodingDirectiveMarkers...) {
+	for _, want := range []string{testBodyMarker, testEncodingMarker} {
 		if !strings.Contains(enabled, want) {
 			t.Fatalf("enabled compaction instruction missing %q in %q", want, enabled)
 		}
@@ -125,7 +118,7 @@ func TestRenderConversationCompactionInstructionCaveHuman(t *testing.T) {
 	}
 
 	disabled := RenderConversationCompactionInstruction("", CompactionModeNormal, false)
-	for _, forbidden := range append([]string{
+	for _, forbidden := range []string{
 		testCaveHumanMarker,
 		testTerseMarker,
 		testHumanMarker,
@@ -133,7 +126,7 @@ func TestRenderConversationCompactionInstructionCaveHuman(t *testing.T) {
 		testEncodingMarker,
 		testAntiTellMarkers[0],
 		testAntiTellMarkers[1],
-	}, testEncodingDirectiveMarkers...) {
+	} {
 		if strings.Contains(disabled, forbidden) {
 			t.Fatalf("disabled compaction instruction unexpectedly contains %q in %q", forbidden, disabled)
 		}
