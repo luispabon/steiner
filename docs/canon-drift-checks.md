@@ -34,7 +34,7 @@ The substantive overlap is pinned by the oneshot/skill shared block check above.
 
 ## What counts as canon
 
-Only `delegationInstructions` in `internal/prompt/system.go`, and the template it renders, `internal/prompt/templates/delegation.md.tmpl`. The other preamble templates — `core_rules.md.tmpl`, `advisor.md.tmpl`, `execution_modes.md.tmpl`, `workflow_approval.md.tmpl`, `sandbox.md.tmpl` — and `agentPrompts` are out of scope. The boundary is drawn at `delegationInstructions` because that's where the observed drift in #445 occurred, and because it has the most distinctive vocabulary (specialist names, routing rules, tool names) to check against.
+Only `delegationInstructions` in `internal/prompt/system.go`, and the template it renders, `internal/prompt/templates/delegation.md.tmpl`. The other preamble templates — `core_rules.md.tmpl`, `advisor.md.tmpl`, `execution_modes.md.tmpl`, `workflow_approval.md.tmpl`, `sandbox.md.tmpl` — and the agent-type prompt templates in `internal/delegation/templates/` are out of scope. The boundary is drawn at `delegationInstructions` because that's where the observed drift in #445 occurred, and because it has the most distinctive vocabulary (specialist names, routing rules, tool names) to check against.
 
 ## Consumer files
 

@@ -24,7 +24,7 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 		},
 		{name: templateAdvisor},
 		{name: templateCoreRules},
-		{name: templateWorkflow, data: struct{ ApprovalLine string }{ApprovalLine: "- line"}},
+		{name: templateWorkflow, data: struct{ DelegatedChild bool }{DelegatedChild: true}},
 		{name: templateSandbox, data: struct{ Mounts []string }{Mounts: []string{"/a", "/b"}}},
 		{name: templateExecutionModes},
 		{name: templateCompactionSystem},

@@ -220,16 +220,9 @@ func renderSections(order []sectionID, ctx sectionContext) []string {
 }
 
 func renderWorkflowInstructions(mode workflowMode) string {
-	return renderTemplate(templateWorkflow, struct{ ApprovalLine string }{ApprovalLine: workflowApprovalLine(mode)})
-}
-
-func workflowApprovalLine(mode workflowMode) string {
-	switch normalizeWorkflowMode(mode) {
-	case workflowModeDelegatedChild:
-		return "- Do not ask for permission to proceed or for confirmation before editing. The delegated task is already authorized. If the task is clear, act. Ask only if the task is materially ambiguous or contradictory."
-	default:
-		return "- Ask for user's permission before editing."
-	}
+	return renderTemplate(templateWorkflow, struct{ DelegatedChild bool }{
+		DelegatedChild: normalizeWorkflowMode(mode) == workflowModeDelegatedChild,
+	})
 }
 
 func normalizeWorkflowMode(mode workflowMode) workflowMode {

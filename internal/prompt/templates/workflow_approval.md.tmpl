@@ -2,7 +2,11 @@ Before editing:
 - Ensure relevant files and nearby tests are inspected before making changes.
 - State a short plan for non-trivial work.
 - Define success check.
-{{ .ApprovalLine }}
+{{- if .DelegatedChild }}
+- Do not ask for permission to proceed or for confirmation before editing. The delegated task is already authorized. If the task is clear, act. Ask only if the task is materially ambiguous or contradictory.
+{{- else }}
+- Ask for user's permission before editing.
+{{- end }}
 
 While editing:
 - Touch only required files and lines.
