@@ -258,27 +258,24 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	content := SystemPreamble("", true, false, "").Content
 	for _, want := range []string{
 		testDelegationMarker,
-		"You are the orchestrator.",
-		"Your job is to orchestrate sub-agents.",
-		"You are not the default implementation worker.",
-		"Preserve your context for orchestration.",
-		"Treat every direct file read as permanent context.",
-		"Verify only the minimum load-bearing claims needed to act, using targeted spot-checks; do not re-read whole files or retrace a sub-agent's investigation.",
-		"After a completed orchestrated workflow, write commit messages and pull-request titles and bodies from the plan, implementation reports, review, and verification already in context. Do not delegate closeout or inspect git history or diffs. Before committing or pushing, use only `git status --short --branch` as the bounded safety check; stage only expected files and report unrelated changes without inspecting them.",
-		"You own the parts that cannot be delegated",
-		"## Your specialists",
+		"You are the orchestrator, not the default implementation worker.",
+		"not the default implementation worker.",
+		"Preserve context for orchestration.",
+		"Direct file reads permanently consume context, so use only targeted spot-checks of load-bearing claims.",
+		"Do not re-read whole files or repeat sub-agent investigations.",
+		"After an orchestrated workflow, write commit messages and PR titles/bodies from the plan, implementation reports, review, and verification already in context. Do not delegate closeout or inspect git history/diffs. Before committing or pushing, stage only expected files and report unrelated changes without inspecting them.",
+		"You own request understanding, decomposition, sequencing, briefing, judgement, integration, and user reporting.",
+		"## Your sub-agents",
 		"| Agent | Lane | Do not use for |",
+		"Every `code` sub-agent runs in an isolated git worktree under `.steiner/worktrees/`.",
+		"After merging and verifying the work, ALWAYS prune the worktree.",
 		"## Continuing sub-agents",
 		"Use a reuse-first lifecycle within each bounded deliverable.",
 		"inspect `session_resumable`, but treat it as session state, not workspace validation",
 		"prefer `follow_up` before cold dispatch only when the session is resumable, the next request remains within the same bounded deliverable, and the same live workspace is available.",
 		"`follow_up` resumes the saved agent session, retaining its conversation and tools",
 		"Use warm `follow_up` for continuation of the same discovery, implementation step, or narrow review scope.",
-		"A stored session can remain `session_resumable` after its worktree is destroyed, so that result alone never authorises continuation.",
-		"Do not continue after isolated worktree cleanup, a completed workflow handoff, a changed branch or workspace, plan/build incompatibility, a cleared session, a material scope or lane change, or concurrent calls.",
 		"Follow-ups must be sequential, never concurrent.",
-		"Cold dispatch is for a new bounded deliverable, no owner meeting all continuation conditions, or one of those exceptions.",
-		"Reuse a reviewer only for narrow confirmation of the same review scope in the same live workspace; use a fresh independent reviewer for wider or high-risk review.",
 		"| `explore` | Navigate the codebase: find files, symbols, patterns, usages, or call sites | questions that are answerable from the web or documentation—that is `research` |",
 		"| `research` | Search the web, read documentation, and synthesize external sources (read-only) | anything answerable from the repository alone—that is `explore` |",
 		"| `code` | Implement a scoped change: one deliverable, exact files named, design pre-digested | design decisions or work whose files have not been identified |",
@@ -286,17 +283,17 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"| `sanity_check` | Run tests, lint, and builds; report pass or fail; make no changes | anything that changes files |",
 		"| `review` | Examine code changes for bugs, regressions, missing tests, and plan adherence; make no fixes | broad “review the whole PR” scopes or applying fixes |",
 		"## Your workflow",
-		"Unless a skill overrides it, follow this workflow after receiving a task from the user:",
-		"1. Use `explore` for any initial code-local investigation.",
-		"2. Ask the user clarifying questions, one at a time.",
-		"3. Perform any other required research using `research` or `explore`. For continuation of the same bounded discovery deliverable, prefer `follow_up` to a suitable agent only when its session is resumable and the same live workspace remains available; otherwise cold-dispatch. Do not reproduce its searches or reads locally.",
-		"4. Summarise your understanding under Goal, Assumptions, Scope, and Unknowns. Ask the user to confirm or correct it, then stop. Do not present a plan or begin implementation in the same turn. After discussion, revise and restate the summary, ask for confirmation again, then stop.",
-		"5. Only after the user explicitly confirms the summary, present a high-level implementation plan. Ask the user to confirm or correct it, then stop. Do not decompose or implement the plan in the same turn. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After discussion, revise and restate the plan, ask for confirmation again, then stop. Proceed only after explicit confirmation in a later user turn.",
-		"6. Break the plan into implementation steps, each a single logical unit that a small model can hold in context and execute without further design decisions—for example, a type, its builder, and its tests. Merge small steps with their neighbours.",
-		"7. For each new implementation step, dispatch one cold `code` sub-agent. For continuation within that same step's bounded deliverable, use `follow_up` to its `code` agent only when its session is resumable and the same live workspace remains available; never reuse it across isolated worktree cleanup or a completed workflow handoff.",
-		"8. After implementation completes, dispatch a fresh independent `review` sub-agent to check the work.",
-		"9. If amendments are needed within the same implementation step's bounded deliverable, use `follow_up` to the implementing `code` agent only when its session is resumable and the same live workspace remains available; otherwise cold-dispatch `code`. Use `follow_up` to the reviewer only for narrow confirmation of the same review scope in the same live workspace; dispatch a fresh independent `review` for wider or high-risk review.",
-		"10. Finally, call `sanity_check` to run the project’s tests and checks.",
+		"**`feedback_amend_loop`**: present an artefact or decision to the user, request feedback/approval, incorporate any feedback, and repeat until approved.",
+		"Unless a skill overrides it, follow this workflow:",
+		"1. Investigate the request. Clarify ambiguities, use `explore` for the codebase, and `research` when external information is needed.",
+		"2. Summarise understanding as **Goal, Assumptions, Scope, and Unknowns**, then run a `feedback_amend_loop`.",
+		"3. Present a brief high-level solution and implementation plan. If multiple viable approaches exist, compare their pros/cons and recommend one. Run a `feedback_amend_loop`.",
+		"4. Break the approved plan into logical, self-contained implementation steps; combine trivial adjacent steps.",
+		"5. Implement each step with `code` sub-agents, in parallel or serially as appropriate:",
+		"Run `sanity_check` on each completed worktree.",
+		"Use `follow_up` on `code` and `sanity_check` sub-agents until satisfactory.",
+		"Merge verified work and clean up its worktree.",
+		"6. After all steps are merged, run `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent, then `follow_up` the same `review`. Repeat the `code`/`review` loop until clean.",
 		"## Delegation vs direct work",
 		"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:",
 		"One bounded lookup (`read`, `grep`, `glob`, `ls`, or `git diff`) whose result you need directly. If it must be followed by another lookup for the task, delegate before continuing.",
@@ -304,24 +301,22 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		"A tiny user-directed correction whose exact replacement text or source lines are supplied in the current request, applied with `mutate`.",
 		"Examples:",
 		"## Briefing a sub-agent",
-		"When delegating to `code`, name the exact files and relevant symbols or sections to change.",
-		"Pre-digest the design: the `code` agent executes; it does not design.",
-		"When delegating to `review`, scope the task to specific files or a diff range and state what to check.",
+		"For `code`, specify the exact files and relevant symbols/sections to change.",
+		"Pre-digest the design: `code` executes, it does not design.",
+		"For `review`, specify the files or diff range and what to check.",
 		"Sub-agents receive only the task you provide.",
 		"They cannot delegate or ask the user questions.",
-		"Include context you already hold (paths, symbols, and relevant excerpts), rather than making the sub-agent rediscover it.",
-		"Include only task-relevant conversation context.",
-		"A cold initial sub-agent brief is six-part and MUST use every section of this template:",
-		"* Objective: What the sub-agent must accomplish—find X, change Y, or evaluate Z.",
-		"* Context: The file paths, symbols, and background it needs.",
-		"* Deliverable: The required output—an evidence-backed report, code change, pass/fail result, or recommendation.",
-		"* Constraints: What not to touch, behaviour to preserve, packages to remain within, and actions it must not take.",
-		"* Success criteria: How it knows the task is complete.",
-		"* Checks to run: Applicable commands.",
-		"A `follow_up` message is delta-focused and stays within the same bounded deliverable and same live workspace, not a new six-part brief: state what changed, the next action, and any new constraints, success criteria, or checks.",
-		"Rely on the retained session context and do not repeat unchanged sections.",
+		"Include the relevant context you already have rather than making them rediscover it, but omit unrelated conversation context.",
+		"Cold briefs MUST use all six sections:",
+		"* **Objective:** What to find, change, or evaluate.",
+		"* **Context:** Relevant paths, symbols, excerpts, and background.",
+		"* **Deliverable:** Expected output or change.",
+		"* **Constraints:** Boundaries, preserved behaviour, allowed scope, and prohibited actions.",
+		"* **Success criteria:** Conditions for completion.",
+		"* **Checks to run:** Applicable commands or validations.",
+		"`follow_up` is delta-only and remains within the same deliverable and live workspace. State what changed, the next action, and any new constraints, success criteria, or checks.",
+		"Do not repeat unchanged context or use `follow_up` after the workspace has been cleaned up or handed off.",
 		"| Multi-file behaviour investigation | Use `explore` to trace the behaviour, then reassess. |",
-		"Confirm the workspace is still live; do not use it after cleanup or a completed workflow handoff.",
 		"| Bounded design choice after discovery | Use `evaluate` to compare approaches, then `code`. |",
 		"| Completed free-form implementation phase | Use `review`, fix findings with `code`, then `sanity_check`. |",
 		"| Tiny exact user-supplied correction | Work locally with `mutate`. |",
@@ -393,20 +388,18 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 }
 
 // TestSystemPreambleDelegationWorkflow pins the numbered `## Your workflow`
-// list: steps 1-6 are fixed, the advisor step renders inline as step 7 only
-// when advisorEnabled, and the dispatch/review/fix/sanity steps follow,
-// renumbered (8-11 with advisor enabled, 7-10 without). The disabled form
-// must not name the `advisor` tool at all.
+// list: steps 1-4 are fixed, the advisor step renders inline as step 5 only
+// when advisorEnabled, and the implement/review steps follow, renumbered
+// (6-7 with advisor enabled, 5-6 without). The disabled form must not name
+// the `advisor` tool at all.
 func TestSystemPreambleDelegationWorkflow(t *testing.T) {
 	t.Parallel()
 
-	steps1to6 := []string{
-		"1. Use `explore` for any initial code-local investigation.",
-		"2. Ask the user clarifying questions, one at a time.",
-		"3. Perform any other required research using `research` or `explore`. For continuation of the same bounded discovery deliverable, prefer `follow_up` to a suitable agent only when its session is resumable and the same live workspace remains available; otherwise cold-dispatch. Do not reproduce its searches or reads locally.",
-		"4. Summarise your understanding under Goal, Assumptions, Scope, and Unknowns. Ask the user to confirm or correct it, then stop. Do not present a plan or begin implementation in the same turn. After discussion, revise and restate the summary, ask for confirmation again, then stop.",
-		"5. Only after the user explicitly confirms the summary, present a high-level implementation plan. Ask the user to confirm or correct it, then stop. Do not decompose or implement the plan in the same turn. If two or more good solutions exist, present their pros and cons and give your recommendation. Use `evaluate` for harder, scoped sub-problems. After discussion, revise and restate the plan, ask for confirmation again, then stop. Proceed only after explicit confirmation in a later user turn.",
-		"6. Break the plan into implementation steps, each a single logical unit that a small model can hold in context and execute without further design decisions—for example, a type, its builder, and its tests. Merge small steps with their neighbours.",
+	steps1to4 := []string{
+		"1. Investigate the request. Clarify ambiguities, use `explore` for the codebase, and `research` when external information is needed.",
+		"2. Summarise understanding as **Goal, Assumptions, Scope, and Unknowns**, then run a `feedback_amend_loop`.",
+		"3. Present a brief high-level solution and implementation plan. If multiple viable approaches exist, compare their pros/cons and recommend one. Run a `feedback_amend_loop`.",
+		"4. Break the approved plan into logical, self-contained implementation steps; combine trivial adjacent steps.",
 	}
 
 	cases := []struct {
@@ -416,37 +409,28 @@ func TestSystemPreambleDelegationWorkflow(t *testing.T) {
 		wantAbsent []string
 	}{
 		{
-			name:    "advisor disabled: ten steps, no advisor",
+			name:    "advisor disabled: six steps, no advisor",
 			advisor: false,
-			wantSteps: append(steps1to6,
-				"7. For each new implementation step, dispatch one cold `code` sub-agent. For continuation within that same step's bounded deliverable, use `follow_up` to its `code` agent only when its session is resumable and the same live workspace remains available; never reuse it across isolated worktree cleanup or a completed workflow handoff.",
-				"8. After implementation completes, dispatch a fresh independent `review` sub-agent to check the work.",
-				"9. If amendments are needed within the same implementation step's bounded deliverable, use `follow_up` to the implementing `code` agent only when its session is resumable and the same live workspace remains available; otherwise cold-dispatch `code`. Use `follow_up` to the reviewer only for narrow confirmation of the same review scope in the same live workspace; dispatch a fresh independent `review` for wider or high-risk review.",
-				"10. Finally, call `sanity_check` to run the project’s tests and checks.",
+			wantSteps: append(steps1to4,
+				"5. Implement each step with `code` sub-agents, in parallel or serially as appropriate:",
+				"6. After all steps are merged, run `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent, then `follow_up` the same `review`. Repeat the `code`/`review` loop until clean.",
 			),
 			wantAbsent: []string{
-				"Consult `advisor`, if available, and incorporate its feedback.",
-				"11. ",
+				"5. Consult `advisor`.",
+				"7. ",
 				"`advisor`",
-				"then ask the user for confirmation or further discussion",
-				"After any discussion, revise and restate the summary.",
-				"After any discussion, revise and restate the plan.",
 			},
 		},
 		{
-			name:    "advisor enabled: eleven steps, advisor inline",
+			name:    "advisor enabled: seven steps, advisor inline",
 			advisor: true,
-			wantSteps: append(steps1to6,
-				"7. Consult `advisor`, if available, and incorporate its feedback.",
-				"8. For each new implementation step, dispatch one cold `code` sub-agent. For continuation within that same step's bounded deliverable, use `follow_up` to its `code` agent only when its session is resumable and the same live workspace remains available; never reuse it across isolated worktree cleanup or a completed workflow handoff.",
-				"9. After implementation completes, dispatch a fresh independent `review` sub-agent to check the work.",
-				"10. If amendments are needed within the same implementation step's bounded deliverable, use `follow_up` to the implementing `code` agent only when its session is resumable and the same live workspace remains available; otherwise cold-dispatch `code`. Use `follow_up` to the reviewer only for narrow confirmation of the same review scope in the same live workspace; dispatch a fresh independent `review` for wider or high-risk review.",
-				"11. Finally, call `sanity_check` to run the project’s tests and checks.",
+			wantSteps: append(steps1to4,
+				"5. Consult `advisor`.",
+				"6. Implement each step with `code` sub-agents, in parallel or serially as appropriate:",
+				"7. After all steps are merged, run `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent, then `follow_up` the same `review`. Repeat the `code`/`review` loop until clean.",
 			),
 			wantAbsent: []string{
-				"then ask the user for confirmation or further discussion",
-				"After any discussion, revise and restate the summary.",
-				"After any discussion, revise and restate the plan.",
+				"8. ",
 			},
 		},
 	}
@@ -520,10 +504,9 @@ func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: true, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
 	for _, want := range []string{
 		"## Advisor",
-		"If you need a stronger-model strategic check, call `advisor`.",
-		"It gives steering only; it does not mutate code, run tools, or replace your judgment.",
-		"It gives strategic guidance considering the full conversation context, rather than analysis of a single scoped sub-problem you hand it.",
-		"surface the conflict explicitly rather than silently complying or silently discarding the advice.",
+		"The `advisor` is a special sub-agent that has your full context which you can use for strategic guidance.",
+		"Use sparingly for ambiguity, risk, or a final sanity check.",
+		"You must heed its guidance.",
 		"Use `files` only for artifacts whose contents are not already present in your context",
 	} {
 		if !strings.Contains(content, want) {
@@ -553,7 +536,7 @@ func TestDelegationCanonDoesNotNameAdvisorWhenDisabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			content := systemPreambleWithAdvisor(SystemPreambleParams{Override: tc.override, DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
 
-			if !strings.Contains(content, "## Your specialists") {
+			if !strings.Contains(content, "## Your sub-agents") {
 				t.Fatalf("delegation canon not rendered in %q", content)
 			}
 			if strings.Contains(content, "`advisor`") {
@@ -662,7 +645,7 @@ func TestSystemPreambleExecutionModesInParent(t *testing.T) {
 	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
 	for _, want := range []string{
 		"## Execution modes",
-		"Interactive sessions run in `plan` or `build` mode.",
+		"Sessions run in `plan` or `build` mode.",
 		"The current mode",
 		"announced in a bracketed notice prepended to every outgoing user message.",
 		"In `plan` mode:",
@@ -771,8 +754,8 @@ func TestSystemPreambleRoleProseViaOverride(t *testing.T) {
 	}
 	for _, want := range []string{
 		testRoleProseMarker,
-		"After a completed orchestrated workflow, write commit messages and pull-request titles and bodies from the plan, implementation reports, review, and verification already in context.",
-		"Only after the user explicitly confirms the summary, present a high-level implementation plan.",
+		"After an orchestrated workflow, write commit messages and PR titles/bodies from the plan, implementation reports, review, and verification already in context.",
+		"Present a brief high-level solution and implementation plan.",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("override preamble missing %q in %q", want, content)

@@ -219,7 +219,7 @@ See [docs/execution-modes.md](docs/execution-modes.md) for the full enforcement 
 
 Go tests guard against the orchestration canon (`delegationInstructions` in `internal/prompt/system.go`) drifting out of sync with the skill and oneshot prompt files that describe delegation to the model.
 
-The specialist roster is typed Go data (`internal/prompt/specialists.go`) and the `## Your specialists` table is rendered from it, so the table cannot diverge from the roster. On top of that:
+The specialist roster is typed Go data (`internal/prompt/specialists.go`) and the `## Your sub-agents` table is rendered from it, so the table cannot diverge from the roster. On top of that:
 
 - a roster vocabulary check in `internal/prompt/` flags consumer files that name a sub-agent or tool no longer in the roster;
 - a companion test in `internal/delegation/` asserts the roster matches the registered `AgentType` constants;

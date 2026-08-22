@@ -2,7 +2,7 @@
 
 Go tests catch a downstream instruction file drifting away from the orchestration canon — `delegationInstructions` in `internal/prompt/system.go`. This doc explains what the checks do, what counts as canon and as a "consumer," and what to do when one fails.
 
-The specialist roster itself is not hand-written markdown. `internal/prompt/specialists.go` holds it as a typed `[]specialist` slice, and the `## Your specialists` table is rendered from that slice as part of `delegationInstructions` — a flag-aware renderer (`delegationInstructions(advisorEnabled)`) assembled per call from `delegationRole`, the roster table, and `delegationRouting`; `advisorEnabled` is session-fixed, so output stays deterministic within a session. The table therefore cannot diverge from the roster source, and neither check needs to parse markdown to recover it.
+The specialist roster itself is not hand-written markdown. `internal/prompt/specialists.go` holds it as a typed `[]specialist` slice, and the `## Your sub-agents` table is rendered from that slice as part of `delegationInstructions` — a flag-aware renderer (`delegationInstructions(advisorEnabled)`) assembled per call from `delegationRole`, the roster table, and `delegationRouting`; `advisorEnabled` is session-fixed, so output stays deterministic within a session. The table therefore cannot diverge from the roster source, and neither check needs to parse markdown to recover it.
 
 ## What the checks are
 

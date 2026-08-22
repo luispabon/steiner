@@ -43,7 +43,7 @@ func assertSharedChildSystemPrompt(t *testing.T, content string) {
 	}
 	for _, forbidden := range []string{
 		"not the default implementation worker",
-		"## Your specialists",
+		"## Your sub-agents",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("shared child system prompt unexpectedly contains delegation instructions: %q", content)
