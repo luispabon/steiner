@@ -27,6 +27,12 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 		{name: templateWorkflow, data: struct{ ApprovalLine string }{ApprovalLine: "- line"}},
 		{name: templateSandbox, data: struct{ Mounts []string }{Mounts: []string{"/a", "/b"}}},
 		{name: templateExecutionModes},
+		{name: templateCompactionSystem},
+		{name: templateCompactionEmergency},
+		{name: templateCompactionDefaultBody},
+		{name: templateCaveHumanVoice},
+		{name: templateCompactionCaveHumanBody},
+		{name: templateCaveHumanCompactionEncode},
 	}
 
 	for _, tc := range cases {
