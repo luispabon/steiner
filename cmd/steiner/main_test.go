@@ -717,6 +717,73 @@ func TestCLIRunnerEmitsFallbackWarningOncePerModel(t *testing.T) {
 	}
 }
 
+func TestPrepareRunReasoningOverrideScope(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	tests := []struct {
+		name             string
+		override         func() provider.ReasoningOverride
+		wantResolved     string
+		wantBaseResolved string
+	}{
+		{
+			name: "effort override",
+			override: func() provider.ReasoningOverride {
+				return provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "max"}
+			},
+			wantResolved:     "max",
+			wantBaseResolved: "high",
+		},
+		{
+			name:             "no override",
+			wantResolved:     "high",
+			wantBaseResolved: "high",
+		},
+		{
+			name: "provider default override",
+			override: func() provider.ReasoningOverride {
+				return provider.ReasoningOverride{Kind: provider.ReasoningOverrideProviderDefault}
+			},
+			wantResolved:     "",
+			wantBaseResolved: "high",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testRuntimeConfig("default")
+			modelCfg := cfg.Models.Definitions["default"]
+			modelCfg.Advanced.Reasoning = config.ReasoningConfig{
+				Effort:           "high",
+				SupportedEfforts: []string{"low", "medium", "high", "max"},
+			}
+			cfg.Models.Definitions["default"] = modelCfg
+			runner := cliRunner{
+				runtime: cliRuntime{
+					cfg:      cfg,
+					provider: &fakeProvider{},
+					workDir:  t.TempDir(),
+					homeDir:  t.TempDir(),
+					status:   output.NewStream(io.Discard),
+					events:   output.NoopSink{},
+				},
+				currentReasoningOverride: tt.override,
+			}
+
+			setup, err := runner.prepareRun(nil, nil)
+			if err != nil {
+				t.Fatalf("prepareRun() error = %v", err)
+			}
+			if got := setup.resolvedModel.ReasoningEffectiveEffort; got != tt.wantResolved {
+				t.Errorf("resolvedModel.ReasoningEffectiveEffort = %q, want %q", got, tt.wantResolved)
+			}
+			if got := setup.baseResolvedModel.ReasoningEffectiveEffort; got != tt.wantBaseResolved {
+				t.Errorf("baseResolvedModel.ReasoningEffectiveEffort = %q, want %q", got, tt.wantBaseResolved)
+			}
+		})
+	}
+}
+
 func TestExecModeWritesFullLogFile(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() {

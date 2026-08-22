@@ -32,7 +32,10 @@ type DelegateDeps struct {
 	WorkDir string
 	// HomeDir is the home directory passed to delegated child agents.
 	HomeDir string
-	// ResolvedModel is the active model metadata for the current run.
+	// ResolvedModel is the parent's config-resolved model metadata for the current
+	// run, used as the fallback model for sub-agents without their own per-type
+	// model alias. It must not carry session-time runtime overrides such as
+	// reasoning-effort choices (issue #543).
 	ResolvedModel provider.ResolvedModel
 	// MaxTokens is the maximum completion token budget for delegated child runs.
 	MaxTokens int

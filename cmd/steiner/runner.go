@@ -6,6 +6,8 @@ import (
 	"os/signal"
 	"strings"
 
+	"github.com/deepnoodle-ai/wonton/web"
+
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -83,34 +85,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 	if r.sandboxEnabled() {
 		sandboxTmpDir = r.runtime.sandbox.TmpDir()
 	}
-	activeRegistry, err := delegation.BuildDelegateRegistry(delegation.DelegateDeps{
-		BaseRegistry:          r.runtime.registry,
-		SubAgentCfg:           r.runtime.cfg.SubAgent,
-		AdvisorCfg:            r.runtime.cfg.Advisor,
-		Provider:              setup.provider,
-		Events:                events,
-		WorkDir:               r.runtime.workDir,
-		HomeDir:               r.runtime.homeDir,
-		ResolvedModel:         setup.resolvedModel,
-		MaxTokens:             setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
-		StreamingPreferred:    r.streamingPreferred,
-		TraceLogger:           r.runtime.delegationLogger,
-		Config:                r.runtime.cfg,
-		ProviderFactory:       r.runtime.providerFactory,
-		HTTPClient:            r.runtime.httpClient,
-		Searcher:              searcher,
-		UsageRecorder:         r.runtime.usageRecorder,
-		SessionStore:          r.runtime.delegationSessionStore,
-		ImageStore:            r.runtime.imageStore,
-		ExtraAllowedTools:     exposure,
-		CacheKeyStore:         r.runtime.delegationCacheKeyStore,
-		AdvisorState:          r.runtime.advisorState,
-		SandboxTmpDir:         sandboxTmpDir,
-		SandboxEnabled:        r.sandboxEnabled(),
-		SandboxWritableMounts: sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
-		Sandbox:               r.sandboxWrapper(),
-		ModeGetter:            r.modeGetterFunc,
-	})
+	activeRegistry, err := delegation.BuildDelegateRegistry(r.newDelegateDeps(setup, events, searcher, exposure, sandboxTmpDir))
 	if err != nil {
 		return runResult{}, err
 	}
@@ -162,6 +137,37 @@ func cloneEvents(events []output.Event) []output.Event {
 		out[i] = cloneEvent(event)
 	}
 	return out
+}
+
+func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, searcher web.Searcher, extraAllowedTools map[delegation.AgentType][]string, sandboxTmpDir string) delegation.DelegateDeps {
+	return delegation.DelegateDeps{
+		BaseRegistry:          r.runtime.registry,
+		SubAgentCfg:           r.runtime.cfg.SubAgent,
+		AdvisorCfg:            r.runtime.cfg.Advisor,
+		Provider:              setup.provider,
+		Events:                events,
+		WorkDir:               r.runtime.workDir,
+		HomeDir:               r.runtime.homeDir,
+		ResolvedModel:         setup.baseResolvedModel,
+		MaxTokens:             setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
+		StreamingPreferred:    r.streamingPreferred,
+		TraceLogger:           r.runtime.delegationLogger,
+		Config:                r.runtime.cfg,
+		ProviderFactory:       r.runtime.providerFactory,
+		HTTPClient:            r.runtime.httpClient,
+		Searcher:              searcher,
+		UsageRecorder:         r.runtime.usageRecorder,
+		SessionStore:          r.runtime.delegationSessionStore,
+		ImageStore:            r.runtime.imageStore,
+		ExtraAllowedTools:     extraAllowedTools,
+		CacheKeyStore:         r.runtime.delegationCacheKeyStore,
+		AdvisorState:          r.runtime.advisorState,
+		SandboxTmpDir:         sandboxTmpDir,
+		SandboxEnabled:        r.sandboxEnabled(),
+		SandboxWritableMounts: sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
+		Sandbox:               r.sandboxWrapper(),
+		ModeGetter:            r.modeGetterFunc,
+	}
 }
 
 func cloneEvent(event output.Event) output.Event {

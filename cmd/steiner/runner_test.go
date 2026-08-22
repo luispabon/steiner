@@ -58,6 +58,38 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 	}
 }
 
+func TestNewDelegateDepsDelegationModelIsBaseResolvedModel(t *testing.T) {
+	setup := runnerSetup{
+		resolvedModel: provider.ResolvedModel{
+			BackendModelID:           "override-model",
+			ReasoningEffectiveEffort: "max",
+			EffectiveLimits: provider.EffectiveLimits{
+				ContextWindow:   32768,
+				MaxOutputTokens: 4096,
+			},
+		},
+		baseResolvedModel: provider.ResolvedModel{
+			BackendModelID:           "base-model",
+			ReasoningEffectiveEffort: "high",
+			EffectiveLimits: provider.EffectiveLimits{
+				ContextWindow:   32768,
+				MaxOutputTokens: 2048,
+			},
+		},
+	}
+
+	deps := (cliRunner{}).newDelegateDeps(setup, nil, nil, nil, "")
+	if deps.ResolvedModel.BackendModelID != "base-model" {
+		t.Errorf("ResolvedModel.BackendModelID = %q, want base-model", deps.ResolvedModel.BackendModelID)
+	}
+	if deps.ResolvedModel.ReasoningEffectiveEffort != "high" {
+		t.Errorf("ResolvedModel.ReasoningEffectiveEffort = %q, want high", deps.ResolvedModel.ReasoningEffectiveEffort)
+	}
+	if deps.MaxTokens != setup.resolvedModel.EffectiveLimits.MaxOutputTokens {
+		t.Errorf("MaxTokens = %d, want %d", deps.MaxTokens, setup.resolvedModel.EffectiveLimits.MaxOutputTokens)
+	}
+}
+
 func TestToProviderConversationPreservesTurn(t *testing.T) {
 	messages := []agent.Message{
 		{Role: agent.MessageRoleUser, Content: "hello", Turn: 4},

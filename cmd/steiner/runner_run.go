@@ -21,10 +21,15 @@ var fallbackWarningModels sync.Map
 
 type runnerSetup struct {
 	resolvedModel provider.ResolvedModel
-	provider      provider.Provider
-	modelBudget   prompt.ModelTokenBudget
-	assembly      prompt.AssemblyOptions
-	runMode       string
+	// baseResolvedModel is the config-resolved parent model before any session-time
+	// reasoning override was applied. It is passed to delegation so sub-agents
+	// falling back to the parent's model inherit the model's configured reasoning
+	// default rather than the orchestrator's runtime override (issue #543).
+	baseResolvedModel provider.ResolvedModel
+	provider          provider.Provider
+	modelBudget       prompt.ModelTokenBudget
+	assembly          prompt.AssemblyOptions
+	runMode           string
 }
 
 func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string) (runnerSetup, error) {
@@ -33,6 +38,7 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 	if err != nil {
 		return runnerSetup{}, err
 	}
+	baseModel := rm
 	if r.currentReasoningOverride != nil {
 		rm, err = provider.ApplyReasoningOverride(rm, r.currentReasoningOverride())
 		if err != nil {
@@ -52,11 +58,12 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 	modelBudget := prompt.ModelBudgetFromEffectiveLimits(rm.EffectiveLimits)
 
 	return runnerSetup{
-		resolvedModel: rm,
-		provider:      loggingProvider{inner: prov, sink: r.runtime.events},
-		modelBudget:   modelBudget,
-		assembly:      r.promptAssembly(conversation, skillNames, modelBudget, rm.Prompts),
-		runMode:       r.normalizedRunMode(),
+		resolvedModel:     rm,
+		baseResolvedModel: baseModel,
+		provider:          loggingProvider{inner: prov, sink: r.runtime.events},
+		modelBudget:       modelBudget,
+		assembly:          r.promptAssembly(conversation, skillNames, modelBudget, rm.Prompts),
+		runMode:           r.normalizedRunMode(),
 	}, nil
 }
 

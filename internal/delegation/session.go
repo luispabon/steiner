@@ -22,12 +22,15 @@ type SubAgentHandlerDeps struct {
 	WorkDir              string
 	HomeDir              string
 	ProjectContextConfig config.ProjectContextConfig
-	ResolvedModel        provider.ResolvedModel
-	MaxTokens            *int
-	StreamingPreferred   bool
-	CaveHuman            bool
-	TraceLogger          *TraceLogger
-	SessionStore         *SessionStore
+	// ResolvedModel is the parent's config-resolved model, used as the fallback
+	// for sub-agents without a per-type alias. It must not carry session-time
+	// runtime overrides.
+	ResolvedModel      provider.ResolvedModel
+	MaxTokens          *int
+	StreamingPreferred bool
+	CaveHuman          bool
+	TraceLogger        *TraceLogger
+	SessionStore       *SessionStore
 	// ExtraAllowedTools provides per-agent-type extra tool names included in
 	// child registries beyond the built-in allowlists. Nil or empty map grants
 	// no extra tools.

@@ -657,7 +657,10 @@ func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 	}
 
 	var capturedReq agent.RunRequest
-	parentModel := provider.ResolvedModel{BackendModelID: "parent-model"}
+	parentModel := provider.ResolvedModel{
+		BackendModelID:           "parent-model",
+		ReasoningEffectiveEffort: "high",
+	}
 
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 		capturedReq = req
@@ -685,6 +688,9 @@ func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 
 	if resolverCalled {
 		t.Error("ModelResolver should not have been called")
+	}
+	if capturedReq.ResolvedModel.ReasoningEffectiveEffort != parentModel.ReasoningEffectiveEffort {
+		t.Errorf("child RunRequest ReasoningEffectiveEffort=%q, want %q", capturedReq.ResolvedModel.ReasoningEffectiveEffort, parentModel.ReasoningEffectiveEffort)
 	}
 	if capturedReq.ResolvedModel.BackendModelID != parentModel.BackendModelID {
 		t.Errorf("child RunRequest BackendModelID=%q, want %q", capturedReq.ResolvedModel.BackendModelID, parentModel.BackendModelID)
