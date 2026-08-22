@@ -3,7 +3,7 @@ package prompt
 import "strings"
 
 // specialist is one row of the orchestrator-facing roster rendered into the
-// "## Your specialists" table in delegationInstructions.
+// "## Your sub-agents" table in delegationInstructions.
 type specialist struct {
 	name        string
 	lane        string

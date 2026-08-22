@@ -172,7 +172,7 @@ Code changes must update corresponding documentation in a single commit:
 
 13. **`delegationInstructions` or consumer file changes** (`internal/prompt/system.go`'s `delegationInstructions`, `internal/prompt/specialists.go`'s `specialists` slice, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
    * Update docs/canon-drift-checks.md if the change affects what counts as canon or the consumer file list
-   * The `## Your specialists` table is rendered from the `specialists` slice in `internal/prompt/specialists.go`; edit the slice, never the markdown
+   * The `## Your sub-agents` table is rendered from the `specialists` slice in `internal/prompt/specialists.go`; edit the slice, never the markdown
    * Canon must not name a tool gated behind config independently of `delegation.enabled` (e.g. `advisor`); put such mentions in that tool's own preamble section
    * `internal/oneshot/prompts/{plan,review}.md` share four blocks verbatim with `skills/{plan,review}/SKILL.md`, pinned by `internal/oneshot/prompts_shared_test.go`; edit both copies and the test literal together
    * The `### Worktree Handling` and `### Pre-Commit Checklist` blocks are deliberately duplicated verbatim across `skills/{implement,review,simplify}/SKILL.md`, and the fix-delegation bullet list across `skills/{review,simplify}/SKILL.md`. All are pinned by `skills/shared_blocks_test.go`; edit every copy and the test literal together, never one alone

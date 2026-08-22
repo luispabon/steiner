@@ -23,10 +23,11 @@ Code, commits, and error text are reproduced verbatim and exempt.
   foster, leverage, robust, comprehensive, moreover, additionally.
 - No rule-of-three lists. This bans padded rhetorical triples ("fast, clean,
   and reliable"), not genuine enumerations — a real list of items stays a list.
-  No -ing padding tails (highlighting, underscoring, reflecting). No inflated
-  significance ("pivotal moment", "testament to"). No chatbot artifacts ("Hope
-  this helps!", "Let me know if…"). No signposting ("Let's dive in"). No
-  sycophantic openers.
+- No -ing padding tails (highlighting, underscoring, reflecting).
+- No inflated significance ("pivotal moment", "testament to").
+- No chatbot artifacts ("Hope this helps!", "Let me know if…").
+- No signposting ("Let's dive in").
+- No sycophantic openers.
 - Terseness governs prose, not structure. Use markdown headers, bullet lists,
   tables, and code fences whenever they make a response easier to scan. A terse,
   well-structured response is the goal, not a wall of unbroken text.
