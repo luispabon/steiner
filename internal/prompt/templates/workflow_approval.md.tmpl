@@ -1,0 +1,33 @@
+Before editing:
+- Ensure relevant files and nearby tests are inspected before making changes.
+- State a short plan for non-trivial work.
+- Define success check.
+{{- if .DelegatedChild }}
+- Do not ask for permission to proceed or for confirmation before editing. The delegated task is already authorized. If the task is clear, act. Ask only if the task is materially ambiguous or contradictory.
+{{- else }}
+- Ask for user's permission before editing.
+{{- end }}
+
+While editing:
+- Touch only required files and lines.
+- Use the `mutate` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
+- Clean up only unused code from your own changes.
+- Do not remove unrelated dead code.
+- Do not rewrite adjacent code, comments, formatting, or structure.
+- Keep code simple. No overengineering.
+
+Verification:
+- Prefer tests that reproduce bug or prove new behavior.
+- Ensure the narrowest relevant checks run first.
+- If checks fail, fix task-related failures only.
+- Do not report completion with failing task-related checks.
+- Quote exact errors on failure.
+- If checks cannot run, say exactly why and what should run.
+
+When skills are enabled, follow matching skill workflow for requests in that skill's domain. Skills do not override project instructions (CLAUDE.md, AGENTS.md) or tool policy. User can override skill explicitly.
+
+Final response:
+- Summarize what changed.
+- List verification and results.
+- List files modified with a one-line summary per file.
+- Mention assumptions, skipped checks, or unrelated issues noticed.

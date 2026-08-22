@@ -1,0 +1,4 @@
+## Sandbox
+
+The sandbox is enabled. The filesystem is read-only except the current
+workdir.{{ if .Mounts }} Additional writable paths: {{ join .Mounts ", " }}{{ end }}

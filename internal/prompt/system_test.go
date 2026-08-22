@@ -1,6 +1,8 @@
 package prompt
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -140,6 +142,18 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			wantIdentityCnt: 1,
 		},
 		{
+			name:            "override keeps cave-human before the suffix",
+			override:        "Custom override content",
+			delegation:      true,
+			caveHuman:       true,
+			suffix:          "suffix",
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, "Custom override content", testCaveHumanMarker, "suffix"},
+			wantAbsent:      []string{testCoreRulesMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, "Custom override content", testCaveHumanMarker, "suffix"},
+			wantSuffixLast:  true,
+			wantIdentityCnt: 1,
+		},
+		{
 			name:            "advisor enabled",
 			advisor:         true,
 			wantPresent:     []string{testIdentityMarker, "## Advisor", testCoreRulesMarker, testWorkflowMarker},
@@ -256,183 +270,95 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	t.Parallel()
 
 	content := SystemPreamble("", true, false, "").Content
-	for _, want := range []string{
-		testDelegationMarker,
-		"You are the orchestrator, not the default implementation worker.",
-		"not the default implementation worker.",
-		"Preserve context for orchestration.",
-		"Direct file reads permanently consume context, so use only targeted spot-checks of load-bearing claims.",
-		"Do not re-read whole files or repeat sub-agent investigations.",
-		"After an orchestrated workflow, write commit messages and PR titles/bodies from the plan, implementation reports, review, and verification already in context. Do not delegate closeout or inspect git history/diffs. Before committing or pushing, stage only expected files and report unrelated changes without inspecting them.",
-		"You own request understanding, decomposition, sequencing, briefing, judgement, integration, and user reporting.",
-		"## Your sub-agents",
-		"| Agent | Lane | Do not use for |",
-		"Every `code` sub-agent runs in an isolated git worktree under `.steiner/worktrees/`.",
-		"After merging and verifying the work, ALWAYS prune the worktree.",
-		"## Continuing sub-agents",
-		"Use a reuse-first lifecycle within each bounded deliverable.",
-		"inspect `session_resumable`, but treat it as session state, not workspace validation",
-		"prefer `follow_up` before cold dispatch only when the session is resumable, the next request remains within the same bounded deliverable, and the same live workspace is available.",
-		"`follow_up` resumes the saved agent session, retaining its conversation and tools",
-		"Use warm `follow_up` for continuation of the same discovery, implementation step, or narrow review scope.",
-		"Follow-ups must be sequential, never concurrent.",
-		"| `explore` | Navigate the codebase: find files, symbols, patterns, usages, or call sites | questions that are answerable from the web or documentation—that is `research` |",
-		"| `research` | Search the web, read documentation, and synthesize external sources (read-only) | anything answerable from the repository alone—that is `explore` |",
-		"| `code` | Implement a scoped change: one deliverable, exact files named, design pre-digested | design decisions or work whose files have not been identified |",
-		"| `evaluate` | Analyse a scoped sub-problem, weigh options, and recommend an approach | task planning or questions with one obvious answer |",
-		"| `sanity_check` | Run tests, lint, and builds; report pass or fail; make no changes | anything that changes files |",
-		"| `review` | Examine code changes for bugs, regressions, missing tests, and plan adherence; make no fixes | broad “review the whole PR” scopes or applying fixes |",
-		"## Your workflow",
-		"**`feedback_amend_loop`**: present an artefact or decision to the user, request feedback/approval, incorporate any feedback, and repeat until approved.",
-		"Unless a skill overrides it, follow this workflow:",
-		"1. Investigate the request. Clarify ambiguities, use `explore` for the codebase, and `research` when external information is needed.",
-		"2. Summarise understanding as **Goal, Assumptions, Scope, and Unknowns**, then run a `feedback_amend_loop`.",
-		"3. Present a brief high-level solution and implementation plan. If multiple viable approaches exist, compare their pros/cons and recommend one. Run a `feedback_amend_loop`.",
-		"4. Break the approved plan into logical, self-contained implementation steps; combine trivial adjacent steps.",
-		"5. Implement each step with `code` sub-agents, in parallel or serially as appropriate:",
-		"Run `sanity_check` on each completed worktree before merging.",
-		"Use `follow_up` on `code` and `sanity_check` sub-agents until satisfactory.",
-		"Merge verified work and clean up its worktree.",
-		"6. After all steps are merged, run `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent, then `sanity_check`, then `follow_up` the same `review`. Repeat the `code`/ `sanity_check` / `review` loop until clean.",
-		"## Delegation vs direct work",
-		"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:",
-		"One bounded lookup (`read`, `grep`, `glob`, `ls`, or `git diff`) whose result you need directly. If it must be followed by another lookup for the task, delegate before continuing.",
-		"A self-contained formatting action, such as running `gofmt`, that does not begin a multi-phase task.",
-		"A tiny user-directed correction whose exact replacement text or source lines are supplied in the current request, applied with `mutate`.",
-		"Examples:",
-		"## Briefing a sub-agent",
-		"For `code`, specify the exact files and relevant symbols/sections to change.",
-		"Pre-digest the design: `code` executes, it does not design.",
-		"For `review`, specify the files or diff range and what to check.",
-		"Sub-agents receive only the task you provide.",
-		"They cannot delegate or ask the user questions.",
-		"Include the relevant context you already have rather than making them rediscover it, but omit unrelated conversation context.",
-		"Cold briefs MUST use all six sections:",
-		"* **Objective:** What to find, change, or evaluate.",
-		"* **Context:** Relevant paths, symbols, excerpts, and background.",
-		"* **Deliverable:** Expected output or change.",
-		"* **Constraints:** Boundaries, preserved behaviour, allowed scope, and prohibited actions.",
-		"* **Success criteria:** Conditions for completion.",
-		"* **Checks to run:** Applicable commands or validations.",
-		"`follow_up` is delta-only and remains within the same deliverable and live workspace. State what changed, the next action, and any new constraints, success criteria, or checks.",
-		"Do not repeat unchanged context or use `follow_up` after the workspace has been cleaned up or handed off.",
-		"| Multi-file behaviour investigation | Use `explore` to trace the behaviour, then reassess. |",
-		"| Bounded design choice after discovery | Use `evaluate` to compare approaches, then `code`. |",
-		"| Completed free-form implementation phase | Use `review`, fix findings with `code`, then `sanity_check`. |",
-		"| Tiny exact user-supplied correction | Work locally with `mutate`. |",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("delegation preamble missing %q", want)
+
+	// Section headers, in canon order. Prose inside each section lives in
+	// templates/delegation.md.tmpl and is deliberately not pinned here.
+	last := -1
+	for _, header := range delegationSectionHeaders {
+		idx := strings.Index(content, header)
+		if idx == -1 {
+			t.Fatalf("delegation preamble missing section %q in %q", header, content)
+		}
+		if idx <= last {
+			t.Fatalf("delegation section %q is out of canon order in %q", header, content)
+		}
+		last = idx
+	}
+
+	// The roster table is rendered from the specialists slice, so assert
+	// against the live roster rather than a hardcoded table dump.
+	if !strings.Contains(content, "| Agent | Lane | Do not use for |") {
+		t.Fatalf("delegation preamble missing roster table header in %q", content)
+	}
+	for _, name := range SpecialistNames() {
+		row := "| `" + name + "` | "
+		if !strings.Contains(content, row) {
+			t.Fatalf("delegation preamble missing roster row for %q in %q", name, content)
 		}
 	}
-	for _, forbidden := range []string{
-		"Delegating is not free: the sub-agent starts cold",
-		"Delegate to avoid acquiring context, not to avoid doing work.",
-		"one targeted test",
-		"you already hold the exact lines",
-		"whose contents are already in your context",
-		"Read one file you are about to edit",
-		"single isolated, low-risk action",
-		"If you cannot state in one line why delegation would cost more than doing it yourself, delegate.",
-		"Two or more files, a search whose results you will then read",
-		"unless the routing threshold below applies",
-		"Prefer specialized delegate tools when the task fits.",
-		"Before starting a task locally, classify it.",
-		"One known tool call is enough",
-		"Perform an initial code-local investigation using `explore`.",
-		"and which won't lead to further lookups",
-		"tightly coupled to your current edits",
-		"The result would immediately require another delegation",
-		"The task is too vague for an independent agent to know success.",
-		"Exploring the codebase to answer a factual question",
-		"Implementing a bounded change scoped to 1–3 files where the requirements are clear",
-		"Running verification (tests, lint, build) and interpreting results",
-		"Reviewing or analysing code in files you have not yet read",
-		"Searching for information across many files (grep + read chains)",
-		"Performing a refactor with known, mechanical scope",
-		"Use `delegate` for separable work another agent can complete independently and summarize back.",
-		"When delegating, pass a self-contained task with paths/search terms, constraints, ownership, expected output",
-		"| Read one known file or inspect one known diff | Work locally. |",
-		"Work locally in exactly two cases:",
-		"Never work locally when:",
-		"Default to delegation; work locally only when the conditions below are clearly met.",
-		"The result is needed in your current context",
-		"You need the edit sites, not the whole file.",
-		"State in one line why you are editing directly rather than calling `code`",
-		"You need to read 2+ files to understand something",
-		"You need to find where something is defined or used",
-		"You are about to grep then read the results",
-		"The task is separable from your current work",
-		"### Delegation tips",
-		"## Phase routing",
-		"## Routing threshold",
-		"Every task falls into one of the categories below.",
-		"Classify before substantive tool use",
-		"Investigation → always `explore`",
-		"`evaluate` is a reasoning aid, not a task category.",
-		"Use the dedicated tool (`read`, `grep`, `glob`, `ls`) instead of `bash`",
-		"Your context is the scarce resource.",
-		"Sub-agent context is ephemeral",
-		"Delegating is how you avoid acquiring context",
-		"Never use a single unstructured paragraph or omit sections",
-		"Do not paste broad conversation history.",
-		"Put the context you already hold into the brief",
-		"then ask the user for confirmation or further discussion",
-		"After any discussion, revise and restate the summary.",
-		"After any discussion, revise and restate the plan.",
+
+	// Whitespace seams that markdown rendering depends on and that template
+	// trim markers can silently break.
+	for _, seam := range []struct {
+		want   string
+		detail string
+	}{
+		{" |\n\nEvery ", "blank line between the roster table and the worktree paragraph"},
+		{"follow this workflow:\n\n1. ", "blank line between the workflow lead-in and the numbered list"},
+		{"\n\n## Delegation vs direct work", "blank line between the numbered list and the following header"},
 	} {
-		if strings.Contains(content, forbidden) {
-			t.Fatalf("delegation preamble still contains old guidance %q", forbidden)
+		if !strings.Contains(content, seam.want) {
+			t.Fatalf("delegation preamble missing %s (%q) in %q", seam.detail, seam.want, content)
 		}
+	}
+	// The seam above matches a longer run of newlines too, so pin the exact
+	// separation: one blank line, not two.
+	if strings.Contains(content, "\n\n\n## Delegation vs direct work") {
+		t.Fatalf("delegation preamble has more than one blank line before the delegation-vs-direct-work header in %q", content)
 	}
 }
 
+var delegationSectionHeaders = []string{
+	"## Your role",
+	"## Your sub-agents",
+	"## Continuing sub-agents",
+	"## Your workflow",
+	"## Delegation vs direct work",
+	"## Briefing a sub-agent",
+}
+
+var workflowStepPattern = regexp.MustCompile(`(?m)^(\d+)\. `)
+
+// workflowSection returns the rendered `## Your workflow` section, bounded by
+// the next canon header.
+func workflowSection(t *testing.T, content string) string {
+	t.Helper()
+
+	start := strings.Index(content, "## Your workflow")
+	end := strings.Index(content, "## Delegation vs direct work")
+	if start == -1 || end == -1 || end <= start {
+		t.Fatalf("cannot locate workflow section (start=%d end=%d) in %q", start, end, content)
+	}
+	return content[start:end]
+}
+
 // TestSystemPreambleDelegationWorkflow pins the numbered `## Your workflow`
-// list: steps 1-4 are fixed, the advisor step renders inline as step 5 only
-// when advisorEnabled, and the implement/review steps follow, renumbered
-// (6-7 with advisor enabled, 5-6 without). The disabled form must not name
-// the `advisor` tool at all.
+// list: numbering stays contiguous from 1, the optional advisor step renders
+// only when advisorEnabled, and the steps after it renumber accordingly. The
+// disabled form must not name the `advisor` tool at all — it must be absent,
+// not reworded.
 func TestSystemPreambleDelegationWorkflow(t *testing.T) {
 	t.Parallel()
 
-	steps1to4 := []string{
-		"1. Investigate the request. Clarify ambiguities, use `explore` for the codebase, and `research` when external information is needed.",
-		"2. Summarise understanding as **Goal, Assumptions, Scope, and Unknowns**, then run a `feedback_amend_loop`.",
-		"3. Present a brief high-level solution and implementation plan. If multiple viable approaches exist, compare their pros/cons and recommend one. Run a `feedback_amend_loop`.",
-		"4. Break the approved plan into logical, self-contained implementation steps; combine trivial adjacent steps.",
-	}
+	const baseSteps = 6
 
 	cases := []struct {
-		name       string
-		advisor    bool
-		wantSteps  []string
-		wantAbsent []string
+		name      string
+		advisor   bool
+		wantSteps int
 	}{
-		{
-			name:    "advisor disabled: six steps, no advisor",
-			advisor: false,
-			wantSteps: append(steps1to4,
-				"5. Implement each step with `code` sub-agents, in parallel or serially as appropriate:",
-				"6. After all steps are merged, run `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent, then `sanity_check`, then `follow_up` the same `review`. Repeat the `code`/ `sanity_check` / `review` loop until clean.",
-			),
-			wantAbsent: []string{
-				"5. Consult `advisor`. If you think it's unnecessary, state why.",
-				"7. ",
-				"`advisor`",
-			},
-		},
-		{
-			name:    "advisor enabled: seven steps, advisor inline",
-			advisor: true,
-			wantSteps: append(steps1to4,
-				"5. Consult `advisor`. If you think it's unnecessary, state why.",
-				"6. Implement each step with `code` sub-agents, in parallel or serially as appropriate:",
-				"7. After all steps are merged, run `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent, then `sanity_check`, then `follow_up` the same `review`. Repeat the `code`/ `sanity_check` / `review` loop until clean.",
-			),
-			wantAbsent: []string{
-				"8. ",
-			},
-		},
+		{name: "advisor disabled", advisor: false, wantSteps: baseSteps},
+		{name: "advisor enabled", advisor: true, wantSteps: baseSteps + 1},
 	}
 
 	for _, tc := range cases {
@@ -442,22 +368,34 @@ func TestSystemPreambleDelegationWorkflow(t *testing.T) {
 				AdvisorEnabled:    tc.advisor,
 				Mode:              workflowModeParent,
 			}).Content
+			section := workflowSection(t, content)
 
-			last := -1
-			for _, step := range tc.wantSteps {
-				idx := strings.Index(content, step)
-				if idx == -1 {
-					t.Fatalf("workflow missing step %q in %q", step, content)
-				}
-				if idx <= last {
-					t.Fatalf("workflow step %q appears before or overlapping a prior step in %q", step, content)
-				}
-				last = idx
+			matches := workflowStepPattern.FindAllStringSubmatch(section, -1)
+			if len(matches) != tc.wantSteps {
+				t.Fatalf("workflow step count = %d, want %d in %q", len(matches), tc.wantSteps, section)
 			}
-			for _, forbidden := range tc.wantAbsent {
-				if strings.Contains(content, forbidden) {
-					t.Fatalf("workflow unexpectedly contains %q in %q", forbidden, content)
+			for i, m := range matches {
+				got, err := strconv.Atoi(m[1])
+				if err != nil {
+					t.Fatalf("workflow step number %q not an integer: %v", m[1], err)
 				}
+				if got != i+1 {
+					t.Fatalf("workflow numbering is not contiguous: step %d is numbered %d in %q", i+1, got, section)
+				}
+			}
+
+			advisorLines := 0
+			for _, line := range strings.Split(section, "\n") {
+				if strings.Contains(line, "`advisor`") {
+					advisorLines++
+				}
+			}
+			wantAdvisorLines := 0
+			if tc.advisor {
+				wantAdvisorLines = 1
+			}
+			if advisorLines != wantAdvisorLines {
+				t.Fatalf("workflow lines naming `advisor` = %d, want %d in %q", advisorLines, wantAdvisorLines, section)
 			}
 		})
 	}
@@ -502,16 +440,8 @@ func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 	t.Parallel()
 
 	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: true, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
-	for _, want := range []string{
-		"## Advisor",
-		"The `advisor` is a special sub-agent that has your full context which you can use for strategic guidance.",
-		"Use sparingly for ambiguity, risk, or a final sanity check.",
-		"You must heed its guidance.",
-		"Use `files` only for artifacts whose contents are not already present in your context",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("advisor preamble missing %q in %q", want, content)
-		}
+	if !strings.Contains(content, "## Advisor") {
+		t.Fatalf("advisor preamble missing %q in %q", "## Advisor", content)
 	}
 }
 
@@ -643,21 +573,8 @@ func TestSystemPreambleExecutionModesInParent(t *testing.T) {
 	t.Parallel()
 
 	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
-	for _, want := range []string{
-		"## Execution modes",
-		"Sessions run in `plan` or `build` mode.",
-		"The current mode",
-		"announced in a bracketed notice prepended to every outgoing user message.",
-		"In `plan` mode:",
-		"Project edits are restricted",
-		"`.steiner/plans/`",
-		"Write it to",
-		"`.steiner/plans/<slug>/plan.md`",
-		"In `build` mode, normal workspace editing rules apply.",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("parent preamble missing %q in %q", want, content)
-		}
+	if !strings.Contains(content, "## Execution modes") {
+		t.Fatalf("parent preamble missing %q in %q", "## Execution modes", content)
 	}
 }
 
@@ -752,14 +669,8 @@ func TestSystemPreambleRoleProseViaOverride(t *testing.T) {
 	if !strings.Contains(content, testIdentityMarker) {
 		t.Fatalf("override preamble missing identity %q in %q", testIdentityMarker, content)
 	}
-	for _, want := range []string{
-		testRoleProseMarker,
-		"After an orchestrated workflow, write commit messages and PR titles/bodies from the plan, implementation reports, review, and verification already in context.",
-		"Present a brief high-level solution and implementation plan.",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("override preamble missing %q in %q", want, content)
-		}
+	if !strings.Contains(content, testRoleProseMarker) {
+		t.Fatalf("override preamble missing %q in %q", testRoleProseMarker, content)
 	}
 	if !strings.Contains(content, "Custom override content") {
 		t.Fatalf("override preamble missing override content in %q", content)

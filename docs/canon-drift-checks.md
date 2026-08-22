@@ -2,7 +2,9 @@
 
 Go tests catch a downstream instruction file drifting away from the orchestration canon — `delegationInstructions` in `internal/prompt/system.go`. This doc explains what the checks do, what counts as canon and as a "consumer," and what to do when one fails.
 
-The specialist roster itself is not hand-written markdown. `internal/prompt/specialists.go` holds it as a typed `[]specialist` slice, and the `## Your sub-agents` table is rendered from that slice as part of `delegationInstructions` — a flag-aware renderer (`delegationInstructions(advisorEnabled)`) assembled per call from `delegationRole`, the roster table, and `delegationRouting`; `advisorEnabled` is session-fixed, so output stays deterministic within a session. The table therefore cannot diverge from the roster source, and neither check needs to parse markdown to recover it.
+Canon prose lives in `internal/prompt/templates/delegation.md.tmpl`, a `text/template` embedded into the binary via `embed.FS`. `delegationInstructions(advisorEnabled)` in `internal/prompt/system.go` executes it: prose is edited in the template file, never in Go string constants.
+
+The specialist roster itself is not hand-written markdown. `internal/prompt/specialists.go` holds it as a typed `[]specialist` slice, and the `## Your sub-agents` table is rendered from that slice — `specialistViews()` projects it into the template data and `delegation.md.tmpl` ranges over it to emit the table rows. The `## Your workflow` advisor step renders only when `advisorEnabled`, which is session-fixed, so output stays deterministic within a session. The table therefore cannot diverge from the roster source, and neither check needs to parse markdown to recover it.
 
 ## What the checks are
 
@@ -32,7 +34,7 @@ The substantive overlap is pinned by the oneshot/skill shared block check above.
 
 ## What counts as canon
 
-Only `delegationInstructions` in `internal/prompt/system.go` (assembled from `delegationRole`, the rendered roster table, and `delegationRouting`). Other preamble consts — `coreRules`, `advisorInstructions`, `executionModeInstructions`, workflow instructions, `agentPrompts` — are out of scope. The boundary is drawn at `delegationInstructions` because that's where the observed drift in #445 occurred, and because it has the most distinctive vocabulary (specialist names, routing rules, tool names) to check against.
+Only `delegationInstructions` in `internal/prompt/system.go`, and the template it renders, `internal/prompt/templates/delegation.md.tmpl`. The other preamble templates — `core_rules.md.tmpl`, `advisor.md.tmpl`, `execution_modes.md.tmpl`, `workflow_approval.md.tmpl`, `sandbox.md.tmpl` — and the agent-type prompt templates in `internal/delegation/templates/` are out of scope. The boundary is drawn at `delegationInstructions` because that's where the observed drift in #445 occurred, and because it has the most distinctive vocabulary (specialist names, routing rules, tool names) to check against.
 
 ## Consumer files
 
