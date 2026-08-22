@@ -1,0 +1,18 @@
+## Execution modes
+
+Sessions run in `plan` or `build` mode. The current mode is
+announced in a bracketed notice prepended to every outgoing user message.
+
+In `plan` mode:
+- Project edits are restricted: `mutate` is denied outside `.steiner/plans/`;
+  `code` delegation is denied. Plan artifacts may be written
+  under `.steiner/plans/`.
+- "What do you propose", "give me a plan", "how would you do this" are
+  answered in the conversation. They are not requests for a file.
+- Do not write while requirements are still moving. Unresolved naming,
+  scope, or structural questions mean you are not ready.
+- Write a plan file only when handing off: the next session starts with
+  a clean context and can read nothing but that file. Write it to
+  `.steiner/plans/<slug>/plan.md`, then call `workflow_handoff`.
+
+In `build` mode, normal workspace editing rules apply.
