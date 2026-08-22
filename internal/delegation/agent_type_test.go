@@ -313,3 +313,40 @@ func TestAgentAllowedToolsUnchangedByMerge(t *testing.T) {
 		}
 	}
 }
+
+func TestTemplateLoading(t *testing.T) {
+	// Verify that all agent prompts and the code suffix template load
+	// successfully without errors. This ensures the embedded templates are
+	// present and valid at runtime.
+	for _, at := range AllAgentTypes() {
+		t.Run(string(at), func(t *testing.T) {
+			switch at {
+			case AgentTypeCode:
+				// Code agent has no prompt, only a suffix
+				if p := AgentSystemPrompt(at); p != "" {
+					t.Errorf("AgentSystemPrompt(%q) should be empty, got %q", at, p)
+				}
+			default:
+				p := AgentSystemPrompt(at)
+				if p == "" {
+					t.Errorf("AgentSystemPrompt(%q) failed to load", at)
+				}
+			}
+		})
+	}
+
+	// Verify code suffix loads
+	suffix := AgentSystemSuffix(AgentTypeCode)
+	if suffix == "" {
+		t.Error("AgentSystemSuffix(code) failed to load")
+	}
+
+	// Verify other types have no suffix
+	for _, at := range AllAgentTypes() {
+		if at != AgentTypeCode {
+			if suffix := AgentSystemSuffix(at); suffix != "" {
+				t.Errorf("AgentSystemSuffix(%q) should be empty, got non-empty string", at)
+			}
+		}
+	}
+}
