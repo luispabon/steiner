@@ -91,7 +91,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		Events:                events,
 		WorkDir:               r.runtime.workDir,
 		HomeDir:               r.runtime.homeDir,
-		ResolvedModel:         setup.resolvedModel,
+		ResolvedModel:         setup.baseResolvedModel,
 		MaxTokens:             setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
 		StreamingPreferred:    r.streamingPreferred,
 		TraceLogger:           r.runtime.delegationLogger,
