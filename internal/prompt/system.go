@@ -164,11 +164,11 @@ func delegationWorkflowSteps(advisorEnabled bool) []string {
 		"Break the approved plan into logical, self-contained implementation steps; combine trivial adjacent steps.",
 	}
 	if advisorEnabled {
-		steps = append(steps, "Consult `advisor`.")
+		steps = append(steps, "Consult `advisor`. If you think it's unnecessary, state why.")
 	}
 	return append(steps,
-		"Implement each step with `code` sub-agents, in parallel or serially as appropriate:\n   * Run `sanity_check` on each completed worktree.\n   * Use `follow_up` on `code` and `sanity_check` sub-agents until satisfactory.\n   * Merge verified work and clean up its worktree.",
-		"After all steps are merged, run `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent, then `follow_up` the same `review`. Repeat the `code`/`review` loop until clean.",
+		"Implement each step with `code` sub-agents, in parallel or serially as appropriate:\n   * Run `sanity_check` on each completed worktree before merging.\n   * Use `follow_up` on `code` and `sanity_check` sub-agents until satisfactory.\n   * Merge verified work and clean up its worktree.",
+		"After all steps are merged, run `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent, then `sanity_check`, then `follow_up` the same `review`. Repeat the `code`/ `sanity_check` / `review` loop until clean.",
 	)
 }
 
