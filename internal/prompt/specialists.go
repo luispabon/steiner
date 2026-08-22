@@ -1,7 +1,5 @@
 package prompt
 
-import "strings"
-
 // specialist is one row of the orchestrator-facing roster rendered into the
 // "## Your sub-agents" table in delegationInstructions.
 type specialist struct {
@@ -67,14 +65,20 @@ func SpecialistNames() []string {
 	return names
 }
 
-// renderSpecialistTable renders the roster as a markdown table, header and
-// separator included, with a trailing newline on every row.
-func renderSpecialistTable() string {
-	var b strings.Builder
-	b.WriteString("| Agent | Lane | Do not use for |\n")
-	b.WriteString("|-------|------|-----------------|\n")
+// specialistView is the template-facing projection of a specialist row, in
+// roster order. The roster table in templates/delegation.md.tmpl ranges over
+// it; text/template can only reach exported fields.
+type specialistView struct {
+	Name        string
+	Lane        string
+	DoNotUseFor string
+}
+
+// specialistViews returns the roster as template data, in table order.
+func specialistViews() []specialistView {
+	views := make([]specialistView, 0, len(specialists))
 	for _, s := range specialists {
-		b.WriteString("| `" + s.name + "` | " + s.lane + " | " + s.doNotUseFor + " |\n")
+		views = append(views, specialistView{Name: s.name, Lane: s.lane, DoNotUseFor: s.doNotUseFor})
 	}
-	return b.String()
+	return views
 }
