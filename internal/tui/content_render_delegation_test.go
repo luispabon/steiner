@@ -79,25 +79,59 @@ func TestDelegationCompleteMetaOmitsCacheHitRateWhenNotOK(t *testing.T) {
 }
 
 func TestDelegationActiveHeaderMetaPlacesModelBeforeElapsed(t *testing.T) {
-	b := newTestBuffer(t)
-	for _, isAdvisor := range []bool{false, true} {
-		dd := &delegationDisplayState{
-			status:    "active",
-			isAdvisor: isAdvisor,
-			modelName: "gpt-x",
-			reasoning: "high",
-			startTime: nanoNow() - 10_000_000_000,
-		}
+	t.Parallel()
+	cases := []struct {
+		name         string
+		contextFill  float64
+		outputTPS    float64
+		wantSegments []string
+		omitSegments []string
+	}{
+		{
+			name:         "all active metadata",
+			contextFill:  5.4,
+			outputTPS:    42.1,
+			wantSegments: []string{"⠋", "ctx: 5%", "42.1 t/s", "gpt-x/high"},
+		},
+		{
+			name:         "unknown context and tps",
+			wantSegments: []string{"⠋", "gpt-x/high"},
+			omitSegments: []string{"ctx:", "t/s"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newTestBuffer(t)
+			dd := &delegationDisplayState{
+				status:         "active",
+				modelName:      "gpt-x",
+				reasoning:      "high",
+				contextFillPct: tc.contextFill,
+				outputTPS:      tc.outputTPS,
+				startTime:      nanoNow() - 10_000_000_000,
+			}
 
-		meta := b.renderDelegationHeaderMeta(dd)
-		modelIndex := strings.Index(meta, "gpt-x/high")
-		elapsedIndex := regexp.MustCompile(`\d+(ms|s|m\ds)`).FindStringIndex(meta)
-		if modelIndex < 0 || elapsedIndex == nil {
-			t.Fatalf("meta = %q, want model and elapsed", meta)
-		}
-		if modelIndex >= elapsedIndex[0] {
-			t.Errorf("meta = %q, model/effort after elapsed", meta)
-		}
+			meta := stripANSI(b.renderDelegationHeaderMeta(dd))
+			previous := -1
+			for _, segment := range tc.wantSegments {
+				index := strings.Index(meta, segment)
+				if index < 0 {
+					t.Fatalf("meta = %q, missing %q", meta, segment)
+				}
+				if index <= previous {
+					t.Fatalf("meta = %q, %q is out of order", meta, segment)
+				}
+				previous = index
+			}
+			if elapsedIndex := regexp.MustCompile(`\d+(ms|s|m\ds)`).FindStringIndex(meta); elapsedIndex == nil || elapsedIndex[0] <= previous {
+				t.Fatalf("meta = %q, elapsed must follow active metadata", meta)
+			}
+			for _, segment := range tc.omitSegments {
+				if strings.Contains(meta, segment) {
+					t.Errorf("meta = %q, contains omitted segment %q", meta, segment)
+				}
+			}
+		})
 	}
 }
 

@@ -100,6 +100,30 @@ func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
 	}
 }
 
+func TestScopedModelCallFinishedUpdatesDelegationOutputTPS(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		styles:            testStyles(theme.AccentAmber),
+		activeDelegations: make(map[string]delegationLocator),
+	}
+
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
+		Turn:      1,
+		OutputTPS: 42.1,
+	}), "child-1"))
+
+	loc, ok := buffer.activeDelegations["child-1"]
+	if !ok || loc.dd == nil {
+		t.Fatal("active delegation child-1 not found")
+	}
+	if loc.dd.outputTPS != 42.1 {
+		t.Fatalf("outputTPS = %v, want 42.1", loc.dd.outputTPS)
+	}
+}
+
 func TestScopedDelegationCompactionStaysInsideDelegationSegment(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{

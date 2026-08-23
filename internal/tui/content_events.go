@@ -194,6 +194,7 @@ type delegationDisplayState struct {
 	promptTokens      int
 	contextWindow     int
 	contextFillPct    float64 // last known context window occupancy %, 0 if unknown
+	outputTPS         float64 // latest per-turn output tokens/sec, 0 if unknown
 	// failure field
 	errMsg string
 	// output text and visibility
