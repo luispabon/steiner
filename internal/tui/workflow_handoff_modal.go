@@ -196,7 +196,7 @@ func (m *Model) handleWorkflowHandoffModalKey(msg tea.KeyPressMsg) (tea.Model, t
 
 func (m *Model) openWorkflowHandoffModelPicker() *Model {
 	title := m.workflowHandoff.modelPickerTitle()
-	m.modelPicker = m.modelPicker.OpenForWorkflowHandoff(title, m.modelNames, m.workflowHandoff.modelAlias)
+	m.modelPicker = m.modelPicker.open(m.modelPickerEntries(), m.workflowHandoff.modelAlias, title, modelPickerModeWorkflowHandoff)
 	m.modelPicker.width = m.width
 	m.modelPicker.height = m.height
 	return m

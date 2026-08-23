@@ -63,71 +63,17 @@ type ResolvedModel struct {
 	Warnings                  []string
 }
 
-// Resolve builds a ResolvedModel from cfg for the given model alias.
-// It returns an error if the alias is not found or the provider is not found.
+// Resolve builds a ResolvedModel from cfg for the given model alias or raw
+// provider/model-id reference.
 func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
-	modelCfg, ok := cfg.Models.Definitions[alias]
-	if !ok {
-		return ResolvedModel{}, fmt.Errorf("model alias %q not found", alias)
-	}
-	provCfg, ok := cfg.Providers[modelCfg.Provider]
-	if !ok {
-		return ResolvedModel{}, fmt.Errorf("provider %q not found for model %q", modelCfg.Provider, alias)
-	}
-	provCfg = resolveProviderConfig(provCfg)
-
-	limits := resolveEffectiveLimits(modelCfg.Advanced.Limits)
-	tokenizerStrategy, tokenizerConfidence := resolveTokenizerMetadata(modelCfg.ID)
-	reasoningCaps, reasoningEffectiveEffort := resolveReasoningCapabilities(modelCfg.Advanced.Reasoning, provCfg.Type, modelCfg.ID)
-
-	rm := ResolvedModel{
-		Alias:                     alias,
-		ProviderAlias:             modelCfg.Provider,
-		ProviderConfig:            provCfg,
-		BackendModelID:            modelCfg.ID,
-		EffectiveProviderType:     provCfg.Type,
-		EffectiveTransport:        TransportConfigured,
-		EffectiveLimits:           limits,
-		Params:                    modelCfg.Params,
-		ExtraParams:               modelCfg.ExtraParams,
-		PromptSuffix:              modelCfg.PromptSuffix,
-		Prompts:                   modelCfg.Prompts,
-		Retry:                     modelCfg.Retry,
-		MetadataSource:            "config",
-		Confidence:                "high",
-		TokenizerStrategy:         tokenizerStrategy,
-		TokenizerConfidence:       tokenizerConfidence,
-		Vision:                    modelCfg.Vision,
-		Reasoning:                 reasoningCaps,
-		ReasoningConfiguredEffort: strings.TrimSpace(modelCfg.Advanced.Reasoning.Effort),
-		ReasoningEffectiveEffort:  reasoningEffectiveEffort,
-	}
-	if modelCfg.Advanced.ReasoningEchoBack != nil {
-		rm.ReasoningEchoBack = *modelCfg.Advanced.ReasoningEchoBack
-	}
-	return rm, nil
+	return resolveReference(&cfg, alias, false, nil)
 }
 
 // ResolveWithDiscovery resolves a model like Resolve but also attempts provider
 // metadata discovery to fill in missing limits. Discovery is best-effort: any
 // HTTP failure or unsupported provider type is silently ignored.
 func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Client) (ResolvedModel, error) {
-	rm, err := Resolve(cfg, alias)
-	if err != nil {
-		return ResolvedModel{}, err
-	}
-
-	modelCfg := cfg.Models.Definitions[alias]
-	adv := modelCfg.Advanced.Limits
-
-	modelsDevInfo := loadAndApplyModelsDevMetadata(&rm, modelCfg, httpClient)
-
-	if limitsFullyConfigured(adv) {
-		return rm, nil
-	}
-
-	resolveLimitsFromDiscovery(&rm, adv, modelsDevInfo, httpClient)
-	return rm, nil
+	return resolveReference(&cfg, alias, true, httpClient)
 }
 
 // ResolveReasoningBatch resolves reasoning capabilities and effective efforts for
@@ -210,7 +156,7 @@ func loadAndApplyModelsDevMetadata(rm *ResolvedModel, modelCfg config.ModelConfi
 
 // resolveLimitsFromDiscovery attempts to fill in missing token limits via
 // provider discovery, models.dev metadata, or conservative fallback defaults.
-func resolveLimitsFromDiscovery(rm *ResolvedModel, adv config.AdvancedLimitsConfig, modelsDevInfo metadata.ModelInfo, httpClient *http.Client) {
+func resolveLimitsFromDiscovery(rm *ResolvedModel, adv config.AdvancedLimitsConfig, modelsDevInfo metadata.ModelInfo, httpClient *http.Client, isAlias bool, reference string) {
 	discoverer := NewDiscoverer(rm.ProviderConfig, httpClient)
 	if discoverer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
@@ -236,10 +182,17 @@ func resolveLimitsFromDiscovery(rm *ResolvedModel, adv config.AdvancedLimitsConf
 	if isFallbackLimits(adv) {
 		rm.MetadataSource = "fallback"
 		rm.Confidence = "low"
-		rm.Warnings = append(rm.Warnings, fmt.Sprintf(
-			"Model metadata warning: %s/%s has unknown context limits. Using conservative fallback: context_window=%d, max_output_tokens=%d. Set models.%s.advanced.limits.context_window to remove this warning.",
-			rm.Alias, rm.BackendModelID, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens, rm.Alias,
-		))
+		if isAlias {
+			rm.Warnings = append(rm.Warnings, fmt.Sprintf(
+				"Model metadata warning: %s/%s has unknown context limits. Using conservative fallback: context_window=%d, max_output_tokens=%d. Set models.%s.advanced.limits.context_window to remove this warning.",
+				rm.Alias, rm.BackendModelID, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens, rm.Alias,
+			))
+		} else {
+			rm.Warnings = append(rm.Warnings, fmt.Sprintf(
+				"Model metadata warning: %s has unknown context limits. Using conservative fallback: context_window=%d, max_output_tokens=%d.",
+				reference, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens,
+			))
+		}
 	}
 }
 
@@ -277,7 +230,8 @@ func metadataProviderTransport(info metadata.ModelInfo) TransportType {
 	return TransportConfigured
 }
 
-func resolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
+// ResolveProviderConfig applies runtime defaults and environment-backed credentials.
+func ResolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
 	resolved := cfg
 	if strings.TrimSpace(resolved.BaseURL) == "" {
 		resolved.BaseURL = defaultProviderBaseURL(resolved.Type)
@@ -363,7 +317,7 @@ func deriveEffectiveLimits(contextWindow, maxOutputTokens int) EffectiveLimits {
 func deriveSummaryMaxTokens(contextWindow, maxOutputTokens, percent, minTokens, maxTokens int) int {
 	derived := clampInt(contextWindow*percent/100, minTokens, maxTokens)
 	if maxOutputTokens > 0 {
-		return minInt(maxOutputTokens, derived)
+		return min(maxOutputTokens, derived)
 	}
 	return derived
 }
@@ -376,13 +330,6 @@ func clampInt(value, minValue, maxValue int) int {
 		return maxValue
 	}
 	return value
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func resolveTokenizerMetadata(modelID string) (strategy string, confidence string) {

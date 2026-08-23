@@ -1,0 +1,1 @@
+{"data":[{"id":"anthropic/claude-3","description":"Claude","context_length":200000,"architecture":{"output_modalities":["text"]}},{"id":"fallback-model","architecture":{"output_modalities":["text"]}}],"links":{"next":null}}

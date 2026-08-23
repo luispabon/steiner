@@ -243,17 +243,18 @@ Codex-specific configuration. Applies only when `type: codex`.
 ## `models` block
 
 Consolidates all model configuration: the named model definitions and every
-role-based alias that references them (the default model, the advisor model,
-sub-agent overrides, oneshot per-phase models, and workflow handoff models).
+role-based model reference (the default model, the advisor model, sub-agent
+overrides, oneshot per-phase models, and workflow handoff models).
 
 | Field               | Type                       | Default | Description |
 |---------------------|----------------------------|---------|-------------|
-| `default`           | string                     | `"default"` | Name of the model alias to use when none is specified on the command line. Must reference a key in `definitions`. |
+| `default`           | string                     | `"default"` | Model alias or `provider/model-id` reference to use when none is specified on the command line. |
 | `definitions`        | map[string]ModelConfig    | empty   | Named model definitions. Each entry binds a provider to a specific model ID and sets request-level parameters. |
-| `advisor`            | string                    | `""`    | Model alias used for advisor calls. Must reference a key in `definitions` when `advisor.enabled` is `true`. |
-| `sub_agents`         | map[string]string         | empty   | Per-agent-type model alias overrides, keyed by agent type (e.g. `code`, `evaluate`, `sanity_check`, `review`). Each value must reference a key in `definitions`. If an agent type has no entry, the sub-agent uses the same model as the parent. |
-| `oneshot`            | map[string]string         | empty   | Per-phase model aliases for autonomous oneshot runs, keyed by `plan`, `implement`, and `review`. Each value must reference a key in `definitions`. Missing phases fall back to `default` at runtime. |
-| `workflow_handoff`   | map[string]string         | empty   | Persistent handoff model aliases, keyed by destination workflow name (`implement`, `review`, `build`). If a destination has no entry, handoff uses the current session model. |
+| `discovery_enabled`  | bool                       | `true`  | When `true`, discover available models from configured providers. When `false`, skip provider enumeration and network refresh; the chooser shows configured entries only. |
+| `advisor`            | string                    | `""`    | Model alias or `provider/model-id` reference used for advisor calls when `advisor.enabled` is `true`. |
+| `sub_agents`         | map[string]string         | empty   | Per-agent-type model reference overrides, keyed by agent type (e.g. `code`, `evaluate`, `sanity_check`, `review`). Each value may be an alias or `provider/model-id` reference. If an agent type has no entry, the sub-agent uses the same model as the parent. |
+| `oneshot`            | map[string]string         | empty   | Per-phase model references for autonomous oneshot runs, keyed by `plan`, `implement`, and `review`. Values may be aliases or `provider/model-id` references. Missing phases fall back to `default` at runtime. |
+| `workflow_handoff`   | map[string]string         | empty   | Persistent handoff model references, keyed by destination workflow name (`implement`, `review`, `build`). If a destination has no entry, handoff uses the current session model. |
 
 ```yaml
 models:
@@ -283,6 +284,24 @@ models:
 destination has no entry, handoff uses the current session model. The
 interactive handoff picker can still override the pending model for one
 handoff without changing configuration.
+
+### Model references
+
+Every model selection accepts either a configured alias or a raw `provider/model-id` reference:
+
+```text
+alias | provider/model-id
+```
+
+This applies to `models.default`, `models.advisor`, `models.sub_agents.*`,
+`models.oneshot.*`, `models.workflow_handoff.*`, the `--model` flag,
+`STEINER_MODEL`, and the `/model` command. For example,
+`openrouter/openai/gpt-4o` selects model ID `openai/gpt-4o` from the configured
+`openrouter` provider.
+
+An exact configured alias takes precedence over provider-prefix parsing. Otherwise,
+steiner uses the longest matching configured provider prefix, so provider and model
+IDs may contain additional slashes.
 
 For recommended model tiers per sub-agent type, see [Recommended model tiers](sub-agent-delegation.md#recommended-model-tiers) in the delegation documentation.
 

@@ -396,10 +396,11 @@ func TestSessionHandleNoop(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
+			Providers: map[string]config.ProviderConfig{"local": {}},
 			Models: config.ModelsConfig{
 				Default: "gpt-4",
 				Definitions: map[string]config.ModelConfig{
-					"gpt-4": {ID: "gpt-4"},
+					"gpt-4": {Provider: "local", ID: "gpt-4"},
 				},
 			},
 		},
@@ -1134,51 +1135,114 @@ func TestSessionConversationAccessors(t *testing.T) {
 
 func TestSwitchModelSuccess(t *testing.T) {
 	t.Parallel()
-	var events []output.Event
-	s := testNewSession(t, Dependencies{
-		BaseEvents: output.SinkFunc(func(event output.Event) {
-			events = append(events, event)
-		}),
-		Config: config.Config{
-			Providers: map[string]config.ProviderConfig{
-				"old": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://old.example/v1"},
-				"new": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://new.example/v1"},
-			},
-			Models: config.ModelsConfig{
-				Default: "current",
-				Definitions: map[string]config.ModelConfig{
-					"current": {Provider: "old", ID: "old-model"},
-					"fast":    {Provider: "new", ID: "new-model"},
+
+	tests := []struct {
+		name         string
+		model        string
+		wantProvider string
+		wantModel    string
+		wantDefault  string
+	}{
+		{
+			name:         "alias",
+			model:        "fast",
+			wantProvider: "new",
+			wantModel:    "new-model",
+			wantDefault:  "fast",
+		},
+		{
+			name:         "provider model reference",
+			model:        "openrouter/openai/gpt-4",
+			wantProvider: "openrouter",
+			wantModel:    "openai/gpt-4",
+			wantDefault:  "openrouter/openai/gpt-4",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var events []output.Event
+			var recordedProvider, recordedModel string
+			recorded := 0
+			s := testNewSession(t, Dependencies{
+				BaseEvents: output.SinkFunc(func(event output.Event) {
+					events = append(events, event)
+				}),
+				RecordModelSwitch: func(providerAlias, modelID string) error {
+					recorded++
+					recordedProvider = providerAlias
+					recordedModel = modelID
+					return nil
 				},
-			},
+				Config: config.Config{
+					Providers: map[string]config.ProviderConfig{
+						"old":        {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://old.example/v1"},
+						"new":        {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://new.example/v1"},
+						"openrouter": {Type: config.ProviderTypeOpenRouter, BaseURL: "http://openrouter.example/v1"},
+					},
+					Models: config.ModelsConfig{
+						Default: "current",
+						Definitions: map[string]config.ModelConfig{
+							"current": {Provider: "old", ID: "old-model"},
+							"fast":    {Provider: "new", ID: "new-model"},
+						},
+					},
+				},
+			})
+
+			if err := s.Handle(context.Background(), SwitchModel{Name: tt.model}); err != nil {
+				t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
+			}
+			if got := s.deps.Config.Models.Default; got != tt.wantDefault {
+				t.Fatalf("config default_model = %q, want %q", got, tt.wantDefault)
+			}
+			if recorded != 1 {
+				t.Fatalf("RecordModelSwitch call count = %d, want 1", recorded)
+			}
+			if recordedProvider != tt.wantProvider || recordedModel != tt.wantModel {
+				t.Fatalf("RecordModelSwitch args = %q, %q, want %q, %q", recordedProvider, recordedModel, tt.wantProvider, tt.wantModel)
+			}
+
+			for _, event := range events {
+				if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+					if strings.Contains(payload.Content, "failed") {
+						t.Fatalf("unexpected error event: %q", payload.Content)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSwitchModelNilRecorder(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			Providers: map[string]config.ProviderConfig{"local": {}},
+			Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+				"model": {Provider: "local", ID: "model-id"},
+			}},
 		},
 	})
 
-	err := s.Handle(context.Background(), SwitchModel{Name: "fast"})
-	if err != nil {
+	if err := s.Handle(context.Background(), SwitchModel{Name: "model"}); err != nil {
 		t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
-	}
-
-	if got, want := s.deps.Config.Models.Default, "fast"; got != want {
-		t.Fatalf("config default_model = %q, want %q", got, want)
-	}
-
-	for _, event := range events {
-		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
-			if strings.Contains(payload.Content, "failed") {
-				t.Fatalf("unexpected error event: %q", payload.Content)
-			}
-		}
 	}
 }
 
 func TestSwitchModelFailure(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
+	recorded := 0
 	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
+		RecordModelSwitch: func(string, string) error {
+			recorded++
+			return nil
+		},
 		Config: config.Config{
 			Models: config.ModelsConfig{
 				Default:     "current",
@@ -1208,6 +1272,9 @@ func TestSwitchModelFailure(t *testing.T) {
 	if got, want := s.deps.Config.Models.Default, "current"; got != want {
 		t.Fatalf("config default_model after failed switch = %q, want %q", got, want)
 	}
+	if recorded != 0 {
+		t.Fatalf("RecordModelSwitch call count = %d, want 0", recorded)
+	}
 }
 
 func TestCurrentModelConfig(t *testing.T) {
@@ -1224,6 +1291,51 @@ func TestCurrentModelConfig(t *testing.T) {
 	got := s.CurrentModelConfig()
 	if got.ID != "test-model" {
 		t.Fatalf("CurrentModelConfig().ID = %q, want %q", got.ID, "test-model")
+	}
+}
+
+func TestCurrentModelConfigResolvesDefaultReference(t *testing.T) {
+	tests := []struct {
+		name         string
+		defaultModel string
+		definitions  map[string]config.ModelConfig
+		providers    map[string]config.ProviderConfig
+		wantProvider string
+		wantID       string
+	}{
+		{
+			name:         "configured alias",
+			defaultModel: "alias",
+			definitions:  map[string]config.ModelConfig{"alias": {Provider: "local", ID: "configured-id"}},
+			providers:    map[string]config.ProviderConfig{"local": {}},
+			wantProvider: "local",
+			wantID:       "configured-id",
+		},
+		{
+			name:         "raw reference",
+			defaultModel: "openrouter/openai/gpt-4",
+			providers:    map[string]config.ProviderConfig{"openrouter": {}},
+			wantProvider: "openrouter",
+			wantID:       "openai/gpt-4",
+		},
+		{
+			name:         "unknown reference",
+			defaultModel: "garbage",
+			wantProvider: "",
+			wantID:       "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := testNewSession(t, Dependencies{Config: config.Config{
+				Models:    config.ModelsConfig{Default: tt.defaultModel, Definitions: tt.definitions},
+				Providers: tt.providers,
+			}})
+			got := s.CurrentModelConfig()
+			if got.Provider != tt.wantProvider || got.ID != tt.wantID {
+				t.Fatalf("CurrentModelConfig() = provider=%q id=%q, want provider=%q id=%q", got.Provider, got.ID, tt.wantProvider, tt.wantID)
+			}
+		})
 	}
 }
 
@@ -1465,6 +1577,23 @@ func TestSaveSessionPersistsCurrentMetadata(t *testing.T) {
 	}
 	if got, want := saved.Lineage.FullMessages(), lineage.FullMessages(); len(got) != len(want) || got[0].Content != want[0].Content {
 		t.Fatalf("saved lineage = %#v, want %#v", got, want)
+	}
+}
+
+func TestSaveSessionPersistsRawModelReference(t *testing.T) {
+	mockStore := newMockSessionStore()
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+		Config: config.Config{
+			Models:    config.ModelsConfig{Default: "openrouter/openai/gpt-4"},
+			Providers: map[string]config.ProviderConfig{"openrouter": {}},
+		},
+	})
+	if err := s.saveSession(); err != nil {
+		t.Fatalf("saveSession() = %v, want nil", err)
+	}
+	if got := mockStore.savedSessions[s.SessionID()].Model; got != "openai/gpt-4" {
+		t.Fatalf("saved model = %q, want %q", got, "openai/gpt-4")
 	}
 }
 

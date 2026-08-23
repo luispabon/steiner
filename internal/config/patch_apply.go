@@ -33,6 +33,9 @@ func applyCoreConfigPatch(cfg *Config, patch configPatch) {
 }
 
 func applyModelsPatch(cfg *Config, patch *modelsPatch) {
+	if patch.DiscoveryEnabled != nil {
+		cfg.Models.DiscoveryEnabled = *patch.DiscoveryEnabled
+	}
 	if patch.Default != nil {
 		cfg.Models.Default = *patch.Default
 	}
@@ -43,7 +46,7 @@ func applyModelsPatch(cfg *Config, patch *modelsPatch) {
 		for name, model := range *patch.Definitions {
 			current, ok := cfg.Models.Definitions[name]
 			if !ok {
-				current = newModelConfigBase(*cfg)
+				current = modelConfigBaseForConfig(*cfg)
 			}
 			applyModelPatch(&current, &model)
 			cfg.Models.Definitions[name] = current

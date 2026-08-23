@@ -18,6 +18,7 @@ internal/history/        Conversation history persistence
 internal/interactive/    Interactive session orchestration: run flow, replay, session/snapshot reports, dispatch (drives internal/agent)
 internal/mcp/            MCP server connections (stdio transport, tool registration)
 internal/metadata/       Local cache of model metadata from models.dev
+internal/modelcatalog/   Provider model catalog: enumerators, cache, popularity, merge/rank
 internal/notify/         Desktop notifications
 internal/oauth/          OAuth flows: token exchange, refresh, PKCE
 internal/oneshot/        Autonomous oneshot engine: phases, manifest, lock/resume, closeout

@@ -28,6 +28,11 @@ type modelReasoningResolvedMsg struct {
 	efforts      map[string]string
 }
 
+type modelEntriesUpdatedMsg struct {
+	entries []ModelEntry
+	ok      bool
+}
+
 func syncDebounceCmd(seq int) tea.Cmd {
 	return tea.Tick(50*time.Millisecond, func(_ time.Time) tea.Msg {
 		return syncDebounceFiredMsg{seq: seq}
@@ -53,6 +58,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleRuntimeEventMsg(msg)
 	case bridgeClosedMsg:
 		return m.handleBridgeClosedMsg(msg)
+	case modelEntriesUpdatedMsg:
+		return m.handleModelEntriesUpdatedMsg(msg)
 	case gitRefreshDoneMsg:
 		m.syncSidebar()
 		return m, nil
@@ -98,6 +105,21 @@ func (m *Model) handleMouseEventMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleDragAutoScrollTick(msg)
 	}
 	return m, nil
+}
+
+func (m *Model) handleModelEntriesUpdatedMsg(msg modelEntriesUpdatedMsg) (tea.Model, tea.Cmd) {
+	if !msg.ok {
+		m.modelEntriesUpdates = nil
+		return m, nil
+	}
+	m.modelEntries = cloneModelEntries(msg.entries)
+	if m.modelPicker.IsOpen() {
+		m.modelPicker = m.modelPicker.ReplaceEntries(m.modelEntries)
+	}
+	if m.modelEntriesUpdates == nil {
+		return m, nil
+	}
+	return m, waitForModelEntries(m.modelEntriesUpdates)
 }
 
 func (m *Model) handleSyncDebounceFiredMsg(msg syncDebounceFiredMsg) (tea.Model, tea.Cmd) {

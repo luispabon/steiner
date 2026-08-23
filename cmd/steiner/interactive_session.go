@@ -16,6 +16,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/mcp"
+	"github.com/luispabon/steiner/internal/modelcatalog"
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
@@ -34,6 +35,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		WorkDir:           rt.workDir,
 		SessionStore:      rt.sessionStore,
 		CompactionLogPath: rt.compactionLogFile,
+		RecordModelSwitch: modelPopularityRecorder(rt.modelPopularity),
 	}
 	if rt.historyWriter != nil {
 		sessDeps.HistoryWriter = rt.historyWriter
@@ -64,8 +66,59 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntim
 	return rt
 }
 
+func modelEntriesFromChoices(choices []modelcatalog.ModelChoice) []tui.ModelEntry {
+	entries := make([]tui.ModelEntry, 0, len(choices))
+	for _, choice := range choices {
+		entries = append(entries, tui.ModelEntry{
+			Ref:              choice.Ref,
+			Display:          choice.Display,
+			SupportedEfforts: append([]string(nil), choice.SupportedEfforts...),
+			Current:          choice.Current,
+		})
+	}
+	return entries
+}
+
+func modelPopularityRecorder(store *modelcatalog.Store) func(string, string) error {
+	if store == nil {
+		return nil
+	}
+	return store.Record
+}
+
+func startModelCatalogRefresh(ctx context.Context, rt cliRuntime, sess *interactive.Session, updates chan<- []tui.ModelEntry) {
+	if updates == nil {
+		return
+	}
+	if rt.modelCatalog == nil || len(rt.modelCatalogEndpoints) == 0 {
+		close(updates)
+		return
+	}
+	go func() {
+		defer close(updates)
+		rt.modelCatalog.RefreshAll(ctx, rt.modelCatalogEndpoints, modelcatalog.RefreshOptions{
+			Force: false,
+			OnResult: func(_ string, _ error) {
+				entries := modelEntriesFromChoices(rt.modelCatalog.Choices(&rt.cfg, sess.CurrentModelAlias()))
+				select {
+				case updates <- entries:
+				case <-ctx.Done():
+				}
+			},
+		})
+	}()
+}
+
 func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, sess *interactive.Session) *tui.App {
 	selected := selectedModelConfig(rt.cfg)
+	entries := []tui.ModelEntry(nil)
+	updates := rt.modelEntriesUpdates
+	if updates == nil {
+		updates = make(chan []tui.ModelEntry, max(1, len(rt.modelCatalogEndpoints)))
+	}
+	if rt.modelCatalog != nil {
+		entries = modelEntriesFromChoices(rt.modelCatalog.Choices(&rt.cfg, sess.CurrentModelAlias()))
+	}
 	selectedProviderBaseURL := ""
 	selectedProviderName := ""
 	if p, ok := rt.cfg.Providers[selected.Provider]; ok {
@@ -73,27 +126,29 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		selectedProviderName = selected.Provider
 	}
 	tuiCfg := tui.Config{
-		Model:              selected.ID,
-		ModelNames:         modelAliasNames(rt.cfg),
-		ModelBackendAlias:  modelBackendAliases(rt.cfg),
-		ModelContexts:      modelContextSizes(rt.cfg),
-		ModelBaseURLs:      modelBaseURLs(rt.cfg),
-		ModelProviderNames: modelProviderNames(rt.cfg),
-		CurrentModelAlias:  rt.cfg.Models.Default,
-		InitialMode:        string(sess.Mode()),
-		ProviderBaseURL:    selectedProviderBaseURL,
-		ProviderName:       selectedProviderName,
-		HomeDir:            rt.homeDir,
-		WorkingDir:         rt.workDir,
-		MaxTurns:           0,
-		Version:            version,
-		SkillNames:         rt.skillNames,
-		SkillDescriptions:  rt.skillDescriptions,
-		SkillSources:       rt.skillSources,
-		Controller:         sess,
-		SandboxStatus:      rt.sandboxStatus,
-		ConfigWarnings:     rt.configWarnings,
-		WorktreeCleanup:    rt.worktreeCleanup,
+		Model:               selected.ID,
+		Entries:             entries,
+		ModelEntriesUpdates: updates,
+		ModelNames:          modelAliasNames(rt.cfg),
+		ModelBackendAlias:   modelBackendAliases(rt.cfg),
+		ModelContexts:       modelContextSizes(rt.cfg),
+		ModelBaseURLs:       modelBaseURLs(rt.cfg),
+		ModelProviderNames:  modelProviderNames(rt.cfg),
+		CurrentModelAlias:   rt.cfg.Models.Default,
+		InitialMode:         string(sess.Mode()),
+		ProviderBaseURL:     selectedProviderBaseURL,
+		ProviderName:        selectedProviderName,
+		HomeDir:             rt.homeDir,
+		WorkingDir:          rt.workDir,
+		MaxTurns:            0,
+		Version:             version,
+		SkillNames:          rt.skillNames,
+		SkillDescriptions:   rt.skillDescriptions,
+		SkillSources:        rt.skillSources,
+		Controller:          sess,
+		SandboxStatus:       rt.sandboxStatus,
+		ConfigWarnings:      rt.configWarnings,
+		WorktreeCleanup:     rt.worktreeCleanup,
 	}
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
@@ -313,7 +368,8 @@ func (p *mcpStateProducer) arm() {
 }
 
 func selectedModelConfig(cfg config.Config) config.ModelConfig {
-	return cfg.Models.Definitions[cfg.Models.Default]
+	model, _ := config.ResolveModelConfig(&cfg, cfg.Models.Default)
+	return model
 }
 
 func modelAliasNames(cfg config.Config) []string {
@@ -424,10 +480,12 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
 	wait := startInteractiveProgram(p, rt.events, stop)
+	startModelCatalogRefresh(ctx, *rt, sess, rt.modelEntriesUpdates)
 	if rt.mcpInit != nil {
 		go rt.mcpInit.once.Do(func() { rt.mcpInit.run(ctx, *rt) })
 	}
 	err := sess.Run(ctx)
+	stop()
 	stopInteractiveProgram(p)
 	wait()
 	pruneWorktreesOnExit(cmd, sess, rt)

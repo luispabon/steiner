@@ -13,8 +13,8 @@ import (
 type modelPickerOverlay struct {
 	OverlayShell
 	query        string
-	allNames     []string
-	candidates   []string
+	allEntries   []ModelEntry
+	candidates   []ModelEntry
 	selection    int
 	scrollOffset int
 	currentModel string
@@ -35,24 +35,55 @@ func newModelPickerOverlay(styles *theme.Styles) modelPickerOverlay {
 }
 
 func (m modelPickerOverlay) Open(names []string, current string) modelPickerOverlay {
-	return m.open(names, current, "", modelPickerModeCommand)
+	entries := make([]ModelEntry, len(names))
+	for i, name := range names {
+		entries[i] = ModelEntry{Ref: name, Display: name}
+	}
+	return m.OpenEntries(entries, current)
+}
+
+func (m modelPickerOverlay) OpenEntries(entries []ModelEntry, current string) modelPickerOverlay {
+	return m.open(entries, current, "", modelPickerModeCommand)
 }
 
 func (m modelPickerOverlay) OpenForWorkflowHandoff(title string, names []string, current string) modelPickerOverlay {
-	return m.open(names, current, title, modelPickerModeWorkflowHandoff)
+	entries := make([]ModelEntry, len(names))
+	for i, name := range names {
+		entries[i] = ModelEntry{Ref: name, Display: name}
+	}
+	return m.open(entries, current, title, modelPickerModeWorkflowHandoff)
 }
 
-func (m modelPickerOverlay) open(names []string, current string, title string, mode modelPickerMode) modelPickerOverlay {
+func (m modelPickerOverlay) open(entries []ModelEntry, current string, title string, mode modelPickerMode) modelPickerOverlay {
 	m.OverlayShell = m.openShell()
 	m.query = ""
 	m.selection = 0
 	m.scrollOffset = 0
-	m.allNames = append([]string(nil), names...)
-	m.candidates = append([]string(nil), names...)
+	m.allEntries = cloneModelEntries(entries)
+	m.candidates = cloneModelEntries(entries)
 	m.currentModel = current
 	m.title = strings.TrimSpace(title)
 	m.mode = mode
 	return m.withCurrentSelection(current)
+}
+
+func (m modelPickerOverlay) ReplaceEntries(entries []ModelEntry) modelPickerOverlay {
+	selectedRef := m.SelectedRef()
+	m.allEntries = cloneModelEntries(entries)
+	m.candidates = filterModelEntries(m.allEntries, m.query)
+	m.selection = 0
+	m.scrollOffset = 0
+	for i, entry := range m.candidates {
+		if entry.Ref == selectedRef {
+			m.selection = i
+			break
+		}
+	}
+	if m.selection >= len(m.candidates) {
+		m.selection = max(0, len(m.candidates)-1)
+	}
+	scrollSearchPickerIntoView(&m.selection, &m.scrollOffset)
+	return m
 }
 
 func (m modelPickerOverlay) Close() modelPickerOverlay {
@@ -64,10 +95,8 @@ func (m modelPickerOverlay) Update(msg tea.Msg) (modelPickerOverlay, tea.Cmd) {
 	if !m.IsOpen() {
 		return m, nil
 	}
-	switch updateSearchPicker(&m.query, &m.selection, &m.scrollOffset, &m.candidates, m.allNames, msg, func(query string, entries []string) []string {
-		return filterSearchPickerEntries(entries, query, func(entry string, loweredQuery string) bool {
-			return strings.Contains(strings.ToLower(entry), loweredQuery)
-		})
+	switch updateSearchPicker(&m.query, &m.selection, &m.scrollOffset, &m.candidates, m.allEntries, msg, func(query string, entries []ModelEntry) []ModelEntry {
+		return filterModelEntries(entries, query)
 	}) {
 	case searchPickerClosed:
 		return m.Close(), nil
@@ -128,9 +157,13 @@ func (m modelPickerOverlay) render(innerW int) string {
 	currentStyle := m.styles.Accent
 
 	for i := m.scrollOffset; i < min(m.scrollOffset+maxDisplay, len(m.candidates)); i++ {
-		name := m.candidates[i]
+		entry := m.candidates[i]
+		name := entry.Display
+		if name == "" {
+			name = entry.Ref
+		}
 		var row string
-		if name == m.currentModel {
+		if entry.Current || entry.Ref == m.currentModel {
 			row = currentStyle.Render(name)
 		} else {
 			row = nameStyle.Render(name)
@@ -186,9 +219,27 @@ func (m modelPickerOverlay) modelPickerAttachedInnerWidth(maxWidth int) int {
 
 func (m modelPickerOverlay) SelectedName() string {
 	if m.selection >= 0 && m.selection < len(m.candidates) {
-		return m.candidates[m.selection]
+		name := m.candidates[m.selection].Display
+		if name == "" {
+			return m.candidates[m.selection].Ref
+		}
+		return name
 	}
 	return ""
+}
+
+func (m modelPickerOverlay) SelectedRef() string {
+	if m.selection >= 0 && m.selection < len(m.candidates) {
+		return m.candidates[m.selection].Ref
+	}
+	return ""
+}
+
+func (m modelPickerOverlay) SelectedEntry() (ModelEntry, bool) {
+	if m.selection >= 0 && m.selection < len(m.candidates) {
+		return m.candidates[m.selection], true
+	}
+	return ModelEntry{}, false
 }
 
 func (m modelPickerOverlay) IsWorkflowHandoff() bool {
@@ -196,8 +247,8 @@ func (m modelPickerOverlay) IsWorkflowHandoff() bool {
 }
 
 func (m modelPickerOverlay) withCurrentSelection(current string) modelPickerOverlay {
-	for i, name := range m.candidates {
-		if name != current {
+	for i, entry := range m.candidates {
+		if entry.Ref != current {
 			continue
 		}
 		m.selection = i
@@ -214,4 +265,11 @@ func (m modelPickerOverlay) headerPrefix() string {
 		return m.styles.Accent.Render("search")
 	}
 	return m.styles.Accent.Render("/model")
+}
+
+func filterModelEntries(entries []ModelEntry, query string) []ModelEntry {
+	return filterSearchPickerEntries(entries, query, func(entry ModelEntry, loweredQuery string) bool {
+		return strings.Contains(strings.ToLower(entry.Display), loweredQuery) ||
+			strings.Contains(strings.ToLower(entry.Ref), loweredQuery)
+	})
 }

@@ -94,7 +94,7 @@ func (m *Model) executeToggleSkillAction(skill string, enable bool) (tea.Model, 
 }
 
 func (m *Model) executeOpenModelPickerAction() (tea.Model, tea.Cmd) {
-	m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
+	m.modelPicker = m.modelPicker.OpenEntries(m.modelPickerEntries(), m.primaryModel)
 	m.modelPicker.width = m.width
 	m.modelPicker.height = m.height
 	m.input.SetValue("/model ")

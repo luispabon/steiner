@@ -949,3 +949,61 @@ func TestApplyMCPPatch(t *testing.T) {
 		})
 	}
 }
+
+func TestModelsPatchRoundTripsDiscoveryEnabled(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want bool
+	}{
+		{name: "omitted keeps default", yaml: "models: {}\n", want: true},
+		{name: "explicit false", yaml: "models:\n  discovery_enabled: false\n", want: false},
+		{name: "explicit true", yaml: "models:\n  discovery_enabled: true\n", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patch, err := parseConfigPatch(tt.yaml)
+			if err != nil {
+				t.Fatalf("parseConfigPatch() error = %v", err)
+			}
+			cfg := defaultConfig()
+			applyPatch(&cfg, patch)
+			if cfg.Models.DiscoveryEnabled != tt.want {
+				t.Fatalf("Models.DiscoveryEnabled = %v, want %v", cfg.Models.DiscoveryEnabled, tt.want)
+			}
+		})
+	}
+}
+
+func TestModelDefinitionPatchPreservesSupportedEffortsNilAndEmpty(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want []string
+	}{
+		{
+			name: "omitted stays nil",
+			yaml: "models:\n  definitions:\n    custom:\n      advanced:\n        reasoning: {}\n",
+			want: nil,
+		},
+		{
+			name: "explicit empty stays empty",
+			yaml: "models:\n  definitions:\n    custom:\n      advanced:\n        reasoning:\n          supported_efforts: []\n",
+			want: []string{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patch, err := parseConfigPatch(tt.yaml)
+			if err != nil {
+				t.Fatalf("parseConfigPatch() error = %v", err)
+			}
+			cfg := defaultConfig()
+			applyPatch(&cfg, patch)
+			got := cfg.Models.Definitions["custom"].Advanced.Reasoning.SupportedEfforts
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("SupportedEfforts = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}

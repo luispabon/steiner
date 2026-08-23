@@ -33,6 +33,7 @@ import (
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tui"
 	"github.com/luispabon/steiner/internal/usagestats"
 	"github.com/luispabon/steiner/skills"
 )
@@ -59,6 +60,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		return cliRuntime{}, err
 	}
 	httpClient := runtimeHTTPClient()
+	modelCatalog, modelCatalogEndpoints, modelPopularity := buildModelCatalogService(&cfg, httpClient)
 	events, closeFn, err := buildRuntimeEventSink(cfg, cmd, flags)
 	if err != nil {
 		return cliRuntime{}, err
@@ -153,6 +155,10 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		usageRecorder:           usagestats.New(nil),
 		imageStore:              agent.NewImageStore(filepath.Join(workDir, ".steiner", "tmp", "images")),
 		visionCapabilities:      agent.NewVisionCapabilities(cfg.Models.SubAgents["vision"] != ""),
+		modelCatalog:            modelCatalog,
+		modelCatalogEndpoints:   modelCatalogEndpoints,
+		modelPopularity:         modelPopularity,
+		modelEntriesUpdates:     make(chan []tui.ModelEntry, max(1, len(modelCatalogEndpoints))),
 	}, nil
 }
 

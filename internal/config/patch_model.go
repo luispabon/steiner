@@ -13,7 +13,7 @@ func applyTUIPatch(dst *TUIConfig, patch *tuiPatch) {
 	setIfPresent(&dst.FPS, patch.FPS)
 }
 
-func newModelConfigBase(cfg Config) ModelConfig {
+func modelConfigBaseForConfig(cfg Config) ModelConfig {
 	if base, ok := cfg.Models.Definitions["default"]; ok {
 		cloned := cloneModelConfig(base)
 		cloned.Advanced.Limits = AdvancedLimitsConfig{}

@@ -12,11 +12,11 @@ func validate(cfg Config) error {
 	validateProvidersConfig(&problems, cfg.Providers)
 	validateTUIConfig(&problems, cfg.TUI)
 	validateModelsConfig(&problems, cfg.Models.Definitions, cfg.Providers)
-	validateWorkflowHandoffConfig(&problems, cfg.Models.WorkflowHandoff, cfg.Models.Definitions)
-	validateOneShotConfig(&problems, cfg.Models.OneShot, cfg.Models.Definitions)
+	validateWorkflowHandoffConfig(&problems, cfg.Models.WorkflowHandoff, cfg)
+	validateOneShotConfig(&problems, cfg.Models.OneShot, cfg)
 	validateLimitsConfig(&problems, cfg.Limits)
-	validateSubAgentConfig(&problems, cfg.SubAgent, cfg.Models.SubAgents, cfg.Models.Definitions)
-	validateAdvisorConfig(&problems, cfg.Advisor, cfg.Models.Advisor)
+	validateSubAgentConfig(&problems, cfg.SubAgent, cfg.Models.SubAgents, cfg)
+	validateAdvisorConfig(&problems, cfg.Advisor, cfg.Models.Advisor, cfg)
 	validateProjectContextConfig(&problems, cfg.ProjectContext)
 	validateLoggingConfig(&problems, cfg.Logging)
 	validateToolsConfig(&problems, cfg.Tools)
@@ -37,8 +37,8 @@ func validateDefaultModel(problems *[]string, cfg Config) {
 		*problems = append(*problems, "models.default is required")
 		return
 	}
-	if _, ok := cfg.Models.Definitions[cfg.Models.Default]; !ok {
-		*problems = append(*problems, fmt.Sprintf("models.default %q is not defined in models.definitions", cfg.Models.Default))
+	if !IsValidModelReference(&cfg, cfg.Models.Default) {
+		*problems = append(*problems, fmt.Sprintf("models.default %q is not defined in models.definitions or providers", cfg.Models.Default))
 	}
 }
 
@@ -48,25 +48,23 @@ var validWorkflowHandoffDestinations = map[string]bool{
 	"build":     true,
 }
 
-func validateWorkflowHandoffConfig(problems *[]string, workflowHandoff map[string]string, models map[string]ModelConfig) {
-	validateModelAliasMap(problems, "models.workflow_handoff", "destination", workflowHandoff, validWorkflowHandoffDestinations, models)
+func validateWorkflowHandoffConfig(problems *[]string, workflowHandoff map[string]string, cfg Config) {
+	validateModelReferenceMap(problems, "models.workflow_handoff", "destination", workflowHandoff, validWorkflowHandoffDestinations, cfg)
 }
 
-// validateModelAliasMap checks that every key in aliases is a member of
-// validKeys and that every value names a model defined in models.definitions.
-// mapName is the dotted config path (e.g. "models.workflow_handoff") used in
-// problem messages, and keyLabel names the key (e.g. "destination", "phase").
-func validateModelAliasMap(problems *[]string, mapName, keyLabel string, aliases map[string]string, validKeys map[string]bool, models map[string]ModelConfig) {
+// validateModelReferenceMap checks that every key in aliases is a member of
+// validKeys and that every value names a model alias or provider/model-id reference.
+func validateModelReferenceMap(problems *[]string, mapName, keyLabel string, aliases map[string]string, validKeys map[string]bool, cfg Config) {
 	for key, alias := range aliases {
 		if !validKeys[key] {
 			*problems = append(*problems, fmt.Sprintf("%s contains unknown %s %q", mapName, keyLabel, key))
 			continue
 		}
 		if alias == "" {
-			continue // empty alias is the documented "disabled" sentinel for lean/optional sub-agents (see internal/delegation/registry.go)
+			continue // empty alias is the documented disabled sentinel for optional sub-agents.
 		}
-		if _, ok := models[alias]; !ok {
-			*problems = append(*problems, fmt.Sprintf("%s[%q] %q is not defined in models.definitions", mapName, key, alias))
+		if !IsValidModelReference(&cfg, alias) {
+			*problems = append(*problems, fmt.Sprintf("%s[%q] %q is not defined in models.definitions or providers", mapName, key, alias))
 		}
 	}
 }

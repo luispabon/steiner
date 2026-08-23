@@ -212,18 +212,19 @@ func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.historyIdx = 0
 		}
 	case tea.KeyEnter:
-		if name := m.modelPicker.SelectedName(); name != "" {
+		if entry, ok := m.modelPicker.SelectedEntry(); ok {
 			isWorkflowHandoff := m.modelPicker.IsWorkflowHandoff()
 			m.modelPicker = m.modelPicker.Close()
 			if isWorkflowHandoff {
-				m.workflowHandoff.modelAlias = name
+				m.workflowHandoff.modelAlias = entry.Ref
 				m.workflowHandoff.modelSource = "selected for handoff"
 				return m, nil
 			}
-			caps := m.modelReasoningCapabilities[name]
+			name := entry.Ref
+			caps := m.reasoningCapabilitiesForEntry(entry)
 			if len(caps.SupportedEfforts) == 0 {
 				m = m.resolveReasoningForAliasIfPending(name)
-				caps = m.modelReasoningCapabilities[name]
+				caps = m.reasoningCapabilitiesForEntry(entry)
 			}
 			if len(caps.SupportedEfforts) == 0 {
 				m.input.Reset()
@@ -248,7 +249,7 @@ func (m *Model) handleReasoningPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cm
 	case tea.KeyEsc:
 		modelName := m.reasoningPicker.modelName
 		m.reasoningPicker = m.reasoningPicker.Close()
-		m.modelPicker = m.modelPicker.Open(m.modelNames, modelName)
+		m.modelPicker = m.modelPicker.OpenEntries(m.modelPickerEntries(), modelName)
 		m.modelPicker.width = m.width
 		m.modelPicker.height = m.height
 	case tea.KeyEnter:
@@ -367,7 +368,7 @@ func (m *Model) openPickerForCompletedSlashCommand(value string) (*Model, bool) 
 }
 
 func (m *Model) openModelPickerFromSlashCommand() *Model {
-	m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
+	m.modelPicker = m.modelPicker.OpenEntries(m.modelPickerEntries(), m.primaryModel)
 	m.modelPicker.width = m.width
 	m.modelPicker.height = m.height
 	m.historyIdx = 0

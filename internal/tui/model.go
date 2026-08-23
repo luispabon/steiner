@@ -101,26 +101,28 @@ type Model struct {
 	sidebar  sidebarState
 	git      *gitState
 
-	approval           approvalState
-	activity           activityState
-	external           <-chan tea.Msg
-	autoScroll         bool
-	contentTopPad      int
-	skillNames         []string
-	skillDescriptions  map[string]string
-	mcpEnabled         bool
-	mcpServers         []MCPServerStatus
-	mcpToolOrigins     map[string]MCPToolOrigin
-	mcpWarned          map[string]bool // servers that already surfaced a failure warning in the current failure generation
-	enabledSkills      map[string]bool
-	modelNames         []string
-	modelBackendAlias  map[string]string
-	modelContexts      map[string]int
-	modelBaseURLs      map[string]string
-	modelProviderNames map[string]string
-	controller         interactive.Controller
-	recorder           *usagestats.Recorder
-	activeTheme        theme.Theme
+	approval            approvalState
+	activity            activityState
+	external            <-chan tea.Msg
+	autoScroll          bool
+	contentTopPad       int
+	skillNames          []string
+	skillDescriptions   map[string]string
+	mcpEnabled          bool
+	mcpServers          []MCPServerStatus
+	mcpToolOrigins      map[string]MCPToolOrigin
+	mcpWarned           map[string]bool // servers that already surfaced a failure warning in the current failure generation
+	enabledSkills       map[string]bool
+	modelNames          []string
+	modelEntries        []ModelEntry
+	modelEntriesUpdates <-chan []ModelEntry
+	modelBackendAlias   map[string]string
+	modelContexts       map[string]int
+	modelBaseURLs       map[string]string
+	modelProviderNames  map[string]string
+	controller          interactive.Controller
+	recorder            *usagestats.Recorder
+	activeTheme         theme.Theme
 	// styles is shared by pointer across Model and every sub-component that
 	// embeds a styles field; theme.Styles must be treated as immutable after
 	// construction, and the accent-change path must allocate a fresh Styles
@@ -385,26 +387,34 @@ func sessionHealthStatusFragment(payload output.ContextSessionHealthEvent) strin
 	return strings.Join(parts, " ")
 }
 
-func cloneModelProviderNames(src map[string]string) map[string]string {
+func cloneModelEntries(src []ModelEntry) []ModelEntry {
 	if len(src) == 0 {
 		return nil
 	}
-	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
+	entries := make([]ModelEntry, len(src))
+	for i, entry := range src {
+		entries[i] = entry
+		entries[i].SupportedEfforts = append([]string(nil), entry.SupportedEfforts...)
 	}
-	return dst
+	return entries
 }
 
-func cloneModelBaseURLs(src map[string]string) map[string]string {
-	if len(src) == 0 {
-		return nil
+func (m *Model) modelPickerEntries() []ModelEntry {
+	if len(m.modelEntries) > 0 {
+		return cloneModelEntries(m.modelEntries)
 	}
-	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
+	entries := make([]ModelEntry, len(m.modelNames))
+	for i, name := range m.modelNames {
+		entries[i] = ModelEntry{Ref: name, Display: name, Current: name == m.primaryModel}
 	}
-	return dst
+	return entries
+}
+
+func (m *Model) reasoningCapabilitiesForEntry(entry ModelEntry) provider.ReasoningCapabilities {
+	if caps, ok := m.modelReasoningCapabilities[entry.Ref]; ok {
+		return caps
+	}
+	return provider.ReasoningCapabilities{SupportedEfforts: append([]string(nil), entry.SupportedEfforts...)}
 }
 
 func cloneModelReasoningCapabilities(src map[string]provider.ReasoningCapabilities) map[string]provider.ReasoningCapabilities {
@@ -510,6 +520,13 @@ func (m *Model) contextBudgetForModel(name string) int {
 		return 0
 	}
 	return m.modelContexts[strings.TrimSpace(name)]
+}
+
+func waitForModelEntries(ch <-chan []ModelEntry) tea.Cmd {
+	return func() tea.Msg {
+		entries, ok := <-ch
+		return modelEntriesUpdatedMsg{entries: entries, ok: ok}
+	}
 }
 
 func (m *Model) applyContextBudget(payload output.ContextBudgetEvent) {

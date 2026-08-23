@@ -9,6 +9,29 @@ var (
 	DefaultCodexMinRequestInterval = MustDuration("4s")
 )
 
+func newModelConfigBase() ModelConfig {
+	return ModelConfig{
+		Retry: RetryConfig{
+			Enabled:        true,
+			MaxAttempts:    5,
+			InitialBackoff: MustDuration("250ms"),
+			MaxBackoff:     MustDuration("5s"),
+			RetryAfterMax:  MustDuration("60s"),
+		},
+		Advanced: AdvancedConfig{
+			Limits: AdvancedLimitsConfig{
+				ContextWindow:   32768,
+				MaxOutputTokens: 8192,
+			},
+		},
+	}
+}
+
+// NewModelConfigBase returns default values for a model definition.
+func NewModelConfigBase() ModelConfig {
+	return newModelConfigBase()
+}
+
 // advisorTimeout returns a fresh Duration for the default Advisor.Timeout so
 // each Config produced by defaultConfig owns its own pointer.
 func advisorTimeout() *Duration {
@@ -25,23 +48,9 @@ func defaultConfig() Config {
 			MinRequestInterval: DefaultCodexMinRequestInterval,
 		},
 	}
-	defaultModel := ModelConfig{
-		Provider: "local",
-		ID:       "qwen3-35b-a3b",
-		Retry: RetryConfig{
-			Enabled:        true,
-			MaxAttempts:    5,
-			InitialBackoff: MustDuration("250ms"),
-			MaxBackoff:     MustDuration("5s"),
-			RetryAfterMax:  MustDuration("60s"),
-		},
-		Advanced: AdvancedConfig{
-			Limits: AdvancedLimitsConfig{
-				ContextWindow:   32768,
-				MaxOutputTokens: 8192,
-			},
-		},
-	}
+	defaultModel := newModelConfigBase()
+	defaultModel.Provider = "local"
+	defaultModel.ID = "qwen3-35b-a3b"
 	return Config{
 		TUI: TUIConfig{
 			FPS: 60,
@@ -50,7 +59,8 @@ func defaultConfig() Config {
 			"local": defaultProvider,
 		},
 		Models: ModelsConfig{
-			Default: "default",
+			Default:          "default",
+			DiscoveryEnabled: true,
 			Definitions: map[string]ModelConfig{
 				"default": defaultModel,
 			},

@@ -17,6 +17,7 @@ import (
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/mcp"
+	"github.com/luispabon/steiner/internal/modelcatalog"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/sandbox"
@@ -83,6 +84,10 @@ type cliRuntime struct {
 	usageRecorder           *usagestats.Recorder
 	imageStore              *agent.ImageStore
 	visionCapabilities      *agent.VisionCapabilities
+	modelCatalog            *modelcatalog.Service
+	modelCatalogEndpoints   []modelcatalog.Endpoint
+	modelPopularity         *modelcatalog.Store
+	modelEntriesUpdates     chan []tui.ModelEntry
 	worktreeCleanup         *tui.WorktreeCleanupPlan
 }
 

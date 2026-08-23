@@ -824,7 +824,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			name: "enabled advisor requires max uses",
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{Enabled: true}
-				c.Models.Advisor = "advisor-model"
+				c.Models.Advisor = "default"
 			},
 			wantErr: "advisor.max_uses_per_run must be at least 1 when enabled",
 		},
@@ -836,7 +836,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 					MaxUsesPerRun: 1,
 					MaxTokens:     intPtr(0),
 				}
-				c.Models.Advisor = "advisor-model"
+				c.Models.Advisor = "default"
 			},
 			wantErr: "advisor.max_tokens must be greater than zero when set",
 		},
@@ -848,7 +848,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 					MaxUsesPerRun: 1,
 					Timeout:       durationPtr(Duration{}),
 				}
-				c.Models.Advisor = "advisor-model"
+				c.Models.Advisor = "default"
 			},
 			wantErr: "advisor.timeout must be greater than zero when set",
 		},
@@ -871,7 +871,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 					MaxTokens:     intPtr(256),
 					Timeout:       durationPtr(MustDuration("240s")),
 				}
-				c.Models.Advisor = "advisor-model"
+				c.Models.Advisor = "default"
 			},
 		},
 	}
