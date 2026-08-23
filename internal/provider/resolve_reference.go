@@ -12,22 +12,16 @@ import (
 // resolveReference resolves a configured model alias or a raw provider/model-id
 // reference and optionally fills missing runtime metadata through discovery.
 func resolveReference(cfg *config.Config, reference string, useDiscovery bool, httpClient *http.Client) (ResolvedModel, error) {
-	modelCfg, isAlias := cfg.Models.Definitions[reference]
-	if !isAlias {
-		providerAlias, modelID, err := config.ParseModelReference(cfg, reference)
-		if err != nil {
-			return ResolvedModel{}, fmt.Errorf("model alias %q not found", reference)
-		}
-		modelCfg = config.NewModelConfigBase()
-		modelCfg.Provider = providerAlias
-		modelCfg.ID = modelID
+	modelCfg, isAlias := config.ResolveModelConfig(cfg, reference)
+	if !isAlias && (modelCfg.Provider == "" || modelCfg.ID == "") {
+		return ResolvedModel{}, fmt.Errorf("model alias %q not found", reference)
 	}
 
 	provCfg, ok := cfg.Providers[modelCfg.Provider]
 	if !ok {
 		return ResolvedModel{}, fmt.Errorf("provider %q not found for model %q", modelCfg.Provider, reference)
 	}
-	provCfg = resolveProviderConfig(provCfg)
+	provCfg = ResolveProviderConfig(provCfg)
 
 	limits := resolveEffectiveLimits(modelCfg.Advanced.Limits)
 	tokenizerStrategy, tokenizerConfidence := resolveTokenizerMetadata(modelCfg.ID)

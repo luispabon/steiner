@@ -84,14 +84,14 @@ func newModelsStatusCommand() *cobra.Command {
 
 			cache := modelCatalogCacheFactory("")
 			for _, endpoint := range endpoints {
-				_, found, err := cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+				found, fresh, err := cache.Status(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
 				if err != nil {
 					return fmt.Errorf("load cache for %s: %w", endpoint.Alias, err)
 				}
 				freshness := "missing"
 				if found {
 					freshness = "stale"
-					if cache.IsFresh(endpoint.Alias, endpoint.Type, endpoint.BaseURL) {
+					if fresh {
 						freshness = "fresh"
 					}
 				}

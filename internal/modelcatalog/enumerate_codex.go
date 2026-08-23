@@ -105,7 +105,7 @@ func (e *CodexEnumerator) codexRequest(ctx context.Context, ep Endpoint, opts En
 	query := u.Query()
 	query.Set("client_version", e.clientVersion)
 	u.RawQuery = query.Encode()
-	req, err := newGETRequest(ctx, ep, u.String(), "Bearer "+accessToken, true)
+	req, err := newGETRequest(ctx, ep, u.String(), bearerAuthorization(accessToken))
 	if err != nil {
 		return nil, err
 	}

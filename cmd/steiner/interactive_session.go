@@ -86,13 +86,6 @@ func modelPopularityRecorder(store *modelcatalog.Store) func(string, string) err
 	return store.Record
 }
 
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func startModelCatalogRefresh(ctx context.Context, rt cliRuntime, sess *interactive.Session, updates chan<- []tui.ModelEntry) {
 	if updates == nil {
 		return
@@ -121,7 +114,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	entries := []tui.ModelEntry(nil)
 	updates := rt.modelEntriesUpdates
 	if updates == nil {
-		updates = make(chan []tui.ModelEntry, maxInt(1, len(rt.modelCatalogEndpoints)))
+		updates = make(chan []tui.ModelEntry, max(1, len(rt.modelCatalogEndpoints)))
 	}
 	if rt.modelCatalog != nil {
 		entries = modelEntriesFromChoices(rt.modelCatalog.Choices(&rt.cfg, sess.CurrentModelAlias()))
@@ -375,16 +368,7 @@ func (p *mcpStateProducer) arm() {
 }
 
 func selectedModelConfig(cfg config.Config) config.ModelConfig {
-	providerAlias, modelID, err := config.ParseModelReference(&cfg, cfg.Models.Default)
-	if model, ok := cfg.Models.Definitions[cfg.Models.Default]; ok {
-		return model
-	}
-	if err != nil {
-		return config.ModelConfig{}
-	}
-	model := config.NewModelConfigBase()
-	model.Provider = providerAlias
-	model.ID = modelID
+	model, _ := config.ResolveModelConfig(&cfg, cfg.Models.Default)
 	return model
 }
 

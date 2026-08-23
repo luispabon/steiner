@@ -387,28 +387,6 @@ func sessionHealthStatusFragment(payload output.ContextSessionHealthEvent) strin
 	return strings.Join(parts, " ")
 }
 
-func cloneModelProviderNames(src map[string]string) map[string]string {
-	if len(src) == 0 {
-		return nil
-	}
-	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
-}
-
-func cloneModelBaseURLs(src map[string]string) map[string]string {
-	if len(src) == 0 {
-		return nil
-	}
-	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
-}
-
 func cloneModelEntries(src []ModelEntry) []ModelEntry {
 	if len(src) == 0 {
 		return nil

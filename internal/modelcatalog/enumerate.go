@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 // Enumerator discovers models from one provider wire format.
@@ -36,27 +38,39 @@ type EnumerationResult struct {
 
 // ForType returns an Enumerator for a supported provider type.
 func ForType(t string) (Enumerator, error) {
-	return ForTypeWithClient(t, nil)
+	return ForTypeWithClient(config.ProviderType(t), nil)
 }
 
 // ForTypeWithClient returns an Enumerator using client for HTTP requests. A nil
 // client uses a new default http.Client.
-func ForTypeWithClient(t string, client *http.Client) (Enumerator, error) {
+func ForTypeWithClient(t config.ProviderType, client *http.Client) (Enumerator, error) {
 	switch t {
-	case "openai", "openai_compat", "litellm":
+	case config.ProviderTypeOpenAI, config.ProviderTypeOpenAICompat, config.ProviderTypeLiteLLM:
 		return NewOpenAIEnumerator(client), nil
-	case "ollama":
+	case config.ProviderTypeOllama:
 		return NewOllamaEnumerator(client), nil
-	case "lmstudio":
+	case config.ProviderTypeLMStudio:
 		return NewLMStudioEnumerator(client), nil
-	case "openrouter":
+	case config.ProviderTypeOpenRouter:
 		return NewOpenRouterEnumerator(client), nil
-	case "anthropic":
+	case config.ProviderTypeAnthropic:
 		return NewAnthropicEnumerator(client), nil
-	case "codex":
+	case config.ProviderTypeCodex:
 		return NewCodexEnumerator(client, "", nil), nil
 	default:
 		return nil, fmt.Errorf("unknown enumerator type %q", t)
+	}
+}
+
+// SupportsType reports whether provider type has a built-in model enumerator.
+func SupportsType(providerType config.ProviderType) bool {
+	switch providerType {
+	case config.ProviderTypeOpenAI, config.ProviderTypeOpenAICompat, config.ProviderTypeLiteLLM,
+		config.ProviderTypeOllama, config.ProviderTypeLMStudio, config.ProviderTypeOpenRouter,
+		config.ProviderTypeAnthropic, config.ProviderTypeCodex:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -67,7 +81,7 @@ func clientOrDefault(client *http.Client) *http.Client {
 	return client
 }
 
-func newGETRequest(ctx context.Context, ep Endpoint, endpoint string, authorization string, setAuthorization bool) (*http.Request, error) {
+func newGETRequest(ctx context.Context, ep Endpoint, endpoint string, authorization string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create model enumeration request: %w", err)
@@ -75,10 +89,17 @@ func newGETRequest(ctx context.Context, ep Endpoint, endpoint string, authorizat
 	for key, value := range ep.Headers {
 		req.Header.Set(key, value)
 	}
-	if setAuthorization {
+	if authorization != "" {
 		req.Header.Set("Authorization", authorization)
 	}
 	return req, nil
+}
+
+func bearerAuthorization(apiKey string) string {
+	if apiKey == "" {
+		return ""
+	}
+	return "Bearer " + apiKey
 }
 
 func doJSONRequest(client *http.Client, req *http.Request, response any) (string, error) {

@@ -43,7 +43,7 @@ func (e *LMStudioEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ Enume
 	if err != nil {
 		return EnumerationResult{}, err
 	}
-	req, err := newGETRequest(ctx, ep, endpoint, "Bearer "+ep.APIKey, ep.APIKey != "")
+	req, err := newGETRequest(ctx, ep, endpoint, bearerAuthorization(ep.APIKey))
 	if err != nil {
 		return EnumerationResult{}, err
 	}

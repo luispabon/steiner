@@ -65,12 +65,6 @@ func NewCache(dir string) *Cache {
 // envelopes are returned because discovery callers may use them as a fallback.
 // Missing, corrupt, or fingerprint-mismatched envelopes return found=false.
 func (c *Cache) Load(alias, providerType, baseURL string) ([]DiscoveredModel, bool, error) {
-	release, err := c.lock(alias)
-	if err != nil {
-		return nil, false, fmt.Errorf("acquire cache lock: %w", err)
-	}
-	defer release()
-
 	envelope, found, err := c.loadEnvelope(alias, providerType, baseURL)
 	if err != nil {
 		return nil, false, err
@@ -81,15 +75,39 @@ func (c *Cache) Load(alias, providerType, baseURL string) ([]DiscoveredModel, bo
 	return envelope.Models, true, nil
 }
 
+func (c *Cache) loadEnvelope(alias, providerType, baseURL string) (CacheEnvelope, bool, error) {
+	release, err := c.lock(alias)
+	if err != nil {
+		return CacheEnvelope{}, false, fmt.Errorf("acquire cache lock: %w", err)
+	}
+	defer release()
+	return c.loadEnvelopeLocked(alias, providerType, baseURL)
+}
+
+// ETag returns the cached ETag for a matching provider envelope.
+func (c *Cache) ETag(alias, providerType, baseURL string) (string, bool, error) {
+	envelope, found, err := c.loadEnvelope(alias, providerType, baseURL)
+	if err != nil {
+		return "", false, err
+	}
+	if !found {
+		return "", false, nil
+	}
+	return envelope.ETag, true, nil
+}
+
+// Status reports whether a matching cache envelope exists and whether it is fresh.
+func (c *Cache) Status(alias, providerType, baseURL string) (found, fresh bool, err error) {
+	envelope, found, err := c.loadEnvelope(alias, providerType, baseURL)
+	if err != nil {
+		return false, false, err
+	}
+	return found, found && c.now().Before(envelope.ExpiresAt), nil
+}
+
 // IsFresh reports whether a matching provider envelope exists and has not
 // expired. Fingerprint mismatches and unreadable envelopes are not fresh.
 func (c *Cache) IsFresh(alias, providerType, baseURL string) bool {
-	release, err := c.lock(alias)
-	if err != nil {
-		return false
-	}
-	defer release()
-
 	envelope, found, err := c.loadEnvelope(alias, providerType, baseURL)
 	return err == nil && found && c.now().Before(envelope.ExpiresAt)
 }
@@ -143,7 +161,7 @@ func (c *Cache) ExtendFreshness(alias, etag string) bool {
 	return c.writeAtomic(alias, data) == nil
 }
 
-func (c *Cache) loadEnvelope(alias, providerType, baseURL string) (CacheEnvelope, bool, error) {
+func (c *Cache) loadEnvelopeLocked(alias, providerType, baseURL string) (CacheEnvelope, bool, error) {
 	envelope, err := c.readEnvelope(alias)
 	if os.IsNotExist(err) {
 		return CacheEnvelope{}, false, nil
@@ -182,35 +200,6 @@ func (c *Cache) readEnvelope(alias string) (CacheEnvelope, error) {
 	return envelope, nil
 }
 
-func (c *Cache) writeAtomic(alias string, data []byte) error {
-	tmp, err := os.CreateTemp(c.Dir, ".tmp-provider-models-*")
-	if err != nil {
-		return fmt.Errorf("create cache temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	removeTemp := true
-	defer func() {
-		if removeTemp {
-			_ = os.Remove(tmpName)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write cache temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close cache temp file: %w", err)
-	}
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		return fmt.Errorf("chmod cache temp file: %w", err)
-	}
-	if err := os.Rename(tmpName, c.path(alias)); err != nil {
-		return fmt.Errorf("rename cache envelope: %w", err)
-	}
-	removeTemp = false
-	return nil
-}
-
 func (c *Cache) lock(alias string) (func(), error) {
 	if err := os.MkdirAll(c.Dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create cache dir: %w", err)
@@ -224,6 +213,10 @@ func (c *Cache) lock(alias string) (func(), error) {
 
 func (c *Cache) path(alias string) string {
 	return filepath.Join(c.Dir, cacheFilename(alias))
+}
+
+func (c *Cache) writeAtomic(alias string, data []byte) error {
+	return atomicWriteFile(c.Dir, ".tmp-provider-models-*", c.path(alias), "cache", data)
 }
 
 func (c *Cache) lockPath(alias string) string {
