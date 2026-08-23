@@ -135,6 +135,7 @@ providers:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
+  discovery_enabled: true
   default: local
   definitions:
     local:
@@ -143,6 +144,14 @@ models:
 ```
 
 See [Configuration](docs/configuration.md) for all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables.
+
+## Model discovery
+
+Steiner discovers available models from configured providers and adds them to the `/model` chooser. Discovery is enabled by default; set `models.discovery_enabled: false` to use configured entries only. Model references accept either a config alias or a raw `provider/model-id` reference, such as `openrouter/openai/gpt-4o`.
+
+Use `steiner models refresh` to force discovery for every configured provider, or `steiner models status` to check each provider cache. The chooser orders models by popularity first, then configured aliases, then display name alphabetically.
+
+See [Model enumeration](docs/model-enumeration.md) for provider details, caching, and model reference rules.
 
 ## Built-in tools
 
