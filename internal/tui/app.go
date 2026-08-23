@@ -44,12 +44,17 @@ type ApprovalSubmission struct {
 
 // Config holds the runtime configuration for the TUI application.
 type Config struct {
-	Model              string
-	ModelNames         []string
-	ModelBackendAlias  map[string]string
-	ModelContexts      map[string]int
-	ModelBaseURLs      map[string]string
-	ModelProviderNames map[string]string
+	Model      string
+	ModelNames []string
+	// Entries seeds the model picker with display metadata before async updates arrive.
+	Entries []ModelEntry
+	// ModelEntriesUpdates supplies later model picker completions. A closed channel
+	// stops model update receives.
+	ModelEntriesUpdates <-chan []ModelEntry
+	ModelBackendAlias   map[string]string
+	ModelContexts       map[string]int
+	ModelBaseURLs       map[string]string
+	ModelProviderNames  map[string]string
 	// ModelReasoningCapabilities maps model alias to its resolved reasoning
 	// effort capabilities, used by the /model picker's reasoning step. Models
 	// absent from this map, or with no SupportedEfforts, are treated as

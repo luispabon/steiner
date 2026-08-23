@@ -63,6 +63,9 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		mcpServers:                   cfg.MCPServers,
 		mcpToolOrigins:               cfg.MCPToolOrigins,
 		modelNames:                   append([]string(nil), cfg.ModelNames...),
+		modelEntries:                 cloneModelEntries(cfg.Entries),
+		modelEntriesSet:              len(cfg.Entries) > 0,
+		modelEntriesUpdates:          cfg.ModelEntriesUpdates,
 		modelBackendAlias:            cloneStringMap(cfg.ModelBackendAlias),
 		modelContexts:                cloneModelContexts(cfg.ModelContexts),
 		modelBaseURLs:                cloneModelBaseURLs(cfg.ModelBaseURLs),
@@ -393,6 +396,9 @@ func (m *Model) Init() tea.Cmd {
 			caps, efforts := resolve()
 			return modelReasoningResolvedMsg{capabilities: caps, efforts: efforts}
 		})
+	}
+	if m.modelEntriesUpdates != nil {
+		cmds = append(cmds, waitForModelEntries(m.modelEntriesUpdates))
 	}
 	return tea.Batch(cmds...)
 }
