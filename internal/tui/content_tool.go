@@ -43,7 +43,7 @@ func previewBodyKind(tool string, preview output.ToolPreview) string {
 }
 
 // inferBodyKind determines how to render the tool body when only the raw result is available.
-func inferBodyKind(tool, _ string) string {
+func inferBodyKind(tool, result string) string {
 	switch tool {
 	case "bash":
 		return "bash"
@@ -52,6 +52,9 @@ func inferBodyKind(tool, _ string) string {
 	case "mutate":
 		return "mutate"
 	default:
+		if _, _, ok := parseJSONToolResult(result); ok {
+			return "json"
+		}
 		return "plain"
 	}
 }
@@ -242,6 +245,8 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 		lines = b.buildFilePreviewLines(tc, rowWidth-2)
 	case "fetch_url":
 		lines = b.buildFetchURLLines(tc, rowWidth-2)
+	case "json":
+		lines = b.buildJSONLines(tc)
 	case "mutate":
 		lines = b.buildMutateLines(tc, rowWidth-2)
 	default:
