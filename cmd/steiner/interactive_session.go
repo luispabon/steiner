@@ -540,8 +540,8 @@ type sessionRunner struct {
 	mcpInit *mcpInitOnce
 }
 
-func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec) ([]agent.Message, error) {
-	return r.runner.Compact(ctx, conversation, skillNames, tools)
+func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
+	return r.runner.Compact(ctx, conversation, skillNames, tools, steering)
 }
 
 func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (interactive.RunResult, error) {

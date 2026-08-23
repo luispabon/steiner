@@ -54,14 +54,20 @@ type compactionExecutionPlan struct {
 	fit              prompt.RequestTokenBudget
 }
 
-func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error) {
-	return twoStageSummarizeCompaction(ctx, req, state, turn, candidate)
+func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steerings ...string) (CompactionOutcome, error) {
+	steering := ""
+	if len(steerings) > 0 {
+		steering = steerings[0]
+	}
+	return twoStageSummarizeCompaction(ctx, req, state, turn, candidate, steering)
 }
 
-func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error) {
+func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering string) (CompactionOutcome, error) {
 	return summarizeCompactionStages{
-		stageRunner: summarizeCompactionStage,
-		fitRunner:   fitConversationState,
+		stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (CompactionOutcome, error) {
+			return summarizeCompactionStage(ctx, req, state, turn, candidate, sourceMessages, retainedMessages, mode, maxTokens, steering)
+		},
+		fitRunner: fitConversationState,
 	}.run(ctx, req, state, turn, candidate)
 }
 
@@ -147,7 +153,7 @@ func (s summarizeCompactionStages) runStageAndFit(
 	return outcome, nil
 }
 
-func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (CompactionOutcome, error) {
+func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int, steering string) (CompactionOutcome, error) {
 	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(retainedMessages))
 	if err != nil {
 		return CompactionOutcome{}, err
@@ -159,7 +165,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s no_source=true", summarizeCompactionPrompt(candidate), mode), mode, maxTokens), nil
 	}
 
-	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, sourceMessages, retainedMessages, mode, maxTokens)
+	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, sourceMessages, retainedMessages, mode, maxTokens, steering)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
@@ -220,7 +226,11 @@ func fitConversationState(ctx context.Context, req RunRequest, state RunState) (
 }
 
 // Compact reduces the current conversation to fit the model budget.
-func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Message) ([]Message, error) {
+func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Message, steerings ...string) ([]Message, error) {
+	steering := ""
+	if len(steerings) > 0 {
+		steering = steerings[0]
+	}
 	state := RunState{
 		Conversation: currentConv,
 		Lineage:      newConversationLineage(currentConv),
@@ -230,7 +240,7 @@ func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Mess
 	skipped := map[string]bool{}
 	compactionCount := 0
 
-	compacted, err := r.compactConversationForBudget(ctx, req, &state, 0, nil, skipped, &compactionCount)
+	compacted, err := r.compactConversationForBudgetWithSteering(ctx, req, &state, 0, nil, skipped, &compactionCount, steering)
 	if err != nil {
 		return nil, err
 	}
@@ -242,6 +252,10 @@ func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Mess
 }
 
 func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, error) {
+	return r.compactConversationForBudgetWithSteering(ctx, req, state, turn, beforeFit, skipped, compactionCount, "")
+}
+
+func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int, steering string) (bool, error) {
 	candidate, ok := selectCompactionCandidate(state.Lineage, skipped)
 	if !ok {
 		return false, nil
@@ -252,7 +266,7 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 		return false, err
 	}
 
-	outcome, err := summarizeCompactor{}.Compact(ctx, req, *state, turn, candidate)
+	outcome, err := summarizeCompactor{}.Compact(ctx, req, *state, turn, candidate, steering)
 	if err != nil {
 		return false, err
 	}
@@ -278,8 +292,8 @@ func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, b
 	return fitConversationState(ctx, req, state)
 }
 
-func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (compactionExecutionPlan, bool, error) {
-	plan, err := newCompactionExecutionPlanWithMode(ctx, req, state, candidate, sourceMessages, retainedMessages, mode, maxTokens)
+func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int, steering string) (compactionExecutionPlan, bool, error) {
+	plan, err := newCompactionExecutionPlanWithMode(ctx, req, state, candidate, sourceMessages, retainedMessages, mode, maxTokens, steering)
 	if err != nil {
 		return compactionExecutionPlan{}, false, err
 	}
@@ -289,10 +303,10 @@ func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, s
 	return plan, false, nil
 }
 
-func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (compactionExecutionPlan, error) {
+func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int, steering string) (compactionExecutionPlan, error) {
 	workingCandidate := candidate
 	workingCandidate.Messages = stripImages(cloneMessages(sourceMessages))
-	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, req, state, workingCandidate, mode, maxTokens)
+	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, req, state, workingCandidate, mode, maxTokens, steering)
 	if err != nil {
 		return compactionExecutionPlan{}, err
 	}

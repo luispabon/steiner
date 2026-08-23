@@ -46,9 +46,9 @@ var slashCommands = []slashCommand{
 	{
 		ID:   "/compact",
 		Name: "Compact context",
-		Desc: "trigger compaction",
-		Build: func(_ string) inputAction {
-			return inputAction{compaction: true}
+		Desc: "trigger compaction with optional focus text",
+		Build: func(arg string) inputAction {
+			return inputAction{compaction: true, compactionSteering: strings.TrimSpace(arg)}
 		},
 	},
 	{
@@ -259,7 +259,7 @@ func projectPrefixes(allowlistOnly bool) []string {
 
 // commandsAcceptingArbitraryArgs lists commands that accept arbitrary
 // (non-predefined) arguments, used by takesArg alongside ArgVariants.
-var commandsAcceptingArbitraryArgs = []string{"/ls", "/model", "/skill", "/oneshot"}
+var commandsAcceptingArbitraryArgs = []string{"/compact", "/ls", "/model", "/skill", "/oneshot"}
 
 // takesArg reports whether a slashCommand accepts an argument.
 func takesArg(sc slashCommand) bool {

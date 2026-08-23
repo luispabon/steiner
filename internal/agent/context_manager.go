@@ -9,7 +9,7 @@ import (
 
 // Compactor reduces an oversize conversation to fit the model token budget.
 type Compactor interface {
-	Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate) (CompactionOutcome, error)
+	Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering ...string) (CompactionOutcome, error)
 }
 
 // ContextStateManager owns the concrete session-local context shaping used by

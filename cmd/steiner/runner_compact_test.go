@@ -52,7 +52,7 @@ func TestCLIRunnerCompactUsesResolvedLimitsAndAssembly(t *testing.T) {
 	conversation, err := r.Compact(context.Background(), []agent.Message{
 		{Role: agent.MessageRoleUser, Content: "first request"}, {Role: agent.MessageRoleAssistant, Content: "first answer"},
 		{Role: agent.MessageRoleUser, Content: "second request"}, {Role: agent.MessageRoleAssistant, Content: "second answer"},
-	}, nil, nil)
+	}, nil, nil, "")
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}

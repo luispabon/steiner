@@ -10,9 +10,9 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func (s *Session) compactRunner(conversation []agent.Message) func(context.Context) ([]agent.Message, error) {
+func (s *Session) compactRunner(conversation []agent.Message, steering string) func(context.Context) ([]agent.Message, error) {
 	return func(ctx context.Context) ([]agent.Message, error) {
-		return s.deps.Runner.Compact(ctx, conversation, s.skills.Snapshot(), snapshotTools(s.snapshots))
+		return s.deps.Runner.Compact(ctx, conversation, s.skills.Snapshot(), snapshotTools(s.snapshots), steering)
 	}
 }
 

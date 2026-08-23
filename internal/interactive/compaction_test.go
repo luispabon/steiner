@@ -96,7 +96,10 @@ func TestManualCompactionUsesRunnerCompact(t *testing.T) {
 	s := mustCompactionSession(t, Dependencies{Runner: runner, SkillNames: []string{"skill-a"}})
 	s.Skills().Set("skill-a", true)
 	s.SetConversation(twoTurnConversation())
-	s.manualCompaction(context.Background())
+	s.manualCompaction(context.Background(), "focus on auth")
+	if got, want := runner.compactSteering, "focus on auth"; got != want {
+		t.Fatalf("Compact steering = %q, want %q", got, want)
+	}
 	if len(gotConversation) != 4 {
 		t.Fatalf("Compact conversation length = %d, want 4", len(gotConversation))
 	}
@@ -105,6 +108,23 @@ func TestManualCompactionUsesRunnerCompact(t *testing.T) {
 	}
 	if s.Conversation()[0].Content != "summary" {
 		t.Fatal("conversation was not replaced by compact result")
+	}
+}
+
+func TestHandleManualCompactionPassesSteeringToRunner(t *testing.T) {
+	const marker = "focus on auth handoff"
+	runner := &runExecutorFunc{}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+	s.SetConversation(twoTurnConversation())
+
+	if err := s.Handle(context.Background(), TriggerManualCompaction{Steering: marker}); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if !s.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns() returned false, want compaction run to finish")
+	}
+	if got := runner.compactSteering; got != marker {
+		t.Fatalf("Compact steering = %q, want %q", got, marker)
 	}
 }
 

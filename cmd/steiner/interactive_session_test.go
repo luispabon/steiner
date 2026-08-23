@@ -691,6 +691,6 @@ func (r *blockedCleanupTestRunner) Run(context.Context, []agent.Message, []strin
 	return interactive.RunResult{}, nil
 }
 
-func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []string, _ []provider.ToolSpec) ([]agent.Message, error) {
+func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []string, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
 	return conversation, nil
 }

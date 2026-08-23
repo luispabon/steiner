@@ -16,6 +16,12 @@ Compaction is transparent. The agent pauses briefly, summarises the older portio
 
 After multiple compactions the session can become progressively lossy. If Steiner warns that a session is "likely lossy", starting a fresh session is the safest option — prior work is already committed to disk or git.
 
+### Manual compaction steering
+
+Use `/compact` to compact the current conversation manually. Add optional focus text after the command, for example `/compact focus on the auth refactor`. Bare `/compact` behaves as before. Steering is added to the compaction summarisation prompt and composes with, rather than replaces, the `models.<name>.prompts.compaction` override.
+
+Auto-compaction is never steered; it always uses an empty steering value.
+
 ## What survives compaction
 
 - The system prompt and tool definitions (always in full)

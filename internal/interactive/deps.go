@@ -28,7 +28,7 @@ type runExecutor interface {
 
 	// Compact reduces the conversation through the same runner seam used by
 	// normal runs.
-	Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec) ([]agent.Message, error)
+	Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error)
 }
 
 // historyWriter persists and loads prompt history for an interactive session.
