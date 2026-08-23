@@ -1,0 +1,26 @@
+{
+  "models": [
+    {
+      "type": "llm",
+      "publisher": "lmstudio-community",
+      "key": "qwen/qwen3-8b",
+      "display_name": "Qwen 3 8B",
+      "architecture": "qwen",
+      "quantization": "Q4_K_M",
+      "size_bytes": 5000000000,
+      "params_string": "8B",
+      "loaded_instances": [],
+      "max_context_length": 32768,
+      "format": "gguf",
+      "capabilities": {"vision": false, "trained_for_tool_use": true, "reasoning": {"allowed_options": ["low", "high"], "default": "low"}},
+      "description": "A local model"
+    },
+    {
+      "type": "llm",
+      "key": "plain-model",
+      "max_context_length": 4096,
+      "capabilities": {}
+    },
+    {"type": "embedding", "key": "text-embedding-model", "max_context_length": 512}
+  ]
+}

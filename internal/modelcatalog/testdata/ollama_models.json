@@ -1,0 +1,8 @@
+{
+  "models": [
+    {"name": "llama3.2:latest", "model": "llama3.2:latest", "details": {}, "capabilities": ["completion", "tools"]},
+    {"name": "nomic-embed-text", "model": "nomic-embed-text", "details": {}},
+    {"name": "qwen2.5:7b", "model": "qwen2.5:7b", "details": {}, "capabilities": ["completion", "vision"]},
+    {"name": "", "model": "fallback-model", "details": {}}
+  ]
+}
