@@ -49,8 +49,12 @@ func ForTypeWithClient(t string, client *http.Client) (Enumerator, error) {
 		return NewOllamaEnumerator(client), nil
 	case "lmstudio":
 		return NewLMStudioEnumerator(client), nil
-	case "openrouter", "anthropic", "codex":
-		return nil, fmt.Errorf("enumerator for provider type %q is not implemented", t)
+	case "openrouter":
+		return NewOpenRouterEnumerator(client), nil
+	case "anthropic":
+		return NewAnthropicEnumerator(client), nil
+	case "codex":
+		return NewCodexEnumerator(client, "", nil), nil
 	default:
 		return nil, fmt.Errorf("unknown enumerator type %q", t)
 	}

@@ -1,0 +1,1 @@
+{"models":[{"slug":"gpt-5-codex","display_name":"GPT-5 Codex","description":"Codex model","visibility":"list","context_window":128000,"supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}],"priority":7},{"slug":"hidden-model","display_name":"Hidden","visibility":"hide","context_window":1}]}
