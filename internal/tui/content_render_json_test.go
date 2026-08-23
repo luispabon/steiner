@@ -44,15 +44,16 @@ func TestInferBodyKindJSONEnvelopeFallbacks(t *testing.T) {
 	tests := []struct {
 		name   string
 		result string
+		want   string
 	}{
-		{name: "error message is not a string", result: `{"ok":false,"error":{"message":42}}`},
-		{name: "error is not an object", result: `{"ok":false,"error":"failed"}`},
-		{name: "successful envelope missing result", result: `{"ok":true}`},
+		{name: "error message is not a string", result: `{"ok":false,"error":{"message":42}}`, want: "plain"},
+		{name: "error is not an object", result: `{"ok":false,"error":"failed"}`, want: "plain"},
+		{name: "successful envelope missing result", result: `{"ok":true}`, want: "json"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := inferBodyKind("mcp__server__tool", tt.result); got != "plain" {
-				t.Fatalf("inferBodyKind(%q) = %q, want plain", tt.result, got)
+			if got := inferBodyKind("mcp__server__tool", tt.result); got != tt.want {
+				t.Fatalf("inferBodyKind(%q) = %q, want %q", tt.result, got, tt.want)
 			}
 		})
 	}
@@ -90,6 +91,16 @@ func TestBuildJSONLines(t *testing.T) {
 			name:   "error falls back to kind",
 			result: `{"ok":false,"error":{"kind":"mcp_tool_error","message":"  "}}`,
 			want:   []string{"✗ mcp_tool_error"},
+		},
+		{
+			name:   "object with ok and unrelated field",
+			result: `{"ok":true,"foo":"bar"}`,
+			want:   []string{"foo: bar", "ok: true"},
+		},
+		{
+			name:   "object with false ok and no error",
+			result: `{"ok":false}`,
+			want:   []string{"ok: false"},
 		},
 	}
 	for _, tt := range tests {
@@ -214,11 +225,33 @@ func TestBuildJSONLinesDimsKeysNotValues(t *testing.T) {
 	if !strings.Contains(rendered, dimmedKey) {
 		t.Fatalf("rendered line = %q, want dimmed key %q", rendered, dimmedKey)
 	}
-	if strings.Contains(dimmedKey, "value") {
-		t.Fatalf("value is inside key style region: %q", dimmedKey)
+	keyTextIndex := strings.Index(dimmedKey, "name:")
+	if keyTextIndex < 0 {
+		t.Fatalf("dimmed key = %q, want key text", dimmedKey)
 	}
-	if !strings.Contains(rendered, " value") {
-		t.Fatalf("rendered line = %q, want unstyled value", rendered)
+	keyReset := dimmedKey[keyTextIndex+len("name:"):]
+	if keyReset == "" {
+		t.Fatalf("dimmed key = %q, want reset after key", dimmedKey)
+	}
+	keyStart := strings.Index(rendered, dimmedKey)
+	if keyStart < 0 {
+		t.Fatalf("rendered line = %q, want dimmed key span", rendered)
+	}
+	keyTextEnd := keyStart + keyTextIndex + len("name:")
+	resetStart := strings.Index(rendered[keyTextEnd:], keyReset)
+	if resetStart < 0 {
+		t.Fatalf("rendered line = %q, want reset after key", rendered)
+	}
+	resetEnd := keyTextEnd + resetStart + len(keyReset)
+	valueStart := strings.Index(rendered, "value")
+	if valueStart <= resetEnd {
+		t.Fatalf("rendered line = %q, want value after key reset", rendered)
+	}
+	dimOpen := dimmedKey[:keyTextIndex]
+	lastOpen := strings.LastIndex(rendered[:valueStart], dimOpen)
+	lastReset := strings.LastIndex(rendered[:valueStart], keyReset)
+	if lastOpen > lastReset {
+		t.Fatalf("rendered line = %q, want dim style reset before value", rendered)
 	}
 }
 

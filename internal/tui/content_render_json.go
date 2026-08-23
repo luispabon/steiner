@@ -17,7 +17,9 @@ func parseJSONToolResult(raw string) (any, string, bool) {
 	}
 
 	if object, ok := value.(map[string]any); ok {
-		if envelopeOK, isBool := object["ok"].(bool); isBool {
+		_, hasResult := object["result"]
+		_, hasError := object["error"]
+		if envelopeOK, isBool := object["ok"].(bool); isBool && (hasResult || hasError) {
 			if !envelopeOK {
 				message := jsonEnvelopeErrorText(object["error"])
 				if message == "" {
