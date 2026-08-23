@@ -102,7 +102,7 @@ func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width 
 		Padding(1, 1).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(b.styles.FgDim.GetForeground()).
-		Width(width - 2)
+		Width(width)
 
 	// Render the box.
 	boxed := boxStyle.Render(styledContent)
@@ -110,7 +110,7 @@ func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width 
 	// Split into lines and replace the auto-generated top border with the titled version.
 	lines := strings.Split(boxed, "\n")
 	if len(lines) > 0 {
-		interiorWidth := width - 2
+		interiorWidth := lipgloss.Width(lines[0]) - 2
 		if interiorWidth < 0 {
 			interiorWidth = 0
 		}
