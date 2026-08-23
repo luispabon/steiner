@@ -3,6 +3,7 @@ package modelcatalog
 import (
 	"context"
 	"net/http"
+	"slices"
 )
 
 // OllamaEnumerator discovers models from Ollama's native tags endpoint.
@@ -31,7 +32,7 @@ func (e *OllamaEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ Enumera
 	if err != nil {
 		return EnumerationResult{}, err
 	}
-	req, err := newGETRequest(ctx, ep, endpoint, "", false)
+	req, err := newGETRequest(ctx, ep, endpoint, "")
 	if err != nil {
 		return EnumerationResult{}, err
 	}
@@ -48,7 +49,7 @@ func (e *OllamaEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ Enumera
 			id = item.Model
 		}
 		if item.Capabilities != nil {
-			if contains(item.Capabilities, "embedding") {
+			if slices.Contains(*item.Capabilities, "embedding") {
 				continue
 			}
 		} else if HeuristicallyExcluded(id) {
@@ -62,13 +63,4 @@ func (e *OllamaEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ Enumera
 		})
 	}
 	return EnumerationResult{Models: models, ETag: etag}, nil
-}
-
-func contains(values *[]string, wanted string) bool {
-	for _, value := range *values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
 }

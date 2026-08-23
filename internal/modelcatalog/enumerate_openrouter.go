@@ -64,7 +64,7 @@ func (e *OpenRouterEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ Enu
 		}
 		seen[endpoint] = true
 
-		req, err := newGETRequest(ctx, ep, endpoint, "Bearer "+ep.APIKey, ep.APIKey != "")
+		req, err := newGETRequest(ctx, ep, endpoint, bearerAuthorization(ep.APIKey))
 		if err != nil {
 			return EnumerationResult{}, err
 		}

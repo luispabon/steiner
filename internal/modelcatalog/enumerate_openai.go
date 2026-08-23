@@ -30,7 +30,7 @@ func (e *OpenAIEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ Enumera
 	if err != nil {
 		return EnumerationResult{}, err
 	}
-	req, err := newGETRequest(ctx, ep, endpoint, "Bearer "+ep.APIKey, true)
+	req, err := newGETRequest(ctx, ep, endpoint, bearerAuthorization(ep.APIKey))
 	if err != nil {
 		return EnumerationResult{}, err
 	}

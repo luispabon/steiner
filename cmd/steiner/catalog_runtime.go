@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/modelcatalog"
 	"github.com/luispabon/steiner/internal/oauth"
+	providerpkg "github.com/luispabon/steiner/internal/provider"
 )
 
 // buildModelCatalogService creates the shared model catalog service and its
@@ -42,50 +42,20 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 	endpoints := make([]modelcatalog.Endpoint, 0, len(aliases))
 	for _, alias := range aliases {
 		provider := cfg.Providers[alias]
-		if !catalogProviderSupported(provider.Type) {
+		if !modelcatalog.SupportsType(provider.Type) {
 			continue
 		}
-		apiKey := provider.APIKey
-		if strings.TrimSpace(apiKey) == "" && strings.TrimSpace(provider.APIKeyEnv) != "" {
-			apiKey = os.Getenv(strings.TrimSpace(provider.APIKeyEnv))
-		}
-		baseURL := strings.TrimSpace(provider.BaseURL)
-		if baseURL == "" {
-			baseURL = catalogDefaultBaseURL(provider.Type)
-		}
+		provider = providerpkg.ResolveProviderConfig(provider)
+		provider.BaseURL = strings.TrimSpace(provider.BaseURL)
 		endpoints = append(endpoints, modelcatalog.Endpoint{
 			Alias:   alias,
 			Type:    string(provider.Type),
-			BaseURL: baseURL,
-			APIKey:  apiKey,
+			BaseURL: provider.BaseURL,
+			APIKey:  provider.APIKey,
 			Headers: cloneStringMap(provider.Headers),
 		})
 	}
 	return service, endpoints, popularity
-}
-
-func catalogProviderSupported(providerType config.ProviderType) bool {
-	switch providerType {
-	case config.ProviderTypeOpenAICompat, config.ProviderTypeOllama, config.ProviderTypeLMStudio,
-		config.ProviderTypeOpenRouter, config.ProviderTypeOpenAI, config.ProviderTypeLiteLLM,
-		config.ProviderTypeAnthropic, config.ProviderTypeCodex:
-		return true
-	default:
-		return false
-	}
-}
-
-// catalogDefaultBaseURL mirrors provider.defaultProviderBaseURL without
-// importing that unexported provider implementation detail.
-func catalogDefaultBaseURL(providerType config.ProviderType) string {
-	switch providerType {
-	case config.ProviderTypeOpenRouter:
-		return "https://openrouter.ai/api/v1"
-	case config.ProviderTypeOpenAI, config.ProviderTypeCodex:
-		return "https://api.openai.com/v1"
-	default:
-		return ""
-	}
 }
 
 func codexCatalogCredentials(_ context.Context) (string, string, error) {

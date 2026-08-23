@@ -33,6 +33,23 @@ func ParseModelReference(cfg *Config, ref string) (providerAlias string, modelID
 	return best, modelID, nil
 }
 
+// ResolveModelConfig resolves a configured model definition or provider/model-id reference.
+func ResolveModelConfig(cfg *Config, ref string) (ModelConfig, bool) {
+	if cfg != nil {
+		if model, ok := cfg.Models.Definitions[ref]; ok {
+			return model, true
+		}
+	}
+	providerAlias, modelID, err := ParseModelReference(cfg, ref)
+	if err != nil {
+		return ModelConfig{}, false
+	}
+	model := NewModelConfigBase()
+	model.Provider = providerAlias
+	model.ID = modelID
+	return model, false
+}
+
 // IsValidModelReference reports whether ref is a valid model alias or provider/model-id reference.
 func IsValidModelReference(cfg *Config, ref string) bool {
 	_, _, err := ParseModelReference(cfg, ref)

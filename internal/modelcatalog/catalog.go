@@ -3,6 +3,7 @@ package modelcatalog
 import (
 	"net/http"
 	"sort"
+	"sync"
 
 	"github.com/luispabon/steiner/internal/config"
 )
@@ -18,13 +19,17 @@ type Service struct {
 	popularity       *Store
 	client           *http.Client
 	DiscoveryEnabled bool
+	mu               sync.RWMutex
+	discovered       map[string][]DiscoveredModel
 }
 
 // NewService creates a model catalog service. discoveryEnabled defaults to true
 // when omitted.
 func NewService(dispatcher EnumeratorDispatcher, cache *Cache, popularity *Store, client *http.Client, discoveryEnabled ...bool) *Service {
 	if dispatcher == nil {
-		dispatcher = ForTypeWithClient
+		dispatcher = func(providerType string, client *http.Client) (Enumerator, error) {
+			return ForTypeWithClient(config.ProviderType(providerType), client)
+		}
 	}
 	if cache == nil {
 		cache = NewCache("")
@@ -45,6 +50,7 @@ func NewService(dispatcher EnumeratorDispatcher, cache *Cache, popularity *Store
 		popularity:       popularity,
 		client:           client,
 		DiscoveryEnabled: enabled,
+		discovered:       make(map[string][]DiscoveredModel),
 	}
 }
 
@@ -74,9 +80,15 @@ func (s *Service) discoveredModels(cfg *config.Config) map[Key]DiscoveredModel {
 	sort.Strings(aliases)
 	for _, alias := range aliases {
 		provider := cfg.Providers[alias]
-		models, found, err := s.cache.Load(alias, string(provider.Type), provider.BaseURL)
-		if err != nil || !found {
-			continue
+		s.mu.RLock()
+		models, refreshed := s.discovered[alias]
+		s.mu.RUnlock()
+		if !refreshed {
+			var found bool
+			models, found, _ = s.cache.Load(alias, string(provider.Type), provider.BaseURL)
+			if !found {
+				continue
+			}
 		}
 		for _, model := range models {
 			if model.ID != "" {
@@ -85,6 +97,13 @@ func (s *Service) discoveredModels(cfg *config.Config) map[Key]DiscoveredModel {
 		}
 	}
 	return discovered
+}
+
+func (s *Service) setDiscovered(alias string, models []DiscoveredModel) {
+	cloned := append([]DiscoveredModel(nil), models...)
+	s.mu.Lock()
+	s.discovered[alias] = cloned
+	s.mu.Unlock()
 }
 
 func configuredChoices(cfg *config.Config, activeAlias, activeID string, counts map[Key]int, discovered map[Key]DiscoveredModel) ([]ModelChoice, map[Key]struct{}) {

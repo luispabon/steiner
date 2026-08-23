@@ -67,6 +67,81 @@ func TestCacheRoundTripAndFilename(t *testing.T) {
 	}
 }
 
+func TestCacheETag(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	if err := cache.SaveAtomic("alias", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://example.com"},
+		ETag:        "etag-1",
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		providerType string
+		baseURL      string
+		wantETag     string
+		wantFound    bool
+	}{
+		{name: "hit", providerType: "openai", baseURL: "https://example.com", wantETag: "etag-1", wantFound: true},
+		{name: "missing", providerType: "openai", baseURL: "https://missing.example"},
+		{name: "fingerprint mismatch", providerType: "anthropic", baseURL: "https://example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotETag, gotFound, err := cache.ETag("alias", tt.providerType, tt.baseURL)
+			if err != nil {
+				t.Fatalf("ETag: %v", err)
+			}
+			if gotETag != tt.wantETag || gotFound != tt.wantFound {
+				t.Fatalf("ETag = (%q, %v), want (%q, %v)", gotETag, gotFound, tt.wantETag, tt.wantFound)
+			}
+		})
+	}
+}
+
+func TestCacheStatus(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	now := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	cache.now = func() time.Time { return now }
+	if err := cache.SaveAtomic("stale", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://stale.example"},
+	}); err != nil {
+		t.Fatalf("save stale: %v", err)
+	}
+	now = now.Add(CacheTTL)
+	if err := cache.SaveAtomic("fresh", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://fresh.example"},
+	}); err != nil {
+		t.Fatalf("save fresh: %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		alias        string
+		providerType string
+		baseURL      string
+		wantFound    bool
+		wantFresh    bool
+	}{
+		{name: "hit", alias: "fresh", providerType: "openai", baseURL: "https://fresh.example", wantFound: true, wantFresh: true},
+		{name: "stale", alias: "stale", providerType: "openai", baseURL: "https://stale.example", wantFound: true, wantFresh: false},
+		{name: "missing", alias: "missing", providerType: "openai", baseURL: "https://missing.example"},
+		{name: "fingerprint mismatch", alias: "fresh", providerType: "anthropic", baseURL: "https://fresh.example"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotFound, gotFresh, err := cache.Status(tt.alias, tt.providerType, tt.baseURL)
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if gotFound != tt.wantFound || gotFresh != tt.wantFresh {
+				t.Fatalf("Status = (%v, %v), want (%v, %v)", gotFound, gotFresh, tt.wantFound, tt.wantFresh)
+			}
+		})
+	}
+}
+
 func TestDefaultCacheDirHomeFallbacks(t *testing.T) {
 	tests := []struct {
 		name string

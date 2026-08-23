@@ -96,7 +96,7 @@ func (e *AnthropicEnumerator) enumeratePage(ctx context.Context, ep Endpoint, en
 	if err != nil {
 		return anthropicListResponse{}, "", 0, err
 	}
-	req, err := newGETRequest(ctx, ep, pageURL, anthropicAuthorization(ep.APIKey), strings.HasPrefix(ep.APIKey, "Bearer "))
+	req, err := newGETRequest(ctx, ep, pageURL, anthropicAuthorization(ep.APIKey))
 	if err != nil {
 		return anthropicListResponse{}, "", 0, err
 	}

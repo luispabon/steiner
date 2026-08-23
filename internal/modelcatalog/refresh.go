@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 const (
@@ -39,6 +41,9 @@ type RefreshReport struct {
 // provider failure is recorded in the report and does not stop the sweep.
 func (s *Service) RefreshAll(ctx context.Context, endpoints []Endpoint, opts RefreshOptions) RefreshReport {
 	report := RefreshReport{Results: make([]RefreshResult, len(endpoints))}
+	s.mu.Lock()
+	s.discovered = make(map[string][]DiscoveredModel)
+	s.mu.Unlock()
 	if !s.DiscoveryEnabled {
 		for i, endpoint := range endpoints {
 			report.Results[i] = RefreshResult{Alias: endpoint.Alias, Status: RefreshStatusFreshSkipped}
@@ -81,9 +86,16 @@ func (s *Service) RefreshAll(ctx context.Context, endpoints []Endpoint, opts Ref
 
 func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bool) RefreshResult {
 	result := RefreshResult{Alias: endpoint.Alias}
-	if !force && s.cache.IsFresh(endpoint.Alias, endpoint.Type, endpoint.BaseURL) {
-		result.Status = RefreshStatusFreshSkipped
-		return result
+	if !force {
+		found, fresh, _ := s.cache.Status(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+		if found && fresh {
+			models, found, _ := s.cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+			if found {
+				s.setDiscovered(endpoint.Alias, models)
+			}
+			result.Status = RefreshStatusFreshSkipped
+			return result
+		}
 	}
 
 	etag := s.cachedETag(endpoint)
@@ -101,6 +113,10 @@ func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bo
 		if !s.cache.ExtendFreshness(endpoint.Alias, refresh.ETag) {
 			return failedRefresh(result, fmt.Errorf("extend model cache freshness for %s: etag did not match cached envelope", endpoint.Alias))
 		}
+		models, found, _ := s.cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+		if found {
+			s.setDiscovered(endpoint.Alias, models)
+		}
 		result.Status = RefreshStatusUpdated
 		return result
 	}
@@ -111,19 +127,17 @@ func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bo
 	}); err != nil {
 		return failedRefresh(result, fmt.Errorf("save model cache for %s: %w", endpoint.Alias, err))
 	}
+	s.setDiscovered(endpoint.Alias, refresh.Models)
 	result.Status = RefreshStatusUpdated
 	return result
 }
 
 func (s *Service) cachedETag(endpoint Endpoint) string {
-	if _, found, err := s.cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL); err != nil || !found {
+	etag, found, err := s.cache.ETag(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+	if err != nil || !found {
 		return ""
 	}
-	envelope, err := s.cache.readEnvelope(endpoint.Alias)
-	if err != nil {
-		return ""
-	}
-	return envelope.ETag
+	return etag
 }
 
 func failedRefresh(result RefreshResult, err error) RefreshResult {
@@ -134,5 +148,5 @@ func failedRefresh(result RefreshResult, err error) RefreshResult {
 
 // DefaultDispatcher returns the built-in provider enumerator dispatcher.
 func DefaultDispatcher(providerType string, client *http.Client) (Enumerator, error) {
-	return ForTypeWithClient(providerType, client)
+	return ForTypeWithClient(config.ProviderType(providerType), client)
 }

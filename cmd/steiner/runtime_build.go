@@ -158,7 +158,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		modelCatalog:            modelCatalog,
 		modelCatalogEndpoints:   modelCatalogEndpoints,
 		modelPopularity:         modelPopularity,
-		modelEntriesUpdates:     make(chan []tui.ModelEntry, maxInt(1, len(modelCatalogEndpoints))),
+		modelEntriesUpdates:     make(chan []tui.ModelEntry, max(1, len(modelCatalogEndpoints))),
 	}, nil
 }
 

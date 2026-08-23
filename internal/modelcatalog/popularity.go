@@ -152,30 +152,5 @@ func writeEntries(path string, entries map[Key]popularityEntry) error {
 	}
 
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".tmp-model-popularity-*")
-	if err != nil {
-		return fmt.Errorf("create popularity temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	removeTemp := true
-	defer func() {
-		if removeTemp {
-			_ = os.Remove(tmpName)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write popularity temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close popularity temp file: %w", err)
-	}
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		return fmt.Errorf("chmod popularity temp file: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("rename popularity store: %w", err)
-	}
-	removeTemp = false
-	return nil
+	return atomicWriteFile(dir, ".tmp-model-popularity-*", path, "popularity", data)
 }

@@ -230,7 +230,8 @@ func metadataProviderTransport(info metadata.ModelInfo) TransportType {
 	return TransportConfigured
 }
 
-func resolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
+// ResolveProviderConfig applies runtime defaults and environment-backed credentials.
+func ResolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
 	resolved := cfg
 	if strings.TrimSpace(resolved.BaseURL) == "" {
 		resolved.BaseURL = defaultProviderBaseURL(resolved.Type)
@@ -316,7 +317,7 @@ func deriveEffectiveLimits(contextWindow, maxOutputTokens int) EffectiveLimits {
 func deriveSummaryMaxTokens(contextWindow, maxOutputTokens, percent, minTokens, maxTokens int) int {
 	derived := clampInt(contextWindow*percent/100, minTokens, maxTokens)
 	if maxOutputTokens > 0 {
-		return minInt(maxOutputTokens, derived)
+		return min(maxOutputTokens, derived)
 	}
 	return derived
 }
@@ -329,13 +330,6 @@ func clampInt(value, minValue, maxValue int) int {
 		return maxValue
 	}
 	return value
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func resolveTokenizerMetadata(modelID string) (strategy string, confidence string) {
