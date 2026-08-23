@@ -183,12 +183,13 @@ type TUIConfig struct {
 // ModelsConfig consolidates all model configuration: the model definitions
 // themselves and the role-based aliases that reference them.
 type ModelsConfig struct {
-	Default         string                 `yaml:"default"`
-	Definitions     map[string]ModelConfig `yaml:"definitions"`
-	Advisor         string                 `yaml:"advisor"`
-	SubAgents       map[string]string      `yaml:"sub_agents"`
-	OneShot         map[string]string      `yaml:"oneshot"`
-	WorkflowHandoff map[string]string      `yaml:"workflow_handoff"`
+	Default          string                 `yaml:"default"`
+	Definitions      map[string]ModelConfig `yaml:"definitions"`
+	DiscoveryEnabled bool                   `yaml:"discovery_enabled"`
+	Advisor          string                 `yaml:"advisor"`
+	SubAgents        map[string]string      `yaml:"sub_agents"`
+	OneShot          map[string]string      `yaml:"oneshot"`
+	WorkflowHandoff  map[string]string      `yaml:"workflow_handoff"`
 }
 
 // ModelConfig configures a model instance.

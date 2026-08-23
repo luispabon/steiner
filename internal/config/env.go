@@ -81,7 +81,7 @@ func applyEnvModelOverride(cfg *Config, lookup func(string) (string, bool)) erro
 	if !ok {
 		return nil
 	}
-	if _, ok := cfg.Models.Definitions[value]; ok {
+	if IsValidModelReference(cfg, value) {
 		cfg.Models.Default = value
 	}
 	return nil
