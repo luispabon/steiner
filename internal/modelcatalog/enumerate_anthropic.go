@@ -73,19 +73,7 @@ func (e *AnthropicEnumerator) enumeratePages(ctx context.Context, ep Endpoint, e
 	cursor := ""
 	var etag string
 	for {
-		pageURL, err := anthropicPageURL(endpoint, pageSize, cursor)
-		if err != nil {
-			return nil, "", err
-		}
-		req, err := newGETRequest(ctx, ep, pageURL, anthropicAuthorization(ep.APIKey), strings.HasPrefix(ep.APIKey, "Bearer "))
-		if err != nil {
-			return nil, "", err
-		}
-		req.Header.Set("anthropic-version", anthropicVersion)
-		if ep.APIKey != "" && !strings.HasPrefix(ep.APIKey, "Bearer ") {
-			req.Header.Set("x-api-key", ep.APIKey)
-		}
-		response, pageETag, status, err := doAnthropicRequest(e.client, req)
+		response, pageETag, status, err := e.enumeratePage(ctx, ep, endpoint, pageSize, cursor)
 		if err != nil {
 			if status == http.StatusBadRequest && pageSize == anthropicLargePageSize && isAnthropicPageSizeError(err) {
 				return nil, "", err
@@ -98,32 +86,54 @@ func (e *AnthropicEnumerator) enumeratePages(ctx context.Context, ep Endpoint, e
 		if pageETag != "" {
 			etag = pageETag
 		}
-		for _, item := range response.Data {
-			displayName := item.DisplayName
-			if displayName == "" {
-				displayName = item.ID
-			}
-			efforts := make([]string, 0, len(item.Capabilities.Effort))
-			for effort, capability := range item.Capabilities.Effort {
-				if capability.Supported {
-					efforts = append(efforts, effort)
-				}
-			}
-			sort.Strings(efforts)
-			models = append(models, DiscoveredModel{
-				ProviderAlias:    ep.Alias,
-				ProviderType:     ep.Type,
-				ID:               item.ID,
-				DisplayName:      displayName,
-				ContextLength:    item.MaxInputTokens,
-				SupportedEfforts: efforts,
-			})
-		}
+		models = append(models, anthropicModels(ep, response.Data)...)
 		if !response.HasMore || response.LastID == "" {
 			return models, etag, nil
 		}
 		cursor = response.LastID
 	}
+}
+
+func (e *AnthropicEnumerator) enumeratePage(ctx context.Context, ep Endpoint, endpoint string, pageSize int, cursor string) (anthropicListResponse, string, int, error) {
+	pageURL, err := anthropicPageURL(endpoint, pageSize, cursor)
+	if err != nil {
+		return anthropicListResponse{}, "", 0, err
+	}
+	req, err := newGETRequest(ctx, ep, pageURL, anthropicAuthorization(ep.APIKey), strings.HasPrefix(ep.APIKey, "Bearer "))
+	if err != nil {
+		return anthropicListResponse{}, "", 0, err
+	}
+	req.Header.Set("anthropic-version", anthropicVersion)
+	if ep.APIKey != "" && !strings.HasPrefix(ep.APIKey, "Bearer ") {
+		req.Header.Set("x-api-key", ep.APIKey)
+	}
+	return doAnthropicRequest(e.client, req)
+}
+
+func anthropicModels(ep Endpoint, items []anthropicModel) []DiscoveredModel {
+	models := make([]DiscoveredModel, 0, len(items))
+	for _, item := range items {
+		displayName := item.DisplayName
+		if displayName == "" {
+			displayName = item.ID
+		}
+		efforts := make([]string, 0, len(item.Capabilities.Effort))
+		for effort, capability := range item.Capabilities.Effort {
+			if capability.Supported {
+				efforts = append(efforts, effort)
+			}
+		}
+		sort.Strings(efforts)
+		models = append(models, DiscoveredModel{
+			ProviderAlias:    ep.Alias,
+			ProviderType:     ep.Type,
+			ID:               item.ID,
+			DisplayName:      displayName,
+			ContextLength:    item.MaxInputTokens,
+			SupportedEfforts: efforts,
+		})
+	}
+	return models
 }
 
 func anthropicPageURL(endpoint string, pageSize int, cursor string) (string, error) {
@@ -158,7 +168,7 @@ func doAnthropicRequest(client *http.Client, req *http.Request) (anthropicListRe
 	if err != nil {
 		return anthropicListResponse{}, "", 0, fmt.Errorf("request model enumeration: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // Response body cleanup errors do not change enumeration result.
 	if resp.StatusCode != http.StatusOK {
 		body, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {

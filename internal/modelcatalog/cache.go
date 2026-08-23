@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -245,6 +246,6 @@ func (e corruptCacheError) Unwrap() error {
 }
 
 func isCorruptCacheError(err error) bool {
-	_, ok := err.(corruptCacheError)
-	return ok
+	var corrupt corruptCacheError
+	return errors.As(err, &corrupt)
 }

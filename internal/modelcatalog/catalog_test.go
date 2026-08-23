@@ -92,7 +92,7 @@ func TestServiceChoicesDiscoveryDisabledDoesNotReadCache(t *testing.T) {
 
 func TestServiceRefreshForceAndStaleOnly(t *testing.T) {
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"id":"model"}]}`))
@@ -145,7 +145,7 @@ func TestServiceRefreshCodexNotModifiedExtendsFreshness(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	cache.now = func() time.Time { return now }
-	dispatcher := func(providerType string, client *http.Client) (Enumerator, error) {
+	dispatcher := func(_ string, client *http.Client) (Enumerator, error) {
 		return NewCodexEnumerator(client, "test", func(context.Context) (string, string, error) {
 			return "token", "account", nil
 		}), nil
@@ -168,7 +168,7 @@ func TestServiceRefreshReportsFailuresAndBoundsConcurrency(t *testing.T) {
 	var current atomic.Int32
 	var maximum atomic.Int32
 	var calls atomic.Int32
-	enumerator := testEnumerator{enumerate: func(ctx context.Context, endpoint Endpoint, _ EnumerationOptions) (EnumerationResult, error) {
+	enumerator := testEnumerator{enumerate: func(_ context.Context, endpoint Endpoint, _ EnumerationOptions) (EnumerationResult, error) {
 		calls.Add(1)
 		active := current.Add(1)
 		for {

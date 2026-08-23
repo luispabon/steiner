@@ -86,7 +86,7 @@ func doJSONRequest(client *http.Client, req *http.Request, response any) (string
 	if err != nil {
 		return "", fmt.Errorf("request model enumeration: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // Response body cleanup errors do not change enumeration result.
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return "", fmt.Errorf("enumerate models: unexpected status code %d", resp.StatusCode)
 	}

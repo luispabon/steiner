@@ -34,7 +34,7 @@ func TestCodexEnumerator(t *testing.T) {
 }
 
 func TestCodexEnumeratorNotModified(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("ETag", "fresh")
 		w.WriteHeader(http.StatusNotModified)
 	}))

@@ -48,7 +48,7 @@ func TestOpenAIEnumerator(t *testing.T) {
 }
 
 func TestLiteLLMModeOverridesHeuristic(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"embed-special","mode":"chat"},{"id":"ordinary","mode":"embedding"},{"id":"gpt-4.1"}]}`))
 	}))
 	defer server.Close()
@@ -71,7 +71,7 @@ func TestOpenAIEnumeratorErrors(t *testing.T) {
 		{"malformed", http.StatusOK, `{`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(test.code)
 				_, _ = w.Write([]byte(test.body))
 			}))

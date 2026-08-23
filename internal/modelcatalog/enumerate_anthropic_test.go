@@ -22,11 +22,12 @@ func TestAnthropicEnumeratorPaginationAndLimitFallback(t *testing.T) {
 			_, _ = w.Write([]byte(`{"error":"limit out of range"}`))
 			return
 		}
-		if r.URL.Query().Get("after_id") == "" {
+		switch r.URL.Query().Get("after_id") {
+		case "":
 			_, _ = w.Write(page1)
-		} else if r.URL.Query().Get("after_id") == "page-one" {
+		case "page-one":
 			_, _ = w.Write(page2)
-		} else {
+		default:
 			t.Errorf("unexpected cursor: %q", r.URL.Query().Get("after_id"))
 		}
 	}))

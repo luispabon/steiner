@@ -56,27 +56,38 @@ func (s *Service) Choices(cfg *config.Config, activeRef string) []ModelChoice {
 
 	counts := s.popularity.Snapshot()
 	activeAlias, activeID, _ := config.ParseModelReference(cfg, activeRef)
+	discovered := s.discoveredModels(cfg)
+	choices, defined := configuredChoices(cfg, activeAlias, activeID, counts, discovered)
+	choices = append(choices, discoveredChoices(discovered, defined, activeAlias, activeID, counts)...)
+	return rankChoices(choices)
+}
+
+func (s *Service) discoveredModels(cfg *config.Config) map[Key]DiscoveredModel {
 	discovered := make(map[Key]DiscoveredModel)
-	if s.DiscoveryEnabled {
-		aliases := make([]string, 0, len(cfg.Providers))
-		for alias := range cfg.Providers {
-			aliases = append(aliases, alias)
+	if !s.DiscoveryEnabled {
+		return discovered
+	}
+	aliases := make([]string, 0, len(cfg.Providers))
+	for alias := range cfg.Providers {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	for _, alias := range aliases {
+		provider := cfg.Providers[alias]
+		models, found, err := s.cache.Load(alias, string(provider.Type), provider.BaseURL)
+		if err != nil || !found {
+			continue
 		}
-		sort.Strings(aliases)
-		for _, alias := range aliases {
-			provider := cfg.Providers[alias]
-			models, found, err := s.cache.Load(alias, string(provider.Type), provider.BaseURL)
-			if err != nil || !found {
-				continue
-			}
-			for _, model := range models {
-				if model.ID != "" {
-					discovered[Key{ProviderAlias: alias, ModelID: model.ID}] = model
-				}
+		for _, model := range models {
+			if model.ID != "" {
+				discovered[Key{ProviderAlias: alias, ModelID: model.ID}] = model
 			}
 		}
 	}
+	return discovered
+}
 
+func configuredChoices(cfg *config.Config, activeAlias, activeID string, counts map[Key]int, discovered map[Key]DiscoveredModel) ([]ModelChoice, map[Key]struct{}) {
 	aliases := make([]string, 0, len(cfg.Models.Definitions))
 	for alias := range cfg.Models.Definitions {
 		aliases = append(aliases, alias)
@@ -111,7 +122,10 @@ func (s *Service) Choices(cfg *config.Config, activeRef string) []ModelChoice {
 			Current:          definition.Provider == activeAlias && definition.ID == activeID,
 		})
 	}
+	return choices, defined
+}
 
+func discoveredChoices(discovered map[Key]DiscoveredModel, defined map[Key]struct{}, activeAlias, activeID string, counts map[Key]int) []ModelChoice {
 	discoveredKeys := make([]Key, 0, len(discovered))
 	for key := range discovered {
 		discoveredKeys = append(discoveredKeys, key)
@@ -122,6 +136,7 @@ func (s *Service) Choices(cfg *config.Config, activeRef string) []ModelChoice {
 		}
 		return discoveredKeys[i].ModelID < discoveredKeys[j].ModelID
 	})
+	choices := make([]ModelChoice, 0, len(discoveredKeys))
 	for _, key := range discoveredKeys {
 		if _, ok := defined[key]; ok {
 			continue
@@ -141,7 +156,7 @@ func (s *Service) Choices(cfg *config.Config, activeRef string) []ModelChoice {
 			Current:          key.ProviderAlias == activeAlias && key.ModelID == activeID,
 		})
 	}
-	return rankChoices(choices)
+	return choices
 }
 
 func rankChoices(choices []ModelChoice) []ModelChoice {

@@ -43,7 +43,7 @@ func TestOpenRouterEnumeratorStopsAtCrossHostNext(t *testing.T) {
 	other := httptest.NewServer(http.NotFoundHandler())
 	defer other.Close()
 	fixture := []byte(`{"data":[{"id":"first","architecture":{"output_modalities":["text"]}}],"links":{"next":"` + other.URL + `/stolen"}}`)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(fixture) }))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(fixture) }))
 	defer server.Close()
 	result, err := NewOpenRouterEnumerator(server.Client()).Enumerate(context.Background(), Endpoint{Type: "openrouter", BaseURL: server.URL}, EnumerationOptions{})
 	if err != nil {
@@ -56,7 +56,7 @@ func TestOpenRouterEnumeratorStopsAtCrossHostNext(t *testing.T) {
 
 func TestOpenRouterEnumeratorLoopGuard(t *testing.T) {
 	var requests int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		_, _ = w.Write([]byte(`{"data":[],"links":{"next":"/api/v1/models"}}`))
 	}))

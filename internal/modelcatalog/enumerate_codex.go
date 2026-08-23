@@ -49,23 +49,57 @@ type codexReasoningLevel struct {
 
 // Enumerate discovers visible models from Codex.
 func (e *CodexEnumerator) Enumerate(ctx context.Context, ep Endpoint, opts EnumerationOptions) (EnumerationResult, error) {
+	response, etag, notModified, err := e.requestModels(ctx, ep, opts)
+	if err != nil {
+		return EnumerationResult{}, err
+	}
+	if notModified {
+		return EnumerationResult{ETag: etag, NotModified: true}, nil
+	}
+	return EnumerationResult{Models: codexModels(ep, response.Models), ETag: etag}, nil
+}
+
+func (e *CodexEnumerator) requestModels(ctx context.Context, ep Endpoint, opts EnumerationOptions) (codexModelsResponse, string, bool, error) {
+	req, err := e.codexRequest(ctx, ep, opts)
+	if err != nil {
+		return codexModelsResponse{}, "", false, err
+	}
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return codexModelsResponse{}, "", false, fmt.Errorf("request Codex models: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }() // Response body cleanup errors do not change enumeration result.
+	etag := resp.Header.Get("ETag")
+	if resp.StatusCode == http.StatusNotModified {
+		return codexModelsResponse{}, etag, true, nil
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return codexModelsResponse{}, "", false, fmt.Errorf("enumerate Codex models: unexpected status code %d", resp.StatusCode)
+	}
+	response, err := decodeCodexModels(resp)
+	if err != nil {
+		return codexModelsResponse{}, "", false, err
+	}
+	return response, etag, false, nil
+}
+
+func (e *CodexEnumerator) codexRequest(ctx context.Context, ep Endpoint, opts EnumerationOptions) (*http.Request, error) {
 	if e.credentials == nil {
-		return EnumerationResult{}, fmt.Errorf("enumerate Codex models: credentials callback is required")
+		return nil, fmt.Errorf("enumerate Codex models: credentials callback is required")
 	}
 	accessToken, accountID, err := e.credentials(ctx)
 	if err != nil {
-		return EnumerationResult{}, fmt.Errorf("get Codex credentials: %w", err)
+		return nil, fmt.Errorf("get Codex credentials: %w", err)
 	}
 	if accessToken == "" || accountID == "" {
-		return EnumerationResult{}, fmt.Errorf("enumerate Codex models: credentials are missing")
+		return nil, fmt.Errorf("enumerate Codex models: credentials are missing")
 	}
-
 	u, err := url.Parse(ep.BaseURL)
 	if err != nil {
-		return EnumerationResult{}, fmt.Errorf("parse Codex base URL: %w", err)
+		return nil, fmt.Errorf("parse Codex base URL: %w", err)
 	}
 	if u.Scheme == "" || u.Host == "" {
-		return EnumerationResult{}, fmt.Errorf("parse Codex base URL: missing scheme or host")
+		return nil, fmt.Errorf("parse Codex base URL: missing scheme or host")
 	}
 	u.Path = strings.TrimRight(u.Path, "/") + "/models"
 	query := u.Query()
@@ -73,40 +107,35 @@ func (e *CodexEnumerator) Enumerate(ctx context.Context, ep Endpoint, opts Enume
 	u.RawQuery = query.Encode()
 	req, err := newGETRequest(ctx, ep, u.String(), "Bearer "+accessToken, true)
 	if err != nil {
-		return EnumerationResult{}, err
+		return nil, err
 	}
 	req.Header.Set("ChatGPT-Account-ID", accountID)
 	req.Header.Set("OAI-Product-Sku", "codex")
 	if opts.ETag != "" {
 		req.Header.Set("If-None-Match", opts.ETag)
 	}
-	resp, err := e.client.Do(req)
-	if err != nil {
-		return EnumerationResult{}, fmt.Errorf("request Codex models: %w", err)
-	}
-	defer resp.Body.Close()
-	etag := resp.Header.Get("ETag")
-	if resp.StatusCode == http.StatusNotModified {
-		return EnumerationResult{ETag: etag, NotModified: true}, nil
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return EnumerationResult{}, fmt.Errorf("enumerate Codex models: unexpected status code %d", resp.StatusCode)
-	}
+	return req, nil
+}
+
+func decodeCodexModels(resp *http.Response) (codexModelsResponse, error) {
 	var response codexModelsResponse
 	decoder := json.NewDecoder(resp.Body)
 	if err := decoder.Decode(&response); err != nil {
-		return EnumerationResult{}, fmt.Errorf("decode Codex models response: %w", err)
+		return codexModelsResponse{}, fmt.Errorf("decode Codex models response: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return EnumerationResult{}, fmt.Errorf("decode Codex models response: unexpected trailing JSON")
+			return codexModelsResponse{}, fmt.Errorf("decode Codex models response: unexpected trailing JSON")
 		}
-		return EnumerationResult{}, fmt.Errorf("decode Codex models response: %w", err)
+		return codexModelsResponse{}, fmt.Errorf("decode Codex models response: %w", err)
 	}
+	return response, nil
+}
 
-	models := make([]DiscoveredModel, 0, len(response.Models))
-	for _, item := range response.Models {
+func codexModels(ep Endpoint, items []codexModel) []DiscoveredModel {
+	models := make([]DiscoveredModel, 0, len(items))
+	for _, item := range items {
 		if item.Visibility != "list" {
 			continue
 		}
@@ -129,5 +158,5 @@ func (e *CodexEnumerator) Enumerate(ctx context.Context, ep Endpoint, opts Enume
 			Priority:         item.Priority,
 		})
 	}
-	return EnumerationResult{Models: models, ETag: etag}, nil
+	return models
 }
