@@ -4223,7 +4223,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
 
 	prompts := ctrl.submitPrompts()
-	if len(prompts) != 1 || prompts[0].Text != ".steiner/plans/step-3" {
+	if len(prompts) != 1 || prompts[0].Text != "/review .steiner/plans/step-3" {
 		t.Fatalf("submit prompts = %#v, want one prompt for target", prompts)
 	}
 	var sawPrompt bool
@@ -4427,7 +4427,7 @@ func TestModelWorkflowHandoffAcceptWithCurrentSessionModelDoesNotSwitch(t *testi
 		t.Fatalf("switch model actions = %#v, want none for current session handoff", got)
 	}
 	prompts := ctrl.submitPrompts()
-	if len(prompts) != 1 || prompts[0].Text != ".steiner/plans/step-4" {
+	if len(prompts) != 1 || prompts[0].Text != "/implement .steiner/plans/step-4" {
 		t.Fatalf("submit prompts = %#v, want one prompt for target", prompts)
 	}
 }

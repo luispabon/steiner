@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
@@ -293,16 +294,34 @@ func (m *Model) executeSubmitAction(value string, submitText string, displayText
 	return m, nil
 }
 
+// skillExecutionMode returns the execution mode a direct `/skillname`
+// invocation should switch the session into. The plan skill is the only
+// plan-only workflow; every other skill (implement, review, simplify,
+// pull-request, and any project/user-defined skill) implies normal
+// workspace editing, so it maps to build mode.
+func skillExecutionMode(skillName string) config.ExecutionMode {
+	if skillName == "plan" {
+		return config.ExecutionModePlan
+	}
+	return config.ExecutionModeBuild
+}
+
 func (m *Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.Cmd) {
 	m = m.updateSkillState(skillName, true)
+
+	if m.controller != nil {
+		if err := m.controller.Handle(context.Background(), interactive.SwitchMode{Mode: skillExecutionMode(skillName)}); err != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		}
+	}
 	m.syncSidebar()
 
-	// If args are provided, submit them as a prompt; otherwise submit the
-	// bare skill invocation so the agent acts on it immediately.
+	// Submit the literal "/skillname [args]" text so the model sees an
+	// unambiguous invocation, matching each skill's "invoked by name" trigger
+	// instead of relying solely on the passive "Active Skills" framing.
 	displayText := "/" + skillName
 	if args != "" {
 		displayText += " " + args
-		return m.executeSubmitAction(displayText, args, displayText)
 	}
 	return m.executeSubmitAction(displayText, displayText, displayText)
 }
