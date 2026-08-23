@@ -94,6 +94,18 @@ func TestDelegationActiveHeaderMetaPlacesModelBeforeElapsed(t *testing.T) {
 			wantSegments: []string{"⠋", "ctx: 5%", "42.1 t/s", "gpt-x/high"},
 		},
 		{
+			name:         "context without tps",
+			contextFill:  5.4,
+			wantSegments: []string{"⠋", "ctx: 5%", "gpt-x/high"},
+			omitSegments: []string{"t/s"},
+		},
+		{
+			name:         "tps without context",
+			outputTPS:    42.1,
+			wantSegments: []string{"⠋", "42.1 t/s", "gpt-x/high"},
+			omitSegments: []string{"ctx:"},
+		},
+		{
 			name:         "unknown context and tps",
 			wantSegments: []string{"⠋", "gpt-x/high"},
 			omitSegments: []string{"ctx:", "t/s"},
@@ -102,29 +114,27 @@ func TestDelegationActiveHeaderMetaPlacesModelBeforeElapsed(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			b := newTestBuffer(t)
+			now := nanoNow()
 			dd := &delegationDisplayState{
 				status:         "active",
 				modelName:      "gpt-x",
 				reasoning:      "high",
 				contextFillPct: tc.contextFill,
 				outputTPS:      tc.outputTPS,
-				startTime:      nanoNow() - 10_000_000_000,
+				startTime:      now - 10_900_000_000,
 			}
 
+			wantParts := append([]string(nil), tc.wantSegments...)
+			wantParts = append(wantParts, formatElapsed(dd.startTime, now))
+			want := wantParts[0] + " " + strings.Join(wantParts[1:], " · ")
 			meta := stripANSI(b.renderDelegationHeaderMeta(dd))
-			previous := -1
-			for _, segment := range tc.wantSegments {
-				index := strings.Index(meta, segment)
-				if index < 0 {
-					t.Fatalf("meta = %q, missing %q", meta, segment)
-				}
-				if index <= previous {
-					t.Fatalf("meta = %q, %q is out of order", meta, segment)
-				}
-				previous = index
+			if meta != want {
+				t.Fatalf("meta = %q, want %q", meta, want)
 			}
-			if elapsedIndex := regexp.MustCompile(`\d+(ms|s|m\ds)`).FindStringIndex(meta); elapsedIndex == nil || elapsedIndex[0] <= previous {
-				t.Fatalf("meta = %q, elapsed must follow active metadata", meta)
+			modelIndex := strings.Index(meta, "gpt-x/high")
+			elapsedIndex := strings.Index(meta, wantParts[len(wantParts)-1])
+			if modelIndex < 0 || elapsedIndex <= modelIndex {
+				t.Fatalf("meta = %q, model must precede elapsed", meta)
 			}
 			for _, segment := range tc.omitSegments {
 				if strings.Contains(meta, segment) {
