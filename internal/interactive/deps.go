@@ -65,4 +65,6 @@ type Dependencies struct {
 	HomeDir           string
 	WorkDir           string
 	CompactionLogPath string
+	// RecordModelSwitch records a successful model switch for popularity stats.
+	RecordModelSwitch func(providerAlias, modelID string) error
 }

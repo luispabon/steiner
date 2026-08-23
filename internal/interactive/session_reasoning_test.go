@@ -14,10 +14,11 @@ func testReasoningSession(t *testing.T) *Session {
 			Models: config.ModelsConfig{
 				Default: "current",
 				Definitions: map[string]config.ModelConfig{
-					"current": {ID: "current-id"},
-					"other":   {ID: "other-id"},
+					"current": {Provider: "local", ID: "current-id"},
+					"other":   {Provider: "local", ID: "other-id"},
 				},
 			},
+			Providers: map[string]config.ProviderConfig{"local": {}},
 		},
 	})
 }

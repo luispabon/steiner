@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -96,9 +97,9 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 
 func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOverride) error {
 	s.mu.Lock()
-	if _, ok := s.deps.Config.Models.Definitions[name]; !ok {
+	providerAlias, modelID, err := config.ParseModelReference(&s.deps.Config, name)
+	if err != nil {
 		s.mu.Unlock()
-		err := fmt.Errorf("model %q not found in config", name)
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Model switch failed: %v", err)))
 		return err
 	}
@@ -107,6 +108,11 @@ func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOv
 		s.reasoningOverrides[name] = *reasoning
 	}
 	s.mu.Unlock()
+
+	if s.deps.RecordModelSwitch != nil {
+		// Stats-write failure must never fail the model switch.
+		_ = s.deps.RecordModelSwitch(providerAlias, modelID)
+	}
 	return nil
 }
 
