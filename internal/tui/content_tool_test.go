@@ -527,10 +527,28 @@ func TestSummarizeArgs(t *testing.T) {
 			expected: "https://example.com",
 		},
 		{
-			name:     "nil args returns tool name",
+			name:     "nil args returns empty summary",
 			tool:     "bash",
 			args:     nil,
-			expected: "bash",
+			expected: "",
+		},
+		{
+			name:     "empty args returns empty summary",
+			tool:     "bash",
+			args:     map[string]any{},
+			expected: "",
+		},
+		{
+			name:     "mcp tool summarizes non-empty args",
+			tool:     "mcp__server__tool",
+			args:     map[string]any{"query": "issues"},
+			expected: "issues",
+		},
+		{
+			name:     "empty mcp args returns empty summary",
+			tool:     "mcp__server__tool",
+			args:     map[string]any{},
+			expected: "",
 		},
 		{
 			name:     "read tool dispatches to read handler",

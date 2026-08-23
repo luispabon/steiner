@@ -29,8 +29,8 @@ func isSpecializedDelegateTool(tool string) bool {
 // summarizeArgs extracts a human-readable summary from tool arguments
 func summarizeArgs(tool string, args map[string]any) string {
 	tool = normalizeToolName(tool)
-	if args == nil {
-		return tool
+	if len(args) == 0 {
+		return ""
 	}
 	if tool == "follow_up" {
 		return summarizeFollowUpArgs(args)
@@ -60,11 +60,8 @@ func summarizeArgs(tool string, args map[string]any) string {
 		}
 	}
 	// Fallback: value for the lexicographically first key, for deterministic output.
-	if len(args) > 0 {
-		keys := sortedKeys(args)
-		return fmt.Sprintf("%v", args[keys[0]])
-	}
-	return tool
+	keys := sortedKeys(args)
+	return fmt.Sprintf("%v", args[keys[0]])
 }
 
 func delegateArgText(args map[string]any) string {
