@@ -723,6 +723,87 @@ func TestClientCodexCacheHintsReachTheBackend(t *testing.T) {
 	}
 }
 
+// TestClientRetriesCodexPromptCacheRetentionRejection drives one ChatRequest
+// through the engine against a Codex backend that rejects the first attempt
+// with the known prompt_cache_retention defect (see
+// codex_cache_retention_retry.go) and succeeds on the second. It asserts the
+// engine retries automatically and that the retried attempt drops the
+// cache-affinity headers/body key so it is not pinned back to the same
+// backend replica.
+func TestClientRetriesCodexPromptCacheRetentionRejection(t *testing.T) {
+	const promptCacheKey = "session-123"
+
+	var requests []capturedRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured := capturedRequest{headers: r.Header.Clone()}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			return
+		}
+		if err := json.Unmarshal(raw, &captured.body); err != nil {
+			t.Errorf("decode request body %q: %v", raw, err)
+			return
+		}
+		requests = append(requests, captured)
+
+		if len(requests) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprint(w, codexPromptCacheRetentionBody)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}`)
+	}))
+	defer server.Close()
+
+	client, err := NewCodexResponses(ClientConfig{
+		BaseURL:    "https://chatgpt.com/backend-api/codex",
+		APIKey:     "codex-token",
+		Model:      "gpt-5.6-luna",
+		HTTPClient: &http.Client{Transport: mustHostRewriteTransport(t, server.URL)},
+		Retry:      RetryConfig{Enabled: true, MaxAttempts: 3, InitialBackoff: time.Millisecond},
+	})
+	if err != nil {
+		t.Fatalf("NewCodexResponses() error = %v", err)
+	}
+
+	request := ChatRequest{
+		Messages:       []Message{{Role: MessageRoleUser, Content: "hi"}},
+		PromptCacheKey: promptCacheKey,
+	}
+	if _, err := client.ChatCompletion(context.Background(), request); err != nil {
+		t.Fatalf("ChatCompletion() error = %v, want the retry to recover", err)
+	}
+
+	if got := len(requests); got != 2 {
+		t.Fatalf("backend saw %d requests, want 2 (one rejection, one retry)", got)
+	}
+
+	first, second := requests[0], requests[1]
+	for _, header := range []string{"session-id", "thread-id", "originator"} {
+		if got := first.headers.Get(header); got == "" {
+			t.Fatalf("first attempt missing affinity header %s", header)
+		}
+	}
+	if got := first.body["prompt_cache_key"]; got != promptCacheKey {
+		t.Fatalf("first attempt body prompt_cache_key = %v, want %q", got, promptCacheKey)
+	}
+
+	for _, header := range []string{"session-id", "thread-id", "originator"} {
+		if got := second.headers.Get(header); got != "" {
+			t.Fatalf("retried attempt still carries affinity header %s = %q, want dropped", header, got)
+		}
+	}
+	// The request body is built once before the retry loop and reused
+	// byte-for-byte across attempts (see Client.ChatCompletion), so the body's
+	// prompt_cache_key is unchanged on retry. That's fine: the wire's own
+	// comment on the affinity headers notes the body hint alone never pinned a
+	// shard, so dropping the headers is what breaks the affinity.
+	if got := second.body["prompt_cache_key"]; got != promptCacheKey {
+		t.Fatalf("retried attempt body prompt_cache_key = %v, want unchanged %q", got, promptCacheKey)
+	}
+}
+
 // TestClientOpenAICompatSendsNoCodexAffinityHeaders pins the seam in the other
 // direction: the affinity headers are a Codex Responses wire concern and must not
 // leak into the OpenAI wire, whose backend does not expect them.

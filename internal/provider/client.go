@@ -56,9 +56,14 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 		return ChatResponse{}, err
 	}
 
+	dropCacheAffinity := false
 	var response ChatResponse
 	err = c.withRetry(ctx, func(_ int) (bool, error) {
-		resp, err := c.executeRequest(ctx, request, body, false)
+		attemptRequest := request
+		if dropCacheAffinity {
+			attemptRequest.PromptCacheKey = ""
+		}
+		resp, err := c.executeRequest(ctx, attemptRequest, body, false)
 		if err != nil {
 			return false, err
 		}
@@ -71,7 +76,7 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 			observePromptTokenUsage(ctx, request, response.Usage)
 		}
 		return false, err
-	}, c.classifyRetryError, nil)
+	}, c.classifyRetryErrorAndDropCacheAffinity(&dropCacheAffinity), nil)
 	if err != nil {
 		return ChatResponse{}, err
 	}
@@ -113,14 +118,19 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 	}
 
 	var (
-		streamStart     time.Time
-		chunksReceived  int
-		contentBytes    int
-		lastRespHeaders http.Header
+		streamStart       time.Time
+		chunksReceived    int
+		contentBytes      int
+		lastRespHeaders   http.Header
+		dropCacheAffinity bool
 	)
 
 	return c.withRetry(ctx, func(_ int) (bool, error) {
-		resp, err := c.executeRequest(ctx, request, body, true)
+		attemptRequest := request
+		if dropCacheAffinity {
+			attemptRequest.PromptCacheKey = ""
+		}
+		resp, err := c.executeRequest(ctx, attemptRequest, body, true)
 		if err != nil {
 			return false, err
 		}
@@ -153,7 +163,7 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 			}
 		})
 		return partialStream, err
-	}, c.classifyRetryError, func(info retryAttemptInfo) {
+	}, c.classifyRetryErrorAndDropCacheAffinity(&dropCacheAffinity), func(info retryAttemptInfo) {
 		c.streamErrorLog.Log(streamErrorRecord{
 			Timestamp:       time.Now(),
 			Event:           "stream_retry",
@@ -216,6 +226,21 @@ func (c *Client) pace(ctx context.Context) error {
 
 	c.lastRequest = time.Now()
 	return nil
+}
+
+// classifyRetryErrorAndDropCacheAffinity wraps classifyRetryError and additionally
+// sets *dropCacheAffinity when the retry was triggered by the known Codex
+// prompt_cache_retention quirk (see isCodexPromptCacheRetentionRejection), so the
+// caller can drop cache-affinity pinning on the next attempt to avoid landing back
+// on the same bad backend replica.
+func (c *Client) classifyRetryErrorAndDropCacheAffinity(dropCacheAffinity *bool) func(error) retryDecision {
+	return func(err error) retryDecision {
+		decision := c.classifyRetryError(err)
+		if decision.retry && isCodexPromptCacheRetentionRejection(err) {
+			*dropCacheAffinity = true
+		}
+		return decision
+	}
 }
 
 // classifyRetryError decides whether err is worth another attempt. It applies the

@@ -73,3 +73,19 @@ func (w *responsesWire) responsesURL() string {
 	base.Path = strings.TrimRight(base.Path, "/") + "/responses"
 	return base.String()
 }
+
+// RefineRetry retries the known upstream Codex/ChatGPT OAuth backend defect
+// where prompt_cache_retention is rejected as unsupported (see
+// isCodexPromptCacheRetentionRejection). A fresh attempt often lands on a
+// healthy backend replica; Client.ChatCompletion and Client.streamWithRetry
+// additionally drop the cache-affinity headers on the retried attempt so it
+// isn't pinned back to the same replica (issue #318's shard affinity).
+func (w *responsesWire) RefineRetry(err error, decision retryDecision) retryDecision {
+	if decision.retry {
+		return decision
+	}
+	if isCodexPromptCacheRetentionRejection(err) {
+		return retryDecision{retry: true, reason: err.Error()}
+	}
+	return decision
+}
