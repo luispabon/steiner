@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -97,6 +98,69 @@ func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
 	wantRate := 950.0 / 1000.0
 	if diff := dd.cacheHitRate - wantRate; diff > 1e-9 || diff < -1e-9 {
 		t.Errorf("cacheHitRate = %v, want %v", dd.cacheHitRate, wantRate)
+	}
+}
+
+func TestScopedDelegationEvents(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		event       output.Event
+		wantTPS     float64
+		wantHandled bool
+		wantNoState bool
+	}{
+		{
+			name: "model call finished updates output tps",
+			event: output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
+				Turn:      1,
+				OutputTPS: 42.1,
+			}), "child-1"),
+			wantTPS:     42.1,
+			wantHandled: true,
+		},
+		{
+			name: "model call finished with wrong payload",
+			event: output.WithAgentScope(output.Event{
+				Type:    output.EventTypeModelCallFinished,
+				Payload: output.APIResponseEvent{},
+			}, "child-1"),
+			wantHandled: true,
+		},
+		{
+			name:        "api response is swallowed",
+			event:       output.WithAgentScope(output.NewAPIResponseEvent(nil, nil, "stop", nil), "child-1"),
+			wantHandled: true,
+			wantNoState: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buffer := &contentBuffer{
+				segments:          make([]contentSegment, 0),
+				collapseState:     make(map[int]bool),
+				styles:            testStyles(theme.AccentAmber),
+				activeDelegations: make(map[string]delegationLocator),
+			}
+			buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+
+			loc, ok := buffer.activeDelegations["child-1"]
+			if !ok || loc.dd == nil {
+				t.Fatal("active delegation child-1 not found")
+			}
+			before := *loc.dd
+			handled := buffer.appendScopedDelegationEvent(tc.event)
+			if handled != tc.wantHandled {
+				t.Fatalf("handled = %v, want %v", handled, tc.wantHandled)
+			}
+			if loc.dd.outputTPS != tc.wantTPS {
+				t.Fatalf("outputTPS = %v, want %v", loc.dd.outputTPS, tc.wantTPS)
+			}
+			if tc.wantNoState && !reflect.DeepEqual(*loc.dd, before) {
+				t.Fatalf("delegation state changed: before=%#v after=%#v", before, *loc.dd)
+			}
+		})
 	}
 }
 

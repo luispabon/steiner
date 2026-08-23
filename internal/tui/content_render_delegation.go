@@ -140,10 +140,6 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 
 	left := disclosure + " " + b.renderDelegationHeaderIdentity(dd)
 
-	if dd.status == "active" && dd.contextFillPct > 0 {
-		left += " " + b.styles.FgDim.Render(fmt.Sprintf("ctx: %d%%", int(math.Round(dd.contextFillPct))))
-	}
-
 	gap := 0
 	if metaWidth > 0 {
 		gap = 2
@@ -245,6 +241,12 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 	parts := []string{status}
 	switch dd.status {
 	case "active":
+		if dd.contextFillPct > 0 {
+			parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("ctx: %d%%", int(math.Round(dd.contextFillPct)))))
+		}
+		if dd.outputTPS > 0 {
+			parts = append(parts, b.styles.FgDim.Render(formatTPS(dd.outputTPS)))
+		}
 		if modelEffort := delegationModelEffort(dd); modelEffort != "" {
 			parts = append(parts, b.styles.FgDim.Render(modelEffort))
 		}
@@ -259,6 +261,9 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 		parts = append(parts, b.styles.FgDim.Render(strings.Join(delegationBudgetMeta(dd), " · ")))
 	case "failed":
 		parts = append(parts, b.styles.FgDim.Render(strings.Join(delegationFailedMeta(dd), " · ")))
+	}
+	if dd.status == "active" && len(parts) > 1 {
+		return parts[0] + " " + strings.Join(parts[1:], " · ")
 	}
 	return strings.Join(parts, " ")
 }

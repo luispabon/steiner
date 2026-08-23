@@ -79,25 +79,69 @@ func TestDelegationCompleteMetaOmitsCacheHitRateWhenNotOK(t *testing.T) {
 }
 
 func TestDelegationActiveHeaderMetaPlacesModelBeforeElapsed(t *testing.T) {
-	b := newTestBuffer(t)
-	for _, isAdvisor := range []bool{false, true} {
-		dd := &delegationDisplayState{
-			status:    "active",
-			isAdvisor: isAdvisor,
-			modelName: "gpt-x",
-			reasoning: "high",
-			startTime: nanoNow() - 10_000_000_000,
-		}
+	t.Parallel()
+	cases := []struct {
+		name         string
+		contextFill  float64
+		outputTPS    float64
+		wantSegments []string
+		omitSegments []string
+	}{
+		{
+			name:         "all active metadata",
+			contextFill:  5.4,
+			outputTPS:    42.1,
+			wantSegments: []string{"⠋", "ctx: 5%", "42.1 t/s", "gpt-x/high"},
+		},
+		{
+			name:         "context without tps",
+			contextFill:  5.4,
+			wantSegments: []string{"⠋", "ctx: 5%", "gpt-x/high"},
+			omitSegments: []string{"t/s"},
+		},
+		{
+			name:         "tps without context",
+			outputTPS:    42.1,
+			wantSegments: []string{"⠋", "42.1 t/s", "gpt-x/high"},
+			omitSegments: []string{"ctx:"},
+		},
+		{
+			name:         "unknown context and tps",
+			wantSegments: []string{"⠋", "gpt-x/high"},
+			omitSegments: []string{"ctx:", "t/s"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newTestBuffer(t)
+			now := nanoNow()
+			dd := &delegationDisplayState{
+				status:         "active",
+				modelName:      "gpt-x",
+				reasoning:      "high",
+				contextFillPct: tc.contextFill,
+				outputTPS:      tc.outputTPS,
+				startTime:      now - 10_900_000_000,
+			}
 
-		meta := b.renderDelegationHeaderMeta(dd)
-		modelIndex := strings.Index(meta, "gpt-x/high")
-		elapsedIndex := regexp.MustCompile(`\d+(ms|s|m\ds)`).FindStringIndex(meta)
-		if modelIndex < 0 || elapsedIndex == nil {
-			t.Fatalf("meta = %q, want model and elapsed", meta)
-		}
-		if modelIndex >= elapsedIndex[0] {
-			t.Errorf("meta = %q, model/effort after elapsed", meta)
-		}
+			wantParts := append([]string(nil), tc.wantSegments...)
+			wantParts = append(wantParts, formatElapsed(dd.startTime, now))
+			want := wantParts[0] + " " + strings.Join(wantParts[1:], " · ")
+			meta := stripANSI(b.renderDelegationHeaderMeta(dd))
+			if meta != want {
+				t.Fatalf("meta = %q, want %q", meta, want)
+			}
+			modelIndex := strings.Index(meta, "gpt-x/high")
+			elapsedIndex := strings.Index(meta, wantParts[len(wantParts)-1])
+			if modelIndex < 0 || elapsedIndex <= modelIndex {
+				t.Fatalf("meta = %q, model must precede elapsed", meta)
+			}
+			for _, segment := range tc.omitSegments {
+				if strings.Contains(meta, segment) {
+					t.Errorf("meta = %q, contains omitted segment %q", meta, segment)
+				}
+			}
+		})
 	}
 }
 
