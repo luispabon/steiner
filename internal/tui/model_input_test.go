@@ -6,6 +6,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -262,8 +264,45 @@ func TestArgSkillInvocationEnablesAndSubmitsArgs(t *testing.T) {
 		t.Fatalf("SubmitPrompt count = %d, want 1", ctrl.countSubmitPrompt())
 	}
 	prompts := ctrl.submitPrompts()
-	if prompts[0].Text != "do the thing" {
-		t.Fatalf("submitted text = %q, want %q", prompts[0].Text, "do the thing")
+	if prompts[0].Text != "/myskill do the thing" {
+		t.Fatalf("submitted text = %q, want %q", prompts[0].Text, "/myskill do the thing")
+	}
+}
+
+func TestSkillInvocationSwitchesExecutionMode(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		skill    string
+		wantMode config.ExecutionMode
+	}{
+		{"plan", config.ExecutionModePlan},
+		{"implement", config.ExecutionModeBuild},
+		{"review", config.ExecutionModeBuild},
+		{"someCustomSkill", config.ExecutionModeBuild},
+	}
+	for _, tt := range tests {
+		t.Run(tt.skill, func(t *testing.T) {
+			t.Parallel()
+			ctrl := &testController{}
+			m := newModel(Config{
+				SkillNames: []string{tt.skill},
+				Controller: ctrl,
+			}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+			m.input.SetValue("/" + tt.skill + " some args")
+			updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+			var got []config.ExecutionMode
+			for _, a := range ctrl.actions {
+				if sm, ok := a.(interactive.SwitchMode); ok {
+					got = append(got, sm.Mode)
+				}
+			}
+			if len(got) != 1 || got[0] != tt.wantMode {
+				t.Fatalf("SwitchMode actions = %#v, want exactly one with mode %q", got, tt.wantMode)
+			}
+		})
 	}
 }
 
