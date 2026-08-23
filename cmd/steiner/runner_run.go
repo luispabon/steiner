@@ -137,7 +137,7 @@ func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider
 	return prov, nil
 }
 
-func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec) ([]agent.Message, error) {
+func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
 	setup, err := r.prepareRun(nil, skillNames)
 	if err != nil {
 		return nil, err
@@ -153,7 +153,7 @@ func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, sk
 		CompactionLogPath: r.runtime.compactionLogFile,
 		PromptCacheKey:    r.promptCacheKey(),
 	}
-	return agent.NewRunner().Compact(ctx, req, conversation)
+	return agent.NewRunner().Compact(ctx, req, conversation, steering)
 }
 
 func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {

@@ -933,8 +933,9 @@ func TestClearConversationResetsSkills(t *testing.T) {
 
 // runExecutorFunc adapts functions to the runExecutor interface.
 type runExecutorFunc struct {
-	run     func(context.Context, []agent.Message, []string) (RunResult, error)
-	compact func(context.Context, []agent.Message, []string, []provider.ToolSpec) ([]agent.Message, error)
+	run             func(context.Context, []agent.Message, []string) (RunResult, error)
+	compact         func(context.Context, []agent.Message, []string, []provider.ToolSpec) ([]agent.Message, error)
+	compactSteering string
 }
 
 func newRunExecutorFunc(run func(context.Context, []agent.Message, []string) (RunResult, error)) *runExecutorFunc {
@@ -945,7 +946,8 @@ func (f *runExecutorFunc) Run(ctx context.Context, conversation []agent.Message,
 	return f.run(ctx, conversation, skillNames)
 }
 
-func (f *runExecutorFunc) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec) ([]agent.Message, error) {
+func (f *runExecutorFunc) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
+	f.compactSteering = steering
 	if f.compact == nil {
 		return conversation, nil
 	}

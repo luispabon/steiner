@@ -8,7 +8,11 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-func (s *Session) manualCompaction(ctx context.Context) {
+func (s *Session) manualCompaction(ctx context.Context, steerings ...string) {
+	steering := ""
+	if len(steerings) > 0 {
+		steering = steerings[0]
+	}
 	conversation := s.Conversation()
 	if len(conversation) == 0 {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "No conversation to compact."))
@@ -19,7 +23,7 @@ func (s *Session) manualCompaction(ctx context.Context) {
 		return
 	}
 
-	newConv, err := s.runManualCompaction(ctx, s.CurrentModelAlias(), s.compactRunner(conversation))
+	newConv, err := s.runManualCompaction(ctx, s.CurrentModelAlias(), s.compactRunner(conversation, steering))
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			s.emitCompactError(err)

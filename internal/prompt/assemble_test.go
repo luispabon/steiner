@@ -417,6 +417,47 @@ func TestRenderConversationCompactionInstructionPreservesOverrideAndCaveHuman(t 
 	}
 }
 
+func TestRenderConversationCompactionInstructionSteering(t *testing.T) {
+	t.Parallel()
+	const steering = "focus on auth refactor"
+	const marker = "Additional user steering for this compaction:\n\n" + steering
+
+	tests := []struct {
+		name     string
+		override string
+		mode     CompactionMode
+		wantBase string
+		wantTail string
+	}{
+		{name: "default", wantBase: "You are compacting the current working context for a coding agent."},
+		{name: "override", override: "custom compaction prompt", wantBase: "custom compaction prompt"},
+		{name: "emergency", mode: CompactionModeEmergency, wantBase: "You are compacting the current working context for a coding agent.", wantTail: "emergency handoff"},
+		{name: "override and emergency", override: "custom compaction prompt", mode: CompactionModeEmergency, wantBase: "custom compaction prompt", wantTail: "emergency handoff"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := RenderConversationCompactionInstruction(tt.override, tt.mode, false, steering)
+			if !strings.Contains(got, tt.wantBase) || !strings.Contains(got, marker) {
+				t.Fatalf("instruction = %q, want base %q and steering", got, tt.wantBase)
+			}
+			if tt.wantTail != "" && !strings.Contains(got, tt.wantTail) {
+				t.Fatalf("instruction = %q, want emergency suffix", got)
+			}
+			if strings.Index(got, marker) < strings.Index(got, tt.wantBase) {
+				t.Fatalf("steering appears before base instruction: %q", got)
+			}
+			if tt.wantTail != "" && strings.Index(got, marker) > strings.Index(got, tt.wantTail) {
+				t.Fatalf("steering appears after emergency suffix: %q", got)
+			}
+		})
+	}
+	bare := RenderConversationCompactionInstruction("", CompactionModeNormal, false)
+	empty := RenderConversationCompactionInstruction("", CompactionModeNormal, false, "")
+	if bare != empty {
+		t.Fatalf("empty steering changed output: bare=%q empty=%q", bare, empty)
+	}
+}
+
 // makeBundledFS builds a test fs.FS with the given skill name and content.
 func makeBundledFS(t *testing.T, content string) fs.FS {
 	t.Helper()

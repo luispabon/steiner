@@ -42,9 +42,9 @@ func (m *Model) executeClearAction() (tea.Model, tea.Cmd) {
 	return m.clearConversationState()
 }
 
-func (m *Model) executeCompactAction() (tea.Model, tea.Cmd) {
+func (m *Model) executeCompactAction(action inputAction) (tea.Model, tea.Cmd) {
 	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.TriggerManualCompaction{}); err != nil {
+		if err := m.controller.Handle(context.Background(), interactive.TriggerManualCompaction{Steering: action.compactionSteering}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
 		}
 	}

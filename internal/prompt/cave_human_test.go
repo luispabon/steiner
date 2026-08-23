@@ -99,7 +99,7 @@ func TestSystemPreambleCaveHumanComesAfterWorkflowAndBeforeSuffix(t *testing.T) 
 func TestRenderConversationCompactionInstructionCaveHuman(t *testing.T) {
 	t.Parallel()
 
-	enabled := RenderConversationCompactionInstruction("", CompactionModeNormal, true)
+	enabled := RenderConversationCompactionInstruction("", CompactionModeNormal, true, "")
 	for _, want := range []string{testBodyMarker, testEncodingMarker} {
 		if !strings.Contains(enabled, want) {
 			t.Fatalf("enabled compaction instruction missing %q in %q", want, enabled)
@@ -117,7 +117,7 @@ func TestRenderConversationCompactionInstructionCaveHuman(t *testing.T) {
 		}
 	}
 
-	disabled := RenderConversationCompactionInstruction("", CompactionModeNormal, false)
+	disabled := RenderConversationCompactionInstruction("", CompactionModeNormal, false, "")
 	for _, forbidden := range []string{
 		testCaveHumanMarker,
 		testTerseMarker,

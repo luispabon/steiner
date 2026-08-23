@@ -113,7 +113,10 @@ func (ClearConversation) isInteractiveAction() {}
 
 // TriggerManualCompaction represents a user request to manually compact the
 // conversation history during an interactive session.
-type TriggerManualCompaction struct{}
+type TriggerManualCompaction struct {
+	// Steering guides this manual compaction; empty means use the default prompt.
+	Steering string
+}
 
 func (TriggerManualCompaction) isInteractiveAction() {}
 

@@ -184,6 +184,8 @@ Local LLMs have limited context windows — often measured in tens of thousands 
 
 See [docs/context-management.md](docs/context-management.md) for the full reference.
 
+For manual compaction, use `/compact` or `/compact <focus text>` to guide the summary. Bare `/compact` is unchanged. Auto-compaction does not use steering.
+
 ## Sub-agent delegation
 
 Delegation is steiner's primary context management strategy. `steiner` exposes eight sub-agent tools that delegate bounded tasks to isolated child agents. Sub-agent delegation is enabled by default — the model sees these tools alongside the built-ins, and its system prompt casts it as the orchestrator: it plans, dispatches, verifies, and integrates rather than doing the default implementation work itself:

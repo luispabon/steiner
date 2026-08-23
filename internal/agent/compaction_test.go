@@ -169,7 +169,7 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 			SummaryMaxTokens:    128,
 		},
 	}
-	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 3, candidate)
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 3, candidate, "")
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}
@@ -259,7 +259,7 @@ func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
 		t.Fatalf("Assemble() error = %v", err)
 	}
 
-	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 4, candidate)
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 4, candidate, "")
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}
@@ -514,7 +514,7 @@ func TestSummarizeCompactorRunsEmergencyStageWhenNormalCompactionLeavesPromptToo
 		},
 	}
 
-	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 5, candidate)
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 5, candidate, "")
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}
@@ -681,7 +681,7 @@ func TestSummarizeCompactorFailsWhenEmergencyTailCannotFit(t *testing.T) {
 		},
 	}
 
-	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 1, candidate)
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 1, candidate, "")
 	if err == nil {
 		t.Fatal("Compact() error = nil, want non-nil")
 	}
@@ -852,7 +852,7 @@ func TestSummarizeCompactorRetainsRecentTurnsAndDropsOlderToolOutput(t *testing.
 		},
 	}
 
-	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 5, candidate)
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 5, candidate, "")
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}
@@ -2007,12 +2007,17 @@ func TestBuildCompactionRequestWithModeReturnsBlocks(t *testing.T) {
 		Messages:     messages,
 	}
 
-	_, blocks, _, err := buildCompactionRequestWithMode(
+	autoRequest, blocks, _, err := buildCompactionRequestWithMode(
 		context.Background(), req, state, candidate,
 		prompt.CompactionModeNormal, 128,
 	)
 	if err != nil {
 		t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+	}
+	const steeringParagraph = "Additional user steering for this compaction"
+	autoContent := autoRequest.Messages[len(autoRequest.Messages)-1].Content
+	if strings.Contains(autoContent, steeringParagraph) {
+		t.Fatalf("auto compaction final message = %q, unexpectedly contains steering paragraph", autoContent)
 	}
 	if len(blocks) == 0 {
 		t.Fatal("buildCompactionRequestWithMode() returned no context blocks")
@@ -2024,6 +2029,18 @@ func TestBuildCompactionRequestWithModeReturnsBlocks(t *testing.T) {
 			foundPreamble = true
 			break
 		}
+	}
+	request, _, _, err := buildCompactionRequestWithMode(
+		context.Background(), req, state, candidate,
+		prompt.CompactionModeNormal, 128, "focus on auth refactor",
+	)
+	if err != nil {
+		t.Fatalf("steered buildCompactionRequestWithMode() error = %v", err)
+	}
+	content := request.Messages[len(request.Messages)-1].Content
+	const marker = "Additional user steering for this compaction:\n\nfocus on auth refactor"
+	if !strings.Contains(content, marker) {
+		t.Fatalf("final compaction message = %q, want steering marker", content)
 	}
 	if !foundPreamble {
 		t.Errorf("blocks %+v missing preamble block", blocks)

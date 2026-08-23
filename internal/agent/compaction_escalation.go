@@ -199,7 +199,11 @@ func buildSummarizedCompactionState(state RunState, summaryText string, candidat
 	return nextState
 }
 
-func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
+func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, steerings ...string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
+	steering := ""
+	if len(steerings) > 0 {
+		steering = steerings[0]
+	}
 	basePrompt := prepareBasePrompt(req)
 	sourceState := state.WithConversation(candidate.Messages)
 	assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, sourceState))
@@ -208,7 +212,7 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 	}
 	messages := append(provider.CloneMessages(assembly.Messages), provider.Message{
 		Role:    provider.MessageRoleUser,
-		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, basePrompt.CaveHuman),
+		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, basePrompt.CaveHuman, steering),
 	})
 	// Mirror the normal-turn request shape (same Tools and Params) so the
 	// compaction call replays the identical cached prefix (system + tools +

@@ -47,7 +47,7 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) bool
 		s.runs.Add(1)
 		go func() {
 			defer s.runs.Done()
-			s.manualCompaction(ctx)
+			s.manualCompaction(ctx, a.Steering)
 		}()
 		return true
 	case RequestExit:

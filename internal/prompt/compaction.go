@@ -36,13 +36,20 @@ const (
 
 // RenderConversationCompactionInstruction renders the final instruction used to
 // ask a model to compact the already-assembled conversation context.
-func RenderConversationCompactionInstruction(override string, mode CompactionMode, caveHuman bool) string {
+func RenderConversationCompactionInstruction(override string, mode CompactionMode, caveHuman bool, steerings ...string) string {
+	steering := ""
+	if len(steerings) > 0 {
+		steering = steerings[0]
+	}
 	content := compactionPromptSystem()
 	if caveHuman {
 		content = caveHumanCompactionVoice()
 	}
 	if override != "" {
 		content = override
+	}
+	if steering != "" {
+		content += "\n\nAdditional user steering for this compaction:\n\n" + steering
 	}
 	if mode == CompactionModeEmergency {
 		content = content + "\n\n" + compactionPromptEmergencyInstruction()

@@ -29,7 +29,7 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.executeClearAction()
 	}
 	if action.compaction {
-		return m.executeCompactAction()
+		return m.executeCompactAction(action)
 	}
 	if action.inspectConfig {
 		return m.executeInspectConfigAction()

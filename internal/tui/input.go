@@ -8,6 +8,7 @@ type inputAction struct {
 	quit                       bool
 	clear                      bool
 	compaction                 bool
+	compactionSteering         string
 	inspectConfig              bool
 	openCacheStats             bool
 	listSkills                 bool
@@ -116,6 +117,7 @@ func parseArgumentCommand(trimmed string, enabledSkills map[string]bool) (inputA
 		handler argHandler
 	}{
 		{"/accent ", handleAccent},
+		{"/compact ", handleCompact},
 		{"/ls ", handleListFiles},
 		{"/model ", handleModel},
 		{"/skill ", handleSkill},
@@ -140,6 +142,14 @@ func handleAccent(rest string, _ map[string]bool) (inputAction, bool) {
 		return entry.Build(rest), true
 	}
 	return inputAction{setAccent: rest}, true
+}
+
+func handleCompact(rest string, _ map[string]bool) (inputAction, bool) {
+	entry := lookupCommand("/compact")
+	if entry != nil {
+		return entry.Build(rest), true
+	}
+	return inputAction{compaction: true, compactionSteering: rest}, true
 }
 
 func handleListFiles(rest string, _ map[string]bool) (inputAction, bool) {

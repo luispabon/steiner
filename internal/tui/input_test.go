@@ -13,6 +13,35 @@ func TestParseInputHandlesConfigCommand(t *testing.T) {
 	}
 }
 
+func TestParseInputHandlesCompactionSteering(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		input    string
+		steering string
+		submit   string
+	}{
+		{name: "bare", input: "/compact"},
+		{name: "steered", input: "/compact some steering", steering: "some steering"},
+		{name: "whitespace only", input: "/compact   "},
+		{name: "prefix is text", input: "/compactX", submit: "/compactX"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			action := parseInput(tt.input)
+			if action.compaction != (tt.submit == "") {
+				t.Fatalf("compaction = %v, want %v", action.compaction, tt.submit == "")
+			}
+			if action.compactionSteering != tt.steering {
+				t.Fatalf("compactionSteering = %q, want %q", action.compactionSteering, tt.steering)
+			}
+			if action.submit != tt.submit {
+				t.Fatalf("submit = %q, want %q", action.submit, tt.submit)
+			}
+		})
+	}
+}
+
 func TestBuildCompletionCandidatesIncludesConfig(t *testing.T) {
 	t.Parallel()
 	got := buildCompletionCandidates("/co", nil, false)
