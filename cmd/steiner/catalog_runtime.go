@@ -52,8 +52,6 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 		baseURL := strings.TrimSpace(provider.BaseURL)
 		if baseURL == "" {
 			baseURL = catalogDefaultBaseURL(provider.Type)
-			provider.BaseURL = baseURL
-			cfg.Providers[alias] = provider
 		}
 		endpoints = append(endpoints, modelcatalog.Endpoint{
 			Alias:   alias,

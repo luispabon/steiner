@@ -46,7 +46,10 @@ func DefaultCacheDir() string {
 	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
 		return filepath.Join(xdg, "steiner", "provider-models")
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.TempDir()
+	}
 	return filepath.Join(home, ".cache", "steiner", "provider-models")
 }
 

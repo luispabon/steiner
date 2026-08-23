@@ -201,7 +201,7 @@ func (s *Session) CaveHuman() bool {
 func (s *Session) CurrentModelConfig() config.ModelConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.deps.Config.Models.Definitions[s.deps.Config.Models.Default]
+	return currentModelConfig(s.deps.Config)
 }
 
 // CurrentReasoningOverride returns the session's runtime reasoning override

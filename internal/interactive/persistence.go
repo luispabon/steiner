@@ -38,7 +38,7 @@ func (s *Session) saveSession() error {
 		return nil
 	}
 
-	modelID := s.deps.Config.Models.Definitions[s.deps.Config.Models.Default].ID
+	modelID := currentModelConfig(s.deps.Config).ID
 	var (
 		sess session.Session
 		err  error
@@ -129,7 +129,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 
 	// Emit a context-diagnostics event so the TUI can populate the sidebar
 	// token bar and the status bar with the model's context budget.
-	currentModel := s.deps.Config.Models.Definitions[s.deps.Config.Models.Default]
+	currentModel := currentModelConfig(s.deps.Config)
 	contextWindow := currentModel.Advanced.Limits.ContextWindow
 	if contextWindow <= 0 {
 		if rm, err := provider.ResolveWithDiscovery(s.deps.Config, s.CurrentModelAlias(), s.deps.HTTPClient); err == nil {
@@ -183,7 +183,7 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 	currentSession := session.Session{
 		ID:             s.sessionID,
 		Title:          s.sessionTitle,
-		Model:          s.deps.Config.Models.Definitions[s.deps.Config.Models.Default].ID,
+		Model:          currentModelConfig(s.deps.Config).ID,
 		Group:          s.sessionGroup,
 		Lineage:        s.lineage,
 		PromptCacheKey: s.promptCacheKey,

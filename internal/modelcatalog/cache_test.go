@@ -67,6 +67,36 @@ func TestCacheRoundTripAndFilename(t *testing.T) {
 	}
 }
 
+func TestDefaultCacheDirHomeFallbacks(t *testing.T) {
+	tests := []struct {
+		name string
+		home string
+		want string
+	}{
+		{
+			name: "home",
+			home: filepath.Join(t.TempDir(), "home"),
+		},
+		{
+			name: "temp when home is unavailable",
+			want: filepath.Join(os.TempDir(), ".cache", "steiner", "provider-models"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_CACHE_HOME", "")
+			t.Setenv("HOME", tt.home)
+			want := tt.want
+			if want == "" {
+				want = filepath.Join(tt.home, ".cache", "steiner", "provider-models")
+			}
+			if got := DefaultCacheDir(); got != want {
+				t.Fatalf("DefaultCacheDir() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestCacheTTLAndStaleLoad(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	now := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)

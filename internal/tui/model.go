@@ -116,7 +116,6 @@ type Model struct {
 	modelNames          []string
 	modelEntries        []ModelEntry
 	modelEntriesUpdates <-chan []ModelEntry
-	modelEntriesSet     bool
 	modelBackendAlias   map[string]string
 	modelContexts       map[string]int
 	modelBaseURLs       map[string]string

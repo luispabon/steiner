@@ -375,7 +375,17 @@ func (p *mcpStateProducer) arm() {
 }
 
 func selectedModelConfig(cfg config.Config) config.ModelConfig {
-	return cfg.Models.Definitions[cfg.Models.Default]
+	providerAlias, modelID, err := config.ParseModelReference(&cfg, cfg.Models.Default)
+	if model, ok := cfg.Models.Definitions[cfg.Models.Default]; ok {
+		return model
+	}
+	if err != nil {
+		return config.ModelConfig{}
+	}
+	model := config.NewModelConfigBase()
+	model.Provider = providerAlias
+	model.ID = modelID
+	return model
 }
 
 func modelAliasNames(cfg config.Config) []string {

@@ -113,7 +113,6 @@ func (m *Model) handleModelEntriesUpdatedMsg(msg modelEntriesUpdatedMsg) (tea.Mo
 		return m, nil
 	}
 	m.modelEntries = cloneModelEntries(msg.entries)
-	m.modelEntriesSet = true
 	if m.modelPicker.IsOpen() {
 		m.modelPicker = m.modelPicker.ReplaceEntries(m.modelEntries)
 	}

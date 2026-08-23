@@ -1294,6 +1294,51 @@ func TestCurrentModelConfig(t *testing.T) {
 	}
 }
 
+func TestCurrentModelConfigResolvesDefaultReference(t *testing.T) {
+	tests := []struct {
+		name         string
+		defaultModel string
+		definitions  map[string]config.ModelConfig
+		providers    map[string]config.ProviderConfig
+		wantProvider string
+		wantID       string
+	}{
+		{
+			name:         "configured alias",
+			defaultModel: "alias",
+			definitions:  map[string]config.ModelConfig{"alias": {Provider: "local", ID: "configured-id"}},
+			providers:    map[string]config.ProviderConfig{"local": {}},
+			wantProvider: "local",
+			wantID:       "configured-id",
+		},
+		{
+			name:         "raw reference",
+			defaultModel: "openrouter/openai/gpt-4",
+			providers:    map[string]config.ProviderConfig{"openrouter": {}},
+			wantProvider: "openrouter",
+			wantID:       "openai/gpt-4",
+		},
+		{
+			name:         "unknown reference",
+			defaultModel: "garbage",
+			wantProvider: "",
+			wantID:       "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := testNewSession(t, Dependencies{Config: config.Config{
+				Models:    config.ModelsConfig{Default: tt.defaultModel, Definitions: tt.definitions},
+				Providers: tt.providers,
+			}})
+			got := s.CurrentModelConfig()
+			if got.Provider != tt.wantProvider || got.ID != tt.wantID {
+				t.Fatalf("CurrentModelConfig() = provider=%q id=%q, want provider=%q id=%q", got.Provider, got.ID, tt.wantProvider, tt.wantID)
+			}
+		})
+	}
+}
+
 func TestCurrentModelAliasTracksSwitchModel(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
@@ -1532,6 +1577,23 @@ func TestSaveSessionPersistsCurrentMetadata(t *testing.T) {
 	}
 	if got, want := saved.Lineage.FullMessages(), lineage.FullMessages(); len(got) != len(want) || got[0].Content != want[0].Content {
 		t.Fatalf("saved lineage = %#v, want %#v", got, want)
+	}
+}
+
+func TestSaveSessionPersistsRawModelReference(t *testing.T) {
+	mockStore := newMockSessionStore()
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+		Config: config.Config{
+			Models:    config.ModelsConfig{Default: "openrouter/openai/gpt-4"},
+			Providers: map[string]config.ProviderConfig{"openrouter": {}},
+		},
+	})
+	if err := s.saveSession(); err != nil {
+		t.Fatalf("saveSession() = %v, want nil", err)
+	}
+	if got := mockStore.savedSessions[s.SessionID()].Model; got != "openai/gpt-4" {
+		t.Fatalf("saved model = %q, want %q", got, "openai/gpt-4")
 	}
 }
 

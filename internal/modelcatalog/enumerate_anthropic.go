@@ -75,9 +75,6 @@ func (e *AnthropicEnumerator) enumeratePages(ctx context.Context, ep Endpoint, e
 	for {
 		response, pageETag, status, err := e.enumeratePage(ctx, ep, endpoint, pageSize, cursor)
 		if err != nil {
-			if status == http.StatusBadRequest && pageSize == anthropicLargePageSize && isAnthropicPageSizeError(err) {
-				return nil, "", err
-			}
 			return nil, "", err
 		}
 		if status != http.StatusOK {

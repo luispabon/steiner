@@ -75,6 +75,9 @@ func TestBuildModelCatalogService(t *testing.T) {
 	if endpoints[0].BaseURL != "https://api.openai.com/v1" {
 		t.Fatalf("endpoint base URL = %q, want provider default", endpoints[0].BaseURL)
 	}
+	if got := cfg.Providers["openai"].BaseURL; got != "" {
+		t.Fatalf("config provider base URL = %q, want unchanged empty value", got)
+	}
 	endpoints[0].Headers["X-Test"] = "changed"
 	if cfg.Providers["openai"].Headers["X-Test"] != "value" {
 		t.Fatal("endpoint headers share config map")
@@ -84,6 +87,49 @@ func TestBuildModelCatalogService(t *testing.T) {
 	service, endpoints, popularity := buildModelCatalogService(&cfg, nil)
 	if service == nil || service.DiscoveryEnabled || len(endpoints) != 0 || popularity == nil {
 		t.Fatalf("discovery-disabled build = service=%v enabled=%v endpoints=%d popularity=%v", service, service.DiscoveryEnabled, len(endpoints), popularity)
+	}
+}
+
+func TestSelectedModelConfigResolvesDefaultReference(t *testing.T) {
+	tests := []struct {
+		name         string
+		defaultModel string
+		definitions  map[string]config.ModelConfig
+		providers    map[string]config.ProviderConfig
+		wantProvider string
+		wantID       string
+	}{
+		{
+			name:         "configured alias",
+			defaultModel: "alias",
+			definitions:  map[string]config.ModelConfig{"alias": {Provider: "local", ID: "configured-id"}},
+			providers:    map[string]config.ProviderConfig{"local": {}},
+			wantProvider: "local",
+			wantID:       "configured-id",
+		},
+		{
+			name:         "raw reference",
+			defaultModel: "openrouter/openai/gpt-4",
+			providers:    map[string]config.ProviderConfig{"openrouter": {}},
+			wantProvider: "openrouter",
+			wantID:       "openai/gpt-4",
+		},
+		{
+			name:         "unknown reference",
+			defaultModel: "garbage",
+			wantProvider: "",
+			wantID:       "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := selectedModelConfig(config.Config{Models: config.ModelsConfig{
+				Default: tt.defaultModel, Definitions: tt.definitions,
+			}, Providers: tt.providers})
+			if got.Provider != tt.wantProvider || got.ID != tt.wantID {
+				t.Fatalf("selectedModelConfig() = provider=%q id=%q, want provider=%q id=%q", got.Provider, got.ID, tt.wantProvider, tt.wantID)
+			}
+		})
 	}
 }
 
