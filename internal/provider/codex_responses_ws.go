@@ -169,6 +169,8 @@ func (p *codexWSProvider) ensureConnection(ctx context.Context) error {
 		return fmt.Errorf("dial WebSocket: %w", err)
 	}
 
+	conn.SetReadLimit(WSReadLimitBytes)
+
 	p.conn = conn
 	return nil
 }

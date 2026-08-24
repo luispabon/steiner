@@ -56,3 +56,10 @@ const WSCloseCodePolicy = 1008
 // Note the asymmetry: inbound uses WSHeaderTurnState ("x-codex-turn-state" in evt["headers"]),
 // outbound uses this key name in the client_metadata object.
 const WSClientMetadataTurnStateKey = "turn_state"
+
+// WSReadLimitBytes is the maximum message size for WebSocket reads.
+// The coder/websocket library defaults to 32KB, which is insufficient because even short
+// user messages can trigger responses that include echoed request context (system instructions,
+// tool schemas), routinely exceeding 32KB. This larger limit (64MB) accommodates large responses
+// while remaining bounded against malformed streams.
+const WSReadLimitBytes int64 = 64 * 1024 * 1024

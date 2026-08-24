@@ -348,6 +348,102 @@ func TestCodexWSSupportsUsageStats(t *testing.T) {
 	}
 }
 
+func TestCodexWSLargeResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		typ, data, err := conn.Read(ctx)
+		cancel()
+
+		if err != nil || typ != websocket.MessageText {
+			return
+		}
+
+		var frame map[string]any
+		if err := json.Unmarshal(data, &frame); err != nil {
+			return
+		}
+
+		largeContent := ""
+		for i := 0; i < 50000; i++ {
+			largeContent += "x"
+		}
+
+		deltaEvent := map[string]any{
+			"type":  "response.output_text.delta",
+			"delta": largeContent,
+		}
+		deltaJSON, _ := json.Marshal(deltaEvent)
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		_ = conn.Write(ctx, websocket.MessageText, deltaJSON)
+		cancel()
+
+		itemDoneEvent := map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{
+				"type":  "text",
+				"id":    "item-1",
+				"index": 0,
+			},
+		}
+		itemDoneJSON, _ := json.Marshal(itemDoneEvent)
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		_ = conn.Write(ctx, websocket.MessageText, itemDoneJSON)
+		cancel()
+
+		completedEvent := map[string]any{
+			"type":     "response.completed",
+			"response": map[string]any{"status": "success"},
+		}
+		completedJSON, _ := json.Marshal(completedEvent)
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		_ = conn.Write(ctx, websocket.MessageText, completedJSON)
+		cancel()
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[4:]
+
+	cfg := ClientConfig{
+		BaseURL:    "http://localhost:8080",
+		APIKey:     "test-key",
+		Model:      "test-model",
+		HTTPClient: &http.Client{},
+	}
+
+	provider, err := newCodexResponsesWSWithEcho(cfg, false, false)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	wsProvider := provider.(*codexWSProvider)
+	wsProvider.wsURL = wsURL
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	result, err := wsProvider.ChatCompletion(ctx, ChatRequest{
+		Model:    "test-model",
+		Messages: []Message{{Role: MessageRoleUser, Content: "hey"}},
+	})
+	cancel()
+
+	if err != nil {
+		t.Fatalf("ChatCompletion failed: %v", err)
+	}
+
+	if len(result.Message.Content) == 0 {
+		t.Error("expected non-empty response content")
+	}
+
+	if len(result.Message.Content) < 50000 {
+		t.Errorf("expected response content >= 50000 chars, got %d", len(result.Message.Content))
+	}
+}
+
 func contains(haystack, needle string) bool {
 	if len(needle) == 0 {
 		return true
