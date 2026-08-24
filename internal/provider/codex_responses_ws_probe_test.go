@@ -120,18 +120,18 @@ func TestCodexWSProbe(t *testing.T) {
 
 	// Helper to send a request and read responses.
 	// Per research.md's documented ResponsesWsRequest::ResponseCreate variant,
-	// the request shape is flat with type, input, and optionally client_metadata.
-	// Model/instructions/tools/reasoning are connection-wide properties (established
-	// at handshake or in a separate session setup, not per-request), per research.md:
-	// "Connection lifetime: one long-lived connection per session, reused across turns
-	// when request properties match (model/instructions/tools/reasoning — not input or
-	// client_metadata)." This probe omits model to test whether the server rejects it
-	// or whether model belongs in a different message/header (prior "'None' model" error
-	// suggests it doesn't belong in ResponseCreate frames).
+	// the request shape is flat with type, model, input, and optionally client_metadata.
+	// Model is included here at the top level (sibling of type) based on live probe
+	// iteration: nested-under-response (round 2) and omitted-entirely (round 4) both
+	// failed with identical "'None' model" errors, suggesting model belongs as a
+	// top-level sibling. This model ID (gpt-5.6-luna) is from the real account's
+	// config.yaml, not guessed — it's the Codex model for this ChatGPT account.
 	sendRequest := func(requestNum int, useTurnState string) ([]json.RawMessage, error) {
-		// Build the ResponsesWsRequest::ResponseCreate frame per research.md's shape.
+		// Build the ResponsesWsRequest::ResponseCreate frame per research.md's shape,
+		// with model as a top-level sibling of type and input.
 		req := map[string]any{
-			"type": "response.create",
+			"type":  "response.create",
+			"model": "gpt-5.6-luna",
 			"input": []map[string]any{
 				{
 					"type": "message",
@@ -161,6 +161,12 @@ func TestCodexWSProbe(t *testing.T) {
 		payload, err := json.Marshal(req)
 		if err != nil {
 			return nil, fmt.Errorf("marshal request: %w", err)
+		}
+
+		// Log outbound payload for self-documenting probe output.
+		t.Logf("Request %d outbound: %s", requestNum, string(payload))
+		if _, err := fmt.Fprintf(f, "OUTBOUND: %s\n", string(payload)); err != nil {
+			return nil, fmt.Errorf("write outbound to probe output: %w", err)
 		}
 
 		// Send request frame.
