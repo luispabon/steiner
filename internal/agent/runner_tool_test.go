@@ -282,11 +282,14 @@ func TestRunnerTreatsToolContextCancellationAsCancelled(t *testing.T) {
 	if got, want := state.StopReason, StopReasonCancelled; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
-	if len(state.Conversation) != 1 {
-		t.Fatalf("len(state.Conversation) = %d, want 1", len(state.Conversation))
+	if len(state.Conversation) != 3 {
+		t.Fatalf("len(state.Conversation) = %d, want user, assistant, and tool messages", len(state.Conversation))
 	}
 	if got := state.Conversation[0]; got.Role != MessageRoleUser || got.Content != "fix the bug" {
-		t.Fatalf("state.Conversation[0] = %#v, want original user message only", got)
+		t.Fatalf("state.Conversation[0] = %#v, want original user message", got)
+	}
+	if got := state.Conversation[2]; got.Role != MessageRoleTool || got.ToolCallID != "call_1" {
+		t.Fatalf("state.Conversation[2] = %#v, want paired tool result", got)
 	}
 	if got, want := eventTypes(events), []string{
 		output.EventTypeContextDiagnostics,
@@ -373,8 +376,8 @@ func TestRunnerReplaysCancelledToolCallTranscriptSafelyOnNextPrompt(t *testing.T
 	replay := providerStub.requests[1].Messages
 	var foundDanglingAssistant bool
 	for _, message := range replay {
-		if message.Role == provider.MessageRoleTool {
-			t.Fatalf("replay messages = %#v, want orphan tool messages stripped", replay)
+		if message.Role == provider.MessageRoleTool && message.ToolCallID != "call_1" {
+			t.Fatalf("replay messages = %#v, found unexpected tool result", replay)
 		}
 		if message.Role == provider.MessageRoleAssistant && strings.TrimSpace(message.Content) == "" && len(message.ToolCalls) == 0 {
 			t.Fatalf("replay messages = %#v, want empty assistant messages dropped", replay)
@@ -383,8 +386,8 @@ func TestRunnerReplaysCancelledToolCallTranscriptSafelyOnNextPrompt(t *testing.T
 			foundDanglingAssistant = true
 		}
 	}
-	if foundDanglingAssistant {
-		t.Fatalf("replay messages = %#v, want assistant replay without dangling tool calls", replay)
+	if !foundDanglingAssistant {
+		t.Fatalf("replay messages = %#v, want paired assistant tool call", replay)
 	}
 	last := replay[len(replay)-1]
 	if last.Role != provider.MessageRoleUser || last.Content != "continue" {

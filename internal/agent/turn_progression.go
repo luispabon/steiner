@@ -174,6 +174,12 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 		}
 		results := p.invokeParallel(ctx, state, turn, calls[i:i+n])
 		for k := 0; k < n; k++ {
+			if _, cancelled := contextCancellationState(ctx, state); cancelled {
+				for j := k; j < n; j++ {
+					state = p.appendToolOutcome(ctx, state, turn, calls[i+j], results[j].value, results[j].err, results[j].started)
+				}
+				return p.finalizeCancelledTurn(ctx, state)
+			}
 			var outcome turnOutcome
 			state, outcome = p.applyToolResult(ctx, state, turn, calls[i+k], results[k].value, results[k].err)
 			if outcome.Stop {
@@ -196,9 +202,13 @@ func (p *turnProgressor) parallelRunLength(calls []provider.ToolCall, start int)
 	return n
 }
 
+// errNotDispatched marks calls that never acquired the execution gate and were never launched.
+var errNotDispatched = errors.New("tool not dispatched")
+
 type batchResult struct {
-	value any
-	err   error
+	value   any
+	err     error
+	started bool
 }
 
 func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, turn int, calls []provider.ToolCall) []batchResult {
@@ -213,9 +223,14 @@ func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, tur
 	for i, call := range calls {
 		if gate != nil {
 			if err := gate.Acquire(batchCtx, 1); err != nil {
+				// Calls from this index onward never acquired the gate and were never launched.
+				for j := i; j < len(calls); j++ {
+					results[j].err = errors.Join(errNotDispatched, err)
+				}
 				break
 			}
 		}
+		results[i].started = true
 		emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
 		wg.Add(1)
 		go func(i int, call provider.ToolCall) {
@@ -234,6 +249,10 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunSta
 	emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
 	ctx = WithConversationSnapshot(ctx, liveConversationSnapshot(state))
 	result, err := p.invokeTool(ctx, turn, call)
+	if _, cancelled := contextCancellationState(ctx, state); cancelled {
+		state = p.appendToolOutcome(ctx, state, turn, call, result, err, true)
+		return state, p.finalizeCancelledTurn(ctx, state)
+	}
 	return p.applyToolResult(ctx, state, turn, call, result, err)
 }
 
@@ -245,12 +264,6 @@ func (p *turnProgressor) invokeTool(ctx context.Context, _ int, call provider.To
 
 // applyToolResult applies an executor outcome to the conversation state.
 func (p *turnProgressor) applyToolResult(ctx context.Context, state RunState, turn int, call provider.ToolCall, result any, err error) (RunState, turnOutcome) {
-	if cancelled, ok := contextCancellationState(ctx, state); ok {
-		cancelled = replaySafeRunState(cancelled)
-		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
-		emitStop(p.request.Events, cancelled, nil)
-		return state, turnOutcome{State: cancelled, Stop: true}
-	}
 	if transition, ok := workflowHandoffTransitionFromResult(result); ok {
 		state.StopReason = StopReasonWorkflowHandoff
 		state.WorkflowHandoff = transition
@@ -258,7 +271,16 @@ func (p *turnProgressor) applyToolResult(ctx context.Context, state RunState, tu
 		emitStop(p.request.Events, state, nil)
 		return state, turnOutcome{State: state, Stop: true}
 	}
-	toolMessage := p.buildToolMessage(turn, call, result, err)
+	return p.appendToolOutcome(ctx, state, turn, call, result, err, true), turnOutcome{}
+}
+
+func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, turn int, call provider.ToolCall, result any, err error, emitFinished bool) RunState {
+	var toolMessage Message
+	if emitFinished {
+		toolMessage = p.buildToolMessage(turn, call, result, err)
+	} else {
+		toolMessage = p.buildToolMessageWithEvent(turn, call, result, err, false)
+	}
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
 	if p.lastBudget != nil && p.lastBudget.ContextSize > 0 {
@@ -271,7 +293,14 @@ func (p *turnProgressor) applyToolResult(ctx context.Context, state RunState, tu
 			emitRequestTokenDiagnostic(p.request.Events, turn, *p.lastBudget, false)
 		}
 	}
-	return state, turnOutcome{}
+	return state
+}
+
+func (p *turnProgressor) finalizeCancelledTurn(ctx context.Context, state RunState) turnOutcome {
+	cancelled, _ := contextCancellationState(ctx, state)
+	cancelled = replaySafeRunState(cancelled)
+	emitStop(p.request.Events, cancelled, nil)
+	return turnOutcome{State: cancelled, Stop: true}
 }
 
 func liveConversationSnapshot(state RunState) []provider.Message {
@@ -283,19 +312,27 @@ func liveConversationSnapshot(state RunState) []provider.Message {
 }
 
 func (p *turnProgressor) buildToolMessage(turn int, call provider.ToolCall, result any, err error) Message {
+	return p.buildToolMessageWithEvent(turn, call, result, err, true)
+}
+
+func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolCall, result any, err error, emitFinished bool) Message {
 	var toolContent string
 	var preview output.ToolPreview
 	normalizedResult := ToolResultEnvelope{}
 	if err != nil {
 		toolContent = formatToolError(err)
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
-		emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
+		if emitFinished {
+			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
+		}
 	} else {
 		recordMutationForContextManager(p.request.ContextManager, call.Name, call.Arguments, result)
 		normalizedResult = normalizeToolResult(result)
 		toolContent = shapeIngestedToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
-		emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
+		if emitFinished {
+			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
+		}
 	}
 	toolMessage := Message{
 		Role:       MessageRoleTool,
