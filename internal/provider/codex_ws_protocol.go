@@ -51,3 +51,8 @@ const (
 // backend-side rejection scenarios.
 // Unconfirmed, from research.md.
 const WSCloseCodePolicy = 1008
+
+// WSClientMetadataTurnStateKey is the key name for turn-state in client_metadata.
+// Note the asymmetry: inbound uses WSHeaderTurnState ("x-codex-turn-state" in evt["headers"]),
+// outbound uses this key name in the client_metadata object.
+const WSClientMetadataTurnStateKey = "turn_state"

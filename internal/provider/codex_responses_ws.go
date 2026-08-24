@@ -1,0 +1,357 @@
+package provider
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+
+	"github.com/coder/websocket"
+)
+
+type codexWSProvider struct {
+	baseURL         string
+	apiKey          string
+	headers         map[string]string
+	model           string
+	echoTurnState   bool
+	fallbackEnabled bool
+	fallback        Provider
+	wsURL           string
+	mu              sync.Mutex
+	conn            *websocket.Conn
+}
+
+func newCodexResponsesWSWithEcho(cfg ClientConfig, fallbackEnabled, echoTurnState bool) (Provider, error) {
+	if strings.TrimSpace(cfg.Model) == "" {
+		return nil, fmt.Errorf("model is required")
+	}
+	if strings.TrimSpace(cfg.BaseURL) == "" {
+		return nil, fmt.Errorf("base URL is required")
+	}
+
+	provider := &codexWSProvider{
+		baseURL:         cfg.BaseURL,
+		apiKey:          cfg.APIKey,
+		headers:         copyHeaders(cfg.Headers),
+		model:           cfg.Model,
+		echoTurnState:   echoTurnState,
+		fallbackEnabled: fallbackEnabled,
+		wsURL:           WSEndpointURL,
+	}
+
+	if fallbackEnabled {
+		fallback, err := NewCodexResponses(cfg)
+		if err != nil {
+			return nil, err
+		}
+		provider.fallback = fallback
+	}
+
+	return provider, nil
+}
+
+func newCodexResponsesWS(cfg ClientConfig, fallbackEnabled bool) (Provider, error) {
+	return newCodexResponsesWSWithEcho(cfg, fallbackEnabled, false)
+}
+
+func NewCodexResponsesWS(cfg ClientConfig) (Provider, error) {
+	return newCodexResponsesWS(cfg, true)
+}
+
+func NewCodexResponsesWSNoFallback(cfg ClientConfig) (Provider, error) {
+	return newCodexResponsesWS(cfg, false)
+}
+
+func (p *codexWSProvider) SupportsUsageStats() bool {
+	return true
+}
+
+func (p *codexWSProvider) ChatCompletion(ctx context.Context, request ChatRequest) (ChatResponse, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	result, err := p.executeRequest(ctx, request)
+	if err == nil {
+		return result, nil
+	}
+
+	if !p.fallbackEnabled {
+		return ChatResponse{}, err
+	}
+
+	return p.fallback.ChatCompletion(ctx, request)
+}
+
+func (p *codexWSProvider) StreamChatCompletion(ctx context.Context, request ChatRequest) (<-chan ChatChunk, error) {
+	out := make(chan ChatChunk)
+	go func() {
+		defer close(out)
+
+		p.mu.Lock()
+		result, err := p.executeRequest(ctx, request)
+		p.mu.Unlock()
+
+		if err == nil {
+			select {
+			case out <- ChatChunk{
+				Delta:        result.Message,
+				Usage:        result.Usage,
+				Done:         true,
+				FinishReason: result.FinishReason,
+			}:
+			case <-ctx.Done():
+			}
+			return
+		}
+
+		if !p.fallbackEnabled {
+			select {
+			case out <- ChatChunk{Done: true, Error: err.Error(), OriginalError: err}:
+			case <-ctx.Done():
+			}
+			return
+		}
+
+		reason := err.Error()
+		select {
+		case out <- ChatChunk{
+			Diagnostic: fmt.Sprintf("Codex WebSocket unavailable, falling back to HTTP: %s", reason),
+			Severity:   "warning",
+		}:
+		case <-ctx.Done():
+			return
+		}
+
+		fallbackStream, fallbackErr := p.fallback.StreamChatCompletion(ctx, request)
+		if fallbackErr != nil {
+			select {
+			case out <- ChatChunk{Done: true, Error: fallbackErr.Error(), OriginalError: fallbackErr}:
+			case <-ctx.Done():
+			}
+			return
+		}
+
+		for chunk := range fallbackStream {
+			select {
+			case out <- chunk:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return out, nil
+}
+
+func (p *codexWSProvider) ensureConnection(ctx context.Context) error {
+	if p.conn != nil {
+		return nil
+	}
+
+	headers := buildWSHeaders(p.apiKey, p.headers)
+	conn, _, err := websocket.Dial(ctx, p.wsURL, &websocket.DialOptions{
+		HTTPHeader: headers,
+	})
+	if err != nil {
+		return fmt.Errorf("dial WebSocket: %w", err)
+	}
+
+	p.conn = conn
+	return nil
+}
+
+func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatRequest) (ChatResponse, error) {
+	var reconnectAttempt bool
+
+	for attempts := 0; attempts < 2; attempts++ {
+		if err := p.ensureConnection(ctx); err != nil {
+			if reconnectAttempt {
+				return ChatResponse{}, fmt.Errorf("reconnect failed: %w", err)
+			}
+			reconnectAttempt = true
+			p.conn = nil
+			continue
+		}
+
+		result, turnState, err := p.sendRequest(ctx, request)
+		if err != nil {
+			if reconnectAttempt {
+				return ChatResponse{}, err
+			}
+			reconnectAttempt = true
+			p.conn.CloseNow()
+			p.conn = nil
+			continue
+		}
+
+		_ = turnState
+		return result, nil
+	}
+
+	return ChatResponse{}, fmt.Errorf("failed after reconnect attempt")
+}
+
+func (p *codexWSProvider) sendRequest(ctx context.Context, request ChatRequest) (ChatResponse, string, error) {
+	wire, err := responsesRequestWire(request, p.model, false)
+	if err != nil {
+		return ChatResponse{}, "", err
+	}
+	wire.PromptCacheKey = request.PromptCacheKey
+
+	base, err := json.Marshal(wire)
+	if err != nil {
+		return ChatResponse{}, "", fmt.Errorf("marshal wire: %w", err)
+	}
+
+	var baseMap map[string]any
+	if err := json.Unmarshal(base, &baseMap); err != nil {
+		return ChatResponse{}, "", fmt.Errorf("unmarshal wire for modification: %w", err)
+	}
+
+	frame := map[string]any{
+		"type":  "response.create",
+		"model": p.model,
+	}
+
+	for k, v := range baseMap {
+		if k != "model" {
+			frame[k] = v
+		}
+	}
+
+	payload, err := json.Marshal(frame)
+	if err != nil {
+		return ChatResponse{}, "", fmt.Errorf("marshal frame: %w", err)
+	}
+
+	if err := p.conn.Write(ctx, websocket.MessageText, payload); err != nil {
+		return ChatResponse{}, "", fmt.Errorf("write frame: %w", err)
+	}
+
+	state := responsesStreamState{}
+	var capturedTurnState string
+
+	for {
+		typ, data, err := p.conn.Read(ctx)
+		if err != nil {
+			return ChatResponse{}, "", fmt.Errorf("read response: %w", err)
+		}
+
+		if typ != websocket.MessageText {
+			continue
+		}
+
+		event := string(data)
+
+		if p.echoTurnState && capturedTurnState == "" {
+			if err := captureWSEventTurnState(event, &capturedTurnState); err != nil {
+				return ChatResponse{}, "", fmt.Errorf("capture turn-state: %w", err)
+			}
+		}
+
+		done, err := processResponsesStreamEvent(&state, event, func(chunk ChatChunk) error {
+			return nil
+		})
+		if err != nil {
+			return ChatResponse{}, "", fmt.Errorf("process event: %w", err)
+		}
+
+		if done {
+			break
+		}
+	}
+
+	var finalChunk ChatChunk
+	flushResponsesStreamStateInto(&finalChunk, state)
+
+	hadUsableFinalChunk := state.sawDone || state.finishReason != ""
+	if !hadUsableFinalChunk {
+		return ChatResponse{}, "", fmt.Errorf("stream completed without a final chunk")
+	}
+
+	resp := ChatResponse{
+		Message:      finalChunk.Delta,
+		Usage:        finalChunk.Usage,
+		FinishReason: finalChunk.FinishReason,
+	}
+
+	return resp, capturedTurnState, nil
+}
+
+func buildWSHeaders(apiKey string, headers map[string]string) http.Header {
+	result := http.Header{
+		"OpenAI-Beta":             {WSBetaHeaderValue},
+		"x-codex-installation-id": {"default"},
+		"x-client-request-id":     {generateClientRequestID()},
+	}
+
+	if strings.TrimSpace(apiKey) != "" {
+		result.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	for key, value := range headers {
+		result.Set(key, value)
+	}
+
+	return result
+}
+
+func generateClientRequestID() string {
+	return "cli-" + randomString(16)
+}
+
+func randomString(n int) string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = chars[i%len(chars)]
+	}
+	return string(b)
+}
+
+func captureWSEventTurnState(event string, dest *string) error {
+	if *dest != "" {
+		return nil
+	}
+
+	var evt map[string]any
+	if err := json.Unmarshal([]byte(event), &evt); err != nil {
+		return nil
+	}
+
+	if eventType, ok := evt["type"].(string); ok && eventType == WSEventTypeMetadata {
+		if headers, ok := evt["headers"].(map[string]any); ok {
+			if ts, ok := headers[WSHeaderTurnState].(string); ok && ts != "" {
+				*dest = ts
+			}
+		}
+	}
+
+	return nil
+}
+
+func flushResponsesStreamStateInto(chunk *ChatChunk, state responsesStreamState) {
+	message := Message{Role: MessageRoleAssistant}
+	if state.sawContent {
+		message.Content = state.content.String()
+	}
+	if state.sawThinking {
+		message.ReasoningContent = state.thinking.String()
+	}
+	if state.reasoningID != "" {
+		message.ProviderMetadata = &MessageProviderMetadata{
+			Codex: &CodexMessageMetadata{ReasoningID: state.reasoningID},
+		}
+	}
+	if state.sawToolCall {
+		message.ToolCalls = state.toolCalls
+	}
+
+	chunk.Delta = message
+	chunk.Usage = state.usage
+	chunk.Done = true
+	chunk.FinishReason = state.finishReason
+}
