@@ -81,7 +81,9 @@ func TestCodexWSProbe(t *testing.T) {
 	}
 
 	// Prepare output file for probe results.
-	testDataDir := filepath.Join("internal", "provider", "testdata")
+	// Note: go test runs with the package directory as CWD, so this is testdata/
+	// relative to internal/provider, not internal/provider/testdata/.
+	testDataDir := "testdata"
 	if err := os.MkdirAll(testDataDir, 0o755); err != nil {
 		t.Fatalf("create testdata directory: %v", err)
 	}
@@ -118,8 +120,8 @@ func TestCodexWSProbe(t *testing.T) {
 
 	// Helper to send a request and read responses.
 	sendRequest := func(requestNum int, useTurnState string) ([]json.RawMessage, error) {
-		// Build minimal Responses API request matching the responsesItem structure.
-		req := map[string]any{
+		// Build the Responses API request payload (model, input, stream, etc.).
+		responsePayload := map[string]any{
 			"model": "gpt-4o-mini",
 			"input": []map[string]any{
 				{
@@ -139,11 +141,24 @@ func TestCodexWSProbe(t *testing.T) {
 		// Include turn-state in request payload (not headers, since it's the same
 		// open connection for all 3 requests). Field name "client_metadata" is a
 		// guess per D7/research.md and may need correcting once real traffic is
-		// observed to determine the actual field name and structure.
+		// observed to determine the actual field name and structure. Turn-state
+		// must remain under "response" per D7, never at the top level or in
+		// instructions/input.
 		if useTurnState != "" {
-			req["client_metadata"] = map[string]any{
+			responsePayload["client_metadata"] = map[string]any{
 				"turn_state": useTurnState,
 			}
+		}
+
+		// Wrap the Responses payload in the WebSocket envelope. The server expects
+		// {"type": "response.create", "response": {...payload...}} based on the live
+		// probe error "Expected a 'response.create' message as the first websocket event"
+		// observed on 2026-08-24. This envelope shape mirrors OpenAI Realtime API
+		// conventions; the exact key name may need correcting if further observation
+		// of live traffic suggests a different structure.
+		req := map[string]any{
+			"type":     "response.create",
+			"response": responsePayload,
 		}
 
 		payload, err := json.Marshal(req)
