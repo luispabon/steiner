@@ -15,6 +15,11 @@ import (
 	providerpkg "github.com/luispabon/steiner/internal/provider"
 )
 
+// codexChatGPTBackendURL is the model-serving host used by ChatGPT-subscription
+// OAuth sessions (no distinct OpenAI API key). It differs from the OpenAI
+// Platform API host used when the Codex token carries its own API key.
+const codexChatGPTBackendURL = "https://chatgpt.com/backend-api/codex"
+
 // buildModelCatalogService creates the shared model catalog service and its
 // provider endpoints. Discovery-disabled configurations retain a usable service
 // and popularity store, but do not expose endpoints or perform discovery work.
@@ -47,6 +52,11 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 		}
 		provider = providerpkg.ResolveProviderConfig(provider)
 		provider.BaseURL = strings.TrimSpace(provider.BaseURL)
+		if provider.Type == config.ProviderTypeCodex {
+			if baseURL := codexModelsBaseURL(); baseURL != "" {
+				provider.BaseURL = baseURL
+			}
+		}
 		endpoints = append(endpoints, modelcatalog.Endpoint{
 			Alias:   alias,
 			Type:    string(provider.Type),
@@ -56,6 +66,29 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 		})
 	}
 	return service, endpoints, popularity
+}
+
+// codexModelsBaseURL returns the model-listing host to use for the Codex
+// provider's enumeration endpoint, mirroring newCodexProvider's transport
+// selection (cmd/steiner/runtime_build.go): a ChatGPT-subscription OAuth
+// session (no distinct OpenAI API key on the stored token) must list models
+// from codexChatGPTBackendURL rather than the OpenAI Platform API host —
+// the Platform host rejects that token with 403. Returns "" when the token
+// carries its own API key or cannot be read, leaving the provider's
+// configured/default base URL untouched.
+func codexModelsBaseURL() string {
+	path, err := oauth.DefaultTokenPath()
+	if err != nil {
+		return ""
+	}
+	token, err := oauth.NewTokenStore(path).Load()
+	if err != nil {
+		return ""
+	}
+	if oauth.TokenOpenAIAPIKey(token) != "" {
+		return ""
+	}
+	return codexChatGPTBackendURL
 }
 
 func codexCatalogCredentials(_ context.Context) (string, string, error) {

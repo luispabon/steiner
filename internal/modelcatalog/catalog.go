@@ -122,10 +122,7 @@ func configuredChoices(cfg *config.Config, activeAlias, activeID string, counts 
 		key := Key{ProviderAlias: definition.Provider, ModelID: definition.ID}
 		defined[key] = struct{}{}
 		model := discovered[key]
-		display := model.DisplayName
-		if display == "" {
-			display = definition.ID
-		}
+		display := definition.Provider + "/" + alias
 		efforts := model.SupportedEfforts
 		if definition.Advanced.Reasoning.SupportedEfforts != nil {
 			efforts = definition.Advanced.Reasoning.SupportedEfforts
@@ -161,10 +158,7 @@ func discoveredChoices(discovered map[Key]DiscoveredModel, defined map[Key]struc
 			continue
 		}
 		model := discovered[key]
-		display := model.DisplayName
-		if display == "" {
-			display = model.ID
-		}
+		display := key.ProviderAlias + "/" + key.ModelID
 		choices = append(choices, ModelChoice{
 			Ref:              key.ProviderAlias + "/" + key.ModelID,
 			Display:          display,

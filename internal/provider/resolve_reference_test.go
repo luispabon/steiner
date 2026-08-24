@@ -10,9 +10,14 @@ import (
 )
 
 func TestResolveReferenceParity(t *testing.T) {
+	// A configured alias with no explicit advanced.limits (as real YAML
+	// unmarshaling produces) must resolve identically to the equivalent raw
+	// provider/model-id reference — both fall back to the same unconfigured
+	// defaults rather than a raw ref losing discoverability to a baked-in base.
 	model := config.NewModelConfigBase()
 	model.Provider = "local"
 	model.ID = "gpt-4"
+	model.Advanced.Limits = config.AdvancedLimitsConfig{}
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},

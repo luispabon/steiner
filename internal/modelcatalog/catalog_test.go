@@ -59,7 +59,7 @@ func TestServiceChoicesMergeRankAndCurrent(t *testing.T) {
 			t.Fatalf("choice %d ref: got %q, want %q", i, choices[i].Ref, want)
 		}
 	}
-	if choices[1].Display != "Discovered suppressed" || choices[1].SupportedEfforts == nil || len(choices[1].SupportedEfforts) != 0 {
+	if choices[1].Display != "local/alias" || choices[1].SupportedEfforts == nil || len(choices[1].SupportedEfforts) != 0 {
 		t.Fatalf("configured choice precedence: %+v", choices[1])
 	}
 	if !choices[1].Current {
