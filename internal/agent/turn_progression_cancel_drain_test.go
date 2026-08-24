@@ -10,6 +10,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 func TestExecuteToolCalls_CancelWhileBlockedOnAcquire(t *testing.T) {
@@ -103,6 +104,71 @@ func TestExecuteToolCalls_SerialCancelRecordsCompletedResult(t *testing.T) {
 	messages := cancelDrainToolMessages(outcome.State.Conversation)
 	if len(messages) != 1 || messages[0].Content != "serial-value" {
 		t.Fatalf("tool messages = %#v, want completed serial result", messages)
+	}
+}
+
+func TestExecuteSingleToolCall_SequenceCancelKeepsBothResults(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executor := parallelTestExecutor{fn: func(ctx context.Context, name string) (any, error) {
+		if name == "b" {
+			ctx.Value(cancelContextKey{}).(context.CancelFunc)()
+		}
+		return "value-" + name, nil
+	}}
+	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
+	p := newTurnProgressor(RunRequest{
+		Executor:         executor,
+		ParallelTool:     func(string) bool { return true },
+		MaxParallelTools: 1,
+	}, prompt.AssemblyOptions{}, nil)
+	outcome := p.executeToolCalls(ctx, cancelDrainState("a", "b"), parallelCalls("a", "b"))
+
+	assertCancelledDrain(t, outcome, []string{"a", "b"})
+	messages := cancelDrainToolMessages(outcome.State.Conversation)
+	if len(messages) != 2 || messages[0].Content != "value-a" || messages[1].Content != "value-b" {
+		t.Fatalf("tool messages = %#v, want both real results in order", messages)
+	}
+	lineageMessages := cancelDrainToolMessages(outcome.State.Lineage.FullMessages())
+	if len(lineageMessages) != 2 || lineageMessages[0].Content != "value-a" || lineageMessages[1].Content != "value-b" {
+		t.Fatalf("lineage tool messages = %#v, want both real results in order", lineageMessages)
+	}
+}
+
+func TestFinalizeCancelledTurn_StripsImageData(t *testing.T) {
+	const imageData = "cancelled-image-base64-payload"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executor := parallelTestExecutor{fn: func(ctx context.Context, _ string) (any, error) {
+		ctx.Value(cancelContextKey{}).(context.CancelFunc)()
+		return &builtin.ReadResult{
+			Path:   "image.png",
+			Output: "image result",
+			Image: &builtin.ImageBlock{
+				MediaType: "image/png",
+				Data:      imageData,
+				Width:     2,
+				Height:    2,
+				SizeBytes: 84,
+			},
+		}, nil
+	}}
+	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
+	p := newTurnProgressor(RunRequest{Executor: executor}, prompt.AssemblyOptions{}, nil)
+	outcome := p.executeToolCalls(ctx, cancelDrainState("image"), parallelCalls("image"))
+
+	assertCancelledDrain(t, outcome, []string{"image"})
+	for _, messages := range [][]Message{outcome.State.Conversation, outcome.State.Lineage.FullMessages()} {
+		for _, message := range messages {
+			if strings.Contains(message.Content, imageData) {
+				t.Fatalf("message content contains raw image data: %#v", message)
+			}
+			for _, image := range message.Images {
+				if image.Data != "" {
+					t.Fatalf("message image contains raw image data: %#v", message)
+				}
+			}
+		}
 	}
 }
 

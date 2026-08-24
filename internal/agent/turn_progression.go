@@ -298,6 +298,9 @@ func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, 
 
 func (p *turnProgressor) finalizeCancelledTurn(ctx context.Context, state RunState) turnOutcome {
 	cancelled, _ := contextCancellationState(ctx, state)
+	visionState, subAgentConfigured := p.getVisionCapabilityContext()
+	cancelled.Lineage = cancelled.Lineage.WithCurrentMessages(stripImagesFromMessages(cancelled.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
+	cancelled.Conversation = cancelled.Lineage.FullMessages()
 	cancelled = replaySafeRunState(cancelled)
 	emitStop(p.request.Events, cancelled, nil)
 	return turnOutcome{State: cancelled, Stop: true}
