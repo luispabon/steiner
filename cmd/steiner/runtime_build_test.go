@@ -21,10 +21,14 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	oldNewOpenAICompat := newOpenAICompat
 	oldNewAnthropic := newAnthropic
 	oldNewCodexResponses := newCodexResponses
+	oldNewCodexResponsesWS := newCodexResponsesWS
+	oldNewCodexResponsesWSNoFallback := newCodexResponsesWSNoFallback
 	t.Cleanup(func() {
 		newOpenAICompat = oldNewOpenAICompat
 		newAnthropic = oldNewAnthropic
 		newCodexResponses = oldNewCodexResponses
+		newCodexResponsesWS = oldNewCodexResponsesWS
+		newCodexResponsesWSNoFallback = oldNewCodexResponsesWSNoFallback
 	})
 
 	httpClient := &http.Client{}
@@ -44,12 +48,16 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	}
 
 	type capture struct {
-		openAICompatCalls int
-		anthropicCalls    int
-		codexCalls        int
-		openAICompatCfg   provider.ClientConfig
-		anthropicCfg      provider.ClientConfig
-		codexCfg          provider.ClientConfig
+		openAICompatCalls            int
+		anthropicCalls               int
+		codexCalls                   int
+		codexWSCalls                 int
+		codexWSNoFallbackCalls       int
+		openAICompatCfg              provider.ClientConfig
+		anthropicCfg                 provider.ClientConfig
+		codexCfg                     provider.ClientConfig
+		codexWSCfg                   provider.ClientConfig
+		codexWSNoFallbackCfg         provider.ClientConfig
 	}
 
 	runFactory := func(t *testing.T, rm provider.ResolvedModel, wantErr string, wantProviderKind string) capture {
@@ -69,6 +77,16 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 		newCodexResponses = func(cfg provider.ClientConfig) (provider.Provider, error) {
 			got.codexCalls++
 			got.codexCfg = cfg
+			return &fakeProvider{}, nil
+		}
+		newCodexResponsesWS = func(cfg provider.ClientConfig) (provider.Provider, error) {
+			got.codexWSCalls++
+			got.codexWSCfg = cfg
+			return &fakeProvider{}, nil
+		}
+		newCodexResponsesWSNoFallback = func(cfg provider.ClientConfig) (provider.Provider, error) {
+			got.codexWSNoFallbackCalls++
+			got.codexWSNoFallbackCfg = cfg
 			return &fakeProvider{}, nil
 		}
 
@@ -110,8 +128,11 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 				t.Fatalf("openai compat constructor calls = %d, want 0", got.openAICompatCalls)
 			}
 		case "codex":
-			if got.codexCalls != 1 {
-				t.Fatalf("codex constructor calls = %d, want 1", got.codexCalls)
+			if got.codexWSCalls != 1 {
+				t.Fatalf("codex WS constructor calls = %d, want 1 (default transport auto)", got.codexWSCalls)
+			}
+			if got.codexCalls != 0 {
+				t.Fatalf("codex HTTP constructor calls = %d, want 0", got.codexCalls)
 			}
 			if got.openAICompatCalls != 0 {
 				t.Fatalf("openai compat constructor calls = %d, want 0", got.openAICompatCalls)
@@ -236,28 +257,28 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	if gotCodex.openAICompatCalls != 0 {
 		t.Fatalf("codex should not call openai compat constructor, got %d calls", gotCodex.openAICompatCalls)
 	}
-	if got := gotCodex.codexCfg.BaseURL; got != codexRM.ProviderConfig.BaseURL {
+	if got := gotCodex.codexWSCfg.BaseURL; got != codexRM.ProviderConfig.BaseURL {
 		t.Fatalf("codex base URL = %q, want %q", got, codexRM.ProviderConfig.BaseURL)
 	}
-	if got := gotCodex.codexCfg.Model; got != codexRM.BackendModelID {
+	if got := gotCodex.codexWSCfg.Model; got != codexRM.BackendModelID {
 		t.Fatalf("codex model = %q, want %q", got, codexRM.BackendModelID)
 	}
-	if got := gotCodex.codexCfg.ProviderType; got != string(config.ProviderTypeCodex) {
+	if got := gotCodex.codexWSCfg.ProviderType; got != string(config.ProviderTypeCodex) {
 		t.Fatalf("codex provider type = %q, want %q", got, config.ProviderTypeCodex)
 	}
-	if got := gotCodex.codexCfg.APIKey; got != "sk-codex" {
+	if got := gotCodex.codexWSCfg.APIKey; got != "sk-codex" {
 		t.Fatalf("codex API key = %q, want sk-codex", got)
 	}
-	if gotCodex.codexCfg.HTTPClient != httpClient {
-		t.Fatalf("codex HTTP client = %p, want base runtime client %p", gotCodex.codexCfg.HTTPClient, httpClient)
+	if gotCodex.codexWSCfg.HTTPClient != httpClient {
+		t.Fatalf("codex HTTP client = %p, want base runtime client %p", gotCodex.codexWSCfg.HTTPClient, httpClient)
 	}
 	// Codex pacing is the only per-request interval in the config, and it is the
 	// field that would start pacing every provider if it were ever hoisted out of
 	// NewCodexResponses into the shared client constructor.
-	if got, want := gotCodex.codexCfg.MinRequestInterval, 4*time.Second; got != want {
+	if got, want := gotCodex.codexWSCfg.MinRequestInterval, 4*time.Second; got != want {
 		t.Fatalf("codex min request interval = %v, want %v", got, want)
 	}
-	if got := gotCodex.codexCfg.StreamErrorLog; got != streamErrorLog {
+	if got := gotCodex.codexWSCfg.StreamErrorLog; got != streamErrorLog {
 		t.Fatalf("codex stream error log = %p, want %p", got, streamErrorLog)
 	}
 
@@ -299,9 +320,9 @@ func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKe
 	}
 
 	var gotCfg provider.ClientConfig
-	oldNewCodexResponses := newCodexResponses
-	t.Cleanup(func() { newCodexResponses = oldNewCodexResponses })
-	newCodexResponses = func(cfg provider.ClientConfig) (provider.Provider, error) {
+	oldNewCodexResponsesWS := newCodexResponsesWS
+	t.Cleanup(func() { newCodexResponsesWS = oldNewCodexResponsesWS })
+	newCodexResponsesWS = func(cfg provider.ClientConfig) (provider.Provider, error) {
 		gotCfg = cfg
 		return &fakeProvider{}, nil
 	}
