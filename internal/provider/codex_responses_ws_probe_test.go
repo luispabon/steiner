@@ -12,8 +12,9 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/luispabon/steiner/internal/oauth"
 	"golang.org/x/oauth2"
+
+	"github.com/luispabon/steiner/internal/oauth"
 )
 
 // TestCodexWSProbe dials the real Codex WebSocket endpoint with the user's
@@ -93,7 +94,7 @@ func TestCodexWSProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create probe output file: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Build WebSocket headers mirroring wire_responses.go's HTTPRequest.
 	headers := http.Header{
@@ -107,13 +108,16 @@ func TestCodexWSProbe(t *testing.T) {
 	}
 
 	// Dial the WebSocket endpoint.
-	conn, _, err := websocket.Dial(ctx, WSEndpointURL, &websocket.DialOptions{
+	conn, resp, err := websocket.Dial(ctx, WSEndpointURL, &websocket.DialOptions{
 		HTTPHeader: headers,
 	})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial WebSocket: %v", err)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 
 	// Track turn-state across requests.
 	var cachedTurnState string

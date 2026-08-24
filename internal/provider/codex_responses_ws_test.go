@@ -96,7 +96,7 @@ func TestCodexWSNoClientMetadataAcrossSequentialCalls(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		for i := 0; i < 3; i++ {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -116,7 +116,7 @@ func TestCodexWSNoClientMetadataAcrossSequentialCalls(t *testing.T) {
 			}
 
 			if frame["client_metadata"] != nil {
-				conn.CloseNow()
+				_ = conn.CloseNow()
 				break
 			}
 
@@ -126,7 +126,7 @@ func TestCodexWSNoClientMetadataAcrossSequentialCalls(t *testing.T) {
 			}
 			responseJSON, _ := json.Marshal(response)
 			ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-			conn.Write(ctx, websocket.MessageText, responseJSON)
+			_ = conn.Write(ctx, websocket.MessageText, responseJSON)
 			cancel()
 		}
 	}))
@@ -172,7 +172,7 @@ func TestCodexWSEchoTurnStateNotCachedAcrossCalls(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		typ, data, err := conn.Read(ctx)
@@ -204,7 +204,7 @@ func TestCodexWSEchoTurnStateNotCachedAcrossCalls(t *testing.T) {
 		metadataJSON, _ := json.Marshal(metadata)
 
 		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		conn.Write(ctx, websocket.MessageText, metadataJSON)
+		_ = conn.Write(ctx, websocket.MessageText, metadataJSON)
 		cancel()
 
 		response := map[string]any{
@@ -213,7 +213,7 @@ func TestCodexWSEchoTurnStateNotCachedAcrossCalls(t *testing.T) {
 		}
 		responseJSON, _ := json.Marshal(response)
 		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		conn.Write(ctx, websocket.MessageText, responseJSON)
+		_ = conn.Write(ctx, websocket.MessageText, responseJSON)
 		cancel()
 	}))
 	defer server.Close()

@@ -59,10 +59,12 @@ func newCodexResponsesWS(cfg ClientConfig, fallbackEnabled bool) (Provider, erro
 	return newCodexResponsesWSWithEcho(cfg, fallbackEnabled, false)
 }
 
+// NewCodexResponsesWS constructs a Codex WebSocket provider with automatic HTTP fallback enabled.
 func NewCodexResponsesWS(cfg ClientConfig) (Provider, error) {
 	return newCodexResponsesWS(cfg, true)
 }
 
+// NewCodexResponsesWSNoFallback constructs a Codex WebSocket provider with no HTTP fallback; WebSocket failures return an error instead of degrading.
 func NewCodexResponsesWSNoFallback(cfg ClientConfig) (Provider, error) {
 	return newCodexResponsesWS(cfg, false)
 }
@@ -157,9 +159,12 @@ func (p *codexWSProvider) ensureConnection(ctx context.Context) error {
 	}
 
 	headers := buildWSHeaders(p.apiKey, p.headers)
-	conn, _, err := websocket.Dial(ctx, p.wsURL, &websocket.DialOptions{
+	conn, resp, err := websocket.Dial(ctx, p.wsURL, &websocket.DialOptions{
 		HTTPHeader: headers,
 	})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		return fmt.Errorf("dial WebSocket: %w", err)
 	}
@@ -187,7 +192,7 @@ func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatReques
 				return ChatResponse{}, err
 			}
 			reconnectAttempt = true
-			p.conn.CloseNow()
+			_ = p.conn.CloseNow()
 			p.conn = nil
 			continue
 		}
@@ -262,12 +267,10 @@ func (p *codexWSProvider) sendRequest(ctx context.Context, request ChatRequest) 
 		event := string(data)
 
 		if p.echoTurnState && capturedTurnState == "" {
-			if err := captureWSEventTurnState(event, &capturedTurnState); err != nil {
-				return ChatResponse{}, "", fmt.Errorf("capture turn-state: %w", err)
-			}
+			captureWSEventTurnState(event, &capturedTurnState)
 		}
 
-		done, err := processResponsesStreamEvent(&state, event, func(chunk ChatChunk) error {
+		done, err := processResponsesStreamEvent(&state, event, func(_ ChatChunk) error {
 			return nil
 		})
 		if err != nil {
@@ -322,14 +325,14 @@ func generateClientRequestID() string {
 	return "cli-" + hex.EncodeToString(b)
 }
 
-func captureWSEventTurnState(event string, dest *string) error {
+func captureWSEventTurnState(event string, dest *string) {
 	if *dest != "" {
-		return nil
+		return
 	}
 
 	var evt map[string]any
 	if err := json.Unmarshal([]byte(event), &evt); err != nil {
-		return nil
+		return
 	}
 
 	if eventType, ok := evt["type"].(string); ok && eventType == WSEventTypeMetadata {
@@ -339,8 +342,6 @@ func captureWSEventTurnState(event string, dest *string) error {
 			}
 		}
 	}
-
-	return nil
 }
 
 func flushResponsesStreamStateInto(chunk *ChatChunk, state responsesStreamState) {

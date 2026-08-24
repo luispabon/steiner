@@ -1537,10 +1537,8 @@ func TestValidateCodexTransport(t *testing.T) {
 				if !strings.Contains(err.Error(), "codex.transport") {
 					t.Fatalf("validate() error = %q, want substring containing 'codex.transport'", err.Error())
 				}
-			} else {
-				if err != nil {
-					t.Fatalf("validate() error = %v, want nil", err)
-				}
+			} else if err != nil {
+				t.Fatalf("validate() error = %v, want nil", err)
 			}
 		})
 	}
