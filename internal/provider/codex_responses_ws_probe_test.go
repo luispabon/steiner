@@ -119,10 +119,19 @@ func TestCodexWSProbe(t *testing.T) {
 	var cachedTurnState string
 
 	// Helper to send a request and read responses.
+	// Per research.md's documented ResponsesWsRequest::ResponseCreate variant,
+	// the request shape is flat with type, input, and optionally client_metadata.
+	// Model/instructions/tools/reasoning are connection-wide properties (established
+	// at handshake or in a separate session setup, not per-request), per research.md:
+	// "Connection lifetime: one long-lived connection per session, reused across turns
+	// when request properties match (model/instructions/tools/reasoning — not input or
+	// client_metadata)." This probe omits model to test whether the server rejects it
+	// or whether model belongs in a different message/header (prior "'None' model" error
+	// suggests it doesn't belong in ResponseCreate frames).
 	sendRequest := func(requestNum int, useTurnState string) ([]json.RawMessage, error) {
-		// Build the Responses API request payload (model, input, stream, etc.).
-		responsePayload := map[string]any{
-			"model": "gpt-4o-mini",
+		// Build the ResponsesWsRequest::ResponseCreate frame per research.md's shape.
+		req := map[string]any{
+			"type": "response.create",
 			"input": []map[string]any{
 				{
 					"type": "message",
@@ -135,31 +144,19 @@ func TestCodexWSProbe(t *testing.T) {
 					},
 				},
 			},
-			"stream": true,
 		}
 
-		// Include turn-state in request payload (not headers, since it's the same
-		// open connection for all 3 requests). Field name "client_metadata" is a
-		// guess per D7/research.md and may need correcting once real traffic is
-		// observed to determine the actual field name and structure. Turn-state
-		// must remain under "response" per D7, never at the top level or in
-		// instructions/input.
+		// Include turn-state in client_metadata per research.md's documented
+		// ResponseCreate variant. Turn-state travels in client_metadata, never at
+		// the top level or in instructions/input per D7.
 		if useTurnState != "" {
-			responsePayload["client_metadata"] = map[string]any{
+			req["client_metadata"] = map[string]any{
 				"turn_state": useTurnState,
 			}
 		}
 
-		// Wrap the Responses payload in the WebSocket envelope. The server expects
-		// {"type": "response.create", "response": {...payload...}} based on the live
-		// probe error "Expected a 'response.create' message as the first websocket event"
-		// observed on 2026-08-24. This envelope shape mirrors OpenAI Realtime API
-		// conventions; the exact key name may need correcting if further observation
-		// of live traffic suggests a different structure.
-		req := map[string]any{
-			"type":     "response.create",
-			"response": responsePayload,
-		}
+		// previous_response_id and generate are both documented as optional in
+		// research.md's ResponseCreate variant — omit both for this initial probe.
 
 		payload, err := json.Marshal(req)
 		if err != nil {
