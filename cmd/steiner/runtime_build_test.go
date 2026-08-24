@@ -378,6 +378,121 @@ func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 	}
 }
 
+func TestCodexTransportSwitch(t *testing.T) {
+	tests := []struct {
+		name             string
+		transport        config.CodexTransport
+		wantWS           bool
+		wantWSNoFallback bool
+		wantHTTP         bool
+	}{
+		{
+			name:      "CodexTransportAuto uses WebSocket with fallback",
+			transport: config.CodexTransportAuto,
+			wantWS:    true,
+		},
+		{
+			name:             "CodexTransportWebSocket uses WebSocket without fallback",
+			transport:        config.CodexTransportWebSocket,
+			wantWSNoFallback: true,
+		},
+		{
+			name:      "CodexTransportHTTP uses HTTP only",
+			transport: config.CodexTransportHTTP,
+			wantHTTP:  true,
+		},
+		{
+			name:      "empty transport defaults to WebSocket with fallback",
+			transport: "",
+			wantWS:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configHome := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", configHome)
+			tokenPath := filepath.Join(configHome, "steiner", "codex_auth.json")
+			if err := os.MkdirAll(filepath.Dir(tokenPath), 0o700); err != nil {
+				t.Fatalf("mkdir token dir: %v", err)
+			}
+			if err := os.WriteFile(tokenPath, []byte(`{"access_token":"api-key-123","refresh_token":"refresh","token_type":"Bearer","account_id":"acct-123"}`), 0o600); err != nil {
+				t.Fatalf("write token: %v", err)
+			}
+
+			var wsCallCount, wsNoFallbackCallCount, httpCallCount int
+			oldWS := newCodexResponsesWS
+			oldWSNoFallback := newCodexResponsesWSNoFallback
+			oldHTTP := newCodexResponses
+			t.Cleanup(func() {
+				newCodexResponsesWS = oldWS
+				newCodexResponsesWSNoFallback = oldWSNoFallback
+				newCodexResponses = oldHTTP
+			})
+
+			newCodexResponsesWS = func(cfg provider.ClientConfig) (provider.Provider, error) {
+				wsCallCount++
+				return &fakeProvider{}, nil
+			}
+			newCodexResponsesWSNoFallback = func(cfg provider.ClientConfig) (provider.Provider, error) {
+				wsNoFallbackCallCount++
+				return &fakeProvider{}, nil
+			}
+			newCodexResponses = func(cfg provider.ClientConfig) (provider.Provider, error) {
+				httpCallCount++
+				return &fakeProvider{}, nil
+			}
+
+			factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+
+			codexRM := provider.ResolvedModel{
+				Alias:                 "codex",
+				ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeCodex, Codex: config.CodexConfig{Transport: tt.transport}},
+				BackendModelID:        "codex-default",
+				EffectiveProviderType: config.ProviderTypeCodex,
+			}
+			_, err := factory(codexRM)
+			if err != nil {
+				t.Fatalf("factory() error = %v", err)
+			}
+
+			if tt.wantWS {
+				if wsCallCount != 1 {
+					t.Fatalf("newCodexResponsesWS calls = %d, want 1", wsCallCount)
+				}
+				if wsNoFallbackCallCount != 0 {
+					t.Fatalf("newCodexResponsesWSNoFallback calls = %d, want 0", wsNoFallbackCallCount)
+				}
+				if httpCallCount != 0 {
+					t.Fatalf("newCodexResponses calls = %d, want 0", httpCallCount)
+				}
+			}
+			if tt.wantWSNoFallback {
+				if wsNoFallbackCallCount != 1 {
+					t.Fatalf("newCodexResponsesWSNoFallback calls = %d, want 1", wsNoFallbackCallCount)
+				}
+				if wsCallCount != 0 {
+					t.Fatalf("newCodexResponsesWS calls = %d, want 0", wsCallCount)
+				}
+				if httpCallCount != 0 {
+					t.Fatalf("newCodexResponses calls = %d, want 0", httpCallCount)
+				}
+			}
+			if tt.wantHTTP {
+				if httpCallCount != 1 {
+					t.Fatalf("newCodexResponses calls = %d, want 1", httpCallCount)
+				}
+				if wsCallCount != 0 {
+					t.Fatalf("newCodexResponsesWS calls = %d, want 0", wsCallCount)
+				}
+				if wsNoFallbackCallCount != 0 {
+					t.Fatalf("newCodexResponsesWSNoFallback calls = %d, want 0", wsNoFallbackCallCount)
+				}
+			}
+		})
+	}
+}
+
 func TestBuildRuntimeSandbox_Bypassed(t *testing.T) {
 	cfg := config.Config{
 		Sandbox: config.SandboxConfig{Enabled: false},

@@ -142,3 +142,74 @@ func TestMCPFilterAndSubAgentsYAMLParsingEmpty(t *testing.T) {
 		t.Fatalf("srv.SubAgents = %#v, want explicit empty slice", srv.SubAgents)
 	}
 }
+
+func TestCodexTransportYAMLParsing(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want CodexTransport
+	}{
+		{
+			name: "parses auto transport",
+			yaml: `providers:
+  codex:
+    type: codex
+    codex:
+      transport: auto`,
+			want: CodexTransportAuto,
+		},
+		{
+			name: "parses http transport",
+			yaml: `providers:
+  codex:
+    type: codex
+    codex:
+      transport: http`,
+			want: CodexTransportHTTP,
+		},
+		{
+			name: "parses websocket transport",
+			yaml: `providers:
+  codex:
+    type: codex
+    codex:
+      transport: websocket`,
+			want: CodexTransportWebSocket,
+		},
+		{
+			name: "unset transport defaults to auto",
+			yaml: `providers:
+  codex:
+    type: codex`,
+			want: CodexTransportAuto,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patch, err := parseConfigPatch(tt.yaml)
+			if err != nil {
+				t.Fatalf("parseConfigPatch() error = %v", err)
+			}
+			if patch.Providers == nil {
+				t.Fatal("patch.Providers = nil, want parsed providers")
+			}
+			providers := *patch.Providers
+			if _, ok := providers["codex"]; !ok {
+				t.Fatal("codex provider not found in patch")
+			}
+			codexProvider := providers["codex"]
+
+			// Create initial config with default values
+			dst := CodexConfig{Transport: CodexTransportAuto}
+
+			// Apply patch
+			if codexProvider.Codex != nil {
+				applyCodexPatch(&dst, codexProvider.Codex)
+			}
+
+			if got := dst.Transport; got != tt.want {
+				t.Fatalf("Transport = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

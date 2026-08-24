@@ -21,6 +21,12 @@ var newAnthropic = func(cfg provider.ClientConfig) (provider.Provider, error) {
 var newCodexResponses = func(cfg provider.ClientConfig) (provider.Provider, error) {
 	return provider.NewCodexResponses(cfg)
 }
+var newCodexResponsesWS = func(cfg provider.ClientConfig) (provider.Provider, error) {
+	return provider.NewCodexResponsesWS(cfg)
+}
+var newCodexResponsesWSNoFallback = func(cfg provider.ClientConfig) (provider.Provider, error) {
+	return provider.NewCodexResponsesWSNoFallback(cfg)
+}
 
 func main() {
 	if err := newRootCommand().Execute(); err != nil {

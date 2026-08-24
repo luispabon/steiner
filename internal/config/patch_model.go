@@ -55,6 +55,7 @@ func applyProviderPatch(dst *ProviderConfig, patch *providerPatch) {
 
 func applyCodexPatch(dst *CodexConfig, patch *codexPatch) {
 	setIfPresent(&dst.MinRequestInterval, patch.MinRequestInterval)
+	setIfPresent(&dst.Transport, patch.Transport)
 }
 
 func applyModelPatch(dst *ModelConfig, patch *modelPatch) {

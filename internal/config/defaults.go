@@ -46,6 +46,7 @@ func defaultConfig() Config {
 		Timeout: MustDuration("30s"),
 		Codex: CodexConfig{
 			MinRequestInterval: DefaultCodexMinRequestInterval,
+			Transport:          CodexTransportAuto,
 		},
 	}
 	defaultModel := newModelConfigBase()

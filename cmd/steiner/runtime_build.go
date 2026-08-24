@@ -218,7 +218,14 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 		cfg.Headers = cloneStringMap(cfg.Headers)
 		cfg.Headers["ChatGPT-Account-ID"] = accountID
 	}
-	return newCodexResponses(cfg)
+	switch rm.ProviderConfig.Codex.Transport {
+	case config.CodexTransportHTTP:
+		return newCodexResponses(cfg)
+	case config.CodexTransportWebSocket:
+		return newCodexResponsesWSNoFallback(cfg)
+	default: // config.CodexTransportAuto, or "" (unset/zero value)
+		return newCodexResponsesWS(cfg)
+	}
 }
 
 func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.ClientConfig {

@@ -44,7 +44,8 @@ type providerPatch struct {
 }
 
 type codexPatch struct {
-	MinRequestInterval *Duration `yaml:"min_request_interval"`
+	MinRequestInterval *Duration       `yaml:"min_request_interval"`
+	Transport          *CodexTransport `yaml:"transport"`
 }
 
 type contextManagementPatch struct {
