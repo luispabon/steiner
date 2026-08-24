@@ -48,16 +48,16 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	}
 
 	type capture struct {
-		openAICompatCalls            int
-		anthropicCalls               int
-		codexCalls                   int
-		codexWSCalls                 int
-		codexWSNoFallbackCalls       int
-		openAICompatCfg              provider.ClientConfig
-		anthropicCfg                 provider.ClientConfig
-		codexCfg                     provider.ClientConfig
-		codexWSCfg                   provider.ClientConfig
-		codexWSNoFallbackCfg         provider.ClientConfig
+		openAICompatCalls      int
+		anthropicCalls         int
+		codexCalls             int
+		codexWSCalls           int
+		codexWSNoFallbackCalls int
+		openAICompatCfg        provider.ClientConfig
+		anthropicCfg           provider.ClientConfig
+		codexCfg               provider.ClientConfig
+		codexWSCfg             provider.ClientConfig
+		codexWSNoFallbackCfg   provider.ClientConfig
 	}
 
 	runFactory := func(t *testing.T, rm provider.ResolvedModel, wantErr string, wantProviderKind string) capture {
