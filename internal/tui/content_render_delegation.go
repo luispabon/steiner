@@ -340,6 +340,7 @@ func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplaySta
 			operation = strings.TrimSpace(dd.taskPreview)
 		}
 	}
+	operation = normalizeDelegationText(operation)
 	if operation == "" {
 		return ""
 	}
