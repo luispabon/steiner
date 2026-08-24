@@ -89,6 +89,77 @@ func TestExecuteToolCalls_CancelAfterAllExecutorsReturn(t *testing.T) {
 	}
 }
 
+func TestExecuteToolCalls_SerialFirstCallCancelsKeepsTailPaired(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executor := parallelTestExecutor{fn: func(ctx context.Context, name string) (any, error) {
+		if name == "a" {
+			ctx.Value(cancelContextKey{}).(context.CancelFunc)()
+		}
+		return "value-" + name, nil
+	}}
+	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
+	var events []output.Event
+	p := newTurnProgressor(RunRequest{
+		Executor:         executor,
+		MaxParallelTools: 1,
+		Events:           output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	}, prompt.AssemblyOptions{}, nil)
+
+	outcome := p.executeToolCalls(ctx, cancelDrainState("a", "b"), parallelCalls("a", "b"))
+
+	assertCancelledDrain(t, outcome, []string{"a", "b"})
+	messages := cancelDrainToolMessages(outcome.State.Conversation)
+	if len(messages) != 2 || messages[0].ToolCallID != "a" || messages[1].ToolCallID != "b" || messages[0].Content != "value-a" || !strings.Contains(messages[1].Content, "not dispatched") {
+		t.Fatalf("tool messages = %#v, want real a result and not-dispatched b", messages)
+	}
+	assertCancelDrainEvents(t, events, []string{"a"}, "b")
+	if got := countStopEvents(events); got != 1 {
+		t.Fatalf("stop events = %d, want 1", got)
+	}
+}
+
+func TestExecuteToolCalls_ParallelBatchCancelWithNonEligibleTail(t *testing.T) {
+	entered := make(chan string, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executor := parallelTestExecutor{fn: func(ctx context.Context, name string) (any, error) {
+		entered <- name
+		<-ctx.Done()
+		return "value-" + name, nil
+	}}
+	var events []output.Event
+	p := newTurnProgressor(RunRequest{
+		Executor:         executor,
+		ParallelTool:     func(name string) bool { return name != "t" },
+		MaxParallelTools: 2,
+		Events:           output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	}, prompt.AssemblyOptions{}, nil)
+	done := make(chan turnOutcome, 1)
+	go func() {
+		done <- p.executeToolCalls(ctx, cancelDrainState("p1", "p2", "t"), parallelCalls("p1", "p2", "t"))
+	}()
+	for range 2 {
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("launched calls did not enter")
+		}
+	}
+	cancel()
+	outcome := <-done
+
+	assertCancelledDrain(t, outcome, []string{"p1", "p2", "t"})
+	messages := cancelDrainToolMessages(outcome.State.Conversation)
+	if len(messages) != 3 || messages[0].ToolCallID != "p1" || messages[1].ToolCallID != "p2" || messages[2].ToolCallID != "t" || messages[0].Content != "value-p1" || messages[1].Content != "value-p2" || !strings.Contains(messages[2].Content, "not dispatched") {
+		t.Fatalf("tool messages = %#v, want real p1/p2 results and not-dispatched t", messages)
+	}
+	assertCancelDrainEvents(t, events, []string{"p1", "p2"}, "t")
+	if got := countStopEvents(events); got != 1 {
+		t.Fatalf("stop events = %d, want 1", got)
+	}
+}
+
 func TestExecuteToolCalls_SerialCancelRecordsCompletedResult(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -219,6 +290,16 @@ func cancelDrainToolMessages(messages []Message) []Message {
 		}
 	}
 	return tools
+}
+
+func countStopEvents(events []output.Event) int {
+	count := 0
+	for _, event := range events {
+		if event.Type == output.EventTypeStopReason {
+			count++
+		}
+	}
+	return count
 }
 
 func assertCancelledDrain(t *testing.T, outcome turnOutcome, callIDs []string) {

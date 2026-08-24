@@ -167,6 +167,12 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 			var outcome turnOutcome
 			state, outcome = p.executeSingleToolCall(ctx, state, turn, calls[i])
 			if outcome.Stop {
+				if state.StopReason == StopReasonCancelled {
+					for _, call := range calls[i+1:] {
+						state = p.appendToolOutcome(ctx, state, turn, call, nil, errors.Join(errNotDispatched, ctx.Err()), false)
+					}
+					return p.finalizeCancelledTurn(ctx, state)
+				}
 				return outcome
 			}
 			i++
@@ -177,6 +183,9 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 			if _, cancelled := contextCancellationState(ctx, state); cancelled {
 				for j := k; j < n; j++ {
 					state = p.appendToolOutcome(ctx, state, turn, calls[i+j], results[j].value, results[j].err, results[j].started)
+				}
+				for _, call := range calls[i+n:] {
+					state = p.appendToolOutcome(ctx, state, turn, call, nil, errors.Join(errNotDispatched, ctx.Err()), false)
 				}
 				return p.finalizeCancelledTurn(ctx, state)
 			}
@@ -249,9 +258,9 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunSta
 	emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
 	ctx = WithConversationSnapshot(ctx, liveConversationSnapshot(state))
 	result, err := p.invokeTool(ctx, turn, call)
-	if _, cancelled := contextCancellationState(ctx, state); cancelled {
+	if state, cancelled := contextCancellationState(ctx, state); cancelled {
 		state = p.appendToolOutcome(ctx, state, turn, call, result, err, true)
-		return state, p.finalizeCancelledTurn(ctx, state)
+		return state, turnOutcome{State: state, Stop: true}
 	}
 	return p.applyToolResult(ctx, state, turn, call, result, err)
 }
@@ -266,6 +275,7 @@ func (p *turnProgressor) invokeTool(ctx context.Context, _ int, call provider.To
 func (p *turnProgressor) applyToolResult(ctx context.Context, state RunState, turn int, call provider.ToolCall, result any, err error) (RunState, turnOutcome) {
 	if transition, ok := workflowHandoffTransitionFromResult(result); ok {
 		state.StopReason = StopReasonWorkflowHandoff
+		// Already-executed parallel siblings are intentionally not retained because workflow handoff abandons the source transcript (see internal/interactive/run_flow.go conversation adoption guard).
 		state.WorkflowHandoff = transition
 		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
 		emitStop(p.request.Events, state, nil)
