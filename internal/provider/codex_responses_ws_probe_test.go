@@ -116,6 +116,16 @@ func TestCodexWSProbe(t *testing.T) {
 			"stream": true,
 		}
 
+		// Include turn-state in request payload (not headers, since it's the same
+		// open connection for all 3 requests). Field name "client_metadata" is a
+		// guess per D7/research.md and may need correcting once real traffic is
+		// observed to determine the actual field name and structure.
+		if useTurnState != "" {
+			req["client_metadata"] = map[string]any{
+				"turn_state": useTurnState,
+			}
+		}
+
 		payload, err := json.Marshal(req)
 		if err != nil {
 			return nil, fmt.Errorf("marshal request: %w", err)
@@ -150,15 +160,6 @@ func TestCodexWSProbe(t *testing.T) {
 			if err := json.Unmarshal(data, &evt); err == nil {
 				if eventType, ok := evt["type"].(string); ok {
 					if eventType == "response.completed" {
-						// Check for metadata event that might carry turn-state.
-						if eventType == WSEventTypeMetadata {
-							if metadata, ok := evt["metadata"].(map[string]any); ok {
-								if ts, ok := metadata["turn_state"].(string); ok && ts != "" && useTurnState == "" {
-									cachedTurnState = ts
-									t.Logf("Request %d: captured turn-state from metadata", requestNum)
-								}
-							}
-						}
 						break
 					}
 					if eventType == WSEventTypeMetadata {
@@ -184,15 +185,6 @@ func TestCodexWSProbe(t *testing.T) {
 	t.Logf("Request 1: received %d frames", len(responses1))
 
 	// Request 2: reuse captured turn-state.
-	if cachedTurnState != "" {
-		headers.Set(WSHeaderTurnState, cachedTurnState)
-		if conn, _, err := websocket.Dial(ctx, WSEndpointURL, &websocket.DialOptions{
-			HTTPHeader: headers,
-		}); err == nil {
-			conn.CloseNow()
-		}
-	}
-
 	responses2, err := sendRequest(2, cachedTurnState)
 	if err != nil {
 		t.Fatalf("request 2 failed: %v", err)
@@ -201,7 +193,6 @@ func TestCodexWSProbe(t *testing.T) {
 
 	// Request 3: corrupt turn-state to test rejection.
 	corruptedTurnState := "corrupted-" + cachedTurnState
-	headers.Set(WSHeaderTurnState, corruptedTurnState)
 
 	responses3, err := sendRequest(3, corruptedTurnState)
 	if err != nil {
