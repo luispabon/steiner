@@ -52,6 +52,10 @@ descending, then puts aliased definitions before raw entries, then sorts by disp
 name alphabetically. Supported reasoning efforts from a configured definition take
 precedence over discovered efforts.
 
+The chooser displays `provider-alias/model-alias` for a configured model definition,
+or `provider-alias/model-id` for a raw discovered entry with no configured alias —
+never the provider's pretty display name.
+
 Every model selection accepts either a config alias or a raw `provider/model-id`
 reference. This applies to `models.default`, `models.advisor`,
 `models.sub_agents.*`, `models.oneshot.*`, `models.workflow_handoff.*`, the

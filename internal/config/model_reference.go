@@ -47,6 +47,11 @@ func ResolveModelConfig(cfg *Config, ref string) (ModelConfig, bool) {
 	model := NewModelConfigBase()
 	model.Provider = providerAlias
 	model.ID = modelID
+	// Leave limits unset (rather than the base 32768/8192 defaults) so
+	// resolveLimitsFromDiscovery treats them as undiscovered and runs
+	// provider/models.dev discovery instead of short-circuiting on
+	// limitsFullyConfigured.
+	model.Advanced.Limits = AdvancedLimitsConfig{}
 	return model, false
 }
 

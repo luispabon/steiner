@@ -213,7 +213,7 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 		if accountID == "" {
 			return nil, fmt.Errorf("codex token missing ChatGPT account metadata — run 'steiner login codex' again")
 		}
-		cfg.BaseURL = "https://chatgpt.com/backend-api/codex"
+		cfg.BaseURL = codexChatGPTBackendURL
 		cfg.APIKey = token.AccessToken
 		cfg.Headers = cloneStringMap(cfg.Headers)
 		cfg.Headers["ChatGPT-Account-ID"] = accountID
