@@ -29,7 +29,12 @@ const WSHeaderClientRequestID = "x-client-request-id"
 
 // WebSocket event type constants. These match the event types already handled
 // by processResponsesStreamEvent in codex_responses_stream.go.
-// Unconfirmed, from research.md.
+// Most are unconfirmed from research.md; WSEventTypeMetadata is confirmed by
+// live probe 2026-08-24.
+// Note: Real event types also observed but not yet in this constant set:
+// response.in_progress, response.content_part.added, response.content_part.done,
+// codex.rate_limits, responsesapi.websocket_timing. These are informational for
+// future reference if additional constants are needed.
 const (
 	WSEventTypeResponseCreated           = "response.created"
 	WSEventTypeOutputItemAdded           = "response.output_item.added"
@@ -37,7 +42,7 @@ const (
 	WSEventTypeReasoningTextDelta        = "response.reasoning_text.delta"
 	WSEventTypeReasoningSummaryTextDelta = "response.reasoning_summary_text.delta"
 	WSEventTypeOutputItemDone            = "response.output_item.done"
-	WSEventTypeMetadata                  = "response.metadata"
+	WSEventTypeMetadata                  = "codex.response.metadata"
 	WSEventTypeCompleted                 = "response.completed"
 )
 

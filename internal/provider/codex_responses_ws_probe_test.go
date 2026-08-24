@@ -193,18 +193,21 @@ func TestCodexWSProbe(t *testing.T) {
 
 			responses = append(responses, data)
 
-			// Check for completion signals.
+			// Check for completion signals and capture turn-state from metadata event.
 			var evt map[string]any
 			if err := json.Unmarshal(data, &evt); err == nil {
 				if eventType, ok := evt["type"].(string); ok {
 					if eventType == "response.completed" {
 						break
 					}
+					// Turn-state is carried in the headers field of the metadata event,
+					// at evt["headers"]["x-codex-turn-state"]. First-value-wins: capture
+					// only on the first request when cachedTurnState is still empty.
 					if eventType == WSEventTypeMetadata {
-						if metadata, ok := evt["metadata"].(map[string]any); ok {
-							if ts, ok := metadata["turn_state"].(string); ok && ts != "" && useTurnState == "" {
+						if headers, ok := evt["headers"].(map[string]any); ok {
+							if ts, ok := headers["x-codex-turn-state"].(string); ok && ts != "" && useTurnState == "" {
 								cachedTurnState = ts
-								t.Logf("Request %d: captured turn-state from metadata", requestNum)
+								t.Logf("Request %d: captured turn-state from metadata event headers: %s", requestNum, ts)
 							}
 						}
 					}
