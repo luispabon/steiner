@@ -13,6 +13,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/luispabon/steiner/internal/oauth"
+	"golang.org/x/oauth2"
 )
 
 // TestCodexWSProbe dials the real Codex WebSocket endpoint with the user's
@@ -52,14 +53,31 @@ func TestCodexWSProbe(t *testing.T) {
 		t.Fatalf("load OAuth token: %v", err)
 	}
 
-	accountID := oauth.TokenChatGPTAccountID(token)
-	if accountID == "" {
-		t.Fatalf("no ChatGPT account ID found in token")
+	// Refresh the token like the real code (newCodexProvider in cmd/steiner/runtime_build.go).
+	token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{
+		ClientID: oauth.CodexClientID,
+		Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL},
+	}, token).Token()
+	if err != nil {
+		t.Fatalf("refresh codex token: %v", err)
 	}
 
-	apiKey := oauth.TokenOpenAIAPIKey(token)
-	if apiKey == "" {
-		t.Fatalf("no OpenAI API key found in token")
+	// Resolve auth headers: prefer TokenOpenAIAPIKey if present, else fall back to
+	// AccessToken with ChatGPT-Account-ID (for ChatGPT-plan accounts without an
+	// exchanged API key), mirroring the real code's fallback in newCodexProvider.
+	var bearerToken string
+	var accountID string
+	if apiKey := oauth.TokenOpenAIAPIKey(token); apiKey != "" {
+		bearerToken = apiKey
+	} else {
+		accountID = oauth.TokenChatGPTAccountID(token)
+		if accountID == "" {
+			t.Fatalf("codex token missing ChatGPT account metadata — run 'steiner login codex' again")
+		}
+		bearerToken = token.AccessToken
+	}
+	if accountID == "" {
+		accountID = oauth.TokenChatGPTAccountID(token)
 	}
 
 	// Prepare output file for probe results.
@@ -80,8 +98,10 @@ func TestCodexWSProbe(t *testing.T) {
 		"OpenAI-Beta":             {WSBetaHeaderValue},
 		"x-codex-installation-id": {"default"},
 		"x-client-request-id":     {fmt.Sprintf("probe-request-%d", time.Now().Unix())},
-		"Authorization":           {fmt.Sprintf("Bearer %s", apiKey)},
-		"ChatGPT-Account-ID":      {accountID},
+		"Authorization":           {fmt.Sprintf("Bearer %s", bearerToken)},
+	}
+	if accountID != "" {
+		headers.Set("ChatGPT-Account-ID", accountID)
 	}
 
 	// Dial the WebSocket endpoint.
