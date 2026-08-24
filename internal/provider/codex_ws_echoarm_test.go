@@ -126,6 +126,10 @@ Type /quit or EOF to exit.
 	scanner := bufio.NewScanner(os.Stdin)
 	turnNumber := 0
 
+	// Cumulative counters for session-level hit rate tracking.
+	var totalCacheRead int64
+	var totalInput int64
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -177,11 +181,51 @@ Type /quit or EOF to exit.
 				response.Usage.CacheReadInputTokens,
 				response.Usage.CacheCreationInputTokens,
 			)
+
+			// Update cumulative counters for session hit rate.
+			totalCacheRead += int64(response.Usage.CacheReadInputTokens)
+			totalInput += int64(response.Usage.PromptTokens)
+
+			// Print cumulative session hit rate.
+			var hitRateStr string
+			if totalInput > 0 {
+				hitRate := float64(totalCacheRead) / float64(totalInput) * 100.0
+				hitRateStr = fmt.Sprintf("%.1f%%", hitRate)
+			} else {
+				hitRateStr = "—"
+			}
+			fmt.Fprintf(os.Stderr,
+				"[Turn %d] Cumulative session hit rate: %s (%d cache-read / %d total input, %d turns)\n",
+				turnNumber,
+				hitRateStr,
+				totalCacheRead,
+				totalInput,
+				turnNumber,
+			)
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		t.Logf("stdin read error: %v", err)
+	}
+
+	// Print final cumulative summary.
+	if turnNumber > 0 {
+		var hitRateStr string
+		if totalInput > 0 {
+			hitRate := float64(totalCacheRead) / float64(totalInput) * 100.0
+			hitRateStr = fmt.Sprintf("%.1f%%", hitRate)
+		} else {
+			hitRateStr = "—"
+		}
+		fmt.Fprintf(os.Stderr,
+			"\n=== Final Cumulative Session Summary ===\n"+
+				"Cache hit rate: %s (%d cache-read / %d total input, %d turns)\n",
+			hitRateStr,
+			totalCacheRead,
+			totalInput,
+			turnNumber,
+		)
 	}
 
 	t.Log("Echo-arm measurement session complete.")
