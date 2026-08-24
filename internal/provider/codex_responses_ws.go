@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -86,7 +88,7 @@ func (p *codexWSProvider) ChatCompletion(ctx context.Context, request ChatReques
 }
 
 func (p *codexWSProvider) StreamChatCompletion(ctx context.Context, request ChatRequest) (<-chan ChatChunk, error) {
-	out := make(chan ChatChunk)
+	out := make(chan ChatChunk, 1)
 	go func() {
 		defer close(out)
 
@@ -121,7 +123,10 @@ func (p *codexWSProvider) StreamChatCompletion(ctx context.Context, request Chat
 			Diagnostic: fmt.Sprintf("Codex WebSocket unavailable, falling back to HTTP: %s", reason),
 			Severity:   "warning",
 		}:
-		case <-ctx.Done():
+		default:
+		}
+
+		if err := ctx.Err(); err != nil {
 			return
 		}
 
@@ -194,26 +199,26 @@ func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatReques
 	return ChatResponse{}, fmt.Errorf("failed after reconnect attempt")
 }
 
-func (p *codexWSProvider) sendRequest(ctx context.Context, request ChatRequest) (ChatResponse, string, error) {
-	wire, err := responsesRequestWire(request, p.model, false)
+func buildWSRequestFrame(request ChatRequest, model string, turnState string) ([]byte, error) {
+	wire, err := responsesRequestWire(request, model, false)
 	if err != nil {
-		return ChatResponse{}, "", err
+		return nil, err
 	}
 	wire.PromptCacheKey = request.PromptCacheKey
 
 	base, err := json.Marshal(wire)
 	if err != nil {
-		return ChatResponse{}, "", fmt.Errorf("marshal wire: %w", err)
+		return nil, fmt.Errorf("marshal wire: %w", err)
 	}
 
 	var baseMap map[string]any
 	if err := json.Unmarshal(base, &baseMap); err != nil {
-		return ChatResponse{}, "", fmt.Errorf("unmarshal wire for modification: %w", err)
+		return nil, fmt.Errorf("unmarshal wire for modification: %w", err)
 	}
 
 	frame := map[string]any{
 		"type":  "response.create",
-		"model": p.model,
+		"model": model,
 	}
 
 	for k, v := range baseMap {
@@ -222,9 +227,19 @@ func (p *codexWSProvider) sendRequest(ctx context.Context, request ChatRequest) 
 		}
 	}
 
-	payload, err := json.Marshal(frame)
+	if turnState != "" {
+		frame["client_metadata"] = map[string]any{
+			WSClientMetadataTurnStateKey: turnState,
+		}
+	}
+
+	return json.Marshal(frame)
+}
+
+func (p *codexWSProvider) sendRequest(ctx context.Context, request ChatRequest) (ChatResponse, string, error) {
+	payload, err := buildWSRequestFrame(request, p.model, "")
 	if err != nil {
-		return ChatResponse{}, "", fmt.Errorf("marshal frame: %w", err)
+		return ChatResponse{}, "", fmt.Errorf("build frame: %w", err)
 	}
 
 	if err := p.conn.Write(ctx, websocket.MessageText, payload); err != nil {
@@ -300,16 +315,11 @@ func buildWSHeaders(apiKey string, headers map[string]string) http.Header {
 }
 
 func generateClientRequestID() string {
-	return "cli-" + randomString(16)
-}
-
-func randomString(n int) string {
-	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = chars[i%len(chars)]
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "cli-error"
 	}
-	return string(b)
+	return "cli-" + hex.EncodeToString(b)
 }
 
 func captureWSEventTurnState(event string, dest *string) error {

@@ -16,21 +16,18 @@ import (
 func TestCodexWSFrameStructure(t *testing.T) {
 	tests := []struct {
 		name                 string
-		echoTurnState        bool
 		turnState            string
 		expectClientMetadata bool
 		checkInstructions    bool
 	}{
 		{
-			name:                 "no echo, no turn-state",
-			echoTurnState:        false,
+			name:                 "no turn-state",
 			turnState:            "",
 			expectClientMetadata: false,
 			checkInstructions:    true,
 		},
 		{
-			name:                 "with echo, with turn-state",
-			echoTurnState:        true,
+			name:                 "with turn-state",
 			turnState:            "test-token-123",
 			expectClientMetadata: true,
 			checkInstructions:    true,
@@ -46,45 +43,13 @@ func TestCodexWSFrameStructure(t *testing.T) {
 				},
 			}
 
-			wire, err := responsesRequestWire(request, "test-model", false)
+			frameBytes, err := buildWSRequestFrame(request, "test-model", tt.turnState)
 			if err != nil {
-				t.Fatalf("responsesRequestWire: %v", err)
-			}
-
-			base, err := json.Marshal(wire)
-			if err != nil {
-				t.Fatalf("marshal wire: %v", err)
-			}
-
-			var baseMap map[string]any
-			if err := json.Unmarshal(base, &baseMap); err != nil {
-				t.Fatalf("unmarshal: %v", err)
-			}
-
-			frame := map[string]any{
-				"type":  "response.create",
-				"model": "test-model",
-			}
-
-			for k, v := range baseMap {
-				if k != "model" {
-					frame[k] = v
-				}
-			}
-
-			if tt.expectClientMetadata {
-				frame["client_metadata"] = map[string]any{
-					WSClientMetadataTurnStateKey: tt.turnState,
-				}
-			}
-
-			frameJSON, err := json.Marshal(frame)
-			if err != nil {
-				t.Fatalf("marshal frame: %v", err)
+				t.Fatalf("buildWSRequestFrame: %v", err)
 			}
 
 			var frameOut map[string]any
-			if err := json.Unmarshal(frameJSON, &frameOut); err != nil {
+			if err := json.Unmarshal(frameBytes, &frameOut); err != nil {
 				t.Fatalf("unmarshal frame: %v", err)
 			}
 
@@ -127,11 +92,6 @@ func TestCodexWSFrameStructure(t *testing.T) {
 
 func TestCodexWSNoClientMetadataAcrossSequentialCalls(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !websocket.IsWebSocketUpgrade(r) {
-			http.Error(w, "not a WebSocket request", http.StatusBadRequest)
-			return
-		}
-
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
@@ -208,11 +168,6 @@ func TestCodexWSEchoTurnStateNotCachedAcrossCalls(t *testing.T) {
 	var mu sync.Mutex
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !websocket.IsWebSocketUpgrade(r) {
-			http.Error(w, "not a WebSocket request", http.StatusBadRequest)
-			return
-		}
-
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
@@ -335,14 +290,10 @@ func TestCodexWSFallbackOnDialFailure(t *testing.T) {
 	}
 
 	sawDiagnostic := false
-	sawFallback := false
 
 	for chunk := range stream {
 		if chunk.Diagnostic != "" && contains(chunk.Diagnostic, "Codex WebSocket unavailable") {
 			sawDiagnostic = true
-		}
-		if chunk.Done {
-			sawFallback = true
 		}
 	}
 
