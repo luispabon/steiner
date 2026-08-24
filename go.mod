@@ -11,6 +11,7 @@ require (
 	github.com/aymanbagabas/go-nativeclipboard v0.1.3
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/coder/websocket v1.8.15
 	github.com/deepnoodle-ai/dive v1.25.1
 	github.com/deepnoodle-ai/wonton v0.0.38
 	github.com/esiqveland/notify v0.14.0
