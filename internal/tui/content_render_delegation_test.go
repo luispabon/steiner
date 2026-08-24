@@ -63,6 +63,100 @@ func TestDelegationCacheWaitingHeaderRendering(t *testing.T) {
 	}
 }
 
+func TestDelegationHeaderOperationNormalizesWhitespace(t *testing.T) {
+
+	tests := []struct {
+		name       string
+		delegation delegationDisplayState
+		width      int
+		want       string
+	}{
+		{
+			name: "advisor question",
+			delegation: delegationDisplayState{
+				isAdvisor:       true,
+				advisorQuestion: "review\nthese\r\nfiles\rplease",
+			},
+			width: 80,
+			want:  "review these files please",
+		},
+		{
+			name: "specialist task preview fallback",
+			delegation: delegationDisplayState{
+				status:      "active",
+				taskPreview: "inspect\nthis\tmodule",
+			},
+			width: 80,
+			want:  "inspect this module",
+		},
+		{
+			name: "literal backslash n preserved",
+			delegation: delegationDisplayState{
+				isAdvisor:       true,
+				advisorQuestion: `keep literal\ntext`,
+			},
+			width: 80,
+			want:  `keep literal\ntext`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newTestBuffer(t)
+			got := stripANSI(b.renderDelegationHeaderOperation(&tt.delegation, tt.width))
+			if got != tt.want {
+				t.Fatalf("header operation = %q, want %q", got, tt.want)
+			}
+			if strings.ContainsAny(got, "\r\n") {
+				t.Fatalf("header operation = %q, contains a real line break", got)
+			}
+		})
+	}
+}
+
+func TestDelegationHeaderOperationTruncatesAfterWhitespaceNormalization(t *testing.T) {
+
+	b := newTestBuffer(t)
+	dd := &delegationDisplayState{
+		isAdvisor:       true,
+		advisorQuestion: "alpha\nbeta gamma",
+	}
+	got := stripANSI(b.renderDelegationHeaderOperation(dd, 12))
+	if got != "alpha beta …" {
+		t.Fatalf("header operation = %q, want %q", got, "alpha beta …")
+	}
+	if strings.ContainsAny(got, "\r\n") {
+		t.Fatalf("header operation = %q, contains a real line break", got)
+	}
+}
+
+func TestDelegationRowsAdvisorMultilineQuestionKeepsHeaderSingleLine(t *testing.T) {
+	b := newTestBuffer(t)
+	dd := &delegationDisplayState{
+		isAdvisor:       true,
+		advisorQuestion: "check\nthese\r\nchanges",
+		collapsed:       true,
+	}
+
+	rows := b.delegationRows(dd, 80)
+	var header string
+	for _, row := range rows {
+		if row.kind == delegationRowHeader {
+			header = stripANSI(row.text)
+			break
+		}
+	}
+	if header == "" {
+		t.Fatal("delegation rows contain no header")
+	}
+	if strings.ContainsAny(header, "\r\n") {
+		t.Fatalf("header = %q, contains a real line break", header)
+	}
+	if !strings.Contains(header, "check these changes") {
+		t.Fatalf("header = %q, want normalized advisor question", header)
+	}
+}
+
 func TestDelegationCompleteMetaOmitsCacheHitRateWhenNotOK(t *testing.T) {
 	t.Parallel()
 	dd := &delegationDisplayState{
