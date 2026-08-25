@@ -217,8 +217,10 @@ func buildWSRequestFrame(request ChatRequest, model string, turnState string) ([
 	wire.PromptCacheKey = request.PromptCacheKey
 
 	frame := responsesRequestMap(wire)
+	if _, ok := frame["type"]; !ok {
+		frame["type"] = "response.create"
+	}
 	delete(frame, "model")
-	frame["type"] = "response.create"
 	frame["model"] = model
 
 	if turnState != "" {

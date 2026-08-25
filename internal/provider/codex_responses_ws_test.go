@@ -116,7 +116,7 @@ func TestCodexWSFramePrecedence(t *testing.T) {
 	if err := json.Unmarshal(frameBytes, &frame); err != nil {
 		t.Fatalf("unmarshal frame: %v", err)
 	}
-	if got, want := frame["type"], "response.create"; got != want {
+	if got, want := frame["type"], "extra-type"; got != want {
 		t.Errorf("type: got %v, want %v", got, want)
 	}
 	if got, want := frame["model"], "frame-model"; got != want {
