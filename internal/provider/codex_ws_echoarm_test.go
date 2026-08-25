@@ -113,14 +113,24 @@ func TestCodexWSEchoArmREPL(t *testing.T) {
 	}
 	systemPreamble := string(preambleBytes)
 
+	// Generate a stable prompt cache key for this session.
+	// This key is reused across all turns to keep requests routed to the same
+	// cache namespace, enabling cache hit-rate measurement.
+	cacheKey, err := NewPromptCacheKey()
+	if err != nil {
+		t.Fatalf("generate prompt cache key: %v", err)
+	}
+
 	// Print banner.
 	fmt.Fprintf(os.Stderr, `Codex WebSocket Echo-Arm Measurement Harness
 This is a real interactive session against the Codex WebSocket endpoint
 with echo=true (turn-state echoing) enabled for cache-hit-rate measurement.
 
 A static system preamble (~8.6KB) is included in every request to ensure the
-cached prefix is large enough for Codex prompt caching to activate. This makes
-the cache hit-rate measurement meaningful.
+cached prefix is large enough for Codex prompt caching to activate. A stable
+PromptCacheKey is generated once per session and reused across all turns,
+keeping requests routed to the same cache namespace. This makes the cache
+hit-rate measurement meaningful and mirrors real steiner session behavior.
 
 Type messages on stdin; each line is sent as a request and the assistant's
 reply is printed to stdout.
@@ -161,7 +171,8 @@ Type /quit or EOF to exit.
 		// The system preamble is held identical across every turn to provide
 		// a stable, cacheable prefix for Codex prompt caching measurement.
 		request := ChatRequest{
-			Model: cfg.Model,
+			Model:          cfg.Model,
+			PromptCacheKey: cacheKey,
 			Messages: []Message{
 				{
 					Role:    MessageRoleSystem,
