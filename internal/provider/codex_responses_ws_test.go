@@ -444,6 +444,168 @@ func TestCodexWSLargeResponse(t *testing.T) {
 	}
 }
 
+func TestBuildWSHeadersCacheAffinity(t *testing.T) {
+	tests := []struct {
+		name     string
+		cacheKey string
+		wantSet  bool
+	}{
+		{name: "non-empty cache key sets affinity headers", cacheKey: "session-abc", wantSet: true},
+		{name: "empty cache key omits affinity headers", cacheKey: "", wantSet: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headers := buildWSHeaders("test-key", nil, tt.cacheKey)
+
+			sessionID := headers.Get("session-id")
+			threadID := headers.Get("thread-id")
+			originator := headers.Get("originator")
+
+			if tt.wantSet {
+				if sessionID != tt.cacheKey {
+					t.Errorf("session-id: got %q, want %q", sessionID, tt.cacheKey)
+				}
+				if threadID != tt.cacheKey {
+					t.Errorf("thread-id: got %q, want %q", threadID, tt.cacheKey)
+				}
+				if originator != "codex_cli_rs" {
+					t.Errorf("originator: got %q, want codex_cli_rs", originator)
+				}
+			} else {
+				if sessionID != "" {
+					t.Errorf("session-id: got %q, want empty", sessionID)
+				}
+				if threadID != "" {
+					t.Errorf("thread-id: got %q, want empty", threadID)
+				}
+				if originator != "" {
+					t.Errorf("originator: got %q, want empty", originator)
+				}
+			}
+		})
+	}
+}
+
+func TestCodexWSDialCarriesCacheAffinityHeaders(t *testing.T) {
+	var mu sync.Mutex
+	var capturedSessionID, capturedThreadID, capturedOriginator string
+	var dialCount int
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		dialCount++
+		capturedSessionID = r.Header.Get("session-id")
+		capturedThreadID = r.Header.Get("thread-id")
+		capturedOriginator = r.Header.Get("originator")
+		mu.Unlock()
+
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			typ, data, err := conn.Read(ctx)
+			cancel()
+			if err != nil {
+				return
+			}
+			if typ != websocket.MessageText {
+				continue
+			}
+			var frame map[string]any
+			if err := json.Unmarshal(data, &frame); err != nil {
+				return
+			}
+
+			response := map[string]any{
+				"type":     "response.completed",
+				"response": map[string]any{"output": []any{}, "status": "success"},
+			}
+			responseJSON, _ := json.Marshal(response)
+			ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+			_ = conn.Write(ctx, websocket.MessageText, responseJSON)
+			cancel()
+		}
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[4:]
+
+	cfg := ClientConfig{
+		BaseURL:    "http://localhost:8080",
+		APIKey:     "test-key",
+		Model:      "test-model",
+		HTTPClient: &http.Client{},
+	}
+
+	provider, err := newCodexResponsesWSWithEcho(cfg, false, false)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	wsProvider := provider.(*codexWSProvider)
+	wsProvider.wsURL = wsURL
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = wsProvider.ChatCompletion(ctx, ChatRequest{
+		Model:          "test-model",
+		Messages:       []Message{{Role: MessageRoleUser, Content: "first call"}},
+		PromptCacheKey: "cache-key-one",
+	})
+	cancel()
+	if err != nil {
+		t.Fatalf("first ChatCompletion: %v", err)
+	}
+
+	mu.Lock()
+	firstSessionID, firstThreadID, firstOriginator, firstDialCount := capturedSessionID, capturedThreadID, capturedOriginator, dialCount
+	mu.Unlock()
+
+	if firstSessionID != "cache-key-one" {
+		t.Errorf("session-id: got %q, want cache-key-one", firstSessionID)
+	}
+	if firstThreadID != "cache-key-one" {
+		t.Errorf("thread-id: got %q, want cache-key-one", firstThreadID)
+	}
+	if firstOriginator != "codex_cli_rs" {
+		t.Errorf("originator: got %q, want codex_cli_rs", firstOriginator)
+	}
+	if firstDialCount != 1 {
+		t.Fatalf("dial count after first call: got %d, want 1", firstDialCount)
+	}
+
+	if wsProvider.dialCacheKey != "cache-key-one" {
+		t.Errorf("dialCacheKey: got %q, want cache-key-one", wsProvider.dialCacheKey)
+	}
+
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = wsProvider.ChatCompletion(ctx, ChatRequest{
+		Model:          "test-model",
+		Messages:       []Message{{Role: MessageRoleUser, Content: "second call"}},
+		PromptCacheKey: "cache-key-two",
+	})
+	cancel()
+	if err != nil {
+		t.Fatalf("second ChatCompletion: %v", err)
+	}
+
+	mu.Lock()
+	secondDialCount := dialCount
+	mu.Unlock()
+
+	if secondDialCount != 1 {
+		t.Errorf("dial count after second call: got %d, want 1 (connection should be reused, not redialed)", secondDialCount)
+	}
+
+	if wsProvider.dialCacheKey != "cache-key-one" {
+		t.Errorf("dialCacheKey after second call: got %q, want cache-key-one (first-dial-wins)", wsProvider.dialCacheKey)
+	}
+}
+
 func contains(haystack, needle string) bool {
 	if len(needle) == 0 {
 		return true

@@ -24,6 +24,7 @@ type codexWSProvider struct {
 	wsURL           string
 	mu              sync.Mutex
 	conn            *websocket.Conn
+	dialCacheKey    string
 }
 
 func newCodexResponsesWSWithEcho(cfg ClientConfig, fallbackEnabled, echoTurnState bool) (Provider, error) {
@@ -153,12 +154,16 @@ func (p *codexWSProvider) StreamChatCompletion(ctx context.Context, request Chat
 	return out, nil
 }
 
-func (p *codexWSProvider) ensureConnection(ctx context.Context) error {
+func (p *codexWSProvider) ensureConnection(ctx context.Context, request ChatRequest) error {
 	if p.conn != nil {
 		return nil
 	}
 
-	headers := buildWSHeaders(p.apiKey, p.headers)
+	if p.dialCacheKey == "" {
+		p.dialCacheKey = request.PromptCacheKey
+	}
+
+	headers := buildWSHeaders(p.apiKey, p.headers, p.dialCacheKey)
 	conn, resp, err := websocket.Dial(ctx, p.wsURL, &websocket.DialOptions{
 		HTTPHeader: headers,
 	})
@@ -179,7 +184,7 @@ func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatReques
 	var reconnectAttempt bool
 
 	for attempts := 0; attempts < 2; attempts++ {
-		if err := p.ensureConnection(ctx); err != nil {
+		if err := p.ensureConnection(ctx, request); err != nil {
 			if reconnectAttempt {
 				return ChatResponse{}, fmt.Errorf("reconnect failed: %w", err)
 			}
@@ -301,7 +306,7 @@ func (p *codexWSProvider) sendRequest(ctx context.Context, request ChatRequest) 
 	return resp, capturedTurnState, nil
 }
 
-func buildWSHeaders(apiKey string, headers map[string]string) http.Header {
+func buildWSHeaders(apiKey string, headers map[string]string, cacheKey string) http.Header {
 	result := http.Header{
 		"OpenAI-Beta":             {WSBetaHeaderValue},
 		"x-codex-installation-id": {"default"},
@@ -310,6 +315,12 @@ func buildWSHeaders(apiKey string, headers map[string]string) http.Header {
 
 	if strings.TrimSpace(apiKey) != "" {
 		result.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	if cacheKey != "" {
+		result.Set("session-id", cacheKey)
+		result.Set("thread-id", cacheKey)
+		result.Set("originator", "codex_cli_rs")
 	}
 
 	for key, value := range headers {
