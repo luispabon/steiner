@@ -73,17 +73,11 @@ func setupCodexAuthFixture(t *testing.T) {
 func stubCodexWSConstructors(t *testing.T, newProvider func() provider.Provider) *int {
 	t.Helper()
 	oldWS := newCodexResponsesWS
-	oldWSNoFallback := newCodexResponsesWSNoFallback
 	t.Cleanup(func() {
 		newCodexResponsesWS = oldWS
-		newCodexResponsesWSNoFallback = oldWSNoFallback
 	})
 	count := 0
 	newCodexResponsesWS = func(cfg provider.ClientConfig) (provider.Provider, error) {
-		count++
-		return newProvider(), nil
-	}
-	newCodexResponsesWSNoFallback = func(cfg provider.ClientConfig) (provider.Provider, error) {
 		count++
 		return newProvider(), nil
 	}
@@ -93,7 +87,7 @@ func stubCodexWSConstructors(t *testing.T, newProvider func() provider.Provider)
 func codexResolvedModel(alias string) provider.ResolvedModel {
 	return provider.ResolvedModel{
 		Alias:                 alias,
-		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeCodex},
+		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeCodex, Codex: config.CodexConfig{Transport: config.CodexTransportWebSocket}},
 		BackendModelID:        "codex-default",
 		EffectiveProviderType: config.ProviderTypeCodex,
 	}

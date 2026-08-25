@@ -15,79 +15,31 @@ import (
 )
 
 func TestCodexWSFrameStructure(t *testing.T) {
-	tests := []struct {
-		name                 string
-		turnState            string
-		expectClientMetadata bool
-		checkInstructions    bool
-	}{
-		{
-			name:                 "no turn-state",
-			turnState:            "",
-			expectClientMetadata: false,
-			checkInstructions:    true,
-		},
-		{
-			name:                 "with turn-state",
-			turnState:            "test-token-123",
-			expectClientMetadata: true,
-			checkInstructions:    true,
+	request := ChatRequest{
+		Model: "test-model",
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: "test"},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			request := ChatRequest{
-				Model: "test-model",
-				Messages: []Message{
-					{Role: MessageRoleUser, Content: "test"},
-				},
-			}
+	frameBytes, err := buildWSRequestFrame(request, "test-model")
+	if err != nil {
+		t.Fatalf("buildWSRequestFrame: %v", err)
+	}
 
-			frameBytes, err := buildWSRequestFrame(request, "test-model", tt.turnState)
-			if err != nil {
-				t.Fatalf("buildWSRequestFrame: %v", err)
-			}
+	var frame map[string]any
+	if err := json.Unmarshal(frameBytes, &frame); err != nil {
+		t.Fatalf("unmarshal frame: %v", err)
+	}
 
-			var frameOut map[string]any
-			if err := json.Unmarshal(frameBytes, &frameOut); err != nil {
-				t.Fatalf("unmarshal frame: %v", err)
-			}
-
-			if frameOut["type"] != "response.create" {
-				t.Errorf("type: got %v, want response.create", frameOut["type"])
-			}
-
-			if frameOut["model"] != "test-model" {
-				t.Errorf("model: got %v, want test-model", frameOut["model"])
-			}
-
-			hasClientMetadata := frameOut["client_metadata"] != nil
-			if hasClientMetadata != tt.expectClientMetadata {
-				t.Errorf("client_metadata presence: got %v, want %v", hasClientMetadata, tt.expectClientMetadata)
-			}
-
-			if tt.checkInstructions {
-				if instructions, ok := frameOut["instructions"]; ok {
-					if metaStr, ok := instructions.(string); ok {
-						if tt.expectClientMetadata && tt.turnState != "" {
-							if strings.Contains(metaStr, tt.turnState) {
-								t.Errorf("turn-state leaked into instructions: %s", metaStr)
-							}
-						}
-					}
-				}
-
-				if inputRaw, ok := frameOut["input"]; ok {
-					inputJSON, _ := json.Marshal(inputRaw)
-					if tt.expectClientMetadata && tt.turnState != "" {
-						if strings.Contains(string(inputJSON), tt.turnState) {
-							t.Errorf("turn-state leaked into input: %s", string(inputJSON))
-						}
-					}
-				}
-			}
-		})
+	if frame["type"] != "response.create" {
+		t.Errorf("type: got %v, want response.create", frame["type"])
+	}
+	if frame["model"] != "test-model" {
+		t.Errorf("model: got %v, want test-model", frame["model"])
+	}
+	if _, ok := frame["client_metadata"]; ok {
+		t.Errorf("client_metadata: got %#v, want absent", frame["client_metadata"])
 	}
 }
 
@@ -96,18 +48,16 @@ func TestCodexWSFramePrecedence(t *testing.T) {
 		Model:    "request-model",
 		Messages: []Message{{Role: MessageRoleUser, Content: "test"}},
 		Params: map[string]any{
-			"type":            "params-type",
-			"model":           "params-model",
-			"client_metadata": map[string]any{"source": "params"},
+			"type":  "params-type",
+			"model": "params-model",
 		},
 		ExtraParams: map[string]any{
-			"type":            "extra-type",
-			"model":           "extra-model",
-			"client_metadata": map[string]any{"source": "extra"},
+			"type":  "extra-type",
+			"model": "extra-model",
 		},
 	}
 
-	frameBytes, err := buildWSRequestFrame(request, "frame-model", "turn-state")
+	frameBytes, err := buildWSRequestFrame(request, "frame-model")
 	if err != nil {
 		t.Fatalf("buildWSRequestFrame: %v", err)
 	}
@@ -122,19 +72,12 @@ func TestCodexWSFramePrecedence(t *testing.T) {
 	if got, want := frame["model"], "frame-model"; got != want {
 		t.Errorf("model: got %v, want %v", got, want)
 	}
-	metadata, ok := frame["client_metadata"].(map[string]any)
-	if !ok {
-		t.Fatalf("client_metadata = %#v, want map[string]any", frame["client_metadata"])
-	}
-	if got, want := metadata[WSClientMetadataTurnStateKey], "turn-state"; got != want {
-		t.Errorf("client_metadata.turn_state: got %v, want %v", got, want)
-	}
-	if _, ok := metadata["source"]; ok {
-		t.Errorf("client_metadata retained extra value: %#v", metadata)
-	}
 }
 
 func TestCodexWSNoClientMetadataAcrossSequentialCalls(t *testing.T) {
+	var mu sync.Mutex
+	var framesWithMetadata int
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -142,13 +85,12 @@ func TestCodexWSNoClientMetadataAcrossSequentialCalls(t *testing.T) {
 		}
 		defer func() { _ = conn.CloseNow() }()
 
-		for i := 0; i < 3; i++ {
+		for {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			typ, data, err := conn.Read(ctx)
 			cancel()
-
 			if err != nil {
-				break
+				return
 			}
 			if typ != websocket.MessageText {
 				continue
@@ -156,151 +98,50 @@ func TestCodexWSNoClientMetadataAcrossSequentialCalls(t *testing.T) {
 
 			var frame map[string]any
 			if err := json.Unmarshal(data, &frame); err != nil {
-				break
+				return
+			}
+			if _, ok := frame["client_metadata"]; ok {
+				mu.Lock()
+				framesWithMetadata++
+				mu.Unlock()
 			}
 
-			if frame["client_metadata"] != nil {
-				_ = conn.CloseNow()
-				break
-			}
-
-			response := map[string]any{
+			ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+			_ = conn.Write(ctx, websocket.MessageText, mustJSON(t, map[string]any{
 				"type":     "response.completed",
 				"response": map[string]any{"output": []any{}, "status": "success"},
-			}
-			responseJSON, _ := json.Marshal(response)
-			ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-			_ = conn.Write(ctx, websocket.MessageText, responseJSON)
+			}))
 			cancel()
 		}
 	}))
 	defer server.Close()
 
-	wsURL := "ws" + server.URL[4:]
-
-	cfg := ClientConfig{
-		BaseURL:    "http://localhost:8080",
-		APIKey:     "test-key",
-		Model:      "test-model",
-		HTTPClient: &http.Client{},
-	}
-
-	provider, err := newCodexResponsesWSWithEcho(cfg, false, false)
-	if err != nil {
-		t.Fatalf("create provider: %v", err)
-	}
-
-	wsProvider := provider.(*codexWSProvider)
-	wsProvider.wsURL = wsURL
+	provider := newTestWSProvider(t, "ws"+server.URL[4:])
 
 	for callNum := 1; callNum <= 3; callNum++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err := wsProvider.ChatCompletion(ctx, ChatRequest{
+		_, err := provider.ChatCompletion(ctx, ChatRequest{
 			Model:    "test-model",
 			Messages: []Message{{Role: MessageRoleUser, Content: fmt.Sprintf("call %d", callNum)}},
 		})
 		cancel()
-
-		if err != nil && !strings.Contains(err.Error(), "completed without a final chunk") {
-			t.Logf("call %d completed with error: %v (this is expected for mock)", callNum, err)
-		}
-	}
-}
-
-func TestCodexWSEchoTurnStateNotCachedAcrossCalls(t *testing.T) {
-	var capturedTokens []string
-	var mu sync.Mutex
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
-			return
-		}
-		defer func() { _ = conn.CloseNow() }()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		typ, data, err := conn.Read(ctx)
-		cancel()
-
-		if err != nil || typ != websocket.MessageText {
-			return
-		}
-
-		var frame map[string]any
-		if err := json.Unmarshal(data, &frame); err != nil {
-			return
-		}
-
-		mu.Lock()
-		if meta, ok := frame["client_metadata"].(map[string]any); ok {
-			if token, ok := meta[WSClientMetadataTurnStateKey].(string); ok {
-				capturedTokens = append(capturedTokens, token)
-			}
-		}
-		mu.Unlock()
-
-		metadata := map[string]any{
-			"type": "codex.response.metadata",
-			"headers": map[string]any{
-				WSHeaderTurnState: "turn-state-from-call",
-			},
-		}
-		metadataJSON, _ := json.Marshal(metadata)
-
-		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		_ = conn.Write(ctx, websocket.MessageText, metadataJSON)
-		cancel()
-
-		response := map[string]any{
-			"type":     "response.completed",
-			"response": map[string]any{"output": []any{}, "status": "success"},
-		}
-		responseJSON, _ := json.Marshal(response)
-		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		_ = conn.Write(ctx, websocket.MessageText, responseJSON)
-		cancel()
-	}))
-	defer server.Close()
-
-	wsURL := "ws" + server.URL[4:]
-
-	cfg := ClientConfig{
-		BaseURL:    "http://localhost:8080",
-		APIKey:     "test-key",
-		Model:      "test-model",
-		HTTPClient: &http.Client{},
-	}
-
-	provider, err := newCodexResponsesWSWithEcho(cfg, false, true)
-	if err != nil {
-		t.Fatalf("create provider: %v", err)
-	}
-
-	wsProvider := provider.(*codexWSProvider)
-	wsProvider.wsURL = wsURL
-
-	for callNum := 1; callNum <= 2; callNum++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err := wsProvider.ChatCompletion(ctx, ChatRequest{
-			Model:    "test-model",
-			Messages: []Message{{Role: MessageRoleUser, Content: fmt.Sprintf("call %d", callNum)}},
-		})
-		cancel()
-
-		if err != nil && !strings.Contains(err.Error(), "completed without a final chunk") {
-			t.Logf("call %d: %v", callNum, err)
+			t.Fatalf("call %d: %v", callNum, err)
 		}
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-
-	if len(capturedTokens) > 0 {
-		t.Errorf("turn-state should not be sent across calls, but got %d tokens in outbound frames", len(capturedTokens))
+	if framesWithMetadata != 0 {
+		t.Errorf("frames carrying client_metadata: got %d, want 0", framesWithMetadata)
 	}
 }
 
-func TestCodexWSFallbackOnDialFailure(t *testing.T) {
+// TestCodexWSDialFailureErrors pins that a dial failure surfaces as an error on
+// both public methods. The transport has no HTTP fallback: codex.transport is an
+// explicit opt-in, so a caller who asked for WebSocket is told when it does not
+// work rather than being silently downgraded.
+func TestCodexWSDialFailureErrors(t *testing.T) {
 	cfg := ClientConfig{
 		BaseURL:    "http://localhost:8080",
 		APIKey:     "test-key",
@@ -314,64 +155,55 @@ func TestCodexWSFallbackOnDialFailure(t *testing.T) {
 		},
 	}
 
-	provider, err := newCodexResponsesWSWithEcho(cfg, true, false)
-	if err != nil {
-		t.Fatalf("create provider: %v", err)
-	}
-
-	wsProvider := provider.(*codexWSProvider)
-	wsProvider.wsURL = "ws://invalid-unreachable-host-that-will-not-dial:9999"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	stream, err := wsProvider.StreamChatCompletion(ctx, ChatRequest{
-		Model:    "test-model",
-		Messages: []Message{{Role: MessageRoleUser, Content: "test"}},
-	})
-	cancel()
-
-	if err != nil {
-		t.Fatalf("StreamChatCompletion returned early error: %v", err)
-	}
-
-	sawDiagnostic := false
-
-	for chunk := range stream {
-		if chunk.Diagnostic != "" && strings.Contains(chunk.Diagnostic, "Codex WebSocket unavailable") {
-			sawDiagnostic = true
+	newUnreachable := func(t *testing.T) *codexWSProvider {
+		t.Helper()
+		p, err := NewCodexResponsesWS(cfg)
+		if err != nil {
+			t.Fatalf("create provider: %v", err)
 		}
+		wsProvider := p.(*codexWSProvider)
+		wsProvider.wsURL = "ws://invalid-unreachable-host-that-will-not-dial:9999"
+		return wsProvider
 	}
 
-	if !sawDiagnostic {
-		t.Error("expected diagnostic chunk about WebSocket unavailability")
-	}
-}
-
-func TestCodexWSNoFallbackWhenDisabled(t *testing.T) {
-	cfg := ClientConfig{
-		BaseURL:    "http://localhost:8080",
-		APIKey:     "test-key",
-		Model:      "test-model",
-		HTTPClient: &http.Client{},
-	}
-
-	provider, err := NewCodexResponsesWSNoFallback(cfg)
-	if err != nil {
-		t.Fatalf("create provider: %v", err)
-	}
-
-	wsProvider := provider.(*codexWSProvider)
-	wsProvider.wsURL = "ws://invalid:9999"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	_, err = wsProvider.ChatCompletion(ctx, ChatRequest{
+	request := ChatRequest{
 		Model:    "test-model",
 		Messages: []Message{{Role: MessageRoleUser, Content: "test"}},
-	})
-	cancel()
-
-	if err == nil {
-		t.Error("expected error when fallback is disabled and WS dial fails")
 	}
+
+	t.Run("unary path returns an error", func(t *testing.T) {
+		wsProvider := newUnreachable(t)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if _, err := wsProvider.ChatCompletion(ctx, request); err == nil {
+			t.Error("ChatCompletion returned nil error on an undialable endpoint")
+		}
+	})
+
+	t.Run("stream path reports the error and no fallback diagnostic", func(t *testing.T) {
+		wsProvider := newUnreachable(t)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		stream, err := wsProvider.StreamChatCompletion(ctx, request)
+		if err != nil {
+			t.Fatalf("StreamChatCompletion returned early error: %v", err)
+		}
+
+		var sawError bool
+		for chunk := range stream {
+			if chunk.Error != "" {
+				sawError = true
+			}
+			if strings.Contains(chunk.Diagnostic, "falling back to HTTP") {
+				t.Error("stream emitted an HTTP fallback diagnostic; the fallback path was removed")
+			}
+		}
+		if !sawError {
+			t.Error("stream completed without reporting the dial failure")
+		}
+	})
 }
 
 func TestCodexWSSupportsUsageStats(t *testing.T) {
@@ -460,7 +292,7 @@ func TestCodexWSLargeResponse(t *testing.T) {
 		HTTPClient: &http.Client{},
 	}
 
-	provider, err := newCodexResponsesWSWithEcho(cfg, false, false)
+	provider, err := NewCodexResponsesWS(cfg)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
@@ -586,7 +418,7 @@ func TestCodexWSDialCarriesCacheAffinityHeaders(t *testing.T) {
 		HTTPClient: &http.Client{},
 	}
 
-	provider, err := newCodexResponsesWSWithEcho(cfg, false, false)
+	provider, err := NewCodexResponsesWS(cfg)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}

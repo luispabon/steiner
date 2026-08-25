@@ -565,7 +565,7 @@ func TestApplyCodexPatch(t *testing.T) {
 		},
 		{
 			name:    "sets transport",
-			initial: CodexConfig{Transport: CodexTransportAuto},
+			initial: CodexConfig{Transport: CodexTransportHTTP},
 			patch:   codexPatch{Transport: codexTransportPtr(CodexTransportWebSocket)},
 			want:    CodexConfig{Transport: CodexTransportWebSocket},
 		},
@@ -637,7 +637,7 @@ func TestApplyProviderPatchWithCodex(t *testing.T) {
 			initial: ProviderConfig{
 				Type: ProviderTypeCodex,
 				Codex: CodexConfig{
-					Transport: CodexTransportAuto,
+					Transport: CodexTransportHTTP,
 				},
 			},
 			patch: providerPatch{

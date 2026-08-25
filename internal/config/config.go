@@ -48,9 +48,7 @@ const (
 type CodexTransport string
 
 const (
-	// CodexTransportAuto uses WebSocket with automatic HTTP fallback.
-	CodexTransportAuto CodexTransport = "auto"
-	// CodexTransportHTTP forces HTTP-only requests.
+	// CodexTransportHTTP forces HTTP-only requests. This is the default.
 	CodexTransportHTTP CodexTransport = "http"
 	// CodexTransportWebSocket forces WebSocket requests, errors instead of falling back.
 	CodexTransportWebSocket CodexTransport = "websocket"
@@ -239,6 +237,7 @@ type ModelPrompts struct {
 type LimitsConfig struct {
 	MaxTurns           int                 `yaml:"max_turns"`
 	MaxTokens          int                 `yaml:"max_tokens"`
+	ModelCallTimeout   Duration            `yaml:"model_call_timeout"`
 	ToolTimeoutDefault Duration            `yaml:"tool_timeout_default"`
 	ToolTimeouts       map[string]Duration `yaml:"tool_timeouts"`
 	ToolOutputMaxBytes int                 `yaml:"tool_output_max_bytes"`

@@ -122,8 +122,10 @@ func validateProvidersConfig(problems *[]string, providers map[string]ProviderCo
 		}
 		if p.Type == ProviderTypeCodex {
 			switch p.Codex.Transport {
-			case "", CodexTransportAuto, CodexTransportHTTP, CodexTransportWebSocket:
+			case "", CodexTransportHTTP, CodexTransportWebSocket:
 				// valid
+			case "auto":
+				*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q was removed — the auto transport no longer exists, set http or websocket", name, p.Codex.Transport))
 			default:
 				*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q is not supported", name, p.Codex.Transport))
 			}

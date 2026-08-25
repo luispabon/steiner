@@ -72,6 +72,9 @@ type Recorder struct {
 
 	now   func() time.Time
 	store *store
+
+	// telemetry is nil unless TelemetryEnvVar is set; a nil value records nothing.
+	telemetry *telemetry
 }
 
 // New returns a new Recorder. If now is nil, time.Now is used as the clock.
@@ -86,6 +89,7 @@ func New(now func() time.Time) *Recorder {
 		sessionTotalInput: make(map[Source]int64),
 		now:               now,
 		store:             st,
+		telemetry:         newTelemetryFromEnv(),
 	}
 }
 
@@ -136,6 +140,8 @@ func (r *Recorder) Record(obs Observation) {
 	if err := r.store.write(delta, key); err != nil {
 		slog.Warn("persist usage stats delta", "error", err)
 	}
+
+	r.telemetry.record(obs, at)
 }
 
 // Window sums all buckets whose hour falls within [now-d, now] and returns

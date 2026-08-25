@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
@@ -53,6 +54,29 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 				if req.ParallelTool("read") {
 					t.Fatal("ParallelTool(read) = true, want false")
 				}
+			}
+		})
+	}
+}
+
+func TestBuildRunRequestLimitsModelCallTimeout(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		turnTimeout string
+		wantTimeout time.Duration
+	}{
+		{name: "default 10m", turnTimeout: "10m", wantTimeout: 10 * time.Minute},
+		{name: "custom 5m", turnTimeout: "5m", wantTimeout: 5 * time.Minute},
+		{name: "zero disables", turnTimeout: "0s", wantTimeout: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			timeout := config.MustDuration(tt.turnTimeout)
+			r := cliRunner{runtime: cliRuntime{cfg: config.Config{
+				Limits: config.LimitsConfig{ModelCallTimeout: timeout},
+			}}}
+			req := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+			if req.Limits.ModelCallTimeout != tt.wantTimeout {
+				t.Errorf("ModelCallTimeout = %v, want %v", req.Limits.ModelCallTimeout, tt.wantTimeout)
 			}
 		})
 	}

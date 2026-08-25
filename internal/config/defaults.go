@@ -5,8 +5,9 @@ var (
 	// consecutive Codex requests when a provider omits
 	// codex.min_request_interval. Exported so internal/provider can seed it
 	// for user-declared providers with type: codex, which do not go through
-	// defaultConfig.
-	DefaultCodexMinRequestInterval = MustDuration("4s")
+	// defaultConfig. Defaults to 0 (pacing disabled); the knob remains for
+	// users who want to re-enable client-side request pacing.
+	DefaultCodexMinRequestInterval = MustDuration("0s")
 )
 
 func newModelConfigBase() ModelConfig {
@@ -46,7 +47,7 @@ func defaultConfig() Config {
 		Timeout: MustDuration("30s"),
 		Codex: CodexConfig{
 			MinRequestInterval: DefaultCodexMinRequestInterval,
-			Transport:          CodexTransportAuto,
+			Transport:          CodexTransportHTTP,
 		},
 	}
 	defaultModel := newModelConfigBase()
@@ -69,6 +70,7 @@ func defaultConfig() Config {
 		Limits: LimitsConfig{
 			MaxTurns:           50,
 			MaxTokens:          500000,
+			ModelCallTimeout:   MustDuration("10m"),
 			ToolTimeoutDefault: MustDuration("30s"),
 			ToolTimeouts: map[string]Duration{
 				"bash": MustDuration("120s"),

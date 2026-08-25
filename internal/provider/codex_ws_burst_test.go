@@ -80,7 +80,6 @@ func TestCodexWSBurstLoad1008Watch(t *testing.T) {
 		accountID = oauth.TokenChatGPTAccountID(token)
 	}
 
-	// Build a ClientConfig to pass to newCodexResponsesWSWithEcho.
 	// The model and base URL are required; we use placeholder values since
 	// the WS provider uses WSEndpointURL and the model from the request.
 	cfg := ClientConfig{
@@ -93,9 +92,9 @@ func TestCodexWSBurstLoad1008Watch(t *testing.T) {
 		cfg.Headers["ChatGPT-Account-ID"] = accountID
 	}
 
-	// Build the WS provider without fallback (defeats the purpose of this test)
-	// and without echo (not needed for this probe).
-	provider, err := newCodexResponsesWSWithEcho(cfg, false, false)
+	// Build the WS provider. It has no HTTP fallback, which would otherwise
+	// mask the dial failures this test is looking for.
+	provider, err := NewCodexResponsesWS(cfg)
 	if err != nil {
 		t.Fatalf("create WS provider: %v", err)
 	}

@@ -443,7 +443,13 @@ func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcom
 		return outcome
 	}
 
-	modelOutcome, response := p.executeModelCall(ctx, state, assembly, chatRequest)
+	modelCtx := ctx
+	if timeout := p.request.Limits.ModelCallTimeout; timeout > 0 {
+		var cancelModel context.CancelFunc
+		modelCtx, cancelModel = context.WithTimeout(ctx, timeout)
+		defer cancelModel()
+	}
+	modelOutcome, response := p.executeModelCall(modelCtx, state, assembly, chatRequest)
 
 	// Auto-detect interleaved reasoning: if the model returned reasoning_content
 	// but ReasoningEchoBack was not configured, enable it on the progressor's

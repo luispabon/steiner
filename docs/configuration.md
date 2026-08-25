@@ -236,8 +236,8 @@ Codex-specific configuration. Applies only when `type: codex`.
 
 | Field                 | Type          | Default | Description |
 |-----------------------|---------------|---------|-------------|
-| `min_request_interval` | duration string | `"4s"`  | Minimum interval enforced between consecutive Codex requests. Set to `0` to disable rate limiting. Steiner bursts requests during rapid agentic operations (e.g., `--exec` with many turns), and Codex limits cache reuse when too many requests from the same key land on cold cache shards. This interval paces rapid bursts to reduce cold-shard cache misses, improving hit rates for `--exec` runs. Has no effect on interactive use since think-time naturally exceeds the interval. |
-| `transport` | string | `"auto"` | Transport used for Codex requests. `auto` (default): tries the WebSocket transport first for deterministic cache-shard affinity, automatically falling back to HTTP with a visible conversation diagnostic if the WebSocket connection can't be established. `http`: force HTTP-only, skipping WebSocket entirely. `websocket`: force WebSocket-only with no automatic fallback — errors on failure instead of silently degrading, useful for debugging the WebSocket path directly. |
+| `min_request_interval` | duration string | `"0"`   | Minimum interval enforced between consecutive Codex requests. Defaults to `0` (disabled). When set to a positive duration (e.g., `4s`), enforces a minimum gap between requests and serialises them. Affects only bursts; has no effect on interactive use where think-time already far exceeds any sensible interval. Has no effect on cache hit rate (see [cache-stats.md](cache-stats.md#superseded-claims-that-did-not-reproduce)). |
+| `transport` | string | `"http"` | Transport used for Codex requests. Valid values: `http` (default), `websocket`. `http`: use HTTP-only transport. `websocket`: use the WebSocket transport, with no HTTP fallback — failures return an error rather than silently degrading. Opt-in and experimental; see [cache-stats.md](cache-stats.md#superseded-claims-that-did-not-reproduce) for why it is not the default. |
 
 ---
 

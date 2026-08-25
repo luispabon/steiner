@@ -150,15 +150,6 @@ func TestCodexTransportYAMLParsing(t *testing.T) {
 		want CodexTransport
 	}{
 		{
-			name: "parses auto transport",
-			yaml: `providers:
-  codex:
-    type: codex
-    codex:
-      transport: auto`,
-			want: CodexTransportAuto,
-		},
-		{
 			name: "parses http transport",
 			yaml: `providers:
   codex:
@@ -177,11 +168,11 @@ func TestCodexTransportYAMLParsing(t *testing.T) {
 			want: CodexTransportWebSocket,
 		},
 		{
-			name: "unset transport defaults to auto",
+			name: "unset transport leaves initial value untouched",
 			yaml: `providers:
   codex:
     type: codex`,
-			want: CodexTransportAuto,
+			want: CodexTransportHTTP,
 		},
 	}
 	for _, tt := range tests {
@@ -200,7 +191,7 @@ func TestCodexTransportYAMLParsing(t *testing.T) {
 			codexProvider := providers["codex"]
 
 			// Create initial config with default values
-			dst := CodexConfig{Transport: CodexTransportAuto}
+			dst := CodexConfig{Transport: CodexTransportHTTP}
 
 			// Apply patch
 			if codexProvider.Codex != nil {
