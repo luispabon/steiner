@@ -43,7 +43,16 @@ Two claims about cache improvement mechanisms were re-measured on 2026-08-25 and
 - Fast arm (1.5s gap): 35 requests sustained over 1m01s at 34.2 req/min, 85.4% hit rate, zero cold requests.
 - Paced arm (4s gap): 35 requests sustained over 2m23s at 14.7 req/min, 83.0% hit rate, one cold request (#5).
 
-The burst arm exceeded the claimed 15 req/min overflow threshold for a full minute with zero cold requests. The single cold request in the entire sweep occurred in the paced arm. The earlier ~0.78 → ~0.89 measurement was most likely an aggregate-session artifact: aggregate hit rate is dominated by cold-turn *count*, not per-turn behaviour, and pacing changes a run's wall-clock duration and where compaction lands — this cannot be re-checked without the original harness.
+The burst arm exceeded the claimed 15 req/min overflow threshold for a full minute with zero cold requests.
+
+A follow-up soak added the two conditions that sweep did not cover — a prefix that grows every turn, and genuine concurrency on one cache key:
+
+| Arm | Sustained rate | n | Hit rate | Cold requests |
+|---|---|---|---|---|
+| burst, growing prefix | 38.5 req/min | 30 | 88.9% | 0 |
+| concurrent, 3 in flight | 137.2 req/min | 30 | 85.5% | 0 |
+
+137 req/min is roughly nine times the threshold the claim named, on a single key, and still produced no cold request. Across four independent unpaced arms spanning 34–137 req/min, with fixed prefixes, growing prefixes and concurrency, not one cold request appeared. Pacing cannot improve on zero. The single cold request in the entire sweep occurred in the paced arm. The earlier ~0.78 → ~0.89 measurement was most likely an aggregate-session artifact: aggregate hit rate is dominated by cold-turn *count*, not per-turn behaviour, and pacing changes a run's wall-clock duration and where compaction lands — this cannot be re-checked without the original harness.
 
 **B. WebSocket transport gives no cache benefit.** Earlier documentation claimed a held-open WebSocket connection provides deterministic shard stickiness targeting ~0.95 hit rate versus HTTP's ~0.89 ceiling. Re-testing found:
 - Codex's prompt cache expires on idle at ~5 minutes on **both** transports (survives 4 min, gone by 5). A held-open connection cannot keep a prefix alive, so the stickiness premise is void.
