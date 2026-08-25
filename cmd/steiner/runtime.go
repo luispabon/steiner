@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -52,6 +53,7 @@ type cliRuntime struct {
 	configWarnings          []string
 	provider                provider.Provider
 	providerFactory         func(provider.ResolvedModel) (provider.Provider, error)
+	codexWSCache            *codexWSCache
 	httpClient              *http.Client
 	registry                *tool.Registry
 	toolNames               []string
@@ -89,6 +91,17 @@ type cliRuntime struct {
 	modelPopularity         *modelcatalog.Store
 	modelEntriesUpdates     chan []tui.ModelEntry
 	worktreeCleanup         *tui.WorktreeCleanupPlan
+}
+
+// codexWSCache holds process-lifetime Codex WebSocket provider instances,
+// keyed by "<alias>|<promptCacheKey>", so a session's live connection is
+// reused across turns instead of being reconstructed (and reconnected) every
+// turn. Only cliRunner.runtimeProvider consults this cache; providerFactory
+// itself stays uncached so sub-agent and advisor calls through
+// delegation.DelegateDeps.ProviderFactory always build a fresh provider.
+type codexWSCache struct {
+	mu        sync.Mutex
+	instances map[string]provider.Provider
 }
 
 var buildRuntime = defaultBuildRuntime
