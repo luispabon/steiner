@@ -27,6 +27,36 @@ func (errStreamOnceProvider) StreamChatCompletion(context.Context, provider.Chat
 
 func (errStreamOnceProvider) SupportsUsageStats() bool { return true }
 
+// canceledChatProvider returns a context.Canceled error from ChatCompletion.
+type canceledChatProvider struct{}
+
+func (canceledChatProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	return provider.ChatResponse{}, fmt.Errorf("chat completion: %w", context.Canceled)
+}
+
+func (canceledChatProvider) StreamChatCompletion(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	return nil, fmt.Errorf("stream chat completion not used")
+}
+
+func (canceledChatProvider) SupportsUsageStats() bool { return true }
+
+// canceledStreamOnceProvider streams a single canceled-context error chunk, then closes.
+type canceledStreamOnceProvider struct{}
+
+func (canceledStreamOnceProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	return provider.ChatResponse{}, fmt.Errorf("chat completion not used")
+}
+
+func (canceledStreamOnceProvider) StreamChatCompletion(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	out := make(chan provider.ChatChunk, 1)
+	err := fmt.Errorf("stream chunk: %w", context.Canceled)
+	out <- provider.ChatChunk{Error: err.Error(), OriginalError: err}
+	close(out)
+	return out, nil
+}
+
+func (canceledStreamOnceProvider) SupportsUsageStats() bool { return true }
+
 func setupCodexAuthFixture(t *testing.T) {
 	t.Helper()
 	configHome := t.TempDir()
@@ -205,6 +235,63 @@ func TestRuntimeProviderEvictsOnChatCompletionError(t *testing.T) {
 	}
 	if *callCount != 2 {
 		t.Fatalf("constructor calls after ChatCompletion error = %d, want 2 (cache evicted)", *callCount)
+	}
+}
+
+func TestRuntimeProviderKeepsCacheOnChatCompletionContextCanceled(t *testing.T) {
+	setupCodexAuthFixture(t)
+	callCount := stubCodexWSConstructors(t, func() provider.Provider { return canceledChatProvider{} })
+
+	r := newCodexRunner(t, "cache-key-1")
+	rm := codexResolvedModel("codex")
+
+	prov, err := r.runtimeProvider(rm)
+	if err != nil {
+		t.Fatalf("runtimeProvider() error = %v", err)
+	}
+	if *callCount != 1 {
+		t.Fatalf("constructor calls = %d, want 1", *callCount)
+	}
+
+	if _, err := prov.ChatCompletion(context.Background(), provider.ChatRequest{}); err == nil {
+		t.Fatal("ChatCompletion() error = nil, want error")
+	}
+
+	if _, err := r.runtimeProvider(rm); err != nil {
+		t.Fatalf("runtimeProvider() error = %v", err)
+	}
+	if *callCount != 1 {
+		t.Fatalf("constructor calls after context-canceled ChatCompletion error = %d, want 1 (cache not evicted)", *callCount)
+	}
+}
+
+func TestRuntimeProviderKeepsCacheOnStreamContextCanceled(t *testing.T) {
+	setupCodexAuthFixture(t)
+	callCount := stubCodexWSConstructors(t, func() provider.Provider { return canceledStreamOnceProvider{} })
+
+	r := newCodexRunner(t, "cache-key-1")
+	rm := codexResolvedModel("codex")
+
+	prov, err := r.runtimeProvider(rm)
+	if err != nil {
+		t.Fatalf("runtimeProvider() error = %v", err)
+	}
+	if *callCount != 1 {
+		t.Fatalf("constructor calls = %d, want 1", *callCount)
+	}
+
+	chunks, err := prov.StreamChatCompletion(context.Background(), provider.ChatRequest{})
+	if err != nil {
+		t.Fatalf("StreamChatCompletion() error = %v", err)
+	}
+	for range chunks {
+	}
+
+	if _, err := r.runtimeProvider(rm); err != nil {
+		t.Fatalf("runtimeProvider() error = %v", err)
+	}
+	if *callCount != 1 {
+		t.Fatalf("constructor calls after context-canceled stream error = %d, want 1 (cache not evicted)", *callCount)
 	}
 }
 

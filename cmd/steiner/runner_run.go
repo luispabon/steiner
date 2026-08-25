@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -188,6 +189,13 @@ type cachedCodexWSProvider struct {
 	key   string
 }
 
+// isContextCanceledErr reports whether err is a wrapped context.Canceled or
+// context.DeadlineExceeded, which surface from routine cancellations (e.g. a
+// user interrupt) rather than unrecoverable request errors.
+func isContextCanceledErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
 func (p *cachedCodexWSProvider) evict() {
 	p.cache.mu.Lock()
 	if p.cache.instances[p.key] == p {
@@ -198,7 +206,7 @@ func (p *cachedCodexWSProvider) evict() {
 
 func (p *cachedCodexWSProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
 	resp, err := p.inner.ChatCompletion(ctx, req)
-	if err != nil {
+	if err != nil && !isContextCanceledErr(err) {
 		p.evict()
 	}
 	return resp, err
@@ -207,7 +215,9 @@ func (p *cachedCodexWSProvider) ChatCompletion(ctx context.Context, req provider
 func (p *cachedCodexWSProvider) StreamChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
 	chunks, err := p.inner.StreamChatCompletion(ctx, req)
 	if err != nil {
-		p.evict()
+		if !isContextCanceledErr(err) {
+			p.evict()
+		}
 		return chunks, err
 	}
 	out := make(chan provider.ChatChunk)
@@ -216,8 +226,10 @@ func (p *cachedCodexWSProvider) StreamChatCompletion(ctx context.Context, req pr
 		evicted := false
 		for chunk := range chunks {
 			if !evicted && chunk.Error != "" {
-				p.evict()
-				evicted = true
+				if chunk.OriginalError == nil || !isContextCanceledErr(chunk.OriginalError) {
+					p.evict()
+					evicted = true
+				}
 			}
 			select {
 			case out <- chunk:
