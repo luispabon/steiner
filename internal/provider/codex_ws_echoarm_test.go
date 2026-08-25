@@ -103,10 +103,24 @@ func TestCodexWSEchoArmREPL(t *testing.T) {
 		t.Fatalf("construct echo-arm provider: %v", err)
 	}
 
+	// Load the static system preamble for cache measurement.
+	// This preamble (~8.6KB) is prepended to every request as a system message,
+	// ensuring each request has a cacheable prefix large enough for Codex prompt
+	// caching to activate (min ~1024 tokens).
+	preambleBytes, err := os.ReadFile("testdata/echoarm_system_preamble.md")
+	if err != nil {
+		t.Fatalf("read system preamble: %v", err)
+	}
+	systemPreamble := string(preambleBytes)
+
 	// Print banner.
 	fmt.Fprintf(os.Stderr, `Codex WebSocket Echo-Arm Measurement Harness
 This is a real interactive session against the Codex WebSocket endpoint
 with echo=true (turn-state echoing) enabled for cache-hit-rate measurement.
+
+A static system preamble (~8.6KB) is included in every request to ensure the
+cached prefix is large enough for Codex prompt caching to activate. This makes
+the cache hit-rate measurement meaningful.
 
 Type messages on stdin; each line is sent as a request and the assistant's
 reply is printed to stdout.
@@ -143,10 +157,16 @@ Type /quit or EOF to exit.
 		turnNumber++
 		fmt.Fprintf(os.Stderr, "\n[Turn %d] Sending request...\n", turnNumber)
 
-		// Construct a simple ChatRequest with this line as a user message.
+		// Construct a ChatRequest with the system preamble and user message.
+		// The system preamble is held identical across every turn to provide
+		// a stable, cacheable prefix for Codex prompt caching measurement.
 		request := ChatRequest{
 			Model: cfg.Model,
 			Messages: []Message{
+				{
+					Role:    MessageRoleSystem,
+					Content: systemPreamble,
+				},
 				{
 					Role:    MessageRoleUser,
 					Content: line,
