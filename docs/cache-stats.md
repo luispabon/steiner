@@ -54,7 +54,16 @@ A follow-up soak added the two conditions that sweep did not cover — a prefix 
 
 137 req/min is roughly nine times the threshold the claim named, on a single key, and still produced no cold request. Across four independent unpaced arms spanning 34–137 req/min, with fixed prefixes, growing prefixes and concurrency, not one cold request appeared. Pacing cannot improve on zero.
 
-The paced control was measured twice, the second time in isolation to rule out arm ordering, and degraded reproducibly both times: 20/30 and 22/30 requests completed, the rest lost to 120s read-body timeouts, with one cold request each (at #3 and #5 — early, where the claim predicts *later* turns degrade). Successful requests ran at normal speed (~1.3s), so the arm's 17–21 minute duration is almost entirely the timed-out requests. The most likely explanation is exposure rather than causation: pacing stretches the same 30 requests from ~47 seconds to ~17 minutes, giving transient server-side failures roughly twenty times the window to land in. That is a hypothesis from two runs, not a finding, and the timeout mechanism itself is unexplained. It is recorded here because it is the opposite of what the pacing claim predicts, not as evidence that pacing is harmful. The single cold request in the entire sweep occurred in the paced arm. The earlier ~0.78 → ~0.89 measurement was most likely an aggregate-session artifact: aggregate hit rate is dominated by cold-turn *count*, not per-turn behaviour, and pacing changes a run's wall-clock duration and where compaction lands — this cannot be re-checked without the original harness.
+The paced arms in that soak lost 8–10 of 30 requests to 120s read-body timeouts, which the unpaced arms never showed. Two explanations were plausible — that pacing was somehow implicated, or that the unpaced arms simply finished (in 13–47s) before an onset the paced arms ran into around 60s. Holding request count equal could not separate them, because it left the arms with wildly different exposure.
+
+A duration-matched run settles it. Equal wall clock per arm, unpaced first to flip the ordering:
+
+| Arm | Duration | OK | Failed | First failure |
+|---|---|---|---|---|
+| unpaced | 4m22s | 15 | 2 | **t=19s** |
+| paced 4s | 3m28s | 21 | 1 | t=1m28s |
+
+The unpaced arm failed sooner and more often. **Pacing is not implicated in these timeouts**, and the ~60s onset inferred from the two paced runs did not survive a third sample. The failures look sporadic and affect both arms; the mechanism remains unexplained and is unrelated to the pacing question. Successful requests ran at normal speed (~1.3s) throughout, so an arm's total duration is dominated by however many 120s timeouts it happened to catch. The single cold request in the entire sweep occurred in the paced arm. The earlier ~0.78 → ~0.89 measurement was most likely an aggregate-session artifact: aggregate hit rate is dominated by cold-turn *count*, not per-turn behaviour, and pacing changes a run's wall-clock duration and where compaction lands — this cannot be re-checked without the original harness.
 
 **B. WebSocket transport gives no cache benefit.** Earlier documentation claimed a held-open WebSocket connection provides deterministic shard stickiness targeting ~0.95 hit rate versus HTTP's ~0.89 ceiling. Re-testing found:
 - Codex's prompt cache expires on idle at ~5 minutes on **both** transports (survives 4 min, gone by 5). A held-open connection cannot keep a prefix alive, so the stickiness premise is void.
