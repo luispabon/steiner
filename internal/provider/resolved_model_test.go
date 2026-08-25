@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tiktoken-go/tokenizer"
 
@@ -277,6 +278,33 @@ func TestResolveProviderConfigPreservesExplicitZeroCodexInterval(t *testing.T) {
 	}
 	if got := rm.ProviderConfig.Codex.MinRequestInterval.Duration(); got != 0 {
 		t.Fatalf("ProviderConfig.Codex.MinRequestInterval = %v, want 0 (explicit disable preserved)", got)
+	}
+}
+
+// TestResolveProviderConfigPreservesExplicitNonZeroCodexInterval verifies
+// that a user who explicitly re-enables Codex request pacing with a non-zero
+// interval is not overridden by the (now zero) type-based default.
+func TestResolveProviderConfigPreservesExplicitNonZeroCodexInterval(t *testing.T) {
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"codex": {
+				Type:  config.ProviderTypeCodex,
+				Codex: config.CodexConfig{MinRequestInterval: config.MustDuration("4s")},
+			},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"codex-model": {Provider: "codex", ID: "codex-default"},
+			},
+		},
+	}
+
+	rm, err := Resolve(cfg, "codex-model")
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got, want := rm.ProviderConfig.Codex.MinRequestInterval.Duration(), int64(4*time.Second); got != want {
+		t.Fatalf("ProviderConfig.Codex.MinRequestInterval = %v, want %v (explicit value preserved)", got, want)
 	}
 }
 

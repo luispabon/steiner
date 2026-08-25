@@ -9,7 +9,7 @@ Codex Responses requests send three affinity headers to route requests to the sa
 - `thread-id`: steiner's per-conversation session ID (also set to the same value)
 - `originator`: set to `codex_cli_rs` to identify steiner clients
 
-These headers, derived from a stable session key (`prompt_cache_key`), enable server-side session affinity: traffic from the same conversation stays on one cache shard instead of being load-balanced across different cache servers. This allows later requests to reuse prior prompt prefixes within a session. **Measured improvement: ~68% → ~89% hit rate on gpt-5.4-mini.**
+These headers, derived from a stable session key (`prompt_cache_key`), enable server-side session affinity: traffic from the same conversation stays on one cache shard instead of being load-balanced across different cache servers. This allows later requests to reuse prior prompt prefixes within a session. **Measured improvement: ~68% → ~89% hit rate on gpt-5.4-mini.** This improvement is still valid — see [Superseded claims](#superseded-claims-that-did-not-reproduce) below for distinction from later claims that did not reproduce.
 
 The `prompt_cache_key` field alone (without the affinity headers) was not sufficient to achieve the improvement; the headers are required for the Codex backend to route correctly. The headers are set in `buildResponsesHTTPRequest` (`internal/provider/codex_responses.go`), keyed from the same stable per-conversation ID carried on `ChatRequest.PromptCacheKey`.
 
@@ -23,11 +23,48 @@ The failure is intermittent and per-replica, not per-request-shape: a fresh atte
 
 ### Request pacing (min-request-interval)
 
-Cache-shard affinity is best-effort: OpenAI still load-balances a key away from its warm shard when a single key bursts past roughly 15 requests/minute. During rapid agentic work (e.g. `--exec` runs with many quick turns) steiner naturally sends turns only ~1.5s apart, which is enough to trip that overflow and scatter later turns onto cold shards. To keep a session on one shard, the Codex provider enforces a minimum gap between consecutive requests (`codex.min_request_interval`, default `4s`, `0` to disable). It is a no-op for interactive use — think-time between turns already exceeds the interval — and only paces bursts. Adding the throttle on top of the affinity headers moved the measured hit rate from ~0.78 to ~0.89. See `rateLimit` in `internal/provider/codex_responses.go` and the config field in [configuration.md](configuration.md).
+The `codex.min_request_interval` field allows optional rate limiting between consecutive Codex requests and defaults to `0` (disabled). When set to a positive duration (e.g. `4s`), it enforces a minimum gap between requests and serialises them — on a 60-turn run, a 4s interval adds roughly 4 minutes of wall-clock time. It only affects bursts; it is a no-op for interactive use where think-time between turns already far exceeds any sensible interval.
 
-### WebSocket transport (default)
+Earlier documentation claimed that pacing reduced cold-shard overflow, improving hit rate from ~0.78 → ~0.89. This was disproven on 2026-08-25 (see [Superseded claims](#superseded-claims-that-did-not-reproduce) below). Set this field based on your own preferences, not on cache-hit assumptions.
 
-Codex now defaults to a WebSocket transport (`codex.transport: auto`, see [configuration.md](configuration.md#codex-sub-block)) instead of the HTTP-only path described above. A WebSocket connection is pinned to one cache shard for its entire lifetime, giving deterministic cache-shard stickiness without relying on affinity headers or request pacing to avoid overflow — targeting a ~0.95 hit rate, versus the ~0.89 ceiling the HTTP-only affinity-header/pacing work above reached. If the WebSocket connection can't be established, Codex automatically falls back to the HTTP path (with a visible conversation diagnostic), so the affinity-header and pacing behavior documented above remains in effect as a fallback. `/cache-stats` remains the tool to verify actual hit rate per session regardless of which transport is in effect.
+### Transport selection
+
+Codex supports two transports: HTTP (default, `codex.transport: http`) and WebSocket (`codex.transport: websocket`). HTTP is now the default.
+
+The WebSocket transport was originally designed to provide cache-shard stickiness by pinning a connection for its lifetime, but measured testing on 2026-08-25 disproved this benefit (see [Superseded claims](#superseded-claims-that-did-not-reproduce) below). WebSocket remains available as an explicit opt-in for users who prefer it for other reasons, but it has no measurable cache advantage over HTTP with affinity headers. It has no HTTP fallback: because the transport is chosen explicitly, a WebSocket failure surfaces as an error rather than silently degrading to a transport the user did not ask for. Whether to remove it entirely is tracked for v3.0.0 in [issue #567](https://github.com/luispabon/steiner/issues/567), which carries the full measurements.
+
+`/cache-stats` remains the tool to verify actual hit rate per session regardless of which transport is in effect.
+
+### Superseded: claims that did not reproduce (2026-08-25)
+
+Two claims about cache improvement mechanisms were re-measured on 2026-08-25 and did not hold:
+
+**A. Request pacing does not improve cache hits.** Earlier documentation claimed that a 4-second minimum interval prevented cold-shard overflow and improved hit rate from ~0.78 → ~0.89. Re-testing with sustained request rates (each arm given its own `prompt_cache_key`) found:
+- Fast arm (1.5s gap): 35 requests sustained over 1m01s at 34.2 req/min, 85.4% hit rate, zero cold requests.
+- Paced arm (4s gap): 35 requests sustained over 2m23s at 14.7 req/min, 83.0% hit rate, one cold request (#5).
+
+The burst arm exceeded the claimed 15 req/min overflow threshold for a full minute with zero cold requests.
+
+A follow-up soak added the two conditions that sweep did not cover — a prefix that grows every turn, and genuine concurrency on one cache key:
+
+| Arm | Sustained rate | n | Hit rate | Cold requests |
+|---|---|---|---|---|
+| burst, growing prefix | 38.5 req/min | 30 | 88.9% | 0 |
+| concurrent, 3 in flight | 137.2 req/min | 30 | 85.5% | 0 |
+
+137 req/min is roughly nine times the threshold the claim named, on a single key, and still produced no cold request. Across four independent unpaced arms spanning 34–137 req/min, with fixed prefixes, growing prefixes and concurrency, not one cold request appeared. Pacing cannot improve on zero.
+
+The paced control was measured twice, the second time in isolation to rule out arm ordering, and degraded reproducibly both times: 20/30 and 22/30 requests completed, the rest lost to 120s read-body timeouts, with one cold request each (at #3 and #5 — early, where the claim predicts *later* turns degrade). Successful requests ran at normal speed (~1.3s), so the arm's 17–21 minute duration is almost entirely the timed-out requests. The most likely explanation is exposure rather than causation: pacing stretches the same 30 requests from ~47 seconds to ~17 minutes, giving transient server-side failures roughly twenty times the window to land in. That is a hypothesis from two runs, not a finding, and the timeout mechanism itself is unexplained. It is recorded here because it is the opposite of what the pacing claim predicts, not as evidence that pacing is harmful. The single cold request in the entire sweep occurred in the paced arm. The earlier ~0.78 → ~0.89 measurement was most likely an aggregate-session artifact: aggregate hit rate is dominated by cold-turn *count*, not per-turn behaviour, and pacing changes a run's wall-clock duration and where compaction lands — this cannot be re-checked without the original harness.
+
+**B. WebSocket transport gives no cache benefit.** Earlier documentation claimed a held-open WebSocket connection provides deterministic shard stickiness targeting ~0.95 hit rate versus HTTP's ~0.89 ceiling. Re-testing found:
+- Codex's prompt cache expires on idle at ~5 minutes on **both** transports (survives 4 min, gone by 5). A held-open connection cannot keep a prefix alive, so the stickiness premise is void.
+- Warm-turn round-trip: WebSocket median 1515ms vs HTTP median 1402ms (n=8 per arm) — no detectable difference, well within noise.
+- TCP+TLS handshake cost: median 14ms (max 35ms) per request; pooled connection costs ~0ms, so the ~14ms gain only applies in the 5-minute window between HTTP's 90s pool expiry and the cache TTL, a narrow and rarely-hit window.
+- OpenAI labels its own Codex WebSocket transport experimental.
+
+**C. Warm turn cache read rate is ~95.2%, which is the ceiling.** A session aggregating ~87% hit rate is a weighted mix of ~95% warm turns (where cache is available) and ~0% cold turns (where it is not). The only lever on aggregate hit rate is the *number of cold turns*, not per-turn behaviour. This refocuses what cache-hit-rate metrics can and cannot be improved by.
+
+**Affinity headers are still endorsed:** The ~68% → ~89% improvement from session-affinity headers is unchanged and stands — it came from a prior test with real before/after measurement and has not been re-tested. It is preserved here for clarity that the refutations above do not invalidate it.
 
 ### Non-streaming fallback fix
 
@@ -170,6 +207,56 @@ The `/cache-stats` slash command (in interactive mode) opens a read-only overlay
   - Cached / Total: formatted as "X / Y" where X is cache-read tokens and Y is total input tokens, or omitted if no data.
 - **No-data state**: When no observations exist for a window, the table shows a message like "No cache data in the last hour".
 - **Controls**: Scroll with ↑↓, close with esc (reuses standard report-overlay controls).
+
+### Per-turn usage telemetry (headless/batch runs)
+
+The TUI `/cache-stats` overlay is interactive only and unavailable in headless (`--exec`) runs. To enable per-turn usage reporting for headless runs and batch automation, set the `STEINER_USAGE_TELEMETRY` environment variable to a file path. Steiner will append one JSON line per usage-bearing model response and per WebSocket connection event.
+
+**Recording is off unless `STEINER_USAGE_TELEMETRY` is set.** If the path cannot be opened, telemetry is silently disabled rather than failing the run, since it is diagnostic only. Steiner never reads the file back.
+
+**Model response lines** (`kind: "usage"`):
+
+```json
+{"kind":"usage","ts":"2026-08-25T14:23:45.123456789Z","run_id":"batch-job","seq":12,"source":"parent","provider_alias":"codex","provider_type":"codex","backend_model_id":"gpt-5.6-luna","prompt_tokens":5695,"cache_read_tokens":4864,"cache_create_tokens":0,"completion_tokens":120}
+```
+
+Fields:
+- `kind` — `"usage"` for model responses.
+- `ts` — RFC 3339 UTC timestamp with nanosecond precision.
+- `run_id` — value of `STEINER_USAGE_TELEMETRY_RUN` environment variable; omitted when unset.
+- `seq` — monotonic per-process sequence number, so lines order correctly even when timestamps tie.
+- `source` — one of `"parent"`, `"sub_agent"`, `"advisor"`, `"unknown"`: which agent made the call.
+- `provider_alias`, `provider_type`, `backend_model_id` — provider and model identity.
+- `prompt_tokens` — the provider's raw prompt-token count, **which INCLUDES any cached portion**. To calculate uncached input for a hit-rate denominator, subtract `cache_read_tokens` and `cache_create_tokens` (see [The cache hit rate metric](#the-cache-hit-rate-metric) for details on why this matters).
+- `cache_read_tokens`, `cache_create_tokens`, `completion_tokens` — token counts from the response.
+
+**WebSocket connection events** (`kind: "ws"`, Codex only):
+
+When the Codex WebSocket transport is in use, connection-lifecycle events are written to the same file:
+
+```json
+{"kind":"ws","ts":"2026-08-25T14:24:15.987654321Z","run_id":"batch-job","event":"reconnect","reason":"request: read response: EOF","cache_key":"key-abc123"}
+```
+
+Fields:
+- `kind` — `"ws"` for WebSocket events.
+- `ts` — RFC 3339 UTC timestamp with nanosecond precision.
+- `run_id` — value of `STEINER_USAGE_TELEMETRY_RUN`; omitted when unset.
+- `event` — `"dial"` (new connection) or `"reconnect"` (connection re-established after loss).
+- `reason` — optional; when present, describes why the reconnect occurred (e.g. error message).
+- `cache_key` — optional; the Codex cache key in use, if available.
+
+These events make otherwise-silent reconnects observable and allow aligning connection lifecycle against cache-read collapse on the following turn.
+
+**Usage example:**
+
+```bash
+export STEINER_USAGE_TELEMETRY=~/.local/state/steiner/telemetry.jsonl
+export STEINER_USAGE_TELEMETRY_RUN="batch-job-2026-08-25"
+steiner --exec < task.txt
+```
+
+Each line is self-contained and appended atomically. The telemetry file is never parsed, aggregated, or modified by steiner; it exists solely for external analysis or integration with monitoring tools.
 
 ## Privacy and data security
 

@@ -222,16 +222,14 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 	if !isCodexWSDispatch(rm) {
 		return newCodexResponses(cfg)
 	}
-	if rm.ProviderConfig.Codex.Transport == config.CodexTransportWebSocket {
-		return newCodexResponsesWSNoFallback(cfg)
-	}
-	return newCodexResponsesWS(cfg) // config.CodexTransportAuto, or "" (unset/zero value)
+	return newCodexResponsesWS(cfg)
 }
 
 // isCodexWSDispatch reports whether rm resolves to a Codex WebSocket
-// transport (Auto, unset, or WebSocket) rather than HTTP. This is the single
-// place defining WS eligibility; buildRuntimeProviderFactory's dispatch and
-// cliRunner.runtimeProvider's caching both consult it.
+// transport (explicit websocket only; anything else, including unset,
+// dispatches to HTTP). This is the single place defining WS eligibility;
+// buildRuntimeProviderFactory's dispatch and cliRunner.runtimeProvider's
+// caching both consult it.
 func isCodexWSDispatch(rm provider.ResolvedModel) bool {
 	providerType := rm.EffectiveProviderType
 	if providerType == "" {
@@ -240,7 +238,7 @@ func isCodexWSDispatch(rm provider.ResolvedModel) bool {
 	if providerType != config.ProviderTypeCodex {
 		return false
 	}
-	return rm.ProviderConfig.Codex.Transport != config.CodexTransportHTTP
+	return rm.ProviderConfig.Codex.Transport == config.CodexTransportWebSocket
 }
 
 func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.ClientConfig {

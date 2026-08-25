@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 )
 
 func TestDefaultSubAgentMaxTurns(t *testing.T) {
@@ -57,5 +58,13 @@ func TestDefaultConfigMCPEnabled(t *testing.T) {
 	cfg := defaultConfig()
 	if !cfg.MCP.Enabled {
 		t.Errorf("DefaultConfig().MCP.Enabled = false, want true")
+	}
+}
+
+func TestDefaultLimitsModelCallTimeout(t *testing.T) {
+	cfg := defaultConfig()
+	wantNanos := (10 * time.Minute).Nanoseconds()
+	if cfg.Limits.ModelCallTimeout.Duration() != wantNanos {
+		t.Errorf("Limits.ModelCallTimeout = %v nanoseconds, want %v", cfg.Limits.ModelCallTimeout.Duration(), wantNanos)
 	}
 }

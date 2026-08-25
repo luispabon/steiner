@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -343,8 +344,9 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		ResolvedModel: setup.resolvedModel,
 		MaxTokens:     &maxTokens,
 		Limits: agent.Limits{
-			MaxTurns:  r.maxTurns,
-			MaxTokens: r.runtime.cfg.Limits.MaxTokens,
+			MaxTurns:         r.maxTurns,
+			MaxTokens:        r.runtime.cfg.Limits.MaxTokens,
+			ModelCallTimeout: time.Duration(r.runtime.cfg.Limits.ModelCallTimeout.Duration()),
 		},
 		CaveHuman:          r.runtime.cfg.CaveHuman,
 		Events:             events,

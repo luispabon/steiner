@@ -297,7 +297,9 @@ See [Advisor](docs/advisor.md) for configuration options and behavior reference.
 
 Token-weighted prompt-cache hit rate, always-on with no configuration. Surfaces in the sidebar (orchestrator-only) and via the `/cache-stats` overlay command (blended across all sources), plus in sub-agent delegation tool boxes (cumulative for the child agent), advisor tool boxes (per call), and per-request summarizer cache rates in compaction banners. Records main agent model calls, sub-agent delegation traffic, and advisor traffic.
 
-See [Cache Stats](docs/cache-stats.md) for the metric definition, storage format, and privacy notes.
+For headless runs, where the `/cache-stats` overlay is unavailable and the stored stats are hour-bucketed aggregates, set `STEINER_USAGE_TELEMETRY` to a file path to append one JSON line per model response with token counts and model identity. Off unless the variable is set, and it records no prompt or completion content.
+
+See [Cache Stats](docs/cache-stats.md) for the metric definition, storage format, telemetry schema, and privacy notes.
 
 ### Oneshot mode
 

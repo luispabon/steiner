@@ -18,6 +18,9 @@ func applyLimitsPatch(dst *LimitsConfig, patch *limitsPatch) {
 			dst.ToolTimeouts[name] = timeout
 		}
 	}
+	if patch.ModelCallTimeout != nil {
+		dst.ModelCallTimeout = *patch.ModelCallTimeout
+	}
 	if patch.ToolOutputMaxBytes != nil {
 		dst.ToolOutputMaxBytes = *patch.ToolOutputMaxBytes
 	}

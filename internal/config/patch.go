@@ -116,6 +116,7 @@ type modelPromptsPatch struct {
 type limitsPatch struct {
 	MaxTurns           *int                 `yaml:"max_turns"`
 	MaxTokens          *int                 `yaml:"max_tokens"`
+	ModelCallTimeout   *Duration            `yaml:"model_call_timeout"`
 	ToolTimeoutDefault *Duration            `yaml:"tool_timeout_default"`
 	ToolTimeouts       *map[string]Duration `yaml:"tool_timeouts"`
 	ToolOutputMaxBytes *int                 `yaml:"tool_output_max_bytes"`

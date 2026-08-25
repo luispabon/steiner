@@ -1509,15 +1509,16 @@ func TestDesktopNotificationsValidation(t *testing.T) {
 
 func TestValidateCodexTransport(t *testing.T) {
 	tests := []struct {
-		name      string
-		transport CodexTransport
-		wantErr   bool
+		name        string
+		transport   CodexTransport
+		wantErr     bool
+		wantErrText string
 	}{
-		{name: "auto is valid", transport: CodexTransportAuto, wantErr: false},
 		{name: "http is valid", transport: CodexTransportHTTP, wantErr: false},
 		{name: "websocket is valid", transport: CodexTransportWebSocket, wantErr: false},
-		{name: "empty string defaults to auto", transport: "", wantErr: false},
-		{name: "invalid transport is rejected", transport: "invalid", wantErr: true},
+		{name: "empty string defaults to http", transport: "", wantErr: false},
+		{name: "invalid transport is rejected", transport: "invalid", wantErr: true, wantErrText: "codex.transport"},
+		{name: "auto is rejected with a removal-specific message", transport: "auto", wantErr: true, wantErrText: "was removed"},
 	}
 
 	for _, tt := range tests {
@@ -1534,8 +1535,8 @@ func TestValidateCodexTransport(t *testing.T) {
 				if err == nil {
 					t.Fatal("validate() error = nil, want error")
 				}
-				if !strings.Contains(err.Error(), "codex.transport") {
-					t.Fatalf("validate() error = %q, want substring containing 'codex.transport'", err.Error())
+				if !strings.Contains(err.Error(), tt.wantErrText) {
+					t.Fatalf("validate() error = %q, want substring containing %q", err.Error(), tt.wantErrText)
 				}
 			} else if err != nil {
 				t.Fatalf("validate() error = %v, want nil", err)
