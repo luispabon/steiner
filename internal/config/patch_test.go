@@ -13,6 +13,10 @@ func modelTransportTypePtr(v ModelTransportType) *ModelTransportType {
 	return &v
 }
 
+func codexTransportPtr(v CodexTransport) *CodexTransport {
+	return &v
+}
+
 func stringAnyMapPtr(v map[string]any) *map[string]any {
 	return &v
 }
@@ -559,6 +563,18 @@ func TestApplyCodexPatch(t *testing.T) {
 			patch:   codexPatch{},
 			want:    CodexConfig{MinRequestInterval: interval4s},
 		},
+		{
+			name:    "sets transport",
+			initial: CodexConfig{Transport: CodexTransportAuto},
+			patch:   codexPatch{Transport: codexTransportPtr(CodexTransportWebSocket)},
+			want:    CodexConfig{Transport: CodexTransportWebSocket},
+		},
+		{
+			name:    "nil transport leaves value untouched",
+			initial: CodexConfig{Transport: CodexTransportHTTP},
+			patch:   codexPatch{},
+			want:    CodexConfig{Transport: CodexTransportHTTP},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -613,6 +629,26 @@ func TestApplyProviderPatchWithCodex(t *testing.T) {
 				Type: ProviderTypeCodex,
 				Codex: CodexConfig{
 					MinRequestInterval: interval4s,
+				},
+			},
+		},
+		{
+			name: "applies codex transport patch",
+			initial: ProviderConfig{
+				Type: ProviderTypeCodex,
+				Codex: CodexConfig{
+					Transport: CodexTransportAuto,
+				},
+			},
+			patch: providerPatch{
+				Codex: &codexPatch{
+					Transport: codexTransportPtr(CodexTransportWebSocket),
+				},
+			},
+			want: ProviderConfig{
+				Type: ProviderTypeCodex,
+				Codex: CodexConfig{
+					Transport: CodexTransportWebSocket,
 				},
 			},
 		},

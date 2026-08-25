@@ -226,3 +226,89 @@ func TestFormatCacheStatsReportMultipleWindows(t *testing.T) {
 		t.Fatalf("report should contain model name 'llama2'")
 	}
 }
+
+func TestFormatCacheStatsReportSessionWithData(t *testing.T) {
+	// Not parallel: usagestats.New persists to a store file derived from
+	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if
+	// combined with t.Parallel().
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	now := time.Unix(5000, 0)
+	rec := usagestats.New(func() time.Time { return now })
+
+	// Record one observation in session
+	rec.Record(usagestats.Observation{
+		ProviderAlias:     "local",
+		ProviderType:      "ollama",
+		BackendModelID:    "llama2",
+		PromptTokens:      100,
+		CompletionTokens:  20,
+		CacheReadTokens:   40,
+		CacheCreateTokens: 0,
+		At:                now,
+	})
+
+	got := formatCacheStatsReport(rec)
+
+	// Should contain "This session" header
+	if !strings.Contains(got, "### This session") {
+		t.Fatalf("report = %q, want to contain '### This session'", got)
+	}
+
+	// Session should show hit rate (40 / (60 + 40 + 0) = 40%)
+	if !strings.Contains(got, "40.0%") {
+		t.Fatalf("report = %q, want to contain session hit rate '40.0%%'", got)
+	}
+
+	// Session should show cached/total (40 / 100)
+	if !strings.Contains(got, "40 / 100") {
+		t.Fatalf("report = %q, want to contain session cached/total '40 / 100'", got)
+	}
+}
+
+func TestFormatCacheStatsReportSessionHeaders(t *testing.T) {
+	// Not parallel: usagestats.New persists to a store file derived from
+	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if
+	// combined with t.Parallel().
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	now := time.Unix(7000, 0)
+	rec := usagestats.New(func() time.Time { return now })
+
+	// Record an observation with a high cache hit rate
+	rec.Record(usagestats.Observation{
+		ProviderAlias:     "provider1",
+		ProviderType:      "apitype",
+		BackendModelID:    "model1",
+		PromptTokens:      100,
+		CompletionTokens:  30,
+		CacheReadTokens:   60,
+		CacheCreateTokens: 0,
+		At:                now,
+	})
+
+	got := formatCacheStatsReport(rec)
+
+	// Should contain "This session" header
+	if !strings.Contains(got, "### This session") {
+		t.Fatalf("report = %q, want to contain '### This session'", got)
+	}
+
+	// Session section should show the table
+	if !strings.Contains(got, "| Provider | Model | Hit rate | Cached / Total |") {
+		t.Fatalf("report = %q, want to contain table header in session section", got)
+	}
+
+	// Session should show hit rate (60 / (40 + 60 + 0) = 60%)
+	if !strings.Contains(got, "60.0%") {
+		t.Fatalf("report = %q, want to contain session hit rate '60.0%%'", got)
+	}
+
+	// Session should show cached/total (60 / 100)
+	if !strings.Contains(got, "60 / 100") {
+		t.Fatalf("report = %q, want to contain session cached/total '60 / 100'", got)
+	}
+
+	// Should still contain window headers
+	if !strings.Contains(got, "### Last hour") {
+		t.Fatalf("report = %q, want to contain 'Last hour' header", got)
+	}
+}

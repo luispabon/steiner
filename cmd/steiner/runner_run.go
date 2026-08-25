@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -123,18 +124,125 @@ func (r cliRunner) selectedAlias() string {
 }
 
 func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider, error) {
-	prov := r.runtime.provider
-	if r.runtime.providerFactory != nil {
-		var err error
-		prov, err = r.runtime.providerFactory(rm)
-		if err != nil {
-			return nil, err
+	if r.runtime.providerFactory == nil {
+		if r.runtime.provider == nil {
+			return nil, fmt.Errorf("provider is required")
 		}
+		return r.runtime.provider, nil
+	}
+	if cache := r.runtime.codexWSCache; cache != nil && isCodexWSDispatch(rm) {
+		return r.cachedCodexWSProvider(cache, rm)
+	}
+	prov, err := r.runtime.providerFactory(rm)
+	if err != nil {
+		return nil, err
 	}
 	if prov == nil {
 		return nil, fmt.Errorf("provider is required")
 	}
 	return prov, nil
+}
+
+// cachedCodexWSProvider returns a process-lifetime cached Codex WebSocket
+// provider for rm's (alias, promptCacheKey), building and storing one on a
+// miss. Concurrent misses for the same key are resolved by keeping whichever
+// entry lands first and discarding the other.
+func (r cliRunner) cachedCodexWSProvider(cache *codexWSCache, rm provider.ResolvedModel) (provider.Provider, error) {
+	key := rm.Alias + "|" + r.promptCacheKey()
+
+	cache.mu.Lock()
+	if prov, ok := cache.instances[key]; ok {
+		cache.mu.Unlock()
+		return prov, nil
+	}
+	cache.mu.Unlock()
+
+	built, err := r.runtime.providerFactory(rm)
+	if err != nil {
+		return nil, err
+	}
+	if built == nil {
+		return nil, fmt.Errorf("provider is required")
+	}
+
+	wrapped := &cachedCodexWSProvider{cache: cache, key: key}
+	wrapped.inner = built
+
+	cache.mu.Lock()
+	if existing, ok := cache.instances[key]; ok {
+		cache.mu.Unlock()
+		return existing, nil
+	}
+	cache.instances[key] = wrapped
+	cache.mu.Unlock()
+
+	return wrapped, nil
+}
+
+// cachedCodexWSProvider wraps a cached Codex WebSocket provider instance,
+// evicting itself from the cache when a request fails so the next lookup for
+// this (alias, promptCacheKey) reconstructs from scratch via providerFactory
+// (reloading/refreshing the OAuth token, redialing the socket).
+type cachedCodexWSProvider struct {
+	inner provider.Provider
+	cache *codexWSCache
+	key   string
+}
+
+// isContextCanceledErr reports whether err is a wrapped context.Canceled or
+// context.DeadlineExceeded, which surface from routine cancellations (e.g. a
+// user interrupt) rather than unrecoverable request errors.
+func isContextCanceledErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func (p *cachedCodexWSProvider) evict() {
+	p.cache.mu.Lock()
+	if p.cache.instances[p.key] == p {
+		delete(p.cache.instances, p.key)
+	}
+	p.cache.mu.Unlock()
+}
+
+func (p *cachedCodexWSProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+	resp, err := p.inner.ChatCompletion(ctx, req)
+	if err != nil && !isContextCanceledErr(err) {
+		p.evict()
+	}
+	return resp, err
+}
+
+func (p *cachedCodexWSProvider) StreamChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	chunks, err := p.inner.StreamChatCompletion(ctx, req)
+	if err != nil {
+		if !isContextCanceledErr(err) {
+			p.evict()
+		}
+		return chunks, err
+	}
+	out := make(chan provider.ChatChunk)
+	go func() {
+		defer close(out)
+		evicted := false
+		for chunk := range chunks {
+			if !evicted && chunk.Error != "" {
+				if chunk.OriginalError == nil || !isContextCanceledErr(chunk.OriginalError) {
+					p.evict()
+					evicted = true
+				}
+			}
+			select {
+			case out <- chunk:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
+func (p *cachedCodexWSProvider) SupportsUsageStats() bool {
+	return p.inner.SupportsUsageStats()
 }
 
 func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {

@@ -11,3 +11,4 @@ project_planning/
 .steiner/plans/
 
 .steiner/home/
+internal/provider/testdata/codex_ws_probe_output.jsonl

@@ -120,6 +120,14 @@ func validateProvidersConfig(problems *[]string, providers map[string]ProviderCo
 		if providerNeedsCredential(p.Type) && strings.TrimSpace(p.APIKey) == "" && strings.TrimSpace(p.APIKeyEnv) == "" {
 			*problems = append(*problems, fmt.Sprintf("providers[%q] must set api_key or api_key_env", name))
 		}
+		if p.Type == ProviderTypeCodex {
+			switch p.Codex.Transport {
+			case "", CodexTransportAuto, CodexTransportHTTP, CodexTransportWebSocket:
+				// valid
+			default:
+				*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q is not supported", name, p.Codex.Transport))
+			}
+		}
 	}
 }
 

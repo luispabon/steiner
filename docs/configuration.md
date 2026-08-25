@@ -237,6 +237,7 @@ Codex-specific configuration. Applies only when `type: codex`.
 | Field                 | Type          | Default | Description |
 |-----------------------|---------------|---------|-------------|
 | `min_request_interval` | duration string | `"4s"`  | Minimum interval enforced between consecutive Codex requests. Set to `0` to disable rate limiting. Steiner bursts requests during rapid agentic operations (e.g., `--exec` with many turns), and Codex limits cache reuse when too many requests from the same key land on cold cache shards. This interval paces rapid bursts to reduce cold-shard cache misses, improving hit rates for `--exec` runs. Has no effect on interactive use since think-time naturally exceeds the interval. |
+| `transport` | string | `"auto"` | Transport used for Codex requests. `auto` (default): tries the WebSocket transport first for deterministic cache-shard affinity, automatically falling back to HTTP with a visible conversation diagnostic if the WebSocket connection can't be established. `http`: force HTTP-only, skipping WebSocket entirely. `websocket`: force WebSocket-only with no automatic fallback — errors on failure instead of silently degrading, useful for debugging the WebSocket path directly. |
 
 ---
 

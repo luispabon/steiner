@@ -44,9 +44,22 @@ const (
 	ProviderTypeCodex ProviderType = "codex"
 )
 
+// CodexTransport specifies the transport mode for Codex requests.
+type CodexTransport string
+
+const (
+	// CodexTransportAuto uses WebSocket with automatic HTTP fallback.
+	CodexTransportAuto CodexTransport = "auto"
+	// CodexTransportHTTP forces HTTP-only requests.
+	CodexTransportHTTP CodexTransport = "http"
+	// CodexTransportWebSocket forces WebSocket requests, errors instead of falling back.
+	CodexTransportWebSocket CodexTransport = "websocket"
+)
+
 // CodexConfig configures Codex OAuth provider-specific behavior.
 type CodexConfig struct {
-	MinRequestInterval Duration `yaml:"min_request_interval"`
+	MinRequestInterval Duration       `yaml:"min_request_interval"`
+	Transport          CodexTransport `yaml:"transport"`
 }
 
 // ProviderConfig configures a model provider.

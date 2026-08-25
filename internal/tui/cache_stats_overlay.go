@@ -11,15 +11,41 @@ import (
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
-// formatCacheStatsReport renders a markdown cache-hit-rate report with one
-// section per fixed window (last hour / 24h / 7d). Returns a "no data yet"
-// message when the recorder is nil or every window is empty.
+// formatCacheStatsReport renders a markdown cache-hit-rate report with a
+// "This session" section, followed by one section per fixed window
+// (last hour / 24h / 7d). Returns a "no data yet" message when the recorder is
+// nil or all sections are empty.
 func formatCacheStatsReport(rec *usagestats.Recorder) string {
 	if rec == nil {
 		return "No cache statistics recorded yet."
 	}
 
 	var sb strings.Builder
+
+	// Add "This session" section
+	sessionReport := rec.SessionReport()
+	fmt.Fprintf(&sb, "### This session\n\n")
+
+	if sessionReport.TotalInputTokens == 0 {
+		sb.WriteString("_No cache-capable calls in this session._\n")
+	} else {
+		sb.WriteString("| Provider | Model | Hit rate | Cached / Total |\n")
+		sb.WriteString("|----------|-------|----------|----------------|\n")
+
+		hitRateStr := "—"
+		if rate, ok := sessionReport.HitRate(); ok {
+			hitRateStr = fmt.Sprintf("%.1f%%", rate*100)
+		}
+
+		fmt.Fprintf(&sb, "| — | — | %s | %d / %d |\n",
+			hitRateStr,
+			sessionReport.CacheReadTokens,
+			sessionReport.TotalInputTokens,
+		)
+	}
+
+	sb.WriteString("\n")
+
 	windows := []struct {
 		label    string
 		duration time.Duration
@@ -72,7 +98,7 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 		sb.WriteString("\n")
 	}
 
-	if allEmpty {
+	if allEmpty && sessionReport.TotalInputTokens == 0 {
 		return "No cache statistics recorded yet."
 	}
 

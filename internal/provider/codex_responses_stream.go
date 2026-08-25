@@ -169,6 +169,10 @@ func flushResponsesStreamState(emit func(ChatChunk) error, state responsesStream
 	if !state.sawContent && !state.sawToolCall && !state.sawThinking && state.finishReason == "" && state.usage == nil {
 		return nil
 	}
+	return emit(responsesStreamStateToChatChunk(state))
+}
+
+func responsesStreamStateToChatChunk(state responsesStreamState) ChatChunk {
 	message := Message{Role: MessageRoleAssistant}
 	if state.sawContent {
 		message.Content = state.content.String()
@@ -184,10 +188,10 @@ func flushResponsesStreamState(emit func(ChatChunk) error, state responsesStream
 	if state.sawToolCall {
 		message.ToolCalls = state.toolCalls
 	}
-	return emit(ChatChunk{
+	return ChatChunk{
 		Delta:        message,
 		Usage:        state.usage,
 		Done:         true,
 		FinishReason: state.finishReason,
-	})
+	}
 }

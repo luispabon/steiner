@@ -1506,3 +1506,40 @@ func TestDesktopNotificationsValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateCodexTransport(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport CodexTransport
+		wantErr   bool
+	}{
+		{name: "auto is valid", transport: CodexTransportAuto, wantErr: false},
+		{name: "http is valid", transport: CodexTransportHTTP, wantErr: false},
+		{name: "websocket is valid", transport: CodexTransportWebSocket, wantErr: false},
+		{name: "empty string defaults to auto", transport: "", wantErr: false},
+		{name: "invalid transport is rejected", transport: "invalid", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBase()
+			cfg.Providers["codex"] = ProviderConfig{
+				Type: ProviderTypeCodex,
+				Codex: CodexConfig{
+					Transport: tt.transport,
+				},
+			}
+			err := validate(cfg)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("validate() error = nil, want error")
+				}
+				if !strings.Contains(err.Error(), "codex.transport") {
+					t.Fatalf("validate() error = %q, want substring containing 'codex.transport'", err.Error())
+				}
+			} else if err != nil {
+				t.Fatalf("validate() error = %v, want nil", err)
+			}
+		})
+	}
+}

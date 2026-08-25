@@ -159,6 +159,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		modelCatalogEndpoints:   modelCatalogEndpoints,
 		modelPopularity:         modelPopularity,
 		modelEntriesUpdates:     make(chan []tui.ModelEntry, max(1, len(modelCatalogEndpoints))),
+		codexWSCache:            &codexWSCache{instances: make(map[string]provider.Provider)},
 	}, nil
 }
 
@@ -218,7 +219,28 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 		cfg.Headers = cloneStringMap(cfg.Headers)
 		cfg.Headers["ChatGPT-Account-ID"] = accountID
 	}
-	return newCodexResponses(cfg)
+	if !isCodexWSDispatch(rm) {
+		return newCodexResponses(cfg)
+	}
+	if rm.ProviderConfig.Codex.Transport == config.CodexTransportWebSocket {
+		return newCodexResponsesWSNoFallback(cfg)
+	}
+	return newCodexResponsesWS(cfg) // config.CodexTransportAuto, or "" (unset/zero value)
+}
+
+// isCodexWSDispatch reports whether rm resolves to a Codex WebSocket
+// transport (Auto, unset, or WebSocket) rather than HTTP. This is the single
+// place defining WS eligibility; buildRuntimeProviderFactory's dispatch and
+// cliRunner.runtimeProvider's caching both consult it.
+func isCodexWSDispatch(rm provider.ResolvedModel) bool {
+	providerType := rm.EffectiveProviderType
+	if providerType == "" {
+		providerType = rm.ProviderConfig.Type
+	}
+	if providerType != config.ProviderTypeCodex {
+		return false
+	}
+	return rm.ProviderConfig.Codex.Transport != config.CodexTransportHTTP
 }
 
 func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.ClientConfig {
