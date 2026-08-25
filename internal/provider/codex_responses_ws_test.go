@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -70,7 +71,7 @@ func TestCodexWSFrameStructure(t *testing.T) {
 				if instructions, ok := frameOut["instructions"]; ok {
 					if metaStr, ok := instructions.(string); ok {
 						if tt.expectClientMetadata && tt.turnState != "" {
-							if contains(metaStr, tt.turnState) {
+							if strings.Contains(metaStr, tt.turnState) {
 								t.Errorf("turn-state leaked into instructions: %s", metaStr)
 							}
 						}
@@ -80,13 +81,56 @@ func TestCodexWSFrameStructure(t *testing.T) {
 				if inputRaw, ok := frameOut["input"]; ok {
 					inputJSON, _ := json.Marshal(inputRaw)
 					if tt.expectClientMetadata && tt.turnState != "" {
-						if contains(string(inputJSON), tt.turnState) {
+						if strings.Contains(string(inputJSON), tt.turnState) {
 							t.Errorf("turn-state leaked into input: %s", string(inputJSON))
 						}
 					}
 				}
 			}
 		})
+	}
+}
+
+func TestCodexWSFramePrecedence(t *testing.T) {
+	request := ChatRequest{
+		Model:    "request-model",
+		Messages: []Message{{Role: MessageRoleUser, Content: "test"}},
+		Params: map[string]any{
+			"type":            "params-type",
+			"model":           "params-model",
+			"client_metadata": map[string]any{"source": "params"},
+		},
+		ExtraParams: map[string]any{
+			"type":            "extra-type",
+			"model":           "extra-model",
+			"client_metadata": map[string]any{"source": "extra"},
+		},
+	}
+
+	frameBytes, err := buildWSRequestFrame(request, "frame-model", "turn-state")
+	if err != nil {
+		t.Fatalf("buildWSRequestFrame: %v", err)
+	}
+
+	var frame map[string]any
+	if err := json.Unmarshal(frameBytes, &frame); err != nil {
+		t.Fatalf("unmarshal frame: %v", err)
+	}
+	if got, want := frame["type"], "response.create"; got != want {
+		t.Errorf("type: got %v, want %v", got, want)
+	}
+	if got, want := frame["model"], "frame-model"; got != want {
+		t.Errorf("model: got %v, want %v", got, want)
+	}
+	metadata, ok := frame["client_metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("client_metadata = %#v, want map[string]any", frame["client_metadata"])
+	}
+	if got, want := metadata[WSClientMetadataTurnStateKey], "turn-state"; got != want {
+		t.Errorf("client_metadata.turn_state: got %v, want %v", got, want)
+	}
+	if _, ok := metadata["source"]; ok {
+		t.Errorf("client_metadata retained extra value: %#v", metadata)
 	}
 }
 
@@ -157,7 +201,7 @@ func TestCodexWSNoClientMetadataAcrossSequentialCalls(t *testing.T) {
 		})
 		cancel()
 
-		if err != nil && !contains(err.Error(), "completed without a final chunk") {
+		if err != nil && !strings.Contains(err.Error(), "completed without a final chunk") {
 			t.Logf("call %d completed with error: %v (this is expected for mock)", callNum, err)
 		}
 	}
@@ -243,7 +287,7 @@ func TestCodexWSEchoTurnStateNotCachedAcrossCalls(t *testing.T) {
 		})
 		cancel()
 
-		if err != nil && !contains(err.Error(), "completed without a final chunk") {
+		if err != nil && !strings.Contains(err.Error(), "completed without a final chunk") {
 			t.Logf("call %d: %v", callNum, err)
 		}
 	}
@@ -292,7 +336,7 @@ func TestCodexWSFallbackOnDialFailure(t *testing.T) {
 	sawDiagnostic := false
 
 	for chunk := range stream {
-		if chunk.Diagnostic != "" && contains(chunk.Diagnostic, "Codex WebSocket unavailable") {
+		if chunk.Diagnostic != "" && strings.Contains(chunk.Diagnostic, "Codex WebSocket unavailable") {
 			sawDiagnostic = true
 		}
 	}
@@ -604,19 +648,4 @@ func TestCodexWSDialCarriesCacheAffinityHeaders(t *testing.T) {
 	if wsProvider.dialCacheKey != "cache-key-one" {
 		t.Errorf("dialCacheKey after second call: got %q, want cache-key-one (first-dial-wins)", wsProvider.dialCacheKey)
 	}
-}
-
-func contains(haystack, needle string) bool {
-	if len(needle) == 0 {
-		return true
-	}
-	if len(haystack) == 0 {
-		return false
-	}
-	for i := 0; i <= len(haystack)-len(needle); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
 }

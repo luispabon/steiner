@@ -14,7 +14,6 @@ import (
 )
 
 type codexWSProvider struct {
-	baseURL         string
 	apiKey          string
 	headers         map[string]string
 	model           string
@@ -36,7 +35,6 @@ func newCodexResponsesWSWithEcho(cfg ClientConfig, fallbackEnabled, echoTurnStat
 	}
 
 	provider := &codexWSProvider{
-		baseURL:         cfg.BaseURL,
 		apiKey:          cfg.APIKey,
 		headers:         copyHeaders(cfg.Headers),
 		model:           cfg.Model,
@@ -218,26 +216,10 @@ func buildWSRequestFrame(request ChatRequest, model string, turnState string) ([
 	}
 	wire.PromptCacheKey = request.PromptCacheKey
 
-	base, err := json.Marshal(wire)
-	if err != nil {
-		return nil, fmt.Errorf("marshal wire: %w", err)
-	}
-
-	var baseMap map[string]any
-	if err := json.Unmarshal(base, &baseMap); err != nil {
-		return nil, fmt.Errorf("unmarshal wire for modification: %w", err)
-	}
-
-	frame := map[string]any{
-		"type":  "response.create",
-		"model": model,
-	}
-
-	for k, v := range baseMap {
-		if k != "model" {
-			frame[k] = v
-		}
-	}
+	frame := responsesRequestMap(wire)
+	delete(frame, "model")
+	frame["type"] = "response.create"
+	frame["model"] = model
 
 	if turnState != "" {
 		frame["client_metadata"] = map[string]any{
@@ -308,9 +290,9 @@ func (p *codexWSProvider) sendRequest(ctx context.Context, request ChatRequest) 
 
 func buildWSHeaders(apiKey string, headers map[string]string, cacheKey string) http.Header {
 	result := http.Header{
-		"OpenAI-Beta":             {WSBetaHeaderValue},
-		"x-codex-installation-id": {"default"},
-		"x-client-request-id":     {generateClientRequestID()},
+		"OpenAI-Beta":           {WSBetaHeaderValue},
+		WSHeaderInstallationID:  {"default"},
+		WSHeaderClientRequestID: {generateClientRequestID()},
 	}
 
 	if strings.TrimSpace(apiKey) != "" {
@@ -358,24 +340,5 @@ func captureWSEventTurnState(event string, dest *string) {
 }
 
 func flushResponsesStreamStateInto(chunk *ChatChunk, state responsesStreamState) {
-	message := Message{Role: MessageRoleAssistant}
-	if state.sawContent {
-		message.Content = state.content.String()
-	}
-	if state.sawThinking {
-		message.ReasoningContent = state.thinking.String()
-	}
-	if state.reasoningID != "" {
-		message.ProviderMetadata = &MessageProviderMetadata{
-			Codex: &CodexMessageMetadata{ReasoningID: state.reasoningID},
-		}
-	}
-	if state.sawToolCall {
-		message.ToolCalls = state.toolCalls
-	}
-
-	chunk.Delta = message
-	chunk.Usage = state.usage
-	chunk.Done = true
-	chunk.FinishReason = state.finishReason
+	*chunk = responsesStreamStateToChatChunk(state)
 }

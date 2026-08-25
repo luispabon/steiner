@@ -27,6 +27,10 @@ type responsesRequest struct {
 // MarshalJSON emits the Codex Responses request body. Every field the backend
 // sees is listed here; see the type comment before adding one.
 func (r responsesRequest) MarshalJSON() ([]byte, error) {
+	return json.Marshal(responsesRequestMap(r))
+}
+
+func responsesRequestMap(r responsesRequest) map[string]any {
 	base := map[string]any{
 		"model": r.Model,
 		"input": r.Input,
@@ -49,7 +53,7 @@ func (r responsesRequest) MarshalJSON() ([]byte, error) {
 	if r.Reasoning != nil {
 		base["reasoning"] = reasoningWirePayload(r.Reasoning)
 	}
-	return json.Marshal(mergeRequestParams(base, r.Params, r.ExtraParams))
+	return mergeRequestParams(base, r.Params, r.ExtraParams)
 }
 
 type responsesItem struct {
