@@ -76,6 +76,16 @@ func stripImagesIfVisionDisabled(vision *bool, messages []provider.Message, mode
 	return stripped
 }
 
+// newAPIRequestEvent builds the API request event for a turn, marking it as a
+// compaction request when isCompaction is set so context reports can label it.
+func newAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, isCompaction bool) output.Event {
+	event := output.NewAPIRequestEvent(model, messages, tools, maxTokens, blocks, budget)
+	if isCompaction {
+		event = output.WithAPIRequestKind(event, output.APIRequestKindCompaction)
+	}
+	return event
+}
+
 func executeChatRequest(
 	ctx context.Context,
 	prov provider.Provider,
@@ -107,11 +117,7 @@ func executeChatRequest(
 			return provider.ChatResponse{}, time.Time{}, fmt.Errorf("request exceeds context window: %s", fit.String())
 		}
 	}
-	event := output.NewAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget)
-	if isCompaction {
-		event = output.WithAPIRequestKind(event, output.APIRequestKindCompaction)
-	}
-	emitEvent(events, event)
+	emitEvent(events, newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, isCompaction))
 
 	// When streaming is not preferred, try ChatCompletion first and only fall
 	// back to streaming if it is unavailable.
