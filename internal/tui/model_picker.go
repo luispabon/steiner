@@ -2,10 +2,12 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/sahilm/fuzzy"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -15,6 +17,7 @@ type modelPickerOverlay struct {
 	query        string
 	allEntries   []ModelEntry
 	candidates   []ModelEntry
+	matchIndexes [][]int
 	selection    int
 	scrollOffset int
 	currentModel string
@@ -61,6 +64,7 @@ func (m modelPickerOverlay) open(entries []ModelEntry, current string, title str
 	m.scrollOffset = 0
 	m.allEntries = cloneModelEntries(entries)
 	m.candidates = cloneModelEntries(entries)
+	m.matchIndexes = nil
 	m.currentModel = current
 	m.title = strings.TrimSpace(title)
 	m.mode = mode
@@ -70,7 +74,7 @@ func (m modelPickerOverlay) open(entries []ModelEntry, current string, title str
 func (m modelPickerOverlay) ReplaceEntries(entries []ModelEntry) modelPickerOverlay {
 	selectedRef := m.SelectedRef()
 	m.allEntries = cloneModelEntries(entries)
-	m.candidates = filterModelEntries(m.allEntries, m.query)
+	m.candidates, m.matchIndexes = fuzzyMatchModelEntries(m.allEntries, m.query)
 	m.selection = 0
 	m.scrollOffset = 0
 	for i, entry := range m.candidates {
@@ -96,7 +100,9 @@ func (m modelPickerOverlay) Update(msg tea.Msg) (modelPickerOverlay, tea.Cmd) {
 		return m, nil
 	}
 	switch updateSearchPicker(&m.query, &m.selection, &m.scrollOffset, &m.candidates, m.allEntries, msg, func(query string, entries []ModelEntry) []ModelEntry {
-		return filterModelEntries(entries, query)
+		results, indexes := fuzzyMatchModelEntries(entries, query)
+		m.matchIndexes = indexes
+		return results
 	}) {
 	case searchPickerClosed:
 		return m.Close(), nil
@@ -162,12 +168,15 @@ func (m modelPickerOverlay) render(innerW int) string {
 		if name == "" {
 			name = entry.Ref
 		}
-		var row string
-		if entry.Current || entry.Ref == m.currentModel {
-			row = currentStyle.Render(name)
-		} else {
-			row = nameStyle.Render(name)
+		matchedIndexes := []int(nil)
+		if i < len(m.matchIndexes) {
+			matchedIndexes = m.matchIndexes[i]
 		}
+		baseStyle := nameStyle
+		if entry.Current || entry.Ref == m.currentModel {
+			baseStyle = currentStyle
+		}
+		row := renderMatchedText(name, matchedIndexes, baseStyle, m.styles.AccentColor)
 		if i == m.selection {
 			lines = append(lines, m.styles.PaletteItemActive.
 				Width(innerW).
@@ -267,9 +276,50 @@ func (m modelPickerOverlay) headerPrefix() string {
 	return m.styles.Accent.Render("/model")
 }
 
-func filterModelEntries(entries []ModelEntry, query string) []ModelEntry {
-	return filterSearchPickerEntries(entries, query, func(entry ModelEntry, loweredQuery string) bool {
-		return strings.Contains(strings.ToLower(entry.Display), loweredQuery) ||
-			strings.Contains(strings.ToLower(entry.Ref), loweredQuery)
+func fuzzyMatchModelEntries(entries []ModelEntry, query string) ([]ModelEntry, [][]int) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return cloneModelEntries(entries), make([][]int, len(entries))
+	}
+
+	type scoredMatch struct {
+		entry          ModelEntry
+		matchedIndexes []int
+		score          int
+	}
+
+	lowerQ := strings.ToLower(q)
+	scored := make([]scoredMatch, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Display
+		if name == "" {
+			name = entry.Ref
+		}
+		if name == "" {
+			continue
+		}
+
+		matches := fuzzy.Find(q, []string{name})
+		if len(matches) == 0 {
+			continue
+		}
+		match := matches[0]
+		scored = append(scored, scoredMatch{
+			entry:          entry,
+			matchedIndexes: append([]int(nil), match.MatchedIndexes...),
+			score:          scoreStringMatch(name, lowerQ, match.MatchedIndexes),
+		})
+	}
+
+	sort.SliceStable(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
 	})
+
+	results := make([]ModelEntry, 0, len(scored))
+	indexes := make([][]int, 0, len(scored))
+	for _, match := range scored {
+		results = append(results, match.entry)
+		indexes = append(indexes, match.matchedIndexes)
+	}
+	return results, indexes
 }

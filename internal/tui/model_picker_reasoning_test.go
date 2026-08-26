@@ -16,11 +16,107 @@ func TestModelPickerEntriesFilterDisplayAndRef(t *testing.T) {
 		{Ref: "provider/alpha", Display: "Alpha model"},
 		{Ref: "beta", Display: "Provider model"},
 	}
-	if got := filterModelEntries(entries, "alpha"); len(got) != 1 || got[0].Ref != "provider/alpha" {
-		t.Fatalf("display filter = %+v, want alpha entry", got)
+
+	got, indexes := fuzzyMatchModelEntries(entries, "alpha")
+	if len(got) != 1 || got[0].Ref != "provider/alpha" || len(indexes) != 1 || len(indexes[0]) == 0 {
+		t.Fatalf("alpha match = %+v, indexes = %+v, want Alpha model entry and indexes", got, indexes)
 	}
-	if got := filterModelEntries(entries, "beta"); len(got) != 1 || got[0].Ref != "beta" {
-		t.Fatalf("ref filter = %+v, want beta entry", got)
+	got, indexes = fuzzyMatchModelEntries(entries, "beta")
+	if len(got) != 0 || len(indexes) != 0 {
+		t.Fatalf("beta match = %+v, indexes = %+v, want no display match", got, indexes)
+	}
+	got, indexes = fuzzyMatchModelEntries(entries, "provider")
+	if len(got) != 1 || got[0].Ref != "beta" || len(indexes) != 1 || len(indexes[0]) == 0 {
+		t.Fatalf("provider match = %+v, indexes = %+v, want Provider model entry and indexes", got, indexes)
+	}
+}
+
+func TestFuzzyMatchModelEntries(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		entries []ModelEntry
+		query   string
+		want    []string
+	}{
+		{
+			name: "subsequence",
+			entries: []ModelEntry{
+				{Ref: "foobar", Display: "foobar"},
+				{Ref: "fuzzy", Display: "fuzzy foo"},
+			},
+			query: "fbr",
+			want:  []string{"foobar"},
+		},
+		{
+			name: "ranking",
+			entries: []ModelEntry{
+				{Ref: "later", Display: "mapple"},
+				{Ref: "first", Display: "apple"},
+			},
+			query: "apple",
+			want:  []string{"first", "later"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, indexes := fuzzyMatchModelEntries(tt.entries, tt.query)
+			if len(got) != len(tt.want) || len(indexes) != len(tt.want) {
+				t.Fatalf("matches = %+v, indexes = %+v, want refs %v", got, indexes, tt.want)
+			}
+			for i, wantRef := range tt.want {
+				if got[i].Ref != wantRef {
+					t.Errorf("match %d ref = %q, want %q", i, got[i].Ref, wantRef)
+				}
+				name := got[i].Display
+				if name == "" {
+					name = got[i].Ref
+				}
+				if len(indexes[i]) == 0 {
+					t.Errorf("match %d indexes are empty", i)
+				}
+				for _, index := range indexes[i] {
+					if index < 0 || index >= len(name) {
+						t.Errorf("match %d index %d outside rendered name %q", i, index, name)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestFuzzyMatchModelEntriesEmptyQuery(t *testing.T) {
+	t.Parallel()
+	entries := []ModelEntry{
+		{Ref: "first", Display: "First"},
+		{Ref: "second", Display: "Second"},
+	}
+	got, indexes := fuzzyMatchModelEntries(entries, "  ")
+	if len(got) != len(entries) || len(indexes) != len(entries) {
+		t.Fatalf("matches = %+v, indexes = %+v, want all entries and indexes", got, indexes)
+	}
+	for i := range entries {
+		if got[i].Ref != entries[i].Ref {
+			t.Errorf("match %d ref = %q, want %q", i, got[i].Ref, entries[i].Ref)
+		}
+		if len(indexes[i]) != 0 {
+			t.Errorf("match %d indexes = %v, want empty", i, indexes[i])
+		}
+	}
+}
+
+func TestFuzzyMatchModelEntriesUsesDisplayOnly(t *testing.T) {
+	t.Parallel()
+	entry := ModelEntry{Ref: "provider/alpha", Display: "Alpha model"}
+	got, indexes := fuzzyMatchModelEntries([]ModelEntry{entry}, "alpha")
+	if len(got) != 1 || got[0].Ref != entry.Ref || got[0].Display != entry.Display || len(indexes) != 1 || len(indexes[0]) == 0 {
+		t.Fatalf("alpha match = %+v, indexes = %+v, want display match", got, indexes)
+	}
+	got, indexes = fuzzyMatchModelEntries([]ModelEntry{entry}, "provider")
+	if len(got) != 0 || len(indexes) != 0 {
+		t.Fatalf("provider match = %+v, indexes = %+v, want no ref match", got, indexes)
 	}
 }
 
@@ -78,7 +174,7 @@ func TestModelPickerAsyncUpdatePreservesQueryAndSelection(t *testing.T) {
 	}
 	// Replace data while keeping selected ref available under the same query.
 	m.modelPicker.query = "e"
-	m.modelPicker.candidates = filterModelEntries(m.modelPicker.allEntries, m.modelPicker.query)
+	m.modelPicker.candidates, _ = fuzzyMatchModelEntries(m.modelPicker.allEntries, m.modelPicker.query)
 	m.modelPicker.selection = 1
 	updates <- []ModelEntry{
 		{Ref: "two", Display: "Updated second"},
