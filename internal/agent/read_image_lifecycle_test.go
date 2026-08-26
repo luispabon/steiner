@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/prompt"
@@ -154,6 +155,75 @@ func TestRunnerReadImageNoVisionSubAgentStripsSafely(t *testing.T) {
 	}
 	if requestHasImages(ToProviderMessages(state.Conversation)) {
 		t.Fatal("final conversation contains raw image data")
+	}
+}
+
+func TestRunnerReadImageScrubsOnModelError(t *testing.T) {
+	providerStub := &fakeProvider{}
+	providerStub.chatFn = func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+		if len(providerStub.requests) == 1 {
+			return provider.ChatResponse{Message: provider.Message{
+				Role:      provider.MessageRoleAssistant,
+				ToolCalls: []provider.ToolCall{{ID: "read-1", Name: "read", Arguments: map[string]any{"path": "image.png"}}},
+			}}, nil
+		}
+		return provider.ChatResponse{}, errors.New("model failed")
+	}
+	executor := &fakeExecutor{execute: func(_ context.Context, name string, _ map[string]any) (any, error) {
+		if name != "read" {
+			t.Fatalf("tool = %q, want read", name)
+		}
+		return builtin.ReadResult{Image: &builtin.ImageBlock{
+			FilePath: "/tmp/image.png", MediaType: "image/png", Data: "raw-read-image",
+		}}, nil
+	}}
+	capabilities := NewVisionCapabilities(false)
+	capabilities.SetDerived("parent", VisionCapable)
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub, Executor: executor,
+		Prompt:        prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "inspect image.png"}}},
+		ResolvedModel: provider.ResolvedModel{Alias: "parent", BackendModelID: "parent"},
+		Limits:        Limits{MaxTurns: 3}, VisionCapabilities: capabilities,
+	})
+	if err == nil || err.Error() != "model failed" {
+		t.Fatalf("Run() error = %v, want model failed", err)
+	}
+	if requestHasImages(ToProviderMessages(state.Conversation)) {
+		t.Fatal("final conversation contains raw read image data after model error")
+	}
+}
+
+func TestRunnerReadImageScrubsAtMaxTurns(t *testing.T) {
+	providerStub := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{
+		Role:      provider.MessageRoleAssistant,
+		ToolCalls: []provider.ToolCall{{ID: "read-1", Name: "read", Arguments: map[string]any{"path": "image.png"}}},
+	}}}}
+	executor := &fakeExecutor{execute: func(_ context.Context, name string, _ map[string]any) (any, error) {
+		if name != "read" {
+			t.Fatalf("tool = %q, want read", name)
+		}
+		return builtin.ReadResult{Image: &builtin.ImageBlock{
+			FilePath: "/tmp/image.png", MediaType: "image/png", Data: "raw-read-image",
+		}}, nil
+	}}
+	capabilities := NewVisionCapabilities(false)
+	capabilities.SetDerived("parent", VisionCapable)
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub, Executor: executor,
+		Prompt:        prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "inspect image.png"}}},
+		ResolvedModel: provider.ResolvedModel{Alias: "parent", BackendModelID: "parent"},
+		Limits:        Limits{MaxTurns: 1}, VisionCapabilities: capabilities,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if state.StopReason != StopReasonMaxTurns {
+		t.Fatalf("StopReason = %q, want %q", state.StopReason, StopReasonMaxTurns)
+	}
+	if requestHasImages(ToProviderMessages(state.Conversation)) {
+		t.Fatal("final conversation contains raw read image data at max turns")
 	}
 }
 

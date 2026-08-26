@@ -93,6 +93,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 func (p *turnProgressor) handleModelCallError(ctx context.Context, state RunState, turn int, err error) turnOutcome {
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
+		cancelled = p.finalizeDeferredReadImages(cancelled)
 		emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
 			Turn:  turn,
 			Model: p.request.ResolvedModel.BackendModelID,
@@ -149,6 +150,21 @@ func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, state RunSta
 	state.Conversation = stripImagesFromMessages(state.Conversation, visionState, subAgentConfigured)
 	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
 	return turnOutcome{State: state, Stop: true}
+}
+
+func (p *turnProgressor) finalizeDeferredReadImages(state RunState) RunState {
+	return finalizeDeferredReadImagesForRequest(p.request, state)
+}
+
+func finalizeDeferredReadImagesForRequest(req RunRequest, state RunState) RunState {
+	visionState, subAgentConfigured := VisionUnknown, false
+	if req.VisionCapabilities != nil {
+		visionState = req.VisionCapabilities.Get(req.ResolvedModel.Alias)
+		subAgentConfigured = req.VisionCapabilities.SubAgentConfigured()
+	}
+	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
+	state.Conversation = state.Lineage.FullMessages()
+	return state
 }
 
 // executeToolCalls runs the tool-execution phase of the turn lifecycle and
@@ -281,6 +297,7 @@ func (p *turnProgressor) applyToolResult(ctx context.Context, state RunState, tu
 		// Already-executed parallel siblings are intentionally not retained because workflow handoff abandons the source transcript (see internal/interactive/run_flow.go conversation adoption guard).
 		state.WorkflowHandoff = transition
 		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
+		state = p.finalizeDeferredReadImages(state)
 		emitStop(p.request.Events, state, nil)
 		return state, turnOutcome{State: state, Stop: true}
 	}

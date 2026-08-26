@@ -500,6 +500,77 @@ func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
 	})
 }
 
+func TestNewFetchURLToolImageBranches(t *testing.T) {
+	imageData, _, _ := newTestPNG()
+	tests := []struct {
+		name        string
+		path        string
+		contentType string
+	}{
+		{name: "content type", path: "/asset", contentType: "image/png"},
+		{name: "extension fallback", path: "/asset.png", contentType: "application/octet-stream"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodHead {
+					w.Header().Set("Content-Type", tt.contentType)
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+				if r.Method != http.MethodGet {
+					t.Errorf("method = %s, want GET or HEAD", r.Method)
+				}
+				w.Header().Set("Content-Type", tt.contentType)
+				w.WriteHeader(http.StatusCreated)
+				_, _ = w.Write(imageData)
+			}))
+			defer server.Close()
+
+			workDir := t.TempDir()
+			policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+			env := Env{
+				WorkDir:    workDir,
+				PathPolicy: &policy,
+				httpClient: func() *http.Client { return server.Client() },
+			}
+			result, err := NewFetchURLTool(env).Handler(context.Background(), map[string]any{
+				"url": server.URL + tt.path,
+			})
+			if err != nil {
+				t.Fatalf("handler: %v", err)
+			}
+			imageResult, ok := result.(*FetchURLResult)
+			if !ok {
+				t.Fatalf("result type = %T, want *FetchURLResult", result)
+			}
+			if imageResult.URL != server.URL+tt.path {
+				t.Errorf("URL = %q, want %q", imageResult.URL, server.URL+tt.path)
+			}
+			if imageResult.StatusCode != http.StatusCreated {
+				t.Errorf("StatusCode = %d, want %d", imageResult.StatusCode, http.StatusCreated)
+			}
+			if imageResult.FilePath == "" || imageResult.Message == "" {
+				t.Errorf("FilePath = %q, Message = %q, want both non-empty", imageResult.FilePath, imageResult.Message)
+			}
+			if imageResult.Image != nil {
+				t.Errorf("Image = %#v, want nil for saved image result", imageResult.Image)
+			}
+			if imageResult.ContentLength != len(imageData) {
+				t.Errorf("ContentLength = %d, want %d", imageResult.ContentLength, len(imageData))
+			}
+			data, err := os.ReadFile(filepath.Join(workDir, imageResult.FilePath))
+			if err != nil {
+				t.Fatalf("read saved image: %v", err)
+			}
+			if !bytes.Equal(data, imageData) {
+				t.Error("saved image bytes differ from response bytes")
+			}
+		})
+	}
+}
+
 func TestFetchRawText(t *testing.T) {
 	ctx := context.Background()
 

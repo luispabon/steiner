@@ -67,6 +67,9 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 			normalizeFetchURL(&in)
 
 			httpClient := toolkit.SafeHTTPClient(15 * time.Second)
+			if env.httpClient != nil {
+				httpClient = env.httpClient()
+			}
 
 			// Peek at Content-Type via HEAD to decide how to handle the response.
 			contentType := ""

@@ -145,13 +145,16 @@ func readImageFile(absPath, displayPath, resolvedPath string) (*ReadResult, erro
 		return nil, fmt.Errorf("read image: file too large (max 5MB, got %s)", output.FormatFileSize(len(data)))
 	}
 
-	// Detect dimensions using stdlib image package.
+	// Detect dimensions using stdlib image package, with the existing WebP
+	// header parser as a fallback because stdlib has no WebP decoder.
 	width, height := 0, 0
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err == nil {
 		bounds := img.Bounds()
 		width = bounds.Max.X
 		height = bounds.Max.Y
+	} else if strings.EqualFold(filepath.Ext(absPath), ".webp") {
+		width, height, _ = webpDimensions(data)
 	}
 	// If decoding fails, we still proceed with width=0, height=0.
 
