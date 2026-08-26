@@ -672,7 +672,7 @@ func TestExecuteChatRequestMarksCompactionRequest(t *testing.T) {
 	budget := prompt.ModelTokenBudget{ContextSize: 4096, MaxCompletionTokens: 128}
 	_, _, err := executeChatRequest(context.Background(), prov, 1, provider.ChatRequest{Model: "test"}, budget, output.SinkFunc(func(event output.Event) {
 		events = append(events, event)
-	}), nil, true, false, output.ChunkSourceAssistant, nil)
+	}), nil, true, false, nil)
 	if err != nil {
 		t.Fatalf("executeChatRequest() error = %v", err)
 	}

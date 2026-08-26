@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -246,7 +245,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 			defer func() { _ = logger.Close() }()
 		}
 	}
-	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, output.ChunkSourceAssistant, nil)
+	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil)
 	if logger != nil {
 		_ = logger.LogResponse(response) // best effort
 	}

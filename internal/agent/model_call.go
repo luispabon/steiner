@@ -96,7 +96,6 @@ func executeChatRequest(
 	blocks []prompt.ContextBlock,
 	isCompaction bool,
 	streamingPreferred bool,
-	source output.ChunkSource,
 	skipNonStream *bool,
 ) (provider.ChatResponse, time.Time, error) {
 	if budget.ContextSize > 0 {
@@ -145,7 +144,7 @@ func executeChatRequest(
 	stream, err := prov.StreamChatCompletion(ctx, req)
 	if err == nil {
 		var firstChunkTime time.Time
-		response, streamErr := consumeModelStream(ctx, events, turn, stream, source, &firstChunkTime)
+		response, streamErr := consumeModelStream(ctx, events, turn, stream, output.ChunkSourceAssistant, &firstChunkTime)
 		if streamErr != nil {
 			emitEvent(events, output.NewAPIResponseEvent(nil, nil, "", streamErr))
 			return provider.ChatResponse{}, time.Time{}, streamErr
@@ -187,7 +186,7 @@ func IsStreamRequiredError(err error) bool {
 
 func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, skipNonStream *bool) (provider.ChatResponse, time.Time, error) {
 	chatRequest.Messages = stripImagesIfVisionDisabled(req.ResolvedModel.Vision, chatRequest.Messages, req.ResolvedModel.Alias, turn, req.Events, req.VisionCapabilities)
-	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant, skipNonStream)
+	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream)
 	if err == nil {
 		recordModelUsage(req, response.Usage)
 		return response, firstChunkTime, nil
@@ -231,7 +230,7 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 		Message:  fmt.Sprintf("model %s rejected image attachments with HTTP 400; retrying once without images", req.ResolvedModel.Alias),
 	}))
 	chatRequest.Messages = stripped
-	retryResp, retryFirst, retryErr := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, output.ChunkSourceAssistant, skipNonStream)
+	retryResp, retryFirst, retryErr := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream)
 	if retryErr == nil {
 		recordModelUsage(req, retryResp.Usage)
 	}
