@@ -42,6 +42,8 @@ type sidebarStateComparable struct {
 	perfOutputTPS         float64
 	sessionCacheHitRate   float64
 	sessionCacheHitRateOK bool
+	sessionActive         bool
+	sessionElapsedSec     int64
 	oneshotPhase          string
 	sandboxStatus         string
 	execMode              string
@@ -81,6 +83,8 @@ func (s sidebarState) comparable() sidebarStateComparable {
 		perfOutputTPS:         s.perfOutputTPS,
 		sessionCacheHitRate:   s.sessionCacheHitRate,
 		sessionCacheHitRateOK: s.sessionCacheHitRateOK,
+		sessionActive:         s.sessionActive,
+		sessionElapsedSec:     s.sessionElapsedSec,
 		oneshotPhase:          s.oneshotPhase,
 		sandboxStatus:         s.sandboxStatus,
 		execMode:              s.execMode,

@@ -72,6 +72,7 @@ type workflowHandoffLaunch struct {
 }
 
 type tickMsg struct{}
+type sessionTickMsg struct{}
 
 type setAccentMsg struct{ preset string }
 
@@ -196,6 +197,7 @@ type Model struct {
 	imageStore                   *agent.ImageStore
 	visionCapabilities           *agent.VisionCapabilities
 	sessionResetCleanup          func()
+	sessionStartedAt             *time.Time
 
 	// Render caches for width/height-dependent styles.
 	hDividerCacheWidth      int
@@ -300,6 +302,11 @@ func (m *Model) syncSidebar() {
 		rate, ok := sr.HitRate()
 		m.sidebar.sessionCacheHitRate = rate
 		m.sidebar.sessionCacheHitRateOK = ok
+	}
+	m.sidebar.sessionActive = m.sessionStartedAt != nil
+	m.sidebar.sessionElapsedSec = 0
+	if m.sessionStartedAt != nil {
+		m.sidebar.sessionElapsedSec = int64(time.Since(*m.sessionStartedAt) / time.Second)
 	}
 	m.sidebar.mcpConnected = 0
 	m.sidebar.mcpTotal = 0

@@ -138,6 +138,8 @@ func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) 
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
+	m.sessionStartedAt = nil
+	m.syncSidebar()
 	ctrl := m.controller
 	action := makeAction(selected.ID)
 	return m, func() tea.Msg {
