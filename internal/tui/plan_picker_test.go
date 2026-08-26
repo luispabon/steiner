@@ -138,10 +138,7 @@ func TestPlanPickerUpdate(t *testing.T) {
 
 	// Type a character to filter
 	m, _ = m.Update(tea.KeyPressMsg{Text: "step"})
-	if len(m.candidates) != 4 {
-		t.Fatalf("expected 4 candidates after typing 'step', got %d: %v", len(m.candidates), m.candidates)
-	}
-	wantAfterStep := []string{".steiner/plans/step-1", ".steiner/plans/step-2", ".steiner/plans/bugfix", ".steiner/plans/research"}
+	wantAfterStep := []string{".steiner/plans/step-1", ".steiner/plans/step-2"}
 	if !reflect.DeepEqual(m.candidates, wantAfterStep) {
 		t.Fatalf("expected candidates after typing 'step' to be %v, got %v", wantAfterStep, m.candidates)
 	}
@@ -158,8 +155,8 @@ func TestPlanPickerUpdate(t *testing.T) {
 	// Press backspace to remove last chars
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	if len(m.candidates) != 4 {
-		t.Fatalf("expected 4 candidates after backspace, got %d: %v", len(m.candidates), m.candidates)
+	if len(m.candidates) != 2 {
+		t.Fatalf("expected 2 candidates after backspace, got %d: %v", len(m.candidates), m.candidates)
 	}
 	if !reflect.DeepEqual(m.candidates, wantAfterStep) {
 		t.Fatalf("expected candidates after backspace to be %v, got %v", wantAfterStep, m.candidates)
@@ -199,20 +196,29 @@ func TestPlanPickerFuzzyMatching(t *testing.T) {
 			if len(m.matchIndexes) != 1 || len(m.matchIndexes[0]) == 0 {
 				t.Fatalf("matchIndexes = %v, want non-empty indexes for matched row", m.matchIndexes)
 			}
-			matchedPlanNameCharacter := false
 			for _, index := range m.matchIndexes[0] {
-				if index < 0 || index >= len(m.candidates[0]) {
-					t.Fatalf("matchIndexes = %v contains out-of-range index %d", m.matchIndexes, index)
-				}
-				if index >= prefixLen {
-					matchedPlanNameCharacter = true
+				if index < prefixLen || index >= len(m.candidates[0]) {
+					t.Fatalf("matchIndexes = %v contains index %d outside plan-name region", m.matchIndexes, index)
 				}
 			}
-			if !matchedPlanNameCharacter {
-				t.Fatalf("matchIndexes = %v contains no plan-name index", m.matchIndexes)
+			wantIndexes := []int{prefixLen, prefixLen + 5}
+			if !reflect.DeepEqual(m.matchIndexes[0], wantIndexes) {
+				t.Fatalf("matchIndexes = %v, want %v", m.matchIndexes[0], wantIndexes)
 			}
 		})
 	}
+
+	t.Run("basename-only rejection", func(t *testing.T) {
+		t.Parallel()
+		m := setup()
+		m, _ = m.Update(tea.KeyPressMsg{Text: "plans"})
+		if len(m.candidates) != 0 {
+			t.Fatalf("candidates = %v, want no matches", m.candidates)
+		}
+		if len(m.matchIndexes) != 0 {
+			t.Fatalf("matchIndexes = %v, want no matches", m.matchIndexes)
+		}
+	})
 
 	t.Run("empty query preserves order and empty indexes", func(t *testing.T) {
 		t.Parallel()
