@@ -23,6 +23,17 @@ import (
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
+func TestWithAgentScopeAddsAgentType(t *testing.T) {
+	var got output.Event
+	sink := withAgentScope("child-1", AgentTypeCode, output.SinkFunc(func(event output.Event) {
+		got = event
+	}))
+	sink.Emit(output.Event{Type: output.EventTypeAPIRequest})
+	if got.Scope.AgentID != "child-1" || got.Scope.AgentType != string(AgentTypeCode) {
+		t.Fatalf("scope = %#v, want agent ID child-1 and type %s", got.Scope, AgentTypeCode)
+	}
+}
+
 func assertSharedChildSystemPrompt(t *testing.T, content string) {
 	t.Helper()
 

@@ -6,9 +6,92 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
+
+func TestBuildContextReportAgentLabels(t *testing.T) {
+	cases := []struct {
+		name     string
+		snapshot RequestContextSnapshot
+		want     string
+	}{
+		{name: "primary", snapshot: RequestContextSnapshot{}, want: "Agent: primary orchestrator"},
+		{name: "typed child", snapshot: RequestContextSnapshot{AgentID: "child-1", AgentType: "code"}, want: "Agent: `code` sub-agent child-1"},
+		{name: "untyped child", snapshot: RequestContextSnapshot{AgentID: "child-2"}, want: "Agent: sub-agent child-2"},
+		{name: "compaction", snapshot: RequestContextSnapshot{Kind: output.APIRequestKindCompaction}, want: "Agent: primary orchestrator (compaction)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			report, err := BuildContextReport(context.Background(), tc.snapshot)
+			if err != nil {
+				t.Fatalf("BuildContextReport() error = %v", err)
+			}
+			if !strings.Contains(report, tc.want) {
+				t.Fatalf("report missing %q\n%s", tc.want, report)
+			}
+		})
+	}
+}
+
+func TestBuildContextReportUsesCompactionBudget(t *testing.T) {
+	snapshot := RequestContextSnapshot{
+		Model:     "gpt-4o",
+		Messages:  []provider.Message{{Role: provider.MessageRoleUser, Content: "context"}},
+		MaxTokens: func() *int { value := 64; return &value }(),
+		Kind:      output.APIRequestKindCompaction,
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:            4096,
+			MaxCompletionTokens:    128,
+			NormalSummaryMaxTokens: 16,
+			SafetyMarginTokens:     32,
+		},
+	}
+	report, err := BuildContextReport(context.Background(), snapshot)
+	if err != nil {
+		t.Fatalf("BuildContextReport() error = %v", err)
+	}
+	request := provider.ChatRequest{Model: snapshot.Model, Messages: snapshot.Messages, MaxTokens: snapshot.MaxTokens}
+	fit, err := snapshot.ModelBudget.FitCompactionRequest(context.Background(), request)
+	if err != nil {
+		t.Fatalf("FitCompactionRequest() error = %v", err)
+	}
+	want := fmt.Sprintf("Hard prompt limit: `%d`", fit.HardLimitTokens)
+	if !strings.Contains(report, want) {
+		t.Fatalf("report missing %q\n%s", want, report)
+	}
+}
+
+func TestFitReportBudgetUsesRequestKind(t *testing.T) {
+	t.Parallel()
+	budget := prompt.ModelTokenBudget{
+		ContextSize:         4096,
+		MaxCompletionTokens: 96,
+		SummaryMaxTokens:    8,
+		SafetyMarginTokens:  24,
+	}
+	request := provider.ChatRequest{
+		Model:    "gpt-4o",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "context"}},
+	}
+
+	compactionBudget, err := fitReportBudget(context.Background(), budget, output.APIRequestKindCompaction, request)
+	if err != nil {
+		t.Fatalf("fitReportBudget(compaction) error = %v", err)
+	}
+	if compactionBudget.ReservedCompletionTokens != 8 {
+		t.Fatalf("compaction reserved completion tokens = %d, want 8", compactionBudget.ReservedCompletionTokens)
+	}
+
+	normalBudget, err := fitReportBudget(context.Background(), budget, "", request)
+	if err != nil {
+		t.Fatalf("fitReportBudget(normal) error = %v", err)
+	}
+	if normalBudget.ReservedCompletionTokens != 96 {
+		t.Fatalf("normal reserved completion tokens = %d, want 96", normalBudget.ReservedCompletionTokens)
+	}
+}
 
 func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 	maxTokens := 64

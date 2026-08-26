@@ -179,6 +179,9 @@ func (s *SnapshotStore) Store(snapshot RequestContextSnapshot) {
 		}(),
 		Blocks:      append([]prompt.ContextBlock(nil), snapshot.Blocks...),
 		ModelBudget: snapshot.ModelBudget,
+		AgentID:     snapshot.AgentID,
+		AgentType:   snapshot.AgentType,
+		Kind:        snapshot.Kind,
 	}
 	s.snapshot = &cloned
 }
@@ -207,6 +210,9 @@ func (s *SnapshotStore) Snapshot() (RequestContextSnapshot, bool) {
 		}(),
 		Blocks:      append([]prompt.ContextBlock(nil), s.snapshot.Blocks...),
 		ModelBudget: s.snapshot.ModelBudget,
+		AgentID:     s.snapshot.AgentID,
+		AgentType:   s.snapshot.AgentType,
+		Kind:        s.snapshot.Kind,
 	}
 	return cloned, true
 }

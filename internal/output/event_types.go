@@ -116,13 +116,14 @@ type Event struct {
 
 // EventScope identifies the transcript scope for a runtime event.
 type EventScope struct {
-	AgentID string `json:"agent_id,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
+	AgentType string `json:"agent_type,omitempty"`
 }
 
 // MarshalJSON omits empty scope metadata so top-level events keep their
 // existing JSON shape.
 func (e Event) MarshalJSON() ([]byte, error) {
-	if e.Scope.AgentID == "" {
+	if e.Scope.AgentID == "" && e.Scope.AgentType == "" {
 		return json.Marshal(struct {
 			Type      string    `json:"type"`
 			Timestamp time.Time `json:"timestamp"`
@@ -285,6 +286,7 @@ type APIRequestEvent struct {
 	MaxTokens   *int                    `json:"max_tokens,omitempty"`
 	Blocks      []prompt.ContextBlock   `json:"blocks,omitempty"`
 	ModelBudget prompt.ModelTokenBudget `json:"model_budget,omitempty"`
+	Kind        string                  `json:"kind,omitempty"`
 }
 
 // APIResponseEvent captures the provider response payload for a turn.

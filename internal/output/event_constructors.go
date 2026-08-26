@@ -9,12 +9,38 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// APIRequestKindCompaction identifies a request used to compact context.
+const APIRequestKindCompaction = "compaction"
+
 // WithAgentScope attaches child-agent transcript scope metadata to an event.
 func WithAgentScope(event Event, agentID string) Event {
 	if agentID == "" {
 		return event
 	}
 	event.Scope.AgentID = agentID
+	return event
+}
+
+// WithAgentTypeScope attaches child-agent type metadata to an event.
+func WithAgentTypeScope(event Event, agentType string) Event {
+	if agentType == "" {
+		return event
+	}
+	event.Scope.AgentType = agentType
+	return event
+}
+
+// WithAPIRequestKind attaches a kind to an API request event.
+func WithAPIRequestKind(event Event, kind string) Event {
+	if kind == "" {
+		return event
+	}
+	payload, ok := event.Payload.(APIRequestEvent)
+	if !ok {
+		return event
+	}
+	payload.Kind = kind
+	event.Payload = payload
 	return event
 }
 

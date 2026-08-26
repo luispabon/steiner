@@ -556,6 +556,16 @@ func (m *Model) handleDragAutoScrollTick(msg dragAutoScrollTickMsg) (tea.Model, 
 
 func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.lastWheelMouseAt = time.Now()
+	if m.contextOverlayCapturesMouse(msg.x, msg.y) {
+		switch msg.direction {
+		case "up":
+			m.contextOverlay = m.contextOverlay.scrollUp(m.viewport.mouseWheelDelta)
+		case "down":
+			m.contextOverlay = m.contextOverlay.scrollDown(m.viewport.mouseWheelDelta)
+		}
+		return m, nil
+	}
+
 	switch msg.direction {
 	case "up":
 		m.scrollUp(m.viewport.mouseWheelDelta)

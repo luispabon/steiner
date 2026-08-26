@@ -60,6 +60,29 @@ func TestWithAgentScope(t *testing.T) {
 	}
 }
 
+func TestWithAgentTypeScope(t *testing.T) {
+	base := Event{Type: "test_event"}
+	if got := WithAgentTypeScope(base, "code"); got.Scope.AgentType != "code" {
+		t.Fatalf("Scope.AgentType = %q, want %q", got.Scope.AgentType, "code")
+	}
+	if got := WithAgentTypeScope(base, ""); got != base {
+		t.Fatalf("empty agent type changed event: %#v", got)
+	}
+}
+
+func TestWithAPIRequestKind(t *testing.T) {
+	request := NewAPIRequestEvent("model", nil, nil, nil, nil, prompt.ModelTokenBudget{})
+	got := WithAPIRequestKind(request, APIRequestKindCompaction)
+	if payload := got.Payload.(APIRequestEvent); payload.Kind != APIRequestKindCompaction {
+		t.Fatalf("API request Kind = %q, want %q", payload.Kind, APIRequestKindCompaction)
+	}
+
+	nonRequest := Event{Type: "test_event", Payload: map[string]any{"kind": "original"}}
+	if got := WithAPIRequestKind(nonRequest, APIRequestKindCompaction); !reflect.DeepEqual(got, nonRequest) {
+		t.Fatalf("non-API request event changed: %#v", got)
+	}
+}
+
 func TestEventMarshalJSONScopes(t *testing.T) {
 	base := Event{
 		Type:      "test_event",
@@ -111,6 +134,24 @@ func TestEventMarshalJSONScopes(t *testing.T) {
 				t.Fatalf("roundTrip.Scope.AgentID = %q, want %q", got, tt.wantScope)
 			}
 		})
+	}
+}
+
+func TestEventMarshalJSONAgentTypeScope(t *testing.T) {
+	base := Event{Type: "test_event", Timestamp: time.Unix(123, 0).UTC()}
+	data, err := json.Marshal(WithAgentTypeScope(base, "code"))
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if got := string(data); !strings.Contains(got, `"scope":{"agent_type":"code"}`) {
+		t.Fatalf("json = %s, want agent type scope", got)
+	}
+	var roundTrip Event
+	if err := json.Unmarshal(data, &roundTrip); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if roundTrip.Scope.AgentType != "code" {
+		t.Fatalf("roundTrip.Scope.AgentType = %q, want %q", roundTrip.Scope.AgentType, "code")
 	}
 }
 

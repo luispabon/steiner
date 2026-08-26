@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -17,6 +18,9 @@ type RequestContextSnapshot struct {
 	MaxTokens   *int                    `json:"max_tokens,omitempty"`
 	Blocks      []prompt.ContextBlock   `json:"blocks,omitempty"`
 	ModelBudget prompt.ModelTokenBudget `json:"model_budget,omitempty"`
+	AgentID     string                  `json:"agent_id,omitempty"`
+	AgentType   string                  `json:"agent_type,omitempty"`
+	Kind        string                  `json:"kind,omitempty"`
 }
 
 type contextReportCategory struct {
@@ -28,6 +32,16 @@ type contextReportCategory struct {
 type contextReportItem struct {
 	Label  string
 	Tokens int
+}
+
+// fitReportBudget selects the fitting method for the request's kind: compaction
+// requests fit with the compaction completion reserve so the rendered
+// occupancy/limit figures describe the actual request.
+func fitReportBudget(ctx context.Context, budget prompt.ModelTokenBudget, kind string, request provider.ChatRequest) (prompt.RequestTokenBudget, error) {
+	if kind == output.APIRequestKindCompaction {
+		return budget.FitCompactionRequest(ctx, request)
+	}
+	return budget.FitRequest(ctx, request)
 }
 
 // BuildContextReport summarizes prompt composition and budget usage.
@@ -49,7 +63,7 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	if err != nil {
 		return "", err
 	}
-	budget, err := snapshot.ModelBudget.FitRequest(ctx, request)
+	budget, err := fitReportBudget(ctx, snapshot.ModelBudget, snapshot.Kind, request)
 	if err != nil {
 		return "", err
 	}
@@ -61,6 +75,7 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 
 	var lines []string
 	lines = append(lines, "# Last Request Context")
+	lines = append(lines, fmt.Sprintf("Agent: %s", contextReportAgentLabel(snapshot)))
 	if model := strings.TrimSpace(snapshot.Model); model != "" {
 		lines = append(lines, fmt.Sprintf("Model: `%s`", model))
 	}
@@ -109,6 +124,21 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	}
 
 	return strings.Join(lines, "\n"), nil
+}
+
+func contextReportAgentLabel(snapshot RequestContextSnapshot) string {
+	label := "primary orchestrator"
+	if snapshot.AgentID != "" {
+		if snapshot.AgentType != "" {
+			label = fmt.Sprintf("`%s` sub-agent %s", snapshot.AgentType, snapshot.AgentID)
+		} else {
+			label = fmt.Sprintf("sub-agent %s", snapshot.AgentID)
+		}
+	}
+	if snapshot.Kind == output.APIRequestKindCompaction {
+		label += " (compaction)"
+	}
+	return label
 }
 
 // appendToolDefinitions appends a per-tool token breakdown for the

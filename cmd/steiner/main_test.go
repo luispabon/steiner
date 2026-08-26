@@ -1230,7 +1230,14 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		if !ok {
 			return
 		}
-		store.Store(interactive.RequestContextSnapshot(payload))
+		store.Store(interactive.RequestContextSnapshot{
+			Model:       payload.Model,
+			Messages:    payload.Messages,
+			Tools:       payload.Tools,
+			MaxTokens:   payload.MaxTokens,
+			Blocks:      payload.Blocks,
+			ModelBudget: payload.ModelBudget,
+		})
 	})
 
 	providerStub := &fakeProvider{
