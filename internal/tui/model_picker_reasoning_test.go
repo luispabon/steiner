@@ -107,6 +107,56 @@ func TestFuzzyMatchModelEntriesEmptyQuery(t *testing.T) {
 	}
 }
 
+func TestModelPickerRenderWithNilMatchIndexes(t *testing.T) {
+	t.Parallel()
+	s := testStyles("#ff0000")
+	m := newModelPickerOverlay(s)
+	m = m.OpenEntries([]ModelEntry{
+		{Ref: "one", Display: "First"},
+		{Ref: "two", Display: "Second"},
+	}, "one")
+
+	if m.matchIndexes != nil {
+		t.Fatalf("matchIndexes = %v, want nil after open", m.matchIndexes)
+	}
+	if len(m.candidates) == 0 {
+		t.Fatal("candidates are empty after open")
+	}
+	if got := stripANSI(m.View()); !strings.Contains(got, "First") {
+		t.Fatalf("initial view = %q, want First", got)
+	}
+
+	m, _ = m.Update(tea.KeyPressMsg{Text: "s"})
+	if got := stripANSI(m.View()); !strings.Contains(got, "Second") {
+		t.Fatalf("filtered view = %q, want Second", got)
+	}
+}
+
+func TestFuzzyMatchModelEntriesIndexRowsIndependent(t *testing.T) {
+	t.Parallel()
+	entries := []ModelEntry{
+		{Ref: "a", Display: "apple"},
+		{Ref: "b", Display: "mapple"},
+	}
+	_, rows := fuzzyMatchModelEntries(entries, "apple")
+	if len(rows) < 2 {
+		t.Fatalf("index rows = %v, want at least two matches", rows)
+	}
+	if len(rows[0]) == 0 || len(rows[1]) == 0 {
+		t.Fatalf("index rows = %v, want non-empty rows", rows)
+	}
+
+	second := rows[1][0]
+	rows[0][0] = -1
+	if rows[1][0] != second {
+		t.Fatalf("mutating first row changed second row: got %d, want %d", rows[1][0], second)
+	}
+	rows[1][0] = -2
+	if rows[0][0] != -1 {
+		t.Fatalf("mutating second row changed first row: got %d, want -1", rows[0][0])
+	}
+}
+
 func TestFuzzyMatchModelEntriesUsesDisplayOnly(t *testing.T) {
 	t.Parallel()
 	entry := ModelEntry{Ref: "provider/alpha", Display: "Alpha model"}
