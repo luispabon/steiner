@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -73,17 +74,59 @@ func TestContextOverlayMouseWheelClosedScrollsViewport(t *testing.T) {
 	}
 }
 
-func TestContextOverlayDoesNotCaptureWhenFileListIsOpen(t *testing.T) {
+func TestContextOverlayDoesNotCaptureWhenBlockingOverlayIsOpen(t *testing.T) {
 	t.Parallel()
-	m := newContextOverlayMouseTestModel(t)
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", longContextOverlayMouseReport())})
-	boundsX, boundsY, boundsW, boundsH := m.contextOverlayBounds()
-	centerX := boundsX + boundsW/2
-	centerY := boundsY + boundsH/2
+	cases := []struct {
+		name string
+		open func(*Model)
+	}{
+		{
+			name: "file list",
+			open: func(m *Model) {
+				m.fileList = m.fileList.Open(".")
+			},
+		},
+		{
+			name: "MCP overlay",
+			open: func(m *Model) {
+				m.mcpOverlay = m.mcpOverlay.Open(m.mcpServers, m.mcpEnabled)
+				m.mcpOverlay.OverlayShell = m.mcpOverlay.WithDimensions(m.width, m.height)
+			},
+		},
+		{
+			name: "workflow handoff",
+			open: func(m *Model) {
+				m.workflowHandoff = openWorkflowHandoffModal(m.width, m.height, output.WorkflowHandoffEvent{}, interactive.WorkflowHandoffModelSelection{})
+			},
+		},
+		{
+			name: "worktree cleanup",
+			open: func(m *Model) {
+				m.openWorktreeCleanupModal(m.width, m.height, 1)
+			},
+		},
+		{
+			name: "exit",
+			open: func(m *Model) {
+				m.openExitModal()
+			},
+		},
+	}
 
-	m.fileList = m.fileList.Open(".")
-	if m.contextOverlayCapturesMouse(centerX, centerY) {
-		t.Fatal("context overlay captured mouse while file list overlay was open")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := newContextOverlayMouseTestModel(t)
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", longContextOverlayMouseReport())})
+			boundsX, boundsY, boundsW, boundsH := m.contextOverlayBounds()
+			centerX := boundsX + boundsW/2
+			centerY := boundsY + boundsH/2
+
+			tc.open(m)
+			if m.contextOverlayCapturesMouse(centerX, centerY) {
+				t.Fatal("context overlay captured mouse while blocking overlay was open")
+			}
+		})
 	}
 }
 

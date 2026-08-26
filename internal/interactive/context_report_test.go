@@ -63,6 +63,36 @@ func TestBuildContextReportUsesCompactionBudget(t *testing.T) {
 	}
 }
 
+func TestFitReportBudgetUsesRequestKind(t *testing.T) {
+	t.Parallel()
+	budget := prompt.ModelTokenBudget{
+		ContextSize:         4096,
+		MaxCompletionTokens: 96,
+		SummaryMaxTokens:    8,
+		SafetyMarginTokens:  24,
+	}
+	request := provider.ChatRequest{
+		Model:    "gpt-4o",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "context"}},
+	}
+
+	compactionBudget, err := fitReportBudget(context.Background(), budget, output.APIRequestKindCompaction, request)
+	if err != nil {
+		t.Fatalf("fitReportBudget(compaction) error = %v", err)
+	}
+	if compactionBudget.ReservedCompletionTokens != 8 {
+		t.Fatalf("compaction reserved completion tokens = %d, want 8", compactionBudget.ReservedCompletionTokens)
+	}
+
+	normalBudget, err := fitReportBudget(context.Background(), budget, "", request)
+	if err != nil {
+		t.Fatalf("fitReportBudget(normal) error = %v", err)
+	}
+	if normalBudget.ReservedCompletionTokens != 96 {
+		t.Fatalf("normal reserved completion tokens = %d, want 96", normalBudget.ReservedCompletionTokens)
+	}
+}
+
 func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 	maxTokens := 64
 	snapshot := RequestContextSnapshot{

@@ -34,6 +34,16 @@ type contextReportItem struct {
 	Tokens int
 }
 
+// fitReportBudget selects the fitting method for the request's kind: compaction
+// requests fit with the compaction completion reserve so the rendered
+// occupancy/limit figures describe the actual request.
+func fitReportBudget(ctx context.Context, budget prompt.ModelTokenBudget, kind string, request provider.ChatRequest) (prompt.RequestTokenBudget, error) {
+	if kind == output.APIRequestKindCompaction {
+		return budget.FitCompactionRequest(ctx, request)
+	}
+	return budget.FitRequest(ctx, request)
+}
+
 // BuildContextReport summarizes prompt composition and budget usage.
 func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (string, error) {
 	request := provider.ChatRequest{
@@ -53,12 +63,7 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	if err != nil {
 		return "", err
 	}
-	var budget prompt.RequestTokenBudget
-	if snapshot.Kind == output.APIRequestKindCompaction {
-		budget, err = snapshot.ModelBudget.FitCompactionRequest(ctx, request)
-	} else {
-		budget, err = snapshot.ModelBudget.FitRequest(ctx, request)
-	}
+	budget, err := fitReportBudget(ctx, snapshot.ModelBudget, snapshot.Kind, request)
 	if err != nil {
 		return "", err
 	}
