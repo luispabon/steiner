@@ -38,8 +38,8 @@ Unless a skill overrides it, follow this workflow:
 -}}
 {{- if .AdvisorEnabled }}{{ $steps = append $steps "Consult `advisor`. If you think it's unnecessary, state why." }}{{ end -}}
 {{- $steps = append $steps
-  "Implement each step with `code` sub-agents, in parallel or serially as appropriate:\n   * Run `sanity_check` on each completed worktree before merging.\n   * Use `follow_up` on `code` and `sanity_check` sub-agents until satisfactory.\n   * Merge verified work and clean up its worktree."
-  "After all steps are merged, run `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent (or `follow_up` the old one if there was just one), then `sanity_check`, then `follow_up` the same `review`. Repeat the `code`/ `sanity_check` / `review` loop until clean."
+  "Implement each step with `code` sub-agents, in parallel or serially as appropriate:\n   * Ensure the sub-agents ran code checks and fixed any failures, or use `follow_up` to exhort them to.\n   * Merge verified work and clean up its worktree."
+  "After all steps are merged, run `sanity_check`, then `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent (or `follow_up` the old one if there was just one), then `sanity_check`, then `follow_up` the same `review`. Repeat the `code`/ `sanity_check` / `review` loop until clean."
 -}}
 {{- range $i, $s := $steps }}{{ add1 $i }}. {{ $s }}
 {{ end }}
