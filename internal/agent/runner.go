@@ -77,6 +77,10 @@ type RunRequest struct {
 	// Nil disables capability-driven retry logic (tests, unwired paths preserve old behavior).
 	VisionCapabilities *VisionCapabilities
 
+	// ImageStore registers read-produced images for vision tools. Nil disables
+	// registration, but does not prevent the parent model from receiving image data.
+	ImageStore *ImageStore
+
 	// ParallelTool reports whether a tool call may execute concurrently with its
 	// siblings in the same assistant turn. Nil means every call runs serially,
 	// which is the pre-existing behaviour and what child runs receive.

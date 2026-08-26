@@ -356,6 +356,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		DrainSteers:        drainSteers,
 		PromptCacheKey:     r.promptCacheKey(),
 		VisionCapabilities: r.runtime.visionCapabilities,
+		ImageStore:         r.runtime.imageStore,
 	}
 	if r.runtime.cfg.SubAgent.Enabled {
 		req.ParallelTool = delegation.IsDelegationTool

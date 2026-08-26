@@ -188,6 +188,7 @@ func readImageFile(absPath, displayPath, resolvedPath string) (*ReadResult, erro
 		ResolvedPath: resolvedPath,
 		Output:       summary,
 		Image: &ImageBlock{
+			FilePath:  absPath,
 			MediaType: mediaType,
 			Data:      encoded,
 			Width:     width,

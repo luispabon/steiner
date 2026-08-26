@@ -53,6 +53,9 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 	response = p.normalizeModelResponse(state, turn, response)
 	state, turnTokens := p.finalizeModelCallState(ctx, state, turn, chatRequest, response)
+	visionState, subAgentConfigured := p.getVisionCapabilityContext()
+	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
+	state.Conversation = state.Lineage.FullMessages()
 
 	ttftMs := durationMs
 	if !firstChunkTime.IsZero() {
@@ -357,13 +360,13 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 	if err == nil {
 		toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)
 		if normalizedResult.Image != nil {
-			toolMessage.Images = []ImageBlock{{
-				MediaType: normalizedResult.Image.MediaType,
-				Data:      normalizedResult.Image.Data,
-				Width:     normalizedResult.Image.Width,
-				Height:    normalizedResult.Image.Height,
-				SizeBytes: normalizedResult.Image.SizeBytes,
-			}}
+			image := *normalizedResult.Image
+			if call.Name == "read" && p.request.ImageStore != nil && image.FilePath != "" {
+				ref := p.request.ImageStore.Register(image.FilePath, image.MediaType, image.Width, image.Height, image.SizeBytes)
+				image.ID = ref.ID
+				image.FilePath = ref.FilePath
+			}
+			toolMessage.Images = []ImageBlock{image}
 		}
 	}
 	return toolMessage
@@ -371,7 +374,13 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 
 func (p *turnProgressor) finalizeToolTurn(_ context.Context, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
 	visionState, subAgentConfigured := p.getVisionCapabilityContext()
-	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
+	messages := state.Lineage.SummaryPrefixStrippedMessages()
+	if p.request.VisionCapabilities != nil {
+		messages = stripImagesFromMessagesExceptDeferredRead(messages, visionState, subAgentConfigured)
+	} else {
+		messages = stripImagesFromMessages(messages, visionState, subAgentConfigured)
+	}
+	state.Lineage = state.Lineage.WithCurrentMessages(messages)
 	state.Conversation = state.Lineage.FullMessages()
 	return turnOutcome{State: state}
 }
@@ -654,6 +663,38 @@ func stripImagesFromMessages(msgs []Message, visionState VisionState, subAgentCo
 		out[i].Images = nil
 	}
 	return out
+}
+
+// stripImagesFromMessagesExceptDeferredRead strips all image data except read
+// tool results, which remain available for the immediately following model request.
+func stripImagesFromMessagesExceptDeferredRead(msgs []Message, visionState VisionState, subAgentConfigured bool) []Message {
+	out := make([]Message, len(msgs))
+	copy(out, msgs)
+	for i := range out {
+		if isDeferredReadImageMessage(out[i]) {
+			continue
+		}
+		out[i] = stripImagesFromMessages([]Message{out[i]}, visionState, subAgentConfigured)[0]
+	}
+	return out
+}
+
+// stripDeferredReadImages removes read image data after the next model request
+// has consumed it. It does not affect pasted images or other tool messages.
+func stripDeferredReadImages(msgs []Message, visionState VisionState, subAgentConfigured bool) []Message {
+	out := make([]Message, len(msgs))
+	copy(out, msgs)
+	for i := range out {
+		if !isDeferredReadImageMessage(out[i]) {
+			continue
+		}
+		out[i] = stripImagesFromMessages([]Message{out[i]}, visionState, subAgentConfigured)[0]
+	}
+	return out
+}
+
+func isDeferredReadImageMessage(msg Message) bool {
+	return msg.Role == MessageRoleTool && msg.Name == "read" && len(msg.Images) > 0 && msg.Images[0].Data != ""
 }
 
 // getVisionCapabilityContext returns the vision state and sub-agent config for the current alias.

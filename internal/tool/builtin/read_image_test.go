@@ -102,6 +102,9 @@ func TestReadImageFile(t *testing.T) {
 				if result.Image.SizeBytes == 0 {
 					t.Errorf("readImageFile() SizeBytes = 0, want > 0")
 				}
+				if result.Image.FilePath != tt.filePath {
+					t.Errorf("readImageFile() FilePath = %q, want %q", result.Image.FilePath, tt.filePath)
+				}
 			}
 
 			if result.Path != tt.displayPath {

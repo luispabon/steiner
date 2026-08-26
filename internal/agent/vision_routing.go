@@ -24,7 +24,7 @@ func (p *turnProgressor) handleImagesForVision(ctx context.Context, state *RunSt
 		return false
 	}
 
-	if !p.conversationHasPastedImages(state.Conversation) {
+	if !p.conversationHasPastedImages(state.Conversation) && !p.conversationHasDeferredReadImages(state.Conversation) {
 		return false
 	}
 
@@ -49,16 +49,12 @@ func (p *turnProgressor) handleImagesForVision(ctx context.Context, state *RunSt
 	copy(newMessages, state.Conversation)
 
 	for i := range newMessages {
-		if newMessages[i].Role != MessageRoleUser {
-			continue
-		}
-		if len(newMessages[i].Images) == 0 {
+		if !eligibleVisionMessage(newMessages[i]) {
 			continue
 		}
 
 		p.processImagesInMessage(ctx, &newMessages[i], vc.SubAgentConfigured())
 	}
-
 	state.Conversation = newMessages
 	state.Lineage = state.Lineage.WithCurrentMessages(newMessages)
 
@@ -78,6 +74,19 @@ func (p *turnProgressor) conversationHasPastedImages(msgs []Message) bool {
 		}
 	}
 	return false
+}
+
+func (p *turnProgressor) conversationHasDeferredReadImages(msgs []Message) bool {
+	for _, msg := range msgs {
+		if isDeferredReadImageMessage(msg) {
+			return true
+		}
+	}
+	return false
+}
+
+func eligibleVisionMessage(msg Message) bool {
+	return len(msg.Images) > 0 && (msg.Role == MessageRoleUser || (msg.Role == MessageRoleTool && msg.Name == "read"))
 }
 
 // processImagesInMessage processes (routes or strips) all images in a message.
