@@ -38,6 +38,23 @@ func TestSessionSnapshotSinkCapturesAPIRequestEvent(t *testing.T) {
 	}
 }
 
+func TestSnapshotSinkCapturesAgentAttribution(t *testing.T) {
+	store := &SnapshotStore{}
+	sink := &snapshotSink{store: store}
+	event := output.WithAgentScope(output.NewAPIRequestEvent("model", nil, nil, nil, nil, prompt.ModelTokenBudget{}), "child-1")
+	event = output.WithAgentTypeScope(event, "code")
+	event = output.WithAPIRequestKind(event, output.APIRequestKindCompaction)
+	sink.Emit(event)
+
+	snapshot, ok := store.Snapshot()
+	if !ok {
+		t.Fatal("expected snapshot")
+	}
+	if snapshot.AgentID != "child-1" || snapshot.AgentType != "code" || snapshot.Kind != output.APIRequestKindCompaction {
+		t.Fatalf("snapshot attribution = (%q, %q, %q), want (child-1, code, %s)", snapshot.AgentID, snapshot.AgentType, snapshot.Kind, output.APIRequestKindCompaction)
+	}
+}
+
 func TestSessionSnapshotSinkIgnoresNonAPIRequestEvents(t *testing.T) {
 	s, err := NewSession(Dependencies{})
 	if err != nil {

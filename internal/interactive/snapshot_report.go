@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -17,6 +18,9 @@ type RequestContextSnapshot struct {
 	MaxTokens   *int                    `json:"max_tokens,omitempty"`
 	Blocks      []prompt.ContextBlock   `json:"blocks,omitempty"`
 	ModelBudget prompt.ModelTokenBudget `json:"model_budget,omitempty"`
+	AgentID     string                  `json:"agent_id,omitempty"`
+	AgentType   string                  `json:"agent_type,omitempty"`
+	Kind        string                  `json:"kind,omitempty"`
 }
 
 type contextReportCategory struct {
@@ -49,7 +53,12 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	if err != nil {
 		return "", err
 	}
-	budget, err := snapshot.ModelBudget.FitRequest(ctx, request)
+	var budget prompt.RequestTokenBudget
+	if snapshot.Kind == output.APIRequestKindCompaction {
+		budget, err = snapshot.ModelBudget.FitCompactionRequest(ctx, request)
+	} else {
+		budget, err = snapshot.ModelBudget.FitRequest(ctx, request)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -61,6 +70,7 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 
 	var lines []string
 	lines = append(lines, "# Last Request Context")
+	lines = append(lines, fmt.Sprintf("Agent: %s", contextReportAgentLabel(snapshot)))
 	if model := strings.TrimSpace(snapshot.Model); model != "" {
 		lines = append(lines, fmt.Sprintf("Model: `%s`", model))
 	}
@@ -109,6 +119,21 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	}
 
 	return strings.Join(lines, "\n"), nil
+}
+
+func contextReportAgentLabel(snapshot RequestContextSnapshot) string {
+	label := "primary orchestrator"
+	if snapshot.AgentID != "" {
+		if snapshot.AgentType != "" {
+			label = fmt.Sprintf("`%s` sub-agent %s", snapshot.AgentType, snapshot.AgentID)
+		} else {
+			label = fmt.Sprintf("sub-agent %s", snapshot.AgentID)
+		}
+	}
+	if snapshot.Kind == output.APIRequestKindCompaction {
+		label += " (compaction)"
+	}
+	return label
 }
 
 // appendToolDefinitions appends a per-tool token breakdown for the

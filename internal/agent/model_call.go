@@ -107,7 +107,11 @@ func executeChatRequest(
 			return provider.ChatResponse{}, time.Time{}, fmt.Errorf("request exceeds context window: %s", fit.String())
 		}
 	}
-	emitEvent(events, output.NewAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget))
+	event := output.NewAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget)
+	if isCompaction {
+		event = output.WithAPIRequestKind(event, output.APIRequestKindCompaction)
+	}
+	emitEvent(events, event)
 
 	// When streaming is not preferred, try ChatCompletion first and only fall
 	// back to streaming if it is unavailable.

@@ -236,7 +236,7 @@ type childRunRequestParams struct {
 // the parent's execution mode.
 func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	childCfg := config.Config{}
-	scopedEvents := withAgentScope(p.AgentID, p.Events)
+	scopedEvents := withAgentScope(p.AgentID, p.AgentType, p.Events)
 
 	// p.Sandbox must not be nil: the composition root (cmd/steiner) always
 	// passes an explicit wrapper (tool.Unsandboxed{} when sandboxing is off).
@@ -280,22 +280,25 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 
 // scopedEventSink tags emitted child-run events with the child agent scope.
 type scopedEventSink struct {
-	sink    output.EventSink
-	agentID string
+	sink      output.EventSink
+	agentID   string
+	agentType string
 }
 
 func (s scopedEventSink) Emit(event output.Event) {
 	if s.sink == nil {
 		return
 	}
-	s.sink.Emit(output.WithAgentScope(event, s.agentID))
+	event = output.WithAgentScope(event, s.agentID)
+	event = output.WithAgentTypeScope(event, s.agentType)
+	s.sink.Emit(event)
 }
 
-func withAgentScope(agentID string, sink output.EventSink) output.EventSink {
+func withAgentScope(agentID string, agentType AgentType, sink output.EventSink) output.EventSink {
 	if sink == nil || agentID == "" {
 		return sink
 	}
-	return scopedEventSink{sink: sink, agentID: agentID}
+	return scopedEventSink{sink: sink, agentID: agentID, agentType: string(agentType)}
 }
 
 // scopedToolExecutor injects the child agent scope into the tool execution

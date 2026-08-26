@@ -661,3 +661,28 @@ func visionCapWithCapable(alias string) *VisionCapabilities {
 	cap.SetDerived(alias, VisionCapable)
 	return cap
 }
+
+func TestExecuteChatRequestMarksCompactionRequest(t *testing.T) {
+	prov := &fakeProvider{
+		chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "summary"}}, nil
+		},
+	}
+	var events []output.Event
+	budget := prompt.ModelTokenBudget{ContextSize: 4096, MaxCompletionTokens: 128}
+	_, _, err := executeChatRequest(context.Background(), prov, 1, provider.ChatRequest{Model: "test"}, budget, output.SinkFunc(func(event output.Event) {
+		events = append(events, event)
+	}), nil, true, false, output.ChunkSourceAssistant, nil)
+	if err != nil {
+		t.Fatalf("executeChatRequest() error = %v", err)
+	}
+	for _, event := range events {
+		if payload, ok := event.Payload.(output.APIRequestEvent); ok {
+			if payload.Kind != output.APIRequestKindCompaction {
+				t.Fatalf("API request Kind = %q, want %q", payload.Kind, output.APIRequestKindCompaction)
+			}
+			return
+		}
+	}
+	t.Fatal("expected APIRequestEvent")
+}
