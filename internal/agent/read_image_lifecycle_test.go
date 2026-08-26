@@ -72,6 +72,13 @@ func TestRunnerReadImageRoutesIncapableParentOnce(t *testing.T) {
 			return builtin.ReadResult{Image: &builtin.ImageBlock{FilePath: "/tmp/image.png", MediaType: "image/png", Data: "read-image-data"}}, nil
 		case "vision":
 			visionCalls++
+			task, ok := input["task"].(string)
+			if !ok || !contains(task, "inspect image.png") {
+				t.Fatalf("vision task = %q, want parent user request", task)
+			}
+			if contains(task, `{"path":"image.png"}`) {
+				t.Fatal("vision task used read tool JSON instead of parent user request")
+			}
 			if input["image_id"] != "img-1" {
 				t.Fatalf("image_id = %v, want img-1", input["image_id"])
 			}

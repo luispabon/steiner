@@ -43,7 +43,7 @@ type FetchURLError struct {
 func NewFetchURLTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "fetch_url",
-		Description:     "Fetch a URL and return its content. Supports HTML (converted to markdown), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Large responses are saved to disk — use the read tool to paginate.",
+		Description:     "Fetch a URL and return its content. Supports HTML (converted to markdown), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk — use the read tool to paginate.",
 		ParameterSchema: FetchURLSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[FetchURLInput](input)

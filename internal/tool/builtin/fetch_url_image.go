@@ -63,19 +63,60 @@ func fetchImageBytes(ctx context.Context, httpClient *http.Client, urlStr, media
 		return nil, resp.StatusCode, fmt.Errorf("fetch image: %w", err)
 	}
 
+	width, height := 0, 0
 	img, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
+	if err == nil {
+		bounds := img.Bounds()
+		width = bounds.Dx()
+		height = bounds.Dy()
+	} else if mediaType == "image/webp" {
+		width, height, err = webpDimensions(data)
+		if err != nil {
+			return nil, resp.StatusCode, fmt.Errorf("fetch image: invalid image: %w", err)
+		}
+	} else {
 		return nil, resp.StatusCode, fmt.Errorf("fetch image: invalid image: %w", err)
 	}
-	bounds := img.Bounds()
 
 	return &fetchedImage{
 		data:      data,
 		mediaType: mediaType,
 		extension: extension,
-		width:     bounds.Dx(),
-		height:    bounds.Dy(),
+		width:     width,
+		height:    height,
 	}, resp.StatusCode, nil
+}
+
+// webpDimensions reads the canvas dimensions from a valid WebP VP8, VP8L, or
+// VP8X header without decoding pixels.
+func webpDimensions(data []byte) (int, int, error) {
+	if len(data) < 30 || string(data[:4]) != "RIFF" || string(data[8:12]) != "WEBP" {
+		return 0, 0, fmt.Errorf("invalid WebP header")
+	}
+
+	switch string(data[12:16]) {
+	case "VP8X":
+		width := 1 + int(data[24]) + int(data[25])<<8 + int(data[26])<<16
+		height := 1 + int(data[27]) + int(data[28])<<8 + int(data[29])<<16
+		return width, height, nil
+	case "VP8 ":
+		if len(data) < 30 || data[23] != 0x9d || data[24] != 0x01 || data[25] != 0x2a {
+			return 0, 0, fmt.Errorf("invalid VP8 header")
+		}
+		width := int(data[26]) | int(data[27])<<8
+		height := int(data[28]) | int(data[29])<<8
+		return width & 0x3fff, height & 0x3fff, nil
+	case "VP8L":
+		if len(data) < 25 || data[20] != 0x2f {
+			return 0, 0, fmt.Errorf("invalid VP8L header")
+		}
+		bits := uint32(data[21]) | uint32(data[22])<<8 | uint32(data[23])<<16 | uint32(data[24])<<24
+		width := 1 + int(bits&0x3fff)
+		height := 1 + int((bits>>14)&0x3fff)
+		return width, height, nil
+	default:
+		return 0, 0, fmt.Errorf("unsupported WebP chunk")
+	}
 }
 
 // imageExtension returns a supported extension for an image media type. URL

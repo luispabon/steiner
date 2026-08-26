@@ -965,3 +965,26 @@ func TestHandleImagesForVision_RoutingError_EmitsDiagnostic(t *testing.T) {
 		t.Fatalf("message should contain error, got: %s", foundEvent.Message)
 	}
 }
+
+func TestVisionTaskContentForReadUsesParentUserRequest(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "Compare this image with the previous design."},
+		{Role: MessageRoleAssistant, Content: "I will inspect it."},
+		{Role: MessageRoleTool, Name: "read", Content: `{"path":".steiner/tmp/fetched/image.webp"}`, Images: []ImageBlock{{ID: "img-1", Data: "image-data"}}},
+	}
+
+	got := visionTaskContent(messages, 2)
+	if got != messages[0].Content {
+		t.Fatalf("visionTaskContent = %q, want parent request %q", got, messages[0].Content)
+	}
+	if got == messages[2].Content {
+		t.Fatal("visionTaskContent used read tool JSON instead of parent request")
+	}
+}
+
+func TestVisionTaskContentForUserPreservesPastedImageRequest(t *testing.T) {
+	messages := []Message{{Role: MessageRoleUser, Content: "Describe this pasted image."}}
+	if got := visionTaskContent(messages, 0); got != messages[0].Content {
+		t.Fatalf("visionTaskContent = %q, want user content %q", got, messages[0].Content)
+	}
+}

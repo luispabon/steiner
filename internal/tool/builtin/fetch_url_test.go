@@ -805,6 +805,17 @@ func newTestPNG() ([]byte, int, int) {
 	return buf.Bytes(), 2, 2
 }
 
+// newTestWebP returns a small lossless WebP image with known dimensions.
+func newTestWebP() ([]byte, int, int) {
+	return []byte{
+		0x52, 0x49, 0x46, 0x46, 0x1c, 0x00, 0x00, 0x00,
+		0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x4c,
+		0x0f, 0x00, 0x00, 0x00, 0x2f, 0x01, 0x80, 0x00,
+		0x00, 0x07, 0x10, 0xfd, 0x8f, 0xfe, 0x07, 0x22,
+		0xa2, 0xff, 0x01, 0x00,
+	}, 2, 3
+}
+
 func TestFetchImageBytes(t *testing.T) {
 	ctx := context.Background()
 	httpClient := &http.Client{Timeout: 5 * time.Second}
@@ -839,6 +850,35 @@ func TestFetchImageBytes(t *testing.T) {
 		}
 		if statusCode != 200 {
 			t.Errorf("StatusCode = %d, want 200", statusCode)
+		}
+
+	})
+	t.Run("fetches valid WebP bytes and dimensions", func(t *testing.T) {
+		webpData, webpWidth, webpHeight := newTestWebP()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/webp")
+			_, _ = w.Write(webpData)
+		}))
+		defer server.Close()
+
+		fetched, statusCode, err := fetchImageBytes(ctx, httpClient, server.URL, "image/webp")
+		if err != nil {
+			t.Fatalf("fetchImageBytes returned error: %v", err)
+		}
+		if fetched == nil {
+			t.Fatal("fetched image is nil")
+		}
+		if !bytes.Equal(fetched.data, webpData) {
+			t.Error("raw WebP data does not match original")
+		}
+		if fetched.mediaType != "image/webp" || fetched.extension != ".webp" {
+			t.Errorf("metadata = (%q, %q), want (image/webp, .webp)", fetched.mediaType, fetched.extension)
+		}
+		if fetched.width != webpWidth || fetched.height != webpHeight {
+			t.Errorf("dimensions = %dx%d, want %dx%d", fetched.width, fetched.height, webpWidth, webpHeight)
+		}
+		if statusCode != http.StatusOK {
+			t.Errorf("StatusCode = %d, want %d", statusCode, http.StatusOK)
 		}
 	})
 
