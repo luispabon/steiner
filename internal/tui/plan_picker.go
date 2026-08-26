@@ -18,6 +18,7 @@ type planPickerOverlay struct {
 	query          string
 	allNames       []string
 	candidates     []string
+	matchIndexes   [][]int
 	selection      int
 	scrollOffset   int
 	triggerCommand string
@@ -39,6 +40,7 @@ func (m planPickerOverlay) Open(triggerCommand string) planPickerOverlay {
 	if err != nil {
 		m.allNames = nil
 		m.candidates = nil
+		m.matchIndexes = nil
 		return m
 	}
 
@@ -67,6 +69,7 @@ func (m planPickerOverlay) Open(triggerCommand string) planPickerOverlay {
 		m.allNames = append(m.allNames, ".steiner/plans/"+info.Name())
 	}
 	m.candidates = append([]string(nil), m.allNames...)
+	m.matchIndexes = make([][]int, len(m.candidates))
 	return m
 }
 
@@ -80,9 +83,9 @@ func (m planPickerOverlay) Update(msg tea.Msg) (planPickerOverlay, tea.Cmd) {
 		return m, nil
 	}
 	switch updateSearchPicker(&m.query, &m.selection, &m.scrollOffset, &m.candidates, m.allNames, msg, func(query string, entries []string) []string {
-		return filterSearchPickerEntries(entries, query, func(entry string, loweredQuery string) bool {
-			return strings.Contains(strings.ToLower(entry), loweredQuery)
-		})
+		results, indexes := fuzzyMatchStrings(entries, query)
+		m.matchIndexes = indexes
+		return results
 	}) {
 	case searchPickerClosed:
 		return m.Close(), nil
@@ -120,7 +123,11 @@ func (m planPickerOverlay) View() string {
 
 	for i := m.scrollOffset; i < min(m.scrollOffset+maxDisplay, len(m.candidates)); i++ {
 		name := m.candidates[i]
-		row := nameStyle.Render(name)
+		matchedIndexes := []int(nil)
+		if i < len(m.matchIndexes) {
+			matchedIndexes = m.matchIndexes[i]
+		}
+		row := renderMatchedText(name, matchedIndexes, nameStyle, m.styles.AccentColor)
 		if i == m.selection {
 			lines = append(lines, m.styles.PaletteItemActive.
 				Width(innerW).
