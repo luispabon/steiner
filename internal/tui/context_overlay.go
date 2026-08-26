@@ -150,3 +150,35 @@ func (m *Model) renderContextOverlay() string {
 
 	return s.RenderWithBg(boxStyle, full, theme.BgElev)
 }
+
+// contextOverlayBounds returns the centered context overlay rectangle clipped
+// to the terminal dimensions.
+func (m *Model) contextOverlayBounds() (x, y, w, h int) {
+	overlayLines := strings.Split(m.renderContextOverlay(), "\n")
+	h = len(overlayLines)
+	for _, line := range overlayLines {
+		w = max(w, lipgloss.Width(line))
+	}
+	startX := (m.width - w) / 2
+	startY := (m.height - h) / 2
+	endX := min(m.width, startX+w)
+	endY := min(m.height, startY+h)
+	x = max(0, startX)
+	y = max(0, startY)
+	w = endX - x
+	h = endY - y
+	if w <= 0 || h <= 0 {
+		return 0, 0, 0, 0
+	}
+	return x, y, w, h
+}
+
+func (m *Model) contextOverlayCapturesMouse(x, y int) bool {
+	if !m.contextOverlay.IsOpen() || m.fileList.IsOpen() || m.mcpOverlay.IsOpen() ||
+		m.workflowHandoff.IsOpen() || m.worktreeCleanupModal.IsOpen() || m.exitModal.IsOpen() {
+		return false
+	}
+	boundsX, boundsY, boundsW, boundsH := m.contextOverlayBounds()
+	return boundsW > 0 && boundsH > 0 &&
+		x >= boundsX && x < boundsX+boundsW && y >= boundsY && y < boundsY+boundsH
+}
