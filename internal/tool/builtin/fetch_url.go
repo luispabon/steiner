@@ -83,36 +83,40 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 			// Decide how to handle based on Content-Type.
 			switch {
 			case isImageContentType(contentType):
-				imgBlock, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
+				img, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
 				if imgErr != nil {
 					return &FetchURLError{
 						URL:   in.URL,
 						Error: imgErr.Error(),
 					}, nil
 				}
-				return &FetchURLResult{
-					URL:        in.URL,
-					StatusCode: statusCode,
-					Image:      imgBlock,
-				}, nil
+				result, saveErr := saveFetchedImage(env.WorkDir, img)
+				if saveErr != nil {
+					return nil, fmt.Errorf("fetch_url: %w", saveErr)
+				}
+				result.URL = in.URL
+				result.StatusCode = statusCode
+				return result, nil
 
 			case contentType == "" || cleanContentType(contentType) == "application/octet-stream":
 				// Extension fallback: treat as image if URL suggests an image.
 				if hasImageExtension(in.URL) {
-					imgBlock, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
+					img, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
 					if imgErr != nil {
 						return &FetchURLError{
 							URL:   in.URL,
 							Error: imgErr.Error(),
 						}, nil
 					}
-					return &FetchURLResult{
-						URL:        in.URL,
-						StatusCode: statusCode,
-						Image:      imgBlock,
-					}, nil
+					result, saveErr := saveFetchedImage(env.WorkDir, img)
+					if saveErr != nil {
+						return nil, fmt.Errorf("fetch_url: %w", saveErr)
+					}
+					result.URL = in.URL
+					result.StatusCode = statusCode
+					return result, nil
 				}
-				// No image extension — fall through to wonton/fetch.
+				// No image extension, fall through to wonton/fetch.
 
 			case isTextLikeContentType(contentType) && !isHTMLContentType(contentType) && contentType != "":
 				return fetchRawText(ctx, httpClient, in, env.WorkDir, contentType)

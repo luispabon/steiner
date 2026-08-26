@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"fmt"
 	"image"
 	"image/color"
@@ -812,63 +811,74 @@ func TestFetchImageBytes(t *testing.T) {
 
 	pngData, pngWidth, pngHeight := newTestPNG()
 
-	t.Run("fetches image and returns ImageBlock", func(t *testing.T) {
+	t.Run("fetches raw image bytes and metadata", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write(pngData)
 		}))
 		defer server.Close()
 
-		imgBlock, statusCode, err := fetchImageBytes(ctx, httpClient, server.URL, "image/png")
+		fetched, statusCode, err := fetchImageBytes(ctx, httpClient, server.URL, "image/png")
 		if err != nil {
 			t.Fatalf("fetchImageBytes returned error: %v", err)
 		}
-		if imgBlock == nil {
-			t.Fatal("ImageBlock is nil")
+		if fetched == nil {
+			t.Fatal("fetched image is nil")
 		}
-		if imgBlock.MediaType != "image/png" {
-			t.Errorf("MediaType = %q, want %q", imgBlock.MediaType, "image/png")
+		if !bytes.Equal(fetched.data, pngData) {
+			t.Error("raw image data does not match original")
 		}
-		if imgBlock.Width != pngWidth {
-			t.Errorf("Width = %d, want %d", imgBlock.Width, pngWidth)
+		if fetched.mediaType != "image/png" {
+			t.Errorf("mediaType = %q, want %q", fetched.mediaType, "image/png")
 		}
-		if imgBlock.Height != pngHeight {
-			t.Errorf("Height = %d, want %d", imgBlock.Height, pngHeight)
+		if fetched.extension != ".png" {
+			t.Errorf("extension = %q, want %q", fetched.extension, ".png")
 		}
-		if imgBlock.Data == "" {
-			t.Error("Data is empty")
-		}
-		if imgBlock.SizeBytes != len(pngData) {
-			t.Errorf("SizeBytes = %d, want %d", imgBlock.SizeBytes, len(pngData))
+		if fetched.width != pngWidth || fetched.height != pngHeight {
+			t.Errorf("dimensions = %dx%d, want %dx%d", fetched.width, fetched.height, pngWidth, pngHeight)
 		}
 		if statusCode != 200 {
 			t.Errorf("StatusCode = %d, want 200", statusCode)
 		}
-
-		// Verify base64 round-trips.
-		decoded, err := base64.StdEncoding.DecodeString(imgBlock.Data)
-		if err != nil {
-			t.Fatalf("failed to decode base64: %v", err)
-		}
-		if !bytes.Equal(decoded, pngData) {
-			t.Error("decoded base64 data does not match original")
-		}
 	})
 
-	t.Run("oversize image returns error", func(t *testing.T) {
+	t.Run("oversize image returns error before saving", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "image/png")
-			bigData := make([]byte, 5*1024*1024+1)
-			_, _ = w.Write(bigData)
+			_, _ = w.Write(make([]byte, maxImageBytes+1))
 		}))
 		defer server.Close()
 
+		workDir := t.TempDir()
 		_, _, err := fetchImageBytes(ctx, httpClient, server.URL, "image/png")
 		if err == nil {
 			t.Fatal("expected error for oversize image, got nil")
 		}
 		if !strings.Contains(err.Error(), "too large") {
 			t.Errorf("Error = %q, want to contain 'too large'", err.Error())
+		}
+		if _, err := os.Stat(filepath.Join(workDir, ".steiner", "tmp", "fetched")); !os.IsNotExist(err) {
+			t.Errorf("fetched directory exists after failed fetch, stat err = %v", err)
+		}
+	})
+
+	t.Run("invalid image returns error before saving", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("not an image"))
+		}))
+		defer server.Close()
+
+		workDir := t.TempDir()
+		_, _, err := fetchImageBytes(ctx, httpClient, server.URL, "image/png")
+		if err == nil {
+			t.Fatal("expected invalid image error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid image") {
+			t.Errorf("Error = %q, want to contain 'invalid image'", err.Error())
+		}
+		if _, err := os.Stat(filepath.Join(workDir, ".steiner", "tmp", "fetched")); !os.IsNotExist(err) {
+			t.Errorf("fetched directory exists after failed fetch, stat err = %v", err)
 		}
 	})
 
@@ -879,30 +889,28 @@ func TestFetchImageBytes(t *testing.T) {
 		}))
 		defer server.Close()
 
-		imgBlock, _, err := fetchImageBytes(ctx, httpClient, server.URL, "image/jpeg")
+		fetched, _, err := fetchImageBytes(ctx, httpClient, server.URL, "image/jpeg")
 		if err != nil {
 			t.Fatalf("fetchImageBytes returned error: %v", err)
 		}
-		// Server declares image/jpeg, so that takes precedence.
-		if imgBlock.MediaType != "image/jpeg" {
-			t.Errorf("MediaType = %q, want %q", imgBlock.MediaType, "image/jpeg")
+		if fetched.mediaType != "image/jpeg" || fetched.extension != ".jpg" {
+			t.Errorf("metadata = (%q, %q), want (image/jpeg, .jpg)", fetched.mediaType, fetched.extension)
 		}
 	})
 
-	t.Run("media type fallback to extension when Content-Type is octet-stream", func(t *testing.T) {
+	t.Run("media type and extension fallback", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/octet-stream")
 			_, _ = w.Write(pngData)
 		}))
 		defer server.Close()
 
-		// URL with .png extension should fall back to image/png.
-		imgBlock, _, err := fetchImageBytes(ctx, httpClient, server.URL+"/photo.png", "application/octet-stream")
+		fetched, _, err := fetchImageBytes(ctx, httpClient, server.URL+"/photo.png", "application/octet-stream")
 		if err != nil {
 			t.Fatalf("fetchImageBytes returned error: %v", err)
 		}
-		if imgBlock.MediaType != "image/png" {
-			t.Errorf("MediaType = %q, want %q", imgBlock.MediaType, "image/png")
+		if fetched.mediaType != "image/png" || fetched.extension != ".png" {
+			t.Errorf("metadata = (%q, %q), want (image/png, .png)", fetched.mediaType, fetched.extension)
 		}
 	})
 }
@@ -1273,4 +1281,75 @@ func TestSaveFetchedContent(t *testing.T) {
 			t.Errorf("error = %q, want to contain %q", err.Error(), "save fetched content")
 		}
 	})
+}
+
+func TestSaveFetchedImage(t *testing.T) {
+	workDir := t.TempDir()
+	data, width, height := newTestPNG()
+	image := &fetchedImage{
+		data:      data,
+		mediaType: "image/png",
+		extension: ".png",
+		width:     width,
+		height:    height,
+	}
+
+	result, err := saveFetchedImage(workDir, image)
+	if err != nil {
+		t.Fatalf("saveFetchedImage: %v", err)
+	}
+	if result.Image != nil {
+		t.Fatal("Image is non-nil, want deferred image persistence")
+	}
+	if filepath.IsAbs(result.FilePath) {
+		t.Fatalf("FilePath = %q, want relative path", result.FilePath)
+	}
+	if !strings.HasPrefix(result.FilePath, filepath.Join(".steiner", "tmp", "fetched")+string(filepath.Separator)) {
+		t.Fatalf("FilePath = %q, want fetched directory", result.FilePath)
+	}
+	if !strings.Contains(result.Message, "read") {
+		t.Errorf("Message = %q, want read guidance", result.Message)
+	}
+
+	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+	wantName := hash[:12] + ".png"
+	if filepath.Base(result.FilePath) != wantName {
+		t.Errorf("file name = %q, want %q", filepath.Base(result.FilePath), wantName)
+	}
+	saved, err := os.ReadFile(filepath.Join(workDir, result.FilePath))
+	if err != nil {
+		t.Fatalf("read saved image: %v", err)
+	}
+	if !bytes.Equal(saved, data) {
+		t.Error("saved image bytes do not match source bytes")
+	}
+	info, err := os.Stat(filepath.Join(workDir, result.FilePath))
+	if err != nil {
+		t.Fatalf("stat saved image: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("saved image mode = %o, want 0o600", info.Mode().Perm())
+	}
+}
+
+func TestSaveFetchedImageWriteFailureLeavesNoPartialFile(t *testing.T) {
+	workDir := t.TempDir()
+	data, _, _ := newTestPNG()
+	image := &fetchedImage{data: data, extension: ".png"}
+	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+	target := filepath.Join(workDir, ".steiner", "tmp", "fetched", hash[:12]+".png")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if _, err := saveFetchedImage(workDir, image); err == nil {
+		t.Fatal("expected save error when target is a directory")
+	}
+	entries, err := os.ReadDir(filepath.Dir(target))
+	if err != nil {
+		t.Fatalf("read fetched directory: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(target) {
+		t.Errorf("fetched directory entries = %v, want only failed target directory", entries)
+	}
 }

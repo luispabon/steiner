@@ -3,7 +3,6 @@ package builtin
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"image"
 	_ "image/gif"  // register GIF decoder for image.Decode
@@ -21,11 +20,20 @@ import (
 
 const maxImageBytes = 5 * 1024 * 1024
 
+type fetchedImage struct {
+	data      []byte
+	mediaType string
+	extension string
+	width     int
+	height    int
+}
+
 // fetchImageBytes fetches an image from urlStr, validates size (max 5MB),
-// base64-encodes, decodes dimensions, and returns an ImageBlock plus the
-// HTTP status code. mediaTypeHint is the response Content-Type; when empty
-// or application/octet-stream, the URL extension is used as fallback.
-func fetchImageBytes(ctx context.Context, httpClient *http.Client, urlStr, mediaTypeHint string) (*ImageBlock, int, error) {
+// decodes its dimensions, and returns the raw bytes plus image metadata. The
+// HTTP status code is returned separately. mediaTypeHint is the response
+// Content-Type; when empty or application/octet-stream, the URL extension is
+// used as fallback.
+func fetchImageBytes(ctx context.Context, httpClient *http.Client, urlStr, mediaTypeHint string) (*fetchedImage, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
 		return nil, 0, fmt.Errorf("fetch image: %w", err)
@@ -49,27 +57,46 @@ func fetchImageBytes(ctx context.Context, httpClient *http.Client, urlStr, media
 			output.FormatFileSize(maxImageBytes), output.FormatFileSize(len(data)))
 	}
 
-	// Determine media type.
 	mediaType := mediaTypeFromResponse(mediaTypeHint, urlStr)
-
-	// Decode dimensions.
-	width, height := 0, 0
-	img, _, err := image.Decode(bytes.NewReader(data))
-	if err == nil {
-		bounds := img.Bounds()
-		width = bounds.Max.X
-		height = bounds.Max.Y
+	extension, err := imageExtension(mediaType, urlStr)
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("fetch image: %w", err)
 	}
 
-	encoded := base64.StdEncoding.EncodeToString(data)
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("fetch image: invalid image: %w", err)
+	}
+	bounds := img.Bounds()
 
-	return &ImageBlock{
-		MediaType: mediaType,
-		Data:      encoded,
-		Width:     width,
-		Height:    height,
-		SizeBytes: len(data),
+	return &fetchedImage{
+		data:      data,
+		mediaType: mediaType,
+		extension: extension,
+		width:     bounds.Dx(),
+		height:    bounds.Dy(),
 	}, resp.StatusCode, nil
+}
+
+// imageExtension returns a supported extension for an image media type. URL
+// extensions are used only when media type detection fell back to the URL.
+func imageExtension(mediaType, urlStr string) (string, error) {
+	switch cleanContentType(mediaType) {
+	case "image/png":
+		return ".png", nil
+	case "image/jpeg":
+		return ".jpg", nil
+	case "image/gif":
+		return ".gif", nil
+	case "image/webp":
+		return ".webp", nil
+	}
+
+	ext := strings.ToLower(filepath.Ext(urlPathNoQuery(urlStr)))
+	if IsImageExtension(ext) {
+		return ext, nil
+	}
+	return "", fmt.Errorf("unsupported image format: %s", cleanContentType(mediaType))
 }
 
 // mediaTypeFromResponse returns a media type from the Content-Type header,
