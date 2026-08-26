@@ -33,6 +33,15 @@ type modelEntriesUpdatedMsg struct {
 	ok      bool
 }
 
+// sessionTickInterval is the cadence of the session timer display.
+const sessionTickInterval = time.Second
+
+func sessionTickCmd() tea.Cmd {
+	return tea.Tick(sessionTickInterval, func(time.Time) tea.Msg {
+		return sessionTickMsg{}
+	})
+}
+
 func syncDebounceCmd(seq int) tea.Cmd {
 	return tea.Tick(50*time.Millisecond, func(_ time.Time) tea.Msg {
 		return syncDebounceFiredMsg{seq: seq}
@@ -50,6 +59,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSetAccentMsg(msg)
 	case tickMsg:
 		return m.handleTickMsg(msg)
+	case sessionTickMsg:
+		return m.handleSessionTickMsg(msg)
 	case tea.WindowSizeMsg:
 		return m.handleWindowSizeMsg(msg)
 	case worktreeCountMsg:
@@ -145,6 +156,7 @@ func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
+	m.sessionStartedAt = nil
 	m.content.Clear()
 	m.selection = m.selection.clear()
 	m.clearDragState()
@@ -220,6 +232,14 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.content.gen++
 	m.syncViewport()
 	return m, nil
+}
+
+func (m *Model) handleSessionTickMsg(_ sessionTickMsg) (tea.Model, tea.Cmd) {
+	m.syncSidebar()
+	if m.sessionStartedAt == nil {
+		return m, nil
+	}
+	return m, sessionTickCmd()
 }
 
 func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {

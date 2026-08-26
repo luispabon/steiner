@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -258,6 +259,8 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
+	m.sessionStartedAt = nil
+	m.syncSidebar()
 	if m.controller != nil {
 		ctrl := m.controller
 		return m, func() tea.Msg {
@@ -267,8 +270,14 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
 func (m *Model) executeSubmitAction(value string, submitText string, displayText string) (tea.Model, tea.Cmd) {
+	var sessionCmd tea.Cmd
+	if m.sessionStartedAt == nil {
+		now := time.Now()
+		m.sessionStartedAt = &now
+		m.syncSidebar()
+		sessionCmd = sessionTickCmd()
+	}
 	if value != "" {
 		m.inputHistory = append([]string{value}, m.inputHistory...)
 		m.historyIdx = 0
@@ -279,7 +288,7 @@ func (m *Model) executeSubmitAction(value string, submitText string, displayText
 		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText, Images: images}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
 			m.input.Reset()
-			return m, nil
+			return m, sessionCmd
 		}
 	}
 	m.imageMarkers = nil
@@ -291,7 +300,7 @@ func (m *Model) executeSubmitAction(value string, submitText string, displayText
 	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
-	return m, nil
+	return m, sessionCmd
 }
 
 // skillExecutionMode returns the execution mode a direct `/skillname`

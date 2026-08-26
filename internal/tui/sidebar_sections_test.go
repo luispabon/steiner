@@ -31,6 +31,65 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
+func TestFormatSessionElapsed(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		active  bool
+		seconds int64
+		want    string
+	}{
+		{"inactive", false, 42, "—"},
+		{"zero", true, 0, "00:00:00"},
+		{"seconds", true, 42, "00:00:42"},
+		{"minute boundary", true, 60, "00:01:00"},
+		{"minute 34", true, 94, "00:01:34"},
+		{"hour boundary", true, 3600, "01:00:00"},
+		{"hour minute second", true, 4054, "01:07:34"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := formatSessionElapsed(tc.active, tc.seconds); got != tc.want {
+				t.Errorf("formatSessionElapsed(%t, %d) = %q, want %q", tc.active, tc.seconds, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSessionRowTwoTone(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	keyStyle := styles.FgFaint.Background(lipgloss.Color(theme.Black))
+	valStyle := styles.FgDim.Background(lipgloss.Color(theme.Black))
+
+	cases := []struct {
+		name     string
+		sec      int64
+		wantHHMM string
+		wantSS   string
+	}{
+		{"minute 34", 94, "00:01", ":34"},
+		{"hour rollover", 3600, "01:00", ":00"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := sidebarState{styles: styles, sessionActive: true, sessionElapsedSec: tc.sec}
+			want := keyStyle.Render("session   ") + valStyle.Render(tc.wantHHMM) + keyStyle.Render(tc.wantSS)
+			if got := s.sessionRow(32); got != want {
+				t.Errorf("sessionRow() = %q, want %q", got, want)
+			}
+			if w := lipgloss.Width(stripANSI(s.sessionRow(32))); w > 32 {
+				t.Errorf("sessionRow() width = %d, want <= 32", w)
+			}
+		})
+	}
+
+	inactive := sidebarState{styles: styles}
+	if got := inactive.sessionRow(32); !strings.Contains(stripANSI(got), "—") {
+		t.Errorf("inactive sessionRow() = %q, want dash", got)
+	}
+}
+
 func TestFormatTPS(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -325,6 +384,9 @@ func TestPerformanceSection(t *testing.T) {
 				sessionCacheHitRateOK: tc.sessionCacheHitRateOK,
 				styles:                testStyles(theme.AccentAmber),
 			}
+			if got, want := len(s.performanceSection(32)), 7; got != want {
+				t.Errorf("len(performanceSection()) = %d, want %d lines (blank line plus label plus five value rows)", got, want)
+			}
 			got := s.performanceSection(32)
 			if len(got) == 0 {
 				t.Errorf("performanceSection() = empty, always want non-empty")
@@ -510,7 +572,7 @@ func TestStaticLinesLineCount(t *testing.T) {
 		workingDir:            "/home/user/project",
 		styles:                styles,
 	}
-	const want = 28
+	const want = 29
 	if got := len(s.staticLines(32)); got != want {
 		t.Errorf("len(staticLines(32)) = %d, want %d", got, want)
 	}

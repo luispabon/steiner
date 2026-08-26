@@ -205,7 +205,33 @@ func (s sidebarState) performanceSection(width int) []string {
 		cardFieldN("ttft", keyW, s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w-keyW+7), s.styles),
 		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
 		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitRate(s.sessionCacheHitRate, s.sessionCacheHitRateOK), w-keyW+7), s.styles),
+		s.sessionRow(w),
 	}
+}
+
+// formatSessionElapsed formats elapsed seconds as HH:MM:SS, or "—" when unused.
+func formatSessionElapsed(active bool, seconds int64) string {
+	if !active {
+		return "—"
+	}
+	return fmt.Sprintf("%02d:%02d:%02d", seconds/3600, (seconds%3600)/60, seconds%60)
+}
+
+// sessionRow renders the session timer value: HH:MM in the value colour with
+// the seconds and preceding colon in the faint key colour, matching the
+// "session" label.
+func (s sidebarState) sessionRow(width int) string {
+	const keyW = 10
+	if !s.sessionActive {
+		return cardFieldN("session", keyW, s.styles.FgDim, fitText("—", width-keyW+7), s.styles)
+	}
+	sec := s.sessionElapsedSec
+	full := formatSessionElapsed(true, sec)
+	splitAt := strings.LastIndex(full, ":")
+	hhmm, ss := full[:splitAt], full[splitAt:]
+	keyStyle := s.styles.FgFaint.Background(lipgloss.Color(theme.Black))
+	valStyle := s.styles.FgDim.Background(lipgloss.Color(theme.Black))
+	return keyStyle.Render(fmt.Sprintf("%-*s", keyW, "session")) + valStyle.Render(fitText(hhmm, width-keyW+7-len(ss))) + keyStyle.Render(ss)
 }
 
 // formatCacheHitRate renders the hit rate as "78.2%" or "—" when undefined.

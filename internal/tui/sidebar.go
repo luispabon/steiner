@@ -45,6 +45,8 @@ type sidebarState struct {
 	perfOutputTPS         float64
 	sessionCacheHitRate   float64
 	sessionCacheHitRateOK bool
+	sessionActive         bool
+	sessionElapsedSec     int64
 	oneshotPhase          string
 	sandboxStatus         string
 	execMode              string // execution mode: "plan" or "build"
