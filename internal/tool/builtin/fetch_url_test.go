@@ -1026,6 +1026,95 @@ func TestFetchImageBytes(t *testing.T) {
 	})
 }
 
+func TestFetchURLUnsupportedImageTypeReturnsStructuredError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, _ = w.Write([]byte("<svg width=\"2\" height=\"3\"></svg>"))
+	}))
+	defer server.Close()
+
+	workDir := t.TempDir()
+	policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	result, err := NewFetchURLTool(Env{
+		WorkDir:    workDir,
+		PathPolicy: &policy,
+		httpClient: func() *http.Client { return server.Client() },
+	}).Handler(context.Background(), map[string]any{"url": server.URL})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	fetchErr, ok := result.(*FetchURLError)
+	if !ok {
+		t.Fatalf("result type = %T, want *FetchURLError", result)
+	}
+	if !strings.Contains(fetchErr.Error, "unsupported image format") {
+		t.Errorf("Error = %q, want to contain %q", fetchErr.Error, "unsupported image format")
+	}
+	if _, err := os.Stat(filepath.Join(workDir, ".steiner", "tmp", "fetched")); !os.IsNotExist(err) {
+		t.Errorf("fetched directory exists after failed fetch, stat err = %v", err)
+	}
+}
+
+func TestWebpDimensions(t *testing.T) {
+	tests := []struct {
+		name   string
+		chunk  string
+		width  int
+		height int
+		data   func([]byte)
+	}{
+		{
+			name:   "VP8",
+			chunk:  "VP8 ",
+			width:  291,
+			height: 564,
+			data: func(data []byte) {
+				data[23] = 0x9d
+				data[24] = 0x01
+				data[25] = 0x2a
+				data[26] = 0x23
+				data[27] = 0x01
+				data[28] = 0x34
+				data[29] = 0x02
+			},
+		},
+		{
+			name:   "VP8X",
+			chunk:  "VP8X",
+			width:  299,
+			height: 516,
+			data: func(data []byte) {
+				data[24] = 0x2a
+				data[25] = 0x01
+				data[27] = 0x03
+				data[28] = 0x02
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := make([]byte, 30)
+			copy(data[:4], "RIFF")
+			copy(data[8:12], "WEBP")
+			copy(data[12:16], tt.chunk)
+			tt.data(data)
+
+			width, height, err := webpDimensions(data)
+			if err != nil {
+				t.Fatalf("webpDimensions: %v", err)
+			}
+			if width != tt.width || height != tt.height {
+				t.Errorf("dimensions = %dx%d, want %dx%d", width, height, tt.width, tt.height)
+			}
+		})
+	}
+}
+
 func TestIsHTMLContentType(t *testing.T) {
 	tests := []struct {
 		ct   string

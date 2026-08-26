@@ -226,6 +226,83 @@ func TestRunnerReadImageScrubsAtMaxTurns(t *testing.T) {
 		t.Fatal("final conversation contains raw read image data at max turns")
 	}
 }
+func TestRunnerReadImageRetainedAcrossVisionCapabilityRetry(t *testing.T) {
+	providerStub := &fakeProvider{}
+	hasRawImageData := func(messages []provider.Message) bool {
+		for _, message := range messages {
+			for _, image := range message.Images {
+				if image.Data != "" {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	rawByCall := make([]bool, 0, 3)
+	chatCalls := 0
+	providerStub.chatFn = func(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+		chatCalls++
+		rawByCall = append(rawByCall, hasRawImageData(req.Messages))
+		switch chatCalls {
+		case 1:
+			return provider.ChatResponse{Message: provider.Message{
+				Role:      provider.MessageRoleAssistant,
+				ToolCalls: []provider.ToolCall{{ID: "read-1", Name: "read", Arguments: map[string]any{"path": "image.png"}}},
+			}}, nil
+		case 2:
+			return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request", Body: "unknown variant image_url"}
+		case 3:
+			return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "done"}}, nil
+		default:
+			t.Fatalf("unexpected ChatCompletion call %d", chatCalls)
+			return provider.ChatResponse{}, nil
+		}
+	}
+
+	visionCalls := 0
+	executor := &fakeExecutor{execute: func(_ context.Context, name string, input map[string]any) (any, error) {
+		switch name {
+		case "read":
+			return builtin.ReadResult{Image: &builtin.ImageBlock{
+				FilePath: "/tmp/image.png", MediaType: "image/png", Data: "read-image-data", Width: 2, Height: 3, SizeBytes: 4,
+			}}, nil
+		case "vision":
+			visionCalls++
+			if input["image_id"] != "img-1" {
+				t.Fatalf("image_id = %v, want img-1", input["image_id"])
+			}
+			data, _ := json.Marshal(map[string]string{"agent_id": "vision-1", "output": "a detailed description"})
+			return string(data), nil
+		default:
+			t.Fatalf("unexpected tool %q", name)
+			return nil, nil
+		}
+	}}
+	capabilities := NewVisionCapabilities(true)
+	store := NewImageStore(t.TempDir())
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub, Executor: executor,
+		Prompt:        prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "inspect image.png"}}},
+		ResolvedModel: provider.ResolvedModel{Alias: "parent", BackendModelID: "parent"},
+		Limits:        Limits{MaxTurns: 3}, VisionCapabilities: capabilities, ImageStore: store, StreamingPreferred: true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if chatCalls != 3 {
+		t.Fatalf("ChatCompletion calls = %d, want 3", chatCalls)
+	}
+	if len(rawByCall) != 3 || !rawByCall[1] || rawByCall[2] {
+		t.Fatalf("raw image data by request = %v, want [false true false]", rawByCall)
+	}
+	if visionCalls != 1 {
+		t.Fatalf("vision calls = %d, want 1", visionCalls)
+	}
+	if hasRawImageData(ToProviderMessages(state.Conversation)) {
+		t.Fatal("final conversation retained consumed image data")
+	}
+}
 
 func TestHandleImagesForVisionDoesNotProcessAssistantImages(t *testing.T) {
 	capabilities := NewVisionCapabilities(false)
