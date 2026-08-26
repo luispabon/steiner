@@ -138,8 +138,9 @@ func TestPlanPickerUpdate(t *testing.T) {
 
 	// Type a character to filter
 	m, _ = m.Update(tea.KeyPressMsg{Text: "step"})
-	if len(m.candidates) != 2 {
-		t.Fatalf("expected 2 candidates after typing 'step', got %d: %v", len(m.candidates), m.candidates)
+	wantAfterStep := []string{".steiner/plans/step-1", ".steiner/plans/step-2"}
+	if !reflect.DeepEqual(m.candidates, wantAfterStep) {
+		t.Fatalf("expected candidates after typing 'step' to be %v, got %v", wantAfterStep, m.candidates)
 	}
 
 	// Type more to narrow further
@@ -157,6 +158,83 @@ func TestPlanPickerUpdate(t *testing.T) {
 	if len(m.candidates) != 2 {
 		t.Fatalf("expected 2 candidates after backspace, got %d: %v", len(m.candidates), m.candidates)
 	}
+	if !reflect.DeepEqual(m.candidates, wantAfterStep) {
+		t.Fatalf("expected candidates after backspace to be %v, got %v", wantAfterStep, m.candidates)
+	}
+}
+
+func TestPlanPickerFuzzyMatching(t *testing.T) {
+	t.Parallel()
+	s := testStyles("#ff0000")
+	allNames := []string{".steiner/plans/step-1", ".steiner/plans/step-2", ".steiner/plans/research", ".steiner/plans/bugfix"}
+
+	setup := func() planPickerOverlay {
+		m := newPlanPickerOverlay(s)
+		m.allNames = append([]string(nil), allNames...)
+		m.candidates = append([]string(nil), m.allNames...)
+		m.matchIndexes = make([][]int, len(m.candidates))
+		m.OverlayShell = m.openShell()
+		return m
+	}
+
+	for _, tc := range []struct {
+		query string
+		want  string
+	}{
+		{query: "s1", want: ".steiner/plans/step-1"},
+		{query: "s2", want: ".steiner/plans/step-2"},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			t.Parallel()
+			m := setup()
+			m, _ = m.Update(tea.KeyPressMsg{Text: tc.query})
+			want := []string{tc.want}
+			if !reflect.DeepEqual(m.candidates, want) {
+				t.Fatalf("candidates = %v, want %v", m.candidates, want)
+			}
+			prefixLen := len(".steiner/plans/")
+			if len(m.matchIndexes) != 1 || len(m.matchIndexes[0]) == 0 {
+				t.Fatalf("matchIndexes = %v, want non-empty indexes for matched row", m.matchIndexes)
+			}
+			for _, index := range m.matchIndexes[0] {
+				if index < prefixLen || index >= len(m.candidates[0]) {
+					t.Fatalf("matchIndexes = %v contains index %d outside plan-name region", m.matchIndexes, index)
+				}
+			}
+			wantIndexes := []int{prefixLen, prefixLen + 5}
+			if !reflect.DeepEqual(m.matchIndexes[0], wantIndexes) {
+				t.Fatalf("matchIndexes = %v, want %v", m.matchIndexes[0], wantIndexes)
+			}
+		})
+	}
+
+	t.Run("basename-only rejection", func(t *testing.T) {
+		t.Parallel()
+		m := setup()
+		m, _ = m.Update(tea.KeyPressMsg{Text: "plans"})
+		if len(m.candidates) != 0 {
+			t.Fatalf("candidates = %v, want no matches", m.candidates)
+		}
+		if len(m.matchIndexes) != 0 {
+			t.Fatalf("matchIndexes = %v, want no matches", m.matchIndexes)
+		}
+	})
+
+	t.Run("empty query preserves order and empty indexes", func(t *testing.T) {
+		t.Parallel()
+		m := setup()
+		if !reflect.DeepEqual(m.candidates, allNames) {
+			t.Fatalf("candidates = %v, want %v", m.candidates, allNames)
+		}
+		if len(m.matchIndexes) != len(allNames) {
+			t.Fatalf("matchIndexes has length %d, want %d", len(m.matchIndexes), len(allNames))
+		}
+		for i, indexes := range m.matchIndexes {
+			if len(indexes) != 0 {
+				t.Fatalf("matchIndexes[%d] = %v, want empty", i, indexes)
+			}
+		}
+	})
 }
 
 func TestPlanPickerSelectedName(t *testing.T) {

@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/sahilm/fuzzy"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -18,6 +20,7 @@ type planPickerOverlay struct {
 	query          string
 	allNames       []string
 	candidates     []string
+	matchIndexes   [][]int
 	selection      int
 	scrollOffset   int
 	triggerCommand string
@@ -39,6 +42,7 @@ func (m planPickerOverlay) Open(triggerCommand string) planPickerOverlay {
 	if err != nil {
 		m.allNames = nil
 		m.candidates = nil
+		m.matchIndexes = nil
 		return m
 	}
 
@@ -67,6 +71,7 @@ func (m planPickerOverlay) Open(triggerCommand string) planPickerOverlay {
 		m.allNames = append(m.allNames, ".steiner/plans/"+info.Name())
 	}
 	m.candidates = append([]string(nil), m.allNames...)
+	m.matchIndexes = make([][]int, len(m.candidates))
 	return m
 }
 
@@ -75,14 +80,65 @@ func (m planPickerOverlay) Close() planPickerOverlay {
 	return m
 }
 
+func fuzzyMatchPlanNames(names []string, query string) ([]string, [][]int) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return append([]string(nil), names...), make([][]int, len(names))
+	}
+
+	type scoredMatch struct {
+		name    string
+		score   int
+		indexes []int
+	}
+
+	lowerQ := strings.ToLower(q)
+	scored := make([]scoredMatch, 0, len(names))
+	for _, name := range names {
+		base := filepath.Base(name)
+		if base == "" {
+			continue
+		}
+		matches := fuzzy.Find(q, []string{base})
+		if len(matches) == 0 {
+			continue
+		}
+
+		indexes := append([]int(nil), matches[0].MatchedIndexes...)
+		offset := len(name) - len(base)
+		if offset != 0 {
+			for i := range indexes {
+				indexes[i] += offset
+			}
+		}
+		scored = append(scored, scoredMatch{
+			name:    name,
+			score:   scoreStringMatch(base, lowerQ, matches[0].MatchedIndexes),
+			indexes: indexes,
+		})
+	}
+
+	sort.SliceStable(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
+	results := make([]string, 0, len(scored))
+	indexes := make([][]int, 0, len(scored))
+	for _, match := range scored {
+		results = append(results, match.name)
+		indexes = append(indexes, match.indexes)
+	}
+	return results, indexes
+}
+
 func (m planPickerOverlay) Update(msg tea.Msg) (planPickerOverlay, tea.Cmd) {
 	if !m.IsOpen() {
 		return m, nil
 	}
 	switch updateSearchPicker(&m.query, &m.selection, &m.scrollOffset, &m.candidates, m.allNames, msg, func(query string, entries []string) []string {
-		return filterSearchPickerEntries(entries, query, func(entry string, loweredQuery string) bool {
-			return strings.Contains(strings.ToLower(entry), loweredQuery)
-		})
+		results, indexes := fuzzyMatchPlanNames(entries, query)
+		m.matchIndexes = indexes
+		return results
 	}) {
 	case searchPickerClosed:
 		return m.Close(), nil
@@ -120,7 +176,11 @@ func (m planPickerOverlay) View() string {
 
 	for i := m.scrollOffset; i < min(m.scrollOffset+maxDisplay, len(m.candidates)); i++ {
 		name := m.candidates[i]
-		row := nameStyle.Render(name)
+		matchedIndexes := []int(nil)
+		if i < len(m.matchIndexes) {
+			matchedIndexes = m.matchIndexes[i]
+		}
+		row := renderMatchedText(name, matchedIndexes, nameStyle, m.styles.AccentColor)
 		if i == m.selection {
 			lines = append(lines, m.styles.PaletteItemActive.
 				Width(innerW).
