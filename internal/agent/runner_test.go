@@ -588,3 +588,104 @@ func TestInitialConversationTurnCount(t *testing.T) {
 		})
 	}
 }
+
+func TestInitializeRunState_SourceConversation(t *testing.T) {
+	tests := []struct {
+		name                 string
+		sourceConversation   []Message
+		promptConversation   []provider.Message
+		wantConversationRole MessageRole
+		wantConversationLen  int
+	}{
+		{
+			name: "prefers SourceConversation when non-empty",
+			sourceConversation: []Message{
+				{Role: MessageRoleSummary, Content: "summary from source"},
+				{Role: MessageRoleUser, Content: "user message"},
+			},
+			promptConversation: []provider.Message{
+				{Role: provider.MessageRoleSystem, Content: "wire form (should be ignored)"},
+				{Role: provider.MessageRoleUser, Content: "different user message"},
+			},
+			wantConversationRole: MessageRoleSummary,
+			wantConversationLen:  2,
+		},
+		{
+			name:                 "preserves summary role in conversation",
+			sourceConversation:   []Message{{Role: MessageRoleSummary, Content: "compaction summary"}},
+			promptConversation:   []provider.Message{},
+			wantConversationRole: MessageRoleSummary,
+			wantConversationLen:  1,
+		},
+		{
+			name:                 "falls back to Prompt.Conversation when SourceConversation empty",
+			sourceConversation:   []Message{},
+			promptConversation:   []provider.Message{{Role: provider.MessageRoleUser, Content: "fallback"}},
+			wantConversationRole: MessageRoleUser,
+			wantConversationLen:  1,
+		},
+		{
+			name:                 "falls back to Prompt.Conversation when SourceConversation nil",
+			sourceConversation:   nil,
+			promptConversation:   []provider.Message{{Role: provider.MessageRoleUser, Content: "fallback"}},
+			wantConversationRole: MessageRoleUser,
+			wantConversationLen:  1,
+		},
+		{
+			name: "clones SourceConversation to avoid aliasing",
+			sourceConversation: []Message{
+				{Role: MessageRoleUser, Content: "original"},
+			},
+			promptConversation:   []provider.Message{},
+			wantConversationRole: MessageRoleUser,
+			wantConversationLen:  1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := RunRequest{
+				SourceConversation: tc.sourceConversation,
+				Prompt: prompt.AssemblyOptions{
+					Conversation: tc.promptConversation,
+				},
+			}
+			state := initializeRunState(req)
+
+			if len(state.Conversation) != tc.wantConversationLen {
+				t.Fatalf("len(Conversation) = %d, want %d", len(state.Conversation), tc.wantConversationLen)
+			}
+			if state.Conversation[0].Role != tc.wantConversationRole {
+				t.Errorf("Conversation[0].Role = %q, want %q", state.Conversation[0].Role, tc.wantConversationRole)
+			}
+		})
+	}
+}
+
+func TestInitializeRunState_SourceConversationCloning(t *testing.T) {
+	t.Run("clones SourceConversation to prevent aliasing", func(t *testing.T) {
+		original := []Message{
+			{
+				Role:    MessageRoleUser,
+				Content: "user message",
+				ToolCalls: []ToolCall{
+					{ID: "tc_1", Name: "read", Arguments: map[string]any{"path": "/file"}},
+				},
+			},
+		}
+		req := RunRequest{
+			SourceConversation: original,
+			Prompt:             prompt.AssemblyOptions{},
+		}
+		state := initializeRunState(req)
+
+		if len(state.Conversation) != 1 {
+			t.Fatalf("len(Conversation) = %d, want 1", len(state.Conversation))
+		}
+
+		state.Conversation[0].ToolCalls[0].Arguments["path"] = "/modified"
+		if original[0].ToolCalls[0].Arguments["path"] != "/file" {
+			t.Error("original SourceConversation was mutated; cloning failed")
+		}
+	})
+}

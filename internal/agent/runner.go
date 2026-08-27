@@ -89,6 +89,11 @@ type RunRequest struct {
 	// MaxParallelTools bounds how many eligible tool calls execute concurrently
 	// within a turn. Zero means unbounded; one is equivalent to serial execution.
 	MaxParallelTools int
+
+	// SourceConversation is the real conversation with internal roles intact
+	// (e.g. compaction summaries); when set, initializeRunState uses it
+	// instead of reconstructing from Prompt.Conversation.
+	SourceConversation []Message
 }
 
 // Runner executes the main turn loop for an agent run.
@@ -187,7 +192,12 @@ func normalizeRunRequest(req RunRequest) RunRequest {
 }
 
 func initializeRunState(req RunRequest) RunState {
-	conversation := fromProviderMessages(req.Prompt.Conversation)
+	var conversation []Message
+	if len(req.SourceConversation) > 0 {
+		conversation = cloneMessages(req.SourceConversation)
+	} else {
+		conversation = fromProviderMessages(req.Prompt.Conversation)
+	}
 	state := RunState{
 		Conversation: conversation,
 		Lineage:      newConversationLineage(conversation),
