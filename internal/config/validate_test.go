@@ -91,9 +91,9 @@ func setDefaultWorkflowHandoff(cfg *Config, value map[string]string) {
 	cfg.Models.Profiles["default"] = profile
 }
 
-func setDefaultAdvisor(cfg *Config, value string) {
+func setDefaultAdvisor(cfg *Config) {
 	profile := cfg.Models.Profiles["default"]
-	profile.Advisor = value
+	profile.Advisor = "default"
 	cfg.Models.Profiles["default"] = profile
 }
 
@@ -856,7 +856,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			name: "enabled advisor requires max uses",
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{Enabled: true}
-				setDefaultAdvisor(c, "default")
+				setDefaultAdvisor(c)
 			},
 			wantErr: "advisor.max_uses_per_run must be at least 1 when enabled",
 		},
@@ -868,7 +868,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 					MaxUsesPerRun: 1,
 					MaxTokens:     intPtr(0),
 				}
-				setDefaultAdvisor(c, "default")
+				setDefaultAdvisor(c)
 			},
 			wantErr: "advisor.max_tokens must be greater than zero when set",
 		},
@@ -880,7 +880,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 					MaxUsesPerRun: 1,
 					Timeout:       durationPtr(Duration{}),
 				}
-				setDefaultAdvisor(c, "default")
+				setDefaultAdvisor(c)
 			},
 			wantErr: "advisor.timeout must be greater than zero when set",
 		},
@@ -903,7 +903,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 					MaxTokens:     intPtr(256),
 					Timeout:       durationPtr(MustDuration("240s")),
 				}
-				setDefaultAdvisor(c, "default")
+				setDefaultAdvisor(c)
 			},
 		},
 	}
