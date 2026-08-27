@@ -39,7 +39,7 @@ func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, _ map[string
 	}
 }
 
-func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig, _ string, _ Config) {
+func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig) {
 	if cfg.Enabled {
 		if cfg.MaxUsesPerRun < 1 {
 			*problems = append(*problems, "advisor.max_uses_per_run must be at least 1 when enabled")

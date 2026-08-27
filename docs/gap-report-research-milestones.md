@@ -317,8 +317,8 @@ prune stale sessions from the command line.
 
 4. **Named execution profiles** — a `profiles` config block mapping names to model +
    provider + parameter overrides. `/profile <name>` command to switch in-session.
-   `--profile <name>` flag for headless runs. Profile switching invalidates prompt
-   cache.
+   `--profile <name>` flag for headless runs. Profile switching preserves prompt-cache
+   identity.
 
 5. **Per-project deny/ask/allow permission rules** — a `permissions` config block with
    rules per tool or tool category. Rule types: `deny`, `ask`, `allow`. Matching by path
