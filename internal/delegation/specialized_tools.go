@@ -21,6 +21,8 @@ type SpecializedToolDeps struct {
 	ImageStore *agent.ImageStore
 	// AgentModels maps agent type to an optional model alias override.
 	AgentModels map[string]string
+	// DefaultModel is the selected profile's fallback model alias.
+	DefaultModel string
 }
 
 // SpecializedToolDef returns a ToolDef for the given agent type.
@@ -94,9 +96,15 @@ func resolveModel(agentType AgentType, deps SpecializedToolDeps) (provider.Provi
 	if deps.ModelResolver == nil {
 		return deps.Provider, deps.ResolvedModel, nil
 	}
-	alias, ok := deps.AgentModels[string(agentType)]
-	if !ok || alias == "" {
-		return deps.Provider, deps.ResolvedModel, nil
+	alias := strings.TrimSpace(deps.AgentModels[string(agentType)])
+	if alias == "" {
+		if agentType == AgentTypeVision {
+			return deps.Provider, deps.ResolvedModel, nil
+		}
+		alias = strings.TrimSpace(deps.DefaultModel)
+		if alias == "" {
+			return deps.Provider, deps.ResolvedModel, nil
+		}
 	}
 	p, rm, err := deps.ModelResolver(alias)
 	if err != nil {

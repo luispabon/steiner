@@ -645,23 +645,18 @@ func TestSpecializedHandler_UsesPerTypeModel(t *testing.T) {
 }
 
 func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
-	// No Agents entry for the agent type.
-	// ModelResolver is provided but should NOT be called.
-	// Should fall back to parent model.
+	// No Agents entry for the agent type: use the selected profile default.
 	agentType := AgentTypeExplore
-	resolverCalled := false
+	const defaultAlias = "profile-default"
+	resolverCalledWith := ""
+	resolvedModel := provider.ResolvedModel{Alias: defaultAlias, BackendModelID: "profile-model"}
 
-	modelResolver := func(_ string) (provider.Provider, provider.ResolvedModel, error) {
-		resolverCalled = true
-		return nil, provider.ResolvedModel{}, fmt.Errorf("should not be called")
+	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+		resolverCalledWith = alias
+		return stubProvider{}, resolvedModel, nil
 	}
 
 	var capturedReq agent.RunRequest
-	parentModel := provider.ResolvedModel{
-		BackendModelID:           "parent-model",
-		ReasoningEffectiveEffort: "high",
-	}
-
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 		capturedReq = req
 		return successRunState(), nil
@@ -674,10 +669,11 @@ func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 			Runner:        runner,
 			Events:        noopEventSink{},
 			WorkDir:       "/tmp/work",
-			ResolvedModel: parentModel,
+			ResolvedModel: provider.ResolvedModel{BackendModelID: "parent-model"},
 		},
 		ModelResolver: modelResolver,
 		AgentModels:   map[string]string{}, // No entry for agentType
+		DefaultModel:  defaultAlias,
 	}
 
 	def := SpecializedToolDef(agentType, deps)
@@ -686,14 +682,14 @@ func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if resolverCalled {
-		t.Error("ModelResolver should not have been called")
+	if resolverCalledWith != defaultAlias {
+		t.Errorf("ModelResolver called with %q, want %q", resolverCalledWith, defaultAlias)
 	}
-	if capturedReq.ResolvedModel.ReasoningEffectiveEffort != parentModel.ReasoningEffectiveEffort {
-		t.Errorf("child RunRequest ReasoningEffectiveEffort=%q, want %q", capturedReq.ResolvedModel.ReasoningEffectiveEffort, parentModel.ReasoningEffectiveEffort)
+	if capturedReq.ResolvedModel.Alias != resolvedModel.Alias {
+		t.Errorf("child RunRequest ResolvedModel.Alias=%q, want %q", capturedReq.ResolvedModel.Alias, resolvedModel.Alias)
 	}
-	if capturedReq.ResolvedModel.BackendModelID != parentModel.BackendModelID {
-		t.Errorf("child RunRequest BackendModelID=%q, want %q", capturedReq.ResolvedModel.BackendModelID, parentModel.BackendModelID)
+	if capturedReq.ResolvedModel.BackendModelID != resolvedModel.BackendModelID {
+		t.Errorf("child RunRequest ResolvedModel.BackendModelID=%q, want %q", capturedReq.ResolvedModel.BackendModelID, resolvedModel.BackendModelID)
 	}
 }
 
@@ -732,6 +728,78 @@ func TestSpecializedHandler_FallsBackWithNilResolver(t *testing.T) {
 
 	if capturedReq.ResolvedModel.BackendModelID != parentModel.BackendModelID {
 		t.Errorf("child RunRequest BackendModelID=%q, want %q", capturedReq.ResolvedModel.BackendModelID, parentModel.BackendModelID)
+	}
+}
+
+func TestSpecializedHandler_EmptyModelConfigUsesProfileDefault(t *testing.T) {
+	const defaultAlias = "profile-default"
+	var resolverCalledWith string
+	var capturedReq agent.RunRequest
+	modelResolver := func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+		resolverCalledWith = alias
+		return stubProvider{}, provider.ResolvedModel{Alias: alias, BackendModelID: "profile-model"}, nil
+	}
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		capturedReq = req
+		return successRunState(), nil
+	}}
+	deps := minimalDeps(runner)
+	deps.ModelResolver = modelResolver
+	deps.AgentModels = map[string]string{string(AgentTypeExplore): ""}
+	deps.DefaultModel = defaultAlias
+
+	if _, err := SpecializedToolDef(AgentTypeExplore, deps).Handler(context.Background(), map[string]any{"task": "test task"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resolverCalledWith != defaultAlias {
+		t.Errorf("ModelResolver called with %q, want %q", resolverCalledWith, defaultAlias)
+	}
+	if capturedReq.ResolvedModel.BackendModelID != "profile-model" {
+		t.Errorf("child RunRequest ResolvedModel.BackendModelID=%q, want profile-model", capturedReq.ResolvedModel.BackendModelID)
+	}
+}
+
+func TestSpecializedHandler_ProfileDefaultResolverError(t *testing.T) {
+	const defaultAlias = "bad-profile-default"
+	expectedErr := fmt.Errorf("profile default unavailable")
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+	deps.ModelResolver = func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+		if alias != defaultAlias {
+			t.Errorf("ModelResolver alias = %q, want %q", alias, defaultAlias)
+		}
+		return nil, provider.ResolvedModel{}, expectedErr
+	}
+	deps.DefaultModel = defaultAlias
+
+	_, err := SpecializedToolDef(AgentTypeExplore, deps).Handler(context.Background(), map[string]any{"task": "test task"})
+	if err == nil {
+		t.Fatal("expected profile default resolution error")
+	}
+	if !strings.Contains(err.Error(), defaultAlias) || !strings.Contains(err.Error(), expectedErr.Error()) {
+		t.Fatalf("error = %q, want alias and resolver error", err)
+	}
+}
+
+func TestResolveModel_VisionEmptyAliasDoesNotUseProfileDefault(t *testing.T) {
+	resolverCalled := false
+	deps := minimalDeps(nil)
+	deps.ModelResolver = func(string) (provider.Provider, provider.ResolvedModel, error) {
+		resolverCalled = true
+		return nil, provider.ResolvedModel{}, fmt.Errorf("vision resolver should not be called")
+	}
+	deps.DefaultModel = "profile-default"
+
+	gotProvider, gotModel, err := resolveModel(AgentTypeVision, deps)
+	if err != nil {
+		t.Fatalf("resolveModel() error = %v", err)
+	}
+	if resolverCalled {
+		t.Fatal("vision empty alias used profile default resolver")
+	}
+	if gotProvider != deps.Provider || gotModel.BackendModelID != deps.ResolvedModel.BackendModelID {
+		t.Fatalf("resolveModel() = provider %v, model %#v, want parent fallback", gotProvider, gotModel)
 	}
 }
 

@@ -22,6 +22,32 @@ import (
 	"github.com/luispabon/steiner/internal/tui"
 )
 
+func TestBuildInteractiveSessionKeepsProfileDefaultSeparateFromActiveModel(t *testing.T) {
+	cfg := config.Config{Models: config.ModelsConfig{
+		Effective: config.EffectiveModelAssignments{
+			DefaultModel:            "profile-default",
+			ActiveOrchestratorModel: "override-model",
+		},
+	}}
+	sess, err := buildInteractiveSession(cliRuntime{
+		cfg:     cfg,
+		events:  output.NoopSink{},
+		workDir: t.TempDir(),
+		homeDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("buildInteractiveSession() error = %v", err)
+	}
+
+	sessionCfg := sess.Config()
+	if got, want := sessionCfg.Models.Effective.DefaultModel, "profile-default"; got != want {
+		t.Fatalf("session default model = %q, want %q for oneshot fallback", got, want)
+	}
+	if got, want := sess.CurrentModelAlias(), "override-model"; got != want {
+		t.Fatalf("session current model alias = %q, want %q", got, want)
+	}
+}
+
 func TestMCPTUIStateEnabledMix(t *testing.T) {
 	fixtureBin := buildMCPFixture(t)
 
