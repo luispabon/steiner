@@ -65,16 +65,17 @@ func fetchImageBytes(ctx context.Context, httpClient *http.Client, urlStr, media
 
 	width, height := 0, 0
 	img, _, err := image.Decode(bytes.NewReader(data))
-	if err == nil {
+	switch {
+	case err == nil:
 		bounds := img.Bounds()
 		width = bounds.Dx()
 		height = bounds.Dy()
-	} else if mediaType == "image/webp" {
+	case mediaType == "image/webp":
 		width, height, err = webpDimensions(data)
 		if err != nil {
 			return nil, resp.StatusCode, fmt.Errorf("fetch image: invalid image: %w", err)
 		}
-	} else {
+	default:
 		return nil, resp.StatusCode, fmt.Errorf("fetch image: invalid image: %w", err)
 	}
 
