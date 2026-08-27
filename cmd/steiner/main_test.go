@@ -285,7 +285,7 @@ func TestBuildActiveRegistryMatchesDelegateRegistry(t *testing.T) {
 			},
 		},
 		Models: config.ModelsConfig{
-			Advisor: "advisor-alias",
+			Effective: config.EffectiveModelAssignments{Advisor: "advisor-alias"},
 			Definitions: map[string]config.ModelConfig{
 				"advisor-alias": {
 					Provider: "testprov",
