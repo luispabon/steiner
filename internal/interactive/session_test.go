@@ -1418,7 +1418,7 @@ func TestWorkflowHandoffModelSelectionUsesDestinationDefault(t *testing.T) {
 	}
 }
 
-func TestWorkflowHandoffModelSelectionFallsBackToCurrentSession(t *testing.T) {
+func TestWorkflowHandoffModelSelectionFallsBackToProfileDefault(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
@@ -1434,13 +1434,13 @@ func TestWorkflowHandoffModelSelectionFallsBackToCurrentSession(t *testing.T) {
 
 	if got, want := s.WorkflowHandoffModelSelection("implement"), (WorkflowHandoffModelSelection{
 		ModelAlias:  "profile-default",
-		SourceLabel: "current session",
+		SourceLabel: "profile default",
 	}); got != want {
 		t.Fatalf("WorkflowHandoffModelSelection(implement) = %#v, want %#v", got, want)
 	}
 	if got, want := s.WorkflowHandoffModelSelection("review"), (WorkflowHandoffModelSelection{
 		ModelAlias:  "profile-default",
-		SourceLabel: "current session",
+		SourceLabel: "profile default",
 	}); got != want {
 		t.Fatalf("WorkflowHandoffModelSelection(review) = %#v, want %#v", got, want)
 	}

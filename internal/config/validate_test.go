@@ -846,11 +846,27 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "enabled advisor requires model",
+			name: "enabled advisor allows empty assignment",
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
 			},
-			wantErr: "models.profiles[\"default\"].advisor is required when enabled",
+		},
+		{
+			name: "enabled advisor allows empty assignment in named profile",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
+				c.Models.Profiles["named"] = ModelProfile{DefaultModel: "default", advisorSet: true}
+			},
+		},
+		{
+			name: "invalid explicit advisor is rejected",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
+				profile := c.Models.Profiles["default"]
+				profile.Advisor = "missing-advisor"
+				c.Models.Profiles["default"] = profile
+			},
+			wantErr: `models.profiles["default"].advisor "missing-advisor" is not defined in models.definitions or providers`,
 		},
 		{
 			name: "enabled advisor requires max uses",
