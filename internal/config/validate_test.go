@@ -1594,3 +1594,21 @@ func TestValidateCodexTransport(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateProfilesErrorOrder(t *testing.T) {
+	cfg := validBase()
+	cfg.Models.Profiles["gamma"] = ModelProfile{DefaultModel: "missing-gamma"}
+	cfg.Models.Profiles["alpha"] = ModelProfile{DefaultModel: "missing-alpha"}
+	cfg.Models.Profiles["delta"] = ModelProfile{DefaultModel: "missing-delta"}
+	cfg.Models.Profiles["beta"] = ModelProfile{DefaultModel: "missing-beta"}
+
+	want := `invalid config: resolve profile "alpha": models.profiles["alpha"].default_model "missing-alpha" is not defined in models.definitions or providers; resolve profile "beta": models.profiles["beta"].default_model "missing-beta" is not defined in models.definitions or providers; resolve profile "delta": models.profiles["delta"].default_model "missing-delta" is not defined in models.definitions or providers; resolve profile "gamma": models.profiles["gamma"].default_model "missing-gamma" is not defined in models.definitions or providers`
+	for i := 0; i < 20; i++ {
+		if err := validate(cfg); err == nil || err.Error() != want {
+			if err == nil {
+				t.Fatalf("validate() error = nil, want %q", want)
+			}
+			t.Fatalf("validate() error = %q, want %q", err, want)
+		}
+	}
+}

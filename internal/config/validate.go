@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -39,7 +40,12 @@ func validateProfilesConfig(problems *[]string, cfg Config) {
 		return
 	}
 
+	names := make([]string, 0, len(cfg.Models.Profiles))
 	for name := range cfg.Models.Profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
 		effective, err := ResolveEffectiveAssignments(&cfg, name)
 		if err != nil {
 			*problems = append(*problems, err.Error())
@@ -52,7 +58,7 @@ func validateProfilesConfig(problems *[]string, cfg Config) {
 	effective, err := ResolveEffectiveAssignments(&cfg, "default")
 	if err == nil {
 		validateSubAgentConfig(problems, cfg.SubAgent, effective.SubAgents, cfg)
-		validateAdvisorConfig(problems, cfg.Advisor, effective.Advisor, cfg)
+		validateAdvisorConfig(problems, cfg.Advisor)
 	}
 }
 
