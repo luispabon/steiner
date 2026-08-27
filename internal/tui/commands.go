@@ -116,6 +116,17 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		ID:   "/profile",
+		Name: "Switch profile",
+		Desc: "change future role assignments without changing active orchestrator",
+		Build: func(arg string) inputAction {
+			if arg == "" {
+				return inputAction{profileUsage: true}
+			}
+			return inputAction{switchProfile: arg}
+		},
+	},
+	{
 		ID:          "/mode",
 		Name:        "Switch mode",
 		Desc:        "toggle or set mode: plan (restricted edits, plan artifacts only) or build (normal workspace editing)",
@@ -259,7 +270,7 @@ func projectPrefixes(allowlistOnly bool) []string {
 
 // commandsAcceptingArbitraryArgs lists commands that accept arbitrary
 // (non-predefined) arguments, used by takesArg alongside ArgVariants.
-var commandsAcceptingArbitraryArgs = []string{"/compact", "/ls", "/model", "/skill", "/oneshot"}
+var commandsAcceptingArbitraryArgs = []string{"/compact", "/ls", "/model", "/profile", "/skill", "/oneshot"}
 
 // takesArg reports whether a slashCommand accepts an argument.
 func takesArg(sc slashCommand) bool {

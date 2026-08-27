@@ -18,6 +18,8 @@ type inputAction struct {
 	submit                     string
 	toggleSkill                string
 	toggleEnable               bool
+	switchProfile              string
+	profileUsage               bool
 	switchModel                string
 	setAccent                  string
 	toggleThinking             bool
@@ -120,6 +122,7 @@ func parseArgumentCommand(trimmed string, enabledSkills map[string]bool) (inputA
 		{"/compact ", handleCompact},
 		{"/ls ", handleListFiles},
 		{"/model ", handleModel},
+		{"/profile ", handleProfile},
 		{"/skill ", handleSkill},
 		{"/oneshot ", handleOneshot},
 	}
@@ -128,7 +131,7 @@ func parseArgumentCommand(trimmed string, enabledSkills map[string]bool) (inputA
 			continue
 		}
 		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, h.prefix))
-		if rest == "" {
+		if rest == "" && h.prefix != "/profile " {
 			return inputAction{}, true
 		}
 		return h.handler(rest, enabledSkills)
@@ -166,6 +169,17 @@ func handleModel(rest string, _ map[string]bool) (inputAction, bool) {
 		return entry.Build(rest), true
 	}
 	return inputAction{switchModel: rest}, true
+}
+
+func handleProfile(rest string, _ map[string]bool) (inputAction, bool) {
+	if rest == "" {
+		return inputAction{profileUsage: true}, true
+	}
+	entry := lookupCommand("/profile")
+	if entry != nil {
+		return entry.Build(rest), true
+	}
+	return inputAction{switchProfile: rest}, true
 }
 
 func handleSkill(rest string, enabledSkills map[string]bool) (inputAction, bool) {
