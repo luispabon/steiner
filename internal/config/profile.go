@@ -78,10 +78,8 @@ func validateResolvedProfile(cfg *Config, name string, profile ModelProfile) err
 
 func overlayProfile(baseline, selected ModelProfile) ModelProfile {
 	effective := cloneProfile(baseline)
-	if selected.defaultModelSet || selected.DefaultModel != "" {
-		if selected.DefaultModel != "" {
-			effective.DefaultModel = selected.DefaultModel
-		}
+	if selected.DefaultModel != "" {
+		effective.DefaultModel = selected.DefaultModel
 	}
 	if selected.advisorSet || selected.Advisor != "" {
 		effective.Advisor = selected.Advisor
@@ -96,11 +94,6 @@ func overlayProfile(baseline, selected ModelProfile) ModelProfile {
 		mergeStringMapPatch(&effective.WorkflowHandoff, selected.WorkflowHandoff)
 	}
 	return effective
-}
-
-// ResolveModelProfile is an explicit alias for callers resolving model profiles.
-func ResolveModelProfile(cfg *Config, name string) (ModelProfile, error) {
-	return ResolveProfile(cfg, name)
 }
 
 // ResolveEffectiveAssignments resolves all assignments for one selected profile.
@@ -122,11 +115,6 @@ func ResolveEffectiveAssignments(cfg *Config, name string) (EffectiveModelAssign
 		WorkflowHandoff:         copyStringMap(profile.WorkflowHandoff),
 		ActiveOrchestratorModel: profile.DefaultModel,
 	}, nil
-}
-
-// ResolveModelAssignments is an alias for ResolveEffectiveAssignments.
-func ResolveModelAssignments(cfg *Config, name string) (EffectiveModelAssignments, error) {
-	return ResolveEffectiveAssignments(cfg, name)
 }
 
 func cloneProfile(src ModelProfile) ModelProfile {
