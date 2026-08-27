@@ -101,7 +101,7 @@ These features ship in the current codebase and form the baseline.
 | Manifest persistence | Shipped | JSON manifest tracks phase completion |
 | Lock-based contention | Shipped | CAS lock prevents concurrent runs |
 | Optional PR closeout | Shipped | `auto_pr` pushes branch and opens PR/MR |
-| Phase-specific model overrides | Shipped | `models.oneshot.plan/implement/review` |
+| Phase-specific model overrides | Shipped | `models.profiles.<name>.oneshot.plan/implement/review` |
 
 ### Other shipped features
 
