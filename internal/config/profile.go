@@ -51,24 +51,7 @@ func ResolveProfile(cfg *Config, name string) (ModelProfile, error) {
 		return effective, nil
 	}
 
-	effective := cloneProfile(baseline)
-	if selected.defaultModelSet || selected.DefaultModel != "" {
-		if selected.DefaultModel != "" {
-			effective.DefaultModel = selected.DefaultModel
-		}
-	}
-	if selected.advisorSet || selected.Advisor != "" {
-		effective.Advisor = selected.Advisor
-	}
-	if selected.subAgentsSet || selected.SubAgents != nil {
-		mergeStringMapPatch(&effective.SubAgents, selected.SubAgents)
-	}
-	if selected.oneShotSet || selected.OneShot != nil {
-		mergeStringMapPatch(&effective.OneShot, selected.OneShot)
-	}
-	if selected.workflowHandoffSet || selected.WorkflowHandoff != nil {
-		mergeStringMapPatch(&effective.WorkflowHandoff, selected.WorkflowHandoff)
-	}
+	effective := overlayProfile(baseline, selected)
 	if err := validateResolvedProfile(cfg, name, effective); err != nil {
 		return ModelProfile{}, err
 	}
@@ -91,6 +74,28 @@ func validateResolvedProfile(cfg *Config, name string, profile ModelProfile) err
 		return fmt.Errorf("resolve profile %q: %s", name, strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+func overlayProfile(baseline, selected ModelProfile) ModelProfile {
+	effective := cloneProfile(baseline)
+	if selected.defaultModelSet || selected.DefaultModel != "" {
+		if selected.DefaultModel != "" {
+			effective.DefaultModel = selected.DefaultModel
+		}
+	}
+	if selected.advisorSet || selected.Advisor != "" {
+		effective.Advisor = selected.Advisor
+	}
+	if selected.subAgentsSet || selected.SubAgents != nil {
+		mergeStringMapPatch(&effective.SubAgents, selected.SubAgents)
+	}
+	if selected.oneShotSet || selected.OneShot != nil {
+		mergeStringMapPatch(&effective.OneShot, selected.OneShot)
+	}
+	if selected.workflowHandoffSet || selected.WorkflowHandoff != nil {
+		mergeStringMapPatch(&effective.WorkflowHandoff, selected.WorkflowHandoff)
+	}
+	return effective
 }
 
 // ResolveModelProfile is an explicit alias for callers resolving model profiles.
