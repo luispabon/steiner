@@ -49,6 +49,7 @@ func newRootCommand() *cobra.Command {
 
 	rootCmd.PersistentFlags().StringVar(&flags.configPath, "config", "", "project config file path")
 	rootCmd.PersistentFlags().StringVar(&flags.model, "model", "", "override selected model alias")
+	rootCmd.PersistentFlags().StringVar(&flags.profile, "profile", "", "select model profile")
 	rootCmd.PersistentFlags().BoolVar(&flags.verbose, "verbose", false, "enable verbose logging")
 	rootCmd.PersistentFlags().BoolVar(&flags.exec, "exec", false, "run a single request and exit")
 	rootCmd.PersistentFlags().StringVar(&flags.logFile, "log-file", "", "write full session logs to file")
@@ -148,6 +149,7 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 				CLI: config.CLIOverrides{
 					ConfigPath: flags.configPath,
 					Model:      flags.model,
+					Profile:    flags.profile,
 					Verbose:    flags.verbose,
 					Unsafe:     flags.unsafe,
 				},
