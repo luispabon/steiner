@@ -836,7 +836,7 @@ func TestSubmitPromptSavesSessionOnRunError(t *testing.T) {
 			events = append(events, event)
 		}),
 		SessionStore: mockStore,
-		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
 			return RunResult{Conversation: []agent.Message{
 				{Role: agent.MessageRoleUser, Content: "test prompt"},
 				{Role: agent.MessageRoleAssistant, Content: "partial response"},
