@@ -154,7 +154,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		compactionLogFile:       compactionLogFile,
 		usageRecorder:           usagestats.New(nil),
 		imageStore:              agent.NewImageStore(filepath.Join(workDir, ".steiner", "tmp", "images")),
-		visionCapabilities:      agent.NewVisionCapabilities(cfg.Models.SubAgents["vision"] != ""),
+		visionCapabilities:      agent.NewVisionCapabilities(cfg.Models.Effective.SubAgents["vision"] != ""),
 		modelCatalog:            modelCatalog,
 		modelCatalogEndpoints:   modelCatalogEndpoints,
 		modelPopularity:         modelPopularity,

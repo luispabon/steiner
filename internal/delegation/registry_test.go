@@ -22,7 +22,7 @@ func advisorTestConfig() config.Config {
 			},
 		},
 		Models: config.ModelsConfig{
-			Advisor: "advisor",
+			Effective: config.EffectiveModelAssignments{Advisor: "advisor"},
 			Definitions: map[string]config.ModelConfig{
 				"advisor": {
 					Provider: "testprov",
@@ -205,7 +205,7 @@ func TestBuildDelegateRegistryAppliesAdvisorTimeout(t *testing.T) {
 			},
 		},
 		Models: config.ModelsConfig{
-			Advisor: "advisor",
+			Effective: config.EffectiveModelAssignments{Advisor: "advisor"},
 			Definitions: map[string]config.ModelConfig{
 				"advisor": {
 					Provider: "testprov",
@@ -317,7 +317,7 @@ func TestBuildDelegateRegistryRegistersAdvisorSchemaWithQuestionAndFiles(t *test
 			},
 		},
 		Models: config.ModelsConfig{
-			Advisor: "advisor",
+			Effective: config.EffectiveModelAssignments{Advisor: "advisor"},
 			Definitions: map[string]config.ModelConfig{
 				"advisor": {
 					Provider: "testprov",
