@@ -76,6 +76,14 @@ func TestVisionCapabilities_SubAgentConfigured(t *testing.T) {
 	if !cap2.SubAgentConfigured() {
 		t.Errorf("SubAgentConfigured returned false, want true")
 	}
+	cap2.SetSubAgentConfigured(false)
+	if cap2.SubAgentConfigured() {
+		t.Errorf("SubAgentConfigured returned true after update, want false")
+	}
+	cap2.SetSubAgentConfigured(true)
+	if !cap2.SubAgentConfigured() {
+		t.Errorf("SubAgentConfigured returned false after update, want true")
+	}
 }
 
 func TestVisionStateFromPtr(t *testing.T) {

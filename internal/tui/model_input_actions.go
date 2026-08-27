@@ -187,9 +187,12 @@ func (m *Model) executeProfileUsageAction() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) executeSwitchProfileAction(name string) (tea.Model, tea.Cmd) {
+	name = strings.TrimSpace(name)
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SwitchProfile{Name: name}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		} else {
+			m.content.AppendLine(fmt.Sprintf("status: profile switched to %s", name))
 		}
 	}
 	m.input.Reset()

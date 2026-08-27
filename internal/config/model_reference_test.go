@@ -138,11 +138,15 @@ func TestModelReferenceValidationAndOverrides(t *testing.T) {
 	}
 
 	cfg := defaultConfig()
-	applyCLIOverrides(&cfg, CLIOverrides{Model: "local/raw-model"})
+	if err := applyCLIOverrides(&cfg, CLIOverrides{Model: "local/raw-model"}); err != nil {
+		t.Fatalf("applyCLIOverrides() error = %v", err)
+	}
 	if cfg.Selection.ModelOverride != "local/raw-model" {
 		t.Fatalf("CLI model override = %q, want raw reference", cfg.Selection.ModelOverride)
 	}
-	applyCLIOverrides(&cfg, CLIOverrides{Model: "garbage"})
+	if err := applyCLIOverrides(&cfg, CLIOverrides{Model: "garbage"}); err != nil {
+		t.Fatalf("applyCLIOverrides() error = %v", err)
+	}
 	if cfg.Selection.ModelOverride != "local/raw-model" {
 		t.Fatalf("invalid CLI model override changed default to %q", cfg.Selection.ModelOverride)
 	}

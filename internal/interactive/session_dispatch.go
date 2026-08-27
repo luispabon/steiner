@@ -137,8 +137,12 @@ func (s *Session) handleSwitchProfile(name string) error {
 	s.mu.Unlock()
 	if err != nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Profile switch failed: %v", err)))
+		return err
 	}
-	return err
+	if s.deps.OnEffectiveAssignmentsChanged != nil {
+		s.deps.OnEffectiveAssignmentsChanged(candidate)
+	}
+	return nil
 }
 
 // Run enters the interactive session loop. It loads history if a writer is

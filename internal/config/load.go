@@ -66,7 +66,9 @@ func Load(opts LoadOptions) (Config, error) {
 	if err := applyEnvOverrides(&cfg, env); err != nil {
 		return Config{}, err
 	}
-	applyCLIOverrides(&cfg, opts.CLI)
+	if err := applyCLIOverrides(&cfg, opts.CLI); err != nil {
+		return Config{}, err
+	}
 	normalizePaths(&cfg, homeDir)
 	normalizeExecutionModes(&cfg)
 	applyMCPDefaults(&cfg.MCP)

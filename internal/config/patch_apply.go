@@ -64,7 +64,6 @@ func applyModelsPatch(cfg *Config, patch *modelsPatch) {
 func applyProfilePatch(dst *ModelProfile, patch *profilePatch) {
 	if patch.DefaultModel != nil {
 		dst.DefaultModel = *patch.DefaultModel
-		dst.defaultModelSet = true
 	}
 	if patch.Advisor != nil {
 		dst.Advisor = *patch.Advisor

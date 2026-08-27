@@ -87,6 +87,52 @@ func TestBuildInteractiveSessionKeepsProfileDefaultSeparateFromActiveModel(t *te
 	}
 }
 
+func TestBuildInteractiveSessionUpdatesVisionCapabilitiesOnProfileSwitch(t *testing.T) {
+	vision := agent.NewVisionCapabilities(false)
+	rt := cliRuntime{
+		cfg: config.Config{
+			Providers: map[string]config.ProviderConfig{"local": {}},
+			Models: config.ModelsConfig{
+				Definitions: map[string]config.ModelConfig{
+					"base": {Provider: "local", ID: "base-id"},
+					"fast": {Provider: "local", ID: "fast-id"},
+				},
+				Profiles: map[string]config.ModelProfile{
+					"default": {DefaultModel: "base"},
+					"fast":    {DefaultModel: "fast", SubAgents: map[string]string{"vision": "fast"}},
+				},
+				Effective: config.EffectiveModelAssignments{ProfileName: "default", DefaultModel: "base"},
+			},
+		},
+		events:             output.NoopSink{},
+		workDir:            t.TempDir(),
+		homeDir:            t.TempDir(),
+		visionCapabilities: vision,
+	}
+	sess, err := buildInteractiveSession(rt)
+	if err != nil {
+		t.Fatalf("buildInteractiveSession() error = %v", err)
+	}
+	if err := sess.Handle(context.Background(), interactive.SwitchProfile{Name: "fast"}); err != nil {
+		t.Fatalf("Handle(fast) = %v, want nil", err)
+	}
+	if !vision.SubAgentConfigured() {
+		t.Fatal("vision capability remains disabled after switching to vision profile")
+	}
+	if err := sess.Handle(context.Background(), interactive.SwitchProfile{Name: "missing"}); err == nil {
+		t.Fatal("Handle(missing) = nil, want error")
+	}
+	if !vision.SubAgentConfigured() {
+		t.Fatal("failed profile switch disabled vision capability")
+	}
+	if err := sess.Handle(context.Background(), interactive.SwitchProfile{Name: "default"}); err != nil {
+		t.Fatalf("Handle(default) = %v, want nil", err)
+	}
+	if vision.SubAgentConfigured() {
+		t.Fatal("vision capability remains enabled after switching away from vision profile")
+	}
+}
+
 func TestMCPTUIStateEnabledMix(t *testing.T) {
 	fixtureBin := buildMCPFixture(t)
 

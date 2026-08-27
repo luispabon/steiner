@@ -1,6 +1,9 @@
 package agent
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // VisionState describes whether a model alias is known to support image input.
 type VisionState int
@@ -19,17 +22,18 @@ type VisionCapabilities struct {
 	mu                 sync.RWMutex
 	byAlias            map[string]VisionState
 	notified           map[string]bool
-	subAgentConfigured bool
+	subAgentConfigured atomic.Bool
 }
 
 // NewVisionCapabilities creates a new vision capabilities tracker for a session.
 // subAgentConfigured indicates whether a sub-agent is configured to handle vision requests.
 func NewVisionCapabilities(subAgentConfigured bool) *VisionCapabilities {
-	return &VisionCapabilities{
-		byAlias:            make(map[string]VisionState),
-		notified:           make(map[string]bool),
-		subAgentConfigured: subAgentConfigured,
+	capabilities := &VisionCapabilities{
+		byAlias:  make(map[string]VisionState),
+		notified: make(map[string]bool),
 	}
+	capabilities.subAgentConfigured.Store(subAgentConfigured)
+	return capabilities
 }
 
 // SetDerived sets the vision state for an alias based on model resolution (config or models.dev).
@@ -79,11 +83,14 @@ func (v *VisionCapabilities) TakeNotify(alias string) bool {
 	return true
 }
 
+// SetSubAgentConfigured updates whether a sub-agent is configured to handle vision requests.
+func (v *VisionCapabilities) SetSubAgentConfigured(configured bool) {
+	v.subAgentConfigured.Store(configured)
+}
+
 // SubAgentConfigured returns whether a sub-agent is configured to handle vision requests.
 func (v *VisionCapabilities) SubAgentConfigured() bool {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-	return v.subAgentConfigured
+	return v.subAgentConfigured.Load()
 }
 
 // VisionStateFromPtr is a helper that converts a *bool to VisionState.
