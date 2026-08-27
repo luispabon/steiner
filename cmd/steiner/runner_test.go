@@ -357,7 +357,7 @@ func TestBuildActiveRegistry_AdvisorPresent_WhenEnabled(t *testing.T) {
 			"testprov": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
 		Models: config.ModelsConfig{
-			Advisor: "advisor-alias",
+			Effective: config.EffectiveModelAssignments{Advisor: "advisor-alias"},
 			Definitions: map[string]config.ModelConfig{
 				"advisor-alias": {Provider: "testprov", ID: "advisor-model"},
 			},
@@ -399,7 +399,7 @@ func TestAgentTypesSyncWithValidation(t *testing.T) {
 		if err == nil {
 			t.Fatal("validation should have failed for unknown agent type, but got no error")
 		}
-		if !strings.Contains(err.Error(), `models.sub_agents contains unknown agent type "unknown_agent"`) {
+		if !strings.Contains(err.Error(), `models.profiles["default"].sub_agents contains unknown agent type "unknown_agent"`) {
 			t.Fatalf("error = %v, want unknown agent type validation error", err)
 		}
 	})
@@ -411,9 +411,9 @@ func loadConfigWithSubAgentAgents(t *testing.T, agents map[string]string) (confi
 	dir := t.TempDir()
 	path := filepath.Join(dir, "steiner.yaml")
 	var b strings.Builder
-	b.WriteString("models:\n  sub_agents:\n")
+	b.WriteString("models:\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n")
 	for name, model := range agents {
-		b.WriteString("    ")
+		b.WriteString("        ")
 		b.WriteString(name)
 		b.WriteString(": ")
 		b.WriteString(model)
@@ -478,9 +478,9 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 			Definitions: map[string]config.ModelConfig{
 				"reasoning-alias": {Provider: "testprov", ID: "reasoning-model"},
 			},
-			SubAgents: map[string]string{
+			Effective: config.EffectiveModelAssignments{SubAgents: map[string]string{
 				string(delegation.AgentTypeExplore): "reasoning-alias",
-			},
+			}},
 		},
 	}
 	subAgentCfg := config.SubAgentConfig{
@@ -543,9 +543,9 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 			Definitions: map[string]config.ModelConfig{
 				"reasoning-alias": {Provider: "openrouter", ID: "openrouter/reasoning-model"},
 			},
-			SubAgents: map[string]string{
+			Effective: config.EffectiveModelAssignments{SubAgents: map[string]string{
 				string(delegation.AgentTypeExplore): "reasoning-alias",
-			},
+			}},
 		},
 	}
 	subAgentCfg := config.SubAgentConfig{
