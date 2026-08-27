@@ -134,7 +134,9 @@ func TestCommandsConfig(t *testing.T) {
     type: openai_compat
     base_url: http://example/v1
 models:
-  default: test
+  profiles:
+    default:
+      default_model: test
   definitions:
     test:
       provider: local
@@ -183,7 +185,9 @@ func TestCommandsConfigCaveHumanDefaultFalse(t *testing.T) {
     type: openai_compat
     base_url: http://example/v1
 models:
-  default: test
+  profiles:
+    default:
+      default_model: test
   definitions:
     test:
       provider: local
@@ -445,7 +449,9 @@ func TestModelInspectCommand(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: inspect
+  profiles:
+    default:
+      default_model: inspect
   definitions:
     inspect:
       provider: local
