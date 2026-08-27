@@ -288,6 +288,8 @@ type contentBuffer struct {
 	skillNames              []string                     // skill names for command prefix matching
 	mcpToolOrigins          map[string]MCPToolOrigin     // registry tool name -> MCP server/tool it came from
 	maxDelegationBodyLines  int                          // max lines for delegation body (transcript + prompt); 0 = uncapped
+	workingDir              string                       // current working directory for resolving relative paths
+	homeDir                 string                       // home directory for resolving ~ paths
 
 	// Render cache.
 	stringCacheWidth    int

@@ -315,7 +315,7 @@ func TestPlainRendererExecBaseline(t *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewPlainRenderer(&buf)
 
-	renderer.OnEvent(NewUserInputEvent("fix the bug", "exec"))
+	renderer.OnEvent(NewUserInputEvent("fix the bug", "exec", nil))
 	renderer.OnEvent(NewAPIRequestEvent("test-model", nil, nil, nil, nil, prompt.ModelTokenBudget{}))
 	renderer.OnEvent(NewAPIResponseEvent(nil, nil, "stop", nil))
 	renderer.OnEvent(NewStopReasonEvent(1, "complete", nil))

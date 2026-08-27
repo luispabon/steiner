@@ -232,10 +232,11 @@ func stopReasonSummary(reason string, turn int) (string, string) {
 }
 
 // NewUserInputEvent creates a new user input event.
-func NewUserInputEvent(content, mode string) Event {
+func NewUserInputEvent(content, mode string, images []ImageBlock) Event {
 	return newEvent(EventTypeUserInput, UserInputEvent{
 		Content: content,
 		Mode:    mode,
+		Images:  images,
 	})
 }
 
