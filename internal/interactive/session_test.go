@@ -1473,6 +1473,10 @@ func TestSwitchModelPreservesProfileFallbackAndSessionState(t *testing.T) {
 	s.mu.Lock()
 	s.lineage = lineage
 	s.promptCacheKey = "cache-key"
+	reasoningBefore := map[string]provider.ReasoningOverride{
+		"current": {Kind: provider.ReasoningOverrideEffort, Effort: "low"},
+	}
+	s.reasoningOverrides = reasoningBefore
 	s.mu.Unlock()
 
 	if err := s.Handle(context.Background(), SwitchModel{Name: "next"}); err != nil {
@@ -1499,7 +1503,11 @@ func TestSwitchModelPreservesProfileFallbackAndSessionState(t *testing.T) {
 	}
 	s.mu.RLock()
 	gotLineage, gotPromptKey := s.lineage, s.promptCacheKey
+	reasoningAfter := s.reasoningOverrides
 	s.mu.RUnlock()
+	if !reflect.DeepEqual(reasoningAfter, reasoningBefore) {
+		t.Fatalf("reasoning overrides changed: got %#v, want %#v", reasoningAfter, reasoningBefore)
+	}
 	if !reflect.DeepEqual(gotLineage, lineage) {
 		t.Fatalf("lineage changed: got %#v, want %#v", gotLineage, lineage)
 	}
