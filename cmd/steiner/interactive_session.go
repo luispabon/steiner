@@ -26,12 +26,7 @@ import (
 )
 
 func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
-	activeModel := rt.cfg.Models.Effective.ActiveOrchestratorModel
-	if activeModel == "" {
-		activeModel = rt.cfg.Models.Effective.DefaultModel
-	}
 	sessionCfg := rt.cfg
-	sessionCfg.Models.Effective.DefaultModel = activeModel
 
 	sessDeps := interactive.Dependencies{
 		BaseEvents:        rt.events,
