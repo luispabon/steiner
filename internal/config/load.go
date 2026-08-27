@@ -14,6 +14,7 @@ var (
 type CLIOverrides struct {
 	ConfigPath string
 	Model      string
+	Profile    string
 	Verbose    bool
 	Unsafe     bool
 }
@@ -72,6 +73,15 @@ func Load(opts LoadOptions) (Config, error) {
 	if err := validate(cfg); err != nil {
 		return Config{}, err
 	}
+
+	effective, err := ResolveEffectiveAssignments(&cfg, cfg.Selection.Profile)
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.Selection.ModelOverride != "" {
+		effective.ActiveOrchestratorModel = cfg.Selection.ModelOverride
+	}
+	cfg.Models.Effective = effective
 
 	return cfg, nil
 }

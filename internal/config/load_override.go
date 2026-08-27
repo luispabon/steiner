@@ -7,6 +7,9 @@ import (
 
 // applyCLIOverrides applies command-line overrides to the config.
 func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
+	if cli.Profile != "" {
+		cfg.Selection.Profile = cli.Profile
+	}
 	if cli.Model != "" && IsValidModelReference(cfg, cli.Model) {
 		cfg.Selection.ModelOverride = cli.Model
 	}

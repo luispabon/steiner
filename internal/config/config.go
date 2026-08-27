@@ -222,9 +222,10 @@ type EffectiveModelAssignments struct {
 
 // ModelsConfig consolidates model definitions and named profile assignments.
 type ModelsConfig struct {
-	Definitions      map[string]ModelConfig  `yaml:"definitions"`
-	DiscoveryEnabled bool                    `yaml:"discovery_enabled"`
-	Profiles         map[string]ModelProfile `yaml:"profiles"`
+	Definitions      map[string]ModelConfig    `yaml:"definitions"`
+	DiscoveryEnabled bool                      `yaml:"discovery_enabled"`
+	Profiles         map[string]ModelProfile   `yaml:"profiles"`
+	Effective        EffectiveModelAssignments `yaml:"-"`
 }
 
 // ModelConfig configures a model instance.
