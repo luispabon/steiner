@@ -99,6 +99,19 @@ func (s *Session) Config() config.Config {
 	return s.deps.Config
 }
 
+// CurrentEffective returns a defensive snapshot of the session's effective model
+// assignments.
+func (s *Session) CurrentEffective() config.EffectiveModelAssignments {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	effective := s.deps.Config.Models.Effective
+	effective.SubAgents = cloneStringMap(effective.SubAgents)
+	effective.OneShot = cloneStringMap(effective.OneShot)
+	effective.WorkflowHandoff = cloneStringMap(effective.WorkflowHandoff)
+	return effective
+}
+
 // DisplaySink returns the session's ForwardSink, which forwards events to
 // whatever target is set via Set. The display_file tool uses this to emit
 // display events before the TUI sink is wired in.
@@ -321,6 +334,17 @@ func (s *Session) modeNotice() string {
 		return notice + "\n\n"
 	}
 	return ""
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	clone := make(map[string]string, len(src))
+	for key, value := range src {
+		clone[key] = value
+	}
+	return clone
 }
 
 func usagePercent(promptTokens, contextWindow int) float64 {
