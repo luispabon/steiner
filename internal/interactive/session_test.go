@@ -827,6 +827,59 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 	}
 }
 
+func TestSubmitPromptSavesSessionOnRunError(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	mockStore := newMockSessionStore()
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		SessionStore: mockStore,
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{Conversation: []agent.Message{
+				{Role: agent.MessageRoleUser, Content: "test prompt"},
+				{Role: agent.MessageRoleAssistant, Content: "partial response"},
+			}}, fmt.Errorf("boom")
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "test prompt", nil)
+
+	if len(mockStore.savedSessions) != 1 {
+		t.Fatalf("saved sessions count = %d, want 1", len(mockStore.savedSessions))
+	}
+
+	var savedSession session.Session
+	for _, sess := range mockStore.savedSessions {
+		savedSession = sess
+		break
+	}
+
+	if len(savedSession.Lineage.Generations) == 0 {
+		t.Fatalf("saved session has no generations, want at least 1")
+	}
+	if len(savedSession.Lineage.Generations[0].Messages) != 2 {
+		t.Fatalf("saved session messages count = %d, want 2 (user + partial assistant)", len(savedSession.Lineage.Generations[0].Messages))
+	}
+
+	var found bool
+	for _, event := range events {
+		if event.Type == output.EventTypeStopReason {
+			found = true
+			if payload, ok := event.Payload.(output.StopReasonEvent); ok {
+				if payload.Reason != "Error: boom" {
+					t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: boom")
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want StopReason event", events)
+	}
+}
+
 func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
