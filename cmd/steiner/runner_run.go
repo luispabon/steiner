@@ -340,6 +340,10 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	if r.modeGetterFunc != nil {
 		executor = executor.WithModeGetter(r.modeGetterFunc)
 	}
+	visionCapabilities := r.runtime.visionCapabilities
+	if visionCapabilities != nil {
+		visionCapabilities = agent.NewVisionCapabilities(visionCapabilities.SubAgentConfigured())
+	}
 	req := agent.RunRequest{
 		Provider:      setup.provider,
 		Executor:      executor,
@@ -360,7 +364,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		CompactionLogPath:  r.runtime.compactionLogFile,
 		DrainSteers:        drainSteers,
 		PromptCacheKey:     r.promptCacheKey(),
-		VisionCapabilities: r.runtime.visionCapabilities,
+		VisionCapabilities: visionCapabilities,
 		ImageStore:         r.runtime.imageStore,
 		SourceConversation: setup.conversation,
 	}

@@ -60,6 +60,35 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 	}
 }
 
+func TestBuildRunRequestSnapshotsVisionCapabilities(t *testing.T) {
+	shared := agent.NewVisionCapabilities(false)
+	r := cliRunner{runtime: cliRuntime{visionCapabilities: shared}}
+
+	first := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+	if first.VisionCapabilities == nil {
+		t.Fatal("first request vision capabilities = nil, want snapshot")
+	}
+	if first.VisionCapabilities == shared {
+		t.Fatal("first request shares vision capabilities with runtime")
+	}
+
+	shared.SetSubAgentConfigured(true)
+	if first.VisionCapabilities.SubAgentConfigured() {
+		t.Fatal("first request vision capabilities changed after runtime update")
+	}
+
+	second := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+	if second.VisionCapabilities == nil {
+		t.Fatal("second request vision capabilities = nil, want snapshot")
+	}
+	if second.VisionCapabilities == shared {
+		t.Fatal("second request shares vision capabilities with runtime")
+	}
+	if !second.VisionCapabilities.SubAgentConfigured() {
+		t.Fatal("second request vision capabilities = false, want live runtime value")
+	}
+}
+
 func TestBuildRunRequestLimitsModelCallTimeout(t *testing.T) {
 	for _, tt := range []struct {
 		name        string
