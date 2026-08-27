@@ -12,7 +12,7 @@ func testReasoningSession(t *testing.T) *Session {
 	return testNewSession(t, Dependencies{
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "current",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "current"},
 				Definitions: map[string]config.ModelConfig{
 					"current": {Provider: "local", ID: "current-id"},
 					"other":   {Provider: "local", ID: "other-id"},
