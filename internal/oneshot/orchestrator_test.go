@@ -241,6 +241,9 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 	if got, want := manifest.ModelSnapshot.PhaseModels[PhasePlan], "plan-model"; got != want {
 		t.Fatalf("model snapshot plan = %q, want %q", got, want)
 	}
+	if got, want := manifest.ModelSnapshot.PhaseModels[PhaseImplement], "implement-model"; got != want {
+		t.Fatalf("model snapshot implement = %q, want %q", got, want)
+	}
 	if got, want := manifest.ModelSnapshot.PhaseModels[PhaseReview], "fallback-model"; got != want {
 		t.Fatalf("model snapshot review = %q, want %q", got, want)
 	}
@@ -251,6 +254,9 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 		if got, want := sess.Group, identity.ID; got != want {
 			t.Fatalf("session group = %q, want %q", got, want)
 		}
+	}
+	if got, want := sessionStore.sessions[1].Model, "implement-model"; got != want {
+		t.Fatalf("implement session model = %q, want %q", got, want)
 	}
 	if got, want := sessionStore.sessions[0].Model, "plan-model"; got != want {
 		t.Fatalf("plan session model = %q, want %q", got, want)
