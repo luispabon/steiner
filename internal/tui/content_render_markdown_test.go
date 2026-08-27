@@ -267,7 +267,7 @@ func TestTimestampCapture(t *testing.T) {
 		{
 			name: "appendUserInputEvent",
 			run: func(b *contentBuffer) {
-				b.appendUserInputEvent(output.NewUserInputEvent("hello", "exec"))
+				b.appendUserInputEvent(output.NewUserInputEvent("hello", "exec", nil))
 			},
 		},
 	}

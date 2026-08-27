@@ -70,7 +70,6 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 		return
 	}
 	b.streaming = true
-	b.hadChunks = true
 	b.streamingPhase = "thinking"
 	b.streamingSource = source
 

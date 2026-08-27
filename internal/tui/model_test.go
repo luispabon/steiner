@@ -895,7 +895,7 @@ func TestModelMouseClickTargetsResumedToolRowAfterUserGap(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 14})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewUserInputEvent("resumed prompt", "resume")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewUserInputEvent("resumed prompt", "resume", nil)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"})})
 
 	seg := m.content.segments[1].toolData

@@ -306,3 +306,200 @@ func TestIsDelegateToolCallCaseInsensitive(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaySessionMessagesAdvisorEvent(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+
+	msgs := []agent.Message{
+		{
+			Role:    agent.MessageRoleAssistant,
+			Content: "delegating",
+			ToolCalls: []agent.ToolCall{
+				{ID: "call-a1", Name: "advisor", Arguments: map[string]any{"question": "should I refactor this?", "files": []any{"a.go", "b.go"}}},
+			},
+		},
+		{
+			Role:       agent.MessageRoleTool,
+			ToolCallID: "call-a1",
+			Name:       "advisor",
+			Content:    "yes, refactor it",
+		},
+	}
+	s.replaySessionMessages(msgs)
+
+	var started *output.AdvisorStartedEvent
+	var complete *output.AdvisorCompleteEvent
+	for i := range events {
+		switch p := events[i].Payload.(type) {
+		case output.AdvisorStartedEvent:
+			started = &p
+		case output.AdvisorCompleteEvent:
+			complete = &p
+		}
+	}
+
+	if started == nil {
+		t.Fatal("expected a AdvisorStartedEvent")
+	}
+	if started.Question != "should I refactor this?" || len(started.Files) != 2 || started.Files[0] != "a.go" || started.Files[1] != "b.go" {
+		t.Errorf("started = %+v, want Question='should I refactor this?' Files=['a.go','b.go']", started)
+	}
+
+	if complete == nil {
+		t.Fatal("expected a AdvisorCompleteEvent")
+	}
+	if complete.Note != "yes, refactor it" {
+		t.Errorf("complete = %+v, want Note='yes, refactor it'", complete)
+	}
+}
+
+func TestReplaySessionMessagesDisplayFileEvent(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+
+	msgs := []agent.Message{
+		{
+			Role:      agent.MessageRoleAssistant,
+			Content:   "showing file",
+			ToolCalls: []agent.ToolCall{{ID: "call-df1", Name: "display_file", Arguments: map[string]any{"path": "foo.go"}}},
+		},
+		{
+			Role:       agent.MessageRoleTool,
+			ToolCallID: "call-df1",
+			Name:       "display_file",
+			Content:    `{"path":"foo.go","status":"displayed"}`,
+		},
+	}
+	s.replaySessionMessages(msgs)
+
+	var found bool
+	for _, e := range events {
+		if e.Type != output.EventTypeDisplayFile {
+			continue
+		}
+		if payload, ok := e.Payload.(output.DisplayFilePayload); ok && payload.Path == "foo.go" && payload.Preview.Kind == output.PreviewFormatKindFile {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("display_file event not replayed or missing expected payload")
+	}
+}
+
+func TestReplaySessionMessagesToolCallError(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+
+	msgs := []agent.Message{
+		{
+			Role:      agent.MessageRoleAssistant,
+			Content:   "running bash",
+			ToolCalls: []agent.ToolCall{{ID: "call-b1", Name: "bash", Arguments: map[string]any{"command": "false"}}},
+		},
+		{
+			Role:       agent.MessageRoleTool,
+			ToolCallID: "call-b1",
+			Name:       "bash",
+			Content:    `{"ok":false,"error":{"kind":"tool_error","message":"boom"}}`,
+		},
+	}
+	s.replaySessionMessages(msgs)
+
+	var finishedEvent *output.ToolCallFinishedEvent
+	for _, e := range events {
+		if p, ok := e.Payload.(output.ToolCallFinishedEvent); ok && p.CallID == "call-b1" {
+			finishedEvent = &p
+			break
+		}
+	}
+
+	if finishedEvent == nil {
+		t.Fatal("expected a ToolCallFinishedEvent")
+	}
+	if finishedEvent.Error == "" || !strings.Contains(finishedEvent.Error, "boom") {
+		t.Errorf("finishedEvent.Error = %q, want non-empty with 'boom'", finishedEvent.Error)
+	}
+}
+
+func TestReplaySessionMessagesImagesAttached(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+
+	msgs := []agent.Message{
+		{
+			Role:    agent.MessageRoleUser,
+			Content: "analyze this image",
+			Images: []agent.ImageBlock{
+				{ID: "img1", FilePath: "/tmp/x.png"},
+			},
+		},
+	}
+	s.replaySessionMessages(msgs)
+
+	var found bool
+	for _, e := range events {
+		if p, ok := e.Payload.(output.UserInputEvent); ok && len(p.Images) > 0 && p.Images[0].FilePath == "/tmp/x.png" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("user input event with images not replayed")
+	}
+}
+
+func TestReplaySessionMessagesReasoningContent(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+
+	msgs := []agent.Message{
+		{
+			Role:             agent.MessageRoleAssistant,
+			Content:          "here's the fix",
+			ReasoningContent: "thinking about the bug",
+		},
+	}
+	s.replaySessionMessages(msgs)
+
+	var thinkingEvent *output.ThinkingChunkEvent
+	var assistantEvent *output.AssistantMessageEvent
+	for _, e := range events {
+		switch p := e.Payload.(type) {
+		case output.ThinkingChunkEvent:
+			thinkingEvent = &p
+		case output.AssistantMessageEvent:
+			assistantEvent = &p
+		}
+	}
+
+	if thinkingEvent == nil {
+		t.Fatal("expected a ThinkingChunkEvent")
+	}
+	if thinkingEvent.Content != "thinking about the bug" || thinkingEvent.Source != output.ChunkSourceAssistant {
+		t.Errorf("thinkingEvent = %+v, want Content='thinking about the bug' Source=ChunkSourceAssistant", thinkingEvent)
+	}
+
+	if assistantEvent == nil {
+		t.Fatal("expected an AssistantMessageEvent")
+	}
+	if assistantEvent.Content != "here's the fix" {
+		t.Errorf("assistantEvent.Content = %q, want 'here's the fix'", assistantEvent.Content)
+	}
+}

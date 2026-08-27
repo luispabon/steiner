@@ -30,7 +30,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	if promptText == "" {
 		return fmt.Errorf("exec mode requires a prompt")
 	}
-	rt.events.Emit(output.NewUserInputEvent(promptText, "exec"))
+	rt.events.Emit(output.NewUserInputEvent(promptText, "exec", nil))
 
 	execMaxTurns := flags.maxTurns
 	if execMaxTurns <= 0 {

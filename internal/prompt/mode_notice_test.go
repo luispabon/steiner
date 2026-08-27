@@ -67,3 +67,43 @@ func TestModeNoticeDistinct(t *testing.T) {
 		t.Fatalf("both notices should be non-empty")
 	}
 }
+
+func TestStripModeNotice(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "plan mode prefix stripped",
+			input: ModeNotice(config.ExecutionModePlan) + "\n\nfix the bug",
+			want:  "fix the bug",
+		},
+		{
+			name:  "build mode prefix stripped",
+			input: ModeNotice(config.ExecutionModeBuild) + "\n\nfix the bug",
+			want:  "fix the bug",
+		},
+		{
+			name:  "no prefix",
+			input: "fix the bug",
+			want:  "fix the bug",
+		},
+		{
+			name:  "notice-like text without prefix unchanged",
+			input: "the [execution mode: build] text is mentioned in the middle",
+			want:  "the [execution mode: build] text is mentioned in the middle",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := StripModeNotice(tc.input)
+			if got != tc.want {
+				t.Errorf("StripModeNotice(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
