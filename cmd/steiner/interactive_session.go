@@ -163,7 +163,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	tuiCfg.Recorder = rt.usageRecorder
 	tuiCfg.ImageStore = rt.imageStore
 	tuiCfg.VisionCapabilities = rt.visionCapabilities
-	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink())
+	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink(), sess.CurrentEffective)
 	tuiCfg.Notifier = notify.New(notify.Options{
 		Enabled:  rt.cfg.DesktopNotifications.Enabled,
 		Duration: time.Duration(rt.cfg.DesktopNotifications.Duration) * time.Second,
@@ -446,14 +446,19 @@ func modelProviderNames(cfg config.Config) map[string]string {
 // newOneshotRunnerFactoryBuilder returns a builder that binds a oneshot phase
 // runner factory to a specific run identity. The interactive TUI mints a fresh
 // identity per launch or resume, so the factory must be constructed per run.
-func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string, events output.EventSink) tui.OneshotRunnerFactoryBuilder {
+func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string, events output.EventSink, currentEffective ...func() config.EffectiveModelAssignments) tui.OneshotRunnerFactoryBuilder {
+	var effective func() config.EffectiveModelAssignments
+	if len(currentEffective) > 0 {
+		effective = currentEffective[0]
+	}
 	return func(identity oneshot.RunIdentity) oneshot.PhaseRunnerFactory {
 		return phaseRunnerFactory{
-			cmd:      cmd,
-			flags:    flags,
-			rootDir:  projectRoot,
-			identity: identity,
-			events:   events,
+			cmd:              cmd,
+			flags:            flags,
+			rootDir:          projectRoot,
+			identity:         identity,
+			events:           events,
+			currentEffective: effective,
 		}
 	}
 }
