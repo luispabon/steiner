@@ -8,7 +8,7 @@ import (
 // applyCLIOverrides applies command-line overrides to the config.
 func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
 	if cli.Model != "" && IsValidModelReference(cfg, cli.Model) {
-		cfg.Models.Default = cli.Model
+		cfg.Selection.ModelOverride = cli.Model
 	}
 	if cli.Verbose {
 		cfg.Logging.Level = "debug"

@@ -13,7 +13,7 @@ func TestApplyCLIOverrides(t *testing.T) {
 		Unsafe:  true,
 	})
 
-	if got := cfg.Models.Default; got != "default" {
+	if got := cfg.Selection.ModelOverride; got != "default" {
 		t.Fatalf("default_model = %q, want %q", got, "default")
 	}
 	if got := cfg.Logging.Level; got != "debug" {

@@ -8,15 +8,11 @@ import (
 func validate(cfg Config) error {
 	var problems []string
 
-	validateDefaultModel(&problems, cfg)
+	validateProfilesConfig(&problems, cfg)
 	validateProvidersConfig(&problems, cfg.Providers)
 	validateTUIConfig(&problems, cfg.TUI)
 	validateModelsConfig(&problems, cfg.Models.Definitions, cfg.Providers)
-	validateWorkflowHandoffConfig(&problems, cfg.Models.WorkflowHandoff, cfg)
-	validateOneShotConfig(&problems, cfg.Models.OneShot, cfg)
 	validateLimitsConfig(&problems, cfg.Limits)
-	validateSubAgentConfig(&problems, cfg.SubAgent, cfg.Models.SubAgents, cfg)
-	validateAdvisorConfig(&problems, cfg.Advisor, cfg.Models.Advisor, cfg)
 	validateProjectContextConfig(&problems, cfg.ProjectContext)
 	validateLoggingConfig(&problems, cfg.Logging)
 	validateToolsConfig(&problems, cfg.Tools)
@@ -32,14 +28,44 @@ func validate(cfg Config) error {
 	return nil
 }
 
-func validateDefaultModel(problems *[]string, cfg Config) {
-	if cfg.Models.Default == "" {
-		*problems = append(*problems, "models.default is required")
+func validateProfilesConfig(problems *[]string, cfg Config) {
+	baseline, ok := cfg.Models.Profiles["default"]
+	if !ok {
+		*problems = append(*problems, "models.profiles.default is required")
 		return
 	}
-	if !IsValidModelReference(&cfg, cfg.Models.Default) {
-		*problems = append(*problems, fmt.Sprintf("models.default %q is not defined in models.definitions or providers", cfg.Models.Default))
+	if strings.TrimSpace(baseline.DefaultModel) == "" {
+		*problems = append(*problems, "models.profiles.default.default_model is required")
+		return
 	}
+
+	for name := range cfg.Models.Profiles {
+		effective, err := ResolveEffectiveAssignments(&cfg, name)
+		if err != nil {
+			*problems = append(*problems, err.Error())
+			continue
+		}
+		prefix := fmt.Sprintf("models.profiles[%q]", name)
+		validateProfileReferences(problems, prefix, effective, cfg)
+	}
+
+	effective, err := ResolveEffectiveAssignments(&cfg, "default")
+	if err == nil {
+		validateSubAgentConfig(problems, cfg.SubAgent, effective.SubAgents, cfg)
+		validateAdvisorConfig(problems, cfg.Advisor, effective.Advisor, cfg)
+	}
+}
+
+func validateProfileReferences(problems *[]string, prefix string, profile EffectiveModelAssignments, cfg Config) {
+	if !IsValidModelReference(&cfg, profile.DefaultModel) {
+		*problems = append(*problems, fmt.Sprintf("%s.default_model %q is not defined in models.definitions or providers", prefix, profile.DefaultModel))
+	}
+	if profile.Advisor != "" && !IsValidModelReference(&cfg, profile.Advisor) {
+		*problems = append(*problems, fmt.Sprintf("%s.advisor %q is not defined in models.definitions or providers", prefix, profile.Advisor))
+	}
+	validateModelReferenceMap(problems, prefix+".sub_agents", "agent type", profile.SubAgents, validAgentTypes, cfg)
+	validateModelReferenceMap(problems, prefix+".oneshot", "phase", profile.OneShot, validOneShotPhases, cfg)
+	validateModelReferenceMap(problems, prefix+".workflow_handoff", "destination", profile.WorkflowHandoff, validWorkflowHandoffDestinations, cfg)
 }
 
 var validWorkflowHandoffDestinations = map[string]bool{
