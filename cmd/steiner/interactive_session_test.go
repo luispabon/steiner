@@ -16,11 +16,50 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/mcp"
+	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
 )
+
+func TestNewOneshotRunnerFactoryBuilderRetainsLiveEffectiveCallback(t *testing.T) {
+	cmd := &cobra.Command{}
+	flags := &cliFlags{}
+	identity, err := oneshot.NewRunIdentity("fix the bug")
+	if err != nil {
+		t.Fatalf("NewRunIdentity() error = %v", err)
+	}
+	live := config.EffectiveModelAssignments{
+		ProfileName:             "fast",
+		DefaultModel:            "profile-default",
+		ActiveOrchestratorModel: "active-model",
+		OneShot:                 map[string]string{"plan": "plan-fast"},
+	}
+	builder := newOneshotRunnerFactoryBuilder(cmd, flags, t.TempDir(), output.NoopSink{}, func() config.EffectiveModelAssignments {
+		return live
+	})
+
+	factory, ok := builder(identity).(phaseRunnerFactory)
+	if !ok {
+		t.Fatalf("builder returned %T, want phaseRunnerFactory", builder(identity))
+	}
+	params, err := factory.phaseParams(oneshot.PhasePlan, "plan-fast", nil, config.AdvisorConfig{})
+	if err != nil {
+		t.Fatalf("phaseParams() error = %v", err)
+	}
+	if params.CurrentEffective == nil {
+		t.Fatal("phase params current effective callback is nil")
+	}
+	live.DefaultModel = "profile-default-updated"
+	live.OneShot["plan"] = "plan-fast-updated"
+	if got := params.CurrentEffective(); got.DefaultModel != "profile-default-updated" || got.OneShot["plan"] != "plan-fast-updated" {
+		t.Fatalf("phase runner effective assignments = %#v, want updated live profile assignments", got)
+	}
+	if got := params.CurrentEffective().ActiveOrchestratorModel; got != "active-model" {
+		t.Fatalf("phase runner active orchestrator = %q, want active-model", got)
+	}
+}
 
 func TestBuildInteractiveSessionKeepsProfileDefaultSeparateFromActiveModel(t *testing.T) {
 	cfg := config.Config{Models: config.ModelsConfig{

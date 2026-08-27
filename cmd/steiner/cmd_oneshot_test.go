@@ -222,6 +222,10 @@ func TestPhaseParamsCarryPhasePrompt(t *testing.T) {
 				t.Fatalf("phaseParams(%s) failed: %v", tt.phase, err)
 			}
 
+			if params.CurrentEffective != nil {
+				t.Errorf("phaseParams(%s).CurrentEffective is non-nil, want nil for headless factory", tt.phase)
+			}
+
 			if !strings.Contains(params.PhasePrompt, tt.expectedMarker) {
 				t.Errorf("phaseParams(%s).PhasePrompt missing expected marker %q\nGot: %q",
 					tt.phase, tt.expectedMarker, params.PhasePrompt)
