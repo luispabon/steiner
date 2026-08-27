@@ -1,6 +1,8 @@
 package builtin
 
 import (
+	"bytes"
+	"encoding/base64"
 	"image"
 	"image/color"
 	"image/png"
@@ -102,6 +104,9 @@ func TestReadImageFile(t *testing.T) {
 				if result.Image.SizeBytes == 0 {
 					t.Errorf("readImageFile() SizeBytes = 0, want > 0")
 				}
+				if result.Image.FilePath != tt.filePath {
+					t.Errorf("readImageFile() FilePath = %q, want %q", result.Image.FilePath, tt.filePath)
+				}
 			}
 
 			if result.Path != tt.displayPath {
@@ -112,6 +117,32 @@ func TestReadImageFile(t *testing.T) {
 				t.Errorf("readImageFile() Output is empty")
 			}
 		})
+	}
+}
+
+func TestReadImageFileWebPDimensions(t *testing.T) {
+	data, wantWidth, wantHeight := newTestWebP()
+	path := t.TempDir() + "/image.webp"
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write WebP: %v", err)
+	}
+
+	result, err := readImageFile(path, "image.webp", path)
+	if err != nil {
+		t.Fatalf("readImageFile: %v", err)
+	}
+	if result.Image == nil {
+		t.Fatal("readImageFile returned nil image")
+	}
+	if result.Image.Width != wantWidth || result.Image.Height != wantHeight {
+		t.Errorf("dimensions = %dx%d, want %dx%d", result.Image.Width, result.Image.Height, wantWidth, wantHeight)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(result.Image.Data)
+	if err != nil {
+		t.Fatalf("decode image data: %v", err)
+	}
+	if !bytes.Equal(decoded, data) {
+		t.Error("readImageFile changed WebP bytes")
 	}
 }
 

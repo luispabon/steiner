@@ -3,7 +3,6 @@ package builtin
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"image"
 	_ "image/gif"  // register GIF decoder for image.Decode
@@ -21,11 +20,20 @@ import (
 
 const maxImageBytes = 5 * 1024 * 1024
 
+type fetchedImage struct {
+	data      []byte
+	mediaType string
+	extension string
+	width     int
+	height    int
+}
+
 // fetchImageBytes fetches an image from urlStr, validates size (max 5MB),
-// base64-encodes, decodes dimensions, and returns an ImageBlock plus the
-// HTTP status code. mediaTypeHint is the response Content-Type; when empty
-// or application/octet-stream, the URL extension is used as fallback.
-func fetchImageBytes(ctx context.Context, httpClient *http.Client, urlStr, mediaTypeHint string) (*ImageBlock, int, error) {
+// decodes its dimensions, and returns the raw bytes plus image metadata. The
+// HTTP status code is returned separately. mediaTypeHint is the response
+// Content-Type; when empty or application/octet-stream, the URL extension is
+// used as fallback.
+func fetchImageBytes(ctx context.Context, httpClient *http.Client, urlStr, mediaTypeHint string) (*fetchedImage, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
 		return nil, 0, fmt.Errorf("fetch image: %w", err)
@@ -49,27 +57,88 @@ func fetchImageBytes(ctx context.Context, httpClient *http.Client, urlStr, media
 			output.FormatFileSize(maxImageBytes), output.FormatFileSize(len(data)))
 	}
 
-	// Determine media type.
 	mediaType := mediaTypeFromResponse(mediaTypeHint, urlStr)
-
-	// Decode dimensions.
-	width, height := 0, 0
-	img, _, err := image.Decode(bytes.NewReader(data))
-	if err == nil {
-		bounds := img.Bounds()
-		width = bounds.Max.X
-		height = bounds.Max.Y
+	extension, err := imageExtension(mediaType, urlStr)
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("fetch image: %w", err)
 	}
 
-	encoded := base64.StdEncoding.EncodeToString(data)
+	width, height := 0, 0
+	img, _, err := image.Decode(bytes.NewReader(data))
+	switch {
+	case err == nil:
+		bounds := img.Bounds()
+		width = bounds.Dx()
+		height = bounds.Dy()
+	case mediaType == "image/webp":
+		width, height, err = webpDimensions(data)
+		if err != nil {
+			return nil, resp.StatusCode, fmt.Errorf("fetch image: invalid image: %w", err)
+		}
+	default:
+		return nil, resp.StatusCode, fmt.Errorf("fetch image: invalid image: %w", err)
+	}
 
-	return &ImageBlock{
-		MediaType: mediaType,
-		Data:      encoded,
-		Width:     width,
-		Height:    height,
-		SizeBytes: len(data),
+	return &fetchedImage{
+		data:      data,
+		mediaType: mediaType,
+		extension: extension,
+		width:     width,
+		height:    height,
 	}, resp.StatusCode, nil
+}
+
+// webpDimensions reads the canvas dimensions from a valid WebP VP8, VP8L, or
+// VP8X header without decoding pixels.
+func webpDimensions(data []byte) (int, int, error) {
+	if len(data) < 30 || string(data[:4]) != "RIFF" || string(data[8:12]) != "WEBP" {
+		return 0, 0, fmt.Errorf("invalid WebP header")
+	}
+
+	switch string(data[12:16]) {
+	case "VP8X":
+		width := 1 + int(data[24]) + int(data[25])<<8 + int(data[26])<<16
+		height := 1 + int(data[27]) + int(data[28])<<8 + int(data[29])<<16
+		return width, height, nil
+	case "VP8 ":
+		if len(data) < 30 || data[23] != 0x9d || data[24] != 0x01 || data[25] != 0x2a {
+			return 0, 0, fmt.Errorf("invalid VP8 header")
+		}
+		width := int(data[26]) | int(data[27])<<8
+		height := int(data[28]) | int(data[29])<<8
+		return width & 0x3fff, height & 0x3fff, nil
+	case "VP8L":
+		if len(data) < 25 || data[20] != 0x2f {
+			return 0, 0, fmt.Errorf("invalid VP8L header")
+		}
+		bits := uint32(data[21]) | uint32(data[22])<<8 | uint32(data[23])<<16 | uint32(data[24])<<24
+		width := 1 + int(bits&0x3fff)
+		height := 1 + int((bits>>14)&0x3fff)
+		return width, height, nil
+	default:
+		return 0, 0, fmt.Errorf("unsupported WebP chunk")
+	}
+}
+
+// imageExtension returns a supported extension for an image media type. URL
+// extensions are used only when media type detection fell back to the URL.
+func imageExtension(mediaType, urlStr string) (string, error) {
+	switch cleanContentType(mediaType) {
+	case "image/png":
+		return ".png", nil
+	case "image/jpeg":
+		return ".jpg", nil
+	case "image/gif":
+		return ".gif", nil
+	case "image/webp":
+		return ".webp", nil
+	}
+
+	ext := strings.ToLower(filepath.Ext(urlPathNoQuery(urlStr)))
+	if IsImageExtension(ext) {
+		return ext, nil
+	}
+	return "", fmt.Errorf("unsupported image format: %s", cleanContentType(mediaType))
 }
 
 // mediaTypeFromResponse returns a media type from the Content-Type header,

@@ -24,7 +24,7 @@ func (p *turnProgressor) handleImagesForVision(ctx context.Context, state *RunSt
 		return false
 	}
 
-	if !p.conversationHasPastedImages(state.Conversation) {
+	if !p.conversationHasPastedImages(state.Conversation) && !p.conversationHasDeferredReadImages(state.Conversation) {
 		return false
 	}
 
@@ -47,18 +47,16 @@ func (p *turnProgressor) handleImagesForVision(ctx context.Context, state *RunSt
 	// if images ever need to survive behind a post-compaction summary.
 	newMessages := make([]Message, len(state.Conversation))
 	copy(newMessages, state.Conversation)
+	originalMessages := make([]Message, len(state.Conversation))
+	copy(originalMessages, state.Conversation)
 
 	for i := range newMessages {
-		if newMessages[i].Role != MessageRoleUser {
-			continue
-		}
-		if len(newMessages[i].Images) == 0 {
+		if !eligibleVisionMessage(newMessages[i]) {
 			continue
 		}
 
-		p.processImagesInMessage(ctx, &newMessages[i], vc.SubAgentConfigured())
+		p.processImagesInMessage(ctx, &newMessages[i], vc.SubAgentConfigured(), visionTaskContent(originalMessages, i))
 	}
-
 	state.Conversation = newMessages
 	state.Lineage = state.Lineage.WithCurrentMessages(newMessages)
 
@@ -80,11 +78,24 @@ func (p *turnProgressor) conversationHasPastedImages(msgs []Message) bool {
 	return false
 }
 
+func (p *turnProgressor) conversationHasDeferredReadImages(msgs []Message) bool {
+	for _, msg := range msgs {
+		if isDeferredReadImageMessage(msg) {
+			return true
+		}
+	}
+	return false
+}
+
+func eligibleVisionMessage(msg Message) bool {
+	return len(msg.Images) > 0 && (msg.Role == MessageRoleUser || (msg.Role == MessageRoleTool && msg.Name == "read"))
+}
+
 // processImagesInMessage processes (routes or strips) all images in a message.
-// Captures the original message content once to avoid subsequent images inheriting
-// earlier images' appended descriptions in the vision task prompt.
-func (p *turnProgressor) processImagesInMessage(ctx context.Context, msg *Message, subAgentConfigured bool) {
-	originalContent := msg.Content
+// Captures the task content once to avoid subsequent images inheriting earlier
+// images' appended descriptions in the vision task prompt.
+func (p *turnProgressor) processImagesInMessage(ctx context.Context, msg *Message, subAgentConfigured bool, userText string) {
+	originalContent := userText
 	newImages := make([]ImageBlock, len(msg.Images))
 	copy(newImages, msg.Images)
 
@@ -111,9 +122,23 @@ func (p *turnProgressor) processImagesInMessage(ctx context.Context, msg *Messag
 	msg.Images = nil
 }
 
+// visionTaskContent returns the user request associated with a message. Read
+// tool results contain image data but their content is tool output, so use the
+// nearest preceding user message as the vision task context.
+func visionTaskContent(messages []Message, index int) string {
+	message := messages[index]
+	if message.Role == MessageRoleTool && message.Name == "read" {
+		if user, ok := latestUserMessage(messages[:index]); ok {
+			return user.Content
+		}
+	}
+	return message.Content
+}
+
 // routeImageToVision calls the vision tool for a single image and appends
 // the result as an inline description block to the message's Content.
-// originalContent is the message's original content before any images were processed.
+// originalContent is the relevant parent user request, or the message content
+// when no parent user request is available.
 func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, img *ImageBlock, originalContent string) error {
 	if img.ID == "" {
 		return fmt.Errorf("image has no ID")

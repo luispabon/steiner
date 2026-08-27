@@ -77,6 +77,10 @@ type RunRequest struct {
 	// Nil disables capability-driven retry logic (tests, unwired paths preserve old behavior).
 	VisionCapabilities *VisionCapabilities
 
+	// ImageStore registers read-produced images for vision tools. Nil disables
+	// registration, but does not prevent the parent model from receiving image data.
+	ImageStore *ImageStore
+
 	// ParallelTool reports whether a tool call may execute concurrently with its
 	// siblings in the same assistant turn. Nil means every call runs serially,
 	// which is the pre-existing behaviour and what child runs receive.
@@ -148,11 +152,13 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		if outcome.Error != nil {
 			if shouldRetry, retryErr := handleTransientProviderRetry(ctx, req.Events, state.TurnCount, outcome.Error, &runnerRetries); shouldRetry {
 				if retryErr != nil {
+					state = p.finalizeDeferredReadImages(state)
 					emitStop(req.Events, state, outcome.Error)
 					return state, outcome.Error
 				}
 				continue
 			}
+			state = p.finalizeDeferredReadImages(state)
 			emitStop(req.Events, state, outcome.Error)
 			return state, outcome.Error
 		}
@@ -163,6 +169,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			if hadSteers && state.StopReason == StopReasonComplete {
 				continue
 			}
+			state = p.finalizeDeferredReadImages(state)
 			if state.StopReason == StopReasonComplete {
 				emitStop(req.Events, state, nil)
 			}
@@ -238,16 +245,19 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 func stopRunBeforeTurn(ctx context.Context, req RunRequest, state RunState) (RunState, bool) {
 	if err := ctx.Err(); err != nil {
 		state.StopReason = StopReasonCancelled
+		state = finalizeDeferredReadImagesForRequest(req, state)
 		emitStop(req.Events, state, nil)
 		return state, true
 	}
 	if req.Limits.MaxTurns > 0 && state.TurnCount >= req.Limits.MaxTurns {
 		state.StopReason = StopReasonMaxTurns
+		state = finalizeDeferredReadImagesForRequest(req, state)
 		emitStop(req.Events, state, nil)
 		return state, true
 	}
 	if req.Limits.MaxTokens > 0 && state.TokenCount >= req.Limits.MaxTokens {
 		state.StopReason = StopReasonMaxTokens
+		state = finalizeDeferredReadImagesForRequest(req, state)
 		emitStop(req.Events, state, nil)
 		return state, true
 	}

@@ -69,6 +69,8 @@ func imageBlockFrom(img *builtin.ImageBlock) *ImageBlock {
 		return nil
 	}
 	return &ImageBlock{
+		ID:        img.ID,
+		FilePath:  img.FilePath,
 		MediaType: img.MediaType,
 		Data:      img.Data,
 		Width:     img.Width,

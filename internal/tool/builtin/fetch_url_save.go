@@ -55,3 +55,26 @@ func saveFetchedContent(workDir, content, contentType string, truncated bool) (*
 		Message:       message,
 	}, nil
 }
+
+// saveFetchedImage writes raw image bytes to a content-addressed file under
+// .steiner/tmp/fetched/ within workDir. Image files are kept out of the tool
+// result so the caller can request them with the read tool.
+func saveFetchedImage(workDir string, image *fetchedImage) (*FetchURLResult, error) {
+	hash := fmt.Sprintf("%x", sha256.Sum256(image.data))
+	relPath := filepath.Join(".steiner", "tmp", "fetched", hash[:12]+image.extension)
+	absPath := filepath.Join(workDir, relPath)
+	absDir := filepath.Dir(absPath)
+
+	if err := os.MkdirAll(absDir, 0o755); err != nil {
+		return nil, fmt.Errorf("save fetched image: %w", err)
+	}
+	if err := writeFileAtomic(absPath, image.data, 0o600); err != nil {
+		return nil, fmt.Errorf("save fetched image: %w", err)
+	}
+
+	return &FetchURLResult{
+		ContentLength: len(image.data),
+		FilePath:      relPath,
+		Message:       "Image saved. Call the read tool with this path to inspect it.",
+	}, nil
+}
