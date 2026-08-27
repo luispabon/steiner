@@ -50,11 +50,6 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 		return nil
 	})
 
-	if err != nil {
-		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
-		return
-	}
-
 	if isFirstPrompt && s.deps.SessionStore != nil {
 		s.mu.Lock()
 		s.sessionTitle = session.TitleFromPrompt(text)
@@ -62,13 +57,18 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 	}
 
 	if s.deps.SessionStore != nil {
-		if err := s.saveSession(); err != nil {
+		if saveErr := s.saveSession(); saveErr != nil {
 			s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 				Kind:     "session_health",
 				Severity: "warning",
-				Notes:    []string{fmt.Sprintf("save session: %v", err)},
+				Notes:    []string{fmt.Sprintf("save session: %v", saveErr)},
 			}))
 		}
+	}
+
+	if err != nil {
+		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
+		return
 	}
 
 	if s.deps.HistoryWriter != nil {
