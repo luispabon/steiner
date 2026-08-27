@@ -469,6 +469,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		runMode:                  "interactive",
 		streamingPreferred:       true,
 		currentAlias:             sess.CurrentModelAlias,
+		currentEffective:         sess.CurrentEffective,
 		currentReasoningOverride: sess.CurrentReasoningOverride,
 		promptCacheKeyFn:         sess.PromptCacheKey,
 		modeGetterFunc:           sess.Mode,

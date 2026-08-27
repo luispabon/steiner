@@ -105,6 +105,14 @@ type SwitchModel struct {
 
 func (SwitchModel) isInteractiveAction() {}
 
+// SwitchProfile represents a user request to switch future role assignments
+// during an interactive session without changing the active orchestrator model.
+type SwitchProfile struct {
+	Name string
+}
+
+func (SwitchProfile) isInteractiveAction() {}
+
 // ClearConversation represents a user request to clear the conversation
 // history during an interactive session.
 type ClearConversation struct{}

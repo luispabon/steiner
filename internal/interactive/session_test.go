@@ -29,6 +29,7 @@ var (
 	_ Action = RequestExit{}
 	_ Action = SetSkillEnabled{}
 	_ Action = SwitchModel{}
+	_ Action = SwitchProfile{}
 	_ Action = SwitchMode{}
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
@@ -1513,6 +1514,144 @@ func TestSwitchModelPreservesProfileFallbackAndSessionState(t *testing.T) {
 	}
 	if gotPromptKey != "cache-key" {
 		t.Fatalf("prompt cache key = %q, want %q", gotPromptKey, "cache-key")
+	}
+}
+func TestSwitchProfileUpdatesFutureAssignmentsOnly(t *testing.T) {
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}}}},
+		NextGenerationID: 2,
+	}
+	s := testNewSession(t, Dependencies{Config: config.Config{
+		Providers: map[string]config.ProviderConfig{"local": {}},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"active": {Provider: "local", ID: "active-id"},
+				"base":   {Provider: "local", ID: "base-id"},
+				"fast":   {Provider: "local", ID: "fast-id"},
+			},
+			Profiles: map[string]config.ModelProfile{
+				"default": {
+					DefaultModel:    "base",
+					Advisor:         "base",
+					SubAgents:       map[string]string{"code": "base"},
+					OneShot:         map[string]string{"plan": "base"},
+					WorkflowHandoff: map[string]string{"implement": "base"},
+				},
+				"fast": {
+					DefaultModel:    "fast",
+					Advisor:         "fast",
+					SubAgents:       map[string]string{"code": "fast"},
+					OneShot:         map[string]string{"plan": "fast"},
+					WorkflowHandoff: map[string]string{"implement": "fast"},
+				},
+			},
+			Effective: config.EffectiveModelAssignments{
+				ProfileName:             "default",
+				DefaultModel:            "base",
+				Advisor:                 "base",
+				SubAgents:               map[string]string{"code": "base"},
+				OneShot:                 map[string]string{"plan": "base"},
+				WorkflowHandoff:         map[string]string{"implement": "base"},
+				ActiveOrchestratorModel: "active",
+			},
+		},
+	}})
+	s.SetConversation(lineage.Generations[0].Messages)
+	s.mu.Lock()
+	s.lineage = lineage
+	s.promptCacheKey = "cache-key"
+	s.reasoningOverrides["active"] = provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "low"}
+	s.mu.Unlock()
+	beforeID, beforeCache := s.SessionID(), s.PromptCacheKey()
+
+	if err := s.Handle(context.Background(), SwitchProfile{Name: " fast "}); err != nil {
+		t.Fatalf("Handle(SwitchProfile) = %v, want nil", err)
+	}
+
+	got := s.CurrentEffective()
+	if got.ProfileName != "fast" || got.DefaultModel != "fast" || got.Advisor != "fast" {
+		t.Fatalf("effective assignments = %#v, want fast profile assignments", got)
+	}
+	if got.ActiveOrchestratorModel != "active" {
+		t.Fatalf("active orchestrator = %q, want active", got.ActiveOrchestratorModel)
+	}
+	if got.SubAgents["code"] != "fast" || got.OneShot["plan"] != "fast" || got.WorkflowHandoff["implement"] != "fast" {
+		t.Fatalf("role assignments = %#v, want fast assignments", got)
+	}
+	if s.CurrentModelAlias() != "active" || s.SessionID() != beforeID || s.PromptCacheKey() != beforeCache {
+		t.Fatal("profile switch changed active model or session identity")
+	}
+	if !reflect.DeepEqual(s.Conversation(), lineage.Generations[0].Messages) {
+		t.Fatal("profile switch changed conversation")
+	}
+	s.mu.RLock()
+	gotLineage := s.lineage
+	gotReasoning := s.reasoningOverrides["active"]
+	s.mu.RUnlock()
+	if !reflect.DeepEqual(gotLineage, lineage) {
+		t.Fatal("profile switch changed lineage")
+	}
+	if gotReasoning.Effort != "low" {
+		t.Fatalf("reasoning override = %#v, want low", gotReasoning)
+	}
+	if profile := s.Config().Models.Profiles["fast"]; profile.SubAgents["code"] != "fast" {
+		t.Fatalf("canonical profile changed: %#v", profile)
+	}
+}
+
+func TestSwitchProfileFailuresAreAtomic(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		profile    string
+		switchName string
+	}{
+		{name: "unknown", switchName: "missing"},
+		{name: "invalid", profile: "invalid", switchName: "invalid"},
+		{name: "empty", switchName: "   "},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var events []output.Event
+			profiles := map[string]config.ModelProfile{
+				"default": {DefaultModel: "base"},
+			}
+			if tt.profile != "" {
+				profiles[tt.profile] = config.ModelProfile{DefaultModel: "missing"}
+			}
+			s := testNewSession(t, Dependencies{
+				BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+				Config: config.Config{
+					Providers: map[string]config.ProviderConfig{"local": {}},
+					Models: config.ModelsConfig{
+						Definitions: map[string]config.ModelConfig{
+							"active": {Provider: "local", ID: "active-id"},
+							"base":   {Provider: "local", ID: "base-id"},
+						},
+						Profiles: profiles,
+						Effective: config.EffectiveModelAssignments{
+							ProfileName:             "default",
+							DefaultModel:            "base",
+							ActiveOrchestratorModel: "active",
+						},
+					},
+				},
+			})
+			before := s.CurrentEffective()
+			if err := s.Handle(context.Background(), SwitchProfile{Name: tt.switchName}); err == nil {
+				t.Fatal("Handle(SwitchProfile) = nil, want error")
+			}
+			if got := s.CurrentEffective(); !reflect.DeepEqual(got, before) {
+				t.Fatalf("effective assignments changed: got %#v, want %#v", got, before)
+			}
+			found := false
+			for _, event := range events {
+				if payload, ok := event.Payload.(output.ContextReportEvent); ok && strings.Contains(payload.Content, "Profile switch failed") {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("events = %#v, want profile switch error overlay", events)
+			}
+		})
 	}
 }
 

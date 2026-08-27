@@ -28,6 +28,7 @@ type cliRunner struct {
 	streamingPreferred       bool
 	currentModel             func() config.ModelConfig
 	currentAlias             func() string
+	currentEffective         func() config.EffectiveModelAssignments
 	currentReasoningOverride func() provider.ReasoningOverride
 	promptCacheKeyFn         func() string
 	modeGetterFunc           func() config.ExecutionMode
@@ -140,6 +141,10 @@ func cloneEvents(events []output.Event) []output.Event {
 }
 
 func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, searcher web.Searcher, extraAllowedTools map[delegation.AgentType][]string, sandboxTmpDir string) delegation.DelegateDeps {
+	cfg := r.runtime.cfg
+	if r.currentEffective != nil {
+		cfg.Models.Effective = r.currentEffective()
+	}
 	return delegation.DelegateDeps{
 		BaseRegistry:          r.runtime.registry,
 		SubAgentCfg:           r.runtime.cfg.SubAgent,
@@ -152,7 +157,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		MaxTokens:             setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
 		StreamingPreferred:    r.streamingPreferred,
 		TraceLogger:           r.runtime.delegationLogger,
-		Config:                r.runtime.cfg,
+		Config:                cfg,
 		ProviderFactory:       r.runtime.providerFactory,
 		HTTPClient:            r.runtime.httpClient,
 		Searcher:              searcher,

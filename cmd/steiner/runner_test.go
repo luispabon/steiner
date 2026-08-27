@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -111,6 +112,31 @@ func TestNewDelegateDepsDelegationModelIsBaseResolvedModel(t *testing.T) {
 	}
 	if deps.MaxTokens != setup.resolvedModel.EffectiveLimits.MaxOutputTokens {
 		t.Errorf("MaxTokens = %d, want %d", deps.MaxTokens, setup.resolvedModel.EffectiveLimits.MaxOutputTokens)
+	}
+}
+
+func TestNewDelegateDepsUsesCurrentEffectiveAssignments(t *testing.T) {
+	frozen := config.EffectiveModelAssignments{ProfileName: "default", DefaultModel: "base"}
+	live := config.EffectiveModelAssignments{
+		ProfileName:             "fast",
+		DefaultModel:            "fast",
+		Advisor:                 "advisor-fast",
+		SubAgents:               map[string]string{"code": "code-fast"},
+		OneShot:                 map[string]string{"plan": "plan-fast"},
+		WorkflowHandoff:         map[string]string{"implement": "handoff-fast"},
+		ActiveOrchestratorModel: "active",
+	}
+	r := cliRunner{
+		runtime:          cliRuntime{cfg: config.Config{Models: config.ModelsConfig{Effective: frozen}}},
+		currentEffective: func() config.EffectiveModelAssignments { return live },
+	}
+
+	deps := r.newDelegateDeps(runnerSetup{}, nil, nil, nil, "")
+	if !reflect.DeepEqual(deps.Config.Models.Effective, live) {
+		t.Fatalf("delegate effective assignments = %#v, want %#v", deps.Config.Models.Effective, live)
+	}
+	if !reflect.DeepEqual(r.runtime.cfg.Models.Effective, frozen) {
+		t.Fatalf("runtime effective assignments changed: got %#v, want %#v", r.runtime.cfg.Models.Effective, frozen)
 	}
 }
 
