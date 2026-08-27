@@ -850,7 +850,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
 			},
-			wantErr: "models.advisor is required when enabled",
+			wantErr: "models.profiles[\"default\"].advisor is required when enabled",
 		},
 		{
 			name: "enabled advisor requires max uses",

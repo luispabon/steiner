@@ -238,7 +238,7 @@ Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate â€
 2. **No approval prompts**: child tool execution is auto-approved.
 3. **Default context manager**: children use the same baseline context manager path as the parent.
 4. **Tighten-only overrides**: caller cannot exceed configured limits, only reduce them.
-5. **Model resolution**: children use the selected profile's default assignment by default; specialised per-type model aliases resolve before the child run is built. Startup `--model` and `STEINER_MODEL` overrides affect only the active orchestrator, not these profile role assignments.
+5. **Model resolution**: non-explicit sub-agent aliases fall back to the selected profile's default assignment; specialised per-type model aliases resolve before the child run is built. Vision remains disabled when no vision assignment is configured. Startup `--model` and `STEINER_MODEL` overrides affect only the active orchestrator, not these profile role assignments.
 6. **Synchronous execution**: each delegate runs to completion before control returns to the parent.
 7. **Filesystem shared**: children operate in the same workdir as the parent.
 8. **Extension cap**: maximum 5 auto-extensions to prevent runaway children.
