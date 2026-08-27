@@ -57,9 +57,19 @@ or `provider-alias/model-id` for a raw discovered entry with no configured alias
 never the provider's pretty display name.
 
 Every model selection accepts either a config alias or a raw `provider/model-id`
-reference. This applies to `models.default`, `models.advisor`,
-`models.sub_agents.*`, `models.oneshot.*`, `models.workflow_handoff.*`, the
-`--model` flag, `STEINER_MODEL`, and the `/model` command.
+reference. This applies to profile assignments, the `--model` flag,
+`STEINER_MODEL`, and the `/model` command. Use `--profile <name>` at startup to
+select a profile for interactive, `--exec`, or oneshot runs. Startup model
+precedence is the selected profile, then `STEINER_MODEL`, then `--model`; the
+last two affect only the active orchestrator, not profile role fallback.
+
+In the interactive TUI, `/model` changes only the active orchestrator. Use
+`/profile <name>` to change future advisor, sub-agent, oneshot, and
+workflow-handoff assignments and the profile's `default_model` fallback. It
+preserves the current orchestrator model, current `/model` override,
+conversation, and prompt-cache identity. The command requires a name, has no
+picker, and reports an error without changing state for an unknown or invalid
+profile.
 
 ```text
 alias | provider/model-id
@@ -83,9 +93,9 @@ to the same count. Failed switches do not increment popularity.
 
 ## Disable discovery
 
-Set the flat boolean `models.discovery_enabled` to `false` to skip enumeration and
-all discovery network refreshes. The chooser then shows configured entries only.
-Dual-form model references and popularity continue to work.
+Set `models.discovery_enabled` to `false` to skip enumeration and all discovery
+network refreshes. The chooser then shows configured entries only. Dual-form
+model references and popularity continue to work.
 
 ```yaml
 models:

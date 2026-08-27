@@ -120,7 +120,8 @@ The MCP integration consumes this seam. An MCP server entry's `sub_agents` list 
 
 ### Configuration
 
-Sub-agents are configured under the `sub_agent` key in `config.yaml`:
+Sub-agents are configured under the `sub_agent` key in `config.yaml`. Their
+model assignments belong to the selected profile:
 
 ```yaml
 sub_agent:
@@ -132,20 +133,34 @@ sub_agent:
   max_tokens: 100000
 
 models:
-  # Per-agent-type model overrides. When set, sub-agents of that type use
-  # a different model than the parent agent.
-  sub_agents:
-    code: gpt-4o
-    evaluate: claude-sonnet-4
-    sanity_check: gpt-4o-mini
+  definitions:
+    gpt-4o:
+      provider: openai
+      id: gpt-4o
+    claude-sonnet-4:
+      provider: anthropic
+      id: claude-sonnet-4
+    gpt-4o-mini:
+      provider: openai
+      id: gpt-4o-mini
+  profiles:
+    default:
+      default_model: gpt-4o
+      sub_agents:
+        code: gpt-4o
+        evaluate: claude-sonnet-4
+        sanity_check: gpt-4o-mini
 ```
 
-Each entry under `models.sub_agents` keyed by agent type name can set the model alias to any key defined in `models.definitions`. If no override is set, the sub-agent uses the same model as the parent.
+Each entry under the selected profile's `sub_agents` map, keyed by agent type
+name, can set a model alias to any key defined in `models.definitions`. If no
+override is set, the sub-agent uses the selected profile's `default_model`.
 
 ### Recommended model tiers
 
 Model tier recommendations help choose which model to assign to each agent type.
-These are **recommendations, not enforcement** — users configure `models.sub_agents.<type>` freely.
+These are **recommendations, not enforcement** — users configure the selected
+profile's `sub_agents.<type>` assignments freely.
 
 | Tier          | Agent types                             | Rationale                                                                 |
 |---------------|-----------------------------------------|---------------------------------------------------------------------------|
@@ -166,13 +181,20 @@ When you paste an image, the TUI displays its assigned ID below the submitted me
 
 After the initial `vision` call, use `follow_up` with the returned `agent_id` to ask additional questions about the same image. The provider's server-side prompt cache makes follow-ups cheap.
 
-The `vision` tool is only registered when `sub_agent.agents.vision.model` is configured. It requires a vision-capable model:
+The `vision` tool is only registered when the selected profile's `sub_agents.vision`
+is configured. It requires a vision-capable model:
 
 ```yaml
-sub_agent:
-  agents:
-    vision:
-      model: claude-sonnet-4
+models:
+  definitions:
+    claude-sonnet-4:
+      provider: anthropic
+      id: claude-sonnet-4
+  profiles:
+    default:
+      default_model: claude-sonnet-4
+      sub_agents:
+        vision: claude-sonnet-4
 ```
 
 ---

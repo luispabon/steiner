@@ -12,7 +12,7 @@ entries win):
 2. `~/.config/steiner/config.yaml` — user-level config
 3. `.steiner/config.yaml` — project-level config (checked in or gitignored)
 4. Environment variables with the `STEINER_` prefix
-5. CLI flags (`--model`, `--verbose`, `--unsafe`)
+5. CLI flags (`--profile`, `--model`, `--verbose`, `--unsafe`)
 
 `--unsafe` is applied as a config override that forces `sandbox.enabled=false`
 after config files and environment variables have been merged.
@@ -21,7 +21,7 @@ Key environment variables:
 
 | Variable                      | Maps to                           |
 |-------------------------------|-----------------------------------|
-| `STEINER_MODEL`               | `models.default`                  |
+| `STEINER_MODEL`               | active orchestrator model override |
 | `STEINER_SUB_AGENTS_MAX_PARALLEL` | `sub_agent.max_parallel`       |
 | `STEINER_MAX_TURNS`           | `limits.max_turns`                |
 | `STEINER_MAX_TOKENS`          | `limits.max_tokens`               |
@@ -68,11 +68,11 @@ If `OPENAI_API_KEY` is not set, configuration loading fails. If `OPENAI_BASE_URL
 
 | Field               | Type     | Default     | Description |
 |---------------------|----------|-------------|-------------|
-| `models`            | block    | see below   | Consolidated model configuration: model definitions and all role-based model aliases (default, advisor, sub-agents, oneshot, workflow handoff). |
+| `models`            | block    | see below   | Consolidated model configuration: shared model definitions and named execution profiles. |
 | `modes`             | block    | see below   | Execution mode configuration. |
 | `cave_human`        | bool     | `false`     | When `true`, enables `cave_human` - combines terse output with an "avoid AI-writing tells" instruction that is applied to the system preamble, compaction prompts, and sub-agent prompts. |
 | `advisor`           | block    | see below   | Optional stronger-model steering config. When enabled, the advisor tool is available to the main loop and its per-run cap is enforced in handler state so the tool registry stays static for prompt-cache integrity. |
-| `oneshot`           | block    | empty       | Closeout settings for autonomous oneshot runs. Per-phase model aliases live under `models.oneshot`. |
+| `oneshot`           | block    | empty       | Closeout settings for autonomous oneshot runs. Per-phase model assignments live in the selected model profile. |
 | `desktop_notifications` | block | see below | Desktop notification settings for run completion and events. |
 | `mcp`               | block    | see below   | Model Context Protocol server configuration. |
 | `tui`               | block    | see below   | Interactive terminal UI settings. |
@@ -93,7 +93,7 @@ or mutating the tool mid-conversation.
 | `max_tokens`       | *int   | `nil`   | Optional output-token ceiling for advisor calls. When set, the value is forwarded to the provider request. |
 | `timeout`          | *Duration | `180s`  | Optional HTTP timeout override applied only to advisor calls. When set, it overrides `providers.<name>.timeout` for the advisor model only; the main chat model and other models using the same provider are unaffected. Useful because advisor calls send a large parent-conversation prompt and frequently hit the provider's default header-read timeout. |
 
-The model alias used for advisor calls is configured via `models.advisor` (see the [`models` block](#models-block)), not under `advisor` itself.
+The model alias used for advisor calls is configured in the selected profile's `advisor` field (see the [`models` block](#models-block)), not under `advisor` itself.
 
 ```yaml
 advisor:
@@ -103,7 +103,14 @@ advisor:
   timeout: 5m
 
 models:
-  advisor: advisor-model
+  definitions:
+    advisor-model:
+      provider: local
+      id: advisor-model
+  profiles:
+    default:
+      default_model: default
+      advisor: advisor-model
 ```
 
 ---
@@ -111,9 +118,9 @@ models:
 ## `oneshot` block
 
 Controls the optional closeout PR flow for the autonomous `oneshot` mode.
-Per-phase model aliases live under `models.oneshot` (see the
-[`models` block](#models-block)) and are sparse: omit a phase to let runtime
-use `models.default` when that phase is resolved.
+Per-phase model assignments live in the selected profile's `oneshot` map (see the
+[`models` block](#models-block)) and are sparse: omit a phase to let runtime use
+that profile's `default_model` when the phase is resolved.
 
 | Field     | Type   | Default | Description |
 |-----------|--------|---------|-------------|
@@ -124,10 +131,23 @@ oneshot:
   auto_pr: false
 
 models:
-  oneshot:
-    plan: planner-model
-    implement: coder-model
-    review: reviewer-model
+  definitions:
+    planner-model:
+      provider: local
+      id: planner-model
+    coder-model:
+      provider: local
+      id: coder-model
+    reviewer-model:
+      provider: local
+      id: reviewer-model
+  profiles:
+    default:
+      default_model: coder-model
+      oneshot:
+        plan: planner-model
+        implement: coder-model
+        review: reviewer-model
 ```
 
 ---
@@ -243,23 +263,30 @@ Codex-specific configuration. Applies only when `type: codex`.
 
 ## `models` block
 
-Consolidates all model configuration: the named model definitions and every
-role-based model reference (the default model, the advisor model, sub-agent
-overrides, oneshot per-phase models, and workflow handoff models).
+Consolidates all model configuration: the shared model definition registry and
+named execution profiles. The `default` profile is required and is the complete
+baseline. Other profiles are partial overlays: omitted fields and map entries
+inherit from `models.profiles.default` when selected.
 
 | Field               | Type                       | Default | Description |
 |---------------------|----------------------------|---------|-------------|
-| `default`           | string                     | `"default"` | Model alias or `provider/model-id` reference to use when none is specified on the command line. |
-| `definitions`        | map[string]ModelConfig    | empty   | Named model definitions. Each entry binds a provider to a specific model ID and sets request-level parameters. |
-| `discovery_enabled`  | bool                       | `true`  | When `true`, discover available models from configured providers. When `false`, skip provider enumeration and network refresh; the chooser shows configured entries only. |
-| `advisor`            | string                    | `""`    | Model alias or `provider/model-id` reference used for advisor calls when `advisor.enabled` is `true`. |
-| `sub_agents`         | map[string]string         | empty   | Per-agent-type model reference overrides, keyed by agent type (e.g. `code`, `evaluate`, `sanity_check`, `review`). Each value may be an alias or `provider/model-id` reference. If an agent type has no entry, the sub-agent uses the same model as the parent. |
-| `oneshot`            | map[string]string         | empty   | Per-phase model references for autonomous oneshot runs, keyed by `plan`, `implement`, and `review`. Values may be aliases or `provider/model-id` references. Missing phases fall back to `default` at runtime. |
-| `workflow_handoff`   | map[string]string         | empty   | Persistent handoff model references, keyed by destination workflow name (`implement`, `review`, `build`). If a destination has no entry, handoff uses the current session model. |
+| `definitions`       | map[string]ModelConfig     | empty   | Shared named model definitions. Each entry binds a provider to a specific model ID and sets request-level parameters. |
+| `discovery_enabled` | bool                       | `true`  | When `true`, discover available models from configured providers. When `false`, skip provider enumeration and network refresh; the chooser shows configured entries only. |
+| `profiles`          | map[string]ModelProfile    | see below | Named model-assignment profiles. `profiles.default` is required and must define `default_model`; named profiles may override any role partially. |
+
+Each profile supports these fields:
+
+| Field              | Type                       | Description |
+|--------------------|----------------------------|-------------|
+| `default_model`    | string                     | Model alias or `provider/model-id` reference used as the profile's default and as fallback for roles without a more specific assignment. Required in `profiles.default`. |
+| `advisor`          | string                     | Model reference used for advisor calls when `advisor.enabled` is `true`. |
+| `sub_agents`       | map[string]string          | Per-agent-type model references, keyed by agent type. |
+| `oneshot`          | map[string]string          | Per-phase model references, keyed by `plan`, `implement`, and `review`. Missing phases fall back to the selected profile's `default_model`. |
+| `workflow_handoff` | map[string]string          | Persistent handoff model references, keyed by `implement`, `review`, and `build`. Missing destinations use the current session model. |
 
 ```yaml
 models:
-  default: local
+  discovery_enabled: true
   definitions:
     local:
       provider: local
@@ -267,18 +294,25 @@ models:
     sonnet:
       provider: anthropic
       id: claude-sonnet-4-5
-  advisor: sonnet
-  sub_agents:
-    code: sonnet
-    evaluate: sonnet
-    sanity_check: local
-  oneshot:
-    plan: local
-    implement: sonnet
-    review: sonnet
-  workflow_handoff:
-    implement: sonnet
-    review: sonnet
+  profiles:
+    default:
+      default_model: local
+      advisor: sonnet
+      sub_agents:
+        code: sonnet
+        evaluate: sonnet
+        sanity_check: local
+      oneshot:
+        plan: local
+        implement: sonnet
+        review: sonnet
+      workflow_handoff:
+        implement: sonnet
+        review: sonnet
+    fast:
+      default_model: local
+      sub_agents:
+        code: local
 ```
 
 `workflow_handoff` supports destination keys `implement`, `review`, and `build`. If a
@@ -286,7 +320,7 @@ destination has no entry, handoff uses the current session model. The
 interactive handoff picker can still override the pending model for one
 handoff without changing configuration.
 
-### Model references
+### Model references and selection
 
 Every model selection accepts either a configured alias or a raw `provider/model-id` reference:
 
@@ -294,11 +328,28 @@ Every model selection accepts either a configured alias or a raw `provider/model
 alias | provider/model-id
 ```
 
-This applies to `models.default`, `models.advisor`, `models.sub_agents.*`,
-`models.oneshot.*`, `models.workflow_handoff.*`, the `--model` flag,
-`STEINER_MODEL`, and the `/model` command. For example,
-`openrouter/openai/gpt-4o` selects model ID `openai/gpt-4o` from the configured
-`openrouter` provider.
+This applies to profile assignments, the `--model` flag, `STEINER_MODEL`, and the
+`/model` command. For example, `openrouter/openai/gpt-4o` selects model ID
+`openai/gpt-4o` from the configured `openrouter` provider.
+
+At startup, configuration is resolved in this order:
+
+1. Config files are merged, then the selected profile is resolved. `--profile <name>` selects a named profile; with no flag, `default` is selected.
+2. `STEINER_MODEL` overrides the active orchestrator model.
+3. `--model` overrides `STEINER_MODEL` and the profile's active orchestrator model.
+
+The env and CLI model overrides affect only the active orchestrator selection.
+They do not replace the selected profile's role assignments or its
+`default_model` fallback, so advisor, sub-agent, oneshot, and workflow-handoff
+roles continue to resolve from the profile.
+
+In interactive mode, `/model` changes only the active orchestrator selection.
+`/profile <name>` changes future advisor, sub-agent, oneshot, and workflow-handoff
+assignments and the selected `default_model` fallback, but preserves the current
+active orchestrator model, any current `/model` override, conversation, and
+prompt-cache identity. `/profile` requires a name; it does not open a picker.
+An unknown or invalid profile reports an error and leaves the current selection
+unchanged.
 
 An exact configured alias takes precedence over provider-prefix parsing. Otherwise,
 steiner uses the longest matching configured provider prefix, so provider and model
@@ -385,13 +436,17 @@ Example (OpenAI/Codex-style values — other providers may use a different vocab
 
 ```yaml
 models:
-  codex-high:
-    provider: codex
-    id: gpt-5-codex
-    advanced:
-      reasoning:
-        effort: high
-        supported_efforts: [minimal, low, medium, high]
+  definitions:
+    codex-high:
+      provider: codex
+      id: gpt-5-codex
+      advanced:
+        reasoning:
+          effort: high
+          supported_efforts: [minimal, low, medium, high]
+  profiles:
+    default:
+      default_model: codex-high
 ```
 
 Reasoning effort can also be changed at runtime for the current session via the `/model` command in the interactive TUI (select a model, then a reasoning effort from `supported_efforts`, or "provider default" to omit the field). Runtime `/model` reasoning selections are session-only and never write back to the config file. Use `steiner model inspect <alias>` to see the resolved `supported_efforts`, `provider_default_effort`, `configured_effort`, and `effective_effort` for a model.
@@ -532,10 +587,10 @@ Each specialised agent type (`explore`, `research`, `code`, `plan`, `verify`,
 `vision`) has its own hardcoded tool allowlist; there is no user-configurable
 tool allowlist field.
 
-Per-agent-type model overrides live under `models.sub_agents` (see the
-[`models` block](#models-block)), keyed by agent type (e.g. `code`,
-`evaluate`, `sanity_check`, `explore`, `vision`). If an agent type has no entry, the sub-agent uses
-the same model as the parent.
+Per-agent-type model overrides live in the selected profile's `sub_agents` map
+(see the [`models` block](#models-block)), keyed by agent type (e.g. `code`,
+`evaluate`, `sanity_check`, `explore`, `vision`). If an agent type has no entry, the
+sub-agent uses the profile's default assignment.
 
 ```yaml
 sub_agent:
@@ -545,13 +600,24 @@ sub_agent:
   max_tokens: 100000
 
 models:
-  sub_agents:
-    code: gpt-4o
-    research: claude-sonnet-4
-    vision: claude-sonnet-4   # required to enable the vision tool
+  definitions:
+    gpt-4o:
+      provider: openai
+      id: gpt-4o
+    claude-sonnet-4:
+      provider: anthropic
+      id: claude-sonnet-4
+  profiles:
+    default:
+      default_model: gpt-4o
+      sub_agents:
+        code: gpt-4o
+        research: claude-sonnet-4
+        vision: claude-sonnet-4   # required to enable the vision tool
 ```
 
-The `vision` agent type requires a vision-capable model. When `models.sub_agents.vision` is empty or unset, the `vision` tool is not registered.
+The `vision` agent type requires a vision-capable model. When the selected profile's
+`sub_agents.vision` is empty or unset, the `vision` tool is not registered.
 
 ---
 
@@ -794,11 +860,13 @@ providers:
     base_url: http://localhost:11434/v1
 
 models:
-  default: local
   definitions:
     local:
       provider: local
       id: qwen3:14b
+  profiles:
+    default:
+      default_model: local
 ```
 
 Use `http://127.0.0.1:1234/v1` as `base_url` for LM Studio. Use `type: ollama`
@@ -816,7 +884,6 @@ providers:
     api_key_env: ANTHROPIC_API_KEY
 
 models:
-  default: sonnet
   definitions:
     sonnet:
       provider: anthropic
@@ -824,6 +891,9 @@ models:
     opus:
       provider: anthropic
       id: claude-opus-4-5
+  profiles:
+    default:
+      default_model: sonnet
 ```
 
 For OpenAI, replace `type: anthropic` with `type: openai` and set
@@ -843,7 +913,6 @@ providers:
     api_key_env: OPENROUTER_API_KEY
 
 models:
-  default: local-fast
   definitions:
     local-fast:
       provider: local
@@ -857,6 +926,9 @@ models:
     gpt-4o:
       provider: router
       id: openai/gpt-4o
+  profiles:
+    default:
+      default_model: local-fast
 ```
 
 Switch models at runtime with `--model sonnet` without changing config.
@@ -873,7 +945,6 @@ providers:
     timeout: 60s
 
 models:
-  default: local
   definitions:
     local:
       provider: local
@@ -887,6 +958,9 @@ models:
         max_attempts: 5
         initial_backoff: 500ms
         max_backoff: 10s
+  profiles:
+    default:
+      default_model: local
 
 limits:
   max_turns: 80
@@ -924,7 +998,6 @@ providers:
       X-Title: steiner
 
 models:
-  default: local-fast
   definitions:
     local-fast:
       provider: local
@@ -960,19 +1033,22 @@ models:
       prompts:
         system: "You are a concise coding assistant."
         system_suffix: "Always respond in structured JSON when possible."
-  advisor: sonnet
-  sub_agents:
-    code: sonnet
-    evaluate: sonnet
-    sanity_check: mini
-    review: sonnet
-  oneshot:
-    plan: local-fast
-    implement: sonnet
-    review: sonnet
-  workflow_handoff:
-    implement: sonnet
-    review: sonnet
+  profiles:
+    default:
+      default_model: local-fast
+      advisor: sonnet
+      sub_agents:
+        code: sonnet
+        evaluate: sonnet
+        sanity_check: mini
+        review: sonnet
+      oneshot:
+        plan: local-fast
+        implement: sonnet
+        review: sonnet
+      workflow_handoff:
+        implement: sonnet
+        review: sonnet
 
 limits:
   max_turns: 60

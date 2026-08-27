@@ -52,7 +52,7 @@ User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 
 ### Tool registration
 
-When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the base registry and registers the `follow_up` tool plus a specialised tool for each agent type (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, and conditionally `vision`). Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a per-type tool allowlist (`AgentAllowedTools`), and a task-oriented schema. The `vision` tool additionally accepts an `image_id` parameter and is only registered when `sub_agent.agents.vision.model` is configured.
+When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the base registry and registers the `follow_up` tool plus a specialised tool for each agent type (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, and conditionally `vision`). Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a per-type tool allowlist (`AgentAllowedTools`), and a task-oriented schema. The `vision` tool additionally accepts an `image_id` parameter and is only registered when the selected profile's `sub_agents.vision` assignment is configured.
 
 `fetch_url` is registered unconditionally in the base built-in tool set. `web_search` is registered conditionally — it is added to both the parent registry and the extended base registry (used for child bootstrapping) only when a `web.Searcher` backend is configured. When no search backend is configured, the `research` sub-agent type is excluded from delegation entirely, so no stub or unavailable tool is ever exposed.
 
@@ -97,7 +97,7 @@ If `AllowedTools` is empty, no tools are available to the child. This ensures ch
 
 `DelegateDeps.ExtraAllowedTools` is a per-agent-type projection of additional registered tool names built **externally** and consumed here. Delegation never reads MCP config or interprets tool provenance. When the projection is non-nil, handlers merge the built-in allowlist with `ExtraAllowedTools[agentType]` via `mergedAllowedTools`, producing a new sorted, deduplicated slice that never mutates the shared `agentAllowlists` map. Nil or empty projections grant no extra tools, preserving default-denied MCP behavior; names not present in the parent registry are ignored by `Registry.Subset`. Subsetting clones the original `ToolDef`s, so MCP handlers and provenance survive into the child registries unchanged.
 
-**4. Assemble RunRequest.** Includes the parent's provider instance, a tool executor wrapping the execution registry, `ExtraParams` and `PromptSuffix` propagated from the parent's model config, and no explicit model override (child uses the parent's provider/model by default, unless a per-type model alias is configured).
+**4. Assemble RunRequest.** Includes the parent's provider instance, a tool executor wrapping the execution registry, `ExtraParams` and `PromptSuffix` propagated from the parent's model config, and no explicit model override (child uses the selected profile's default assignment unless a per-type model alias is configured).
 
 **5. Context delivery flags.** `buildChildPrompt` sets two independent
 `AssemblyOptions` flags:
@@ -198,7 +198,7 @@ The `vision` tool uses a dedicated handler (`newVisionHandler`) rather than the 
 2. Looks up the `ImageRef` from `ImageStore` (registered when the image was pasted).
 3. Reads the image file from `.steiner/tmp/images/` and base64-encodes it.
 4. Builds a `Spec` with `Images` populated — the image is attached to the sub-agent's first conversation message via `buildChildPrompt`.
-5. Resolves the per-type model from `sub_agent.agents.vision.model`.
+5. Resolves the per-type model from the selected profile's `sub_agents.vision` assignment.
 6. Calls `BuildChildRun` and `SpawnDelegate` with the vision allowlist (`["read"]`, plus any `ExtraAllowedTools[vision]`) and vision system prompt.
 7. Saves the child session so the parent model can use `follow_up` for additional questions about the same image without re-uploading it.
 8. Appends a `follow_up` reminder (with `agent_id`) to the returned result.
@@ -238,7 +238,7 @@ Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate �
 2. **No approval prompts**: child tool execution is auto-approved.
 3. **Default context manager**: children use the same baseline context manager path as the parent.
 4. **Tighten-only overrides**: caller cannot exceed configured limits, only reduce them.
-5. **Model resolution**: children use the parent provider/model by default; specialised per-type model aliases resolve before the child run is built.
+5. **Model resolution**: children use the selected profile's default assignment by default; specialised per-type model aliases resolve before the child run is built. Startup `--model` and `STEINER_MODEL` overrides affect only the active orchestrator, not these profile role assignments.
 6. **Synchronous execution**: each delegate runs to completion before control returns to the parent.
 7. **Filesystem shared**: children operate in the same workdir as the parent.
 8. **Extension cap**: maximum 5 auto-extensions to prevent runaway children.

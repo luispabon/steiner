@@ -7,7 +7,7 @@ Interactive sessions run in one of two execution modes: `plan` or `build`. The m
 - **`build`** — the default mode. Normal workspace editing: `mutate`, `bash`, and the `code` sub-agent tool are all available without restriction.
 - **`plan`** — project edits are restricted: writes outside `.steiner/plans/` are denied, and plan artifacts may be written under `.steiner/plans/`. Plan mode doubles as a chat/Q&A mode: discuss freely, and write a plan file only when handing off to build mode.
 
-There is no third "chat" mode and no auto-detection — plan mode itself serves that purpose. There is also no `--mode` CLI flag; execution modes apply to interactive sessions only. Oneshot and non-interactive `exec` runs are unaffected and keep their existing behaviour.
+There is no third "chat" mode and no auto-detection — plan mode itself serves that purpose. There is also no `--mode` CLI flag; execution modes apply to interactive sessions only. Oneshot and non-interactive `exec` runs are unaffected and keep their existing behaviour. Use the persistent `--profile <name>` flag to select model assignments at startup for normal interactive, `--exec`, and oneshot runs; it is separate from execution-mode selection.
 
 ## Switching modes
 
