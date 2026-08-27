@@ -31,6 +31,7 @@ import (
 type cliFlags struct {
 	configPath        string
 	model             string
+	profile           string
 	verbose           bool
 	exec              bool
 	logFile           string

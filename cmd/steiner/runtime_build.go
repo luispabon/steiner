@@ -42,6 +42,7 @@ func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (co
 	overrides := config.CLIOverrides{
 		ConfigPath: flags.configPath,
 		Model:      modelAlias,
+		Profile:    flags.profile,
 		Verbose:    flags.verbose,
 		Unsafe:     flags.unsafe,
 	}

@@ -721,3 +721,111 @@ func TestSelectMCPStderr_LogPathFromConfig(t *testing.T) {
 		t.Fatalf("selectMCPStderr() = %v, want the configured log writer when cfg.Logging.File drives logPath", got)
 	}
 }
+
+func TestLoadRuntimeConfigProfileAndModelPrecedence(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, configPath, `providers:
+  local:
+    type: openai_compat
+    base_url: http://example/v1
+models:
+  profiles:
+    default:
+      default_model: base
+      sub_agents:
+        code: base
+    fast:
+      default_model: fast
+  definitions:
+    base:
+      provider: local
+      id: base-model
+    fast:
+      provider: local
+      id: fast-model
+    cli:
+      provider: local
+      id: cli-model
+    phase:
+      provider: local
+      id: phase-model
+`)
+
+	tests := []struct {
+		name       string
+		flags      cliFlags
+		modelAlias string
+		wantActive string
+	}{
+		{
+			name: "named profile",
+			flags: cliFlags{
+				configPath: configPath,
+				profile:    "fast",
+			},
+			wantActive: "fast",
+		},
+		{
+			name: "cli model overrides profile",
+			flags: cliFlags{
+				configPath: configPath,
+				model:      "cli",
+				profile:    "fast",
+			},
+			wantActive: "cli",
+		},
+		{
+			name: "phase model alias overrides cli model",
+			flags: cliFlags{
+				configPath: configPath,
+				model:      "cli",
+				profile:    "fast",
+			},
+			modelAlias: "phase",
+			wantActive: "phase",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := loadRuntimeConfig(nil, &tt.flags, tt.modelAlias)
+			if err != nil {
+				t.Fatalf("loadRuntimeConfig() error = %v", err)
+			}
+			if got := cfg.Models.Effective.ProfileName; got != "fast" {
+				t.Fatalf("effective profile = %q, want fast", got)
+			}
+			if got := cfg.Models.Effective.ActiveOrchestratorModel; got != tt.wantActive {
+				t.Fatalf("active orchestrator model = %q, want %q", got, tt.wantActive)
+			}
+			if got := cfg.Models.Effective.DefaultModel; got != "fast" {
+				t.Fatalf("effective default model = %q, want fast", got)
+			}
+			if got := cfg.Models.Effective.SubAgents["code"]; got != "base" {
+				t.Fatalf("effective code model = %q, want inherited base", got)
+			}
+		})
+	}
+}
+
+func TestLoadRuntimeConfigRejectsUnknownProfile(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, configPath, `providers:
+  local:
+    type: openai_compat
+    base_url: http://example/v1
+models:
+  profiles:
+    default:
+      default_model: base
+  definitions:
+    base:
+      provider: local
+      id: base-model
+`)
+
+	_, err := loadRuntimeConfig(nil, &cliFlags{configPath: configPath, profile: "missing"}, "")
+	if err == nil || !strings.Contains(err.Error(), "profile is not defined") {
+		t.Fatalf("loadRuntimeConfig() error = %v, want unknown profile error", err)
+	}
+}
