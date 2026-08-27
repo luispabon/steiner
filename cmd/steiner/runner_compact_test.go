@@ -40,8 +40,14 @@ func TestCLIRunnerCompactUsesResolvedLimitsAndAssembly(t *testing.T) {
 		runtime: cliRuntime{
 			cfg: config.Config{
 				Providers: map[string]config.ProviderConfig{"openrouter": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL}},
-				Models:    config.ModelsConfig{Default: "test", Definitions: map[string]config.ModelConfig{"test": {Provider: "openrouter", ID: modelID}}},
-				SubAgent:  config.SubAgentConfig{Enabled: true}, Advisor: config.AdvisorConfig{Enabled: true},
+				Models: config.ModelsConfig{
+					Effective: config.EffectiveModelAssignments{
+						DefaultModel:            "test",
+						ActiveOrchestratorModel: "test",
+					},
+					Definitions: map[string]config.ModelConfig{"test": {Provider: "openrouter", ID: modelID}},
+				},
+				SubAgent: config.SubAgentConfig{Enabled: true}, Advisor: config.AdvisorConfig{Enabled: true},
 			},
 			providerFactory: func(rm provider.ResolvedModel) (provider.Provider, error) { captured = rm; return prov, nil },
 			httpClient:      srv.Client(), projectRoot: projectRoot, workDir: projectRoot, homeDir: projectRoot,

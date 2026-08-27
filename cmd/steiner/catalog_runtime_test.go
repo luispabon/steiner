@@ -34,7 +34,10 @@ func TestModelEntriesFromChoices(t *testing.T) {
 func TestModelEntriesFromChoicesIncludesConfigOnlyChoicesWhenDiscoveryDisabled(t *testing.T) {
 	cfg := config.Config{
 		Models: config.ModelsConfig{
-			Default: "local",
+			Effective: config.EffectiveModelAssignments{
+				DefaultModel:            "local",
+				ActiveOrchestratorModel: "local",
+			},
 			Definitions: map[string]config.ModelConfig{
 				"local": {
 					Provider: "ollama",
@@ -124,7 +127,8 @@ func TestSelectedModelConfigResolvesDefaultReference(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := selectedModelConfig(config.Config{Models: config.ModelsConfig{
-				Default: tt.defaultModel, Definitions: tt.definitions,
+				Effective:   config.EffectiveModelAssignments{DefaultModel: tt.defaultModel, ActiveOrchestratorModel: tt.defaultModel},
+				Definitions: tt.definitions,
 			}, Providers: tt.providers})
 			if got.Provider != tt.wantProvider || got.ID != tt.wantID {
 				t.Fatalf("selectedModelConfig() = provider=%q id=%q, want provider=%q id=%q", got.Provider, got.ID, tt.wantProvider, tt.wantID)
@@ -160,7 +164,10 @@ func TestModelCatalogRefreshPublishesAndCloses(t *testing.T) {
 		return catalogTestEnumerator{}, nil
 	}, cache, modelcatalog.NewStore(t.TempDir()+"/popularity.json"), &http.Client{}, true)
 	cfg := config.Config{
-		Models: config.ModelsConfig{Default: "fast", Definitions: map[string]config.ModelConfig{
+		Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{
+			DefaultModel:            "fast",
+			ActiveOrchestratorModel: "fast",
+		}, Definitions: map[string]config.ModelConfig{
 			"fast": {Provider: "fast", ID: "fast-model"},
 		}},
 		Providers: map[string]config.ProviderConfig{
@@ -205,7 +212,10 @@ func TestModelCatalogRefreshCancelDoesNotBlock(t *testing.T) {
 	service := modelcatalog.NewService(func(_ string, _ *http.Client) (modelcatalog.Enumerator, error) {
 		return catalogTestEnumerator{wait: 50 * time.Millisecond}, nil
 	}, cache, modelcatalog.NewStore(t.TempDir()+"/popularity.json"), &http.Client{}, true)
-	cfg := config.Config{Models: config.ModelsConfig{Default: "slow"}}
+	cfg := config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{
+		DefaultModel:            "slow",
+		ActiveOrchestratorModel: "slow",
+	}}}
 	sess, err := interactive.NewSession(interactive.Dependencies{Config: cfg})
 	if err != nil {
 		t.Fatal(err)

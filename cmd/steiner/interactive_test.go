@@ -140,7 +140,10 @@ func TestInteractiveModeEmitsWarningWhenTUIProgramFails(t *testing.T) {
 		return cliRuntime{
 			cfg: config.Config{
 				Models: config.ModelsConfig{
-					Default:     "test",
+					Effective: config.EffectiveModelAssignments{
+						DefaultModel:            "test",
+						ActiveOrchestratorModel: "test",
+					},
 					Definitions: map[string]config.ModelConfig{"test": {Provider: "local", ID: "test-model"}},
 				},
 				Providers: map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"}},
@@ -194,7 +197,10 @@ func TestInteractiveModeSuppressesProgramKilled(t *testing.T) {
 		return cliRuntime{
 			cfg: config.Config{
 				Models: config.ModelsConfig{
-					Default:     "test",
+					Effective: config.EffectiveModelAssignments{
+						DefaultModel:            "test",
+						ActiveOrchestratorModel: "test",
+					},
 					Definitions: map[string]config.ModelConfig{"test": {Provider: "local", ID: "test-model"}},
 				},
 				Providers: map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"}},
