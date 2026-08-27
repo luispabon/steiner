@@ -157,7 +157,7 @@ func (s *Session) WorkflowHandoffResponder(eventSink output.EventSink) tool.Work
 func (s *Session) CurrentModelAlias() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.deps.Config.Models.Effective.DefaultModel
+	return s.deps.Config.Models.Effective.ActiveOrchestratorModel
 }
 
 // WorkflowHandoffModelSelection returns the configured handoff model for the
@@ -210,7 +210,7 @@ func (s *Session) CurrentModelConfig() config.ModelConfig {
 func (s *Session) CurrentReasoningOverride() provider.ReasoningOverride {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.reasoningOverrides[s.deps.Config.Models.Effective.DefaultModel]
+	return s.reasoningOverrides[s.deps.Config.Models.Effective.ActiveOrchestratorModel]
 }
 
 // Conversation returns a defensive copy of the current conversation.
