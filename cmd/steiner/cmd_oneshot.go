@@ -47,6 +47,7 @@ type phaseRunnerParams struct {
 	PhasePrompt        string
 	ProjectAgentsPath  string
 	WorkflowMode       prompt.WorkflowMode
+	CurrentEffective   func() config.EffectiveModelAssignments
 }
 
 func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, params phaseRunnerParams) (oneshot.PhaseRunner, error) {
@@ -78,6 +79,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 		promptCacheKeyFn:   func() string { return params.PromptCacheKey },
 		phasePrompt:        params.PhasePrompt,
 		workflowMode:       params.WorkflowMode,
+		currentEffective:   params.CurrentEffective,
 	}
 	if alias := strings.TrimSpace(params.ModelAlias); alias != "" {
 		runner.currentAlias = func() string {
@@ -205,11 +207,12 @@ func printOneshotManifest(w interface{ Write([]byte) (int, error) }, manifest on
 }
 
 type phaseRunnerFactory struct {
-	cmd      *cobra.Command
-	flags    *cliFlags
-	rootDir  string
-	identity oneshot.RunIdentity
-	events   output.EventSink
+	cmd              *cobra.Command
+	flags            *cliFlags
+	rootDir          string
+	identity         oneshot.RunIdentity
+	events           output.EventSink
+	currentEffective func() config.EffectiveModelAssignments
 }
 
 // phaseParams builds the runner parameters for a phase, including the phase
@@ -233,6 +236,7 @@ func (f phaseRunnerFactory) phaseParams(phase oneshot.Phase, modelAlias string, 
 		PromptCacheKey:     f.identity.ID,
 		PhasePrompt:        phasePrompt,
 		WorkflowMode:       prompt.DelegatedChildWorkflowMode(),
+		CurrentEffective:   f.currentEffective,
 	}, nil
 }
 
