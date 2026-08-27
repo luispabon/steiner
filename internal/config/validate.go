@@ -74,10 +74,6 @@ var validWorkflowHandoffDestinations = map[string]bool{
 	"build":     true,
 }
 
-func validateWorkflowHandoffConfig(problems *[]string, workflowHandoff map[string]string, cfg Config) {
-	validateModelReferenceMap(problems, "models.workflow_handoff", "destination", workflowHandoff, validWorkflowHandoffDestinations, cfg)
-}
-
 // validateModelReferenceMap checks that every key in aliases is a member of
 // validKeys and that every value names a model alias or provider/model-id reference.
 func validateModelReferenceMap(problems *[]string, mapName, keyLabel string, aliases map[string]string, validKeys map[string]bool, cfg Config) {

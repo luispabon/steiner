@@ -119,10 +119,6 @@ func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 	}
 }
 
-func validateOneShotConfig(problems *[]string, oneShot map[string]string, cfg Config) {
-	validateModelReferenceMap(problems, "models.oneshot", "phase", oneShot, validOneShotPhases, cfg)
-}
-
 func validateSandboxConfig(problems *[]string, cfg SandboxConfig) {
 	for i, entry := range cfg.EnvPassthrough {
 		trimmed := strings.TrimSpace(entry)
