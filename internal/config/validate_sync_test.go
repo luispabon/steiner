@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
-	"github.com/luispabon/steiner/internal/delegation"
 )
 
 func TestLoadAcceptsCanonicalSubAgentTypes(t *testing.T) {
@@ -16,10 +15,10 @@ func TestLoadAcceptsCanonicalSubAgentTypes(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.yaml")
 
 	var subAgents strings.Builder
-	for _, agentType := range delegation.AllAgentTypes() {
-		fmt.Fprintf(&subAgents, "    %s: default\n", agentType)
+	for _, agentType := range []string{"explore", "research", "code", "evaluate", "sanity_check", "review", "vision"} {
+		fmt.Fprintf(&subAgents, "        %s: default\n", agentType)
 	}
-	writeValidationSyncConfig(t, configPath, fmt.Sprintf("models:\n  sub_agents:\n%s", subAgents.String()))
+	writeValidationSyncConfig(t, configPath, fmt.Sprintf("models:\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n%s", subAgents.String()))
 
 	if _, err := config.Load(config.LoadOptions{
 		HomeDir:    filepath.Join(tempDir, "home"),
@@ -34,7 +33,7 @@ func TestLoadAcceptsCanonicalSubAgentTypes(t *testing.T) {
 func TestLoadRejectsUnknownSubAgentType(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
-	writeValidationSyncConfig(t, configPath, "models:\n  sub_agents:\n    bogus: default\n")
+	writeValidationSyncConfig(t, configPath, "models:\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n        bogus: default\n")
 
 	_, err := config.Load(config.LoadOptions{
 		HomeDir:    filepath.Join(tempDir, "home"),

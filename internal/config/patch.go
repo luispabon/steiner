@@ -24,13 +24,17 @@ type configPatch struct {
 }
 
 type modelsPatch struct {
-	Default          *string                `yaml:"default"`
-	DiscoveryEnabled *bool                  `yaml:"discovery_enabled"`
-	Definitions      *map[string]modelPatch `yaml:"definitions"`
-	Advisor          *string                `yaml:"advisor"`
-	SubAgents        *map[string]string     `yaml:"sub_agents"`
-	OneShot          *map[string]string     `yaml:"oneshot"`
-	WorkflowHandoff  *map[string]string     `yaml:"workflow_handoff"`
+	DiscoveryEnabled *bool                    `yaml:"discovery_enabled"`
+	Definitions      *map[string]modelPatch   `yaml:"definitions"`
+	Profiles         *map[string]profilePatch `yaml:"profiles"`
+}
+
+type profilePatch struct {
+	DefaultModel    *string            `yaml:"default_model"`
+	Advisor         *string            `yaml:"advisor"`
+	SubAgents       *map[string]string `yaml:"sub_agents"`
+	OneShot         *map[string]string `yaml:"oneshot"`
+	WorkflowHandoff *map[string]string `yaml:"workflow_handoff"`
 }
 
 type providerPatch struct {

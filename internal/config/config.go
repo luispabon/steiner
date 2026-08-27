@@ -179,6 +179,7 @@ type Config struct {
 	MCP                  MCPConfig                  `yaml:"mcp"`
 	Modes                ModesConfig                `yaml:"modes"`
 	TUI                  TUIConfig                  `yaml:"tui"`
+	Selection            SelectionConfig            `yaml:"-"`
 }
 
 // TUIConfig configures the interactive terminal UI.
@@ -191,16 +192,39 @@ type TUIConfig struct {
 	FPS int `yaml:"fps"`
 }
 
-// ModelsConfig consolidates all model configuration: the model definitions
-// themselves and the role-based aliases that reference them.
+// ModelProfile contains model assignments for one execution profile. Named
+// profiles may provide partial assignments; omitted assignments inherit from the
+// default profile when resolved.
+type ModelProfile struct {
+	DefaultModel    string            `yaml:"default_model"`
+	Advisor         string            `yaml:"advisor"`
+	SubAgents       map[string]string `yaml:"sub_agents"`
+	OneShot         map[string]string `yaml:"oneshot"`
+	WorkflowHandoff map[string]string `yaml:"workflow_handoff"`
+
+	defaultModelSet    bool
+	advisorSet         bool
+	subAgentsSet       bool
+	oneShotSet         bool
+	workflowHandoffSet bool
+}
+
+// EffectiveModelAssignments contains resolved assignments for one profile.
+type EffectiveModelAssignments struct {
+	ProfileName             string
+	DefaultModel            string
+	Advisor                 string
+	SubAgents               map[string]string
+	OneShot                 map[string]string
+	WorkflowHandoff         map[string]string
+	ActiveOrchestratorModel string
+}
+
+// ModelsConfig consolidates model definitions and named profile assignments.
 type ModelsConfig struct {
-	Default          string                 `yaml:"default"`
-	Definitions      map[string]ModelConfig `yaml:"definitions"`
-	DiscoveryEnabled bool                   `yaml:"discovery_enabled"`
-	Advisor          string                 `yaml:"advisor"`
-	SubAgents        map[string]string      `yaml:"sub_agents"`
-	OneShot          map[string]string      `yaml:"oneshot"`
-	WorkflowHandoff  map[string]string      `yaml:"workflow_handoff"`
+	Definitions      map[string]ModelConfig  `yaml:"definitions"`
+	DiscoveryEnabled bool                    `yaml:"discovery_enabled"`
+	Profiles         map[string]ModelProfile `yaml:"profiles"`
 }
 
 // ModelConfig configures a model instance.

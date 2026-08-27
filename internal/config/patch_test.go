@@ -363,92 +363,73 @@ func TestApplyModelsPatch(t *testing.T) {
 		name    string
 		initial Config
 		patch   modelsPatch
-		want    ModelsConfig
+		check   func(*testing.T, Config)
 	}{
 		{
-			name:    "sets default and definitions",
+			name:    "sets default profile and definitions",
 			initial: Config{},
 			patch: modelsPatch{
-				Default: stringPtr("default"),
+				Profiles: &map[string]profilePatch{
+					"default": {DefaultModel: stringPtr("default")},
+				},
 				Definitions: &map[string]modelPatch{
 					"default": {Provider: stringPtr("local"), ID: stringPtr("model-id")},
 				},
 			},
-			want: ModelsConfig{
-				Default: "default",
-				Definitions: map[string]ModelConfig{
-					"default": {Provider: "local", ID: "model-id"},
-				},
+			check: func(t *testing.T, cfg Config) {
+				profile := cfg.Models.Profiles["default"]
+				if profile.DefaultModel != "default" || !profile.defaultModelSet {
+					t.Fatalf("default profile = %#v", profile)
+				}
+				if got := cfg.Models.Definitions["default"].ID; got != "model-id" {
+					t.Fatalf("definition id = %q, want model-id", got)
+				}
 			},
 		},
 		{
-			name:    "sets advisor, sub_agents, oneshot, workflow_handoff aliases",
+			name:    "sets all profile assignments",
 			initial: Config{},
-			patch: modelsPatch{
-				Advisor:   stringPtr("careful-model"),
-				SubAgents: stringMapPtr(map[string]string{"code": "fast-model"}),
-				OneShot: stringMapPtr(map[string]string{
-					"plan":      "planner-model",
-					"implement": "implement-model",
-					"review":    "review-model",
-				}),
-				WorkflowHandoff: stringMapPtr(map[string]string{
-					"implement": "fast-model",
-					"review":    "careful-model",
-				}),
-			},
-			want: ModelsConfig{
-				Advisor:   "careful-model",
-				SubAgents: map[string]string{"code": "fast-model"},
-				OneShot: map[string]string{
-					"plan":      "planner-model",
-					"implement": "implement-model",
-					"review":    "review-model",
+			patch: modelsPatch{Profiles: &map[string]profilePatch{
+				"default": {
+					Advisor:         stringPtr("careful-model"),
+					SubAgents:       stringMapPtr(map[string]string{"code": "fast-model"}),
+					OneShot:         stringMapPtr(map[string]string{"plan": "planner-model"}),
+					WorkflowHandoff: stringMapPtr(map[string]string{"review": "careful-model"}),
 				},
-				WorkflowHandoff: map[string]string{
-					"implement": "fast-model",
-					"review":    "careful-model",
-				},
+			}},
+			check: func(t *testing.T, cfg Config) {
+				profile := cfg.Models.Profiles["default"]
+				if profile.Advisor != "careful-model" || profile.SubAgents["code"] != "fast-model" || profile.OneShot["plan"] != "planner-model" || profile.WorkflowHandoff["review"] != "careful-model" {
+					t.Fatalf("profile assignments = %#v", profile)
+				}
 			},
 		},
 		{
-			name: "partial override preserves existing map entries",
-			initial: Config{
-				Models: ModelsConfig{
-					SubAgents: map[string]string{"code": "existing-code", "plan": "existing-plan"},
-					OneShot:   map[string]string{"plan": "existing-plan"},
-					WorkflowHandoff: map[string]string{
-						"implement": "existing-implement",
-						"review":    "existing-review",
-					},
-				},
-			},
-			patch: modelsPatch{
-				SubAgents:       stringMapPtr(map[string]string{"code": "new-code"}),
-				OneShot:         stringMapPtr(map[string]string{"review": "new-review"}),
-				WorkflowHandoff: stringMapPtr(map[string]string{"review": "new-review"}),
-			},
-			want: ModelsConfig{
-				SubAgents: map[string]string{"code": "new-code", "plan": "existing-plan"},
-				OneShot:   map[string]string{"plan": "existing-plan", "review": "new-review"},
-				WorkflowHandoff: map[string]string{
-					"implement": "existing-implement",
-					"review":    "new-review",
-				},
+			name: "merges profile maps by key",
+			initial: Config{Models: ModelsConfig{Profiles: map[string]ModelProfile{
+				"default": {SubAgents: map[string]string{"code": "old", "explore": "old"}},
+			}}},
+			patch: modelsPatch{Profiles: &map[string]profilePatch{
+				"default": {SubAgents: stringMapPtr(map[string]string{"code": "new"})},
+			}},
+			check: func(t *testing.T, cfg Config) {
+				got := cfg.Models.Profiles["default"].SubAgents
+				if got["code"] != "new" || got["explore"] != "old" {
+					t.Fatalf("sub_agents = %#v", got)
+				}
 			},
 		},
 		{
-			name: "nil fields leave values untouched",
-			initial: Config{
-				Models: ModelsConfig{
-					Default: "existing",
-					Advisor: "existing-advisor",
-				},
-			},
+			name: "omitted fields preserve profile",
+			initial: Config{Models: ModelsConfig{Profiles: map[string]ModelProfile{
+				"default": {DefaultModel: "existing", Advisor: "existing-advisor"},
+			}}},
 			patch: modelsPatch{},
-			want: ModelsConfig{
-				Default: "existing",
-				Advisor: "existing-advisor",
+			check: func(t *testing.T, cfg Config) {
+				profile := cfg.Models.Profiles["default"]
+				if profile.DefaultModel != "existing" || profile.Advisor != "existing-advisor" {
+					t.Fatalf("profile = %#v", profile)
+				}
 			},
 		},
 	}
@@ -456,9 +437,7 @@ func TestApplyModelsPatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := tt.initial
 			applyModelsPatch(&cfg, &tt.patch)
-			if !reflect.DeepEqual(cfg.Models, tt.want) {
-				t.Fatalf("applyModelsPatch() = %#v, want %#v", cfg.Models, tt.want)
-			}
+			tt.check(t, cfg)
 		})
 	}
 }

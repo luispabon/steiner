@@ -36,8 +36,15 @@ func applyModelsPatch(cfg *Config, patch *modelsPatch) {
 	if patch.DiscoveryEnabled != nil {
 		cfg.Models.DiscoveryEnabled = *patch.DiscoveryEnabled
 	}
-	if patch.Default != nil {
-		cfg.Models.Default = *patch.Default
+	if patch.Profiles != nil {
+		if cfg.Models.Profiles == nil {
+			cfg.Models.Profiles = make(map[string]ModelProfile)
+		}
+		for name, modelProfile := range *patch.Profiles {
+			current := cfg.Models.Profiles[name]
+			applyProfilePatch(&current, &modelProfile)
+			cfg.Models.Profiles[name] = current
+		}
 	}
 	if patch.Definitions != nil {
 		if cfg.Models.Definitions == nil {
@@ -52,17 +59,28 @@ func applyModelsPatch(cfg *Config, patch *modelsPatch) {
 			cfg.Models.Definitions[name] = current
 		}
 	}
+}
+
+func applyProfilePatch(dst *ModelProfile, patch *profilePatch) {
+	if patch.DefaultModel != nil {
+		dst.DefaultModel = *patch.DefaultModel
+		dst.defaultModelSet = true
+	}
 	if patch.Advisor != nil {
-		cfg.Models.Advisor = *patch.Advisor
+		dst.Advisor = *patch.Advisor
+		dst.advisorSet = true
 	}
 	if patch.SubAgents != nil {
-		mergeStringMapPatch(&cfg.Models.SubAgents, *patch.SubAgents)
+		mergeStringMapPatch(&dst.SubAgents, *patch.SubAgents)
+		dst.subAgentsSet = true
 	}
 	if patch.OneShot != nil {
-		mergeStringMapPatch(&cfg.Models.OneShot, *patch.OneShot)
+		mergeStringMapPatch(&dst.OneShot, *patch.OneShot)
+		dst.oneShotSet = true
 	}
 	if patch.WorkflowHandoff != nil {
-		mergeStringMapPatch(&cfg.Models.WorkflowHandoff, *patch.WorkflowHandoff)
+		mergeStringMapPatch(&dst.WorkflowHandoff, *patch.WorkflowHandoff)
+		dst.workflowHandoffSet = true
 	}
 }
 

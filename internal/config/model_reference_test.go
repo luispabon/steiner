@@ -90,32 +90,40 @@ func TestModelReferenceValidationAndOverrides(t *testing.T) {
 		{
 			name: "default",
 			setup: func(cfg *Config) {
-				cfg.Models.Default = "local/raw-model"
+				cfg.Models.Profiles["default"] = ModelProfile{DefaultModel: "local/raw-model"}
 			},
 		},
 		{
 			name: "advisor",
 			setup: func(cfg *Config) {
 				cfg.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
-				cfg.Models.Advisor = "local/raw-model"
+				profile := cfg.Models.Profiles["default"]
+				profile.Advisor = "local/raw-model"
+				cfg.Models.Profiles["default"] = profile
 			},
 		},
 		{
 			name: "sub-agent",
 			setup: func(cfg *Config) {
-				cfg.Models.SubAgents = map[string]string{"code": "local/raw-model"}
+				profile := cfg.Models.Profiles["default"]
+				profile.SubAgents = map[string]string{"code": "local/raw-model"}
+				cfg.Models.Profiles["default"] = profile
 			},
 		},
 		{
 			name: "oneshot",
 			setup: func(cfg *Config) {
-				cfg.Models.OneShot = map[string]string{"plan": "local/raw-model"}
+				profile := cfg.Models.Profiles["default"]
+				profile.OneShot = map[string]string{"plan": "local/raw-model"}
+				cfg.Models.Profiles["default"] = profile
 			},
 		},
 		{
 			name: "workflow handoff",
 			setup: func(cfg *Config) {
-				cfg.Models.WorkflowHandoff = map[string]string{"review": "local/raw-model"}
+				profile := cfg.Models.Profiles["default"]
+				profile.WorkflowHandoff = map[string]string{"review": "local/raw-model"}
+				cfg.Models.Profiles["default"] = profile
 			},
 		},
 	}
@@ -131,17 +139,17 @@ func TestModelReferenceValidationAndOverrides(t *testing.T) {
 
 	cfg := defaultConfig()
 	applyCLIOverrides(&cfg, CLIOverrides{Model: "local/raw-model"})
-	if cfg.Models.Default != "local/raw-model" {
-		t.Fatalf("CLI model override = %q, want raw reference", cfg.Models.Default)
+	if cfg.Selection.ModelOverride != "local/raw-model" {
+		t.Fatalf("CLI model override = %q, want raw reference", cfg.Selection.ModelOverride)
 	}
 	applyCLIOverrides(&cfg, CLIOverrides{Model: "garbage"})
-	if cfg.Models.Default != "local/raw-model" {
-		t.Fatalf("invalid CLI model override changed default to %q", cfg.Models.Default)
+	if cfg.Selection.ModelOverride != "local/raw-model" {
+		t.Fatalf("invalid CLI model override changed default to %q", cfg.Selection.ModelOverride)
 	}
 	if err := applyEnvOverrides(&cfg, map[string]string{"STEINER_MODEL": "local/env-model"}); err != nil {
 		t.Fatalf("applyEnvOverrides() error = %v", err)
 	}
-	if cfg.Models.Default != "local/env-model" {
-		t.Fatalf("env model override = %q, want raw reference", cfg.Models.Default)
+	if cfg.Selection.ModelOverride != "local/env-model" {
+		t.Fatalf("env model override = %q, want raw reference", cfg.Selection.ModelOverride)
 	}
 }

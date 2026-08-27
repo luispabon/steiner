@@ -61,8 +61,10 @@ func defaultConfig() Config {
 			"local": defaultProvider,
 		},
 		Models: ModelsConfig{
-			Default:          "default",
 			DiscoveryEnabled: true,
+			Profiles: map[string]ModelProfile{
+				"default": {DefaultModel: "default", defaultModelSet: true},
+			},
 			Definitions: map[string]ModelConfig{
 				"default": defaultModel,
 			},
