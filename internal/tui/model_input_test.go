@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -326,5 +327,67 @@ func TestBuildSlashOverlayItemsIncludesCacheStats(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("/cache-stats not found in overlay items")
+	}
+}
+
+func TestProfileSlashCommandDispatchesSwitch(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{}
+	m := newModel(Config{Controller: ctrl}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/profile fast")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	var got []interactive.SwitchProfile
+	for _, action := range ctrl.actions {
+		if profile, ok := action.(interactive.SwitchProfile); ok {
+			got = append(got, profile)
+		}
+	}
+	if len(got) != 1 || got[0].Name != "fast" {
+		t.Fatalf("SwitchProfile actions = %#v, want one action for fast", got)
+	}
+	if m.input.Value() != "" {
+		t.Fatalf("input value = %q, want empty", m.input.Value())
+	}
+}
+
+func TestProfileSlashCommandWithoutNameShowsUsage(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{}
+	m := newModel(Config{Controller: ctrl}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/profile")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	for _, action := range ctrl.actions {
+		if _, ok := action.(interactive.SwitchProfile); ok {
+			t.Fatal("SwitchProfile dispatched without a profile name")
+		}
+	}
+	if m.input.Value() != "" {
+		t.Fatalf("input value = %q, want empty", m.input.Value())
+	}
+	if got := m.content.segments[len(m.content.segments)-1].text; got != "usage: /profile <name> (changes future role assignments without changing active orchestrator)" {
+		t.Fatalf("usage status = %q, want profile usage", got)
+	}
+}
+
+func TestProfileSlashCommandDisplaysControllerError(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{err: fmt.Errorf("profile switch failed")}
+	m := newModel(Config{Controller: ctrl}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/profile fast")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if got := m.content.segments[len(m.content.segments)-1].text; got != "profile switch failed" {
+		t.Fatalf("error status = %q, want profile switch failed", got)
+	}
+	if m.input.Value() != "" {
+		t.Fatalf("input value = %q, want empty", m.input.Value())
 	}
 }

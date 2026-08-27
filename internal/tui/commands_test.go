@@ -6,8 +6,8 @@ import (
 
 func TestRegistrySize(t *testing.T) {
 	t.Parallel()
-	if len(slashCommands) != 19 {
-		t.Fatalf("registry length = %d, want 19", len(slashCommands))
+	if len(slashCommands) != 20 {
+		t.Fatalf("registry length = %d, want 20", len(slashCommands))
 	}
 }
 
@@ -61,6 +61,7 @@ func TestRegistryOrder(t *testing.T) {
 		"/ls",
 		"/mcp",
 		"/model",
+		"/profile",
 		"/mode",
 		"/oneshot",
 		"/oneshot-resume",
@@ -312,8 +313,8 @@ func TestProjectCompletionCandidatesTrue(t *testing.T) {
 func TestProjectOverlayItemsFalse(t *testing.T) {
 	t.Parallel()
 	got := projectOverlayItems(false, nil, nil)
-	if len(got) != 19 {
-		t.Fatalf("projectOverlayItems(false) length = %d, want 19", len(got))
+	if len(got) != 20 {
+		t.Fatalf("projectOverlayItems(false) length = %d, want 20", len(got))
 	}
 	for i, sc := range slashCommands {
 		item := got[i]
@@ -348,9 +349,9 @@ func TestProjectOverlayItemsWithSkills(t *testing.T) {
 	skillNames := []string{"foo"}
 	skillDescs := map[string]string{"foo": "a useful skill"}
 	got := projectOverlayItems(false, skillNames, skillDescs)
-	// 19 commands + 1 skill = 20 items
-	if len(got) != 20 {
-		t.Fatalf("projectOverlayItems with skill length = %d, want 20", len(got))
+	// 20 commands + 1 skill = 21 items
+	if len(got) != 21 {
+		t.Fatalf("projectOverlayItems with skill length = %d, want 21", len(got))
 	}
 	// Last item should be the skill
 	last := got[len(got)-1]

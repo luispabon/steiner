@@ -58,6 +58,12 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.switchModel != "" {
 		return m.executeModelAction(action.switchModel, nil)
 	}
+	if action.profileUsage {
+		return m.executeProfileUsageAction()
+	}
+	if action.switchProfile != "" {
+		return m.executeSwitchProfileAction(action.switchProfile)
+	}
 	if action.toggleMode {
 		return m.executeSetModeAction(m.toggledMode())
 	}
