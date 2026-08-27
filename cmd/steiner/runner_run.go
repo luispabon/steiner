@@ -121,7 +121,10 @@ func (r cliRunner) selectedAlias() string {
 			}
 		}
 	}
-	return r.runtime.cfg.Models.Default
+	if alias := r.runtime.cfg.Models.Effective.ActiveOrchestratorModel; alias != "" {
+		return alias
+	}
+	return r.runtime.cfg.Models.Effective.DefaultModel
 }
 
 func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider, error) {
