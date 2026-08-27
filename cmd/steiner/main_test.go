@@ -162,7 +162,6 @@ func TestConfigCommandPrintsResolvedConfig(t *testing.T) {
     type: openai_compat
     base_url: http://global.example/v1
 models:
-  default: global
   definitions:
     global:
       provider: global-provider
@@ -177,6 +176,9 @@ models:
         limits:
           max_output_tokens: 2048
           context_window: 8192
+  profiles:
+    default:
+      default_model: global
 limits:
   max_turns: 25
 paths:
@@ -190,7 +192,6 @@ paths:
     type: openai_compat
     base_url: http://cli.example/v1
 models:
-  default: project
   definitions:
     project:
       provider: project-provider
@@ -218,6 +219,9 @@ models:
         limits:
           max_output_tokens: 8192
           context_window: 65536
+  profiles:
+    default:
+      default_model: project
 limits:
   max_turns: 10
 logging:
@@ -250,8 +254,8 @@ logging:
 	if err := yaml.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, stdout.String())
 	}
-	if got.Models.Default != "cli" {
-		t.Fatalf("default_model = %q, want cli", got.Models.Default)
+	if got.Models.Profiles["default"].DefaultModel != "project" {
+		t.Fatalf("default_model = %q, want project", got.Models.Profiles["default"].DefaultModel)
 	}
 	if got.Models.Definitions["cli"].ID != "cli-backend" {
 		t.Fatalf("models[cli].ID = %q, want cli-backend", got.Models.Definitions["cli"].ID)
@@ -406,7 +410,6 @@ func TestDefaultBuildRuntimeResolvesSelectedModel(t *testing.T) {
       X-Test-Header: slow
     timeout: 45s
 models:
-  default: slow
   definitions:
     fast:
       provider: fast-provider
@@ -434,6 +437,9 @@ models:
         limits:
           max_output_tokens: 512
           context_window: 8192
+  profiles:
+    default:
+      default_model: slow
 `)
 
 	cwd, err := os.Getwd()
@@ -469,7 +475,7 @@ models:
 	if err != nil {
 		t.Fatalf("defaultBuildRuntime() error = %v", err)
 	}
-	rm, err := provider.Resolve(rt.cfg, rt.cfg.Models.Default)
+	rm, err := provider.Resolve(rt.cfg, rt.cfg.Models.Effective.ActiveOrchestratorModel)
 	if err != nil {
 		t.Fatalf("provider.Resolve() error = %v", err)
 	}
@@ -1049,7 +1055,10 @@ func testRuntimeConfig(alias string) config.Config {
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
 		Models: config.ModelsConfig{
-			Default:     alias,
+			Effective: config.EffectiveModelAssignments{
+				DefaultModel:            alias,
+				ActiveOrchestratorModel: alias,
+			},
 			Definitions: map[string]config.ModelConfig{alias: modelCfg},
 		},
 		Limits: config.LimitsConfig{
@@ -1303,7 +1312,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		t.Fatalf("first max completion tokens = %d, want %d", got, want)
 	}
 
-	runner.runtime.cfg.Models.Default = "large"
+	runner.runtime.cfg.Models.Effective.ActiveOrchestratorModel = "large"
 	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil, nil); err != nil {
 		t.Fatalf("second Run() error = %v", err)
 	}
@@ -1470,7 +1479,7 @@ func TestCLIRunnerUsesSessionCurrentModelAliasCallback(t *testing.T) {
 	if got, want := providerStub.requests[1].Model, "gpt-4o"; got != want {
 		t.Fatalf("second request model = %q, want %q", got, want)
 	}
-	if got, want := cfg.Models.Default, "small"; got != want {
+	if got, want := cfg.Models.Effective.DefaultModel, "small"; got != want {
 		t.Fatalf("runtime config default model = %q, want %q", got, want)
 	}
 }

@@ -389,7 +389,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 	rt := cliRuntime{
 		// No such model: runner.Run fails fast right after the MCP init, which
 		// keeps this test off the provider and discovery paths.
-		cfg:        config.Config{Models: config.ModelsConfig{Default: "nope"}},
+		cfg:        config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "nope", ActiveOrchestratorModel: "nope"}}},
 		registry:   registry,
 		mcpManager: mgr,
 		mcpState:   producer,
@@ -624,7 +624,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 
 	producer := &mcpStateProducer{}
 	rt := cliRuntime{
-		cfg:        config.Config{Models: config.ModelsConfig{Default: "nope"}},
+		cfg:        config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "nope", ActiveOrchestratorModel: "nope"}}},
 		registry:   registry,
 		mcpManager: mgr,
 		mcpState:   producer,
