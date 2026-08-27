@@ -348,6 +348,9 @@ func TestProfileSlashCommandDispatchesSwitch(t *testing.T) {
 	if len(got) != 1 || got[0].Name != "fast" {
 		t.Fatalf("SwitchProfile actions = %#v, want one action for fast", got)
 	}
+	if got := m.content.segments[len(m.content.segments)-1].text; got != "profile switched to fast" {
+		t.Fatalf("success status = %q, want profile switched status", got)
+	}
 	if m.input.Value() != "" {
 		t.Fatalf("input value = %q, want empty", m.input.Value())
 	}

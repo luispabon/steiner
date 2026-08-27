@@ -378,7 +378,7 @@ func TestApplyModelsPatch(t *testing.T) {
 			},
 			check: func(t *testing.T, cfg Config) {
 				profile := cfg.Models.Profiles["default"]
-				if profile.DefaultModel != "default" || !profile.defaultModelSet {
+				if profile.DefaultModel != "default" {
 					t.Fatalf("default profile = %#v", profile)
 				}
 				if got := cfg.Models.Definitions["default"].ID; got != "model-id" {

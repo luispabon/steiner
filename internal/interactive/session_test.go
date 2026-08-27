@@ -1652,6 +1652,46 @@ func TestSwitchProfileUpdatesFutureAssignmentsOnly(t *testing.T) {
 	}
 }
 
+func TestSwitchProfileUpdatesVisionCallbackAfterAtomicChange(t *testing.T) {
+	var s *Session
+	var callbackValues []config.EffectiveModelAssignments
+	s = testNewSession(t, Dependencies{
+		OnEffectiveAssignmentsChanged: func(effective config.EffectiveModelAssignments) {
+			callbackValues = append(callbackValues, effective)
+			if got := s.CurrentEffective().ProfileName; got == "" {
+				t.Fatalf("callback observed empty effective profile")
+			}
+		},
+		Config: config.Config{
+			Providers: map[string]config.ProviderConfig{"local": {}},
+			Models: config.ModelsConfig{
+				Definitions: map[string]config.ModelConfig{
+					"base": {Provider: "local", ID: "base-id"},
+					"fast": {Provider: "local", ID: "fast-id"},
+				},
+				Profiles: map[string]config.ModelProfile{
+					"default": {DefaultModel: "base"},
+					"fast":    {DefaultModel: "fast", SubAgents: map[string]string{"vision": "fast"}},
+				},
+				Effective: config.EffectiveModelAssignments{ProfileName: "default", DefaultModel: "base"},
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), SwitchProfile{Name: "fast"}); err != nil {
+		t.Fatalf("Handle(fast) = %v, want nil", err)
+	}
+	if err := s.Handle(context.Background(), SwitchProfile{Name: "default"}); err != nil {
+		t.Fatalf("Handle(default) = %v, want nil", err)
+	}
+	if err := s.Handle(context.Background(), SwitchProfile{Name: "missing"}); err == nil {
+		t.Fatal("Handle(missing) = nil, want error")
+	}
+	if len(callbackValues) != 2 || callbackValues[0].ProfileName != "fast" || callbackValues[1].ProfileName != "default" {
+		t.Fatalf("callback values = %#v, want fast and default effective assignments", callbackValues)
+	}
+}
+
 func TestSwitchProfileFailuresAreAtomic(t *testing.T) {
 	for _, tt := range []struct {
 		name       string

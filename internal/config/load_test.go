@@ -352,6 +352,21 @@ func TestLoadRejectsUnknownProfile(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsWhitespaceOnlyProfile(t *testing.T) {
+	_, err := loadProfileTestConfigResult(t, `models:
+  definitions:
+    default:
+      provider: local
+      id: base
+  profiles:
+    default:
+      default_model: default
+`, CLIOverrides{Profile: " \t "}, nil)
+	if err == nil || err.Error() != "profile name is required" {
+		t.Fatalf("Load() error = %v, want profile name is required", err)
+	}
+}
+
 func loadProfileTestConfig(t *testing.T, contents string, args ...any) Config {
 	t.Helper()
 	var cli CLIOverrides

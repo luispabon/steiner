@@ -202,7 +202,6 @@ type ModelProfile struct {
 	OneShot         map[string]string `yaml:"oneshot"`
 	WorkflowHandoff map[string]string `yaml:"workflow_handoff"`
 
-	defaultModelSet    bool
 	advisorSet         bool
 	subAgentsSet       bool
 	oneShotSet         bool

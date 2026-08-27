@@ -38,6 +38,11 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		SessionStore:      rt.sessionStore,
 		CompactionLogPath: rt.compactionLogFile,
 		RecordModelSwitch: modelPopularityRecorder(rt.modelPopularity),
+		OnEffectiveAssignmentsChanged: func(effective config.EffectiveModelAssignments) {
+			if rt.visionCapabilities != nil {
+				rt.visionCapabilities.SetSubAgentConfigured(effective.SubAgents["vision"] != "")
+			}
+		},
 	}
 	if rt.historyWriter != nil {
 		sessDeps.HistoryWriter = rt.historyWriter

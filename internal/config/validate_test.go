@@ -18,7 +18,7 @@ func validBase() Config {
 		TUI: TUIConfig{FPS: 60},
 		Models: ModelsConfig{
 			Profiles: map[string]ModelProfile{
-				"default": {DefaultModel: "default", defaultModelSet: true},
+				"default": {DefaultModel: "default"},
 			},
 			Definitions: map[string]ModelConfig{
 				"default": {
@@ -1019,7 +1019,7 @@ func TestSearchConfigValidation(t *testing.T) {
 				TUI: TUIConfig{FPS: 60},
 				Models: ModelsConfig{
 					Profiles: map[string]ModelProfile{
-						"default": {DefaultModel: "default", defaultModelSet: true},
+						"default": {DefaultModel: "default"},
 					},
 					Definitions: map[string]ModelConfig{
 						"default": {

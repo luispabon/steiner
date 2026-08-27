@@ -1,13 +1,17 @@
 package config
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 )
 
 // applyCLIOverrides applies command-line overrides to the config.
-func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
+func applyCLIOverrides(cfg *Config, cli CLIOverrides) error {
 	if cli.Profile != "" {
+		if strings.TrimSpace(cli.Profile) == "" {
+			return fmt.Errorf("profile name is required")
+		}
 		cfg.Selection.Profile = cli.Profile
 	}
 	if cli.Model != "" && IsValidModelReference(cfg, cli.Model) {
@@ -19,6 +23,7 @@ func applyCLIOverrides(cfg *Config, cli CLIOverrides) {
 	if cli.Unsafe {
 		cfg.Sandbox.Enabled = false
 	}
+	return nil
 }
 
 // normalizePaths expands ~ to home directory in path fields.
