@@ -7,6 +7,7 @@ import (
 
 // SelectionConfig holds runtime model selections that do not come from config files.
 type SelectionConfig struct {
+	Profile       string `yaml:"-"`
 	ModelOverride string `yaml:"-"`
 }
 
