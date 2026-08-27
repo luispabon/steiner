@@ -17,7 +17,7 @@ func TestBuildConfigReportFormatsResolvedYAML(t *testing.T) {
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
 		Models: config.ModelsConfig{
-			Effective: config.EffectiveModelAssignments{DefaultModel: "mymodel"},
+			Effective: config.EffectiveModelAssignments{DefaultModel: "mymodel", ActiveOrchestratorModel: "mymodel"},
 			Definitions: map[string]config.ModelConfig{
 				"mymodel": {Provider: "local", ID: "qwen"},
 			},
@@ -155,7 +155,7 @@ func TestRequestConfigReportSuccess(t *testing.T) {
 		}),
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Effective:   config.EffectiveModelAssignments{DefaultModel: "mymodel"},
+				Effective:   config.EffectiveModelAssignments{DefaultModel: "mymodel", ActiveOrchestratorModel: "mymodel"},
 				Definitions: map[string]config.ModelConfig{"mymodel": {Provider: "local", ID: "gpt-test"}},
 			},
 			Providers: map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://test/v1"}},

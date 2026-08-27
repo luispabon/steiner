@@ -103,7 +103,7 @@ func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOv
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Model switch failed: %v", err)))
 		return err
 	}
-	s.deps.Config.Models.Effective.DefaultModel = name
+	s.deps.Config.Models.Effective.ActiveOrchestratorModel = name
 	if reasoning != nil {
 		s.reasoningOverrides[name] = *reasoning
 	}
