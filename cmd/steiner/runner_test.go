@@ -121,7 +121,7 @@ func TestNewDelegateDepsUsesCurrentEffectiveAssignments(t *testing.T) {
 		ProfileName:             "fast",
 		DefaultModel:            "fast",
 		Advisor:                 "advisor-fast",
-		SubAgents:               map[string]string{"code": "code-fast"},
+		SubAgents:               map[string]string{"code": "code-fast", string(delegation.AgentTypeVision): "vision-fast"},
 		OneShot:                 map[string]string{"plan": "plan-fast"},
 		WorkflowHandoff:         map[string]string{"implement": "handoff-fast"},
 		ActiveOrchestratorModel: "active",
@@ -134,6 +134,22 @@ func TestNewDelegateDepsUsesCurrentEffectiveAssignments(t *testing.T) {
 	deps := r.newDelegateDeps(runnerSetup{}, nil, nil, nil, "")
 	if !reflect.DeepEqual(deps.Config.Models.Effective, live) {
 		t.Fatalf("delegate effective assignments = %#v, want %#v", deps.Config.Models.Effective, live)
+	}
+	got := deps.Config.Models.Effective
+	if got.ProfileName != "fast" || got.DefaultModel != "fast" || got.Advisor != "advisor-fast" {
+		t.Fatalf("delegate general assignments = %#v, want live profile/default/advisor", got)
+	}
+	if got.SubAgents["code"] != "code-fast" || got.SubAgents[string(delegation.AgentTypeVision)] != "vision-fast" {
+		t.Fatalf("delegate sub-agent assignments = %#v, want live code and vision models", got.SubAgents)
+	}
+	if got.OneShot["plan"] != "plan-fast" {
+		t.Fatalf("delegate oneshot assignments = %#v, want live plan model", got.OneShot)
+	}
+	if got.WorkflowHandoff["implement"] != "handoff-fast" {
+		t.Fatalf("delegate workflow handoff assignments = %#v, want live implement model", got.WorkflowHandoff)
+	}
+	if got.ActiveOrchestratorModel != "active" || got.DefaultModel == got.ActiveOrchestratorModel {
+		t.Fatalf("delegate active/default models = %q/%q, want distinct active/default assignments", got.ActiveOrchestratorModel, got.DefaultModel)
 	}
 	if !reflect.DeepEqual(r.runtime.cfg.Models.Effective, frozen) {
 		t.Fatalf("runtime effective assignments changed: got %#v, want %#v", r.runtime.cfg.Models.Effective, frozen)
