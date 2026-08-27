@@ -3,65 +3,11 @@ package config
 import (
 	"fmt"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // SelectionConfig holds runtime model selections that do not come from config files.
 type SelectionConfig struct {
 	ModelOverride string `yaml:"-"`
-}
-
-// UnmarshalYAML decodes a profile while retaining field presence for partial
-// named-profile overlays.
-func (p *ModelProfile) UnmarshalYAML(value *yaml.Node) error {
-	if value.Kind != yaml.MappingNode {
-		return fmt.Errorf("profile must be a mapping")
-	}
-	var raw struct {
-		DefaultModel    *string            `yaml:"default_model"`
-		Advisor         *string            `yaml:"advisor"`
-		SubAgents       *map[string]string `yaml:"sub_agents"`
-		OneShot         *map[string]string `yaml:"oneshot"`
-		WorkflowHandoff *map[string]string `yaml:"workflow_handoff"`
-	}
-	allowed := map[string]bool{
-		"default_model": true, "advisor": true, "sub_agents": true,
-		"oneshot": true, "workflow_handoff": true,
-	}
-	for i := 0; i+1 < len(value.Content); i += 2 {
-		if !allowed[value.Content[i].Value] {
-			return fmt.Errorf("field %s not found in type config.ModelProfile", value.Content[i].Value)
-		}
-	}
-	if err := value.Decode(&raw); err != nil {
-		return err
-	}
-	p.DefaultModel = stringValue(raw.DefaultModel)
-	p.Advisor = stringValue(raw.Advisor)
-	p.SubAgents = stringMapValue(raw.SubAgents)
-	p.OneShot = stringMapValue(raw.OneShot)
-	p.WorkflowHandoff = stringMapValue(raw.WorkflowHandoff)
-	p.defaultModelSet = raw.DefaultModel != nil
-	p.advisorSet = raw.Advisor != nil
-	p.subAgentsSet = raw.SubAgents != nil
-	p.oneShotSet = raw.OneShot != nil
-	p.workflowHandoffSet = raw.WorkflowHandoff != nil
-	return nil
-}
-
-func stringValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func stringMapValue(value *map[string]string) map[string]string {
-	if value == nil {
-		return nil
-	}
-	return copyStringMap(*value)
 }
 
 func copyStringMap(src map[string]string) map[string]string {

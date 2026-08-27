@@ -80,6 +80,105 @@ func TestResolveProfileRequiresBaseline(t *testing.T) {
 	}
 }
 
+func TestResolveEffectiveAssignmentsNamedProfileOverlay(t *testing.T) {
+	tests := []struct {
+		name          string
+		yaml          string
+		wantDefault   string
+		wantAdvisor   string
+		wantSubAgents map[string]string
+	}{
+		{
+			name: "omitted advisor inherits baseline",
+			yaml: `models:
+  profiles:
+    overlay:
+      default_model: fast
+      sub_agents:
+        code: fast
+        explore: ""
+`,
+			wantDefault:   "fast",
+			wantAdvisor:   "base",
+			wantSubAgents: map[string]string{"code": "fast", "explore": ""},
+		},
+		{
+			name: "explicit empty advisor clears baseline",
+			yaml: `models:
+  profiles:
+    overlay:
+      default_model: fast
+      advisor: ""
+      sub_agents:
+        code: fast
+        explore: ""
+`,
+			wantDefault:   "fast",
+			wantAdvisor:   "",
+			wantSubAgents: map[string]string{"code": "fast", "explore": ""},
+		},
+		{
+			name: "empty default model inherits baseline",
+			yaml: `models:
+  profiles:
+    overlay:
+      default_model: ""
+      sub_agents:
+        code: fast
+        explore: ""
+`,
+			wantDefault:   "base",
+			wantAdvisor:   "base",
+			wantSubAgents: map[string]string{"code": "fast", "explore": ""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testProfileConfig()
+			patch, err := parseConfigPatch(tt.yaml)
+			if err != nil {
+				t.Fatal(err)
+			}
+			applyModelsPatch(&cfg, patch.Models)
+
+			got, err := ResolveEffectiveAssignments(&cfg, "overlay")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.DefaultModel != tt.wantDefault || got.ActiveOrchestratorModel != tt.wantDefault {
+				t.Fatalf("default model = %q, active orchestrator = %q, want %q", got.DefaultModel, got.ActiveOrchestratorModel, tt.wantDefault)
+			}
+			if got.Advisor != tt.wantAdvisor {
+				t.Fatalf("advisor = %q, want %q", got.Advisor, tt.wantAdvisor)
+			}
+			if !reflect.DeepEqual(got.SubAgents, tt.wantSubAgents) {
+				t.Fatalf("sub_agents = %#v, want %#v", got.SubAgents, tt.wantSubAgents)
+			}
+
+			got.SubAgents["code"] = "mutated"
+			baseline, err := ResolveEffectiveAssignments(&cfg, "default")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if baseline.DefaultModel != "base" || baseline.Advisor != "base" || baseline.SubAgents["code"] != "base" || baseline.SubAgents["explore"] != "base" {
+				t.Fatalf("baseline changed after named selection: %#v", baseline)
+			}
+			other, err := ResolveEffectiveAssignments(&cfg, "fast")
+			if err != nil {
+				t.Fatal(err)
+			}
+			selectedProfile := cfg.Models.Profiles["overlay"]
+			if selectedProfile.SubAgents["code"] != "fast" || selectedProfile.SubAgents["explore"] != "" {
+				t.Fatalf("named profile changed after resolution: %#v", selectedProfile.SubAgents)
+			}
+			if other.DefaultModel != "fast" || other.Advisor != "base" || other.SubAgents["code"] != "fast" || other.SubAgents["explore"] != "" {
+				t.Fatalf("prior selection leaked into another profile: %#v", other)
+			}
+		})
+	}
+}
+
 func TestProfilePatchPresenceAndMapMerge(t *testing.T) {
 	patch, err := parseConfigPatch(`models:
   profiles:

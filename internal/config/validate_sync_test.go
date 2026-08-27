@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 )
 
 func TestLoadAcceptsCanonicalSubAgentTypes(t *testing.T) {
@@ -15,7 +16,7 @@ func TestLoadAcceptsCanonicalSubAgentTypes(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.yaml")
 
 	var subAgents strings.Builder
-	for _, agentType := range []string{"explore", "research", "code", "evaluate", "sanity_check", "review", "vision"} {
+	for _, agentType := range delegation.AllAgentTypes() {
 		fmt.Fprintf(&subAgents, "        %s: default\n", agentType)
 	}
 	writeValidationSyncConfig(t, configPath, fmt.Sprintf("models:\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n%s", subAgents.String()))
