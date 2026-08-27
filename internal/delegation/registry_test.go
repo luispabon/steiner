@@ -139,6 +139,44 @@ func TestBuildDelegateRegistryAdvisorFallsBackToProfileDefault(t *testing.T) {
 	}
 }
 
+func TestBuildDelegateRegistryAdvisorNamedProfileFallsBackToProfileDefault(t *testing.T) {
+	cfg := advisorTestConfig()
+	cfg.Models.Effective.ProfileName = "named"
+	cfg.Models.Effective.Advisor = ""
+	cfg.Models.Effective.DefaultModel = "named-profile-default"
+	cfg.Models.Definitions["named-profile-default"] = config.ModelConfig{
+		Provider: "testprov",
+		ID:       "named-profile-default-model",
+		Advanced: config.AdvancedConfig{Limits: config.AdvancedLimitsConfig{ContextWindow: 8192, MaxOutputTokens: 1024}},
+	}
+
+	var captured provider.ResolvedModel
+	_, err := BuildDelegateRegistry(DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
+		Provider:     &fakeProvider{},
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens: 256,
+		Config:    cfg,
+		ProviderFactory: func(model provider.ResolvedModel) (provider.Provider, error) {
+			captured = model
+			return &fakeProvider{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+	if captured.Alias != "named-profile-default" || captured.BackendModelID != "named-profile-default-model" {
+		t.Fatalf("advisor resolved model = alias %q, backend %q, want named-profile-default/named-profile-default-model", captured.Alias, captured.BackendModelID)
+	}
+}
+
 func TestBuildDelegateRegistryAdvisorProfileDefaultResolverError(t *testing.T) {
 	cfg := advisorTestConfig()
 	cfg.Models.Effective.Advisor = ""

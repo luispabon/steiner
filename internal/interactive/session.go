@@ -174,7 +174,7 @@ func (s *Session) CurrentModelAlias() string {
 }
 
 // WorkflowHandoffModelSelection returns the configured handoff model for the
-// destination when present, otherwise the current session model alias.
+// destination when present, otherwise the selected profile's default model alias.
 func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHandoffModelSelection {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -182,7 +182,7 @@ func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHand
 	current := strings.TrimSpace(s.deps.Config.Models.Effective.DefaultModel)
 	selection := WorkflowHandoffModelSelection{
 		ModelAlias:  current,
-		SourceLabel: "current session",
+		SourceLabel: "profile default",
 	}
 
 	destination = strings.TrimSpace(destination)
