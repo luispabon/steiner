@@ -72,8 +72,8 @@ func TestPlaceBottomAnchoredAtPosition(t *testing.T) {
 		t.Fatalf("got %d lines, want %d", len(resultLines), len(lines))
 	}
 
-	// Expected startY: height - len(overlay) - inputHeight - 1 = 20 - 4 - 6 - 1 = 9
-	wantStart := height - 4 - inputHeight - 1 // = 9
+	// Expected startY: height - len(overlay) - inputHeight = 20 - 4 - 6 = 10
+	wantStart := height - 4 - inputHeight // = 10
 
 	// Lines before start must be unchanged.
 	for i := 0; i < wantStart; i++ {
