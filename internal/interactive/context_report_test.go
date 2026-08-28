@@ -35,6 +35,59 @@ func TestBuildContextReportAgentLabels(t *testing.T) {
 	}
 }
 
+func TestBuildContextReportUsesCapturedPromptTokens(t *testing.T) {
+	snapshot := RequestContextSnapshot{
+		Model:                 "gpt-4o",
+		Messages:              []provider.Message{{Role: provider.MessageRoleUser, Content: "context"}},
+		EstimatedPromptTokens: 2000,
+		ModelBudget:           prompt.ModelTokenBudget{ContextSize: 4096, MaxCompletionTokens: 128},
+	}
+	fresh, err := provider.EstimateChatRequestTokens(context.Background(), provider.ChatRequest{
+		Model:    snapshot.Model,
+		Messages: snapshot.Messages,
+	})
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if fresh == snapshot.EstimatedPromptTokens {
+		t.Fatalf("fresh estimate = captured estimate = %d, want differing values", fresh)
+	}
+
+	report, err := BuildContextReport(context.Background(), snapshot)
+	if err != nil {
+		t.Fatalf("BuildContextReport() error = %v", err)
+	}
+	if !strings.Contains(report, "Prompt tokens: `2000`") {
+		t.Fatalf("report = %q, want captured prompt token count", report)
+	}
+	if !strings.Contains(report, "Prompt occupancy: `2000 / 4096`") {
+		t.Fatalf("report = %q, want captured prompt occupancy", report)
+	}
+	if !strings.Contains(report, "| request framing | 1142 |") {
+		t.Fatalf("report = %q, want captured prompt allocation", report)
+	}
+}
+
+func TestBuildContextReportFallsBackToEstimatorForLegacySnapshot(t *testing.T) {
+	snapshot := RequestContextSnapshot{
+		Model:    "gpt-4o",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "context"}},
+	}
+	request := provider.ChatRequest{Model: snapshot.Model, Messages: snapshot.Messages}
+	expected, err := provider.EstimateChatRequestTokens(context.Background(), request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+
+	report, err := BuildContextReport(context.Background(), snapshot)
+	if err != nil {
+		t.Fatalf("BuildContextReport() error = %v", err)
+	}
+	if !strings.Contains(report, fmt.Sprintf("Prompt tokens: `%d`", expected)) {
+		t.Fatalf("report = %q, want estimator result %d", report, expected)
+	}
+}
+
 func TestBuildContextReportUsesCompactionBudget(t *testing.T) {
 	snapshot := RequestContextSnapshot{
 		Model:     "gpt-4o",

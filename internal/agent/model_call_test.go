@@ -686,3 +686,31 @@ func TestExecuteChatRequestMarksCompactionRequest(t *testing.T) {
 	}
 	t.Fatal("expected APIRequestEvent")
 }
+
+func TestExecuteChatRequestCapturesPromptEstimate(t *testing.T) {
+	prov := &fakeProvider{
+		chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"}}, nil
+		},
+	}
+	request := provider.ChatRequest{
+		Model:    "gpt-4o",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+	}
+	expected, err := provider.EstimateChatRequestTokens(context.Background(), request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	var event output.APIRequestEvent
+	_, _, err = executeChatRequest(context.Background(), prov, 1, request, prompt.ModelTokenBudget{}, output.SinkFunc(func(e output.Event) {
+		if payload, ok := e.Payload.(output.APIRequestEvent); ok {
+			event = payload
+		}
+	}), nil, false, false, nil)
+	if err != nil {
+		t.Fatalf("executeChatRequest() error = %v", err)
+	}
+	if event.EstimatedPromptTokens != expected {
+		t.Fatalf("estimated prompt tokens = %d, want %d", event.EstimatedPromptTokens, expected)
+	}
+}

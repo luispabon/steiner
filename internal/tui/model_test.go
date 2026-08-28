@@ -1203,7 +1203,7 @@ func TestModelActivityRowShowsSpinnerAfterApiRequestBeforeFirstChunk(t *testing.
 	m := newModel(Config{Model: "gpt-test"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0)})
 
 	row := m.renderActivityRow(m.viewport.Width())
 	for _, want := range []string{"waiting", "⠋"} {
@@ -1221,7 +1221,7 @@ func TestModelStatusBarKeepsPrimaryModelDuringOtherRuntimeCalls(t *testing.T) {
 	m := newModel(Config{Model: "main-model"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "main-model", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("other-runtime-model", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("other-runtime-model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0)})
 
 	statusLine := stripANSI(m.status.view(m.viewport.Width()))
 	if !strings.Contains(statusLine, "model main-model") {
@@ -1311,7 +1311,7 @@ func TestModelInterruptClearsActivityImmediately(t *testing.T) {
 	m := newModel(Config{Controller: ctrl}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0)})
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 

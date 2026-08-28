@@ -241,7 +241,7 @@ func NewUserInputEvent(content, mode string, images []ImageBlock) Event {
 }
 
 // NewAPIRequestEvent creates a new API request event.
-func NewAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget) Event {
+func NewAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, estimatedPromptTokens int) Event {
 	return newEvent(EventTypeAPIRequest, APIRequestEvent{
 		Model:    model,
 		Messages: provider.CloneMessages(messages),
@@ -253,8 +253,9 @@ func NewAPIRequestEvent(model string, messages []provider.Message, tools []provi
 			cloned := *maxTokens
 			return &cloned
 		}(),
-		Blocks:      append([]prompt.ContextBlock(nil), blocks...),
-		ModelBudget: budget,
+		Blocks:                append([]prompt.ContextBlock(nil), blocks...),
+		ModelBudget:           budget,
+		EstimatedPromptTokens: estimatedPromptTokens,
 	})
 }
 

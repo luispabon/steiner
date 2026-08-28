@@ -12,15 +12,16 @@ import (
 
 // RequestContextSnapshot captures the last assembled request for reporting.
 type RequestContextSnapshot struct {
-	Model       string                  `json:"model,omitempty"`
-	Messages    []provider.Message      `json:"messages,omitempty"`
-	Tools       []provider.ToolSpec     `json:"tools,omitempty"`
-	MaxTokens   *int                    `json:"max_tokens,omitempty"`
-	Blocks      []prompt.ContextBlock   `json:"blocks,omitempty"`
-	ModelBudget prompt.ModelTokenBudget `json:"model_budget,omitempty"`
-	AgentID     string                  `json:"agent_id,omitempty"`
-	AgentType   string                  `json:"agent_type,omitempty"`
-	Kind        string                  `json:"kind,omitempty"`
+	Model                 string                  `json:"model,omitempty"`
+	Messages              []provider.Message      `json:"messages,omitempty"`
+	Tools                 []provider.ToolSpec     `json:"tools,omitempty"`
+	MaxTokens             *int                    `json:"max_tokens,omitempty"`
+	Blocks                []prompt.ContextBlock   `json:"blocks,omitempty"`
+	ModelBudget           prompt.ModelTokenBudget `json:"model_budget,omitempty"`
+	AgentID               string                  `json:"agent_id,omitempty"`
+	AgentType             string                  `json:"agent_type,omitempty"`
+	Kind                  string                  `json:"kind,omitempty"`
+	EstimatedPromptTokens int                     `json:"estimated_prompt_tokens,omitempty"`
 }
 
 type contextReportCategory struct {
@@ -44,6 +45,20 @@ func fitReportBudget(ctx context.Context, budget prompt.ModelTokenBudget, kind s
 	return budget.FitRequest(ctx, request)
 }
 
+func reportPromptUsage(snapshot RequestContextSnapshot, promptTokens int, budget prompt.RequestTokenBudget) float64 {
+	if snapshot.EstimatedPromptTokens > 0 && budget.ContextSize > 0 {
+		return float64(promptTokens) / float64(budget.ContextSize)
+	}
+	return budget.PromptUsage
+}
+
+func reportPromptTokens(ctx context.Context, snapshot RequestContextSnapshot, request provider.ChatRequest) (int, error) {
+	if snapshot.EstimatedPromptTokens > 0 {
+		return snapshot.EstimatedPromptTokens, nil
+	}
+	return provider.EstimateChatRequestTokens(ctx, request)
+}
+
 // BuildContextReport summarizes prompt composition and budget usage.
 func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (string, error) {
 	request := provider.ChatRequest{
@@ -59,7 +74,7 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 		}(),
 	}
 
-	promptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	promptTokens, err := reportPromptTokens(ctx, snapshot, request)
 	if err != nil {
 		return "", err
 	}
@@ -72,7 +87,9 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	if err != nil {
 		return "", err
 	}
+	allocateCategoryTokens(categories, promptTokens, snapshot.EstimatedPromptTokens > 0)
 
+	promptUsage := reportPromptUsage(snapshot, promptTokens, budget)
 	var lines []string
 	lines = append(lines, "# Last Request Context")
 	lines = append(lines, fmt.Sprintf("Agent: %s", contextReportAgentLabel(snapshot)))
@@ -100,7 +117,7 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	if budget.ContextSize > 0 {
 		lines = append(lines, fmt.Sprintf("Hard prompt limit: `%d`", budget.HardLimitTokens))
 		lines = append(lines, fmt.Sprintf("Prompt occupancy: `%d / %d`", promptTokens, budget.ContextSize))
-		lines = append(lines, fmt.Sprintf("Prompt usage: `%.0f%%`", budget.PromptUsage*100))
+		lines = append(lines, fmt.Sprintf("Prompt usage: `%.0f%%`", promptUsage*100))
 	} else {
 		lines = append(lines, "Hard prompt limit: `n/a`")
 		lines = append(lines, fmt.Sprintf("Prompt occupancy: `%d`", promptTokens))
@@ -122,7 +139,6 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 			lines = append(lines, "")
 		}
 	}
-
 	return strings.Join(lines, "\n"), nil
 }
 

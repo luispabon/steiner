@@ -78,12 +78,20 @@ func stripImagesIfVisionDisabled(vision *bool, messages []provider.Message, mode
 
 // newAPIRequestEvent builds the API request event for a turn, marking it as a
 // compaction request when isCompaction is set so context reports can label it.
-func newAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, isCompaction bool) output.Event {
-	event := output.NewAPIRequestEvent(model, messages, tools, maxTokens, blocks, budget)
+func newAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, estimatedPromptTokens int, isCompaction bool) output.Event {
+	event := output.NewAPIRequestEvent(model, messages, tools, maxTokens, blocks, budget, estimatedPromptTokens)
 	if isCompaction {
 		event = output.WithAPIRequestKind(event, output.APIRequestKindCompaction)
 	}
 	return event
+}
+
+func estimatePromptTokensForEvent(ctx context.Context, req provider.ChatRequest) int {
+	tokens, err := provider.EstimateChatRequestTokens(ctx, req)
+	if err != nil {
+		return 0
+	}
+	return tokens
 }
 
 func executeChatRequest(
@@ -116,7 +124,8 @@ func executeChatRequest(
 			return provider.ChatResponse{}, time.Time{}, fmt.Errorf("request exceeds context window: %s", fit.String())
 		}
 	}
-	emitEvent(events, newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, isCompaction))
+	estimatedPromptTokens := estimatePromptTokensForEvent(ctx, req)
+	emitEvent(events, newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, estimatedPromptTokens, isCompaction))
 
 	// When streaming is not preferred, try ChatCompletion first and only fall
 	// back to streaming if it is unavailable.

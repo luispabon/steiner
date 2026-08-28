@@ -27,6 +27,7 @@ func TestSessionSnapshotSinkCapturesAPIRequestEvent(t *testing.T) {
 		"test-model",
 		nil, nil, nil, nil,
 		prompt.ModelTokenBudget{},
+		42,
 	))
 
 	snap, ok := snaps.Snapshot()
@@ -36,12 +37,15 @@ func TestSessionSnapshotSinkCapturesAPIRequestEvent(t *testing.T) {
 	if snap.Model != "test-model" {
 		t.Fatalf("snapshot model = %q, want %q", snap.Model, "test-model")
 	}
+	if snap.EstimatedPromptTokens != 42 {
+		t.Fatalf("snapshot estimated prompt tokens = %d, want 42", snap.EstimatedPromptTokens)
+	}
 }
 
 func TestSnapshotSinkCapturesAgentAttribution(t *testing.T) {
 	store := &SnapshotStore{}
 	sink := &snapshotSink{store: store}
-	event := output.WithAgentScope(output.NewAPIRequestEvent("model", nil, nil, nil, nil, prompt.ModelTokenBudget{}), "child-1")
+	event := output.WithAgentScope(output.NewAPIRequestEvent("model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0), "child-1")
 	event = output.WithAgentTypeScope(event, "code")
 	event = output.WithAPIRequestKind(event, output.APIRequestKindCompaction)
 	sink.Emit(event)

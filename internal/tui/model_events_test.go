@@ -412,7 +412,7 @@ func TestApplyEventModelWaitingStateOmitsModelDetail(t *testing.T) {
 		event output.Event
 	}{
 		{name: "model call started", event: output.NewModelCallStartedEvent(1, "gpt-test", 2)},
-		{name: "api request", event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})},
+		{name: "api request", event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

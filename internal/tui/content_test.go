@@ -3301,7 +3301,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "plan", "call_1", map[string]any{"task": "plan work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "plan work"))
 	buffer.AppendEvent(output.WithAgentScope(
-		output.NewAPIRequestEvent("deepseek-v4-flash", nil, nil, nil, nil, prompt.ModelTokenBudget{}),
+		output.NewAPIRequestEvent("deepseek-v4-flash", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0),
 		"agent-1",
 	))
 	buffer.AppendEvent(output.WithAgentScope(
