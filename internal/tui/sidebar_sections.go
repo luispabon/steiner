@@ -77,9 +77,9 @@ func (s sidebarState) modelSection(width int) []string {
 
 	lines := []string{"", cardLabel("model", s.styles), line1}
 
-	quant := strings.TrimSpace(s.quant)
-	if quant != "" {
-		lines = append(lines, s.styledWithBg(s.styles.FgDim, fitText("quant: "+quant, width)))
+	profile := strings.TrimSpace(s.profile)
+	if profile != "" {
+		lines = append(lines, cardFieldN("profile:", 9, s.styles.FgDim, fitText(profile, width-9), s.styles))
 	}
 
 	return lines

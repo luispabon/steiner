@@ -268,6 +268,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.status.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.sidebar.model = m.primaryModel
 	m.sidebar.version = cfg.Version
+	m.sidebar.profile = strings.TrimSpace(cfg.ProfileName)
 	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)
 	m.sidebar.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)
