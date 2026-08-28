@@ -39,6 +39,21 @@ func TestNeedsTickingReturnsFalseWhenMCPSettled(t *testing.T) {
 	}
 }
 
+func TestNeedsTickingReturnsTrueForActiveRegularToolCall(t *testing.T) {
+	styles := testStyles(theme.AccentAmber)
+	td := &toolCallSegment{active: true, callID: "call-1"}
+	m := &Model{
+		styles: styles,
+		content: contentBuffer{
+			styles:          styles,
+			activeToolCalls: map[string]toolCallLocator{"call-1": {seg: 0, td: td}},
+		},
+	}
+	if !m.needsTicking() {
+		t.Fatal("needsTicking() = false, want true for active regular tool call")
+	}
+}
+
 func TestHandleTickMsgAdvancesSidebarTickCountWhenMCPConnecting(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)

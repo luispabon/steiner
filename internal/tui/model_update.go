@@ -288,11 +288,14 @@ func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	if m.content.HasActiveDelegations() {
 		m.content.AdvanceDelegationSpinners()
 	}
+	if m.content.HasActiveToolCalls() {
+		m.content.AdvanceToolCallSpinners()
+	}
 	// Advance compaction spinners when a compaction is in progress.
 	if m.content.HasActiveCompactions() {
 		m.content.AdvanceCompactionSpinners()
 	}
-	if m.contentDirty || m.content.streaming || m.compaction.Active() || m.content.HasActiveDelegations() || m.content.HasActiveCompactions() || m.sidebar.mcpConnecting {
+	if m.contentDirty || m.content.streaming || m.compaction.Active() || m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.content.HasActiveCompactions() || m.sidebar.mcpConnecting {
 		m.syncViewport()
 		m.contentDirty = false
 	}

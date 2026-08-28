@@ -52,6 +52,8 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 			args:      summarizeArgs(payload.Tool, payload.Arguments),
 			callID:    payload.CallID,
 			collapsed: true,
+			active:    true,
+			startTime: nanoNow(),
 			rawArgs:   rawArgs,
 		}
 		tc.preview = output.BuildToolPreview(tc.tool, rawArgs, "")
@@ -59,9 +61,11 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 			tc.bodyKind = previewBodyKind(tc.tool, tc.preview)
 		}
 		if b.appendAdjacentToolCall(tc) {
+			b.registerActiveToolCall(len(b.segments)-1, tc)
 			return
 		}
 		b.segments = append(b.segments, contentSegment{kind: segmentToolCall, toolData: tc, renderDirty: true})
+		b.registerActiveToolCall(len(b.segments)-1, tc)
 		return
 	}
 	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
@@ -115,35 +119,61 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 		if shouldSkipToolEvent(payload.Tool) {
 			return
 		}
+		if !isDelegateOrSpecialized(payload.Tool) && b.applyFinishedRegularToolCall(payload) {
+			return
+		}
 		for i := len(b.segments) - 1; i >= 0; i-- {
-			switch b.segments[i].kind {
-			case segmentToolCall:
-				if td := b.segments[i].toolData; td != nil && callIDsMatch(td.callID, payload.CallID) {
-					b.applyFinishedToolCallResult(&b.segments[i], td, payload)
-					return
-				}
-			case segmentToolCallGroup:
-				group := b.segments[i].toolGroupData
-				if group == nil {
-					continue
-				}
-				for j := len(group.entries); j >= 1; j-- {
-					td := group.entries[j-1]
-					if td == nil || !callIDsMatch(td.callID, payload.CallID) {
-						continue
-					}
-					b.applyFinishedToolCallResult(&b.segments[i], td, payload)
-					return
-				}
-			case segmentDelegation, segmentDelegationGroup:
-				if b.applyFinishedToolCallToDelegation(i, payload) {
-					return
-				}
+			if b.applyFinishedToolCallToDelegation(i, payload) {
+				return
 			}
 		}
 		return
 	}
 	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
+}
+
+func (b *contentBuffer) applyFinishedRegularToolCall(payload output.ToolCallFinishedEvent) bool {
+	if loc, active := b.activeToolCalls[payload.CallID]; active {
+		delete(b.activeToolCalls, payload.CallID)
+		if loc.td != nil && loc.td.callID == payload.CallID && loc.seg >= 0 && loc.seg < len(b.segments) {
+			b.applyFinishedToolCallResult(&b.segments[loc.seg], loc.td, payload)
+			return true
+		}
+	}
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		if b.applyFinishedRegularToolCallSegment(i, payload) {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *contentBuffer) applyFinishedRegularToolCallSegment(i int, payload output.ToolCallFinishedEvent) bool {
+	switch b.segments[i].kind {
+	case segmentToolCall:
+		td := b.segments[i].toolData
+		if td == nil || td.callID == "" || td.callID != payload.CallID {
+			return false
+		}
+		b.applyFinishedToolCallResult(&b.segments[i], td, payload)
+		delete(b.activeToolCalls, payload.CallID)
+		return true
+	case segmentToolCallGroup:
+		group := b.segments[i].toolGroupData
+		if group == nil {
+			return false
+		}
+		for j := len(group.entries) - 1; j >= 0; j-- {
+			td := group.entries[j]
+			if td == nil || td.callID == "" || td.callID != payload.CallID {
+				continue
+			}
+			b.applyFinishedToolCallResult(&b.segments[i], td, payload)
+			delete(b.activeToolCalls, payload.CallID)
+			return true
+		}
+	}
+	return false
 }
 
 func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
@@ -304,6 +334,7 @@ func (b *contentBuffer) Clear() {
 	b.streamingSource = ""
 	b.collapseState = make(map[int]bool)
 	b.activeDelegations = nil
+	b.activeToolCalls = nil
 	b.pendingDelegateParents = nil
 	b.pendingDelegationStarts = nil
 	b.activeAdvisorSegment = 0
@@ -318,6 +349,34 @@ func (b *contentBuffer) Clear() {
 	b.prefixCacheWidth = 0
 	b.prefixCacheShowThinking = false
 	b.prefixCacheGen = 0
+}
+
+func (b *contentBuffer) registerActiveToolCall(seg int, td *toolCallSegment) {
+	if td == nil || !td.active || td.callID == "" {
+		return
+	}
+	if b.activeToolCalls == nil {
+		b.activeToolCalls = make(map[string]toolCallLocator)
+	}
+	b.activeToolCalls[td.callID] = toolCallLocator{seg: seg, td: td}
+}
+
+func (b *contentBuffer) HasActiveToolCalls() bool {
+	return len(b.activeToolCalls) > 0
+}
+
+func (b *contentBuffer) AdvanceToolCallSpinners() {
+	if len(spinnerFrames) == 0 {
+		return
+	}
+	for _, loc := range b.activeToolCalls {
+		if loc.td == nil || loc.seg < 0 || loc.seg >= len(b.segments) {
+			continue
+		}
+		loc.td.spinnerFrame = (loc.td.spinnerFrame + 1) % len(spinnerFrames)
+		b.segments[loc.seg].renderDirty = true
+		b.gen++
+	}
 }
 
 // ResetAdvisorSegment clears the active advisor segment flag.
@@ -361,6 +420,8 @@ func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 }
 
 func (b *contentBuffer) applyFinishedToolCallResult(seg *contentSegment, td *toolCallSegment, payload output.ToolCallFinishedEvent) {
+	td.active = false
+	td.elapsed = formatElapsed(td.startTime, nanoNow())
 	td.body = payload.Result
 	td.hasError = payload.Error != ""
 	td.meta = "✓"

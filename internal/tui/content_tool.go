@@ -207,6 +207,11 @@ func (b *contentBuffer) renderToolCallDivider(width int) string {
 func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) {
 	parts := make([]string, 0, 2)
 	width := 0
+	if tc.active {
+		frame := spinnerFrames[tc.spinnerFrame%len(spinnerFrames)]
+		parts = append(parts, b.styles.FgMute.Render(frame))
+		width += lipgloss.Width(frame)
+	}
 	if tc.meta != "" {
 		var styled string
 		if tc.hasError {
@@ -214,11 +219,16 @@ func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) 
 		} else {
 			styled = b.styles.Added.Render(tc.meta)
 		}
-		if len(parts) > 0 {
-			width++
-		}
 		parts = append(parts, styled)
 		width += lipgloss.Width(styled)
+	}
+	if tc.active {
+		elapsed := formatElapsed(tc.startTime, nanoNow())
+		parts = append(parts, b.styles.FgDim.Render(elapsed))
+		width += lipgloss.Width(elapsed) + 1
+	} else if tc.elapsed != "" {
+		parts = append(parts, b.styles.FgDim.Render(tc.elapsed))
+		width += lipgloss.Width(tc.elapsed) + 1
 	}
 	return parts, width
 }
