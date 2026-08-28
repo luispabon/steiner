@@ -351,7 +351,7 @@ func resolveTokenizerMetadataWithLoader(modelID string, loadTokenizer func(strin
 func tokenizerMatchConfidence(modelID string, encoding tokenizer.Encoding) string {
 	switch encoding {
 	case tokenizer.O200kBase:
-		if hasAnyPrefix(modelID, "gpt-4.5", "gpt-4.1", "gpt-4o", "o1", "o3") {
+		if hasAnyPrefix(modelID, "gpt-5", "gpt-4.5", "gpt-4.1", "gpt-4o", "o1", "o3") {
 			return "high"
 		}
 	case tokenizer.Cl100kBase:

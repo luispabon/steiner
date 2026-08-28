@@ -510,6 +510,24 @@ func TestResolveTokenizerMetadataFallsBackToHeuristicWhenTiktokenUnavailable(t *
 	}
 }
 
+func TestResolveTokenizerMetadataGPT5AliasHasHighConfidence(t *testing.T) {
+	t.Parallel()
+
+	o200k, err := tokenizer.Get(tokenizer.O200kBase)
+	if err != nil {
+		t.Fatalf("tokenizer.Get(o200k_base) error = %v", err)
+	}
+	strategy, confidence := resolveTokenizerMetadataWithLoader("gpt-5.6-luna", func(string) (tokenizer.Codec, error) {
+		return o200k, nil
+	})
+	if strategy != TokenizerStrategyTiktoken {
+		t.Fatalf("strategy = %q, want %q", strategy, TokenizerStrategyTiktoken)
+	}
+	if confidence != "high" {
+		t.Fatalf("confidence = %q, want high", confidence)
+	}
+}
+
 func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)

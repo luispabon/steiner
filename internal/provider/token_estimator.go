@@ -286,7 +286,8 @@ func defaultTokenizerForModel(model string) (tokenizer.Codec, error) {
 
 func encodingNameForModel(model string) tokenizer.Encoding {
 	switch {
-	case strings.HasPrefix(model, "gpt-4.5"),
+	case strings.HasPrefix(model, "gpt-5"),
+		strings.HasPrefix(model, "gpt-4.5"),
 		strings.HasPrefix(model, "gpt-4.1"),
 		strings.HasPrefix(model, "gpt-4o"),
 		strings.HasPrefix(model, "o1"),
