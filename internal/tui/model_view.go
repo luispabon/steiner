@@ -562,23 +562,23 @@ func applyComposerCursorAnsi(s string, pos int, on bool) string {
 			}
 			continue
 		}
-		if r == '' {
+		if r == '\x1b' {
 			inEsc = true
 			escSeq.WriteRune(r)
 			continue
 		}
 		if currentCol == pos {
 			placed = true
-			result.WriteString("[7m")
+			result.WriteString("\x1b[7m")
 			result.WriteRune(r)
-			result.WriteString("[27m")
+			result.WriteString("\x1b[27m")
 		} else {
 			result.WriteRune(r)
 		}
 		currentCol++
 	}
 	if !placed {
-		result.WriteString("[7m [27m")
+		result.WriteString("\x1b[7m \x1b[27m")
 	}
 	return result.String()
 }
