@@ -79,6 +79,8 @@ type Config struct {
 	// active at startup, e.g. cfg.Models.Effective.ActiveOrchestratorModel.
 	CurrentModelAlias string
 	ProfileName       string
+	// ProfileNames lists all configured profile names, used to seed the /profile picker.
+	ProfileNames []string
 	// InitialMode is the execution mode ("plan" or "build") active at startup,
 	// e.g. string(sess.Mode()). Seeds the footer badge and sidebar row before
 	// any mode_changed event arrives.
