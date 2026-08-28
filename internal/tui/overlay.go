@@ -121,17 +121,12 @@ func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string, bg string) s
 	return theme.WithBg(o.Render(box, body), bg)
 }
 
-// PlaceBottomAnchored composites the overlay string over the base view string
-// using the file picker's bottom-anchored placement strategy: the overlay sits
-// just above the input area, left-aligned.  inputHeight is the number of rows
+// PlaceBottomAnchoredAt composites the overlay string over the base view
+// string using the file picker's bottom-anchored placement strategy: the
+// overlay sits just above the input area, shifted right by xOffset columns to
+// stay left-aligned with the content area when a sidebar occupies the left
+// margin (pass 0 when there is no offset). inputHeight is the number of rows
 // occupied by the input box and status bar at the bottom of the base view.
-func (o OverlayShell) PlaceBottomAnchored(base, overlay string, inputHeight int) string {
-	return o.PlaceBottomAnchoredAt(base, overlay, inputHeight, 0)
-}
-
-// PlaceBottomAnchoredAt is like PlaceBottomAnchored but shifts the overlay
-// right by xOffset columns, preserving the base content in the left margin.
-// Use this when the content area is offset from the terminal edge (e.g. sidebar on the left).
 func (o OverlayShell) PlaceBottomAnchoredAt(base, overlay string, inputHeight, xOffset int) string {
 	baseLines := strings.Split(base, "\n")
 	olLines := strings.Split(overlay, "\n")

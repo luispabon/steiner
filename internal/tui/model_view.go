@@ -248,10 +248,10 @@ func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) stri
 		base = m.filePicker.PlaceBottomAnchoredAt(base, m.filePicker.View(), offset, xOffset)
 	}
 	if m.sessionPicker.IsOpen() {
-		base = m.sessionPicker.PlaceBottomAnchored(base, m.sessionPicker.View(), offset)
+		base = m.sessionPicker.PlaceBottomAnchoredAt(base, m.sessionPicker.View(), offset, xOffset)
 	}
 	if m.oneshotResumePicker.IsOpen() {
-		base = m.oneshotResumePicker.PlaceBottomAnchored(base, m.oneshotResumePicker.View(), offset)
+		base = m.oneshotResumePicker.PlaceBottomAnchoredAt(base, m.oneshotResumePicker.View(), offset, xOffset)
 	}
 	if m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff() {
 		base = m.modelPicker.PlaceBottomAnchoredAt(base, m.modelPicker.View(), offset, xOffset)
