@@ -30,6 +30,7 @@ func (s *snapshotSink) Emit(event output.Event) {
 			AgentType:             event.Scope.AgentType,
 			Kind:                  payload.Kind,
 			EstimatedPromptTokens: payload.EstimatedPromptTokens,
+			RawPromptTokens:       payload.RawPromptTokens,
 		})
 	}
 }

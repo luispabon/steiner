@@ -40,6 +40,7 @@ func TestBuildContextReportUsesCapturedPromptTokens(t *testing.T) {
 		Model:                 "gpt-4o",
 		Messages:              []provider.Message{{Role: provider.MessageRoleUser, Content: "context"}},
 		EstimatedPromptTokens: 2000,
+		RawPromptTokens:       3000,
 		ModelBudget:           prompt.ModelTokenBudget{ContextSize: 4096, MaxCompletionTokens: 128},
 	}
 	fresh, err := provider.EstimateChatRequestTokens(context.Background(), provider.ChatRequest{
@@ -57,16 +58,19 @@ func TestBuildContextReportUsesCapturedPromptTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildContextReport() error = %v", err)
 	}
-	if !strings.Contains(report, "Prompt tokens: `2000`") {
-		t.Fatalf("report = %q, want captured prompt token count", report)
+	if !strings.Contains(report, "Prompt tokens: `3000`") {
+		t.Fatalf("report = %q, want captured raw prompt token count", report)
 	}
-	if !strings.Contains(report, "Prompt occupancy: `2000 / 4096`") {
-		t.Fatalf("report = %q, want captured prompt occupancy", report)
+	if strings.Contains(report, "Prompt tokens: `2000`") {
+		t.Fatalf("report = %q, did not expect calibrated prompt token count", report)
 	}
-	if !strings.Contains(report, "| request framing | 1142 |") {
+	if !strings.Contains(report, "Prompt occupancy: `3000 / 4096`") {
+		t.Fatalf("report = %q, want captured raw prompt occupancy", report)
+	}
+	if !strings.Contains(report, "| request framing | 1714 |") {
 		t.Fatalf("report = %q, want captured prompt allocation", report)
 	}
-	if !strings.Contains(report, "Prompt usage: `49%`") {
+	if !strings.Contains(report, "Prompt usage: `73%`") {
 		t.Fatalf("report = %q, want captured prompt usage", report)
 	}
 }

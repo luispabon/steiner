@@ -192,20 +192,25 @@ func TestApplyEventContextBudgetSynchronizesFooterAndPreservesItForByteDiagnosti
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	_ = m.applyEvent(output.NewContextTokenBudgetEvent("conversation", 1, 120, 4096, 3, 70, 32, 180, "ok", false))
-	if m.sidebar.promptUsed != 120 || m.sidebar.budgetUsed != 180 || m.sidebar.contextBudget != 4096 {
-		t.Fatalf("sidebar occupancy = %d/%d/%d, want 120/180/4096", m.sidebar.promptUsed, m.sidebar.budgetUsed, m.sidebar.contextBudget)
+	_ = m.applyEvent(output.NewContextTokenBudgetEvent("conversation", 1, 120, 240, 4096, 3, 70, 32, 180, "ok", false))
+	if m.sidebar.promptUsed != 240 || m.sidebar.budgetUsed != 180 || m.sidebar.contextBudget != 4096 {
+		t.Fatalf("sidebar occupancy = %d/%d/%d, want 240/180/4096", m.sidebar.promptUsed, m.sidebar.budgetUsed, m.sidebar.contextBudget)
 	}
-	if m.status.promptUsed != 120 || m.status.contextBudget != 4096 {
-		t.Fatalf("status occupancy = %d/%d, want 120/4096", m.status.promptUsed, m.status.contextBudget)
+	if m.status.promptUsed != 240 || m.status.contextBudget != 4096 {
+		t.Fatalf("status occupancy = %d/%d, want 240/4096", m.status.promptUsed, m.status.contextBudget)
+	}
+
+	_ = m.applyEvent(output.NewContextTokenBudgetEvent("conversation", 1, 110, 260, 4096, 3, 70, 32, 180, "ok", false))
+	if m.sidebar.promptUsed != 260 || m.status.promptUsed != 260 {
+		t.Fatalf("occupancy after calibrated decline = %d/%d, want 260/260", m.sidebar.promptUsed, m.status.promptUsed)
 	}
 
 	_ = m.applyEvent(output.NewContextBudgetEvent("project_context", 2, 2000, 2000, true))
-	if m.sidebar.promptUsed != 120 || m.sidebar.budgetUsed != 180 || m.sidebar.contextBudget != 4096 {
-		t.Fatalf("sidebar occupancy after byte diagnostic = %d/%d/%d, want 120/180/4096", m.sidebar.promptUsed, m.sidebar.budgetUsed, m.sidebar.contextBudget)
+	if m.sidebar.promptUsed != 260 || m.sidebar.budgetUsed != 180 || m.sidebar.contextBudget != 4096 {
+		t.Fatalf("sidebar occupancy after byte diagnostic = %d/%d/%d, want 260/180/4096", m.sidebar.promptUsed, m.sidebar.budgetUsed, m.sidebar.contextBudget)
 	}
-	if m.status.promptUsed != 120 || m.status.contextBudget != 4096 {
-		t.Fatalf("status occupancy after byte diagnostic = %d/%d, want 120/4096", m.status.promptUsed, m.status.contextBudget)
+	if m.status.promptUsed != 260 || m.status.contextBudget != 4096 {
+		t.Fatalf("status occupancy after byte diagnostic = %d/%d, want 260/4096", m.status.promptUsed, m.status.contextBudget)
 	}
 	if m.sidebar.currentTurn != 2 {
 		t.Fatalf("sidebar.currentTurn = %d, want 2 after byte diagnostic", m.sidebar.currentTurn)
@@ -412,7 +417,7 @@ func TestApplyEventModelWaitingStateOmitsModelDetail(t *testing.T) {
 		event output.Event
 	}{
 		{name: "model call started", event: output.NewModelCallStartedEvent(1, "gpt-test", 2)},
-		{name: "api request", event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0)},
+		{name: "api request", event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

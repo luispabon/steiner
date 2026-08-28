@@ -71,7 +71,7 @@ func TestWithAgentTypeScope(t *testing.T) {
 }
 
 func TestWithAPIRequestKind(t *testing.T) {
-	request := NewAPIRequestEvent("model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0)
+	request := NewAPIRequestEvent("model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)
 	got := WithAPIRequestKind(request, APIRequestKindCompaction)
 	if payload := got.Payload.(APIRequestEvent); payload.Kind != APIRequestKindCompaction {
 		t.Fatalf("API request Kind = %q, want %q", payload.Kind, APIRequestKindCompaction)
@@ -217,7 +217,7 @@ func TestNewAPIRequestEventDeepClonesProviderOwnedFields(t *testing.T) {
 		},
 	}
 
-	event := NewAPIRequestEvent("model", messages, tools, &maxTokens, nil, prompt.ModelTokenBudget{}, 42)
+	event := NewAPIRequestEvent("model", messages, tools, &maxTokens, nil, prompt.ModelTokenBudget{}, 42, 0)
 	payload := event.Payload.(APIRequestEvent)
 	if payload.EstimatedPromptTokens != 42 {
 		t.Fatalf("estimated prompt tokens = %d, want 42", payload.EstimatedPromptTokens)

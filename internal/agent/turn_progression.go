@@ -317,8 +317,14 @@ func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, 
 		provMsg := toProviderMessage(toolMessage)
 		delta, err := provider.EstimateMessageTokens(ctx, p.request.ResolvedModel.BackendModelID, provMsg)
 		if err == nil && delta > 0 {
-			p.lastBudget.EstimatedPromptTokens += delta
-			p.lastBudget.TotalTokens += delta
+			previousRaw := p.lastBudget.RawEstimatedPromptTokens
+			p.lastBudget.RawEstimatedPromptTokens += delta
+			calibratedDelta := 0
+			if previousRaw > 0 && p.lastBudget.EstimatedPromptTokens > 0 {
+				calibratedDelta = delta * p.lastBudget.EstimatedPromptTokens / previousRaw
+			}
+			p.lastBudget.EstimatedPromptTokens += calibratedDelta
+			p.lastBudget.TotalTokens += calibratedDelta
 			p.lastBudget.PromptUsage = float64(p.lastBudget.EstimatedPromptTokens) / float64(p.lastBudget.ContextSize)
 			emitRequestTokenDiagnostic(p.request.Events, turn, *p.lastBudget, false)
 		}

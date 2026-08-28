@@ -160,7 +160,9 @@ func (b *contentBuffer) applyDelegationContextDiagnostics(dd *delegationDisplayS
 	if payload.ContextUsagePercent > 0 {
 		dd.contextFillPct = payload.ContextUsagePercent
 	}
-	if payload.PromptTokens > 0 {
+	if payload.RawPromptTokens > 0 {
+		dd.promptTokens = payload.RawPromptTokens
+	} else if payload.PromptTokens > 0 {
 		dd.promptTokens = payload.PromptTokens
 	}
 	if payload.ContextWindow > 0 {

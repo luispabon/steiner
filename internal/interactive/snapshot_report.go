@@ -22,6 +22,7 @@ type RequestContextSnapshot struct {
 	AgentType             string                  `json:"agent_type,omitempty"`
 	Kind                  string                  `json:"kind,omitempty"`
 	EstimatedPromptTokens int                     `json:"estimated_prompt_tokens,omitempty"`
+	RawPromptTokens       int                     `json:"raw_prompt_tokens,omitempty"`
 }
 
 type contextReportCategory struct {
@@ -46,17 +47,21 @@ func fitReportBudget(ctx context.Context, budget prompt.ModelTokenBudget, kind s
 }
 
 func reportPromptUsage(snapshot RequestContextSnapshot, promptTokens int, budget prompt.RequestTokenBudget) float64 {
-	if snapshot.EstimatedPromptTokens > 0 && budget.ContextSize > 0 {
+	if (snapshot.RawPromptTokens > 0 || snapshot.EstimatedPromptTokens > 0) && budget.ContextSize > 0 {
 		return float64(promptTokens) / float64(budget.ContextSize)
 	}
 	return budget.PromptUsage
 }
 
-func reportPromptTokens(ctx context.Context, snapshot RequestContextSnapshot, request provider.ChatRequest) (int, error) {
-	if snapshot.EstimatedPromptTokens > 0 {
-		return snapshot.EstimatedPromptTokens, nil
+func reportPromptTokens(ctx context.Context, snapshot RequestContextSnapshot, request provider.ChatRequest) (int, bool, error) {
+	if snapshot.RawPromptTokens > 0 {
+		return snapshot.RawPromptTokens, true, nil
 	}
-	return provider.EstimateChatRequestTokens(ctx, request)
+	if snapshot.EstimatedPromptTokens > 0 {
+		return snapshot.EstimatedPromptTokens, true, nil
+	}
+	tokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	return tokens, false, err
 }
 
 // BuildContextReport summarizes prompt composition and budget usage.
@@ -74,7 +79,7 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 		}(),
 	}
 
-	promptTokens, err := reportPromptTokens(ctx, snapshot, request)
+	promptTokens, captured, err := reportPromptTokens(ctx, snapshot, request)
 	if err != nil {
 		return "", err
 	}
@@ -87,7 +92,7 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 	if err != nil {
 		return "", err
 	}
-	allocateCategoryTokens(categories, promptTokens, snapshot.EstimatedPromptTokens > 0)
+	allocateCategoryTokens(categories, promptTokens, captured)
 
 	promptUsage := reportPromptUsage(snapshot, promptTokens, budget)
 	var lines []string

@@ -300,6 +300,7 @@ type APIRequestEvent struct {
 	Blocks                []prompt.ContextBlock   `json:"blocks,omitempty"`
 	ModelBudget           prompt.ModelTokenBudget `json:"model_budget,omitempty"`
 	EstimatedPromptTokens int                     `json:"estimated_prompt_tokens,omitempty"`
+	RawPromptTokens       int                     `json:"raw_prompt_tokens,omitempty"`
 	Kind                  string                  `json:"kind,omitempty"`
 }
 

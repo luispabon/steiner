@@ -565,7 +565,10 @@ func (m *Model) applyContextBudget(payload output.ContextBudgetEvent) {
 	if contextWindow <= 0 {
 		return
 	}
-	promptUsed := payload.PromptTokens
+	promptUsed := payload.RawPromptTokens
+	if promptUsed <= 0 {
+		promptUsed = payload.PromptTokens
+	}
 	if promptUsed < 0 {
 		promptUsed = 0
 	}

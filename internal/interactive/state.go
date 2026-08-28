@@ -183,6 +183,7 @@ func (s *SnapshotStore) Store(snapshot RequestContextSnapshot) {
 		AgentType:             snapshot.AgentType,
 		Kind:                  snapshot.Kind,
 		EstimatedPromptTokens: snapshot.EstimatedPromptTokens,
+		RawPromptTokens:       snapshot.RawPromptTokens,
 	}
 	s.snapshot = &cloned
 }
@@ -213,6 +214,7 @@ func (s *SnapshotStore) Snapshot() (RequestContextSnapshot, bool) {
 		ModelBudget:           s.snapshot.ModelBudget,
 		AgentID:               s.snapshot.AgentID,
 		AgentType:             s.snapshot.AgentType,
+		RawPromptTokens:       s.snapshot.RawPromptTokens,
 		Kind:                  s.snapshot.Kind,
 		EstimatedPromptTokens: s.snapshot.EstimatedPromptTokens,
 	}

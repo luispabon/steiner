@@ -78,20 +78,20 @@ func stripImagesIfVisionDisabled(vision *bool, messages []provider.Message, mode
 
 // newAPIRequestEvent builds the API request event for a turn, marking it as a
 // compaction request when isCompaction is set so context reports can label it.
-func newAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, estimatedPromptTokens int, isCompaction bool) output.Event {
-	event := output.NewAPIRequestEvent(model, messages, tools, maxTokens, blocks, budget, estimatedPromptTokens)
+func newAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, estimatedPromptTokens, rawPromptTokens int, isCompaction bool) output.Event {
+	event := output.NewAPIRequestEvent(model, messages, tools, maxTokens, blocks, budget, estimatedPromptTokens, rawPromptTokens)
 	if isCompaction {
 		event = output.WithAPIRequestKind(event, output.APIRequestKindCompaction)
 	}
 	return event
 }
 
-func estimatePromptTokensForEvent(ctx context.Context, req provider.ChatRequest) int {
-	tokens, err := provider.EstimateChatRequestTokens(ctx, req)
+func estimatePromptTokensForEvent(ctx context.Context, req provider.ChatRequest) (int, int) {
+	estimate, err := provider.EstimateChatRequestTokenEstimate(ctx, req)
 	if err != nil {
-		return 0
+		return 0, 0
 	}
-	return tokens
+	return estimate.Tokens, estimate.RawTokens
 }
 
 func executeChatRequest(
@@ -124,8 +124,8 @@ func executeChatRequest(
 			return provider.ChatResponse{}, time.Time{}, fmt.Errorf("request exceeds context window: %s", fit.String())
 		}
 	}
-	estimatedPromptTokens := estimatePromptTokensForEvent(ctx, req)
-	emitEvent(events, newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, estimatedPromptTokens, isCompaction))
+	estimatedPromptTokens, rawPromptTokens := estimatePromptTokensForEvent(ctx, req)
+	emitEvent(events, newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, estimatedPromptTokens, rawPromptTokens, isCompaction))
 
 	// When streaming is not preferred, try ChatCompletion first and only fall
 	// back to streaming if it is unavailable.

@@ -6,90 +6,96 @@ import "time"
 // as a compatibility constructor/input shape while typed sub-events replace it
 // as the emitted payloads.
 type ContextDiagnosticsEvent struct {
-	Kind                string   `json:"kind"`
-	Scope               string   `json:"scope,omitempty"`
-	Turn                int      `json:"turn,omitempty"`
-	Severity            string   `json:"severity,omitempty"`
-	SessionState        string   `json:"session_state,omitempty"`
-	Action              string   `json:"action,omitempty"`
-	Reason              string   `json:"reason,omitempty"`
-	Tool                string   `json:"tool,omitempty"`
-	Path                string   `json:"path,omitempty"`
-	Window              int      `json:"window,omitempty"`
-	Parsed              bool     `json:"parsed,omitempty"`
-	Failures            int      `json:"failures,omitempty"`
-	CompactionCount     int      `json:"compaction_count,omitempty"`
-	RestartGuidance     string   `json:"restart_guidance,omitempty"`
-	RetainedTurns       int      `json:"retained_turns,omitempty"`
-	RetainedMessages    int      `json:"retained_messages,omitempty"`
-	CompactedTurns      int      `json:"compacted_turns,omitempty"`
-	CompactedMessages   int      `json:"compacted_messages,omitempty"`
-	SummaryTitle        string   `json:"summary_title,omitempty"`
-	SummaryPreview      string   `json:"summary_preview,omitempty"`
-	SummaryText         string   `json:"summary_text,omitempty"`
-	SummaryBytes        int      `json:"summary_bytes,omitempty"`
-	BudgetBytes         int      `json:"budget_bytes,omitempty"`
-	UsedBytes           int      `json:"used_bytes,omitempty"`
-	CacheReadTokens     int      `json:"cache_read_tokens,omitempty"`
-	InputTokens         int      `json:"input_tokens,omitempty"`
-	CacheCreateTokens   int      `json:"cache_create_tokens,omitempty"`
-	PromptTokens        int      `json:"prompt_tokens,omitempty"`
-	ContextTokens       int      `json:"context_tokens,omitempty"`
-	TotalTokens         int      `json:"total_tokens,omitempty"`
-	Truncated           bool     `json:"truncated,omitempty"`
-	ContextWindow       int      `json:"context_window,omitempty"`
-	ContextUsagePercent float64  `json:"context_usage_percent,omitempty"`
-	CompactionThreshold float64  `json:"compaction_threshold,omitempty"`
-	EstimatorPadTokens  int      `json:"estimator_pad_tokens,omitempty"`
-	Status              string   `json:"status,omitempty"`
-	Mode                string   `json:"mode,omitempty"`
-	BeforePromptTokens  int      `json:"before_prompt_tokens,omitempty"`
-	BeforeUsagePercent  float64  `json:"before_usage_percent,omitempty"`
-	AfterPromptTokens   int      `json:"after_prompt_tokens,omitempty"`
-	AfterUsagePercent   float64  `json:"after_usage_percent,omitempty"`
-	RetainedRawTurns    int      `json:"retained_raw_turns,omitempty"`
-	SummaryTokenBudget  int      `json:"summary_token_budget,omitempty"`
-	ThresholdAchieved   bool     `json:"threshold_achieved,omitempty"`
-	Notes               []string `json:"notes,omitempty"`
+	Kind                  string   `json:"kind"`
+	Scope                 string   `json:"scope,omitempty"`
+	Turn                  int      `json:"turn,omitempty"`
+	Severity              string   `json:"severity,omitempty"`
+	SessionState          string   `json:"session_state,omitempty"`
+	Action                string   `json:"action,omitempty"`
+	Reason                string   `json:"reason,omitempty"`
+	Tool                  string   `json:"tool,omitempty"`
+	Path                  string   `json:"path,omitempty"`
+	Window                int      `json:"window,omitempty"`
+	Parsed                bool     `json:"parsed,omitempty"`
+	Failures              int      `json:"failures,omitempty"`
+	CompactionCount       int      `json:"compaction_count,omitempty"`
+	RestartGuidance       string   `json:"restart_guidance,omitempty"`
+	RetainedTurns         int      `json:"retained_turns,omitempty"`
+	RetainedMessages      int      `json:"retained_messages,omitempty"`
+	CompactedTurns        int      `json:"compacted_turns,omitempty"`
+	CompactedMessages     int      `json:"compacted_messages,omitempty"`
+	SummaryTitle          string   `json:"summary_title,omitempty"`
+	SummaryPreview        string   `json:"summary_preview,omitempty"`
+	SummaryText           string   `json:"summary_text,omitempty"`
+	SummaryBytes          int      `json:"summary_bytes,omitempty"`
+	BudgetBytes           int      `json:"budget_bytes,omitempty"`
+	UsedBytes             int      `json:"used_bytes,omitempty"`
+	CacheReadTokens       int      `json:"cache_read_tokens,omitempty"`
+	InputTokens           int      `json:"input_tokens,omitempty"`
+	CacheCreateTokens     int      `json:"cache_create_tokens,omitempty"`
+	PromptTokens          int      `json:"prompt_tokens,omitempty"`
+	RawPromptTokens       int      `json:"raw_prompt_tokens,omitempty"`
+	ContextTokens         int      `json:"context_tokens,omitempty"`
+	TotalTokens           int      `json:"total_tokens,omitempty"`
+	Truncated             bool     `json:"truncated,omitempty"`
+	ContextWindow         int      `json:"context_window,omitempty"`
+	ContextUsagePercent   float64  `json:"context_usage_percent,omitempty"`
+	CompactionThreshold   float64  `json:"compaction_threshold,omitempty"`
+	EstimatorPadTokens    int      `json:"estimator_pad_tokens,omitempty"`
+	Status                string   `json:"status,omitempty"`
+	Mode                  string   `json:"mode,omitempty"`
+	BeforePromptTokens    int      `json:"before_prompt_tokens,omitempty"`
+	BeforeRawPromptTokens int      `json:"before_raw_prompt_tokens,omitempty"`
+	BeforeUsagePercent    float64  `json:"before_usage_percent,omitempty"`
+	AfterPromptTokens     int      `json:"after_prompt_tokens,omitempty"`
+	AfterRawPromptTokens  int      `json:"after_raw_prompt_tokens,omitempty"`
+	AfterUsagePercent     float64  `json:"after_usage_percent,omitempty"`
+	RetainedRawTurns      int      `json:"retained_raw_turns,omitempty"`
+	SummaryTokenBudget    int      `json:"summary_token_budget,omitempty"`
+	ThresholdAchieved     bool     `json:"threshold_achieved,omitempty"`
+	Notes                 []string `json:"notes,omitempty"`
 }
 
 // ContextCompactionEvent records context compaction progress and results.
 type ContextCompactionEvent struct {
-	Scope               string   `json:"scope,omitempty"`
-	Turn                int      `json:"turn,omitempty"`
-	Severity            string   `json:"severity,omitempty"`
-	SessionState        string   `json:"session_state,omitempty"`
-	CompactionCount     int      `json:"compaction_count,omitempty"`
-	RestartGuidance     string   `json:"restart_guidance,omitempty"`
-	RetainedTurns       int      `json:"retained_turns,omitempty"`
-	RetainedMessages    int      `json:"retained_messages,omitempty"`
-	CompactedTurns      int      `json:"compacted_turns,omitempty"`
-	CompactedMessages   int      `json:"compacted_messages,omitempty"`
-	SummaryTitle        string   `json:"summary_title,omitempty"`
-	SummaryPreview      string   `json:"summary_preview,omitempty"`
-	SummaryText         string   `json:"summary_text,omitempty"`
-	SummaryBytes        int      `json:"summary_bytes,omitempty"`
-	CacheReadTokens     int      `json:"cache_read_tokens,omitempty"`
-	InputTokens         int      `json:"input_tokens,omitempty"`
-	CacheCreateTokens   int      `json:"cache_create_tokens,omitempty"`
-	PromptTokens        int      `json:"prompt_tokens,omitempty"`
-	ContextTokens       int      `json:"context_tokens,omitempty"`
-	TotalTokens         int      `json:"total_tokens,omitempty"`
-	Truncated           bool     `json:"truncated,omitempty"`
-	ContextWindow       int      `json:"context_window,omitempty"`
-	ContextUsagePercent float64  `json:"context_usage_percent,omitempty"`
-	CompactionThreshold float64  `json:"compaction_threshold,omitempty"`
-	EstimatorPadTokens  int      `json:"estimator_pad_tokens,omitempty"`
-	Status              string   `json:"status,omitempty"`
-	Mode                string   `json:"mode,omitempty"`
-	BeforePromptTokens  int      `json:"before_prompt_tokens,omitempty"`
-	BeforeUsagePercent  float64  `json:"before_usage_percent,omitempty"`
-	AfterPromptTokens   int      `json:"after_prompt_tokens,omitempty"`
-	AfterUsagePercent   float64  `json:"after_usage_percent,omitempty"`
-	RetainedRawTurns    int      `json:"retained_raw_turns,omitempty"`
-	SummaryTokenBudget  int      `json:"summary_token_budget,omitempty"`
-	ThresholdAchieved   bool     `json:"threshold_achieved,omitempty"`
-	Notes               []string `json:"notes,omitempty"`
+	Scope                 string   `json:"scope,omitempty"`
+	Turn                  int      `json:"turn,omitempty"`
+	Severity              string   `json:"severity,omitempty"`
+	SessionState          string   `json:"session_state,omitempty"`
+	CompactionCount       int      `json:"compaction_count,omitempty"`
+	RestartGuidance       string   `json:"restart_guidance,omitempty"`
+	RetainedTurns         int      `json:"retained_turns,omitempty"`
+	RetainedMessages      int      `json:"retained_messages,omitempty"`
+	CompactedTurns        int      `json:"compacted_turns,omitempty"`
+	CompactedMessages     int      `json:"compacted_messages,omitempty"`
+	SummaryTitle          string   `json:"summary_title,omitempty"`
+	SummaryPreview        string   `json:"summary_preview,omitempty"`
+	SummaryText           string   `json:"summary_text,omitempty"`
+	SummaryBytes          int      `json:"summary_bytes,omitempty"`
+	CacheReadTokens       int      `json:"cache_read_tokens,omitempty"`
+	InputTokens           int      `json:"input_tokens,omitempty"`
+	CacheCreateTokens     int      `json:"cache_create_tokens,omitempty"`
+	PromptTokens          int      `json:"prompt_tokens,omitempty"`
+	RawPromptTokens       int      `json:"raw_prompt_tokens,omitempty"`
+	ContextTokens         int      `json:"context_tokens,omitempty"`
+	TotalTokens           int      `json:"total_tokens,omitempty"`
+	Truncated             bool     `json:"truncated,omitempty"`
+	ContextWindow         int      `json:"context_window,omitempty"`
+	ContextUsagePercent   float64  `json:"context_usage_percent,omitempty"`
+	CompactionThreshold   float64  `json:"compaction_threshold,omitempty"`
+	EstimatorPadTokens    int      `json:"estimator_pad_tokens,omitempty"`
+	Status                string   `json:"status,omitempty"`
+	Mode                  string   `json:"mode,omitempty"`
+	BeforePromptTokens    int      `json:"before_prompt_tokens,omitempty"`
+	BeforeRawPromptTokens int      `json:"before_raw_prompt_tokens,omitempty"`
+	BeforeUsagePercent    float64  `json:"before_usage_percent,omitempty"`
+	AfterPromptTokens     int      `json:"after_prompt_tokens,omitempty"`
+	AfterRawPromptTokens  int      `json:"after_raw_prompt_tokens,omitempty"`
+	AfterUsagePercent     float64  `json:"after_usage_percent,omitempty"`
+	RetainedRawTurns      int      `json:"retained_raw_turns,omitempty"`
+	SummaryTokenBudget    int      `json:"summary_token_budget,omitempty"`
+	ThresholdAchieved     bool     `json:"threshold_achieved,omitempty"`
+	Notes                 []string `json:"notes,omitempty"`
 }
 
 // BudgetSnapshot returns the token-budget fields of a compaction event as a
@@ -99,6 +105,7 @@ func (e ContextCompactionEvent) BudgetSnapshot() ContextBudgetEvent {
 	return ContextBudgetEvent{
 		Turn:                e.Turn,
 		PromptTokens:        e.PromptTokens,
+		RawPromptTokens:     e.RawPromptTokens,
 		ContextTokens:       e.ContextTokens,
 		TotalTokens:         e.TotalTokens,
 		ContextWindow:       e.ContextWindow,
@@ -127,6 +134,7 @@ type ContextBudgetEvent struct {
 	UsedBytes           int      `json:"used_bytes,omitempty"`
 	BudgetBytes         int      `json:"budget_bytes,omitempty"`
 	PromptTokens        int      `json:"prompt_tokens,omitempty"`
+	RawPromptTokens     int      `json:"raw_prompt_tokens,omitempty"`
 	ContextTokens       int      `json:"context_tokens,omitempty"`
 	TotalTokens         int      `json:"total_tokens,omitempty"`
 	Truncated           bool     `json:"truncated,omitempty"`
@@ -170,42 +178,45 @@ func (payload ContextDiagnosticsEvent) toLegacyContextDiagnostics() ContextDiagn
 
 func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagnosticsEvent {
 	return ContextDiagnosticsEvent{
-		Kind:                "compaction",
-		Scope:               payload.Scope,
-		Turn:                payload.Turn,
-		Severity:            payload.Severity,
-		SessionState:        payload.SessionState,
-		CompactionCount:     payload.CompactionCount,
-		RestartGuidance:     payload.RestartGuidance,
-		RetainedTurns:       payload.RetainedTurns,
-		RetainedMessages:    payload.RetainedMessages,
-		CompactedTurns:      payload.CompactedTurns,
-		CompactedMessages:   payload.CompactedMessages,
-		SummaryTitle:        payload.SummaryTitle,
-		SummaryPreview:      payload.SummaryPreview,
-		SummaryText:         payload.SummaryText,
-		SummaryBytes:        payload.SummaryBytes,
-		CacheReadTokens:     payload.CacheReadTokens,
-		InputTokens:         payload.InputTokens,
-		CacheCreateTokens:   payload.CacheCreateTokens,
-		PromptTokens:        payload.PromptTokens,
-		ContextTokens:       payload.ContextTokens,
-		TotalTokens:         payload.TotalTokens,
-		Truncated:           payload.Truncated,
-		ContextWindow:       payload.ContextWindow,
-		ContextUsagePercent: payload.ContextUsagePercent,
-		CompactionThreshold: payload.CompactionThreshold,
-		EstimatorPadTokens:  payload.EstimatorPadTokens,
-		Status:              payload.Status,
-		Mode:                payload.Mode,
-		BeforePromptTokens:  payload.BeforePromptTokens,
-		BeforeUsagePercent:  payload.BeforeUsagePercent,
-		AfterPromptTokens:   payload.AfterPromptTokens,
-		AfterUsagePercent:   payload.AfterUsagePercent,
-		RetainedRawTurns:    payload.RetainedRawTurns,
-		SummaryTokenBudget:  payload.SummaryTokenBudget,
-		ThresholdAchieved:   payload.ThresholdAchieved,
-		Notes:               append([]string(nil), payload.Notes...),
+		Kind:                  "compaction",
+		Scope:                 payload.Scope,
+		Turn:                  payload.Turn,
+		Severity:              payload.Severity,
+		SessionState:          payload.SessionState,
+		CompactionCount:       payload.CompactionCount,
+		RestartGuidance:       payload.RestartGuidance,
+		RetainedTurns:         payload.RetainedTurns,
+		RetainedMessages:      payload.RetainedMessages,
+		CompactedTurns:        payload.CompactedTurns,
+		CompactedMessages:     payload.CompactedMessages,
+		SummaryTitle:          payload.SummaryTitle,
+		SummaryPreview:        payload.SummaryPreview,
+		SummaryText:           payload.SummaryText,
+		SummaryBytes:          payload.SummaryBytes,
+		CacheReadTokens:       payload.CacheReadTokens,
+		InputTokens:           payload.InputTokens,
+		CacheCreateTokens:     payload.CacheCreateTokens,
+		PromptTokens:          payload.PromptTokens,
+		RawPromptTokens:       payload.RawPromptTokens,
+		ContextTokens:         payload.ContextTokens,
+		TotalTokens:           payload.TotalTokens,
+		Truncated:             payload.Truncated,
+		ContextWindow:         payload.ContextWindow,
+		ContextUsagePercent:   payload.ContextUsagePercent,
+		CompactionThreshold:   payload.CompactionThreshold,
+		EstimatorPadTokens:    payload.EstimatorPadTokens,
+		Status:                payload.Status,
+		Mode:                  payload.Mode,
+		BeforePromptTokens:    payload.BeforePromptTokens,
+		BeforeRawPromptTokens: payload.BeforeRawPromptTokens,
+		BeforeUsagePercent:    payload.BeforeUsagePercent,
+		AfterPromptTokens:     payload.AfterPromptTokens,
+		AfterRawPromptTokens:  payload.AfterRawPromptTokens,
+		AfterUsagePercent:     payload.AfterUsagePercent,
+		RetainedRawTurns:      payload.RetainedRawTurns,
+		SummaryTokenBudget:    payload.SummaryTokenBudget,
+		ThresholdAchieved:     payload.ThresholdAchieved,
+		Notes:                 append([]string(nil), payload.Notes...),
 	}
 }
 
@@ -230,6 +241,7 @@ func (payload ContextBudgetEvent) toLegacyContextDiagnostics() ContextDiagnostic
 		BudgetBytes:         payload.BudgetBytes,
 		UsedBytes:           payload.UsedBytes,
 		PromptTokens:        payload.PromptTokens,
+		RawPromptTokens:     payload.RawPromptTokens,
 		ContextTokens:       payload.ContextTokens,
 		TotalTokens:         payload.TotalTokens,
 		Truncated:           payload.Truncated,
@@ -268,41 +280,44 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 	switch payload.Kind {
 	case "compaction":
 		return ContextCompactionEvent{
-			Scope:               payload.Scope,
-			Turn:                payload.Turn,
-			Severity:            payload.Severity,
-			SessionState:        payload.SessionState,
-			CompactionCount:     payload.CompactionCount,
-			RestartGuidance:     payload.RestartGuidance,
-			RetainedTurns:       payload.RetainedTurns,
-			RetainedMessages:    payload.RetainedMessages,
-			CompactedTurns:      payload.CompactedTurns,
-			CompactedMessages:   payload.CompactedMessages,
-			SummaryTitle:        payload.SummaryTitle,
-			SummaryPreview:      payload.SummaryPreview,
-			SummaryText:         payload.SummaryText,
-			SummaryBytes:        payload.SummaryBytes,
-			CacheReadTokens:     payload.CacheReadTokens,
-			InputTokens:         payload.InputTokens,
-			CacheCreateTokens:   payload.CacheCreateTokens,
-			PromptTokens:        payload.PromptTokens,
-			ContextTokens:       payload.ContextTokens,
-			TotalTokens:         payload.TotalTokens,
-			Truncated:           payload.Truncated,
-			ContextWindow:       payload.ContextWindow,
-			ContextUsagePercent: payload.ContextUsagePercent,
-			CompactionThreshold: payload.CompactionThreshold,
-			EstimatorPadTokens:  payload.EstimatorPadTokens,
-			Status:              payload.Status,
-			Mode:                payload.Mode,
-			BeforePromptTokens:  payload.BeforePromptTokens,
-			BeforeUsagePercent:  payload.BeforeUsagePercent,
-			AfterPromptTokens:   payload.AfterPromptTokens,
-			AfterUsagePercent:   payload.AfterUsagePercent,
-			RetainedRawTurns:    payload.RetainedRawTurns,
-			SummaryTokenBudget:  payload.SummaryTokenBudget,
-			ThresholdAchieved:   payload.ThresholdAchieved,
-			Notes:               append([]string(nil), payload.Notes...),
+			Scope:                 payload.Scope,
+			Turn:                  payload.Turn,
+			Severity:              payload.Severity,
+			SessionState:          payload.SessionState,
+			CompactionCount:       payload.CompactionCount,
+			RestartGuidance:       payload.RestartGuidance,
+			RetainedTurns:         payload.RetainedTurns,
+			RetainedMessages:      payload.RetainedMessages,
+			CompactedTurns:        payload.CompactedTurns,
+			CompactedMessages:     payload.CompactedMessages,
+			SummaryTitle:          payload.SummaryTitle,
+			SummaryPreview:        payload.SummaryPreview,
+			SummaryText:           payload.SummaryText,
+			SummaryBytes:          payload.SummaryBytes,
+			CacheReadTokens:       payload.CacheReadTokens,
+			InputTokens:           payload.InputTokens,
+			CacheCreateTokens:     payload.CacheCreateTokens,
+			PromptTokens:          payload.PromptTokens,
+			RawPromptTokens:       payload.RawPromptTokens,
+			ContextTokens:         payload.ContextTokens,
+			TotalTokens:           payload.TotalTokens,
+			Truncated:             payload.Truncated,
+			ContextWindow:         payload.ContextWindow,
+			ContextUsagePercent:   payload.ContextUsagePercent,
+			CompactionThreshold:   payload.CompactionThreshold,
+			EstimatorPadTokens:    payload.EstimatorPadTokens,
+			Status:                payload.Status,
+			Mode:                  payload.Mode,
+			BeforePromptTokens:    payload.BeforePromptTokens,
+			BeforeRawPromptTokens: payload.BeforeRawPromptTokens,
+			BeforeUsagePercent:    payload.BeforeUsagePercent,
+			AfterPromptTokens:     payload.AfterPromptTokens,
+			AfterRawPromptTokens:  payload.AfterRawPromptTokens,
+			AfterUsagePercent:     payload.AfterUsagePercent,
+			RetainedRawTurns:      payload.RetainedRawTurns,
+			SummaryTokenBudget:    payload.SummaryTokenBudget,
+			ThresholdAchieved:     payload.ThresholdAchieved,
+			Notes:                 append([]string(nil), payload.Notes...),
 		}
 	case "session_health":
 		return ContextSessionHealthEvent{
@@ -321,6 +336,7 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			UsedBytes:           payload.UsedBytes,
 			BudgetBytes:         payload.BudgetBytes,
 			PromptTokens:        payload.PromptTokens,
+			RawPromptTokens:     payload.RawPromptTokens,
 			ContextTokens:       payload.ContextTokens,
 			TotalTokens:         payload.TotalTokens,
 			Truncated:           payload.Truncated,

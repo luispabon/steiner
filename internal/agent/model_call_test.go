@@ -698,11 +698,12 @@ func TestExecuteChatRequestCapturesPromptEstimate(t *testing.T) {
 		Model:    "gpt-4o",
 		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 	}
-	beforeCall, err := provider.EstimateChatRequestTokens(context.Background(), request)
+	beforeEstimate, err := provider.EstimateChatRequestTokenEstimate(context.Background(), request)
 	if err != nil {
-		t.Fatalf("EstimateChatRequestTokens() before call error = %v", err)
+		t.Fatalf("EstimateChatRequestTokenEstimate() before call error = %v", err)
 	}
-	if beforeCall <= 0 {
+	beforeCall := beforeEstimate.Tokens
+	if beforeCall <= 0 || beforeEstimate.RawTokens <= 0 {
 		t.Fatalf("pre-call estimate = %d, want positive estimate", beforeCall)
 	}
 
@@ -734,6 +735,9 @@ func TestExecuteChatRequestCapturesPromptEstimate(t *testing.T) {
 	}
 	if event.EstimatedPromptTokens != beforeCall {
 		t.Fatalf("estimated prompt tokens = %d, want pre-call estimate %d", event.EstimatedPromptTokens, beforeCall)
+	}
+	if event.RawPromptTokens != beforeEstimate.RawTokens {
+		t.Fatalf("raw prompt tokens = %d, want pre-call raw estimate %d", event.RawPromptTokens, beforeEstimate.RawTokens)
 	}
 	if event.EstimatedPromptTokens == afterResponse {
 		t.Fatalf("estimated prompt tokens = %d, want not post-response calibrated estimate %d", event.EstimatedPromptTokens, afterResponse)

@@ -401,7 +401,7 @@ func populateBenchModel(m *Model) {
 	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "The user asked for optimization suggestions. I identified three key areas and proposed solutions.", output.ChunkSourceAssistant)})
 
 	// Context token budget
-	updateModelDirect(m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 500, 4096, 2, 70, 32, 600, "ok", false)})
+	updateModelDirect(m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 500, 500, 4096, 2, 70, 32, 600, "ok", false)})
 }
 
 // populateBenchModelHeavy populates a Model with ~100 fixture events of mixed types:
@@ -476,5 +476,5 @@ func populateBenchModelHeavy(m *Model) {
 		}
 	}
 
-	updateModelDirect(m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 500, 4096, 2, 70, 32, 600, "ok", false)})
+	updateModelDirect(m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 500, 500, 4096, 2, 70, 32, 600, "ok", false)})
 }

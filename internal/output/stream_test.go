@@ -133,7 +133,7 @@ func TestPlainRendererFormatsContextDiagnosticsEvents(t *testing.T) {
 	}))
 	renderer.OnEvent(NewContextSessionHealthEvent("conversation", 4, 2, "warning", "fragile", "restart soon in a fresh session; repeated compaction is making retention fragile"))
 	renderer.OnEvent(NewContextBudgetEvent("project_context", 4, 900, 512, true, "trimmed extra files"))
-	renderer.OnEvent(NewContextTokenBudgetEvent("conversation", 4, 1682, 65536, 3, 70, 16384, 22162, "ok", false))
+	renderer.OnEvent(NewContextTokenBudgetEvent("conversation", 4, 1682, 1682, 65536, 3, 70, 16384, 22162, "ok", false))
 	renderer.OnEvent(NewFileAnnotationEvent(5, "note.txt", "annotated", "unchanged since turn 2", 2, "range=lines 1-3/3"))
 
 	got := buf.String()
@@ -316,7 +316,7 @@ func TestPlainRendererExecBaseline(t *testing.T) {
 	renderer := NewPlainRenderer(&buf)
 
 	renderer.OnEvent(NewUserInputEvent("fix the bug", "exec", nil))
-	renderer.OnEvent(NewAPIRequestEvent("test-model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0))
+	renderer.OnEvent(NewAPIRequestEvent("test-model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0))
 	renderer.OnEvent(NewAPIResponseEvent(nil, nil, "stop", nil))
 	renderer.OnEvent(NewStopReasonEvent(1, "complete", nil))
 
@@ -349,7 +349,7 @@ func TestSummarizeInspectionBuildsConciseSnapshot(t *testing.T) {
 			SummaryBytes:       144,
 		}),
 		NewStopReasonEvent(2, "max_tokens", nil),
-		NewContextTokenBudgetEvent("conversation", 2, 1682, 65536, 3, 70, 16384, 22162, "ok", false),
+		NewContextTokenBudgetEvent("conversation", 2, 1682, 1682, 65536, 3, 70, 16384, 22162, "ok", false),
 	}
 
 	got := summarizeInspection(events, 2)
