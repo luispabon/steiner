@@ -2426,7 +2426,7 @@ func TestCalibratedToolDeltaRoundsAndFallsBackForZeroRaw(t *testing.T) {
 		delta, previousRaw, calibrated int
 		want                           int
 	}{
-		{name: "ratio rounds", delta: 5, previousRaw: 6, calibrated: 5, want: 4},
+		{name: "ratio rounds", delta: 5, previousRaw: 9, calibrated: 5, want: 3},
 		{name: "zero raw uses raw delta", delta: 7, previousRaw: 0, calibrated: 5, want: 7},
 	}
 	for _, tc := range tests {
