@@ -14,7 +14,12 @@ func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath str
 	hasWhitespaceMismatch := normalizedWhitespaceMatchExists(content, oldText)
 	if hasWhitespaceMismatch {
 		lines = append(lines, fmt.Sprintf("%s: exact match failed; normalized whitespace match exists", prefix))
+
 		if matchedText, _, ok := extractNormalizedMatch(content, oldText); ok {
+			kind, details := classifyWhitespaceMismatch(oldText, matchedText)
+			if kind != "" {
+				lines = append(lines, fmt.Sprintf("%s: %s: %s", prefix, kind, details))
+			}
 			lines = append(lines, fmt.Sprintf("%s: file text that matches after whitespace normalization:", prefix))
 			for _, l := range strings.Split(matchedText, "\n") {
 				lines = append(lines, "  | "+l)
@@ -77,6 +82,115 @@ func extractNormalizedMatch(content []byte, oldText string) (matchedText string,
 		}
 	}
 	return "", 0, false
+}
+
+func classifyWhitespaceMismatch(oldText string, matchedRegion string) (kind string, details string) {
+	oldLines := strings.Split(strings.TrimRight(oldText, "\n"), "\n")
+	regionLines := strings.Split(strings.TrimRight(matchedRegion, "\n"), "\n")
+
+	oldNonBlank := []string{}
+	for _, l := range oldLines {
+		if strings.TrimSpace(l) != "" {
+			oldNonBlank = append(oldNonBlank, l)
+		}
+	}
+	regionNonBlank := []string{}
+	for _, l := range regionLines {
+		if strings.TrimSpace(l) != "" {
+			regionNonBlank = append(regionNonBlank, l)
+		}
+	}
+
+	if len(oldNonBlank) != len(regionNonBlank) {
+		return "blank-line-count", fmt.Sprintf("old_string has %d blank lines where the file has %d", countBlankLines(oldLines), countBlankLines(regionLines))
+	}
+
+	for i, ol := range oldNonBlank {
+		if strings.TrimSpace(ol) != strings.TrimSpace(regionNonBlank[i]) {
+			return "internal-whitespace", "the lines match except for spacing within them"
+		}
+	}
+
+	deltas := make([]int, len(oldNonBlank))
+	for i, ol := range oldNonBlank {
+		oldLead := leadingWhitespaceLength(ol)
+		regionLead := leadingWhitespaceLength(regionNonBlank[i])
+		deltas[i] = regionLead - oldLead
+	}
+
+	uniform := true
+	if len(deltas) > 0 {
+		first := deltas[0]
+		for _, d := range deltas[1:] {
+			if d != first {
+				uniform = false
+				break
+			}
+		}
+	}
+
+	deltasStr := formatIndentationDelta(deltas, oldNonBlank, regionNonBlank)
+	if uniform {
+		return "leading-indentation-uniform", "all lines shifted uniformly: " + deltasStr
+	}
+	return "leading-indentation-nonuniform", "lines shifted non-uniformly (model picture of nesting is inconsistent): " + deltasStr
+}
+
+func countBlankLines(lines []string) int {
+	count := 0
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			count++
+		}
+	}
+	return count
+}
+
+func leadingWhitespaceLength(line string) int {
+	leading := strings.TrimLeft(line, " \t")
+	return len(line) - len(leading)
+}
+
+func formatIndentationDelta(deltas []int, oldNonBlank, regionNonBlank []string) string {
+	if len(deltas) == 0 {
+		return ""
+	}
+	if len(deltas) == 1 {
+		oldIndent := describeIndent(oldNonBlank[0])
+		regionIndent := describeIndent(regionNonBlank[0])
+		return fmt.Sprintf("line has %s, old_string has %s", regionIndent, oldIndent)
+	}
+	examples := []string{}
+	for i := range deltas {
+		if i >= 2 {
+			break
+		}
+		oldIndent := describeIndent(oldNonBlank[i])
+		regionIndent := describeIndent(regionNonBlank[i])
+		examples = append(examples, fmt.Sprintf("line %d: file has %s, old_string has %s", i+1, regionIndent, oldIndent))
+	}
+	return strings.Join(examples, "; ")
+}
+
+func describeIndent(line string) string {
+	s := strings.TrimLeft(line, " \t")
+	indent := line[:len(line)-len(s)]
+	tabs := strings.Count(indent, "\t")
+	spaces := strings.Count(indent, " ")
+	if tabs > 0 && spaces > 0 {
+		return fmt.Sprintf("%d tabs + %d spaces", tabs, spaces)
+	}
+	if tabs > 0 {
+		return fmt.Sprintf("%d %s", tabs, pluralize("tab", tabs))
+	}
+	return fmt.Sprintf("%d %s", spaces, pluralize("space", spaces))
+}
+
+func pluralize(s string, n int) string {
+	if n == 1 {
+		return s
+	}
+	return s + "s"
 }
 
 func isStructuralOnlyCandidate(candidate string) bool {
