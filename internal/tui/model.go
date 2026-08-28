@@ -162,6 +162,7 @@ type Model struct {
 	reasoningBatchResolved       bool
 	planPicker                   planPickerOverlay
 	accentPicker                 accentPickerOverlay
+	profilePicker                profilePickerOverlay
 	contextOverlay               contextOverlayState
 	exitModal                    exitModalState
 	workflowHandoff              workflowHandoffModalState
@@ -187,6 +188,7 @@ type Model struct {
 	dragLastY                    int
 	lastWheelMouseAt             time.Time
 	primaryModel                 string
+	profileNames                 []string
 	imageMarkers                 []imageMarker
 	oneshotRunning               bool
 	oneshotPhase                 string

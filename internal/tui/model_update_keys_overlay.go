@@ -204,6 +204,27 @@ func (m *Model) handleAccentPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
+func (m *Model) handleProfilePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
+	case tea.KeyEsc:
+		m.profilePicker = m.profilePicker.Close()
+		m.input.Reset()
+		m.historyIdx = 0
+	case tea.KeyEnter:
+		if name, ok := m.profilePicker.SelectedName(); ok {
+			m.profilePicker = m.profilePicker.Close()
+			m.input.Reset()
+			m.historyIdx = 0
+			return m.executeSwitchProfileAction(name)
+		}
+	default:
+		var cmd tea.Cmd
+		m.profilePicker, cmd = m.profilePicker.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
 //nolint:unparam // tea.Model result is unused: handlers mutate the receiver in place and the overlay dispatcher keeps its own *Model.
 func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
