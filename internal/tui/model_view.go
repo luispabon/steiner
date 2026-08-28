@@ -295,21 +295,32 @@ func (m *Model) applyInputStyles() {
 }
 
 // renderInputView memoizes the composer render, keyed on every model field
-// the input render path reads, plus the render dimensions. Any write to any
-// of those inputs, from anywhere, changes the key and forces a fresh render:
-// the composer is re-rendered on every frame, and a missed input would serve
-// a stale composer indefinitely. The cursor is styled with Blink: false, so
-// there is no tick/time dependency and the key needs no timestamp.
+// the input render path reads, plus the render dimensions and blink state.
+// The blink state changes on every 500ms tick, invalidating the cache.
+// Any write to any of those inputs, from anywhere, changes the key and forces
+// a fresh render: the composer is re-rendered on every frame, and a missed
+// input would serve a stale composer indefinitely.
 func (m *Model) renderInputView(contentWidth int) string {
+	cursorLine := m.input.Line()
+	cursorCol := m.input.Column()
+
+	// Reset blink phase to visible when the cursor moves
+	if cursorLine != m.lastCursorLine || cursorCol != m.lastCursorCol {
+		m.composerBlinkOn = true
+		m.lastCursorLine = cursorLine
+		m.lastCursorCol = cursorCol
+	}
+
 	key := inputViewCacheKey{
 		contentWidth:   contentWidth,
 		height:         m.height,
 		value:          m.input.Value(),
-		cursorLine:     m.input.Line(),
-		cursorColumn:   m.input.Column(),
+		cursorLine:     cursorLine,
+		cursorColumn:   cursorCol,
 		placeholder:    m.input.Placeholder,
 		oneshotRunning: m.oneshotRunning,
 		styles:         m.styles,
+		cursorBlinkOn:  m.composerBlinkOn,
 	}
 	if m.inputViewCacheSet && m.inputViewCacheKey == key && slices.Equal(m.inputViewCacheSkills, m.skillNames) {
 		return m.inputViewCacheRendered
@@ -326,24 +337,28 @@ func (m *Model) renderInputViewUncached(contentWidth int) string {
 	bar := m.styles.UserBar.Render("┃")
 	bodyWidth := max(1, contentWidth-inputRailWidth)
 	innerWidth := m.inputInnerWidth(contentWidth)
-	lines, isPlaceholder, cursorRow := m.renderInputLines(innerWidth)
+	lines, isPlaceholder, cursorRow, cursorCol := m.renderInputLines(innerWidth)
 	if isPlaceholder {
-		return m.renderPlaceholderInputView(bar, bodyWidth, lines)
+		return m.renderPlaceholderInputView(bar, bodyWidth, innerWidth, lines)
 	}
-	return m.renderNormalInputView(contentWidth, bar, bodyWidth, innerWidth, lines, cursorRow)
+	return m.renderNormalInputView(contentWidth, bar, bodyWidth, innerWidth, lines, cursorRow, cursorCol)
 }
 
-func (m *Model) renderPlaceholderInputView(bar string, bodyWidth int, lines []string) string {
+func (m *Model) renderPlaceholderInputView(bar string, bodyWidth int, innerWidth int, lines []string) string {
 	var sb strings.Builder
 	paddingLine := bar + m.styles.UserBg.Width(bodyWidth).Render("")
 	for range inputPadY {
 		sb.WriteString(paddingLine + "\n")
 	}
-	for _, line := range lines {
-		content := m.styles.UserBg.
+	for i, line := range lines {
+		renderedLine := m.styles.UserBg.
 			Foreground(lipgloss.Color(theme.FgDim)).
-			Width(bodyWidth).
-			Render(strings.Repeat(" ", inputPadX) + line + strings.Repeat(" ", inputPadX))
+			Width(innerWidth).
+			Render(line)
+		if i == 0 {
+			renderedLine = applyComposerCursorAnsi(renderedLine, 0, m.composerBlinkOn)
+		}
+		content := m.styles.UserBg.Width(bodyWidth).Render(strings.Repeat(" ", inputPadX) + renderedLine + strings.Repeat(" ", inputPadX))
 		sb.WriteString(bar + content + "\n")
 	}
 	for range inputPadY {
@@ -352,10 +367,11 @@ func (m *Model) renderPlaceholderInputView(bar string, bodyWidth int, lines []st
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func (m *Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, innerWidth int, lines []string, cursorRow int) string {
+func (m *Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, innerWidth int, lines []string, cursorRow, cursorCol int) string {
 	maxVisible := m.maxVisibleInputLines(contentWidth)
+	start := 0
 	if len(lines) > maxVisible {
-		start := max(0, cursorRow-maxVisible/2)
+		start = max(0, cursorRow-maxVisible/2)
 		if start+maxVisible > len(lines) {
 			start = len(lines) - maxVisible
 		}
@@ -369,13 +385,10 @@ func (m *Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, i
 	}
 	for i, line := range lines {
 		renderedLine := line
-		if i == 0 {
+		if i+start == cursorRow {
 			if cmdPrefix, ok := matchCommandPrefix(m.input.Value(), m.skillNames, m.oneshotRunning); ok {
-				cursorStr := string(cursorChar)
-				lineNoCursor := strings.ReplaceAll(line, cursorStr, "")
-				if strings.HasPrefix(lineNoCursor, cmdPrefix) {
-					cursorIdx := strings.Index(line, cursorStr)
-					if cursorIdx < 0 || cursorIdx >= len(cmdPrefix) {
+				if strings.HasPrefix(line, cmdPrefix) {
+					if cursorCol >= len(cmdPrefix) {
 						prefix := m.styles.CommandPrefixStyle.Render(cmdPrefix)
 
 						restText := line[len(cmdPrefix):]
@@ -395,6 +408,10 @@ func (m *Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, i
 		if renderedLine == line {
 			renderedLine = renderInputLine(line, innerWidth, m.styles.ImageMarkerStyle)
 		}
+		renderedLine = m.styles.UserBg.Width(innerWidth).Render(renderedLine)
+		if i+start == cursorRow {
+			renderedLine = applyComposerCursorAnsi(renderedLine, cursorCol, m.composerBlinkOn)
+		}
 		content := m.styles.UserBg.Width(bodyWidth).Render(strings.Repeat(" ", inputPadX) + renderedLine + strings.Repeat(" ", inputPadX))
 		sb.WriteString(bar + content + "\n")
 	}
@@ -406,7 +423,7 @@ func (m *Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, i
 
 func (m *Model) inputChromeHeight(contentWidth int) int {
 	innerWidth := m.inputInnerWidth(contentWidth)
-	lines, isPlaceholder, _ := m.renderInputLines(innerWidth)
+	lines, isPlaceholder, _, _ := m.renderInputLines(innerWidth)
 	visibleLines := len(lines)
 	if !isPlaceholder {
 		visibleLines = min(visibleLines, m.maxVisibleInputLines(contentWidth))
@@ -435,15 +452,15 @@ func (m *Model) inputInnerWidth(contentWidth int) int {
 	return max(1, contentWidth-inputRailWidth-(inputPadX*2)-inputTailFill)
 }
 
-func (m *Model) renderInputLines(innerWidth int) ([]string, bool, int) {
+func (m *Model) renderInputLines(innerWidth int) ([]string, bool, int, int) {
 	if m.input.Value() != "" {
-		lines, cursorRow := m.renderTypedInputLines(innerWidth)
-		return lines, false, cursorRow
+		lines, cursorRow, cursorCol := m.renderTypedInputLines(innerWidth)
+		return lines, false, cursorRow, cursorCol
 	}
-	return renderPlaceholderLines(m.input.Placeholder, innerWidth), true, 0
+	return renderPlaceholderLines(m.input.Placeholder, innerWidth), true, 0, 0
 }
 
-func (m *Model) renderTypedInputLines(width int) ([]string, int) {
+func (m *Model) renderTypedInputLines(width int) ([]string, int, int) {
 	if width < 1 {
 		width = 1
 	}
@@ -462,6 +479,7 @@ func (m *Model) renderTypedInputLines(width int) ([]string, int) {
 	}
 
 	cursorDisplayRow := 0
+	cursorDisplayCol := 0
 	lines := make([]string, 0, len(valueLines))
 	for i, valueLine := range valueLines {
 		wrapped := wrapComposerLine(valueLine, width)
@@ -483,11 +501,11 @@ func (m *Model) renderTypedInputLines(width int) ([]string, int) {
 				col -= visibleLen
 			}
 			cursorDisplayRow = len(lines) + row
-			wrapped[row] = insertComposerCursorAnsi(wrapped[row], col)
+			cursorDisplayCol = col
 		}
 		lines = append(lines, wrapped...)
 	}
-	return lines, cursorDisplayRow
+	return lines, cursorDisplayRow, cursorDisplayCol
 }
 
 func wrapComposerLine(line string, width int) []string {
@@ -502,18 +520,24 @@ func wrapComposerLine(line string, width int) []string {
 	return strings.Split(wrapped, "\n")
 }
 
-// cursorChar is the block cursor character used for the composer cursor.
-const cursorChar = '█'
-
 // stripTrailingReset removes the trailing ANSI reset sequence added by lipgloss Style.Render.
 func stripTrailingReset(s string) string {
 	s = strings.TrimSuffix(s, "\x1b[0m")
 	return strings.TrimSuffix(s, "\x1b[m")
 }
 
-// insertComposerCursorAnsi inserts the cursor character at the given visible column
-// position in a string that may contain ANSI escape sequences.
-func insertComposerCursorAnsi(s string, pos int) string {
+// applyComposerCursorAnsi highlights the character at the given visible
+// column position in an ANSI-styled string using reverse video (SGR 7/27),
+// so the cursor overlays the existing glyph instead of displacing it. SGR
+// 7/27 compose with whatever styling is already active and scope off
+// cleanly without emitting a reset, unlike a lipgloss-rendered span (see
+// stripTrailingReset for why that distinction matters in this file).
+// When on is false the string is returned with no highlight applied at all
+// (the character renders in its normal, already-applied style).
+func applyComposerCursorAnsi(s string, pos int, on bool) string {
+	if !on {
+		return s
+	}
 	if pos < 0 {
 		pos = 0
 	}
@@ -521,6 +545,7 @@ func insertComposerCursorAnsi(s string, pos int) string {
 	currentCol := 0
 	inEsc := false
 	var escSeq strings.Builder
+	placed := false
 	for _, r := range s {
 		if inEsc {
 			escSeq.WriteRune(r)
@@ -537,13 +562,17 @@ func insertComposerCursorAnsi(s string, pos int) string {
 			continue
 		}
 		if currentCol == pos {
-			result.WriteRune(cursorChar)
+			placed = true
+			result.WriteString("[7m")
+			result.WriteRune(r)
+			result.WriteString("[27m")
+		} else {
+			result.WriteRune(r)
 		}
-		result.WriteRune(r)
 		currentCol++
 	}
-	if currentCol == pos {
-		result.WriteRune(cursorChar)
+	if !placed {
+		result.WriteString("[7m [27m")
 	}
 	return result.String()
 }
@@ -571,11 +600,5 @@ func renderPlaceholderLines(placeholder string, width int) []string {
 	if len(lines) == 0 {
 		lines = []string{""}
 	}
-	cursorWidth := max(0, width-1)
-	firstLine := lines[0]
-	if cursorWidth == 0 {
-		firstLine = ""
-	}
-	lines[0] = "█" + lipgloss.NewStyle().Width(cursorWidth).Render(firstLine)
 	return lines
 }

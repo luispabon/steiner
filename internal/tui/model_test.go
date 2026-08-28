@@ -3130,7 +3130,7 @@ func TestModelRenderInputLinesUsesLocalCursor(t *testing.T) {
 	m.input.SetValue("asdasd")
 	m.input.SetCursorColumn(len([]rune("asdasd")))
 
-	lines, placeholder, _ := m.renderInputLines(20)
+	lines, placeholder, cursorRow, cursorCol := m.renderInputLines(20)
 
 	if placeholder {
 		t.Fatal("expected typed input, not placeholder")
@@ -3138,8 +3138,14 @@ func TestModelRenderInputLinesUsesLocalCursor(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("line count = %d, want 1", len(lines))
 	}
-	if got := lines[0]; got != "asdasd█" {
-		t.Fatalf("line = %q, want %q", got, "asdasd█")
+	if cursorRow != 0 || cursorCol != 6 {
+		t.Fatalf("cursor at row %d col %d, want row 0 col 6", cursorRow, cursorCol)
+	}
+	// Verify the plain text (ANSI stripped) has no glyph appended
+	plainText := strings.TrimSpace(strings.ReplaceAll(ansi.Strip(lines[0]), "\x1b[7m", ""))
+	plainText = strings.ReplaceAll(plainText, "\x1b[27m", "")
+	if plainText != "asdasd" {
+		t.Fatalf("line plain text = %q, want %q", plainText, "asdasd")
 	}
 }
 
@@ -3176,21 +3182,10 @@ func TestModelCursorInHardwrappedInput(t *testing.T) {
 			// Not parallel: subtests share and mutate m.input's cursor
 			// position, which is unsafe to do concurrently.
 			m.input.SetCursorColumn(tt.absPos)
-			lines, _ := m.renderTypedInputLines(innerWidth)
+			lines, cursorRow, cursorCol := m.renderTypedInputLines(innerWidth)
 
-			cursorRow := -1
-			cursorCol := -1
-			for i, line := range lines {
-				if idx := strings.Index(line, "█"); idx >= 0 {
-					if cursorRow >= 0 {
-						t.Fatal("multiple cursor markers found")
-					}
-					cursorRow = i
-					cursorCol = idx
-				}
-			}
-			if cursorRow < 0 {
-				t.Fatal("no cursor marker found")
+			if cursorRow < 0 || cursorRow >= len(lines) {
+				t.Fatalf("cursor row = %d, out of range [0, %d)", cursorRow, len(lines))
 			}
 			if cursorRow != tt.wantSeg {
 				t.Fatalf("cursor row = %d, want %d", cursorRow, tt.wantSeg)
@@ -3218,21 +3213,10 @@ func TestModelCursorInHardwrappedInputWithLeftArrow(t *testing.T) {
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyLeft})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyLeft})
 
-	lines, _ := m.renderTypedInputLines(innerWidth)
+	lines, cursorRow, cursorCol := m.renderTypedInputLines(innerWidth)
 
-	cursorRow := -1
-	cursorCol := -1
-	for i, line := range lines {
-		if idx := strings.Index(line, "█"); idx >= 0 {
-			if cursorRow >= 0 {
-				t.Fatal("multiple cursor markers found")
-			}
-			cursorRow = i
-			cursorCol = idx
-		}
-	}
-	if cursorRow < 0 {
-		t.Fatal("no cursor marker found")
+	if cursorRow < 0 || cursorRow >= len(lines) {
+		t.Fatalf("cursor row = %d, out of range [0, %d)", cursorRow, len(lines))
 	}
 	// Cursor at position 47: second segment (36-based), offset 11
 	if cursorRow != 1 {
@@ -3259,6 +3243,134 @@ func TestContentBufferReflowsMarkdownForViewportWidth(t *testing.T) {
 	}
 	if narrow == wide {
 		t.Fatalf("markdown render did not change across widths:\n%s", narrow)
+	}
+}
+
+func TestApplyComposerCursorAnsi(t *testing.T) {
+	tests := []struct {
+		name            string
+		input           string
+		pos             int
+		on              bool
+		wantContains    []string
+		wantNotContains string
+	}{
+		{
+			name:         "cursor off returns input unchanged",
+			input:        "hello",
+			pos:          2,
+			on:           false,
+			wantContains: []string{"hello"},
+		},
+		{
+			name:         "cursor at position 0",
+			input:        "hello",
+			pos:          0,
+			on:           true,
+			wantContains: []string{"\x1b[7m", "h", "\x1b[27m"},
+		},
+		{
+			name:         "cursor at mid position",
+			input:        "hello",
+			pos:          2,
+			on:           true,
+			wantContains: []string{"\x1b[7m", "l", "\x1b[27m"},
+		},
+		{
+			name:         "cursor at end of string",
+			input:        "hello",
+			pos:          5,
+			on:           true,
+			wantContains: []string{"h", "e", "l", "l", "o", "\x1b[7m", "\x1b[27m"},
+		},
+		{
+			name:         "cursor past end appends space",
+			input:        "hello",
+			pos:          10,
+			on:           true,
+			wantContains: []string{"\x1b[7m", " ", "\x1b[27m"},
+		},
+		{
+			name:         "cursor with negative position clamps to 0",
+			input:        "hello",
+			pos:          -5,
+			on:           true,
+			wantContains: []string{"\x1b[7m", "h", "\x1b[27m"},
+		},
+		{
+			name:         "cursor preserves surrounding ANSI codes",
+			input:        "\x1b[31mhello\x1b[0m",
+			pos:          2,
+			on:           true,
+			wantContains: []string{"\x1b[7m", "l", "\x1b[27m", "\x1b[0m"},
+		},
+		{
+			name:         "cursor with styled text preserves styles",
+			input:        "\x1b[32mhe\x1b[0mllo",
+			pos:          2,
+			on:           true,
+			wantContains: []string{"\x1b[7m", "e", "\x1b[27m", "\x1b[0m"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := applyComposerCursorAnsi(tt.input, tt.pos, tt.on)
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(got, want) {
+					t.Errorf("result %q missing expected substring %q", got, want)
+				}
+			}
+
+			if tt.wantNotContains != "" && strings.Contains(got, tt.wantNotContains) {
+				t.Errorf("result %q unexpectedly contains %q", got, tt.wantNotContains)
+			}
+		})
+	}
+}
+
+func TestComposerCursorBoundaryCase(t *testing.T) {
+	// Test the boundary case from A3: when wrapped row is exactly full
+	// and cursor sits at the very end of the typed text (end of last row).
+	// The composer width should be chosen so a wrapped row is exactly full.
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	// With width 40: bodyWidth = 39, innerWidth = 36
+	innerWidth := m.inputInnerWidth(40)
+	if innerWidth != 36 {
+		t.Fatalf("innerWidth = %d, want 36 for this test", innerWidth)
+	}
+
+	// Create a line that exactly fills one row at width 36
+	val := strings.Repeat("x", 36)
+	m.input.SetValue(val)
+	m.input.SetCursorColumn(36)
+
+	lines, isPlaceholder, cursorRow, cursorCol := m.renderInputLines(innerWidth)
+
+	if isPlaceholder {
+		t.Fatal("expected typed input, not placeholder")
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	if cursorRow != 0 {
+		t.Fatalf("cursor row = %d, want 0", cursorRow)
+	}
+	if cursorCol != 36 {
+		t.Fatalf("cursor col = %d, want 36 (at end)", cursorCol)
+	}
+
+	// Render the view to verify the line is not truncated
+	view := m.renderInputView(40)
+	if !strings.Contains(view, "x") {
+		t.Fatal("expected content in rendered view")
+	}
+	// The view should contain the reverse-video escape sequences for the cursor
+	if !strings.Contains(view, "\x1b[7m") || !strings.Contains(view, "\x1b[27m") {
+		t.Fatal("expected cursor SGR codes in rendered view")
 	}
 }
 
