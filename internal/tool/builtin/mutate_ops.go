@@ -93,6 +93,8 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 	case matchCount > 1 && !op.ReplaceAll:
 		return errors.New(buildAmbiguousDiagnostics(fmt.Sprintf("mutate: operation %d replace", index), state.content, op.OldString, matchCount, state.path))
 	}
+	firstMatch := bytes.Index(state.content, oldBytes)
+	anchorLine := lineNumberAt(state.content, firstMatch)
 	before := string(state.content)
 	if op.ReplaceAll {
 		state.content = bytes.ReplaceAll(state.content, oldBytes, []byte(op.NewString))
@@ -101,10 +103,6 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 	}
 	state.touched = true
 	p.result.Modified = appendUnique(p.result.Modified, state.displayPath)
-	anchorLine := 1
-	if firstMatch := bytes.Index([]byte(before), oldBytes); firstMatch >= 0 {
-		anchorLine = lineNumberAtOffset([]byte(before), firstMatch)
-	}
 	if err := p.recordTextOperation(index, op, state, matchCount, anchorLine); err != nil {
 		return err
 	}
@@ -247,17 +245,4 @@ func buildMutateContext(content []byte, anchorLine int) *MutateContextResult {
 		Content:    strings.Join(lines[start-1:end], ""),
 		Truncated:  start > 1 || end < totalLines,
 	}
-}
-
-func lineNumberAtOffset(content []byte, offset int) int {
-	if offset <= 0 {
-		return 1
-	}
-	line := 1
-	for i := 0; i < offset && i < len(content); i++ {
-		if content[i] == '\n' {
-			line++
-		}
-	}
-	return line
 }
