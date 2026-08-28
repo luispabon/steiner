@@ -66,6 +66,9 @@ func TestBuildContextReportUsesCapturedPromptTokens(t *testing.T) {
 	if !strings.Contains(report, "| request framing | 1142 |") {
 		t.Fatalf("report = %q, want captured prompt allocation", report)
 	}
+	if !strings.Contains(report, "Prompt usage: `49%`") {
+		t.Fatalf("report = %q, want captured prompt usage", report)
+	}
 }
 
 func TestBuildContextReportFallsBackToEstimatorForLegacySnapshot(t *testing.T) {

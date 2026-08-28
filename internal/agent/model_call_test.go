@@ -3,6 +3,9 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -688,19 +691,30 @@ func TestExecuteChatRequestMarksCompactionRequest(t *testing.T) {
 }
 
 func TestExecuteChatRequestCapturesPromptEstimate(t *testing.T) {
-	prov := &fakeProvider{
-		chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
-			return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"}}, nil
-		},
-	}
+	restore := provider.SwapDefaultTokenCounter(provider.NewTokenCounter())
+	defer restore()
+
 	request := provider.ChatRequest{
 		Model:    "gpt-4o",
 		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 	}
-	expected, err := provider.EstimateChatRequestTokens(context.Background(), request)
+	beforeCall, err := provider.EstimateChatRequestTokens(context.Background(), request)
 	if err != nil {
-		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+		t.Fatalf("EstimateChatRequestTokens() before call error = %v", err)
 	}
+	if beforeCall <= 0 {
+		t.Fatalf("pre-call estimate = %d, want positive estimate", beforeCall)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":%d}}`, beforeCall*2)
+	}))
+	defer server.Close()
+	prov, err := provider.NewOpenAICompat(provider.ClientConfig{BaseURL: server.URL, Model: request.Model})
+	if err != nil {
+		t.Fatalf("NewOpenAICompat() error = %v", err)
+	}
+
 	var event output.APIRequestEvent
 	_, _, err = executeChatRequest(context.Background(), prov, 1, request, prompt.ModelTokenBudget{}, output.SinkFunc(func(e output.Event) {
 		if payload, ok := e.Payload.(output.APIRequestEvent); ok {
@@ -710,7 +724,18 @@ func TestExecuteChatRequestCapturesPromptEstimate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeChatRequest() error = %v", err)
 	}
-	if event.EstimatedPromptTokens != expected {
-		t.Fatalf("estimated prompt tokens = %d, want %d", event.EstimatedPromptTokens, expected)
+
+	afterResponse, err := provider.EstimateChatRequestTokens(context.Background(), request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() after response error = %v", err)
+	}
+	if afterResponse == beforeCall {
+		t.Fatalf("post-response estimate = %d, want calibration to change estimate from %d", afterResponse, beforeCall)
+	}
+	if event.EstimatedPromptTokens != beforeCall {
+		t.Fatalf("estimated prompt tokens = %d, want pre-call estimate %d", event.EstimatedPromptTokens, beforeCall)
+	}
+	if event.EstimatedPromptTokens == afterResponse {
+		t.Fatalf("estimated prompt tokens = %d, want not post-response calibrated estimate %d", event.EstimatedPromptTokens, afterResponse)
 	}
 }

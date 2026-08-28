@@ -23,6 +23,16 @@ const (
 
 var defaultTokenCounter TokenCounter = NewTokenCounter()
 
+// SwapDefaultTokenCounter replaces the process-wide token counter and returns a
+// restore function. It is intended for scoped test isolation across packages.
+func SwapDefaultTokenCounter(counter TokenCounter) func() {
+	previous := defaultTokenCounter
+	defaultTokenCounter = counter
+	return func() {
+		defaultTokenCounter = previous
+	}
+}
+
 // TokenEstimate carries an estimated token count and the strategy used.
 type TokenEstimate struct {
 	Tokens     int
