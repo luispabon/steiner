@@ -115,16 +115,16 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 func (p *mutatePlanner) planDelete(index int, op MutateOperation) error {
 	state, err := p.stateFor(op.Path)
 	if err != nil {
-		return fmt.Errorf("mutate: operation %d delete: %w", index, err)
+		return fmt.Errorf("mutate: operation %d delete_file: %w", index, err)
 	}
-	if err := p.verifyFileHash(index, "delete", state, op.FileHash); err != nil {
+	if err := p.verifyFileHash(index, "delete_file", state, op.FileHash); err != nil {
 		return err
 	}
 	if !state.exists {
-		return fmt.Errorf("mutate: operation %d delete: %s does not exist", index, state.displayPath)
+		return fmt.Errorf("mutate: operation %d delete_file: %s does not exist", index, state.displayPath)
 	}
 	if state.isDir {
-		return fmt.Errorf("mutate: operation %d delete: %s is a directory", index, state.displayPath)
+		return fmt.Errorf("mutate: operation %d delete_file: %s is a directory", index, state.displayPath)
 	}
 	before := string(state.content)
 	state.exists = false

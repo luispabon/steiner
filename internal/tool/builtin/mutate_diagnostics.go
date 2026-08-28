@@ -35,15 +35,7 @@ func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath str
 	}
 
 	if hasWhitespaceMismatch {
-		suggestLine := anchorLineNum
-		if suggestLine == 0 {
-			suggestLine = matchLineNum
-		}
-		if suggestLine > 0 {
-			lines = append(lines, fmt.Sprintf("%s: suggestion: retry with old_string set to the file text shown above, or use line_replace with line %d", prefix, suggestLine))
-		} else {
-			lines = append(lines, fmt.Sprintf("%s: suggestion: retry with old_string set to the file text shown above", prefix))
-		}
+		lines = append(lines, fmt.Sprintf("%s: suggestion: retry with old_string set to the file text shown above", prefix))
 	} else {
 		lines = append(lines, fmt.Sprintf("%s: suggestion: reread a slightly wider region around the target text", prefix))
 	}

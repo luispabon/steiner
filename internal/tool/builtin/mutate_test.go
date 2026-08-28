@@ -331,8 +331,33 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			wantError: "operations is required",
 		},
 		{
-			name:      "unsupported type",
+			name:      "unsupported type: chmod",
 			input:     map[string]any{"operations": []any{map[string]any{"type": "chmod", "path": "note.txt"}}},
+			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: line_replace (removed)",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "new_string": "x"}}},
+			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: delete_line (removed)",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "delete_line", "path": "note.txt", "line": float64(1)}}},
+			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: insert_before (removed)",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_before", "path": "note.txt", "anchor": "x", "content": "y"}}},
+			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: insert_after (removed)",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_after", "path": "note.txt", "anchor": "x", "content": "y"}}},
+			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: delete (use delete_file)",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "delete", "path": "note.txt"}}},
 			wantError: "unsupported type",
 		},
 		{
@@ -543,6 +568,59 @@ func TestMutateMoveEdgeCases(t *testing.T) {
 		}
 		assertFile(t, filepath.Join(root, "a.txt"), "B\n")
 		assertFile(t, filepath.Join(root, "b.txt"), "A\n")
+	})
+}
+
+func TestMutateReplaceInsertionPatterns(t *testing.T) {
+	t.Run("insert before anchor in middle", func(t *testing.T) {
+		root := t.TempDir()
+		content := "line1\nline2\nline3\n"
+		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "note.txt", "old_string": "line2", "new_string": "inserted\nline2"},
+			},
+		})
+		if got.OperationsFailed != 0 {
+			t.Fatalf("mutate failed: %#v", got)
+		}
+		assertFile(t, filepath.Join(root, "note.txt"), "line1\ninserted\nline2\nline3\n")
+	})
+
+	t.Run("insert after anchor in middle", func(t *testing.T) {
+		root := t.TempDir()
+		content := "line1\nline2\nline3\n"
+		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "note.txt", "old_string": "line2", "new_string": "line2\ninserted"},
+			},
+		})
+		if got.OperationsFailed != 0 {
+			t.Fatalf("mutate failed: %#v", got)
+		}
+		assertFile(t, filepath.Join(root, "note.txt"), "line1\nline2\ninserted\nline3\n")
+	})
+
+	t.Run("insert at end of file with no trailing newline", func(t *testing.T) {
+		root := t.TempDir()
+		content := "line1\nline2"
+		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "note.txt", "old_string": "line2", "new_string": "line2\nline3"},
+			},
+		})
+		if got.OperationsFailed != 0 {
+			t.Fatalf("mutate failed: %#v", got)
+		}
+		assertFile(t, filepath.Join(root, "note.txt"), "line1\nline2\nline3")
 	})
 }
 
@@ -1317,44 +1395,9 @@ func TestMutateRejectsInapplicableFields(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "delete_line with content",
-			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "content": "stuff"},
-			wantErr: `field "content" is not valid`,
-		},
-		{
-			name:    "delete_line with old_string",
-			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "old_string": "hello"},
-			wantErr: `field "old_string" is not valid`,
-		},
-		{
-			name:    "delete_line with new_string",
-			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "new_string": "hello"},
-			wantErr: `field "new_string" is not valid`,
-		},
-		{
-			name:    "delete_line with from",
-			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "from": "a.txt"},
-			wantErr: `field "from" is not valid`,
-		},
-		{
-			name:    "delete with line",
-			op:      map[string]any{"type": "delete_file", "path": "exist.txt", "line": float64(1)},
-			wantErr: `field "line" is not valid`,
-		},
-		{
-			name:    "delete with line_count",
-			op:      map[string]any{"type": "delete_file", "path": "exist.txt", "line_count": float64(2)},
-			wantErr: `field "line_count" is not valid`,
-		},
-		{
 			name:    "delete with content",
 			op:      map[string]any{"type": "delete_file", "path": "exist.txt", "content": "stuff"},
 			wantErr: `field "content" is not valid`,
-		},
-		{
-			name:    "create with line",
-			op:      map[string]any{"type": "create", "path": "new.txt", "content": "x", "line": float64(1)},
-			wantErr: `field "line" is not valid`,
 		},
 		{
 			name:    "create with old_string",
@@ -1370,16 +1413,6 @@ func TestMutateRejectsInapplicableFields(t *testing.T) {
 			name:    "move with content",
 			op:      map[string]any{"type": "move", "from": "exist.txt", "to": "moved.txt", "content": "x"},
 			wantErr: `field "content" is not valid`,
-		},
-		{
-			name:    "move with line",
-			op:      map[string]any{"type": "move", "from": "exist.txt", "to": "moved.txt", "line": float64(1)},
-			wantErr: `field "line" is not valid`,
-		},
-		{
-			name:    "replace with line",
-			op:      map[string]any{"type": "replace", "path": "exist.txt", "old_string": "hello", "new_string": "hi", "line": float64(1)},
-			wantErr: `field "line" is not valid`,
 		},
 		{
 			name:    "replace with from",
@@ -1475,7 +1508,7 @@ func TestMutateValidateRequired(t *testing.T) {
 		{"move missing from", MutateOperation{Type: "move", To: "b"}, "from is required"},
 		{"move missing to", MutateOperation{Type: "move", From: "a"}, "to is required"},
 		{"replace missing path", MutateOperation{Type: "replace", OldString: "a", NewString: "b"}, "path is required"},
-		{"delete missing path", MutateOperation{Type: "delete"}, "path is required"},
+		{"delete_file missing path", MutateOperation{Type: "delete_file"}, "path is required"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1490,20 +1523,36 @@ func TestMutateValidateRequired(t *testing.T) {
 func TestMutateValidCreateAndWriteStillSucceed(t *testing.T) {
 	root := t.TempDir()
 	toolDef := newMutateTestTool(t, root)
-	if err := os.WriteFile(filepath.Join(root, "existing.txt"), []byte("data\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
 	got := runMutate(t, toolDef, map[string]any{
 		"operations": []any{
 			map[string]any{"type": "create", "path": "fresh.txt", "content": "fresh\n"},
-			map[string]any{"type": "write", "path": "existing.txt", "content": "", "allow_empty": true},
+			map[string]any{"type": "write", "path": "another.txt", "content": "written\n"},
 		},
 	})
 	if got.OperationsFailed != 0 || got.OperationsApplied != 2 {
 		t.Fatalf("result = %#v", got)
 	}
 	assertFile(t, filepath.Join(root, "fresh.txt"), "fresh\n")
-	assertFile(t, filepath.Join(root, "existing.txt"), "")
+	assertFile(t, filepath.Join(root, "another.txt"), "written\n")
+}
+
+func TestMutateWriteEmptyToExistingFileReturnsError(t *testing.T) {
+	root := t.TempDir()
+	toolDef := newMutateTestTool(t, root)
+	if err := os.WriteFile(filepath.Join(root, "existing.txt"), []byte("data\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	got := runMutate(t, toolDef, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": "existing.txt", "content": ""},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("expected 1 failed operation, got %d", got.OperationsFailed)
+	}
+	if !strings.Contains(got.Output, "use delete_file") {
+		t.Fatalf("output %q does not suggest delete_file", got.Output)
+	}
 }
 
 func TestMutatePlanPhaseFailureAccounting(t *testing.T) {
@@ -1662,5 +1711,30 @@ func assertFile(t *testing.T, path, want string) {
 	}
 	if got := string(data); got != want {
 		t.Fatalf("%s = %q, want %q", path, got, want)
+	}
+}
+
+func TestMutateSchemaOpTypes(t *testing.T) {
+	schema := MutateSchema()
+	props := schema["properties"].(map[string]any)
+	operations := props["operations"].(map[string]any)
+	items := operations["items"].(map[string]any)
+	itemProps := items["properties"].(map[string]any)
+	typeField := itemProps["type"].(map[string]any)
+	enumVal := typeField["enum"].([]string)
+
+	wantTypes := []string{"create", "delete_file", "move", "replace", "write"}
+	if len(enumVal) != len(wantTypes) {
+		t.Fatalf("schema enum has %d types, want exactly %d", len(enumVal), len(wantTypes))
+	}
+
+	typeMap := make(map[string]bool)
+	for _, t := range enumVal {
+		typeMap[t] = true
+	}
+	for _, want := range wantTypes {
+		if !typeMap[want] {
+			t.Errorf("schema missing type %q", want)
+		}
 	}
 }

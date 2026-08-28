@@ -212,7 +212,7 @@ func TestBuildNoMatchDiagnostics(t *testing.T) {
 		}
 	})
 
-	t.Run("tab vs space with line_replace suggestion", func(t *testing.T) {
+	t.Run("tab vs space with retry suggestion", func(t *testing.T) {
 		content := []byte("check:\n\tgo test ./...\n\tgo vet ./...\n")
 		out := buildNoMatchDiagnostics("edit", content, "check:\n    go test ./...\n    go vet ./...\n", absPath)
 		if !strings.Contains(out, absPath) {
@@ -224,8 +224,8 @@ func TestBuildNoMatchDiagnostics(t *testing.T) {
 		if !strings.Contains(out, "nearest anchor at line") {
 			t.Fatalf("output = %q, want anchor diagnostic", out)
 		}
-		if !strings.Contains(out, "line_replace") {
-			t.Fatalf("output = %q, want line_replace suggestion", out)
+		if !strings.Contains(out, "retry with old_string set to the file text shown above") {
+			t.Fatalf("output = %q, want retry suggestion", out)
 		}
 	})
 }
