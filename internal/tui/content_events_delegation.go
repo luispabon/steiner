@@ -429,21 +429,20 @@ func (b *contentBuffer) dequeuePendingDelegationStartSegment() (delegationLocato
 
 // finalizeActiveDelegation freezes one in-flight delegation as failed. The active
 // map lookup makes repeated or late terminal events a no-op.
-func (b *contentBuffer) finalizeActiveDelegation(agentID string) bool {
+func (b *contentBuffer) finalizeActiveDelegation(agentID string) {
 	loc, active := b.activeDelegations[agentID]
 	if !active {
-		return false
+		return
 	}
 	delete(b.activeDelegations, agentID)
 	if loc.dd == nil {
-		return true
+		return
 	}
 	loc.dd.status = "failed"
 	if loc.dd.elapsed == "" {
 		loc.dd.elapsed = formatElapsed(loc.dd.startTime, nanoNow())
 	}
 	b.markDelegationDirty(loc.seg)
-	return true
 }
 
 func (b *contentBuffer) markDelegationDirty(idx int) {
