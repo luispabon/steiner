@@ -252,15 +252,15 @@ func TestParseInputHandlesProfileCommand(t *testing.T) {
 		if action.switchProfile != "fast" {
 			t.Fatalf("switchProfile = %q, want fast", action.switchProfile)
 		}
-		if action.profileUsage {
-			t.Fatal("profileUsage = true, want false")
+		if action.openProfilePicker {
+			t.Fatal("openProfilePicker = true, want false")
 		}
 	})
 
-	t.Run("without name reports usage", func(t *testing.T) {
+	t.Run("without name opens picker", func(t *testing.T) {
 		action := parseInput("/profile")
-		if !action.profileUsage {
-			t.Fatal("profileUsage = false, want true")
+		if !action.openProfilePicker {
+			t.Fatal("openProfilePicker = false, want true")
 		}
 		if action.switchProfile != "" {
 			t.Fatalf("switchProfile = %q, want empty", action.switchProfile)

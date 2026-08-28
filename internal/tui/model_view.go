@@ -224,7 +224,7 @@ func (m *Model) hasOpenBottomOverlay() bool {
 		m.sessionPicker.IsOpen() || m.oneshotResumePicker.IsOpen() ||
 		(m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff()) ||
 		m.reasoningPicker.IsOpen() ||
-		m.planPicker.IsOpen() || m.accentPicker.IsOpen()
+		m.planPicker.IsOpen() || m.accentPicker.IsOpen() || m.profilePicker.IsOpen()
 }
 
 func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
@@ -264,6 +264,9 @@ func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) stri
 	}
 	if m.accentPicker.IsOpen() {
 		base = m.accentPicker.PlaceBottomAnchoredAt(base, m.accentPicker.View(), offset, xOffset)
+	}
+	if m.profilePicker.IsOpen() {
+		base = m.profilePicker.PlaceBottomAnchoredAt(base, m.profilePicker.View(), offset, xOffset)
 	}
 	return base
 }
