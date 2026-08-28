@@ -19,7 +19,7 @@ type inputAction struct {
 	toggleSkill                string
 	toggleEnable               bool
 	switchProfile              string
-	profileUsage               bool
+	openProfilePicker          bool
 	switchModel                string
 	setAccent                  string
 	toggleThinking             bool
@@ -173,7 +173,7 @@ func handleModel(rest string, _ map[string]bool) (inputAction, bool) {
 
 func handleProfile(rest string, _ map[string]bool) (inputAction, bool) {
 	if rest == "" {
-		return inputAction{profileUsage: true}, true
+		return inputAction{openProfilePicker: true}, true
 	}
 	entry := lookupCommand("/profile")
 	if entry != nil {

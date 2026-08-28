@@ -244,6 +244,13 @@ var overlayKeyHandlers = []overlayKeyHandler{
 			return cmd
 		},
 	},
+	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.profilePicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			_, cmd := m.handleProfilePickerKey(msg)
+			return cmd
+		},
+	},
 }
 
 func resolveTheme(name string) theme.Theme {
@@ -269,6 +276,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.sidebar.model = m.primaryModel
 	m.sidebar.version = cfg.Version
 	m.sidebar.profile = strings.TrimSpace(cfg.ProfileName)
+	m.profileNames = cfg.ProfileNames
 	m.sidebar.contextBudget = m.contextBudgetForModel(m.sidebar.model)
 	m.sidebar.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.sidebar.provider = strings.TrimSpace(cfg.ProviderBaseURL)
@@ -372,6 +380,10 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.accentPicker = newAccentPickerOverlay(m.styles)
 	m.accentPicker.width = m.width
 	m.accentPicker.height = m.height
+
+	m.profilePicker = newProfilePickerOverlay(m.styles)
+	m.profilePicker.width = m.width
+	m.profilePicker.height = m.height
 
 	m.slashOverlay = newSlashOverlay(m.styles)
 	m.slashOverlay.width = m.width

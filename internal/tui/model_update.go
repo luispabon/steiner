@@ -240,6 +240,7 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.reasoningPicker.styles = m.styles
 	m.planPicker.styles = m.styles
 	m.accentPicker.styles = m.styles
+	m.profilePicker.styles = m.styles
 	m.oneshotResumePicker.styles = m.styles
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
 		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)

@@ -121,7 +121,7 @@ var slashCommands = []slashCommand{
 		Desc: "change future role assignments without changing active orchestrator",
 		Build: func(arg string) inputAction {
 			if arg == "" {
-				return inputAction{profileUsage: true}
+				return inputAction{openProfilePicker: true}
 			}
 			return inputAction{switchProfile: arg}
 		},

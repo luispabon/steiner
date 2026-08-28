@@ -177,12 +177,13 @@ func (m *Model) executeModelAction(modelName string, reasoning *provider.Reasoni
 	return m, nil
 }
 
-func (m *Model) executeProfileUsageAction() (tea.Model, tea.Cmd) {
-	m.content.AppendLine("status: usage: /profile <name> (changes future role assignments without changing active orchestrator)")
-	m.input.Reset()
+func (m *Model) executeOpenProfilePickerAction() (tea.Model, tea.Cmd) {
+	m.profilePicker = m.profilePicker.Open(m.profileNames, m.sidebar.profile)
+	m.profilePicker.width = m.width
+	m.profilePicker.height = m.height
+	m.input.SetValue("/profile ")
+	m.input.CursorEnd()
 	m.historyIdx = 0
-	m.relayoutInput()
-	m.syncViewport()
 	return m, nil
 }
 
