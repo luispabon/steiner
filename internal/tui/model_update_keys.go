@@ -360,6 +360,11 @@ func (m *Model) handleTabKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleKeyUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.fileHistoryIdx == -1 && m.input.Line() != 0 {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
 	if m.fileHistoryIdx >= 0 && m.fileHistoryIdx < len(m.fileHistory)-1 {
 		m.fileHistoryIdx++
 		m.input.SetValue(m.fileHistory[m.fileHistoryIdx])
