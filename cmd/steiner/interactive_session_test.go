@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -804,4 +805,26 @@ func (r *blockedCleanupTestRunner) Run(context.Context, []agent.Message, []strin
 
 func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []string, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
 	return conversation, nil
+}
+
+func TestSortedProfileNames(t *testing.T) {
+	profiles := map[string]config.ModelProfile{
+		"fast":     {},
+		"default":  {},
+		"careful":  {},
+		"advanced": {},
+	}
+
+	got := sortedProfileNames(profiles)
+	want := []string{"advanced", "careful", "default", "fast"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("sortedProfileNames = %v, want %v", got, want)
+	}
+}
+
+func TestSortedProfileNamesEmpty(t *testing.T) {
+	got := sortedProfileNames(map[string]config.ModelProfile{})
+	if len(got) != 0 {
+		t.Fatalf("sortedProfileNames(empty) = %v, want empty", got)
+	}
 }
