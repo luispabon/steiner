@@ -536,3 +536,111 @@ func TestBuildNoMatchDiagnosticsWithFragment(t *testing.T) {
 		}
 	})
 }
+
+func TestClassifyWhitespaceMismatch(t *testing.T) {
+	tests := []struct {
+		name          string
+		oldText       string
+		matchedRegion string
+		wantKind      string
+		wantContains  string
+	}{
+		{
+			name:          "uniform indentation shift",
+			oldText:       "\t\tfoo\n\t\tbar",
+			matchedRegion: "\t\t\tfoo\n\t\t\tbar",
+			wantKind:      "leading-indentation-uniform",
+			wantContains:  "shifted uniformly",
+		},
+		{
+			name:          "non-uniform indentation shift",
+			oldText:       "\t\tfoo\n\t\tbar",
+			matchedRegion: "\t\tfoo\n\t\t\tbar",
+			wantKind:      "leading-indentation-nonuniform",
+			wantContains:  "shifted non-uniformly",
+		},
+		{
+			name:          "blank line count differs",
+			oldText:       "a := 1\n\n\nb := 2",
+			matchedRegion: "a := 1\n\nb := 2",
+			wantKind:      "blank-line-count",
+			wantContains:  "old_string has 2 blank lines where the file has 1",
+		},
+		{
+			name:          "internal whitespace differs",
+			oldText:       "a  :=  1",
+			matchedRegion: "a := 1",
+			wantKind:      "internal-whitespace",
+			wantContains:  "spacing within them",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kind, details := classifyWhitespaceMismatch(tt.oldText, tt.matchedRegion)
+			if kind != tt.wantKind {
+				t.Fatalf("classifyWhitespaceMismatch(%q, %q) kind = %q, want %q", tt.oldText, tt.matchedRegion, kind, tt.wantKind)
+			}
+			if !strings.Contains(details, tt.wantContains) {
+				t.Fatalf("details = %q, want substring %q", details, tt.wantContains)
+			}
+		})
+	}
+}
+
+// TestClassifyWhitespaceMismatchNoFalseIndentation guards the bug where a
+// blank-line-count difference (same non-blank line count, different total
+// line count) fell through to the indentation branch and reported a
+// nonsensical "shifted uniformly: 0" instead of naming the real difference.
+func TestClassifyWhitespaceMismatchNoFalseIndentation(t *testing.T) {
+	kind, details := classifyWhitespaceMismatch("a := 1\n\n\nb := 2", "a := 1\n\nb := 2")
+	if kind != "blank-line-count" {
+		t.Fatalf("kind = %q, want blank-line-count (got details %q)", kind, details)
+	}
+	if strings.Contains(details, "uniformly: 0") {
+		t.Fatalf("details = %q, must not report a false zero-shift indentation delta", details)
+	}
+}
+
+func TestMutateNoMatchDiagnosticNamesWhitespaceKind(t *testing.T) {
+	absPath := "/tmp/note.txt"
+
+	tests := []struct {
+		name         string
+		content      string
+		oldText      string
+		wantContains string
+	}{
+		{
+			name:         "uniform indentation shift",
+			content:      "func f() {\n\t\t\tfoo()\n\t\t\tbar()\n}\n",
+			oldText:      "\t\tfoo()\n\t\tbar()",
+			wantContains: "shifted uniformly",
+		},
+		{
+			name:         "non-uniform indentation shift",
+			content:      "func f() {\n\tfoo()\n\t\tbar()\n}\n",
+			oldText:      "\tfoo()\n\tbar()",
+			wantContains: "shifted non-uniformly",
+		},
+		{
+			name:         "blank line count differs",
+			content:      "a := 1\n\nb := 2\n",
+			oldText:      "a := 1\n\n\nb := 2",
+			wantContains: "blank lines",
+		},
+		{
+			name:         "internal whitespace differs",
+			content:      "a := 1\n",
+			oldText:      "a  :=  1",
+			wantContains: "spacing within them",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := buildNoMatchDiagnostics("edit", []byte(tt.content), tt.oldText, absPath)
+			if !strings.Contains(out, tt.wantContains) {
+				t.Fatalf("output %q missing %q", out, tt.wantContains)
+			}
+		})
+	}
+}

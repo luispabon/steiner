@@ -80,16 +80,35 @@ const unicodeFold = (s) =>
 
 const classifyWhitespaceVariant = (oldString, fileText) => {
 	if (unicodeFold(rstrip(oldString)) === unicodeFold(rstrip(fileText))) return "trailing_or_unicode";
-	const a = oldString.split("\n").filter((l) => l.trim() !== "");
-	const b = fileText.split("\n").filter((l) => l.trim() !== "");
-	if (a.length !== b.length || a.length === 0) return "other";
-	if (a.some((l, i) => l.trim() !== b[i].trim())) return "other";
+	// Blank-line count differences are distinguishable only BEFORE filtering blanks out.
+	const rawA = oldString.split("\n");
+	const rawB = fileText.split("\n");
+	const a = rawA.filter((l) => l.trim() !== "");
+	const b = rawB.filter((l) => l.trim() !== "");
+	if (a.length === 0 || a.length !== b.length) return "other";
+	if (a.some((l, i) => l.trim() !== b[i].trim())) {
+		// Same content once ALL whitespace is collapsed => the difference is internal
+		// (e.g. table-column padding), not leading indentation.
+		const collapse = (s) => s.split(/\s+/).filter(Boolean).join(" ");
+		return collapse(oldString) === collapse(fileText) ? "internal_whitespace" : "other";
+	}
+	if (rawA.length !== rawB.length) return "blank_line_count";
 	const deltas = a.map((l, i) => leading(b[i]).length - leading(l).length);
-	return deltas.every((d) => d === deltas[0]) ? "indent_uniform" : "indent_nonuniform";
+	if (!deltas.every((d) => d === deltas[0])) return "indent_nonuniform";
+	// Mixed tabs/spaces cannot be re-indented reliably; do not count as safe.
+	const homogeneous = [...a, ...b].every((l) => /^\t*$/.test(leading(l)) || /^ *$/.test(leading(l)));
+	return homogeneous ? "indent_uniform" : "indent_mixed";
 };
 
-// Pulls the "file text that matches after whitespace normalization" block out of
-// a mutate error body, as emitted by buildNoMatchDiagnostics.
+// Pulls the matched file region out of a mutate error body, from the "file text
+// that matches after whitespace normalization" block emitted by
+// buildNoMatchDiagnostics.
+//
+// Deliberately does NOT fall back to the "context:" anchor block. That block is a
+// ±1-line window around the anchor, not the matched region, so comparing a
+// multi-line old_string against it yields wrong line counts and misclassifies.
+// Cases lacking the normalization block are reported as `unclassifiable` and must
+// be read by hand — see the note on the breakdown below.
 const extractShownFileText = (body) => {
 	const lines = body.split("\n");
 	const start = lines.findIndex((l) => l.includes("file text that matches after whitespace normalization"));
@@ -104,11 +123,23 @@ const extractShownFileText = (body) => {
 
 const stats = {
 	sessions_scanned: 0,
-	// `unclassifiable_old_format`: older sessions emit "normalized whitespace match
-	// exists" WITHOUT the "file text that matches..." block (that block was added
-	// later), so there is nothing to compare old_string against. Counted separately
-	// rather than silently folded into a bucket.
-	whitespace_variant_breakdown: { trailing_or_unicode: 0, indent_uniform: 0, indent_nonuniform: 0, other: 0, unclassifiable_old_format: 0 },
+	// `unclassifiable`: the error carried no normalization block (only the truncated
+	// anchor context), so old_string cannot be compared automatically. These must be
+	// read by hand. On the 2026-08-28 baseline there were 4 such cases; manual
+	// inspection classified them as 2 uniform-indent, 1 blank-line-count, and 1
+	// internal-whitespace. So the TRUE safely-applicable count on that baseline is 2,
+	// not the 0 this script reports — `safely_auto_applicable_share_of_failures`
+	// undercounts whenever `unclassifiable` is non-zero. Treat it as a lower bound.
+	whitespace_variant_breakdown: {
+		trailing_or_unicode: 0,
+		indent_uniform: 0,
+		indent_nonuniform: 0,
+		indent_mixed: 0,
+		blank_line_count: 0,
+		internal_whitespace: 0,
+		other: 0,
+		unclassifiable: 0,
+	},
 	sessions_using_mutate: 0,
 	calls: 0,
 	operations: 0,
@@ -205,7 +236,7 @@ for (const file of readdirSync(DIR)) {
 						const shown = extractShownFileText(errorText);
 						const op = (pending.get(message.tool_call_id) || []).find((o) => o && typeof o.old_string === "string");
 						if (shown && op) bump(stats.whitespace_variant_breakdown, classifyWhitespaceVariant(op.old_string, shown));
-						else bump(stats.whitespace_variant_breakdown, "unclassifiable_old_format");
+						else bump(stats.whitespace_variant_breakdown, "unclassifiable");
 					}
 					const named = body.match(/operation \d+ (\w+)/);
 					bump(stats.failing_op_type, named ? named[1] : "<unknown>");
@@ -238,6 +269,8 @@ stats.headline = {
 	// whitespace. It is NOT the share a conservative matcher can recover — see
 	// safely_auto_applicable_share below, which is the number to gate on.
 	whitespace_variant_share_of_no_match: pct(stats.failure_class.no_match_whitespace_variant_exists || 0, noMatchTotal),
+	// LOWER BOUND — undercounts by however many cases land in `unclassifiable`
+	// (those need manual reading). See the note on whitespace_variant_breakdown.
 	safely_auto_applicable_share_of_failures: pct(safelyAutoApplicable, stats.failed_calls),
 	line_op_share_of_failures: pct(lineOpFailures, stats.failed_calls),
 	schema_shape_share_of_failures: pct(schemaShapeFailures, stats.failed_calls),

@@ -101,8 +101,10 @@ func classifyWhitespaceMismatch(oldText string, matchedRegion string) (kind stri
 		}
 	}
 
-	if len(oldNonBlank) != len(regionNonBlank) {
-		return "blank-line-count", fmt.Sprintf("old_string has %d blank lines where the file has %d", countBlankLines(oldLines), countBlankLines(regionLines))
+	oldBlanks := countBlankLines(oldLines)
+	regionBlanks := countBlankLines(regionLines)
+	if len(oldNonBlank) != len(regionNonBlank) || oldBlanks != regionBlanks {
+		return "blank-line-count", fmt.Sprintf("old_string has %d blank lines where the file has %d", oldBlanks, regionBlanks)
 	}
 
 	for i, ol := range oldNonBlank {
@@ -112,20 +114,30 @@ func classifyWhitespaceMismatch(oldText string, matchedRegion string) (kind stri
 	}
 
 	deltas := make([]int, len(oldNonBlank))
+	allZero := true
 	for i, ol := range oldNonBlank {
 		oldLead := leadingWhitespaceLength(ol)
 		regionLead := leadingWhitespaceLength(regionNonBlank[i])
 		deltas[i] = regionLead - oldLead
+		if deltas[i] != 0 {
+			allZero = false
+		}
+	}
+
+	// A zero shift on every line, having already ruled out blank-line-count
+	// and internal-whitespace differences, means indentation is not the
+	// difference either — leave this unclassified rather than reporting a
+	// misleading "shifted uniformly: 0".
+	if allZero {
+		return "", ""
 	}
 
 	uniform := true
-	if len(deltas) > 0 {
-		first := deltas[0]
-		for _, d := range deltas[1:] {
-			if d != first {
-				uniform = false
-				break
-			}
+	first := deltas[0]
+	for _, d := range deltas[1:] {
+		if d != first {
+			uniform = false
+			break
 		}
 	}
 
