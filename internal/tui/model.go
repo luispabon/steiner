@@ -612,6 +612,7 @@ func (m *Model) needsTicking() bool {
 		m.content.streaming ||
 		m.compaction.Active() ||
 		m.content.HasActiveDelegations() ||
+		m.content.HasActiveToolCalls() ||
 		m.content.HasActiveCompactions() ||
 		m.sidebar.mcpConnecting ||
 		m.contentDirty

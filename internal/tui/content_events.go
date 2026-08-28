@@ -52,6 +52,10 @@ type toolCallSegment struct {
 	callID         string // for matching started→finished
 	collapsed      bool   // default true
 	hasError       bool   // set when ToolCallFinished carries an error
+	active         bool
+	startTime      int64
+	elapsed        string
+	spinnerFrame   int
 	rawArgs        map[string]any
 	preview        output.ToolPreview
 	displayPreview *output.PreviewDocument
@@ -161,6 +165,13 @@ type delegationTranscriptEntry struct {
 type delegationLocator struct {
 	seg int
 	dd  *delegationDisplayState
+}
+
+// toolCallLocator identifies one regular tool call and its owning segment. The
+// segment may hold a single call or a group.
+type toolCallLocator struct {
+	seg int
+	td  *toolCallSegment
 }
 
 // delegationDisplayState tracks in-flight or finished delegation state for rendering.
@@ -282,6 +293,7 @@ type contentBuffer struct {
 	lastRenderErr     error // captures the last render error for logging
 	// delegation tracking
 	activeDelegations       map[string]delegationLocator // agentID → delegation locator (for in-flight delegations)
+	activeToolCalls         map[string]toolCallLocator   // callID → regular tool-call locator
 	pendingDelegateParents  []delegationLocator          // delegations awaiting DelegationStartedEvent binding
 	pendingDelegationStarts []delegationLocator          // delegations awaiting parent delegate tool binding
 	activeAdvisorSegment    int                          // 1-based segment index; 0 means none active

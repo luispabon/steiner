@@ -137,6 +137,9 @@ func TestContentStringPrefixCache(t *testing.T) {
 // render.
 func TestContentStringPrefixCacheToolCallFinished(t *testing.T) {
 	useTrueColor(t)
+	originalNanoNow := nanoNow
+	nanoNow = func() int64 { return 1_000_000_000 }
+	defer func() { nanoNow = originalNanoNow }()
 	styles := testStyles(theme.AccentAmber)
 
 	build := func() *contentBuffer {

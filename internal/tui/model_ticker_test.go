@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luispabon/steiner/internal/output"
+
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -39,6 +41,21 @@ func TestNeedsTickingReturnsFalseWhenMCPSettled(t *testing.T) {
 	}
 }
 
+func TestNeedsTickingReturnsTrueForActiveRegularToolCall(t *testing.T) {
+	styles := testStyles(theme.AccentAmber)
+	td := &toolCallSegment{active: true, callID: "call-1"}
+	m := &Model{
+		styles: styles,
+		content: contentBuffer{
+			styles:          styles,
+			activeToolCalls: map[string]toolCallLocator{"call-1": {seg: 0, td: td}},
+		},
+	}
+	if !m.needsTicking() {
+		t.Fatal("needsTicking() = false, want true for active regular tool call")
+	}
+}
+
 func TestHandleTickMsgAdvancesSidebarTickCountWhenMCPConnecting(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
@@ -64,6 +81,44 @@ func TestHandleTickMsgAdvancesSidebarTickCountWhenMCPConnecting(t *testing.T) {
 	// needsTicking should still be true while mcpConnecting
 	if !m2.needsTicking() {
 		t.Errorf("needsTicking() = false, want true when mcpConnecting is still true")
+	}
+}
+
+func TestHandleTickMsgAdvancesRegularToolSpinnerAndStopsAfterFinish(t *testing.T) {
+	originalNanoNow := nanoNow
+	now := int64(70_000_000_000)
+	nanoNow = func() int64 { return now }
+	defer func() { nanoNow = originalNanoNow }()
+
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{
+		styles:  styles,
+		ticking: true,
+		content: contentBuffer{styles: styles},
+		sidebar: sidebarState{styles: styles},
+	}
+	m.content.AppendEvent(output.NewToolCallStartedEvent(1, "read", "call-1", map[string]any{"path": "main.go"}))
+	loc := m.content.activeToolCalls["call-1"]
+	if loc.td == nil {
+		t.Fatal("active regular tool call missing")
+	}
+
+	m.handleTickMsg(tickMsg{})
+	if loc.td.spinnerFrame != 1 {
+		t.Fatalf("spinnerFrame = %d after model tick, want 1", loc.td.spinnerFrame)
+	}
+	if !m.needsTicking() {
+		t.Fatal("needsTicking() = false while regular tool call is active")
+	}
+
+	now += 100_000_000
+	m.content.AppendEvent(output.NewToolCallFinishedEvent(1, "read", "call-1", "done", nil))
+	m.handleTickMsg(tickMsg{})
+	if m.needsTicking() {
+		t.Fatal("needsTicking() = true after final regular tool call finished")
+	}
+	if m.ticking {
+		t.Fatal("ticking = true after final regular tool call finished")
 	}
 }
 
