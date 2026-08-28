@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"time"
 
@@ -147,6 +148,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		ModelProviderNames:  modelProviderNames(rt.cfg),
 		CurrentModelAlias:   activeModel,
 		ProfileName:         rt.cfg.Models.Effective.ProfileName,
+		ProfileNames:        sortedProfileNames(rt.cfg.Models.Profiles),
 		InitialMode:         string(sess.Mode()),
 		ProviderBaseURL:     selectedProviderBaseURL,
 		ProviderName:        selectedProviderName,
@@ -446,6 +448,15 @@ func modelProviderNames(cfg config.Config) map[string]string {
 			names[name] = model.Provider
 		}
 	}
+	return names
+}
+
+func sortedProfileNames(profiles map[string]config.ModelProfile) []string {
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	return names
 }
 
