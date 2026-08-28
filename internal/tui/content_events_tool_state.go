@@ -148,11 +148,21 @@ func (b *contentBuffer) applyFinishedRegularToolCall(payload output.ToolCallFini
 	return false
 }
 
+func regularToolCallIDsMatch(td *toolCallSegment, payloadCallID string) bool {
+	if td == nil || strings.EqualFold(strings.TrimSpace(td.tool), "display_file") {
+		return false
+	}
+	if td.callID == "" {
+		return payloadCallID == ""
+	}
+	return td.callID == payloadCallID
+}
+
 func (b *contentBuffer) applyFinishedRegularToolCallSegment(i int, payload output.ToolCallFinishedEvent) bool {
 	switch b.segments[i].kind {
 	case segmentToolCall:
 		td := b.segments[i].toolData
-		if td == nil || !callIDsMatch(td.callID, payload.CallID) {
+		if !regularToolCallIDsMatch(td, payload.CallID) {
 			return false
 		}
 		b.applyFinishedToolCallResult(&b.segments[i], td, payload)
@@ -165,7 +175,7 @@ func (b *contentBuffer) applyFinishedRegularToolCallSegment(i int, payload outpu
 		}
 		for j := len(group.entries) - 1; j >= 0; j-- {
 			td := group.entries[j]
-			if td == nil || !callIDsMatch(td.callID, payload.CallID) {
+			if !regularToolCallIDsMatch(td, payload.CallID) {
 				continue
 			}
 			b.applyFinishedToolCallResult(&b.segments[i], td, payload)

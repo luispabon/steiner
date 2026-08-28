@@ -253,3 +253,25 @@ func TestRegularToolCallFinishRecoversFromStaleLocator(t *testing.T) {
 		t.Fatalf("stale locator finish state = %#v, active calls %v, want finished and empty", td, b.activeToolCalls)
 	}
 }
+
+func TestEmptyToolCallFinishSkipsTrailingDisplayFilePlaceholder(t *testing.T) {
+	originalNanoNow := nanoNow
+	now := int64(80_000_000_000)
+	nanoNow = func() int64 { return now }
+	defer func() { nanoNow = originalNanoNow }()
+
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "read", "", map[string]any{"path": "main.go"}))
+	b.AppendEvent(output.NewDisplayFileEvent(output.DisplayFilePayload{Path: "preview.go"}))
+	now += 175_000_000
+	b.AppendEvent(output.NewToolCallFinishedEvent(1, "read", "", "read result", nil))
+
+	read := b.segments[0].toolData
+	display := b.segments[1].toolData
+	if read == nil || read.body != "read result" || read.meta != "✓" || read.elapsed != "175ms" {
+		t.Fatalf("read state = %#v, want result, ✓, and 175ms", read)
+	}
+	if display == nil || display.body != "" || display.meta != "" || display.elapsed != "" {
+		t.Fatalf("display_file placeholder state = %#v, want untouched", display)
+	}
+}
