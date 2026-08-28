@@ -295,6 +295,10 @@ func (b *contentBuffer) applyDelegationStopReason(dd *delegationDisplayState, ev
 	if !ok {
 		return false
 	}
+	if payload.Reason == "cancelled" {
+		b.finalizeActiveDelegation(event.Scope.AgentID)
+		return true
+	}
 	if payload.Reason == "complete" || payload.Reason == "max_turns" || payload.Reason == "max_tokens" {
 		return true
 	}
@@ -318,6 +322,11 @@ func (b *contentBuffer) findDelegation(agentID string) (delegationLocator, bool)
 		return false
 	})
 	return result, found
+}
+
+func (b *contentBuffer) wasCancellationFinalized(agentID string) bool {
+	loc, found := b.findDelegation(agentID)
+	return found && loc.dd != nil && loc.dd.finalizedByCancellation
 }
 
 func (b *contentBuffer) dequeuePendingByCallID(list *[]delegationLocator, callID string) (delegationLocator, bool) {
@@ -421,6 +430,25 @@ func (b *contentBuffer) dequeuePendingDelegationStartSegment() (delegationLocato
 	return b.drainPending(&b.pendingDelegationStarts, func(loc delegationLocator) bool {
 		return loc.dd.parentCallID == ""
 	})
+}
+
+// finalizeActiveDelegation freezes one in-flight delegation as failed. The
+// cancellation marker makes a late terminal event for this display a no-op.
+func (b *contentBuffer) finalizeActiveDelegation(agentID string) {
+	loc, active := b.activeDelegations[agentID]
+	if !active {
+		return
+	}
+	delete(b.activeDelegations, agentID)
+	if loc.dd == nil {
+		return
+	}
+	loc.dd.status = "failed"
+	loc.dd.finalizedByCancellation = true
+	if loc.dd.elapsed == "" && loc.dd.startTime > 0 {
+		loc.dd.elapsed = formatElapsed(loc.dd.startTime, nanoNow())
+	}
+	b.markDelegationDirty(loc.seg)
 }
 
 func (b *contentBuffer) markDelegationDirty(idx int) {
@@ -658,6 +686,9 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 		delete(b.activeDelegations, payload.AgentID)
 		return
 	}
+	if b.wasCancellationFinalized(payload.AgentID) {
+		return
+	}
 	dd := &delegationDisplayState{
 		agentID:       payload.AgentID,
 		status:        "complete",
@@ -684,6 +715,9 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 		}
 		b.markDelegationDirty(loc.seg)
 		delete(b.activeDelegations, payload.AgentID)
+		return
+	}
+	if b.wasCancellationFinalized(payload.AgentID) {
 		return
 	}
 	dd := &delegationDisplayState{agentID: payload.AgentID, status: "failed", collapsed: true}

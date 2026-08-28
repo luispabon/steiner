@@ -213,6 +213,11 @@ func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
 
 func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
 	b.finishStreaming()
+	if payload, ok := event.Payload.(output.StopReasonEvent); ok && payload.Reason == "cancelled" {
+		for agentID := range b.activeDelegations {
+			b.finalizeActiveDelegation(agentID)
+		}
+	}
 	if payload, ok := event.Payload.(output.StopReasonEvent); ok && isCompletionStopReason(payload.Reason) && payload.Error == "" {
 		if reason := strings.TrimSpace(payload.Reason); reason != "" {
 			b.segments = append(b.segments, contentSegment{
