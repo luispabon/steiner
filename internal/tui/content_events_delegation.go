@@ -324,6 +324,11 @@ func (b *contentBuffer) findDelegation(agentID string) (delegationLocator, bool)
 	return result, found
 }
 
+func (b *contentBuffer) wasCancellationFinalized(agentID string) bool {
+	loc, found := b.findDelegation(agentID)
+	return found && loc.dd != nil && loc.dd.finalizedByCancellation
+}
+
 func (b *contentBuffer) dequeuePendingByCallID(list *[]delegationLocator, callID string) (delegationLocator, bool) {
 	if callID == "" {
 		return delegationLocator{}, false
@@ -427,8 +432,8 @@ func (b *contentBuffer) dequeuePendingDelegationStartSegment() (delegationLocato
 	})
 }
 
-// finalizeActiveDelegation freezes one in-flight delegation as failed. The active
-// map lookup makes repeated or late terminal events a no-op.
+// finalizeActiveDelegation freezes one in-flight delegation as failed. The
+// cancellation marker makes a late terminal event for this display a no-op.
 func (b *contentBuffer) finalizeActiveDelegation(agentID string) {
 	loc, active := b.activeDelegations[agentID]
 	if !active {
@@ -439,7 +444,8 @@ func (b *contentBuffer) finalizeActiveDelegation(agentID string) {
 		return
 	}
 	loc.dd.status = "failed"
-	if loc.dd.elapsed == "" {
+	loc.dd.finalizedByCancellation = true
+	if loc.dd.elapsed == "" && loc.dd.startTime > 0 {
 		loc.dd.elapsed = formatElapsed(loc.dd.startTime, nanoNow())
 	}
 	b.markDelegationDirty(loc.seg)
@@ -680,6 +686,9 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 		delete(b.activeDelegations, payload.AgentID)
 		return
 	}
+	if b.wasCancellationFinalized(payload.AgentID) {
+		return
+	}
 	dd := &delegationDisplayState{
 		agentID:       payload.AgentID,
 		status:        "complete",
@@ -706,6 +715,9 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 		}
 		b.markDelegationDirty(loc.seg)
 		delete(b.activeDelegations, payload.AgentID)
+		return
+	}
+	if b.wasCancellationFinalized(payload.AgentID) {
 		return
 	}
 	dd := &delegationDisplayState{agentID: payload.AgentID, status: "failed", collapsed: true}

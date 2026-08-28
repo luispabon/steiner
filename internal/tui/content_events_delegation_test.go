@@ -51,6 +51,28 @@ func TestDelegationCacheWaitingBindsAndClears(t *testing.T) {
 	}
 }
 
+func TestCacheWaitingCancellationLeavesElapsedEmpty(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "wait for cache"}))
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("child-1", "call_1", time.Now().Add(time.Second)))
+
+	loc := buffer.activeDelegations["child-1"]
+	if loc.dd == nil {
+		t.Fatal("cache-waiting delegation state is nil")
+	}
+	if loc.dd.startTime != 0 {
+		t.Fatalf("cache-waiting startTime = %d, want 0", loc.dd.startTime)
+	}
+	buffer.AppendEvent(output.NewStopReasonEvent(1, "cancelled", nil))
+
+	if loc.dd.status != "failed" {
+		t.Fatalf("status = %q, want failed", loc.dd.status)
+	}
+	if loc.dd.elapsed != "" {
+		t.Fatalf("elapsed = %q, want empty for cache-waiting cancellation", loc.dd.elapsed)
+	}
+}
+
 func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
@@ -174,6 +196,9 @@ func TestParentCancellationFinalizesAllActiveDelegations(t *testing.T) {
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first task"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second task"))
 	buffer.String(80)
+	if buffer.segments[0].renderDirty {
+		t.Fatal("delegation group remains dirty after initial render")
+	}
 
 	now = 13_200_000_000
 	buffer.AppendEvent(output.NewStopReasonEvent(1, "cancelled", nil))
@@ -181,19 +206,26 @@ func TestParentCancellationFinalizesAllActiveDelegations(t *testing.T) {
 	if buffer.HasActiveDelegations() {
 		t.Fatal("HasActiveDelegations = true after parent cancellation, want false")
 	}
-	for _, seg := range buffer.segments {
-		if seg.delegData == nil {
-			continue
+	if len(buffer.segments) < 1 || buffer.segments[0].kind != segmentDelegationGroup {
+		t.Fatalf("segments = %#v, want delegation group first", buffer.segments)
+	}
+	group := buffer.segments[0].delegGroupData
+	if group == nil || len(group.entries) != 2 {
+		t.Fatalf("group entries = %d, want 2", len(group.entries))
+	}
+	for _, dd := range group.entries {
+		if dd.status != "failed" {
+			t.Fatalf("delegation %q status = %q, want failed", dd.agentID, dd.status)
 		}
-		if seg.delegData.status != "failed" {
-			t.Fatalf("delegation %q status = %q, want failed", seg.delegData.agentID, seg.delegData.status)
+		if !dd.finalizedByCancellation {
+			t.Fatalf("delegation %q missing cancellation provenance", dd.agentID)
 		}
-		if seg.delegData.elapsed != "3s" {
-			t.Fatalf("delegation %q elapsed = %q, want 3s", seg.delegData.agentID, seg.delegData.elapsed)
+		if dd.elapsed != "3s" {
+			t.Fatalf("delegation %q elapsed = %q, want 3s", dd.agentID, dd.elapsed)
 		}
-		if !seg.renderDirty {
-			t.Fatalf("delegation %q segment not marked dirty", seg.delegData.agentID)
-		}
+	}
+	if !buffer.segments[0].renderDirty {
+		t.Fatal("delegation group segment not marked dirty")
 	}
 
 	now = 99_000_000_000
@@ -246,6 +278,9 @@ func TestScopedCancellationFinalizesOnlyTargetDelegation(t *testing.T) {
 	if child1.dd.status != "failed" {
 		t.Fatalf("child-1 status = %q, want failed", child1.dd.status)
 	}
+	if !child1.dd.finalizedByCancellation {
+		t.Fatal("child-1 missing cancellation provenance")
+	}
 	if child1.dd.elapsed != "4s" {
 		t.Fatalf("child-1 elapsed = %q, want 4s", child1.dd.elapsed)
 	}
@@ -260,15 +295,40 @@ func TestScopedCancellationFinalizesOnlyTargetDelegation(t *testing.T) {
 		t.Fatalf("sibling meta = %q, want live elapsed", stripANSI(live))
 	}
 
-	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+	segmentsBeforeLateEvents := len(buffer.segments)
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 		AgentID: "child-1",
 		Status:  "complete",
-	}), "child-1"))
+	}))
+	buffer.AppendEvent(output.NewDelegationFailedEvent("child-1", "first task", "late failure"))
+	if len(buffer.segments) != segmentsBeforeLateEvents {
+		t.Fatalf("segments after unscoped late terminal events = %d, want %d", len(buffer.segments), segmentsBeforeLateEvents)
+	}
 	if !buffer.HasActiveDelegations() {
 		t.Fatal("late terminal event changed sibling active state")
 	}
 	if _, active := buffer.activeDelegations["child-1"]; active {
 		t.Fatal("late terminal event restarted child-1")
+	}
+}
+
+func TestUnknownDelegationTerminalEventsUseFallbackDisplay(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID: "unknown-complete",
+		Status:  "complete",
+	}))
+	buffer.AppendEvent(output.NewDelegationFailedEvent("unknown-failed", "unknown task", "error"))
+
+	states := delegationStates(buffer)
+	if len(states) != 2 {
+		t.Fatalf("delegation states = %d, want 2 fallback displays", len(states))
+	}
+	if states[0].agentID != "unknown-complete" || states[0].status != "complete" {
+		t.Fatalf("complete fallback = %#v", states[0])
+	}
+	if states[1].agentID != "unknown-failed" || states[1].status != "failed" {
+		t.Fatalf("failed fallback = %#v", states[1])
 	}
 }
 
