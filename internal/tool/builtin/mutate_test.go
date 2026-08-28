@@ -17,59 +17,6 @@ func newMutateTestTool(t *testing.T, root string) tool.ToolDef {
 	return NewMutateTool(Env{WorkDir: root, PathPolicy: &policy})
 }
 
-func TestMutateSchemaIncludesDeleteLine(t *testing.T) {
-	schema := MutateSchema()
-	props, ok := schema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("schema properties = %T, want map[string]any", schema["properties"])
-	}
-	operations, ok := props["operations"].(map[string]any)
-	if !ok {
-		t.Fatalf("operations schema = %T, want map[string]any", props["operations"])
-	}
-	items, ok := operations["items"].(map[string]any)
-	if !ok {
-		t.Fatalf("operations.items = %T, want map[string]any", operations["items"])
-	}
-	itemProps, ok := items["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("operation properties = %T, want map[string]any", items["properties"])
-	}
-	typeField, ok := itemProps["type"].(map[string]any)
-	if !ok {
-		t.Fatalf("operation type schema = %T, want map[string]any", itemProps["type"])
-	}
-	enum, ok := typeField["enum"].([]string)
-	if !ok {
-		t.Fatalf("operation enum = %T, want []string", typeField["enum"])
-	}
-	found := false
-	for _, value := range enum {
-		if value == "delete_line" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("type enum missing delete_line: %#v", enum)
-	}
-	if got := itemProps["path"].(map[string]any)["description"].(string); !strings.Contains(got, "delete_line") {
-		t.Fatalf("path description = %q, want delete_line", got)
-	}
-	if got := itemProps["line"].(map[string]any)["description"].(string); !strings.Contains(got, "delete_line") {
-		t.Fatalf("line description = %q, want delete_line", got)
-	}
-	if got := itemProps["line_count"].(map[string]any)["description"].(string); !strings.Contains(got, "delete") {
-		t.Fatalf("line_count description = %q, want delete wording", got)
-	}
-	if _, ok := itemProps["assert_present"].(map[string]any); !ok {
-		t.Fatal("assert_present schema missing")
-	}
-	if _, ok := itemProps["assert_absent"].(map[string]any); !ok {
-		t.Fatal("assert_absent schema missing")
-	}
-}
-
 func runMutate(t *testing.T, toolDef tool.ToolDef, input map[string]any) *MutateResult {
 	t.Helper()
 	result, err := toolDef.Handler(context.Background(), input)
@@ -98,20 +45,19 @@ func TestMutateOperations(t *testing.T) {
 			map[string]any{"type": "create", "path": "created.txt", "content": "created\n"},
 			map[string]any{"type": "write", "path": "written.txt", "content": "written\n"},
 			map[string]any{"type": "replace", "path": "note.txt", "old_string": "one", "new_string": "ONE"},
-			map[string]any{"type": "replace", "path": "note.txt", "old_string": "two", "new_string": "TWO", "replace_all": true},
-			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(2), "old_string": "TWO", "new_string": "line two"},
-			map[string]any{"type": "delete", "path": "written.txt"},
+			map[string]any{"type": "replace", "path": "note.txt", "old_string": "two\ntwo", "new_string": "TWO\nTWO"},
+			map[string]any{"type": "delete_file", "path": "written.txt"},
 			map[string]any{"type": "move", "from": "old.txt", "to": "new.txt"},
 		},
 	})
-	if got.OperationsFailed != 0 || got.OperationsApplied != 7 {
+	if got.OperationsFailed != 0 || got.OperationsApplied != 6 {
 		t.Fatalf("mutate result = %#v", got)
 	}
 	if !got.WasMutated() {
 		t.Fatal("mutate WasMutated() = false, want true")
 	}
 	assertFile(t, filepath.Join(root, "created.txt"), "created\n")
-	assertFile(t, filepath.Join(root, "note.txt"), "ONE\nline two\nTWO\n")
+	assertFile(t, filepath.Join(root, "note.txt"), "ONE\nTWO\nTWO\n")
 	assertFile(t, filepath.Join(root, "new.txt"), "move me\n")
 	if _, err := os.Stat(filepath.Join(root, "written.txt")); !os.IsNotExist(err) {
 		t.Fatalf("written.txt exists after delete, err=%v", err)
@@ -156,103 +102,6 @@ func TestMutateFileHashRequiresExistingTarget(t *testing.T) {
 				t.Fatalf("new.txt exists after failed hash-guarded op, err=%v", err)
 			}
 		})
-	}
-}
-
-func TestMutateLineReplaceRepeatedSubstitutions(t *testing.T) {
-	root := t.TempDir()
-	toolDef := newMutateTestTool(t, root)
-	path := filepath.Join(root, "patch_woes.md")
-	content := "alpha\nfoo = 1\nbeta\nfoo = 1\ngamma\nfoo = 1\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	got := runMutate(t, toolDef, map[string]any{
-		"operations": []any{
-			map[string]any{"type": "line_replace", "path": "patch_woes.md", "line": float64(2), "old_string": "foo = 1", "new_string": "foo = 2"},
-			map[string]any{"type": "line_replace", "path": "patch_woes.md", "line": float64(4), "old_string": "foo = 1", "new_string": "foo = 3"},
-			map[string]any{"type": "line_replace", "path": "patch_woes.md", "line": float64(6), "old_string": "foo = 1", "new_string": "foo = 4"},
-		},
-	})
-	if got.OperationsFailed != 0 || got.OperationsApplied != 3 {
-		t.Fatalf("mutate result = %#v", got)
-	}
-	assertFile(t, path, "alpha\nfoo = 2\nbeta\nfoo = 3\ngamma\nfoo = 4\n")
-}
-
-func TestMutateDeleteLine(t *testing.T) {
-	tests := []struct {
-		name      string
-		initial   string
-		line      int
-		lineCount int
-		want      string
-	}{
-		{
-			name:    "delete single line",
-			initial: "a\nb\nc\n",
-			line:    2,
-			want:    "a\nc\n",
-		},
-		{
-			name:      "delete multiple lines",
-			initial:   "a\nb\nc\nd\n",
-			line:      2,
-			lineCount: 2,
-			want:      "a\nd\n",
-		},
-		{
-			name:    "delete last line without trailing newline",
-			initial: "a\nb\nc",
-			line:    3,
-			want:    "a\nb\n",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
-			path := filepath.Join(root, "note.txt")
-			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
-				t.Fatalf("write fixture: %v", err)
-			}
-			op := map[string]any{
-				"type": "delete_line",
-				"path": "note.txt",
-				"line": float64(tt.line),
-			}
-			if tt.lineCount > 0 {
-				op["line_count"] = float64(tt.lineCount)
-			}
-			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-				"operations": []any{op},
-			})
-			if got.OperationsFailed != 0 {
-				t.Fatalf("mutate failed: %#v", got)
-			}
-			assertFile(t, path, tt.want)
-		})
-	}
-}
-
-func TestMutateDeleteLineRejectsBinary(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "bin.dat")
-	if err := os.WriteFile(path, []byte{'a', 0, 'b'}, 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-		"operations": []any{
-			map[string]any{"type": "delete_line", "path": "bin.dat", "line": float64(1)},
-		},
-	})
-	if got.OperationsFailed != 1 {
-		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
-	}
-	if !strings.Contains(got.Output, "binary") {
-		t.Fatalf("Output = %q, want binary rejection", got.Output)
 	}
 }
 
@@ -312,26 +161,6 @@ func TestMutateFailedAtomicBatchDoesNotReportCommittedMetadata(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "created.txt")); !os.IsNotExist(err) {
 		t.Fatalf("created.txt exists after failed batch, err=%v", err)
 	}
-}
-
-func TestMutateDryRunDoesNotWrite(t *testing.T) {
-	root := t.TempDir()
-	toolDef := newMutateTestTool(t, root)
-	path := filepath.Join(root, "note.txt")
-	if err := os.WriteFile(path, []byte("one\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	got := runMutate(t, toolDef, map[string]any{
-		"dry_run": true,
-		"operations": []any{
-			map[string]any{"type": "replace", "path": "note.txt", "old_string": "one", "new_string": "ONE"},
-		},
-	})
-	if got.WasMutated() {
-		t.Fatal("WasMutated() = true for dry run")
-	}
-	assertFile(t, path, "one\n")
 }
 
 func TestMutateReturnsStructuredVerificationData(t *testing.T) {
@@ -451,50 +280,6 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			wantError: "ambiguous match",
 		},
 		{
-			name: "wrong line",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("x\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(2), "old_string": "x", "new_string": "y"}}},
-			wantError: "outside file",
-		},
-		{
-			name: "wrong old string on correct line",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("target line\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "missing", "new_string": "new"}}},
-			wantError: "contains old_string 0 times",
-		},
-		{
-			name: "line replace ambiguous within one line",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("x x\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "x", "new_string": "y"}}},
-			wantError: "contains old_string 2 times",
-		},
-		{
-			name: "line_replace without old_string on existing file",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "", "new_string": "hi"}}},
-			wantError: "requires old_string for safety",
-		},
-		{
 			name: "binary edit",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
@@ -532,7 +317,7 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "delete", "path": "dir"}}},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "delete_file", "path": "dir"}}},
 			wantError: "is a directory",
 		},
 		{
@@ -546,8 +331,33 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			wantError: "operations is required",
 		},
 		{
-			name:      "unsupported type",
+			name:      "unsupported type: chmod",
 			input:     map[string]any{"operations": []any{map[string]any{"type": "chmod", "path": "note.txt"}}},
+			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: line_replace (removed)",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt"}}},
+			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: delete_line (removed)",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "delete_line", "path": "note.txt"}}},
+			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: insert_before (removed)",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_before", "path": "note.txt"}}},
+			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: insert_after (removed)",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_after", "path": "note.txt"}}},
+			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: delete (use delete_file)",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "delete", "path": "note.txt"}}},
 			wantError: "unsupported type",
 		},
 		{
@@ -563,7 +373,7 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 		},
 		{
 			name:      "delete missing file",
-			input:     map[string]any{"operations": []any{map[string]any{"type": "delete", "path": "missing.txt"}}},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "delete_file", "path": "missing.txt"}}},
 			wantError: "does not exist",
 		},
 		{
@@ -575,85 +385,6 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			name:      "missing parent directory names the remedy",
 			input:     map[string]any{"operations": []any{map[string]any{"type": "write", "path": "missing/note.txt", "content": "x"}}},
 			wantError: "create it first (e.g. with bash mkdir -p), then retry",
-		},
-		{
-			name: "line_replace old_string with trailing newline",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "hello\n", "new_string": "hi"}}},
-			wantError: "old_string contains newline",
-		},
-		{
-			name: "line_replace old_string with embedded newline",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "hello\nworld", "new_string": "hi"}}},
-			wantError: "old_string contains newline",
-		},
-		{
-			name: "line_replace on empty file",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(""), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "", "new_string": "x"}}},
-			wantError: "outside file",
-		},
-		{
-			name: "line_replace line zero",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("hello\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(0), "old_string": "hello", "new_string": "world"}}},
-			wantError: "line must be >= 1",
-		},
-		{
-			name: "line_count exceeds file bounds",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("a\nb\nc\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(2), "line_count": float64(3), "new_string": ""}}},
-			wantError: "exceeds file length",
-		},
-		{
-			name: "line_count with old_string not in range",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("a\nb\nc\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "line_count": float64(1), "old_string": "missing", "new_string": "x"}}},
-			wantError: "old_string found 0 times",
-			wantAlso:  "target line(s) in file:",
-		},
-		{
-			name: "line_count with old_string found multiple times",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("a\na\nc\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "line_count": float64(2), "old_string": "a", "new_string": "x"}}},
-			wantError: "old_string found 2 times",
-			wantAlso:  "target line(s) in file:",
 		},
 	}
 
@@ -714,8 +445,7 @@ func TestMutateReplaceEdgeCases(t *testing.T) {
 			initial: "a b c\n",
 			operations: []any{
 				map[string]any{"type": "replace", "path": "note.txt", "old_string": "a", "new_string": "A"},
-				map[string]any{"type": "replace", "path": "note.txt", "old_string": "A b", "new_string": "AB"},
-				map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "AB c", "new_string": "done"},
+				map[string]any{"type": "replace", "path": "note.txt", "old_string": "A b c", "new_string": "done"},
 			},
 			want: "done\n",
 		},
@@ -723,7 +453,7 @@ func TestMutateReplaceEdgeCases(t *testing.T) {
 			name:    "delete then create same path acts on in-memory state",
 			initial: "old\n",
 			operations: []any{
-				map[string]any{"type": "delete", "path": "note.txt"},
+				map[string]any{"type": "delete_file", "path": "note.txt"},
 				map[string]any{"type": "create", "path": "note.txt", "content": "new\n"},
 			},
 			want: "new\n",
@@ -753,69 +483,6 @@ func TestMutateReplaceEdgeCases(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(root, "created.txt")); err == nil {
 				assertFile(t, filepath.Join(root, "created.txt"), "hello steiner\n")
 			}
-		})
-	}
-}
-
-func TestMutateLineReplaceEdgeCases(t *testing.T) {
-	tests := []struct {
-		name    string
-		initial string
-		line    any
-		old     string
-		new     string
-		want    string
-	}{
-		{
-			name:    "last line without trailing newline",
-			initial: "first\nsecond",
-			line:    float64(2),
-			old:     "second",
-			new:     "SECOND",
-			want:    "first\nSECOND",
-		},
-		{
-			name:    "preserves crlf line endings",
-			initial: "first\r\nsecond\r\n",
-			line:    float64(2),
-			old:     "second",
-			new:     "SECOND",
-			want:    "first\r\nSECOND\r\n",
-		},
-		{
-			name:    "line number supplied as string",
-			initial: "first\nsecond\n",
-			line:    "2",
-			old:     "second",
-			new:     "SECOND",
-			want:    "first\nSECOND\n",
-		},
-		{
-			name:    "old string appears elsewhere but once on target line",
-			initial: "needle\nneedle here\nneedle\n",
-			line:    float64(2),
-			old:     "needle here",
-			new:     "target",
-			want:    "needle\ntarget\nneedle\n",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
-			path := filepath.Join(root, "note.txt")
-			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
-				t.Fatalf("write fixture: %v", err)
-			}
-			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-				"operations": []any{
-					map[string]any{"type": "line_replace", "path": "note.txt", "line": tt.line, "old_string": tt.old, "new_string": tt.new},
-				},
-			})
-			if got.OperationsFailed != 0 {
-				t.Fatalf("mutate failed: %#v", got)
-			}
-			assertFile(t, path, tt.want)
 		})
 	}
 }
@@ -904,6 +571,59 @@ func TestMutateMoveEdgeCases(t *testing.T) {
 	})
 }
 
+func TestMutateReplaceInsertionPatterns(t *testing.T) {
+	t.Run("insert before anchor in middle", func(t *testing.T) {
+		root := t.TempDir()
+		content := "line1\nline2\nline3\n"
+		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "note.txt", "old_string": "line2", "new_string": "inserted\nline2"},
+			},
+		})
+		if got.OperationsFailed != 0 {
+			t.Fatalf("mutate failed: %#v", got)
+		}
+		assertFile(t, filepath.Join(root, "note.txt"), "line1\ninserted\nline2\nline3\n")
+	})
+
+	t.Run("insert after anchor in middle", func(t *testing.T) {
+		root := t.TempDir()
+		content := "line1\nline2\nline3\n"
+		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "note.txt", "old_string": "line2", "new_string": "line2\ninserted"},
+			},
+		})
+		if got.OperationsFailed != 0 {
+			t.Fatalf("mutate failed: %#v", got)
+		}
+		assertFile(t, filepath.Join(root, "note.txt"), "line1\nline2\ninserted\nline3\n")
+	})
+
+	t.Run("insert at end of file with no trailing newline", func(t *testing.T) {
+		root := t.TempDir()
+		content := "line1\nline2"
+		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+			"operations": []any{
+				map[string]any{"type": "replace", "path": "note.txt", "old_string": "line2", "new_string": "line2\nline3"},
+			},
+		})
+		if got.OperationsFailed != 0 {
+			t.Fatalf("mutate failed: %#v", got)
+		}
+		assertFile(t, filepath.Join(root, "note.txt"), "line1\nline2\nline3")
+	})
+}
+
 func TestMutateDiffOutputContainsHunks(t *testing.T) {
 	root := t.TempDir()
 	lines := make([]string, 50)
@@ -961,52 +681,14 @@ func TestMutateWhitespaceMismatchDiagnostic(t *testing.T) {
 	if !strings.Contains(got.Output, "normalized whitespace match exists") {
 		t.Fatalf("Output missing whitespace diagnostic:\n%s", got.Output)
 	}
-	if !strings.Contains(got.Output, "line_replace") {
-		t.Fatalf("Output missing line_replace suggestion:\n%s", got.Output)
-	}
-}
-
-func TestMutateLineReplaceWhitespaceMismatchDiagnostic(t *testing.T) {
-	root := t.TempDir()
-	absPath := filepath.Join(root, "config.go")
-	if err := os.WriteFile(absPath, []byte("type Config struct {\n\tworkDir    string\n\tlogLevel   int\n}\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-		"operations": []any{
-			map[string]any{
-				"type":       "line_replace",
-				"path":       "config.go",
-				"line":       float64(2),
-				"old_string": "    workDir    string",
-				"new_string": "\tworkDir  string",
-			},
-		},
-	})
-	if got.OperationsFailed != 1 {
-		t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
-	}
-	if !strings.Contains(got.Output, absPath) {
-		t.Fatalf("Output missing absolute path %q:\n%s", absPath, got.Output)
-	}
-	if !strings.Contains(got.Output, "normalized whitespace match exists") {
-		t.Fatalf("Output missing whitespace diagnostic:\n%s", got.Output)
-	}
-	if !strings.Contains(got.Output, "target line(s) in file:") {
-		t.Fatalf("Output missing target line preview:\n%s", got.Output)
-	}
-	if !strings.Contains(got.Output, "\tworkDir    string") {
-		t.Fatalf("Output missing actual tab-indented line bytes:\n%s", got.Output)
-	}
-	if !strings.Contains(got.Output, "tabs vs spaces must match the file") {
-		t.Fatalf("Output missing whitespace-specific suggestion:\n%s", got.Output)
+	if !strings.Contains(got.Output, "retry with old_string set to the file text shown above") {
+		t.Fatalf("Output missing suggestion:\n%s", got.Output)
 	}
 }
 
 // TestMutateDiagnosticsIncludeAbsolutePath guards against a class of "wrong
 // file" confusion: when a relative path resolves to a different physical file
-// (e.g. across a git worktree boundary), the no-match/ambiguous/line_replace
+// (e.g. across a git worktree boundary), the no-match/ambiguous
 // error must name the absolute path the planner actually touched so the
 // divergence is immediately diagnosable from the error text.
 func TestMutateDiagnosticsIncludeAbsolutePath(t *testing.T) {
@@ -1047,74 +729,6 @@ func TestMutateDiagnosticsIncludeAbsolutePath(t *testing.T) {
 			t.Fatalf("Output must name the abs path %q in the ambiguous header:\n%s", absPath, got.Output)
 		}
 	})
-
-	t.Run("line_replace single-line mismatch", func(t *testing.T) {
-		if err := os.WriteFile(absPath, []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-			"operations": []any{
-				map[string]any{
-					"type":       "line_replace",
-					"path":       "note.txt",
-					"line":       float64(2),
-					"old_string": "WRONG",
-					"new_string": "BETA",
-				},
-			},
-		})
-		if got.OperationsFailed != 1 {
-			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
-		}
-		if !strings.Contains(got.Output, "line 2 in "+absPath+" contains old_string") {
-			t.Fatalf("Output must name the abs path %q in the single-line header:\n%s", absPath, got.Output)
-		}
-	})
-
-	t.Run("line_replace range mismatch", func(t *testing.T) {
-		if err := os.WriteFile(absPath, []byte("aaa\naaa\naaa\n"), 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-			"operations": []any{
-				map[string]any{
-					"type":       "line_replace",
-					"path":       "note.txt",
-					"line":       float64(1),
-					"line_count": float64(2),
-					"old_string": "WRONG",
-					"new_string": "x",
-				},
-			},
-		})
-		if got.OperationsFailed != 1 {
-			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
-		}
-		if !strings.Contains(got.Output, "old_string found 0 times in lines 1") || !strings.Contains(got.Output, "of "+absPath) {
-			t.Fatalf("Output must name the abs path %q in the range header:\n%s", absPath, got.Output)
-		}
-	})
-}
-
-func TestMutateDryRunIncludesDiff(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("aaa\nbbb\nccc\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-		"dry_run": true,
-		"operations": []any{
-			map[string]any{"type": "replace", "path": "note.txt", "old_string": "bbb", "new_string": "BBB"},
-		},
-	})
-	if got.WasMutated() {
-		t.Fatal("WasMutated() = true for dry run")
-	}
-	if !strings.Contains(got.Output, "-bbb") || !strings.Contains(got.Output, "+BBB") {
-		t.Fatalf("dry run Output missing diff:\n%s", got.Output)
-	}
-	assertFile(t, filepath.Join(root, "note.txt"), "aaa\nbbb\nccc\n")
 }
 
 func TestMutateMultiFileOperations(t *testing.T) {
@@ -1235,48 +849,12 @@ func TestMutateReplaceAtFileStartAndEnd(t *testing.T) {
 	}
 }
 
-func TestMutateLineReplaceOnFirstLine(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "note.txt")
-	if err := os.WriteFile(path, []byte("first\nsecond\nthird\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-		"operations": []any{
-			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "first", "new_string": "FIRST"},
-		},
-	})
-	if got.OperationsFailed != 0 {
-		t.Fatalf("mutate failed: %#v", got)
-	}
-	assertFile(t, path, "FIRST\nsecond\nthird\n")
-}
-
-func TestMutateLineReplaceOnSingleLineFile(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "note.txt")
-	if err := os.WriteFile(path, []byte("only\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-		"operations": []any{
-			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "old_string": "only", "new_string": "replaced"},
-		},
-	})
-	if got.OperationsFailed != 0 {
-		t.Fatalf("mutate failed: %#v", got)
-	}
-	assertFile(t, path, "replaced\n")
-}
-
 func TestMutatePlanningFailureDoesNotCreateIntermediateFiles(t *testing.T) {
 	root := t.TempDir()
 	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
 		"operations": []any{
 			map[string]any{"type": "create", "path": "created.txt", "content": "created\n"},
-			map[string]any{"type": "delete", "path": "missing.txt"},
+			map[string]any{"type": "delete_file", "path": "missing.txt"},
 		},
 	})
 	if got.OperationsFailed != 1 {
@@ -1377,27 +955,6 @@ func TestMutateWriteRejectsEmptyContentOnExistingFile(t *testing.T) {
 	assertFile(t, path, "hello\n")
 }
 
-func TestMutateWriteAllowsEmptyContentWithFlag(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "note.txt")
-	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-		"operations": []any{
-			map[string]any{"type": "write", "path": "note.txt", "content": "", "allow_empty": true},
-		},
-	})
-	if got.OperationsFailed != 0 {
-		t.Fatalf("OperationsFailed = %d, want 0; output=%q", got.OperationsFailed, got.Output)
-	}
-	if got.OperationsApplied != 1 {
-		t.Fatalf("OperationsApplied = %d, want 1", got.OperationsApplied)
-	}
-	assertFile(t, path, "")
-}
-
 func TestMutateWriteEmptyContentOnNewFileSucceeds(t *testing.T) {
 	root := t.TempDir()
 
@@ -1429,60 +986,6 @@ func TestMutateWriteEmptyContentOnEmptyFileSucceeds(t *testing.T) {
 	}
 }
 
-func TestMutateLineReplaceWholeLineReplacement(t *testing.T) {
-	tests := []struct {
-		name    string
-		initial string
-		line    int
-		oldStr  string
-		newStr  string
-		want    string
-	}{
-		{name: "LF terminated", initial: "alpha\nbeta\ngamma\n", line: 2, oldStr: "beta", newStr: "BETA", want: "alpha\nBETA\ngamma\n"},
-		{name: "CRLF terminated", initial: "alpha\r\nbeta\r\ngamma\r\n", line: 2, oldStr: "beta", newStr: "BETA", want: "alpha\r\nBETA\r\ngamma\r\n"},
-		{name: "last line no trailing newline", initial: "alpha\nbeta", line: 2, oldStr: "beta", newStr: "BETA", want: "alpha\nBETA"},
-		{name: "first line", initial: "alpha\nbeta\ngamma\n", line: 1, oldStr: "alpha", newStr: "ALPHA", want: "ALPHA\nbeta\ngamma\n"},
-		{name: "single line file", initial: "only\n", line: 1, oldStr: "only", newStr: "replaced", want: "replaced\n"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
-			path := filepath.Join(root, "note.txt")
-			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
-				t.Fatalf("write fixture: %v", err)
-			}
-			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-				"operations": []any{
-					map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(tt.line), "old_string": tt.oldStr, "new_string": tt.newStr},
-				},
-			})
-			if got.OperationsFailed != 0 {
-				t.Fatalf("mutate failed: %#v", got)
-			}
-			assertFile(t, path, tt.want)
-		})
-	}
-}
-
-func TestMutateLineReplaceWholeLinePreservesOtherLines(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "note.txt")
-	initial := "line1\nline2\nline3\nline4\nline5\n"
-	if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-		"operations": []any{
-			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(3), "old_string": "line3", "new_string": "LINE3"},
-		},
-	})
-	if got.OperationsFailed != 0 {
-		t.Fatalf("mutate failed: %#v", got)
-	}
-	assertFile(t, path, "line1\nline2\nLINE3\nline4\nline5\n")
-}
-
 func TestMutateTabVsSpaceGoFileScenario(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "config.go")
@@ -1510,173 +1013,6 @@ func TestMutateTabVsSpaceGoFileScenario(t *testing.T) {
 	if !strings.Contains(got.Output, "nearest anchor at line 2") {
 		t.Fatalf("Output missing anchor at line 2:\n%s", got.Output)
 	}
-}
-
-func TestMutateLineReplaceLineCount(t *testing.T) {
-	tests := []struct {
-		name      string
-		initial   string
-		line      int
-		lineCount int
-		oldStr    string
-		newStr    string
-		want      string
-	}{
-		{
-			name:      "delete single line",
-			initial:   "a\nb\nc\n",
-			line:      2,
-			lineCount: 1,
-			newStr:    "",
-			want:      "a\nc\n",
-		},
-		{
-			name:      "delete range at start",
-			initial:   "a\nb\nc\nd\n",
-			line:      1,
-			lineCount: 2,
-			newStr:    "",
-			want:      "c\nd\n",
-		},
-		{
-			name:      "delete range in middle",
-			initial:   "a\nb\nc\nd\ne\n",
-			line:      2,
-			lineCount: 3,
-			newStr:    "",
-			want:      "a\ne\n",
-		},
-		{
-			name:      "delete range at end",
-			initial:   "a\nb\nc\nd\n",
-			line:      3,
-			lineCount: 2,
-			newStr:    "",
-			want:      "a\nb\n",
-		},
-		{
-			name:      "delete all lines",
-			initial:   "a\nb\nc\n",
-			line:      1,
-			lineCount: 3,
-			newStr:    "",
-			want:      "",
-		},
-		{
-			name:      "replace range with single line",
-			initial:   "a\nb\nc\nd\n",
-			line:      2,
-			lineCount: 2,
-			newStr:    "X",
-			want:      "a\nX\nd\n",
-		},
-		{
-			name:      "replace range with multi-line block",
-			initial:   "a\nb\nc\nd\n",
-			line:      2,
-			lineCount: 2,
-			newStr:    "X\nY\nZ",
-			want:      "a\nX\nY\nZ\nd\n",
-		},
-		{
-			name:      "replace range new_string already ends with newline",
-			initial:   "a\nb\nc\nd\n",
-			line:      2,
-			lineCount: 2,
-			newStr:    "X\n",
-			want:      "a\nX\nd\n",
-		},
-		{
-			name:      "CRLF preservation",
-			initial:   "a\r\nb\r\nc\r\n",
-			line:      1,
-			lineCount: 2,
-			newStr:    "X",
-			want:      "X\r\nc\r\n",
-		},
-		{
-			name:      "last line without trailing newline",
-			initial:   "a\nb\nc",
-			line:      2,
-			lineCount: 2,
-			newStr:    "",
-			want:      "a\n",
-		},
-		{
-			name:      "line_count 0 defaults to 1",
-			initial:   "a\nb\nc\n",
-			line:      2,
-			lineCount: 0,
-			oldStr:    "b",
-			newStr:    "B",
-			want:      "a\nB\nc\n",
-		},
-		{
-			name:      "line_count 1 replaces whole line",
-			initial:   "a\nhello world\nc\n",
-			line:      2,
-			lineCount: 1,
-			newStr:    "goodbye",
-			want:      "a\ngoodbye\nc\n",
-		},
-		{
-			name:      "old_string guard passes when found once in range",
-			initial:   "a\nb\nc\n",
-			line:      1,
-			lineCount: 2,
-			oldStr:    "b",
-			newStr:    "x",
-			want:      "x\nc\n",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
-			path := filepath.Join(root, "note.txt")
-			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
-				t.Fatalf("write fixture: %v", err)
-			}
-			op := map[string]any{
-				"type":       "line_replace",
-				"path":       "note.txt",
-				"line":       float64(tt.line),
-				"new_string": tt.newStr,
-			}
-			if tt.lineCount != 0 {
-				op["line_count"] = float64(tt.lineCount)
-			}
-			if tt.oldStr != "" {
-				op["old_string"] = tt.oldStr
-			}
-			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-				"operations": []any{op},
-			})
-			if got.OperationsFailed != 0 {
-				t.Fatalf("mutate failed: %#v", got)
-			}
-			assertFile(t, path, tt.want)
-		})
-	}
-}
-
-func TestMutateLineReplaceLineCountBatch(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "note.txt")
-	if err := os.WriteFile(path, []byte("a\nb\nc\nd\ne\nf\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-		"operations": []any{
-			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(2), "line_count": float64(2), "new_string": ""},
-			map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(3), "old_string": "e", "new_string": "E"},
-		},
-	})
-	if got.OperationsFailed != 0 {
-		t.Fatalf("mutate failed: %#v", got)
-	}
-	assertFile(t, path, "a\nd\nE\nf\n")
 }
 
 func TestMutateFileHashVerification(t *testing.T) {
@@ -1732,42 +1068,6 @@ func TestMutateFileHashVerification(t *testing.T) {
 		assertFile(t, filepath.Join(root, "note.txt"), "HELLO world\n")
 	})
 
-	t.Run("valid hash on line_replace succeeds", func(t *testing.T) {
-		root := t.TempDir()
-		content := "alpha\nbeta\ngamma\n"
-		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		hash := fileContentHash([]byte(content))
-		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-			"operations": []any{
-				map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(2), "old_string": "beta", "new_string": "BETA", "file_hash": hash},
-			},
-		})
-		if got.OperationsFailed != 0 {
-			t.Fatalf("mutate failed: %#v", got)
-		}
-		assertFile(t, filepath.Join(root, "note.txt"), "alpha\nBETA\ngamma\n")
-	})
-
-	t.Run("stale hash on line_replace fails", func(t *testing.T) {
-		root := t.TempDir()
-		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-			"operations": []any{
-				map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(2), "old_string": "beta", "new_string": "BETA", "file_hash": "DEAD"},
-			},
-		})
-		if got.OperationsFailed != 1 {
-			t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
-		}
-		if !strings.Contains(got.Output, "file_hash mismatch") {
-			t.Fatalf("Output = %q, want file_hash mismatch", got.Output)
-		}
-	})
-
 	t.Run("hash on create new file is rejected", func(t *testing.T) {
 		root := t.TempDir()
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
@@ -1797,7 +1097,7 @@ func TestMutateFileHashVerification(t *testing.T) {
 		// Valid hash succeeds
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
 			"operations": []any{
-				map[string]any{"type": "delete", "path": "note.txt", "file_hash": hash},
+				map[string]any{"type": "delete_file", "path": "note.txt", "file_hash": hash},
 			},
 		})
 		if got.OperationsFailed != 0 {
@@ -1813,7 +1113,7 @@ func TestMutateFileHashVerification(t *testing.T) {
 		}
 		got = runMutate(t, newMutateTestTool(t, root), map[string]any{
 			"operations": []any{
-				map[string]any{"type": "delete", "path": "note2.txt", "file_hash": "DEAD"},
+				map[string]any{"type": "delete_file", "path": "note2.txt", "file_hash": "DEAD"},
 			},
 		})
 		if got.OperationsFailed != 1 {
@@ -1943,461 +1243,6 @@ func TestMutateFileHashVerification(t *testing.T) {
 			t.Fatalf("Output = %q, want file_hash mismatch", got.Output)
 		}
 	})
-}
-
-func TestMutateInsertBefore(t *testing.T) {
-	tests := []struct {
-		name    string
-		initial string
-		line    int
-		content string
-		want    string
-	}{
-		{
-			name:    "prepend before line 1",
-			initial: "aaa\nbbb\nccc\n",
-			line:    1,
-			content: "zzz\n",
-			want:    "zzz\naaa\nbbb\nccc\n",
-		},
-		{
-			name:    "insert before middle line",
-			initial: "aaa\nbbb\nccc\n",
-			line:    2,
-			content: "zzz\n",
-			want:    "aaa\nzzz\nbbb\nccc\n",
-		},
-		{
-			name:    "insert before last line",
-			initial: "aaa\nbbb\nccc\n",
-			line:    3,
-			content: "zzz\n",
-			want:    "aaa\nbbb\nzzz\nccc\n",
-		},
-		{
-			name:    "insert multi-line content",
-			initial: "aaa\nbbb\nccc\n",
-			line:    2,
-			content: "xxx\nyyy\n",
-			want:    "aaa\nxxx\nyyy\nbbb\nccc\n",
-		},
-		{
-			name:    "insert into single-line file",
-			initial: "only\n",
-			line:    1,
-			content: "before\n",
-			want:    "before\nonly\n",
-		},
-		{
-			name:    "content without trailing newline gets one added",
-			initial: "aaa\nbbb\n",
-			line:    2,
-			content: "zzz",
-			want:    "aaa\nzzz\nbbb\n",
-		},
-		{
-			name:    "CRLF preservation",
-			initial: "aaa\r\nbbb\r\nccc\r\n",
-			line:    2,
-			content: "zzz",
-			want:    "aaa\r\nzzz\r\nbbb\r\nccc\r\n",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
-			path := filepath.Join(root, "note.txt")
-			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
-				t.Fatalf("write fixture: %v", err)
-			}
-			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-				"operations": []any{
-					map[string]any{"type": "insert_before", "path": "note.txt", "line": float64(tt.line), "content": tt.content},
-				},
-			})
-			if got.OperationsFailed != 0 {
-				t.Fatalf("mutate failed: %#v", got)
-			}
-			assertFile(t, path, tt.want)
-		})
-	}
-}
-
-func TestMutateInsertBeforeErrors(t *testing.T) {
-	tests := []struct {
-		name      string
-		setup     func(t *testing.T, root string)
-		input     map[string]any
-		wantError string
-	}{
-		{
-			name: "line zero",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("aaa\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_before", "path": "note.txt", "line": float64(0), "content": "zzz\n"}}},
-			wantError: "line must be >= 1",
-		},
-		{
-			name: "line beyond file",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("aaa\nbbb\nccc\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_before", "path": "note.txt", "line": float64(10), "content": "zzz\n"}}},
-			wantError: "outside file",
-		},
-		{
-			name: "empty file",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(""), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_before", "path": "note.txt", "line": float64(1), "content": "zzz\n"}}},
-			wantError: "file is empty",
-		},
-		{
-			name: "binary file",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "bin.dat"), []byte{'a', 0, 'b'}, 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_before", "path": "bin.dat", "line": float64(1), "content": "zzz\n"}}},
-			wantError: "binary",
-		},
-		{
-			name:      "nonexistent file",
-			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_before", "path": "missing.txt", "line": float64(1), "content": "zzz\n"}}},
-			wantError: "does not exist",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
-			if tt.setup != nil {
-				tt.setup(t, root)
-			}
-			got := runMutate(t, newMutateTestTool(t, root), tt.input)
-			if got.OperationsFailed != 1 {
-				t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
-			}
-			if !strings.Contains(got.Output, tt.wantError) {
-				t.Fatalf("Output = %q, want substring %q", got.Output, tt.wantError)
-			}
-		})
-	}
-}
-
-func TestMutateInsertAfter(t *testing.T) {
-	tests := []struct {
-		name    string
-		initial string
-		line    int
-		content string
-		want    string
-	}{
-		{
-			name:    "insert after line 1",
-			initial: "aaa\nbbb\nccc\n",
-			line:    1,
-			content: "zzz\n",
-			want:    "aaa\nzzz\nbbb\nccc\n",
-		},
-		{
-			name:    "append after last line",
-			initial: "aaa\nbbb\nccc\n",
-			line:    3,
-			content: "zzz\n",
-			want:    "aaa\nbbb\nccc\nzzz\n",
-		},
-		{
-			name:    "insert multi-line content after line 2",
-			initial: "aaa\nbbb\nccc\n",
-			line:    2,
-			content: "xxx\nyyy\n",
-			want:    "aaa\nbbb\nxxx\nyyy\nccc\n",
-		},
-		{
-			name:    "insert into single-line file after line 1",
-			initial: "only\n",
-			line:    1,
-			content: "after\n",
-			want:    "only\nafter\n",
-		},
-		{
-			name:    "insert after last line no trailing newline",
-			initial: "aaa\nbbb",
-			line:    2,
-			content: "zzz\n",
-			want:    "aaa\nbbb\nzzz\n",
-		},
-		{
-			name:    "append after final line without trailing newline and content newline",
-			initial: "aaa\nbbb",
-			line:    2,
-			content: "zzz",
-			want:    "aaa\nbbb\nzzz\n",
-		},
-		{
-			name:    "content without trailing newline gets one added",
-			initial: "aaa\nbbb\n",
-			line:    1,
-			content: "zzz",
-			want:    "aaa\nzzz\nbbb\n",
-		},
-		{
-			name:    "CRLF preservation",
-			initial: "aaa\r\nbbb\r\nccc\r\n",
-			line:    1,
-			content: "zzz",
-			want:    "aaa\r\nzzz\r\nbbb\r\nccc\r\n",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
-			path := filepath.Join(root, "note.txt")
-			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
-				t.Fatalf("write fixture: %v", err)
-			}
-			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-				"operations": []any{
-					map[string]any{"type": "insert_after", "path": "note.txt", "line": float64(tt.line), "content": tt.content},
-				},
-			})
-			if got.OperationsFailed != 0 {
-				t.Fatalf("mutate failed: %#v", got)
-			}
-			assertFile(t, path, tt.want)
-		})
-	}
-}
-
-func TestMutateInsertAfterErrors(t *testing.T) {
-	tests := []struct {
-		name      string
-		setup     func(t *testing.T, root string)
-		input     map[string]any
-		wantError string
-	}{
-		{
-			name: "line zero",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("aaa\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_after", "path": "note.txt", "line": float64(0), "content": "zzz\n"}}},
-			wantError: "line must be >= 1",
-		},
-		{
-			name: "line beyond file",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("aaa\nbbb\nccc\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_after", "path": "note.txt", "line": float64(10), "content": "zzz\n"}}},
-			wantError: "outside file",
-		},
-		{
-			name: "empty file",
-			setup: func(t *testing.T, root string) {
-				t.Helper()
-				if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(""), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_after", "path": "note.txt", "line": float64(1), "content": "zzz\n"}}},
-			wantError: "file is empty",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
-			if tt.setup != nil {
-				tt.setup(t, root)
-			}
-			got := runMutate(t, newMutateTestTool(t, root), tt.input)
-			if got.OperationsFailed != 1 {
-				t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
-			}
-			if !strings.Contains(got.Output, tt.wantError) {
-				t.Fatalf("Output = %q, want substring %q", got.Output, tt.wantError)
-			}
-		})
-	}
-}
-
-func TestMutateInsertCombined(t *testing.T) {
-	t.Run("insert + replace on same file", func(t *testing.T) {
-		root := t.TempDir()
-		path := filepath.Join(root, "note.txt")
-		if err := os.WriteFile(path, []byte("aaa\nbbb\nccc\n"), 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-			"operations": []any{
-				map[string]any{"type": "insert_before", "path": "note.txt", "line": float64(2), "content": "zzz\n"},
-				map[string]any{"type": "replace", "path": "note.txt", "old_string": "zzz", "new_string": "ZZZ"},
-			},
-		})
-		if got.OperationsFailed != 0 {
-			t.Fatalf("mutate failed: %#v", got)
-		}
-		assertFile(t, path, "aaa\nZZZ\nbbb\nccc\n")
-	})
-
-	t.Run("insert + line_replace on same file", func(t *testing.T) {
-		root := t.TempDir()
-		path := filepath.Join(root, "note.txt")
-		if err := os.WriteFile(path, []byte("aaa\nbbb\nccc\n"), 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-			"operations": []any{
-				map[string]any{"type": "insert_after", "path": "note.txt", "line": float64(1), "content": "zzz\n"},
-				map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(3), "old_string": "bbb", "new_string": "BBB"},
-			},
-		})
-		if got.OperationsFailed != 0 {
-			t.Fatalf("mutate failed: %#v", got)
-		}
-		assertFile(t, path, "aaa\nzzz\nBBB\nccc\n")
-	})
-
-	t.Run("insert with valid file_hash succeeds", func(t *testing.T) {
-		root := t.TempDir()
-		path := filepath.Join(root, "note.txt")
-		content := []byte("aaa\nbbb\nccc\n")
-		if err := os.WriteFile(path, content, 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		hash := fileContentHash(content)
-		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-			"operations": []any{
-				map[string]any{"type": "insert_before", "path": "note.txt", "line": float64(1), "content": "zzz\n", "file_hash": hash},
-			},
-		})
-		if got.OperationsFailed != 0 {
-			t.Fatalf("mutate failed: %#v", got)
-		}
-		assertFile(t, path, "zzz\naaa\nbbb\nccc\n")
-	})
-
-	t.Run("insert with stale file_hash fails", func(t *testing.T) {
-		root := t.TempDir()
-		path := filepath.Join(root, "note.txt")
-		if err := os.WriteFile(path, []byte("aaa\nbbb\nccc\n"), 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-			"operations": []any{
-				map[string]any{"type": "insert_after", "path": "note.txt", "line": float64(1), "content": "zzz\n", "file_hash": "DEAD"},
-			},
-		})
-		if got.OperationsFailed != 1 {
-			t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
-		}
-		if !strings.Contains(got.Output, "file_hash mismatch") {
-			t.Fatalf("Output = %q, want substring %q", got.Output, "file_hash mismatch")
-		}
-	})
-}
-
-func TestMutateInsertNewStringFallback(t *testing.T) {
-	tests := []struct {
-		name      string
-		opType    string
-		newString string
-		line      int
-		initial   string
-		want      string
-		wantError string
-	}{
-		{
-			name:      "insert_before with new_string instead of content succeeds",
-			opType:    "insert_before",
-			newString: "inserted\n",
-			line:      2,
-			initial:   "aaa\nbbb\nccc\n",
-			want:      "aaa\ninserted\nbbb\nccc\n",
-		},
-		{
-			name:      "insert_after with new_string instead of content succeeds",
-			opType:    "insert_after",
-			newString: "appended\n",
-			line:      1,
-			initial:   "aaa\nbbb\nccc\n",
-			want:      "aaa\nappended\nbbb\nccc\n",
-		},
-		{
-			name:      "insert_before with neither content nor new_string errors",
-			opType:    "insert_before",
-			line:      1,
-			initial:   "aaa\nbbb\n",
-			wantError: "content is required",
-		},
-		{
-			name:      "insert_after with neither content nor new_string errors",
-			opType:    "insert_after",
-			line:      1,
-			initial:   "aaa\nbbb\n",
-			wantError: "content is required",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
-			path := filepath.Join(root, "note.txt")
-			if err := os.WriteFile(path, []byte(tt.initial), 0o644); err != nil {
-				t.Fatalf("write fixture: %v", err)
-			}
-
-			op := map[string]any{
-				"type": tt.opType,
-				"path": "note.txt",
-				"line": float64(tt.line),
-			}
-			if tt.newString != "" {
-				op["new_string"] = tt.newString
-			}
-
-			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
-				"operations": []any{op},
-			})
-
-			if tt.wantError != "" {
-				if got.OperationsFailed != 1 {
-					t.Fatalf("OperationsFailed = %d, want 1; output=%q", got.OperationsFailed, got.Output)
-				}
-				if !strings.Contains(got.Output, tt.wantError) {
-					t.Fatalf("Output = %q, want substring %q", got.Output, tt.wantError)
-				}
-			} else {
-				if got.OperationsFailed != 0 {
-					t.Fatalf("mutate failed: %#v", got)
-				}
-				assertFile(t, path, tt.want)
-			}
-		})
-	}
 }
 
 func TestMutateHashBatchSemantics(t *testing.T) {
@@ -2550,44 +1395,9 @@ func TestMutateRejectsInapplicableFields(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "delete_line with content",
-			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "content": "stuff"},
-			wantErr: `field "content" is not valid`,
-		},
-		{
-			name:    "delete_line with old_string",
-			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "old_string": "hello"},
-			wantErr: `field "old_string" is not valid`,
-		},
-		{
-			name:    "delete_line with new_string",
-			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "new_string": "hello"},
-			wantErr: `field "new_string" is not valid`,
-		},
-		{
-			name:    "delete_line with from",
-			op:      map[string]any{"type": "delete_line", "path": "exist.txt", "line": float64(1), "from": "a.txt"},
-			wantErr: `field "from" is not valid`,
-		},
-		{
-			name:    "delete with line",
-			op:      map[string]any{"type": "delete", "path": "exist.txt", "line": float64(1)},
-			wantErr: `field "line" is not valid`,
-		},
-		{
-			name:    "delete with line_count",
-			op:      map[string]any{"type": "delete", "path": "exist.txt", "line_count": float64(2)},
-			wantErr: `field "line_count" is not valid`,
-		},
-		{
 			name:    "delete with content",
-			op:      map[string]any{"type": "delete", "path": "exist.txt", "content": "stuff"},
+			op:      map[string]any{"type": "delete_file", "path": "exist.txt", "content": "stuff"},
 			wantErr: `field "content" is not valid`,
-		},
-		{
-			name:    "create with line",
-			op:      map[string]any{"type": "create", "path": "new.txt", "content": "x", "line": float64(1)},
-			wantErr: `field "line" is not valid`,
 		},
 		{
 			name:    "create with old_string",
@@ -2603,16 +1413,6 @@ func TestMutateRejectsInapplicableFields(t *testing.T) {
 			name:    "move with content",
 			op:      map[string]any{"type": "move", "from": "exist.txt", "to": "moved.txt", "content": "x"},
 			wantErr: `field "content" is not valid`,
-		},
-		{
-			name:    "move with line",
-			op:      map[string]any{"type": "move", "from": "exist.txt", "to": "moved.txt", "line": float64(1)},
-			wantErr: `field "line" is not valid`,
-		},
-		{
-			name:    "replace with line",
-			op:      map[string]any{"type": "replace", "path": "exist.txt", "old_string": "hello", "new_string": "hi", "line": float64(1)},
-			wantErr: `field "line" is not valid`,
 		},
 		{
 			name:    "replace with from",
@@ -2643,7 +1443,7 @@ func TestMutateRejectsInapplicableFields(t *testing.T) {
 
 func TestMutateDescriptionMatchesEnumSpelling(t *testing.T) {
 	def := newMutateTestTool(t, t.TempDir())
-	for _, want := range []string{"line_replace", "insert_before", "insert_after", "create or overwrite"} {
+	for _, want := range []string{"replace", "delete_file", "move", "create or overwrite"} {
 		if !strings.Contains(def.Description, want) {
 			t.Errorf("description missing %q", want)
 		}
@@ -2674,9 +1474,8 @@ func TestMutateSchemaTypeDescriptionHasCheatSheet(t *testing.T) {
 	desc := itemProps["type"].(map[string]any)["description"].(string)
 	for _, want := range []string{
 		"move: from, to",
-		"delete_line: path, line",
+
 		"replace: path, old_string, new_string",
-		"insert_before / insert_after: path, line, content",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("type description missing %q; got: %s", want, desc)
@@ -2690,7 +1489,6 @@ func TestMutateRejectsDeadCreateFields(t *testing.T) {
 		op   MutateOperation
 	}{
 		{"file_hash", MutateOperation{Type: "create", Path: "x.txt", FileHash: "abcd"}},
-		{"allow_empty", MutateOperation{Type: "create", Path: "x.txt", AllowEmpty: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2710,7 +1508,7 @@ func TestMutateValidateRequired(t *testing.T) {
 		{"move missing from", MutateOperation{Type: "move", To: "b"}, "from is required"},
 		{"move missing to", MutateOperation{Type: "move", From: "a"}, "to is required"},
 		{"replace missing path", MutateOperation{Type: "replace", OldString: "a", NewString: "b"}, "path is required"},
-		{"delete missing path", MutateOperation{Type: "delete"}, "path is required"},
+		{"delete_file missing path", MutateOperation{Type: "delete_file"}, "path is required"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2725,20 +1523,36 @@ func TestMutateValidateRequired(t *testing.T) {
 func TestMutateValidCreateAndWriteStillSucceed(t *testing.T) {
 	root := t.TempDir()
 	toolDef := newMutateTestTool(t, root)
-	if err := os.WriteFile(filepath.Join(root, "existing.txt"), []byte("data\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
 	got := runMutate(t, toolDef, map[string]any{
 		"operations": []any{
 			map[string]any{"type": "create", "path": "fresh.txt", "content": "fresh\n"},
-			map[string]any{"type": "write", "path": "existing.txt", "content": "", "allow_empty": true},
+			map[string]any{"type": "write", "path": "another.txt", "content": "written\n"},
 		},
 	})
 	if got.OperationsFailed != 0 || got.OperationsApplied != 2 {
 		t.Fatalf("result = %#v", got)
 	}
 	assertFile(t, filepath.Join(root, "fresh.txt"), "fresh\n")
-	assertFile(t, filepath.Join(root, "existing.txt"), "")
+	assertFile(t, filepath.Join(root, "another.txt"), "written\n")
+}
+
+func TestMutateWriteEmptyToExistingFileReturnsError(t *testing.T) {
+	root := t.TempDir()
+	toolDef := newMutateTestTool(t, root)
+	if err := os.WriteFile(filepath.Join(root, "existing.txt"), []byte("data\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	got := runMutate(t, toolDef, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": "existing.txt", "content": ""},
+		},
+	})
+	if got.OperationsFailed != 1 {
+		t.Fatalf("expected 1 failed operation, got %d", got.OperationsFailed)
+	}
+	if !strings.Contains(got.Output, "use delete_file") {
+		t.Fatalf("output %q does not suggest delete_file", got.Output)
+	}
 }
 
 func TestMutatePlanPhaseFailureAccounting(t *testing.T) {
@@ -2897,5 +1711,30 @@ func assertFile(t *testing.T, path, want string) {
 	}
 	if got := string(data); got != want {
 		t.Fatalf("%s = %q, want %q", path, got, want)
+	}
+}
+
+func TestMutateSchemaOpTypes(t *testing.T) {
+	schema := MutateSchema()
+	props := schema["properties"].(map[string]any)
+	operations := props["operations"].(map[string]any)
+	items := operations["items"].(map[string]any)
+	itemProps := items["properties"].(map[string]any)
+	typeField := itemProps["type"].(map[string]any)
+	enumVal := typeField["enum"].([]string)
+
+	wantTypes := []string{"create", "delete_file", "move", "replace", "write"}
+	if len(enumVal) != len(wantTypes) {
+		t.Fatalf("schema enum has %d types, want exactly %d", len(enumVal), len(wantTypes))
+	}
+
+	typeMap := make(map[string]bool)
+	for _, t := range enumVal {
+		typeMap[t] = true
+	}
+	for _, want := range wantTypes {
+		if !typeMap[want] {
+			t.Errorf("schema missing type %q", want)
+		}
 	}
 }

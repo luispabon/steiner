@@ -12,11 +12,14 @@ func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath str
 	lines = append(lines, fmt.Sprintf("%s: no match for old_string in %s", prefix, absPath))
 
 	hasWhitespaceMismatch := normalizedWhitespaceMatchExists(content, oldText)
-	var matchLineNum int
 	if hasWhitespaceMismatch {
 		lines = append(lines, fmt.Sprintf("%s: exact match failed; normalized whitespace match exists", prefix))
-		if matchedText, mln, ok := extractNormalizedMatch(content, oldText); ok {
-			matchLineNum = mln
+
+		if matchedText, _, ok := extractNormalizedMatch(content, oldText); ok {
+			kind, details := classifyWhitespaceMismatch(oldText, matchedText)
+			if kind != "" {
+				lines = append(lines, fmt.Sprintf("%s: %s: %s", prefix, kind, details))
+			}
 			lines = append(lines, fmt.Sprintf("%s: file text that matches after whitespace normalization:", prefix))
 			for _, l := range strings.Split(matchedText, "\n") {
 				lines = append(lines, "  | "+l)
@@ -24,9 +27,7 @@ func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath str
 		}
 	}
 
-	anchorLineNum := 0
 	if anchorStart, anchorEnd, lineNum, preview, ok := findDiagnosticAnchor(content, oldText); ok {
-		anchorLineNum = lineNum
 		lines = append(lines, fmt.Sprintf("%s: nearest anchor at line %d, bytes %d-%d (matched fragment %q)", prefix, lineNum, anchorStart+1, anchorEnd, preview))
 		lines = append(lines, fmt.Sprintf("%s: context:", prefix))
 		lines = append(lines, previewContext(content, lineNum, preview)...)
@@ -35,15 +36,7 @@ func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath str
 	}
 
 	if hasWhitespaceMismatch {
-		suggestLine := anchorLineNum
-		if suggestLine == 0 {
-			suggestLine = matchLineNum
-		}
-		if suggestLine > 0 {
-			lines = append(lines, fmt.Sprintf("%s: suggestion: retry with old_string set to the file text shown above, or use line_replace with line %d", prefix, suggestLine))
-		} else {
-			lines = append(lines, fmt.Sprintf("%s: suggestion: retry with old_string set to the file text shown above", prefix))
-		}
+		lines = append(lines, fmt.Sprintf("%s: suggestion: retry with old_string set to the file text shown above", prefix))
 	} else {
 		lines = append(lines, fmt.Sprintf("%s: suggestion: reread a slightly wider region around the target text", prefix))
 	}
@@ -61,48 +54,6 @@ func buildAmbiguousDiagnostics(prefix string, content []byte, oldText string, ma
 	}
 
 	lines = append(lines, fmt.Sprintf("%s: suggestion: reread a slightly wider region around the target text", prefix))
-	return strings.Join(lines, "\n")
-}
-
-// buildLineReplaceMismatchDiagnostics produces a line-range-scoped diagnostic for
-// line_replace operations whose old_string guard did not match exactly once in
-// the target line(s). The prefix should already include the
-// "mutate: operation N line_replace" form so callers that parse the error shape
-// keep working. rangeText is the actual line text (with any preserved line
-// endings) covering lines startLine..endLine; pass it in so the preview shows
-// the real file bytes, including tabs vs spaces. singleLine selects the
-// "line N contains old_string M times" wording versus the range wording. absPath
-// is the absolute file path the planner resolved; it is included on the first
-// header line so a "wrong file" diagnosis is immediate.
-func buildLineReplaceMismatchDiagnostics(prefix string, oldText string, count, startLine, endLine int, rangeText string, singleLine bool, absPath string) string {
-	var lines []string
-	if singleLine {
-		lines = append(lines, fmt.Sprintf("%s: line %d in %s contains old_string %d times", prefix, startLine, absPath, count))
-	} else {
-		lines = append(lines, fmt.Sprintf("%s: old_string found %d times in lines %d–%d of %s (want exactly 1)", prefix, count, startLine, endLine, absPath))
-	}
-
-	lines = append(lines, fmt.Sprintf("%s: target line(s) in file:", prefix))
-	for _, l := range strings.Split(strings.TrimRight(rangeText, "\n"), "\n") {
-		lines = append(lines, "  | "+l)
-	}
-
-	switch {
-	case normalizedWhitespaceMatchExists([]byte(rangeText), oldText):
-		lines = append(lines, fmt.Sprintf("%s: exact match failed; normalized whitespace match exists", prefix))
-		if matchedText, _, ok := extractNormalizedMatch([]byte(rangeText), oldText); ok {
-			lines = append(lines, fmt.Sprintf("%s: file text that matches after whitespace normalization:", prefix))
-			for _, l := range strings.Split(matchedText, "\n") {
-				lines = append(lines, "  | "+l)
-			}
-		}
-		lines = append(lines, fmt.Sprintf("%s: suggestion: retry with old_string set to the exact target line text (tabs vs spaces must match the file)", prefix))
-	case singleLine:
-		lines = append(lines, fmt.Sprintf("%s: suggestion: reread line %d to confirm the current text before retrying", prefix, startLine))
-	default:
-		lines = append(lines, fmt.Sprintf("%s: suggestion: reread lines %d–%d to confirm the current text before retrying", prefix, startLine, endLine))
-	}
-
 	return strings.Join(lines, "\n")
 }
 
@@ -131,6 +82,127 @@ func extractNormalizedMatch(content []byte, oldText string) (matchedText string,
 		}
 	}
 	return "", 0, false
+}
+
+func classifyWhitespaceMismatch(oldText string, matchedRegion string) (kind string, details string) {
+	oldLines := strings.Split(strings.TrimRight(oldText, "\n"), "\n")
+	regionLines := strings.Split(strings.TrimRight(matchedRegion, "\n"), "\n")
+
+	oldNonBlank := []string{}
+	for _, l := range oldLines {
+		if strings.TrimSpace(l) != "" {
+			oldNonBlank = append(oldNonBlank, l)
+		}
+	}
+	regionNonBlank := []string{}
+	for _, l := range regionLines {
+		if strings.TrimSpace(l) != "" {
+			regionNonBlank = append(regionNonBlank, l)
+		}
+	}
+
+	oldBlanks := countBlankLines(oldLines)
+	regionBlanks := countBlankLines(regionLines)
+	if len(oldNonBlank) != len(regionNonBlank) || oldBlanks != regionBlanks {
+		return "blank-line-count", fmt.Sprintf("old_string has %d blank lines where the file has %d", oldBlanks, regionBlanks)
+	}
+
+	for i, ol := range oldNonBlank {
+		if strings.TrimSpace(ol) != strings.TrimSpace(regionNonBlank[i]) {
+			return "internal-whitespace", "the lines match except for spacing within them"
+		}
+	}
+
+	deltas := make([]int, len(oldNonBlank))
+	allZero := true
+	for i, ol := range oldNonBlank {
+		oldLead := leadingWhitespaceLength(ol)
+		regionLead := leadingWhitespaceLength(regionNonBlank[i])
+		deltas[i] = regionLead - oldLead
+		if deltas[i] != 0 {
+			allZero = false
+		}
+	}
+
+	// A zero shift on every line, having already ruled out blank-line-count
+	// and internal-whitespace differences, means indentation is not the
+	// difference either — leave this unclassified rather than reporting a
+	// misleading "shifted uniformly: 0".
+	if allZero {
+		return "", ""
+	}
+
+	uniform := true
+	first := deltas[0]
+	for _, d := range deltas[1:] {
+		if d != first {
+			uniform = false
+			break
+		}
+	}
+
+	deltasStr := formatIndentationDelta(deltas, oldNonBlank, regionNonBlank)
+	if uniform {
+		return "leading-indentation-uniform", "all lines shifted uniformly: " + deltasStr
+	}
+	return "leading-indentation-nonuniform", "lines shifted non-uniformly (model picture of nesting is inconsistent): " + deltasStr
+}
+
+func countBlankLines(lines []string) int {
+	count := 0
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			count++
+		}
+	}
+	return count
+}
+
+func leadingWhitespaceLength(line string) int {
+	leading := strings.TrimLeft(line, " \t")
+	return len(line) - len(leading)
+}
+
+func formatIndentationDelta(deltas []int, oldNonBlank, regionNonBlank []string) string {
+	if len(deltas) == 0 {
+		return ""
+	}
+	if len(deltas) == 1 {
+		oldIndent := describeIndent(oldNonBlank[0])
+		regionIndent := describeIndent(regionNonBlank[0])
+		return fmt.Sprintf("line has %s, old_string has %s", regionIndent, oldIndent)
+	}
+	examples := []string{}
+	for i := range deltas {
+		if i >= 2 {
+			break
+		}
+		oldIndent := describeIndent(oldNonBlank[i])
+		regionIndent := describeIndent(regionNonBlank[i])
+		examples = append(examples, fmt.Sprintf("line %d: file has %s, old_string has %s", i+1, regionIndent, oldIndent))
+	}
+	return strings.Join(examples, "; ")
+}
+
+func describeIndent(line string) string {
+	s := strings.TrimLeft(line, " \t")
+	indent := line[:len(line)-len(s)]
+	tabs := strings.Count(indent, "\t")
+	spaces := strings.Count(indent, " ")
+	if tabs > 0 && spaces > 0 {
+		return fmt.Sprintf("%d tabs + %d spaces", tabs, spaces)
+	}
+	if tabs > 0 {
+		return fmt.Sprintf("%d %s", tabs, pluralize("tab", tabs))
+	}
+	return fmt.Sprintf("%d %s", spaces, pluralize("space", spaces))
+}
+
+func pluralize(s string, n int) string {
+	if n == 1 {
+		return s
+	}
+	return s + "s"
 }
 
 func isStructuralOnlyCandidate(candidate string) bool {

@@ -211,40 +211,6 @@ func TestCommitRollbackFailureReportsAffectedPaths(t *testing.T) {
 	}
 }
 
-func TestDryRunDoesNotCreateParentDirInSandbox(t *testing.T) {
-	root := t.TempDir()
-	sandboxTmpDir := filepath.Join(root, "sandbox_tmp")
-	if err := os.Mkdir(sandboxTmpDir, 0o755); err != nil {
-		t.Fatalf("mkdir sandbox: %v", err)
-	}
-
-	// Create a policy with sandbox tmp dir.
-	policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmpDir)
-	toolDef := NewMutateTool(Env{WorkDir: root, PathPolicy: &policy})
-
-	// Dry run with a path that requires creating a parent in sandbox.
-	_ = runMutate(t, toolDef, map[string]any{
-		"dry_run": true,
-		"operations": []any{
-			map[string]any{
-				"type":    "create",
-				"path":    "/tmp/nested/deep/file.txt",
-				"content": "test",
-			},
-		},
-	})
-
-	// The parent directory should NOT have been created.
-	nestedPath := filepath.Join(sandboxTmpDir, "nested", "deep")
-	_, err := os.Stat(nestedPath)
-	if err == nil {
-		t.Errorf("dry run created parent dir at %q, want it to remain absent", nestedPath)
-	}
-	if !os.IsNotExist(err) {
-		t.Fatalf("stat nested path: %v", err)
-	}
-}
-
 func TestCommitCreatesParentDirInSandbox(t *testing.T) {
 	root := t.TempDir()
 	sandboxTmpDir := filepath.Join(root, "sandbox_tmp")
