@@ -272,10 +272,23 @@ type StopReasonEvent struct {
 	Action  string `json:"action,omitempty"`
 }
 
+// ImageBlock mirrors agent.ImageBlock's shape without importing internal/agent
+// (which itself imports internal/output — importing it back would cycle).
+type ImageBlock struct {
+	ID        string `json:"id,omitempty"`
+	FilePath  string `json:"file_path,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
+	Data      string `json:"data,omitempty"`
+	Width     int    `json:"width,omitempty"`
+	Height    int    `json:"height,omitempty"`
+	SizeBytes int    `json:"size_bytes,omitempty"`
+}
+
 // UserInputEvent captures user input forwarded into the event stream.
 type UserInputEvent struct {
-	Content string `json:"content"`
-	Mode    string `json:"mode,omitempty"`
+	Content string       `json:"content"`
+	Mode    string       `json:"mode,omitempty"`
+	Images  []ImageBlock `json:"images,omitempty"`
 }
 
 // APIRequestEvent captures the provider request payload sent for a turn.

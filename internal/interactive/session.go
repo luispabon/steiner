@@ -99,6 +99,19 @@ func (s *Session) Config() config.Config {
 	return s.deps.Config
 }
 
+// CurrentEffective returns a defensive snapshot of the session's effective model
+// assignments.
+func (s *Session) CurrentEffective() config.EffectiveModelAssignments {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	effective := s.deps.Config.Models.Effective
+	effective.SubAgents = cloneStringMap(effective.SubAgents)
+	effective.OneShot = cloneStringMap(effective.OneShot)
+	effective.WorkflowHandoff = cloneStringMap(effective.WorkflowHandoff)
+	return effective
+}
+
 // DisplaySink returns the session's ForwardSink, which forwards events to
 // whatever target is set via Set. The display_file tool uses this to emit
 // display events before the TUI sink is wired in.
@@ -157,19 +170,19 @@ func (s *Session) WorkflowHandoffResponder(eventSink output.EventSink) tool.Work
 func (s *Session) CurrentModelAlias() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.deps.Config.Models.Default
+	return s.deps.Config.Models.Effective.ActiveOrchestratorModel
 }
 
 // WorkflowHandoffModelSelection returns the configured handoff model for the
-// destination when present, otherwise the current session model alias.
+// destination when present, otherwise the selected profile's default model alias.
 func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHandoffModelSelection {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	current := strings.TrimSpace(s.deps.Config.Models.Default)
+	current := strings.TrimSpace(s.deps.Config.Models.Effective.DefaultModel)
 	selection := WorkflowHandoffModelSelection{
 		ModelAlias:  current,
-		SourceLabel: "current session",
+		SourceLabel: "profile default",
 	}
 
 	destination = strings.TrimSpace(destination)
@@ -177,7 +190,7 @@ func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHand
 		return selection
 	}
 
-	alias := strings.TrimSpace(s.deps.Config.Models.WorkflowHandoff[destination])
+	alias := strings.TrimSpace(s.deps.Config.Models.Effective.WorkflowHandoff[destination])
 	if alias == "" {
 		return selection
 	}
@@ -210,7 +223,7 @@ func (s *Session) CurrentModelConfig() config.ModelConfig {
 func (s *Session) CurrentReasoningOverride() provider.ReasoningOverride {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.reasoningOverrides[s.deps.Config.Models.Default]
+	return s.reasoningOverrides[s.deps.Config.Models.Effective.ActiveOrchestratorModel]
 }
 
 // Conversation returns a defensive copy of the current conversation.
@@ -321,6 +334,17 @@ func (s *Session) modeNotice() string {
 		return notice + "\n\n"
 	}
 	return ""
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	clone := make(map[string]string, len(src))
+	for key, value := range src {
+		clone[key] = value
+	}
+	return clone
 }
 
 func usagePercent(promptTokens, contextWindow int) float64 {

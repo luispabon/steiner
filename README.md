@@ -127,6 +127,47 @@ Configuration is loaded in this precedence order (later overrides earlier):
 4. Environment variables with the `STEINER_` prefix
 5. CLI flags
 
+Model assignments use a required `models.profiles.default` baseline and named
+partial overlays. The shared `models.definitions` registry holds model details:
+
+```yaml
+models:
+  definitions:
+    local:
+      provider: local
+      id: qwen2.5-coder:14b
+    sonnet:
+      provider: anthropic
+      id: claude-sonnet-4-5
+  profiles:
+    default:
+      default_model: local
+      sub_agents:
+        code: sonnet
+    cloud:
+      default_model: sonnet
+```
+
+Select a profile at startup with `--profile <name>` for interactive, `--exec`, or
+oneshot runs:
+
+```bash
+steiner --profile cloud
+steiner --profile cloud --exec "explain the auth package"
+steiner --profile cloud oneshot "refactor the auth package"
+```
+
+Startup model precedence is selected profile, then `STEINER_MODEL`, then `--model`.
+The env and CLI model overrides change only the active orchestrator model; profile
+role assignments and `default_model` fallback remain in effect. In the TUI,
+`/model` still changes only the active orchestrator. `/profile <name>` changes
+future advisor, sub-agent, oneshot, and workflow-handoff assignments plus the
+profile's `default_model` fallback, while preserving the current orchestrator
+model, current `/model` override, conversation, and prompt-cache identity.
+`/profile` requires a name and does not open a picker. Without a name it prints
+`usage: /profile <name>`; an unknown or invalid profile reports an error and
+leaves current selection unchanged.
+
 **Example — local LLM (Ollama or LM Studio)**:
 
 ```yaml
@@ -136,11 +177,13 @@ providers:
     base_url: http://localhost:11434/v1
 models:
   discovery_enabled: true
-  default: local
   definitions:
     local:
       provider: local
       id: qwen2.5-coder:14b
+  profiles:
+    default:
+      default_model: local
 ```
 
 See [Configuration](docs/configuration.md) for all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables.
@@ -253,7 +296,7 @@ vision(task: "what color is the button?", image_id: "img-1")
 
 For follow-up questions about the same image, use `follow_up` with the `agent_id` returned by the initial `vision` call — the image is already in the sub-agent's history and cached server-side.
 
-The `vision` tool requires a vision-capable model configured under `sub_agent.agents.vision.model`. Image files are deleted automatically when the agent exits.
+The `vision` tool requires a vision-capable model configured under the selected profile's `sub_agents.vision` assignment. Image files are deleted automatically when the agent exits.
 
 ## MCP
 
@@ -288,7 +331,14 @@ A stronger-model steering pass that reviews the live conversation and returns co
 advisor:
   enabled: true
 models:
-  advisor: advisor-model
+  definitions:
+    advisor-model:
+      provider: local
+      id: advisor-model
+  profiles:
+    default:
+      default_model: default
+      advisor: advisor-model
 ```
 
 See [Advisor](docs/advisor.md) for configuration options and behavior reference.
@@ -309,10 +359,17 @@ Autonomous three-phase orchestration (plan, implement, review). Each phase runs 
 oneshot:
   auto_pr: false
 models:
-  oneshot:
-    plan: ""
-    implement: ""
-    review: ""
+  definitions:
+    default:
+      provider: local
+      id: qwen3-35b-a3b
+  profiles:
+    default:
+      default_model: default
+      oneshot:
+        plan: default
+        implement: default
+        review: default
 ```
 
 See [Oneshot Mode](docs/oneshot.md) for invocation, configuration, and resume behaviour.

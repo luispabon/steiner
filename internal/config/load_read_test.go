@@ -83,9 +83,12 @@ func TestParseConfigPatchModelsSubAgents(t *testing.T) {
   max_turns: 10
   max_tokens: 50000
 models:
-  sub_agents:
-    code: fast-model
-    explore: thorough-model
+  profiles:
+    default:
+      default_model: default
+      sub_agents:
+        code: fast-model
+        explore: thorough-model
 `)
 	if err != nil {
 		t.Fatalf("parseConfigPatch() error = %v", err)
@@ -93,10 +96,10 @@ models:
 	if patch.SubAgent == nil {
 		t.Fatal("patch.SubAgent = nil, want parsed sub_agent patch")
 	}
-	if patch.Models == nil || patch.Models.SubAgents == nil {
-		t.Fatal("patch.Models.SubAgents = nil, want parsed sub_agents map")
+	if patch.Models == nil || patch.Models.Profiles == nil || (*patch.Models.Profiles)["default"].SubAgents == nil {
+		t.Fatal("default profile sub_agents = nil, want parsed sub_agents map")
 	}
-	agents := *patch.Models.SubAgents
+	agents := *(*patch.Models.Profiles)["default"].SubAgents
 	if got, want := len(agents), 2; got != want {
 		t.Fatalf("len(agents) = %d, want %d", got, want)
 	}

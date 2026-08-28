@@ -243,3 +243,27 @@ func TestBuildCompletionCandidatesIncludesOneshotResume(t *testing.T) {
 		t.Fatalf("candidates = %#v, want /oneshot-resume included", got)
 	}
 }
+
+func TestParseInputHandlesProfileCommand(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with name", func(t *testing.T) {
+		action := parseInput("/profile fast")
+		if action.switchProfile != "fast" {
+			t.Fatalf("switchProfile = %q, want fast", action.switchProfile)
+		}
+		if action.profileUsage {
+			t.Fatal("profileUsage = true, want false")
+		}
+	})
+
+	t.Run("without name reports usage", func(t *testing.T) {
+		action := parseInput("/profile")
+		if !action.profileUsage {
+			t.Fatal("profileUsage = false, want true")
+		}
+		if action.switchProfile != "" {
+			t.Fatalf("switchProfile = %q, want empty", action.switchProfile)
+		}
+	})
+}

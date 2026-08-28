@@ -3,6 +3,7 @@ package delegation
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/deepnoodle-ai/wonton/web"
 
@@ -104,16 +105,20 @@ type DelegateDeps struct {
 // the advisor tool on cloned. Split out of BuildDelegateRegistry to keep its
 // cyclomatic complexity down.
 func registerAdvisorTool(cloned *tool.Registry, deps DelegateDeps) error {
-	advisorResolved, err := provider.ResolveWithDiscovery(deps.Config, deps.Config.Models.Advisor, deps.HTTPClient)
+	advisorAlias := strings.TrimSpace(deps.Config.Models.Effective.Advisor)
+	if advisorAlias == "" {
+		advisorAlias = strings.TrimSpace(deps.Config.Models.Effective.DefaultModel)
+	}
+	advisorResolved, err := provider.ResolveWithDiscovery(deps.Config, advisorAlias, deps.HTTPClient)
 	if err != nil {
-		return fmt.Errorf("resolve advisor model %q: %w", deps.Config.Models.Advisor, err)
+		return fmt.Errorf("resolve advisor model %q: %w", advisorAlias, err)
 	}
 	if deps.AdvisorCfg.Timeout != nil {
 		advisorResolved.ProviderConfig.Timeout = *deps.AdvisorCfg.Timeout
 	}
 	advisorProvider, err := resolveToolProvider(deps.Provider, deps.ResolvedModel, advisorResolved, deps.ProviderFactory)
 	if err != nil {
-		return fmt.Errorf("build advisor provider for %q: %w", deps.Config.Models.Advisor, err)
+		return fmt.Errorf("build advisor provider for %q: %w", advisorAlias, err)
 	}
 	advisorPolicy := tool.NewPathPolicy(deps.WorkDir, deps.Config.Paths)
 
@@ -216,13 +221,14 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		SubAgentHandlerDeps: subAgentDeps,
 		ModelResolver:       modelResolver,
 		ImageStore:          deps.ImageStore,
-		AgentModels:         deps.Config.Models.SubAgents,
+		AgentModels:         deps.Config.Models.Effective.SubAgents,
+		DefaultModel:        deps.Config.Models.Effective.DefaultModel,
 	}
 	var excludeTypes []AgentType
 	if deps.Searcher == nil {
 		excludeTypes = append(excludeTypes, AgentTypeResearch)
 	}
-	if deps.Config.Models.SubAgents[string(AgentTypeVision)] == "" || deps.ImageStore == nil {
+	if deps.Config.Models.Effective.SubAgents[string(AgentTypeVision)] == "" || deps.ImageStore == nil {
 		excludeTypes = append(excludeTypes, AgentTypeVision)
 	}
 	for _, def := range AllSpecializedToolDefs(specializedDeps, excludeTypes) {

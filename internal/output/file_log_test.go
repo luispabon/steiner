@@ -21,7 +21,7 @@ func TestFileLogSinkWritesUpdatedEventModel(t *testing.T) {
 	})
 
 	sink.Emit(NewRunStartedEvent("exec", "test-model", "fix the bug", 4, 64))
-	sink.Emit(NewUserInputEvent("fix the bug", "exec"))
+	sink.Emit(NewUserInputEvent("fix the bug", "exec", nil))
 	sink.Emit(NewRunFinishedEvent(1, "complete", "run complete after 1 turn", "", nil))
 
 	data, err := os.ReadFile(path)
@@ -124,7 +124,7 @@ func TestFileLogSinkEmitUserInputEvent(t *testing.T) {
 			t.Fatalf("NewFileLogSink() error = %v", err)
 		}
 		t.Cleanup(func() { _ = sink.Close() })
-		sink.Emit(NewUserInputEvent("fix the bug", "exec"))
+		sink.Emit(NewUserInputEvent("fix the bug", "exec", nil))
 		data, _ := os.ReadFile(path)
 		got := string(data)
 		if !strings.Contains(got, "mode: exec") {
@@ -142,7 +142,7 @@ func TestFileLogSinkEmitUserInputEvent(t *testing.T) {
 			t.Fatalf("NewFileLogSink() error = %v", err)
 		}
 		t.Cleanup(func() { _ = sink.Close() })
-		sink.Emit(NewUserInputEvent("just text", ""))
+		sink.Emit(NewUserInputEvent("just text", "", nil))
 		data, _ := os.ReadFile(path)
 		got := string(data)
 		if strings.Contains(got, "mode:") {

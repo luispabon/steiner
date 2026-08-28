@@ -101,7 +101,7 @@ These features ship in the current codebase and form the baseline.
 | Manifest persistence | Shipped | JSON manifest tracks phase completion |
 | Lock-based contention | Shipped | CAS lock prevents concurrent runs |
 | Optional PR closeout | Shipped | `auto_pr` pushes branch and opens PR/MR |
-| Phase-specific model overrides | Shipped | `models.oneshot.plan/implement/review` |
+| Phase-specific model overrides | Shipped | `models.profiles.<name>.oneshot.plan/implement/review` |
 
 ### Other shipped features
 
@@ -317,8 +317,8 @@ prune stale sessions from the command line.
 
 4. **Named execution profiles** — a `profiles` config block mapping names to model +
    provider + parameter overrides. `/profile <name>` command to switch in-session.
-   `--profile <name>` flag for headless runs. Profile switching invalidates prompt
-   cache.
+   `--profile <name>` flag for headless runs. Profile switching preserves prompt-cache
+   identity.
 
 5. **Per-project deny/ask/allow permission rules** — a `permissions` config block with
    rules per tool or tool category. Rule types: `deny`, `ask`, `allow`. Matching by path

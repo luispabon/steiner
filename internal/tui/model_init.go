@@ -319,6 +319,8 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.content.setGlamourStyleSheet(accentHex)
 	m.content.collapseState = make(map[int]bool)
 	m.content.showThinking = m.showThinking
+	m.content.workingDir = m.sidebar.workingDir
+	m.content.homeDir = m.sidebar.homeDir
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
 	m.activity = newActivityState(m.styles)

@@ -17,7 +17,7 @@ func TestBuildConfigReportFormatsResolvedYAML(t *testing.T) {
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
 		Models: config.ModelsConfig{
-			Default: "mymodel",
+			Effective: config.EffectiveModelAssignments{DefaultModel: "mymodel", ActiveOrchestratorModel: "mymodel"},
 			Definitions: map[string]config.ModelConfig{
 				"mymodel": {Provider: "local", ID: "qwen"},
 			},
@@ -33,7 +33,7 @@ func TestBuildConfigReportFormatsResolvedYAML(t *testing.T) {
 	if !strings.HasPrefix(report, "```yaml\n") {
 		t.Fatalf("report prefix = %q, want yaml fence", report)
 	}
-	for _, want := range []string{"models:", "default: mymodel", "base_url: http://localhost:11434/v1", "id: qwen", "logging:"} {
+	for _, want := range []string{"models:", "definitions:", "base_url: http://localhost:11434/v1", "id: qwen", "logging:"} {
 		if !strings.Contains(report, want) {
 			t.Fatalf("report = %q, want %q", report, want)
 		}
@@ -155,7 +155,7 @@ func TestRequestConfigReportSuccess(t *testing.T) {
 		}),
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default:     "mymodel",
+				Effective:   config.EffectiveModelAssignments{DefaultModel: "mymodel", ActiveOrchestratorModel: "mymodel"},
 				Definitions: map[string]config.ModelConfig{"mymodel": {Provider: "local", ID: "gpt-test"}},
 			},
 			Providers: map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://test/v1"}},

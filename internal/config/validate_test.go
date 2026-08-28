@@ -17,7 +17,9 @@ func validBase() Config {
 
 		TUI: TUIConfig{FPS: 60},
 		Models: ModelsConfig{
-			Default: "default",
+			Profiles: map[string]ModelProfile{
+				"default": {DefaultModel: "default"},
+			},
 			Definitions: map[string]ModelConfig{
 				"default": {
 					Provider: "local",
@@ -65,6 +67,36 @@ func validBase() Config {
 	}
 }
 
+func setDefaultModel(cfg *Config, value string) {
+	profile := cfg.Models.Profiles["default"]
+	profile.DefaultModel = value
+	cfg.Models.Profiles["default"] = profile
+}
+
+func setDefaultSubAgents(cfg *Config, value map[string]string) {
+	profile := cfg.Models.Profiles["default"]
+	profile.SubAgents = value
+	cfg.Models.Profiles["default"] = profile
+}
+
+func setDefaultOneShot(cfg *Config, value map[string]string) {
+	profile := cfg.Models.Profiles["default"]
+	profile.OneShot = value
+	cfg.Models.Profiles["default"] = profile
+}
+
+func setDefaultWorkflowHandoff(cfg *Config, value map[string]string) {
+	profile := cfg.Models.Profiles["default"]
+	profile.WorkflowHandoff = value
+	cfg.Models.Profiles["default"] = profile
+}
+
+func setDefaultAdvisor(cfg *Config) {
+	profile := cfg.Models.Profiles["default"]
+	profile.Advisor = "default"
+	cfg.Models.Profiles["default"] = profile
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -77,19 +109,19 @@ func TestValidate(t *testing.T) {
 			name: "missing models.default",
 			cfg: func() Config {
 				c := validBase()
-				c.Models.Default = ""
+				c.Models.Profiles["default"] = ModelProfile{}
 				return c
 			}(),
-			wantErr: "models.default is required",
+			wantErr: "models.profiles.default.default_model is required",
 		},
 		{
 			name: "models.default not in models.definitions",
 			cfg: func() Config {
 				c := validBase()
-				c.Models.Default = "missing"
+				setDefaultModel(&c, "missing")
 				return c
 			}(),
-			wantErr: "models.default",
+			wantErr: "models.profiles",
 		},
 		{
 			name: "missing providers",
@@ -494,17 +526,17 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: `timeout must be greater than zero`,
 		},
-		// models.sub_agents map validation
+		// models.profiles["default"].sub_agents map validation
 		{
 			name: "subagent unknown agent type rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.Models.SubAgents = map[string]string{
+				setDefaultSubAgents(&c, map[string]string{
 					"bogus": "some-model",
-				}
+				})
 				return c
 			}(),
-			wantErr: `models.sub_agents contains unknown agent type "bogus"`,
+			wantErr: `models.profiles["default"].sub_agents contains unknown agent type "bogus"`,
 		},
 		{
 			name: "subagent known agent types accepted",
@@ -512,7 +544,7 @@ func TestValidate(t *testing.T) {
 				c := validBase()
 				c.Models.Definitions["alt-a"] = c.Models.Definitions["default"]
 				c.Models.Definitions["alt-b"] = c.Models.Definitions["default"]
-				c.Models.SubAgents = map[string]string{
+				setDefaultSubAgents(&c, map[string]string{
 					"explore":      "alt-a",
 					"research":     "default",
 					"code":         "alt-b",
@@ -520,7 +552,7 @@ func TestValidate(t *testing.T) {
 					"sanity_check": "default",
 					"review":       "alt-b",
 					"vision":       "alt-a",
-				}
+				})
 				return c
 			}(),
 			wantErr: ``,
@@ -529,20 +561,20 @@ func TestValidate(t *testing.T) {
 			name: "subagent unknown alias rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.Models.SubAgents = map[string]string{
+				setDefaultSubAgents(&c, map[string]string{
 					"explore": "missing-model",
-				}
+				})
 				return c
 			}(),
-			wantErr: `models.sub_agents["explore"] "missing-model" is not defined in models.definitions`,
+			wantErr: `models.profiles["default"].sub_agents["explore"] "missing-model" is not defined in models.definitions`,
 		},
 		{
 			name: "subagent empty alias accepted (disables agent)",
 			cfg: func() Config {
 				c := validBase()
-				c.Models.SubAgents = map[string]string{
+				setDefaultSubAgents(&c, map[string]string{
 					"vision": "",
-				}
+				})
 				return c
 			}(),
 			wantErr: "",
@@ -552,10 +584,10 @@ func TestValidate(t *testing.T) {
 			cfg: func() Config {
 				c := validBase()
 				c.Models.Definitions["alt-a"] = c.Models.Definitions["default"]
-				c.Models.WorkflowHandoff = map[string]string{
+				setDefaultWorkflowHandoff(&c, map[string]string{
 					"implement": "alt-a",
 					"review":    "default",
-				}
+				})
 				return c
 			}(),
 			wantErr: ``,
@@ -564,23 +596,23 @@ func TestValidate(t *testing.T) {
 			name: "workflow handoff unknown alias rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.Models.WorkflowHandoff = map[string]string{
+				setDefaultWorkflowHandoff(&c, map[string]string{
 					"implement": "missing-model",
-				}
+				})
 				return c
 			}(),
-			wantErr: `models.workflow_handoff["implement"] "missing-model" is not defined in models.definitions`,
+			wantErr: `models.profiles["default"].workflow_handoff["implement"] "missing-model" is not defined in models.definitions`,
 		},
 		{
 			name: "workflow handoff unknown destination rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.Models.WorkflowHandoff = map[string]string{
+				setDefaultWorkflowHandoff(&c, map[string]string{
 					"plan": "default",
-				}
+				})
 				return c
 			}(),
-			wantErr: `models.workflow_handoff contains unknown destination "plan"`,
+			wantErr: `models.profiles["default"].workflow_handoff contains unknown destination "plan"`,
 		},
 		{
 			name: "oneshot known aliases accepted",
@@ -588,11 +620,11 @@ func TestValidate(t *testing.T) {
 				c := validBase()
 				c.Models.Definitions["alt-a"] = c.Models.Definitions["default"]
 				c.Models.Definitions["alt-b"] = c.Models.Definitions["default"]
-				c.Models.OneShot = map[string]string{
+				setDefaultOneShot(&c, map[string]string{
 					"plan":      "alt-a",
 					"implement": "default",
 					"review":    "alt-b",
-				}
+				})
 				return c
 			}(),
 			wantErr: ``,
@@ -601,35 +633,35 @@ func TestValidate(t *testing.T) {
 			name: "oneshot unknown alias rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.Models.OneShot = map[string]string{
+				setDefaultOneShot(&c, map[string]string{
 					"plan": "missing-model",
-				}
+				})
 				return c
 			}(),
-			wantErr: `models.oneshot["plan"] "missing-model" is not defined in models.definitions`,
+			wantErr: `models.profiles["default"].oneshot["plan"] "missing-model" is not defined in models.definitions`,
 		},
 		{
 			name: "oneshot unknown phase rejected",
 			cfg: func() Config {
 				c := validBase()
-				c.Models.OneShot = map[string]string{
+				setDefaultOneShot(&c, map[string]string{
 					"bogus": "default",
-				}
+				})
 				return c
 			}(),
-			wantErr: `models.oneshot contains unknown phase "bogus"`,
+			wantErr: `models.profiles["default"].oneshot contains unknown phase "bogus"`,
 		},
 		{
 			name: "subagent agents validated even when disabled",
 			cfg: func() Config {
 				c := validBase()
 				c.SubAgent.Enabled = false
-				c.Models.SubAgents = map[string]string{
+				setDefaultSubAgents(&c, map[string]string{
 					"unknown": "some-model",
-				}
+				})
 				return c
 			}(),
-			wantErr: `models.sub_agents contains unknown agent type "unknown"`,
+			wantErr: `models.profiles["default"].sub_agents contains unknown agent type "unknown"`,
 		},
 
 		// Search validation
@@ -814,17 +846,33 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "enabled advisor requires model",
+			name: "enabled advisor allows empty assignment",
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
 			},
-			wantErr: "models.advisor is required when enabled",
+		},
+		{
+			name: "enabled advisor allows empty assignment in named profile",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
+				c.Models.Profiles["named"] = ModelProfile{DefaultModel: "default", advisorSet: true}
+			},
+		},
+		{
+			name: "invalid explicit advisor is rejected",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
+				profile := c.Models.Profiles["default"]
+				profile.Advisor = "missing-advisor"
+				c.Models.Profiles["default"] = profile
+			},
+			wantErr: `models.profiles["default"].advisor "missing-advisor" is not defined in models.definitions or providers`,
 		},
 		{
 			name: "enabled advisor requires max uses",
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{Enabled: true}
-				c.Models.Advisor = "default"
+				setDefaultAdvisor(c)
 			},
 			wantErr: "advisor.max_uses_per_run must be at least 1 when enabled",
 		},
@@ -836,7 +884,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 					MaxUsesPerRun: 1,
 					MaxTokens:     intPtr(0),
 				}
-				c.Models.Advisor = "default"
+				setDefaultAdvisor(c)
 			},
 			wantErr: "advisor.max_tokens must be greater than zero when set",
 		},
@@ -848,7 +896,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 					MaxUsesPerRun: 1,
 					Timeout:       durationPtr(Duration{}),
 				}
-				c.Models.Advisor = "default"
+				setDefaultAdvisor(c)
 			},
 			wantErr: "advisor.timeout must be greater than zero when set",
 		},
@@ -871,7 +919,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 					MaxTokens:     intPtr(256),
 					Timeout:       durationPtr(MustDuration("240s")),
 				}
-				c.Models.Advisor = "default"
+				setDefaultAdvisor(c)
 			},
 		},
 	}
@@ -970,7 +1018,9 @@ func TestSearchConfigValidation(t *testing.T) {
 
 				TUI: TUIConfig{FPS: 60},
 				Models: ModelsConfig{
-					Default: "default",
+					Profiles: map[string]ModelProfile{
+						"default": {DefaultModel: "default"},
+					},
 					Definitions: map[string]ModelConfig{
 						"default": {
 							Provider: "local",
@@ -1542,5 +1592,23 @@ func TestValidateCodexTransport(t *testing.T) {
 				t.Fatalf("validate() error = %v, want nil", err)
 			}
 		})
+	}
+}
+
+func TestValidateProfilesErrorOrder(t *testing.T) {
+	cfg := validBase()
+	cfg.Models.Profiles["gamma"] = ModelProfile{DefaultModel: "missing-gamma"}
+	cfg.Models.Profiles["alpha"] = ModelProfile{DefaultModel: "missing-alpha"}
+	cfg.Models.Profiles["delta"] = ModelProfile{DefaultModel: "missing-delta"}
+	cfg.Models.Profiles["beta"] = ModelProfile{DefaultModel: "missing-beta"}
+
+	want := `invalid config: resolve profile "alpha": models.profiles["alpha"].default_model "missing-alpha" is not defined in models.definitions or providers; resolve profile "beta": models.profiles["beta"].default_model "missing-beta" is not defined in models.definitions or providers; resolve profile "delta": models.profiles["delta"].default_model "missing-delta" is not defined in models.definitions or providers; resolve profile "gamma": models.profiles["gamma"].default_model "missing-gamma" is not defined in models.definitions or providers`
+	for i := 0; i < 20; i++ {
+		if err := validate(cfg); err == nil || err.Error() != want {
+			if err == nil {
+				t.Fatalf("validate() error = nil, want %q", want)
+			}
+			t.Fatalf("validate() error = %q, want %q", err, want)
+		}
 	}
 }

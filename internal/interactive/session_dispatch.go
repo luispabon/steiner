@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
@@ -12,7 +13,8 @@ import (
 // Handle processes an interactive action. Handles SubmitPrompt, SteerPrompt,
 // InterruptActiveRun, ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
-// SwitchMode, SwitchModel, SubmitApproval, SubmitWorkflowHandoff, LoadSession, and requestSessionPicker.
+// SwitchMode, SwitchModel, SwitchProfile, SubmitApproval, SubmitWorkflowHandoff,
+// LoadSession, and requestSessionPicker.
 func (s *Session) Handle(ctx context.Context, action Action) error {
 	if s.handleImmediateAction(ctx, action) {
 		return nil
@@ -77,6 +79,8 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		return true, nil
 	case SwitchModel:
 		return true, s.handleSwitchModel(a.Name, a.Reasoning)
+	case SwitchProfile:
+		return true, s.handleSwitchProfile(a.Name)
 	case SwitchMode:
 		s.SetMode(a.Mode)
 		return true, nil
@@ -103,7 +107,7 @@ func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOv
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Model switch failed: %v", err)))
 		return err
 	}
-	s.deps.Config.Models.Default = name
+	s.deps.Config.Models.Effective.ActiveOrchestratorModel = name
 	if reasoning != nil {
 		s.reasoningOverrides[name] = *reasoning
 	}
@@ -112,6 +116,31 @@ func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOv
 	if s.deps.RecordModelSwitch != nil {
 		// Stats-write failure must never fail the model switch.
 		_ = s.deps.RecordModelSwitch(providerAlias, modelID)
+	}
+	return nil
+}
+
+func (s *Session) handleSwitchProfile(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		err := fmt.Errorf("switch profile: profile name is required")
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Profile switch failed: %v", err)))
+		return err
+	}
+
+	s.mu.Lock()
+	candidate, err := config.ResolveEffectiveAssignments(&s.deps.Config, name)
+	if err == nil {
+		candidate.ActiveOrchestratorModel = s.deps.Config.Models.Effective.ActiveOrchestratorModel
+		s.deps.Config.Models.Effective = candidate
+	}
+	s.mu.Unlock()
+	if err != nil {
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Profile switch failed: %v", err)))
+		return err
+	}
+	if s.deps.OnEffectiveAssignmentsChanged != nil {
+		s.deps.OnEffectiveAssignmentsChanged(candidate)
 	}
 	return nil
 }

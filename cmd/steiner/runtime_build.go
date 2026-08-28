@@ -42,6 +42,7 @@ func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (co
 	overrides := config.CLIOverrides{
 		ConfigPath: flags.configPath,
 		Model:      modelAlias,
+		Profile:    flags.profile,
 		Verbose:    flags.verbose,
 		Unsafe:     flags.unsafe,
 	}
@@ -154,7 +155,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		compactionLogFile:       compactionLogFile,
 		usageRecorder:           usagestats.New(nil),
 		imageStore:              agent.NewImageStore(filepath.Join(workDir, ".steiner", "tmp", "images")),
-		visionCapabilities:      agent.NewVisionCapabilities(cfg.Models.SubAgents["vision"] != ""),
+		visionCapabilities:      agent.NewVisionCapabilities(cfg.Models.Effective.SubAgents["vision"] != ""),
 		modelCatalog:            modelCatalog,
 		modelCatalogEndpoints:   modelCatalogEndpoints,
 		modelPopularity:         modelPopularity,

@@ -2,6 +2,7 @@ package oneshot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,6 +16,16 @@ import (
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+func configWithEffectiveModels(defaultModel string, oneShot map[string]string) config.Config {
+	return config.Config{Models: config.ModelsConfig{
+		Effective: config.EffectiveModelAssignments{
+			ProfileName:  "selected-profile",
+			DefaultModel: defaultModel,
+			OneShot:      oneShot,
+		},
+	}}
+}
 
 type recordedPhaseInput struct {
 	conversation []agent.Message
@@ -163,22 +174,13 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 		},
 	}
 
-	cfg := config.Config{
-		Models: config.ModelsConfig{
-			Default: "fallback-model",
-			Definitions: map[string]config.ModelConfig{
-				"fallback-model": {},
-			},
-			Advisor: "advisor-model",
-		},
-		Advisor: config.AdvisorConfig{
-			MaxUsesPerRun: 11,
-			Enabled:       false,
-		},
-	}
-	cfg.Models.OneShot = map[string]string{
+	cfg := configWithEffectiveModels("fallback-model", map[string]string{
 		string(PhasePlan):      "plan-model",
 		string(PhaseImplement): "implement-model",
+	})
+	cfg.Advisor = config.AdvisorConfig{
+		MaxUsesPerRun: 11,
+		Enabled:       false,
 	}
 
 	drainCh := make(chan agent.SteerMessage, 1)
@@ -239,6 +241,9 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 	if got, want := manifest.ModelSnapshot.PhaseModels[PhasePlan], "plan-model"; got != want {
 		t.Fatalf("model snapshot plan = %q, want %q", got, want)
 	}
+	if got, want := manifest.ModelSnapshot.PhaseModels[PhaseImplement], "implement-model"; got != want {
+		t.Fatalf("model snapshot implement = %q, want %q", got, want)
+	}
 	if got, want := manifest.ModelSnapshot.PhaseModels[PhaseReview], "fallback-model"; got != want {
 		t.Fatalf("model snapshot review = %q, want %q", got, want)
 	}
@@ -249,6 +254,9 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 		if got, want := sess.Group, identity.ID; got != want {
 			t.Fatalf("session group = %q, want %q", got, want)
 		}
+	}
+	if got, want := sessionStore.sessions[1].Model, "implement-model"; got != want {
+		t.Fatalf("implement session model = %q, want %q", got, want)
 	}
 	if got, want := sessionStore.sessions[0].Model, "plan-model"; got != want {
 		t.Fatalf("plan session model = %q, want %q", got, want)
@@ -316,7 +324,7 @@ func TestOrchestratorStopsOnBoundaryFailure(t *testing.T) {
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
 		Task:          "Build the parser",
-		Config:        config.Config{Models: config.ModelsConfig{Default: "fallback-model"}},
+		Config:        configWithEffectiveModels("fallback-model", nil),
 		SessionStore:  sessionStore,
 		RunnerFactory: runnerFactory,
 		ManifestStore: NewManifestStore(identity.ManifestPath(projectRoot)),
@@ -364,7 +372,7 @@ func TestOrchestratorCancelsAndReleasesLock(t *testing.T) {
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
 		Task:          "Build the parser",
-		Config:        config.Config{Models: config.ModelsConfig{Default: "fallback-model"}},
+		Config:        configWithEffectiveModels("fallback-model", nil),
 		SessionStore:  sessionStore,
 		RunnerFactory: runnerFactory,
 		ManifestStore: NewManifestStore(identity.ManifestPath(projectRoot)),
@@ -434,7 +442,7 @@ func TestOrchestratorConcurrentRunsGetDistinctWorktrees(t *testing.T) {
 			ProjectRoot:  projectRoot,
 			Identity:     identity,
 			Task:         "concurrent task",
-			Config:       config.Config{Models: config.ModelsConfig{Default: "m"}},
+			Config:       configWithEffectiveModels("m", nil),
 			SessionStore: &recordingSessionStore{},
 			RunnerFactory: &recordingRunnerFactory{
 				planningPath: planningPath,
@@ -550,7 +558,7 @@ func TestOrchestratorDrainSteersPreservesImages(t *testing.T) {
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
 		Task:          "Analyze the image",
-		Config:        config.Config{Models: config.ModelsConfig{Default: "fallback-model"}},
+		Config:        configWithEffectiveModels("fallback-model", nil),
 		SessionStore:  sessionStore,
 		RunnerFactory: runnerFactory,
 		ManifestStore: NewManifestStore(identity.ManifestPath(projectRoot)),
@@ -587,5 +595,37 @@ func TestOrchestratorDrainSteersPreservesImages(t *testing.T) {
 	}
 	if steer.Images[0].Data != "steer-image-data" {
 		t.Errorf("steer image data = %q, want %q", steer.Images[0].Data, "steer-image-data")
+	}
+}
+
+func TestPhaseModelSelectionUsesEffectiveAssignments(t *testing.T) {
+	cfg := configWithEffectiveModels("profile-default", map[string]string{
+		string(PhasePlan): "profile-plan",
+	})
+
+	if got, want := phaseModelAlias(cfg, PhasePlan), "profile-plan"; got != want {
+		t.Fatalf("plan model alias = %q, want %q", got, want)
+	}
+	if got, want := phaseModelAlias(cfg, PhaseImplement), "profile-default"; got != want {
+		t.Fatalf("implement model alias = %q, want %q", got, want)
+	}
+
+	snapshot := phaseModelSnapshot(cfg)
+	if got, want := snapshot.DefaultModel, "profile-default"; got != want {
+		t.Fatalf("snapshot default model = %q, want %q", got, want)
+	}
+	if got, want := snapshot.PhaseModels[PhasePlan], "profile-plan"; got != want {
+		t.Fatalf("snapshot plan model = %q, want %q", got, want)
+	}
+	if got, want := snapshot.PhaseModels[PhaseReview], "profile-default"; got != want {
+		t.Fatalf("snapshot review model = %q, want %q", got, want)
+	}
+
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("marshal model snapshot: %v", err)
+	}
+	if strings.Contains(string(data), "selected-profile") || strings.Contains(string(data), "profile_name") {
+		t.Fatalf("model snapshot contains profile name: %s", data)
 	}
 }

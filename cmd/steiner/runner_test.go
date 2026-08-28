@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -56,6 +57,59 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildRunRequestSnapshotsVisionCapabilities(t *testing.T) {
+	shared := agent.NewVisionCapabilities(false)
+	shared.SetDerived("known", agent.VisionCapable)
+	shared.LatchIncapable("latched")
+	r := cliRunner{runtime: cliRuntime{visionCapabilities: shared}}
+
+	first := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+	if first.VisionCapabilities == nil {
+		t.Fatal("first request vision capabilities = nil, want snapshot")
+	}
+	if first.VisionCapabilities == shared {
+		t.Fatal("first request shares vision capabilities with runtime")
+	}
+	if got := first.VisionCapabilities.Get("known"); got != agent.VisionCapable {
+		t.Fatalf("first request known capability = %v, want VisionCapable", got)
+	}
+	if got := first.VisionCapabilities.Get("latched"); got != agent.VisionIncapable {
+		t.Fatalf("first request latched capability = %v, want VisionIncapable", got)
+	}
+
+	if !first.VisionCapabilities.TakeNotify("latched") {
+		t.Fatal("first request notification = false, want true")
+	}
+	if shared.TakeNotify("latched") {
+		t.Fatal("shared notification repeated after first request")
+	}
+	if !first.VisionCapabilities.LatchIncapable("runtime-latched") {
+		t.Fatal("first request runtime latch = false, want true")
+	}
+
+	shared.SetSubAgentConfigured(true)
+	if first.VisionCapabilities.SubAgentConfigured() {
+		t.Fatal("first request vision capabilities changed after runtime update")
+	}
+
+	second := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+	if second.VisionCapabilities == nil {
+		t.Fatal("second request vision capabilities = nil, want snapshot")
+	}
+	if second.VisionCapabilities == shared {
+		t.Fatal("second request shares vision capabilities with runtime")
+	}
+	if !second.VisionCapabilities.SubAgentConfigured() {
+		t.Fatal("second request vision capabilities = false, want live runtime value")
+	}
+	if got := second.VisionCapabilities.Get("runtime-latched"); got != agent.VisionIncapable {
+		t.Fatalf("second request runtime-latched capability = %v, want VisionIncapable", got)
+	}
+	if second.VisionCapabilities.TakeNotify("latched") {
+		t.Fatal("second request repeated notification from first request")
 	}
 }
 
@@ -111,6 +165,47 @@ func TestNewDelegateDepsDelegationModelIsBaseResolvedModel(t *testing.T) {
 	}
 	if deps.MaxTokens != setup.resolvedModel.EffectiveLimits.MaxOutputTokens {
 		t.Errorf("MaxTokens = %d, want %d", deps.MaxTokens, setup.resolvedModel.EffectiveLimits.MaxOutputTokens)
+	}
+}
+
+func TestNewDelegateDepsUsesCurrentEffectiveAssignments(t *testing.T) {
+	frozen := config.EffectiveModelAssignments{ProfileName: "default", DefaultModel: "base"}
+	live := config.EffectiveModelAssignments{
+		ProfileName:             "fast",
+		DefaultModel:            "fast",
+		Advisor:                 "advisor-fast",
+		SubAgents:               map[string]string{"code": "code-fast", string(delegation.AgentTypeVision): "vision-fast"},
+		OneShot:                 map[string]string{"plan": "plan-fast"},
+		WorkflowHandoff:         map[string]string{"implement": "handoff-fast"},
+		ActiveOrchestratorModel: "active",
+	}
+	r := cliRunner{
+		runtime:          cliRuntime{cfg: config.Config{Models: config.ModelsConfig{Effective: frozen}}},
+		currentEffective: func() config.EffectiveModelAssignments { return live },
+	}
+
+	deps := r.newDelegateDeps(runnerSetup{}, nil, nil, nil, "")
+	if !reflect.DeepEqual(deps.Config.Models.Effective, live) {
+		t.Fatalf("delegate effective assignments = %#v, want %#v", deps.Config.Models.Effective, live)
+	}
+	got := deps.Config.Models.Effective
+	if got.ProfileName != "fast" || got.DefaultModel != "fast" || got.Advisor != "advisor-fast" {
+		t.Fatalf("delegate general assignments = %#v, want live profile/default/advisor", got)
+	}
+	if got.SubAgents["code"] != "code-fast" || got.SubAgents[string(delegation.AgentTypeVision)] != "vision-fast" {
+		t.Fatalf("delegate sub-agent assignments = %#v, want live code and vision models", got.SubAgents)
+	}
+	if got.OneShot["plan"] != "plan-fast" {
+		t.Fatalf("delegate oneshot assignments = %#v, want live plan model", got.OneShot)
+	}
+	if got.WorkflowHandoff["implement"] != "handoff-fast" {
+		t.Fatalf("delegate workflow handoff assignments = %#v, want live implement model", got.WorkflowHandoff)
+	}
+	if got.ActiveOrchestratorModel != "active" || got.DefaultModel == got.ActiveOrchestratorModel {
+		t.Fatalf("delegate active/default models = %q/%q, want distinct active/default assignments", got.ActiveOrchestratorModel, got.DefaultModel)
+	}
+	if !reflect.DeepEqual(r.runtime.cfg.Models.Effective, frozen) {
+		t.Fatalf("runtime effective assignments changed: got %#v, want %#v", r.runtime.cfg.Models.Effective, frozen)
 	}
 }
 
@@ -357,7 +452,7 @@ func TestBuildActiveRegistry_AdvisorPresent_WhenEnabled(t *testing.T) {
 			"testprov": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
 		},
 		Models: config.ModelsConfig{
-			Advisor: "advisor-alias",
+			Effective: config.EffectiveModelAssignments{Advisor: "advisor-alias"},
 			Definitions: map[string]config.ModelConfig{
 				"advisor-alias": {Provider: "testprov", ID: "advisor-model"},
 			},
@@ -399,7 +494,7 @@ func TestAgentTypesSyncWithValidation(t *testing.T) {
 		if err == nil {
 			t.Fatal("validation should have failed for unknown agent type, but got no error")
 		}
-		if !strings.Contains(err.Error(), `models.sub_agents contains unknown agent type "unknown_agent"`) {
+		if !strings.Contains(err.Error(), `models.profiles["default"].sub_agents contains unknown agent type "unknown_agent"`) {
 			t.Fatalf("error = %v, want unknown agent type validation error", err)
 		}
 	})
@@ -411,9 +506,9 @@ func loadConfigWithSubAgentAgents(t *testing.T, agents map[string]string) (confi
 	dir := t.TempDir()
 	path := filepath.Join(dir, "steiner.yaml")
 	var b strings.Builder
-	b.WriteString("models:\n  sub_agents:\n")
+	b.WriteString("models:\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n")
 	for name, model := range agents {
-		b.WriteString("    ")
+		b.WriteString("        ")
 		b.WriteString(name)
 		b.WriteString(": ")
 		b.WriteString(model)
@@ -478,9 +573,9 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 			Definitions: map[string]config.ModelConfig{
 				"reasoning-alias": {Provider: "testprov", ID: "reasoning-model"},
 			},
-			SubAgents: map[string]string{
+			Effective: config.EffectiveModelAssignments{SubAgents: map[string]string{
 				string(delegation.AgentTypeExplore): "reasoning-alias",
-			},
+			}},
 		},
 	}
 	subAgentCfg := config.SubAgentConfig{
@@ -543,9 +638,9 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 			Definitions: map[string]config.ModelConfig{
 				"reasoning-alias": {Provider: "openrouter", ID: "openrouter/reasoning-model"},
 			},
-			SubAgents: map[string]string{
+			Effective: config.EffectiveModelAssignments{SubAgents: map[string]string{
 				string(delegation.AgentTypeExplore): "reasoning-alias",
-			},
+			}},
 		},
 	}
 	subAgentCfg := config.SubAgentConfig{

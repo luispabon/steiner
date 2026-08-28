@@ -24,8 +24,7 @@ var validOneShotPhases = map[string]bool{
 	"review":    true,
 }
 
-func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, subAgents map[string]string, modelCfg Config) {
-	validateModelReferenceMap(problems, "models.sub_agents", "agent type", subAgents, validAgentTypes, modelCfg)
+func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, _ map[string]string, _ Config) {
 	if cfg.MaxParallel < 0 {
 		*problems = append(*problems, "sub_agent.max_parallel must not be negative")
 	}
@@ -40,13 +39,8 @@ func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, subAgents ma
 	}
 }
 
-func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig, model string, modelCfg Config) {
+func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig) {
 	if cfg.Enabled {
-		if strings.TrimSpace(model) == "" {
-			*problems = append(*problems, "models.advisor is required when enabled")
-		} else if !IsValidModelReference(&modelCfg, model) {
-			*problems = append(*problems, fmt.Sprintf("models.advisor %q is not defined in models.definitions or providers", model))
-		}
 		if cfg.MaxUsesPerRun < 1 {
 			*problems = append(*problems, "advisor.max_uses_per_run must be at least 1 when enabled")
 		}
@@ -117,10 +111,6 @@ func validateToolsConfig(problems *[]string, tools map[string]ToolConfig) {
 			*problems = append(*problems, fmt.Sprintf("tools[%q].timeout must be greater than zero", name))
 		}
 	}
-}
-
-func validateOneShotConfig(problems *[]string, oneShot map[string]string, cfg Config) {
-	validateModelReferenceMap(problems, "models.oneshot", "phase", oneShot, validOneShotPhases, cfg)
 }
 
 func validateSandboxConfig(problems *[]string, cfg SandboxConfig) {

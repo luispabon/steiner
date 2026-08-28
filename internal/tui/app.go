@@ -76,7 +76,7 @@ type Config struct {
 	// picker step isn't silently skipped during that startup window.
 	ResolveReasoningForAliasFunc func(alias string) (provider.ReasoningCapabilities, string)
 	// CurrentModelAlias is the alias (not the backend model ID) of the model
-	// active at startup, e.g. cfg.Models.Default.
+	// active at startup, e.g. cfg.Models.Effective.ActiveOrchestratorModel.
 	CurrentModelAlias string
 	// InitialMode is the execution mode ("plan" or "build") active at startup,
 	// e.g. string(sess.Mode()). Seeds the footer badge and sidebar row before

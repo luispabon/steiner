@@ -67,4 +67,7 @@ type Dependencies struct {
 	CompactionLogPath string
 	// RecordModelSwitch records a successful model switch for popularity stats.
 	RecordModelSwitch func(providerAlias, modelID string) error
+	// OnEffectiveAssignmentsChanged is called after a successful profile switch
+	// with the new effective assignments.
+	OnEffectiveAssignmentsChanged func(config.EffectiveModelAssignments)
 }

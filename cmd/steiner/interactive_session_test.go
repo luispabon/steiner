@@ -16,11 +16,122 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/mcp"
+	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
 )
+
+func TestNewOneshotRunnerFactoryBuilderRetainsLiveEffectiveCallback(t *testing.T) {
+	cmd := &cobra.Command{}
+	flags := &cliFlags{}
+	identity, err := oneshot.NewRunIdentity("fix the bug")
+	if err != nil {
+		t.Fatalf("NewRunIdentity() error = %v", err)
+	}
+	live := config.EffectiveModelAssignments{
+		ProfileName:             "fast",
+		DefaultModel:            "profile-default",
+		ActiveOrchestratorModel: "active-model",
+		OneShot:                 map[string]string{"plan": "plan-fast"},
+	}
+	builder := newOneshotRunnerFactoryBuilder(cmd, flags, t.TempDir(), output.NoopSink{}, func() config.EffectiveModelAssignments {
+		return live
+	})
+
+	factory, ok := builder(identity).(phaseRunnerFactory)
+	if !ok {
+		t.Fatalf("builder returned %T, want phaseRunnerFactory", builder(identity))
+	}
+	params, err := factory.phaseParams(oneshot.PhasePlan, "plan-fast", nil, config.AdvisorConfig{})
+	if err != nil {
+		t.Fatalf("phaseParams() error = %v", err)
+	}
+	if params.CurrentEffective == nil {
+		t.Fatal("phase params current effective callback is nil")
+	}
+	live.DefaultModel = "profile-default-updated"
+	live.OneShot["plan"] = "plan-fast-updated"
+	if got := params.CurrentEffective(); got.DefaultModel != "profile-default-updated" || got.OneShot["plan"] != "plan-fast-updated" {
+		t.Fatalf("phase runner effective assignments = %#v, want updated live profile assignments", got)
+	}
+	if got := params.CurrentEffective().ActiveOrchestratorModel; got != "active-model" {
+		t.Fatalf("phase runner active orchestrator = %q, want active-model", got)
+	}
+}
+
+func TestBuildInteractiveSessionKeepsProfileDefaultSeparateFromActiveModel(t *testing.T) {
+	cfg := config.Config{Models: config.ModelsConfig{
+		Effective: config.EffectiveModelAssignments{
+			DefaultModel:            "profile-default",
+			ActiveOrchestratorModel: "override-model",
+		},
+	}}
+	sess, err := buildInteractiveSession(cliRuntime{
+		cfg:     cfg,
+		events:  output.NoopSink{},
+		workDir: t.TempDir(),
+		homeDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("buildInteractiveSession() error = %v", err)
+	}
+
+	sessionCfg := sess.Config()
+	if got, want := sessionCfg.Models.Effective.DefaultModel, "profile-default"; got != want {
+		t.Fatalf("session default model = %q, want %q for oneshot fallback", got, want)
+	}
+	if got, want := sess.CurrentModelAlias(), "override-model"; got != want {
+		t.Fatalf("session current model alias = %q, want %q", got, want)
+	}
+}
+
+func TestBuildInteractiveSessionUpdatesVisionCapabilitiesOnProfileSwitch(t *testing.T) {
+	vision := agent.NewVisionCapabilities(false)
+	rt := cliRuntime{
+		cfg: config.Config{
+			Providers: map[string]config.ProviderConfig{"local": {}},
+			Models: config.ModelsConfig{
+				Definitions: map[string]config.ModelConfig{
+					"base": {Provider: "local", ID: "base-id"},
+					"fast": {Provider: "local", ID: "fast-id"},
+				},
+				Profiles: map[string]config.ModelProfile{
+					"default": {DefaultModel: "base"},
+					"fast":    {DefaultModel: "fast", SubAgents: map[string]string{"vision": "fast"}},
+				},
+				Effective: config.EffectiveModelAssignments{ProfileName: "default", DefaultModel: "base"},
+			},
+		},
+		events:             output.NoopSink{},
+		workDir:            t.TempDir(),
+		homeDir:            t.TempDir(),
+		visionCapabilities: vision,
+	}
+	sess, err := buildInteractiveSession(rt)
+	if err != nil {
+		t.Fatalf("buildInteractiveSession() error = %v", err)
+	}
+	if err := sess.Handle(context.Background(), interactive.SwitchProfile{Name: "fast"}); err != nil {
+		t.Fatalf("Handle(fast) = %v, want nil", err)
+	}
+	if !vision.SubAgentConfigured() {
+		t.Fatal("vision capability remains disabled after switching to vision profile")
+	}
+	if err := sess.Handle(context.Background(), interactive.SwitchProfile{Name: "missing"}); err == nil {
+		t.Fatal("Handle(missing) = nil, want error")
+	}
+	if !vision.SubAgentConfigured() {
+		t.Fatal("failed profile switch disabled vision capability")
+	}
+	if err := sess.Handle(context.Background(), interactive.SwitchProfile{Name: "default"}); err != nil {
+		t.Fatalf("Handle(default) = %v, want nil", err)
+	}
+	if vision.SubAgentConfigured() {
+		t.Fatal("vision capability remains enabled after switching away from vision profile")
+	}
+}
 
 func TestMCPTUIStateEnabledMix(t *testing.T) {
 	fixtureBin := buildMCPFixture(t)
@@ -389,7 +500,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 	rt := cliRuntime{
 		// No such model: runner.Run fails fast right after the MCP init, which
 		// keeps this test off the provider and discovery paths.
-		cfg:        config.Config{Models: config.ModelsConfig{Default: "nope"}},
+		cfg:        config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "nope", ActiveOrchestratorModel: "nope"}}},
 		registry:   registry,
 		mcpManager: mgr,
 		mcpState:   producer,
@@ -624,7 +735,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 
 	producer := &mcpStateProducer{}
 	rt := cliRuntime{
-		cfg:        config.Config{Models: config.ModelsConfig{Default: "nope"}},
+		cfg:        config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "nope", ActiveOrchestratorModel: "nope"}}},
 		registry:   registry,
 		mcpManager: mgr,
 		mcpState:   producer,

@@ -12,10 +12,11 @@ func testReasoningSession(t *testing.T) *Session {
 	return testNewSession(t, Dependencies{
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "current",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "profile-default", ActiveOrchestratorModel: "current"},
 				Definitions: map[string]config.ModelConfig{
-					"current": {Provider: "local", ID: "current-id"},
-					"other":   {Provider: "local", ID: "other-id"},
+					"profile-default": {Provider: "local", ID: "profile-id"},
+					"current":         {Provider: "local", ID: "current-id"},
+					"other":           {Provider: "local", ID: "other-id"},
 				},
 			},
 			Providers: map[string]config.ProviderConfig{"local": {}},

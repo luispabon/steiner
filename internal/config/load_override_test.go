@@ -7,13 +7,15 @@ func TestApplyCLIOverrides(t *testing.T) {
 	cfg.Logging.Level = "info"
 	cfg.Sandbox.Enabled = true
 
-	applyCLIOverrides(&cfg, CLIOverrides{
+	if err := applyCLIOverrides(&cfg, CLIOverrides{
 		Model:   "default",
 		Verbose: true,
 		Unsafe:  true,
-	})
+	}); err != nil {
+		t.Fatalf("applyCLIOverrides() error = %v", err)
+	}
 
-	if got := cfg.Models.Default; got != "default" {
+	if got := cfg.Selection.ModelOverride; got != "default" {
 		t.Fatalf("default_model = %q, want %q", got, "default")
 	}
 	if got := cfg.Logging.Level; got != "debug" {

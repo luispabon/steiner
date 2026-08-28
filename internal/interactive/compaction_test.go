@@ -162,7 +162,7 @@ func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.
 	runner := &runExecutorFunc{compact: func(context.Context, []agent.Message, []string, []provider.ToolSpec) ([]agent.Message, error) {
 		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
 	}}
-	s := mustCompactionSession(t, Dependencies{Runner: runner, SessionStore: store, Config: config.Config{Models: config.ModelsConfig{Default: "test", Definitions: map[string]config.ModelConfig{"test": {ID: modelID}}}}})
+	s := mustCompactionSession(t, Dependencies{Runner: runner, SessionStore: store, Config: config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "test"}, Definitions: map[string]config.ModelConfig{"test": {ID: modelID}}}}})
 	s.mu.Lock()
 	s.sessionID, s.sessionTitle, s.lineage, s.conversation = initial.ID, initial.Title, lineage, cloneMessages(conversation)
 	s.mu.Unlock()

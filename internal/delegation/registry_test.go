@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/advisor"
@@ -22,7 +23,7 @@ func advisorTestConfig() config.Config {
 			},
 		},
 		Models: config.ModelsConfig{
-			Advisor: "advisor",
+			Effective: config.EffectiveModelAssignments{Advisor: "advisor"},
 			Definitions: map[string]config.ModelConfig{
 				"advisor": {
 					Provider: "testprov",
@@ -98,6 +99,124 @@ func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
 	if prov.requests[0].PromptCacheKey != prov.requests[1].PromptCacheKey {
 		t.Errorf("advisor PromptCacheKey differs across BuildDelegateRegistry calls sharing a CacheKeyStore: %q vs %q",
 			prov.requests[0].PromptCacheKey, prov.requests[1].PromptCacheKey)
+	}
+}
+
+func TestBuildDelegateRegistryAdvisorFallsBackToProfileDefault(t *testing.T) {
+	cfg := advisorTestConfig()
+	cfg.Models.Effective.Advisor = ""
+	cfg.Models.Effective.DefaultModel = "profile-default"
+	cfg.Models.Definitions["profile-default"] = config.ModelConfig{
+		Provider: "testprov",
+		ID:       "profile-default-model",
+		Advanced: config.AdvancedConfig{Limits: config.AdvancedLimitsConfig{ContextWindow: 8192, MaxOutputTokens: 1024}},
+	}
+
+	var captured provider.ResolvedModel
+	_, err := BuildDelegateRegistry(DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
+		Provider:     &fakeProvider{},
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens: 256,
+		Config:    cfg,
+		ProviderFactory: func(model provider.ResolvedModel) (provider.Provider, error) {
+			captured = model
+			return &fakeProvider{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+	if captured.Alias != "profile-default" || captured.BackendModelID != "profile-default-model" {
+		t.Fatalf("advisor resolved model = alias %q, backend %q, want profile-default/profile-default-model", captured.Alias, captured.BackendModelID)
+	}
+}
+
+func TestBuildDelegateRegistryAdvisorNamedProfileFallsBackToProfileDefault(t *testing.T) {
+	cfg := advisorTestConfig()
+	cfg.Models.Effective.ProfileName = "named"
+	cfg.Models.Effective.Advisor = ""
+	cfg.Models.Effective.DefaultModel = "named-profile-default"
+	cfg.Models.Definitions["named-profile-default"] = config.ModelConfig{
+		Provider: "testprov",
+		ID:       "named-profile-default-model",
+		Advanced: config.AdvancedConfig{Limits: config.AdvancedLimitsConfig{ContextWindow: 8192, MaxOutputTokens: 1024}},
+	}
+
+	var captured provider.ResolvedModel
+	_, err := BuildDelegateRegistry(DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
+		Provider:     &fakeProvider{},
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens: 256,
+		Config:    cfg,
+		ProviderFactory: func(model provider.ResolvedModel) (provider.Provider, error) {
+			captured = model
+			return &fakeProvider{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+	if captured.Alias != "named-profile-default" || captured.BackendModelID != "named-profile-default-model" {
+		t.Fatalf("advisor resolved model = alias %q, backend %q, want named-profile-default/named-profile-default-model", captured.Alias, captured.BackendModelID)
+	}
+}
+
+func TestBuildDelegateRegistryAdvisorProfileDefaultResolverError(t *testing.T) {
+	cfg := advisorTestConfig()
+	cfg.Models.Effective.Advisor = ""
+	cfg.Models.Effective.DefaultModel = "missing-profile-default"
+	_, err := BuildDelegateRegistry(DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
+		Provider:     &fakeProvider{},
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		MaxTokens:    256,
+		Config:       cfg,
+	})
+	if err == nil {
+		t.Fatal("expected profile default resolution error")
+	}
+	if !strings.Contains(err.Error(), "missing-profile-default") || !strings.Contains(err.Error(), "model alias") {
+		t.Fatalf("error = %q, want profile default alias and resolver detail", err)
+	}
+}
+
+func TestBuildDelegateRegistryExcludesVisionForEmptyAssignment(t *testing.T) {
+	cfg := advisorTestConfig()
+	cfg.Models.Effective.DefaultModel = "advisor"
+	cfg.Models.Effective.SubAgents = map[string]string{string(AgentTypeVision): ""}
+	reg, err := BuildDelegateRegistry(DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: true},
+		Provider:     &fakeProvider{},
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		MaxTokens:    256,
+		Config:       cfg,
+	})
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+	if _, ok := reg.Get(string(AgentTypeVision)); ok {
+		t.Fatal("vision tool registered for empty vision assignment")
 	}
 }
 
@@ -205,7 +324,7 @@ func TestBuildDelegateRegistryAppliesAdvisorTimeout(t *testing.T) {
 			},
 		},
 		Models: config.ModelsConfig{
-			Advisor: "advisor",
+			Effective: config.EffectiveModelAssignments{Advisor: "advisor"},
 			Definitions: map[string]config.ModelConfig{
 				"advisor": {
 					Provider: "testprov",
@@ -317,7 +436,7 @@ func TestBuildDelegateRegistryRegistersAdvisorSchemaWithQuestionAndFiles(t *test
 			},
 		},
 		Models: config.ModelsConfig{
-			Advisor: "advisor",
+			Effective: config.EffectiveModelAssignments{Advisor: "advisor"},
 			Definitions: map[string]config.ModelConfig{
 				"advisor": {
 					Provider: "testprov",

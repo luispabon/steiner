@@ -29,6 +29,7 @@ var (
 	_ Action = RequestExit{}
 	_ Action = SetSkillEnabled{}
 	_ Action = SwitchModel{}
+	_ Action = SwitchProfile{}
 	_ Action = SwitchMode{}
 	_ Action = ClearConversation{}
 	_ Action = TriggerManualCompaction{}
@@ -398,7 +399,7 @@ func TestSessionHandleNoop(t *testing.T) {
 		Config: config.Config{
 			Providers: map[string]config.ProviderConfig{"local": {}},
 			Models: config.ModelsConfig{
-				Default: "gpt-4",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "gpt-4", ActiveOrchestratorModel: "gpt-4"},
 				Definitions: map[string]config.ModelConfig{
 					"gpt-4": {Provider: "local", ID: "gpt-4"},
 				},
@@ -572,7 +573,7 @@ func TestRotateSession(t *testing.T) {
 			SessionStore: newMockSessionStore(),
 			Config: config.Config{
 				Models: config.ModelsConfig{
-					Default:     "test",
+					Effective:   config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 					Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
 				},
 			},
@@ -598,7 +599,7 @@ func TestRotateSession(t *testing.T) {
 			SessionStore: mockStore,
 			Config: config.Config{
 				Models: config.ModelsConfig{
-					Default:     "test",
+					Effective:   config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 					Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
 				},
 			},
@@ -760,7 +761,7 @@ func TestSubmitPromptSavesSessionOnWorkflowHandoff(t *testing.T) {
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "test",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{
 					"test": {ID: "test-model"},
 				},
@@ -816,6 +817,59 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 			if payload, ok := event.Payload.(output.StopReasonEvent); ok {
 				if payload.Reason != "Error: run failed" {
 					t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: run failed")
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events = %#v, want StopReason event", events)
+	}
+}
+
+func TestSubmitPromptSavesSessionOnRunError(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	mockStore := newMockSessionStore()
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		SessionStore: mockStore,
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+			return RunResult{Conversation: []agent.Message{
+				{Role: agent.MessageRoleUser, Content: "test prompt"},
+				{Role: agent.MessageRoleAssistant, Content: "partial response"},
+			}}, fmt.Errorf("boom")
+		}),
+	})
+
+	s.submitPrompt(context.Background(), "test prompt", nil)
+
+	if len(mockStore.savedSessions) != 1 {
+		t.Fatalf("saved sessions count = %d, want 1", len(mockStore.savedSessions))
+	}
+
+	var savedSession session.Session
+	for _, sess := range mockStore.savedSessions {
+		savedSession = sess
+		break
+	}
+
+	if len(savedSession.Lineage.Generations) == 0 {
+		t.Fatalf("saved session has no generations, want at least 1")
+	}
+	if len(savedSession.Lineage.Generations[0].Messages) != 2 {
+		t.Fatalf("saved session messages count = %d, want 2 (user + partial assistant)", len(savedSession.Lineage.Generations[0].Messages))
+	}
+
+	var found bool
+	for _, event := range events {
+		if event.Type == output.EventTypeStopReason {
+			found = true
+			if payload, ok := event.Payload.(output.StopReasonEvent); ok {
+				if payload.Reason != "Error: boom" {
+					t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: boom")
 				}
 			}
 			break
@@ -1142,20 +1196,23 @@ func TestSwitchModelSuccess(t *testing.T) {
 		wantProvider string
 		wantModel    string
 		wantDefault  string
+		wantActive   string
 	}{
 		{
 			name:         "alias",
 			model:        "fast",
 			wantProvider: "new",
 			wantModel:    "new-model",
-			wantDefault:  "fast",
+			wantDefault:  "current",
+			wantActive:   "fast",
 		},
 		{
 			name:         "provider model reference",
 			model:        "openrouter/openai/gpt-4",
 			wantProvider: "openrouter",
 			wantModel:    "openai/gpt-4",
-			wantDefault:  "openrouter/openai/gpt-4",
+			wantDefault:  "current",
+			wantActive:   "openrouter/openai/gpt-4",
 		},
 	}
 
@@ -1182,7 +1239,7 @@ func TestSwitchModelSuccess(t *testing.T) {
 						"openrouter": {Type: config.ProviderTypeOpenRouter, BaseURL: "http://openrouter.example/v1"},
 					},
 					Models: config.ModelsConfig{
-						Default: "current",
+						Effective: config.EffectiveModelAssignments{DefaultModel: "current", ActiveOrchestratorModel: "current"},
 						Definitions: map[string]config.ModelConfig{
 							"current": {Provider: "old", ID: "old-model"},
 							"fast":    {Provider: "new", ID: "new-model"},
@@ -1194,7 +1251,10 @@ func TestSwitchModelSuccess(t *testing.T) {
 			if err := s.Handle(context.Background(), SwitchModel{Name: tt.model}); err != nil {
 				t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
 			}
-			if got := s.deps.Config.Models.Default; got != tt.wantDefault {
+			if got := s.deps.Config.Models.Effective.ActiveOrchestratorModel; got != tt.wantActive {
+				t.Fatalf("config active_orchestrator_model = %q, want %q", got, tt.wantActive)
+			}
+			if got := s.deps.Config.Models.Effective.DefaultModel; got != tt.wantDefault {
 				t.Fatalf("config default_model = %q, want %q", got, tt.wantDefault)
 			}
 			if recorded != 1 {
@@ -1245,7 +1305,7 @@ func TestSwitchModelFailure(t *testing.T) {
 		},
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default:     "current",
+				Effective:   config.EffectiveModelAssignments{DefaultModel: "current", ActiveOrchestratorModel: "current"},
 				Definitions: map[string]config.ModelConfig{"current": {ID: "current-id"}},
 			},
 		},
@@ -1269,7 +1329,10 @@ func TestSwitchModelFailure(t *testing.T) {
 		t.Fatalf("events = %#v, want ContextReportEvent with error", events)
 	}
 
-	if got, want := s.deps.Config.Models.Default, "current"; got != want {
+	if got, want := s.deps.Config.Models.Effective.ActiveOrchestratorModel, "current"; got != want {
+		t.Fatalf("config active_orchestrator_model after failed switch = %q, want %q", got, want)
+	}
+	if got, want := s.deps.Config.Models.Effective.DefaultModel, "current"; got != want {
 		t.Fatalf("config default_model after failed switch = %q, want %q", got, want)
 	}
 	if recorded != 0 {
@@ -1282,8 +1345,11 @@ func TestCurrentModelConfig(t *testing.T) {
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default:     "mymodel",
-				Definitions: map[string]config.ModelConfig{"mymodel": {Provider: "local", ID: "test-model"}},
+				Effective: config.EffectiveModelAssignments{DefaultModel: "profile-default", ActiveOrchestratorModel: "mymodel"},
+				Definitions: map[string]config.ModelConfig{
+					"profile-default": {Provider: "local", ID: "profile-id"},
+					"mymodel":         {Provider: "local", ID: "test-model"},
+				},
 			},
 			Providers: map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://example/v1"}},
 		},
@@ -1328,7 +1394,10 @@ func TestCurrentModelConfigResolvesDefaultReference(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := testNewSession(t, Dependencies{Config: config.Config{
-				Models:    config.ModelsConfig{Default: tt.defaultModel, Definitions: tt.definitions},
+				Models: config.ModelsConfig{
+					Effective:   config.EffectiveModelAssignments{DefaultModel: tt.defaultModel, ActiveOrchestratorModel: tt.defaultModel},
+					Definitions: tt.definitions,
+				},
 				Providers: tt.providers,
 			}})
 			got := s.CurrentModelConfig()
@@ -1344,10 +1413,11 @@ func TestCurrentModelAliasTracksSwitchModel(t *testing.T) {
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "current",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "profile-default", ActiveOrchestratorModel: "current"},
 				Definitions: map[string]config.ModelConfig{
-					"current": {Provider: "local", ID: "current-id"},
-					"fast":    {Provider: "local", ID: "fast-id"},
+					"profile-default": {Provider: "local", ID: "profile-id"},
+					"current":         {Provider: "local", ID: "current-id"},
+					"fast":            {Provider: "local", ID: "fast-id"},
 				},
 			},
 		},
@@ -1369,8 +1439,9 @@ func TestWorkflowHandoffModelSelectionUsesDestinationDefault(t *testing.T) {
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "current",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "profile-default", ActiveOrchestratorModel: "current"},
 				Definitions: map[string]config.ModelConfig{
+					"profile-default":   {Provider: "local", ID: "profile-id"},
 					"current":           {Provider: "local", ID: "current-id"},
 					"implement-default": {Provider: "local", ID: "implement-id"},
 					"review-default":    {Provider: "local", ID: "review-id"},
@@ -1378,7 +1449,7 @@ func TestWorkflowHandoffModelSelectionUsesDestinationDefault(t *testing.T) {
 			},
 		},
 	})
-	s.deps.Config.Models.WorkflowHandoff = map[string]string{
+	s.deps.Config.Models.Effective.WorkflowHandoff = map[string]string{
 		"implement": "implement-default",
 		"review":    "review-default",
 	}
@@ -1400,32 +1471,283 @@ func TestWorkflowHandoffModelSelectionUsesDestinationDefault(t *testing.T) {
 	}
 }
 
-func TestWorkflowHandoffModelSelectionFallsBackToCurrentSession(t *testing.T) {
+func TestWorkflowHandoffModelSelectionFallsBackToProfileDefault(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "current",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "profile-default", ActiveOrchestratorModel: "active"},
 				Definitions: map[string]config.ModelConfig{
-					"current": {Provider: "local", ID: "current-id"},
+					"profile-default": {Provider: "local", ID: "profile-id"},
+					"active":          {Provider: "local", ID: "active-id"},
 				},
 			},
 		},
 	})
 
 	if got, want := s.WorkflowHandoffModelSelection("implement"), (WorkflowHandoffModelSelection{
-		ModelAlias:  "current",
-		SourceLabel: "current session",
+		ModelAlias:  "profile-default",
+		SourceLabel: "profile default",
 	}); got != want {
 		t.Fatalf("WorkflowHandoffModelSelection(implement) = %#v, want %#v", got, want)
 	}
 	if got, want := s.WorkflowHandoffModelSelection("review"), (WorkflowHandoffModelSelection{
-		ModelAlias:  "current",
-		SourceLabel: "current session",
+		ModelAlias:  "profile-default",
+		SourceLabel: "profile default",
 	}); got != want {
 		t.Fatalf("WorkflowHandoffModelSelection(review) = %#v, want %#v", got, want)
 	}
 }
+func TestSwitchModelPreservesProfileFallbackAndSessionState(t *testing.T) {
+	t.Parallel()
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}}}},
+		NextGenerationID: 2,
+	}
+	s := testNewSession(t, Dependencies{
+		Config: config.Config{
+			Models: config.ModelsConfig{
+				Effective: config.EffectiveModelAssignments{
+					ProfileName:             "work",
+					DefaultModel:            "profile-default",
+					ActiveOrchestratorModel: "current",
+					SubAgents:               map[string]string{"review": "review-model"},
+					OneShot:                 map[string]string{"plan": "plan-model"},
+				},
+				Definitions: map[string]config.ModelConfig{
+					"current":         {Provider: "local", ID: "current-id"},
+					"profile-default": {Provider: "local", ID: "profile-id"},
+					"next":            {Provider: "local", ID: "next-id"},
+				},
+			},
+			Providers: map[string]config.ProviderConfig{"local": {}},
+		},
+	})
+	s.SetConversation(lineage.Generations[0].Messages)
+	s.mu.Lock()
+	s.lineage = lineage
+	s.promptCacheKey = "cache-key"
+	reasoningBefore := map[string]provider.ReasoningOverride{
+		"current": {Kind: provider.ReasoningOverrideEffort, Effort: "low"},
+	}
+	s.reasoningOverrides = reasoningBefore
+	s.mu.Unlock()
+
+	if err := s.Handle(context.Background(), SwitchModel{Name: "next"}); err != nil {
+		t.Fatalf("Handle(SwitchModel) = %v, want nil", err)
+	}
+
+	if got, want := s.deps.Config.Models.Effective.ActiveOrchestratorModel, "next"; got != want {
+		t.Fatalf("active_orchestrator_model = %q, want %q", got, want)
+	}
+	if got, want := s.deps.Config.Models.Effective.DefaultModel, "profile-default"; got != want {
+		t.Fatalf("default_model = %q, want %q", got, want)
+	}
+	if got, want := s.deps.Config.Models.Effective.ProfileName, "work"; got != want {
+		t.Fatalf("profile name = %q, want %q", got, want)
+	}
+	if got, want := s.deps.Config.Models.Effective.SubAgents, map[string]string{"review": "review-model"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("sub-agent roles = %#v, want %#v", got, want)
+	}
+	if got, want := s.deps.Config.Models.Effective.OneShot, map[string]string{"plan": "plan-model"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("oneshot roles = %#v, want %#v", got, want)
+	}
+	if !reflect.DeepEqual(s.Conversation(), lineage.Generations[0].Messages) {
+		t.Fatal("conversation changed")
+	}
+	s.mu.RLock()
+	gotLineage, gotPromptKey := s.lineage, s.promptCacheKey
+	reasoningAfter := s.reasoningOverrides
+	s.mu.RUnlock()
+	if !reflect.DeepEqual(reasoningAfter, reasoningBefore) {
+		t.Fatalf("reasoning overrides changed: got %#v, want %#v", reasoningAfter, reasoningBefore)
+	}
+	if !reflect.DeepEqual(gotLineage, lineage) {
+		t.Fatalf("lineage changed: got %#v, want %#v", gotLineage, lineage)
+	}
+	if gotPromptKey != "cache-key" {
+		t.Fatalf("prompt cache key = %q, want %q", gotPromptKey, "cache-key")
+	}
+}
+func TestSwitchProfileUpdatesFutureAssignmentsOnly(t *testing.T) {
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}}}},
+		NextGenerationID: 2,
+	}
+	s := testNewSession(t, Dependencies{Config: config.Config{
+		Providers: map[string]config.ProviderConfig{"local": {}},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"active": {Provider: "local", ID: "active-id"},
+				"base":   {Provider: "local", ID: "base-id"},
+				"fast":   {Provider: "local", ID: "fast-id"},
+			},
+			Profiles: map[string]config.ModelProfile{
+				"default": {
+					DefaultModel:    "base",
+					Advisor:         "base",
+					SubAgents:       map[string]string{"code": "base"},
+					OneShot:         map[string]string{"plan": "base"},
+					WorkflowHandoff: map[string]string{"implement": "base"},
+				},
+				"fast": {
+					DefaultModel:    "fast",
+					Advisor:         "fast",
+					SubAgents:       map[string]string{"code": "fast"},
+					OneShot:         map[string]string{"plan": "fast"},
+					WorkflowHandoff: map[string]string{"implement": "fast"},
+				},
+			},
+			Effective: config.EffectiveModelAssignments{
+				ProfileName:             "default",
+				DefaultModel:            "base",
+				Advisor:                 "base",
+				SubAgents:               map[string]string{"code": "base"},
+				OneShot:                 map[string]string{"plan": "base"},
+				WorkflowHandoff:         map[string]string{"implement": "base"},
+				ActiveOrchestratorModel: "active",
+			},
+		},
+	}})
+	s.SetConversation(lineage.Generations[0].Messages)
+	s.mu.Lock()
+	s.lineage = lineage
+	s.promptCacheKey = "cache-key"
+	s.reasoningOverrides["active"] = provider.ReasoningOverride{Kind: provider.ReasoningOverrideEffort, Effort: "low"}
+	s.mu.Unlock()
+	beforeID, beforeCache := s.SessionID(), s.PromptCacheKey()
+
+	if err := s.Handle(context.Background(), SwitchProfile{Name: " fast "}); err != nil {
+		t.Fatalf("Handle(SwitchProfile) = %v, want nil", err)
+	}
+
+	got := s.CurrentEffective()
+	if got.ProfileName != "fast" || got.DefaultModel != "fast" || got.Advisor != "fast" {
+		t.Fatalf("effective assignments = %#v, want fast profile assignments", got)
+	}
+	if got.ActiveOrchestratorModel != "active" {
+		t.Fatalf("active orchestrator = %q, want active", got.ActiveOrchestratorModel)
+	}
+	if got.SubAgents["code"] != "fast" || got.OneShot["plan"] != "fast" || got.WorkflowHandoff["implement"] != "fast" {
+		t.Fatalf("role assignments = %#v, want fast assignments", got)
+	}
+	if s.CurrentModelAlias() != "active" || s.SessionID() != beforeID || s.PromptCacheKey() != beforeCache {
+		t.Fatal("profile switch changed active model or session identity")
+	}
+	if !reflect.DeepEqual(s.Conversation(), lineage.Generations[0].Messages) {
+		t.Fatal("profile switch changed conversation")
+	}
+	s.mu.RLock()
+	gotLineage := s.lineage
+	gotReasoning := s.reasoningOverrides["active"]
+	s.mu.RUnlock()
+	if !reflect.DeepEqual(gotLineage, lineage) {
+		t.Fatal("profile switch changed lineage")
+	}
+	if gotReasoning.Effort != "low" {
+		t.Fatalf("reasoning override = %#v, want low", gotReasoning)
+	}
+	if profile := s.Config().Models.Profiles["fast"]; profile.SubAgents["code"] != "fast" {
+		t.Fatalf("canonical profile changed: %#v", profile)
+	}
+}
+
+func TestSwitchProfileUpdatesVisionCallbackAfterAtomicChange(t *testing.T) {
+	var s *Session
+	var callbackValues []config.EffectiveModelAssignments
+	s = testNewSession(t, Dependencies{
+		OnEffectiveAssignmentsChanged: func(effective config.EffectiveModelAssignments) {
+			callbackValues = append(callbackValues, effective)
+			if got := s.CurrentEffective().ProfileName; got == "" {
+				t.Fatalf("callback observed empty effective profile")
+			}
+		},
+		Config: config.Config{
+			Providers: map[string]config.ProviderConfig{"local": {}},
+			Models: config.ModelsConfig{
+				Definitions: map[string]config.ModelConfig{
+					"base": {Provider: "local", ID: "base-id"},
+					"fast": {Provider: "local", ID: "fast-id"},
+				},
+				Profiles: map[string]config.ModelProfile{
+					"default": {DefaultModel: "base"},
+					"fast":    {DefaultModel: "fast", SubAgents: map[string]string{"vision": "fast"}},
+				},
+				Effective: config.EffectiveModelAssignments{ProfileName: "default", DefaultModel: "base"},
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), SwitchProfile{Name: "fast"}); err != nil {
+		t.Fatalf("Handle(fast) = %v, want nil", err)
+	}
+	if err := s.Handle(context.Background(), SwitchProfile{Name: "default"}); err != nil {
+		t.Fatalf("Handle(default) = %v, want nil", err)
+	}
+	if err := s.Handle(context.Background(), SwitchProfile{Name: "missing"}); err == nil {
+		t.Fatal("Handle(missing) = nil, want error")
+	}
+	if len(callbackValues) != 2 || callbackValues[0].ProfileName != "fast" || callbackValues[1].ProfileName != "default" {
+		t.Fatalf("callback values = %#v, want fast and default effective assignments", callbackValues)
+	}
+}
+
+func TestSwitchProfileFailuresAreAtomic(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		profile    string
+		switchName string
+	}{
+		{name: "unknown", switchName: "missing"},
+		{name: "invalid", profile: "invalid", switchName: "invalid"},
+		{name: "empty", switchName: "   "},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var events []output.Event
+			profiles := map[string]config.ModelProfile{
+				"default": {DefaultModel: "base"},
+			}
+			if tt.profile != "" {
+				profiles[tt.profile] = config.ModelProfile{DefaultModel: "missing"}
+			}
+			s := testNewSession(t, Dependencies{
+				BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+				Config: config.Config{
+					Providers: map[string]config.ProviderConfig{"local": {}},
+					Models: config.ModelsConfig{
+						Definitions: map[string]config.ModelConfig{
+							"active": {Provider: "local", ID: "active-id"},
+							"base":   {Provider: "local", ID: "base-id"},
+						},
+						Profiles: profiles,
+						Effective: config.EffectiveModelAssignments{
+							ProfileName:             "default",
+							DefaultModel:            "base",
+							ActiveOrchestratorModel: "active",
+						},
+					},
+				},
+			})
+			before := s.CurrentEffective()
+			if err := s.Handle(context.Background(), SwitchProfile{Name: tt.switchName}); err == nil {
+				t.Fatal("Handle(SwitchProfile) = nil, want error")
+			}
+			if got := s.CurrentEffective(); !reflect.DeepEqual(got, before) {
+				t.Fatalf("effective assignments changed: got %#v, want %#v", got, before)
+			}
+			found := false
+			for _, event := range events {
+				if payload, ok := event.Payload.(output.ContextReportEvent); ok && strings.Contains(payload.Content, "Profile switch failed") {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("events = %#v, want profile switch error overlay", events)
+			}
+		})
+	}
+}
+
 func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
@@ -1528,7 +1850,7 @@ func TestSaveSessionPersistsCurrentMetadata(t *testing.T) {
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "test",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{
 					"test": {ID: "test-model"},
 				},
@@ -1585,7 +1907,7 @@ func TestSaveSessionPersistsRawModelReference(t *testing.T) {
 	s := testNewSession(t, Dependencies{
 		SessionStore: mockStore,
 		Config: config.Config{
-			Models:    config.ModelsConfig{Default: "openrouter/openai/gpt-4"},
+			Models:    config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "openrouter/openai/gpt-4", ActiveOrchestratorModel: "openrouter/openai/gpt-4"}},
 			Providers: map[string]config.ProviderConfig{"openrouter": {}},
 		},
 	})
@@ -1885,7 +2207,7 @@ func TestLoadSessionPreservesAssistantToolCallMessagesForDisplay(t *testing.T) {
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "test",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{
 					"test": {ID: "test-model"},
 				},
@@ -1999,7 +2321,7 @@ func TestLoadSessionSkipsOrphanedToolCallWithNoResult(t *testing.T) {
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "test",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{
 					"test": {ID: "test-model"},
 				},
@@ -2079,7 +2401,7 @@ func TestForkSession(t *testing.T) {
 			SessionStore: mockStore,
 			Config: config.Config{
 				Models: config.ModelsConfig{
-					Default: "test",
+					Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 					Definitions: map[string]config.ModelConfig{
 						"test": {ID: "test-model"},
 					},
@@ -2190,7 +2512,7 @@ func TestForkSavedSession(t *testing.T) {
 			SessionStore: mockStore,
 			Config: config.Config{
 				Models: config.ModelsConfig{
-					Default: "test",
+					Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 					Definitions: map[string]config.ModelConfig{
 						"test": {ID: "test-model"},
 					},
@@ -2258,7 +2580,7 @@ func TestForkSavedSession(t *testing.T) {
 			SessionStore: mockStore,
 			Config: config.Config{
 				Models: config.ModelsConfig{
-					Default: "test",
+					Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 					Definitions: map[string]config.ModelConfig{
 						"test": {ID: "test-model"},
 					},
@@ -2325,7 +2647,7 @@ func TestPromptCacheKeyRotateMatchesNewID(t *testing.T) {
 		SessionStore: newMockSessionStore(),
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default:     "test",
+				Effective:   config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
 			},
 		},
@@ -2362,7 +2684,7 @@ func TestPromptCacheKeyLoadUsesStoredValue(t *testing.T) {
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default:     "test",
+				Effective:   config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
 			},
 		},
@@ -2392,7 +2714,7 @@ func TestPromptCacheKeyForkInheritsLiveSessionKey(t *testing.T) {
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default:     "test",
+				Effective:   config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
 			},
 		},
@@ -2432,7 +2754,7 @@ func TestPromptCacheKeyForkOfForkOfSavedSessionMaterializesOnFirstFork(t *testin
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default:     "test",
+				Effective:   config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
 			},
 		},
@@ -2503,7 +2825,7 @@ func TestLoadSessionRestoresDelegationBoxes(t *testing.T) {
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "test",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{
 					"test": {ID: "test-model"},
 				},
@@ -2648,7 +2970,7 @@ func TestLoadSessionRestoresDelegationBoxesWithoutRetention(t *testing.T) {
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "test",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{
 					"test": {ID: "test-model"},
 				},
@@ -2765,7 +3087,7 @@ func TestLoadSessionMixesDelegateAndRegularToolCalls(t *testing.T) {
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "test",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{
 					"test": {ID: "test-model"},
 				},
@@ -2922,7 +3244,7 @@ func TestLoadSessionRestoresDelegationBoxesFromStructuredResult(t *testing.T) {
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "test",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{
 					"test": {ID: "test-model"},
 				},
@@ -3040,7 +3362,7 @@ func TestLoadSessionRestoresFailedDelegationBoxesFromStructuredResult(t *testing
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "test",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{
 					"test": {ID: "test-model"},
 				},
@@ -3117,7 +3439,7 @@ func TestLoadSessionRestoresDelegationBoxesWithMalformedStructuredResultFallback
 		SessionStore: mockStore,
 		Config: config.Config{
 			Models: config.ModelsConfig{
-				Default: "test",
+				Effective: config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
 				Definitions: map[string]config.ModelConfig{
 					"test": {ID: "test-model"},
 				},

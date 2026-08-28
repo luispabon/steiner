@@ -134,7 +134,9 @@ func TestCommandsConfig(t *testing.T) {
     type: openai_compat
     base_url: http://example/v1
 models:
-  default: test
+  profiles:
+    default:
+      default_model: test
   definitions:
     test:
       provider: local
@@ -175,7 +177,7 @@ models:
 	}
 }
 
-func TestCommandsConfigCaveHumanDefaultFalse(t *testing.T) {
+func TestCommandsConfigProfileFlag(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 	writeFile(t, configPath, `providers:
@@ -183,7 +185,57 @@ func TestCommandsConfigCaveHumanDefaultFalse(t *testing.T) {
     type: openai_compat
     base_url: http://example/v1
 models:
-  default: test
+  profiles:
+    default:
+      default_model: base
+    fast:
+      default_model: fast
+  definitions:
+    base:
+      provider: local
+      id: base-model
+    fast:
+      provider: local
+      id: fast-model
+`)
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--config", configPath, "--profile", "fast", "config"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := cmd.Flag("profile").Value.String(); got != "fast" {
+		t.Fatalf("profile flag = %q, want fast", got)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	unknownCmd := newRootCommand()
+	unknownCmd.SetOut(&stdout)
+	unknownCmd.SetErr(&stderr)
+	unknownCmd.SetArgs([]string{"--config", configPath, "--profile", "missing", "config"})
+	if err := unknownCmd.Execute(); err == nil || !strings.Contains(err.Error(), "profile is not defined") {
+		t.Fatalf("unknown profile Execute() error = %v, want unknown profile error", err)
+	}
+
+}
+
+func TestCommandsConfigCaveHumanDefaultFalse(t *testing.T) {
+	tempDir := t.TempDir()
+
+	configPath := filepath.Join(tempDir, "config.yaml")
+	writeFile(t, configPath, `providers:
+  local:
+    type: openai_compat
+    base_url: http://example/v1
+models:
+  profiles:
+    default:
+      default_model: test
   definitions:
     test:
       provider: local
@@ -445,7 +497,9 @@ func TestModelInspectCommand(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: inspect
+  profiles:
+    default:
+      default_model: inspect
   definitions:
     inspect:
       provider: local

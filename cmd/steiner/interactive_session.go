@@ -26,16 +26,23 @@ import (
 )
 
 func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
+	sessionCfg := rt.cfg
+
 	sessDeps := interactive.Dependencies{
 		BaseEvents:        rt.events,
 		SkillNames:        rt.skillNames,
-		Config:            rt.cfg,
+		Config:            sessionCfg,
 		HTTPClient:        rt.httpClient,
 		HomeDir:           rt.homeDir,
 		WorkDir:           rt.workDir,
 		SessionStore:      rt.sessionStore,
 		CompactionLogPath: rt.compactionLogFile,
 		RecordModelSwitch: modelPopularityRecorder(rt.modelPopularity),
+		OnEffectiveAssignmentsChanged: func(effective config.EffectiveModelAssignments) {
+			if rt.visionCapabilities != nil {
+				rt.visionCapabilities.SetSubAgentConfigured(effective.SubAgents["vision"] != "")
+			}
+		},
 	}
 	if rt.historyWriter != nil {
 		sessDeps.HistoryWriter = rt.historyWriter
@@ -110,6 +117,10 @@ func startModelCatalogRefresh(ctx context.Context, rt cliRuntime, sess *interact
 }
 
 func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, sess *interactive.Session) *tui.App {
+	activeModel := rt.cfg.Models.Effective.ActiveOrchestratorModel
+	if activeModel == "" {
+		activeModel = rt.cfg.Models.Effective.DefaultModel
+	}
 	selected := selectedModelConfig(rt.cfg)
 	entries := []tui.ModelEntry(nil)
 	updates := rt.modelEntriesUpdates
@@ -134,7 +145,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		ModelContexts:       modelContextSizes(rt.cfg),
 		ModelBaseURLs:       modelBaseURLs(rt.cfg),
 		ModelProviderNames:  modelProviderNames(rt.cfg),
-		CurrentModelAlias:   rt.cfg.Models.Default,
+		CurrentModelAlias:   activeModel,
 		InitialMode:         string(sess.Mode()),
 		ProviderBaseURL:     selectedProviderBaseURL,
 		ProviderName:        selectedProviderName,
@@ -157,7 +168,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	tuiCfg.Recorder = rt.usageRecorder
 	tuiCfg.ImageStore = rt.imageStore
 	tuiCfg.VisionCapabilities = rt.visionCapabilities
-	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink())
+	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink(), sess.CurrentEffective)
 	tuiCfg.Notifier = notify.New(notify.Options{
 		Enabled:  rt.cfg.DesktopNotifications.Enabled,
 		Duration: time.Duration(rt.cfg.DesktopNotifications.Duration) * time.Second,
@@ -368,7 +379,11 @@ func (p *mcpStateProducer) arm() {
 }
 
 func selectedModelConfig(cfg config.Config) config.ModelConfig {
-	model, _ := config.ResolveModelConfig(&cfg, cfg.Models.Default)
+	alias := cfg.Models.Effective.ActiveOrchestratorModel
+	if alias == "" {
+		alias = cfg.Models.Effective.DefaultModel
+	}
+	model, _ := config.ResolveModelConfig(&cfg, alias)
 	return model
 }
 
@@ -436,14 +451,19 @@ func modelProviderNames(cfg config.Config) map[string]string {
 // newOneshotRunnerFactoryBuilder returns a builder that binds a oneshot phase
 // runner factory to a specific run identity. The interactive TUI mints a fresh
 // identity per launch or resume, so the factory must be constructed per run.
-func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string, events output.EventSink) tui.OneshotRunnerFactoryBuilder {
+func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string, events output.EventSink, currentEffective ...func() config.EffectiveModelAssignments) tui.OneshotRunnerFactoryBuilder {
+	var effective func() config.EffectiveModelAssignments
+	if len(currentEffective) > 0 {
+		effective = currentEffective[0]
+	}
 	return func(identity oneshot.RunIdentity) oneshot.PhaseRunnerFactory {
 		return phaseRunnerFactory{
-			cmd:      cmd,
-			flags:    flags,
-			rootDir:  projectRoot,
-			identity: identity,
-			events:   events,
+			cmd:              cmd,
+			flags:            flags,
+			rootDir:          projectRoot,
+			identity:         identity,
+			events:           events,
+			currentEffective: effective,
 		}
 	}
 }
@@ -454,6 +474,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		runMode:                  "interactive",
 		streamingPreferred:       true,
 		currentAlias:             sess.CurrentModelAlias,
+		currentEffective:         sess.CurrentEffective,
 		currentReasoningOverride: sess.CurrentReasoningOverride,
 		promptCacheKeyFn:         sess.PromptCacheKey,
 		modeGetterFunc:           sess.Mode,

@@ -111,8 +111,8 @@ func TestDefaultConfigReadAnnotationsDefaultsToTrue(t *testing.T) {
 
 func TestDefaultConfigWorkflowHandoffDefaultsToEmpty(t *testing.T) {
 	cfg := defaultConfig()
-	if len(cfg.Models.WorkflowHandoff) != 0 {
-		t.Fatalf("workflow_handoff.models = %#v, want empty", cfg.Models.WorkflowHandoff)
+	if len(cfg.Models.Profiles["default"].WorkflowHandoff) != 0 {
+		t.Fatalf("workflow_handoff.models = %#v, want empty", cfg.Models.Profiles["default"].WorkflowHandoff)
 	}
 }
 
@@ -128,8 +128,8 @@ func TestDefaultConfigDesktopNotificationsDefaultsToFalseAndZero(t *testing.T) {
 
 func TestDefaultConfigOneShotDefaultsToEmpty(t *testing.T) {
 	cfg := defaultConfig()
-	if len(cfg.Models.OneShot) != 0 {
-		t.Fatalf("oneshot.models = %#v, want empty", cfg.Models.OneShot)
+	if len(cfg.Models.Profiles["default"].OneShot) != 0 {
+		t.Fatalf("oneshot.models = %#v, want empty", cfg.Models.Profiles["default"].OneShot)
 	}
 	if cfg.OneShot.AutoPR {
 		t.Fatal("oneshot.auto_pr = true, want false")
@@ -141,8 +141,8 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 	if cfg.Advisor.Enabled {
 		t.Fatal("advisor.enabled = true, want false")
 	}
-	if cfg.Models.Advisor != "" {
-		t.Fatalf("advisor.model = %q, want empty", cfg.Models.Advisor)
+	if cfg.Models.Profiles["default"].Advisor != "" {
+		t.Fatalf("advisor.model = %q, want empty", cfg.Models.Profiles["default"].Advisor)
 	}
 	if cfg.Advisor.MaxUsesPerRun != 3 {
 		t.Fatalf("advisor.max_uses_per_run = %d, want 3", cfg.Advisor.MaxUsesPerRun)
@@ -164,7 +164,10 @@ func TestAdvisorConfigPatchAndYAMLParsing(t *testing.T) {
   max_tokens: 512
   timeout: 90s
 models:
-  advisor: advisor-model
+  profiles:
+    default:
+      default_model: default
+      advisor: advisor-model
 `)
 	if err != nil {
 		t.Fatalf("parseConfigPatch() error = %v", err)
@@ -186,11 +189,11 @@ models:
 		t.Fatalf("applyAdvisorPatch() = %#v, want %#v", dst, want)
 	}
 
-	if patch.Models == nil || patch.Models.Advisor == nil {
-		t.Fatal("patch.Models.Advisor = nil, want parsed models.advisor")
+	if patch.Models == nil || patch.Models.Profiles == nil || (*patch.Models.Profiles)["default"].Advisor == nil {
+		t.Fatal(`(*patch.Models.Profiles)["default"].Advisor = nil, want parsed models.advisor`)
 	}
-	if got, want := *patch.Models.Advisor, "advisor-model"; got != want {
-		t.Fatalf("patch.Models.Advisor = %q, want %q", got, want)
+	if got, want := *(*patch.Models.Profiles)["default"].Advisor, "advisor-model"; got != want {
+		t.Fatalf(`(*patch.Models.Profiles)["default"].Advisor = %q, want %q`, got, want)
 	}
 }
 
@@ -198,10 +201,13 @@ func TestOneShotConfigPatchAndYAMLParsing(t *testing.T) {
 	patch, err := parseConfigPatch(`oneshot:
   auto_pr: true
 models:
-  oneshot:
-    plan: planner-model
-    implement: implement-model
-    review: review-model
+  profiles:
+    default:
+      default_model: default
+      oneshot:
+        plan: planner-model
+        implement: implement-model
+        review: review-model
 `)
 	if err != nil {
 		t.Fatalf("parseConfigPatch() error = %v", err)
@@ -220,16 +226,16 @@ models:
 		t.Fatalf("applyOneShotPatch() = %#v, want %#v", dst, want)
 	}
 
-	if patch.Models == nil || patch.Models.OneShot == nil {
-		t.Fatal("patch.Models.OneShot = nil, want parsed models.oneshot")
+	if patch.Models == nil || patch.Models.Profiles == nil || (*patch.Models.Profiles)["default"].OneShot == nil {
+		t.Fatal(`(*patch.Models.Profiles)["default"].OneShot = nil, want parsed models.oneshot`)
 	}
 	wantModels := map[string]string{
 		"plan":      "planner-model",
 		"implement": "implement-model",
 		"review":    "review-model",
 	}
-	if !reflect.DeepEqual(*patch.Models.OneShot, wantModels) {
-		t.Fatalf("patch.Models.OneShot = %#v, want %#v", *patch.Models.OneShot, wantModels)
+	if !reflect.DeepEqual(*(*patch.Models.Profiles)["default"].OneShot, wantModels) {
+		t.Fatalf(`(*patch.Models.Profiles)["default"].OneShot = %#v, want %#v`, *(*patch.Models.Profiles)["default"].OneShot, wantModels)
 	}
 }
 
@@ -317,7 +323,9 @@ func TestLoadPrecedence(t *testing.T) {
     type: openai_compat
     base_url: http://global.example/v1
 models:
-  default: global
+  profiles:
+    default:
+      default_model: global
   definitions:
     global:
       provider: local
@@ -349,7 +357,9 @@ paths:
     type: openai_compat
     base_url: http://project.example/v1
 models:
-  default: project
+  profiles:
+    default:
+      default_model: project
   definitions:
     project:
       provider: local
@@ -403,7 +413,7 @@ logging:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got := cfg.Models.Default; got != "cli" {
+	if got := cfg.Selection.ModelOverride; got != "cli" {
 		t.Fatalf("default_model = %q, want %q", got, "cli")
 	}
 	if got := cfg.Models.Definitions["cli"].ID; got != "cli-backend" {
@@ -440,7 +450,9 @@ func TestLoadAppliesRetryConfigFromModelBlocks(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -516,7 +528,11 @@ func TestLoadAppliesWorkflowHandoffModelOverrides(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
+      workflow_handoff:
+        implement: implement
   definitions:
     default:
       provider: local
@@ -536,11 +552,14 @@ models:
         initial_backoff: 250ms
         max_backoff: 5s
         retry_after_max: 30s
-  workflow_handoff:
-    implement: implement
 `)
 
 	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `models:
+  profiles:
+    default:
+      default_model: default
+      workflow_handoff:
+        review: review
   definitions:
     review:
       provider: local
@@ -551,8 +570,6 @@ models:
         initial_backoff: 250ms
         max_backoff: 5s
         retry_after_max: 30s
-  workflow_handoff:
-    review: review
 `)
 
 	cwd, err := os.Getwd()
@@ -574,10 +591,10 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got, want := cfg.Models.WorkflowHandoff["implement"], "implement"; got != want {
+	if got, want := cfg.Models.Profiles["default"].WorkflowHandoff["implement"], "implement"; got != want {
 		t.Fatalf("workflow_handoff.models[implement] = %q, want %q", got, want)
 	}
-	if got, want := cfg.Models.WorkflowHandoff["review"], "review"; got != want {
+	if got, want := cfg.Models.Profiles["default"].WorkflowHandoff["review"], "review"; got != want {
 		t.Fatalf("workflow_handoff.models[review] = %q, want %q", got, want)
 	}
 }
@@ -593,7 +610,9 @@ func TestLoadNewModelAliasesInheritRetryDefaults(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -638,7 +657,9 @@ func TestLoadNewModelAliasesDoNotInheritDefaultTokenLimits(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: custom
+  profiles:
+    default:
+      default_model: custom
   definitions:
     default:
       provider: local
@@ -687,7 +708,9 @@ func TestLoadModelAdvancedTransport(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: custom
+  profiles:
+    default:
+      default_model: custom
   definitions:
     custom:
       provider: local
@@ -735,7 +758,9 @@ func TestLoadPrefersExplicitHomeDirOverEnvHome(t *testing.T) {
     type: openai_compat
     base_url: http://explicit.example/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -747,7 +772,9 @@ models:
     type: openai_compat
     base_url: http://env.example/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -792,7 +819,9 @@ func TestLoadUsesEnvHomeWhenExplicitHomeDirUnset(t *testing.T) {
     type: openai_compat
     base_url: http://env.example/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -880,7 +909,9 @@ func TestLoadExpandsEnvInterpolation(t *testing.T) {
     type: openai_compat
     base_url: ${STEINER_BASE_URL:-http://localhost:11434/v1}
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -930,7 +961,9 @@ providers:
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1010,7 +1043,9 @@ func TestLoadRejectsInvalidModelBlock(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1071,7 +1106,9 @@ func TestLoadRejectsRemovedAdvancedLimitFields(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1132,7 +1169,9 @@ func TestLoadSearchConfigEmpty(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1189,7 +1228,9 @@ func TestLoadSearchConfigDeserializes(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1245,7 +1286,9 @@ func TestModelConfigVisionFieldNil(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1286,7 +1329,9 @@ func TestModelConfigVisionFalse(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1331,7 +1376,9 @@ func TestModelConfigVisionTrue(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1376,7 +1423,9 @@ func TestLoadDesktopNotificationsConfig(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1423,7 +1472,9 @@ func TestLoadDesktopNotificationsOmitted(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1471,7 +1522,9 @@ func TestLoadPermissionsConfig(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1519,7 +1572,9 @@ func TestLoadHostMountsConfig(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1574,7 +1629,9 @@ func TestLoadHostMountsTildeExpansion(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1631,7 +1688,9 @@ func TestLoadRejectsTopLevelHostMounts(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1675,7 +1734,9 @@ func TestLoadPermissionsConfigOmittedDefaultsToDenied(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1717,7 +1778,9 @@ func TestLoadSandboxEnvPassthroughConfig(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local
@@ -1768,7 +1831,9 @@ func TestLoadRejectsUndefinedEnvVarBeforeDefault(t *testing.T) {
     type: openai_compat
     base_url: http://localhost:11434/v1
 models:
-  default: default
+  profiles:
+    default:
+      default_model: default
   definitions:
     default:
       provider: local

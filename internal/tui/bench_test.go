@@ -438,7 +438,7 @@ func populateBenchModelHeavy(m *Model) {
 	// 10 user messages
 	for i := 0; i < 10; i++ {
 		msg := "User message " + strings.Repeat("z", 100+i*10)
-		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewUserInputEvent(msg, "interactive")})
+		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewUserInputEvent(msg, "interactive", nil)})
 	}
 
 	// 5 thinking blocks

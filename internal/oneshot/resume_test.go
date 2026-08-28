@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -100,7 +99,7 @@ func TestOrchestratorResumeSkipsCompletedPhasesAndReclaimsStaleLock(t *testing.T
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
 		Task:          "Build the parser",
-		Config:        config.Config{Models: config.ModelsConfig{Default: "fallback-model"}},
+		Config:        configWithEffectiveModels("fallback-model", nil),
 		SessionStore:  sessionStore,
 		RunnerFactory: runnerFactory,
 		ManifestStore: store,
@@ -200,7 +199,7 @@ func TestOrchestratorResumeRefusesLiveLock(t *testing.T) {
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
 		Task:          "Build the parser",
-		Config:        config.Config{Models: config.ModelsConfig{Default: "fallback-model"}},
+		Config:        configWithEffectiveModels("fallback-model", nil),
 		SessionStore:  sessionStore,
 		RunnerFactory: &recordingRunnerFactory{planningPath: planningPath, runners: map[Phase]*phaseRunnerStub{}},
 		ManifestStore: store,
@@ -274,7 +273,7 @@ func TestOrchestratorResumeReprovisionsMissingWorktree(t *testing.T) {
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
 		Task:          "Build the parser",
-		Config:        config.Config{Models: config.ModelsConfig{Default: "fallback-model"}},
+		Config:        configWithEffectiveModels("fallback-model", nil),
 		SessionStore:  sessionStore,
 		RunnerFactory: runnerFactory,
 		ManifestStore: store,

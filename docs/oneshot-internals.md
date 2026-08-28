@@ -2,6 +2,16 @@
 
 User-facing documentation: [Oneshot Mode](oneshot.md).
 
+## Model selection
+
+A oneshot startup may select a named model profile with `--profile <name>`.
+The selected profile is resolved from the merged configuration before the three
+phases start. Each phase uses its profile `oneshot` assignment, falling back to
+the profile's `default_model` when that phase is omitted. `STEINER_MODEL` and
+`--model` override only the active orchestrator selection and do not replace
+these phase assignments. Interactive `/profile <name>` changes future oneshot
+assignments, but an already running oneshot keeps its resolved phase setup.
+
 ## Architecture
 
 ### Run Identity and Provisioning

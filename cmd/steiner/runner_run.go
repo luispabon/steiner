@@ -32,6 +32,7 @@ type runnerSetup struct {
 	modelBudget       prompt.ModelTokenBudget
 	assembly          prompt.AssemblyOptions
 	runMode           string
+	conversation      []agent.Message
 }
 
 func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string) (runnerSetup, error) {
@@ -66,6 +67,7 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 		modelBudget:       modelBudget,
 		assembly:          r.promptAssembly(conversation, skillNames, modelBudget, rm.Prompts),
 		runMode:           r.normalizedRunMode(),
+		conversation:      conversation,
 	}, nil
 }
 
@@ -121,7 +123,10 @@ func (r cliRunner) selectedAlias() string {
 			}
 		}
 	}
-	return r.runtime.cfg.Models.Default
+	if alias := r.runtime.cfg.Models.Effective.ActiveOrchestratorModel; alias != "" {
+		return alias
+	}
+	return r.runtime.cfg.Models.Effective.DefaultModel
 }
 
 func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider, error) {
@@ -335,6 +340,10 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	if r.modeGetterFunc != nil {
 		executor = executor.WithModeGetter(r.modeGetterFunc)
 	}
+	visionCapabilities := r.runtime.visionCapabilities
+	if visionCapabilities != nil {
+		visionCapabilities = visionCapabilities.SnapshotWithSubAgentConfigured(visionCapabilities.SubAgentConfigured())
+	}
 	req := agent.RunRequest{
 		Provider:      setup.provider,
 		Executor:      executor,
@@ -355,8 +364,9 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		CompactionLogPath:  r.runtime.compactionLogFile,
 		DrainSteers:        drainSteers,
 		PromptCacheKey:     r.promptCacheKey(),
-		VisionCapabilities: r.runtime.visionCapabilities,
+		VisionCapabilities: visionCapabilities,
 		ImageStore:         r.runtime.imageStore,
+		SourceConversation: setup.conversation,
 	}
 	if r.runtime.cfg.SubAgent.Enabled {
 		req.ParallelTool = delegation.IsDelegationTool
