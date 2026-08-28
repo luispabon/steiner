@@ -71,9 +71,14 @@ func RequestOverheadTokens() int {
 	return requestOverheadTokens
 }
 
+// EstimateChatRequestTokenEstimate returns the full calibrated and raw token estimate for a request.
+func EstimateChatRequestTokenEstimate(ctx context.Context, request ChatRequest) (TokenEstimate, error) {
+	return defaultTokenCounter.EstimateChatRequestTokens(ctx, request)
+}
+
 // EstimateChatRequestTokens estimates the semantic token cost of a request.
 func EstimateChatRequestTokens(ctx context.Context, request ChatRequest) (int, error) {
-	estimate, err := defaultTokenCounter.EstimateChatRequestTokens(ctx, request)
+	estimate, err := EstimateChatRequestTokenEstimate(ctx, request)
 	if err != nil {
 		return 0, err
 	}

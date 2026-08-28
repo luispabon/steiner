@@ -287,3 +287,62 @@ func TestModelTokenBudgetFitRequestTriggersHardLimitPadBeforeThreshold(t *testin
 		t.Fatalf("FitRequest hard limit = %d, want %d", got, want)
 	}
 }
+
+func TestModelTokenBudgetCarriesRawAndCalibratedPromptTokens(t *testing.T) {
+	ctx := context.Background()
+	request := provider.ChatRequest{
+		Model: "gpt-4o",
+		Messages: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: strings.Repeat("calibrated prompt ", 16)},
+		},
+	}
+
+	counter := provider.NewTokenCounter()
+	base, err := counter.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() before calibration error = %v", err)
+	}
+	counter.ObserveUsage(ctx, request, &provider.UsageStats{PromptTokens: base.RawTokens * 2})
+	calibrated, err := counter.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() after calibration error = %v", err)
+	}
+	if calibrated.RawTokens != base.RawTokens {
+		t.Fatalf("calibrated raw tokens = %d, want %d", calibrated.RawTokens, base.RawTokens)
+	}
+	if calibrated.Tokens == calibrated.RawTokens {
+		t.Fatalf("calibrated tokens = %d, want calibration to change raw tokens %d", calibrated.Tokens, calibrated.RawTokens)
+	}
+
+	restore := provider.SwapDefaultTokenCounter(counter)
+	defer restore()
+
+	normal, err := (ModelTokenBudget{ContextSize: calibrated.Tokens - 1}).FitRequest(ctx, request)
+	if err != nil {
+		t.Fatalf("FitRequest() error = %v", err)
+	}
+	if normal.EstimatedPromptTokens != calibrated.Tokens || normal.RawEstimatedPromptTokens != calibrated.RawTokens {
+		t.Fatalf("FitRequest() prompt estimates = calibrated %d, raw %d; want calibrated %d, raw %d", normal.EstimatedPromptTokens, normal.RawEstimatedPromptTokens, calibrated.Tokens, calibrated.RawTokens)
+	}
+	if normal.Fits {
+		t.Fatalf("FitRequest() = %+v, want calibrated estimate to prevent fit", normal)
+	}
+
+	compactionContext := calibrated.Tokens + 4 - 1
+	compaction, err := (ModelTokenBudget{
+		ContextSize:      compactionContext,
+		SummaryMaxTokens: 4,
+	}).FitCompactionRequest(ctx, request)
+	if err != nil {
+		t.Fatalf("FitCompactionRequest() error = %v", err)
+	}
+	if compaction.EstimatedPromptTokens != calibrated.Tokens || compaction.RawEstimatedPromptTokens != calibrated.RawTokens {
+		t.Fatalf("FitCompactionRequest() prompt estimates = calibrated %d, raw %d; want calibrated %d, raw %d", compaction.EstimatedPromptTokens, compaction.RawEstimatedPromptTokens, calibrated.Tokens, calibrated.RawTokens)
+	}
+	if compaction.Fits {
+		t.Fatalf("FitCompactionRequest() = %+v, want calibrated total to prevent fit", compaction)
+	}
+	if got, want := compaction.TotalTokens, calibrated.Tokens+4; got != want {
+		t.Fatalf("FitCompactionRequest() total tokens = %d, want calibrated total %d", got, want)
+	}
+}

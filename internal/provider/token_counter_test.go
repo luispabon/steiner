@@ -118,6 +118,12 @@ func TestTokenCounterCalibrationImprovesEstimate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EstimateChatRequestTokens() after calibration error = %v", err)
 	}
+	if calibrated.RawTokens != base.RawTokens {
+		t.Fatalf("calibrated raw tokens = %d, want unchanged base raw tokens %d", calibrated.RawTokens, base.RawTokens)
+	}
+	if calibrated.Tokens == calibrated.RawTokens {
+		t.Fatalf("calibrated tokens = %d, want calibration to change the calibrated count", calibrated.Tokens)
+	}
 	if calibrated.Strategy != TokenizerStrategyProviderUsage {
 		t.Fatalf("Strategy = %q, want %q", calibrated.Strategy, TokenizerStrategyProviderUsage)
 	}
