@@ -105,7 +105,6 @@ type MutateResult struct {
 	Moved                []MoveResult            `json:"moved,omitempty"`
 	FileHashes           map[string]string       `json:"file_hashes,omitempty"`
 	OperationResults     []MutateOperationResult `json:"operation_results,omitempty"`
-	DryRun               bool                    `json:"dry_run,omitempty"`
 	OperationsApplied    int                     `json:"operations_applied"`
 	OperationsFailed     int                     `json:"operations_failed,omitempty"`
 	OperationsRolledBack int                     `json:"operations_rolled_back,omitempty"`
@@ -129,7 +128,7 @@ func (r *MutateResult) clearCommittedMetadata() {
 
 // WasMutated reports whether mutate actually modified the filesystem.
 func (r *MutateResult) WasMutated() bool {
-	return r != nil && !r.DryRun && r.OperationsFailed == 0 && r.OperationsApplied > 0
+	return r != nil && r.OperationsFailed == 0 && r.OperationsApplied > 0
 }
 
 // pageResults builds a Result from a sorted list of entry names with pagination.

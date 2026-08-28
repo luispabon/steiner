@@ -148,7 +148,7 @@ A code change must update its matching docs in the same commit:
 Steiner exposes these model-facing built-in tools:
 
 - `read` — read files with offset/limit pagination
-- `mutate` — apply one or more structured file mutations atomically (create, write, replace, line_replace, delete, move)
+- `mutate` — apply one or more structured file mutations atomically (create, write, replace, delete_file, move)
 - `glob` — find files by pattern
 - `grep` — search file contents with context
 - `ls` — list directories

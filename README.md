@@ -201,7 +201,7 @@ See [Model enumeration](docs/model-enumeration.md) for provider details, caching
 | Tool | Description |
 |------|-------------|
 | `read` | Read files with offset/limit pagination; preserves long lines up to its per-line cap, bounds per-page output, and continues via `next_offset`; detects and base64-encodes images |
-| `mutate` | Apply structured file mutations atomically (create, write, replace, delete, move, insert); parent directories must exist for workspace paths |
+| `mutate` | Apply structured file mutations atomically (create, write, replace, delete_file, move); parent directories must exist for workspace paths |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents with surrounding context |
 | `ls` | List directory contents |

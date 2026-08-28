@@ -46,10 +46,6 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	}
 
 	p.finalizeResult()
-	if in.DryRun {
-		p.result.Output = p.successOutput("Dry run succeeded.")
-		return &p.result
-	}
 	dirtyPaths, err := p.commit()
 	if err != nil {
 		p.result.OperationsFailed = 1
@@ -102,18 +98,10 @@ func (p *mutatePlanner) planOperation(index int, op MutateOperation) error {
 		return p.planWrite(index, op)
 	case "replace":
 		return p.planReplace(index, op)
-	case "line_replace":
-		return p.planLineReplace(index, op)
-	case "delete_line":
-		return p.planDeleteLine(index, op)
-	case "delete":
+	case "delete_file":
 		return p.planDelete(index, op)
 	case "move":
 		return p.planMove(index, op)
-	case "insert_before":
-		return p.planInsert(index, op, false)
-	case "insert_after":
-		return p.planInsert(index, op, true)
 	default:
 		return fmt.Errorf("mutate: operation %d: unsupported type %q", index, op.Type)
 	}

@@ -10,7 +10,6 @@ type ReadInput struct {
 // MutateInput is the typed input for the mutate tool.
 type MutateInput struct {
 	Operations []MutateOperation `json:"operations"`
-	DryRun     bool              `json:"dry_run,omitempty"`
 }
 
 // MutateOperation is one ordered file mutation in a mutate call.
@@ -23,10 +22,7 @@ type MutateOperation struct {
 	AssertPresent []string `json:"assert_present,omitempty"`
 	AssertAbsent  []string `json:"assert_absent,omitempty"`
 	ReplaceAll    bool     `json:"replace_all,omitempty"`
-	Line          int      `json:"line,omitempty"`
-	LineCount     int      `json:"line_count,omitempty"`
 	FileHash      string   `json:"file_hash,omitempty"`
-	AllowEmpty    bool     `json:"allow_empty,omitempty"`
 	From          string   `json:"from,omitempty"`
 	To            string   `json:"to,omitempty"`
 }
