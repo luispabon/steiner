@@ -359,16 +359,7 @@ func (m *Model) handleSlashOverlayKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 func (m *Model) completeSlashOverlayCommand(command string) *Model {
 	m.replaceComposerToken('/', command+" ")
 	m.slashOverlay = m.slashOverlay.Close()
-	switch command {
-	case "/implement", "/review":
-		m.planPicker = m.planPicker.Open(command)
-		m.planPicker.width = m.width
-		m.planPicker.height = m.height
-	case "/model":
-		m = m.openModelPickerFromSlashCommand()
-	case "/accent":
-		m = m.openAccentPickerFromSlashCommand()
-	}
+	m.openPickerForSlashCommand(command)
 	return m
 }
 
@@ -377,21 +368,60 @@ func (m *Model) openPickerForCompletedSlashCommand(value string) (*Model, bool) 
 		return m, false
 	}
 	command := strings.TrimRight(value, " ")
-	switch command {
-	case "/model":
-		m.slashOverlay = m.slashOverlay.Close()
-		return m.openModelPickerFromSlashCommand(), true
-	case "/accent":
-		m.slashOverlay = m.slashOverlay.Close()
-		return m.openAccentPickerFromSlashCommand(), true
-	case "/implement", "/review":
-		m.slashOverlay = m.slashOverlay.Close()
+	if !m.openPickerForSlashCommand(command) {
+		return m, false
+	}
+	m.slashOverlay = m.slashOverlay.Close()
+	return m, true
+}
+
+// openPickerForSlashCommand opens the picker associated with a just-completed
+// slash command (selected from the overlay, or typed out in full followed by
+// a trailing space), if the command has one. Reports whether a picker was
+// opened, so callers can decide whether to close the slash overlay.
+//
+// The association is derived automatically rather than hardcoded per command:
+// OverlayOnly commands (/implement, /review) always open the plan picker;
+// everything else is checked via pickerFieldFromAction against the
+// inputAction its bare Build("") produces, using the naming convention
+// documented on inputAction. This means a new slash command that sets a
+// "*Picker" flag on bare invocation gets this behavior automatically as long
+// as its opener is registered in pickerCompletionOpeners.
+func (m *Model) openPickerForSlashCommand(command string) bool {
+	sc := lookupCommand(command)
+	if sc == nil {
+		return false
+	}
+	if sc.OverlayOnly {
 		m.planPicker = m.planPicker.Open(command)
 		m.planPicker.width = m.width
 		m.planPicker.height = m.height
-		return m, true
+		return true
 	}
-	return m, false
+	field, ok := pickerFieldFromAction(sc.Build(""))
+	if !ok {
+		return false
+	}
+	opener, ok := pickerCompletionOpeners[field]
+	if !ok {
+		return false
+	}
+	opener(m)
+	return true
+}
+
+// pickerCompletionOpeners maps an inputAction "*Picker" field name (see
+// pickerFieldFromAction) to the completion-path function that opens the
+// corresponding picker without resetting the composer, which
+// completeSlashOverlayCommand/openPickerForCompletedSlashCommand already
+// populated with the command text. Register a new picker-opening command's
+// opener here.
+var pickerCompletionOpeners = map[string]func(*Model) *Model{
+	"openModelPicker":            (*Model).openModelPickerFromSlashCommand,
+	"openAccentPicker":           (*Model).openAccentPickerFromSlashCommand,
+	"openProfilePicker":          (*Model).openProfilePickerFromSlashCommand,
+	"requestSessionPicker":       (*Model).openSessionPickerFromSlashCommand,
+	"requestOneshotResumePicker": (*Model).openOneshotResumePickerFromSlashCommand,
 }
 
 func (m *Model) openModelPickerFromSlashCommand() *Model {
@@ -406,6 +436,26 @@ func (m *Model) openAccentPickerFromSlashCommand() *Model {
 	m.accentPicker = m.accentPicker.Open(m.accentPreset)
 	m.accentPicker.width = m.width
 	m.accentPicker.height = m.height
+	m.historyIdx = 0
+	return m
+}
+
+func (m *Model) openProfilePickerFromSlashCommand() *Model {
+	m.profilePicker = m.profilePicker.Open(m.profileNames, m.sidebar.profile)
+	m.profilePicker.width = m.width
+	m.profilePicker.height = m.height
+	m.historyIdx = 0
+	return m
+}
+
+func (m *Model) openSessionPickerFromSlashCommand() *Model {
+	m.openSessionPicker()
+	m.historyIdx = 0
+	return m
+}
+
+func (m *Model) openOneshotResumePickerFromSlashCommand() *Model {
+	m.openOneshotResumePicker()
 	m.historyIdx = 0
 	return m
 }
