@@ -165,3 +165,30 @@ func TestComposerUpDownNavigatesVisualRows(t *testing.T) {
 		t.Fatalf("rendered cursor at row %d col %d, want row 1 col 0", row, col)
 	}
 }
+
+// TestComposerUpNavigatesVisualRowsWithHistoryPresent pins the boundary of the
+// history-recall gate: m.input.Line() counts logical lines split on "\n", not
+// wrapped display rows, so a single long logical line reports Line() == 0 no
+// matter which wrapped row the cursor visually sits on. That means the cursor
+// is always considered to be "on the top line" in this scenario, and per the
+// gate's design (recall on Up only when the cursor is on the boundary line),
+// history recall is the correct, expected outcome here — not a regression.
+func TestComposerUpNavigatesVisualRowsWithHistoryPresent(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	val := strings.Repeat("x", 100)
+	m.input.SetValue(val)
+	m.input.SetCursorColumn(72)
+
+	loadComposerHistory(m, "most recent prompt")
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
+	if got := m.input.Value(); got != "most recent prompt" {
+		t.Fatalf("Value() = %q, want history entry %q (recall expected: Line() is 0 for a single logical line)", got, "most recent prompt")
+	}
+	if got := m.fileHistoryIdx; got != 0 {
+		t.Fatalf("fileHistoryIdx = %d, want 0", got)
+	}
+}
