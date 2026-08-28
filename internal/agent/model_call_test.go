@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -663,6 +664,115 @@ func visionCapWithCapable(alias string) *VisionCapabilities {
 	cap := NewVisionCapabilities(false)
 	cap.SetDerived(alias, VisionCapable)
 	return cap
+}
+
+type countingTokenCounter struct {
+	estimate provider.TokenEstimate
+	calls    int
+	requests []provider.ChatRequest
+}
+
+func (c *countingTokenCounter) EstimateChatRequestTokens(_ context.Context, request provider.ChatRequest) (provider.TokenEstimate, error) {
+	c.calls++
+	c.requests = append(c.requests, request)
+	return c.estimate, nil
+}
+
+func (c *countingTokenCounter) ObserveUsage(context.Context, provider.ChatRequest, *provider.UsageStats) {
+}
+
+func TestExecuteChatRequestUsesFitPromptEstimate(t *testing.T) {
+	tests := []struct {
+		name         string
+		budget       prompt.ModelTokenBudget
+		isCompaction bool
+		estimate     provider.TokenEstimate
+		wantKind     string
+	}{
+		{
+			name:     "budgeted regular request reuses zero estimate",
+			budget:   prompt.ModelTokenBudget{ContextSize: 4096, MaxCompletionTokens: 128},
+			estimate: provider.TokenEstimate{Tokens: 0, RawTokens: 0},
+			wantKind: "",
+		},
+		{
+			name:         "budgeted compaction request reuses fit estimate",
+			budget:       prompt.ModelTokenBudget{ContextSize: 4096, SummaryMaxTokens: 128},
+			isCompaction: true,
+			estimate:     provider.TokenEstimate{Tokens: 123, RawTokens: 456},
+			wantKind:     output.APIRequestKindCompaction,
+		},
+		{
+			name:     "request without context budget estimates directly",
+			budget:   prompt.ModelTokenBudget{},
+			estimate: provider.TokenEstimate{Tokens: 321, RawTokens: 654},
+			wantKind: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			counter := &countingTokenCounter{estimate: tc.estimate}
+			restore := provider.SwapDefaultTokenCounter(counter)
+			defer restore()
+
+			maxTokens := 64
+			request := provider.ChatRequest{
+				Model:     "test-model",
+				Messages:  []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+				Tools:     []provider.ToolSpec{{Type: "function", Function: provider.ToolFunctionSpec{Name: "test"}}},
+				MaxTokens: &maxTokens,
+			}
+			var events []output.Event
+			prov := &fakeProvider{
+				chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+					return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"}}, nil
+				},
+			}
+
+			_, _, err := executeChatRequest(context.Background(), prov, 1, request, tc.budget, output.SinkFunc(func(event output.Event) {
+				events = append(events, event)
+			}), nil, tc.isCompaction, false, nil)
+			if err != nil {
+				t.Fatalf("executeChatRequest() error = %v", err)
+			}
+			if counter.calls != 1 {
+				t.Fatalf("token estimate calls = %d, want 1", counter.calls)
+			}
+			if len(counter.requests) != 1 || !reflect.DeepEqual(counter.requests[0], request) {
+				t.Fatalf("fit request = %+v, want unchanged request %+v", counter.requests, request)
+			}
+
+			var event output.APIRequestEvent
+			for _, candidate := range events {
+				if payload, ok := candidate.Payload.(output.APIRequestEvent); ok {
+					event = payload
+					break
+				}
+			}
+			if event.Model == "" {
+				t.Fatal("expected APIRequestEvent")
+			}
+			if event.Kind != tc.wantKind {
+				t.Fatalf("API request Kind = %q, want %q", event.Kind, tc.wantKind)
+			}
+			if event.EstimatedPromptTokens != tc.estimate.Tokens {
+				t.Errorf("estimated prompt tokens = %d, want %d", event.EstimatedPromptTokens, tc.estimate.Tokens)
+			}
+			if event.RawPromptTokens != tc.estimate.RawTokens {
+				t.Errorf("raw prompt tokens = %d, want %d", event.RawPromptTokens, tc.estimate.RawTokens)
+			}
+			if !reflect.DeepEqual(event.Messages, request.Messages) {
+				t.Errorf("event messages = %+v, want unchanged request messages %+v", event.Messages, request.Messages)
+			}
+			if !reflect.DeepEqual(event.Tools, request.Tools) {
+				t.Errorf("event tools = %+v, want unchanged request tools %+v", event.Tools, request.Tools)
+			}
+			if event.MaxTokens == nil || *event.MaxTokens != *request.MaxTokens {
+				t.Errorf("event max tokens = %v, want %v", event.MaxTokens, request.MaxTokens)
+			}
+		})
+	}
 }
 
 func TestExecuteChatRequestMarksCompactionRequest(t *testing.T) {

@@ -106,6 +106,7 @@ func executeChatRequest(
 	streamingPreferred bool,
 	skipNonStream *bool,
 ) (provider.ChatResponse, time.Time, error) {
+	var estimatedPromptTokens, rawPromptTokens int
 	if budget.ContextSize > 0 {
 		var fit prompt.RequestTokenBudget
 		var err error
@@ -123,8 +124,11 @@ func executeChatRequest(
 			}
 			return provider.ChatResponse{}, time.Time{}, fmt.Errorf("request exceeds context window: %s", fit.String())
 		}
+		estimatedPromptTokens = fit.EstimatedPromptTokens
+		rawPromptTokens = fit.RawEstimatedPromptTokens
+	} else {
+		estimatedPromptTokens, rawPromptTokens = estimatePromptTokensForEvent(ctx, req)
 	}
-	estimatedPromptTokens, rawPromptTokens := estimatePromptTokensForEvent(ctx, req)
 	emitEvent(events, newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, estimatedPromptTokens, rawPromptTokens, isCompaction))
 
 	// When streaming is not preferred, try ChatCompletion first and only fall
