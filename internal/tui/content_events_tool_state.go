@@ -52,7 +52,7 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 			args:      summarizeArgs(payload.Tool, payload.Arguments),
 			callID:    payload.CallID,
 			collapsed: true,
-			active:    true,
+			active:    payload.CallID != "",
 			startTime: nanoNow(),
 			rawArgs:   rawArgs,
 		}
@@ -152,7 +152,7 @@ func (b *contentBuffer) applyFinishedRegularToolCallSegment(i int, payload outpu
 	switch b.segments[i].kind {
 	case segmentToolCall:
 		td := b.segments[i].toolData
-		if td == nil || td.callID == "" || td.callID != payload.CallID {
+		if td == nil || !callIDsMatch(td.callID, payload.CallID) {
 			return false
 		}
 		b.applyFinishedToolCallResult(&b.segments[i], td, payload)
@@ -165,7 +165,7 @@ func (b *contentBuffer) applyFinishedRegularToolCallSegment(i int, payload outpu
 		}
 		for j := len(group.entries) - 1; j >= 0; j-- {
 			td := group.entries[j]
-			if td == nil || td.callID == "" || td.callID != payload.CallID {
+			if td == nil || !callIDsMatch(td.callID, payload.CallID) {
 				continue
 			}
 			b.applyFinishedToolCallResult(&b.segments[i], td, payload)

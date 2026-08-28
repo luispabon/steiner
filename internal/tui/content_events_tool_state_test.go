@@ -188,6 +188,54 @@ func TestRegularToolCallGroupFinishesCallsIndependently(t *testing.T) {
 	}
 }
 
+func TestRegularToolCallEmptyCallIDUsesCompletionFallback(t *testing.T) {
+	originalNanoNow := nanoNow
+	now := int64(50_000_000_000)
+	nanoNow = func() int64 { return now }
+	defer func() { nanoNow = originalNanoNow }()
+
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "read", "", map[string]any{"path": "main.go"}))
+	if b.HasActiveToolCalls() {
+		t.Fatal("empty CallID entered active-tool tracking")
+	}
+	now += 125_000_000
+	b.AppendEvent(output.NewToolCallFinishedEvent(1, "read", "", "done", nil))
+
+	td := b.segments[0].toolData
+	if td == nil || td.meta != "✓" || td.elapsed != "125ms" || td.active {
+		t.Fatalf("empty CallID completion state = %#v, want finished ✓, 125ms, inactive", td)
+	}
+}
+
+func TestRegularToolCallFinishRecoversFromStaleGroupedLocator(t *testing.T) {
+	originalNanoNow := nanoNow
+	now := int64(60_000_000_000)
+	nanoNow = func() int64 { return now }
+	defer func() { nanoNow = originalNanoNow }()
+
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call-1", map[string]any{"command": "one"}))
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call-2", map[string]any{"command": "two"}))
+	group := b.segments[0].toolGroupData
+	if group == nil {
+		t.Fatal("tool calls did not form a group")
+	}
+	b.activeToolCalls["call-2"] = toolCallLocator{seg: 99, td: group.entries[1]}
+	now += 300_000_000
+	b.AppendEvent(output.NewToolCallFinishedEvent(1, "bash", "call-2", "two", nil))
+
+	if group.entries[1].meta != "✓" || group.entries[1].elapsed != "300ms" {
+		t.Fatalf("grouped stale-locator state = %#v, want ✓ and 300ms", group.entries[1])
+	}
+	if group.entries[0].meta != "" || !group.entries[0].active {
+		t.Fatalf("unrelated grouped call state = %#v, want active and unfinished", group.entries[0])
+	}
+	if _, ok := b.activeToolCalls["call-1"]; !ok {
+		t.Fatal("stale-locator recovery removed unrelated active grouped call")
+	}
+}
+
 func TestRegularToolCallFinishRecoversFromStaleLocator(t *testing.T) {
 	originalNanoNow := nanoNow
 	now := int64(30_000_000_000)
