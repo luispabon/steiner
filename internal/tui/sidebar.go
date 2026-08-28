@@ -22,7 +22,7 @@ type sidebarState struct {
 	model                 string
 	reasoning             string
 	version               string
-	quant                 string
+	profile               string
 	provider              string
 	providerName          string
 	homeDir               string

@@ -20,7 +20,7 @@ type sidebarStateComparable struct {
 	model                 string
 	reasoning             string
 	version               string
-	quant                 string
+	profile               string
 	provider              string
 	providerName          string
 	homeDir               string
@@ -61,7 +61,7 @@ func (s sidebarState) comparable() sidebarStateComparable {
 		model:                 s.model,
 		reasoning:             s.reasoning,
 		version:               s.version,
-		quant:                 s.quant,
+		profile:               s.profile,
 		provider:              s.provider,
 		providerName:          s.providerName,
 		homeDir:               s.homeDir,

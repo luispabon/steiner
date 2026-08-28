@@ -180,35 +180,56 @@ func TestModelSectionFittingKeepsModelIntact(t *testing.T) {
 	}
 }
 
-func TestModelSectionReasoningAndQuant(t *testing.T) {
+func TestModelSectionReasoning(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name         string
 		reasoning    string
-		quant        string
 		wantModel    string
-		wantQuant    string
 		wantNoReason bool
 	}{
 		{name: "hidden when empty", wantModel: "gpt-5", wantNoReason: true},
 		{name: "folds effort into model", reasoning: "medium", wantModel: "gpt-5/medium", wantNoReason: true},
 		{name: "folds default into model", reasoning: "default", wantModel: "gpt-5/default", wantNoReason: true},
-		{name: "keeps quant separate", reasoning: "high", quant: "q4_k_m", wantModel: "gpt-5/high", wantQuant: "quant: q4_k_m", wantNoReason: true},
-		{name: "quant alone", quant: "q4_k_m", wantModel: "gpt-5", wantQuant: "quant: q4_k_m", wantNoReason: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s := sidebarState{model: "gpt-5", reasoning: tc.reasoning, quant: tc.quant, styles: testStyles(theme.AccentAmber)}
+			s := sidebarState{model: "gpt-5", reasoning: tc.reasoning, styles: testStyles(theme.AccentAmber)}
 			joined := strings.Join(s.modelSection(32), "\n")
 			if !strings.Contains(joined, tc.wantModel) {
 				t.Errorf("modelSection() missing model %q in %q", tc.wantModel, joined)
 			}
-			if tc.wantQuant != "" && !strings.Contains(joined, tc.wantQuant) {
-				t.Errorf("modelSection() missing quant line %q in %q", tc.wantQuant, joined)
-			}
 			if tc.wantNoReason && strings.Contains(joined, "reasoning:") {
 				t.Errorf("modelSection() should not contain reasoning label, got %q", joined)
+			}
+		})
+	}
+}
+
+func TestModelSectionProfile(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		profile string
+		want    string
+	}{
+		{name: "shown", profile: "balanced", want: "profile: balanced"},
+		{name: "omitted when empty", want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := sidebarState{model: "gpt-5", profile: tc.profile, styles: testStyles(theme.AccentAmber)}
+			joined := stripANSI(strings.Join(s.modelSection(32), "\n"))
+			if tc.want == "" {
+				if strings.Contains(joined, "profile:") {
+					t.Errorf("modelSection() should omit empty profile, got %q", joined)
+				}
+				return
+			}
+			if !strings.Contains(joined, tc.want) {
+				t.Errorf("modelSection() missing profile row %q in %q", tc.want, joined)
 			}
 		})
 	}
