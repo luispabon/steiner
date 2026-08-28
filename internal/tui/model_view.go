@@ -414,13 +414,6 @@ func (m *Model) inputChromeHeight(contentWidth int) int {
 	return visibleLines + (2 * inputPadY)
 }
 
-func (m *Model) bottomChromeHeight(contentWidth int) int {
-	return 1 + // hDivider
-		m.activityRowHeight(contentWidth) +
-		m.inputChromeHeight(contentWidth) +
-		1 // status bar
-}
-
 // overlayAnchorOffset is the row count a bottom-anchored overlay (slash,
 // file, model, session, etc. pickers) sits above: just the input box and
 // status bar. The hDivider and activity row above them are not reserved for
