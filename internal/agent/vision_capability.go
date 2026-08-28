@@ -17,12 +17,20 @@ const (
 	VisionIncapable
 )
 
+// visionNotificationState holds notification state shared by the session tracker
+// and its active-run snapshots.
+type visionNotificationState struct {
+	mu      sync.Mutex
+	aliases map[string]bool
+}
+
 // VisionCapabilities tracks per-model vision capability for one session.
 type VisionCapabilities struct {
 	mu                 sync.RWMutex
 	byAlias            map[string]VisionState
-	notified           map[string]bool
+	notified           *visionNotificationState
 	subAgentConfigured atomic.Bool
+	session            *VisionCapabilities
 }
 
 // NewVisionCapabilities creates a new vision capabilities tracker for a session.
@@ -30,10 +38,40 @@ type VisionCapabilities struct {
 func NewVisionCapabilities(subAgentConfigured bool) *VisionCapabilities {
 	capabilities := &VisionCapabilities{
 		byAlias:  make(map[string]VisionState),
-		notified: make(map[string]bool),
+		notified: &visionNotificationState{aliases: make(map[string]bool)},
 	}
 	capabilities.subAgentConfigured.Store(subAgentConfigured)
 	return capabilities
+}
+
+// SnapshotWithSubAgentConfigured creates an independent active-run tracker
+// with a frozen sub-agent configuration. Derived capability state is copied,
+// runtime incapability latches are propagated back to the session tracker, and
+// notification state remains shared for once-per-session diagnostics.
+func (v *VisionCapabilities) SnapshotWithSubAgentConfigured(configured bool) *VisionCapabilities {
+	if v == nil {
+		return nil
+	}
+
+	v.mu.RLock()
+	byAlias := make(map[string]VisionState, len(v.byAlias))
+	for alias, state := range v.byAlias {
+		byAlias[alias] = state
+	}
+	notified := v.notified
+	v.mu.RUnlock()
+
+	session := v
+	if v.session != nil {
+		session = v.session
+	}
+	snapshot := &VisionCapabilities{
+		byAlias:  byAlias,
+		notified: notified,
+		session:  session,
+	}
+	snapshot.subAgentConfigured.Store(configured)
+	return snapshot
 }
 
 // SetDerived sets the vision state for an alias based on model resolution (config or models.dev).
@@ -63,23 +101,28 @@ func (v *VisionCapabilities) Get(alias string) VisionState {
 // Returns true if this is a change (was not already VisionIncapable), false otherwise.
 func (v *VisionCapabilities) LatchIncapable(alias string) bool {
 	v.mu.Lock()
-	defer v.mu.Unlock()
 	if current, exists := v.byAlias[alias]; exists && current == VisionIncapable {
+		v.mu.Unlock()
 		return false // Already latched
 	}
 	v.byAlias[alias] = VisionIncapable
+	v.mu.Unlock()
+
+	if v.session != nil {
+		v.session.LatchIncapable(alias)
+	}
 	return true // State changed
 }
 
 // TakeNotify returns true exactly once per alias, then false on all subsequent calls.
 // Used to emit "we discovered this model can't see images" diagnostics exactly once per session per alias.
 func (v *VisionCapabilities) TakeNotify(alias string) bool {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	if v.notified[alias] {
+	v.notified.mu.Lock()
+	defer v.notified.mu.Unlock()
+	if v.notified.aliases[alias] {
 		return false
 	}
-	v.notified[alias] = true
+	v.notified.aliases[alias] = true
 	return true
 }
 
