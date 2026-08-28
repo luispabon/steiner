@@ -185,6 +185,12 @@ func (m *Model) openContextOverlayImmediate() {
 }
 
 func (m *Model) handleComposerKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Any key that isn't Up/Down history navigation (those route through
+	// handleNavigationKeyMsg, never here) ends a history browse: the recalled
+	// entry becomes the user's own draft, and Up/Down resume plain row-based
+	// cursor movement on it.
+	m.fileHistoryIdx = -1
+
 	if msg.Code == tea.KeyEnter && (!m.approval.active && !key.Matches(msg, m.input.KeyMap.InsertNewline)) {
 		return m.handleEnter()
 	}

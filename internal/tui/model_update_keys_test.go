@@ -119,6 +119,49 @@ func TestHandleKeyUpMultilineDraftCursorNotOnTopLineMovesCursor(t *testing.T) {
 	}
 }
 
+func TestHandleKeyUpConsecutivePressesKeepPagingThroughMultilineEntry(t *testing.T) {
+	m := newModel(Config{}, nil)
+	loadComposerHistory(m, "multi\nline\nentry", "older single line")
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
+	if got := m.input.Value(); got != "older single line" {
+		t.Fatalf("Value() = %q, want %q (consecutive Up must keep paging, not get stuck moving within the recalled entry)", got, "older single line")
+	}
+	if got := m.fileHistoryIdx; got != 1 {
+		t.Fatalf("fileHistoryIdx = %d, want 1", got)
+	}
+}
+
+func TestHandleKeyLeftAfterRecallExitsBrowseAndUpThenMovesCursor(t *testing.T) {
+	m := newModel(Config{}, nil)
+	loadComposerHistory(m, "multi\nline\nentry", "older single line")
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyLeft})
+
+	if got := m.fileHistoryIdx; got != -1 {
+		t.Fatalf("fileHistoryIdx = %d, want -1 (Left must exit history browse)", got)
+	}
+	lineBeforeUp := m.input.Line()
+	if lineBeforeUp == 0 {
+		t.Fatalf("test setup invalid: cursor already on line 0 after Left")
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
+	if got := m.input.Value(); got != "multi\nline\nentry" {
+		t.Fatalf("Value() = %q, want unchanged %q (Up should move the cursor, not recall further history)", got, "multi\nline\nentry")
+	}
+	if got := m.input.Line(); got != lineBeforeUp-1 {
+		t.Fatalf("Line() = %d, want %d (moved up one row)", got, lineBeforeUp-1)
+	}
+	if got := m.fileHistoryIdx; got != -1 {
+		t.Fatalf("fileHistoryIdx = %d, want -1", got)
+	}
+}
+
 func TestHandleKeyDownMultilineDraftCursorOnTopLineMovesCursor(t *testing.T) {
 	m := newModel(Config{}, nil)
 
