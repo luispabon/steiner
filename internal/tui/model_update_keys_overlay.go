@@ -135,11 +135,15 @@ func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) 
 	}
 	selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 	m.sessionPicker = m.sessionPicker.Close()
+	m.input.Reset()
+	m.historyIdx = 0
+	m.relayoutInput()
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
 	m.sessionStartedAt = nil
 	m.syncSidebar()
+	m.syncViewport()
 	ctrl := m.controller
 	action := makeAction(selected.ID)
 	return m, func() tea.Msg {
