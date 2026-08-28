@@ -62,6 +62,8 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 
 func TestBuildRunRequestSnapshotsVisionCapabilities(t *testing.T) {
 	shared := agent.NewVisionCapabilities(false)
+	shared.SetDerived("known", agent.VisionCapable)
+	shared.LatchIncapable("latched")
 	r := cliRunner{runtime: cliRuntime{visionCapabilities: shared}}
 
 	first := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
@@ -70,6 +72,22 @@ func TestBuildRunRequestSnapshotsVisionCapabilities(t *testing.T) {
 	}
 	if first.VisionCapabilities == shared {
 		t.Fatal("first request shares vision capabilities with runtime")
+	}
+	if got := first.VisionCapabilities.Get("known"); got != agent.VisionCapable {
+		t.Fatalf("first request known capability = %v, want VisionCapable", got)
+	}
+	if got := first.VisionCapabilities.Get("latched"); got != agent.VisionIncapable {
+		t.Fatalf("first request latched capability = %v, want VisionIncapable", got)
+	}
+
+	if !first.VisionCapabilities.TakeNotify("latched") {
+		t.Fatal("first request notification = false, want true")
+	}
+	if shared.TakeNotify("latched") {
+		t.Fatal("shared notification repeated after first request")
+	}
+	if !first.VisionCapabilities.LatchIncapable("runtime-latched") {
+		t.Fatal("first request runtime latch = false, want true")
 	}
 
 	shared.SetSubAgentConfigured(true)
@@ -86,6 +104,12 @@ func TestBuildRunRequestSnapshotsVisionCapabilities(t *testing.T) {
 	}
 	if !second.VisionCapabilities.SubAgentConfigured() {
 		t.Fatal("second request vision capabilities = false, want live runtime value")
+	}
+	if got := second.VisionCapabilities.Get("runtime-latched"); got != agent.VisionIncapable {
+		t.Fatalf("second request runtime-latched capability = %v, want VisionIncapable", got)
+	}
+	if second.VisionCapabilities.TakeNotify("latched") {
+		t.Fatal("second request repeated notification from first request")
 	}
 }
 

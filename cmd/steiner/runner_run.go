@@ -342,7 +342,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	}
 	visionCapabilities := r.runtime.visionCapabilities
 	if visionCapabilities != nil {
-		visionCapabilities = agent.NewVisionCapabilities(visionCapabilities.SubAgentConfigured())
+		visionCapabilities = visionCapabilities.SnapshotWithSubAgentConfigured(visionCapabilities.SubAgentConfigured())
 	}
 	req := agent.RunRequest{
 		Provider:      setup.provider,

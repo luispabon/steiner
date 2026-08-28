@@ -47,6 +47,59 @@ func TestVisionCapabilities_SetDerived(t *testing.T) {
 	}
 }
 
+func TestVisionCapabilities_SnapshotPreservesStateAndSessionSemantics(t *testing.T) {
+	shared := NewVisionCapabilities(false)
+	shared.SetDerived("known", VisionCapable)
+	shared.LatchIncapable("latched")
+
+	snapshot := shared.SnapshotWithSubAgentConfigured(true)
+	if snapshot == shared {
+		t.Fatal("snapshot shares tracker with session")
+	}
+	if got := snapshot.Get("known"); got != VisionCapable {
+		t.Fatalf("snapshot known state = %v, want VisionCapable", got)
+	}
+	if got := snapshot.Get("latched"); got != VisionIncapable {
+		t.Fatalf("snapshot latched state = %v, want VisionIncapable", got)
+	}
+	if !snapshot.SubAgentConfigured() {
+		t.Fatal("snapshot SubAgentConfigured = false, want true")
+	}
+
+	if !snapshot.TakeNotify("new-alias") {
+		t.Fatal("snapshot first notification = false, want true")
+	}
+	if shared.TakeNotify("new-alias") {
+		t.Fatal("shared notification repeated after snapshot notification")
+	}
+
+	if !snapshot.LatchIncapable("runtime-latched") {
+		t.Fatal("snapshot runtime latch = false, want true")
+	}
+	if got := shared.Get("runtime-latched"); got != VisionIncapable {
+		t.Fatalf("shared runtime-latched state = %v, want VisionIncapable", got)
+	}
+
+	shared.SetSubAgentConfigured(true)
+	if !snapshot.SubAgentConfigured() {
+		t.Fatal("snapshot configuration changed after shared update")
+	}
+	later := shared.SnapshotWithSubAgentConfigured(shared.SubAgentConfigured())
+	if !later.SubAgentConfigured() {
+		t.Fatal("later snapshot did not see shared configuration")
+	}
+	if got := later.Get("runtime-latched"); got != VisionIncapable {
+		t.Fatalf("later snapshot runtime-latched state = %v, want VisionIncapable", got)
+	}
+}
+
+func TestVisionCapabilities_SnapshotNil(t *testing.T) {
+	var capabilities *VisionCapabilities
+	if capabilities.SnapshotWithSubAgentConfigured(true) != nil {
+		t.Fatal("nil snapshot = non-nil, want nil")
+	}
+}
+
 func TestVisionCapabilities_TakeNotify(t *testing.T) {
 	cap := NewVisionCapabilities(false)
 
