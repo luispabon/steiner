@@ -122,6 +122,21 @@ func TestHandleTickMsgAdvancesRegularToolSpinnerAndStopsAfterFinish(t *testing.T
 	}
 }
 
+func TestNeedsTickingStopsAfterParentDelegationCancellation(t *testing.T) {
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{content: contentBuffer{styles: styles}}
+	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "first task"))
+	m.content.AppendEvent(output.NewDelegationStartedEvent("child-2", "second task"))
+
+	if !m.needsTicking() {
+		t.Fatal("needsTicking() = false while delegations are active")
+	}
+	m.content.AppendEvent(output.NewStopReasonEvent(1, "cancelled", nil))
+	if m.needsTicking() {
+		t.Fatal("needsTicking() = true after parent delegation cancellation")
+	}
+}
+
 func TestSessionTickIntervalIsOneSecond(t *testing.T) {
 	t.Parallel()
 	if sessionTickInterval != time.Second {

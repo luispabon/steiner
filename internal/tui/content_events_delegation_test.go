@@ -164,6 +164,114 @@ func TestScopedDelegationEvents(t *testing.T) {
 	}
 }
 
+func TestParentCancellationFinalizesAllActiveDelegations(t *testing.T) {
+	originalNanoNow := nanoNow
+	now := int64(10_000_000_000)
+	nanoNow = func() int64 { return now }
+	defer func() { nanoNow = originalNanoNow }()
+
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first task"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second task"))
+	buffer.String(80)
+
+	now = 13_200_000_000
+	buffer.AppendEvent(output.NewStopReasonEvent(1, "cancelled", nil))
+
+	if buffer.HasActiveDelegations() {
+		t.Fatal("HasActiveDelegations = true after parent cancellation, want false")
+	}
+	for _, seg := range buffer.segments {
+		if seg.delegData == nil {
+			continue
+		}
+		if seg.delegData.status != "failed" {
+			t.Fatalf("delegation %q status = %q, want failed", seg.delegData.agentID, seg.delegData.status)
+		}
+		if seg.delegData.elapsed != "3s" {
+			t.Fatalf("delegation %q elapsed = %q, want 3s", seg.delegData.agentID, seg.delegData.elapsed)
+		}
+		if !seg.renderDirty {
+			t.Fatalf("delegation %q segment not marked dirty", seg.delegData.agentID)
+		}
+	}
+
+	now = 99_000_000_000
+	for _, agentID := range []string{"child-1", "child-2"} {
+		loc, found := buffer.findDelegation(agentID)
+		if !found || loc.dd == nil {
+			t.Fatalf("delegation %q not found after cancellation", agentID)
+		}
+		if loc.dd.elapsed != "3s" {
+			t.Fatalf("delegation %q elapsed changed after cancellation: %q", agentID, loc.dd.elapsed)
+		}
+	}
+	buffer.AppendEvent(output.NewStopReasonEvent(2, "cancelled", nil))
+	for _, agentID := range []string{"child-1", "child-2"} {
+		loc, found := buffer.findDelegation(agentID)
+		if !found || loc.dd == nil || loc.dd.elapsed != "3s" {
+			t.Fatalf("delegation %q was changed by duplicate cancellation", agentID)
+		}
+	}
+}
+
+func TestScopedCancellationFinalizesOnlyTargetDelegation(t *testing.T) {
+	originalNanoNow := nanoNow
+	now := int64(20_000_000_000)
+	nanoNow = func() int64 { return now }
+	defer func() { nanoNow = originalNanoNow }()
+
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first task"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second task"))
+
+	now = 24_500_000_000
+	cancel := output.WithAgentScope(output.NewStopReasonEvent(1, "cancelled", nil), "child-1")
+	buffer.AppendEvent(cancel)
+
+	if _, active := buffer.activeDelegations["child-1"]; active {
+		t.Fatal("child-1 remains active after scoped cancellation")
+	}
+	loc, active := buffer.activeDelegations["child-2"]
+	if !active || loc.dd == nil {
+		t.Fatal("child-2 not active after child-1 scoped cancellation")
+	}
+	if loc.dd.status != "active" {
+		t.Fatalf("child-2 status = %q, want active", loc.dd.status)
+	}
+	child1, found := buffer.findDelegation("child-1")
+	if !found || child1.dd == nil {
+		t.Fatal("child-1 delegation not found after cancellation")
+	}
+	if child1.dd.status != "failed" {
+		t.Fatalf("child-1 status = %q, want failed", child1.dd.status)
+	}
+	if child1.dd.elapsed != "4s" {
+		t.Fatalf("child-1 elapsed = %q, want 4s", child1.dd.elapsed)
+	}
+
+	now = 90_000_000_000
+	frozen := buffer.renderDelegationHeaderMeta(child1.dd)
+	if !strings.Contains(stripANSI(frozen), "4s") {
+		t.Fatalf("finalized child meta = %q, want frozen elapsed", stripANSI(frozen))
+	}
+	live := buffer.renderDelegationHeaderMeta(loc.dd)
+	if strings.Contains(stripANSI(live), "4s") {
+		t.Fatalf("sibling meta = %q, want live elapsed", stripANSI(live))
+	}
+
+	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID: "child-1",
+		Status:  "complete",
+	}), "child-1"))
+	if !buffer.HasActiveDelegations() {
+		t.Fatal("late terminal event changed sibling active state")
+	}
+	if _, active := buffer.activeDelegations["child-1"]; active {
+		t.Fatal("late terminal event restarted child-1")
+	}
+}
+
 func TestDelegationContextUsesRawPromptTokensForFill(t *testing.T) {
 	b := newTestBuffer(t)
 	b.AppendEvent(output.NewDelegationStartedEvent("child-raw", "inspect docs"))

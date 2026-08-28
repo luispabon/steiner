@@ -295,6 +295,10 @@ func (b *contentBuffer) applyDelegationStopReason(dd *delegationDisplayState, ev
 	if !ok {
 		return false
 	}
+	if payload.Reason == "cancelled" {
+		b.finalizeActiveDelegation(event.Scope.AgentID)
+		return true
+	}
 	if payload.Reason == "complete" || payload.Reason == "max_turns" || payload.Reason == "max_tokens" {
 		return true
 	}
@@ -421,6 +425,25 @@ func (b *contentBuffer) dequeuePendingDelegationStartSegment() (delegationLocato
 	return b.drainPending(&b.pendingDelegationStarts, func(loc delegationLocator) bool {
 		return loc.dd.parentCallID == ""
 	})
+}
+
+// finalizeActiveDelegation freezes one in-flight delegation as failed. The active
+// map lookup makes repeated or late terminal events a no-op.
+func (b *contentBuffer) finalizeActiveDelegation(agentID string) bool {
+	loc, active := b.activeDelegations[agentID]
+	if !active {
+		return false
+	}
+	delete(b.activeDelegations, agentID)
+	if loc.dd == nil {
+		return true
+	}
+	loc.dd.status = "failed"
+	if loc.dd.elapsed == "" {
+		loc.dd.elapsed = formatElapsed(loc.dd.startTime, nanoNow())
+	}
+	b.markDelegationDirty(loc.seg)
+	return true
 }
 
 func (b *contentBuffer) markDelegationDirty(idx int) {
