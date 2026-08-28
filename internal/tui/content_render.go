@@ -389,11 +389,7 @@ func (b *contentBuffer) inProgressPreview(width int) string {
 	if strings.TrimSpace(preview) == "" {
 		return ""
 	}
-	cursor := ""
-	if b.tickCount%2 == 0 {
-		cursor = "█"
-	}
-	return b.styles.AssistantProse.Width(max(1, width)).Render(preview+cursor) + "\n"
+	return b.styles.AssistantProse.Width(max(1, width)).Render(preview) + "\n"
 }
 
 func (b *contentBuffer) baseTextStyle() lipgloss.Style {
