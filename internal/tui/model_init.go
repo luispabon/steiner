@@ -386,9 +386,17 @@ func tickCmd() tea.Cmd {
 	})
 }
 
+func composerBlinkCmd() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg {
+		return composerBlinkMsg{}
+	})
+}
+
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus(), tickCmd()}
+	m.composerBlinking = true
+	m.composerBlinkOn = true
+	cmds := []tea.Cmd{m.input.Focus(), tickCmd(), composerBlinkCmd()}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
 	}

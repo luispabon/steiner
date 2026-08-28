@@ -73,6 +73,7 @@ type workflowHandoffLaunch struct {
 
 type tickMsg struct{}
 type sessionTickMsg struct{}
+type composerBlinkMsg struct{}
 
 type setAccentMsg struct{ preset string }
 
@@ -239,6 +240,12 @@ type Model struct {
 	vDividerCacheStyles   *theme.Styles
 	vDividerCacheHeight   int
 	vDividerCacheRendered string
+
+	composerBlinkOn  bool
+	composerBlinking bool
+
+	lastCursorLine int
+	lastCursorCol  int
 }
 
 type scrollbarCacheKey struct {
@@ -247,11 +254,12 @@ type scrollbarCacheKey struct {
 
 // inputViewCacheKey is the full render cache key for renderInputView:
 // every model field the input render path reads, plus the render
-// dimensions. skillNames is compared separately because a slice cannot
-// be part of a comparable struct. Package globals read by the path
-// (slashCommands, imageMarkerPattern, commandsAcceptingArbitraryArgs)
+// dimensions and blink state. skillNames is compared separately because
+// a slice cannot be part of a comparable struct. Package globals read by
+// the path (slashCommands, imageMarkerPattern, commandsAcceptingArbitraryArgs)
 // are assigned only at package init and never written at runtime, so
-// they are deliberately absent from the key.
+// they are deliberately absent from the key. Render now depends on blink
+// phase, and composerBlinkMsg (not a timestamp) drives the invalidation edge.
 type inputViewCacheKey struct {
 	contentWidth   int
 	height         int
@@ -261,6 +269,7 @@ type inputViewCacheKey struct {
 	placeholder    string
 	oneshotRunning bool
 	styles         *theme.Styles
+	cursorBlinkOn  bool
 }
 
 func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
@@ -614,4 +623,16 @@ func (m *Model) ensureTicking() tea.Cmd {
 	}
 	m.ticking = true
 	return tickCmd()
+}
+
+// ensureComposerBlinking restarts the composer blink ticker if the composer
+// has focus and the ticker is not already running.
+// Returns a composerBlinkCmd if the ticker was restarted, nil otherwise.
+func (m *Model) ensureComposerBlinking() tea.Cmd {
+	if m.composerBlinking || !m.input.Focused() {
+		return nil
+	}
+	m.composerBlinking = true
+	m.composerBlinkOn = true
+	return composerBlinkCmd()
 }

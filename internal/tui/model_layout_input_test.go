@@ -7,18 +7,16 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// cursorInLines locates the rendered cursor marker (█) in the composer lines
-// returned by renderTypedInputLines / renderInputLines and reports its
-// (row, col) position.
-func cursorInLines(t *testing.T, lines []string) (row, col int) {
+// cursorInLines converts the cursor row and column from renderTypedInputLines
+// or renderInputLines into a (display row, display column) for verification.
+// The display row is adjusted from the returned cursorRow to account for
+// windowing in renderNormalInputView.
+func cursorInLines(t *testing.T, lines []string, cursorRow, cursorCol int) (row, col int) {
 	t.Helper()
-	for i, line := range lines {
-		if idx := strings.Index(line, "█"); idx >= 0 {
-			return i, idx
-		}
+	if cursorRow < 0 || cursorRow >= len(lines) {
+		t.Fatalf("cursorRow %d out of range [0, %d)", cursorRow, len(lines))
 	}
-	t.Fatal("no cursor marker found in rendered composer lines")
-	return -1, -1
+	return cursorRow, cursorCol
 }
 
 // TestComposerLayoutAcrossInputStates pins the composer layout (input rows,
@@ -87,7 +85,7 @@ func TestComposerLayoutAcrossInputStates(t *testing.T) {
 				t.Fatalf("viewport height = %d, want %d", got, wantViewportH)
 			}
 
-			lines, isPlaceholder, _ := m.renderInputLines(innerWidth)
+			lines, isPlaceholder, cursorRow, cursorCol := m.renderInputLines(innerWidth)
 			if isPlaceholder != tt.placeholder {
 				t.Fatalf("isPlaceholder = %v, want %v", isPlaceholder, tt.placeholder)
 			}
@@ -106,7 +104,7 @@ func TestComposerLayoutAcrossInputStates(t *testing.T) {
 				wantCursorRow += max(1, (len(valueLines[i])+innerWidth-1)/innerWidth)
 			}
 			wantCursorCol := tt.curCol % innerWidth
-			row, col := cursorInLines(t, lines)
+			row, col := cursorInLines(t, lines, cursorRow, cursorCol)
 			if row != wantCursorRow || col != wantCursorCol {
 				t.Fatalf("cursor at row %d col %d, want row %d col %d", row, col, wantCursorRow, wantCursorCol)
 			}
@@ -130,8 +128,8 @@ func TestComposerCursorPlacementIndependentOfTextareaWidth(t *testing.T) {
 		m.input.MaxWidth = 0
 		m.input.SetWidth(width)
 		m.input.SetCursorColumn(54)
-		lines, _ := m.renderTypedInputLines(36)
-		row, col := cursorInLines(t, lines)
+		lines, cursorRow, cursorCol := m.renderTypedInputLines(36)
+		row, col := cursorInLines(t, lines, cursorRow, cursorCol)
 		if row != 1 || col != 18 {
 			t.Fatalf("width %d: cursor at row %d col %d, want row 1 col 18", width, row, col)
 		}
@@ -161,8 +159,8 @@ func TestComposerUpDownNavigatesVisualRows(t *testing.T) {
 	if got := m.input.Column(); got != 36 {
 		t.Fatalf("cursor column = %d, want 36 (start of second wrapped row)", got)
 	}
-	lines, _ := m.renderTypedInputLines(m.inputInnerWidth(m.contentWidth()))
-	row, col := cursorInLines(t, lines)
+	lines, cursorRow, cursorCol := m.renderTypedInputLines(m.inputInnerWidth(m.contentWidth()))
+	row, col := cursorInLines(t, lines, cursorRow, cursorCol)
 	if row != 1 || col != 0 {
 		t.Fatalf("rendered cursor at row %d col %d, want row 1 col 0", row, col)
 	}
