@@ -124,8 +124,7 @@ func (o OverlayShell) RenderWithBg(box lipgloss.Style, body string, bg string) s
 // PlaceBottomAnchored composites the overlay string over the base view string
 // using the file picker's bottom-anchored placement strategy: the overlay sits
 // just above the input area, left-aligned.  inputHeight is the number of rows
-// occupied by the bottom chrome (hDivider + approval tray + activity row +
-// input + status bar) at the bottom of the base view.
+// occupied by the input box and status bar at the bottom of the base view.
 func (o OverlayShell) PlaceBottomAnchored(base, overlay string, inputHeight int) string {
 	return o.PlaceBottomAnchoredAt(base, overlay, inputHeight, 0)
 }
@@ -141,7 +140,7 @@ func (o OverlayShell) PlaceBottomAnchoredAt(base, overlay string, inputHeight, x
 	if height < 1 {
 		height = len(baseLines)
 	}
-	startY := height - len(olLines) - inputHeight - 1
+	startY := height - len(olLines) - inputHeight
 	if startY < 0 {
 		startY = 0
 	}

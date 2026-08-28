@@ -232,7 +232,7 @@ func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) stri
 		return base
 	}
 
-	offset := m.bottomChromeHeight(contentWidth)
+	offset := m.overlayAnchorOffset(contentWidth)
 
 	// When the sidebar occupies the left side, push the slash overlay right so
 	// it appears above the prompt box rather than over the sidebar.
@@ -419,6 +419,15 @@ func (m *Model) bottomChromeHeight(contentWidth int) int {
 		m.activityRowHeight(contentWidth) +
 		m.inputChromeHeight(contentWidth) +
 		1 // status bar
+}
+
+// overlayAnchorOffset is the row count a bottom-anchored overlay (slash,
+// file, model, session, etc. pickers) sits above: just the input box and
+// status bar. The hDivider and activity row above them are not reserved for
+// the overlay — it's fine for the overlay to sit over them, since they carry
+// no content worth preserving while a picker is open.
+func (m *Model) overlayAnchorOffset(contentWidth int) int {
+	return m.inputChromeHeight(contentWidth) + 1 // status bar
 }
 
 func (m *Model) activityRowHeight(_ int) int {
