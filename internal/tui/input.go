@@ -4,6 +4,12 @@ import (
 	"strings"
 )
 
+// inputAction is the parsed result of composer input. A bool field whose name
+// ends in "Picker" is a naming convention read by pickerFieldFromAction:
+// slash-overlay completion (Tab/Enter with no argument) uses it to
+// auto-detect which slash commands should open a picker immediately, instead
+// of maintaining a hardcoded command list. Keep that suffix on any new
+// picker-opening flag, and register its opener in pickerCompletionOpeners.
 type inputAction struct {
 	quit                       bool
 	clear                      bool

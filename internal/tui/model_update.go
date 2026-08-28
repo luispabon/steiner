@@ -310,8 +310,6 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	m.fileList.OverlayShell = m.fileList.WithDimensions(msg.Width, msg.Height)
 	m.mcpOverlay.OverlayShell = m.mcpOverlay.WithDimensions(msg.Width, msg.Height)
 
-	m.sessionPicker = m.sessionPicker.withDimensions(msg.Width, msg.Height)
-	m.oneshotResumePicker = m.oneshotResumePicker.withDimensions(msg.Width, msg.Height)
 	if m.contextOverlay.IsOpen() {
 		m.contextOverlay.OverlayShell = m.contextOverlay.WithDimensions(msg.Width, msg.Height)
 		m.contextOverlay = m.contextOverlay.reflow()
@@ -328,6 +326,8 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	}
 	m.filePicker.OverlayShell = m.filePicker.WithDimensions(contentW, msg.Height)
 	m.slashOverlay.OverlayShell = m.slashOverlay.WithDimensions(contentW, msg.Height)
+	m.sessionPicker = m.sessionPicker.withDimensions(contentW, msg.Height)
+	m.oneshotResumePicker = m.oneshotResumePicker.withDimensions(contentW, msg.Height)
 	m.layout()
 	return m, nil
 }

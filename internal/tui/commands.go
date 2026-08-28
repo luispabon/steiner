@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 )
@@ -233,6 +234,27 @@ var slashCommands = []slashCommand{
 			return inputAction{setAccent: arg}
 		},
 	},
+}
+
+// pickerFieldFromAction reports the name of the inputAction field that
+// signals a picker should open, by the naming convention documented on
+// inputAction: a bool field whose name ends in "Picker" and is true. Passing
+// the result of a slashCommand's Build("") lets slash-overlay completion
+// auto-detect which commands have an associated picker, instead of
+// maintaining a hardcoded list of command IDs.
+func pickerFieldFromAction(action inputAction) (string, bool) {
+	v := reflect.ValueOf(action)
+	t := v.Type()
+	for i := range t.NumField() {
+		field := t.Field(i)
+		if field.Type.Kind() != reflect.Bool || !strings.HasSuffix(field.Name, "Picker") {
+			continue
+		}
+		if v.Field(i).Bool() {
+			return field.Name, true
+		}
+	}
+	return "", false
 }
 
 // lookupCommand returns the slashCommand with the given ID, or nil.

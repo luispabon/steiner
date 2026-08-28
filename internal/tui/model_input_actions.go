@@ -204,38 +204,42 @@ func (m *Model) executeSwitchProfileAction(name string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
+// openSessionPicker lists resumable sessions and opens the session picker.
+// Reports whether it opened, appending a status line and leaving the picker
+// closed if the store isn't configured or listing fails.
+func (m *Model) openSessionPicker() bool {
 	if m.sessionStore == nil {
 		m.content.AppendLine("status: no session store configured")
-		m.input.Reset()
-		m.relayoutInput()
-		m.syncViewport()
-		return m, nil
+		return false
 	}
-
 	entries, err := m.sessionStore.List()
 	if err != nil {
 		m.content.AppendLine(fmt.Sprintf("status: failed to list sessions: %v", err))
+		return false
+	}
+	m.sessionPicker = m.sessionPicker.Open(entries)
+	return true
+}
+
+func (m *Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
+	if !m.openSessionPicker() {
 		m.input.Reset()
 		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
-
-	m.sessionPicker = m.sessionPicker.Open(entries)
 	m.input.Reset()
 	m.syncInputChrome()
 	return m, nil
 }
 
-func (m *Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
+// openOneshotResumePicker lists resumable oneshot runs and opens the picker.
+// Reports whether it opened, appending a status line and leaving the picker
+// closed if the controller isn't wired, listing fails, or there are no runs.
+func (m *Model) openOneshotResumePicker() bool {
 	if m.controller == nil {
 		m.content.AppendLine("status: controller not available")
-		m.input.Reset()
-		m.historyIdx = 0
-		m.relayoutInput()
-		m.syncViewport()
-		return m, nil
+		return false
 	}
 
 	// Type assertion is safe here; we know from wiring in cmd/steiner that
@@ -246,23 +250,26 @@ func (m *Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
 	runs, err := oneshot.ListRuns(projectRoot)
 	if err != nil {
 		m.content.AppendLine(fmt.Sprintf("status: failed to list oneshot runs: %v", err))
-		m.input.Reset()
-		m.historyIdx = 0
-		m.relayoutInput()
-		m.syncViewport()
-		return m, nil
+		return false
 	}
 
 	if len(runs) == 0 {
 		m.content.AppendLine("status: no resumable oneshot runs found")
+		return false
+	}
+
+	m.oneshotResumePicker = m.oneshotResumePicker.Open(runs)
+	return true
+}
+
+func (m *Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
+	if !m.openOneshotResumePicker() {
 		m.input.Reset()
 		m.historyIdx = 0
 		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
-
-	m.oneshotResumePicker = m.oneshotResumePicker.Open(runs)
 	m.input.Reset()
 	m.syncInputChrome()
 	return m, nil
