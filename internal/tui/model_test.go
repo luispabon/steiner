@@ -3311,6 +3311,17 @@ func TestApplyComposerCursorAnsi(t *testing.T) {
 			on:           true,
 			wantContains: []string{"\x1b[7m", "e", "\x1b[27m", "\x1b[0m"},
 		},
+		{
+			name:  "cursor with multi-parameter SGR sequence",
+			input: "\x1b[38;2;216;216;216;48;2;13;21;28mhello\x1b[0m",
+			pos:   0,
+			on:    true,
+			// Verify: (a) the full SGR sequence is preserved intact,
+			// (b) only 'h' is wrapped with cursor codes, (c) no digits/semicolons
+			// from the SGR sequence appear between cursor codes.
+			wantContains:    []string{"\x1b[38;2;216;216;216;48;2;13;21;28m", "\x1b[7m", "h", "\x1b[27m", "\x1b[0m"},
+			wantNotContains: "7m3", // Would indicate '3' was wrapped as a cursor character
+		},
 	}
 
 	for _, tt := range tests {

@@ -549,7 +549,13 @@ func applyComposerCursorAnsi(s string, pos int, on bool) string {
 	for _, r := range s {
 		if inEsc {
 			escSeq.WriteRune(r)
-			if (r >= '@' && r <= '~') || r == '\\' {
+			// Only apply terminator check after we've seen the CSI introducer byte.
+			// A standard CSI is: ESC [, then parameter bytes (0x30-0x3F: digits, ;, etc.),
+			// then a final byte (0x40-0x7E). The introducer '[' itself must never be
+			// treated as a terminator, even though it's in the 0x40-0x7E range.
+			// Once escSeq.Len() > 2, we've written ESC and the introducer, so we can
+			// safely check if this byte is a terminator.
+			if escSeq.Len() > 2 && ((r >= '@' && r <= '~') || r == '\\') {
 				inEsc = false
 				result.WriteString(escSeq.String())
 				escSeq.Reset()
