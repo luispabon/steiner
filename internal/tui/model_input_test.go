@@ -333,8 +333,11 @@ func TestBuildSlashOverlayItemsIncludesCacheStats(t *testing.T) {
 func TestProfileSlashCommandDispatchesSwitch(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}
-	m := newModel(Config{Controller: ctrl}, nil)
+	m := newModel(Config{Controller: ctrl, ProfileName: "default"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	if got, want := m.sidebar.profile, "default"; got != want {
+		t.Fatalf("initial sidebar profile = %q, want %q", got, want)
+	}
 
 	m.input.SetValue("/profile fast")
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -347,6 +350,9 @@ func TestProfileSlashCommandDispatchesSwitch(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Name != "fast" {
 		t.Fatalf("SwitchProfile actions = %#v, want one action for fast", got)
+	}
+	if got, want := m.sidebar.profile, "fast"; got != want {
+		t.Fatalf("sidebar profile after switch = %q, want %q", got, want)
 	}
 	if got := m.content.segments[len(m.content.segments)-1].text; got != "profile switched to fast" {
 		t.Fatalf("success status = %q, want profile switched status", got)

@@ -193,6 +193,7 @@ func (m *Model) executeSwitchProfileAction(name string) (tea.Model, tea.Cmd) {
 			m.content.AppendLine(fmt.Sprintf("status: %v", err))
 		} else {
 			m.content.AppendLine(fmt.Sprintf("status: profile switched to %s", name))
+			m.sidebar.profile = name
 		}
 	}
 	m.input.Reset()
