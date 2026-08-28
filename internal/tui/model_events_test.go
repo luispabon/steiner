@@ -184,6 +184,34 @@ func TestApplyEventContextCompactionFinishedRefreshesBudget(t *testing.T) {
 	}
 }
 
+func TestApplyEventContextBudgetSynchronizesFooterAndPreservesItForByteDiagnostics(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{
+		Model:         "gpt-test",
+		ModelContexts: map[string]int{"gpt-test": 4096},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	_ = m.applyEvent(output.NewContextTokenBudgetEvent("conversation", 1, 120, 4096, 3, 70, 32, 180, "ok", false))
+	if m.sidebar.promptUsed != 120 || m.sidebar.budgetUsed != 180 || m.sidebar.contextBudget != 4096 {
+		t.Fatalf("sidebar occupancy = %d/%d/%d, want 120/180/4096", m.sidebar.promptUsed, m.sidebar.budgetUsed, m.sidebar.contextBudget)
+	}
+	if m.status.promptUsed != 120 || m.status.contextBudget != 4096 {
+		t.Fatalf("status occupancy = %d/%d, want 120/4096", m.status.promptUsed, m.status.contextBudget)
+	}
+
+	_ = m.applyEvent(output.NewContextBudgetEvent("project_context", 2, 2000, 2000, true))
+	if m.sidebar.promptUsed != 120 || m.sidebar.budgetUsed != 180 || m.sidebar.contextBudget != 4096 {
+		t.Fatalf("sidebar occupancy after byte diagnostic = %d/%d/%d, want 120/180/4096", m.sidebar.promptUsed, m.sidebar.budgetUsed, m.sidebar.contextBudget)
+	}
+	if m.status.promptUsed != 120 || m.status.contextBudget != 4096 {
+		t.Fatalf("status occupancy after byte diagnostic = %d/%d, want 120/4096", m.status.promptUsed, m.status.contextBudget)
+	}
+	if m.sidebar.currentTurn != 2 {
+		t.Fatalf("sidebar.currentTurn = %d, want 2 after byte diagnostic", m.sidebar.currentTurn)
+	}
+}
+
 func TestApplyEventMCPStatusRefreshesSnapshotAndWarnsOnce(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{MCPEnabled: true}, nil)

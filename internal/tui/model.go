@@ -548,11 +548,21 @@ func waitForModelEntries(ch <-chan []ModelEntry) tea.Cmd {
 }
 
 func (m *Model) applyContextBudget(payload output.ContextBudgetEvent) {
+	if m == nil {
+		return
+	}
+	if payload.PromptTokens == 0 && payload.ContextWindow <= 0 && payload.ContextTokens <= 0 {
+		if payload.Turn > 0 {
+			m.sidebar.currentTurn = payload.Turn
+		}
+		return
+	}
+
 	contextWindow := payload.ContextWindow
 	if contextWindow <= 0 {
 		contextWindow = payload.ContextTokens
 	}
-	if m == nil || contextWindow <= 0 {
+	if contextWindow <= 0 {
 		return
 	}
 	promptUsed := payload.PromptTokens
@@ -569,6 +579,8 @@ func (m *Model) applyContextBudget(payload output.ContextBudgetEvent) {
 	m.sidebar.promptUsed = promptUsed
 	m.sidebar.budgetUsed = budgetUsed
 	m.sidebar.contextBudget = contextWindow
+	m.status.promptUsed = promptUsed
+	m.status.contextBudget = contextWindow
 	if payload.Turn > 0 {
 		m.sidebar.currentTurn = payload.Turn
 	}
