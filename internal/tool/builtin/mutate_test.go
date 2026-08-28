@@ -337,22 +337,22 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 		},
 		{
 			name:      "unsupported type: line_replace (removed)",
-			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt", "line": float64(1), "new_string": "x"}}},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "line_replace", "path": "note.txt"}}},
 			wantError: "unsupported type",
 		},
 		{
 			name:      "unsupported type: delete_line (removed)",
-			input:     map[string]any{"operations": []any{map[string]any{"type": "delete_line", "path": "note.txt", "line": float64(1)}}},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "delete_line", "path": "note.txt"}}},
 			wantError: "unsupported type",
 		},
 		{
 			name:      "unsupported type: insert_before (removed)",
-			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_before", "path": "note.txt", "anchor": "x", "content": "y"}}},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_before", "path": "note.txt"}}},
 			wantError: "unsupported type",
 		},
 		{
 			name:      "unsupported type: insert_after (removed)",
-			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_after", "path": "note.txt", "anchor": "x", "content": "y"}}},
+			input:     map[string]any{"operations": []any{map[string]any{"type": "insert_after", "path": "note.txt"}}},
 			wantError: "unsupported type",
 		},
 		{
@@ -681,7 +681,7 @@ func TestMutateWhitespaceMismatchDiagnostic(t *testing.T) {
 	if !strings.Contains(got.Output, "normalized whitespace match exists") {
 		t.Fatalf("Output missing whitespace diagnostic:\n%s", got.Output)
 	}
-	if !strings.Contains(got.Output, "reread") {
+	if !strings.Contains(got.Output, "retry with old_string set to the file text shown above") {
 		t.Fatalf("Output missing suggestion:\n%s", got.Output)
 	}
 }

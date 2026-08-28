@@ -12,11 +12,9 @@ func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath str
 	lines = append(lines, fmt.Sprintf("%s: no match for old_string in %s", prefix, absPath))
 
 	hasWhitespaceMismatch := normalizedWhitespaceMatchExists(content, oldText)
-	var matchLineNum int
 	if hasWhitespaceMismatch {
 		lines = append(lines, fmt.Sprintf("%s: exact match failed; normalized whitespace match exists", prefix))
-		if matchedText, mln, ok := extractNormalizedMatch(content, oldText); ok {
-			matchLineNum = mln
+		if matchedText, _, ok := extractNormalizedMatch(content, oldText); ok {
 			lines = append(lines, fmt.Sprintf("%s: file text that matches after whitespace normalization:", prefix))
 			for _, l := range strings.Split(matchedText, "\n") {
 				lines = append(lines, "  | "+l)
@@ -24,9 +22,7 @@ func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath str
 		}
 	}
 
-	anchorLineNum := 0
 	if anchorStart, anchorEnd, lineNum, preview, ok := findDiagnosticAnchor(content, oldText); ok {
-		anchorLineNum = lineNum
 		lines = append(lines, fmt.Sprintf("%s: nearest anchor at line %d, bytes %d-%d (matched fragment %q)", prefix, lineNum, anchorStart+1, anchorEnd, preview))
 		lines = append(lines, fmt.Sprintf("%s: context:", prefix))
 		lines = append(lines, previewContext(content, lineNum, preview)...)

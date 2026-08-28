@@ -13,7 +13,6 @@ type mutatePreviewPayload struct {
 	Moved             []patchPreviewMove `json:"moved"`
 	OperationsApplied int                `json:"operations_applied"`
 	OperationsFailed  int                `json:"operations_failed"`
-	DryRun            bool               `json:"dry_run"`
 }
 
 // buildMutatePreviewImpl constructs a ToolPreview for the mutate tool by
@@ -34,7 +33,6 @@ func buildMutatePreviewImpl(arguments map[string]any, result string) ToolPreview
 				Path: getMapString(opMap, "path"),
 				From: getMapString(opMap, "from"),
 				To:   getMapString(opMap, "to"),
-				Line: getMapInt(opMap, "line"),
 			}
 			if content, ok := opMap["content"].(string); ok {
 				op.Content = content
@@ -75,21 +73,4 @@ func getMapString(m map[string]any, key string) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return ""
-}
-
-func getMapInt(m map[string]any, key string) int {
-	switch v := m[key].(type) {
-	case int:
-		return v
-	case int64:
-		return int(v)
-	case float64:
-		return int(v)
-	case string:
-		var i int
-		_, _ = fmt.Sscanf(v, "%d", &i)
-		return i
-	default:
-		return 0
-	}
 }

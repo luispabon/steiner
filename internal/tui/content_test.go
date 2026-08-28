@@ -3430,8 +3430,7 @@ func TestBuildMutateLinesRendersOperations(t *testing.T) {
 			MutateOperations: []output.ToolPreviewMutateOperation{
 				{Type: "create", Path: "new.go", Content: "package main\n"},
 				{Type: "replace", Path: "existing.go", OldString: "old", NewString: "new"},
-				{Type: "line_replace", Path: "line.go", Line: 5, OldString: "foo", NewString: "bar"},
-				{Type: "delete", Path: "old.go"},
+				{Type: "delete_file", Path: "old.go"},
 				{Type: "move", From: "a.go", To: "b.go"},
 			},
 		},
@@ -3441,7 +3440,7 @@ func TestBuildMutateLinesRendersOperations(t *testing.T) {
 	got := stripANSI(strings.Join(lines, "\n"))
 
 	// Summary
-	if !strings.Contains(got, "5 operations") {
+	if !strings.Contains(got, "4 operations") {
 		t.Fatalf("missing operation count summary: %q", got)
 	}
 	if !strings.Contains(got, "3 applied") {
@@ -3458,11 +3457,8 @@ func TestBuildMutateLinesRendersOperations(t *testing.T) {
 	if !strings.Contains(got, "existing.go") {
 		t.Fatalf("missing replace path: %q", got)
 	}
-	if !strings.Contains(got, "line.go") {
-		t.Fatalf("missing line_replace path: %q", got)
-	}
 	if !strings.Contains(got, "old.go") {
-		t.Fatalf("missing delete path: %q", got)
+		t.Fatalf("missing delete_file path: %q", got)
 	}
 	if !strings.Contains(got, "a.go") || !strings.Contains(got, "b.go") {
 		t.Fatalf("missing move paths: %q", got)
@@ -3481,15 +3477,7 @@ func TestBuildMutateLinesRendersOperations(t *testing.T) {
 		t.Fatalf("missing replace new line: %q", got)
 	}
 
-	// line_replace should show line number and diff
-	if !strings.Contains(got, "- foo") {
-		t.Fatalf("missing line_replace old: %q", got)
-	}
-	if !strings.Contains(got, "+ bar") {
-		t.Fatalf("missing line_replace new: %q", got)
-	}
-
-	// delete should NOT have content block (no rule lines after header)
+	// delete_file should show D badge and path
 	// move should NOT have content block
 }
 

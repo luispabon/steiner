@@ -44,7 +44,6 @@ type ToolPreviewMutateOperation struct {
 	Content   string
 	OldString string
 	NewString string
-	Line      int
 }
 
 // ToolPreviewGrepMatch is one matching line in a grep preview.

@@ -471,11 +471,7 @@ func (b *contentBuffer) renderMutateOperation(op output.ToolPreviewMutateOperati
 		return b.renderMutateWriteOp(op, rule)
 	case "replace":
 		return b.renderMutateReplaceOp(op, rule)
-	case "line_replace":
-		return b.renderMutateLineReplaceOp(op, rule)
-	case "insert_before", "insert_after":
-		return b.renderMutateInsertOp(op, rule)
-	case "delete":
+	case "delete_file":
 		return b.renderMutateDeleteOp(op)
 	case "move":
 		return b.renderMutateMoveOp(op)
@@ -513,32 +509,6 @@ func (b *contentBuffer) renderMutateReplaceOp(op output.ToolPreviewMutateOperati
 		if i < len(newLines) {
 			lines = append(lines, addedBg.Render("+ "+newLines[i]))
 		}
-	}
-	lines = append(lines, rule)
-	return lines
-}
-
-func (b *contentBuffer) renderMutateLineReplaceOp(op output.ToolPreviewMutateOperation, rule string) []string {
-	removedBg, addedBg := mutateDiffStyles()
-	badge := b.styles.Warn.Render("M")
-	header := badge + " " + b.styles.FgDim.Render(op.Path)
-	lineNo := b.styles.FgFaint.Render(fmt.Sprintf("%4d", op.Line))
-	return []string{
-		header,
-		rule,
-		lineNo + "  " + removedBg.Render("- "+op.OldString),
-		lineNo + "  " + addedBg.Render("+ "+op.NewString),
-		rule,
-	}
-}
-
-func (b *contentBuffer) renderMutateInsertOp(op output.ToolPreviewMutateOperation, rule string) []string {
-	_, addedBg := mutateDiffStyles()
-	badge := b.styles.Added.Render("I")
-	header := badge + " " + b.styles.FgDim.Render(fmt.Sprintf("%s:%d", op.Path, op.Line))
-	lines := []string{header, rule}
-	for _, insertLine := range strings.Split(op.NewString, "\n") {
-		lines = append(lines, addedBg.Render("+ "+insertLine))
 	}
 	lines = append(lines, rule)
 	return lines
