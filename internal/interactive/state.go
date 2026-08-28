@@ -177,11 +177,13 @@ func (s *SnapshotStore) Store(snapshot RequestContextSnapshot) {
 			cloned := *snapshot.MaxTokens
 			return &cloned
 		}(),
-		Blocks:      append([]prompt.ContextBlock(nil), snapshot.Blocks...),
-		ModelBudget: snapshot.ModelBudget,
-		AgentID:     snapshot.AgentID,
-		AgentType:   snapshot.AgentType,
-		Kind:        snapshot.Kind,
+		Blocks:                append([]prompt.ContextBlock(nil), snapshot.Blocks...),
+		ModelBudget:           snapshot.ModelBudget,
+		AgentID:               snapshot.AgentID,
+		AgentType:             snapshot.AgentType,
+		Kind:                  snapshot.Kind,
+		EstimatedPromptTokens: snapshot.EstimatedPromptTokens,
+		RawPromptTokens:       snapshot.RawPromptTokens,
 	}
 	s.snapshot = &cloned
 }
@@ -208,11 +210,13 @@ func (s *SnapshotStore) Snapshot() (RequestContextSnapshot, bool) {
 			cloned := *s.snapshot.MaxTokens
 			return &cloned
 		}(),
-		Blocks:      append([]prompt.ContextBlock(nil), s.snapshot.Blocks...),
-		ModelBudget: s.snapshot.ModelBudget,
-		AgentID:     s.snapshot.AgentID,
-		AgentType:   s.snapshot.AgentType,
-		Kind:        s.snapshot.Kind,
+		Blocks:                append([]prompt.ContextBlock(nil), s.snapshot.Blocks...),
+		ModelBudget:           s.snapshot.ModelBudget,
+		AgentID:               s.snapshot.AgentID,
+		AgentType:             s.snapshot.AgentType,
+		RawPromptTokens:       s.snapshot.RawPromptTokens,
+		Kind:                  s.snapshot.Kind,
+		EstimatedPromptTokens: s.snapshot.EstimatedPromptTokens,
 	}
 	return cloned, true
 }

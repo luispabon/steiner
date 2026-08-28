@@ -349,6 +349,12 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 			if payload.CacheReadTokens != 30 || payload.InputTokens != 50 || payload.CacheCreateTokens != 20 {
 				t.Fatalf("compaction usage = cache_read=%d input=%d cache_create=%d, want 30, 50, 20", payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens)
 			}
+			if payload.PromptTokens <= 0 || payload.RawPromptTokens <= 0 {
+				t.Fatalf("compaction occupancy = calibrated=%d raw=%d, want both positive", payload.PromptTokens, payload.RawPromptTokens)
+			}
+			if payload.PromptTokens != payload.AfterPromptTokens || payload.RawPromptTokens != payload.AfterRawPromptTokens {
+				t.Fatalf("compaction after occupancy = calibrated=%d/%d raw=%d/%d, want event snapshot to match after fit", payload.PromptTokens, payload.AfterPromptTokens, payload.RawPromptTokens, payload.AfterRawPromptTokens)
+			}
 		case "session_health":
 			payload, ok := output.AsContextSessionHealthEvent(event.Payload)
 			if !ok {

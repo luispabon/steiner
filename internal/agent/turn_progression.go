@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -304,6 +305,16 @@ func (p *turnProgressor) applyToolResult(ctx context.Context, state RunState, tu
 	return p.appendToolOutcome(ctx, state, turn, call, result, err, true), turnOutcome{}
 }
 
+func calibratedToolDelta(delta, previousRaw, calibrated int) int {
+	if previousRaw > 0 && calibrated > 0 {
+		return int(math.Round(float64(delta) * float64(calibrated) / float64(previousRaw)))
+	}
+	if previousRaw == 0 && calibrated > 0 {
+		return delta
+	}
+	return 0
+}
+
 func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, turn int, call provider.ToolCall, result any, err error, emitFinished bool) RunState {
 	var toolMessage Message
 	if emitFinished {
@@ -317,8 +328,11 @@ func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, 
 		provMsg := toProviderMessage(toolMessage)
 		delta, err := provider.EstimateMessageTokens(ctx, p.request.ResolvedModel.BackendModelID, provMsg)
 		if err == nil && delta > 0 {
-			p.lastBudget.EstimatedPromptTokens += delta
-			p.lastBudget.TotalTokens += delta
+			previousRaw := p.lastBudget.RawEstimatedPromptTokens
+			p.lastBudget.RawEstimatedPromptTokens += delta
+			calibratedDelta := calibratedToolDelta(delta, previousRaw, p.lastBudget.EstimatedPromptTokens)
+			p.lastBudget.EstimatedPromptTokens += calibratedDelta
+			p.lastBudget.TotalTokens += calibratedDelta
 			p.lastBudget.PromptUsage = float64(p.lastBudget.EstimatedPromptTokens) / float64(p.lastBudget.ContextSize)
 			emitRequestTokenDiagnostic(p.request.Events, turn, *p.lastBudget, false)
 		}

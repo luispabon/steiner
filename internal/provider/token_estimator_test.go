@@ -138,6 +138,9 @@ func TestEncodingNameForModelMapsCorrectly(t *testing.T) {
 		model string
 		want  tokenizer.Encoding
 	}{
+		{model: "gpt-5", want: tokenizer.O200kBase},
+		{model: "gpt-5.6-luna", want: tokenizer.O200kBase},
+		{model: "gpt-5-2025-08-07", want: tokenizer.O200kBase},
 		{model: "gpt-4.5-preview", want: tokenizer.O200kBase},
 		{model: "gpt-4.1-nano", want: tokenizer.O200kBase},
 		{model: "gpt-4o", want: tokenizer.O200kBase},
@@ -164,7 +167,49 @@ func TestEncodingNameForModelMapsCorrectly(t *testing.T) {
 			if got := encodingNameForModel(tt.model); got != tt.want {
 				t.Fatalf("encodingNameForModel(%q) = %v, want %v", tt.model, got, tt.want)
 			}
+
 		})
+	}
+}
+
+func TestEstimateMessageTokensGPT5AliasUsesO200kBase(t *testing.T) {
+	ctx := context.Background()
+	message := Message{
+		Role:    MessageRoleUser,
+		Content: "お誕生日おめでとう",
+	}
+
+	o200k, err := tokenizer.Get(tokenizer.O200kBase)
+	if err != nil {
+		t.Fatalf("tokenizer.Get(o200k_base) error = %v", err)
+	}
+	cl100k, err := tokenizer.Get(tokenizer.Cl100kBase)
+	if err != nil {
+		t.Fatalf("tokenizer.Get(cl100k_base) error = %v", err)
+	}
+	o200kRole, err := o200k.Count(string(message.Role))
+	if err != nil {
+		t.Fatalf("o200k.Count(role) error = %v", err)
+	}
+	o200kContent, err := o200k.Count(message.Content)
+	if err != nil {
+		t.Fatalf("o200k.Count(content) error = %v", err)
+	}
+	cl100kContent, err := cl100k.Count(message.Content)
+	if err != nil {
+		t.Fatalf("cl100k.Count(content) error = %v", err)
+	}
+	if o200kContent == cl100kContent {
+		t.Fatalf("test content has equal token counts: o200k=%d, cl100k=%d", o200kContent, cl100kContent)
+	}
+
+	got, err := EstimateMessageTokens(ctx, "gpt-5.6-luna", message)
+	if err != nil {
+		t.Fatalf("EstimateMessageTokens() error = %v", err)
+	}
+	want := messageOverheadTokens + o200kRole + o200kContent
+	if got != want {
+		t.Fatalf("EstimateMessageTokens() = %d, want O200k estimate %d (Cl100k content estimate is %d)", got, want, messageOverheadTokens+o200kRole+cl100kContent)
 	}
 }
 

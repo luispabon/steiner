@@ -229,6 +229,54 @@ func reconstructBlockMessageIndex(blocks []prompt.ContextBlock, totalMessages in
 	return result, nil
 }
 
+// allocateCategoryTokens adjusts the existing category breakdown to the
+// captured request estimate while preserving its relative allocation.
+func allocateCategoryTokens(categories []contextReportCategory, promptTokens int, captured bool) {
+	if !captured {
+		return
+	}
+	currentTotal := 0
+	for _, category := range categories {
+		currentTotal += category.Total
+	}
+	if currentTotal <= 0 {
+		return
+	}
+
+	targets := make([]int, len(categories))
+	remaining := promptTokens
+	for i, category := range categories {
+		targets[i] = category.Total * promptTokens / currentTotal
+		if i == len(categories)-1 {
+			targets[i] = remaining
+		}
+		remaining -= targets[i]
+	}
+
+	for i := range categories {
+		category := &categories[i]
+		originalTotal := category.Total
+		targetTotal := targets[i]
+		if originalTotal <= 0 {
+			category.Total = targetTotal
+			continue
+		}
+		itemTargets := make([]int, len(category.Items))
+		itemRemaining := targetTotal
+		for j, item := range category.Items {
+			itemTargets[j] = item.Tokens * targetTotal / originalTotal
+			if j == len(category.Items)-1 {
+				itemTargets[j] = itemRemaining
+			}
+			itemRemaining -= itemTargets[j]
+		}
+		for j := range category.Items {
+			category.Items[j].Tokens = itemTargets[j]
+		}
+		category.Total = targetTotal
+	}
+}
+
 func classifyBlock(block prompt.ContextBlock) (string, string) {
 	switch block.Source {
 	case prompt.ContextSourcePreamble:

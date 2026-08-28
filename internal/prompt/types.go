@@ -87,6 +87,7 @@ type ModelTokenBudget struct {
 
 // RequestTokenBudget is the result of fitting a request into a model budget.
 type RequestTokenBudget struct {
+	RawEstimatedPromptTokens int
 	EstimatedPromptTokens    int
 	PromptUsage              float64
 	CompactionThreshold      float64

@@ -10,6 +10,7 @@ func TestContextCompactionEventBudgetSnapshot(t *testing.T) {
 		Scope:               "run",
 		Turn:                7,
 		PromptTokens:        100,
+		RawPromptTokens:     140,
 		ContextTokens:       200,
 		TotalTokens:         300,
 		ContextWindow:       4000,
@@ -25,6 +26,7 @@ func TestContextCompactionEventBudgetSnapshot(t *testing.T) {
 	want := ContextBudgetEvent{
 		Turn:                7,
 		PromptTokens:        100,
+		RawPromptTokens:     140,
 		ContextTokens:       200,
 		TotalTokens:         300,
 		ContextWindow:       4000,

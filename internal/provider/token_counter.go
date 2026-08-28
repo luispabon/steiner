@@ -23,9 +23,20 @@ const (
 
 var defaultTokenCounter TokenCounter = NewTokenCounter()
 
-// TokenEstimate carries an estimated token count and the strategy used.
+// SwapDefaultTokenCounter replaces the process-wide token counter and returns a
+// restore function. It is intended for scoped test isolation across packages.
+func SwapDefaultTokenCounter(counter TokenCounter) func() {
+	previous := defaultTokenCounter
+	defaultTokenCounter = counter
+	return func() {
+		defaultTokenCounter = previous
+	}
+}
+
+// TokenEstimate carries calibrated and raw estimated token counts and the strategy used.
 type TokenEstimate struct {
 	Tokens     int
+	RawTokens  int
 	Strategy   string
 	Confidence string
 }
@@ -72,6 +83,7 @@ func (c *tokenCounter) EstimateChatRequestTokens(ctx context.Context, request Ch
 	if !ok || calibration.samples == 0 || calibration.factor <= 0 {
 		return TokenEstimate{
 			Tokens:     baseTokens,
+			RawTokens:  baseTokens,
 			Strategy:   strategy,
 			Confidence: confidence,
 		}, nil
@@ -82,6 +94,7 @@ func (c *tokenCounter) EstimateChatRequestTokens(ctx context.Context, request Ch
 		adjusted = 1
 	}
 	return TokenEstimate{
+		RawTokens:  baseTokens,
 		Tokens:     adjusted,
 		Strategy:   TokenizerStrategyProviderUsage,
 		Confidence: providerUsageConfidence(calibration.samples),

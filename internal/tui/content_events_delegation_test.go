@@ -164,6 +164,29 @@ func TestScopedDelegationEvents(t *testing.T) {
 	}
 }
 
+func TestDelegationContextUsesRawPromptTokensForFill(t *testing.T) {
+	b := newTestBuffer(t)
+	b.AppendEvent(output.NewDelegationStartedEvent("child-raw", "inspect docs"))
+
+	b.AppendEvent(output.WithAgentScope(output.NewContextTokenBudgetEvent(
+		"conversation", 1, 100, 250, 1000, 10, 80, 0, 100, "ok", false,
+	), "child-raw"))
+
+	loc, ok := b.activeDelegations["child-raw"]
+	if !ok || loc.dd == nil {
+		t.Fatal("active delegation child-raw not found")
+	}
+	if loc.dd.promptTokens != 250 {
+		t.Fatalf("promptTokens = %d, want 250", loc.dd.promptTokens)
+	}
+	if got := stripANSI(b.renderDelegationHeaderMeta(loc.dd)); !strings.Contains(got, "ctx: 25%") {
+		t.Fatalf("delegation meta = %q, want raw occupancy", got)
+	}
+	if strings.Contains(stripANSI(b.renderDelegationHeaderMeta(loc.dd)), "ctx: 10%") {
+		t.Fatalf("delegation meta = %q, used calibrated occupancy", stripANSI(b.renderDelegationHeaderMeta(loc.dd)))
+	}
+}
+
 func TestScopedDelegationCompactionStaysInsideDelegationSegment(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{

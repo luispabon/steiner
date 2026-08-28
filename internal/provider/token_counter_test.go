@@ -118,6 +118,12 @@ func TestTokenCounterCalibrationImprovesEstimate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EstimateChatRequestTokens() after calibration error = %v", err)
 	}
+	if calibrated.RawTokens != base.RawTokens {
+		t.Fatalf("calibrated raw tokens = %d, want unchanged base raw tokens %d", calibrated.RawTokens, base.RawTokens)
+	}
+	if calibrated.Tokens == calibrated.RawTokens {
+		t.Fatalf("calibrated tokens = %d, want calibration to change the calibrated count", calibrated.Tokens)
+	}
 	if calibrated.Strategy != TokenizerStrategyProviderUsage {
 		t.Fatalf("Strategy = %q, want %q", calibrated.Strategy, TokenizerStrategyProviderUsage)
 	}
@@ -201,5 +207,46 @@ func TestTokenCounterCalibrationStaysStableWithCacheInclusiveUsage(t *testing.T)
 			t.Fatalf("factor swing = %.3f, want <= 0.05", diff)
 		}
 		previous = calibration.factor
+	}
+}
+
+func TestTokenCounterCalibrationGPT5O200kEstimateStaysUnchanged(t *testing.T) {
+	counter := NewTokenCounter()
+	restore := SwapDefaultTokenCounter(counter)
+	defer restore()
+
+	ctx := context.Background()
+	request := ChatRequest{
+		Model: "gpt-5.6-luna",
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: strings.Repeat("お誕生日おめでとう ", 64)},
+		},
+	}
+
+	o200k, err := tokenizer.Get(tokenizer.O200kBase)
+	if err != nil {
+		t.Fatalf("tokenizer.Get(o200k_base) error = %v", err)
+	}
+	estimator := semanticTokenEstimator{ctx: ctx, enc: o200k}
+	expected, err := estimator.countRequest(request)
+	if err != nil {
+		t.Fatalf("countRequest() error = %v", err)
+	}
+
+	base, err := EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if base != expected {
+		t.Fatalf("GPT-5 estimate = %d, want O200k estimate %d", base, expected)
+	}
+
+	observePromptTokenUsage(ctx, request, &UsageStats{PromptTokens: expected})
+	got, err := EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() after calibration error = %v", err)
+	}
+	if got != expected {
+		t.Fatalf("calibrated estimate = %d, want unchanged O200k estimate %d", got, expected)
 	}
 }

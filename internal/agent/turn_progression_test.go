@@ -2420,6 +2420,24 @@ func TestPrepareTurn_SetsLastBudget(t *testing.T) {
 	}
 }
 
+func TestCalibratedToolDeltaRoundsAndFallsBackForZeroRaw(t *testing.T) {
+	tests := []struct {
+		name                           string
+		delta, previousRaw, calibrated int
+		want                           int
+	}{
+		{name: "ratio rounds", delta: 5, previousRaw: 9, calibrated: 5, want: 3},
+		{name: "zero raw uses raw delta", delta: 7, previousRaw: 0, calibrated: 5, want: 7},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := calibratedToolDelta(tc.delta, tc.previousRaw, tc.calibrated); got != tc.want {
+				t.Fatalf("calibratedToolDelta(%d, %d, %d) = %d, want %d", tc.delta, tc.previousRaw, tc.calibrated, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestExecuteSingleToolCall_EmitsUpdatedBudgetEvent(t *testing.T) {
 	var events []output.Event
 	sink := output.SinkFunc(func(e output.Event) {
@@ -2479,6 +2497,11 @@ func TestExecuteSingleToolCall_EmitsUpdatedBudgetEvent(t *testing.T) {
 	// Clear events so we only capture executeSingleToolCall events.
 	events = nil
 
+	basePromptTokens := 1000
+	baseRawPromptTokens := 2000
+	p.lastBudget.RawEstimatedPromptTokens = baseRawPromptTokens
+	p.lastBudget.EstimatedPromptTokens = basePromptTokens
+	p.lastBudget.PromptUsage = float64(p.lastBudget.EstimatedPromptTokens) / float64(p.lastBudget.ContextSize)
 	call := provider.ToolCall{ID: "call-1", Name: "bash", Arguments: map[string]any{"cmd": "echo hi"}}
 	_, outcome := p.executeSingleToolCall(context.Background(), state, 1, call)
 	if outcome.Stop {
@@ -2494,8 +2517,14 @@ func TestExecuteSingleToolCall_EmitsUpdatedBudgetEvent(t *testing.T) {
 	if toolBudget == nil {
 		t.Fatal("no ContextBudgetEvent emitted after executeSingleToolCall")
 	}
-	if toolBudget.PromptTokens <= initialBudget.PromptTokens {
-		t.Fatalf("tool budget PromptTokens = %d, want > initial %d", toolBudget.PromptTokens, initialBudget.PromptTokens)
+	if toolBudget.PromptTokens <= basePromptTokens {
+		t.Fatalf("tool budget PromptTokens = %d, want > base %d", toolBudget.PromptTokens, basePromptTokens)
+	}
+	if toolBudget.RawPromptTokens <= baseRawPromptTokens {
+		t.Fatalf("tool budget RawPromptTokens = %d, want > base %d", toolBudget.RawPromptTokens, baseRawPromptTokens)
+	}
+	if toolBudget.PromptTokens-basePromptTokens >= toolBudget.RawPromptTokens-baseRawPromptTokens {
+		t.Fatalf("tool budget calibrated delta = %d, want less than raw delta = %d", toolBudget.PromptTokens-basePromptTokens, toolBudget.RawPromptTokens-baseRawPromptTokens)
 	}
 	if toolBudget.ContextUsagePercent <= initialBudget.ContextUsagePercent {
 		t.Fatalf("tool budget ContextUsagePercent = %f, want > initial %f", toolBudget.ContextUsagePercent, initialBudget.ContextUsagePercent)

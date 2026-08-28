@@ -56,11 +56,12 @@ func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, trunc
 }
 
 // NewContextTokenBudgetEvent creates a new context token budget event.
-func NewContextTokenBudgetEvent(scope string, turn, promptTokens, contextWindow int, contextUsagePercent, compactionThreshold float64, estimatorPadTokens, totalTokens int, status string, truncated bool, notes ...string) Event {
+func NewContextTokenBudgetEvent(scope string, turn, promptTokens, rawPromptTokens, contextWindow int, contextUsagePercent, compactionThreshold float64, estimatorPadTokens, totalTokens int, status string, truncated bool, notes ...string) Event {
 	return contextDiagnosticEvent(ContextBudgetEvent{
 		Scope:               scope,
 		Turn:                turn,
 		PromptTokens:        promptTokens,
+		RawPromptTokens:     rawPromptTokens,
 		ContextWindow:       contextWindow,
 		ContextUsagePercent: contextUsagePercent,
 		CompactionThreshold: compactionThreshold,

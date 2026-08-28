@@ -3227,7 +3227,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewModelCallStartedEvent(1, "qwen3-coder-30b", 12), "agent-1"))
 	buffer.AppendEvent(output.WithAgentScope(
-		output.NewContextTokenBudgetEvent("", 1, 2400, 200000, 1.2, 90.0, 0, 0, "", false),
+		output.NewContextTokenBudgetEvent("", 1, 2400, 2400, 200000, 1.2, 90.0, 0, 0, "", false),
 		"agent-1",
 	))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "working on it"), "agent-1"))
@@ -3301,17 +3301,17 @@ func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "plan", "call_1", map[string]any{"task": "plan work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "plan work"))
 	buffer.AppendEvent(output.WithAgentScope(
-		output.NewAPIRequestEvent("deepseek-v4-flash", nil, nil, nil, nil, prompt.ModelTokenBudget{}),
+		output.NewAPIRequestEvent("deepseek-v4-flash", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0),
 		"agent-1",
 	))
 	buffer.AppendEvent(output.WithAgentScope(
-		output.NewContextTokenBudgetEvent("", 1, 80000, 200000, 42.5, 90.0, 0, 0, "", false),
+		output.NewContextTokenBudgetEvent("", 1, 80000, 80000, 200000, 42.5, 90.0, 0, 0, "", false),
 		"agent-1",
 	))
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(120))
-	for _, want := range []string{"model deepseek-v4-flash", "Duration:", "Status: active", "Ctx: 43% (80k / 200k)"} {
+	for _, want := range []string{"model deepseek-v4-flash", "Duration:", "Status: active", "Ctx: 40% (80k / 200k)"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("expanded active delegation render missing %q:\n%s", want, rendered)
 		}
@@ -3384,7 +3384,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 
 		buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
 		buffer.AppendEvent(output.WithAgentScope(
-			output.NewContextTokenBudgetEvent("", 1, 2400, 200000, 1.2, 90.0, 0, 0, "", false),
+			output.NewContextTokenBudgetEvent("", 1, 2400, 2400, 200000, 1.2, 90.0, 0, 0, "", false),
 			"agent-1",
 		))
 		buffer.AppendEvent(output.NewDelegationExtensionEvent("agent-1", 1, 5))

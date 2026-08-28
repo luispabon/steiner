@@ -52,15 +52,17 @@ func (m ModelTokenBudget) FitRequest(ctx context.Context, request provider.ChatR
 	}
 	m = m.Normalized()
 
-	estimatedPromptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	estimate, err := provider.EstimateChatRequestTokenEstimate(ctx, request)
 	if err != nil {
 		return RequestTokenBudget{}, err
 	}
 
+	estimatedPromptTokens := estimate.Tokens
 	completionReserve := m.completionReserveForRequest(request)
 	total := estimatedPromptTokens + completionReserve + m.SafetyMarginTokens
 	hardLimit := hardPromptLimit(m.ContextSize, m.SafetyMarginTokens)
 	return RequestTokenBudget{
+		RawEstimatedPromptTokens: estimate.RawTokens,
 		EstimatedPromptTokens:    estimatedPromptTokens,
 		PromptUsage:              promptUsage(estimatedPromptTokens, m.ContextSize),
 		CompactionThreshold:      normalPromptCompactionThreshold,
@@ -88,15 +90,17 @@ func (m ModelTokenBudget) fit(ctx context.Context, request provider.ChatRequest,
 		completionReserve = 0
 	}
 
-	estimatedPromptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	estimate, err := provider.EstimateChatRequestTokenEstimate(ctx, request)
 	if err != nil {
 		return RequestTokenBudget{}, err
 	}
 
+	estimatedPromptTokens := estimate.Tokens
 	total := estimatedPromptTokens + completionReserve + m.SafetyMarginTokens
 	fit := m.ContextSize <= 0 || total <= m.ContextSize
 	return RequestTokenBudget{
 		EstimatedPromptTokens:    estimatedPromptTokens,
+		RawEstimatedPromptTokens: estimate.RawTokens,
 		PromptUsage:              promptUsage(estimatedPromptTokens, m.ContextSize),
 		CompactionThreshold:      normalPromptCompactionThreshold,
 		HardLimitTokens:          hardPromptLimit(m.ContextSize, m.SafetyMarginTokens),

@@ -293,13 +293,15 @@ type UserInputEvent struct {
 
 // APIRequestEvent captures the provider request payload sent for a turn.
 type APIRequestEvent struct {
-	Model       string                  `json:"model,omitempty"`
-	Messages    []provider.Message      `json:"messages,omitempty"`
-	Tools       []provider.ToolSpec     `json:"tools,omitempty"`
-	MaxTokens   *int                    `json:"max_tokens,omitempty"`
-	Blocks      []prompt.ContextBlock   `json:"blocks,omitempty"`
-	ModelBudget prompt.ModelTokenBudget `json:"model_budget,omitempty"`
-	Kind        string                  `json:"kind,omitempty"`
+	Model                 string                  `json:"model,omitempty"`
+	Messages              []provider.Message      `json:"messages,omitempty"`
+	Tools                 []provider.ToolSpec     `json:"tools,omitempty"`
+	MaxTokens             *int                    `json:"max_tokens,omitempty"`
+	Blocks                []prompt.ContextBlock   `json:"blocks,omitempty"`
+	ModelBudget           prompt.ModelTokenBudget `json:"model_budget,omitempty"`
+	EstimatedPromptTokens int                     `json:"estimated_prompt_tokens,omitempty"`
+	RawPromptTokens       int                     `json:"raw_prompt_tokens,omitempty"`
+	Kind                  string                  `json:"kind,omitempty"`
 }
 
 // APIResponseEvent captures the provider response payload for a turn.

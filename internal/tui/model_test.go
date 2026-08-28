@@ -233,7 +233,7 @@ func TestModelAppliesRuntimeEvents(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "hello", output.ChunkSourceAssistant)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, " world", output.ChunkSourceAssistant)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 164, "ok", false)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 100, 4096, 2, 70, 32, 164, "ok", false)})
 
 	if got := stripANSI(m.content.String(m.viewport.Width())); !strings.Contains(got, "hello world") {
 		t.Fatalf("content = %q, want assistant stream", got)
@@ -325,7 +325,7 @@ func TestModelIgnoresScopedContextDiagnosticsForSidebarAndStatus(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	// Main agent context diagnostics set the baseline.
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 164, "ok", false)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 100, 4096, 2, 70, 32, 164, "ok", false)})
 	if got := m.status.context; got != "ctx 100/4096" {
 		t.Fatalf("status.context = %q, want ctx 100/4096", got)
 	}
@@ -337,7 +337,7 @@ func TestModelIgnoresScopedContextDiagnosticsForSidebarAndStatus(t *testing.T) {
 	}
 
 	// Sub-agent scoped context diagnostics must not overwrite main agent values.
-	scoped := output.WithAgentScope(output.NewContextTokenBudgetEvent("conversation", 1, 2000, 8192, 50, 70, 32, 2100, "ok", false), "child-1")
+	scoped := output.WithAgentScope(output.NewContextTokenBudgetEvent("conversation", 1, 2000, 2000, 8192, 50, 70, 32, 2100, "ok", false), "child-1")
 	m = updateModel(t, m, runtimeEventMsg{Event: scoped})
 	if got := m.status.context; got != "ctx 100/4096" {
 		t.Fatalf("status.context = %q, want ctx 100/4096 after scoped event", got)
@@ -350,7 +350,7 @@ func TestModelIgnoresScopedContextDiagnosticsForSidebarAndStatus(t *testing.T) {
 	}
 
 	// Main agent resumes and updates context fill normally.
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 2, 150, 4096, 5, 70, 32, 180, "ok", false)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 2, 150, 150, 4096, 5, 70, 32, 180, "ok", false)})
 	if got := m.status.context; got != "ctx 150/4096" {
 		t.Fatalf("status.context = %q, want ctx 150/4096 after resume", got)
 	}
@@ -1203,7 +1203,7 @@ func TestModelActivityRowShowsSpinnerAfterApiRequestBeforeFirstChunk(t *testing.
 	m := newModel(Config{Model: "gpt-test"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)})
 
 	row := m.renderActivityRow(m.viewport.Width())
 	for _, want := range []string{"waiting", "⠋"} {
@@ -1221,7 +1221,7 @@ func TestModelStatusBarKeepsPrimaryModelDuringOtherRuntimeCalls(t *testing.T) {
 	m := newModel(Config{Model: "main-model"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "main-model", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("other-runtime-model", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("other-runtime-model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)})
 
 	statusLine := stripANSI(m.status.view(m.viewport.Width()))
 	if !strings.Contains(statusLine, "model main-model") {
@@ -1311,7 +1311,7 @@ func TestModelInterruptClearsActivityImmediately(t *testing.T) {
 	m := newModel(Config{Controller: ctrl}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("gpt-test", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)})
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
@@ -2226,7 +2226,7 @@ func TestContextDiagnosticsHiddenByDefault(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 4096, 2, 70, 32, 200, "ok", false)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 100, 4096, 2, 70, 32, 200, "ok", false)})
 	m.syncViewport()
 
 	got := m.visibleViewportContent()
