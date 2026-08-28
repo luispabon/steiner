@@ -157,18 +157,20 @@ func (b *contentBuffer) applyDelegationContextDiagnostics(dd *delegationDisplayS
 	if !ok {
 		return false
 	}
-	if payload.ContextUsagePercent > 0 {
-		dd.contextFillPct = payload.ContextUsagePercent
+	displayPromptTokens := payload.RawPromptTokens
+	if displayPromptTokens <= 0 {
+		displayPromptTokens = payload.PromptTokens
 	}
-	if payload.RawPromptTokens > 0 {
-		dd.promptTokens = payload.RawPromptTokens
-	} else if payload.PromptTokens > 0 {
-		dd.promptTokens = payload.PromptTokens
+	if displayPromptTokens > 0 {
+		dd.promptTokens = displayPromptTokens
 	}
 	if payload.ContextWindow > 0 {
 		dd.contextWindow = payload.ContextWindow
 	} else if payload.ContextTokens > 0 {
 		dd.contextWindow = payload.ContextTokens
+	}
+	if displayPromptTokens > 0 && dd.contextWindow > 0 {
+		dd.contextFillPct = float64(displayPromptTokens) / float64(dd.contextWindow) * 100
 	}
 	return true
 }

@@ -2420,6 +2420,24 @@ func TestPrepareTurn_SetsLastBudget(t *testing.T) {
 	}
 }
 
+func TestCalibratedToolDeltaRoundsAndFallsBackForZeroRaw(t *testing.T) {
+	tests := []struct {
+		name                           string
+		delta, previousRaw, calibrated int
+		want                           int
+	}{
+		{name: "ratio rounds", delta: 5, previousRaw: 6, calibrated: 5, want: 4},
+		{name: "zero raw uses raw delta", delta: 7, previousRaw: 0, calibrated: 5, want: 7},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := calibratedToolDelta(tc.delta, tc.previousRaw, tc.calibrated); got != tc.want {
+				t.Fatalf("calibratedToolDelta(%d, %d, %d) = %d, want %d", tc.delta, tc.previousRaw, tc.calibrated, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestExecuteSingleToolCall_EmitsUpdatedBudgetEvent(t *testing.T) {
 	var events []output.Event
 	sink := output.SinkFunc(func(e output.Event) {

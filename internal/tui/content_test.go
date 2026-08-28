@@ -3311,7 +3311,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
 	buffer.ToggleLastDelegationOutput()
 
 	rendered := stripANSI(buffer.String(120))
-	for _, want := range []string{"model deepseek-v4-flash", "Duration:", "Status: active", "Ctx: 43% (80k / 200k)"} {
+	for _, want := range []string{"model deepseek-v4-flash", "Duration:", "Status: active", "Ctx: 40% (80k / 200k)"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("expanded active delegation render missing %q:\n%s", want, rendered)
 		}

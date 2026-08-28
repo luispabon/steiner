@@ -163,18 +163,19 @@ func TestApplyEventContextCompactionFinishedRefreshesBudget(t *testing.T) {
 	event := output.Event{
 		Type: output.EventTypeContextDiagnostics,
 		Payload: output.ContextCompactionEvent{
-			Severity:      "done",
-			PromptTokens:  1200,
-			ContextTokens: 10000,
-			TotalTokens:   1200,
-			ContextWindow: 10000,
-			Status:        "ok",
+			Severity:        "done",
+			PromptTokens:    1200,
+			RawPromptTokens: 1800,
+			ContextTokens:   10000,
+			TotalTokens:     1200,
+			ContextWindow:   10000,
+			Status:          "ok",
 		},
 	}
 	_ = m.applyEvent(event)
 
-	if m.sidebar.promptUsed != 1200 {
-		t.Errorf("sidebar.promptUsed = %d, want 1200", m.sidebar.promptUsed)
+	if m.sidebar.promptUsed != 1800 {
+		t.Errorf("sidebar.promptUsed = %d, want 1800", m.sidebar.promptUsed)
 	}
 	if m.sidebar.budgetUsed != 1200 {
 		t.Errorf("sidebar.budgetUsed = %d, want 1200", m.sidebar.budgetUsed)
