@@ -362,10 +362,10 @@ func TestProfileSlashCommandDispatchesSwitch(t *testing.T) {
 	}
 }
 
-func TestProfileSlashCommandWithoutNameShowsUsage(t *testing.T) {
+func TestProfileSlashCommandWithoutNameOpensPicker(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}
-	m := newModel(Config{Controller: ctrl}, nil)
+	m := newModel(Config{Controller: ctrl, ProfileNames: []string{"default", "fast"}}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	m.input.SetValue("/profile")
@@ -376,11 +376,11 @@ func TestProfileSlashCommandWithoutNameShowsUsage(t *testing.T) {
 			t.Fatal("SwitchProfile dispatched without a profile name")
 		}
 	}
-	if m.input.Value() != "" {
-		t.Fatalf("input value = %q, want empty", m.input.Value())
+	if !m.profilePicker.IsOpen() {
+		t.Fatal("expected profile picker to be open")
 	}
-	if got := m.content.segments[len(m.content.segments)-1].text; got != "usage: /profile <name> (changes future role assignments without changing active orchestrator)" {
-		t.Fatalf("usage status = %q, want profile usage", got)
+	if m.input.Value() != "/profile " {
+		t.Fatalf("input value = %q, want %q", m.input.Value(), "/profile ")
 	}
 }
 
