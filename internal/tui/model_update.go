@@ -49,9 +49,25 @@ func syncDebounceCmd(seq int) tea.Cmd {
 }
 
 // Update implements tea.Model.
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.updateDispatch(msg)
+	var cmds []tea.Cmd
+	if cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if blinkCmd := model.(*Model).ensureComposerBlinking(); blinkCmd != nil {
+		cmds = append(cmds, blinkCmd)
+	}
+	if len(cmds) == 0 {
+		return model, nil
+	}
+	return model, tea.Batch(cmds...)
+}
+
+// updateDispatch is the message dispatch logic for Update.
 //
 //nolint:gocyclo // message dispatch intentionally stays explicit
-func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case toggleThinkingMsg:
 		return m.handleToggleThinkingMsg(msg)
@@ -61,6 +77,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTickMsg(msg)
 	case sessionTickMsg:
 		return m.handleSessionTickMsg(msg)
+	case composerBlinkMsg:
+		return m.handleComposerBlinkMsg(msg)
 	case tea.WindowSizeMsg:
 		return m.handleWindowSizeMsg(msg)
 	case worktreeCountMsg:
@@ -240,6 +258,15 @@ func (m *Model) handleSessionTickMsg(_ sessionTickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, sessionTickCmd()
+}
+
+func (m *Model) handleComposerBlinkMsg(_ composerBlinkMsg) (tea.Model, tea.Cmd) {
+	if !m.input.Focused() {
+		m.composerBlinking = false
+		return m, nil
+	}
+	m.composerBlinkOn = !m.composerBlinkOn
+	return m, composerBlinkCmd()
 }
 
 func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
