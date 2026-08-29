@@ -83,14 +83,16 @@ type ChildSession struct {
 
 // SessionStore provides concurrent-safe access to child sessions by agent ID.
 type SessionStore struct {
-	mu       sync.Mutex
-	sessions map[string]*ChildSession
+	mu         sync.Mutex
+	sessions   map[string]*ChildSession
+	tombstones map[string]struct{}
 }
 
 // NewSessionStore returns an initialized SessionStore.
 func NewSessionStore() *SessionStore {
 	return &SessionStore{
-		sessions: make(map[string]*ChildSession),
+		sessions:   make(map[string]*ChildSession),
+		tombstones: make(map[string]struct{}),
 	}
 }
 
@@ -99,6 +101,9 @@ func (s *SessionStore) Save(session *ChildSession) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if _, ok := s.tombstones[session.Spec.AgentID]; ok {
+		return
+	}
 	s.sessions[session.Spec.AgentID] = session
 }
 
@@ -107,6 +112,9 @@ func (s *SessionStore) Get(id string) (*ChildSession, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if _, ok := s.tombstones[id]; ok {
+		return nil, false
+	}
 	session, ok := s.sessions[id]
 	return session, ok
 }
@@ -120,11 +128,23 @@ type SessionUpdateParams struct {
 	TokenUsage    TokenUsage
 }
 
+// Invalidate permanently prevents saving or updating a session for id until Reset.
+func (s *SessionStore) Invalidate(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.sessions, id)
+	s.tombstones[id] = struct{}{}
+}
+
 // Update replaces the conversation and accumulates session usage counters.
 func (s *SessionStore) Update(id string, params SessionUpdateParams) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if _, ok := s.tombstones[id]; ok {
+		return
+	}
 	session, ok := s.sessions[id]
 	if !ok {
 		return
@@ -145,6 +165,7 @@ func (s *SessionStore) Reset() {
 	defer s.mu.Unlock()
 
 	s.sessions = make(map[string]*ChildSession)
+	s.tombstones = make(map[string]struct{})
 }
 
 // Count returns the number of stored sessions.
