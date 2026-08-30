@@ -86,7 +86,7 @@ func TestDelegationStartedEvent(t *testing.T) {
 }
 
 func TestDelegationStartedEventWithModel(t *testing.T) {
-	event := NewDelegationStartedEventWithModel("child-1", "inspect", "call-1", "  deepseek-v4-flash  ")
+	event := NewDelegationStartedEventWithType("child-1", "inspect", "call-1", "  deepseek-v4-flash  ", "")
 	if event.Type != EventTypeDelegationStarted {
 		t.Fatalf("Type = %s, want %s", event.Type, EventTypeDelegationStarted)
 	}
