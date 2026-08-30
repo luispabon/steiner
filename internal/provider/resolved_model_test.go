@@ -199,7 +199,7 @@ func TestResolveMinimalConfig(t *testing.T) {
 	if got, want := rm.EffectiveLimits.NormalSummaryMaxTokens, 4096; got != want {
 		t.Fatalf("NormalSummaryMaxTokens = %d, want %d", got, want)
 	}
-	if got, want := rm.EffectiveLimits.EmergencySummaryMaxTokens, 2048; got != want {
+	if got, want := rm.EffectiveLimits.EmergencySummaryMaxTokens, 3072; got != want {
 		t.Fatalf("EmergencySummaryMaxTokens = %d, want %d", got, want)
 	}
 }
@@ -340,8 +340,8 @@ func TestResolveEffectiveLimits(t *testing.T) {
 				MaxOutputTokens:           0,
 				CompactionThreshold:       0.70,
 				EstimatorPadTokens:        640,
-				NormalSummaryMaxTokens:    5120,
-				EmergencySummaryMaxTokens: 2560,
+				NormalSummaryMaxTokens:    6144,
+				EmergencySummaryMaxTokens: 3072,
 			},
 		},
 		{
@@ -369,8 +369,8 @@ func TestResolveEffectiveLimits(t *testing.T) {
 				MaxOutputTokens:           5000,
 				CompactionThreshold:       0.70,
 				EstimatorPadTokens:        256,
-				NormalSummaryMaxTokens:    4096,
-				EmergencySummaryMaxTokens: 2048,
+				NormalSummaryMaxTokens:    5000,
+				EmergencySummaryMaxTokens: 3072,
 			},
 		},
 		{
@@ -382,7 +382,7 @@ func TestResolveEffectiveLimits(t *testing.T) {
 				CompactionThreshold:       0.70,
 				EstimatorPadTokens:        327,
 				NormalSummaryMaxTokens:    4096,
-				EmergencySummaryMaxTokens: 2048,
+				EmergencySummaryMaxTokens: 3072,
 			},
 		},
 		{
@@ -395,8 +395,8 @@ func TestResolveEffectiveLimits(t *testing.T) {
 				MaxOutputTokens:           0,
 				CompactionThreshold:       0.70,
 				EstimatorPadTokens:        320,
-				NormalSummaryMaxTokens:    4096,
-				EmergencySummaryMaxTokens: 2048,
+				NormalSummaryMaxTokens:    6144,
+				EmergencySummaryMaxTokens: 3072,
 			},
 		},
 		{
@@ -409,8 +409,8 @@ func TestResolveEffectiveLimits(t *testing.T) {
 				MaxOutputTokens:           0,
 				CompactionThreshold:       0.70,
 				EstimatorPadTokens:        2048,
-				NormalSummaryMaxTokens:    16000,
-				EmergencySummaryMaxTokens: 8000,
+				NormalSummaryMaxTokens:    20480,
+				EmergencySummaryMaxTokens: 10240,
 			},
 		},
 		{
