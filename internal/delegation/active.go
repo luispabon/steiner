@@ -11,9 +11,10 @@ import (
 var ErrAgentAlreadyActive = errors.New("agent is already active")
 
 type activeDelegate struct {
-	cancel    context.CancelFunc
-	agentType AgentType
-	worktree  CodeWorktree
+	cancel           context.CancelFunc
+	agentType        AgentType
+	worktree         CodeWorktree
+	discardRequested bool
 }
 
 // ActiveController tracks active delegates and provides cancellation for each one.
@@ -84,6 +85,29 @@ func (c *ActiveController) CancelAll() {
 	for _, cancel := range cancels {
 		cancel()
 	}
+}
+
+// RequestDiscard records that an active agent's worktree should be discarded after cancellation.
+func (c *ActiveController) RequestDiscard(agentID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delegate, ok := c.delegates[agentID]
+	if !ok {
+		return false
+	}
+	delegate.discardRequested = true
+	c.delegates[agentID] = delegate
+	return true
+}
+
+// DiscardRequested reports whether an active agent's worktree is requested for discard.
+func (c *ActiveController) DiscardRequested(agentID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delegate, ok := c.delegates[agentID]
+	return ok && delegate.discardRequested
 }
 
 // Unregister removes agentID from the active delegate set.

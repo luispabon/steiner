@@ -99,6 +99,48 @@ func TestActiveDelegateCancelAllKeepsMetadata(t *testing.T) {
 	}
 }
 
+func TestActiveDelegateDiscardRequestLifecycle(t *testing.T) {
+	controller := NewActiveController()
+	if controller.RequestDiscard("missing") {
+		t.Fatal("RequestDiscard(missing) returned true, want false")
+	}
+	if controller.DiscardRequested("missing") {
+		t.Fatal("DiscardRequested(missing) returned true, want false")
+	}
+
+	if _, err := controller.Register("child", context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
+		t.Fatalf("Register(child) returned error: %v", err)
+	}
+	if controller.DiscardRequested("child") {
+		t.Fatal("DiscardRequested(child) returned true before request")
+	}
+	if !controller.RequestDiscard("child") {
+		t.Fatal("RequestDiscard(child) returned false, want true")
+	}
+	if !controller.DiscardRequested("child") {
+		t.Fatal("DiscardRequested(child) returned false after request")
+	}
+	controller.Unregister("child")
+	if controller.DiscardRequested("child") {
+		t.Fatal("DiscardRequested(child) returned true after unregister")
+	}
+}
+
+func TestActiveDelegateCancelAllDoesNotRequestDiscard(t *testing.T) {
+	controller := NewActiveController()
+	for _, id := range []string{"alpha", "beta"} {
+		if _, err := controller.Register(id, context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
+			t.Fatalf("Register(%q) returned error: %v", id, err)
+		}
+	}
+	controller.CancelAll()
+	for _, id := range []string{"alpha", "beta"} {
+		if controller.DiscardRequested(id) {
+			t.Fatalf("DiscardRequested(%q) = true after CancelAll, want false", id)
+		}
+	}
+}
+
 func TestActiveDelegateDuplicateConcurrentRegistration(t *testing.T) {
 	controller := NewActiveController()
 	const attempts = 32

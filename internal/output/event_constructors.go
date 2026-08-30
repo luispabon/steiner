@@ -418,6 +418,15 @@ func NewDelegationExtensionEvent(agentID string, extension, maxExtensions int) E
 	})
 }
 
+// NewDelegationWorktreeDisposalEvent creates a worktree disposal event.
+func NewDelegationWorktreeDisposalEvent(agentID string, removed bool, errMsg string) Event {
+	return newEvent(EventTypeDelegationWorktreeDisposal, DelegationWorktreeDisposalEvent{
+		AgentID: agentID,
+		Removed: removed,
+		Error:   errMsg,
+	})
+}
+
 // NewSteerReceivedEvent creates an Event for a consumed steer message.
 func NewSteerReceivedEvent(text string) Event {
 	return newEvent(EventTypeSteerReceived, SteerReceivedEvent{Text: text})

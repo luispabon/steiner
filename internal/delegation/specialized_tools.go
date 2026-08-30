@@ -284,6 +284,8 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 // newSpecializedHandler returns a handler for the given agent type.
 // It uses the per-type system prompt and allowed-tool list, leaving other
 // delegation parameters at their configured defaults.
+//
+//nolint:gocyclo // handler lifecycle branches cover setup, gating, execution, and cleanup.
 func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	if deps.ActiveController == nil {
 		deps.ActiveController = NewActiveController()
@@ -343,7 +345,15 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		defer gateRelease()
 		if childCtx.Err() != nil {
 			emitDelegateStopped(deps.Events, spec, agentType)
-			return applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings), nil
+			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings)
+			if dr, ok := result.Value.(Result); ok {
+				finalizeDelegateCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &dr)
+				result.Value = dr
+				if result.Retention != nil {
+					result.Retention.Summary = dr.Summary
+				}
+			}
+			return result, nil
 		}
 
 		remediation := codeRemediationConfig(provisionedWorktree)
@@ -364,6 +374,13 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		result = applySpecializedWorktreeResult(agentType, result, provisionedWorktree, warnings)
+		if dr, ok := result.Value.(Result); ok {
+			finalizeDelegateCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &dr)
+			result.Value = dr
+			if result.Retention != nil {
+				result.Retention.Summary = dr.Summary
+			}
+		}
 
 		return result, nil
 	}
