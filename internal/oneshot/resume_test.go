@@ -149,7 +149,7 @@ func TestOrchestratorResumeSkipsCompletedPhasesAndReclaimsStaleLock(t *testing.T
 func TestResumePreservesExistingWorktreeBase(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "preserve123", Slug: "preserve-base"}
-	manifest, store, sessionStore, orch := setupResumeTestFixture(t, projectRoot, identity, "")
+	manifest, store, sessionStore, orch := setupResumeTestFixture(t, projectRoot, identity)
 	if err := os.WriteFile(filepath.Join(manifest.WorktreePath, "preserved.txt"), []byte("preserved\n"), 0o644); err != nil {
 		t.Fatalf("write preserved file: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestResumePreservesExistingWorktreeBase(t *testing.T) {
 func TestResumeLegacyManifestInfersBaseFromProjectCheckout(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "legacy123", Slug: "legacy-base"}
-	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity, "")
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
 
 	worktreePath := manifest.WorktreePath
 	featurePath := filepath.Join(worktreePath, "feature.txt")
@@ -215,7 +215,7 @@ func TestResumeLegacyManifestInfersBaseFromProjectCheckout(t *testing.T) {
 	}
 }
 
-func setupResumeTestFixture(t *testing.T, projectRoot string, identity RunIdentity, base string) (Manifest, *ManifestStore, *recordingSessionStore, *Orchestrator) {
+func setupResumeTestFixture(t *testing.T, projectRoot string, identity RunIdentity) (Manifest, *ManifestStore, *recordingSessionStore, *Orchestrator) {
 	t.Helper()
 	worktree, err := ProvisionWorktree(context.Background(), projectRoot, identity)
 	if err != nil {
@@ -241,7 +241,6 @@ func setupResumeTestFixture(t *testing.T, projectRoot string, identity RunIdenti
 		Task:         "Build the parser",
 		Branch:       identity.BranchName(),
 		WorktreePath: worktree.Path,
-		WorktreeBase: base,
 		CurrentPhase: PhaseImplement,
 		PhaseStatuses: map[Phase]PhaseStatus{
 			PhasePlan:      PhaseStatusDone,
@@ -346,21 +345,17 @@ func TestOrchestratorResumeRefusesLiveLock(t *testing.T) {
 	}
 }
 
-func TestOrchestratorResumeReprovisionsMissingWorktree(t *testing.T) {
-	projectRoot := setupGitRepo(t)
+func TestOrchestratorResumeReprovisionsMissingWorktreeFromStoredBase(t *testing.T) {
+	projectRoot := setupLocalGitRepo(t)
 	identity := RunIdentity{ID: "abc123", Slug: "build-parser"}
 	worktree, err := ProvisionWorktree(context.Background(), projectRoot, identity)
 	if err != nil {
 		t.Fatalf("ProvisionWorktree failed: %v", err)
 	}
+	base := worktree.StartPoint
 	t.Cleanup(func() {
 		_ = CleanupWorktree(context.Background(), projectRoot, identity)
 	})
-
-	planningPath := identity.PlanningPath(worktree.Path)
-	if err := os.MkdirAll(planningPath, 0o755); err != nil {
-		t.Fatalf("MkdirAll planning path failed: %v", err)
-	}
 
 	store := NewManifestStore(identity.ManifestPath(projectRoot))
 	manifest := Manifest{
@@ -369,6 +364,7 @@ func TestOrchestratorResumeReprovisionsMissingWorktree(t *testing.T) {
 		Task:         "Build the parser",
 		Branch:       identity.BranchName(),
 		WorktreePath: worktree.Path,
+		WorktreeBase: base,
 		CurrentPhase: PhasePlan,
 		PhaseStatuses: map[Phase]PhaseStatus{
 			PhasePlan:      PhaseStatusPending,
@@ -380,20 +376,25 @@ func TestOrchestratorResumeReprovisionsMissingWorktree(t *testing.T) {
 		t.Fatalf("store.Write failed: %v", err)
 	}
 
-	adminDir := filepath.Join(projectRoot, ".git", "worktrees", "oneshot-"+identity.ID)
 	if err := os.RemoveAll(worktree.Path); err != nil {
 		t.Fatalf("RemoveAll worktree failed: %v", err)
 	}
-	if err := os.MkdirAll(adminDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll admin dir failed: %v", err)
+	runGitTest(t, projectRoot, "worktree", "prune")
+	runGitTest(t, projectRoot, "branch", "-D", identity.BranchName())
+	runGitTest(t, projectRoot, "checkout", "-b", "advance")
+	if err := os.WriteFile(filepath.Join(projectRoot, "advanced.txt"), []byte("advanced\n"), 0o644); err != nil {
+		t.Fatalf("write advanced file failed: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(adminDir, "stale"), []byte("stale"), 0o644); err != nil {
-		t.Fatalf("seed admin dir failed: %v", err)
+	runGitTest(t, projectRoot, "add", "advanced.txt")
+	runGitTest(t, projectRoot, "commit", "-m", "test: advance project checkout")
+	projectHead := strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	if projectHead == base {
+		t.Fatal("project checkout did not advance beyond stored base")
 	}
 
 	sessionStore := &recordingSessionStore{}
 	runnerFactory := &recordingRunnerFactory{
-		planningPath: planningPath,
+		planningPath: identity.PlanningPath(worktree.Path),
 		runners: map[Phase]*phaseRunnerStub{
 			PhasePlan:      {writePlan: true},
 			PhaseImplement: {writePlan: true},
@@ -418,14 +419,14 @@ func TestOrchestratorResumeReprovisionsMissingWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
-	if got, want := updated.PhaseStatuses[PhasePlan], PhaseStatusDone; got != want {
-		t.Fatalf("phase plan status = %q, want %q", got, want)
+	if got, want := updated.WorktreeBase, base; got != want {
+		t.Fatalf("WorktreeBase = %q, want stored base %q", got, want)
 	}
-	if _, err := os.Stat(worktree.Path); err != nil {
-		t.Fatalf("worktree path missing after reprovision: %v", err)
+	if got := strings.TrimSpace(mustGitOutput(t, worktree.Path, "rev-parse", "HEAD")); got != base {
+		t.Fatalf("reprovisioned worktree HEAD = %q, want stored base %q", got, base)
 	}
-	if _, err := os.Stat(filepath.Join(adminDir, "stale")); !os.IsNotExist(err) {
-		t.Fatalf("stale admin dir payload still exists after resume: %v", err)
+	if _, err := os.Stat(filepath.Join(worktree.Path, "advanced.txt")); !os.IsNotExist(err) {
+		t.Fatalf("reprovisioned worktree contains advanced checkout file: %v", err)
 	}
 }
 
