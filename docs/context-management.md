@@ -6,7 +6,7 @@ Steiner automatically manages the model's context window so you never hit a hard
 
 Context management runs on three lines of defense, in order of preference:
 
-1. **Delegation** — work delegated to a sub-agent never enters the parent context at all. Only a bounded summary (≤1000 characters) returns to the parent. This is the most effective defense; see [Sub-agent delegation](sub-agent-delegation.md) for the orchestrator role that gives the model this rationale directly.
+1. **Delegation** — work delegated to a sub-agent never enters the parent context at all. Only a bounded summary (≤4000 characters) returns to the parent. This is the most effective defense; see [Sub-agent delegation](sub-agent-delegation.md) for the orchestrator role that gives the model this rationale directly.
 2. **Per-source byte budgets** — when context does accumulate, each source (skills, project context, tool summaries) is capped so no single source dominates.
 3. **Compaction** — when the conversation reaches approximately 70% of the context window, older turns are automatically summarised and replaced with a compact handoff.
 
