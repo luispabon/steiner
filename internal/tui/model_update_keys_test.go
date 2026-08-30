@@ -187,3 +187,14 @@ func TestHandleKeyDownMultilineDraftCursorOnTopLineMovesCursor(t *testing.T) {
 		t.Fatalf("Line() = %d, want %d (moved down one row)", got, startLine+1)
 	}
 }
+
+func TestHandleNavigationKeyOpensDelegateStopModal(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m.controller = &testController{}
+	m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
+	if !m.delegateCancelModal.IsOpen() {
+		t.Fatal("Esc with an active delegate did not open stop modal")
+	}
+}
