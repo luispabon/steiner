@@ -26,17 +26,21 @@ func fetchRawText(ctx context.Context, httpClient *http.Client, in FetchURLInput
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != 200 {
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, errorBodySnippetRunes*utf8.UTFMax))
-		if readErr != nil {
-			return &FetchURLError{URL: in.URL, Error: readErr.Error()}, nil
-		}
-		return &FetchURLError{
+		fetchErr := &FetchURLError{
 			URL:        in.URL,
 			Error:      fmt.Sprintf("HTTP %d", resp.StatusCode),
 			StatusCode: resp.StatusCode,
 			RetryAfter: resp.Header.Get("Retry-After"),
-			Body:       boundedRuneSnippet(trimIncompleteUTF8SuffixString(string(body)), errorBodySnippetRunes),
-		}, nil
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, errorBodySnippetRunes*utf8.UTFMax))
+		if readErr != nil {
+			// StatusCode and RetryAfter were already read from the response
+			// and must survive a body-read failure; only the body snippet
+			// is lost.
+			return fetchErr, nil
+		}
+		fetchErr.Body = boundedRuneSnippet(trimIncompleteUTF8SuffixString(string(body)), errorBodySnippetRunes)
+		return fetchErr, nil
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(in.MaxSize)+1))

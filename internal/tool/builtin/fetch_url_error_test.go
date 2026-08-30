@@ -144,3 +144,60 @@ func TestBoundedRuneSnippet(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchURLRawTextErrorSurvivesBodyReadFailure(t *testing.T) {
+	// Content-Length promises more bytes than are ever sent, and the
+	// connection is hijacked and closed mid-body, so the client's body read
+	// fails. StatusCode and RetryAfter must still make it onto the error
+	// even though the body snippet is lost.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.Header().Set("Retry-After", "45")
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("short"))
+
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Error("ResponseWriter does not support hijacking")
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		_ = conn.Close()
+	}))
+	defer server.Close()
+
+	workDir := t.TempDir()
+	policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	env := Env{
+		WorkDir:    workDir,
+		PathPolicy: &policy,
+		httpClient: func() *http.Client { return server.Client() },
+	}
+
+	result, err := NewFetchURLTool(env).Handler(context.Background(), map[string]any{"url": server.URL})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	fetchErr, ok := result.(*FetchURLError)
+	if !ok {
+		t.Fatalf("result type = %T, want *FetchURLError", result)
+	}
+	if fetchErr.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("StatusCode = %d, want %d (must survive body-read failure)", fetchErr.StatusCode, http.StatusTooManyRequests)
+	}
+	if fetchErr.RetryAfter != "45" {
+		t.Errorf("RetryAfter = %q, want %q (must survive body-read failure)", fetchErr.RetryAfter, "45")
+	}
+	if !strings.Contains(fetchErr.Error, "429") {
+		t.Errorf("Error = %q, want it to still name the status code", fetchErr.Error)
+	}
+}
