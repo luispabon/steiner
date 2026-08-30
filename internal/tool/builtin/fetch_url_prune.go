@@ -98,8 +98,11 @@ func pruneFetchedDir(workDir string, now time.Time, budgetBytes int64) (removed 
 			continue
 		}
 		if err := os.Remove(f.path); err != nil {
-			// Already removed by a concurrent process; leave total as-is
-			// since the file's bytes are no longer actually present.
+			// Removal failed for an unknown reason (permission error, or a
+			// concurrent process already removed it). Conservatively keep
+			// f.size counted against the budget and move to the next
+			// candidate; this may evict one extra file if the failure was
+			// a concurrent removal, which is the safe direction to err in.
 			continue
 		}
 		removed++
