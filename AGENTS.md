@@ -154,7 +154,7 @@ Steiner exposes these model-facing built-in tools:
 - `ls` — list directories
 - `bash` — run shell commands
 - `scratchpad` — record working state (intent, decisions, next action); persists across compaction
-- `fetch_url` — fetch a URL and return its content as markdown or image data
+- `fetch_url` — fetch a URL and return its content as markdown (main content extracted, falling back to the full document if extraction finds nothing) or image data
 - `display_file` — show a file in the TUI overlay without adding contents to conversation
 - `advisor` — ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`)
 - `workflow_handoff` — transition to a different workflow with approved artifacts
