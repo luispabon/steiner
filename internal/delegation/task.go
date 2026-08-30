@@ -45,9 +45,59 @@ func truncateTaskPreview(s string, max int) string {
 	return string(runes[:max-3]) + "..."
 }
 
+func emitDelegateStarted(events output.EventSink, spec Spec, modelAlias string, agentType AgentType) {
+	if events == nil {
+		return
+	}
+	event := output.NewDelegationStartedEventWithType(spec.AgentID, truncateTaskPreview(spec.Task, 120), spec.ParentCallID, modelAlias, string(agentType))
+	event = output.WithAgentScope(event, spec.AgentID)
+	event = output.WithAgentTypeScope(event, string(agentType))
+	events.Emit(event)
+}
+
+func emitDelegateStopped(events output.EventSink, spec Spec, agentType AgentType) {
+	if events == nil {
+		return
+	}
+	event := output.NewStopReasonEvent(0, "cancelled", nil)
+	event = output.WithAgentScope(event, spec.AgentID)
+	event = output.WithAgentTypeScope(event, string(agentType))
+	events.Emit(event)
+}
+
+func emitDelegateFailed(events output.EventSink, spec Spec, agentType AgentType, errMsg string) {
+	if events == nil {
+		return
+	}
+	event := output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), errMsg)
+	event = output.WithAgentScope(event, spec.AgentID)
+	event = output.WithAgentTypeScope(event, string(agentType))
+	events.Emit(event)
+}
+
+func cancelledBeforeDispatchResult(agentID string) tool.ExecutionResult {
+	result := Result{
+		AgentID:          agentID,
+		Status:           StatusCancelled,
+		SessionResumable: false,
+		Summary:          "delegation cancelled before dispatch",
+	}
+	return tool.ExecutionResult{
+		Value: result,
+		Retention: &tool.ToolRetention{
+			Kind:    tool.RetentionKindDelegateSummary,
+			Summary: result.Summary,
+			AgentID: result.AgentID,
+			Status:  string(result.Status),
+		},
+	}
+}
+
 // SpawnDelegate executes a child agent with the given specification and runner.
 // It always runs a follow-up summarisation turn after successful completion and
 // returns the full visible output plus hidden retention metadata.
+//
+//nolint:gocyclo // delegation lifecycle branches cover setup, execution, remediation, and retention.
 func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger, opts ...spawnOption) (tool.ExecutionResult, agent.RunState, TokenUsage, error) {
 	var o spawnOptions
 	for _, opt := range opts {
@@ -70,11 +120,10 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		"has_timeout": spec.Limits.Timeout > 0,
 	})
 
-	if events != nil {
-		events.Emit(output.NewDelegationStartedEventWithModel(spec.AgentID, truncateTaskPreview(spec.Task, 120), spec.ParentCallID, req.ResolvedModel.Alias))
-	}
-
 	state, err := runner.Run(childCtx, req)
+	if err != nil && o.onChildDone != nil {
+		o.onChildDone()
+	}
 
 	tc.add("child_run_complete", "initial run finished", runStateFields(childCtx, state, err))
 
@@ -87,6 +136,9 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 	}
 
 	state, runUsage, extensionsGranted, extErr := runChildToCompletion(childCtx, req, runner, spec.Limits.MaxTurns, events, tc, state, spec.AgentID)
+	if o.onChildDone != nil {
+		o.onChildDone()
+	}
 	if extErr != nil {
 		if events != nil {
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extErr.Error()))

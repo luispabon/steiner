@@ -51,6 +51,32 @@ func TestDelegationCacheWaitingBindsAndClears(t *testing.T) {
 	}
 }
 
+func TestDelegationCacheWaitingProductionEventOrder(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call-production", map[string]any{"task": "wait for cache"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-production", "wait for cache", "call-production"))
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("child-production", "call-production", time.Now().Add(time.Second)))
+
+	loc, active := buffer.activeDelegations["child-production"]
+	if !active || loc.dd == nil {
+		t.Fatal("production-order delegation is not active")
+	}
+	if !loc.dd.cacheWaiting {
+		t.Fatal("cacheWaiting = false, want true after late cache-waiting event")
+	}
+	if rows := buffer.ActiveDelegateRows(); len(rows) != 1 || rows[0].agentID != "child-production" {
+		t.Fatalf("active rows = %#v, want child-production", rows)
+	}
+
+	buffer.AppendEvent(output.WithAgentScope(output.NewModelCallStartedEvent(1, "backend-model", 1), "child-production"))
+	if loc.dd.cacheWaiting {
+		t.Fatal("cacheWaiting = true after first scoped child event, want false")
+	}
+	if loc.dd.status != "active" {
+		t.Fatalf("status = %q after first scoped child event, want active", loc.dd.status)
+	}
+}
+
 func TestCacheWaitingCancellationLeavesElapsedEmpty(t *testing.T) {
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "wait for cache"}))
@@ -1327,5 +1353,105 @@ func TestDelegationStartedEmptyCallIDUsesFIFO(t *testing.T) {
 	}
 	if got := buffer.segments[0].delegData.agentID; got != "child-1" {
 		t.Errorf("agentID = %q, want child-1", got)
+	}
+}
+
+func TestActiveDelegateRowsUseTranscriptOrderAndLifecycleType(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEventWithType("child-2", "second task", "", "", "review"), "child-2"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEventWithType("child-1", "first task", "", "", "explore"), "child-1"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEventWithType("child-3", "third task", "", "", "code"), "child-3"))
+
+	rows := buffer.ActiveDelegateRows()
+	if len(rows) != 3 {
+		t.Fatalf("active rows = %d, want 3", len(rows))
+	}
+	want := []delegateActiveRow{
+		{agentID: "child-2", agentType: "review", taskPreview: "second task"},
+		{agentID: "child-1", agentType: "explore", taskPreview: "first task"},
+		{agentID: "child-3", agentType: "code", taskPreview: "third task", isCode: true},
+	}
+	if !reflect.DeepEqual(rows, want) {
+		t.Fatalf("active rows = %#v, want %#v", rows, want)
+	}
+}
+
+func TestActiveDelegateRowsExcludeCompletedAndFailed(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("complete", "done task", "", "", "code"))
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("failed", "failed task", "", "", "review"))
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("active", "live task", "", "", "explore"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "complete", Status: "complete"}))
+	buffer.AppendEvent(output.NewDelegationFailedEvent("failed", "failed task", "error"))
+
+	rows := buffer.ActiveDelegateRows()
+	if len(rows) != 1 {
+		t.Fatalf("active rows = %d, want 1", len(rows))
+	}
+	if rows[0].agentID != "active" || rows[0].agentType != "explore" {
+		t.Fatalf("active row = %#v, want active explore row", rows[0])
+	}
+}
+
+func TestActiveDelegateRowsIncludeCacheWaitingAndExcludeCancellation(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call-cache", map[string]any{"task": "cache task"}))
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("cache-child", "call-cache", time.Now().Add(time.Second)))
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("cache-child", "cache task", "call-cache", "", "code"))
+
+	rows := buffer.ActiveDelegateRows()
+	if len(rows) != 1 || rows[0].agentID != "cache-child" || rows[0].agentType != "code" || !rows[0].isCode {
+		t.Fatalf("cache-waiting rows = %#v, want active code row", rows)
+	}
+
+	buffer.AppendEvent(output.WithAgentScope(output.NewStopReasonEvent(1, "cancelled", nil), "cache-child"))
+	if rows := buffer.ActiveDelegateRows(); len(rows) != 0 {
+		t.Fatalf("rows after cancellation = %#v, want none", rows)
+	}
+}
+
+func TestActiveDelegateRowsLegacyTypeFallsBackToToolLabel(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call-code", map[string]any{"task": "code task"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call-explore", map[string]any{"task": "explore task"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("code-child", "code task", "call-code"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("explore-child", "explore task", "call-explore"))
+
+	rows := buffer.ActiveDelegateRows()
+	if len(rows) != 2 {
+		t.Fatalf("legacy active rows = %d, want 2", len(rows))
+	}
+	if rows[0].agentType != "code" || !rows[0].isCode {
+		t.Fatalf("legacy code row = %#v, want toolLabel code and isCode true", rows[0])
+	}
+	if rows[1].agentType != "explore" || rows[1].isCode {
+		t.Fatalf("legacy explore row = %#v, want toolLabel explore and isCode false", rows[1])
+	}
+}
+
+func TestActiveDelegateRowsExcludeAdvisorsAndEmptyIDs(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "pending-call", map[string]any{"task": "pending task"}))
+
+	if rows := buffer.ActiveDelegateRows(); len(rows) != 0 {
+		t.Fatalf("rows with advisor and pending delegate = %#v, want none", rows)
+	}
+}
+
+func TestActiveDelegateRowsPreserveGroupEntryOrder(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "first task", "", "", "explore"))
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-2", "second task", "", "", "code"))
+
+	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup {
+		t.Fatalf("segments = %#v, want one delegation group", buffer.segments)
+	}
+	rows := buffer.ActiveDelegateRows()
+	if len(rows) != 2 {
+		t.Fatalf("group active rows = %d, want 2", len(rows))
+	}
+	if rows[0].agentID != "child-1" || rows[1].agentID != "child-2" {
+		t.Fatalf("group rows = %#v, want child-1 then child-2", rows)
 	}
 }

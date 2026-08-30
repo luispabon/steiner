@@ -79,6 +79,19 @@ type InterruptActiveRun struct{}
 
 func (InterruptActiveRun) isInteractiveAction() {}
 
+// CancelDelegate represents a user request to cancel one active delegate.
+type CancelDelegate struct {
+	AgentID string
+	Discard bool
+}
+
+func (CancelDelegate) isInteractiveAction() {}
+
+// CancelAllDelegates represents a user request to cancel all active delegates.
+type CancelAllDelegates struct{}
+
+func (CancelAllDelegates) isInteractiveAction() {}
+
 // RequestExit represents a user request to exit the interactive session.
 type RequestExit struct{}
 

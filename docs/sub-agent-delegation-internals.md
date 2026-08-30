@@ -50,6 +50,12 @@ User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 | `internal/tui`        | Rendering of delegation events with spinner, lifecycle tracking, collapsible output                                                          |
 | `cmd/steiner`         | `buildActiveRegistry()` wires delegation tools into the active registry                                                                    |
 
+### Active controller and context topology
+
+`internal/delegation.ActiveController` owns the live delegate set. It keys registrations by agent ID, keeps deterministic registration order, stores the agent type and code worktree metadata, and creates a dedicated child context for each registration. `CancelAgent` cancels only that child context. `CancelAll` cancels every registered child in registration order, but does not remove registrations and never requests worktree disposal; finalization and the deferred unregister own those steps.
+
+The controller is process-lifetime state. `cmd/steiner` constructs one controller when it builds the runtime, and shares that same instance with every per-turn `BuildDelegateRegistry` rebuild and with the interactive session's `DelegateCanceller`. Registrations therefore survive registry replacement between turns. The TUI does not inspect the controller map to render the selector; it receives lifecycle events and snapshots active rows from its own transcript state.
+
 ### Tool registration
 
 When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the base registry and registers the `follow_up` tool plus a specialised tool for each agent type (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, and conditionally `vision`). Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a per-type tool allowlist (`AgentAllowedTools`), and a task-oriented schema. The `vision` tool additionally accepts an `image_id` parameter and is only registered when the selected profile's `sub_agents.vision` assignment is configured.
@@ -76,6 +82,14 @@ For `AgentTypeCode` only, `newSpecializedHandler` (`internal/delegation/speciali
    - `Warnings` — a slice of human-readable warning strings covering dirty-tree changes and post-run remediation failures. Empty for successful provisioning of a clean tree.
 
 All other agent types (`explore`, `research`, `evaluate`, `sanity_check`, `review`, `vision`) skip worktree provisioning and remediation entirely; their results always have empty `WorktreePath`, `WorktreeBranch`, and `Warnings` fields. `follow_up` reuses each child's originally-captured `agent.RunRequest` from `SessionStore` verbatim, including its executor already rooted at the original worktree, without re-provisioning.
+
+### Active delegate lifecycle
+
+A specialized or vision handler builds the child request, then registers the child with the shared `ActiveController`. For a code child, registration happens after worktree provisioning and request construction; for other types it happens after request construction. Registration occurs before dispatch gating. The handler passes the controller-created child context to the cache dispatch gate and to the child runner.
+
+The started lifecycle event is emitted after registration and before the gate. It carries agent ID and type scope, and its payload also carries the plain agent-type string used by the TUI without an `internal/delegation` import. A follower waiting at the cache gate emits `delegation_cache_waiting` and waits on the registered child context, so it can be stopped before provider dispatch and is visible in the selector while waiting. If that context is already cancelled when the gate returns, the handler emits a scoped `StopReasonEvent` with reason `cancelled` and returns a cancelled result without starting the child runner. A child that reaches normal terminal handling keeps the existing complete or failed delegation events.
+
+The handler defers `ActiveController.Unregister` until after session persistence and cancellation finalization. `follow_up` preserves the stored `Spec.AgentType`; when the session is a code session, it reconstructs the controller registration's worktree metadata from the session's remediation data, so follow-up cancellation refers to the original checkout. Registration failure is intentionally invisible to lifecycle UI: no delegate became active or visible, so handlers emit no started, stopped, or failed lifecycle event. Code provisioning is still cleaned up on that path, and duplicate IDs cannot replace or corrupt the existing controller row.
 
 **Known limitation**: worktrees are never automatically removed. The `steiner worktrees --list`, `--prune`, and `--prune-all` commands manage cleanup, and operate only on worktrees git itself currently reports as real and delegation-owned (with `delegate/`-prefixed branches). A directory under `.steiner/worktrees/` that becomes orphaned or untracked by git (e.g. after a crash mid-provision, or after a manual `git worktree prune` outside the CLI) is not reachable by any of these commands and requires manual `rm -rf` by a human. This is a deliberate safety tradeoff — never delete a path git doesn't vouch for — rather than an oversight. Future extensions to the cleanup tooling should respect this constraint: only remove paths that git reports as real worktrees.
 
@@ -190,6 +204,20 @@ The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSessi
 
 **Retention path.** The child agent's full transcript is not copied into the parent session. The parent keeps the delegate result plus a bounded summary. Compaction may later summarise older parent conversation state, including delegated work, through the normal baseline path.
 
+### Cancellation finalization
+
+Cancellation finalization handles an explicit targeted discard request. Without that request, a cancelled child leaves its session, result, and code worktree untouched, so the session remains available for `follow_up`. An explicit targeted code discard is recorded on the active controller; stop-all never sets that request.
+
+The cancellation path waits for the child runner, including a cache-gated child, to return before finalization. For an explicit discard, finalization then proceeds in this order:
+
+1. **Invalidate the session.** `SessionStore.Invalidate` deletes the stored session and creates an agent-ID tombstone. `Get`, `Save`, and `Update` are blocked for that ID until `Reset`, including late persistence from the cancelled child, so an invalidated session cannot be resurrected.
+2. **Mark the result non-resumable.** `SessionResumable` becomes false.
+3. **Correct the retention summary.** The retention output and summary no longer claim that the session is preserved for `follow_up`.
+4. **Derive the relative worktree ID from controller metadata.** The finalizer reads the controller-held `CodeWorktree`, then derives its path relative to the project's `.steiner/worktrees` directory rather than trusting a result field.
+5. **Prune with ownership checks.** It calls the existing `PruneCodeWorktree` under a 30-second cleanup context rooted in `context.Background()`, independent of the cancelled child context. The prune accepts only a git-known worktree with a `delegate/` branch and an in-bounds relative ID.
+
+A successful prune removes the checkout and branch. A failed disposal leaves the session tombstoned and preserves files for manual recovery. Each attempted disposal emits a `DelegationWorktreeDisposalEvent` scoped with agent ID and, when available, agent type; the payload reports whether removal occurred and any error. A disposal event is separate from the child row's terminal lifecycle.
+
 ### Vision handler
 
 The `vision` tool uses a dedicated handler (`newVisionHandler`) rather than the generic `newSpecializedHandler`. When invoked:
@@ -209,14 +237,27 @@ The `vision` tool uses a dedicated handler (`newVisionHandler`) rather than the 
 
 Events emitted during delegation (via `output.EventSink`):
 
-| Event                  | When                            | Key fields                                                  |
-|------------------------|---------------------------------|-------------------------------------------------------------|
-| `delegation_started`   | Before child run begins         | `agent_id`, `task_preview`                                  |
-| `delegation_extension` | Each auto-extension iteration   | `agent_id`, `extension`, `max_extensions`                   |
-| `delegation_complete`  | After summarisation, on success | `agent_id`, `status`, `turn_count`, `token_count`, `output` |
-| `delegation_failed`    | On initial child run error      | `agent_id`, `task_preview`, `error`                         |
+| Event                  | When                                      | Key fields                                                  |
+|------------------------|-------------------------------------------|-------------------------------------------------------------|
+| `delegation_started`   | After registration, before dispatch gate  | `agent_id`, `agent_type`, `task_preview`, scoped agent/type  |
+| `delegation_cache_waiting` | While blocked at cache dispatch gate   | `agent_id`, `call_id`, `deadline`                            |
+| `stop_reason`          | Pre-dispatch stop                         | `reason: "cancelled"`, scoped agent/type                   |
+| `delegation_extension` | Each auto-extension iteration             | `agent_id`, `extension`, `max_extensions`                   |
+| `delegation_complete`  | After child terminal handling             | `agent_id`, `status`, `turn_count`, `token_count`, `output` |
+| `delegation_failed`    | On child run error                         | `agent_id`, `task_preview`, `error`                         |
+| `delegation_worktree_disposal` | After explicit code discard         | scoped `agent_id`, type, `removed`, `error`                 |
+
+Events emitted through the child request's event sink are scoped with the child agent ID and type. The started event is also scoped, and its payload carries the type as a plain string so consumers such as the TUI can render it without importing delegation. A pre-dispatch stop uses the scoped `stop_reason` event and no child run starts; otherwise existing complete or failed terminal events remain in use.
 
 The TUI renders delegation lifecycle events with a spinner during execution, lifecycle state labels, and collapsible output panels for completed delegations. Extension events update an always-visible counter in the status bar.
+
+### Interactive cancellation and TUI state
+
+Interactive cancellation is represented by `CancelDelegate{AgentID, Discard}` and `CancelAllDelegates` actions. `internal/interactive` depends on the consumer-defined `DelegateCanceller` interface; the `cmd/steiner` adapter records an explicit discard request, then cancels the selected controller context, or calls controller `CancelAll`. Whole-run interruption remains `InterruptActiveRun` through `ActiveRunController.Interrupt`; it is not routed through `DelegateCanceller` and its behavior is unchanged.
+
+While the content state reports at least one active delegate, Esc, Ctrl-C, and Ctrl-D open the stop modal in conversation, approval, and other applicable input modes. With no active delegate, the existing interrupt or exit handling is used. The selector takes a copy of `contentBuffer.ActiveDelegateRows()`, in deterministic transcript order, rather than reading the controller map. Each row renders the bold tool-box-coloured type, agent ID, and truncated task preview. It offers targeted stop, stop-all, whole-run stop, and dismiss; confirmations provide keep-working, with code targets adding keep-worktree as the default and explicit discard.
+
+A scoped cancelled stop finalizes the active transcript row before late child terminal events can change it. The worktree disposal event is rendered independently as a status outcome, so disposal success or failure does not keep the delegate row active and does not determine the row's transcript position. This keeps transcript ordering and the cancellation snapshot independent of controller registration-map iteration. Targeted cancellation and child completion linearize under the controller lock: cancellation accepted first retains discard intent through finalization, while completion first returns an already-finished outcome and retains the worktree. The interactive adapter surfaces that outcome instead of silently dismissing it; cancel-all never requests discard.
 
 ### System prompt integration
 

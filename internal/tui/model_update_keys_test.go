@@ -187,3 +187,84 @@ func TestHandleKeyDownMultilineDraftCursorOnTopLineMovesCursor(t *testing.T) {
 		t.Fatalf("Line() = %d, want %d (moved down one row)", got, startLine+1)
 	}
 }
+
+func TestApprovalShortcutsOpenDelegateStopModal(t *testing.T) {
+	keys := []tea.KeyPressMsg{
+		{Code: tea.KeyEsc},
+		{Code: 'c', Mod: tea.ModCtrl},
+		{Code: 'd', Mod: tea.ModCtrl},
+	}
+	for _, key := range keys {
+		t.Run(key.String(), func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))
+			m.approval = approvalState{active: true}
+
+			m = updateModel(t, m, key)
+			if !m.delegateCancelModal.IsOpen() {
+				t.Fatal("approval shortcut did not open delegate stop modal")
+			}
+		})
+	}
+}
+
+func TestApprovalShortcutsWithoutDelegateKeepApprovalBehavior(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{
+		{Code: tea.KeyEsc},
+		{Code: 'c', Mod: tea.ModCtrl},
+		{Code: 'd', Mod: tea.ModCtrl},
+	} {
+		t.Run(key.String(), func(t *testing.T) {
+			ctrl := &testController{}
+			m := newModel(Config{Controller: ctrl}, nil)
+			m.approval = approvalState{active: true, tool: "write", mode: "prompt", identity: "call-1"}
+
+			m = updateModel(t, m, key)
+			if m.delegateCancelModal.IsOpen() {
+				t.Fatal("approval shortcut without delegate opened stop modal")
+			}
+			if key.Code == tea.KeyEsc {
+				submissions := ctrl.submitApprovals()
+				if len(submissions) != 1 || submissions[0].Decision != string(ApprovalDecisionDeny) {
+					t.Fatalf("approval submissions = %#v, want one deny", submissions)
+				}
+				if m.approval.active {
+					t.Fatal("approval.active = true after Esc denial")
+				}
+				return
+			}
+			if ctrl.countInterruptActiveRun() != 1 {
+				t.Fatal("Ctrl shortcut did not interrupt active approval")
+			}
+			if m.approval.active || !m.interruptPending {
+				t.Fatal("Ctrl shortcut did not preserve interrupt approval behavior")
+			}
+		})
+	}
+}
+
+func TestEscapeClosesHelpBeforeDelegateStopModal(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m.status.mode = "running"
+	m.helpVisible = true
+	m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
+	if m.helpVisible {
+		t.Fatal("help remained visible after Esc")
+	}
+	if m.delegateCancelModal.IsOpen() {
+		t.Fatal("Esc opened delegate stop modal while help was visible")
+	}
+}
+
+func TestHandleNavigationKeyOpensDelegateStopModal(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m.controller = &testController{}
+	m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
+	if !m.delegateCancelModal.IsOpen() {
+		t.Fatal("Esc with an active delegate did not open stop modal")
+	}
+}

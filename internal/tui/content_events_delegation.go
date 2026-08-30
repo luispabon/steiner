@@ -87,6 +87,10 @@ func (b *contentBuffer) handleScopedDelegationEventAt(loc delegationLocator, eve
 	if loc.dd == nil {
 		return false
 	}
+	if loc.dd.cacheWaiting {
+		loc.dd.cacheWaiting = false
+		b.markDelegationDirty(loc.seg)
+	}
 	handled := b.applyScopedDelegationEvent(loc.dd, event)
 	if handled {
 		b.markDelegationDirty(loc.seg)
@@ -581,6 +585,11 @@ func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {
 	}
 	loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID)
 	if !found {
+		if loc, active := b.activeDelegations[payload.AgentID]; active && loc.dd != nil {
+			loc.dd.cacheWaiting = true
+			loc.dd.cacheWaitDeadline = payload.DeadlineUnixNano
+			b.markDelegationDirty(loc.seg)
+		}
 		return
 	}
 	loc.dd.agentID = payload.AgentID
@@ -604,6 +613,9 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	bind := func(loc delegationLocator) {
 		dd := loc.dd
 		dd.agentID = payload.AgentID
+		if payload.AgentType != "" {
+			dd.agentType = payload.AgentType
+		}
 		if preview != "" {
 			dd.taskPreview = preview
 		}
@@ -632,6 +644,7 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	}
 	dd := &delegationDisplayState{
 		agentID:         payload.AgentID,
+		agentType:       payload.AgentType,
 		taskPreview:     preview,
 		promptText:      preview,
 		promptCollapsed: true,
@@ -838,6 +851,50 @@ func (b *contentBuffer) handleAdvisorThinkingChunk(event output.Event) {
 		b.segments[idx].renderDirty = true
 		b.gen++
 	}
+}
+
+// delegateActiveRow is a TUI-local snapshot of one active delegate for the
+// cancellation selector. Ordering is defined by the transcript, not by map
+// iteration.
+type delegateActiveRow struct {
+	agentID     string
+	agentType   string // lifecycle agent type; tool-label fallback for legacy events
+	taskPreview string
+	isCode      bool
+}
+
+// ActiveDelegateRows returns active, identified delegates in transcript order.
+func (b *contentBuffer) ActiveDelegateRows() []delegateActiveRow {
+	rows := make([]delegateActiveRow, 0)
+	appendRow := func(dd *delegationDisplayState) {
+		if dd == nil || dd.isAdvisor || dd.agentID == "" || dd.status != "active" {
+			return
+		}
+		agentType := dd.agentType
+		if agentType == "" {
+			agentType = dd.toolLabel
+		}
+		rows = append(rows, delegateActiveRow{
+			agentID:     dd.agentID,
+			agentType:   agentType,
+			taskPreview: dd.taskPreview,
+			isCode:      agentType == "code",
+		})
+	}
+	for _, seg := range b.segments {
+		switch seg.kind {
+		case segmentDelegation:
+			appendRow(seg.delegData)
+		case segmentDelegationGroup:
+			if seg.delegGroupData == nil {
+				continue
+			}
+			for _, dd := range seg.delegGroupData.entries {
+				appendRow(dd)
+			}
+		}
+	}
+	return rows
 }
 
 func (b *contentBuffer) HasActiveDelegations() bool {

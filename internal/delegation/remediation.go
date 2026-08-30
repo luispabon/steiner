@@ -28,6 +28,15 @@ type spawnOption func(*spawnOptions)
 
 type spawnOptions struct {
 	remediation *RemediationConfig
+	onChildDone func()
+}
+
+// withChildDone registers a callback invoked after child execution finishes,
+// before remediation or result finalization.
+func withChildDone(callback func()) spawnOption {
+	return func(o *spawnOptions) {
+		o.onChildDone = callback
+	}
 }
 
 // WithRemediation opts SpawnDelegate into post-run commit remediation.

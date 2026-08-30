@@ -204,3 +204,57 @@ func TestSessionStore_Count(t *testing.T) {
 		t.Fatalf("Count() after two saves = %d, want %d", got, want)
 	}
 }
+
+func TestSessionStoreInvalidateTombstone(t *testing.T) {
+	store := NewSessionStore()
+	original := &ChildSession{
+		Spec:         Spec{AgentID: "child-1", AgentType: AgentTypeCode},
+		Conversation: []agent.Message{{Role: agent.MessageRoleUser, Content: "original"}},
+		TurnCount:    1,
+	}
+	store.Save(original)
+	if got, ok := store.Get("child-1"); !ok || got.Spec.AgentType != AgentTypeCode {
+		t.Fatalf("saved Spec.AgentType = %q, %t, want %q, true", got.Spec.AgentType, ok, AgentTypeCode)
+	}
+
+	store.Invalidate("child-1")
+	if got, ok := store.Get("child-1"); ok || got != nil {
+		t.Fatalf("Get(child-1) after Invalidate = %#v, %t, want nil, false", got, ok)
+	}
+	if got := store.Count(); got != 0 {
+		t.Fatalf("Count() after Invalidate = %d, want 0", got)
+	}
+
+	store.Update("child-1", SessionUpdateParams{TurnCount: 4, TokenCount: 5})
+	store.Save(&ChildSession{
+		Spec:      Spec{AgentID: "child-1"},
+		TurnCount: 9,
+	})
+	if got, ok := store.Get("child-1"); ok || got != nil {
+		t.Fatalf("Get(child-1) after tombstoned Update and Save = %#v, %t, want nil, false", got, ok)
+	}
+}
+
+func TestSessionStoreInvalidateUnknownAndReset(t *testing.T) {
+	store := NewSessionStore()
+	store.Invalidate("missing")
+	store.Save(&ChildSession{Spec: Spec{AgentID: "missing"}})
+	if _, ok := store.Get("missing"); ok {
+		t.Fatal("Get(missing) after tombstoned Save returned true, want false")
+	}
+
+	store.Reset()
+	restored := &ChildSession{Spec: Spec{AgentID: "missing"}, TurnCount: 2}
+	store.Save(restored)
+	got, ok := store.Get("missing")
+	if !ok {
+		t.Fatal("Get(missing) after Reset and Save returned false, want true")
+	}
+	if got != restored {
+		t.Fatal("Get(missing) after Reset returned different session pointer")
+	}
+	store.Update("missing", SessionUpdateParams{TurnCount: 3})
+	if got.TurnCount != 5 {
+		t.Fatalf("TurnCount after Reset and Update = %d, want 5", got.TurnCount)
+	}
+}

@@ -15,7 +15,12 @@ import (
 // It reads the image from the ImageStore, base64-encodes it, injects it into the
 // Spec, and spawns a child agent. The result includes the agent_id so
 // the caller can use follow_up for additional questions about the same image.
+//
+//nolint:gocyclo // handler lifecycle branches cover setup, gating, execution, and cleanup.
 func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
+	if deps.ActiveController == nil {
+		deps.ActiveController = NewActiveController()
+	}
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		task, _ := input["task"].(string)
 		if task == "" {
@@ -35,6 +40,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
 		spec := Spec{
 			Task:         task,
+			AgentType:    AgentTypeVision,
 			SystemPrompt: AgentSystemPrompt(AgentTypeVision),
 			ParentCallID: callID,
 			AgentID:      agentID,
@@ -43,6 +49,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 
 		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(AgentTypeVision, deps)
 		if err != nil {
+			emitDelegateFailed(deps.Events, spec, AgentTypeVision, err.Error())
 			return nil, err
 		}
 
@@ -53,17 +60,34 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			ResolvedModel: resolvedModel,
 		}, spec)
 		if err != nil {
-			return nil, fmt.Errorf("vision: build child run: %w", err)
+			err = fmt.Errorf("vision: build child run: %w", err)
+			emitDelegateFailed(deps.Events, spec, AgentTypeVision, err.Error())
+			return nil, err
 		}
-		var gateRelease func()
-		req.Events, gateRelease = applyDispatchGate(ctx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
-		defer gateRelease()
 		spec.Limits = limits
+		worktree := CodeWorktree{}
+		childCtx, err := deps.ActiveController.Register(agentID, ctx, AgentTypeVision, worktree)
+		if err != nil {
+			cleanupRegistrationWorktree(AgentTypeVision, deps.WorkDir, worktree)
+			return nil, err
+		}
+		defer deps.ActiveController.Unregister(agentID)
+		emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, AgentTypeVision)
+		var gateRelease func()
+		req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
+		defer gateRelease()
+		if childCtx.Err() != nil {
+			emitDelegateStopped(deps.Events, spec, AgentTypeVision)
+			result := cancelledBeforeDispatchResult(spec.AgentID)
+			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
+			return result, nil
+		}
 
-		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
+		result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, withChildDone(func() { deps.ActiveController.MarkComplete(spec.AgentID) }))
 		if err == nil && deps.SessionStore != nil {
 			saveChildSession(deps.SessionStore, spec, req, state, runUsage, nil)
 		}
+		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 		if err != nil {
 			if result != (tool.ExecutionResult{}) {
 				return result, nil

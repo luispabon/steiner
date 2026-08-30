@@ -138,6 +138,12 @@ func (h overlayKeyHandlerFunc) handle(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 
 var overlayKeyHandlers = []overlayKeyHandler{
 	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.delegateCancelModal.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			return m.handleDelegateCancelModalKey(msg)
+		},
+	},
+	overlayKeyHandlerFunc{
 		match: func(m *Model) bool { return m.modelPicker.IsOpen() && m.modelPicker.IsWorkflowHandoff() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			_, cmd := m.handleModelPickerKey(msg)

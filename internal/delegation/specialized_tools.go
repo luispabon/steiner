@@ -268,6 +268,13 @@ func applySpecializedWorktreeResult(agentType AgentType, result tool.ExecutionRe
 	return result
 }
 
+func cleanupRegistrationWorktree(agentType AgentType, workDir string, worktree CodeWorktree) {
+	if agentType != AgentTypeCode || workDir == "" || worktree.Path == "" {
+		return
+	}
+	_, _ = pruneCodeWorktree(workDir, worktree)
+}
+
 func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) (SubAgentHandlerDeps, ChildBootstrapOverrides) {
 	handlerDeps := deps.SubAgentHandlerDeps
 	if agentType == AgentTypeCode && worktree.Path != "" {
@@ -284,7 +291,12 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 // newSpecializedHandler returns a handler for the given agent type.
 // It uses the per-type system prompt and allowed-tool list, leaving other
 // delegation parameters at their configured defaults.
+//
+//nolint:gocyclo // handler lifecycle branches cover setup, gating, execution, and cleanup.
 func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
+	if deps.ActiveController == nil {
+		deps.ActiveController = NewActiveController()
+	}
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		if err := checkPlanModeCodeDenial(ctx, agentType); err != nil {
 			return nil, err
@@ -297,21 +309,9 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 
 		agentID := generateAgentID()
 		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
-
-		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, deps)
-		if err != nil {
-			return nil, err
-		}
-
-		provisionedWorktree, warnings, err := specializedWorktree(ctx, agentType, deps.WorkDir, agentID)
-		if err != nil {
-			return nil, err
-		}
-
-		handlerDeps, override := specializedBootstrapDeps(agentType, deps, resolvedProvider, resolvedModel, allowedTools, provisionedWorktree)
-
 		spec := Spec{
 			Task:         task,
+			AgentType:    agentType,
 			SystemPrompt: AgentSystemPrompt(agentType),
 			ParentCallID: callID,
 			AgentID:      agentID,
@@ -320,14 +320,43 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			spec.SystemSuffix = AgentSystemSuffix(agentType)
 		}
 
+		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, deps)
+		if err != nil {
+			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
+			return nil, err
+		}
+
+		provisionedWorktree, warnings, err := specializedWorktree(ctx, agentType, deps.WorkDir, agentID)
+		if err != nil {
+			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
+			return nil, err
+		}
+
+		handlerDeps, override := specializedBootstrapDeps(agentType, deps, resolvedProvider, resolvedModel, allowedTools, provisionedWorktree)
+
 		req, limits, err := BuildChildRun(ctx, handlerDeps, override, spec)
 		if err != nil {
-			return nil, fmt.Errorf("%s: build child run: %w", agentType, err)
+			err = fmt.Errorf("%s: build child run: %w", agentType, err)
+			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
+			return nil, err
 		}
-		var gateRelease func()
-		req.Events, gateRelease = applyDispatchGate(ctx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
-		defer gateRelease()
 		spec.Limits = limits
+		childCtx, err := deps.ActiveController.Register(agentID, ctx, agentType, provisionedWorktree)
+		if err != nil {
+			cleanupRegistrationWorktree(agentType, deps.WorkDir, provisionedWorktree)
+			return nil, err
+		}
+		defer deps.ActiveController.Unregister(agentID)
+		emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, agentType)
+		var gateRelease func()
+		req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
+		defer gateRelease()
+		if childCtx.Err() != nil {
+			emitDelegateStopped(deps.Events, spec, agentType)
+			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings)
+			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
+			return result, nil
+		}
 
 		remediation := codeRemediationConfig(provisionedWorktree)
 
@@ -335,7 +364,8 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		if remediation != nil {
 			opts = append(opts, WithRemediation(remediation))
 		}
-		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
+		opts = append(opts, withChildDone(func() { deps.ActiveController.MarkComplete(spec.AgentID) }))
+		result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 		if err == nil && deps.SessionStore != nil {
 			saveChildSession(deps.SessionStore, spec, req, state, runUsage, remediation)
 		}
@@ -347,6 +377,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		result = applySpecializedWorktreeResult(agentType, result, provisionedWorktree, warnings)
+		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 
 		return result, nil
 	}

@@ -350,14 +350,15 @@ func NewDelegationStartedEvent(agentID, taskPreview string, callID ...string) Ev
 	return newEvent(EventTypeDelegationStarted, payload)
 }
 
-// NewDelegationStartedEventWithModel creates a delegation started event that
-// records the resolved model alias assigned to the child.
-func NewDelegationStartedEventWithModel(agentID, taskPreview, callID, modelAlias string) Event {
+// NewDelegationStartedEventWithType creates a delegation started event with
+// the resolved model alias and child agent type.
+func NewDelegationStartedEventWithType(agentID, taskPreview, callID, modelAlias, agentType string) Event {
 	payload := DelegationStartedEvent{
 		AgentID:     agentID,
 		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
 		CallID:      callID,
 		ModelAlias:  strings.TrimSpace(modelAlias),
+		AgentType:   agentType,
 	}
 	return newEvent(EventTypeDelegationStarted, payload)
 }
@@ -402,6 +403,15 @@ func NewDelegationExtensionEvent(agentID string, extension, maxExtensions int) E
 		AgentID:       agentID,
 		Extension:     extension,
 		MaxExtensions: maxExtensions,
+	})
+}
+
+// NewDelegationWorktreeDisposalEvent creates a worktree disposal event.
+func NewDelegationWorktreeDisposalEvent(agentID string, removed bool, errMsg string) Event {
+	return newEvent(EventTypeDelegationWorktreeDisposal, DelegationWorktreeDisposalEvent{
+		AgentID: agentID,
+		Removed: removed,
+		Error:   errMsg,
 	})
 }
 

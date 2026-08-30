@@ -208,6 +208,8 @@ func (m *Model) renderOverlayView(base string, contentWidth int) string {
 	switch {
 	case m.workflowHandoff.IsOpen():
 		return composeCenteredOverlay(base, m.renderWorkflowHandoffModal(), m.width, m.height)
+	case m.delegateCancelModal.IsOpen():
+		return composeCenteredOverlay(base, m.renderDelegateCancelModal(), m.width, m.height)
 	case m.contextOverlay.IsOpen():
 		return composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height)
 	case m.worktreeCleanupModal.IsOpen():

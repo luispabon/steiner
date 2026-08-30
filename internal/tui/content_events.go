@@ -178,6 +178,7 @@ type toolCallLocator struct {
 type delegationDisplayState struct {
 	isAdvisor               bool
 	agentID                 string
+	agentType               string
 	toolLabel               string // specialized tool name used for rendering (e.g. "explore")
 	taskPreview             string // truncated to ~80 chars
 	promptText              string

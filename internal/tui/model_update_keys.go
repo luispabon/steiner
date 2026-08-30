@@ -80,6 +80,9 @@ func (m *Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation
 		return true, m
 	}
 	if activeConversation && (msg.Code == tea.KeyEsc || isCtrl(msg, 'c') || isCtrl(msg, 'd')) {
+		if m.content.HasActiveDelegations() {
+			return true, m.openDelegateCancelModal()
+		}
 		return true, m.executeInterruptAction()
 	}
 	// During an active run, Enter queues a steer message instead of submitting normally.
@@ -104,6 +107,9 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 		if m.controller == nil {
 			_, cmd := m.beginExitFlow()
 			return true, m, cmd
+		}
+		if m.content.HasActiveDelegations() {
+			return true, m.openDelegateCancelModal(), nil
 		}
 		if m.exitFlowPhase != exitFlowPhaseNone {
 			return true, m, nil
@@ -145,6 +151,9 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 		m.scrollDown(max(1, m.viewport.Height()))
 		return true, m, nil
 	case tea.KeyEsc:
+		if m.content.HasActiveDelegations() {
+			return true, m.openDelegateCancelModal(), nil
+		}
 		return m.handleSelectionEscKey()
 	default:
 		return false, m, nil

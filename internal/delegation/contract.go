@@ -48,6 +48,9 @@ type Spec struct {
 	// AgentID is a unique identifier for this delegation.
 	AgentID string `json:"agent_id"`
 
+	// AgentType identifies the specialized child type for this delegation.
+	AgentType AgentType `json:"agent_type"`
+
 	// PriorTokenUsage carries the child agent's cumulative input, cache, and output
 	// tokens from runs before this spawn (extensions and prior follow-ups). The
 	// follow_up handler seeds it from the stored ChildSession so reported token

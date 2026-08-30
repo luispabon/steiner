@@ -15,6 +15,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/modelcatalog"
@@ -25,6 +26,33 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
 )
+
+type delegationCanceller struct{ c *delegation.ActiveController }
+
+func (d delegationCanceller) CancelAgent(agentID string, discard bool) error {
+	if d.c == nil {
+		return errors.New("no active delegate cancellation available")
+	}
+	if agentID == "" {
+		return errors.New("cancel delegate: agent id required")
+	}
+	switch d.c.CancelAgentWithDiscard(agentID, discard) {
+	case delegation.CancelAccepted:
+		return nil
+	case delegation.CancelAlreadyFinished:
+		return fmt.Errorf("delegate %q already finished; worktree retained", agentID)
+	default:
+		return fmt.Errorf("no active delegate %q", agentID)
+	}
+}
+
+func (d delegationCanceller) CancelAll() error {
+	if d.c == nil {
+		return errors.New("no active delegate cancellation available")
+	}
+	d.c.CancelAll()
+	return nil
+}
 
 func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	sessionCfg := rt.cfg
@@ -37,6 +65,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		HomeDir:           rt.homeDir,
 		WorkDir:           rt.workDir,
 		SessionStore:      rt.sessionStore,
+		DelegateCanceller: delegationCanceller{c: rt.delegationActiveController},
 		CompactionLogPath: rt.compactionLogFile,
 		RecordModelSwitch: modelPopularityRecorder(rt.modelPopularity),
 		OnEffectiveAssignmentsChanged: func(effective config.EffectiveModelAssignments) {

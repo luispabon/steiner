@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -131,6 +132,30 @@ func TestSpecializedHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
 	if got := waitingEvents(events.Events()); len(got) != 0 {
 		t.Fatalf("leader emitted %d waiting events, want none", len(got))
 	}
+	started := startedEvents(events.Events())
+	if len(started) != 1 {
+		t.Fatalf("started events = %d, want 1", len(started))
+	}
+	payload, ok := started[0].Payload.(output.DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("started payload = %T, want DelegationStartedEvent", started[0].Payload)
+	}
+	if payload.AgentType != string(AgentTypeExplore) {
+		t.Errorf("started AgentType = %q, want %q", payload.AgentType, AgentTypeExplore)
+	}
+	if started[0].Scope.AgentID == "" || started[0].Scope.AgentType != string(AgentTypeExplore) {
+		t.Errorf("started scope = %+v, want agent ID and type %q", started[0].Scope, AgentTypeExplore)
+	}
+}
+
+func startedEvents(events []output.Event) []output.Event {
+	var started []output.Event
+	for _, event := range events {
+		if event.Type == output.EventTypeDelegationStarted {
+			started = append(started, event)
+		}
+	}
+	return started
 }
 
 func TestSpecializedHandler_DispatchGateFollowerWaits(t *testing.T) {
@@ -326,6 +351,65 @@ func TestSpecializedHandler_DispatchGateNilStore(t *testing.T) {
 	}
 	if got := waitingEvents(events.Events()); len(got) != 0 {
 		t.Fatalf("nil store emitted %d waiting events, want none", len(got))
+	}
+}
+
+func TestSpecializedHandler_RegisterFailureCleansCodeWorktree(t *testing.T) {
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	controller := NewActiveController()
+	const agentID = "duplicate-code"
+	if _, err := controller.Register(agentID, context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
+		t.Fatalf("pre-register agent: %v", err)
+	}
+
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		t.Fatal("runner called after duplicate registration")
+		return agent.RunState{}, nil
+	}})
+	deps.ActiveController = controller
+	deps.WorkDir = repo
+	events := &recordingEventSink{}
+	deps.Events = events
+	originalIDGen := idGen
+	idGen = func() string { return agentID }
+	defer func() { idGen = originalIDGen }()
+
+	_, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), map[string]any{"task": "duplicate"})
+	if !errors.Is(err, ErrAgentAlreadyActive) {
+		t.Fatalf("handler error = %v, want ErrAgentAlreadyActive", err)
+	}
+	worktrees, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("list worktrees: %v", err)
+	}
+	if len(worktrees) != 0 {
+		t.Fatalf("worktrees after register failure = %#v, want none", worktrees)
+	}
+	if got := len(events.Events()); got != 0 {
+		t.Fatalf("lifecycle events after register failure = %d, want none", got)
+	}
+}
+
+func TestSpecializedHandler_RegisterFailureDoesNotCreateNonCodeWorktree(t *testing.T) {
+	controller := NewActiveController()
+	const agentID = "duplicate-explore"
+	if _, err := controller.Register(agentID, context.Background(), AgentTypeExplore, CodeWorktree{}); err != nil {
+		t.Fatalf("pre-register agent: %v", err)
+	}
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		t.Fatal("runner called after duplicate registration")
+		return agent.RunState{}, nil
+	}})
+	deps.ActiveController = controller
+	originalIDGen := idGen
+	idGen = func() string { return agentID }
+	defer func() { idGen = originalIDGen }()
+
+	_, err := newSpecializedHandler(AgentTypeExplore, deps)(context.Background(), map[string]any{"task": "duplicate"})
+	if !errors.Is(err, ErrAgentAlreadyActive) {
+		t.Fatalf("handler error = %v, want ErrAgentAlreadyActive", err)
 	}
 }
 
