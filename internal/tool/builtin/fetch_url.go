@@ -19,6 +19,16 @@ import (
 // before content is saved to disk and a preview is returned instead.
 const inlineThreshold = 10000
 
+// mainContentFallbackMinRunes is the minimum rune count expected from
+// main-content extraction. Markdown shorter than this is treated as a
+// failed extraction and triggers a fallback fetch of the full document.
+const mainContentFallbackMinRunes = 200
+
+// mainContentFallbackMessage is the advisory set on the result when
+// main-content extraction found nothing usable and the full document was
+// returned instead.
+const mainContentFallbackMessage = "Main-content extraction found nothing usable; returned the full document instead."
+
 // FetchURLResult is the result from a fetch_url tool call.
 type FetchURLResult struct {
 	URL           string      `json:"url"`
@@ -46,7 +56,7 @@ type FetchURLError struct {
 func NewFetchURLTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "fetch_url",
-		Description:     "Fetch a URL and return its content. Supports HTML (converted to markdown), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk — use the read tool to paginate.",
+		Description:     "Fetch a URL and return its content. Supports HTML (main content extracted and converted to markdown, falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk in full — use the read tool to paginate; the only ceiling is the max_size download/save limit.",
 		ParameterSchema: FetchURLSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[FetchURLInput](input)
@@ -141,9 +151,10 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 			})
 
 			req := &fetch.Request{
-				URL:         in.URL,
-				Formats:     []string{"markdown"},
-				ExcludeTags: toolkit.DefaultFetchExcludeTags,
+				URL:             in.URL,
+				Formats:         []string{"markdown"},
+				ExcludeTags:     toolkit.DefaultFetchExcludeTags,
+				OnlyMainContent: true,
 			}
 
 			resp, err := fetcher.Fetch(ctx, req)
@@ -164,7 +175,24 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 				}, nil
 			}
 
-			return buildHTMLResult(in.URL, resp, env.WorkDir, in.MaxSize)
+			fallbackMessage := ""
+			if resp.StatusCode == 200 && utf8.RuneCountInString(resp.Markdown) < mainContentFallbackMinRunes {
+				fullReq := &fetch.Request{
+					URL:         in.URL,
+					Formats:     []string{"markdown"},
+					ExcludeTags: toolkit.DefaultFetchExcludeTags,
+				}
+				// If the full-document re-fetch itself fails (e.g. it now
+				// exceeds MaxBodySize even though the main-content extract
+				// didn't), deliberately keep the original near-empty
+				// main-content result rather than erroring the whole call.
+				if fullResp, fullErr := fetcher.Fetch(ctx, fullReq); fullErr == nil {
+					resp = fullResp
+					fallbackMessage = mainContentFallbackMessage
+				}
+			}
+
+			return buildHTMLResult(in.URL, resp, env.WorkDir, in.MaxSize, fallbackMessage)
 		},
 	}
 }
@@ -173,8 +201,10 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 // fetch_url result, applying max_size truncation and the inline/disk-saved
 // inlineThreshold gate. inURL is the originally requested URL, used for
 // error results (resp.URL reflects the final URL after redirects and is
-// used for success results).
-func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize int) (any, error) {
+// used for success results). fallbackMessage, if non-empty, is composed
+// ahead of any nav-like warning and any disk-save message so all advisories
+// that apply to a response can coexist in Message.
+func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize int, fallbackMessage string) (any, error) {
 	if resp.StatusCode != 200 {
 		return &FetchURLError{
 			URL:   inURL,
@@ -192,6 +222,11 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 	content = string(data)
 	contentLength := utf8.RuneCountInString(content)
 
+	advisory := fallbackMessage
+	if looksLikeNavigation(content) {
+		advisory = appendAdvisory(advisory, navigationAdvisoryMessage)
+	}
+
 	if contentLength <= inlineThreshold {
 		return &FetchURLResult{
 			URL:           resp.URL,
@@ -201,6 +236,7 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 			ContentLength: contentLength,
 			StatusCode:    resp.StatusCode,
 			Truncated:     truncated,
+			Message:       advisory,
 		}, nil
 	}
 
@@ -212,5 +248,19 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 	result.Title = resp.Metadata.Title
 	result.Description = resp.Metadata.Description
 	result.StatusCode = resp.StatusCode
+	result.Message = appendAdvisory(advisory, result.Message)
 	return result, nil
+}
+
+// appendAdvisory composes advisory into existing, separated by a space if
+// both are non-empty. Used to combine the main-content fallback notice, the
+// nav-like warning, and the disk-save message into a single Message.
+func appendAdvisory(existing, advisory string) string {
+	if advisory == "" {
+		return existing
+	}
+	if existing == "" {
+		return advisory
+	}
+	return existing + " " + advisory
 }

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -134,7 +135,7 @@ func TestBuildHTMLResult(t *testing.T) {
 			StatusCode: 404,
 		}
 
-		res, err := buildHTMLResult("https://example.com/original", resp, t.TempDir(), 500000)
+		res, err := buildHTMLResult("https://example.com/original", resp, t.TempDir(), 500000, "")
 		if err != nil {
 			t.Fatalf("buildHTMLResult: %v", err)
 		}
@@ -161,7 +162,7 @@ func TestBuildHTMLResult(t *testing.T) {
 			},
 		}
 
-		res, err := buildHTMLResult("https://example.com/page", resp, t.TempDir(), 500000)
+		res, err := buildHTMLResult("https://example.com/page", resp, t.TempDir(), 500000, "")
 		if err != nil {
 			t.Fatalf("buildHTMLResult: %v", err)
 		}
@@ -202,7 +203,7 @@ func TestBuildHTMLResult(t *testing.T) {
 		}
 
 		workDir := t.TempDir()
-		res, err := buildHTMLResult("https://example.com/big", resp, workDir, 500000)
+		res, err := buildHTMLResult("https://example.com/big", resp, workDir, 500000, "")
 		if err != nil {
 			t.Fatalf("buildHTMLResult: %v", err)
 		}
@@ -249,7 +250,7 @@ func TestBuildHTMLResult(t *testing.T) {
 			Markdown:   strings.Repeat("x", 200),
 		}
 
-		res, err := buildHTMLResult("https://example.com/huge", resp, t.TempDir(), maxSize)
+		res, err := buildHTMLResult("https://example.com/huge", resp, t.TempDir(), maxSize, "")
 		if err != nil {
 			t.Fatalf("buildHTMLResult: %v", err)
 		}
@@ -280,12 +281,61 @@ func TestBuildHTMLResult(t *testing.T) {
 			t.Fatalf("setup: %v", err)
 		}
 
-		res, err := buildHTMLResult("https://example.com/blocked", resp, workDir, 500000)
+		res, err := buildHTMLResult("https://example.com/blocked", resp, workDir, 500000, "")
 		if err == nil {
 			t.Fatalf("expected error, got result: %+v", res)
 		}
 		if res != nil {
 			t.Errorf("expected nil result on error, got %+v", res)
+		}
+	})
+
+	t.Run("nav-like content adds an advisory to Message", func(t *testing.T) {
+		markdown := strings.Repeat("[Documentation Overview Page](https://example.com/docs/overview)\n", 30)
+		resp := &fetch.Response{
+			URL:        "https://example.com/nav",
+			StatusCode: 200,
+			Markdown:   markdown,
+		}
+
+		res, err := buildHTMLResult("https://example.com/nav", resp, t.TempDir(), 500000, "")
+		if err != nil {
+			t.Fatalf("buildHTMLResult: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+		if !strings.Contains(result.Message, navigationAdvisoryMessage) {
+			t.Errorf("Message = %q, want it to contain the nav advisory", result.Message)
+		}
+	})
+
+	t.Run("fallback, nav-like, and disk-save messages compose in order", func(t *testing.T) {
+		markdown := strings.Repeat("[Documentation Overview Page](https://example.com/docs/overview)\n", 200)
+		resp := &fetch.Response{
+			URL:        "https://example.com/composed",
+			StatusCode: 200,
+			Markdown:   markdown,
+		}
+
+		res, err := buildHTMLResult("https://example.com/composed", resp, t.TempDir(), 500000, mainContentFallbackMessage)
+		if err != nil {
+			t.Fatalf("buildHTMLResult: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+
+		fallbackIdx := strings.Index(result.Message, mainContentFallbackMessage)
+		navIdx := strings.Index(result.Message, navigationAdvisoryMessage)
+		saveIdx := strings.Index(result.Message, "Saved")
+		if fallbackIdx == -1 || navIdx == -1 || saveIdx == -1 {
+			t.Fatalf("Message = %q, want all three advisories present", result.Message)
+		}
+		if fallbackIdx >= navIdx || navIdx >= saveIdx {
+			t.Errorf("Message = %q, want fallback, then nav warning, then disk-save message in that order", result.Message)
 		}
 	})
 }
@@ -1003,7 +1053,7 @@ func TestBuildHTMLResultMultiByteCutAtCeiling(t *testing.T) {
 			}
 
 			workDir := t.TempDir()
-			res, err := buildHTMLResult("https://example.com/multibyte", resp, workDir, maxSize)
+			res, err := buildHTMLResult("https://example.com/multibyte", resp, workDir, maxSize, "")
 			if err != nil {
 				t.Fatalf("buildHTMLResult: %v", err)
 			}
@@ -1712,5 +1762,99 @@ func TestSaveFetchedImageWriteFailureLeavesNoPartialFile(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Name() != filepath.Base(target) {
 		t.Errorf("fetched directory entries = %v, want only failed target directory", entries)
+	}
+}
+
+func newFetchURLTestServer(t *testing.T, html string, getCount *int32) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		atomic.AddInt32(getCount, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(html))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestFetchURLMainContentExtraction(t *testing.T) {
+	html := `<html><body>
+<nav>` + strings.Repeat(`<a href="/l">Nav Link</a>`, 50) + `</nav>
+<main><p>` + strings.Repeat("Real article prose about the subject matter. ", 10) + `</p></main>
+</body></html>`
+
+	var getCount int32
+	server := newFetchURLTestServer(t, html, &getCount)
+
+	workDir := t.TempDir()
+	policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	env := Env{
+		WorkDir:    workDir,
+		PathPolicy: &policy,
+		httpClient: func() *http.Client { return server.Client() },
+	}
+
+	res, err := NewFetchURLTool(env).Handler(context.Background(), map[string]any{"url": server.URL})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	result, ok := res.(*FetchURLResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *FetchURLResult", res)
+	}
+	if !strings.Contains(result.Content, "Real article prose") {
+		t.Errorf("Content = %q, want it to contain the <main> prose", result.Content)
+	}
+	if strings.Contains(result.Content, "Nav Link") {
+		t.Errorf("Content = %q, want <nav> links excluded", result.Content)
+	}
+	if result.Message != "" {
+		t.Errorf("Message = %q, want empty for a normal main-content extraction with prose", result.Message)
+	}
+	if got := atomic.LoadInt32(&getCount); got != 1 {
+		t.Errorf("GET requests = %d, want 1 (no fallback expected)", got)
+	}
+}
+
+func TestFetchURLMainContentFallback(t *testing.T) {
+	// No <main> container. The prose lives in an <aside>, which
+	// OnlyMainContent excludes but a full-document fetch does not, so
+	// main-content extraction should yield too little content and trigger
+	// the fallback to the full document.
+	html := `<html><body><aside><p>` +
+		strings.Repeat("Aside prose content that only exists outside main. ", 10) +
+		`</p></aside></body></html>`
+
+	var getCount int32
+	server := newFetchURLTestServer(t, html, &getCount)
+
+	workDir := t.TempDir()
+	policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	env := Env{
+		WorkDir:    workDir,
+		PathPolicy: &policy,
+		httpClient: func() *http.Client { return server.Client() },
+	}
+
+	res, err := NewFetchURLTool(env).Handler(context.Background(), map[string]any{"url": server.URL})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	result, ok := res.(*FetchURLResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *FetchURLResult", res)
+	}
+	if !strings.Contains(result.Content, "Aside prose content") {
+		t.Errorf("Content = %q, want the full document's <aside> prose after fallback", result.Content)
+	}
+	if !strings.Contains(result.Message, "Main-content extraction found nothing") {
+		t.Errorf("Message = %q, want it to state main-content extraction found nothing", result.Message)
+	}
+	if got := atomic.LoadInt32(&getCount); got != 2 {
+		t.Errorf("GET requests = %d, want 2 (fallback re-fetches once)", got)
 	}
 }
