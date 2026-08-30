@@ -397,3 +397,75 @@ func TestBuildContextReportOmitsToolDefinitionsWhenNoTools(t *testing.T) {
 		t.Fatalf("report missing tool definitions category row\n%s", report)
 	}
 }
+
+func TestBuildContextReportShowsTruncationMarker(t *testing.T) {
+	t.Parallel()
+
+	t.Run("truncated block", func(t *testing.T) {
+		t.Parallel()
+
+		snapshot := RequestContextSnapshot{
+			Model:    "gpt-4o",
+			Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "context"}},
+			Blocks: []prompt.ContextBlock{
+				{
+					Source:    prompt.ContextSourceSkill,
+					Path:      "/skills/plan/SKILL.md",
+					Content:   "truncated skill content",
+					ByteSize:  22,
+					Truncated: true,
+				},
+			},
+			ModelBudget: prompt.ModelTokenBudget{
+				ContextSize:         4096,
+				MaxCompletionTokens: 128,
+			},
+		}
+
+		report, err := BuildContextReport(context.Background(), snapshot)
+		if err != nil {
+			t.Fatalf("BuildContextReport() error = %v", err)
+		}
+
+		if !strings.Contains(report, "truncated skill content") {
+			t.Fatalf("report missing block content\n%s", report)
+		}
+		if !strings.Contains(report, "(truncated") || !strings.Contains(report, "exceeded its budget") {
+			t.Fatalf("report missing truncation marker\n%s", report)
+		}
+	})
+
+	t.Run("non-truncated block", func(t *testing.T) {
+		t.Parallel()
+
+		snapshot := RequestContextSnapshot{
+			Model:    "gpt-4o",
+			Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "context"}},
+			Blocks: []prompt.ContextBlock{
+				{
+					Source:    prompt.ContextSourceSkill,
+					Path:      "/skills/plan/SKILL.md",
+					Content:   "complete skill content",
+					ByteSize:  21,
+					Truncated: false,
+				},
+			},
+			ModelBudget: prompt.ModelTokenBudget{
+				ContextSize:         4096,
+				MaxCompletionTokens: 128,
+			},
+		}
+
+		report, err := BuildContextReport(context.Background(), snapshot)
+		if err != nil {
+			t.Fatalf("BuildContextReport() error = %v", err)
+		}
+
+		if !strings.Contains(report, "complete skill content") {
+			t.Fatalf("report missing block content\n%s", report)
+		}
+		if strings.Contains(report, "(truncated") {
+			t.Fatalf("report should not contain truncation marker\n%s", report)
+		}
+	})
+}

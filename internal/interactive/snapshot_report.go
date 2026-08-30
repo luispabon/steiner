@@ -141,6 +141,9 @@ func BuildContextReport(ctx context.Context, snapshot RequestContextSnapshot) (s
 			}
 			lines = append(lines, "")
 			lines = append(lines, block.Content)
+			if block.Truncated {
+				lines = append(lines, fmt.Sprintf("_(truncated — %s content exceeded its budget)_", block.Source))
+			}
 			lines = append(lines, "")
 		}
 	}
