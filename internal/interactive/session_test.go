@@ -26,6 +26,8 @@ var (
 	_ Action = SubmitApproval{}
 	_ Action = SubmitWorkflowHandoff{}
 	_ Action = InterruptActiveRun{}
+	_ Action = CancelDelegate{}
+	_ Action = CancelAllDelegates{}
 	_ Action = RequestExit{}
 	_ Action = SetSkillEnabled{}
 	_ Action = SwitchModel{}

@@ -168,6 +168,47 @@ func TestNewDelegateDepsDelegationModelIsBaseResolvedModel(t *testing.T) {
 	}
 }
 
+func TestNewDelegateDepsUsesSharedActiveController(t *testing.T) {
+	controller := delegation.NewActiveController()
+	r := cliRunner{runtime: cliRuntime{delegationActiveController: controller}}
+
+	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	first := r.newDelegateDeps(runnerSetup{}, nil, nil, nil, "")
+	second := r.newDelegateDeps(runnerSetup{}, nil, nil, nil, "")
+	if first.ActiveController != controller || second.ActiveController != controller {
+		t.Fatal("newDelegateDeps did not return the process-lifetime active controller")
+	}
+	if !slices.Equal(controller.ActiveAgentIDs(), []string{"child-1"}) {
+		t.Fatalf("active agents after delegate deps rebuilds = %v, want [child-1]", controller.ActiveAgentIDs())
+	}
+	if err := childCtx.Err(); err != nil {
+		t.Fatalf("child context canceled before test cancellation: %v", err)
+	}
+}
+
+func TestDelegationCancellerTargetsSharedController(t *testing.T) {
+	controller := delegation.NewActiveController()
+	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	if err := (delegationCanceller{c: controller}).CancelAgent("child-1", true); err != nil {
+		t.Fatalf("CancelAgent() error = %v", err)
+	}
+	select {
+	case <-childCtx.Done():
+	default:
+		t.Fatal("CancelAgent() did not cancel registered child")
+	}
+	if !controller.DiscardRequested("child-1") {
+		t.Fatal("CancelAgent(discard=true) did not request worktree discard")
+	}
+}
+
 func TestNewDelegateDepsUsesCurrentEffectiveAssignments(t *testing.T) {
 	frozen := config.EffectiveModelAssignments{ProfileName: "default", DefaultModel: "base"}
 	live := config.EffectiveModelAssignments{

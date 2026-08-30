@@ -11,13 +11,14 @@ import (
 )
 
 // Handle processes an interactive action. Handles SubmitPrompt, SteerPrompt,
-// InterruptActiveRun, ClearConversation, RequestContextReport,
+// InterruptActiveRun, CancelDelegate, CancelAllDelegates, ClearConversation,
+// RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
 // SwitchMode, SwitchModel, SwitchProfile, SubmitApproval, SubmitWorkflowHandoff,
 // LoadSession, and requestSessionPicker.
 func (s *Session) Handle(ctx context.Context, action Action) error {
-	if s.handleImmediateAction(ctx, action) {
-		return nil
+	if handled, err := s.handleImmediateAction(ctx, action); handled {
+		return err
 	}
 	if handled, err := s.handleStateAction(ctx, action); handled {
 		return err
@@ -25,7 +26,7 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 	return fmt.Errorf("handle: unknown action type %T", action)
 }
 
-func (s *Session) handleImmediateAction(ctx context.Context, action Action) bool {
+func (s *Session) handleImmediateAction(ctx context.Context, action Action) (bool, error) {
 	switch a := action.(type) {
 	case SubmitPrompt:
 		s.runs.Add(1)
@@ -33,33 +34,43 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) bool
 			defer s.runs.Done()
 			s.submitPrompt(ctx, a.Text, a.Images)
 		}()
-		return true
+		return true, nil
 	case SteerPrompt:
 		s.runController.Steer(a.Text, a.Images)
-		return true
+		return true, nil
 	case InterruptActiveRun:
 		s.runController.Interrupt()
-		return true
+		return true, nil
+	case CancelDelegate:
+		if s.delegateCanceller == nil {
+			return true, fmt.Errorf("no active delegate cancellation available")
+		}
+		return true, s.delegateCanceller.CancelAgent(a.AgentID, a.Discard)
+	case CancelAllDelegates:
+		if s.delegateCanceller == nil {
+			return true, fmt.Errorf("no active delegate cancellation available")
+		}
+		return true, s.delegateCanceller.CancelAll()
 	case RequestContextReport:
 		s.emitContextReport(ctx)
-		return true
+		return true, nil
 	case RequestConfigReport:
 		s.emitConfigReport()
-		return true
+		return true, nil
 	case TriggerManualCompaction:
 		s.runs.Add(1)
 		go func() {
 			defer s.runs.Done()
 			s.manualCompaction(ctx, a.Steering)
 		}()
-		return true
+		return true, nil
 	case RequestExit:
 		s.exitOnce.Do(func() { close(s.done) })
-		return true
+		return true, nil
 	case requestSessionPicker:
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, error) {
