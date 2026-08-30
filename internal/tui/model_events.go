@@ -34,14 +34,28 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		}
 	}
 
-	if event.Type != output.EventTypeHistoryLoaded {
-		m.content.AppendEvent(event)
-	}
-
 	// Sub-agent events update delegation transcript segments only.
 	// They must not overwrite the main agent's sidebar, status bar,
 	// or activity state.
 	if event.Scope.AgentID != "" {
+		if event.Type == output.EventTypeDelegationWorktreeDisposal {
+			if payload, ok := event.Payload.(output.DelegationWorktreeDisposalEvent); ok {
+				line := fmt.Sprintf("code worktree discarded for %s", payload.AgentID)
+				switch {
+				case payload.Error != "":
+					line = fmt.Sprintf("code worktree discard failed for %s: %s", payload.AgentID, payload.Error)
+				case !payload.Removed:
+					line = fmt.Sprintf("no code worktree to discard for %s", payload.AgentID)
+				}
+				m.content.AppendLine("status: " + line)
+				m.contentDirty = true
+				m.syncDebounceSeq++
+				return tea.Batch(syncDebounceCmd(m.syncDebounceSeq))
+			}
+		}
+		if event.Type != output.EventTypeHistoryLoaded {
+			m.content.AppendEvent(event)
+		}
 		var cmds []tea.Cmd
 		if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeModelCallFinished {
 			cmds = append(cmds, gitRefreshCmd(m.git))
@@ -52,6 +66,10 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			cmds = append(cmds, syncDebounceCmd(m.syncDebounceSeq))
 		}
 		return tea.Batch(cmds...)
+	}
+
+	if event.Type != output.EventTypeHistoryLoaded {
+		m.content.AppendEvent(event)
 	}
 
 	switch payload := event.Payload.(type) {

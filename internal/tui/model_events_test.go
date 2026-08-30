@@ -12,6 +12,72 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+func TestApplyEventScopedWorktreeDisposal(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		event output.Event
+		want  string
+	}{
+		{
+			name:  "discarded",
+			event: output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("child-1", true, ""), "child-1"),
+			want:  "code worktree discarded for child-1",
+		},
+		{
+			name:  "discard failed",
+			event: output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("child-1", false, "prune failed"), "child-1"),
+			want:  "code worktree discard failed for child-1: prune failed",
+		},
+		{
+			name:  "nothing to discard",
+			event: output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("child-1", false, ""), "child-1"),
+			want:  "no code worktree to discard for child-1",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{}, nil)
+			_ = m.applyEvent(tc.event)
+
+			if len(m.content.segments) != 1 {
+				t.Fatalf("segments count = %d, want 1", len(m.content.segments))
+			}
+			seg := m.content.segments[0]
+			if seg.kind != segmentStatus {
+				t.Fatalf("segment kind = %v, want segmentStatus", seg.kind)
+			}
+			if seg.text != tc.want {
+				t.Errorf("segment text = %q, want %q", seg.text, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplyEventScopedWorktreeDisposalAfterDelegateFinished(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	_ = m.applyEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
+	_ = m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "child-1", Status: "complete"}))
+	if len(m.content.activeDelegations) != 0 {
+		t.Fatal("active delegation remains after completion")
+	}
+
+	_ = m.applyEvent(output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("child-1", true, ""), "child-1"))
+
+	matches := 0
+	for _, seg := range m.content.segments {
+		if seg.kind == segmentStatus && seg.text == "code worktree discarded for child-1" {
+			matches++
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("disposal status lines = %d, want 1", matches)
+	}
+}
+
 func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 	t.Parallel()
 	ch := make(chan agent.SteerMessage, 4)
