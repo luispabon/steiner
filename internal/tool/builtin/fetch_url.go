@@ -256,7 +256,7 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 		}, nil
 	}
 
-	result, err := saveFetchedContent(workDir, content, "text/html", truncated)
+	result, err := saveFetchedContent(workDir, content, "text/html", truncated, maxSize)
 	if err != nil {
 		return nil, fmt.Errorf("fetch_url: %w", err)
 	}

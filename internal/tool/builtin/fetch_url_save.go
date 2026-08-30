@@ -12,7 +12,7 @@ import (
 // .steiner/tmp/fetched/ within workDir and returns a FetchURLResult
 // describing the saved file plus a bounded preview. URL and StatusCode are
 // left zero-value for the caller to set.
-func saveFetchedContent(workDir, content, contentType string, truncated bool) (*FetchURLResult, error) {
+func saveFetchedContent(workDir, content, contentType string, truncated bool, maxSize int) (*FetchURLResult, error) {
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
 	hash12 := hash[:12]
 	ext := extensionFromContentType(contentType)
@@ -44,10 +44,7 @@ func saveFetchedContent(workDir, content, contentType string, truncated bool) (*
 		len(content), totalLines,
 	)
 	if truncated {
-		message = fmt.Sprintf(
-			"Saved %d bytes. The response exceeded the max_size limit and was truncated; the remainder was not fetched or saved and cannot be recovered by reading further.",
-			len(content),
-		)
+		message = truncatedSaveMessage(len(content), maxSize)
 	}
 
 	return &FetchURLResult{

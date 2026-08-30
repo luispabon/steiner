@@ -151,7 +151,7 @@ func FetchURLSchema() map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"url":      map[string]any{"type": "string", "description": "URL to fetch"},
-			"max_size": map[string]any{"type": "integer", "description": "Max bytes to download and save to disk", "default": defaultFetchURLMaxSize, "maximum": maxFetchURLMaxSize},
+			"max_size": map[string]any{"type": "integer", "description": "Max bytes to download and save to disk (default 10MB, ceiling 32MB)", "default": defaultFetchURLMaxSize, "maximum": maxFetchURLMaxSize},
 		},
 		"required":             []string{"url"},
 		"additionalProperties": false,

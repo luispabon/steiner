@@ -106,6 +106,14 @@ func oversizeBodyErrorMessage(maxSize int) string {
 	return fmt.Sprintf("response body exceeded max_size (%d bytes), which is already the fetch ceiling; fetch a narrower resource instead (e.g. a specific page or sub-resource)", maxSize)
 }
 
+// truncatedSaveMessage builds the advisory for content truncated before saving.
+func truncatedSaveMessage(savedBytes, maxSize int) string {
+	if maxSize < maxFetchURLMaxSize {
+		return fmt.Sprintf("Saved %d bytes. The response exceeded max_size and was truncated; the remainder was not saved and cannot be recovered by reading further. Retry with a larger max_size to capture more.", savedBytes)
+	}
+	return fmt.Sprintf("Saved %d bytes. The response exceeded max_size and was truncated; max_size is already at the fetch ceiling, so fetch a narrower resource instead (e.g. a specific page or sub-resource).", savedBytes)
+}
+
 // unexpectedContentType reports whether err is wonton's unexpected-content-type
 // error and, if so, extracts the content type it rejected.
 func unexpectedContentType(err error) (string, bool) {

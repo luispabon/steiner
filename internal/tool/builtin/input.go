@@ -103,9 +103,11 @@ const (
 	defaultBashMaxOutputChars = 30000
 	maxBashMaxOutputChars     = 100000
 	defaultFetchURLMaxSize    = 10 << 20
-	maxFetchURLMaxSize        = 10 << 20
-	defaultWebSearchLimit     = 10
-	maxWebSearchLimit         = 30
+	// fetchRawText reads up to MaxSize+1 bytes into memory. An opted-in 32 MiB
+	// fetch therefore holds about 32 MiB plus saveFetchedContent's copies.
+	maxFetchURLMaxSize    = 32 << 20
+	defaultWebSearchLimit = 10
+	maxWebSearchLimit     = 30
 )
 
 // normalizeRead applies defaults and caps to read input.
