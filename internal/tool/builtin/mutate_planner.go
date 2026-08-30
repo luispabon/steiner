@@ -9,14 +9,11 @@ import (
 )
 
 const maxMutateOutputChars = 30000
-const maxMutateDiffInputBytes = maxMutateOutputChars * 2
-const maxMutateDiffInputLines = 4000
 
 type mutatePlanner struct {
 	env     Env
 	states  map[string]*mutateFileState
 	result  MutateResult
-	diffs   []string
 	applied int
 }
 
@@ -67,6 +64,10 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	p.result.OperationsApplied = p.applied
 	for i := range p.result.OperationResults {
 		p.result.OperationResults[i].Applied = true
+		p.result.OperationResults[i].ResolvedPath = ""
+		p.result.OperationResults[i].FileHash = ""
+		p.result.OperationResults[i].Assertions = nil
+		p.result.OperationResults[i].Context = nil
 	}
 	p.result.Output = p.successOutput("Success.")
 	return &p.result
@@ -276,15 +277,5 @@ func (p *mutatePlanner) successOutput(prefix string) string {
 	for _, moved := range p.result.Moved {
 		lines = append(lines, "R "+moved.From+" -> "+moved.To)
 	}
-	if len(p.diffs) > 0 {
-		lines = append(lines, "", strings.Join(p.diffs, "\n"))
-	}
 	return truncateMutateOutput(strings.Join(lines, "\n"))
-}
-
-func (p *mutatePlanner) addDiff(path, before, after string) {
-	if before == after {
-		return
-	}
-	p.diffs = append(p.diffs, unifiedTextDiff(path, before, after))
 }

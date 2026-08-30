@@ -26,7 +26,6 @@ func (p *mutatePlanner) planCreate(index int, op MutateOperation) error {
 	if err := verifyParentDirExists(state.path, p.isSandboxTmpPath(state.path), state); err != nil {
 		return fmt.Errorf("mutate: operation %d create: %w", index, err)
 	}
-	before := string(state.content)
 	state.exists = true
 	state.isDir = false
 	state.content = []byte(op.Content)
@@ -35,7 +34,6 @@ func (p *mutatePlanner) planCreate(index int, op MutateOperation) error {
 	if err := p.recordTextOperation(index, op, state, 0, 1); err != nil {
 		return err
 	}
-	p.addDiff(state.displayPath, before, op.Content)
 	return nil
 }
 
@@ -56,7 +54,6 @@ func (p *mutatePlanner) planWrite(index int, op MutateOperation) error {
 	if op.Content == "" && state.exists && len(state.content) > 0 {
 		return fmt.Errorf("mutate: operation %d write: content is empty but %s has %d bytes — use delete_file to remove the file", index, state.displayPath, len(state.content))
 	}
-	before := string(state.content)
 	wasExisting := state.exists
 	state.exists = true
 	state.isDir = false
@@ -70,7 +67,6 @@ func (p *mutatePlanner) planWrite(index int, op MutateOperation) error {
 	if err := p.recordTextOperation(index, op, state, 0, 1); err != nil {
 		return err
 	}
-	p.addDiff(state.displayPath, before, op.Content)
 	return nil
 }
 
@@ -95,7 +91,6 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 	}
 	firstMatch := bytes.Index(state.content, oldBytes)
 	anchorLine := lineNumberAt(state.content, firstMatch)
-	before := string(state.content)
 	if op.ReplaceAll {
 		state.content = bytes.ReplaceAll(state.content, oldBytes, []byte(op.NewString))
 	} else {
@@ -106,7 +101,6 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 	if err := p.recordTextOperation(index, op, state, matchCount, anchorLine); err != nil {
 		return err
 	}
-	p.addDiff(state.displayPath, before, string(state.content))
 	return nil
 }
 
@@ -124,12 +118,10 @@ func (p *mutatePlanner) planDelete(index int, op MutateOperation) error {
 	if state.isDir {
 		return fmt.Errorf("mutate: operation %d delete_file: %s is a directory", index, state.displayPath)
 	}
-	before := string(state.content)
 	state.exists = false
 	state.content = nil
 	state.touched = true
 	p.result.Deleted = appendUnique(p.result.Deleted, state.displayPath)
-	p.addDiff(state.displayPath, before, "")
 	return nil
 }
 
@@ -168,8 +160,6 @@ func (p *mutatePlanner) planMove(index int, op MutateOperation) error {
 	if err := p.recordMovedOperation(index, op, to); err != nil {
 		return err
 	}
-	p.addDiff(from.displayPath, string(to.content), "")
-	p.addDiff(to.displayPath, "", string(to.content))
 	return nil
 }
 
