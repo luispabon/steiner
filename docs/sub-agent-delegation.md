@@ -77,7 +77,7 @@ Key behaviours:
 
 ### Parallel fan-out
 
-Multiple delegation calls made in one turn execute concurrently. `sub_agent.max_parallel` bounds the fan-out width: the default is `3`, `0` means unbounded, and `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
+Multiple delegation calls made in one turn execute concurrently. The fan-out width is bounded by `limits.max_parallel_tools` (default `4`), shared with other parallel-safe tool batches in the same turn — see [docs/configuration.md](configuration.md#limits-block). `0` means unbounded, and `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
 
 ### Stopping active delegates
 

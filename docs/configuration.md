@@ -584,7 +584,7 @@ do and tool allowlists for each specialised agent type, see
 | `enabled`      | bool                       | `true`                                   | Master switch. Set to `false` to remove all delegation tools from the model. |
 | `max_turns`    | int                        | `30`                                     | Maximum turns allowed for each child agent run. A floor of 15 turns is enforced internally. |
 | `max_tokens`   | int                        | `100000`                                 | Maximum tokens a child agent may consume. |
-| `max_parallel` | int                        | `3`                                      | Maximum concurrent delegation tool calls within one turn. `0` means unbounded; `1` means serial. |
+| `max_parallel` | int                        | `3`                                      | Reserved; does not currently bound anything. Delegation tool calls made in the same parent turn share the general concurrency cap set by [`limits.max_parallel_tools`](#limits-block). |
 
 Each specialised agent type (`explore`, `research`, `code`, `plan`, `verify`,
 `vision`) has its own hardcoded tool allowlist; there is no user-configurable
