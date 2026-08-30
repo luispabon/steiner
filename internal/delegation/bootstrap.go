@@ -27,6 +27,15 @@ type ChildBootstrapOverrides struct {
 	AllowedTools  []string
 	Provider      provider.Provider
 	ResolvedModel provider.ResolvedModel
+
+	// ProjectRoot is the parent's actual project directory, used only for
+	// placing host-side artifacts (e.g. tool-call trace files) that must
+	// never land inside a code agent's isolated git worktree. It is distinct
+	// from deps.WorkDir, which specializedBootstrapDeps overrides to the
+	// worktree path for AgentTypeCode before calling BuildChildRun. Callers
+	// that never override WorkDir (vision, non-code specialized agents) may
+	// leave this unset; BuildChildRun falls back to deps.WorkDir.
+	ProjectRoot string
 }
 
 // childContextSkips reports which context sections a delegated child of the
@@ -78,8 +87,13 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, override.AllowedTools)
 	readOnlyBash := deps.SandboxEnabled && override.AgentType == AgentTypeExplore
+	traceRoot := override.ProjectRoot
+	if traceRoot == "" {
+		traceRoot = deps.WorkDir
+	}
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:            deps.WorkDir,
+		TraceRoot:          traceRoot,
 		AgentID:            spec.AgentID,
 		Provider:           override.Provider,
 		VisibleReg:         visibleReg,
@@ -208,7 +222,13 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 // adjacent same-typed values (e.g. two bools, two *tool.Registry) could be
 // transposed without compiler protection.
 type childRunRequestParams struct {
-	WorkDir            string
+	WorkDir string
+	// TraceRoot is where host-side tool-call trace files are written. It
+	// equals WorkDir except for AgentTypeCode, where WorkDir is the isolated
+	// worktree path and TraceRoot stays anchored to the parent's actual
+	// project directory so trace files never appear as untracked changes
+	// inside the child's git checkout.
+	TraceRoot          string
 	AgentID            string
 	Provider           provider.Provider
 	VisibleReg         *tool.Registry
@@ -237,6 +257,9 @@ type childRunRequestParams struct {
 func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	childCfg := config.Config{}
 	scopedEvents := withAgentScope(p.AgentID, p.AgentType, p.Events)
+	traceWriter := newToolCallTraceWriter(p.TraceRoot, p.AgentID)
+	registerToolCallTraceWriter(p.AgentID, traceWriter)
+	scopedEvents = withToolCallTrace(scopedEvents, traceWriter)
 
 	// p.Sandbox must not be nil: the composition root (cmd/steiner) always
 	// passes an explicit wrapper (tool.Unsandboxed{} when sandboxing is off).

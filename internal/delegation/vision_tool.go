@@ -58,6 +58,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			AllowedTools:  allowedTools,
 			Provider:      resolvedProvider,
 			ResolvedModel: resolvedModel,
+			ProjectRoot:   deps.WorkDir,
 		}, spec)
 		if err != nil {
 			err = fmt.Errorf("vision: build child run: %w", err)

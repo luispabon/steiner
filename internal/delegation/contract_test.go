@@ -22,12 +22,6 @@ func populatedResult() Result {
 		ToolCallCount:    7,
 		FollowUpCount:    2,
 		SessionResumable: true,
-		Trace: []TraceEntry{{
-			Time:    time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
-			Phase:   "spawn",
-			Message: "child started",
-			Fields:  map[string]any{"agent_id": "agent-123"},
-		}},
 	}
 }
 
@@ -76,8 +70,7 @@ func TestResultJSONRoundTrip(t *testing.T) {
 			"tool_call_count",
 			"follow_up_count",
 			"session_resumable",
-			"trace",
-		}, nil)
+		}, []string{"trace"})
 
 		var decoded Result
 		if err := json.Unmarshal(data, &decoded); err != nil {
@@ -160,6 +153,27 @@ func TestResultJSONRoundTrip(t *testing.T) {
 			}
 			if strings.Contains(string(data), "touched_files") {
 				t.Errorf("touched_files reappeared in the wire format: %s", data)
+			}
+		}
+	})
+
+	// Per-tool-call traces and their counters are host-side diagnostics
+	// (debug log, TUI, offline scripts), never provider-visible.
+	t.Run("no trace key or trace path in the wire format", func(t *testing.T) {
+		for _, result := range []Result{{}, populatedResult()} {
+			data, err := json.Marshal(result)
+			if err != nil {
+				t.Fatalf("marshal result: %v", err)
+			}
+			var keys map[string]json.RawMessage
+			if err := json.Unmarshal(data, &keys); err != nil {
+				t.Fatalf("unmarshal into key map: %v", err)
+			}
+			if _, ok := keys["trace"]; ok {
+				t.Errorf("unexpected %q key in wire format: %s", "trace", data)
+			}
+			if strings.Contains(string(data), ".steiner/traces") {
+				t.Errorf(".steiner/traces path leaked into wire format: %s", data)
 			}
 		}
 	})

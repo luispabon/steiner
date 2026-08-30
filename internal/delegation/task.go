@@ -206,7 +206,9 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 			CacheCreateTokens: result.CacheCreateTokens,
 		}))
 	}
-	result.Trace = tc.result()
+	if fields := toolCallTraceFields(spec.AgentID); fields != nil {
+		tc.add("tool_calls", "per-tool-call trace recorded", fields)
+	}
 
 	logger.WriteTrace(tc)
 
@@ -337,7 +339,10 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 
 	summaryText := failedDelegateSummaryText(err, state)
 	result.Summary = summaryText
-	result.Trace = tc.result()
+
+	if fields := toolCallTraceFields(spec.AgentID); fields != nil {
+		tc.add("tool_calls", "per-tool-call trace recorded", fields)
+	}
 
 	logger.WriteTrace(tc)
 

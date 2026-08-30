@@ -277,6 +277,7 @@ func cleanupRegistrationWorktree(agentType AgentType, workDir string, worktree C
 
 func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) (SubAgentHandlerDeps, ChildBootstrapOverrides) {
 	handlerDeps := deps.SubAgentHandlerDeps
+	projectRoot := handlerDeps.WorkDir
 	if agentType == AgentTypeCode && worktree.Path != "" {
 		handlerDeps.WorkDir = worktree.Path
 	}
@@ -285,6 +286,7 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 		AllowedTools:  allowedTools,
 		Provider:      resolvedProvider,
 		ResolvedModel: resolvedModel,
+		ProjectRoot:   projectRoot,
 	}
 }
 
