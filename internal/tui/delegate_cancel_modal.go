@@ -257,9 +257,21 @@ func (m *Model) confirmDelegateCancelSelector() {
 
 func (m *Model) confirmDelegateCancelAction() {
 	s := m.delegateCancelModal
+	targetStillActive := func() bool {
+		if s.target < 0 || s.target >= len(s.rows) {
+			return false
+		}
+		agentID := s.rows[s.target].agentID
+		for _, row := range m.content.ActiveDelegateRows() {
+			if row.agentID == agentID {
+				return true
+			}
+		}
+		return false
+	}
 	switch s.screen {
 	case delegateCancelScreenConfirmTarget:
-		if s.selected == 0 && s.target >= 0 && s.target < len(s.rows) {
+		if s.selected == 0 && targetStillActive() {
 			m.delegateCancelModal = s
 			m = m.executeDelegateCancelAction(interactive.CancelDelegate{AgentID: s.rows[s.target].agentID, Discard: false})
 			m.syncViewport()
@@ -267,7 +279,7 @@ func (m *Model) confirmDelegateCancelAction() {
 		}
 		m.refreshDelegateCancelSelector()
 	case delegateCancelScreenConfirmTargetCode:
-		if s.selected < 2 && s.target >= 0 && s.target < len(s.rows) {
+		if s.selected < 2 && targetStillActive() {
 			m.delegateCancelModal = s
 			m = m.executeDelegateCancelAction(interactive.CancelDelegate{AgentID: s.rows[s.target].agentID, Discard: s.selected == 1})
 			m.syncViewport()

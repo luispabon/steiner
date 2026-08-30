@@ -65,8 +65,10 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			return nil, err
 		}
 		spec.Limits = limits
-		childCtx, err := deps.ActiveController.Register(agentID, ctx, AgentTypeVision, CodeWorktree{})
+		worktree := CodeWorktree{}
+		childCtx, err := deps.ActiveController.Register(agentID, ctx, AgentTypeVision, worktree)
 		if err != nil {
+			cleanupRegistrationWorktree(AgentTypeVision, deps.WorkDir, worktree)
 			return nil, err
 		}
 		defer deps.ActiveController.Unregister(agentID)

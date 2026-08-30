@@ -581,6 +581,11 @@ func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {
 	}
 	loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID)
 	if !found {
+		if loc, active := b.activeDelegations[payload.AgentID]; active && loc.dd != nil {
+			loc.dd.cacheWaiting = true
+			loc.dd.cacheWaitDeadline = payload.DeadlineUnixNano
+			b.markDelegationDirty(loc.seg)
+		}
 		return
 	}
 	loc.dd.agentID = payload.AgentID

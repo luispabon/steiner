@@ -93,6 +93,9 @@ func TestDelegateCancelModalDispatchesActions(t *testing.T) {
 			m.controller = ctrl
 			m.input.SetValue("keep this draft")
 			m.status.mode = "running"
+			for _, row := range delegateCancelTestRows() {
+				m.content.AppendEvent(output.NewDelegationStartedEventWithType(row.agentID, row.taskPreview, "", "", row.agentType))
+			}
 			m.delegateCancelModal = openDelegateCancelModal(80, 24, delegateCancelTestRows())
 			m.delegateCancelModal.screen = tt.screen
 			m.delegateCancelModal.selected = tt.selected
@@ -158,6 +161,31 @@ func TestDelegateCancelModalKeepWorkingRefreshesRows(t *testing.T) {
 	}
 	if len(m.delegateCancelModal.rows) != 1 || m.delegateCancelModal.rows[0].agentID != "code-1" {
 		t.Fatalf("refreshed rows = %#v, want only code-1", m.delegateCancelModal.rows)
+	}
+}
+
+func TestDelegateCancelModalStopDoesNotDispatchStaleTarget(t *testing.T) {
+	ctrl := &testController{}
+	m := newModel(Config{}, nil)
+	m.controller = ctrl
+	m.status.mode = "running"
+	m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))
+	m.delegateCancelModal = openDelegateCancelModal(80, 24, m.content.ActiveDelegateRows())
+
+	m.content.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "child-1", Status: "complete"}))
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.delegateCancelModal.IsOpen() || m.delegateCancelModal.screen != delegateCancelScreenConfirmTarget {
+		t.Fatal("stale target did not reach stop confirmation")
+	}
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	ctrl.mu.Lock()
+	defer ctrl.mu.Unlock()
+	if len(ctrl.actions) != 0 {
+		t.Fatalf("stale target dispatched %d actions, want none", len(ctrl.actions))
+	}
+	if m.delegateCancelModal.IsOpen() {
+		t.Fatal("empty refreshed selector remained open")
 	}
 }
 

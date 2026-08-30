@@ -75,7 +75,7 @@ func isCtrl(msg tea.KeyPressMsg, letter rune) bool {
 }
 
 func (m *Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation bool) (bool, tea.Model) {
-	if msg.Code == tea.KeyEsc && m.helpVisible && !m.content.HasActiveDelegations() {
+	if msg.Code == tea.KeyEsc && m.helpVisible {
 		m.helpVisible = false
 		return true, m
 	}
