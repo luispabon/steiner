@@ -15,6 +15,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/oneshot"
@@ -59,6 +60,31 @@ func TestNewOneshotRunnerFactoryBuilderRetainsLiveEffectiveCallback(t *testing.T
 	}
 	if got := params.CurrentEffective().ActiveOrchestratorModel; got != "active-model" {
 		t.Fatalf("phase runner active orchestrator = %q, want active-model", got)
+	}
+}
+
+func TestBuildInteractiveSessionUsesSharedDelegationController(t *testing.T) {
+	controller := delegation.NewActiveController()
+	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	sess, err := buildInteractiveSession(cliRuntime{
+		events:                     output.NoopSink{},
+		workDir:                    t.TempDir(),
+		homeDir:                    t.TempDir(),
+		delegationActiveController: controller,
+	})
+	if err != nil {
+		t.Fatalf("buildInteractiveSession() error = %v", err)
+	}
+	if err := sess.Handle(context.Background(), interactive.CancelDelegate{AgentID: "child-1"}); err != nil {
+		t.Fatalf("Handle(CancelDelegate) error = %v", err)
+	}
+	select {
+	case <-childCtx.Done():
+	default:
+		t.Fatal("interactive cancellation did not cancel registered child")
 	}
 }
 

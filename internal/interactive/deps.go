@@ -51,6 +51,12 @@ type sessionStore interface {
 	List() ([]session.IndexEntry, error)
 }
 
+// DelegateCanceller cancels active delegated agents.
+type DelegateCanceller interface {
+	CancelAgent(agentID string, discard bool) error
+	CancelAll() error
+}
+
 // Dependencies groups the external dependencies and initial configuration
 // required by an interactive session. Each field uses a consumer-defined
 // interface to avoid premature coupling to concrete implementations.
@@ -70,4 +76,5 @@ type Dependencies struct {
 	// OnEffectiveAssignmentsChanged is called after a successful profile switch
 	// with the new effective assignments.
 	OnEffectiveAssignmentsChanged func(config.EffectiveModelAssignments)
+	DelegateCanceller             DelegateCanceller
 }

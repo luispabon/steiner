@@ -23,6 +23,7 @@ type Session struct {
 	events              output.EventSink
 	displaySink         *output.ForwardSink
 	runController       *ActiveRunController
+	delegateCanceller   DelegateCanceller
 	skills              *Skills
 	snapshots           *SnapshotStore
 	approvalCoordinator *ApprovalCoordinator
@@ -66,6 +67,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 		events:              events,
 		displaySink:         displaySink,
 		runController:       NewActiveRunController(),
+		delegateCanceller:   deps.DelegateCanceller,
 		skills:              NewSkills(deps.SkillNames),
 		snapshots:           snaps,
 		approvalCoordinator: &ApprovalCoordinator{},
