@@ -87,6 +87,10 @@ func (b *contentBuffer) handleScopedDelegationEventAt(loc delegationLocator, eve
 	if loc.dd == nil {
 		return false
 	}
+	if loc.dd.cacheWaiting {
+		loc.dd.cacheWaiting = false
+		b.markDelegationDirty(loc.seg)
+	}
 	handled := b.applyScopedDelegationEvent(loc.dd, event)
 	if handled {
 		b.markDelegationDirty(loc.seg)
