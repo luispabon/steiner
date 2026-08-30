@@ -60,7 +60,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	}
 	childHasMutate := childHasMutateTool(session.Request)
 	isCode := childHasMutate && session.Remediation != nil
-	if err := denyFollowUpInPlanMode(ctx, session, childHasMutate); err != nil {
+	if err := denyFollowUpInPlanMode(ctx, childHasMutate); err != nil {
 		return nil, err
 	}
 	freshLimits := DefaultLimits(deps.SubAgentCfg)
@@ -137,7 +137,7 @@ func validateFollowUp(input map[string]any, deps SubAgentHandlerDeps) (string, s
 	return agentID, message, session, nil
 }
 
-func denyFollowUpInPlanMode(ctx context.Context, session *ChildSession, childHasMutate bool) error {
+func denyFollowUpInPlanMode(ctx context.Context, childHasMutate bool) error {
 	mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode)
 	if !ok || mode != config.ExecutionModePlan || !childHasMutate {
 		return nil
