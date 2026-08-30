@@ -79,13 +79,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		if childCtx.Err() != nil {
 			emitDelegateStopped(deps.Events, spec, AgentTypeVision)
 			result := cancelledBeforeDispatchResult(spec.AgentID)
-			if dr, ok := result.Value.(Result); ok {
-				finalizeDelegateCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &dr)
-				result.Value = dr
-				if result.Retention != nil {
-					result.Retention.Summary = dr.Summary
-				}
-			}
+			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 			return result, nil
 		}
 
@@ -93,13 +87,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		if err == nil && deps.SessionStore != nil {
 			saveChildSession(deps.SessionStore, spec, req, state, runUsage, nil)
 		}
-		if dr, ok := result.Value.(Result); ok {
-			finalizeDelegateCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &dr)
-			result.Value = dr
-			if result.Retention != nil {
-				result.Retention.Summary = dr.Summary
-			}
-		}
+		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 		if err != nil {
 			if result != (tool.ExecutionResult{}) {
 				return result, nil

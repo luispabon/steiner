@@ -58,7 +58,9 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	if err != nil {
 		return nil, err
 	}
-	if err := denyFollowUpInPlanMode(ctx, session); err != nil {
+	childHasMutate := childHasMutateTool(session.Request)
+	isCode := childHasMutate && session.Remediation != nil
+	if err := denyFollowUpInPlanMode(ctx, session, childHasMutate); err != nil {
 		return nil, err
 	}
 	freshLimits := DefaultLimits(deps.SubAgentCfg)
@@ -69,7 +71,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	spec.PriorTokenUsage = session.TokenUsage
 
 	worktree := CodeWorktree{}
-	if childHasMutateTool(session.Request) && session.Remediation != nil {
+	if isCode {
 		worktree = CodeWorktree{
 			Path:   session.Remediation.WorktreePath,
 			Branch: session.Remediation.ExpectedBranch,
@@ -83,7 +85,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
 
 	var opts []spawnOption
-	if childHasMutateTool(session.Request) && session.Remediation != nil {
+	if isCode {
 		opts = append(opts, WithRemediation(session.Remediation))
 	}
 	opts = append(opts, withChildDone(func() { deps.ActiveController.MarkComplete(agentID) }))
@@ -105,13 +107,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			result.Value = delegationResult
 		}
 	}
-	if dr, ok := result.Value.(Result); ok {
-		finalizeDelegateCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, agentID, &dr)
-		result.Value = dr
-		if result.Retention != nil {
-			result.Retention.Summary = dr.Summary
-		}
-	}
+	applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, agentID, &result)
 	if err != nil {
 		if result != (tool.ExecutionResult{}) {
 			return result, nil
@@ -141,9 +137,9 @@ func validateFollowUp(input map[string]any, deps SubAgentHandlerDeps) (string, s
 	return agentID, message, session, nil
 }
 
-func denyFollowUpInPlanMode(ctx context.Context, session *ChildSession) error {
+func denyFollowUpInPlanMode(ctx context.Context, session *ChildSession, childHasMutate bool) error {
 	mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode)
-	if !ok || mode != config.ExecutionModePlan || !childHasMutateTool(session.Request) {
+	if !ok || mode != config.ExecutionModePlan || !childHasMutate {
 		return nil
 	}
 	return fmt.Errorf("follow_up: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +

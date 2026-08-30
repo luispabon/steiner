@@ -3,10 +3,8 @@ package delegation
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -274,14 +272,7 @@ func cleanupRegistrationWorktree(agentType AgentType, workDir string, worktree C
 	if agentType != AgentTypeCode || workDir == "" || worktree.Path == "" {
 		return
 	}
-	base := filepath.Join(workDir, ".steiner", "worktrees")
-	relID, err := filepath.Rel(base, worktree.Path)
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	_, _ = PruneCodeWorktree(ctx, workDir, relID)
+	_, _ = pruneCodeWorktree(workDir, worktree)
 }
 
 func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) (SubAgentHandlerDeps, ChildBootstrapOverrides) {
@@ -363,13 +354,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		if childCtx.Err() != nil {
 			emitDelegateStopped(deps.Events, spec, agentType)
 			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings)
-			if dr, ok := result.Value.(Result); ok {
-				finalizeDelegateCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &dr)
-				result.Value = dr
-				if result.Retention != nil {
-					result.Retention.Summary = dr.Summary
-				}
-			}
+			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 			return result, nil
 		}
 
@@ -392,13 +377,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		result = applySpecializedWorktreeResult(agentType, result, provisionedWorktree, warnings)
-		if dr, ok := result.Value.(Result); ok {
-			finalizeDelegateCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &dr)
-			result.Value = dr
-			if result.Retention != nil {
-				result.Retention.Summary = dr.Summary
-			}
-		}
+		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 
 		return result, nil
 	}
