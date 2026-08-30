@@ -12,16 +12,16 @@ Every turn in the main conversation accumulates tokens — model output, tool ca
 
 ## Delegation as context management
 
-Sub-agents are the primary mechanism for keeping the parent context lean. When the model delegates exploration, code changes, or research to a child agent, the full turn-by-turn transcript of that work never enters the parent conversation. Only a structured result and a bounded summary (≤1000 chars) return.
+Sub-agents are the primary mechanism for keeping the parent context lean. When the model delegates exploration, code changes, or research to a child agent, the full turn-by-turn transcript of that work never enters the parent conversation. Only a structured result and a bounded summary (≤4000 chars) return.
 
 Contrast this with doing the same work inline: every `read`, `grep`, `bash`, and model response accumulates as permanent conversation history, rapidly filling the window and triggering compaction. Delegation avoids the problem entirely — it's context management by isolation.
 
 ### How delegate summaries persist
 
-1. After a child agent completes, a **summarisation turn** asks the child model to summarise its work in ≤1000 characters.
+1. After a child agent completes, a **summarisation turn** asks the child model to summarise its work in ≤4000 characters.
 2. The summary is stored as `ToolRetention` (`kind: delegate_summary`) on the tool result message.
 3. This retention is attached to the parent's `Message.Retention` field when the tool result is ingested.
-4. During prompt assembly, delegate summaries are rendered under the `ToolSummaryBytes` budget (default: 1024 bytes).
+4. This retention summary is capped once, at generation time (see step 1) — it is not re-budgeted during prompt assembly. It reaches the parent as a plain conversation message and is not currently gated by any `internal/prompt` byte budget (the `tool_summary`/`tool_result`/`delegation_result` budget machinery exists in code but is not wired into the live prompt-assembly path today).
 5. When compaction occurs, delegate summary messages in the retained recent turns survive implicitly — the compacting model sees them as part of the conversation it summarises.
 
 Child agents use the same prompt assembly and compaction path as the parent for their own (ephemeral) contexts, but those child transcripts are discarded when the child exits. Nothing leaks back to the parent beyond the final structured result.
@@ -37,12 +37,14 @@ Each turn, steiner assembles the full context through a 7-step ordered plan. The
 | 1 | System preamble | — | Yes |
 | 2 | Agent definitions (global + project `AGENTS.md`) | — | Yes |
 | 3 | Project context files | 8000 bytes | No |
-| 4 | Skills | 16384 bytes | No |
+| 4 | Skills | 98304 bytes | No |
 | 5 | Oneshot phase prompt (if applicable) | — | Yes |
 | 6 | Conversation history | — | No (pass-through) |
 | 7 | Tool summaries (including delegate summaries) | 1024 bytes | No |
 
 Each step with a budget is tracked by a `budgetTracker`. When a source exceeds its allocation, content is truncated and a `Truncated` flag is set on the resulting `ContextBlock`. The system preamble, phase prompt, and AGENTS.md are never truncated.
+
+Step 7's budget is defined in code but not currently exercised by the live agent — the `tool_summary`/`tool_result`/`delegation_result` budget machinery exists in `internal/prompt` but is not wired into the live prompt-assembly path today (see "How delegate summaries persist" above for the actual mechanism).
 
 `ContextSource` constants distinguish where each block originated: `preamble`, `phase_prompt`, `global_agents_md`, `project_agents_md`, `project_context`, `skill`, `tool_result`, `tool_summary`, and `delegation_result`.
 
@@ -113,7 +115,7 @@ Context diagnostics for these states are emitted as typed sub-events: budget, co
 |--------|---------|
 | System preamble | 4096 (never truncated) |
 | Project context | 8000 |
-| Skills | 16384 |
+| Skills | 98304 |
 | Tool results | 2048 |
 | Tool summaries (incl. delegate) | 1024 |
 | Compaction summary | 1024 |

@@ -4,7 +4,7 @@ import "fmt"
 
 const (
 	defaultPreambleBudgetBytes    = 4096
-	defaultSkillBudgetBytes       = 16384
+	defaultSkillBudgetBytes       = 98304
 	defaultToolResultBudgetBytes  = 2048
 	defaultToolSummaryBudgetBytes = 1024
 	defaultCompactionSummaryBytes = 1024
