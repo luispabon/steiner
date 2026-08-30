@@ -22,6 +22,7 @@ func (o *Orchestrator) Resume(ctx context.Context) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("load manifest: %w", err)
 	}
+	manifest.WorktreeBase = strings.TrimSpace(manifest.WorktreeBase)
 	if strings.TrimSpace(manifest.RunID) == "" {
 		return Manifest{}, fmt.Errorf("resume run: manifest run id is required")
 	}

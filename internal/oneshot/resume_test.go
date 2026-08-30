@@ -157,7 +157,7 @@ func TestResumePreservesExistingWorktreeBase(t *testing.T) {
 	mustGitOutput(t, manifest.WorktreePath, "commit", "-m", "test: preserve worktree base")
 	base := strings.TrimSpace(mustGitOutput(t, manifest.WorktreePath, "rev-parse", "HEAD"))
 	// Seed a base that differs from the branch's origin/main start point. A broken preserve step would re-infer origin/main and fail the equality assertion. The real base also keeps the resume report leg working.
-	manifest.WorktreeBase = base
+	manifest.WorktreeBase = " \t" + base + "\n"
 	if err := store.Write(manifest); err != nil {
 		t.Fatalf("rewrite manifest with worktree base: %v", err)
 	}
@@ -215,6 +215,49 @@ func TestResumeLegacyManifestInfersBaseFromProjectCheckout(t *testing.T) {
 	}
 }
 
+func TestOrchestratorResumeLegacyManifestReprovisionsMissingWorktreeFromProjectCheckout(t *testing.T) {
+	projectRoot := setupLocalGitRepo(t)
+	identity := RunIdentity{ID: "legacy-reprovision123", Slug: "legacy-reprovision"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	if got := manifest.WorktreeBase; got != "" {
+		t.Fatalf("legacy WorktreeBase = %q, want empty", got)
+	}
+	projectHead := strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+
+	if err := os.RemoveAll(manifest.WorktreePath); err != nil {
+		t.Fatalf("RemoveAll worktree failed: %v", err)
+	}
+	runGitTest(t, projectRoot, "worktree", "prune")
+	runGitTest(t, projectRoot, "branch", "-D", identity.BranchName())
+	manifest.CurrentPhase = PhasePlan
+	manifest.PhaseStatuses = map[Phase]PhaseStatus{
+		PhasePlan:      PhaseStatusPending,
+		PhaseImplement: PhaseStatusPending,
+		PhaseReview:    PhaseStatusPending,
+	}
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("rewrite legacy manifest: %v", err)
+	}
+
+	updated, err := orch.Resume(context.Background())
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	if got, want := updated.WorktreeBase, projectHead; got != want {
+		t.Fatalf("WorktreeBase = %q, want project HEAD %q", got, want)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("read persisted manifest: %v", err)
+	}
+	if got, want := persisted.WorktreeBase, projectHead; got != want {
+		t.Fatalf("persisted WorktreeBase = %q, want %q", got, want)
+	}
+	if got := strings.TrimSpace(mustGitOutput(t, manifest.WorktreePath, "rev-parse", "HEAD")); got != projectHead {
+		t.Fatalf("reprovisioned worktree HEAD = %q, want project HEAD %q", got, projectHead)
+	}
+}
+
 func setupResumeTestFixture(t *testing.T, projectRoot string, identity RunIdentity) (Manifest, *ManifestStore, *recordingSessionStore, *Orchestrator) {
 	t.Helper()
 	worktree, err := ProvisionWorktree(context.Background(), projectRoot, identity)
@@ -255,6 +298,7 @@ func setupResumeTestFixture(t *testing.T, projectRoot string, identity RunIdenti
 	runnerFactory := &recordingRunnerFactory{
 		planningPath: planningPath,
 		runners: map[Phase]*phaseRunnerStub{
+			PhasePlan:      {writePlan: true},
 			PhaseImplement: {writePlan: true},
 			PhaseReview:    {writePlan: true},
 		},
