@@ -37,7 +37,7 @@ Each turn, steiner assembles the full context through a 7-step ordered plan. The
 | 1 | System preamble | — | Yes |
 | 2 | Agent definitions (global + project `AGENTS.md`) | — | Yes |
 | 3 | Project context files | 8000 bytes | No |
-| 4 | Skills | 16384 bytes | No |
+| 4 | Skills | 98304 bytes | No |
 | 5 | Oneshot phase prompt (if applicable) | — | Yes |
 | 6 | Conversation history | — | No (pass-through) |
 | 7 | Tool summaries (including delegate summaries) | 1024 bytes | No |
@@ -113,7 +113,7 @@ Context diagnostics for these states are emitted as typed sub-events: budget, co
 |--------|---------|
 | System preamble | 4096 (never truncated) |
 | Project context | 8000 |
-| Skills | 16384 |
+| Skills | 98304 |
 | Tool results | 2048 |
 | Tool summaries (incl. delegate) | 1024 |
 | Compaction summary | 1024 |
