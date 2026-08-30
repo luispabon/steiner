@@ -239,8 +239,8 @@ func TestDelegationEvents(t *testing.T) {
 			hasComplete = true
 		}
 	}
-	if !hasStarted {
-		t.Error("expected at least one DelegationStarted event")
+	if hasStarted {
+		t.Error("SpawnDelegate emitted a DelegationStarted event")
 	}
 	if !hasComplete {
 		t.Error("expected at least one DelegationComplete event")

@@ -172,6 +172,7 @@ func TestSpecJSONRoundTrip(t *testing.T) {
 			Context:      "test context",
 			SystemPrompt: "test prompt",
 			Images:       []provider.ImageBlock{{MediaType: "image/png", Data: "aGk="}},
+			AgentType:    AgentTypeCode,
 			Limits: Limits{
 				MaxTurns:          10,
 				OutputLimitTokens: 50000,
@@ -187,6 +188,7 @@ func TestSpecJSONRoundTrip(t *testing.T) {
 			"images",
 			"limits",
 			"agent_id",
+			"agent_type",
 		}, nil)
 
 		var decoded Spec
@@ -204,6 +206,7 @@ func TestSpecJSONRoundTrip(t *testing.T) {
 			"task",
 			"limits",
 			"agent_id",
+			"agent_type",
 		}, []string{
 			"context",
 			"system_prompt",

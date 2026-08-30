@@ -45,71 +45,101 @@ func buildContinuationRequest(base agent.RunRequest, conversation []agent.Messag
 
 // NewFollowUpHandler returns the in-process handler for the follow-up tool.
 func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, input map[string]any) (any, error) {
-	return func(ctx context.Context, input map[string]any) (any, error) {
-		agentID, _ := input["agent_id"].(string)
-		if agentID == "" {
-			return nil, fmt.Errorf("follow_up: agent_id is required")
-		}
-
-		message, _ := input["message"].(string)
-		if message == "" {
-			return nil, fmt.Errorf("follow_up: message is required")
-		}
-
-		if deps.SessionStore == nil {
-			return nil, fmt.Errorf("follow_up: no session for agent %q", agentID)
-		}
-
-		session, ok := deps.SessionStore.Get(agentID)
-		if !ok {
-			return nil, fmt.Errorf("follow_up: no session for agent %q", agentID)
-		}
-
-		// Deny follow_up of code children in plan mode (they can mutate files).
-		if mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode); ok && mode == config.ExecutionModePlan {
-			if childHasMutateTool(session.Request) {
-				return nil, fmt.Errorf("follow_up: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
-					"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
-			}
-		}
-		freshLimits := DefaultLimits(deps.SubAgentCfg)
-		req := buildContinuationRequest(session.Request, session.Conversation, message, session.TurnCount, freshLimits)
-
-		spec := session.Spec
-		spec.Limits = freshLimits
-		spec.PriorTokenUsage = session.TokenUsage
-
-		var opts []spawnOption
-		if childHasMutateTool(session.Request) && session.Remediation != nil {
-			opts = append(opts, WithRemediation(session.Remediation))
-		}
-		result, state, runUsage, err := SpawnDelegate(ctx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
-		if err == nil {
-			deps.SessionStore.Update(agentID, SessionUpdateParams{
-				Conversation:  state.Conversation,
-				TurnCount:     state.TurnCount,
-				TokenCount:    runUsage.OutputTokens,
-				ToolCallCount: countToolCalls(state.Conversation),
-				TokenUsage:    runUsage,
-			})
-			updated, ok := deps.SessionStore.Get(agentID)
-			if !ok {
-				return nil, fmt.Errorf("follow_up: session disappeared for agent %q", agentID)
-			}
-			if delegationResult, ok := result.Value.(Result); ok {
-				delegationResult.FollowUpCount = updated.FollowUpCount
-				result.Value = delegationResult
-			}
-		}
-		if err != nil {
-			if result != (tool.ExecutionResult{}) {
-				return result, nil
-			}
-			return nil, fmt.Errorf("follow_up failed: %w", err)
-		}
-
-		return result, nil
+	if deps.ActiveController == nil {
+		deps.ActiveController = NewActiveController()
 	}
+	return func(ctx context.Context, input map[string]any) (any, error) {
+		return runFollowUp(ctx, input, deps)
+	}
+}
+
+func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandlerDeps) (any, error) {
+	agentID, message, session, err := validateFollowUp(input, deps)
+	if err != nil {
+		return nil, err
+	}
+	if err := denyFollowUpInPlanMode(ctx, session); err != nil {
+		return nil, err
+	}
+	freshLimits := DefaultLimits(deps.SubAgentCfg)
+	req := buildContinuationRequest(session.Request, session.Conversation, message, session.TurnCount, freshLimits)
+
+	spec := session.Spec
+	spec.Limits = freshLimits
+	spec.PriorTokenUsage = session.TokenUsage
+
+	worktree := CodeWorktree{}
+	if childHasMutateTool(session.Request) && session.Remediation != nil {
+		worktree = CodeWorktree{
+			Path:   session.Remediation.WorktreePath,
+			Branch: session.Remediation.ExpectedBranch,
+		}
+	}
+	childCtx, err := deps.ActiveController.Register(agentID, ctx, spec.AgentType, worktree)
+	if err != nil {
+		return nil, err
+	}
+	defer deps.ActiveController.Unregister(agentID)
+	emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
+
+	var opts []spawnOption
+	if childHasMutateTool(session.Request) && session.Remediation != nil {
+		opts = append(opts, WithRemediation(session.Remediation))
+	}
+	result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
+	if err == nil {
+		deps.SessionStore.Update(agentID, SessionUpdateParams{
+			Conversation:  state.Conversation,
+			TurnCount:     state.TurnCount,
+			TokenCount:    runUsage.OutputTokens,
+			ToolCallCount: countToolCalls(state.Conversation),
+			TokenUsage:    runUsage,
+		})
+		updated, ok := deps.SessionStore.Get(agentID)
+		if !ok {
+			return nil, fmt.Errorf("follow_up: session disappeared for agent %q", agentID)
+		}
+		if delegationResult, ok := result.Value.(Result); ok {
+			delegationResult.FollowUpCount = updated.FollowUpCount
+			result.Value = delegationResult
+		}
+	}
+	if err != nil {
+		if result != (tool.ExecutionResult{}) {
+			return result, nil
+		}
+		return nil, fmt.Errorf("follow_up failed: %w", err)
+	}
+
+	return result, nil
+}
+
+func validateFollowUp(input map[string]any, deps SubAgentHandlerDeps) (string, string, *ChildSession, error) {
+	agentID, _ := input["agent_id"].(string)
+	if agentID == "" {
+		return "", "", nil, fmt.Errorf("follow_up: agent_id is required")
+	}
+	message, _ := input["message"].(string)
+	if message == "" {
+		return "", "", nil, fmt.Errorf("follow_up: message is required")
+	}
+	if deps.SessionStore == nil {
+		return "", "", nil, fmt.Errorf("follow_up: no session for agent %q", agentID)
+	}
+	session, ok := deps.SessionStore.Get(agentID)
+	if !ok {
+		return "", "", nil, fmt.Errorf("follow_up: no session for agent %q", agentID)
+	}
+	return agentID, message, session, nil
+}
+
+func denyFollowUpInPlanMode(ctx context.Context, session *ChildSession) error {
+	mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode)
+	if !ok || mode != config.ExecutionModePlan || !childHasMutateTool(session.Request) {
+		return nil
+	}
+	return fmt.Errorf("follow_up: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
+		"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
 }
 
 // childHasMutateTool reports whether the child session's request includes the "mutate" tool.

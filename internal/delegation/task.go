@@ -45,6 +45,54 @@ func truncateTaskPreview(s string, max int) string {
 	return string(runes[:max-3]) + "..."
 }
 
+func emitDelegateStarted(events output.EventSink, spec Spec, modelAlias string, agentType AgentType) {
+	if events == nil {
+		return
+	}
+	event := output.NewDelegationStartedEventWithType(spec.AgentID, truncateTaskPreview(spec.Task, 120), spec.ParentCallID, modelAlias, string(agentType))
+	event = output.WithAgentScope(event, spec.AgentID)
+	event = output.WithAgentTypeScope(event, string(agentType))
+	events.Emit(event)
+}
+
+func emitDelegateStopped(events output.EventSink, spec Spec, agentType AgentType) {
+	if events == nil {
+		return
+	}
+	event := output.NewStopReasonEvent(0, "cancelled", nil)
+	event = output.WithAgentScope(event, spec.AgentID)
+	event = output.WithAgentTypeScope(event, string(agentType))
+	events.Emit(event)
+}
+
+func emitDelegateFailed(events output.EventSink, spec Spec, agentType AgentType, errMsg string) {
+	if events == nil {
+		return
+	}
+	event := output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), errMsg)
+	event = output.WithAgentScope(event, spec.AgentID)
+	event = output.WithAgentTypeScope(event, string(agentType))
+	events.Emit(event)
+}
+
+func cancelledBeforeDispatchResult(agentID string) tool.ExecutionResult {
+	result := Result{
+		AgentID:          agentID,
+		Status:           StatusCancelled,
+		SessionResumable: false,
+		Summary:          "delegation cancelled before dispatch",
+	}
+	return tool.ExecutionResult{
+		Value: result,
+		Retention: &tool.ToolRetention{
+			Kind:    tool.RetentionKindDelegateSummary,
+			Summary: result.Summary,
+			AgentID: result.AgentID,
+			Status:  string(result.Status),
+		},
+	}
+}
+
 // SpawnDelegate executes a child agent with the given specification and runner.
 // It always runs a follow-up summarisation turn after successful completion and
 // returns the full visible output plus hidden retention metadata.
@@ -69,10 +117,6 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		"max_tokens":  req.Limits.MaxTokens,
 		"has_timeout": spec.Limits.Timeout > 0,
 	})
-
-	if events != nil {
-		events.Emit(output.NewDelegationStartedEventWithModel(spec.AgentID, truncateTaskPreview(spec.Task, 120), spec.ParentCallID, req.ResolvedModel.Alias))
-	}
 
 	state, err := runner.Run(childCtx, req)
 

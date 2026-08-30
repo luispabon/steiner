@@ -432,7 +432,8 @@ func TestSpawnDelegateAccumulatesSummaryUsage(t *testing.T) {
 		t.Fatalf("summary usage = %+v, want cumulative usage", usage)
 	}
 }
-func TestSpawnDelegate_StartedEventIncludesParentCallID(t *testing.T) {
+
+func TestSpawnDelegate_DoesNotEmitStartedEvent(t *testing.T) {
 	sink := &collectingSink{}
 	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
@@ -444,17 +445,9 @@ func TestSpawnDelegate_StartedEventIncludesParentCallID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SpawnDelegate error: %v", err)
 	}
-	if len(sink.events) == 0 {
-		t.Fatal("SpawnDelegate emitted no events")
-	}
-	started, ok := sink.events[0].Payload.(output.DelegationStartedEvent)
-	if !ok {
-		t.Fatalf("first event payload = %T, want DelegationStartedEvent", sink.events[0].Payload)
-	}
-	if started.ModelAlias != req.ResolvedModel.Alias {
-		t.Errorf("started ModelAlias = %q, want %q", started.ModelAlias, req.ResolvedModel.Alias)
-	}
-	if started.CallID != spec.ParentCallID {
-		t.Errorf("started CallID = %q, want %q", started.CallID, spec.ParentCallID)
+	for _, event := range sink.events {
+		if event.Type == output.EventTypeDelegationStarted {
+			t.Error("SpawnDelegate emitted a DelegationStarted event")
+		}
 	}
 }
