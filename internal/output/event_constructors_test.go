@@ -182,6 +182,29 @@ func TestNewModeChangedEvent(t *testing.T) {
 	})
 }
 
+func TestNewDelegationWorktreeDisposalEvent(t *testing.T) {
+	event := NewDelegationWorktreeDisposalEvent("child-1", true, "")
+	if event.Type != EventTypeDelegationWorktreeDisposal {
+		t.Fatalf("Type = %q, want %q", event.Type, EventTypeDelegationWorktreeDisposal)
+	}
+	if event.Timestamp.IsZero() || event.Timestamp.Location() != time.UTC {
+		t.Fatalf("Timestamp = %v, want non-zero UTC", event.Timestamp)
+	}
+	payload, ok := event.Payload.(DelegationWorktreeDisposalEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T, want DelegationWorktreeDisposalEvent", event.Payload)
+	}
+	if payload.AgentID != "child-1" || !payload.Removed || payload.Error != "" {
+		t.Fatalf("payload = %+v, want successful disposal", payload)
+	}
+
+	event = NewDelegationWorktreeDisposalEvent("child-2", false, "cleanup failed")
+	payload = event.Payload.(DelegationWorktreeDisposalEvent)
+	if payload.Removed || payload.Error != "cleanup failed" {
+		t.Fatalf("failure payload = %+v, want error and not removed", payload)
+	}
+}
+
 func TestNewDelegationStartedEventWithType(t *testing.T) {
 	event := NewDelegationStartedEventWithType("child-1", "inspect", "call-1", "model-a", "code")
 	if event.Type != EventTypeDelegationStarted {

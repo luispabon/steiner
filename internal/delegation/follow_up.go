@@ -104,6 +104,13 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			result.Value = delegationResult
 		}
 	}
+	if dr, ok := result.Value.(Result); ok {
+		finalizeDelegateCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, agentID, &dr)
+		result.Value = dr
+		if result.Retention != nil {
+			result.Retention.Summary = dr.Summary
+		}
+	}
 	if err != nil {
 		if result != (tool.ExecutionResult{}) {
 			return result, nil

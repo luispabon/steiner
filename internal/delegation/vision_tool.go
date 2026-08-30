@@ -15,6 +15,8 @@ import (
 // It reads the image from the ImageStore, base64-encodes it, injects it into the
 // Spec, and spawns a child agent. The result includes the agent_id so
 // the caller can use follow_up for additional questions about the same image.
+//
+//nolint:gocyclo // handler lifecycle branches cover setup, gating, execution, and cleanup.
 func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	if deps.ActiveController == nil {
 		deps.ActiveController = NewActiveController()
@@ -74,12 +76,27 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		defer gateRelease()
 		if childCtx.Err() != nil {
 			emitDelegateStopped(deps.Events, spec, AgentTypeVision)
-			return cancelledBeforeDispatchResult(spec.AgentID), nil
+			result := cancelledBeforeDispatchResult(spec.AgentID)
+			if dr, ok := result.Value.(Result); ok {
+				finalizeDelegateCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &dr)
+				result.Value = dr
+				if result.Retention != nil {
+					result.Retention.Summary = dr.Summary
+				}
+			}
+			return result, nil
 		}
 
 		result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger)
 		if err == nil && deps.SessionStore != nil {
 			saveChildSession(deps.SessionStore, spec, req, state, runUsage, nil)
+		}
+		if dr, ok := result.Value.(Result); ok {
+			finalizeDelegateCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &dr)
+			result.Value = dr
+			if result.Retention != nil {
+				result.Retention.Summary = dr.Summary
+			}
 		}
 		if err != nil {
 			if result != (tool.ExecutionResult{}) {

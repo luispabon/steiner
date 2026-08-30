@@ -69,6 +69,8 @@ const (
 	EventTypeDelegationFailed = "delegation_failed"
 	// EventTypeDelegationExtension records delegation-specific auxiliary events.
 	EventTypeDelegationExtension = "delegation_extension"
+	// EventTypeDelegationWorktreeDisposal records disposal of a cancelled code agent worktree.
+	EventTypeDelegationWorktreeDisposal = "delegation_worktree_disposal"
 	// EventTypeDelegationCacheWaiting marks a sub-agent delegation gated behind a shared prompt-cache dispatch slot.
 	EventTypeDelegationCacheWaiting = "delegation_cache_waiting"
 	// EventTypeAdvisorStarted marks the start of an advisor call.
@@ -422,6 +424,13 @@ type DelegationExtensionEvent struct {
 	AgentID       string `json:"agent_id"`
 	Extension     int    `json:"extension"`
 	MaxExtensions int    `json:"max_extensions"`
+}
+
+// DelegationWorktreeDisposalEvent records disposal of a cancelled code agent worktree.
+type DelegationWorktreeDisposalEvent struct {
+	AgentID string `json:"agent_id"`
+	Removed bool   `json:"removed"`
+	Error   string `json:"error,omitempty"`
 }
 
 // AdvisorStartedEvent records a stronger-model advisor call beginning.
