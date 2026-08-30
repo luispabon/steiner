@@ -33,6 +33,7 @@ import (
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 	"github.com/luispabon/steiner/internal/tui"
 	"github.com/luispabon/steiner/internal/usagestats"
 	"github.com/luispabon/steiner/skills"
@@ -56,6 +57,9 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	if err := session.EnsureSteinerProjectDir(projectRoot); err != nil {
 		return cliRuntime{}, err
 	}
+	// Best-effort: a failed prune must not block startup, and there is no
+	// event sink yet at this point in composition to report it through.
+	_, _ = builtin.PruneFetchedDir(projectRoot)
 	cfg, err := loadRuntimeConfig(cmd, flags, modelAlias)
 	if err != nil {
 		return cliRuntime{}, err
