@@ -202,7 +202,9 @@ func TestDelegateCancelModalStopDoesNotDispatchStaleTarget(t *testing.T) {
 
 func TestDelegateCancelModalSelectorMarkers(t *testing.T) {
 	m := newModel(Config{}, nil)
-	m.delegateCancelModal = openDelegateCancelModal(80, 24, delegateCancelTestRows())
+	rows := delegateCancelTestRows()
+	rows[0].taskPreview = strings.Repeat("long preview ", 20)
+	m.delegateCancelModal = openDelegateCancelModal(80, 24, rows)
 	const contentWidth = 40
 
 	assertSelectorMarker := func(want string) {
@@ -213,10 +215,23 @@ func TestDelegateCancelModalSelectorMarkers(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("selector = %q, want marker at %q", rendered, want)
 		}
+		var foundLongRow bool
 		for _, line := range strings.Split(rendered, "\n") {
 			if got := lipgloss.Width(line); got > contentWidth {
 				t.Fatalf("selector line width = %d, want <= %d for %q", got, contentWidth, line)
 			}
+			if strings.Contains(line, "explore · explore-1") {
+				foundLongRow = true
+				if got := lipgloss.Width(line); got != contentWidth {
+					t.Fatalf("long selector line width = %d, want %d for %q", got, contentWidth, line)
+				}
+				if !strings.Contains(line, "…") {
+					t.Fatalf("long selector line = %q, want truncated preview", line)
+				}
+			}
+		}
+		if !foundLongRow {
+			t.Fatalf("selector = %q, want long explore row", rendered)
 		}
 	}
 
