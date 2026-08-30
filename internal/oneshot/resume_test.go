@@ -150,8 +150,13 @@ func TestResumePreservesExistingWorktreeBase(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "preserve123", Slug: "preserve-base"}
 	manifest, store, sessionStore, orch := setupResumeTestFixture(t, projectRoot, identity, "")
+	if err := os.WriteFile(filepath.Join(manifest.WorktreePath, "preserved.txt"), []byte("preserved\n"), 0o644); err != nil {
+		t.Fatalf("write preserved file: %v", err)
+	}
+	mustGitOutput(t, manifest.WorktreePath, "add", "preserved.txt")
+	mustGitOutput(t, manifest.WorktreePath, "commit", "-m", "test: preserve worktree base")
 	base := strings.TrimSpace(mustGitOutput(t, manifest.WorktreePath, "rev-parse", "HEAD"))
-	// Use a real base SHA so the resume report leg is exercised. Base inference would overwrite it with the origin/main SHA if preservation were broken.
+	// Seed a base that differs from the branch's origin/main start point. A broken preserve step would re-infer origin/main and fail the equality assertion. The real base also keeps the resume report leg working.
 	manifest.WorktreeBase = base
 	if err := store.Write(manifest); err != nil {
 		t.Fatalf("rewrite manifest with worktree base: %v", err)
