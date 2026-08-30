@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
@@ -197,6 +198,35 @@ func TestDelegateCancelModalStopDoesNotDispatchStaleTarget(t *testing.T) {
 	if !found {
 		t.Fatal("stale target did not report retained worktree")
 	}
+}
+
+func TestDelegateCancelModalSelectorMarkers(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m.delegateCancelModal = openDelegateCancelModal(80, 24, delegateCancelTestRows())
+	const contentWidth = 40
+
+	assertSelectorMarker := func(want string) {
+		rendered := stripANSI(m.renderDelegateCancelSelector(contentWidth))
+		if got := strings.Count(rendered, "> "); got != 1 {
+			t.Fatalf("selector markers = %d, want 1 in %q", got, rendered)
+		}
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("selector = %q, want marker at %q", rendered, want)
+		}
+		for _, line := range strings.Split(rendered, "\n") {
+			if got := lipgloss.Width(line); got > contentWidth {
+				t.Fatalf("selector line width = %d, want <= %d for %q", got, contentWidth, line)
+			}
+		}
+	}
+
+	assertSelectorMarker("> explore · explore-1")
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	assertSelectorMarker("> code · code-1")
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	assertSelectorMarker("> Stop all delegates")
 }
 
 func TestDelegateCancelModalRenderSelectorRow(t *testing.T) {

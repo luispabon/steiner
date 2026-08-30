@@ -111,24 +111,33 @@ func (m *Model) delegateCancelHeading(text string, contentWidth int) string {
 }
 
 func (m *Model) renderDelegateCancelSelector(contentWidth int) string {
+	const markerWidth = 2
+
 	lines := make([]string, 0, len(m.delegateCancelModal.rows)+3)
 	for i, row := range m.delegateCancelModal.rows {
-		line := m.renderDelegateCancelRow(row, contentWidth)
-		if i == m.delegateCancelModal.selected {
-			line = m.styles.PaletteItemActive.Width(contentWidth).Render(line)
-		}
-		lines = append(lines, line)
+		line := m.renderDelegateCancelRow(row, max(0, contentWidth-markerWidth))
+		lines = append(lines, m.renderDelegateCancelSelectorLine(line, i == m.delegateCancelModal.selected, contentWidth))
 	}
 	labels := []string{"Stop all delegates", "Stop entire run", "Dismiss"}
 	for i, label := range labels {
 		index := len(m.delegateCancelModal.rows) + i
-		line := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(contentWidth).Render(label)
-		if index == m.delegateCancelModal.selected {
-			line = m.styles.PaletteItemActive.Width(contentWidth).Render(line)
-		}
-		lines = append(lines, line)
+		line := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(label)
+		lines = append(lines, m.renderDelegateCancelSelectorLine(line, index == m.delegateCancelModal.selected, contentWidth))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+func (m *Model) renderDelegateCancelSelectorLine(line string, selected bool, contentWidth int) string {
+	marker := "  "
+	if selected {
+		marker = "> "
+	}
+	line = marker + line
+	style := lipgloss.NewStyle().Width(contentWidth).MaxWidth(contentWidth)
+	if selected {
+		style = m.styles.PaletteItemActive.Inherit(style)
+	}
+	return style.Render(line)
 }
 
 func (m *Model) renderDelegateCancelRow(row delegateActiveRow, contentWidth int) string {
