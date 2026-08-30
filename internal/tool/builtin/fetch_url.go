@@ -29,6 +29,16 @@ const mainContentFallbackMinRunes = 200
 // returned instead.
 const mainContentFallbackMessage = "Main-content extraction found nothing usable; returned the full document instead."
 
+// fetchUserAgent identifies steiner on outbound fetch_url requests. This is
+// an honest, identifying User-Agent, not an attempt to evade bot detection;
+// Go's default User-Agent gets blocked by Cloudflare-fronted sites.
+const fetchUserAgent = "steiner (+https://github.com/luispabon/steiner)"
+
+// errorBodySnippetRunes bounds the response body snippet captured on
+// non-200 fetch_url errors, so a large error page doesn't blow out the
+// tool result.
+const errorBodySnippetRunes = 500
+
 // FetchURLResult is the result from a fetch_url tool call.
 type FetchURLResult struct {
 	URL           string      `json:"url"`
@@ -47,8 +57,11 @@ type FetchURLResult struct {
 
 // FetchURLError is an error result from a fetch_url tool call.
 type FetchURLError struct {
-	URL   string `json:"url"`
-	Error string `json:"error"`
+	URL        string `json:"url"`
+	Error      string `json:"error"`
+	StatusCode int    `json:"status_code,omitempty"`
+	RetryAfter string `json:"retry_after,omitempty"`
+	Body       string `json:"body,omitempty"` // bounded snippet
 }
 
 // NewFetchURLTool creates a ToolDef for the fetch_url tool.
@@ -88,6 +101,7 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 			contentType := ""
 			headReq, headErr := http.NewRequestWithContext(ctx, http.MethodHead, in.URL, nil)
 			if headErr == nil {
+				headReq.Header.Set("User-Agent", fetchUserAgent)
 				headResp, doErr := httpClient.Do(headReq)
 				if doErr == nil {
 					contentType = headResp.Header.Get("Content-Type")
@@ -155,6 +169,7 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 				Formats:         []string{"markdown"},
 				ExcludeTags:     toolkit.DefaultFetchExcludeTags,
 				OnlyMainContent: true,
+				Headers:         map[string]string{"User-Agent": fetchUserAgent},
 			}
 
 			resp, err := fetcher.Fetch(ctx, req)
@@ -181,6 +196,7 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 					URL:         in.URL,
 					Formats:     []string{"markdown"},
 					ExcludeTags: toolkit.DefaultFetchExcludeTags,
+					Headers:     map[string]string{"User-Agent": fetchUserAgent},
 				}
 				// If the full-document re-fetch itself fails (e.g. it now
 				// exceeds MaxBodySize even though the main-content extract
@@ -207,8 +223,11 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize int, fallbackMessage string) (any, error) {
 	if resp.StatusCode != 200 {
 		return &FetchURLError{
-			URL:   inURL,
-			Error: fmt.Sprintf("HTTP %d", resp.StatusCode),
+			URL:        inURL,
+			Error:      fmt.Sprintf("HTTP %d", resp.StatusCode),
+			StatusCode: resp.StatusCode,
+			RetryAfter: resp.Headers["Retry-After"],
+			Body:       boundedRuneSnippet(resp.Markdown, errorBodySnippetRunes),
 		}, nil
 	}
 
@@ -250,6 +269,15 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 	result.StatusCode = resp.StatusCode
 	result.Message = appendAdvisory(advisory, result.Message)
 	return result, nil
+}
+
+// boundedRuneSnippet returns s truncated to at most maxRunes runes.
+func boundedRuneSnippet(s string, maxRunes int) string {
+	if utf8.RuneCountInString(s) <= maxRunes {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:maxRunes])
 }
 
 // appendAdvisory composes advisory into existing, separated by a space if

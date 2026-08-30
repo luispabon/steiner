@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"unicode/utf8"
 )
 
 // fetchRawText performs a direct GET for non-HTML text-like content types,
@@ -16,6 +17,7 @@ func fetchRawText(ctx context.Context, httpClient *http.Client, in FetchURLInput
 	if err != nil {
 		return nil, fmt.Errorf("fetch_url: %w", err)
 	}
+	req.Header.Set("User-Agent", fetchUserAgent)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -24,10 +26,21 @@ func fetchRawText(ctx context.Context, httpClient *http.Client, in FetchURLInput
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != 200 {
-		return &FetchURLError{
-			URL:   in.URL,
-			Error: fmt.Sprintf("HTTP %d", resp.StatusCode),
-		}, nil
+		fetchErr := &FetchURLError{
+			URL:        in.URL,
+			Error:      fmt.Sprintf("HTTP %d", resp.StatusCode),
+			StatusCode: resp.StatusCode,
+			RetryAfter: resp.Header.Get("Retry-After"),
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, errorBodySnippetRunes*utf8.UTFMax))
+		if readErr != nil {
+			// StatusCode and RetryAfter were already read from the response
+			// and must survive a body-read failure; only the body snippet
+			// is lost.
+			return fetchErr, nil
+		}
+		fetchErr.Body = boundedRuneSnippet(trimIncompleteUTF8SuffixString(string(body)), errorBodySnippetRunes)
+		return fetchErr, nil
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(in.MaxSize)+1))
