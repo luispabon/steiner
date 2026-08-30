@@ -99,6 +99,28 @@ func TestActiveDelegateCancelAllKeepsMetadata(t *testing.T) {
 	}
 }
 
+func TestActiveDelegateCancellationOutcomeLinearizesAgainstCompletion(t *testing.T) {
+	controller := NewActiveController()
+	if _, err := controller.Register("child", context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
+		t.Fatalf("Register(child) returned error: %v", err)
+	}
+	if got := controller.CancelAgentWithDiscard("child", true); got != CancelAccepted {
+		t.Fatalf("CancelAgentWithDiscard before completion = %v, want %v", got, CancelAccepted)
+	}
+	if !controller.DiscardRequested("child") {
+		t.Fatal("discard request was not accepted")
+	}
+	if !controller.MarkComplete("child") {
+		t.Fatal("MarkComplete returned false")
+	}
+	if got := controller.CancelAgentWithDiscard("child", true); got != CancelAlreadyFinished {
+		t.Fatalf("CancelAgentWithDiscard after completion = %v, want %v", got, CancelAlreadyFinished)
+	}
+	if !controller.DiscardRequested("child") {
+		t.Fatal("accepted discard was lost after completion")
+	}
+}
+
 func TestActiveDelegateDiscardRequestLifecycle(t *testing.T) {
 	controller := NewActiveController()
 	if controller.RequestDiscard("missing") {

@@ -271,17 +271,27 @@ func (m *Model) confirmDelegateCancelAction() {
 	}
 	switch s.screen {
 	case delegateCancelScreenConfirmTarget:
-		if s.selected == 0 && targetStillActive() {
-			m.delegateCancelModal = s
-			m = m.executeDelegateCancelAction(interactive.CancelDelegate{AgentID: s.rows[s.target].agentID, Discard: false})
+		if s.selected == 0 {
+			if targetStillActive() {
+				m.delegateCancelModal = s
+				m = m.executeDelegateCancelAction(interactive.CancelDelegate{AgentID: s.rows[s.target].agentID, Discard: false})
+			} else {
+				m.content.AppendLine(fmt.Sprintf("status: delegate %s already finished; worktree retained", s.rows[s.target].agentID))
+				m.delegateCancelModal = s.close()
+			}
 			m.syncViewport()
 			return
 		}
 		m.refreshDelegateCancelSelector()
 	case delegateCancelScreenConfirmTargetCode:
-		if s.selected < 2 && targetStillActive() {
-			m.delegateCancelModal = s
-			m = m.executeDelegateCancelAction(interactive.CancelDelegate{AgentID: s.rows[s.target].agentID, Discard: s.selected == 1})
+		if s.selected < 2 {
+			if targetStillActive() {
+				m.delegateCancelModal = s
+				m = m.executeDelegateCancelAction(interactive.CancelDelegate{AgentID: s.rows[s.target].agentID, Discard: s.selected == 1})
+			} else {
+				m.content.AppendLine(fmt.Sprintf("status: delegate %s already finished; worktree retained", s.rows[s.target].agentID))
+				m.delegateCancelModal = s.close()
+			}
 			m.syncViewport()
 			return
 		}

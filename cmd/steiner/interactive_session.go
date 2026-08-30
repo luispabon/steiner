@@ -36,13 +36,14 @@ func (d delegationCanceller) CancelAgent(agentID string, discard bool) error {
 	if agentID == "" {
 		return errors.New("cancel delegate: agent id required")
 	}
-	if discard {
-		d.c.RequestDiscard(agentID)
-	}
-	if !d.c.CancelAgent(agentID) {
+	switch d.c.CancelAgentWithDiscard(agentID, discard) {
+	case delegation.CancelAccepted:
+		return nil
+	case delegation.CancelAlreadyFinished:
+		return fmt.Errorf("delegate %q already finished; worktree retained", agentID)
+	default:
 		return fmt.Errorf("no active delegate %q", agentID)
 	}
-	return nil
 }
 
 func (d delegationCanceller) CancelAll() error {

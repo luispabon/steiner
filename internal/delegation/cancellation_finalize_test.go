@@ -64,8 +64,8 @@ func TestFinalizeDelegateCancellationDiscardsSelectedWorktree(t *testing.T) {
 	if _, err := controller.Register("sibling-child", context.Background(), AgentTypeCode, sibling); err != nil {
 		t.Fatalf("Register sibling: %v", err)
 	}
-	if !controller.RequestDiscard("discard-child") {
-		t.Fatal("RequestDiscard returned false")
+	if got := controller.CancelAgentWithDiscard("discard-child", true); got != CancelAccepted {
+		t.Fatalf("cancellation with discard = %v, want %v", got, CancelAccepted)
 	}
 	store := NewSessionStore()
 	store.Save(&ChildSession{Spec: Spec{AgentID: "discard-child"}})
@@ -117,7 +117,7 @@ func TestFinalizeDelegateCancellationDiscardsSelectedWorktree(t *testing.T) {
 	}
 }
 
-func TestFinalizeDelegateCancellationIgnoresCompletedResult(t *testing.T) {
+func TestFinalizeDelegateCancellationRetainsLateDiscardOutcome(t *testing.T) {
 	repo, cleanup := setupTestRepo(t)
 	defer cleanup()
 	wt, err := ProvisionCodeWorktree(context.Background(), repo, "complete-child")
@@ -128,25 +128,34 @@ func TestFinalizeDelegateCancellationIgnoresCompletedResult(t *testing.T) {
 	if _, err := controller.Register("complete-child", context.Background(), AgentTypeCode, wt); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if !controller.RequestDiscard("complete-child") {
-		t.Fatal("RequestDiscard returned false")
-	}
 	store := NewSessionStore()
 	session := &ChildSession{Spec: Spec{AgentID: "complete-child"}}
 	store.Save(session)
+	if got := controller.CancelAgentWithDiscard("complete-child", true); got != CancelAccepted {
+		t.Fatalf("early cancellation = %v, want %v", got, CancelAccepted)
+	}
+	if !controller.MarkComplete("complete-child") {
+		t.Fatal("MarkComplete returned false")
+	}
+	if got := controller.CancelAgentWithDiscard("complete-child", true); got != CancelAlreadyFinished {
+		t.Fatalf("late cancellation = %v, want %v", got, CancelAlreadyFinished)
+	}
 	events := &recordingEventSink{}
 	result := Result{AgentID: "complete-child", Status: StatusComplete, SessionResumable: true}
 
 	finalizeDelegateCancellation(events, store, controller, repo, "complete-child", &result)
 
-	if got, ok := store.Get("complete-child"); !ok || got != session {
-		t.Fatal("completed result changed session")
+	if _, ok := store.Get("complete-child"); ok {
+		t.Fatal("accepted discard did not invalidate completed session")
 	}
-	if _, err := os.Stat(wt.Path); err != nil {
-		t.Fatalf("completed worktree stat: %v", err)
+	if result.SessionResumable {
+		t.Fatal("accepted discard left completed result resumable")
 	}
-	if len(disposalEvents(events.Events())) != 0 {
-		t.Fatal("completed result emitted disposal event")
+	if _, err := os.Stat(wt.Path); !os.IsNotExist(err) {
+		t.Fatalf("completed worktree stat: %v, want not exist", err)
+	}
+	if len(disposalEvents(events.Events())) != 1 {
+		t.Fatal("accepted discard did not emit disposal event")
 	}
 }
 
@@ -162,8 +171,8 @@ func TestFinalizeDelegateCancellationReportsPruneFailure(t *testing.T) {
 	if _, err := controller.Register("failed-child", context.Background(), AgentTypeCode, CodeWorktree{Path: path, Branch: "foreign-child"}); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if !controller.RequestDiscard("failed-child") {
-		t.Fatal("RequestDiscard returned false")
+	if got := controller.CancelAgentWithDiscard("failed-child", true); got != CancelAccepted {
+		t.Fatalf("cancellation with discard = %v, want %v", got, CancelAccepted)
 	}
 	store := NewSessionStore()
 	store.Save(&ChildSession{Spec: Spec{AgentID: "failed-child"}})
@@ -229,7 +238,7 @@ func TestSpecializedCodeDiscardWaitsForRunner(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("runner did not start")
 	}
-	if !controller.RequestDiscard("ordered-child") || !controller.CancelAgent("ordered-child") {
+	if got := controller.CancelAgentWithDiscard("ordered-child", true); got != CancelAccepted {
 		t.Fatal("failed to request cancellation and discard")
 	}
 	wt, ok := controller.WorktreeFor("ordered-child")

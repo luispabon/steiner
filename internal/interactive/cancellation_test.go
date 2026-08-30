@@ -48,6 +48,15 @@ func TestCancelDelegateForwardsArguments(t *testing.T) {
 	}
 }
 
+func TestCancelDelegateReportsCancellerError(t *testing.T) {
+	canceller := &recordingDelegateCanceller{agentErr: errors.New("delegate already finished; worktree retained")}
+	s := testNewSession(t, Dependencies{DelegateCanceller: canceller})
+
+	if err := s.Handle(context.Background(), CancelDelegate{AgentID: "child-7", Discard: true}); err == nil || err.Error() != "delegate already finished; worktree retained" {
+		t.Fatalf("Handle(CancelDelegate) = %v, want canceller error", err)
+	}
+}
+
 func TestCancelAllDelegatesCallsCanceller(t *testing.T) {
 	canceller := &recordingDelegateCanceller{}
 	s := testNewSession(t, Dependencies{DelegateCanceller: canceller})

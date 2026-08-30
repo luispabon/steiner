@@ -189,6 +189,22 @@ func TestNewDelegateDepsUsesSharedActiveController(t *testing.T) {
 	}
 }
 
+func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
+	controller := delegation.NewActiveController()
+	if _, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	if !controller.MarkComplete("child-1") {
+		t.Fatal("MarkComplete() returned false")
+	}
+	if err := (delegationCanceller{c: controller}).CancelAgent("child-1", true); err == nil || !strings.Contains(err.Error(), "already finished") || !strings.Contains(err.Error(), "worktree retained") {
+		t.Fatalf("CancelAgent() error = %v, want already-finished retained-worktree feedback", err)
+	}
+	if controller.DiscardRequested("child-1") {
+		t.Fatal("late cancellation requested discard")
+	}
+}
+
 func TestDelegationCancellerTargetsSharedController(t *testing.T) {
 	controller := delegation.NewActiveController()
 	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})

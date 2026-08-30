@@ -16,14 +16,12 @@ const (
 	cancelledSessionDiscardNotice   = "session discarded and code worktree removed by request"
 )
 
-func isCancelledResult(result Result) bool {
-	return result.Status == StatusCancelled || (result.Status == StatusPartial && result.StopReason == "cancelled")
-}
-
-// finalizeDelegateCancellation invalidates and optionally prunes a cancelled child
+// finalizeDelegateCancellation invalidates and optionally prunes a child
 // after its runner has returned. It never derives cleanup from the child context.
+// An explicit discard request is authoritative even when the returned result is
+// complete because cancellation and completion are linearized by the controller.
 func finalizeDelegateCancellation(events output.EventSink, store *SessionStore, controller *ActiveController, projectRoot, agentID string, result *Result) {
-	if result == nil || !isCancelledResult(*result) || controller == nil || !controller.DiscardRequested(agentID) {
+	if result == nil || controller == nil || !controller.DiscardRequested(agentID) {
 		return
 	}
 

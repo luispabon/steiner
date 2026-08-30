@@ -86,6 +86,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	if childHasMutateTool(session.Request) && session.Remediation != nil {
 		opts = append(opts, WithRemediation(session.Remediation))
 	}
+	opts = append(opts, withChildDone(func() { deps.ActiveController.MarkComplete(agentID) }))
 	result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 	if err == nil {
 		deps.SessionStore.Update(agentID, SessionUpdateParams{

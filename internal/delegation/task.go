@@ -96,6 +96,8 @@ func cancelledBeforeDispatchResult(agentID string) tool.ExecutionResult {
 // SpawnDelegate executes a child agent with the given specification and runner.
 // It always runs a follow-up summarisation turn after successful completion and
 // returns the full visible output plus hidden retention metadata.
+//
+//nolint:gocyclo // delegation lifecycle branches cover setup, execution, remediation, and retention.
 func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger, opts ...spawnOption) (tool.ExecutionResult, agent.RunState, TokenUsage, error) {
 	var o spawnOptions
 	for _, opt := range opts {
@@ -119,6 +121,9 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 	})
 
 	state, err := runner.Run(childCtx, req)
+	if err != nil && o.onChildDone != nil {
+		o.onChildDone()
+	}
 
 	tc.add("child_run_complete", "initial run finished", runStateFields(childCtx, state, err))
 
@@ -131,6 +136,9 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 	}
 
 	state, runUsage, extensionsGranted, extErr := runChildToCompletion(childCtx, req, runner, spec.Limits.MaxTurns, events, tc, state, spec.AgentID)
+	if o.onChildDone != nil {
+		o.onChildDone()
+	}
 	if extErr != nil {
 		if events != nil {
 			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extErr.Error()))

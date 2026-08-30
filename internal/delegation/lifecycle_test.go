@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -196,6 +197,92 @@ func TestSpecializedHandlerCacheWaitingCancellationReturnsCancelled(t *testing.T
 	}
 	if !stopped {
 		t.Error("missing scoped cancelled StopReasonEvent")
+	}
+}
+
+func TestSpecializedCodeCacheWaitingCancellationDiscardsAfterCompletion(t *testing.T) {
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	store := NewCacheKeyStore()
+	store.testWaitTimeout = time.Second
+	key, err := store.KeyFor(AgentTypeCode, provider.NewPromptCacheKey)
+	if err != nil {
+		t.Fatalf("mint cache key: %v", err)
+	}
+	_, release, _ := store.BeginDispatch(key)
+	defer release()
+
+	controller := NewActiveController()
+	sessions := NewSessionStore()
+	events := &recordingEventSink{}
+	var runnerCalls atomic.Int32
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		runnerCalls.Add(1)
+		return successRunState(), nil
+	}}
+	deps := minimalDeps(runner)
+	deps.ActiveController = controller
+	deps.CacheKeyStore = store
+	deps.SessionStore = sessions
+	deps.Events = events
+	deps.WorkDir = repo
+
+	const agentID = "cache-waiting-code"
+	originalIDGen := idGen
+	idGen = func() string { return agentID }
+	defer func() { idGen = originalIDGen }()
+
+	resultCh := make(chan error, 1)
+	go func() {
+		_, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), map[string]any{"task": "wait"})
+		resultCh <- err
+	}()
+
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	var worktree CodeWorktree
+	for {
+		var ok bool
+		worktree, ok = controller.WorktreeFor(agentID)
+		if ok && len(waitingEvents(events.Events())) == 1 {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("timed out waiting for code cache gate")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if got := controller.CancelAgentWithDiscard(agentID, true); got != CancelAccepted {
+		t.Fatalf("targeted code cancellation with discard = %v, want %v", got, CancelAccepted)
+	}
+	if err := <-resultCh; err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if runnerCalls.Load() != 0 {
+		t.Fatalf("runner calls = %d, want 0", runnerCalls.Load())
+	}
+	if _, ok := sessions.Get(agentID); ok {
+		t.Fatal("cancelled code session remained resumable")
+	}
+	sessions.Save(&ChildSession{Spec: Spec{AgentID: agentID}})
+	if _, ok := sessions.Get(agentID); ok {
+		t.Fatal("cancelled code session was not tombstoned")
+	}
+	if _, err := os.Stat(worktree.Path); !os.IsNotExist(err) {
+		t.Fatalf("code worktree stat = %v, want not exist", err)
+	}
+	if branchExists(t, repo, worktree.Branch) {
+		t.Fatalf("code branch %q still exists", worktree.Branch)
+	}
+	disposals := disposalEvents(events.Events())
+	if len(disposals) != 1 {
+		t.Fatalf("disposal events = %d, want one", len(disposals))
+	}
+	payload := disposals[0].Payload.(output.DelegationWorktreeDisposalEvent)
+	if !payload.Removed || payload.Error != "" || disposals[0].Scope.AgentID != agentID || disposals[0].Scope.AgentType != string(AgentTypeCode) {
+		t.Fatalf("disposal event = %+v scope=%+v, want successful scoped disposal", payload, disposals[0].Scope)
 	}
 }
 

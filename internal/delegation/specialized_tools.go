@@ -379,6 +379,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		if remediation != nil {
 			opts = append(opts, WithRemediation(remediation))
 		}
+		opts = append(opts, withChildDone(func() { deps.ActiveController.MarkComplete(spec.AgentID) }))
 		result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 		if err == nil && deps.SessionStore != nil {
 			saveChildSession(deps.SessionStore, spec, req, state, runUsage, remediation)

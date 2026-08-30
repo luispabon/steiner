@@ -187,6 +187,16 @@ func TestDelegateCancelModalStopDoesNotDispatchStaleTarget(t *testing.T) {
 	if m.delegateCancelModal.IsOpen() {
 		t.Fatal("empty refreshed selector remained open")
 	}
+	var found bool
+	for _, segment := range m.content.segments {
+		if strings.Contains(segment.text, "delegate child-1 already finished; worktree retained") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("stale target did not report retained worktree")
+	}
 }
 
 func TestDelegateCancelModalRenderSelectorRow(t *testing.T) {

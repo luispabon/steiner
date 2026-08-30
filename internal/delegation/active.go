@@ -15,6 +15,7 @@ type activeDelegate struct {
 	agentType        AgentType
 	worktree         CodeWorktree
 	discardRequested bool
+	completed        bool
 }
 
 // ActiveController tracks active delegates and provides cancellation for each one.
@@ -58,16 +59,59 @@ func (c *ActiveController) Register(agentID string, parent context.Context, agen
 	return child, nil
 }
 
+// CancelOutcome reports whether targeted cancellation was accepted.
+type CancelOutcome uint8
+
+const (
+	// CancelNotActive means agent ID is not registered.
+	CancelNotActive CancelOutcome = iota
+	// CancelAccepted means cancellation was accepted before completion.
+	CancelAccepted
+	// CancelAlreadyFinished means completion won the cancellation race.
+	CancelAlreadyFinished
+)
+
 // CancelAgent cancels the registered child context for agentID.
 func (c *ActiveController) CancelAgent(agentID string) bool {
+	return c.CancelAgentWithDiscard(agentID, false) == CancelAccepted
+}
+
+// CancelAgentWithDiscard atomically linearizes targeted cancellation against
+// delegate completion. An accepted discard request is retained through result
+// finalization, even if the result itself appears complete.
+func (c *ActiveController) CancelAgentWithDiscard(agentID string, discard bool) CancelOutcome {
 	c.mu.Lock()
 	delegate, ok := c.delegates[agentID]
+	if !ok {
+		c.mu.Unlock()
+		return CancelNotActive
+	}
+	if delegate.completed {
+		c.mu.Unlock()
+		return CancelAlreadyFinished
+	}
+	if discard {
+		delegate.discardRequested = true
+	}
+	c.delegates[agentID] = delegate
+	cancel := delegate.cancel
 	c.mu.Unlock()
+
+	cancel()
+	return CancelAccepted
+}
+
+// MarkComplete records the completion linearization point for agentID.
+func (c *ActiveController) MarkComplete(agentID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delegate, ok := c.delegates[agentID]
 	if !ok {
 		return false
 	}
-
-	delegate.cancel()
+	delegate.completed = true
+	c.delegates[agentID] = delegate
 	return true
 }
 
@@ -88,12 +132,13 @@ func (c *ActiveController) CancelAll() {
 }
 
 // RequestDiscard records that an active agent's worktree should be discarded after cancellation.
+// It fails once the completion linearization point has been reached.
 func (c *ActiveController) RequestDiscard(agentID string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	delegate, ok := c.delegates[agentID]
-	if !ok {
+	if !ok || delegate.completed {
 		return false
 	}
 	delegate.discardRequested = true
