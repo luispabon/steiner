@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"unicode/utf8"
 )
 
 // fetchRawText performs a direct GET for non-HTML text-like content types,
@@ -16,6 +17,7 @@ func fetchRawText(ctx context.Context, httpClient *http.Client, in FetchURLInput
 	if err != nil {
 		return nil, fmt.Errorf("fetch_url: %w", err)
 	}
+	req.Header.Set("User-Agent", fetchUserAgent)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -24,9 +26,16 @@ func fetchRawText(ctx context.Context, httpClient *http.Client, in FetchURLInput
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != 200 {
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, errorBodySnippetRunes*utf8.UTFMax))
+		if readErr != nil {
+			return &FetchURLError{URL: in.URL, Error: readErr.Error()}, nil
+		}
 		return &FetchURLError{
-			URL:   in.URL,
-			Error: fmt.Sprintf("HTTP %d", resp.StatusCode),
+			URL:        in.URL,
+			Error:      fmt.Sprintf("HTTP %d", resp.StatusCode),
+			StatusCode: resp.StatusCode,
+			RetryAfter: resp.Header.Get("Retry-After"),
+			Body:       boundedRuneSnippet(trimIncompleteUTF8SuffixString(string(body)), errorBodySnippetRunes),
 		}, nil
 	}
 
