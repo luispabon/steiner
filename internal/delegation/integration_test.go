@@ -931,13 +931,13 @@ func TestNoExtensionWhenNoToolCalls(t *testing.T) {
 	}
 }
 
-func TestExtensionCapAtFive(t *testing.T) {
+func TestExtensionCapAtMaxExtensions(t *testing.T) {
 	spec := makeSpec("ext-agent-4", 10000)
 	sink := &collectingSink{}
 
-	// 5 extension runs + 1 summary = 7 total; provide enough states
-	states := make([]agent.RunState, 0, 8)
-	for i := 0; i < 7; i++ {
+	// maxDelegateExtensions extension runs + 1 summary; provide enough states
+	states := make([]agent.RunState, 0, maxDelegateExtensions+2)
+	for i := 0; i < maxDelegateExtensions+1; i++ {
 		states = append(states, maxTurnsStateWithTools((i+1)*3))
 	}
 	// Last state for summary
@@ -961,8 +961,8 @@ func TestExtensionCapAtFive(t *testing.T) {
 			extCount++
 		}
 	}
-	if extCount != 5 {
-		t.Errorf("extension event count = %d, want exactly 5", extCount)
+	if extCount != maxDelegateExtensions {
+		t.Errorf("extension event count = %d, want exactly %d", extCount, maxDelegateExtensions)
 	}
 }
 
@@ -1034,8 +1034,8 @@ func TestExtensionEventEmitted(t *testing.T) {
 		if payload.Extension != 1 {
 			t.Errorf("Extension = %d, want 1", payload.Extension)
 		}
-		if payload.MaxExtensions != 5 {
-			t.Errorf("MaxExtensions = %d, want 5", payload.MaxExtensions)
+		if payload.MaxExtensions != maxDelegateExtensions {
+			t.Errorf("MaxExtensions = %d, want %d", payload.MaxExtensions, maxDelegateExtensions)
 		}
 		if payload.AgentID != spec.AgentID {
 			t.Errorf("AgentID = %q, want %q", payload.AgentID, spec.AgentID)

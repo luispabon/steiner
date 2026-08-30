@@ -117,6 +117,10 @@ Pre-remediation HEAD: %s
 Uncommitted paths: %s`, cfg.WorktreePath, cfg.ExpectedBranch, preHEAD, strings.Join(dirty, ", "))
 	remedReq := buildContinuationRequest(req, state.Conversation, remediationMsg, state.TurnCount, spec.Limits)
 	remedReq.Events = nil
+	// req's TurnBudgetNotice (if any) reports extensionsLeft from wherever
+	// the main extension loop last set it, which is not meaningful for this
+	// separate remediation run; drop it rather than surface a stale count.
+	remedReq.TurnBudgetNotice = nil
 
 	tc.add("remediation", "remediation attempted", map[string]any{
 		"pre_head":        preHEAD,

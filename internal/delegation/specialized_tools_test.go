@@ -992,8 +992,18 @@ func TestSpecializedHandler_SavesChildSession(t *testing.T) {
 	if session.Spec.SystemPrompt != AgentSystemPrompt(AgentTypeExplore) {
 		t.Fatalf("Spec.SystemPrompt = %q, want %q", session.Spec.SystemPrompt, AgentSystemPrompt(AgentTypeExplore))
 	}
-	if !reflect.DeepEqual(session.Request, capturedReq) {
+	// TurnBudgetNotice is set by SpawnDelegate on its own request copy right
+	// before dispatch, so it never matches (a func field, always unequal to
+	// nil under reflect.DeepEqual); compare everything else and assert its
+	// presence separately.
+	sessionReqForCompare, capturedReqForCompare := session.Request, capturedReq
+	sessionReqForCompare.TurnBudgetNotice = nil
+	capturedReqForCompare.TurnBudgetNotice = nil
+	if !reflect.DeepEqual(sessionReqForCompare, capturedReqForCompare) {
 		t.Fatal("saved request does not match child run request")
+	}
+	if capturedReq.TurnBudgetNotice == nil {
+		t.Fatal("expected TurnBudgetNotice to be set on the dispatched child run request")
 	}
 	if !reflect.DeepEqual(session.Conversation, state.Conversation) {
 		t.Fatalf("Conversation = %#v, want %#v", session.Conversation, state.Conversation)
@@ -1203,8 +1213,14 @@ func TestSpecializedHandler_SavesSessionForStructuredFailure(t *testing.T) {
 	if !ok {
 		t.Fatal("session was not saved for structured failure")
 	}
-	if !reflect.DeepEqual(session.Request, capturedReq) {
+	sessionReqForCompare, capturedReqForCompare := session.Request, capturedReq
+	sessionReqForCompare.TurnBudgetNotice = nil
+	capturedReqForCompare.TurnBudgetNotice = nil
+	if !reflect.DeepEqual(sessionReqForCompare, capturedReqForCompare) {
 		t.Fatal("saved request does not match child run request")
+	}
+	if capturedReq.TurnBudgetNotice == nil {
+		t.Fatal("expected TurnBudgetNotice to be set on the dispatched child run request")
 	}
 	if len(session.Conversation) != 0 {
 		t.Fatalf("Conversation length = %d, want 0", len(session.Conversation))

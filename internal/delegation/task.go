@@ -21,7 +21,17 @@ type AgentRunner interface {
 
 const delegateRetentionSummaryMaxRunes = 4000
 
-const maxDelegateExtensions = 5
+const maxDelegateExtensions = 3
+
+// turnBudgetNoticeFunc builds an agent.RunRequest.TurnBudgetNotice closure
+// carrying extensionsLeft, the number of delegate extensions still available
+// after the run it is attached to.
+func turnBudgetNoticeFunc(extensionsLeft int) func(turnsUsed, maxTurns int) string {
+	return func(turnsUsed, maxTurns int) string {
+		return fmt.Sprintf("You have used %d of %d turns (%d remaining) with %d extension(s) remaining. Finish the highest-value remaining work now, then report status and what is left, rather than continuing to explore.",
+			turnsUsed, maxTurns, maxTurns-turnsUsed, extensionsLeft)
+	}
+}
 
 func delegateNeedsExtension(state agent.RunState) bool {
 	if state.StopReason != agent.StopReasonMaxTurns {
@@ -120,6 +130,7 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		"has_timeout": spec.Limits.Timeout > 0,
 	})
 
+	req.TurnBudgetNotice = turnBudgetNoticeFunc(maxDelegateExtensions)
 	state, err := runner.Run(childCtx, req)
 	if err != nil && o.onChildDone != nil {
 		o.onChildDone()
@@ -290,6 +301,7 @@ func runChildToCompletion(
 		}
 		req.Prompt.Conversation = agent.ToProviderMessages(state.Conversation)
 		req.Limits.MaxTurns = state.TurnCount + originalMaxTurns
+		req.TurnBudgetNotice = turnBudgetNoticeFunc(maxDelegateExtensions - (ext + 1))
 		nextState, extensionErr := runner.Run(ctx, req)
 
 		tc.add("extension_run_complete", fmt.Sprintf("extension %d finished", ext+1), runStateFields(ctx, nextState, extensionErr))
@@ -384,6 +396,11 @@ func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.
 	summaryReq.Limits.TurnTimeout = 0
 	summaryReq.Tools = nil
 	summaryReq.Executor = summaryOnlyExecutor{}
+	// The checkpoint's 70%-of-MaxTurns threshold floors to 0 turns at
+	// MaxTurns=1, which would misfire on every summary turn and inject the
+	// notice right before the model's retention summary. The summary turn
+	// isn't part of the extension flow, so it never needs this signal.
+	summaryReq.TurnBudgetNotice = nil
 	rawConv := agent.ToReplaySafeProviderMessages(state.Conversation)
 	for i := range rawConv {
 		rawConv[i].Turn = 0

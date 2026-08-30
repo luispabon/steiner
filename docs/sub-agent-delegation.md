@@ -170,6 +170,16 @@ Each entry under the selected profile's `sub_agents` map, keyed by agent type
 name, can set a model alias to any key defined in `models.definitions`. If no
 override is set, the sub-agent uses the selected profile's `default_model`.
 
+### Turn budget and extensions
+
+If a child hits `max_turns` mid-work (its last message still has pending tool
+calls), it is automatically re-run with a bumped turn budget, up to 3
+extensions. Independently of that, once a child crosses roughly 70% of its
+current turn budget, it receives a one-time notice in its own conversation
+telling it how many turns and extensions remain, so it can wrap up rather than
+keep exploring. That notice is updated in place — not appended again — if the
+child later gets an extension and crosses the threshold once more.
+
 ### Recommended model tiers
 
 Model tier recommendations help choose which model to assign to each agent type.

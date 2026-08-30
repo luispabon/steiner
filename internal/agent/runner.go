@@ -94,6 +94,12 @@ type RunRequest struct {
 	// (e.g. compaction summaries); when set, initializeRunState uses it
 	// instead of reconstructing from Prompt.Conversation.
 	SourceConversation []Message
+
+	// TurnBudgetNotice, when non-nil, is called once per run when the turn count
+	// crosses turnBudgetNoticeFraction of Limits.MaxTurns, to produce a message
+	// injected into the conversation. Nil disables the checkpoint entirely — the
+	// parent interactive run never sets this; only delegated children do.
+	TurnBudgetNotice func(turnsUsed, maxTurns int) string
 }
 
 // Runner executes the main turn loop for an agent run.
@@ -131,6 +137,8 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		if stopped, done := stopRunBeforeTurn(ctx, req, state); done {
 			return stopped, nil
 		}
+
+		state = injectTurnBudgetNoticeIfDue(state, req)
 
 		turnCtx := ctx
 		var cancel context.CancelFunc

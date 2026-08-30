@@ -87,6 +87,8 @@ type extensionStubResponse struct {
 	err   error
 }
 
+const testTurnBudgetMarker = "[turn-budget-checkpoint]"
+
 func (r *extensionStubRunner) Run(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 	r.requests = append(r.requests, req)
 	if r.calls >= len(r.responses) {
@@ -94,7 +96,26 @@ func (r *extensionStubRunner) Run(_ context.Context, req agent.RunRequest) (agen
 	}
 	resp := r.responses[r.calls]
 	r.calls++
+	if req.TurnBudgetNotice != nil {
+		notice := testTurnBudgetMarker + " " + req.TurnBudgetNotice(resp.state.TurnCount, req.Limits.MaxTurns)
+		resp.state.Conversation = supersedeOrAppendNoticeForTest(resp.state.Conversation, notice)
+	}
 	return resp.state, resp.err
+}
+
+// supersedeOrAppendNoticeForTest mirrors (without importing) the marker-based
+// supersede-in-place semantics of agent.injectTurnBudgetNoticeIfDue, so tests
+// can verify task.go's per-extension closures compose correctly with that
+// mechanism's contract.
+func supersedeOrAppendNoticeForTest(conversation []agent.Message, notice string) []agent.Message {
+	for i, m := range conversation {
+		if strings.HasPrefix(m.Content, testTurnBudgetMarker) {
+			out := append([]agent.Message(nil), conversation...)
+			out[i] = agent.Message{Role: agent.MessageRoleUser, Content: notice}
+			return out
+		}
+	}
+	return append(append([]agent.Message(nil), conversation...), agent.Message{Role: agent.MessageRoleUser, Content: notice})
 }
 
 func TestRunChildToCompletion_NoExtensionNeeded(t *testing.T) {
@@ -304,6 +325,30 @@ func TestRunChildToCompletion_CapsAtMaxExtensions(t *testing.T) {
 	if finalState.StopReason != agent.StopReasonMaxTurns {
 		t.Errorf("state stop reason = %s, want %s", finalState.StopReason, agent.StopReasonMaxTurns)
 	}
+
+	// Exactly one budget-notice-marked message should survive across all
+	// extensions (superseded in place, not accumulated).
+	var marked []agent.Message
+	for _, m := range finalState.Conversation {
+		if strings.HasPrefix(m.Content, testTurnBudgetMarker) {
+			marked = append(marked, m)
+		}
+	}
+	if len(marked) != 1 {
+		t.Fatalf("marked notice messages = %d, want 1; conversation = %+v", len(marked), finalState.Conversation)
+	}
+	// The surviving message must carry the last extension's numbers: the
+	// final call is ext = maxDelegateExtensions-1, so extensionsLeft = 0.
+	lastReq := runner.requests[len(runner.requests)-1]
+	lastResp := runner.responses[len(runner.responses)-1]
+	const wantSuffix = "0 extension(s) remaining"
+	if !strings.Contains(marked[0].Content, wantSuffix) {
+		t.Errorf("surviving notice = %q, want it to mention %q", marked[0].Content, wantSuffix)
+	}
+	wantTurns := fmt.Sprintf("used %d of %d turns", lastResp.state.TurnCount, lastReq.Limits.MaxTurns)
+	if !strings.Contains(marked[0].Content, wantTurns) {
+		t.Errorf("surviving notice = %q, want it to mention %q (last extension's turn counts)", marked[0].Content, wantTurns)
+	}
 }
 
 func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
@@ -430,6 +475,70 @@ func TestSpawnDelegateAccumulatesSummaryUsage(t *testing.T) {
 	}
 	if usage != (TokenUsage{OutputTokens: 12, InputTokens: 13, CacheReadTokens: 16, CacheCreateTokens: 21}) {
 		t.Fatalf("summary usage = %+v, want cumulative usage", usage)
+	}
+}
+
+func TestSpawnDelegate_SummaryTurnGetsNoTurnBudgetNotice(t *testing.T) {
+	var capturedSummaryReq agent.RunRequest
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+			capturedSummaryReq = req
+			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete}, nil
+		}
+		return successRunState(), nil
+	}}
+
+	_, _, _, err := SpawnDelegate(context.Background(), Spec{AgentID: "summary-no-notice"}, agent.RunRequest{}, runner, nil, nil)
+	if err != nil {
+		t.Fatalf("SpawnDelegate error: %v", err)
+	}
+	if capturedSummaryReq.TurnBudgetNotice != nil {
+		t.Fatal("expected the summarisation turn's request to carry a nil TurnBudgetNotice")
+	}
+}
+
+func TestTurnBudgetNoticeFunc(t *testing.T) {
+	tests := []struct {
+		extensionsLeft int
+	}{
+		{extensionsLeft: 3},
+		{extensionsLeft: 1},
+		{extensionsLeft: 0},
+	}
+	for _, tt := range tests {
+		notice := turnBudgetNoticeFunc(tt.extensionsLeft)
+		text := notice(21, 30)
+		wantExt := fmt.Sprintf("%d extension(s) remaining", tt.extensionsLeft)
+		if !strings.Contains(text, wantExt) {
+			t.Errorf("extensionsLeft=%d: text = %q, want to contain %q", tt.extensionsLeft, text, wantExt)
+		}
+		if !strings.Contains(text, "used 21 of 30 turns (9 remaining)") {
+			t.Errorf("extensionsLeft=%d: text = %q, want turn counts", tt.extensionsLeft, text)
+		}
+	}
+}
+
+func TestSpawnDelegate_SetsInitialTurnBudgetNotice(t *testing.T) {
+	var capturedReq agent.RunRequest
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
+			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete}, nil
+		}
+		capturedReq = req
+		return successRunState(), nil
+	}}
+
+	_, _, _, err := SpawnDelegate(context.Background(), Spec{AgentID: "initial-notice"}, agent.RunRequest{}, runner, nil, nil)
+	if err != nil {
+		t.Fatalf("SpawnDelegate error: %v", err)
+	}
+	if capturedReq.TurnBudgetNotice == nil {
+		t.Fatal("expected TurnBudgetNotice to be set on the initial run")
+	}
+	text := capturedReq.TurnBudgetNotice(21, 30)
+	wantExt := fmt.Sprintf("%d extension(s) remaining", maxDelegateExtensions)
+	if !strings.Contains(text, wantExt) {
+		t.Errorf("initial notice = %q, want to contain %q", text, wantExt)
 	}
 }
 

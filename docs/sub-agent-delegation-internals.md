@@ -27,7 +27,7 @@ User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 │  │  - context timeout               │       │
 │  │  - emit DelegationStarted        │       │
 │  │  - runner.Run(childCtx, req)     │       │
-│  │  - auto-extension loop (≤5x)     │       │
+│  │  - auto-extension loop (≤3x)     │       │
 │  │  - summarisation turn            │       │
 │  │  - emit DelegationComplete       │       │
 │  └──────────────┬───────────────────┘       │
@@ -151,13 +151,15 @@ Beyond key reuse, `CacheKeyStore` also **staggers concurrent same-key dispatches
 1. **Timeout**: if `spec.Limits.Timeout > 0`, wraps context with `context.WithTimeout`.
 2. **Emit** `DelegationStartedEvent` with agent ID, task preview (120 chars max), and the resolved model alias (`req.ResolvedModel.Alias`) so the tool box badge shows the alias assigned to the child instead of reverse-mapping its backend API ID.
 3. **Run** the child agent loop via the `AgentRunner` interface.
-4. **Auto-extension loop** (up to 5 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
+4. **Auto-extension loop** (up to 3 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
 5. **Build result** from final state (maps `StopReason` → `Status`). Token counters (input, cache, and output) are accumulated across extension re-runs and prior follow-ups (`Spec.PriorTokenUsage`) rather than taken from the final state alone.
 6. **Summarisation turn**: runs a single no-tool turn asking the model to summarise its work in ≤4000 chars.
 7. **Emit** `DelegationCompleteEvent` or `DelegationFailedEvent`. `DelegationCompleteEvent` carries `InputTokens`/`CacheReadTokens`/`CacheCreateTokens` alongside the existing turn/tool/token counts; it is constructed via `NewDelegationCompleteEvent`, which takes a `DelegationCompleteParams` struct rather than positional arguments, so the TUI can render the child agent's cumulative cache hit rate in the tool box.
 8. **Return** `tool.ExecutionResult` with `ToolRetention` metadata attached.
 
 A child "needs extension" when `StopReason == StopReasonMaxTurns` AND the last assistant message has pending tool calls (interrupted mid-action). This prevents early termination when a delegate is actively working but hit its turn cap.
+
+**Turn-budget checkpoint.** Independent of the extension loop, `internal/agent.Runner.Run` injects a convergence notice into the child's own conversation once it crosses 70% of the current run's `Limits.MaxTurns` (`turnBudgetNoticeFraction` in `internal/agent/turn_budget_notice.go`). This fires inside a single run, not only at an extension boundary, so even a run that never needs an extension gets the signal before it is too late. The notice text — "used N of M turns (R remaining) with E extension(s) remaining" — is built by `RunRequest.TurnBudgetNotice`, which only `internal/delegation` sets (`turnBudgetNoticeFunc` in `task.go`); the parent interactive run leaves it nil since `internal/agent` has no notion of delegate extensions. Because the closure is rebuilt fresh before every `runner.Run` call (the initial call in `SpawnDelegate` and each extension in `runChildToCompletion`), it always reports how many of `maxDelegateExtensions` remain at that point. The injected message is tagged by a content-prefix marker rather than `Message.Source`, because `Source` does not survive the `agent.Message` ↔ `provider.Message` round trip that the extension loop performs between runs; a later checkpoint supersedes the prior one in place rather than accumulating, so at most one such message is ever present in the conversation.
 
 `StopReasonMaxTurns` and `StopReasonMaxTokens` map to `StatusPartial`. A partial result means the child's budget was exhausted before it could finish. Parent models must treat partial results conservatively — do not assume the delegated task succeeded, and retry or narrow scope rather than treating partial output as authoritative.
 
@@ -294,7 +296,7 @@ Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate �
 5. **Model resolution**: non-explicit sub-agent aliases fall back to the selected profile's default assignment; specialised per-type model aliases resolve before the child run is built. Vision remains disabled when no vision assignment is configured. Startup `--model` and `STEINER_MODEL` overrides affect only the active orchestrator, not these profile role assignments.
 6. **Synchronous execution**: each delegate runs to completion before control returns to the parent.
 7. **Filesystem shared**: children operate in the same workdir as the parent.
-8. **Extension cap**: maximum 5 auto-extensions to prevent runaway children.
+8. **Extension cap**: maximum 3 auto-extensions to prevent runaway children.
 9. **Summary cap**: retention summaries capped at 4000 runes.
 10. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist.
 11. **Enforced allowlist**: `ChildBootstrapOverrides.AllowedTools` is enforced during child registry construction; only listed tools (minus `follow_up` and `workflow_handoff`) are visible and executable.
