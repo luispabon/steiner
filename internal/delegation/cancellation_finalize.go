@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 const cancellationCleanupTimeout = 30 * time.Second
@@ -15,6 +16,30 @@ const (
 	cancelledSessionRetentionPhrase = "the child session is preserved and can be resumed with follow_up"
 	cancelledSessionDiscardNotice   = "session discarded and code worktree removed by request"
 )
+
+func pruneCodeWorktree(projectRoot string, worktree CodeWorktree) (bool, error) {
+	delegationBase := filepath.Join(projectRoot, ".steiner", "worktrees")
+	relID, err := filepath.Rel(delegationBase, worktree.Path)
+	if err != nil {
+		return false, err
+	}
+
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), cancellationCleanupTimeout)
+	defer cleanupCancel()
+	return PruneCodeWorktree(cleanupCtx, projectRoot, relID)
+}
+
+func applyFinalizeCancellation(events output.EventSink, store *SessionStore, controller *ActiveController, projectRoot, agentID string, result *tool.ExecutionResult) {
+	dr, ok := result.Value.(Result)
+	if !ok {
+		return
+	}
+	finalizeDelegateCancellation(events, store, controller, projectRoot, agentID, &dr)
+	result.Value = dr
+	if result.Retention != nil {
+		result.Retention.Summary = dr.Summary
+	}
+}
 
 // finalizeDelegateCancellation invalidates and optionally prunes a child
 // after its runner has returned. It never derives cleanup from the child context.
@@ -50,16 +75,7 @@ func finalizeDelegateCancellation(events output.EventSink, store *SessionStore, 
 		return
 	}
 
-	delegationBase := filepath.Join(projectRoot, ".steiner", "worktrees")
-	relID, err := filepath.Rel(delegationBase, worktree.Path)
-	if err != nil {
-		emitDisposal(false, err.Error())
-		return
-	}
-
-	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), cancellationCleanupTimeout)
-	defer cleanupCancel()
-	removed, err := PruneCodeWorktree(cleanupCtx, projectRoot, relID)
+	removed, err := pruneCodeWorktree(projectRoot, worktree)
 	if err != nil {
 		emitDisposal(removed, err.Error())
 		return
