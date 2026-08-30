@@ -93,6 +93,23 @@ func TestManifestStoreReadWriteUpdate(t *testing.T) {
 	}
 }
 
+func TestManifestStoreReadLegacyManifest(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.json")
+	legacy := `{"run_id":"abc123","slug":"legacy","task":"legacy task","branch":"oneshot/legacy-abc123","worktree_path":"/tmp/worktree","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy manifest: %v", err)
+	}
+
+	manifest, err := NewManifestStore(path).Read()
+	if err != nil {
+		t.Fatalf("Read legacy manifest failed: %v", err)
+	}
+	if manifest.WorktreeBase != "" {
+		t.Fatalf("WorktreeBase = %q, want empty", manifest.WorktreeBase)
+	}
+}
+
 func TestManifestStoreReadNonexistent(t *testing.T) {
 	dir := t.TempDir()
 	store := NewManifestStore(filepath.Join(dir, "missing.json"))

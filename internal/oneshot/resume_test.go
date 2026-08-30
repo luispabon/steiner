@@ -146,6 +146,124 @@ func TestOrchestratorResumeSkipsCompletedPhasesAndReclaimsStaleLock(t *testing.T
 	}
 }
 
+func TestResumePreservesExistingWorktreeBase(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "preserve123", Slug: "preserve-base"}
+	fakeBase := strings.Repeat("a", 40)
+	_, _, sessionStore, orch := setupResumeTestFixture(t, projectRoot, identity, fakeBase)
+
+	updated, err := orch.Resume(context.Background())
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	if got := updated.WorktreeBase; got != fakeBase {
+		t.Fatalf("WorktreeBase = %q, want %q", got, fakeBase)
+	}
+	if got := len(sessionStore.sessions); got != 2 {
+		t.Fatalf("saved sessions = %d, want 2", got)
+	}
+}
+
+func TestResumeLegacyManifestInfersBaseFromProjectCheckout(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "legacy123", Slug: "legacy-base"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity, "")
+
+	worktreePath := manifest.WorktreePath
+	featurePath := filepath.Join(worktreePath, "feature.txt")
+	if err := os.WriteFile(featurePath, []byte("feature\n"), 0o644); err != nil {
+		t.Fatalf("write feature file: %v", err)
+	}
+	runGitTest(t, worktreePath, "add", "feature.txt")
+	runGitTest(t, worktreePath, "commit", "-m", "feature: add file")
+
+	// Legacy manifest inference must use the project checkout, not the advanced worktree HEAD.
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("rewrite legacy manifest: %v", err)
+	}
+	updated, err := orch.Resume(context.Background())
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	projectHead := strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	worktreeHead := strings.TrimSpace(mustGitOutput(t, worktreePath, "rev-parse", "HEAD"))
+	if updated.WorktreeBase != projectHead {
+		t.Fatalf("WorktreeBase = %q, want project HEAD %q", updated.WorktreeBase, projectHead)
+	}
+	if updated.WorktreeBase == worktreeHead {
+		t.Fatalf("WorktreeBase = worktree HEAD %q, want project checkout base", worktreeHead)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("read persisted manifest: %v", err)
+	}
+	if persisted.WorktreeBase != projectHead {
+		t.Fatalf("persisted WorktreeBase = %q, want %q", persisted.WorktreeBase, projectHead)
+	}
+}
+
+func setupResumeTestFixture(t *testing.T, projectRoot string, identity RunIdentity, base string) (Manifest, *ManifestStore, *recordingSessionStore, *Orchestrator) {
+	t.Helper()
+	worktree, err := ProvisionWorktree(context.Background(), projectRoot, identity)
+	if err != nil {
+		t.Fatalf("ProvisionWorktree failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = CleanupWorktree(context.Background(), projectRoot, identity)
+	})
+	planningPath := identity.PlanningPath(worktree.Path)
+	if err := os.MkdirAll(planningPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll planning path failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(planningPath, "overview.md"), []byte("overview\n"), 0o644); err != nil {
+		t.Fatalf("write overview failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(planningPath, "plan.yaml"), []byte("steps: []\n"), 0o644); err != nil {
+		t.Fatalf("write plan failed: %v", err)
+	}
+
+	manifest := Manifest{
+		RunID:        identity.ID,
+		Slug:         identity.Slug,
+		Task:         "Build the parser",
+		Branch:       identity.BranchName(),
+		WorktreePath: worktree.Path,
+		WorktreeBase: base,
+		CurrentPhase: PhaseImplement,
+		PhaseStatuses: map[Phase]PhaseStatus{
+			PhasePlan:      PhaseStatusDone,
+			PhaseImplement: PhaseStatusFailed,
+			PhaseReview:    PhaseStatusPending,
+		},
+	}
+	store := NewManifestStore(identity.ManifestPath(projectRoot))
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+	runnerFactory := &recordingRunnerFactory{
+		planningPath: planningPath,
+		runners: map[Phase]*phaseRunnerStub{
+			PhaseImplement: {writePlan: true},
+			PhaseReview:    {writePlan: true},
+		},
+	}
+	sessionStore := &recordingSessionStore{}
+	orch, err := NewOrchestrator(Dependencies{
+		ProjectRoot:   projectRoot,
+		Identity:      identity,
+		Task:          "Build the parser",
+		Config:        configWithEffectiveModels("fallback-model", nil),
+		SessionStore:  sessionStore,
+		RunnerFactory: runnerFactory,
+		ManifestStore: store,
+		Events:        output.SinkFunc(func(output.Event) {}),
+	})
+	if err != nil {
+		t.Fatalf("NewOrchestrator failed: %v", err)
+	}
+	return manifest, store, sessionStore, orch
+}
+
 func TestOrchestratorResumeRefusesLiveLock(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "abc123", Slug: "build-parser"}
