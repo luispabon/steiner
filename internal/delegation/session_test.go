@@ -208,11 +208,14 @@ func TestSessionStore_Count(t *testing.T) {
 func TestSessionStoreInvalidateTombstone(t *testing.T) {
 	store := NewSessionStore()
 	original := &ChildSession{
-		Spec:         Spec{AgentID: "child-1"},
+		Spec:         Spec{AgentID: "child-1", AgentType: AgentTypeCode},
 		Conversation: []agent.Message{{Role: agent.MessageRoleUser, Content: "original"}},
 		TurnCount:    1,
 	}
 	store.Save(original)
+	if got, ok := store.Get("child-1"); !ok || got.Spec.AgentType != AgentTypeCode {
+		t.Fatalf("saved Spec.AgentType = %q, %t, want %q, true", got.Spec.AgentType, ok, AgentTypeCode)
+	}
 
 	store.Invalidate("child-1")
 	if got, ok := store.Get("child-1"); ok || got != nil {

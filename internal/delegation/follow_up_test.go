@@ -70,8 +70,9 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{
-			AgentID: "child-1",
-			Task:    "inspect code",
+			AgentID:   "child-1",
+			AgentType: AgentTypeReview,
+			Task:      "inspect code",
 			Limits: Limits{
 				MaxTurns:          2,
 				OutputLimitTokens: 9,
@@ -91,8 +92,10 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 	})
 
 	var capturedReq agent.RunRequest
+	events := &recordingEventSink{}
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 7, MaxTokens: 77},
+		Events:       events,
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
@@ -159,6 +162,17 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 	}
 	if delegationResult.FollowUpCount != 1 {
 		t.Fatalf("FollowUpCount=%d, want 1", delegationResult.FollowUpCount)
+	}
+	started := startedEvents(events.Events())
+	if len(started) != 1 {
+		t.Fatalf("started events = %d, want 1", len(started))
+	}
+	payload, ok := started[0].Payload.(output.DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("started payload = %T, want DelegationStartedEvent", started[0].Payload)
+	}
+	if payload.AgentType != string(AgentTypeReview) || started[0].Scope.AgentID != "child-1" || started[0].Scope.AgentType != string(AgentTypeReview) {
+		t.Errorf("started type/scope = %q/%+v, want %q and agent scope", payload.AgentType, started[0].Scope, AgentTypeReview)
 	}
 
 	session, ok := store.Get("child-1")

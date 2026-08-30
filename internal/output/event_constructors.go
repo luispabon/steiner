@@ -362,6 +362,19 @@ func NewDelegationStartedEventWithModel(agentID, taskPreview, callID, modelAlias
 	return newEvent(EventTypeDelegationStarted, payload)
 }
 
+// NewDelegationStartedEventWithType creates a delegation started event with
+// the resolved model alias and child agent type.
+func NewDelegationStartedEventWithType(agentID, taskPreview, callID, modelAlias, agentType string) Event {
+	payload := DelegationStartedEvent{
+		AgentID:     agentID,
+		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
+		CallID:      callID,
+		ModelAlias:  strings.TrimSpace(modelAlias),
+		AgentType:   agentType,
+	}
+	return newEvent(EventTypeDelegationStarted, payload)
+}
+
 // NewDelegationCacheWaitingEvent creates the event marking a gated delegation follower.
 func NewDelegationCacheWaitingEvent(agentID, callID string, deadline time.Time) Event {
 	return newEvent(EventTypeDelegationCacheWaiting, DelegationCacheWaitingEvent{

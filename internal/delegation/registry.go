@@ -82,6 +82,8 @@ type DelegateDeps struct {
 	// When nil, BuildDelegateRegistry creates a fresh per-call store (backward-compatible).
 	// Callers that need cross-turn follow_up support should provide a long-lived store.
 	SessionStore *SessionStore
+	// ActiveController tracks and cancels active child delegations.
+	ActiveController *ActiveController
 	// ExtraAllowedTools provides per-agent-type extra tool names that should be
 	// included in child registries beyond the built-in allowlists. Keys are agent
 	// types; values are sorted, deduplicated registered tool names. Nil or empty
@@ -164,6 +166,9 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	if !deps.SubAgentCfg.Enabled {
 		return cloned, nil
 	}
+	if deps.ActiveController == nil {
+		deps.ActiveController = NewActiveController()
+	}
 
 	mt := deps.MaxTokens
 	store := deps.SessionStore
@@ -193,6 +198,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		CaveHuman:             deps.Config.CaveHuman,
 		TraceLogger:           deps.TraceLogger,
 		SessionStore:          store,
+		ActiveController:      deps.ActiveController,
 		ExtraAllowedTools:     deps.ExtraAllowedTools,
 		UsageRecorder:         deps.UsageRecorder,
 		SandboxTmpDir:         deps.SandboxTmpDir,

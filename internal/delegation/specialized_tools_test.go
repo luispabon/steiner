@@ -131,6 +131,30 @@ func TestSpecializedHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
 	if got := waitingEvents(events.Events()); len(got) != 0 {
 		t.Fatalf("leader emitted %d waiting events, want none", len(got))
 	}
+	started := startedEvents(events.Events())
+	if len(started) != 1 {
+		t.Fatalf("started events = %d, want 1", len(started))
+	}
+	payload, ok := started[0].Payload.(output.DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("started payload = %T, want DelegationStartedEvent", started[0].Payload)
+	}
+	if payload.AgentType != string(AgentTypeExplore) {
+		t.Errorf("started AgentType = %q, want %q", payload.AgentType, AgentTypeExplore)
+	}
+	if started[0].Scope.AgentID == "" || started[0].Scope.AgentType != string(AgentTypeExplore) {
+		t.Errorf("started scope = %+v, want agent ID and type %q", started[0].Scope, AgentTypeExplore)
+	}
+}
+
+func startedEvents(events []output.Event) []output.Event {
+	var started []output.Event
+	for _, event := range events {
+		if event.Type == output.EventTypeDelegationStarted {
+			started = append(started, event)
+		}
+	}
+	return started
 }
 
 func TestSpecializedHandler_DispatchGateFollowerWaits(t *testing.T) {

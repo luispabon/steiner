@@ -182,6 +182,20 @@ func TestNewModeChangedEvent(t *testing.T) {
 	})
 }
 
+func TestNewDelegationStartedEventWithType(t *testing.T) {
+	event := NewDelegationStartedEventWithType("child-1", "inspect", "call-1", "model-a", "code")
+	if event.Type != EventTypeDelegationStarted {
+		t.Fatalf("Type = %q, want %q", event.Type, EventTypeDelegationStarted)
+	}
+	payload, ok := event.Payload.(DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T, want DelegationStartedEvent", event.Payload)
+	}
+	if payload.AgentID != "child-1" || payload.TaskPreview != "inspect" || payload.CallID != "call-1" || payload.ModelAlias != "model-a" || payload.AgentType != "code" {
+		t.Errorf("payload = %+v, want child lifecycle fields", payload)
+	}
+}
+
 func TestNewMCPStatusEvent(t *testing.T) {
 	event := NewMCPStatusEvent(true, map[string]MCPServerState{
 		"srv-a": {State: "connected", Transport: "stdio", Tools: []MCPAdvertisedTool{

@@ -31,6 +31,7 @@ type SubAgentHandlerDeps struct {
 	CaveHuman          bool
 	TraceLogger        *TraceLogger
 	SessionStore       *SessionStore
+	ActiveController   *ActiveController
 	// ExtraAllowedTools provides per-agent-type extra tool names included in
 	// child registries beyond the built-in allowlists. Nil or empty map grants
 	// no extra tools.
