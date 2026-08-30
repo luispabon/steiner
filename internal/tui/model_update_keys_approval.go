@@ -3,6 +3,9 @@ package tui
 import tea "charm.land/bubbletea/v2"
 
 func (m *Model) handleApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if (msg.Code == tea.KeyEsc || isCtrl(msg, 'c') || isCtrl(msg, 'd')) && m.content.HasActiveDelegations() {
+		return m.openDelegateCancelModal(), nil
+	}
 	switch msg.Code {
 	case tea.KeyLeft, tea.KeyUp:
 		m = m.moveApprovalSelection(-1)

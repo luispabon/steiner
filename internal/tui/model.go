@@ -166,6 +166,7 @@ type Model struct {
 	contextOverlay               contextOverlayState
 	exitModal                    exitModalState
 	workflowHandoff              workflowHandoffModalState
+	delegateCancelModal          delegateCancelModalState
 	sessionStore                 SessionLister
 	steerQueued                  bool // true when a steer message has been queued but not yet consumed
 	interruptPending             bool
