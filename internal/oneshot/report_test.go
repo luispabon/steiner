@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -189,19 +190,10 @@ func TestGenerateFinalReportUsesBaseInLocalOnlyRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateFinalReport failed: %v", err)
 	}
-	if !containsString(report.FilesChanged, "feature.txt") {
+	if !slices.Contains(report.FilesChanged, "feature.txt") {
 		t.Fatalf("report files changed = %v, want feature.txt", report.FilesChanged)
 	}
-	if !containsString(report.Git.FilesChanged, "feature.txt") {
+	if !slices.Contains(report.Git.FilesChanged, "feature.txt") {
 		t.Fatalf("git snapshot files changed = %v, want feature.txt", report.Git.FilesChanged)
 	}
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }

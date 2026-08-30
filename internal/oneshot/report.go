@@ -126,6 +126,7 @@ func GenerateFinalReport(ctx context.Context, manifest Manifest, review ReviewOu
 // CollectGitSnapshot reads the git state needed to describe a oneshot run.
 func CollectGitSnapshot(ctx context.Context, worktreePath, baseCommit string) (GitSnapshot, error) {
 	worktreePath = strings.TrimSpace(worktreePath)
+	baseCommit = strings.TrimSpace(baseCommit)
 	if worktreePath == "" {
 		return GitSnapshot{}, fmt.Errorf("collect git snapshot: worktree path is required")
 	}
@@ -306,7 +307,7 @@ func phaseRank(phase Phase) int {
 }
 
 func collectChangedFiles(ctx context.Context, worktreePath, baseCommit string) ([]string, bool, error) {
-	baseCommit, err := gitOutput(ctx, worktreePath, "merge-base", "HEAD", strings.TrimSpace(baseCommit))
+	baseCommit, err := gitOutput(ctx, worktreePath, "merge-base", "HEAD", baseCommit)
 	if err != nil {
 		return nil, false, fmt.Errorf("collect git snapshot base commit: %w", err)
 	}
