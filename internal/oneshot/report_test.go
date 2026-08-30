@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -117,6 +118,7 @@ func TestGenerateFinalReportFailureShape(t *testing.T) {
 		Task:         "Build the parser",
 		Branch:       identity.BranchName(),
 		WorktreePath: worktree.Path,
+		WorktreeBase: worktree.StartPoint,
 		PhaseSessionIDs: map[Phase]string{
 			PhasePlan:      "plan-session",
 			PhaseImplement: "implement-session",
@@ -158,5 +160,40 @@ func TestGenerateFinalReportFailureShape(t *testing.T) {
 	}
 	if _, err := os.Stat(report.ReportPath); err != nil {
 		t.Fatalf("report file missing: %v", err)
+	}
+}
+
+func TestGenerateFinalReportUsesBaseInLocalOnlyRepo(t *testing.T) {
+	projectRoot := setupLocalGitRepo(t)
+	identity := RunIdentity{ID: "local123", Slug: "local-only"}
+	worktree, err := ProvisionWorktree(context.Background(), projectRoot, identity)
+	if err != nil {
+		t.Fatalf("ProvisionWorktree failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = CleanupWorktree(context.Background(), projectRoot, identity)
+	})
+
+	if err := os.WriteFile(filepath.Join(worktree.Path, "feature.txt"), []byte("feature\n"), 0o644); err != nil {
+		t.Fatalf("write feature file: %v", err)
+	}
+	runGitTest(t, worktree.Path, "add", "feature.txt")
+	runGitTest(t, worktree.Path, "commit", "-m", "feature: add file")
+
+	report, err := GenerateFinalReport(context.Background(), Manifest{
+		RunID:        identity.ID,
+		Slug:         identity.Slug,
+		Branch:       identity.BranchName(),
+		WorktreePath: worktree.Path,
+		WorktreeBase: worktree.StartPoint,
+	}, ReviewOutcome{Passed: true, FilesChanged: []string{"feature.txt"}})
+	if err != nil {
+		t.Fatalf("GenerateFinalReport failed: %v", err)
+	}
+	if !slices.Contains(report.FilesChanged, "feature.txt") {
+		t.Fatalf("report files changed = %v, want feature.txt", report.FilesChanged)
+	}
+	if !slices.Contains(report.Git.FilesChanged, "feature.txt") {
+		t.Fatalf("git snapshot files changed = %v, want feature.txt", report.Git.FilesChanged)
 	}
 }

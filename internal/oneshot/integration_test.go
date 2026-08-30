@@ -343,7 +343,7 @@ func TestOneshotSameIDSecondRunBlockedByLock(t *testing.T) {
 }
 
 // TestOneshotWorktreeCommitSucceeds proves the load-bearing decoupling at the
-// worktree level: a worktree provisioned from origin/main accepts commits even
+// worktree level: a worktree provisioned from the worktree base accepts commits even
 // though its .git and objects live under the parent repo. (The sandbox-writable
 // -root half of this is covered by internal/sandbox.)
 func TestOneshotWorktreeCommitSucceeds(t *testing.T) {

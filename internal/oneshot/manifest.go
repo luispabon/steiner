@@ -52,6 +52,7 @@ type Manifest struct {
 	Task             string                `json:"task"`
 	Branch           string                `json:"branch"`
 	WorktreePath     string                `json:"worktree_path"`
+	WorktreeBase     string                `json:"worktree_base,omitempty"`
 	ModelSnapshot    ModelSnapshot         `json:"model_snapshot"`
 	CurrentPhase     Phase                 `json:"current_phase,omitempty"`
 	PhaseStatuses    map[Phase]PhaseStatus `json:"phase_statuses,omitempty"`

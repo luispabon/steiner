@@ -10,8 +10,6 @@ import (
 	"strings"
 )
 
-const defaultWorktreeStartPoint = "origin/main"
-
 // Worktree describes the provisioned checkout for a oneshot run.
 type Worktree struct {
 	Path       string
@@ -19,8 +17,17 @@ type Worktree struct {
 	StartPoint string
 }
 
-// ProvisionWorktree creates or re-provisions the run worktree from origin/main.
+// ProvisionWorktree creates or re-provisions the run worktree from the resolved base,
+// preferring origin/main and falling back to the repository's local HEAD.
 func ProvisionWorktree(ctx context.Context, projectRoot string, identity RunIdentity) (Worktree, error) {
+	startPoint, err := resolveWorktreeStartPoint(ctx, projectRoot)
+	if err != nil {
+		return Worktree{}, fmt.Errorf("resolve worktree start point: %w", err)
+	}
+	return provisionWorktreeAt(ctx, projectRoot, identity, startPoint)
+}
+
+func provisionWorktreeAt(ctx context.Context, projectRoot string, identity RunIdentity, startPoint string) (Worktree, error) {
 	if err := ensureSteinerProjectDir(projectRoot); err != nil {
 		return Worktree{}, err
 	}
@@ -35,8 +42,8 @@ func ProvisionWorktree(ctx context.Context, projectRoot string, identity RunIden
 	}
 
 	branchName := identity.BranchName()
-	if err := addWorktree(ctx, projectRoot, worktreePath, branchName); err != nil {
-		if retryErr := recoverWorktreePath(ctx, projectRoot, identity, err); retryErr != nil {
+	if err := addWorktree(ctx, projectRoot, worktreePath, branchName, startPoint); err != nil {
+		if retryErr := recoverWorktreePath(ctx, projectRoot, identity, startPoint, err); retryErr != nil {
 			return Worktree{}, retryErr
 		}
 	}
@@ -52,7 +59,7 @@ func ProvisionWorktree(ctx context.Context, projectRoot string, identity RunIden
 	return Worktree{
 		Path:       worktreePath,
 		BranchName: branchName,
-		StartPoint: defaultWorktreeStartPoint,
+		StartPoint: startPoint,
 	}, nil
 }
 
@@ -89,7 +96,7 @@ func prepareWorktreePath(ctx context.Context, projectRoot, worktreePath string) 
 	return nil
 }
 
-func recoverWorktreePath(ctx context.Context, projectRoot string, identity RunIdentity, addErr error) error {
+func recoverWorktreePath(ctx context.Context, projectRoot string, identity RunIdentity, startPoint string, addErr error) error {
 	if err := runGit(ctx, projectRoot, "worktree", "prune"); err != nil {
 		return fmt.Errorf("prune worktree metadata after add failure: %w (original add error: %s)", err, addErr.Error())
 	}
@@ -100,7 +107,7 @@ func recoverWorktreePath(ctx context.Context, projectRoot string, identity RunId
 		return fmt.Errorf("remove stale worktree path after add failure: %w (original add error: %s)", err, addErr.Error())
 	}
 
-	if retryErr := addWorktree(ctx, projectRoot, identity.WorktreePath(projectRoot), identity.BranchName()); retryErr != nil {
+	if retryErr := addWorktree(ctx, projectRoot, identity.WorktreePath(projectRoot), identity.BranchName(), startPoint); retryErr != nil {
 		return fmt.Errorf("add worktree after cleanup: %w (original add error: %s)", retryErr, addErr.Error())
 	}
 	return nil
@@ -163,11 +170,27 @@ func removeWorktreeAdminDir(ctx context.Context, projectRoot string, identity Ru
 	return removeWorktreeAdminDirAt(projectRoot, strings.TrimSpace(commonDir), identity.ID)
 }
 
-func addWorktree(ctx context.Context, projectRoot, worktreePath, branchName string) error {
+func addWorktree(ctx context.Context, projectRoot, worktreePath, branchName, startPoint string) error {
 	if branchExists(ctx, projectRoot, branchName) {
 		return runGit(ctx, projectRoot, "worktree", "add", worktreePath, branchName)
 	}
-	return runGit(ctx, projectRoot, "worktree", "add", "-b", branchName, worktreePath, defaultWorktreeStartPoint)
+	return runGit(ctx, projectRoot, "worktree", "add", "-b", branchName, worktreePath, startPoint)
+}
+
+// resolveWorktreeStartPoint resolves the commit a oneshot branch starts from:
+// origin/main when it resolves, otherwise the repository's local HEAD.
+func resolveWorktreeStartPoint(ctx context.Context, projectRoot string) (string, error) {
+	sha, err := gitOutput(ctx, projectRoot, "rev-parse", "--verify", "--quiet", "origin/main^{commit}")
+	sha = strings.TrimSpace(sha)
+	if err == nil && sha != "" {
+		return sha, nil
+	}
+	sha, err = gitOutput(ctx, projectRoot, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("resolve worktree start point: %w", err)
+	}
+	sha = strings.TrimSpace(sha)
+	return sha, nil
 }
 
 func branchExists(ctx context.Context, projectRoot, branchName string) bool {

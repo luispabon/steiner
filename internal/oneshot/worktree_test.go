@@ -35,6 +35,10 @@ func TestProvisionWorktreeAndCleanup(t *testing.T) {
 	if got := strings.TrimSpace(out); got != identity.BranchName() {
 		t.Fatalf("branch = %q, want %q", got, identity.BranchName())
 	}
+	originMain := strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "origin/main"))
+	if got := worktree.StartPoint; got != originMain {
+		t.Fatalf("worktree start point = %q, want origin/main %q", got, originMain)
+	}
 
 	if _, err := os.Stat(filepath.Join(worktree.Path, ".steiner", ".gitignore")); err != nil {
 		t.Fatalf(".steiner scaffolding missing: %v", err)
@@ -46,6 +50,27 @@ func TestProvisionWorktreeAndCleanup(t *testing.T) {
 
 	if _, err := os.Stat(worktree.Path); !os.IsNotExist(err) {
 		t.Fatalf("worktree path still exists after cleanup: %v", err)
+	}
+}
+
+func TestProvisionWorktreeUsesLocalHeadWithoutRemote(t *testing.T) {
+	projectRoot := setupLocalGitRepo(t)
+	identity := RunIdentity{ID: "local123", Slug: "local-only"}
+
+	worktree, err := ProvisionWorktree(context.Background(), projectRoot, identity)
+	if err != nil {
+		t.Fatalf("ProvisionWorktree failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = CleanupWorktree(context.Background(), projectRoot, identity)
+	})
+
+	projectHead := strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	if got := worktree.StartPoint; got != projectHead {
+		t.Fatalf("worktree start point = %q, want project HEAD %q", got, projectHead)
+	}
+	if got := strings.TrimSpace(mustGitOutput(t, worktree.Path, "rev-parse", "HEAD")); got != projectHead {
+		t.Fatalf("worktree HEAD = %q, want project HEAD %q", got, projectHead)
 	}
 }
 
@@ -77,14 +102,26 @@ func TestProvisionWorktreeReprovisionsAfterAdminDirPrune(t *testing.T) {
 	}
 }
 
-func setupGitRepo(t *testing.T) string {
+func setupLocalGitRepo(t *testing.T) string {
 	t.Helper()
 
 	projectRoot := t.TempDir()
 	runGitTest(t, projectRoot, "init", "-b", "main")
 	runGitTest(t, projectRoot, "config", "user.name", "Steiner Test")
 	runGitTest(t, projectRoot, "config", "user.email", "steiner@example.com")
+	if err := os.WriteFile(filepath.Join(projectRoot, "README.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGitTest(t, projectRoot, "add", "README.md")
+	runGitTest(t, projectRoot, "commit", "-m", "initial")
 
+	return projectRoot
+}
+
+func setupGitRepo(t *testing.T) string {
+	t.Helper()
+
+	projectRoot := setupLocalGitRepo(t)
 	bareRemote := filepath.Join(t.TempDir(), "origin.git")
 	if err := os.MkdirAll(bareRemote, 0o755); err != nil {
 		t.Fatalf("create bare remote dir: %v", err)
@@ -92,11 +129,6 @@ func setupGitRepo(t *testing.T) string {
 	runGitTest(t, bareRemote, "init", "--bare")
 	runGitTest(t, projectRoot, "remote", "add", "origin", bareRemote)
 
-	if err := os.WriteFile(filepath.Join(projectRoot, "README.md"), []byte("base\n"), 0o644); err != nil {
-		t.Fatalf("write README: %v", err)
-	}
-	runGitTest(t, projectRoot, "add", "README.md")
-	runGitTest(t, projectRoot, "commit", "-m", "initial")
 	runGitTest(t, projectRoot, "push", "-u", "origin", "main")
 
 	return projectRoot

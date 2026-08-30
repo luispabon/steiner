@@ -22,6 +22,7 @@ func (o *Orchestrator) Resume(ctx context.Context) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("load manifest: %w", err)
 	}
+	manifest.WorktreeBase = strings.TrimSpace(manifest.WorktreeBase)
 	if strings.TrimSpace(manifest.RunID) == "" {
 		return Manifest{}, fmt.Errorf("resume run: manifest run id is required")
 	}
@@ -40,7 +41,18 @@ func (o *Orchestrator) Resume(ctx context.Context) (Manifest, error) {
 		_ = lock.Release()
 	}()
 
-	worktree, err := ensureResumeWorktree(ctx, o.deps.ProjectRoot, o.deps.Identity, manifest.Branch)
+	if strings.TrimSpace(manifest.WorktreeBase) == "" {
+		base, err := resolveWorktreeStartPoint(ctx, o.deps.ProjectRoot)
+		if err != nil {
+			return Manifest{}, fmt.Errorf("infer worktree base: %w", err)
+		}
+		manifest.WorktreeBase = base
+		if err := store.Write(manifest); err != nil {
+			return Manifest{}, fmt.Errorf("persist inferred worktree base: %w", err)
+		}
+	}
+
+	worktree, err := ensureResumeWorktree(ctx, o.deps.ProjectRoot, o.deps.Identity, manifest.Branch, manifest.WorktreeBase)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -143,7 +155,7 @@ func previousPhaseBefore(phase Phase) Phase {
 	return ""
 }
 
-func ensureResumeWorktree(ctx context.Context, projectRoot string, identity RunIdentity, branch string) (Worktree, error) {
+func ensureResumeWorktree(ctx context.Context, projectRoot string, identity RunIdentity, branch, base string) (Worktree, error) {
 	worktreePath := identity.WorktreePath(projectRoot)
 	if stat, err := os.Stat(worktreePath); err == nil {
 		if !stat.IsDir() {
@@ -158,11 +170,11 @@ func ensureResumeWorktree(ctx context.Context, projectRoot string, identity RunI
 		return Worktree{
 			Path:       worktreePath,
 			BranchName: branch,
-			StartPoint: defaultWorktreeStartPoint,
+			StartPoint: base,
 		}, nil
 	} else if !os.IsNotExist(err) {
 		return Worktree{}, fmt.Errorf("stat worktree: %w", err)
 	}
 
-	return ProvisionWorktree(ctx, projectRoot, identity)
+	return provisionWorktreeAt(ctx, projectRoot, identity, base)
 }
