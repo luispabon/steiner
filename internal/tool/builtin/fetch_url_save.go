@@ -37,12 +37,16 @@ func saveFetchedContent(workDir, content, contentType string, truncated bool) (*
 	preview := string(previewRunes)
 
 	nextOffset := strings.Count(preview, "\n") + 1
+	totalLines := strings.Count(content, "\n") + 1
 
-	message := "Use the read tool with offset and limit to continue reading."
+	message := fmt.Sprintf(
+		"Saved %d bytes (%d lines). Use the read tool with offset and limit to page through it.",
+		len(content), totalLines,
+	)
 	if truncated {
 		message = fmt.Sprintf(
-			"Content was truncated to %d characters (original is larger). The saved file does not contain the complete content. Use the read tool with offset and limit to continue reading the saved portion.",
-			len(runes),
+			"Saved %d bytes. The response exceeded the max_size limit and was truncated; the remainder was not fetched or saved and cannot be recovered by reading further.",
+			len(content),
 		)
 	}
 
@@ -53,6 +57,7 @@ func saveFetchedContent(workDir, content, contentType string, truncated bool) (*
 		NextOffset:    nextOffset,
 		Truncated:     truncated,
 		Message:       message,
+		TotalLines:    totalLines,
 	}, nil
 }
 

@@ -451,3 +451,44 @@ func TestSpawnDelegate_DoesNotEmitStartedEvent(t *testing.T) {
 		}
 	}
 }
+
+func TestTruncateUTF8_TruncatesAt4000Chars(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		maxRunes int
+		want     string
+	}{
+		{
+			name:     "string shorter than limit passes through",
+			input:    "short text",
+			maxRunes: delegateRetentionSummaryMaxRunes,
+			want:     "short text",
+		},
+		{
+			name:     "string exactly at limit passes through",
+			input:    strings.Repeat("x", delegateRetentionSummaryMaxRunes),
+			maxRunes: delegateRetentionSummaryMaxRunes,
+			want:     strings.Repeat("x", delegateRetentionSummaryMaxRunes),
+		},
+		{
+			name:     "string exceeding limit is truncated with ellipsis",
+			input:    strings.Repeat("x", delegateRetentionSummaryMaxRunes+100),
+			maxRunes: delegateRetentionSummaryMaxRunes,
+			want:     strings.Repeat("x", delegateRetentionSummaryMaxRunes-3) + "...",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateUTF8(tt.input)
+			if got != tt.want {
+				t.Errorf("truncateUTF8() = %d chars, want %d chars", len(got), len(tt.want))
+				if len(got) > 100 {
+					t.Logf("got truncated to: %s...", got[:100])
+					t.Logf("want: %s...", tt.want[:min(100, len(tt.want))])
+				}
+			}
+		})
+	}
+}
