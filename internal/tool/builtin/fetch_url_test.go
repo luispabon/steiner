@@ -510,6 +510,48 @@ func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
 	})
 }
 
+func TestFetchURLOversizedHTMLBodyReturnsMaxSizeError(t *testing.T) {
+	// Pins the strings.Contains match in NewFetchURLTool's handler against
+	// wonton's oversized-body error, which is a bare fmt.Errorf with no
+	// exported sentinel. If wonton reword that message, this test fails
+	// instead of silently degrading to an opaque generic error.
+	body := []byte("<html><body>" + strings.Repeat("x", 500) + "</body></html>")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	workDir := t.TempDir()
+	policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	env := Env{
+		WorkDir:    workDir,
+		PathPolicy: &policy,
+		httpClient: func() *http.Client { return server.Client() },
+	}
+
+	result, err := NewFetchURLTool(env).Handler(context.Background(), map[string]any{
+		"url":      server.URL,
+		"max_size": 50,
+	})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	fetchErr, ok := result.(*FetchURLError)
+	if !ok {
+		t.Fatalf("result type = %T, want *FetchURLError", result)
+	}
+	if !strings.Contains(fetchErr.Error, "max_size") {
+		t.Errorf("Error = %q, want it to name max_size", fetchErr.Error)
+	}
+}
+
 func TestNewFetchURLToolImageBranches(t *testing.T) {
 	imageData, _, _ := newTestPNG()
 	tests := []struct {

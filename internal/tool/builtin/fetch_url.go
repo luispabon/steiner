@@ -148,6 +148,10 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 
 			resp, err := fetcher.Fetch(ctx, req)
 			if err != nil {
+				// wonton returns oversized-body as a bare fmt.Errorf with no
+				// exported sentinel or typed error to match on, so string
+				// matching is the only option. Pinned by
+				// TestFetchURLOversizedHTMLBodyReturnsMaxSizeError.
 				if strings.Contains(err.Error(), "response size exceeds limit") {
 					return &FetchURLError{
 						URL:   in.URL,
@@ -183,9 +187,6 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 	truncated := len(data) > maxSize
 	if truncated {
 		data = data[:maxSize]
-	}
-
-	if truncated {
 		data = trimIncompleteUTF8Suffix(data)
 	}
 	content = string(data)
