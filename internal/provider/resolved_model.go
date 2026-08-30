@@ -309,8 +309,8 @@ func deriveEffectiveLimits(contextWindow, maxOutputTokens int) EffectiveLimits {
 		MaxOutputTokens:           maxOutputTokens,
 		CompactionThreshold:       0.70,
 		EstimatorPadTokens:        clampInt(contextWindow/100, 256, 2048),
-		NormalSummaryMaxTokens:    deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 8, 4096, 16000),
-		EmergencySummaryMaxTokens: deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 4, 2048, 8000),
+		NormalSummaryMaxTokens:    deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 8, 6144, 20480),
+		EmergencySummaryMaxTokens: deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 4, 3072, 10240),
 	}
 }
 
