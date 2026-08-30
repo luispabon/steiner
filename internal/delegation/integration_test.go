@@ -390,7 +390,7 @@ func TestOversizedOutputTriggersSummarisation(t *testing.T) {
 		if msg.Content == longContent {
 			sawOversizedAnswer = true
 		}
-		if strings.Contains(msg.Content, "under 1000 characters") {
+		if strings.Contains(msg.Content, "under 4000 characters") {
 			sawLimitInstruction = true
 		}
 	}
@@ -442,7 +442,7 @@ func TestOversizedOutputKeepsFullVisibleOutput(t *testing.T) {
 	if result.Retention == nil {
 		t.Fatal("result.Retention = nil, want retained summary")
 	}
-	if len(result.Retention.Summary) > 1000 {
+	if len(result.Retention.Summary) > 4000 {
 		t.Fatalf("Summary length %d exceeds retention cap", len(result.Retention.Summary))
 	}
 	if typedResult.Summary == "" {
@@ -507,7 +507,7 @@ func TestSummaryFailureFallsBackToCappedPreview(t *testing.T) {
 	if result.Retention.Summary == "" {
 		t.Fatal("result.Retention.Summary = empty, want capped preview")
 	}
-	if len([]rune(result.Retention.Summary)) > 1000 {
+	if len([]rune(result.Retention.Summary)) > 4000 {
 		t.Fatalf("result.Retention.Summary too long: %d runes", len([]rune(result.Retention.Summary)))
 	}
 	if strings.Contains(result.Retention.Summary, "summary turn failed") {

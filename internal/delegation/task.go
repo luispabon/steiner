@@ -19,7 +19,7 @@ type AgentRunner interface {
 	Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error)
 }
 
-const delegateRetentionSummaryMaxRunes = 1000
+const delegateRetentionSummaryMaxRunes = 4000
 
 const maxDelegateExtensions = 5
 
@@ -334,7 +334,7 @@ func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.
 	summaryReq.Prompt.Conversation = rawConv
 	summaryReq.Prompt.Conversation = append(summaryReq.Prompt.Conversation, provider.Message{
 		Role:    provider.MessageRoleUser,
-		Content: "Summarize the assistant response you just gave for retention only. Keep it under 1000 characters. Include key findings, paths, decisions, risks, and the next action when relevant. Do not address the parent and do not add new instructions.",
+		Content: fmt.Sprintf("Summarize the assistant response you just gave for retention only. Keep it under %d characters. Include key findings, paths, decisions, risks, and the next action when relevant. Do not address the parent and do not add new instructions.", delegateRetentionSummaryMaxRunes),
 	})
 
 	summaryState, err := runner.Run(ctx, summaryReq)
