@@ -102,8 +102,8 @@ const (
 	maxBashTimeoutSeconds     = 120
 	defaultBashMaxOutputChars = 30000
 	maxBashMaxOutputChars     = 100000
-	defaultFetchURLMaxSize    = 500000
-	maxFetchURLMaxSize        = 1000000
+	defaultFetchURLMaxSize    = 10 << 20
+	maxFetchURLMaxSize        = 10 << 20
 	defaultWebSearchLimit     = 10
 	maxWebSearchLimit         = 30
 )

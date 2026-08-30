@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dive/toolkit"
 	"github.com/deepnoodle-ai/wonton/fetch"
@@ -30,6 +32,7 @@ type FetchURLResult struct {
 	NextOffset    int         `json:"next_offset,omitempty"`
 	Message       string      `json:"message,omitempty"`
 	Truncated     bool        `json:"truncated,omitempty"`
+	TotalLines    int         `json:"total_lines,omitempty"`
 }
 
 // FetchURLError is an error result from a fetch_url tool call.
@@ -132,8 +135,9 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 			}
 
 			fetcher := fetch.NewHTTPFetcher(fetch.HTTPFetcherOptions{
-				Client:  httpClient,
-				Timeout: 15 * time.Second,
+				Client:      httpClient,
+				Timeout:     15 * time.Second,
+				MaxBodySize: int64(in.MaxSize),
 			})
 
 			req := &fetch.Request{
@@ -144,6 +148,12 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 
 			resp, err := fetcher.Fetch(ctx, req)
 			if err != nil {
+				if strings.Contains(err.Error(), "response size exceeds limit") {
+					return &FetchURLError{
+						URL:   in.URL,
+						Error: fmt.Sprintf("response body exceeded max_size (%d bytes); retry with a larger max_size or fetch a smaller resource", in.MaxSize),
+					}, nil
+				}
 				return &FetchURLError{
 					URL:   in.URL,
 					Error: err.Error(),
@@ -169,22 +179,25 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 	}
 
 	content := resp.Markdown
-	runes := []rune(content)
-	// maxSize is applied in runes here (decoded markdown text), unlike
-	// fetchRawText which applies it in bytes to the raw HTTP body.
-	truncated := len(runes) > maxSize
+	data := []byte(content)
+	truncated := len(data) > maxSize
 	if truncated {
-		runes = runes[:maxSize]
-		content = string(runes)
+		data = data[:maxSize]
 	}
 
-	if len(runes) <= inlineThreshold {
+	if truncated {
+		data = trimIncompleteUTF8Suffix(data)
+	}
+	content = string(data)
+	contentLength := utf8.RuneCountInString(content)
+
+	if contentLength <= inlineThreshold {
 		return &FetchURLResult{
 			URL:           resp.URL,
 			Title:         resp.Metadata.Title,
 			Description:   resp.Metadata.Description,
 			Content:       content,
-			ContentLength: len(runes),
+			ContentLength: contentLength,
 			StatusCode:    resp.StatusCode,
 			Truncated:     truncated,
 		}, nil
