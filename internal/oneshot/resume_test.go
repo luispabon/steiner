@@ -149,15 +149,23 @@ func TestOrchestratorResumeSkipsCompletedPhasesAndReclaimsStaleLock(t *testing.T
 func TestResumePreservesExistingWorktreeBase(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "preserve123", Slug: "preserve-base"}
-	fakeBase := strings.Repeat("a", 40)
-	_, _, sessionStore, orch := setupResumeTestFixture(t, projectRoot, identity, fakeBase)
+	manifest, store, sessionStore, orch := setupResumeTestFixture(t, projectRoot, identity, "")
+	base := strings.TrimSpace(mustGitOutput(t, manifest.WorktreePath, "rev-parse", "HEAD"))
+	// Use a real base SHA so the resume report leg is exercised. Base inference would overwrite it with the origin/main SHA if preservation were broken.
+	manifest.WorktreeBase = base
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("rewrite manifest with worktree base: %v", err)
+	}
 
 	updated, err := orch.Resume(context.Background())
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
-	if got := updated.WorktreeBase; got != fakeBase {
-		t.Fatalf("WorktreeBase = %q, want %q", got, fakeBase)
+	if got := updated.WorktreeBase; got != base {
+		t.Fatalf("WorktreeBase = %q, want %q", got, base)
+	}
+	if updated.ReportPath == "" {
+		t.Fatal("ReportPath is empty, want generated final report")
 	}
 	if got := len(sessionStore.sessions); got != 2 {
 		t.Fatalf("saved sessions = %d, want 2", got)
