@@ -38,6 +38,7 @@ func fetchImageBytes(ctx context.Context, httpClient *http.Client, urlStr, media
 	if err != nil {
 		return nil, 0, fmt.Errorf("fetch image: %w", err)
 	}
+	req.Header.Set("User-Agent", fetchUserAgent)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
