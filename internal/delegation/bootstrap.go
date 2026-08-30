@@ -112,6 +112,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		SandboxTmpDir:      deps.SandboxTmpDir,
 		Sandbox:            deps.Sandbox,
 		ReadOnlyBash:       readOnlyBash,
+		MaxParallelTools:   deps.MaxParallelTools,
 	})
 	return req, limits, nil
 }
@@ -247,6 +248,7 @@ type childRunRequestParams struct {
 	SandboxTmpDir      string
 	Sandbox            tool.SandboxWrapper
 	ReadOnlyBash       bool
+	MaxParallelTools   int
 }
 
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
@@ -297,6 +299,10 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder
 	}
+	req.ParallelTool = func(name string) bool {
+		return p.ExecReg.IsParallelSafe(name)
+	}
+	req.MaxParallelTools = p.MaxParallelTools
 
 	return req
 }

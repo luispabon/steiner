@@ -22,6 +22,7 @@ func NewLSTool(env Env) tool.ToolDef {
 	})
 	return tool.ToolDef{
 		Name:            "ls",
+		ParallelSafe:    true,
 		Description:     "List directory contents. Use recursive sparingly. Use limit and offset for large directories.",
 		ParameterSchema: LSSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {

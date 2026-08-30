@@ -797,6 +797,41 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 	}
 }
 
+func TestBuildChildRunThreadsMaxParallelTools(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", ParallelSafe: true, Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+	)
+
+	deps := SubAgentHandlerDeps{
+		ParentReg:        parent,
+		SubAgentCfg:      config.SubAgentConfig{},
+		Events:           output.NoopSink{},
+		WorkDir:          "/tmp/work",
+		Provider:         stubProvider{},
+		MaxParallelTools: 7,
+	}
+
+	spec := Spec{
+		Task:    "test",
+		AgentID: "test-parallel",
+		Limits:  Limits{MaxTurns: 5},
+	}
+
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.ParallelTool == nil {
+		t.Fatal("ParallelTool is nil, want set")
+	}
+	if req.MaxParallelTools != 7 {
+		t.Fatalf("MaxParallelTools = %d, want 7", req.MaxParallelTools)
+	}
+	if !req.ParallelTool("read") {
+		t.Fatal("ParallelTool(read) = false, want true")
+	}
+}
+
 func TestBuildChildRunIncludesModel(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
@@ -1323,18 +1358,44 @@ func TestBuildChildRunRequestPromptCacheKeyFallsBackWhenStoreNil(t *testing.T) {
 	}
 }
 
-func TestBuildChildRunRequestDoesNotEnableParallelTools(t *testing.T) {
+func TestBuildChildRunRequestEnablesParallelSafeToolsOnly(t *testing.T) {
+	execReg := tool.NewRegistry(
+		tool.ToolDef{Name: "read", ParallelSafe: true},
+		tool.ToolDef{Name: "bash"},
+	)
+	req := buildChildRunRequest(childRunRequestParams{
+		WorkDir:          "/tmp/work",
+		AgentID:          "no-nesting",
+		VisibleReg:       tool.NewRegistry(),
+		ExecReg:          execReg,
+		MaxParallelTools: 3,
+	})
+	if req.ParallelTool == nil {
+		t.Fatal("child ParallelTool is nil, want set")
+	}
+	if !req.ParallelTool("read") {
+		t.Fatal("child ParallelTool(read) = false, want true")
+	}
+	if req.ParallelTool("bash") {
+		t.Fatal("child ParallelTool(bash) = true, want false")
+	}
+	if req.MaxParallelTools != 3 {
+		t.Fatalf("child MaxParallelTools = %d, want 3", req.MaxParallelTools)
+	}
+}
+
+func TestBuildChildRunRequestNeverEnablesDelegationTools(t *testing.T) {
+	// Children never have delegation tools in their exec registry (they
+	// can't nest), so the child ParallelTool predicate must only consult the
+	// registry, never delegation.IsDelegationTool.
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:    "/tmp/work",
 		AgentID:    "no-nesting",
 		VisibleReg: tool.NewRegistry(),
 		ExecReg:    tool.NewRegistry(),
 	})
-	if req.ParallelTool != nil {
-		t.Fatal("child ParallelTool is non-nil, want nil")
-	}
-	if req.MaxParallelTools != 0 {
-		t.Fatalf("child MaxParallelTools = %d, want 0", req.MaxParallelTools)
+	if req.ParallelTool("code") {
+		t.Fatal("child ParallelTool(code) = true, want false: children cannot nest delegation")
 	}
 }
 

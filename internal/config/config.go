@@ -265,6 +265,8 @@ type LimitsConfig struct {
 	ToolTimeoutDefault Duration            `yaml:"tool_timeout_default"`
 	ToolTimeouts       map[string]Duration `yaml:"tool_timeouts"`
 	ToolOutputMaxBytes int                 `yaml:"tool_output_max_bytes"`
+	// MaxParallelTools bounds how many parallel-safe tool calls run concurrently within one turn.
+	MaxParallelTools int `yaml:"max_parallel_tools"`
 }
 
 // SubAgentConfig controls delegated child-agent execution limits.

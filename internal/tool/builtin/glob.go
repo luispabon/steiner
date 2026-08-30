@@ -18,6 +18,7 @@ import (
 func NewGlobTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "glob",
+		ParallelSafe:    true,
 		Description:     "Find files by glob pattern. Use limit and offset to page through large result sets.",
 		ParameterSchema: GlobSchema(),
 		Handler: func(_ context.Context, input map[string]any) (any, error) {

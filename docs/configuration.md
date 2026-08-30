@@ -28,6 +28,7 @@ Key environment variables:
 | `STEINER_LOG_LEVEL`           | `logging.level`                   |
 | `STEINER_LOG_FILE`            | `logging.file`                    |
 | `STEINER_TOOL_OUTPUT_MAX_BYTES` | `limits.tool_output_max_bytes`  |
+| `STEINER_MAX_PARALLEL_TOOLS`  | `limits.max_parallel_tools`       |
 | `STEINER_TUI_FPS`             | `tui.fps`                         |
 
 ### Environment variable expansion in config values
@@ -539,6 +540,7 @@ Runtime limits for turns, tokens, and tool execution.
 | `tool_timeout_default`| duration string          | `"30s"`  | Default timeout applied to any tool not listed in `tool_timeouts`. |
 | `tool_timeouts`      | map[string]duration string| see below | Per-tool timeout overrides. |
 | `tool_output_max_bytes`| int                     | `65536`  | Maximum bytes of output captured from a single tool call. Output is truncated to this limit. |
+| `max_parallel_tools` | int                       | `4`      | Maximum number of parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`, plus delegation tools) executed concurrently within a single turn. `0` means unbounded; `1` forces serial execution. Applies to both the parent run and each child sub-agent's own turns. |
 
 Default `tool_timeouts`:
 
@@ -560,6 +562,7 @@ limits:
     grep: 30s
     ls: 5s
   tool_output_max_bytes: 65536
+  max_parallel_tools: 4
 ```
 
 `tool_timeout_default` and `tool_timeouts` also apply to MCP tools: every MCP call is

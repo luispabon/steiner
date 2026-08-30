@@ -622,11 +622,11 @@ func TestParallelDelegationEndToEndNoNesting(t *testing.T) {
 	spec := makeSpec("nested-check", 100)
 	_, exec := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest(childRunRequestParams{AgentID: spec.AgentID, Provider: &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "ok"}}}}, VisibleReg: exec, ExecReg: exec, PromptOpts: testBuildPrompt(spec)})
-	if req.ParallelTool != nil {
-		t.Fatal("child ParallelTool is non-nil")
+	if req.ParallelTool == nil {
+		t.Fatal("child ParallelTool is nil, want set (parallel-safe tool concurrency, not delegation)")
 	}
-	if req.MaxParallelTools != 0 {
-		t.Fatalf("child MaxParallelTools = %d", req.MaxParallelTools)
+	if req.ParallelTool("code") {
+		t.Fatal("child ParallelTool(code) = true, want false: children cannot nest delegation")
 	}
 }
 

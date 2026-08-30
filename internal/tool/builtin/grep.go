@@ -13,6 +13,7 @@ import (
 func NewGrepTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "grep",
+		ParallelSafe:    true,
 		Description:     `Search file contents with paginated logical results. Use output_mode="files_with_matches" to locate relevant files, output_mode="count" for per-file counts, and output_mode="content" with context to inspect matches.`,
 		ParameterSchema: GrepSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {

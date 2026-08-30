@@ -155,3 +155,28 @@ func TestMCPProvenance(t *testing.T) {
 		t.Errorf("Subset().Get() MCP = %+v, want %+v", got.MCP, prov)
 	}
 }
+
+func TestIsParallelSafe(t *testing.T) {
+	reg := NewRegistry(
+		ToolDef{Name: "read", ParallelSafe: true},
+		ToolDef{Name: "glob", ParallelSafe: true},
+		ToolDef{Name: "bash"},
+		ToolDef{Name: "mcp_tool", ParallelSafe: true, MCP: MCPProvenance{Server: "some-server", ToolName: "mcp_tool"}},
+	)
+
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"read", true},
+		{"glob", true},
+		{"bash", false},
+		{"mcp_tool", false},
+		{"missing", false},
+	}
+	for _, tt := range tests {
+		if got := reg.IsParallelSafe(tt.name); got != tt.want {
+			t.Errorf("IsParallelSafe(%q) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

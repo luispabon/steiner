@@ -13,6 +13,7 @@ import (
 func NewWebSearchTool(searcher web.Searcher) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "web_search",
+		ParallelSafe:    true,
 		Description:     "Search the web for information. Returns results with URL, title, and description.",
 		ParameterSchema: WebSearchSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {

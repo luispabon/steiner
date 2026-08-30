@@ -380,6 +380,15 @@ func TestValidate(t *testing.T) {
 			wantErr: `tool_output_max_bytes must be at least 1`,
 		},
 		{
+			name: "negative max_parallel_tools",
+			cfg: func() Config {
+				c := validBase()
+				c.Limits.MaxParallelTools = -1
+				return c
+			}(),
+			wantErr: `max_parallel_tools must be non-negative`,
+		},
+		{
 			name: "empty tool timeout name",
 			cfg: func() Config {
 				c := validBase()

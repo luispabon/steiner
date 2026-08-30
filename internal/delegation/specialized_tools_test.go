@@ -22,6 +22,20 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// runRequestsEqualIgnoringFuncFields compares two RunRequest values for
+// equality, ignoring func-typed fields (e.g. ParallelTool, DrainSteers):
+// reflect.DeepEqual on func values reports non-nil funcs as unequal even when
+// both come from the same struct copy, which would otherwise make this
+// comparison spuriously fail once a request always carries a non-nil
+// ParallelTool.
+func runRequestsEqualIgnoringFuncFields(a, b agent.RunRequest) bool {
+	a.ParallelTool = nil
+	b.ParallelTool = nil
+	a.DrainSteers = nil
+	b.DrainSteers = nil
+	return reflect.DeepEqual(a, b)
+}
+
 type mockRunner struct {
 	runFunc func(context.Context, agent.RunRequest) (agent.RunState, error)
 }

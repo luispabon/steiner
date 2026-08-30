@@ -62,6 +62,22 @@ func (r *Registry) Get(name string) (ToolDef, bool) {
 	return cloneToolDef(def), true
 }
 
+// IsParallelSafe reports whether name may execute concurrently with sibling
+// tool calls in the same turn. MCP tools are never parallel-safe regardless
+// of their ParallelSafe flag or any self-reported readOnlyHint annotation —
+// third-party servers have unknown side-effect semantics steiner cannot
+// verify, so this is a hard exclusion, not a default.
+func (r *Registry) IsParallelSafe(name string) bool {
+	def, ok := r.Get(name)
+	if !ok {
+		return false
+	}
+	if def.MCP.Server != "" {
+		return false
+	}
+	return def.ParallelSafe
+}
+
 // Names returns the registered tool names in sorted order.
 func (r *Registry) Names() []string {
 	if r == nil || len(r.defs) == 0 {

@@ -1461,6 +1461,51 @@ desktop_notifications:
 	}
 }
 
+func TestLoadLimitsMaxParallelTools(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  profiles:
+    default:
+      default_model: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+limits:
+  max_parallel_tools: 9
+`)
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = os.Chdir(cwd)
+		})
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Limits.MaxParallelTools != 9 {
+		t.Fatalf("limits.max_parallel_tools = %d, want 9", cfg.Limits.MaxParallelTools)
+	}
+}
+
 func TestLoadDesktopNotificationsOmitted(t *testing.T) {
 	tempDir := t.TempDir()
 	projectDir := filepath.Join(tempDir, "project")

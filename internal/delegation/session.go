@@ -66,6 +66,10 @@ type SubAgentHandlerDeps struct {
 	// /new. This is a deliberate accepted scope choice — a stale shard hint
 	// costs at most a cache miss, never a correctness issue — not a bug.
 	CacheKeyStore *CacheKeyStore
+	// MaxParallelTools bounds how many parallel-safe tool calls a child may
+	// run concurrently within its own turn. Distinct from SubAgentCfg.MaxParallel,
+	// which bounds concurrent delegation spawns from the parent.
+	MaxParallelTools int
 }
 
 // ChildSession tracks persisted state for a delegated child session.

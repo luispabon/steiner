@@ -200,6 +200,55 @@ func TestExecuteToolCalls_MixedEligibleRunsPreserveOrder(t *testing.T) {
 	}
 }
 
+func TestParallelRunLength_ReadsBreakOnNonParallelSafeName(t *testing.T) {
+	readOnly := func(name string) bool { return name == "read" || name == "grep" }
+	calls := parallelCalls("read", "read", "mutate", "read").Message.ToolCalls
+	p := newTurnProgressor(RunRequest{ParallelTool: readOnly}, prompt.AssemblyOptions{}, nil)
+
+	if got := p.parallelRunLength(calls, 0); got != 2 {
+		t.Fatalf("parallelRunLength(0) = %d, want 2 (reads batch, mutate is not parallel-safe)", got)
+	}
+	if got := p.parallelRunLength(calls, 2); got != 1 {
+		t.Fatalf("parallelRunLength(2) = %d, want 1 (mutate always runs alone)", got)
+	}
+	if got := p.parallelRunLength(calls, 3); got != 1 {
+		t.Fatalf("parallelRunLength(3) = %d, want 1 (trailing lone read)", got)
+	}
+}
+
+func TestExecuteToolCalls_GrepBatchExecutesConcurrently(t *testing.T) {
+	const n = 4
+	var maxInFlight, inFlight int32
+	barrier := make(chan struct{})
+	executor := parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
+		current := atomic.AddInt32(&inFlight, 1)
+		for {
+			old := atomic.LoadInt32(&maxInFlight)
+			if current <= old || atomic.CompareAndSwapInt32(&maxInFlight, old, current) {
+				break
+			}
+		}
+		<-barrier
+		atomic.AddInt32(&inFlight, -1)
+		return name, nil
+	}}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(name string) bool { return name == "grep" }}, prompt.AssemblyOptions{}, nil)
+	done := make(chan RunState, 1)
+	go func() {
+		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("grep", "grep", "grep", "grep")).State
+	}()
+	if !waitForAtomic(t, &inFlight, n) {
+		return
+	}
+	close(barrier)
+	if got := parallelContents(<-done); len(got) != n {
+		t.Fatalf("results=%v, want %d", got, n)
+	}
+	if atomic.LoadInt32(&maxInFlight) != n {
+		t.Fatalf("max in-flight=%d, want %d (all grep calls run concurrently)", maxInFlight, n)
+	}
+}
+
 func TestExecuteToolCalls_MiddleWorkflowHandoffStopsLaterResults(t *testing.T) {
 	entered := make(chan string, 3)
 	middleDone := make(chan struct{})

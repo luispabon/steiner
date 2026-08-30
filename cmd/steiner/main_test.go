@@ -1269,7 +1269,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 			Advanced: config.AdvancedConfig{
 				Limits: config.AdvancedLimitsConfig{
 					MaxOutputTokens: 32,
-					ContextWindow:   1024,
+					ContextWindow:   4096,
 				},
 			},
 		},
@@ -1305,7 +1305,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 	if !ok {
 		t.Fatal("first Snapshot() ok = false, want true")
 	}
-	if got, want := first.ModelBudget.ContextSize, 1024; got != want {
+	if got, want := first.ModelBudget.ContextSize, 4096; got != want {
 		t.Fatalf("first context size = %d, want %d", got, want)
 	}
 	if got, want := first.ModelBudget.MaxCompletionTokens, 32; got != want {
@@ -1349,7 +1349,7 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 			Advanced: config.AdvancedConfig{
 				Limits: config.AdvancedLimitsConfig{
 					MaxOutputTokens: 32,
-					ContextWindow:   1024,
+					ContextWindow:   4096,
 				},
 			},
 		},
@@ -1429,7 +1429,7 @@ func TestCLIRunnerUsesSessionCurrentModelAliasCallback(t *testing.T) {
 			Advanced: config.AdvancedConfig{
 				Limits: config.AdvancedLimitsConfig{
 					MaxOutputTokens: 32,
-					ContextWindow:   1024,
+					ContextWindow:   4096,
 				},
 			},
 		},

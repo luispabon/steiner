@@ -31,30 +31,29 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 		name    string
 		enabled bool
 		width   int
-		wantFn  bool
 		wantMax int
 	}{
-		{name: "enabled", enabled: true, width: 5, wantFn: true, wantMax: 5},
-		{name: "disabled", enabled: false, width: 5, wantFn: false, wantMax: 0},
+		{name: "enabled", enabled: true, width: 5, wantMax: 5},
+		{name: "disabled", enabled: false, width: 5, wantMax: 5},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := cliRunner{runtime: cliRuntime{cfg: config.Config{
-				SubAgent: config.SubAgentConfig{Enabled: tt.enabled, MaxParallel: tt.width},
+				SubAgent: config.SubAgentConfig{Enabled: tt.enabled, MaxParallel: 99},
+				Limits:   config.LimitsConfig{MaxParallelTools: tt.width},
 			}}}
-			req := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
-			if (req.ParallelTool != nil) != tt.wantFn {
-				t.Fatalf("ParallelTool set = %v, want %v", req.ParallelTool != nil, tt.wantFn)
+			reg := tool.NewRegistry(tool.ToolDef{Name: "read", ParallelSafe: true})
+			req := buildRunRequest(r, runnerSetup{}, reg, nil, nil)
+			if req.ParallelTool == nil {
+				t.Fatal("ParallelTool = nil, want set")
 			}
 			if req.MaxParallelTools != tt.wantMax {
 				t.Fatalf("MaxParallelTools = %d, want %d", req.MaxParallelTools, tt.wantMax)
 			}
-			if tt.enabled {
-				if !req.ParallelTool("code") {
-					t.Fatal("ParallelTool(code) = false, want true")
-				}
-				if req.ParallelTool("read") {
-					t.Fatal("ParallelTool(read) = true, want false")
-				}
+			if !req.ParallelTool("code") {
+				t.Fatal("ParallelTool(code) = false, want true (delegation tool name always matches; harmless when unreachable)")
+			}
+			if !req.ParallelTool("read") {
+				t.Fatal("ParallelTool(read) = false, want true (registry-marked parallel-safe)")
 			}
 		})
 	}
