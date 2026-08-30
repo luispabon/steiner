@@ -79,6 +79,19 @@ Key behaviours:
 
 Multiple delegation calls made in one turn execute concurrently. `sub_agent.max_parallel` bounds the fan-out width: the default is `3`, `0` means unbounded, and `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
 
+### Stopping active delegates
+
+When at least one delegate is active, pressing **Esc**, **Ctrl-C**, or **Ctrl-D** opens the stop dialog. This applies while viewing the conversation, an approval prompt, or another input mode where the shortcut is applicable. If no delegate is active, existing behavior is unchanged: during an active parent run these shortcuts interrupt the whole run, and outside a run they keep their existing exit behavior.
+
+The selector lists each active delegate as **bold, tool-box-coloured type · agent ID · truncated task preview**. It offers these choices:
+
+- **Stop one** — confirm stopping the selected delegate. For a code delegate, the default is **stop and keep worktree**; the confirmation also offers **stop and discard worktree** or **keep working**. For other delegate types, choose **stop** or **keep working**.
+- **Stop all delegates** — confirm stopping every active delegate. All code worktrees are retained.
+- **Stop entire run** — confirm the existing whole-run interrupt, which also stops its delegates through the parent run context.
+- **Dismiss** — close the dialog without stopping anything. **Keep working** on a confirmation screen returns to the selector.
+
+Stopping a delegate does not automatically remove its worktree. A targeted code stop keeps its worktree by default, and stop-all keeps every code worktree. Discard is available only through the explicit targeted discard choice. Discarding a code session makes it non-resumable with `follow_up` and removes its delegation worktree and branch; it is not an automatic cleanup path.
+
 Every `code` sub-agent automatically runs in its own isolated, runtime-provisioned and verified git worktree under `.steiner/worktrees/`. You do not need to arrange isolation manually anymore. Concurrent child agents are now safe from file-edit collisions.
 
 ### Exit-time worktree cleanup
