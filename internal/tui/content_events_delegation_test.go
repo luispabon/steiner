@@ -67,6 +67,14 @@ func TestDelegationCacheWaitingProductionEventOrder(t *testing.T) {
 	if rows := buffer.ActiveDelegateRows(); len(rows) != 1 || rows[0].agentID != "child-production" {
 		t.Fatalf("active rows = %#v, want child-production", rows)
 	}
+
+	buffer.AppendEvent(output.WithAgentScope(output.NewModelCallStartedEvent(1, "backend-model", 1), "child-production"))
+	if loc.dd.cacheWaiting {
+		t.Fatal("cacheWaiting = true after first scoped child event, want false")
+	}
+	if loc.dd.status != "active" {
+		t.Fatalf("status = %q after first scoped child event, want active", loc.dd.status)
+	}
 }
 
 func TestCacheWaitingCancellationLeavesElapsedEmpty(t *testing.T) {
