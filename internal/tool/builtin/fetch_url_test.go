@@ -80,11 +80,27 @@ func TestFetchURLTool(t *testing.T) {
 		}
 	})
 
-	t.Run("max_size capped at 10MB", func(t *testing.T) {
-		in := &FetchURLInput{URL: "http://example.com", MaxSize: 20 << 20}
+	t.Run("max_size capped at 32MB", func(t *testing.T) {
+		in := &FetchURLInput{URL: "http://example.com", MaxSize: 40 << 20}
 		normalizeFetchURL(in)
-		if in.MaxSize != 10<<20 {
-			t.Errorf("MaxSize = %d, want %d", in.MaxSize, 10<<20)
+		if in.MaxSize != 32<<20 {
+			t.Errorf("MaxSize = %d, want %d", in.MaxSize, 32<<20)
+		}
+	})
+
+	t.Run("max_size at 32MB survives normalization", func(t *testing.T) {
+		in := &FetchURLInput{URL: "http://example.com", MaxSize: 32 << 20}
+		normalizeFetchURL(in)
+		if in.MaxSize != 32<<20 {
+			t.Errorf("MaxSize = %d, want %d", in.MaxSize, 32<<20)
+		}
+	})
+
+	t.Run("max_size at 33MB is clamped to 32MB", func(t *testing.T) {
+		in := &FetchURLInput{URL: "http://example.com", MaxSize: 33 << 20}
+		normalizeFetchURL(in)
+		if in.MaxSize != 32<<20 {
+			t.Errorf("MaxSize = %d, want %d", in.MaxSize, 32<<20)
 		}
 	})
 
@@ -107,8 +123,8 @@ func TestFetchURLTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("max_size property not found in schema")
 		}
-		if maxSize["description"] != "Max bytes to download and save to disk" {
-			t.Errorf("max_size description = %v, want %q", maxSize["description"], "Max bytes to download and save to disk")
+		if maxSize["description"] != "Max bytes to download and save to disk (default 10MB, ceiling 32MB)" {
+			t.Errorf("max_size description = %v, want %q", maxSize["description"], "Max bytes to download and save to disk (default 10MB, ceiling 32MB)")
 		}
 		if maxSize["default"] != defaultFetchURLMaxSize {
 			t.Errorf("max_size default = %v, want %d", maxSize["default"], defaultFetchURLMaxSize)
@@ -560,6 +576,32 @@ func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
 	})
 }
 
+func TestOversizeBodyErrorMessage(t *testing.T) {
+	tests := []struct {
+		name       string
+		maxSize    int
+		wantRaise  bool
+		wantNarrow bool
+	}{
+		{name: "below ceiling", maxSize: defaultFetchURLMaxSize, wantRaise: true, wantNarrow: false},
+		{name: "at ceiling", maxSize: maxFetchURLMaxSize, wantRaise: false, wantNarrow: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			message := oversizeBodyErrorMessage(tt.maxSize)
+			gotRaise := strings.Contains(message, "larger max_size")
+			if gotRaise != tt.wantRaise {
+				t.Errorf("message = %q, mentions raising max_size = %v, want %v", message, gotRaise, tt.wantRaise)
+			}
+			gotNarrow := strings.Contains(message, "narrower resource")
+			if gotNarrow != tt.wantNarrow {
+				t.Errorf("message = %q, mentions narrower resource = %v, want %v", message, gotNarrow, tt.wantNarrow)
+			}
+		})
+	}
+}
+
 func TestFetchURLOversizedHTMLBodyReturnsMaxSizeError(t *testing.T) {
 	// Pins the strings.Contains match in handleFetchError against wonton's
 	// oversized-body error, which is a bare fmt.Errorf with no exported
@@ -578,9 +620,9 @@ func TestFetchURLOversizedHTMLBodyReturnsMaxSizeError(t *testing.T) {
 			wantRaise:   true,
 		},
 		{
-			name:        "at default ceiling does not advise raising max_size",
+			name:        "at fetch ceiling does not advise raising max_size",
 			bodySize:    maxFetchURLMaxSize + 1,
-			requestArgs: map[string]any{},
+			requestArgs: map[string]any{"max_size": maxFetchURLMaxSize},
 			wantRaise:   false,
 		},
 	}
@@ -1042,13 +1084,13 @@ func TestFetchRawTextLargeBodies(t *testing.T) {
 		}
 	})
 
-	t.Run("body larger than the new 10MB ceiling is truncated with no pagination recovery promise", func(t *testing.T) {
-		body := bytes.Repeat([]byte("a"), (10<<20)+1000)
+	t.Run("body larger than the new 32MB ceiling is truncated with no pagination recovery promise", func(t *testing.T) {
+		body := bytes.Repeat([]byte("a"), maxFetchURLMaxSize+1000)
 		server := newServer(body)
 		defer server.Close()
 
 		workDir := t.TempDir()
-		in := FetchURLInput{URL: server.URL, MaxSize: defaultFetchURLMaxSize}
+		in := FetchURLInput{URL: server.URL, MaxSize: maxFetchURLMaxSize}
 		res, err := fetchRawText(ctx, server.Client(), in, workDir, "text/plain")
 		if err != nil {
 			t.Fatalf("fetchRawText: %v", err)
@@ -1060,11 +1102,14 @@ func TestFetchRawTextLargeBodies(t *testing.T) {
 		if !result.Truncated {
 			t.Error("Truncated = false, want true")
 		}
-		if !strings.Contains(result.Message, "remainder") || !strings.Contains(result.Message, "cannot be recovered") {
-			t.Errorf("Message = %q, want it to state the remainder is unavailable without promising read recovers it", result.Message)
+		if !strings.Contains(result.Message, "max_size is already at the fetch ceiling") {
+			t.Errorf("Message = %q, want it to state max_size is already at the fetch ceiling", result.Message)
 		}
-		if strings.Contains(result.Message, "continue reading") {
-			t.Errorf("Message = %q, must not imply pagination recovers the missing part", result.Message)
+		if strings.Contains(result.Message, "continue reading") || strings.Contains(result.Message, "larger max_size") {
+			t.Errorf("Message = %q, must not imply pagination or a larger max_size can recover content at the ceiling", result.Message)
+		}
+		if !strings.Contains(result.Message, "narrower resource") {
+			t.Errorf("Message = %q, want narrower-resource guidance at the ceiling", result.Message)
 		}
 	})
 
@@ -1546,7 +1591,7 @@ func TestSaveFetchedContent(t *testing.T) {
 		workDir := t.TempDir()
 		content := "hello world"
 
-		result, err := saveFetchedContent(workDir, content, "text/plain", false)
+		result, err := saveFetchedContent(workDir, content, "text/plain", false, defaultFetchURLMaxSize)
 		if err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
@@ -1571,7 +1616,7 @@ func TestSaveFetchedContent(t *testing.T) {
 		workDir := t.TempDir()
 		content := strings.Repeat("a", inlineThreshold+500)
 
-		result, err := saveFetchedContent(workDir, content, "text/plain", false)
+		result, err := saveFetchedContent(workDir, content, "text/plain", false, defaultFetchURLMaxSize)
 		if err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
@@ -1585,7 +1630,7 @@ func TestSaveFetchedContent(t *testing.T) {
 		workDir := t.TempDir()
 		content := "short content"
 
-		result, err := saveFetchedContent(workDir, content, "text/plain", false)
+		result, err := saveFetchedContent(workDir, content, "text/plain", false, defaultFetchURLMaxSize)
 		if err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
@@ -1603,7 +1648,7 @@ func TestSaveFetchedContent(t *testing.T) {
 		}
 		content := sb.String()
 
-		result, err := saveFetchedContent(workDir, content, "text/plain", false)
+		result, err := saveFetchedContent(workDir, content, "text/plain", false, defaultFetchURLMaxSize)
 		if err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
@@ -1619,15 +1664,32 @@ func TestSaveFetchedContent(t *testing.T) {
 		workDir := t.TempDir()
 		content := "some content"
 
-		truncatedResult, err := saveFetchedContent(workDir, content, "text/plain", true)
+		truncatedResult, err := saveFetchedContent(workDir, content, "text/plain", true, defaultFetchURLMaxSize)
 		if err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
 		if !strings.Contains(truncatedResult.Message, "truncated") || !strings.Contains(truncatedResult.Message, "cannot be recovered") {
 			t.Errorf("truncated Message = %q, want mentions of truncation and that the remainder cannot be recovered", truncatedResult.Message)
 		}
+		if !strings.Contains(truncatedResult.Message, "larger max_size") {
+			t.Errorf("truncated Message = %q, want larger max_size guidance below the ceiling", truncatedResult.Message)
+		}
+		if strings.Contains(truncatedResult.Message, "narrower resource") {
+			t.Errorf("truncated Message = %q, must not suggest a narrower resource below the ceiling", truncatedResult.Message)
+		}
 
-		normalResult, err := saveFetchedContent(workDir, content, "text/plain", false)
+		atCeilingResult, err := saveFetchedContent(workDir, content, "text/plain", true, maxFetchURLMaxSize)
+		if err != nil {
+			t.Fatalf("saveFetchedContent at ceiling: %v", err)
+		}
+		if !strings.Contains(atCeilingResult.Message, "already at the fetch ceiling") || !strings.Contains(atCeilingResult.Message, "narrower resource") {
+			t.Errorf("at-ceiling Message = %q, want ceiling and narrower-resource guidance", atCeilingResult.Message)
+		}
+		if strings.Contains(atCeilingResult.Message, "larger max_size") {
+			t.Errorf("at-ceiling Message = %q, must not suggest a larger max_size", atCeilingResult.Message)
+		}
+
+		normalResult, err := saveFetchedContent(workDir, content, "text/plain", false, defaultFetchURLMaxSize)
 		if err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
@@ -1644,7 +1706,7 @@ func TestSaveFetchedContent(t *testing.T) {
 			t.Fatalf("expected fetched dir to not exist yet, stat err = %v", err)
 		}
 
-		if _, err := saveFetchedContent(workDir, "content", "text/plain", false); err != nil {
+		if _, err := saveFetchedContent(workDir, "content", "text/plain", false, defaultFetchURLMaxSize); err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
 
@@ -1657,11 +1719,11 @@ func TestSaveFetchedContent(t *testing.T) {
 		workDir := t.TempDir()
 		content := "identical content"
 
-		first, err := saveFetchedContent(workDir, content, "text/plain", false)
+		first, err := saveFetchedContent(workDir, content, "text/plain", false, defaultFetchURLMaxSize)
 		if err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
-		second, err := saveFetchedContent(workDir, content, "text/plain", false)
+		second, err := saveFetchedContent(workDir, content, "text/plain", false, defaultFetchURLMaxSize)
 		if err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
@@ -1675,7 +1737,7 @@ func TestSaveFetchedContent(t *testing.T) {
 		workDir := t.TempDir()
 		content := strings.Repeat("b", inlineThreshold+250)
 
-		result, err := saveFetchedContent(workDir, content, "text/plain", false)
+		result, err := saveFetchedContent(workDir, content, "text/plain", false, defaultFetchURLMaxSize)
 		if err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
@@ -1697,7 +1759,7 @@ func TestSaveFetchedContent(t *testing.T) {
 			t.Fatalf("setup: %v", err)
 		}
 
-		_, err := saveFetchedContent(workDir, "content", "text/plain", false)
+		_, err := saveFetchedContent(workDir, "content", "text/plain", false, defaultFetchURLMaxSize)
 		if err == nil {
 			t.Fatal("expected error when directory creation is blocked, got nil")
 		}
@@ -1718,7 +1780,7 @@ func TestSaveFetchedContent(t *testing.T) {
 			t.Fatalf("setup: %v", err)
 		}
 
-		_, err := saveFetchedContent(workDir, content, "text/plain", false)
+		_, err := saveFetchedContent(workDir, content, "text/plain", false, defaultFetchURLMaxSize)
 		if err == nil {
 			t.Fatal("expected error when write target is a directory, got nil")
 		}

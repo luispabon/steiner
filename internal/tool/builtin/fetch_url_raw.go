@@ -77,7 +77,7 @@ func fetchRawText(ctx context.Context, httpClient *http.Client, in FetchURLInput
 		}, nil
 	}
 
-	result, err := saveFetchedContent(workDir, content, contentType, truncated)
+	result, err := saveFetchedContent(workDir, content, contentType, truncated, in.MaxSize)
 	if err != nil {
 		return nil, fmt.Errorf("fetch_url: %w", err)
 	}
