@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -34,11 +33,6 @@ const mainContentFallbackMessage = "Main-content extraction found nothing usable
 // Go's default User-Agent gets blocked by Cloudflare-fronted sites.
 const fetchUserAgent = "steiner (+https://github.com/luispabon/steiner)"
 
-// errorBodySnippetRunes bounds the response body snippet captured on
-// non-200 fetch_url errors, so a large error page doesn't blow out the
-// tool result.
-const errorBodySnippetRunes = 500
-
 // FetchURLResult is the result from a fetch_url tool call.
 type FetchURLResult struct {
 	URL           string      `json:"url"`
@@ -53,15 +47,6 @@ type FetchURLResult struct {
 	Message       string      `json:"message,omitempty"`
 	Truncated     bool        `json:"truncated,omitempty"`
 	TotalLines    int         `json:"total_lines,omitempty"`
-}
-
-// FetchURLError is an error result from a fetch_url tool call.
-type FetchURLError struct {
-	URL        string `json:"url"`
-	Error      string `json:"error"`
-	StatusCode int    `json:"status_code,omitempty"`
-	RetryAfter string `json:"retry_after,omitempty"`
-	Body       string `json:"body,omitempty"` // bounded snippet
 }
 
 // NewFetchURLTool creates a ToolDef for the fetch_url tool.
@@ -115,10 +100,7 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 			case isImageContentType(contentType):
 				img, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
 				if imgErr != nil {
-					return &FetchURLError{
-						URL:   in.URL,
-						Error: imgErr.Error(),
-					}, nil
+					return newFetchURLError(in.URL, imgErr.Error()), nil
 				}
 				result, saveErr := saveFetchedImage(env.WorkDir, img)
 				if saveErr != nil {
@@ -133,10 +115,7 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 				if hasImageExtension(in.URL) {
 					img, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
 					if imgErr != nil {
-						return &FetchURLError{
-							URL:   in.URL,
-							Error: imgErr.Error(),
-						}, nil
+						return newFetchURLError(in.URL, imgErr.Error()), nil
 					}
 					result, saveErr := saveFetchedImage(env.WorkDir, img)
 					if saveErr != nil {
@@ -152,10 +131,7 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 				return fetchRawText(ctx, httpClient, in, env.WorkDir, contentType)
 
 			case !isTextLikeContentType(contentType):
-				return &FetchURLError{
-					URL:   in.URL,
-					Error: fmt.Sprintf("unsupported content type: %s", cleanContentType(contentType)),
-				}, nil
+				return newFetchURLError(in.URL, fmt.Sprintf("unsupported content type: %s", cleanContentType(contentType))), nil
 			}
 
 			fetcher := fetch.NewHTTPFetcher(fetch.HTTPFetcherOptions{
@@ -164,9 +140,15 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 				MaxBodySize: int64(in.MaxSize),
 			})
 
+			// raw_html is requested on every HTML fetch, not just ones that
+			// end up needing the fallback below, so the fallback can
+			// reprocess it locally instead of re-fetching. That retains a
+			// copy of the raw body (up to MaxBodySize) on the response for
+			// the duration of this handler on every HTML fetch, not only
+			// the rare fallback case.
 			req := &fetch.Request{
 				URL:             in.URL,
-				Formats:         []string{"markdown"},
+				Formats:         []string{"markdown", "raw_html"},
 				ExcludeTags:     toolkit.DefaultFetchExcludeTags,
 				OnlyMainContent: true,
 				Headers:         map[string]string{"User-Agent": fetchUserAgent},
@@ -174,39 +156,42 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 
 			resp, err := fetcher.Fetch(ctx, req)
 			if err != nil {
-				// wonton returns oversized-body as a bare fmt.Errorf with no
-				// exported sentinel or typed error to match on, so string
-				// matching is the only option. Pinned by
-				// TestFetchURLOversizedHTMLBodyReturnsMaxSizeError.
-				if strings.Contains(err.Error(), "response size exceeds limit") {
-					return &FetchURLError{
-						URL:   in.URL,
-						Error: fmt.Sprintf("response body exceeded max_size (%d bytes); retry with a larger max_size or fetch a smaller resource", in.MaxSize),
-					}, nil
-				}
-				return &FetchURLError{
-					URL:   in.URL,
-					Error: err.Error(),
-				}, nil
+				return handleFetchError(ctx, httpClient, in, env.WorkDir, err)
 			}
 
 			fallbackMessage := ""
-			if resp.StatusCode == 200 && utf8.RuneCountInString(resp.Markdown) < mainContentFallbackMinRunes {
+			if resp.StatusCode == 200 && resp.RawHTML != "" && utf8.RuneCountInString(resp.Markdown) < mainContentFallbackMinRunes {
+				rawHTML := resp.RawHTML
 				fullReq := &fetch.Request{
 					URL:         in.URL,
 					Formats:     []string{"markdown"},
 					ExcludeTags: toolkit.DefaultFetchExcludeTags,
 					Headers:     map[string]string{"User-Agent": fetchUserAgent},
 				}
-				// If the full-document re-fetch itself fails (e.g. it now
-				// exceeds MaxBodySize even though the main-content extract
-				// didn't), deliberately keep the original near-empty
-				// main-content result rather than erroring the whole call.
-				if fullResp, fullErr := fetcher.Fetch(ctx, fullReq); fullErr == nil {
+				// ProcessRequest's only failure mode is HTML parse failure,
+				// which isn't expected from a body wonton itself already
+				// parsed once inside Fetch. The error is still returned, so
+				// it is handled rather than discarded: on a surprise
+				// failure, keep the original near-empty main-content result
+				// rather than erroring the whole call.
+				if fullResp, fullErr := fetch.ProcessRequest(fullReq, rawHTML); fullErr == nil {
+					// ProcessRequest only processes HTML; it doesn't set
+					// URL/StatusCode/Headers the way Fetch does, so those
+					// must be carried over from the original response or
+					// buildHTMLResult reads a zero-value StatusCode and
+					// takes the non-200 error branch.
+					fullResp.URL = resp.URL
+					fullResp.StatusCode = resp.StatusCode
+					fullResp.Headers = resp.Headers
 					resp = fullResp
 					fallbackMessage = mainContentFallbackMessage
 				}
 			}
+
+			// Nothing downstream reads RawHTML; drop it before the
+			// content/truncation copies buildHTMLResult makes so its peak
+			// memory doesn't overlap with the raw body's.
+			resp.RawHTML = ""
 
 			return buildHTMLResult(in.URL, resp, env.WorkDir, in.MaxSize, fallbackMessage)
 		},
@@ -222,13 +207,7 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 // that apply to a response can coexist in Message.
 func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize int, fallbackMessage string) (any, error) {
 	if resp.StatusCode != 200 {
-		return &FetchURLError{
-			URL:        inURL,
-			Error:      fmt.Sprintf("HTTP %d", resp.StatusCode),
-			StatusCode: resp.StatusCode,
-			RetryAfter: resp.Headers["Retry-After"],
-			Body:       boundedRuneSnippet(resp.Markdown, errorBodySnippetRunes),
-		}, nil
+		return newFetchURLHTTPError(inURL, resp), nil
 	}
 
 	content := resp.Markdown
@@ -269,26 +248,4 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 	result.StatusCode = resp.StatusCode
 	result.Message = appendAdvisory(advisory, result.Message)
 	return result, nil
-}
-
-// boundedRuneSnippet returns s truncated to at most maxRunes runes.
-func boundedRuneSnippet(s string, maxRunes int) string {
-	if utf8.RuneCountInString(s) <= maxRunes {
-		return s
-	}
-	runes := []rune(s)
-	return string(runes[:maxRunes])
-}
-
-// appendAdvisory composes advisory into existing, separated by a space if
-// both are non-empty. Used to combine the main-content fallback notice, the
-// nav-like warning, and the disk-save message into a single Message.
-func appendAdvisory(existing, advisory string) string {
-	if advisory == "" {
-		return existing
-	}
-	if existing == "" {
-		return advisory
-	}
-	return existing + " " + advisory
 }

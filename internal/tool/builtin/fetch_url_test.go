@@ -561,44 +561,78 @@ func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
 }
 
 func TestFetchURLOversizedHTMLBodyReturnsMaxSizeError(t *testing.T) {
-	// Pins the strings.Contains match in NewFetchURLTool's handler against
-	// wonton's oversized-body error, which is a bare fmt.Errorf with no
-	// exported sentinel. If wonton reword that message, this test fails
-	// instead of silently degrading to an opaque generic error.
-	body := []byte("<html><body>" + strings.Repeat("x", 500) + "</body></html>")
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		if r.Method == http.MethodHead {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(body)
-	}))
-	defer server.Close()
-
-	workDir := t.TempDir()
-	policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
-	env := Env{
-		WorkDir:    workDir,
-		PathPolicy: &policy,
-		httpClient: func() *http.Client { return server.Client() },
+	// Pins the strings.Contains match in handleFetchError against wonton's
+	// oversized-body error, which is a bare fmt.Errorf with no exported
+	// sentinel. If wonton reword that message, this test fails instead of
+	// silently degrading to an opaque generic error.
+	tests := []struct {
+		name        string
+		bodySize    int
+		requestArgs map[string]any
+		wantRaise   bool
+	}{
+		{
+			name:        "below ceiling advises raising max_size",
+			bodySize:    500,
+			requestArgs: map[string]any{"max_size": 50},
+			wantRaise:   true,
+		},
+		{
+			name:        "at default ceiling does not advise raising max_size",
+			bodySize:    maxFetchURLMaxSize + 1,
+			requestArgs: map[string]any{},
+			wantRaise:   false,
+		},
 	}
 
-	result, err := NewFetchURLTool(env).Handler(context.Background(), map[string]any{
-		"url":      server.URL,
-		"max_size": 50,
-	})
-	if err != nil {
-		t.Fatalf("handler: %v", err)
-	}
-	fetchErr, ok := result.(*FetchURLError)
-	if !ok {
-		t.Fatalf("result type = %T, want *FetchURLError", result)
-	}
-	if !strings.Contains(fetchErr.Error, "max_size") {
-		t.Errorf("Error = %q, want it to name max_size", fetchErr.Error)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := []byte("<html><body>" + strings.Repeat("x", tt.bodySize) + "</body></html>")
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html")
+				if r.Method == http.MethodHead {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(body)
+			}))
+			defer server.Close()
+
+			workDir := t.TempDir()
+			policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+			env := Env{
+				WorkDir:    workDir,
+				PathPolicy: &policy,
+				httpClient: func() *http.Client { return server.Client() },
+			}
+
+			args := map[string]any{"url": server.URL}
+			for k, v := range tt.requestArgs {
+				args[k] = v
+			}
+
+			result, err := NewFetchURLTool(env).Handler(context.Background(), args)
+			if err != nil {
+				t.Fatalf("handler: %v", err)
+			}
+			fetchErr, ok := result.(*FetchURLError)
+			if !ok {
+				t.Fatalf("result type = %T, want *FetchURLError", result)
+			}
+			if !strings.Contains(fetchErr.Error, "max_size") {
+				t.Errorf("Error = %q, want it to name max_size", fetchErr.Error)
+			}
+			gotRaise := strings.Contains(fetchErr.Error, "retry with a larger max_size")
+			if gotRaise != tt.wantRaise {
+				t.Errorf("Error = %q, advises raising max_size = %v, want %v", fetchErr.Error, gotRaise, tt.wantRaise)
+			}
+			gotNarrower := strings.Contains(fetchErr.Error, "narrower resource")
+			if gotNarrower == tt.wantRaise {
+				t.Errorf("Error = %q, advises fetching a narrower resource = %v, want %v", fetchErr.Error, gotNarrower, !tt.wantRaise)
+			}
+		})
 	}
 }
 
@@ -1854,7 +1888,13 @@ func TestFetchURLMainContentFallback(t *testing.T) {
 	if !strings.Contains(result.Message, "Main-content extraction found nothing") {
 		t.Errorf("Message = %q, want it to state main-content extraction found nothing", result.Message)
 	}
-	if got := atomic.LoadInt32(&getCount); got != 2 {
-		t.Errorf("GET requests = %d, want 2 (fallback re-fetches once)", got)
+	if result.URL != server.URL {
+		t.Errorf("URL = %q, want %q (carried over from the original fetch)", result.URL, server.URL)
+	}
+	if result.StatusCode != http.StatusOK {
+		t.Errorf("StatusCode = %d, want %d (carried over from the original fetch)", result.StatusCode, http.StatusOK)
+	}
+	if got := atomic.LoadInt32(&getCount); got != 1 {
+		t.Errorf("GET requests = %d, want 1 (fallback reprocesses the already-fetched raw HTML, no re-fetch)", got)
 	}
 }

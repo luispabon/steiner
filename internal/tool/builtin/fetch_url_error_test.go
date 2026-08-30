@@ -115,6 +115,62 @@ func TestFetchURLRawTextErrorIncludesRichDetail(t *testing.T) {
 	}
 }
 
+func TestFetchURLUnexpectedContentTypeFallsBackToRawText(t *testing.T) {
+	// The HEAD preflight 405s, so contentType stays empty and the request
+	// falls through to wonton/fetch. wonton then rejects the non-HTML GET
+	// response before ever reading its status code, headers, or body.
+	// Pins the strings.HasPrefix match in unexpectedContentType against
+	// wonton's message; if wonton reword it, this test fails instead of
+	// silently losing StatusCode/RetryAfter/Body.
+	errorBody := `{"error":"rate limited"}`
+
+	var getCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		atomic.AddInt32(&getCount, 1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(errorBody))
+	}))
+	defer server.Close()
+
+	workDir := t.TempDir()
+	policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	env := Env{
+		WorkDir:    workDir,
+		PathPolicy: &policy,
+		httpClient: func() *http.Client { return server.Client() },
+	}
+
+	result, err := NewFetchURLTool(env).Handler(context.Background(), map[string]any{"url": server.URL})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	fetchErr, ok := result.(*FetchURLError)
+	if !ok {
+		t.Fatalf("result type = %T, want *FetchURLError", result)
+	}
+	if fetchErr.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("StatusCode = %d, want %d", fetchErr.StatusCode, http.StatusTooManyRequests)
+	}
+	if fetchErr.RetryAfter != "30" {
+		t.Errorf("RetryAfter = %q, want %q", fetchErr.RetryAfter, "30")
+	}
+	if !strings.Contains(fetchErr.Body, "rate limited") {
+		t.Errorf("Body = %q, want it to contain the response body text", fetchErr.Body)
+	}
+	// Two GETs: wonton's own GET, whose body it discards on the
+	// unexpected-content-type error, and fetchRawText's GET that recovers
+	// the rich error detail. Not a retry of the same request path.
+	if got := atomic.LoadInt32(&getCount); got != 2 {
+		t.Errorf("GET requests = %d, want 2 (wonton's discarded GET, then fetchRawText's)", got)
+	}
+}
+
 func TestBoundedRuneSnippet(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -52,8 +52,10 @@ func TestFetchURLSendsIdentifyingUserAgent(t *testing.T) {
 	})
 
 	t.Run("wonton fallback fetch", func(t *testing.T) {
-		// No <main> container, forcing the main-content extraction fallback
-		// to a full-document re-fetch (see TestFetchURLMainContentFallback).
+		// No <main> container, forcing the main-content extraction fallback.
+		// The fallback reprocesses the raw HTML captured on the initial
+		// fetch rather than re-fetching (see TestFetchURLMainContentFallback),
+		// so only one GET is expected.
 		html := `<html><body><aside><p>` +
 			strings.Repeat("Aside prose content that only exists outside main. ", 10) +
 			`</p></aside></body></html>`
@@ -82,8 +84,8 @@ func TestFetchURLSendsIdentifyingUserAgent(t *testing.T) {
 		if _, err := NewFetchURLTool(env).Handler(context.Background(), map[string]any{"url": server.URL}); err != nil {
 			t.Fatalf("handler: %v", err)
 		}
-		if len(getUAs) != 2 {
-			t.Fatalf("GET requests = %d, want 2 (fallback re-fetches once)", len(getUAs))
+		if len(getUAs) != 1 {
+			t.Fatalf("GET requests = %d, want 1 (fallback reprocesses the raw HTML, no re-fetch)", len(getUAs))
 		}
 		for i, ua := range getUAs {
 			if ua != fetchUserAgent {
