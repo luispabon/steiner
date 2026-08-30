@@ -95,43 +95,11 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 				// On HEAD failure, fall through to wonton/fetch.
 			}
 
-			// Decide how to handle based on Content-Type.
-			switch {
-			case isImageContentType(contentType):
-				img, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
-				if imgErr != nil {
-					return newFetchURLError(in.URL, imgErr.Error()), nil
-				}
-				result, saveErr := saveFetchedImage(env.WorkDir, img)
-				if saveErr != nil {
-					return nil, fmt.Errorf("fetch_url: %w", saveErr)
-				}
-				result.URL = in.URL
-				result.StatusCode = statusCode
-				return result, nil
-
-			case contentType == "" || cleanContentType(contentType) == "application/octet-stream":
-				// Extension fallback: treat as image if URL suggests an image.
-				if hasImageExtension(in.URL) {
-					img, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
-					if imgErr != nil {
-						return newFetchURLError(in.URL, imgErr.Error()), nil
-					}
-					result, saveErr := saveFetchedImage(env.WorkDir, img)
-					if saveErr != nil {
-						return nil, fmt.Errorf("fetch_url: %w", saveErr)
-					}
-					result.URL = in.URL
-					result.StatusCode = statusCode
-					return result, nil
-				}
-				// No image extension, fall through to wonton/fetch.
-
-			case isTextLikeContentType(contentType) && !isHTMLContentType(contentType) && contentType != "":
-				return fetchRawText(ctx, httpClient, in, env.WorkDir, contentType)
-
-			case !isTextLikeContentType(contentType):
-				return newFetchURLError(in.URL, fmt.Sprintf("unsupported content type: %s", cleanContentType(contentType))), nil
+			// Decide how to handle based on Content-Type. The same decision
+			// is reused by handleFetchError's unexpected-content-type
+			// recovery path, so the two cannot drift apart.
+			if result, handled, resErr := routeByContentType(ctx, httpClient, in, env.WorkDir, contentType); handled {
+				return result, resErr
 			}
 
 			fetcher := fetch.NewHTTPFetcher(fetch.HTTPFetcherOptions{
@@ -196,6 +164,56 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 			return buildHTMLResult(in.URL, resp, env.WorkDir, in.MaxSize, fallbackMessage)
 		},
 	}
+}
+
+// routeByContentType applies fetch_url's content-type routing decision:
+// image types are fetched and saved as images, text-like non-HTML types are
+// fetched as raw text, and unsupported types return an error result. It
+// reports handled=false when contentType is HTML, or is unclassifiable (empty
+// or application/octet-stream) with no image-suggesting URL extension — the
+// caller must then run wonton/fetch's HTML pipeline itself. handleFetchError's
+// unexpected-content-type recovery path calls this same function so a content
+// type discovered late behaves identically to one HEAD reported up front.
+func routeByContentType(ctx context.Context, httpClient *http.Client, in FetchURLInput, workDir, contentType string) (result any, handled bool, err error) {
+	switch {
+	case isImageContentType(contentType):
+		result, err := fetchAndSaveImage(ctx, httpClient, in, workDir, contentType)
+		return result, true, err
+
+	case contentType == "" || cleanContentType(contentType) == "application/octet-stream":
+		// Extension fallback: treat as image if URL suggests an image.
+		if hasImageExtension(in.URL) {
+			result, err := fetchAndSaveImage(ctx, httpClient, in, workDir, contentType)
+			return result, true, err
+		}
+		return nil, false, nil
+
+	case isTextLikeContentType(contentType) && !isHTMLContentType(contentType) && contentType != "":
+		result, err := fetchRawText(ctx, httpClient, in, workDir, contentType)
+		return result, true, err
+
+	case !isTextLikeContentType(contentType):
+		return newFetchURLError(in.URL, fmt.Sprintf("unsupported content type: %s", cleanContentType(contentType))), true, nil
+
+	default:
+		// contentType indicates HTML; the caller runs wonton/fetch itself.
+		return nil, false, nil
+	}
+}
+
+// fetchAndSaveImage fetches the image at in.URL and saves it to workDir.
+func fetchAndSaveImage(ctx context.Context, httpClient *http.Client, in FetchURLInput, workDir, contentType string) (any, error) {
+	img, statusCode, imgErr := fetchImageBytes(ctx, httpClient, in.URL, contentType)
+	if imgErr != nil {
+		return newFetchURLError(in.URL, imgErr.Error()), nil
+	}
+	result, saveErr := saveFetchedImage(workDir, img)
+	if saveErr != nil {
+		return nil, fmt.Errorf("fetch_url: %w", saveErr)
+	}
+	result.URL = in.URL
+	result.StatusCode = statusCode
+	return result, nil
 }
 
 // buildHTMLResult converts a successful wonton/fetch response into a

@@ -45,13 +45,25 @@ func handleFetchError(ctx context.Context, httpClient *http.Client, in FetchURLI
 	}
 	// Reachable when the HEAD preflight returned no usable Content-Type
 	// (hosts that 405 on HEAD, or block it entirely) and the origin then
-	// serves a non-HTML error page: wonton rejects the body before ever
+	// serves a response wonton rejects: it checks Content-Type before ever
 	// reading the status code, headers, or content, so falling straight
-	// through to err.Error() below would lose all of that. fetchRawText
-	// already extracts StatusCode, RetryAfter, and a bounded Body snippet
-	// from the same response. Pinned by
-	// TestFetchURLUnexpectedContentTypeFallsBackToRawText.
+	// through to err.Error() below would lose all of that. The recovered
+	// content type is routed through the exact same decision the normal
+	// path makes (routeByContentType), so a type discovered late — an
+	// image, a text format, or something unsupported — is handled
+	// identically to one HEAD reported up front, rather than always being
+	// forced through fetchRawText. Pinned by
+	// TestFetchURLUnexpectedContentTypeFallsBackToRawText and
+	// TestFetchURLUnexpectedContentTypeRecoversImage.
 	if contentType, ok := unexpectedContentType(err); ok {
+		if result, handled, resErr := routeByContentType(ctx, httpClient, in, workDir, contentType); handled {
+			return result, resErr
+		}
+		// contentType was empty or unclassifiable and the URL didn't
+		// suggest an image; wonton already tried and rejected this
+		// response, so there is no HTML pipeline left to fall through to.
+		// fetchRawText is the best remaining option: it still recovers
+		// StatusCode, RetryAfter, and a bounded Body snippet.
 		return fetchRawText(ctx, httpClient, in, workDir, contentType)
 	}
 	return newFetchURLError(in.URL, err.Error()), nil
