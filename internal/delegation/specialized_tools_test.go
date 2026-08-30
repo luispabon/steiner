@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -350,6 +351,65 @@ func TestSpecializedHandler_DispatchGateNilStore(t *testing.T) {
 	}
 	if got := waitingEvents(events.Events()); len(got) != 0 {
 		t.Fatalf("nil store emitted %d waiting events, want none", len(got))
+	}
+}
+
+func TestSpecializedHandler_RegisterFailureCleansCodeWorktree(t *testing.T) {
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	controller := NewActiveController()
+	const agentID = "duplicate-code"
+	if _, err := controller.Register(agentID, context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
+		t.Fatalf("pre-register agent: %v", err)
+	}
+
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		t.Fatal("runner called after duplicate registration")
+		return agent.RunState{}, nil
+	}})
+	deps.ActiveController = controller
+	deps.WorkDir = repo
+	events := &recordingEventSink{}
+	deps.Events = events
+	originalIDGen := idGen
+	idGen = func() string { return agentID }
+	defer func() { idGen = originalIDGen }()
+
+	_, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), map[string]any{"task": "duplicate"})
+	if !errors.Is(err, ErrAgentAlreadyActive) {
+		t.Fatalf("handler error = %v, want ErrAgentAlreadyActive", err)
+	}
+	worktrees, err := ListCodeWorktrees(repo)
+	if err != nil {
+		t.Fatalf("list worktrees: %v", err)
+	}
+	if len(worktrees) != 0 {
+		t.Fatalf("worktrees after register failure = %#v, want none", worktrees)
+	}
+	if got := len(events.Events()); got != 0 {
+		t.Fatalf("lifecycle events after register failure = %d, want none", got)
+	}
+}
+
+func TestSpecializedHandler_RegisterFailureDoesNotCreateNonCodeWorktree(t *testing.T) {
+	controller := NewActiveController()
+	const agentID = "duplicate-explore"
+	if _, err := controller.Register(agentID, context.Background(), AgentTypeExplore, CodeWorktree{}); err != nil {
+		t.Fatalf("pre-register agent: %v", err)
+	}
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		t.Fatal("runner called after duplicate registration")
+		return agent.RunState{}, nil
+	}})
+	deps.ActiveController = controller
+	originalIDGen := idGen
+	idGen = func() string { return agentID }
+	defer func() { idGen = originalIDGen }()
+
+	_, err := newSpecializedHandler(AgentTypeExplore, deps)(context.Background(), map[string]any{"task": "duplicate"})
+	if !errors.Is(err, ErrAgentAlreadyActive) {
+		t.Fatalf("handler error = %v, want ErrAgentAlreadyActive", err)
 	}
 }
 

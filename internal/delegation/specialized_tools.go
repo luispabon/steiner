@@ -3,8 +3,10 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -268,6 +270,20 @@ func applySpecializedWorktreeResult(agentType AgentType, result tool.ExecutionRe
 	return result
 }
 
+func cleanupRegistrationWorktree(agentType AgentType, workDir string, worktree CodeWorktree) {
+	if agentType != AgentTypeCode || workDir == "" || worktree.Path == "" {
+		return
+	}
+	base := filepath.Join(workDir, ".steiner", "worktrees")
+	relID, err := filepath.Rel(base, worktree.Path)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, _ = PruneCodeWorktree(ctx, workDir, relID)
+}
+
 func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) (SubAgentHandlerDeps, ChildBootstrapOverrides) {
 	handlerDeps := deps.SubAgentHandlerDeps
 	if agentType == AgentTypeCode && worktree.Path != "" {
@@ -336,6 +352,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		spec.Limits = limits
 		childCtx, err := deps.ActiveController.Register(agentID, ctx, agentType, provisionedWorktree)
 		if err != nil {
+			cleanupRegistrationWorktree(agentType, deps.WorkDir, provisionedWorktree)
 			return nil, err
 		}
 		defer deps.ActiveController.Unregister(agentID)

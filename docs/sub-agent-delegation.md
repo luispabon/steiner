@@ -90,7 +90,7 @@ The selector lists each active delegate as **bold, tool-box-coloured type · age
 - **Stop entire run** — confirm the existing whole-run interrupt, which also stops its delegates through the parent run context.
 - **Dismiss** — close the dialog without stopping anything. **Keep working** on a confirmation screen returns to the selector.
 
-Stopping a delegate does not automatically remove its worktree. A targeted code stop keeps its worktree by default, and stop-all keeps every code worktree. Discard is available only through the explicit targeted discard choice. Discarding a code session makes it non-resumable with `follow_up` and removes its delegation worktree and branch; it is not an automatic cleanup path.
+Stopping a delegate does not automatically remove its worktree. A targeted code stop keeps its worktree by default, and stop-all keeps every code worktree. Discard is available only through the explicit targeted discard choice. Discarding a code session makes it non-resumable with `follow_up` and removes its delegation worktree and branch; it is not an automatic cleanup path. A code delegate stopped while waiting for cache warm-up never started, so it has no follow-up session; its empty worktree is retained by default and can be discarded from the stop dialog or removed later.
 
 Every `code` sub-agent automatically runs in its own isolated, runtime-provisioned and verified git worktree under `.steiner/worktrees/`. You do not need to arrange isolation manually anymore. Concurrent child agents are now safe from file-edit collisions.
 

@@ -51,6 +51,24 @@ func TestDelegationCacheWaitingBindsAndClears(t *testing.T) {
 	}
 }
 
+func TestDelegationCacheWaitingProductionEventOrder(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call-production", map[string]any{"task": "wait for cache"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent("child-production", "wait for cache", "call-production"))
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("child-production", "call-production", time.Now().Add(time.Second)))
+
+	loc, active := buffer.activeDelegations["child-production"]
+	if !active || loc.dd == nil {
+		t.Fatal("production-order delegation is not active")
+	}
+	if !loc.dd.cacheWaiting {
+		t.Fatal("cacheWaiting = false, want true after late cache-waiting event")
+	}
+	if rows := buffer.ActiveDelegateRows(); len(rows) != 1 || rows[0].agentID != "child-production" {
+		t.Fatalf("active rows = %#v, want child-production", rows)
+	}
+}
+
 func TestCacheWaitingCancellationLeavesElapsedEmpty(t *testing.T) {
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "code", "call_1", map[string]any{"task": "wait for cache"}))
