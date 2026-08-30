@@ -71,19 +71,19 @@ func TestFetchURLTool(t *testing.T) {
 		}
 	})
 
-	t.Run("default max_size is 500000", func(t *testing.T) {
+	t.Run("default max_size is 10MB", func(t *testing.T) {
 		in := &FetchURLInput{URL: "http://example.com"}
 		normalizeFetchURL(in)
-		if in.MaxSize != 500000 {
-			t.Errorf("MaxSize = %d, want 500000", in.MaxSize)
+		if in.MaxSize != 10<<20 {
+			t.Errorf("MaxSize = %d, want %d", in.MaxSize, 10<<20)
 		}
 	})
 
-	t.Run("max_size capped at 1000000", func(t *testing.T) {
-		in := &FetchURLInput{URL: "http://example.com", MaxSize: 2000000}
+	t.Run("max_size capped at 10MB", func(t *testing.T) {
+		in := &FetchURLInput{URL: "http://example.com", MaxSize: 20 << 20}
 		normalizeFetchURL(in)
-		if in.MaxSize != 1000000 {
-			t.Errorf("MaxSize = %d, want 1000000", in.MaxSize)
+		if in.MaxSize != 10<<20 {
+			t.Errorf("MaxSize = %d, want %d", in.MaxSize, 10<<20)
 		}
 	})
 
@@ -102,8 +102,18 @@ func TestFetchURLTool(t *testing.T) {
 			t.Errorf("url property not found in schema")
 		}
 
-		if _, ok := props["max_size"]; !ok {
-			t.Errorf("max_size property not found in schema")
+		maxSize, ok := props["max_size"].(map[string]any)
+		if !ok {
+			t.Fatalf("max_size property not found in schema")
+		}
+		if maxSize["description"] != "Max bytes to download and save to disk" {
+			t.Errorf("max_size description = %v, want %q", maxSize["description"], "Max bytes to download and save to disk")
+		}
+		if maxSize["default"] != defaultFetchURLMaxSize {
+			t.Errorf("max_size default = %v, want %d", maxSize["default"], defaultFetchURLMaxSize)
+		}
+		if maxSize["maximum"] != maxFetchURLMaxSize {
+			t.Errorf("max_size maximum = %v, want %d", maxSize["maximum"], maxFetchURLMaxSize)
 		}
 
 		required, ok := schema["required"].([]string)
@@ -500,6 +510,48 @@ func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
 	})
 }
 
+func TestFetchURLOversizedHTMLBodyReturnsMaxSizeError(t *testing.T) {
+	// Pins the strings.Contains match in NewFetchURLTool's handler against
+	// wonton's oversized-body error, which is a bare fmt.Errorf with no
+	// exported sentinel. If wonton reword that message, this test fails
+	// instead of silently degrading to an opaque generic error.
+	body := []byte("<html><body>" + strings.Repeat("x", 500) + "</body></html>")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	workDir := t.TempDir()
+	policy := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	env := Env{
+		WorkDir:    workDir,
+		PathPolicy: &policy,
+		httpClient: func() *http.Client { return server.Client() },
+	}
+
+	result, err := NewFetchURLTool(env).Handler(context.Background(), map[string]any{
+		"url":      server.URL,
+		"max_size": 50,
+	})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	fetchErr, ok := result.(*FetchURLError)
+	if !ok {
+		t.Fatalf("result type = %T, want *FetchURLError", result)
+	}
+	if !strings.Contains(fetchErr.Error, "max_size") {
+		t.Errorf("Error = %q, want it to name max_size", fetchErr.Error)
+	}
+}
+
 func TestNewFetchURLToolImageBranches(t *testing.T) {
 	imageData, _, _ := newTestPNG()
 	tests := []struct {
@@ -862,6 +914,115 @@ type brokenReader struct{}
 
 func (brokenReader) Read([]byte) (int, error) {
 	return 0, fmt.Errorf("broken body: simulated read failure")
+}
+
+func TestFetchRawTextLargeBodies(t *testing.T) {
+	ctx := context.Background()
+
+	newServer := func(body []byte) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(200)
+			_, _ = w.Write(body)
+		}))
+	}
+
+	t.Run("body larger than the old 1MB cap is saved in full", func(t *testing.T) {
+		body := bytes.Repeat([]byte("line of text\n"), 100000) // ~1.3MB, over the old 1MB cap
+		server := newServer(body)
+		defer server.Close()
+
+		workDir := t.TempDir()
+		in := FetchURLInput{URL: server.URL, MaxSize: defaultFetchURLMaxSize}
+		res, err := fetchRawText(ctx, server.Client(), in, workDir, "text/plain")
+		if err != nil {
+			t.Fatalf("fetchRawText: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+		if result.Truncated {
+			t.Error("Truncated = true, want false")
+		}
+		saved, err := os.ReadFile(filepath.Join(workDir, result.FilePath))
+		if err != nil {
+			t.Fatalf("read saved file: %v", err)
+		}
+		if len(saved) != len(body) {
+			t.Errorf("saved file length = %d, want %d", len(saved), len(body))
+		}
+		wantLines := strings.Count(string(body), "\n") + 1
+		if result.TotalLines != wantLines {
+			t.Errorf("TotalLines = %d, want %d", result.TotalLines, wantLines)
+		}
+	})
+
+	t.Run("body larger than the new 10MB ceiling is truncated with no pagination recovery promise", func(t *testing.T) {
+		body := bytes.Repeat([]byte("a"), (10<<20)+1000)
+		server := newServer(body)
+		defer server.Close()
+
+		workDir := t.TempDir()
+		in := FetchURLInput{URL: server.URL, MaxSize: defaultFetchURLMaxSize}
+		res, err := fetchRawText(ctx, server.Client(), in, workDir, "text/plain")
+		if err != nil {
+			t.Fatalf("fetchRawText: %v", err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("expected *FetchURLResult, got %T", res)
+		}
+		if !result.Truncated {
+			t.Error("Truncated = false, want true")
+		}
+		if !strings.Contains(result.Message, "remainder") || !strings.Contains(result.Message, "cannot be recovered") {
+			t.Errorf("Message = %q, want it to state the remainder is unavailable without promising read recovers it", result.Message)
+		}
+		if strings.Contains(result.Message, "continue reading") {
+			t.Errorf("Message = %q, must not imply pagination recovers the missing part", result.Message)
+		}
+	})
+
+}
+
+func TestBuildHTMLResultMultiByteCutAtCeiling(t *testing.T) {
+	char := "日" // 3-byte UTF-8 rune
+	repeats := defaultFetchURLMaxSize/len(char) + 100
+	markdown := strings.Repeat(char, repeats)
+
+	// Try a small range of ceilings around a 3-byte boundary to guarantee at
+	// least one exercises a genuine mid-rune cut, without relying on knowing
+	// UTF-8 byte-boundary arithmetic in the test itself.
+	for maxSize := len(markdown) - 20; maxSize < len(markdown)-1; maxSize++ {
+		t.Run(fmt.Sprintf("maxSize=%d", maxSize), func(t *testing.T) {
+			resp := &fetch.Response{
+				URL:        "https://example.com/multibyte",
+				StatusCode: 200,
+				Markdown:   markdown,
+			}
+
+			workDir := t.TempDir()
+			res, err := buildHTMLResult("https://example.com/multibyte", resp, workDir, maxSize)
+			if err != nil {
+				t.Fatalf("buildHTMLResult: %v", err)
+			}
+			result, ok := res.(*FetchURLResult)
+			if !ok {
+				t.Fatalf("expected *FetchURLResult, got %T", res)
+			}
+			if !result.Truncated {
+				t.Error("Truncated = false, want true")
+			}
+			saved, err := os.ReadFile(filepath.Join(workDir, result.FilePath))
+			if err != nil {
+				t.Fatalf("read saved file: %v", err)
+			}
+			if !utf8.Valid(saved) {
+				t.Error("saved file is not valid UTF-8")
+			}
+		})
+	}
 }
 
 // newTestPNG returns a PNG-encoded 2x2 test image as bytes and the expected dimensions.
@@ -1378,8 +1539,8 @@ func TestSaveFetchedContent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
-		if !strings.Contains(truncatedResult.Message, "truncated") || !strings.Contains(truncatedResult.Message, "saved portion") {
-			t.Errorf("truncated Message = %q, want mentions of truncation and saved portion", truncatedResult.Message)
+		if !strings.Contains(truncatedResult.Message, "truncated") || !strings.Contains(truncatedResult.Message, "cannot be recovered") {
+			t.Errorf("truncated Message = %q, want mentions of truncation and that the remainder cannot be recovered", truncatedResult.Message)
 		}
 
 		normalResult, err := saveFetchedContent(workDir, content, "text/plain", false)
