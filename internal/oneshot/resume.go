@@ -175,5 +175,5 @@ func ensureResumeWorktree(ctx context.Context, projectRoot string, identity RunI
 		return Worktree{}, fmt.Errorf("stat worktree: %w", err)
 	}
 
-	return ProvisionWorktree(ctx, projectRoot, identity)
+	return provisionWorktreeAt(ctx, projectRoot, identity, base)
 }

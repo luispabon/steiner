@@ -20,13 +20,16 @@ type Worktree struct {
 // ProvisionWorktree creates or re-provisions the run worktree from the resolved base,
 // preferring origin/main and falling back to the repository's local HEAD.
 func ProvisionWorktree(ctx context.Context, projectRoot string, identity RunIdentity) (Worktree, error) {
-	if err := ensureSteinerProjectDir(projectRoot); err != nil {
-		return Worktree{}, err
-	}
-
 	startPoint, err := resolveWorktreeStartPoint(ctx, projectRoot)
 	if err != nil {
 		return Worktree{}, fmt.Errorf("resolve worktree start point: %w", err)
+	}
+	return provisionWorktreeAt(ctx, projectRoot, identity, startPoint)
+}
+
+func provisionWorktreeAt(ctx context.Context, projectRoot string, identity RunIdentity, startPoint string) (Worktree, error) {
+	if err := ensureSteinerProjectDir(projectRoot); err != nil {
+		return Worktree{}, err
 	}
 
 	worktreePath := identity.WorktreePath(projectRoot)
@@ -178,14 +181,16 @@ func addWorktree(ctx context.Context, projectRoot, worktreePath, branchName, sta
 // origin/main when it resolves, otherwise the repository's local HEAD.
 func resolveWorktreeStartPoint(ctx context.Context, projectRoot string) (string, error) {
 	sha, err := gitOutput(ctx, projectRoot, "rev-parse", "--verify", "--quiet", "origin/main^{commit}")
-	if err == nil && strings.TrimSpace(sha) != "" {
-		return strings.TrimSpace(sha), nil
+	sha = strings.TrimSpace(sha)
+	if err == nil && sha != "" {
+		return sha, nil
 	}
 	sha, err = gitOutput(ctx, projectRoot, "rev-parse", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("resolve worktree start point: %w", err)
 	}
-	return strings.TrimSpace(sha), nil
+	sha = strings.TrimSpace(sha)
+	return sha, nil
 }
 
 func branchExists(ctx context.Context, projectRoot, branchName string) bool {

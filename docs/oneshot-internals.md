@@ -117,7 +117,7 @@ The manifest is used for resume logic, status reporting, and cross-phase bookkee
 
 `steiner oneshot --resume <id>` validates and reclaims a run:
 
-1. **Validation**: ensures the worktree and branch still exist (re-provisions from the branch if the worktree was removed).
+1. **Validation**: ensures the worktree and branch still exist. If the worktree is missing, it is re-provisioned from the manifest's immutable `worktree_base` commit; legacy manifests infer and persist that commit once before provisioning.
 2. **Lock reclamation**: acquires a fresh lock via CAS, releasing the stale one.
 3. **State recovery**: reads the manifest and determines the first incomplete phase.
 4. **Replay**: re-runs that phase from its start using on-disk artifacts and committed work. Completed phases are never re-run.
