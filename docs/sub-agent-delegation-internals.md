@@ -139,7 +139,7 @@ Beyond key reuse, `CacheKeyStore` also **staggers concurrent same-key dispatches
 3. **Run** the child agent loop via the `AgentRunner` interface.
 4. **Auto-extension loop** (up to 5 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
 5. **Build result** from final state (maps `StopReason` → `Status`). Token counters (input, cache, and output) are accumulated across extension re-runs and prior follow-ups (`Spec.PriorTokenUsage`) rather than taken from the final state alone.
-6. **Summarisation turn**: runs a single no-tool turn asking the model to summarise its work in ≤1000 chars.
+6. **Summarisation turn**: runs a single no-tool turn asking the model to summarise its work in ≤4000 chars.
 7. **Emit** `DelegationCompleteEvent` or `DelegationFailedEvent`. `DelegationCompleteEvent` carries `InputTokens`/`CacheReadTokens`/`CacheCreateTokens` alongside the existing turn/tool/token counts; it is constructed via `NewDelegationCompleteEvent`, which takes a `DelegationCompleteParams` struct rather than positional arguments, so the TUI can render the child agent's cumulative cache hit rate in the tool box.
 8. **Return** `tool.ExecutionResult` with `ToolRetention` metadata attached.
 
@@ -164,7 +164,7 @@ A parallel batch receives one shared pre-batch conversation snapshot. Siblings t
 | `AgentID`           | Matches the request                                   |
 | `Status`            | `complete`, `partial`, `failed`, or `cancelled`       |
 | `Output`            | Last assistant message content                        |
-| `Summary`           | Retained summary (≤1000 runes)                        |
+| `Summary`           | Retained summary (≤4000 runes)                        |
 | `TurnCount`         | Turns consumed by the child                           |
 | `TokenCount`        | Tokens consumed by the child                          |
 | `InputTokens`       | Cumulative uncached prompt tokens consumed by the child across extensions and follow-ups   |
@@ -186,7 +186,7 @@ The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSessi
 | `TurnCount`  | Turns consumed       |
 | `TokenCount` | Tokens consumed      |
 
-**Summarisation turn.** After the child completes, a follow-up single-turn (no tools allowed) asks the model to produce a concise summary. If the summarisation turn fails or returns empty, the raw output is truncated to 1000 runes as a fallback.
+**Summarisation turn.** After the child completes, a follow-up single-turn (no tools allowed) asks the model to produce a concise summary. If the summarisation turn fails or returns empty, the raw output is truncated to 4000 runes as a fallback.
 
 **Retention path.** The child agent's full transcript is not copied into the parent session. The parent keeps the delegate result plus a bounded summary. Compaction may later summarise older parent conversation state, including delegated work, through the normal baseline path.
 
@@ -242,7 +242,7 @@ Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate �
 6. **Synchronous execution**: each delegate runs to completion before control returns to the parent.
 7. **Filesystem shared**: children operate in the same workdir as the parent.
 8. **Extension cap**: maximum 5 auto-extensions to prevent runaway children.
-9. **Summary cap**: retention summaries capped at 1000 runes.
+9. **Summary cap**: retention summaries capped at 4000 runes.
 10. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist.
 11. **Enforced allowlist**: `ChildBootstrapOverrides.AllowedTools` is enforced during child registry construction; only listed tools (minus `follow_up` and `workflow_handoff`) are visible and executable.
 12. **Per-type allowlists**: each specialised agent type has its own tool allowlist, resolved via `AgentAllowedTools(agentType)` and passed as `ChildBootstrapOverrides.AllowedTools` — there is no user-configurable global allowlist.
