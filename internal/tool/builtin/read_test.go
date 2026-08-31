@@ -506,4 +506,3 @@ func TestReadTool_RejectsSpecialFile(t *testing.T) {
 		t.Fatal("read of FIFO blocked instead of being rejected by policy")
 	}
 }
-
