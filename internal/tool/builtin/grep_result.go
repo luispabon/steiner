@@ -46,7 +46,7 @@ func buildGrepResult(files []grepFileResult, mode string, showLines bool, before
 		// file paths in files_with_matches or path:count rows.
 		if result.Output != "" && len(page) > 0 {
 			lines := strings.Split(result.Output, "\n")
-			bounded, _ := boundLines(lines, lineBoundingConfig{})
+			bounded := boundLines(lines, lineBoundingConfig{})
 			result.Output = strings.Join(bounded, "\n")
 		}
 		return result

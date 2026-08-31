@@ -20,27 +20,20 @@ type lineBoundingConfig struct {
 }
 
 // boundLines truncates individual lines by rune count and optionally caps
-// total output. It returns the bounded lines and truncation reasons.
-func boundLines(lines []string, cfg lineBoundingConfig) ([]string, []string) {
+// total output.
+func boundLines(lines []string, cfg lineBoundingConfig) []string {
 	if cfg.maxLineRunes <= 0 {
 		cfg.maxLineRunes = defaultMaxLineRunes
 	}
 
-	hasLineTruncation := false
 	result := make([]string, 0, len(lines))
 
 	for _, line := range lines {
 		runes := []rune(line)
 		if len(runes) > cfg.maxLineRunes {
-			hasLineTruncation = true
 			line = string(runes[:cfg.maxLineRunes]) + "…<truncated>"
 		}
 		result = append(result, line)
-	}
-
-	var reasons []string
-	if hasLineTruncation {
-		reasons = append(reasons, "line_length_capped")
 	}
 
 	if cfg.maxOutputRunes > 0 {
@@ -53,12 +46,11 @@ func boundLines(lines []string, cfg lineBoundingConfig) ([]string, []string) {
 			}
 			if total+sep+lineLen > cfg.maxOutputRunes {
 				result = result[:i]
-				reasons = append(reasons, "output_length_capped")
 				break
 			}
 			total += sep + lineLen
 		}
 	}
 
-	return result, reasons
+	return result
 }

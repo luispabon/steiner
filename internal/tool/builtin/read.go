@@ -53,7 +53,7 @@ func NewReadTool(env Env) tool.ToolDef {
 
 			// Check if this is an image file and handle it specially.
 			if IsImageExtension(filepath.Ext(absPath)) {
-				return readImageFile(absPath, displayPath, resolvedPath)
+				return readImageFile(absPath, displayPath)
 			}
 
 			diveResult, err := readTool.Call(ctx, &toolkit.ReadFileInput{
@@ -96,7 +96,7 @@ func NewReadTool(env Env) tool.ToolDef {
 			}
 
 			// Bound lines to cap per-line rune count.
-			boundedLines, _ := boundLines(outputLines, lineBoundingConfig{
+			boundedLines := boundLines(outputLines, lineBoundingConfig{
 				maxLineRunes:   readMaxLineRunes,
 				maxOutputRunes: readMaxOutputRunes,
 			})
@@ -129,7 +129,7 @@ func NewReadTool(env Env) tool.ToolDef {
 
 // readImageFile reads an image file, base64-encodes it, detects dimensions,
 // and returns a ReadResult with an embedded ImageBlock.
-func readImageFile(absPath, displayPath, resolvedPath string) (*ReadResult, error) {
+func readImageFile(absPath, displayPath string) (*ReadResult, error) {
 	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil, fmt.Errorf("read image: %w", err)
