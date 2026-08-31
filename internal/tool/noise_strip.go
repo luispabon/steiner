@@ -16,10 +16,9 @@ const (
 var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\].*?(?:\x07|\x1b\\)`)
 
 type bashIngestionResult struct {
-	ExitCode  int    `json:"exit_code"`
+	ExitCode  int    `json:"exit_code,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
 	Output    string `json:"output"`
-	Message   string `json:"message,omitempty"`
 }
 
 type grepIngestionResult struct {
@@ -60,7 +59,7 @@ func shapeBashIngestedResult(content string) string {
 	structured.Output = shaped
 	structured.Truncated = structured.Truncated || truncated
 	if truncated {
-		structured.Message = truncationMarker(shown, total)
+		structured.Output = addTruncationMarker(structured.Output, shown, total, tailPriorityStrategy)
 	}
 	data, marshalErr := json.Marshal(structured)
 	if marshalErr != nil {
@@ -175,7 +174,7 @@ func splitToolLines(text string) []string {
 }
 
 func addTruncationMarker(text string, shown, total int, strategy truncationStrategy) string {
-	marker := truncationMarker(shown, total)
+	marker := TruncationMarker(shown, total)
 	if text == "" {
 		return marker
 	}
@@ -185,7 +184,8 @@ func addTruncationMarker(text string, shown, total int, strategy truncationStrat
 	return text + "\n" + marker
 }
 
-func truncationMarker(shown, total int) string {
+// TruncationMarker formats a truncation marker for tool output.
+func TruncationMarker(shown, total int) string {
 	return fmt.Sprintf("<truncated output shown=%d total=%d>", shown, total)
 }
 

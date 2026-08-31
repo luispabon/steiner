@@ -331,14 +331,13 @@ func TestBuildToolPreview(t *testing.T) {
 			args: map[string]any{
 				"command": "go test ./...",
 			},
-			result: `{"exit_code":1,"truncated":true,"output":"FAIL\n","message":"output truncated at 12 characters"}`,
+			result: `{"exit_code":1,"truncated":true,"output":"FAIL\n<truncated output shown=5 total=12>"}`,
 			want: ToolPreview{
 				Kind:      ToolPreviewKindBash,
 				Command:   "go test ./...",
 				ExitCode:  1,
 				Truncated: true,
-				Output:    "FAIL\n",
-				Message:   "output truncated at 12 characters",
+				Output:    "FAIL\n<truncated output shown=5 total=12>",
 			},
 		},
 	}

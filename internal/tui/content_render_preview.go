@@ -29,9 +29,6 @@ func (b *contentBuffer) buildBashLines(tc *toolCallSegment) []string {
 	for _, l := range outputLines {
 		lines = append(lines, fgStyle.Render(l))
 	}
-	if tc.preview.Message != "" {
-		lines = append(lines, b.styles.FgMute.Render(tc.preview.Message))
-	}
 	exitCode := tc.preview.ExitCode
 	if exitCode == 0 && tc.hasError {
 		exitCode = 1

@@ -461,7 +461,7 @@ func TestFileTrackerObserveToolResultBash(t *testing.T) {
 		{
 			name:       "non-test command no fact",
 			input:      map[string]any{"command": "ls -la"},
-			content:    `{"exit_code":0,"output":"file.go","truncated":false,"message":""}`,
+			content:    `{"exit_code":0,"output":"file.go","truncated":false}`,
 			wantPrefix: "bash:",
 			wantFact:   false,
 		},
