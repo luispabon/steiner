@@ -274,7 +274,10 @@ type SubAgentConfig struct {
 	Enabled   bool `yaml:"enabled"`
 	MaxTurns  int  `yaml:"max_turns"`
 	MaxTokens int  `yaml:"max_tokens"`
-	// MaxParallel bounds how many delegation tool calls run concurrently within one turn; 0 = unbounded; 1 = serial.
+	// Deprecated: MaxParallel no longer has a runtime effect. Delegation tool
+	// concurrency is now governed generically by limits.max_parallel_tools
+	// (LimitsConfig.MaxParallelTools) via Registry.IsParallelSafe, which
+	// covers delegation tools alongside other parallel-safe tools.
 	MaxParallel int `yaml:"max_parallel"`
 }
 
