@@ -60,13 +60,6 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 		return &p.result
 	}
 	p.result.OperationsApplied = p.applied
-	for i := range p.result.OperationResults {
-		p.result.OperationResults[i].Applied = true
-		p.result.OperationResults[i].ResolvedPath = ""
-		p.result.OperationResults[i].FileHash = ""
-		p.result.OperationResults[i].Assertions = nil
-		p.result.OperationResults[i].Context = nil
-	}
 	// Success path: trim envelope to only what model doesn't already have.
 	p.result.Paths = nil
 	kept := p.result.OperationResults[:0]
