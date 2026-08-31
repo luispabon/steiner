@@ -1,6 +1,6 @@
 User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 
-Delegated tools retain full host `Result` records, while provider messages use compact JSON envelopes with exact child output. Continuation appears only after confirmed session persistence, and replay preserves compact content instead of restoring hidden fields.
+Delegated tools retain full host `Result` records and retention metadata, while provider messages use compact JSON projections with exact child output. The projection may include `status` and `reason`, plus `continuation.agent_id` only after confirmed session persistence. Raw diagnostics remain host-only, and replay preserves compact content instead of restoring hidden fields.
 
 ## Part 2 — Internals
 
@@ -175,7 +175,7 @@ A parallel batch receives one shared pre-batch conversation snapshot. Siblings t
 
 ### Result and retention
 
-**Result** (returned to the parent model):
+**Host `Result`** (retained by the host, not sent to the provider):
 
 | Field               | Description                                           |
 |---------------------|-------------------------------------------------------|
@@ -189,9 +189,19 @@ A parallel batch receives one shared pre-batch conversation snapshot. Siblings t
 | `CacheReadTokens`   | Cumulative cache-read tokens consumed by the child across extensions and follow-ups        |
 | `CacheCreateTokens` | Cumulative cache-create tokens consumed by the child across extensions and follow-ups      |
 | `StopReason`        | Populated on partial: `"max_turns"` or `"max_tokens"` |
-| `Error`             | Populated on failure                                  |
 
 The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSession.TokenUsage`, so these token counters report the child agent's whole-life totals.
+
+**Provider projection** (sent to the parent model):
+
+| Field | Description |
+|-------|-------------|
+| `output` | Exact child output, without trimming or host diagnostics |
+| `status` | Optional status for partial, cancelled, or failed results |
+| `reason` | Optional status reason |
+| `continuation.agent_id` | Optional saved-session agent ID; present only when the child session was persisted |
+
+The full host `Result`, retention metadata, raw errors, traces, counters, and internal paths stay host-only. The provider receives no host diagnostics beyond the compact fields above.
 
 **ToolRetention** persists on the parent conversation message as metadata that is not sent to the provider:
 
@@ -210,7 +220,7 @@ The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSessi
 
 ### Host-side diagnostics vs. the model-facing result
 
-`Result` (above) is what the parent **model** sees. It never carries tool-call traces, per-tool counters, or internal file paths — issue #601 explicitly bars provider-visible trace entries, tool-call counts, and internal paths from that contract. Diagnostics that would otherwise be useful only to a human, the TUI, or an offline script live on a separate **host-side** channel instead: the existing lifecycle debug log (`TraceLogger`/`traceCollector`, `internal/delegation/trace_log.go`), written to `<log-file>-delegation.log`. `SpawnDelegate` and `failedDelegateExecution` (`internal/delegation/task.go`) each append one additional `tc.add("tool_calls", …)` entry to that log carrying `trace_file`, `tool_calls_total`, `tool_calls_failed`, and a `tool_counts` map (tool name → call count) — never assigned to `Result` or any other model-facing field.
+The full host `Result` and its retention metadata are not sent to the parent model. The parent sees only the compact provider projection above. Raw diagnostics that would otherwise be useful only to a human, the TUI, or an offline script live on a separate **host-side** channel instead: the existing lifecycle debug log (`TraceLogger`/`traceCollector`, `internal/delegation/trace_log.go`), written to `<log-file>-delegation.log`. `SpawnDelegate` and `failedDelegateExecution` (`internal/delegation/task.go`) each append one additional `tc.add("tool_calls", …)` entry to that log carrying `trace_file`, `tool_calls_total`, `tool_calls_failed`, and a `tool_counts` map (tool name → call count) — never assigned to the compact projection or any other provider-facing field.
 
 **Per-tool-call trace files.** A separate mechanism from `TraceLogger` records one JSONL line per tool call (not per lifecycle event) for a delegated child, at `.steiner/traces/<session-id>/<agent-id>.jsonl` (`internal/delegation/tool_call_trace.go`, `toolCallTraceWriter`). Each line is `{time, turn, tool, arg_bytes, result_bytes, ok, duration_ms, fail_class}` — sizes only, never argument or result bodies. `<session-id>` is a random 12-hex-character ID generated once per process (`processTraceSession`, `sync.Once`) and reused for every child spawned by that process run; there is no true interactive-session ID threaded into `internal/delegation` today, so this is a process-scoped stand-in. Trace session directories older than 7 days are pruned (best-effort) whenever a new writer is created.
 
@@ -245,7 +255,7 @@ The `vision` tool uses a dedicated handler (`newVisionHandler`) rather than the 
 5. Resolves the per-type model from the selected profile's `sub_agents.vision` assignment.
 6. Calls `BuildChildRun` and `SpawnDelegate` with the vision allowlist (`["read"]`, plus any `ExtraAllowedTools[vision]`) and vision system prompt.
 7. Saves the child session so the parent model can use `follow_up` for additional questions about the same image without re-uploading it.
-8. Appends a `follow_up` reminder (with `agent_id`) to the returned result.
+8. Returns the host result. Its provider projection keeps the exact vision output unmodified and carries the optional saved-session `continuation.agent_id` separately; it does not append follow-up prose to that output.
 
 **ImageStore** is a goroutine-safe session-scoped registry in `internal/agent/image_store.go`. It maps auto-assigned IDs (`img-1`, `img-2`, …) to `ImageRef` values (file path, media type, dimensions, size). Pasted-image files are owned by the store, saved to `.steiner/tmp/images/` with `YYYYMMDD_HHMMSS_<hex>.ext` filenames, and deleted on agent exit (`imageStore.Cleanup()`). Read-produced images may also be registered, but their files can be externally stored under `.steiner/tmp/fetched/` or in repository paths; `ImageStore.Cleanup()` does not delete those files. `.steiner/tmp/fetched/` has its own age- and budget-based retention sweep (`builtin.PruneFetchedDir`, run at startup); `.steiner/tmp/images/` is untouched by it. `ImageStore` is wired from the composition root through `DelegateDeps.ImageStore` → `SpecializedToolDeps.ImageStore` → vision handler.
 

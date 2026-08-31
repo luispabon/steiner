@@ -159,6 +159,10 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	}
 
 	env := normalizeToolResult(raw)
+	if projected, ok := projectedToolResult(resultValue(raw)); ok {
+		env.Content = projected
+		env.Projected = true
+	}
 	if env.Content == "" {
 		return p.failVisionCall(callID, fmt.Errorf("vision tool returned empty result"))
 	}

@@ -9,7 +9,17 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 )
+
+type visionProjectionTestResult struct{}
+
+func (visionProjectionTestResult) ProjectToolResult() DelegationResultEnvelope {
+	return DelegationResultEnvelope{
+		Output:       "This is a screenshot showing a button labeled 'OK' on the left side.",
+		Continuation: &DelegationContinuation{AgentID: "vision-sub-1"},
+	}
+}
 
 func TestHandleImagesForVision_NoCapabilityTracking(t *testing.T) {
 	state := RunState{
@@ -200,12 +210,7 @@ func TestHandleImagesForVision_WithSubAgent_RoutesSuccessfully(t *testing.T) {
 			if input["image_id"] != "img-1" {
 				t.Fatalf("unexpected image_id: %v", input["image_id"])
 			}
-			result := map[string]any{
-				"continuation": map[string]any{"agent_id": "vision-sub-1"},
-				"output":       "This is a screenshot showing a button labeled 'OK' on the left side.",
-			}
-			resultJSON, _ := json.Marshal(result)
-			return string(resultJSON), nil
+			return tool.ExecutionResult{Value: visionProjectionTestResult{}}, nil
 		},
 	}
 
