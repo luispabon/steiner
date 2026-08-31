@@ -98,9 +98,8 @@ func NewDisplayFileTool(env Env) tool.ToolDef {
 			}))
 
 			return &DisplayFileResult{
-				Path:    displayPath,
-				Status:  "displayed",
-				Message: "file is being shown to the user in the viewer overlay",
+				Path:   displayPath,
+				Status: "displayed",
 			}, nil
 		},
 	}

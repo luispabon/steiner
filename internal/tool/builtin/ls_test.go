@@ -40,8 +40,8 @@ func TestLSTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want *Result", resultI)
 		}
-		if result.Returned != 3 {
-			t.Errorf("Returned = %d, want 3", result.Returned)
+		if lineCount := countResultLines(result.Output); lineCount != 3 {
+			t.Errorf("line count = %d, want 3", lineCount)
 		}
 		if result.Output != "sub/\na.txt\nb.txt" {
 			t.Errorf("Output = %q, want %q", result.Output, "sub/\na.txt\nb.txt")
@@ -60,8 +60,8 @@ func TestLSTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want *Result", resultI)
 		}
-		if result.Returned != 5 {
-			t.Errorf("Returned = %d, want 5", result.Returned)
+		if lineCount := countResultLines(result.Output); lineCount != 5 {
+			t.Errorf("line count = %d, want 5", lineCount)
 		}
 		want := "a.txt\nb.txt\nsub/\nsub/c.txt\nsub/d.txt"
 		if result.Output != want {
@@ -82,8 +82,8 @@ func TestLSTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want *Result", resultI)
 		}
-		if result.Returned != 1 {
-			t.Errorf("Returned = %d, want 1", result.Returned)
+		if lineCount := countResultLines(result.Output); lineCount != 1 {
+			t.Errorf("line count = %d, want 1", lineCount)
 		}
 		if result.Output != "a.txt" {
 			t.Errorf("Output = %q, want %q", result.Output, "a.txt")
@@ -106,8 +106,8 @@ func TestLSTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want *Result", resultI)
 		}
-		if result.Returned != 0 {
-			t.Errorf("Returned = %d, want 0", result.Returned)
+		if lineCount := countResultLines(result.Output); lineCount != 0 {
+			t.Errorf("line count = %d, want 0", lineCount)
 		}
 	})
 
