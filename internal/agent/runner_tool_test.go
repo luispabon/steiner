@@ -582,9 +582,8 @@ func TestRunnerKeepsDisplayFileResultMetadataOnly(t *testing.T) {
 	executor := &fakeExecutor{
 		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
 			return &builtin.DisplayFileResult{
-				Path:    "note.txt",
-				Status:  "displayed",
-				Message: "file is being shown to the user in the viewer overlay",
+				Path:   "note.txt",
+				Status: "displayed",
 			}, nil
 		},
 	}
@@ -607,7 +606,7 @@ func TestRunnerKeepsDisplayFileResultMetadataOnly(t *testing.T) {
 	if len(secondTools) == 0 {
 		t.Fatalf("second request tool messages = %d, want at least 1", len(secondTools))
 	}
-	if got, want := secondTools[len(secondTools)-1].Content, `{"path":"note.txt","status":"displayed","message":"file is being shown to the user in the viewer overlay"}`; got != want {
+	if got, want := secondTools[len(secondTools)-1].Content, `{"path":"note.txt","status":"displayed"}`; got != want {
 		t.Fatalf("tool message content = %q, want %q", got, want)
 	}
 }
