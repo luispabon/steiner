@@ -106,7 +106,11 @@ func GenerateFinalReport(ctx context.Context, manifest Manifest, review ReviewOu
 	if strings.TrimSpace(manifest.WorktreePath) == "" {
 		return FinalReport{}, fmt.Errorf("generate final report: manifest worktree path is required")
 	}
-	git, err := CollectGitSnapshot(ctx, manifest.WorktreePath)
+	base := strings.TrimSpace(manifest.WorktreeBase)
+	if base == "" {
+		return FinalReport{}, fmt.Errorf("generate final report: manifest worktree base is required")
+	}
+	git, err := CollectGitSnapshot(ctx, manifest.WorktreePath, base)
 	if err != nil {
 		return FinalReport{}, err
 	}
@@ -120,8 +124,9 @@ func GenerateFinalReport(ctx context.Context, manifest Manifest, review ReviewOu
 }
 
 // CollectGitSnapshot reads the git state needed to describe a oneshot run.
-func CollectGitSnapshot(ctx context.Context, worktreePath string) (GitSnapshot, error) {
+func CollectGitSnapshot(ctx context.Context, worktreePath, baseCommit string) (GitSnapshot, error) {
 	worktreePath = strings.TrimSpace(worktreePath)
+	baseCommit = strings.TrimSpace(baseCommit)
 	if worktreePath == "" {
 		return GitSnapshot{}, fmt.Errorf("collect git snapshot: worktree path is required")
 	}
@@ -138,7 +143,7 @@ func CollectGitSnapshot(ctx context.Context, worktreePath string) (GitSnapshot, 
 	if err != nil {
 		return GitSnapshot{}, fmt.Errorf("collect git snapshot short commit: %w", err)
 	}
-	filesChanged, dirty, err := collectChangedFiles(ctx, worktreePath)
+	filesChanged, dirty, err := collectChangedFiles(ctx, worktreePath, baseCommit)
 	if err != nil {
 		return GitSnapshot{}, err
 	}
@@ -301,8 +306,8 @@ func phaseRank(phase Phase) int {
 	}
 }
 
-func collectChangedFiles(ctx context.Context, worktreePath string) ([]string, bool, error) {
-	baseCommit, err := gitOutput(ctx, worktreePath, "merge-base", "HEAD", defaultWorktreeStartPoint)
+func collectChangedFiles(ctx context.Context, worktreePath, baseCommit string) ([]string, bool, error) {
+	baseCommit, err := gitOutput(ctx, worktreePath, "merge-base", "HEAD", baseCommit)
 	if err != nil {
 		return nil, false, fmt.Errorf("collect git snapshot base commit: %w", err)
 	}

@@ -58,6 +58,7 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 		Task:          o.deps.Task,
 		Branch:        o.deps.Identity.BranchName(),
 		WorktreePath:  worktreePath,
+		WorktreeBase:  worktree.StartPoint,
 		ModelSnapshot: phaseModelSnapshot(o.deps.Config),
 		PhaseStatuses: map[Phase]PhaseStatus{
 			PhasePlan:      PhaseStatusPending,

@@ -18,7 +18,7 @@ assignments, but an already running oneshot keeps its resolved phase setup.
 
 Each oneshot run receives a unique **run ID** (short slug derived from the task and a timestamp/nonce). The orchestrator derives a **feature slug** and creates:
 
-- **Branch**: `oneshot/<slug>-<id>` (based on `origin/main`)
+- **Branch**: `oneshot/<slug>-<id>` (based on the resolved worktree base, preferring `origin/main` and falling back to the local project `HEAD`)
 - **Worktree**: `.steiner/worktrees/oneshot-<id>` (git worktree from the shared `.git`)
 
 The worktree and branch are immutable for the life of the run; concurrent runs never share a branch or worktree.
@@ -76,6 +76,7 @@ The manifest is a durable JSON record at `.steiner/oneshot/<id>/run.json`:
   "task": "refactor the auth package to reduce complexity",
   "branch": "oneshot/refactor-auth-abc123",
   "worktree": ".steiner/worktrees/oneshot-abc123",
+  "worktree_base": "0123456789abcdef0123456789abcdef01234567",
   "config_snapshot": {
     "plan_model": "default",
     "implement_model": "default",
@@ -110,13 +111,13 @@ The manifest is a durable JSON record at `.steiner/oneshot/<id>/run.json`:
 }
 ```
 
-The manifest is used for resume logic, status reporting, and cross-phase bookkeeping.
+The manifest is used for resume logic, status reporting, and cross-phase bookkeeping. `worktree_base` stores the selected base commit SHA, and final report file comparison uses that commit rather than the worktree's current `HEAD`.
 
 ### Resume Behavior
 
 `steiner oneshot --resume <id>` validates and reclaims a run:
 
-1. **Validation**: ensures the worktree and branch still exist (re-provisions from the branch if the worktree was removed).
+1. **Validation**: ensures the worktree and branch still exist. If the worktree is missing, it is re-provisioned from the manifest's immutable `worktree_base` commit; legacy manifests infer and persist that commit once before provisioning.
 2. **Lock reclamation**: acquires a fresh lock via CAS, releasing the stale one.
 3. **State recovery**: reads the manifest and determines the first incomplete phase.
 4. **Replay**: re-runs that phase from its start using on-disk artifacts and committed work. Completed phases are never re-run.
