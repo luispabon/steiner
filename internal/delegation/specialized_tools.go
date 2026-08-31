@@ -354,6 +354,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
 		defer gateRelease()
 		if childCtx.Err() != nil {
+			removeAndCloseToolCallTraceWriter(spec.AgentID)
 			emitDelegateStopped(deps.Events, spec, agentType)
 			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings)
 			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)

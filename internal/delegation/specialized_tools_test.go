@@ -174,6 +174,62 @@ func startedEvents(events []output.Event) []output.Event {
 	return started
 }
 
+func TestSpecializedHandler_CancelledBeforeDispatchCleansToolCallTrace(t *testing.T) {
+	const agentID = "child-cancelled-before-dispatch"
+	originalIDGen := idGen
+	idGen = func() string { return agentID }
+	t.Cleanup(func() { idGen = originalIDGen })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var traceWriter *toolCallTraceWriter
+	events := output.SinkFunc(func(event output.Event) {
+		if event.Type != output.EventTypeDelegationStarted {
+			return
+		}
+		toolCallTraceRegistryMu.Lock()
+		traceWriter = toolCallTraceRegistry[agentID]
+		toolCallTraceRegistryMu.Unlock()
+		cancel()
+	})
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		t.Fatal("runner called after cancellation before dispatch")
+		return agent.RunState{}, nil
+	}})
+	deps.Events = events
+	deps.WorkDir = t.TempDir()
+
+	raw, err := SpecializedToolDef(AgentTypeExplore, deps).Handler(ctx, map[string]any{"task": "explore"})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	result, ok := raw.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+	delegationResult, ok := result.Value.(Result)
+	if !ok {
+		t.Fatalf("result.Value is %T, want Result", result.Value)
+	}
+	if delegationResult.Status != StatusCancelled {
+		t.Errorf("result status = %q, want %q", delegationResult.Status, StatusCancelled)
+	}
+	if traceWriter == nil {
+		t.Fatal("trace writer was not registered before cancellation")
+	}
+
+	toolCallTraceRegistryMu.Lock()
+	_, registered := toolCallTraceRegistry[agentID]
+	toolCallTraceRegistryMu.Unlock()
+	if registered {
+		t.Error("cancelled child trace writer remains registered")
+	}
+	if _, err := traceWriter.file.Stat(); err == nil {
+		t.Error("trace writer file Stat succeeded after close")
+	}
+}
+
 func TestSpecializedHandler_DispatchGateFollowerWaits(t *testing.T) {
 	store := NewCacheKeyStore()
 	key, err := store.KeyFor(AgentTypeExplore, provider.NewPromptCacheKey)

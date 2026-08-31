@@ -208,6 +208,13 @@ func (w *toolCallTraceWriter) snapshot() (path string, total, failed int, counts
 	return w.path, w.toolCallsTotal, w.toolCallsFailed, countsCopy
 }
 
+func removeAndCloseToolCallTraceWriter(agentID string) {
+	w := takeToolCallTraceWriter(agentID)
+	if w != nil {
+		w.close()
+	}
+}
+
 func (w *toolCallTraceWriter) close() {
 	if w == nil {
 		return
@@ -273,11 +280,7 @@ var (
 )
 
 // registerToolCallTraceWriter registers w for agentID so SpawnDelegate can
-// later retrieve it via toolCallTraceFields. A delegation cancelled before
-// dispatch (cancelledBeforeDispatchResult) never calls SpawnDelegate, so its
-// entry (and open file handle) is never reclaimed; this is a bounded,
-// intentional leak of one small map entry and one fd per such cancellation,
-// scoped to the process lifetime.
+// later retrieve it via toolCallTraceFields.
 func registerToolCallTraceWriter(agentID string, w *toolCallTraceWriter) {
 	if w == nil || agentID == "" {
 		return
