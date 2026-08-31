@@ -377,7 +377,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 		if err == nil && deps.SessionStore != nil {
 			if saveChildSession(deps.SessionStore, spec, req, state, runUsage, remediation) {
-				if dr, ok := result.Value.(Result); ok && dr.Status != StatusFailed {
+				if dr, ok := result.Value.(Result); ok {
 					dr.persisted = true
 					result.Value = dr
 				}

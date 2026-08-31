@@ -162,7 +162,7 @@ func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message,
 	if message.Role != MessageRoleTool {
 		return message
 	}
-	if isProjectedDelegationResult(message.Content) {
+	if message.Retention != nil && message.Retention.Kind == tool.RetentionKindDelegateSummary {
 		return message
 	}
 	if strings.TrimSpace(message.Content) == "" {

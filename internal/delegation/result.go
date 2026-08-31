@@ -84,14 +84,15 @@ func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
 	if r.persisted && r.AgentID != "" {
 		envelope.Continuation = &agent.DelegationContinuation{AgentID: r.AgentID}
 	}
-	switch {
-	case r.Status == StatusComplete:
-	case r.Status == StatusPartial:
+	switch r.Status {
+	case StatusComplete:
+	case StatusPartial:
 		envelope.Status = "partial"
 		envelope.Reason = projectionReason(r)
-	case r.Status == StatusCancelled:
+	case StatusCancelled:
 		envelope.Status = "cancelled"
-	case r.Status == StatusFailed:
+		envelope.Reason = cancellationProjectionReason(r)
+	case StatusFailed:
 		envelope.Status = "failed"
 		envelope.Reason = "unknown failure"
 	}
@@ -103,6 +104,13 @@ func projectionReason(r Result) string {
 		return "cancelled"
 	}
 	return "limit reached"
+}
+
+func cancellationProjectionReason(r Result) string {
+	if r.StopReason == "limit reached" {
+		return "limit reached"
+	}
+	return ""
 }
 
 func (r *Result) clearPersistence() {

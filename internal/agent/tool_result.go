@@ -14,6 +14,7 @@ type ToolResultEnvelope struct {
 	Metadata  tool.ExecutionMetadata
 	Retention *MessageRetention
 	Image     *ImageBlock
+	Projected bool
 }
 
 func normalizeToolResult(result any) ToolResultEnvelope {
@@ -23,6 +24,7 @@ func normalizeToolResult(result any) ToolResultEnvelope {
 			Content:   toolResultContent(v.Value),
 			Metadata:  v.Metadata,
 			Retention: messageRetentionFromToolRetention(v.Retention),
+			Projected: isToolResultProjector(v.Value),
 		}
 		// Extract image if present in the wrapped result.
 		env.Image = extractImage(v.Value)
@@ -32,7 +34,8 @@ func normalizeToolResult(result any) ToolResultEnvelope {
 		return env
 	default:
 		env := ToolResultEnvelope{
-			Content: toolResultContent(result),
+			Content:   toolResultContent(result),
+			Projected: isToolResultProjector(result),
 		}
 		// Extract image if present.
 		env.Image = extractImage(result)
@@ -41,6 +44,11 @@ func normalizeToolResult(result any) ToolResultEnvelope {
 		}
 		return env
 	}
+}
+
+func isToolResultProjector(result any) bool {
+	_, ok := result.(ToolResultProjector)
+	return ok
 }
 
 // extractImage extracts an ImageBlock from a tool result if present.

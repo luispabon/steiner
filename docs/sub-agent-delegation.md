@@ -203,7 +203,7 @@ The `vision` tool requires two parameters:
 
 When you paste an image, the TUI displays its assigned ID below the submitted message. Pass that ID to `vision` to examine the image.
 
-After the initial `vision` call, use `follow_up` with the returned `agent_id` to ask additional questions about the same image. The provider's server-side prompt cache makes follow-ups cheap.
+After the initial `vision` call, use the `agent_id` inside the returned `continuation` object with `follow_up` to ask additional questions about the same image. The provider's server-side prompt cache makes follow-ups cheap.
 
 The `vision` tool is only registered when the selected profile's `sub_agents.vision`
 is configured. It requires a vision-capable model:

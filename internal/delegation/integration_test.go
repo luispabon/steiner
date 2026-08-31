@@ -1114,7 +1114,7 @@ func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
 	}
 }
 
-func TestExtensionCancellationReturnsCancelledStatus(t *testing.T) {
+func TestExtensionCancellationReturnsPartialStatus(t *testing.T) {
 	spec := makeSpec("ext-agent-cancelled", 10000)
 	sink := &collectingSink{}
 
@@ -1144,14 +1144,14 @@ func TestExtensionCancellationReturnsCancelledStatus(t *testing.T) {
 	if !ok {
 		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
-	if typedResult.Status != StatusCancelled {
-		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusCancelled)
+	if typedResult.Status != StatusPartial {
+		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusPartial)
 	}
 	if result.Retention == nil {
 		t.Fatal("result.Retention = nil, want cancellation retention")
 	}
-	if result.Retention.Status != string(StatusCancelled) {
-		t.Fatalf("Retention.Status = %q, want %q", result.Retention.Status, StatusCancelled)
+	if result.Retention.Status != string(StatusPartial) {
+		t.Fatalf("Retention.Status = %q, want %q", result.Retention.Status, StatusPartial)
 	}
 	if !strings.Contains(result.Retention.Summary, "delegation failed:") {
 		t.Fatalf("Retention.Summary = %q, want cancellation summary", result.Retention.Summary)
@@ -1644,8 +1644,8 @@ func TestSummaryUsesChildContext(t *testing.T) {
 	if !ok {
 		t.Fatal("expected Result")
 	}
-	if delResult.Status != StatusCancelled {
-		t.Errorf("expected StatusCancelled, got: %v", delResult.Status)
+	if delResult.Status != StatusPartial {
+		t.Errorf("expected StatusPartial, got: %v", delResult.Status)
 	}
 }
 

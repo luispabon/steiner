@@ -52,23 +52,3 @@ func projectedToolError(err error) (string, bool) {
 	}
 	return string(data), true
 }
-
-// isProjectedDelegationResult identifies compact delegation content loaded from
-// a persisted conversation. It prevents context shaping from changing it.
-func isProjectedDelegationResult(content string) bool {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(content), &fields); err != nil {
-		return false
-	}
-	if _, ok := fields["output"]; !ok {
-		return false
-	}
-	for key := range fields {
-		switch key {
-		case "output", "status", "reason", "continuation":
-		default:
-			return false
-		}
-	}
-	return true
-}

@@ -201,8 +201,8 @@ func TestHandleImagesForVision_WithSubAgent_RoutesSuccessfully(t *testing.T) {
 				t.Fatalf("unexpected image_id: %v", input["image_id"])
 			}
 			result := map[string]any{
-				"agent_id": "vision-sub-1",
-				"output":   "This is a screenshot showing a button labeled 'OK' on the left side.",
+				"continuation": map[string]any{"agent_id": "vision-sub-1"},
+				"output":       "This is a screenshot showing a button labeled 'OK' on the left side.",
 			}
 			resultJSON, _ := json.Marshal(result)
 			return string(resultJSON), nil
@@ -227,7 +227,7 @@ func TestHandleImagesForVision_WithSubAgent_RoutesSuccessfully(t *testing.T) {
 
 	content := state.Conversation[0].Content
 	if !contains(content, "vision-sub-1") {
-		t.Fatalf("content should contain agent_id, got: %s", content)
+		t.Fatalf("content should contain continuation agent_id, got: %s", content)
 	}
 	if !contains(content, "screenshot showing a button") {
 		t.Fatalf("content should contain image description, got: %s", content)
@@ -297,8 +297,8 @@ func TestHandleImagesForVision_ExecutorError_FallsBackToStripping(t *testing.T) 
 			}
 			// img-2 succeeds
 			result := map[string]any{
-				"agent_id": "vision-sub-1",
-				"output":   "Image 2 shows some text",
+				"continuation": map[string]any{"agent_id": "vision-sub-1"},
+				"output":       "Image 2 shows some text",
 			}
 			resultJSON, _ := json.Marshal(result)
 			return string(resultJSON), nil
@@ -521,8 +521,8 @@ func TestHandleImagesForVision_MultipleMessages(t *testing.T) {
 		execute: func(_ context.Context, _ string, input map[string]any) (any, error) {
 			imageID := input["image_id"].(string)
 			result := map[string]any{
-				"agent_id": "vision-" + imageID,
-				"output":   "description for " + imageID,
+				"continuation": map[string]any{"agent_id": "vision-" + imageID},
+				"output":       "description for " + imageID,
 			}
 			resultJSON, _ := json.Marshal(result)
 			return string(resultJSON), nil
@@ -615,8 +615,8 @@ func TestRouteImageToVision_EmitsDiagnosticEvent(t *testing.T) {
 				t.Fatalf("unexpected tool: %s", toolName)
 			}
 			result := map[string]any{
-				"agent_id": "vision-sub-1",
-				"output":   "This is a button labeled OK",
+				"continuation": map[string]any{"agent_id": "vision-sub-1"},
+				"output":       "This is a button labeled OK",
 			}
 			resultJSON, _ := json.Marshal(result)
 			return string(resultJSON), nil
@@ -716,8 +716,8 @@ func TestRouteImageToVision_EmitsToolCallEvents(t *testing.T) {
 				t.Fatalf("unexpected tool: %s", toolName)
 			}
 			result := map[string]any{
-				"agent_id": "vision-sub-1",
-				"output":   "This is a button labeled OK",
+				"continuation": map[string]any{"agent_id": "vision-sub-1"},
+				"output":       "This is a button labeled OK",
 			}
 			resultJSON, _ := json.Marshal(result)
 			return string(resultJSON), nil
@@ -832,8 +832,8 @@ func TestHandleImagesForVision_MultipleImagesInOnceMessage_UncontaminatedText(t 
 
 			imageID := input["image_id"].(string)
 			result := map[string]any{
-				"agent_id": "vision-" + imageID,
-				"output":   "description for " + imageID,
+				"continuation": map[string]any{"agent_id": "vision-" + imageID},
+				"output":       "description for " + imageID,
 			}
 			resultJSON, _ := json.Marshal(result)
 			return string(resultJSON), nil

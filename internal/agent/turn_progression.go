@@ -403,8 +403,13 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 	} else {
 		recordMutationForContextManager(p.request.ContextManager, call.Name, call.Arguments, result)
 		normalizedResult = normalizeToolResult(result)
-		if projected, ok := projectedToolResult(resultValue(result)); ok {
-			toolContent = projected
+		if normalizedResult.Projected {
+			projected, ok := projectedToolResult(resultValue(result))
+			if ok {
+				toolContent = projected
+			} else {
+				toolContent = normalizedResult.Content
+			}
 		} else {
 			toolContent = shapeIngestedToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
 		}

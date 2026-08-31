@@ -164,8 +164,10 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	}
 
 	var result struct {
-		AgentID string `json:"agent_id"`
-		Output  string `json:"output"`
+		Continuation *struct {
+			AgentID string `json:"agent_id"`
+		} `json:"continuation"`
+		Output string `json:"output"`
 	}
 	if err := json.Unmarshal([]byte(env.Content), &result); err != nil {
 		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", err))
@@ -176,8 +178,12 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 		return p.failVisionCall(callID, fmt.Errorf("vision tool output is empty"))
 	}
 
-	description := fmt.Sprintf("[Image %s — you cannot view images directly. A vision assistant examined it and reports:\n%s\nFor further detail about this image, call follow_up with agent_id \"%s\".]",
-		img.ID, result.Output, result.AgentID)
+	description := fmt.Sprintf("[Image %s — you cannot view images directly. A vision assistant examined it and reports:\n%s",
+		img.ID, result.Output)
+	if result.Continuation != nil && result.Continuation.AgentID != "" {
+		description += fmt.Sprintf("\nFor further detail about this image, call follow_up with agent_id \"%s\".", result.Continuation.AgentID)
+	}
+	description += "]"
 
 	if msg.Content == "" {
 		msg.Content = description

@@ -93,7 +93,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, withChildDone(func() { deps.ActiveController.MarkComplete(spec.AgentID) }))
 		if err == nil && deps.SessionStore != nil {
 			if saveChildSession(deps.SessionStore, spec, req, state, runUsage, nil) {
-				if dr, ok := result.Value.(Result); ok && dr.Status != StatusFailed {
+				if dr, ok := result.Value.(Result); ok {
 					dr.persisted = true
 					result.Value = dr
 				}

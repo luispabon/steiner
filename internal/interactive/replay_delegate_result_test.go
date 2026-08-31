@@ -44,6 +44,15 @@ func TestDecodeReplayedDelegateResult(t *testing.T) {
 			},
 		},
 		{
+			name:    "compact envelope",
+			content: `{"output":"exact compact output","continuation":{"agent_id":"agent-compact"}}`,
+			wantOK:  true,
+			want: replayedDelegateResult{
+				AgentID: "agent-compact",
+				Output:  "exact compact output",
+			},
+		},
+		{
 			name:    "partial payload with missing optional fields",
 			content: `{"agent_id":"agent-7","output":"partial output"}`,
 			wantOK:  true,

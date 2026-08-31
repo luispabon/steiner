@@ -44,6 +44,14 @@ func decodeReplayedDelegateResult(content string) (replayedDelegateResult, bool)
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		return replayedDelegateResult{}, false
 	}
+	var compact struct {
+		Output       string                        `json:"output"`
+		Continuation *agent.DelegationContinuation `json:"continuation"`
+	}
+	if err := json.Unmarshal([]byte(content), &compact); err == nil && compact.Continuation != nil {
+		result.AgentID = compact.Continuation.AgentID
+		result.Output = compact.Output
+	}
 	return result, true
 }
 
