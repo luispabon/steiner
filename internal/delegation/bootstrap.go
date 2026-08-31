@@ -316,8 +316,11 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder
 	}
-	req.ParallelTool = func(name string) bool {
-		return p.ExecReg.IsParallelSafe(name)
+	req.ParallelClassOf = func(name string) agent.ParallelClass {
+		if p.ExecReg.IsParallelSafe(name) {
+			return agent.ParallelClassTool
+		}
+		return agent.ParallelClassNone
 	}
 	req.MaxParallelTools = p.MaxParallelTools
 

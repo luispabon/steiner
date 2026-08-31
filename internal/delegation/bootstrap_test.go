@@ -822,14 +822,14 @@ func TestBuildChildRunThreadsMaxParallelTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildChildRun() error = %v", err)
 	}
-	if req.ParallelTool == nil {
-		t.Fatal("ParallelTool is nil, want set")
+	if req.ParallelClassOf == nil {
+		t.Fatal("ParallelClassOf is nil, want set")
 	}
 	if req.MaxParallelTools != 7 {
 		t.Fatalf("MaxParallelTools = %d, want 7", req.MaxParallelTools)
 	}
-	if !req.ParallelTool("read") {
-		t.Fatal("ParallelTool(read) = false, want true")
+	if got := req.ParallelClassOf("read"); got != agent.ParallelClassTool {
+		t.Fatalf("ParallelClassOf(read) = %v, want ParallelClassTool", got)
 	}
 }
 
@@ -1504,14 +1504,14 @@ func TestBuildChildRunRequestEnablesParallelSafeToolsOnly(t *testing.T) {
 		ExecReg:          execReg,
 		MaxParallelTools: 3,
 	})
-	if req.ParallelTool == nil {
-		t.Fatal("child ParallelTool is nil, want set")
+	if req.ParallelClassOf == nil {
+		t.Fatal("child ParallelClassOf is nil, want set")
 	}
-	if !req.ParallelTool("read") {
-		t.Fatal("child ParallelTool(read) = false, want true")
+	if got := req.ParallelClassOf("read"); got != agent.ParallelClassTool {
+		t.Fatalf("child ParallelClassOf(read) = %v, want ParallelClassTool", got)
 	}
-	if req.ParallelTool("bash") {
-		t.Fatal("child ParallelTool(bash) = true, want false")
+	if got := req.ParallelClassOf("bash"); got == agent.ParallelClassTool {
+		t.Fatal("child ParallelClassOf(bash) = ParallelClassTool, want ParallelClassNone")
 	}
 	if req.MaxParallelTools != 3 {
 		t.Fatalf("child MaxParallelTools = %d, want 3", req.MaxParallelTools)
@@ -1520,7 +1520,7 @@ func TestBuildChildRunRequestEnablesParallelSafeToolsOnly(t *testing.T) {
 
 func TestBuildChildRunRequestNeverEnablesDelegationTools(t *testing.T) {
 	// Children never have delegation tools in their exec registry (they
-	// can't nest), so the child ParallelTool predicate must only consult the
+	// can't nest), so the child ParallelClassOf classifier must only consult the
 	// registry, never delegation.IsDelegationTool.
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:    "/tmp/work",
@@ -1528,8 +1528,8 @@ func TestBuildChildRunRequestNeverEnablesDelegationTools(t *testing.T) {
 		VisibleReg: tool.NewRegistry(),
 		ExecReg:    tool.NewRegistry(),
 	})
-	if req.ParallelTool("code") {
-		t.Fatal("child ParallelTool(code) = true, want false: children cannot nest delegation")
+	if got := req.ParallelClassOf("code"); got == agent.ParallelClassDelegation {
+		t.Fatal("child ParallelClassOf(code) = ParallelClassDelegation, want ParallelClassNone: children cannot nest delegation")
 	}
 }
 

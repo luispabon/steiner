@@ -461,7 +461,7 @@ func TestValidate(t *testing.T) {
 				c.SubAgent.MaxParallel = -1
 				return c
 			}(),
-			wantErr: "sub_agent.max_parallel must not be negative",
+			wantErr: "sub_agent.max_parallel must be at least 1",
 		},
 
 		// Sub-agent enabled with bad limits
@@ -1068,8 +1068,9 @@ func TestSearchConfigValidation(t *testing.T) {
 						"bash": MustDuration("120s"),
 					},
 					ToolOutputMaxBytes: 65536,
+					MaxParallelTools:   4,
 				},
-				SubAgent: SubAgentConfig{Enabled: false},
+				SubAgent: SubAgentConfig{Enabled: false, MaxParallel: 3},
 				Tools:    map[string]ToolConfig{},
 				ProjectContext: ProjectContextConfig{
 					MaxBytes: 8000,

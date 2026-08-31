@@ -540,7 +540,7 @@ Runtime limits for turns, tokens, and tool execution.
 | `tool_timeout_default`| duration string          | `"30s"`  | Default timeout applied to any tool not listed in `tool_timeouts`. |
 | `tool_timeouts`      | map[string]duration string| see below | Per-tool timeout overrides. |
 | `tool_output_max_bytes`| int                     | `65536`  | Maximum bytes of output captured from a single tool call. Output is truncated to this limit. Applies to both the parent run and each child sub-agent's own tool executor. |
-| `max_parallel_tools` | int                       | `4`      | Maximum number of parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`, plus delegation tools) executed concurrently within a single turn. `0` means unbounded; `1` forces serial execution. Applies to both the parent run and each child sub-agent's own turns. |
+| `max_parallel_tools` | int                       | `4`      | Maximum number of ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`) executed concurrently within a single turn. Must be at least `1`; `1` forces serial execution for these tools. Distinct from `sub_agent.max_parallel`, which bounds delegation-tool concurrency independently. Applies to both the parent run and each child sub-agent's own turns. |
 
 Default `tool_timeouts`:
 
@@ -584,7 +584,7 @@ do and tool allowlists for each specialised agent type, see
 | `enabled`      | bool                       | `true`                                   | Master switch. Set to `false` to remove all delegation tools from the model. |
 | `max_turns`    | int                        | `30`                                     | Maximum turns allowed for each child agent run. A floor of 15 turns is enforced internally. |
 | `max_tokens`   | int                        | `100000`                                 | Maximum tokens a child agent may consume. |
-| `max_parallel` | int                        | `3`                                      | Reserved; does not currently bound anything. Delegation tool calls made in the same parent turn share the general concurrency cap set by [`limits.max_parallel_tools`](#limits-block). |
+| `max_parallel` | int                        | `3`                                      | Maximum number of delegation-tool calls (specialized sub-agent spawns, `follow_up`) executed concurrently within a single parent turn. Must be at least `1`; `1` forces serial execution for delegation calls. Independent of `limits.max_parallel_tools`, which bounds ordinary tool-call concurrency — a mixed batch never lets the two compete for the same semaphore slots. |
 
 Each specialised agent type (`explore`, `research`, `code`, `plan`, `verify`,
 `vision`) has its own hardcoded tool allowlist; there is no user-configurable

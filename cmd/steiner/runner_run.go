@@ -372,10 +372,17 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	// delegation is disabled: BuildDelegateRegistry never registers
 	// delegation tools into activeRegistry in that case, so the model can
 	// never call a name the predicate would match. No branching is needed.
-	req.ParallelTool = func(name string) bool {
-		return delegation.IsDelegationTool(name) || activeRegistry.IsParallelSafe(name)
+	req.ParallelClassOf = func(name string) agent.ParallelClass {
+		if delegation.IsDelegationTool(name) {
+			return agent.ParallelClassDelegation
+		}
+		if activeRegistry.IsParallelSafe(name) {
+			return agent.ParallelClassTool
+		}
+		return agent.ParallelClassNone
 	}
 	req.MaxParallelTools = r.runtime.cfg.Limits.MaxParallelTools
+	req.MaxParallelDelegations = r.runtime.cfg.SubAgent.MaxParallel
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder
 	}

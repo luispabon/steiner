@@ -28,13 +28,14 @@ import (
 
 func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 	for _, tt := range []struct {
-		name    string
-		enabled bool
-		width   int
-		wantMax int
+		name              string
+		enabled           bool
+		width             int
+		wantMax           int
+		wantMaxDelegation int
 	}{
-		{name: "enabled", enabled: true, width: 5, wantMax: 5},
-		{name: "disabled", enabled: false, width: 5, wantMax: 5},
+		{name: "enabled", enabled: true, width: 5, wantMax: 5, wantMaxDelegation: 99},
+		{name: "disabled", enabled: false, width: 5, wantMax: 5, wantMaxDelegation: 99},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := cliRunner{runtime: cliRuntime{cfg: config.Config{
@@ -43,17 +44,20 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 			}}}
 			reg := tool.NewRegistry(tool.ToolDef{Name: "read", ParallelSafe: true})
 			req := buildRunRequest(r, runnerSetup{}, reg, nil, nil)
-			if req.ParallelTool == nil {
-				t.Fatal("ParallelTool = nil, want set")
+			if req.ParallelClassOf == nil {
+				t.Fatal("ParallelClassOf = nil, want set")
 			}
 			if req.MaxParallelTools != tt.wantMax {
 				t.Fatalf("MaxParallelTools = %d, want %d", req.MaxParallelTools, tt.wantMax)
 			}
-			if !req.ParallelTool("code") {
-				t.Fatal("ParallelTool(code) = false, want true (delegation tool name always matches; harmless when unreachable)")
+			if req.MaxParallelDelegations != tt.wantMaxDelegation {
+				t.Fatalf("MaxParallelDelegations = %d, want %d", req.MaxParallelDelegations, tt.wantMaxDelegation)
 			}
-			if !req.ParallelTool("read") {
-				t.Fatal("ParallelTool(read) = false, want true (registry-marked parallel-safe)")
+			if got := req.ParallelClassOf("code"); got != agent.ParallelClassDelegation {
+				t.Fatalf("ParallelClassOf(code) = %v, want ParallelClassDelegation (delegation tool name)", got)
+			}
+			if got := req.ParallelClassOf("read"); got != agent.ParallelClassTool {
+				t.Fatalf("ParallelClassOf(read) = %v, want ParallelClassTool (registry-marked parallel-safe)", got)
 			}
 		})
 	}

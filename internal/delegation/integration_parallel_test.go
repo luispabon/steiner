@@ -210,7 +210,12 @@ func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *t
 	if err != nil {
 		return agent.RunState{}, err
 	}
-	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, h.workDir, "", tool.Unsandboxed{}), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelTool: IsDelegationTool, MaxParallelTools: max, Events: events}
+	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, h.workDir, "", tool.Unsandboxed{}), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelClassOf: func(name string) agent.ParallelClass {
+		if IsDelegationTool(name) {
+			return agent.ParallelClassDelegation
+		}
+		return agent.ParallelClassNone
+	}, MaxParallelDelegations: max, Events: events}
 	return agent.NewRunner().Run(ctx, req)
 }
 
@@ -220,7 +225,12 @@ func runParallelParentGated(ctx context.Context, h *parallelHarness, max int, ba
 	if err != nil {
 		return agent.RunState{}, err
 	}
-	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, h.workDir, "", tool.Unsandboxed{}), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelTool: IsDelegationTool, MaxParallelTools: max, Events: events}
+	req := agent.RunRequest{Provider: h.provider, Executor: tool.NewExecutor(reg, config.Config{}, nil, h.workDir, "", tool.Unsandboxed{}), Tools: reg.ToProviderSpecs(), Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}}}, Limits: agent.Limits{MaxTurns: 2}, ParallelClassOf: func(name string) agent.ParallelClass {
+		if IsDelegationTool(name) {
+			return agent.ParallelClassDelegation
+		}
+		return agent.ParallelClassNone
+	}, MaxParallelDelegations: max, Events: events}
 	return agent.NewRunner().Run(ctx, req)
 }
 
@@ -516,16 +526,25 @@ func TestParallelDelegationEndToEndBounded(t *testing.T) {
 	}
 }
 
-func TestParallelDelegationEndToEndUnbounded(t *testing.T) {
-	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore", "explore"), 4)
-	result := startParallelParent(context.Background(), h, 0, tool.NewRegistry())
-	waitParallel(t, h.allStarted, "unbounded batch did not start four children")
-	if got := h.active.Load(); got != 4 {
-		t.Fatalf("active children = %d, want 4", got)
-	}
+// TestParallelDelegationEndToEndZeroForcesSerial guards Finding A's fix at
+// the delegation integration level: MaxParallelDelegations: 0 no longer
+// means unbounded fan-out (the old, dangerous semantics) — it forces serial
+// execution, one child at a time, same as MaxParallelTools: 0 does for
+// ordinary tool calls (see internal/agent/turn_progression_test.go's
+// TestParallelRunLength_ZeroMaxParallelToolsForcesSerialization).
+func TestParallelDelegationEndToEndZeroForcesSerial(t *testing.T) {
+	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore", "explore"), 1)
 	close(h.done)
-	if run := receiveParallel(t, result, "unbounded parallel run did not finish"); run.err != nil {
+	result := startParallelParent(context.Background(), h, 0, tool.NewRegistry())
+	run := receiveParallel(t, result, "zero-limit serial run did not finish")
+	if run.err != nil {
 		t.Fatal(run.err)
+	}
+	if got := h.max.Load(); got > 1 {
+		t.Fatalf("max active children = %d, want <= 1 (MaxParallelDelegations: 0 must force serial execution, not unbounded fan-out)", got)
+	}
+	if got := h.completed.Load(); got != 4 {
+		t.Fatalf("completed child runs = %d, want 4", got)
 	}
 }
 
@@ -622,11 +641,11 @@ func TestParallelDelegationEndToEndNoNesting(t *testing.T) {
 	spec := makeSpec("nested-check", 100)
 	_, exec := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest(childRunRequestParams{AgentID: spec.AgentID, Provider: &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "ok"}}}}, VisibleReg: exec, ExecReg: exec, PromptOpts: testBuildPrompt(spec)})
-	if req.ParallelTool == nil {
-		t.Fatal("child ParallelTool is nil, want set (parallel-safe tool concurrency, not delegation)")
+	if req.ParallelClassOf == nil {
+		t.Fatal("child ParallelClassOf is nil, want set (parallel-safe tool concurrency, not delegation)")
 	}
-	if req.ParallelTool("code") {
-		t.Fatal("child ParallelTool(code) = true, want false: children cannot nest delegation")
+	if got := req.ParallelClassOf("code"); got == agent.ParallelClassDelegation {
+		t.Fatal("child ParallelClassOf(code) = ParallelClassDelegation, want ParallelClassNone: children cannot nest delegation")
 	}
 }
 

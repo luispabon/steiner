@@ -26,7 +26,7 @@ func TestExecuteToolCalls_CancelWhileBlockedOnAcquire(t *testing.T) {
 	var eventsMu sync.Mutex
 	p := newTurnProgressor(RunRequest{
 		Executor:         executor,
-		ParallelTool:     func(string) bool { return true },
+		ParallelClassOf:  func(string) ParallelClass { return ParallelClassTool },
 		MaxParallelTools: 2,
 		Events: output.SinkFunc(func(event output.Event) {
 			eventsMu.Lock()
@@ -74,7 +74,7 @@ func TestExecuteToolCalls_CancelAfterAllExecutorsReturn(t *testing.T) {
 	}}
 	p := newTurnProgressor(RunRequest{
 		Executor:         executor,
-		ParallelTool:     func(string) bool { return true },
+		ParallelClassOf:  func(string) ParallelClass { return ParallelClassTool },
 		MaxParallelTools: 3,
 	}, prompt.AssemblyOptions{}, nil)
 	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
@@ -130,8 +130,13 @@ func TestExecuteToolCalls_ParallelBatchCancelWithNonEligibleTail(t *testing.T) {
 	}}
 	var events []output.Event
 	p := newTurnProgressor(RunRequest{
-		Executor:         executor,
-		ParallelTool:     func(name string) bool { return name != "t" },
+		Executor: executor,
+		ParallelClassOf: func(name string) ParallelClass {
+			if name != "t" {
+				return ParallelClassTool
+			}
+			return ParallelClassNone
+		},
 		MaxParallelTools: 2,
 		Events:           output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 	}, prompt.AssemblyOptions{}, nil)
@@ -190,7 +195,7 @@ func TestExecuteSingleToolCall_SequenceCancelKeepsBothResults(t *testing.T) {
 	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
 	p := newTurnProgressor(RunRequest{
 		Executor:         executor,
-		ParallelTool:     func(string) bool { return true },
+		ParallelClassOf:  func(string) ParallelClass { return ParallelClassTool },
 		MaxParallelTools: 1,
 	}, prompt.AssemblyOptions{}, nil)
 	outcome := p.executeToolCalls(ctx, cancelDrainState("a", "b"), parallelCalls("a", "b"))
@@ -255,7 +260,7 @@ func TestExecuteToolCalls_NilSuccessUnderDrain(t *testing.T) {
 	ctx = context.WithValue(ctx, cancelContextKey{}, cancel)
 	p := newTurnProgressor(RunRequest{
 		Executor:         executor,
-		ParallelTool:     func(string) bool { return true },
+		ParallelClassOf:  func(string) ParallelClass { return ParallelClassTool },
 		MaxParallelTools: 3,
 	}, prompt.AssemblyOptions{}, nil)
 	outcome := p.executeToolCalls(ctx, cancelDrainState("a", "b", "c"), parallelCalls("a", "b", "c"))

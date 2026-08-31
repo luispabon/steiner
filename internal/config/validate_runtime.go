@@ -25,8 +25,8 @@ var validOneShotPhases = map[string]bool{
 }
 
 func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, _ map[string]string, _ Config) {
-	if cfg.MaxParallel < 0 {
-		*problems = append(*problems, "sub_agent.max_parallel must not be negative")
+	if cfg.MaxParallel < 1 {
+		*problems = append(*problems, "sub_agent.max_parallel must be at least 1")
 	}
 	if !cfg.Enabled {
 		return

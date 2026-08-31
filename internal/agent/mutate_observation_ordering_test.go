@@ -55,10 +55,16 @@ func TestSameTurnReadThenMutateObservesRead(t *testing.T) {
 	}}
 
 	req := RunRequest{
-		Executor:       executor,
-		ParallelTool:   func(name string) bool { return name == "read" },
-		ContextManager: NewContextStateManager(),
-		Events:         output.NoopSink{},
+		Executor: executor,
+		ParallelClassOf: func(name string) ParallelClass {
+			if name == "read" {
+				return ParallelClassTool
+			}
+			return ParallelClassNone
+		},
+		MaxParallelTools: 1,
+		ContextManager:   NewContextStateManager(),
+		Events:           output.NoopSink{},
 	}
 	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 	calls := provider.ChatResponse{Message: provider.Message{ToolCalls: []provider.ToolCall{
