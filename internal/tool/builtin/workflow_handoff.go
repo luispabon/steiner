@@ -109,8 +109,7 @@ func handleWorkflowHandoff(ctx context.Context, env Env, input map[string]any) (
 
 	in.Next = strings.ToLower(strings.TrimSpace(in.Next))
 	in.Target = strings.TrimSpace(in.Target)
-	var truncated bool
-	in.Message, truncated = normalizeWorkflowHandoffMessage(in.Message)
+	in.Message, _ = normalizeWorkflowHandoffMessage(in.Message)
 
 	if err := validateWorkflowHandoffNext(in.Next); err != nil {
 		return nil, err
@@ -136,17 +135,14 @@ func handleWorkflowHandoff(ctx context.Context, env Env, input map[string]any) (
 		submission = fmt.Sprintf(wt.promptTemplate, target)
 	}
 
-	result := &WorkflowHandoffResult{
-		Next:             in.Next,
-		Target:           in.Target,
-		Message:          in.Message,
-		MessageTruncated: truncated,
-	}
-
 	if !env.Interactive || env.EventSink == nil || env.WorkflowHandoffResponder == nil {
-		result.Status = "unsupported"
-		result.Reason = "workflow handoff decision handling is unavailable in non-interactive mode"
-		return result, nil
+		return struct {
+			Status string `json:"status"`
+			Reason string `json:"reason"`
+		}{
+			Status: "unsupported",
+			Reason: "workflow handoff decision handling is unavailable in non-interactive mode",
+		}, nil
 	}
 
 	response, err := env.WorkflowHandoffResponder.RequestWorkflowHandoff(ctx, tool.WorkflowHandoffRequest{
