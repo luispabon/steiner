@@ -218,7 +218,6 @@ func TestRunnerContextStateManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	}
 	var toolResult struct {
 		Output    string `json:"output"`
-		Message   string `json:"message"`
 		Truncated bool   `json:"truncated"`
 	}
 	if err := json.Unmarshal([]byte(toolResultMsg.Content), &toolResult); err != nil {
@@ -236,8 +235,8 @@ func TestRunnerContextStateManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	if !toolResult.Truncated {
 		t.Fatal("tool result truncated = false, want true")
 	}
-	if !strings.Contains(toolResult.Message, "<truncated output shown=") {
-		t.Fatalf("tool result message = %q, want truncation marker", toolResult.Message)
+	if !strings.Contains(toolResult.Output, "<truncated output shown=") {
+		t.Fatalf("tool result output = %q, want truncation marker", toolResult.Output)
 	}
 }
 

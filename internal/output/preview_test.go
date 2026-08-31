@@ -213,7 +213,7 @@ func TestBuildToolPreview(t *testing.T) {
 				"path":        "src",
 				"output_mode": "content",
 			},
-			result: `{"matches":2,"returned":1,"output":"## src/main.go\n12: hello\n13: world\n"}`,
+			result: `{"output":"## src/main.go\n12: hello\n13: world\n"}`,
 			want: ToolPreview{
 				Kind:       ToolPreviewKindGrep,
 				Path:       "src",
@@ -237,7 +237,7 @@ func TestBuildToolPreview(t *testing.T) {
 			args: map[string]any{
 				"output_mode": "files_with_matches",
 			},
-			result: `{"matches":2,"returned":2,"output":"a.txt\nb.txt\n"}`,
+			result: `{"output":"a.txt\nb.txt\n"}`,
 			want: ToolPreview{
 				Kind:       ToolPreviewKindGrep,
 				Path:       ".",
@@ -256,11 +256,11 @@ func TestBuildToolPreview(t *testing.T) {
 			args: map[string]any{
 				"output_mode": "count",
 			},
-			result: `{"matches":3,"returned":3,"output":"a.txt:2\nb.txt:1\n"}`,
+			result: `{"output":"a.txt:2\nb.txt:1\n"}`,
 			want: ToolPreview{
 				Kind:       ToolPreviewKindGrep,
 				Path:       ".",
-				Returned:   3,
+				Returned:   2,
 				OutputMode: "count",
 				Output:     "a.txt:2\nb.txt:1\n",
 				GrepFiles: []ToolPreviewGrepFile{
@@ -270,20 +270,18 @@ func TestBuildToolPreview(t *testing.T) {
 			},
 		},
 		{
-			name: "grep content metadata",
+			name: "grep content paged",
 			tool: "grep",
 			args: map[string]any{
 				"path":        "src",
 				"output_mode": "content",
 			},
-			result: `{"matches":1,"returned":1,"truncated":true,"has_more":true,"next_offset":5,"output":"## src/main.go\n12: hello\n"}`,
+			result: `{"matches":5,"next_offset":1,"output":"## src/main.go\n12: hello\n"}`,
 			want: ToolPreview{
 				Kind:       ToolPreviewKindGrep,
 				Path:       "src",
-				Truncated:  true,
-				HasMore:    true,
 				Returned:   1,
-				NextOffset: 5,
+				NextOffset: 1,
 				OutputMode: "content",
 				Output:     "## src/main.go\n12: hello\n",
 				GrepFiles: []ToolPreviewGrepFile{
@@ -303,11 +301,11 @@ func TestBuildToolPreview(t *testing.T) {
 				"path":        "src",
 				"output_mode": "content",
 			},
-			result: `{"matches":3,"returned":3,"output":"## src/main.go\n10: alpha\n11: beta\n\n## src/helper.go\n2: helper\n"}`,
+			result: `{"output":"## src/main.go\n10: alpha\n11: beta\n\n## src/helper.go\n2: helper\n"}`,
 			want: ToolPreview{
 				Kind:       ToolPreviewKindGrep,
 				Path:       "src",
-				Returned:   3,
+				Returned:   2,
 				OutputMode: "content",
 				Output:     "## src/main.go\n10: alpha\n11: beta\n\n## src/helper.go\n2: helper\n",
 				GrepFiles: []ToolPreviewGrepFile{
@@ -333,14 +331,13 @@ func TestBuildToolPreview(t *testing.T) {
 			args: map[string]any{
 				"command": "go test ./...",
 			},
-			result: `{"exit_code":1,"truncated":true,"output":"FAIL\n","message":"output truncated at 12 characters"}`,
+			result: `{"exit_code":1,"truncated":true,"output":"FAIL\n<truncated output shown=5 total=12>"}`,
 			want: ToolPreview{
 				Kind:      ToolPreviewKindBash,
 				Command:   "go test ./...",
 				ExitCode:  1,
 				Truncated: true,
-				Output:    "FAIL\n",
-				Message:   "output truncated at 12 characters",
+				Output:    "FAIL\n<truncated output shown=5 total=12>",
 			},
 		},
 	}

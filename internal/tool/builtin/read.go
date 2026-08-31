@@ -41,11 +41,9 @@ func NewReadTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("read: %w", err)
 			}
 
-			resolvedPath := absPath
 			displayPath := relDisplayPath(env.WorkDir, absPath)
 			if env.PathPolicy != nil {
-				resolvedPath = env.PathPolicy.DisplayPath(absPath)
-				displayPath = resolvedPath
+				displayPath = env.PathPolicy.DisplayPath(absPath)
 				if !strings.HasPrefix(displayPath, "/") {
 					displayPath = relDisplayPath(env.WorkDir, displayPath)
 				}
@@ -53,7 +51,7 @@ func NewReadTool(env Env) tool.ToolDef {
 
 			// Check if this is an image file and handle it specially.
 			if IsImageExtension(filepath.Ext(absPath)) {
-				return readImageFile(absPath, displayPath, resolvedPath)
+				return readImageFile(absPath, displayPath)
 			}
 
 			diveResult, err := readTool.Call(ctx, &toolkit.ReadFileInput{
@@ -72,9 +70,8 @@ func NewReadTool(env Env) tool.ToolDef {
 
 			if diveResult.IsError {
 				return &ReadResult{
-					Path:         displayPath,
-					ResolvedPath: resolvedPath,
-					Output:       contentText,
+					Path:   displayPath,
+					Output: contentText,
 				}, nil
 			}
 
@@ -97,7 +94,7 @@ func NewReadTool(env Env) tool.ToolDef {
 			}
 
 			// Bound lines to cap per-line rune count.
-			boundedLines, reasons := boundLines(outputLines, lineBoundingConfig{
+			boundedLines := boundLines(outputLines, lineBoundingConfig{
 				maxLineRunes:   readMaxLineRunes,
 				maxOutputRunes: readMaxOutputRunes,
 			})
@@ -111,21 +108,16 @@ func NewReadTool(env Env) tool.ToolDef {
 			}
 
 			result := ReadResult{
-				Path:         displayPath,
-				ResolvedPath: resolvedPath,
-				FileHash:     fileContentHash(data),
-				StartLine:    startLine,
-				EndLine:      endLine,
-				TotalLines:   totalLines,
-				Output:       boundedOutput,
+				Path:       displayPath,
+				FileHash:   fileContentHash(data),
+				StartLine:  startLine,
+				EndLine:    endLine,
+				TotalLines: totalLines,
+				Output:     boundedOutput,
 			}
 
 			if endLine > 0 && endLine < totalLines {
 				result.NextOffset = endLine + 1
-				reasons = append(reasons, "paged")
-			}
-			if len(reasons) > 0 {
-				result.TruncationReasons = reasons
 			}
 
 			return result, nil
@@ -135,7 +127,7 @@ func NewReadTool(env Env) tool.ToolDef {
 
 // readImageFile reads an image file, base64-encodes it, detects dimensions,
 // and returns a ReadResult with an embedded ImageBlock.
-func readImageFile(absPath, displayPath, resolvedPath string) (*ReadResult, error) {
+func readImageFile(absPath, displayPath string) (*ReadResult, error) {
 	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil, fmt.Errorf("read image: %w", err)
@@ -188,9 +180,8 @@ func readImageFile(absPath, displayPath, resolvedPath string) (*ReadResult, erro
 	}
 
 	return &ReadResult{
-		Path:         displayPath,
-		ResolvedPath: resolvedPath,
-		Output:       summary,
+		Path:   displayPath,
+		Output: summary,
 		Image: &ImageBlock{
 			FilePath:  absPath,
 			MediaType: mediaType,

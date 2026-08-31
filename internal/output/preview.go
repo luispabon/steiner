@@ -70,7 +70,6 @@ type ToolPreview struct {
 	Created          bool
 	Command          string
 	Output           string
-	Message          string
 	ExitCode         int
 	Truncated        bool
 	HasMore          bool

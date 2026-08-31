@@ -220,8 +220,8 @@ func TestBashToolFailsClosedWithoutSandboxWrapperKey(t *testing.T) {
 			if result.ExitCode != 255 {
 				t.Errorf("ExitCode = %d, want 255", result.ExitCode)
 			}
-			if result.Message == "" {
-				t.Error("Message is empty, want an explanation of the fail-closed behavior")
+			if !strings.Contains(result.Output, "sandbox wrapper not resolved") {
+				t.Error("Output is missing the sandbox wrapper error message")
 			}
 		})
 	}

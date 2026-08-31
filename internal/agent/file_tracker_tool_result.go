@@ -102,7 +102,6 @@ func (t *FileTracker) observeBashHeuristics(input map[string]any, content string
 		ExitCode  int    `json:"exit_code"`
 		Truncated bool   `json:"truncated"`
 		Output    string `json:"output"`
-		Message   string `json:"message"`
 	}
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		return workingFileUpdate{}, nil
@@ -118,9 +117,6 @@ func (t *FileTracker) observeBashHeuristics(input map[string]any, content string
 	}
 	command = summarizeBashCommand(command, cwd)
 	preview := summarizeTextPreview(result.Output, 96)
-	if preview == "" {
-		preview = strings.TrimSpace(result.Message)
-	}
 	if preview == "" {
 		preview = fmt.Sprintf("exit_code=%d", result.ExitCode)
 	}

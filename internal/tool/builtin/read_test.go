@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -165,46 +166,6 @@ func TestReadTool(t *testing.T) {
 		}
 	})
 
-	t.Run("resolved_path is absolute and points at the actual file", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
-			"path": "test.txt",
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(ReadResult)
-		if !ok {
-			t.Fatalf("result type = %T, want ReadResult", resultI)
-		}
-		wantAbs := filepath.Join(tmpDir, "test.txt")
-		if result.ResolvedPath != wantAbs {
-			t.Errorf("ResolvedPath = %q, want %q", result.ResolvedPath, wantAbs)
-		}
-		if !filepath.IsAbs(result.ResolvedPath) {
-			t.Errorf("ResolvedPath = %q, want absolute", result.ResolvedPath)
-		}
-		if result.Path == result.ResolvedPath && !strings.HasPrefix(result.Path, tmpDir) {
-			t.Errorf("Path = %q should stay as the relative display form when WorkDir matches", result.Path)
-		}
-	})
-
-	t.Run("resolved_path is set even when dive returns an error", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
-			"path": "nonexistent.txt",
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(*ReadResult)
-		if !ok {
-			t.Fatalf("result type = %T, want *ReadResult", resultI)
-		}
-		wantAbs := filepath.Join(tmpDir, "nonexistent.txt")
-		if result.ResolvedPath != wantAbs {
-			t.Errorf("ResolvedPath = %q, want %q", result.ResolvedPath, wantAbs)
-		}
-	})
-
 	t.Run("empty file returns empty output", func(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(tmpDir, "empty.txt"), []byte{}, 0o644); err != nil {
 			t.Fatalf("write empty file: %v", err)
@@ -255,16 +216,6 @@ func TestReadTool(t *testing.T) {
 		if result.TotalLines != 1 {
 			t.Errorf("TotalLines = %d, want 1", result.TotalLines)
 		}
-		found := false
-		for _, r := range result.TruncationReasons {
-			if r == "line_length_capped" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("TruncationReasons = %v, want to include line_length_capped", result.TruncationReasons)
-		}
 	})
 
 	t.Run("small line is not truncated", func(t *testing.T) {
@@ -285,9 +236,6 @@ func TestReadTool(t *testing.T) {
 		}
 		if strings.Contains(result.Output, "…<truncated>") {
 			t.Errorf("Output should not be truncated for short line, got: %s", result.Output)
-		}
-		if len(result.TruncationReasons) > 0 {
-			t.Errorf("TruncationReasons = %v, want empty for short line", result.TruncationReasons)
 		}
 	})
 	t.Run("exact-boundary line length is not truncated", func(t *testing.T) {
@@ -311,12 +259,9 @@ func TestReadTool(t *testing.T) {
 		if strings.Contains(result.Output, "…<truncated>") {
 			t.Errorf("Output should not be truncated for exact-boundary line, got: %s", result.Output)
 		}
-		if len(result.TruncationReasons) > 0 {
-			t.Errorf("TruncationReasons = %v, want empty for exact-boundary line", result.TruncationReasons)
-		}
 	})
 
-	t.Run("paged read has paged reason", func(t *testing.T) {
+	t.Run("paged read has next_offset", func(t *testing.T) {
 		resultI, err := toolDef.Handler(ctx, map[string]any{
 			"path":   "test.txt",
 			"offset": 2,
@@ -329,8 +274,8 @@ func TestReadTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want ReadResult", resultI)
 		}
-		if !hasReason(result.TruncationReasons, "paged") {
-			t.Errorf("TruncationReasons = %v, want paged", result.TruncationReasons)
+		if result.NextOffset != 5 {
+			t.Errorf("NextOffset = %d, want 5", result.NextOffset)
 		}
 	})
 
@@ -344,8 +289,8 @@ func TestReadTool(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		result := resultI.(ReadResult)
-		if strings.Contains(result.Output, "…<truncated>") || hasReason(result.TruncationReasons, "line_length_capped") {
-			t.Errorf("prose read was line-truncated: reasons=%v", result.TruncationReasons)
+		if strings.Contains(result.Output, "…<truncated>") {
+			t.Errorf("prose read was line-truncated: output=%q", result.Output)
 		}
 	})
 
@@ -378,16 +323,10 @@ func TestReadTool(t *testing.T) {
 				collected = append(collected, parts[1])
 			}
 			if result.NextOffset == 0 {
-				if hasReason(result.TruncationReasons, "output_length_capped") {
-					t.Errorf("final page is output-capped: %v", result.TruncationReasons)
-				}
 				break
 			}
 			if result.NextOffset <= offset || result.EndLine != result.NextOffset-1 {
 				t.Fatalf("page bounds: offset=%d end=%d next=%d", offset, result.EndLine, result.NextOffset)
-			}
-			if !hasReason(result.TruncationReasons, "output_length_capped") || !hasReason(result.TruncationReasons, "paged") {
-				t.Fatalf("capped page reasons = %v", result.TruncationReasons)
 			}
 			offset = result.NextOffset
 		}
@@ -397,6 +336,141 @@ func TestReadTool(t *testing.T) {
 		for i := range lines {
 			if collected[i] != lines[i] {
 				t.Fatalf("collected line %d differs from source", i+1)
+			}
+		}
+	})
+}
+
+// TestReadResult_JSONShape verifies that ReadResult JSON output contains expected fields
+// and does NOT contain the removed fields (resolved_path, truncation_reasons).
+func TestReadResult_JSONShape(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := "line1\nline2\nline3\nline4\nline5\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	env := Env{WorkDir: tmpDir, PathPolicy: &policy}
+	toolDef := NewReadTool(env)
+	ctx := context.Background()
+
+	t.Run("success paged read JSON has correct fields", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":   "test.txt",
+			"offset": 1,
+			"limit":  2,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		data, err := json.Marshal(resultI)
+		if err != nil {
+			t.Fatalf("marshal result: %v", err)
+		}
+
+		var m map[string]interface{}
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+
+		// Verify required fields exist
+		requiredFields := []string{"path", "start_line", "end_line", "total_lines", "file_hash", "output", "next_offset"}
+		for _, field := range requiredFields {
+			if _, ok := m[field]; !ok {
+				t.Errorf("missing required field: %s", field)
+			}
+		}
+
+		// Verify removed fields are NOT present
+		forbiddenFields := []string{"resolved_path", "truncation_reasons"}
+		for _, field := range forbiddenFields {
+			if _, ok := m[field]; ok {
+				t.Errorf("forbidden field present in JSON: %s", field)
+			}
+		}
+	})
+
+	t.Run("success non-paged read JSON has no next_offset", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path":   "test.txt",
+			"offset": 1,
+			"limit":  100,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		data, err := json.Marshal(resultI)
+		if err != nil {
+			t.Fatalf("marshal result: %v", err)
+		}
+
+		var m map[string]interface{}
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+
+		// Verify next_offset is omitted (not present or null)
+		if v, ok := m["next_offset"]; ok {
+			if v != nil && v != 0.0 {
+				t.Errorf("next_offset should be omitted for non-paged read, got: %v", v)
+			}
+		}
+
+		// Verify file_hash is still present
+		if _, ok := m["file_hash"]; !ok {
+			t.Error("file_hash should be present")
+		}
+
+		// Verify removed fields are NOT present
+		forbiddenFields := []string{"resolved_path", "truncation_reasons"}
+		for _, field := range forbiddenFields {
+			if _, ok := m[field]; ok {
+				t.Errorf("forbidden field present in JSON: %s", field)
+			}
+		}
+	})
+
+	t.Run("error read JSON shape", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"path": "nonexistent.txt",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		data, err := json.Marshal(resultI)
+		if err != nil {
+			t.Fatalf("marshal result: %v", err)
+		}
+
+		var m map[string]interface{}
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+
+		// Error results should have path and output
+		if _, ok := m["path"]; !ok {
+			t.Error("missing path in error result")
+		}
+		if _, ok := m["output"]; !ok {
+			t.Error("missing output in error result")
+		}
+
+		// Verify removed fields are NOT present
+		forbiddenFields := []string{"resolved_path", "truncation_reasons"}
+		for _, field := range forbiddenFields {
+			if _, ok := m[field]; ok {
+				t.Errorf("forbidden field present in error JSON: %s", field)
+			}
+		}
+
+		// Error result should not have file_hash
+		if _, ok := m["file_hash"]; ok {
+			if v, ok := m["file_hash"].(string); ok && v != "" {
+				t.Error("file_hash should be empty for error result")
 			}
 		}
 	})
@@ -431,13 +505,4 @@ func TestReadTool_RejectsSpecialFile(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("read of FIFO blocked instead of being rejected by policy")
 	}
-}
-
-func hasReason(reasons []string, want string) bool {
-	for _, reason := range reasons {
-		if reason == want {
-			return true
-		}
-	}
-	return false
 }

@@ -22,7 +22,6 @@ func TestBashShapePassesThroughUnderLimit(t *testing.T) {
 		ExitCode  int    `json:"exit_code"`
 		Truncated bool   `json:"truncated"`
 		Output    string `json:"output"`
-		Message   string `json:"message"`
 	}
 	if err := json.Unmarshal([]byte(got), &result); err != nil {
 		t.Fatalf("unmarshal shaped bash result: %v", err)
@@ -32,9 +31,6 @@ func TestBashShapePassesThroughUnderLimit(t *testing.T) {
 	}
 	if result.Output != raw.Output {
 		t.Fatalf("Output length = %d, want %d", len(result.Output), len(raw.Output))
-	}
-	if result.Message != "" {
-		t.Fatalf("Message = %q, want empty", result.Message)
 	}
 }
 
@@ -57,7 +53,6 @@ func TestBashShapeTruncatesOverLimitWithTailPriority(t *testing.T) {
 		ExitCode  int    `json:"exit_code"`
 		Truncated bool   `json:"truncated"`
 		Output    string `json:"output"`
-		Message   string `json:"message"`
 	}
 	if err := json.Unmarshal([]byte(got), &result); err != nil {
 		t.Fatalf("unmarshal shaped bash result: %v", err)
@@ -78,13 +73,10 @@ func TestBashShapeTruncatesOverLimitWithTailPriority(t *testing.T) {
 		t.Fatalf("Output = %q, want warning collapse", result.Output)
 	}
 
-	shaped, _, shown, total := shapeToolText(raw.Output, defaultBashIngestionLimitBytes, tailPriorityStrategy)
-	if result.Output != shaped {
-		t.Fatalf("Output = %q, want shaped tail-priority output %q", result.Output, shaped)
-	}
-	wantMarker := truncationMarker(shown, total)
-	if result.Message != wantMarker {
-		t.Fatalf("Message = %q, want %q", result.Message, wantMarker)
+	_, _, shown, total := shapeToolText(raw.Output, defaultBashIngestionLimitBytes, tailPriorityStrategy)
+	wantMarker := TruncationMarker(shown, total)
+	if !strings.Contains(result.Output, wantMarker) {
+		t.Fatalf("Output = %q, want truncation marker %q", result.Output, wantMarker)
 	}
 	if shown >= total {
 		t.Fatalf("shown = %d, total = %d, want truncation", shown, total)
@@ -99,14 +91,14 @@ func TestTruncationCountCapGrepShape(t *testing.T) {
 	for i := 0; i < 35; i++ {
 		lines = append(lines, "match line")
 	}
-	content := `{"matches":240,"returned":240,"output":"` + strings.Join(lines, `\n`) + `"}`
+	content := `{"output":"` + strings.Join(lines, `\n`) + `"}`
 
 	got := shapeGrepIngestedResult(content)
 
 	var result struct {
-		Matches  int    `json:"matches"`
-		Returned int    `json:"returned"`
-		Output   string `json:"output"`
+		Matches    int    `json:"matches,omitempty"`
+		NextOffset int    `json:"next_offset,omitempty"`
+		Output     string `json:"output"`
 	}
 	if err := json.Unmarshal([]byte(got), &result); err != nil {
 		t.Fatalf("unmarshal shaped grep result: %v", err)

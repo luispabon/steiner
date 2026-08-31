@@ -59,7 +59,7 @@ func TestReadImageFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := readImageFile(tt.filePath, tt.displayPath, tt.filePath)
+			result, err := readImageFile(tt.filePath, tt.displayPath)
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("readImageFile() error = nil, wantErr %v", tt.wantErr)
@@ -127,7 +127,7 @@ func TestReadImageFileWebPDimensions(t *testing.T) {
 		t.Fatalf("write WebP: %v", err)
 	}
 
-	result, err := readImageFile(path, "image.webp", path)
+	result, err := readImageFile(path, "image.webp")
 	if err != nil {
 		t.Fatalf("readImageFile: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestReadImageFileTooLarge(t *testing.T) {
 		t.Fatalf("Failed to close temp file: %v", err)
 	}
 
-	result, err := readImageFile(tmpFile.Name(), "large_image.bin", tmpFile.Name())
+	result, err := readImageFile(tmpFile.Name(), "large_image.bin")
 	if err == nil {
 		t.Errorf("readImageFile() error = nil, want error for file > 5MB")
 		return

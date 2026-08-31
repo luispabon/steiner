@@ -67,7 +67,7 @@ func TestBuiltins(t *testing.T) {
 			&ReadResult{Path: "test.txt", StartLine: 1, EndLine: 5, TotalLines: 10, Output: "hello\nworld\n"},
 			&MutationResult{Path: "test.txt", Output: "file written"},
 			&Result{Output: "file1\nfile2\n", NextOffset: 5},
-			&GrepResult{Matches: 3, Returned: 3, Output: "match1\nmatch2\n"},
+			&GrepResult{Matches: 3, NextOffset: 1, Output: "match1\nmatch2\n"},
 			&BashResult{ExitCode: 0, Output: "hello", Truncated: false},
 			&DisplayFileResult{Path: "test.txt", Status: "displayed"},
 			&MutateResult{

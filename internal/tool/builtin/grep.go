@@ -3,8 +3,6 @@ package builtin
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -79,30 +77,7 @@ func NewGrepTool(env Env) tool.ToolDef {
 			}
 
 			result := buildGrepResult(files, in.OutputMode, showLines, in.BeforeContext, in.AfterContext, in.Offset, in.HeadLimit)
-			result.FileHashes = grepFileHashes(absPath, files)
 			return result, nil
 		},
 	}
-}
-
-func grepFileHashes(absPath string, files []grepFileResult) map[string]string {
-	if len(files) == 0 {
-		return nil
-	}
-	rootIsDir := false
-	if info, err := os.Stat(absPath); err == nil {
-		rootIsDir = info.IsDir()
-	}
-	hashes := make(map[string]string, len(files))
-	for _, f := range files {
-		fPath := absPath
-		if rootIsDir {
-			fPath = filepath.Join(absPath, f.file)
-		}
-		data, err := os.ReadFile(fPath)
-		if err == nil {
-			hashes[f.file] = fileContentHash(data)
-		}
-	}
-	return hashes
 }

@@ -8,10 +8,6 @@ import (
 
 func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	var payload struct {
-		Matches    int    `json:"matches"`
-		Returned   int    `json:"returned"`
-		Truncated  bool   `json:"truncated,omitempty"`
-		HasMore    bool   `json:"has_more,omitempty"`
 		NextOffset int    `json:"next_offset,omitempty"`
 		Output     string `json:"output"`
 	}
@@ -28,24 +24,24 @@ func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 		path = "."
 	}
 
+	var grepFiles []ToolPreviewGrepFile
+	switch mode {
+	case "files_with_matches":
+		grepFiles = previewGrepFiles(payload.Output)
+	case "count":
+		grepFiles = previewGrepCounts(payload.Output)
+	default:
+		grepFiles = previewGrepContent(payload.Output)
+	}
+
 	preview := ToolPreview{
 		Kind:       ToolPreviewKindGrep,
 		Path:       path,
-		Truncated:  payload.Truncated,
-		HasMore:    payload.HasMore,
-		Returned:   payload.Returned,
+		Returned:   len(grepFiles),
 		NextOffset: payload.NextOffset,
 		OutputMode: mode,
 		Output:     payload.Output,
-	}
-
-	switch mode {
-	case "files_with_matches":
-		preview.GrepFiles = previewGrepFiles(payload.Output)
-	case "count":
-		preview.GrepFiles = previewGrepCounts(payload.Output)
-	default:
-		preview.GrepFiles = previewGrepContent(payload.Output)
+		GrepFiles:  grepFiles,
 	}
 
 	return preview

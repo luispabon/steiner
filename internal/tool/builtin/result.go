@@ -21,28 +21,21 @@ type ImageBlock struct {
 
 // ReadResult is the result from a read tool call.
 type ReadResult struct {
-	Path              string      `json:"path"`
-	ResolvedPath      string      `json:"resolved_path"`
-	StartLine         int         `json:"start_line"`
-	EndLine           int         `json:"end_line"`
-	TotalLines        int         `json:"total_lines"`
-	FileHash          string      `json:"file_hash"`
-	NextOffset        int         `json:"next_offset,omitempty"`
-	Output            string      `json:"output"`
-	Image             *ImageBlock `json:"image,omitempty"`
-	TruncationReasons []string    `json:"truncation_reasons,omitempty"`
+	Path       string      `json:"path"`
+	StartLine  int         `json:"start_line"`
+	EndLine    int         `json:"end_line"`
+	TotalLines int         `json:"total_lines"`
+	FileHash   string      `json:"file_hash"`
+	NextOffset int         `json:"next_offset,omitempty"`
+	Output     string      `json:"output"`
+	Image      *ImageBlock `json:"image,omitempty"`
 }
 
 // GrepResult is the result from a grep tool call.
 type GrepResult struct {
-	Matches           int               `json:"matches"`
-	Returned          int               `json:"returned"`
-	Truncated         bool              `json:"truncated,omitempty"`
-	HasMore           bool              `json:"has_more,omitempty"`
-	NextOffset        int               `json:"next_offset,omitempty"`
-	FileHashes        map[string]string `json:"file_hashes,omitempty"`
-	TruncationReasons []string          `json:"truncation_reasons,omitempty"`
-	Output            string            `json:"output"`
+	Matches    int    `json:"matches,omitempty"`
+	NextOffset int    `json:"next_offset,omitempty"`
+	Output     string `json:"output"`
 }
 
 // MutationResult is the result from a write or edit tool call.
