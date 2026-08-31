@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -23,12 +24,12 @@ func (m *mockSearcher) Search(_ context.Context, _ *web.SearchInput) (*web.Searc
 
 func TestNewWebSearchTool(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     map[string]any
-		searcher  web.Searcher
-		wantItems int
-		wantErr   bool
-		wantKeys  []string
+		name        string
+		input       map[string]any
+		searcher    web.Searcher
+		wantResults []webSearchResultItem
+		wantErr     bool
+		wantErrText string
 	}{
 		{
 			name: "successful search returns JSON array",
@@ -50,8 +51,10 @@ func TestNewWebSearchTool(t *testing.T) {
 					},
 				},
 			},
-			wantItems: 2,
-			wantKeys:  []string{"url", "title", "description"},
+			wantResults: []webSearchResultItem{
+				{URL: "https://example.com/1", Title: "Example 1", Description: "Result 1"},
+				{URL: "https://example.com/2", Title: "Example 2", Description: "Result 2"},
+			},
 		},
 		{
 			name: "empty query returns error",
@@ -63,7 +66,7 @@ func TestNewWebSearchTool(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name: "search error returns structured error",
+			name: "search error returns error",
 			input: map[string]any{
 				"query": "test",
 				"limit": 10,
@@ -71,7 +74,8 @@ func TestNewWebSearchTool(t *testing.T) {
 			searcher: &mockSearcher{
 				err: errors.New("backend error"),
 			},
-			wantErr: false,
+			wantErr:     true,
+			wantErrText: "web_search: backend error",
 		},
 		{
 			name: "limit defaults to 10",
@@ -81,7 +85,7 @@ func TestNewWebSearchTool(t *testing.T) {
 			searcher: &mockSearcher{
 				results: []web.SearchItem{},
 			},
-			wantItems: 0,
+			wantResults: []webSearchResultItem{},
 		},
 		{
 			name: "limit capped at 30",
@@ -92,7 +96,7 @@ func TestNewWebSearchTool(t *testing.T) {
 			searcher: &mockSearcher{
 				results: []web.SearchItem{},
 			},
-			wantItems: 0,
+			wantResults: []webSearchResultItem{},
 		},
 	}
 
@@ -110,6 +114,9 @@ func TestNewWebSearchTool(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected error, got nil")
 				}
+				if tt.wantErrText != "" && err.Error() != tt.wantErrText {
+					t.Fatalf("expected error %q, got %q", tt.wantErrText, err.Error())
+				}
 				return
 			}
 
@@ -117,31 +124,41 @@ func TestNewWebSearchTool(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			// Check if result is error map (from search backend error)
-			if resultMap, ok := result.(map[string]any); ok {
-				if _, hasError := resultMap["error"]; hasError {
-					return
-				}
-			}
-
-			// Check if result is array of items
-			items, ok := result.([]map[string]string)
+			items, ok := result.([]webSearchResultItem)
 			if !ok {
-				t.Fatalf("expected []map[string]string, got %T", result)
+				t.Fatalf("expected []webSearchResultItem, got %T", result)
 			}
 
-			if len(items) != tt.wantItems {
-				t.Fatalf("expected %d items, got %d", tt.wantItems, len(items))
+			if len(items) != len(tt.wantResults) {
+				t.Fatalf("expected %d items, got %d", len(tt.wantResults), len(items))
 			}
 
-			if len(items) > 0 && len(tt.wantKeys) > 0 {
-				for _, key := range tt.wantKeys {
-					if _, ok := items[0][key]; !ok {
-						t.Fatalf("expected key %q in result", key)
-					}
+			for i, want := range tt.wantResults {
+				if items[i].URL != want.URL {
+					t.Errorf("item %d URL: expected %q, got %q", i, want.URL, items[i].URL)
+				}
+				if items[i].Title != want.Title {
+					t.Errorf("item %d title: expected %q, got %q", i, want.Title, items[i].Title)
+				}
+				if items[i].Description != want.Description {
+					t.Errorf("item %d description: expected %q, got %q", i, want.Description, items[i].Description)
 				}
 			}
 		})
+	}
+}
+
+func TestWebSearchResultItemJSON(t *testing.T) {
+	item := webSearchResultItem{URL: "https://example.com"}
+
+	got, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("marshal result item: %v", err)
+	}
+
+	const want = `{"url":"https://example.com"}`
+	if string(got) != want {
+		t.Fatalf("expected JSON %s, got %s", want, got)
 	}
 }
 

@@ -9,6 +9,12 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+type webSearchResultItem struct {
+	URL         string `json:"url"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 // NewWebSearchTool creates a ToolDef for the web_search tool backed by any web.Searcher.
 func NewWebSearchTool(searcher web.Searcher) tool.ToolDef {
 	return tool.ToolDef{
@@ -33,17 +39,15 @@ func NewWebSearchTool(searcher web.Searcher) tool.ToolDef {
 				Limit: in.Limit,
 			})
 			if err != nil {
-				return map[string]any{
-					"error": err.Error(),
-				}, nil
+				return nil, fmt.Errorf("web_search: %w", err)
 			}
 
-			items := make([]map[string]string, len(result.Items))
+			items := make([]webSearchResultItem, len(result.Items))
 			for i, item := range result.Items {
-				items[i] = map[string]string{
-					"url":         item.URL,
-					"title":       item.Title,
-					"description": item.Description,
+				items[i] = webSearchResultItem{
+					URL:         item.URL,
+					Title:       item.Title,
+					Description: item.Description,
 				}
 			}
 
