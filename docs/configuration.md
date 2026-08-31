@@ -539,7 +539,7 @@ Runtime limits for turns, tokens, and tool execution.
 | `max_tokens`         | int                       | `500000` | Maximum total tokens (input + output) consumed before the run is stopped. |
 | `tool_timeout_default`| duration string          | `"30s"`  | Default timeout applied to any tool not listed in `tool_timeouts`. |
 | `tool_timeouts`      | map[string]duration string| see below | Per-tool timeout overrides. |
-| `tool_output_max_bytes`| int                     | `65536`  | Maximum bytes of output captured from a single tool call. Output is truncated to this limit. |
+| `tool_output_max_bytes`| int                     | `65536`  | Maximum bytes of output captured from a single tool call. Output is truncated to this limit. Applies to both the parent run and each child sub-agent's own tool executor. |
 | `max_parallel_tools` | int                       | `4`      | Maximum number of parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`, plus delegation tools) executed concurrently within a single turn. `0` means unbounded; `1` forces serial execution. Applies to both the parent run and each child sub-agent's own turns. |
 
 Default `tool_timeouts`:
@@ -752,6 +752,8 @@ Constrains filesystem access for tools that read or write files.
 
 Note: the TUI file picker shows `.steiner/` contents except `.steiner/tmp` and `.steiner/worktrees`, which are always hidden to keep the picker fast. The same exclusion rules still apply to `glob` and `grep` tools.
 
+This block also applies to each child sub-agent's own tool executor, not just the parent's.
+
 ```yaml
 paths:
   project_root_only: true
@@ -805,6 +807,8 @@ Baseline context management settings.
 context_management:
   read_annotations: true
 ```
+
+This block also applies to each child sub-agent's own context manager, not just the parent's.
 
 ---
 

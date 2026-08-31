@@ -113,6 +113,9 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		Sandbox:            deps.Sandbox,
 		ReadOnlyBash:       readOnlyBash,
 		MaxParallelTools:   deps.MaxParallelTools,
+		Limits:             deps.Limits,
+		Paths:              deps.Paths,
+		ContextManagement:  deps.ContextManagement,
 	})
 	return req, limits, nil
 }
@@ -249,6 +252,17 @@ type childRunRequestParams struct {
 	Sandbox            tool.SandboxWrapper
 	ReadOnlyBash       bool
 	MaxParallelTools   int
+	// Limits and Paths configure the child's tool executor (output byte cap
+	// and path policy) the same way the parent's own executor is configured;
+	// previously the child executor was built from a zero-value config.Config
+	// and silently ignored both.
+	Limits config.LimitsConfig
+	Paths  config.PathsConfig
+	// ContextManagement configures the child's ContextStateManager the same
+	// way the parent's is configured; previously no ContextManager was set on
+	// the child request, so it always ran with library defaults regardless of
+	// configured context_management settings.
+	ContextManagement config.ContextManagementConfig
 }
 
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
@@ -257,7 +271,7 @@ type childRunRequestParams struct {
 // p.ModeGetter, when non-nil, is wired into the child executor so it inherits
 // the parent's execution mode.
 func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
-	childCfg := config.Config{}
+	childCfg := config.Config{Limits: p.Limits, Paths: p.Paths}
 	scopedEvents := withAgentScope(p.AgentID, p.AgentType, p.Events)
 	traceWriter := newToolCallTraceWriter(p.TraceRoot, p.AgentID)
 	registerToolCallTraceWriter(p.AgentID, traceWriter)
@@ -295,6 +309,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		CaveHuman:          p.PromptOpts.CaveHuman,
 		PromptCacheKey:     childCacheKey,
 		UsageSource:        usagestats.SourceSubAgent,
+		ContextManager:     agent.NewContextStateManager(p.ContextManagement),
 	}
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder

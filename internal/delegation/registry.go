@@ -208,6 +208,9 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		ModeGetter:            deps.ModeGetter,
 		CacheKeyStore:         deps.CacheKeyStore,
 		MaxParallelTools:      deps.Config.Limits.MaxParallelTools,
+		Limits:                deps.Config.Limits,
+		Paths:                 deps.Config.Paths,
+		ContextManagement:     deps.Config.ContextManagement,
 	}
 
 	// Register the follow_up tool.
