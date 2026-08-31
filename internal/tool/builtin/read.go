@@ -41,11 +41,9 @@ func NewReadTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("read: %w", err)
 			}
 
-			resolvedPath := absPath
 			displayPath := relDisplayPath(env.WorkDir, absPath)
 			if env.PathPolicy != nil {
-				resolvedPath = env.PathPolicy.DisplayPath(absPath)
-				displayPath = resolvedPath
+				displayPath = env.PathPolicy.DisplayPath(absPath)
 				if !strings.HasPrefix(displayPath, "/") {
 					displayPath = relDisplayPath(env.WorkDir, displayPath)
 				}
