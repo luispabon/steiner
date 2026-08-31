@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,14 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+// countResultLines derives the line count from a Result's Output field.
+func countResultLines(output string) int {
+	if output == "" {
+		return 0
+	}
+	return len(strings.Split(output, "\n"))
+}
 
 func TestGlobTool(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -38,8 +47,8 @@ func TestGlobTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want Result", resultI)
 		}
-		if result.Returned <= 0 {
-			t.Errorf("Returned = %d, want > 0", result.Returned)
+		if lineCount := countResultLines(result.Output); lineCount <= 0 {
+			t.Errorf("line count = %d, want > 0", lineCount)
 		}
 		if !strings.Contains(result.Output, "a.txt") {
 			t.Errorf("Output missing a.txt: %q", result.Output)
@@ -90,7 +99,7 @@ func TestGlobTool(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		all, _ := allResult.(Result)
-		totalReturned := all.Returned
+		totalCount := countResultLines(all.Output)
 
 		pageResult, err := toolDef.Handler(ctx, map[string]any{
 			"pattern": "*",
@@ -101,10 +110,10 @@ func TestGlobTool(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		page, _ := pageResult.(Result)
-		if page.Returned > 2 {
-			t.Errorf("limit=2 returned %d items", page.Returned)
+		if pageCount := countResultLines(page.Output); pageCount > 2 {
+			t.Errorf("limit=2 returned %d items", pageCount)
 		}
-		if totalReturned > 2 && page.NextOffset == 0 {
+		if totalCount > 2 && page.NextOffset == 0 {
 			t.Errorf("expected NextOffset when more results exist")
 		}
 	})
@@ -151,8 +160,29 @@ func TestGlobTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want Result", resultI)
 		}
-		if result.Returned != 0 {
-			t.Errorf("Returned = %d, want 0", result.Returned)
+		if lineCount := countResultLines(result.Output); lineCount != 0 {
+			t.Errorf("line count = %d, want 0", lineCount)
+		}
+	})
+
+	t.Run("marshalled JSON omits returned field", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{
+			"pattern": "*.txt",
+			"path":    ".",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(Result)
+		if !ok {
+			t.Fatalf("result type = %T, want Result", resultI)
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			t.Fatalf("json.Marshal error: %v", err)
+		}
+		if strings.Contains(string(data), "\"returned\"") {
+			t.Fatalf("marshalled JSON contains \"returned\": %s", data)
 		}
 	})
 }

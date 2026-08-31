@@ -146,6 +146,9 @@ func TestDisplayFileToolEmitsPreviewAndMetadataOnlyResult(t *testing.T) {
 	if got.Path != "snippet.go" {
 		t.Fatalf("Path = %q, want snippet.go", got.Path)
 	}
+	if got.Message != "" {
+		t.Fatalf("Message = %q, want empty", got.Message)
+	}
 
 	if len(events) != 1 {
 		t.Fatalf("events len = %d, want 1", len(events))
@@ -215,6 +218,9 @@ func TestDisplayFileToolHandlesImageAndBinaryFilesSafely(t *testing.T) {
 	if gotImage.Status != "displayed" {
 		t.Fatalf("image status = %q, want displayed", gotImage.Status)
 	}
+	if gotImage.Message != "" {
+		t.Fatalf("image message = %q, want empty", gotImage.Message)
+	}
 	imageJSON, err := json.Marshal(imageResult)
 	if err != nil {
 		t.Fatalf("json.Marshal(image result) error = %v", err)
@@ -252,6 +258,9 @@ func TestDisplayFileToolHandlesImageAndBinaryFilesSafely(t *testing.T) {
 	if gotBinary.Status != "displayed" {
 		t.Fatalf("binary status = %q, want displayed", gotBinary.Status)
 	}
+	if gotBinary.Message != "" {
+		t.Fatalf("binary message = %q, want empty", gotBinary.Message)
+	}
 	binaryJSON, err := json.Marshal(binaryResult)
 	if err != nil {
 		t.Fatalf("json.Marshal(binary result) error = %v", err)
@@ -268,6 +277,42 @@ func TestDisplayFileToolHandlesImageAndBinaryFilesSafely(t *testing.T) {
 	}
 	if got := flattenPreviewLines(binaryPayload.Preview.Lines); !strings.Contains(got, "binary file omitted") {
 		t.Fatalf("binary preview text = %q, want safe placeholder", got)
+	}
+}
+
+func TestDisplayFileToolNonTUIFallback(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("content\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	env := Env{
+		WorkDir:     dir,
+		PathPolicy:  &policy,
+		Interactive: false,
+	}
+
+	result, err := NewDisplayFileTool(env).Handler(context.Background(), map[string]any{
+		"path": "note.txt",
+	})
+	if err != nil {
+		t.Fatalf("display_file handler error = %v", err)
+	}
+
+	got, ok := result.(*DisplayFileResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *DisplayFileResult", result)
+	}
+	if got.Status != "unavailable" {
+		t.Fatalf("Status = %q, want unavailable", got.Status)
+	}
+	if got.Path != "note.txt" {
+		t.Fatalf("Path = %q, want note.txt", got.Path)
+	}
+	if !strings.Contains(got.Message, "read") {
+		t.Fatalf("Message = %q, want to contain 'read'", got.Message)
 	}
 }
 

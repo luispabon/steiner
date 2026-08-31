@@ -5,8 +5,6 @@ import "strings"
 // Result is a generic tool result.
 type Result struct {
 	Output     string `json:"output"`
-	Returned   int    `json:"returned"`
-	Truncated  bool   `json:"truncated,omitempty"`
 	NextOffset int    `json:"next_offset,omitempty"`
 }
 
@@ -166,8 +164,7 @@ func pageResults(allLines []string, limit, offset int) Result {
 	page := allLines[start:end]
 
 	result := Result{
-		Output:   strings.Join(page, "\n"),
-		Returned: len(page),
+		Output: strings.Join(page, "\n"),
 	}
 
 	if end < total {
