@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-const maxMutateOutputChars = 30000
-
 type mutatePlanner struct {
 	env     Env
 	states  map[string]*mutateFileState
@@ -69,7 +67,25 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 		p.result.OperationResults[i].Assertions = nil
 		p.result.OperationResults[i].Context = nil
 	}
-	p.result.Output = p.successOutput("Success.")
+	// Success path: trim envelope to only what model doesn't already have.
+	p.result.Paths = nil
+	kept := p.result.OperationResults[:0]
+	for _, op := range p.result.OperationResults {
+		if op.MatchCount > 1 {
+			kept = append(kept, MutateOperationResult{
+				Index:      op.Index,
+				Type:       op.Type,
+				Path:       op.Path,
+				MatchCount: op.MatchCount,
+			})
+		}
+	}
+	if len(kept) == 0 {
+		p.result.OperationResults = nil
+	} else {
+		p.result.OperationResults = kept
+	}
+	p.result.Output = ""
 	return &p.result
 }
 
@@ -276,21 +292,4 @@ func (p *mutatePlanner) recordMovedOperation(index int, op MutateOperation, stat
 		Context:      buildMutateContext(state.content, 1),
 	})
 	return nil
-}
-
-func (p *mutatePlanner) successOutput(prefix string) string {
-	lines := []string{prefix, "Updated the following files:"}
-	for _, path := range p.result.Created {
-		lines = append(lines, "A "+path)
-	}
-	for _, path := range p.result.Modified {
-		lines = append(lines, "M "+path)
-	}
-	for _, path := range p.result.Deleted {
-		lines = append(lines, "D "+path)
-	}
-	for _, moved := range p.result.Moved {
-		lines = append(lines, "R "+moved.From+" -> "+moved.To)
-	}
-	return truncateMutateOutput(strings.Join(lines, "\n"))
 }

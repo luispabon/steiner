@@ -159,10 +159,3 @@ func appendUnique(values []string, value string) []string {
 	}
 	return append(values, value)
 }
-
-func truncateMutateOutput(output string) string {
-	if len(output) <= maxMutateOutputChars {
-		return output
-	}
-	return output[:maxMutateOutputChars] + "\n<truncated>"
-}
