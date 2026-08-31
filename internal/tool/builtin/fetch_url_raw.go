@@ -68,12 +68,16 @@ func fetchRawText(ctx context.Context, httpClient *http.Client, in FetchURLInput
 	runes := []rune(content)
 
 	if len(runes) <= inlineThreshold {
+		msg := ""
+		if truncated {
+			msg = truncationAdvisory(in.MaxSize)
+		}
 		return &FetchURLResult{
 			URL:           in.URL,
 			Content:       content,
 			ContentLength: len(runes),
 			StatusCode:    resp.StatusCode,
-			Truncated:     truncated,
+			Message:       msg,
 		}, nil
 	}
 

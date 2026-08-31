@@ -169,15 +169,26 @@ func TestWorkflowHandoffToolReturnsUnsupportedInNonInteractiveMode(t *testing.T)
 		t.Fatalf("handler error = %v", err)
 	}
 
-	result, ok := resultI.(*WorkflowHandoffResult)
+	result, ok := resultI.(struct {
+		Status string `json:"status"`
+		Reason string `json:"reason"`
+	})
 	if !ok {
-		t.Fatalf("result type = %T, want *WorkflowHandoffResult", resultI)
+		t.Fatalf("result type = %T, want unsupported status/reason struct", resultI)
 	}
 	if result.Status != "unsupported" {
 		t.Fatalf("Status = %q, want unsupported", result.Status)
 	}
 	if result.Reason == "" {
 		t.Fatal("Reason = empty, want bounded unsupported explanation")
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("unsupported result marshal error = %v", err)
+	}
+	wantJSON := `{"status":"unsupported","reason":"workflow handoff decision handling is unavailable in non-interactive mode"}`
+	if string(data) != wantJSON {
+		t.Fatalf("unsupported result JSON = %s, want %s", data, wantJSON)
 	}
 	if len(*events) != 0 {
 		t.Fatalf("events len = %d, want 0", len(*events))

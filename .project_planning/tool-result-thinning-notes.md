@@ -186,3 +186,19 @@ treatment, that's its own issue/plan.
   an intervening read) — verify against session history before touching it,
   the same way `read`'s `file_hash` was verified here, not assumed either
   way.
+- **web_search/workflow_handoff/fetch_url** (#614/#615/#616) — landed.
+  `web_search` switched `map[string]string` → typed struct with
+  `omitempty`, and backend errors now route through the standard
+  `return nil, err` → `tool_error` envelope instead of a synthetic
+  `{"error": ...}` result. `workflow_handoff` deleted
+  `WorkflowHandoffResult` entirely; the `unsupported` path now returns the
+  same minimal `{status, reason}` shape `declined` already used. `fetch_url`
+  dropped the `truncated` bool (folded into `message` text on both inline
+  and saved paths via a new `truncationAdvisory` helper) and shrank the
+  saved-content inline preview from `inlineThreshold` (10,000 runes, which
+  continues to gate the inline-vs-saved decision unchanged) to a new,
+  separate `savedContentPreviewRunes` (500 runes) — the errored/data-shaped
+  `FetchURLError` path was left untouched, deliberately not converted to a
+  Go-error return like `web_search`'s, because it carries actionable
+  `status_code`/`retry_after`/`body` structure a plain error string would
+  lose.

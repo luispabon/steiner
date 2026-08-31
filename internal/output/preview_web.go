@@ -70,13 +70,6 @@ type jsonImagePayload struct {
 }
 
 func buildWebSearchPreview(result string) ToolPreview {
-	var errPayload struct {
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal([]byte(result), &errPayload); err == nil && errPayload.Error != "" {
-		return plainToolPreview()
-	}
-
 	var results []map[string]string
 	if err := json.Unmarshal([]byte(result), &results); err != nil {
 		return plainToolPreview()

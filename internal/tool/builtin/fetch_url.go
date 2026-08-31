@@ -18,6 +18,11 @@ import (
 // before content is saved to disk and a preview is returned instead.
 const inlineThreshold = 10000
 
+// savedContentPreviewRunes is the number of leading content runes returned
+// inline alongside file_path for disk-saved results — enough to judge
+// relevance before calling read, not enough to duplicate the saved content.
+const savedContentPreviewRunes = 500
+
 // mainContentFallbackMinRunes is the minimum rune count expected from
 // main-content extraction. Markdown shorter than this is treated as a
 // failed extraction and triggers a fallback fetch of the full document.
@@ -45,7 +50,6 @@ type FetchURLResult struct {
 	FilePath      string      `json:"file_path,omitempty"`
 	NextOffset    int         `json:"next_offset,omitempty"`
 	Message       string      `json:"message,omitempty"`
-	Truncated     bool        `json:"truncated,omitempty"`
 	TotalLines    int         `json:"total_lines,omitempty"`
 }
 
@@ -245,6 +249,10 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 	}
 
 	if contentLength <= inlineThreshold {
+		msg := advisory
+		if truncated {
+			msg = appendAdvisory(msg, truncationAdvisory(maxSize))
+		}
 		return &FetchURLResult{
 			URL:           resp.URL,
 			Title:         resp.Metadata.Title,
@@ -252,8 +260,7 @@ func buildHTMLResult(inURL string, resp *fetch.Response, workDir string, maxSize
 			Content:       content,
 			ContentLength: contentLength,
 			StatusCode:    resp.StatusCode,
-			Truncated:     truncated,
-			Message:       advisory,
+			Message:       msg,
 		}, nil
 	}
 
