@@ -78,6 +78,9 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 	if err := p.verifyFileHash(index, "replace", state, op.FileHash); err != nil {
 		return err
 	}
+	if err := p.verifyObserved(index, state, op.FileHash); err != nil {
+		return err
+	}
 	if op.OldString == "" {
 		return fmt.Errorf("mutate: operation %d replace: old_string is empty", index)
 	}

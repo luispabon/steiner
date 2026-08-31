@@ -64,6 +64,12 @@ func (b *baseContextManager) RecordMutation(path string) {
 	b.fileTracker.RecordMutation(path)
 }
 
+// FileObserved reports whether path was read this session, backing the
+// mutate replace-operation observation guard (see tool.FileObservedChecker).
+func (b *baseContextManager) FileObserved(path string) bool {
+	return b.fileTracker.WasObserved(path)
+}
+
 func (b *baseContextManager) SetEventSink(sink output.EventSink) {
 	b.events = sink
 }

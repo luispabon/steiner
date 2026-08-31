@@ -120,3 +120,17 @@ func normalizeTrackedPath(path string) (string, bool) {
 func (t *FileTracker) RecordMutation(path string) {
 	t.BumpGeneration(path)
 }
+
+// WasObserved reports whether path has a tracked read this session. It is a
+// precondition floor, not a staleness guarantee: t.reads only reflects reads
+// made through the tool loop and writes recorded via RecordMutation, so a
+// file changed outside that loop (bash, gofmt -w, an external editor) can
+// still report observed while its on-disk content has moved on.
+func (t *FileTracker) WasObserved(path string) bool {
+	canonicalPath, ok := normalizeTrackedPath(path)
+	if !ok {
+		return false
+	}
+	_, observed := t.reads[canonicalPath]
+	return observed
+}

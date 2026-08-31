@@ -12,10 +12,16 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// newMutateTestTool builds a mutate tool whose FileObserved checker always
+// reports true. Nearly all tests in this file exercise replace mechanics
+// (diagnostics, hash verification, batch accounting) unrelated to the
+// observation guard, which has its own dedicated tests
+// (TestMutateReplaceObservationGuard); defaulting to "observed" here keeps
+// them exercising what they actually test.
 func newMutateTestTool(t *testing.T, root string) tool.ToolDef {
 	t.Helper()
 	policy := tool.NewPathPolicy(root, config.PathsConfig{})
-	return NewMutateTool(Env{WorkDir: root, PathPolicy: &policy})
+	return NewMutateTool(Env{WorkDir: root, PathPolicy: &policy, FileObserved: func(string) bool { return true }})
 }
 
 func runMutate(t *testing.T, toolDef tool.ToolDef, input map[string]any) *MutateResult {

@@ -13,7 +13,7 @@ import (
 func NewMutateTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "mutate",
-		Description:     "Apply structured file edits via op types: create, write (create or overwrite), replace, delete_file, move. Supports file_hash for staleness detection on existing targets — pass the hash from read/grep to fail fast if the file changed. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use assert_present/assert_absent on any operation whose effect cannot otherwise be verified — assertions abort the full batch if they fail, confirming the edit landed where intended. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+		Description:     "Apply structured file edits via op types: create, write (create or overwrite), replace, delete_file, move. Supports file_hash for staleness detection on existing targets — pass the hash from read/grep to fail fast if the file changed. replace against an existing file is rejected unless you either read or grep it earlier this session or pass file_hash — read the file first, or supply the hash from a read/grep result. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use assert_present/assert_absent on any operation whose effect cannot otherwise be verified — assertions abort the full batch if they fail, confirming the edit landed where intended. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
 		ParameterSchema: MutateSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[MutateInput](input)
@@ -23,6 +23,9 @@ func NewMutateTool(env Env) tool.ToolDef {
 			plannerEnv := env
 			if effectivePolicy, ok := ctx.Value(tool.EffectivePolicyKey{}).(*tool.PathPolicy); ok && effectivePolicy != nil {
 				plannerEnv.PathPolicy = effectivePolicy
+			}
+			if checker := tool.FileObservedCheckerFromContext(ctx); checker != nil {
+				plannerEnv.FileObserved = checker
 			}
 			planner := &mutatePlanner{
 				env:    plannerEnv,

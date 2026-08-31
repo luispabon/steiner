@@ -286,8 +286,14 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunSta
 }
 
 // invokeTool runs the executor and returns the raw outcome. It does not emit
-// events or touch RunState.
+// events or touch RunState. It is the single call site (besides the
+// read-only vision routing bypass) through which tool execution flows, so
+// this is where the file-observed checker is injected for mutate's
+// replace-operation guard.
 func (p *turnProgressor) invokeTool(ctx context.Context, _ int, call provider.ToolCall) (any, error) {
+	if p.request.ContextManager != nil {
+		ctx = tool.WithFileObservedChecker(ctx, p.request.ContextManager.FileObserved)
+	}
 	return p.request.Executor.Execute(ctx, call.Name, call.ID, cloneInput(call.Arguments))
 }
 

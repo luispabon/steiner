@@ -125,6 +125,21 @@ func (p *mutatePlanner) verifyFileHash(index int, opType string, state *mutateFi
 	return nil
 }
 
+// verifyObserved enforces the replace-operation observation guard: an
+// existing-file replace must be backed by either an observed read this
+// session or an explicit file_hash. fileHash is passed separately (rather
+// than read off op) since verifyFileHash above already validated it when
+// non-empty — a mismatch there returns before this runs.
+func (p *mutatePlanner) verifyObserved(index int, state *mutateFileState, fileHash string) error {
+	if fileHash != "" {
+		return nil
+	}
+	if p.env.FileObserved != nil && p.env.FileObserved(state.path) {
+		return nil
+	}
+	return fmt.Errorf("mutate: operation %d replace: %s not read this session and no file_hash supplied — read the file first, or pass the file_hash from a read/grep result", index, state.displayPath)
+}
+
 func (p *mutatePlanner) textState(index int, opType, path string) (*mutateFileState, error) {
 	state, err := p.stateFor(path)
 	if err != nil {

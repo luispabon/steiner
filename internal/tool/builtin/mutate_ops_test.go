@@ -84,7 +84,7 @@ func TestReplaceDiagnostics_NoMatch_IncludesOperationIndex(t *testing.T) {
 			}
 
 			policy := tool.NewPathPolicy(root, config.PathsConfig{})
-			toolDef := NewMutateTool(Env{WorkDir: root, PathPolicy: &policy})
+			toolDef := NewMutateTool(Env{WorkDir: root, PathPolicy: &policy, FileObserved: func(string) bool { return true }})
 
 			result, err := toolDef.Handler(context.Background(), map[string]any{
 				"operations": []any{
@@ -142,7 +142,7 @@ func TestReplaceDiagnostics_AmbiguousMatch_IncludesOperationIndex(t *testing.T) 
 			}
 
 			policy := tool.NewPathPolicy(root, config.PathsConfig{})
-			toolDef := NewMutateTool(Env{WorkDir: root, PathPolicy: &policy})
+			toolDef := NewMutateTool(Env{WorkDir: root, PathPolicy: &policy, FileObserved: func(string) bool { return true }})
 
 			result, err := toolDef.Handler(context.Background(), map[string]any{
 				"operations": []any{

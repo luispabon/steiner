@@ -23,4 +23,8 @@ type Env struct {
 	// WorkflowHandoffResponder resolves user decisions for workflow handoff
 	// requests in interactive mode.
 	WorkflowHandoffResponder tool.WorkflowHandoffResponder
+	// FileObserved reports whether a path was observed this session (read or
+	// grep). Overridden per-call from the request context by NewMutateTool,
+	// mirroring PathPolicy; nil means "not observed" for any path.
+	FileObserved tool.FileObservedChecker
 }
