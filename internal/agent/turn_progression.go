@@ -221,7 +221,7 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 }
 
 func (p *turnProgressor) parallelRunLength(calls []provider.ToolCall, start int) int {
-	if p.request.MaxParallelTools == 1 || p.request.ParallelTool == nil || !p.request.ParallelTool(calls[start].Name) {
+	if p.request.MaxParallelTools <= 1 || p.request.ParallelTool == nil || !p.request.ParallelTool(calls[start].Name) {
 		return 1
 	}
 	n := 1

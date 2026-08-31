@@ -119,8 +119,8 @@ func validateLimitsConfig(problems *[]string, cfg LimitsConfig) {
 	if cfg.ToolOutputMaxBytes < 1 {
 		*problems = append(*problems, "limits.tool_output_max_bytes must be at least 1")
 	}
-	if cfg.MaxParallelTools < 0 {
-		*problems = append(*problems, "limits.max_parallel_tools must be non-negative")
+	if cfg.MaxParallelTools < 1 {
+		*problems = append(*problems, "limits.max_parallel_tools must be at least 1")
 	}
 	for name, timeout := range cfg.ToolTimeouts {
 		if name == "" {

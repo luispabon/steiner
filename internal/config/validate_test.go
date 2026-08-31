@@ -48,8 +48,9 @@ func validBase() Config {
 				"bash": MustDuration("120s"),
 			},
 			ToolOutputMaxBytes: 65536,
+			MaxParallelTools:   4,
 		},
-		SubAgent: SubAgentConfig{Enabled: false},
+		SubAgent: SubAgentConfig{Enabled: false, MaxParallel: 3},
 		Tools:    map[string]ToolConfig{},
 		ProjectContext: ProjectContextConfig{
 			MaxBytes: 8000,
@@ -380,13 +381,22 @@ func TestValidate(t *testing.T) {
 			wantErr: `tool_output_max_bytes must be at least 1`,
 		},
 		{
+			name: "zero max_parallel_tools",
+			cfg: func() Config {
+				c := validBase()
+				c.Limits.MaxParallelTools = 0
+				return c
+			}(),
+			wantErr: `max_parallel_tools must be at least 1`,
+		},
+		{
 			name: "negative max_parallel_tools",
 			cfg: func() Config {
 				c := validBase()
 				c.Limits.MaxParallelTools = -1
 				return c
 			}(),
-			wantErr: `max_parallel_tools must be non-negative`,
+			wantErr: `max_parallel_tools must be at least 1`,
 		},
 		{
 			name: "empty tool timeout name",

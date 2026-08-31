@@ -2764,3 +2764,12 @@ func TestPrepareTurn_ResetsLastBudget(t *testing.T) {
 		t.Fatalf("p.lastBudget.EstimatedPromptTokens = %d, want > 0 after reset", p.lastBudget.EstimatedPromptTokens)
 	}
 }
+
+func TestParallelRunLength_ZeroMaxParallelToolsForcesSerialization(t *testing.T) {
+	calls := parallelCalls("read", "read", "grep").Message.ToolCalls
+	p := newTurnProgressor(RunRequest{ParallelTool: func(string) bool { return true }, MaxParallelTools: 0}, prompt.AssemblyOptions{}, nil)
+
+	if got := p.parallelRunLength(calls, 0); got != 1 {
+		t.Fatalf("parallelRunLength(0) = %d, want 1 (MaxParallelTools: 0 forces serial), received a batch when MaxParallelTools <= 1", got)
+	}
+}
