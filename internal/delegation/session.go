@@ -21,6 +21,7 @@ type SubAgentHandlerDeps struct {
 	Runner               AgentRunner
 	WorkDir              string
 	HomeDir              string
+	SessionID            string
 	ProjectContextConfig config.ProjectContextConfig
 	// ResolvedModel is the parent's config-resolved model, used as the fallback
 	// for sub-agents without a per-type alias. It must not carry session-time

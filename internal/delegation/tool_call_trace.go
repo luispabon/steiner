@@ -21,9 +21,10 @@ var (
 )
 
 // processTraceSession returns a random 12-hex-character ID generated once per
-// process and reused for every child spawned by this run. There is no true
-// interactive-session ID threaded into internal/delegation today, so this is
-// a process-scoped stand-in that groups this run's trace files together.
+// process and reused for every child spawned by this run. This is a fallback
+// for callers with no real interactive-session or oneshot run ID threaded
+// through. It groups this run's trace files together when no better session ID
+// is available.
 func processTraceSession() string {
 	processTraceSessionIDOnce.Do(func() {
 		buf := make([]byte, 6)
@@ -72,14 +73,23 @@ type toolCallTraceWriter struct {
 	toolCounts      map[string]int
 }
 
+// traceSessionID returns sessionID if non-empty, otherwise the process-scoped
+// random fallback used when no real session ID was threaded through.
+func traceSessionID(sessionID string) string {
+	if sessionID != "" {
+		return sessionID
+	}
+	return processTraceSession()
+}
+
 // newToolCallTraceWriter creates a trace writer for agentID under workDir.
 // Returns nil when the trace file cannot be created; tracing is best-effort
 // instrumentation and must never break delegation.
-func newToolCallTraceWriter(workDir, agentID string) *toolCallTraceWriter {
+func newToolCallTraceWriter(workDir, agentID, sessionID string) *toolCallTraceWriter {
 	if workDir == "" || agentID == "" {
 		return nil
 	}
-	dir := filepath.Join(workDir, ".steiner", "traces", processTraceSession())
+	dir := filepath.Join(workDir, ".steiner", "traces", traceSessionID(sessionID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil
 	}

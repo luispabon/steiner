@@ -31,6 +31,7 @@ type cliRunner struct {
 	currentEffective         func() config.EffectiveModelAssignments
 	currentReasoningOverride func() provider.ReasoningOverride
 	promptCacheKeyFn         func() string
+	sessionIDFn              func() string
 	modeGetterFunc           func() config.ExecutionMode
 	phasePrompt              string
 	projectAgentsPath        string
@@ -46,6 +47,15 @@ func (r cliRunner) promptCacheKey() string {
 		return ""
 	}
 	return r.promptCacheKeyFn()
+}
+
+// sessionID returns the current session or oneshot-run identifier, or empty
+// when no source function was wired.
+func (r cliRunner) sessionID() string {
+	if r.sessionIDFn == nil {
+		return ""
+	}
+	return r.sessionIDFn()
 }
 
 func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
@@ -153,6 +163,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		Events:                events,
 		WorkDir:               r.runtime.workDir,
 		HomeDir:               r.runtime.homeDir,
+		SessionID:             r.sessionID(),
 		ResolvedModel:         setup.baseResolvedModel,
 		MaxTokens:             setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
 		StreamingPreferred:    r.streamingPreferred,

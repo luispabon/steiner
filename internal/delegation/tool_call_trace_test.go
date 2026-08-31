@@ -37,7 +37,7 @@ func readJSONLLines(t *testing.T, path string) []toolCallTraceLine {
 
 func TestToolCallTraceWriter_RecordsStartedFinishedPairs(t *testing.T) {
 	dir := t.TempDir()
-	w := newToolCallTraceWriter(dir, "agent-1")
+	w := newToolCallTraceWriter(dir, "agent-1", "")
 	if w == nil {
 		t.Fatal("newToolCallTraceWriter returned nil")
 	}
@@ -97,7 +97,7 @@ func TestToolCallTraceWriter_RecordsStartedFinishedPairs(t *testing.T) {
 
 func TestToolCallTraceWriter_DurationMsFromEventTimestamps(t *testing.T) {
 	dir := t.TempDir()
-	w := newToolCallTraceWriter(dir, "agent-duration")
+	w := newToolCallTraceWriter(dir, "agent-duration", "")
 	defer w.close()
 
 	sink := withToolCallTrace(nil, w)
@@ -143,7 +143,7 @@ func TestToolCallTraceWriter_MutateFailClassTaxonomy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			w := newToolCallTraceWriter(dir, "agent-mutate")
+			w := newToolCallTraceWriter(dir, "agent-mutate", "")
 			defer w.close()
 
 			sink := withToolCallTrace(nil, w)
@@ -164,7 +164,7 @@ func TestToolCallTraceWriter_MutateFailClassTaxonomy(t *testing.T) {
 
 func TestToolCallTraceWriter_NonMutateFailureHasNoFailClass(t *testing.T) {
 	dir := t.TempDir()
-	w := newToolCallTraceWriter(dir, "agent-read")
+	w := newToolCallTraceWriter(dir, "agent-read", "")
 	defer w.close()
 
 	sink := withToolCallTrace(nil, w)
@@ -183,7 +183,7 @@ func TestToolCallTraceWriter_NonMutateFailureHasNoFailClass(t *testing.T) {
 
 func TestToolCallTraceWriter_ForwardsToInnerSink(t *testing.T) {
 	dir := t.TempDir()
-	w := newToolCallTraceWriter(dir, "agent-forward")
+	w := newToolCallTraceWriter(dir, "agent-forward", "")
 	defer w.close()
 
 	var received []output.Event
@@ -207,17 +207,17 @@ func TestWithToolCallTrace_NilWriterReturnsInnerUnchanged(t *testing.T) {
 }
 
 func TestNewToolCallTraceWriter_EmptyWorkDirOrAgentID(t *testing.T) {
-	if w := newToolCallTraceWriter("", "agent-1"); w != nil {
+	if w := newToolCallTraceWriter("", "agent-1", ""); w != nil {
 		t.Error("expected nil writer for empty workDir")
 	}
-	if w := newToolCallTraceWriter(t.TempDir(), ""); w != nil {
+	if w := newToolCallTraceWriter(t.TempDir(), "", ""); w != nil {
 		t.Error("expected nil writer for empty agentID")
 	}
 }
 
 func TestToolCallTraceRegistry_RegisterAndTake(t *testing.T) {
 	dir := t.TempDir()
-	w := newToolCallTraceWriter(dir, "agent-registry")
+	w := newToolCallTraceWriter(dir, "agent-registry", "")
 	registerToolCallTraceWriter("agent-registry", w)
 
 	fields := toolCallTraceFields("agent-registry")
@@ -287,5 +287,48 @@ func TestProcessTraceSession_StableWithinProcess(t *testing.T) {
 	}
 	if strings.ContainsAny(first, "ghijklmnopqrstuvwxyzGHIJKLMNOPQRSTUVWXYZ") {
 		t.Errorf("processTraceSession() = %q, want hex-only characters", first)
+	}
+}
+
+func TestTraceSessionID(t *testing.T) {
+	tests := []struct {
+		name         string
+		sessionID    string
+		wantFallback bool
+	}{
+		{"non-empty returns input", "sess-abc123", false},
+		{"empty falls back to random", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := traceSessionID(tt.sessionID)
+			if tt.wantFallback {
+				if got == tt.sessionID {
+					t.Errorf("traceSessionID(%q) = %q, want non-empty fallback", tt.sessionID, got)
+				}
+				// Just verify it's the random process session (stable within process)
+				if got != processTraceSession() {
+					t.Errorf("traceSessionID(%q) = %q, want %q", tt.sessionID, got, processTraceSession())
+				}
+			} else if got != tt.sessionID {
+				t.Errorf("traceSessionID(%q) = %q, want %q", tt.sessionID, got, tt.sessionID)
+			}
+		})
+	}
+}
+
+func TestNewToolCallTraceWriter_WithSessionID(t *testing.T) {
+	dir := t.TempDir()
+	sessionID := "test-sess-123"
+	w := newToolCallTraceWriter(dir, "agent-with-session", sessionID)
+	if w == nil {
+		t.Fatal("newToolCallTraceWriter returned nil")
+	}
+	defer w.close()
+
+	path, _, _, _ := w.snapshot()
+	expectedPath := filepath.Join(dir, ".steiner", "traces", sessionID, "agent-with-session.jsonl")
+	if path != expectedPath {
+		t.Errorf("trace file path = %q, want %q", path, expectedPath)
 	}
 }

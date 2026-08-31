@@ -95,6 +95,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		WorkDir:            deps.WorkDir,
 		TraceRoot:          traceRoot,
 		AgentID:            spec.AgentID,
+		SessionID:          deps.SessionID,
 		Provider:           override.Provider,
 		VisibleReg:         visibleReg,
 		ExecReg:            execReg,
@@ -234,6 +235,7 @@ type childRunRequestParams struct {
 	// inside the child's git checkout.
 	TraceRoot          string
 	AgentID            string
+	SessionID          string
 	Provider           provider.Provider
 	VisibleReg         *tool.Registry
 	ExecReg            *tool.Registry
@@ -273,7 +275,7 @@ type childRunRequestParams struct {
 func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	childCfg := config.Config{Limits: p.Limits, Paths: p.Paths}
 	scopedEvents := withAgentScope(p.AgentID, p.AgentType, p.Events)
-	traceWriter := newToolCallTraceWriter(p.TraceRoot, p.AgentID)
+	traceWriter := newToolCallTraceWriter(p.TraceRoot, p.AgentID, p.SessionID)
 	registerToolCallTraceWriter(p.AgentID, traceWriter)
 	scopedEvents = withToolCallTrace(scopedEvents, traceWriter)
 
