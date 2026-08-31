@@ -68,7 +68,10 @@ func (r *Registry) Get(name string) (ToolDef, bool) {
 // third-party servers have unknown side-effect semantics steiner cannot
 // verify, so this is a hard exclusion, not a default.
 func (r *Registry) IsParallelSafe(name string) bool {
-	def, ok := r.Get(name)
+	if r == nil {
+		return false
+	}
+	def, ok := r.defs[name]
 	if !ok {
 		return false
 	}

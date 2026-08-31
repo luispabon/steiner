@@ -156,6 +156,38 @@ func TestMCPProvenance(t *testing.T) {
 	}
 }
 
+func TestGetReturnsDefensiveCopy(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name: "read",
+		ParameterSchema: map[string]any{
+			"nested": map[string]any{"value": "original"},
+			"items":  []any{"original"},
+		},
+	})
+
+	got, ok := reg.Get("read")
+	if !ok {
+		t.Fatal("Get() = false, want true")
+	}
+	got.ParameterSchema["added"] = true
+	got.ParameterSchema["nested"].(map[string]any)["value"] = "changed"
+	got.ParameterSchema["items"].([]any)[0] = "changed"
+
+	stored, ok := reg.Get("read")
+	if !ok {
+		t.Fatal("second Get() = false, want true")
+	}
+	if _, ok := stored.ParameterSchema["added"]; ok {
+		t.Fatal("Get() returned schema mutation to registry")
+	}
+	if got := stored.ParameterSchema["nested"].(map[string]any)["value"]; got != "original" {
+		t.Fatalf("nested schema value = %v, want original", got)
+	}
+	if got := stored.ParameterSchema["items"].([]any)[0]; got != "original" {
+		t.Fatalf("schema item = %v, want original", got)
+	}
+}
+
 func TestIsParallelSafe(t *testing.T) {
 	reg := NewRegistry(
 		ToolDef{Name: "read", ParallelSafe: true},
