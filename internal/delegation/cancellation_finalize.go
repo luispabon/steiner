@@ -54,6 +54,7 @@ func finalizeDelegateCancellation(events output.EventSink, store *SessionStore, 
 		store.Invalidate(agentID)
 	}
 	result.SessionResumable = false
+	result.clearPersistence()
 	result.Output = strings.ReplaceAll(result.Output, cancelledSessionRetentionPhrase, cancelledSessionDiscardNotice)
 	result.Summary = strings.ReplaceAll(result.Summary, cancelledSessionRetentionPhrase, cancelledSessionDiscardNotice)
 

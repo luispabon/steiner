@@ -139,6 +139,8 @@ type Result struct {
 	// the isolated worktree or a dirty-worktree warning after failed commit
 	// remediation. Only populated for AgentTypeCode.
 	Warnings []string `json:"warnings,omitempty"`
+
+	persisted bool
 }
 
 // Limits defines resource constraints for a child execution.

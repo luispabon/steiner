@@ -57,7 +57,11 @@ func buildReplayedDelegationState(toolCallID string, retention *agent.MessageRet
 
 	decoded, ok := decodeReplayedDelegateResult(content)
 	if ok {
-		applyDecodedDelegationState(&state, decoded)
+		if decoded.AgentID == "" && decoded.Status == "" && decoded.Summary == "" && decoded.Error == "" {
+			state.output = content
+		} else {
+			applyDecodedDelegationState(&state, decoded)
+		}
 	}
 	applyRetainedDelegationState(&state, retention)
 	if state.status == "failed" && ok && decoded.Error != "" {

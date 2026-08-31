@@ -162,6 +162,9 @@ func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message,
 	if message.Role != MessageRoleTool {
 		return message
 	}
+	if isProjectedDelegationResult(message.Content) {
+		return message
+	}
 	if strings.TrimSpace(message.Content) == "" {
 		return message
 	}

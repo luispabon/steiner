@@ -391,7 +391,11 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 	var preview output.ToolPreview
 	normalizedResult := ToolResultEnvelope{}
 	if err != nil {
-		toolContent = formatToolError(err)
+		if projected, ok := projectedToolError(err); ok {
+			toolContent = projected
+		} else {
+			toolContent = formatToolError(err)
+		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
 		if emitFinished {
 			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
@@ -399,7 +403,11 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 	} else {
 		recordMutationForContextManager(p.request.ContextManager, call.Name, call.Arguments, result)
 		normalizedResult = normalizeToolResult(result)
-		toolContent = shapeIngestedToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
+		if projected, ok := projectedToolResult(resultValue(result)); ok {
+			toolContent = projected
+		} else {
+			toolContent = shapeIngestedToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
+		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
 		if emitFinished {
 			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
@@ -425,6 +433,13 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		}
 	}
 	return toolMessage
+}
+
+func resultValue(result any) any {
+	if execution, ok := result.(tool.ExecutionResult); ok {
+		return execution.Value
+	}
+	return result
 }
 
 func (p *turnProgressor) finalizeToolTurn(_ context.Context, state RunState, _ int, _ provider.ChatResponse) turnOutcome {

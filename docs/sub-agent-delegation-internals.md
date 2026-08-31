@@ -1,5 +1,7 @@
 User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 
+Delegated tools retain full host `Result` records, while provider messages use compact JSON envelopes with exact child output. Continuation appears only after confirmed session persistence, and replay preserves compact content instead of restoring hidden fields.
+
 ## Part 2 — Internals
 
 ### Architecture

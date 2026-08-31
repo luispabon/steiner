@@ -632,7 +632,7 @@ func TestParallelDelegationEndToEndFailureIsolation(t *testing.T) {
 	if !strings.Contains(results[0], "task-0") || !strings.Contains(results[2], "task-2") {
 		t.Fatalf("successful sibling results = %v", results)
 	}
-	if !strings.Contains(results[1], `"status":"failed"`) || !strings.Contains(results[1], "child failed") {
+	if !strings.Contains(results[1], `"status":"failed"`) || !strings.Contains(results[1], `"reason":"unknown failure"`) {
 		t.Fatalf("failed task result = %q, want structured tool error", results[1])
 	}
 }
@@ -729,20 +729,8 @@ func TestParallelDelegationCodeAgentsReceiveDistinctWorktrees(t *testing.T) {
 		}
 	}
 
-	if len(worktreePaths) != 2 {
-		t.Fatalf("extracted %d worktree_path values, want 2: %v", len(worktreePaths), worktreePaths)
-	}
-
-	// Verify the two worktrees have distinct paths.
-	if worktreePaths[0] == worktreePaths[1] {
-		t.Errorf("both code agents have the same worktree path: %s", worktreePaths[0])
-	}
-
-	// Verify both paths are under the .steiner/worktrees directory.
-	for i, path := range worktreePaths {
-		if !strings.Contains(path, ".steiner/worktrees") {
-			t.Errorf("worktree path %d not under .steiner/worktrees: %s", i, path)
-		}
+	if len(worktreePaths) != 0 {
+		t.Fatalf("provider result leaked worktree_path values: %v", worktreePaths)
 	}
 }
 
