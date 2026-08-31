@@ -542,6 +542,8 @@ Runtime limits for turns, tokens, and tool execution.
 | `tool_output_max_bytes`| int                     | `65536`  | Maximum bytes of output captured from a single tool call. Output is truncated to this limit. Applies to both the parent run and each child sub-agent's own tool executor. |
 | `max_parallel_tools` | int                       | `4`      | Maximum number of ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`) executed concurrently within a single turn. Must be at least `1`; `1` forces serial execution for these tools. Distinct from `sub_agent.max_parallel`, which bounds delegation-tool concurrency independently. Applies to both the parent run and each child sub-agent's own turns. |
 
+> **Breaking change**: `max_parallel_tools: 0` previously meant unbounded concurrency; it is now rejected at startup. Set it to `1` for the equivalent serial behaviour, or a positive number for bounded concurrency. `sub_agent.max_parallel: 0` previously had no runtime effect at all (the field was dead); it is likewise now rejected — set it to `1` or higher.
+
 Default `tool_timeouts`:
 
 | Tool   | Timeout |

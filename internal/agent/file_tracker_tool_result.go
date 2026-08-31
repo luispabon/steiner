@@ -58,8 +58,11 @@ func (t *FileTracker) observeMutateHeuristics(_ map[string]any, content string) 
 	// Generation bumping for all paths now handled in recordMutationForContextManager (tool_exec.go),
 	// so this method only computes the working file update.
 
-	// Determine the last affected file and its action. Combine all arrays in order
-	// (created, modified, deleted, moved.To) to find the last operation.
+	// Pick the working file by category precedence (moved > deleted > modified >
+	// created), not operation order — the result arrays carry no operation order
+	// to recover: mutate_planner.go sorts Created/Modified/Deleted independently
+	// and builds Paths by ranging a map. This mirrors the pre-trim code, which
+	// also had no operation order and picked the alphabetically-last touched path.
 	var lastPath string
 	var lastAction string
 
