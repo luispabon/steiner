@@ -33,14 +33,9 @@ type ReadResult struct {
 
 // GrepResult is the result from a grep tool call.
 type GrepResult struct {
-	Matches           int               `json:"matches"`
-	Returned          int               `json:"returned"`
-	Truncated         bool              `json:"truncated,omitempty"`
-	HasMore           bool              `json:"has_more,omitempty"`
-	NextOffset        int               `json:"next_offset,omitempty"`
-	FileHashes        map[string]string `json:"file_hashes,omitempty"`
-	TruncationReasons []string          `json:"truncation_reasons,omitempty"`
-	Output            string            `json:"output"`
+	Matches    int    `json:"matches,omitempty"`
+	NextOffset int    `json:"next_offset,omitempty"`
+	Output     string `json:"output"`
 }
 
 // MutationResult is the result from a write or edit tool call.

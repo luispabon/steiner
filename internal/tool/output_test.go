@@ -99,14 +99,14 @@ func TestTruncationCountCapGrepShape(t *testing.T) {
 	for i := 0; i < 35; i++ {
 		lines = append(lines, "match line")
 	}
-	content := `{"matches":240,"returned":240,"output":"` + strings.Join(lines, `\n`) + `"}`
+	content := `{"output":"` + strings.Join(lines, `\n`) + `"}`
 
 	got := shapeGrepIngestedResult(content)
 
 	var result struct {
-		Matches  int    `json:"matches"`
-		Returned int    `json:"returned"`
-		Output   string `json:"output"`
+		Matches    int    `json:"matches,omitempty"`
+		NextOffset int    `json:"next_offset,omitempty"`
+		Output     string `json:"output"`
 	}
 	if err := json.Unmarshal([]byte(got), &result); err != nil {
 		t.Fatalf("unmarshal shaped grep result: %v", err)

@@ -29,36 +29,31 @@ func buildGrepResult(files []grepFileResult, mode string, showLines bool, before
 		rows := grepFilesWithMatches(files)
 		page := paginateGrepRows(rows, offset, headLimit)
 		output := renderGrepFilesWithMatches(page)
-		return buildGrepResultFromPage(len(rows), len(page), len(page), offset, output)
+		return buildGrepResultFromPage(len(rows), len(page), offset, output)
 	case "count":
 		rows := grepCountRows(files)
 		page := paginateGrepRows(rows, offset, headLimit)
 		output := renderGrepCountRows(page)
-		compat := 0
-		for _, row := range page {
-			compat += row.count
-		}
-		return buildGrepResultFromPage(len(rows), len(page), compat, offset, output)
+		return buildGrepResultFromPage(len(rows), len(page), offset, output)
 	case "content":
 		fallthrough
 	default:
 		rows := grepContentSelections(files)
 		page := paginateGrepRows(rows, offset, headLimit)
 		output := renderGrepContent(files, page, showLines, beforeContext, afterContext)
-		result := buildGrepResultFromPage(len(rows), len(page), len(page), offset, output)
+		result := buildGrepResultFromPage(len(rows), len(page), offset, output)
 		// Apply line bounding for content mode only; never truncate
 		// file paths in files_with_matches or path:count rows.
-		if result.Output != "" && result.Matches > 0 {
+		if result.Output != "" && len(page) > 0 {
 			lines := strings.Split(result.Output, "\n")
-			bounded, boundedReasons := boundLines(lines, lineBoundingConfig{})
+			bounded, _ := boundLines(lines, lineBoundingConfig{})
 			result.Output = strings.Join(bounded, "\n")
-			result.TruncationReasons = append(boundedReasons, result.TruncationReasons...)
 		}
 		return result
 	}
 }
 
-func buildGrepResultFromPage(total, returned, compatMatches, offset int, output string) GrepResult {
+func buildGrepResultFromPage(total, returned, offset int, output string) GrepResult {
 	hasMore := offset+returned < total
 	truncated := total > 0 && (offset > 0 || hasMore)
 	nextOffset := 0
@@ -70,15 +65,11 @@ func buildGrepResultFromPage(total, returned, compatMatches, offset int, output 
 	}
 
 	result := GrepResult{
-		Matches:    compatMatches,
-		Returned:   returned,
-		Truncated:  truncated,
-		HasMore:    hasMore,
 		NextOffset: nextOffset,
 		Output:     output,
 	}
 	if truncated {
-		result.TruncationReasons = []string{"paged"}
+		result.Matches = total
 	}
 	return result
 }

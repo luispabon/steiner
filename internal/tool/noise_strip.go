@@ -23,8 +23,7 @@ type bashIngestionResult struct {
 }
 
 type grepIngestionResult struct {
-	Matches    int    `json:"matches"`
-	Returned   int    `json:"returned"`
+	Matches    int    `json:"matches,omitempty"`
 	NextOffset int    `json:"next_offset,omitempty"`
 	Output     string `json:"output"`
 }

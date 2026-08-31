@@ -44,9 +44,6 @@ func TestGrepTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if result.Matches <= 0 {
-			t.Errorf("Matches = %d, want > 0", result.Matches)
-		}
 		if result.Output == "" {
 			t.Error("Output is empty, expected file names")
 		}
@@ -65,9 +62,6 @@ func TestGrepTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if result.Matches <= 0 {
-			t.Errorf("Matches = %d, want > 0", result.Matches)
-		}
 		if result.Output == "" {
 			t.Error("Output is empty, expected content")
 		}
@@ -85,8 +79,8 @@ func TestGrepTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if result.Matches <= 0 {
-			t.Errorf("Matches = %d, want > 0", result.Matches)
+		if result.Output == "" {
+			t.Error("Output is empty, expected count rows")
 		}
 	})
 
@@ -115,8 +109,8 @@ func TestGrepTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if result.Matches <= 0 {
-			t.Errorf("Matches = %d, want > 0", result.Matches)
+		if result.Output == "" {
+			t.Error("Output is empty, expected content")
 		}
 	})
 
@@ -142,52 +136,8 @@ func TestGrepTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if result.Matches <= 0 {
-			t.Errorf("Matches = %d, want > 0", result.Matches)
-		}
-	})
-
-	t.Run("includes file_hashes for matching files", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
-			"pattern":     "hello",
-			"output_mode": "content",
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(GrepResult)
-		if !ok {
-			t.Fatalf("result type = %T, want GrepResult", resultI)
-		}
-		if result.FileHashes == nil {
-			t.Fatal("FileHashes is nil, want non-nil map")
-		}
-		// "hello" matches hello.txt and foo.go (foo.go contains "Hello")
-		// but case-sensitive by default, so only hello.txt matches
-		hash, ok := result.FileHashes["hello.txt"]
-		if !ok {
-			t.Fatal("FileHashes missing hello.txt entry")
-		}
-		expected := fileContentHash([]byte(files["hello.txt"]))
-		if hash != expected {
-			t.Errorf("FileHashes[hello.txt] = %q, want %q", hash, expected)
-		}
-	})
-
-	t.Run("file_hashes omitted when no matches", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
-			"pattern":     "zzz_nonexistent_zzz",
-			"output_mode": "content",
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(GrepResult)
-		if !ok {
-			t.Fatalf("result type = %T, want GrepResult", resultI)
-		}
-		if result.FileHashes != nil {
-			t.Errorf("FileHashes = %v, want nil when no matches", result.FileHashes)
+		if result.Output == "" {
+			t.Error("Output is empty, expected content")
 		}
 	})
 
@@ -293,8 +243,8 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if result.Matches <= 0 {
-			t.Errorf("expected matches in non-excluded files, got %d", result.Matches)
+		if result.Output == "" {
+			t.Error("output is empty, expected to find func in non-excluded files")
 		}
 		if !strings.Contains(result.Output, "src/main.go") || !strings.Contains(result.Output, "src/helper.go") {
 			t.Errorf("output missing expected files, got: %s", result.Output)
@@ -387,8 +337,8 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if result.Matches == 0 {
-			t.Fatal("Matches = 0, want > 0 — worktree source files should be searchable")
+		if result.Output == "" {
+			t.Fatal("Output is empty — worktree source files should be searchable")
 		}
 	})
 
@@ -608,17 +558,9 @@ func TestGrepTool_PaginationAndMetadata(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if result.Returned != 1 {
-			t.Fatalf("Returned = %d, want 1", result.Returned)
-		}
-		if result.Matches != 1 {
-			t.Fatalf("Matches = %d, want 1", result.Matches)
-		}
-		if !result.HasMore {
-			t.Fatal("HasMore = false, want true")
-		}
-		if !result.Truncated {
-			t.Fatal("Truncated = false, want true")
+		// When paged (offset > 0 or more results available), Matches holds the total count
+		if result.Matches != 3 {
+			t.Fatalf("Matches = %d, want 3 (total row count)", result.Matches)
 		}
 		if result.NextOffset != 2 {
 			t.Fatalf("NextOffset = %d, want 2", result.NextOffset)
@@ -662,17 +604,9 @@ func TestGrepTool_PaginationAndMetadata(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		result := resultI.(GrepResult)
-		if result.Returned != 1 {
-			t.Fatalf("Returned = %d, want 1", result.Returned)
-		}
-		if result.Matches != 1 {
-			t.Fatalf("Matches = %d, want 1", result.Matches)
-		}
-		if !result.HasMore {
-			t.Fatal("HasMore = false, want true")
-		}
-		if !result.Truncated {
-			t.Fatal("Truncated = false, want true")
+		// When paged, Matches holds the total file count
+		if result.Matches != 3 {
+			t.Fatalf("Matches = %d, want 3 (total file count)", result.Matches)
 		}
 		if result.NextOffset != 2 {
 			t.Fatalf("NextOffset = %d, want 2", result.NextOffset)
@@ -695,17 +629,9 @@ func TestGrepTool_PaginationAndMetadata(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		result := resultI.(GrepResult)
-		if result.Returned != 1 {
-			t.Fatalf("Returned = %d, want 1", result.Returned)
-		}
+		// When paged (head_limit causes pagination), Matches holds the total file count (3 files)
 		if result.Matches != 3 {
-			t.Fatalf("Matches = %d, want 3 for alpha.txt", result.Matches)
-		}
-		if !result.HasMore {
-			t.Fatal("HasMore = false, want true")
-		}
-		if !result.Truncated {
-			t.Fatal("Truncated = false, want true")
+			t.Fatalf("Matches = %d, want 3 (total file count)", result.Matches)
 		}
 		if result.NextOffset != 1 {
 			t.Fatalf("NextOffset = %d, want 1", result.NextOffset)
@@ -768,19 +694,13 @@ func TestGrepTool_Truncation(t *testing.T) {
 		if !strings.Contains(result.Output, "normal line 2") {
 			t.Errorf("Output = %q, want to contain normal line 2", result.Output)
 		}
-		found := false
-		for _, r := range result.TruncationReasons {
-			if r == "line_length_capped" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("TruncationReasons = %v, want to include line_length_capped", result.TruncationReasons)
+		// Matches should not be set since this is a complete (non-paginated) result
+		if result.Matches != 0 {
+			t.Errorf("Matches = %d, want 0 for complete result", result.Matches)
 		}
 	})
 
-	t.Run("pagination truncation fields still independent", func(t *testing.T) {
+	t.Run("pagination truncation metadata", func(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(tmpDir, "match1.txt"), []byte("needle\n"), 0o644); err != nil {
 			t.Fatalf("write match1: %v", err)
 		}
@@ -800,27 +720,12 @@ func TestGrepTool_Truncation(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if !result.Truncated {
-			t.Error("Truncated = false, want true (pagination)")
+		// When paginated (head_limit causes more results), Matches holds the total
+		if result.Matches != 2 {
+			t.Errorf("Matches = %d, want 2 (total file count)", result.Matches)
 		}
-		if !result.HasMore {
-			t.Error("HasMore = false, want true")
-		}
-		foundPaged := false
-		foundLine := false
-		for _, r := range result.TruncationReasons {
-			if r == "paged" {
-				foundPaged = true
-			}
-			if r == "line_length_capped" {
-				foundLine = true
-			}
-		}
-		if !foundPaged {
-			t.Errorf("TruncationReasons = %v, want to include paged", result.TruncationReasons)
-		}
-		if foundLine {
-			t.Errorf("TruncationReasons = %v, should NOT include line_length_capped for pagination-only result", result.TruncationReasons)
+		if result.NextOffset != 1 {
+			t.Errorf("NextOffset = %d, want 1", result.NextOffset)
 		}
 	})
 }
