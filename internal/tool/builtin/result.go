@@ -166,13 +166,3 @@ func pageResults(allLines []string, limit, offset int) Result {
 
 	return result
 }
-
-// WorkflowHandoffResult is the result from a workflow_handoff tool call.
-type WorkflowHandoffResult struct {
-	Next             string `json:"next"`
-	Target           string `json:"target"`
-	Message          string `json:"message,omitempty"`
-	MessageTruncated bool   `json:"message_truncated,omitempty"`
-	Status           string `json:"status"`
-	Reason           string `json:"reason,omitempty"`
-}

@@ -76,11 +76,7 @@ func TestBuiltins(t *testing.T) {
 				OperationsApplied: 1,
 				Output:            "Success.\nUpdated the following files:\nM test.txt",
 			},
-			&WorkflowHandoffResult{
-				Next:   "implement",
-				Target: ".steiner/plans/step-1",
-				Status: "pending",
-			},
+
 			&FetchURLResult{
 				URL:           "http://example.com",
 				Title:         "Example",
