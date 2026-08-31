@@ -2950,12 +2950,11 @@ func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
 			preview: output.ToolPreview{
 				Kind:      output.ToolPreviewKindBash,
 				Command:   "go test ./...",
-				Output:    "FAIL\n",
-				Message:   "output truncated at 12 characters",
+				Output:    "FAIL\n<truncated output shown=12 total=40>",
 				ExitCode:  1,
 				Truncated: true,
 			},
-			want: []string{"$ go test ./...", "FAIL", "exit 1", "output truncated"},
+			want: []string{"$ go test ./...", "FAIL", "exit 1", "truncated output"},
 		},
 		{
 			name: "success",
