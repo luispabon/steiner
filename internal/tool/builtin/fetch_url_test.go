@@ -201,8 +201,8 @@ func TestBuildHTMLResult(t *testing.T) {
 		if result.FilePath != "" {
 			t.Errorf("FilePath = %q, want empty for inline content", result.FilePath)
 		}
-		if result.Truncated {
-			t.Error("Truncated = true, want false")
+		if strings.Contains(result.Message, "Truncated at max_size") || strings.Contains(result.Message, "was truncated") {
+			t.Errorf("Message = %q, want no truncation advisory", result.Message)
 		}
 	})
 
@@ -233,8 +233,8 @@ func TestBuildHTMLResult(t *testing.T) {
 		if !strings.HasSuffix(result.FilePath, ".md") {
 			t.Errorf("FilePath = %q, want .md extension for HTML-sourced content", result.FilePath)
 		}
-		if len([]rune(result.Content)) != inlineThreshold {
-			t.Errorf("preview length = %d, want %d", len([]rune(result.Content)), inlineThreshold)
+		if len([]rune(result.Content)) != savedContentPreviewRunes {
+			t.Errorf("preview length = %d, want %d", len([]rune(result.Content)), savedContentPreviewRunes)
 		}
 		if result.URL != resp.URL {
 			t.Errorf("URL = %q, want %q", result.URL, resp.URL)
@@ -274,8 +274,8 @@ func TestBuildHTMLResult(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected *FetchURLResult, got %T", res)
 		}
-		if !result.Truncated {
-			t.Error("Truncated = false, want true")
+		if !strings.Contains(result.Message, "Truncated at max_size") {
+			t.Errorf("Message = %q, want inline truncation advisory", result.Message)
 		}
 		if len([]rune(result.Content)) != maxSize {
 			t.Errorf("Content length = %d, want %d", len([]rune(result.Content)), maxSize)
@@ -791,8 +791,8 @@ func TestFetchRawText(t *testing.T) {
 		if result.FilePath != "" {
 			t.Errorf("FilePath = %q, want empty for inline content", result.FilePath)
 		}
-		if result.Truncated {
-			t.Error("Truncated = true, want false")
+		if strings.Contains(result.Message, "Truncated at max_size") || strings.Contains(result.Message, "was truncated") {
+			t.Errorf("Message = %q, want no truncation advisory", result.Message)
 		}
 	})
 
@@ -814,8 +814,8 @@ func TestFetchRawText(t *testing.T) {
 		if result.FilePath == "" {
 			t.Error("FilePath is empty, want non-empty for disk-saved content")
 		}
-		if len([]rune(result.Content)) != inlineThreshold {
-			t.Errorf("preview length = %d, want %d", len([]rune(result.Content)), inlineThreshold)
+		if len([]rune(result.Content)) != savedContentPreviewRunes {
+			t.Errorf("preview length = %d, want %d", len([]rune(result.Content)), savedContentPreviewRunes)
 		}
 		if result.NextOffset == 0 {
 			t.Error("NextOffset = 0, want non-zero")
@@ -912,8 +912,8 @@ func TestFetchRawText(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected *FetchURLResult, got %T", res)
 		}
-		if !result.Truncated {
-			t.Error("Truncated = false, want true")
+		if !strings.Contains(result.Message, "Truncated at max_size") {
+			t.Errorf("Message = %q, want inline truncation advisory", result.Message)
 		}
 		if len([]rune(result.Content)) != maxSize {
 			t.Errorf("Content length = %d, want %d", len([]rune(result.Content)), maxSize)
@@ -946,8 +946,8 @@ func TestFetchRawText(t *testing.T) {
 				if !ok {
 					t.Fatalf("expected *FetchURLResult, got %T", res)
 				}
-				if !result.Truncated {
-					t.Error("Truncated = false, want true")
+				if !strings.Contains(result.Message, "Truncated at max_size") {
+					t.Errorf("Message = %q, want inline truncation advisory", result.Message)
 				}
 				if !utf8.ValidString(result.Content) {
 					t.Error("result.Content is not valid UTF-8")
@@ -1068,8 +1068,8 @@ func TestFetchRawTextLargeBodies(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected *FetchURLResult, got %T", res)
 		}
-		if result.Truncated {
-			t.Error("Truncated = true, want false")
+		if strings.Contains(result.Message, "Truncated at max_size") || strings.Contains(result.Message, "was truncated") {
+			t.Errorf("Message = %q, want no truncation advisory", result.Message)
 		}
 		saved, err := os.ReadFile(filepath.Join(workDir, result.FilePath))
 		if err != nil {
@@ -1099,8 +1099,8 @@ func TestFetchRawTextLargeBodies(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected *FetchURLResult, got %T", res)
 		}
-		if !result.Truncated {
-			t.Error("Truncated = false, want true")
+		if !strings.Contains(result.Message, "was truncated") {
+			t.Errorf("Message = %q, want saved truncation advisory", result.Message)
 		}
 		if !strings.Contains(result.Message, "max_size is already at the fetch ceiling") {
 			t.Errorf("Message = %q, want it to state max_size is already at the fetch ceiling", result.Message)
@@ -1140,8 +1140,8 @@ func TestBuildHTMLResultMultiByteCutAtCeiling(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected *FetchURLResult, got %T", res)
 			}
-			if !result.Truncated {
-				t.Error("Truncated = false, want true")
+			if !strings.Contains(result.Message, "was truncated") {
+				t.Errorf("Message = %q, want saved truncation advisory", result.Message)
 			}
 			saved, err := os.ReadFile(filepath.Join(workDir, result.FilePath))
 			if err != nil {
@@ -1612,7 +1612,7 @@ func TestSaveFetchedContent(t *testing.T) {
 		}
 	})
 
-	t.Run("preview capped at inlineThreshold for long content", func(t *testing.T) {
+	t.Run("preview capped at savedContentPreviewRunes for long content", func(t *testing.T) {
 		workDir := t.TempDir()
 		content := strings.Repeat("a", inlineThreshold+500)
 
@@ -1621,8 +1621,8 @@ func TestSaveFetchedContent(t *testing.T) {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
 
-		if len([]rune(result.Content)) != inlineThreshold {
-			t.Errorf("preview length = %d, want %d", len([]rune(result.Content)), inlineThreshold)
+		if len([]rune(result.Content)) != savedContentPreviewRunes {
+			t.Errorf("preview length = %d, want %d", len([]rune(result.Content)), savedContentPreviewRunes)
 		}
 	})
 
@@ -1653,7 +1653,7 @@ func TestSaveFetchedContent(t *testing.T) {
 			t.Fatalf("saveFetchedContent: %v", err)
 		}
 
-		preview := string([]rune(content)[:inlineThreshold])
+		preview := string([]rune(content)[:savedContentPreviewRunes])
 		want := strings.Count(preview, "\n") + 1
 		if result.NextOffset != want {
 			t.Errorf("NextOffset = %d, want %d", result.NextOffset, want)

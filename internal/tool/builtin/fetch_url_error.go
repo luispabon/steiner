@@ -106,6 +106,16 @@ func oversizeBodyErrorMessage(maxSize int) string {
 	return fmt.Sprintf("response body exceeded max_size (%d bytes), which is already the fetch ceiling; fetch a narrower resource instead (e.g. a specific page or sub-resource)", maxSize)
 }
 
+// truncationAdvisory builds the advisory for content truncated at max_size
+// on the inline (non-saved) path. Mirrors truncatedSaveMessage's ceiling
+// framing but without a saved-byte count, since nothing was saved to disk.
+func truncationAdvisory(maxSize int) string {
+	if maxSize < maxFetchURLMaxSize {
+		return fmt.Sprintf("Truncated at max_size (%d bytes); retry with a larger max_size to capture more.", maxSize)
+	}
+	return fmt.Sprintf("Truncated at max_size (%d bytes), which is already the fetch ceiling; fetch a narrower resource instead (e.g. a specific page or sub-resource).", maxSize)
+}
+
 // truncatedSaveMessage builds the advisory for content truncated before saving.
 func truncatedSaveMessage(savedBytes, maxSize int) string {
 	if maxSize < maxFetchURLMaxSize {
