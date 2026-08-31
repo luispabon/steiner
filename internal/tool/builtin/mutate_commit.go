@@ -147,27 +147,6 @@ func splitLinesPreserveEndings(text string) []string {
 	return parts
 }
 
-func unifiedTextDiff(path, before, after string) string {
-	beforeLines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(before, "\r\n", "\n"), "\n"), "\n")
-	afterLines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(after, "\r\n", "\n"), "\n"), "\n")
-	if before == "" {
-		beforeLines = nil
-	}
-	if after == "" {
-		afterLines = nil
-	}
-	if mutateDiffTooLarge(before, after, beforeLines, afterLines) {
-		return fmt.Sprintf("--- %s\n+++ %s\n<diff omitted: change too large (%d -> %d bytes, %d -> %d lines)>",
-			path, path, len(before), len(after), len(beforeLines), len(afterLines))
-	}
-	return formatUnifiedHunks(path, beforeLines, afterLines, 3)
-}
-
-func mutateDiffTooLarge(before, after string, beforeLines, afterLines []string) bool {
-	return len(before)+len(after) > maxMutateDiffInputBytes ||
-		len(beforeLines)+len(afterLines) > maxMutateDiffInputLines
-}
-
 func appendUnique(values []string, value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -179,11 +158,4 @@ func appendUnique(values []string, value string) []string {
 		}
 	}
 	return append(values, value)
-}
-
-func truncateMutateOutput(output string) string {
-	if len(output) <= maxMutateOutputChars {
-		return output
-	}
-	return output[:maxMutateOutputChars] + "\n<truncated>"
 }

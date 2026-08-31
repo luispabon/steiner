@@ -125,9 +125,6 @@ type Result struct {
 	// SpawnDelegate must not rely on SessionResumable being accurate.
 	SessionResumable bool `json:"session_resumable,omitempty"`
 
-	// Trace captures lifecycle events for delegation diagnostics.
-	Trace []TraceEntry `json:"trace,omitempty"`
-
 	// WorktreePath is the absolute path to the code agent's isolated git
 	// worktree. It is empty only when no worktree was provisioned, in which
 	// case a code-agent delegation fails. Only set for AgentTypeCode.

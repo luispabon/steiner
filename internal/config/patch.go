@@ -124,6 +124,7 @@ type limitsPatch struct {
 	ToolTimeoutDefault *Duration            `yaml:"tool_timeout_default"`
 	ToolTimeouts       *map[string]Duration `yaml:"tool_timeouts"`
 	ToolOutputMaxBytes *int                 `yaml:"tool_output_max_bytes"`
+	MaxParallelTools   *int                 `yaml:"max_parallel_tools"`
 }
 
 type subAgentPatch struct {

@@ -26,6 +26,7 @@ type ToolDef struct {
 	Timeout         time.Duration
 	Handler         func(ctx context.Context, input map[string]any) (any, error)
 	MCP             MCPProvenance
+	ParallelSafe    bool
 }
 
 // RetentionKindDelegateSummary identifies retained delegate summaries.

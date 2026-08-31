@@ -54,6 +54,7 @@ type FetchURLResult struct {
 func NewFetchURLTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "fetch_url",
+		ParallelSafe:    true,
 		Description:     "Fetch a URL and return its content. Supports HTML (main content extracted and converted to markdown, falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk in full — use the read tool to paginate; the only ceiling is the max_size download/save limit.",
 		ParameterSchema: FetchURLSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {

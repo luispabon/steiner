@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -797,6 +798,174 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 	}
 }
 
+func TestBuildChildRunThreadsMaxParallelTools(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", ParallelSafe: true, Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+	)
+
+	deps := SubAgentHandlerDeps{
+		ParentReg:        parent,
+		SubAgentCfg:      config.SubAgentConfig{},
+		Events:           output.NoopSink{},
+		WorkDir:          "/tmp/work",
+		Provider:         stubProvider{},
+		MaxParallelTools: 7,
+	}
+
+	spec := Spec{
+		Task:    "test",
+		AgentID: "test-parallel",
+		Limits:  Limits{MaxTurns: 5},
+	}
+
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.ParallelClassOf == nil {
+		t.Fatal("ParallelClassOf is nil, want set")
+	}
+	if req.MaxParallelTools != 7 {
+		t.Fatalf("MaxParallelTools = %d, want 7", req.MaxParallelTools)
+	}
+	if got := req.ParallelClassOf("read"); got != agent.ParallelClassTool {
+		t.Fatalf("ParallelClassOf(read) = %v, want ParallelClassTool", got)
+	}
+}
+
+// writeExecutableScript writes a shell script to dir that prints a minimal
+// valid JSON envelope to stdout and n 'x' bytes to stderr, and returns its
+// path. Output truncation is exercised via stderr so stdout stays valid JSON
+// regardless of the configured output byte cap.
+func writeExecutableScript(t *testing.T, dir string, n int) string {
+	t.Helper()
+	path := filepath.Join(dir, "probe.sh")
+	script := "#!/bin/sh\nprintf '{\"ok\":true}'\nprintf '%0" + strconv.Itoa(n) + "d' 0 | tr '0' 'x' 1>&2\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	return path
+}
+
+func TestBuildChildRunThreadsToolOutputMaxBytes(t *testing.T) {
+	scriptPath := writeExecutableScript(t, t.TempDir(), 2000)
+	parent := tool.NewRegistry(tool.ToolDef{Name: "probe", ExecPath: scriptPath})
+
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+		Sandbox:     tool.Unsandboxed{},
+		Limits:      config.LimitsConfig{ToolOutputMaxBytes: 48},
+	}
+	spec := Spec{Task: "test", AgentID: "test-output-limit", Limits: Limits{MaxTurns: 5}}
+
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	result, err := req.Executor.Execute(context.Background(), "probe", "", nil)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	execResult, ok := result.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+	if !execResult.Metadata.Stderr.Truncated {
+		t.Fatal("stderr truncated = false, want true — configured tool_output_max_bytes did not reach the child executor")
+	}
+}
+
+func TestBuildChildRunDefaultToolOutputMaxBytesWhenUnset(t *testing.T) {
+	scriptPath := writeExecutableScript(t, t.TempDir(), 2000)
+	parent := tool.NewRegistry(tool.ToolDef{Name: "probe", ExecPath: scriptPath})
+
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+		Sandbox:     tool.Unsandboxed{},
+	}
+	spec := Spec{Task: "test", AgentID: "test-output-limit-default", Limits: Limits{MaxTurns: 5}}
+
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	result, err := req.Executor.Execute(context.Background(), "probe", "", nil)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	execResult, ok := result.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+	if execResult.Metadata.Stderr.Truncated {
+		t.Fatal("stderr truncated = true, want false at the 65536 default for a 2000-byte output")
+	}
+}
+
+func TestBuildChildRunThreadsPathsBlockedPaths(t *testing.T) {
+	parent := tool.NewRegistry(tool.ToolDef{
+		Name:    "read",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
+	})
+	workDir := t.TempDir()
+
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{},
+		Events:      output.NoopSink{},
+		WorkDir:     workDir,
+		Provider:    stubProvider{},
+		Paths:       config.PathsConfig{BlockedPaths: []string{workDir + "/secrets"}},
+	}
+	spec := Spec{Task: "test", AgentID: "test-blocked-paths", Limits: Limits{MaxTurns: 5}}
+
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	_, err = req.Executor.Execute(context.Background(), "read", "", map[string]any{"path": workDir + "/secrets/key.txt"})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want policy_denied — configured paths.blocked_paths did not reach the child executor")
+	}
+	var toolErr *tool.ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *tool.ToolExecutionError", err)
+	}
+	if toolErr.Kind != "policy_denied" {
+		t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+	}
+}
+
+func TestBuildChildRunThreadsContextManagement(t *testing.T) {
+	parent := tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }})
+
+	deps := SubAgentHandlerDeps{
+		ParentReg:         parent,
+		SubAgentCfg:       config.SubAgentConfig{},
+		Events:            output.NoopSink{},
+		WorkDir:           "/tmp/work",
+		Provider:          stubProvider{},
+		ContextManagement: config.ContextManagementConfig{ReadAnnotations: false},
+	}
+	spec := Spec{Task: "test", AgentID: "test-context-management", Limits: Limits{MaxTurns: 5}}
+
+	req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.ContextManager == nil {
+		t.Fatal("ContextManager is nil, want a manager configured from deps.ContextManagement")
+	}
+}
+
 func TestBuildChildRunIncludesModel(t *testing.T) {
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
@@ -1323,18 +1492,44 @@ func TestBuildChildRunRequestPromptCacheKeyFallsBackWhenStoreNil(t *testing.T) {
 	}
 }
 
-func TestBuildChildRunRequestDoesNotEnableParallelTools(t *testing.T) {
+func TestBuildChildRunRequestEnablesParallelSafeToolsOnly(t *testing.T) {
+	execReg := tool.NewRegistry(
+		tool.ToolDef{Name: "read", ParallelSafe: true},
+		tool.ToolDef{Name: "bash"},
+	)
+	req := buildChildRunRequest(childRunRequestParams{
+		WorkDir:          "/tmp/work",
+		AgentID:          "no-nesting",
+		VisibleReg:       tool.NewRegistry(),
+		ExecReg:          execReg,
+		MaxParallelTools: 3,
+	})
+	if req.ParallelClassOf == nil {
+		t.Fatal("child ParallelClassOf is nil, want set")
+	}
+	if got := req.ParallelClassOf("read"); got != agent.ParallelClassTool {
+		t.Fatalf("child ParallelClassOf(read) = %v, want ParallelClassTool", got)
+	}
+	if got := req.ParallelClassOf("bash"); got == agent.ParallelClassTool {
+		t.Fatal("child ParallelClassOf(bash) = ParallelClassTool, want ParallelClassNone")
+	}
+	if req.MaxParallelTools != 3 {
+		t.Fatalf("child MaxParallelTools = %d, want 3", req.MaxParallelTools)
+	}
+}
+
+func TestBuildChildRunRequestNeverEnablesDelegationTools(t *testing.T) {
+	// Children never have delegation tools in their exec registry (they
+	// can't nest), so the child ParallelClassOf classifier must only consult the
+	// registry, never delegation.IsDelegationTool.
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:    "/tmp/work",
 		AgentID:    "no-nesting",
 		VisibleReg: tool.NewRegistry(),
 		ExecReg:    tool.NewRegistry(),
 	})
-	if req.ParallelTool != nil {
-		t.Fatal("child ParallelTool is non-nil, want nil")
-	}
-	if req.MaxParallelTools != 0 {
-		t.Fatalf("child MaxParallelTools = %d, want 0", req.MaxParallelTools)
+	if got := req.ParallelClassOf("code"); got == agent.ParallelClassDelegation {
+		t.Fatal("child ParallelClassOf(code) = ParallelClassDelegation, want ParallelClassNone: children cannot nest delegation")
 	}
 }
 

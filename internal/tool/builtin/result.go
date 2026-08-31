@@ -98,7 +98,7 @@ type MutateOperationResult struct {
 
 // MutateResult is the result from a mutate tool call.
 type MutateResult struct {
-	Paths                []string                `json:"paths"`
+	Paths                []string                `json:"paths,omitempty"`
 	Created              []string                `json:"created,omitempty"`
 	Modified             []string                `json:"modified,omitempty"`
 	Deleted              []string                `json:"deleted,omitempty"`
@@ -109,7 +109,28 @@ type MutateResult struct {
 	OperationsFailed     int                     `json:"operations_failed,omitempty"`
 	OperationsRolledBack int                     `json:"operations_rolled_back,omitempty"`
 	OperationsSkipped    int                     `json:"operations_skipped,omitempty"`
-	Output               string                  `json:"output"`
+	Output               string                  `json:"output,omitempty"`
+}
+
+// MutatedPaths returns the union of all mutated paths (created, modified, deleted, moved).
+// It returns paths in deterministic order and is used by internal/agent to track
+// file generation for read-staleness annotations.
+func (r *MutateResult) MutatedPaths() []string {
+	var paths []string
+	for _, p := range r.Created {
+		paths = appendUnique(paths, p)
+	}
+	for _, p := range r.Modified {
+		paths = appendUnique(paths, p)
+	}
+	for _, p := range r.Deleted {
+		paths = appendUnique(paths, p)
+	}
+	for _, m := range r.Moved {
+		paths = appendUnique(paths, m.From)
+		paths = appendUnique(paths, m.To)
+	}
+	return paths
 }
 
 func (r *MutateResult) clearCommittedMetadata() {

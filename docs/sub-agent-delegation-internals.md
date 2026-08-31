@@ -27,7 +27,7 @@ User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 │  │  - context timeout               │       │
 │  │  - emit DelegationStarted        │       │
 │  │  - runner.Run(childCtx, req)     │       │
-│  │  - auto-extension loop (≤5x)     │       │
+│  │  - auto-extension loop (≤3x)     │       │
 │  │  - summarisation turn            │       │
 │  │  - emit DelegationComplete       │       │
 │  └──────────────┬───────────────────┘       │
@@ -151,7 +151,7 @@ Beyond key reuse, `CacheKeyStore` also **staggers concurrent same-key dispatches
 1. **Timeout**: if `spec.Limits.Timeout > 0`, wraps context with `context.WithTimeout`.
 2. **Emit** `DelegationStartedEvent` with agent ID, task preview (120 chars max), and the resolved model alias (`req.ResolvedModel.Alias`) so the tool box badge shows the alias assigned to the child instead of reverse-mapping its backend API ID.
 3. **Run** the child agent loop via the `AgentRunner` interface.
-4. **Auto-extension loop** (up to 5 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
+4. **Auto-extension loop** (up to 3 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
 5. **Build result** from final state (maps `StopReason` → `Status`). Token counters (input, cache, and output) are accumulated across extension re-runs and prior follow-ups (`Spec.PriorTokenUsage`) rather than taken from the final state alone.
 6. **Summarisation turn**: runs a single no-tool turn asking the model to summarise its work in ≤4000 chars.
 7. **Emit** `DelegationCompleteEvent` or `DelegationFailedEvent`. `DelegationCompleteEvent` carries `InputTokens`/`CacheReadTokens`/`CacheCreateTokens` alongside the existing turn/tool/token counts; it is constructed via `NewDelegationCompleteEvent`, which takes a `DelegationCompleteParams` struct rather than positional arguments, so the TUI can render the child agent's cumulative cache hit rate in the tool box.
@@ -159,11 +159,13 @@ Beyond key reuse, `CacheKeyStore` also **staggers concurrent same-key dispatches
 
 A child "needs extension" when `StopReason == StopReasonMaxTurns` AND the last assistant message has pending tool calls (interrupted mid-action). This prevents early termination when a delegate is actively working but hit its turn cap.
 
+**Turn-budget checkpoint.** Independent of the extension loop, `internal/agent.Runner.Run` injects a convergence notice into the child's own conversation once it crosses 70% of the current run's `Limits.MaxTurns` (`turnBudgetNoticeFraction` in `internal/agent/turn_budget_notice.go`). This fires inside a single run, not only at an extension boundary, so even a run that never needs an extension gets the signal before it is too late. The notice text — "used N of M turns (R remaining) with E extension(s) remaining" — is built by `RunRequest.TurnBudgetNotice`, which only `internal/delegation` sets (`turnBudgetNoticeFunc` in `task.go`); the parent interactive run leaves it nil since `internal/agent` has no notion of delegate extensions. Because the closure is rebuilt fresh before every `runner.Run` call (the initial call in `SpawnDelegate` and each extension in `runChildToCompletion`), it always reports how many of `maxDelegateExtensions` remain at that point. The injected message is tagged by a content-prefix marker rather than `Message.Source`, because `Source` does not survive the `agent.Message` ↔ `provider.Message` round trip that the extension loop performs between runs; a later checkpoint supersedes the prior one in place rather than accumulating, so at most one such message is ever present in the conversation.
+
 `StopReasonMaxTurns` and `StopReasonMaxTokens` map to `StatusPartial`. A partial result means the child's budget was exhausted before it could finish. Parent models must treat partial results conservatively — do not assume the delegated task succeeded, and retry or narrow scope rather than treating partial output as authoritative.
 
 ### Parallel tool execution
 
-The parent `agent.RunRequest` may set `ParallelTool func(string) bool`, a predicate identifying tool calls eligible for concurrent execution. Child runs receive a nil predicate and remain serial; the predicate is consumed by `internal/agent`. `MaxParallelTools` bounds eligible calls, with zero meaning unbounded and one meaning serial execution.
+The parent `agent.RunRequest` may set `ParallelClassOf func(string) agent.ParallelClass`, a classifier grouping tool calls by execution concurrency class: `ParallelClassNone` (serial), `ParallelClassTool` (ordinary parallel-safe tools bounded by `MaxParallelTools`), and `ParallelClassDelegation` (delegation calls bounded by `MaxParallelDelegations`). Child runs receive a non-nil classifier that only returns `ParallelClassTool`/`ParallelClassNone` — they cannot nest delegation and receive no `ParallelClassDelegation` classification. Both limits require values >= 1 to enable concurrency; `1` forces serial execution. A batch only groups adjacent calls of the same class; a class change breaks the run, so e.g. `[grep, delegate, grep]` forms three separate runs (grep alone, delegate alone, grep alone), each under its own class-specific semaphore.
 
 `executeToolCalls` splits invocation from application. The execution path emits `ToolCallStarted` and `invokeTool` runs the executor, while `applyToolResult` updates `Conversation` and `Lineage`, emits budget events, and performs stop detection. Parallel results are applied in original call order, even when children finish in another order. This keeps conversation state and the prompt prefix deterministic.
 
@@ -203,6 +205,18 @@ The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSessi
 **Summarisation turn.** After the child completes, a follow-up single-turn (no tools allowed) asks the model to produce a concise summary. If the summarisation turn fails or returns empty, the raw output is truncated to 4000 runes as a fallback.
 
 **Retention path.** The child agent's full transcript is not copied into the parent session. The parent keeps the delegate result plus a bounded summary. Compaction may later summarise older parent conversation state, including delegated work, through the normal baseline path.
+
+### Host-side diagnostics vs. the model-facing result
+
+`Result` (above) is what the parent **model** sees. It never carries tool-call traces, per-tool counters, or internal file paths — issue #601 explicitly bars provider-visible trace entries, tool-call counts, and internal paths from that contract. Diagnostics that would otherwise be useful only to a human, the TUI, or an offline script live on a separate **host-side** channel instead: the existing lifecycle debug log (`TraceLogger`/`traceCollector`, `internal/delegation/trace_log.go`), written to `<log-file>-delegation.log`. `SpawnDelegate` and `failedDelegateExecution` (`internal/delegation/task.go`) each append one additional `tc.add("tool_calls", …)` entry to that log carrying `trace_file`, `tool_calls_total`, `tool_calls_failed`, and a `tool_counts` map (tool name → call count) — never assigned to `Result` or any other model-facing field.
+
+**Per-tool-call trace files.** A separate mechanism from `TraceLogger` records one JSONL line per tool call (not per lifecycle event) for a delegated child, at `.steiner/traces/<session-id>/<agent-id>.jsonl` (`internal/delegation/tool_call_trace.go`, `toolCallTraceWriter`). Each line is `{time, turn, tool, arg_bytes, result_bytes, ok, duration_ms, fail_class}` — sizes only, never argument or result bodies. `<session-id>` is a random 12-hex-character ID generated once per process (`processTraceSession`, `sync.Once`) and reused for every child spawned by that process run; there is no true interactive-session ID threaded into `internal/delegation` today, so this is a process-scoped stand-in. Trace session directories older than 7 days are pruned (best-effort) whenever a new writer is created.
+
+The writer is constructed once per delegation in `buildChildRunRequest` and wraps the child's scoped event sink (`scopedToolCallTraceSink`), so it observes the same `ToolCallStartedEvent`/`ToolCallFinishedEventWithPreview` pairs (keyed by `CallID`) already emitted per tool call from `internal/agent/turn_progression.go` — no new plumbing into `internal/agent` was needed. A package-level registry (`registerToolCallTraceWriter`/`takeToolCallTraceWriter`, keyed by `AgentID`) lets `SpawnDelegate` retrieve and close the writer without a `BuildChildRun` signature change; a delegation cancelled before dispatch never reaches `SpawnDelegate`, so it leaves one small map entry and one open file handle for the process lifetime — a bounded, intentional tradeoff.
+
+For `AgentTypeCode`, the child's `WorkDir` is overridden to its isolated git worktree, but trace files must never appear as untracked changes inside that checkout (it would corrupt the dirty-worktree check after remediation). `ChildBootstrapOverrides.ProjectRoot` carries the parent's actual project directory separately from `WorkDir` for this purpose; `buildChildRunRequest` places trace files under `ProjectRoot` (falling back to `WorkDir` when unset), never under the possibly-overridden `WorkDir` itself.
+
+When a `mutate` call fails, the trace line's `fail_class` is set by matching the lowercased failure text against the same taxonomy and match order as `scripts/mutate-session-stats.mjs`'s `classify` function (`mutateFailClasses` in `tool_call_trace.go`) — the two lists must stay in sync. `fail_class` is omitted for every non-mutate call and every successful call.
 
 ### Cancellation finalization
 
@@ -282,10 +296,10 @@ Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate �
 5. **Model resolution**: non-explicit sub-agent aliases fall back to the selected profile's default assignment; specialised per-type model aliases resolve before the child run is built. Vision remains disabled when no vision assignment is configured. Startup `--model` and `STEINER_MODEL` overrides affect only the active orchestrator, not these profile role assignments.
 6. **Synchronous execution**: each delegate runs to completion before control returns to the parent.
 7. **Filesystem shared**: children operate in the same workdir as the parent.
-8. **Extension cap**: maximum 5 auto-extensions to prevent runaway children.
+8. **Extension cap**: maximum 3 auto-extensions to prevent runaway children.
 9. **Summary cap**: retention summaries capped at 4000 runes.
 10. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist.
 11. **Enforced allowlist**: `ChildBootstrapOverrides.AllowedTools` is enforced during child registry construction; only listed tools (minus `follow_up` and `workflow_handoff`) are visible and executable.
 12. **Per-type allowlists**: each specialised agent type has its own tool allowlist, resolved via `AgentAllowedTools(agentType)` and passed as `ChildBootstrapOverrides.AllowedTools` — there is no user-configurable global allowlist.
 13. **Extra tool projection**: `DelegateDeps.ExtraAllowedTools` adds per-agent-type registered tool names to child registries. Nil or empty projections grant nothing; unknown names are ignored by `Registry.Subset`; merged lists are sorted and deduplicated without mutating the built-in allowlists; original ToolDef handlers and MCP provenance are retained.
-14. **Parallel fan-out**: eligible parent tool calls may execute concurrently within `MaxParallelTools`; child runs remain serial because their `ParallelTool` predicate is nil. Results are applied in call order against a shared pre-batch snapshot.
+14. **Parallel fan-out**: parent tool calls of the same class execute concurrently within their class-specific limit (`MaxParallelTools` for `ParallelClassTool`, `MaxParallelDelegations` for `ParallelClassDelegation`); child runs have only `ParallelClassTool` in their classifier (no `ParallelClassDelegation` since children cannot nest), so children respect only `MaxParallelTools`. Results are applied in call order against a shared pre-batch snapshot. A batch only groups adjacent calls of the same class; mixing classes breaks the run into separate batches under separate semaphores.

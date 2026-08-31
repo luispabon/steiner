@@ -28,33 +28,36 @@ import (
 
 func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 	for _, tt := range []struct {
-		name    string
-		enabled bool
-		width   int
-		wantFn  bool
-		wantMax int
+		name              string
+		enabled           bool
+		width             int
+		wantMax           int
+		wantMaxDelegation int
 	}{
-		{name: "enabled", enabled: true, width: 5, wantFn: true, wantMax: 5},
-		{name: "disabled", enabled: false, width: 5, wantFn: false, wantMax: 0},
+		{name: "enabled", enabled: true, width: 5, wantMax: 5, wantMaxDelegation: 99},
+		{name: "disabled", enabled: false, width: 5, wantMax: 5, wantMaxDelegation: 99},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := cliRunner{runtime: cliRuntime{cfg: config.Config{
-				SubAgent: config.SubAgentConfig{Enabled: tt.enabled, MaxParallel: tt.width},
+				SubAgent: config.SubAgentConfig{Enabled: tt.enabled, MaxParallel: 99},
+				Limits:   config.LimitsConfig{MaxParallelTools: tt.width},
 			}}}
-			req := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
-			if (req.ParallelTool != nil) != tt.wantFn {
-				t.Fatalf("ParallelTool set = %v, want %v", req.ParallelTool != nil, tt.wantFn)
+			reg := tool.NewRegistry(tool.ToolDef{Name: "read", ParallelSafe: true})
+			req := buildRunRequest(r, runnerSetup{}, reg, nil, nil)
+			if req.ParallelClassOf == nil {
+				t.Fatal("ParallelClassOf = nil, want set")
 			}
 			if req.MaxParallelTools != tt.wantMax {
 				t.Fatalf("MaxParallelTools = %d, want %d", req.MaxParallelTools, tt.wantMax)
 			}
-			if tt.enabled {
-				if !req.ParallelTool("code") {
-					t.Fatal("ParallelTool(code) = false, want true")
-				}
-				if req.ParallelTool("read") {
-					t.Fatal("ParallelTool(read) = true, want false")
-				}
+			if req.MaxParallelDelegations != tt.wantMaxDelegation {
+				t.Fatalf("MaxParallelDelegations = %d, want %d", req.MaxParallelDelegations, tt.wantMaxDelegation)
+			}
+			if got := req.ParallelClassOf("code"); got != agent.ParallelClassDelegation {
+				t.Fatalf("ParallelClassOf(code) = %v, want ParallelClassDelegation (delegation tool name)", got)
+			}
+			if got := req.ParallelClassOf("read"); got != agent.ParallelClassTool {
+				t.Fatalf("ParallelClassOf(read) = %v, want ParallelClassTool (registry-marked parallel-safe)", got)
 			}
 		})
 	}

@@ -277,6 +277,7 @@ func cleanupRegistrationWorktree(agentType AgentType, workDir string, worktree C
 
 func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) (SubAgentHandlerDeps, ChildBootstrapOverrides) {
 	handlerDeps := deps.SubAgentHandlerDeps
+	projectRoot := handlerDeps.WorkDir
 	if agentType == AgentTypeCode && worktree.Path != "" {
 		handlerDeps.WorkDir = worktree.Path
 	}
@@ -285,6 +286,7 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 		AllowedTools:  allowedTools,
 		Provider:      resolvedProvider,
 		ResolvedModel: resolvedModel,
+		ProjectRoot:   projectRoot,
 	}
 }
 
@@ -352,6 +354,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
 		defer gateRelease()
 		if childCtx.Err() != nil {
+			removeAndCloseToolCallTraceWriter(spec.AgentID)
 			emitDelegateStopped(deps.Events, spec, agentType)
 			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings)
 			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)

@@ -265,6 +265,8 @@ type LimitsConfig struct {
 	ToolTimeoutDefault Duration            `yaml:"tool_timeout_default"`
 	ToolTimeouts       map[string]Duration `yaml:"tool_timeouts"`
 	ToolOutputMaxBytes int                 `yaml:"tool_output_max_bytes"`
+	// MaxParallelTools bounds how many parallel-safe tool calls run concurrently within one turn.
+	MaxParallelTools int `yaml:"max_parallel_tools"`
 }
 
 // SubAgentConfig controls delegated child-agent execution limits.
@@ -272,7 +274,11 @@ type SubAgentConfig struct {
 	Enabled   bool `yaml:"enabled"`
 	MaxTurns  int  `yaml:"max_turns"`
 	MaxTokens int  `yaml:"max_tokens"`
-	// MaxParallel bounds how many delegation tool calls run concurrently within one turn; 0 = unbounded; 1 = serial.
+	// MaxParallel bounds how many concurrent delegation-tool calls (specialized
+	// sub-agent spawns, follow_up) may run within one parent turn. Distinct
+	// from limits.max_parallel_tools, which bounds ordinary parallel-safe tool
+	// calls (read, glob, grep, ls, fetch_url, web_search) in the same turn —
+	// see internal/agent.ParallelClass.
 	MaxParallel int `yaml:"max_parallel"`
 }
 

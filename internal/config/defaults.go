@@ -81,6 +81,7 @@ func defaultConfig() Config {
 				"ls":   MustDuration("5s"),
 			},
 			ToolOutputMaxBytes: 65536,
+			MaxParallelTools:   4,
 		},
 		Sandbox: SandboxConfig{
 			Enabled:                      true,

@@ -33,6 +33,11 @@ type DelegateDeps struct {
 	WorkDir string
 	// HomeDir is the home directory passed to delegated child agents.
 	HomeDir string
+	// SessionID identifies the parent session or oneshot run, used to group this
+	// run's tool-call trace files under .steiner/traces/<SessionID>/. Empty means
+	// no real session ID is available; the trace writer falls back to a random
+	// process-scoped stand-in.
+	SessionID string
 	// ResolvedModel is the parent's config-resolved model metadata for the current
 	// run, used as the fallback model for sub-agents without their own per-type
 	// model alias. It must not carry session-time runtime overrides such as
@@ -191,6 +196,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		Runner:                agent.NewRunner(),
 		WorkDir:               deps.WorkDir,
 		HomeDir:               deps.HomeDir,
+		SessionID:             deps.SessionID,
 		ProjectContextConfig:  deps.Config.ProjectContext,
 		ResolvedModel:         deps.ResolvedModel,
 		MaxTokens:             &mt,
@@ -207,6 +213,10 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		Sandbox:               deps.Sandbox,
 		ModeGetter:            deps.ModeGetter,
 		CacheKeyStore:         deps.CacheKeyStore,
+		MaxParallelTools:      deps.Config.Limits.MaxParallelTools,
+		Limits:                deps.Config.Limits,
+		Paths:                 deps.Config.Paths,
+		ContextManagement:     deps.Config.ContextManagement,
 	}
 
 	// Register the follow_up tool.

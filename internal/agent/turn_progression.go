@@ -220,12 +220,27 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 	return p.finalizeToolTurn(ctx, state, turn, response)
 }
 
+func (p *turnProgressor) parallelLimitForClass(class ParallelClass) int {
+	switch class {
+	case ParallelClassDelegation:
+		return p.request.MaxParallelDelegations
+	case ParallelClassTool:
+		return p.request.MaxParallelTools
+	default:
+		return 0
+	}
+}
+
 func (p *turnProgressor) parallelRunLength(calls []provider.ToolCall, start int) int {
-	if p.request.MaxParallelTools == 1 || p.request.ParallelTool == nil || !p.request.ParallelTool(calls[start].Name) {
+	if p.request.ParallelClassOf == nil {
+		return 1
+	}
+	class := p.request.ParallelClassOf(calls[start].Name)
+	if class == ParallelClassNone || p.parallelLimitForClass(class) <= 1 {
 		return 1
 	}
 	n := 1
-	for start+n < len(calls) && p.request.ParallelTool(calls[start+n].Name) {
+	for start+n < len(calls) && p.request.ParallelClassOf(calls[start+n].Name) == class {
 		n++
 	}
 	return n
@@ -245,8 +260,11 @@ func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, tur
 	results := make([]batchResult, len(calls))
 
 	var gate *semaphore.Weighted
-	if p.request.MaxParallelTools > 0 {
-		gate = semaphore.NewWeighted(int64(p.request.MaxParallelTools))
+	if p.request.ParallelClassOf != nil {
+		limit := p.parallelLimitForClass(p.request.ParallelClassOf(calls[0].Name))
+		if limit > 0 {
+			gate = semaphore.NewWeighted(int64(limit))
+		}
 	}
 	var wg sync.WaitGroup
 	for i, call := range calls {
@@ -286,8 +304,14 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunSta
 }
 
 // invokeTool runs the executor and returns the raw outcome. It does not emit
-// events or touch RunState.
+// events or touch RunState. It is the single call site (besides the
+// read-only vision routing bypass) through which tool execution flows, so
+// this is where the file-observed checker is injected for mutate's
+// replace-operation guard.
 func (p *turnProgressor) invokeTool(ctx context.Context, _ int, call provider.ToolCall) (any, error) {
+	if p.request.ContextManager != nil {
+		ctx = tool.WithFileObservedChecker(ctx, p.request.ContextManager.FileObserved)
+	}
 	return p.request.Executor.Execute(ctx, call.Name, call.ID, cloneInput(call.Arguments))
 }
 

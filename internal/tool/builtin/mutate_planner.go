@@ -8,15 +8,10 @@ import (
 	"strings"
 )
 
-const maxMutateOutputChars = 30000
-const maxMutateDiffInputBytes = maxMutateOutputChars * 2
-const maxMutateDiffInputLines = 4000
-
 type mutatePlanner struct {
 	env     Env
 	states  map[string]*mutateFileState
 	result  MutateResult
-	diffs   []string
 	applied int
 }
 
@@ -65,10 +60,25 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 		return &p.result
 	}
 	p.result.OperationsApplied = p.applied
-	for i := range p.result.OperationResults {
-		p.result.OperationResults[i].Applied = true
+	// Success path: trim envelope to only what model doesn't already have.
+	p.result.Paths = nil
+	kept := p.result.OperationResults[:0]
+	for _, op := range p.result.OperationResults {
+		if op.MatchCount > 1 {
+			kept = append(kept, MutateOperationResult{
+				Index:      op.Index,
+				Type:       op.Type,
+				Path:       op.Path,
+				MatchCount: op.MatchCount,
+			})
+		}
 	}
-	p.result.Output = p.successOutput("Success.")
+	if len(kept) == 0 {
+		p.result.OperationResults = nil
+	} else {
+		p.result.OperationResults = kept
+	}
+	p.result.Output = ""
 	return &p.result
 }
 
@@ -122,6 +132,21 @@ func (p *mutatePlanner) verifyFileHash(index int, opType string, state *mutateFi
 		return fmt.Errorf("mutate: operation %d %s: file_hash mismatch on %s — expected %s, got %s (file changed since last read; re-read to get fresh hash)", index, opType, state.displayPath, fileHash, actual)
 	}
 	return nil
+}
+
+// verifyObserved enforces the replace-operation observation guard: an
+// existing-file replace must be backed by either an observed read this
+// session or an explicit file_hash. fileHash is passed separately (rather
+// than read off op) since verifyFileHash above already validated it when
+// non-empty — a mismatch there returns before this runs.
+func (p *mutatePlanner) verifyObserved(index int, state *mutateFileState, fileHash string) error {
+	if fileHash != "" {
+		return nil
+	}
+	if p.env.FileObserved != nil && p.env.FileObserved(state.path) {
+		return nil
+	}
+	return fmt.Errorf("mutate: operation %d replace: %s not read this session and no file_hash supplied — read the file first, or pass the file_hash from a read/grep result", index, state.displayPath)
 }
 
 func (p *mutatePlanner) textState(index int, opType, path string) (*mutateFileState, error) {
@@ -260,31 +285,4 @@ func (p *mutatePlanner) recordMovedOperation(index int, op MutateOperation, stat
 		Context:      buildMutateContext(state.content, 1),
 	})
 	return nil
-}
-
-func (p *mutatePlanner) successOutput(prefix string) string {
-	lines := []string{prefix, "Updated the following files:"}
-	for _, path := range p.result.Created {
-		lines = append(lines, "A "+path)
-	}
-	for _, path := range p.result.Modified {
-		lines = append(lines, "M "+path)
-	}
-	for _, path := range p.result.Deleted {
-		lines = append(lines, "D "+path)
-	}
-	for _, moved := range p.result.Moved {
-		lines = append(lines, "R "+moved.From+" -> "+moved.To)
-	}
-	if len(p.diffs) > 0 {
-		lines = append(lines, "", strings.Join(p.diffs, "\n"))
-	}
-	return truncateMutateOutput(strings.Join(lines, "\n"))
-}
-
-func (p *mutatePlanner) addDiff(path, before, after string) {
-	if before == after {
-		return
-	}
-	p.diffs = append(p.diffs, unifiedTextDiff(path, before, after))
 }

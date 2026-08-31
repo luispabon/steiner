@@ -27,6 +27,15 @@ type ChildBootstrapOverrides struct {
 	AllowedTools  []string
 	Provider      provider.Provider
 	ResolvedModel provider.ResolvedModel
+
+	// ProjectRoot is the parent's actual project directory, used only for
+	// placing host-side artifacts (e.g. tool-call trace files) that must
+	// never land inside a code agent's isolated git worktree. It is distinct
+	// from deps.WorkDir, which specializedBootstrapDeps overrides to the
+	// worktree path for AgentTypeCode before calling BuildChildRun. Callers
+	// that never override WorkDir (vision, non-code specialized agents) may
+	// leave this unset; BuildChildRun falls back to deps.WorkDir.
+	ProjectRoot string
 }
 
 // childContextSkips reports which context sections a delegated child of the
@@ -78,9 +87,15 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, override.AllowedTools)
 	readOnlyBash := deps.SandboxEnabled && override.AgentType == AgentTypeExplore
+	traceRoot := override.ProjectRoot
+	if traceRoot == "" {
+		traceRoot = deps.WorkDir
+	}
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:            deps.WorkDir,
+		TraceRoot:          traceRoot,
 		AgentID:            spec.AgentID,
+		SessionID:          deps.SessionID,
 		Provider:           override.Provider,
 		VisibleReg:         visibleReg,
 		ExecReg:            execReg,
@@ -98,6 +113,10 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		SandboxTmpDir:      deps.SandboxTmpDir,
 		Sandbox:            deps.Sandbox,
 		ReadOnlyBash:       readOnlyBash,
+		MaxParallelTools:   deps.MaxParallelTools,
+		Limits:             deps.Limits,
+		Paths:              deps.Paths,
+		ContextManagement:  deps.ContextManagement,
 	})
 	return req, limits, nil
 }
@@ -208,8 +227,15 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 // adjacent same-typed values (e.g. two bools, two *tool.Registry) could be
 // transposed without compiler protection.
 type childRunRequestParams struct {
-	WorkDir            string
+	WorkDir string
+	// TraceRoot is where host-side tool-call trace files are written. It
+	// equals WorkDir except for AgentTypeCode, where WorkDir is the isolated
+	// worktree path and TraceRoot stays anchored to the parent's actual
+	// project directory so trace files never appear as untracked changes
+	// inside the child's git checkout.
+	TraceRoot          string
 	AgentID            string
+	SessionID          string
 	Provider           provider.Provider
 	VisibleReg         *tool.Registry
 	ExecReg            *tool.Registry
@@ -227,6 +253,18 @@ type childRunRequestParams struct {
 	SandboxTmpDir      string
 	Sandbox            tool.SandboxWrapper
 	ReadOnlyBash       bool
+	MaxParallelTools   int
+	// Limits and Paths configure the child's tool executor (output byte cap
+	// and path policy) the same way the parent's own executor is configured;
+	// previously the child executor was built from a zero-value config.Config
+	// and silently ignored both.
+	Limits config.LimitsConfig
+	Paths  config.PathsConfig
+	// ContextManagement configures the child's ContextStateManager the same
+	// way the parent's is configured; previously no ContextManager was set on
+	// the child request, so it always ran with library defaults regardless of
+	// configured context_management settings.
+	ContextManagement config.ContextManagementConfig
 }
 
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
@@ -235,8 +273,11 @@ type childRunRequestParams struct {
 // p.ModeGetter, when non-nil, is wired into the child executor so it inherits
 // the parent's execution mode.
 func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
-	childCfg := config.Config{}
+	childCfg := config.Config{Limits: p.Limits, Paths: p.Paths}
 	scopedEvents := withAgentScope(p.AgentID, p.AgentType, p.Events)
+	traceWriter := newToolCallTraceWriter(p.TraceRoot, p.AgentID, p.SessionID)
+	registerToolCallTraceWriter(p.AgentID, traceWriter)
+	scopedEvents = withToolCallTrace(scopedEvents, traceWriter)
 
 	// p.Sandbox must not be nil: the composition root (cmd/steiner) always
 	// passes an explicit wrapper (tool.Unsandboxed{} when sandboxing is off).
@@ -270,10 +311,18 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		CaveHuman:          p.PromptOpts.CaveHuman,
 		PromptCacheKey:     childCacheKey,
 		UsageSource:        usagestats.SourceSubAgent,
+		ContextManager:     agent.NewContextStateManager(p.ContextManagement),
 	}
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder
 	}
+	req.ParallelClassOf = func(name string) agent.ParallelClass {
+		if p.ExecReg.IsParallelSafe(name) {
+			return agent.ParallelClassTool
+		}
+		return agent.ParallelClassNone
+	}
+	req.MaxParallelTools = p.MaxParallelTools
 
 	return req
 }

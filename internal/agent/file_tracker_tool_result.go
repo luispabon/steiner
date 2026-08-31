@@ -45,23 +45,56 @@ func (t *FileTracker) observeMutationHeuristics(_ string, input map[string]any, 
 
 func (t *FileTracker) observeMutateHeuristics(_ map[string]any, content string) (workingFileUpdate, []string) {
 	var result struct {
-		Paths  []string `json:"paths"`
-		Output string   `json:"output"`
+		Created  []string     `json:"created"`
+		Modified []string     `json:"modified"`
+		Deleted  []string     `json:"deleted"`
+		Moved    []moveResult `json:"moved"`
+		Output   string       `json:"output"`
 	}
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		return workingFileUpdate{}, nil
 	}
-	preview := summarizeTextPreview(result.Output, 96)
-	for _, path := range result.Paths {
-		if sanitized := sanitizeTrackedPath(path); sanitized != "" {
-			t.BumpGeneration(sanitized)
-		}
+
+	// Generation bumping for all paths now handled in recordMutationForContextManager (tool_exec.go),
+	// so this method only computes the working file update.
+
+	// Pick the working file by category precedence (moved > deleted > modified >
+	// created), not operation order — the result arrays carry no operation order
+	// to recover: mutate_planner.go sorts Created/Modified/Deleted independently
+	// and builds Paths by ranging a map. This mirrors the pre-trim code, which
+	// also had no operation order and picked the alphabetically-last touched path.
+	var lastPath string
+	var lastAction string
+
+	if len(result.Created) > 0 {
+		lastPath = result.Created[len(result.Created)-1]
+		lastAction = "created"
 	}
-	if len(result.Paths) == 0 {
+	if len(result.Modified) > 0 {
+		lastPath = result.Modified[len(result.Modified)-1]
+		lastAction = "modified"
+	}
+	if len(result.Deleted) > 0 {
+		lastPath = result.Deleted[len(result.Deleted)-1]
+		lastAction = "deleted"
+	}
+	if len(result.Moved) > 0 {
+		lastMove := result.Moved[len(result.Moved)-1]
+		lastPath = lastMove.To
+		lastAction = fmt.Sprintf("moved to %s", lastMove.To)
+	}
+
+	if lastPath == "" {
 		return workingFileUpdate{}, nil
 	}
-	path := sanitizeTrackedPath(result.Paths[len(result.Paths)-1])
-	return t.updateWorkingFile(path, fmt.Sprintf("mutated %s: %s", path, preview)), nil
+
+	path := sanitizeTrackedPath(lastPath)
+	return t.updateWorkingFile(path, fmt.Sprintf("mutated %s: %s", path, lastAction)), nil
+}
+
+type moveResult struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 func (t *FileTracker) observeBashHeuristics(input map[string]any, content string) (workingFileUpdate, []string) {

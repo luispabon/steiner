@@ -51,6 +51,28 @@ func TestApplySubAgentPatchMaxParallel(t *testing.T) {
 	}
 }
 
+func TestApplyLimitsPatchMaxParallelTools(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial LimitsConfig
+		patch   limitsPatch
+		want    LimitsConfig
+	}{
+		{name: "unset max_parallel_tools leaves default", initial: LimitsConfig{MaxParallelTools: 4}, patch: limitsPatch{}, want: LimitsConfig{MaxParallelTools: 4}},
+		{name: "zero max_parallel_tools is preserved", initial: LimitsConfig{MaxParallelTools: 4}, patch: limitsPatch{MaxParallelTools: intPtr(0)}, want: LimitsConfig{MaxParallelTools: 0}},
+		{name: "sets max_parallel_tools", initial: LimitsConfig{MaxParallelTools: 4}, patch: limitsPatch{MaxParallelTools: intPtr(8)}, want: LimitsConfig{MaxParallelTools: 8}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyLimitsPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyLimitsPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
 func TestApplyProviderPatch(t *testing.T) {
 	tests := []struct {
 		name    string

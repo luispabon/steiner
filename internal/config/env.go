@@ -36,6 +36,7 @@ func applyEnvIntOverrides(cfg *Config, lookup func(string) (string, bool)) error
 		{&cfg.Limits.MaxTurns, "STEINER_MAX_TURNS"},
 		{&cfg.Limits.MaxTokens, "STEINER_MAX_TOKENS"},
 		{&cfg.Limits.ToolOutputMaxBytes, "STEINER_TOOL_OUTPUT_MAX_BYTES"},
+		{&cfg.Limits.MaxParallelTools, "STEINER_MAX_PARALLEL_TOOLS"},
 	}
 	for _, o := range overrides {
 		if err := applyEnvIntOverride(o.target, o.name, lookup); err != nil {

@@ -81,19 +81,35 @@ type RunRequest struct {
 	// registration, but does not prevent the parent model from receiving image data.
 	ImageStore *ImageStore
 
-	// ParallelTool reports whether a tool call may execute concurrently with its
-	// siblings in the same assistant turn. Nil means every call runs serially,
-	// which is the pre-existing behaviour and what child runs receive.
-	ParallelTool func(toolName string) bool
+	// ParallelClassOf classifies a tool call by name for concurrent-execution
+	// purposes. Nil means every call runs serially, which is the pre-existing
+	// behaviour and what child runs receive for the delegation class (children
+	// cannot themselves delegate — see CLAUDE.md's sub-agent nesting invariant).
+	ParallelClassOf func(toolName string) ParallelClass
 
-	// MaxParallelTools bounds how many eligible tool calls execute concurrently
-	// within a turn. Zero means unbounded; one is equivalent to serial execution.
+	// MaxParallelTools bounds how many ParallelClassTool calls execute
+	// concurrently within a turn. Must be at least 1 for any parallel
+	// execution of that class to occur; a value <= 0 forces serial execution
+	// for that class (see parallelRunLength's guard — never leave this path
+	// reachable with an unbounded semaphore).
 	MaxParallelTools int
+
+	// MaxParallelDelegations bounds how many ParallelClassDelegation calls
+	// (specialized sub-agent spawns, follow_up) execute concurrently within a
+	// turn, independent of MaxParallelTools. Same zero/negative-means-serial
+	// contract as MaxParallelTools.
+	MaxParallelDelegations int
 
 	// SourceConversation is the real conversation with internal roles intact
 	// (e.g. compaction summaries); when set, initializeRunState uses it
 	// instead of reconstructing from Prompt.Conversation.
 	SourceConversation []Message
+
+	// TurnBudgetNotice, when non-nil, is called once per run when the turn count
+	// crosses turnBudgetNoticeFraction of Limits.MaxTurns, to produce a message
+	// injected into the conversation. Nil disables the checkpoint entirely — the
+	// parent interactive run never sets this; only delegated children do.
+	TurnBudgetNotice func(turnsUsed, maxTurns int) string
 }
 
 // Runner executes the main turn loop for an agent run.
@@ -131,6 +147,8 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		if stopped, done := stopRunBeforeTurn(ctx, req, state); done {
 			return stopped, nil
 		}
+
+		state = injectTurnBudgetNoticeIfDue(state, req)
 
 		turnCtx := ctx
 		var cancel context.CancelFunc

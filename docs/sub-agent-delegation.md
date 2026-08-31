@@ -77,7 +77,7 @@ Key behaviours:
 
 ### Parallel fan-out
 
-Multiple delegation calls made in one turn execute concurrently. `sub_agent.max_parallel` bounds the fan-out width: the default is `3`, `0` means unbounded, and `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
+Multiple delegation calls made in one turn execute concurrently. The fan-out width is bounded independently by `sub_agent.max_parallel` (default `3`, minimum `1`), separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [docs/configuration.md](configuration.md#limits-block). A value of `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
 
 ### Stopping active delegates
 
@@ -108,6 +108,7 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 - MCP tools are registered from third-party servers and are only exposed to sub-agents when the server's `sub_agents` list explicitly includes the agent type. Approval is per-server and controlled by the parent's configuration.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
 - The child's full conversation transcript is not copied into the parent session; only a structured result and bounded summary persist.
+- The result the parent model sees never carries a `trace` field, tool-call counts, or internal file paths. Per-tool-call traces and counters are recorded host-side only (debug log and `.steiner/traces/`, see [docs/sub-agent-delegation-internals.md](sub-agent-delegation-internals.md)) for diagnostics, never sent to the provider.
 - While the parent interactive session is in `plan` execution mode, the `code` sub-agent tool is denied outright, and `follow_up` is denied when it targets a session spawned by `code` — both can mutate files, which plan mode disallows. See [docs/execution-modes.md](execution-modes.md) for the full enforcement matrix.
 - Two workflows deliberately diverge from the system prompt's `Delegation vs direct work` section, and are labelled as such at their source: `skills/review/SKILL.md` and `skills/simplify/SKILL.md` permit a last-resort inline-fixes tier — looser than the section — for when delegation tooling itself is unavailable; `skills/implement/SKILL.md` and `internal/oneshot/prompts/implement.md` forbid any direct file-mutation tool use on implementation-scoped files — stricter than the section's allowance to apply `mutate` directly to a tiny correction whose exact replacement text or source lines are supplied in the current request, because the executor owns the feature branch and delegation is that workflow's whole point. The oneshot review phase (`internal/oneshot/prompts/review.md`) goes further still and has no inline-fix tier at all.
 
@@ -168,6 +169,16 @@ models:
 Each entry under the selected profile's `sub_agents` map, keyed by agent type
 name, can set a model alias to any key defined in `models.definitions`. If no
 override is set, the sub-agent uses the selected profile's `default_model`.
+
+### Turn budget and extensions
+
+If a child hits `max_turns` mid-work (its last message still has pending tool
+calls), it is automatically re-run with a bumped turn budget, up to 3
+extensions. Independently of that, once a child crosses roughly 70% of its
+current turn budget, it receives a one-time notice in its own conversation
+telling it how many turns and extensions remain, so it can wrap up rather than
+keep exploring. That notice is updated in place — not appended again — if the
+child later gets an extension and crosses the threshold once more.
 
 ### Recommended model tiers
 

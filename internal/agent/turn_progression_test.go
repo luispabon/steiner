@@ -73,12 +73,20 @@ func TestExecuteToolCalls_ParallelReversedCompletionAppliesInOrder(t *testing.T)
 		}
 	}}
 	var events []output.Event
-	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }, Events: output.SinkFunc(func(e output.Event) { events = append(events, e) })}, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelClassOf: func(string) ParallelClass { return ParallelClassTool }, MaxParallelTools: 2, Events: output.SinkFunc(func(e output.Event) { events = append(events, e) })}, prompt.AssemblyOptions{}, nil)
 	done := make(chan RunState, 1)
 	go func() {
 		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b")).State
 	}()
-	got := []string{<-entered, <-entered}
+	got := make([]string, 2)
+	timeout := time.After(5 * time.Second)
+	for i := 0; i < 2; i++ {
+		select {
+		case got[i] = <-entered:
+		case <-timeout:
+			t.Fatal("both calls did not enter within timeout")
+		}
+	}
 	if (got[0] != "a" && got[0] != "b") || got[0] == got[1] {
 		t.Fatalf("entered calls = %v, want both calls", got)
 	}
@@ -89,7 +97,12 @@ func TestExecuteToolCalls_ParallelReversedCompletionAppliesInOrder(t *testing.T)
 		t.Fatal("b did not finish before a was released")
 	}
 	close(allowA)
-	state := <-done
+	var state RunState
+	select {
+	case state = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("executeToolCalls did not complete within timeout")
+	}
 	if got := parallelContents(state); !equalStrings(got, []string{"a", "b"}) {
 		t.Fatalf("contents = %v, want [a b]", got)
 	}
@@ -108,7 +121,7 @@ func TestExecuteToolCalls_NilParallelToolIsSerial(t *testing.T) {
 
 func TestExecuteToolCalls_MaxParallelOneHasSerialEvents(t *testing.T) {
 	var events []output.Event
-	req := RunRequest{Executor: parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) { return name, nil }}, ParallelTool: func(string) bool { return true }, MaxParallelTools: 1, Events: output.SinkFunc(func(e output.Event) { events = append(events, e) })}
+	req := RunRequest{Executor: parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) { return name, nil }}, ParallelClassOf: func(string) ParallelClass { return ParallelClassTool }, MaxParallelTools: 1, Events: output.SinkFunc(func(e output.Event) { events = append(events, e) })}
 	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 	p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b"))
 	want := []string{output.EventTypeToolCallStarted, output.EventTypeToolCallFinished, output.EventTypeToolCallStarted, output.EventTypeToolCallFinished}
@@ -130,7 +143,7 @@ func TestExecuteToolCalls_UnboundedBatchAllInFlight(t *testing.T) {
 			return nil, ctx.Err()
 		}
 	}}
-	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelClassOf: func(string) ParallelClass { return ParallelClassTool }, MaxParallelTools: n}, prompt.AssemblyOptions{}, nil)
 	done := make(chan RunState, 1)
 	go func() {
 		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b", "c", "d")).State
@@ -171,7 +184,12 @@ func TestExecuteToolCalls_MixedEligibleRunsPreserveOrder(t *testing.T) {
 		}
 		return name, nil
 	}}
-	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(name string) bool { return name != "x" }}, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelClassOf: func(name string) ParallelClass {
+		if name != "x" {
+			return ParallelClassTool
+		}
+		return ParallelClassNone
+	}, MaxParallelTools: 2}, prompt.AssemblyOptions{}, nil)
 	done := make(chan RunState, 1)
 	go func() {
 		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b", "x", "c")).State
@@ -200,6 +218,65 @@ func TestExecuteToolCalls_MixedEligibleRunsPreserveOrder(t *testing.T) {
 	}
 }
 
+func TestParallelRunLength_ReadsBreakOnNonParallelSafeName(t *testing.T) {
+	readOnly := func(name string) ParallelClass {
+		if name == "read" || name == "grep" {
+			return ParallelClassTool
+		}
+		return ParallelClassNone
+	}
+	calls := parallelCalls("read", "read", "mutate", "read").Message.ToolCalls
+	p := newTurnProgressor(RunRequest{ParallelClassOf: readOnly, MaxParallelTools: 2}, prompt.AssemblyOptions{}, nil)
+
+	if got := p.parallelRunLength(calls, 0); got != 2 {
+		t.Fatalf("parallelRunLength(0) = %d, want 2 (reads batch, mutate is not parallel-safe)", got)
+	}
+	if got := p.parallelRunLength(calls, 2); got != 1 {
+		t.Fatalf("parallelRunLength(2) = %d, want 1 (mutate always runs alone)", got)
+	}
+	if got := p.parallelRunLength(calls, 3); got != 1 {
+		t.Fatalf("parallelRunLength(3) = %d, want 1 (trailing lone read)", got)
+	}
+}
+
+func TestExecuteToolCalls_GrepBatchExecutesConcurrently(t *testing.T) {
+	const n = 4
+	var maxInFlight, inFlight int32
+	barrier := make(chan struct{})
+	executor := parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
+		current := atomic.AddInt32(&inFlight, 1)
+		for {
+			old := atomic.LoadInt32(&maxInFlight)
+			if current <= old || atomic.CompareAndSwapInt32(&maxInFlight, old, current) {
+				break
+			}
+		}
+		<-barrier
+		atomic.AddInt32(&inFlight, -1)
+		return name, nil
+	}}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelClassOf: func(name string) ParallelClass {
+		if name == "grep" {
+			return ParallelClassTool
+		}
+		return ParallelClassNone
+	}, MaxParallelTools: n}, prompt.AssemblyOptions{}, nil)
+	done := make(chan RunState, 1)
+	go func() {
+		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("grep", "grep", "grep", "grep")).State
+	}()
+	if !waitForAtomic(t, &inFlight, n) {
+		return
+	}
+	close(barrier)
+	if got := parallelContents(<-done); len(got) != n {
+		t.Fatalf("results=%v, want %d", got, n)
+	}
+	if atomic.LoadInt32(&maxInFlight) != n {
+		t.Fatalf("max in-flight=%d, want %d (all grep calls run concurrently)", maxInFlight, n)
+	}
+}
+
 func TestExecuteToolCalls_MiddleWorkflowHandoffStopsLaterResults(t *testing.T) {
 	entered := make(chan string, 3)
 	middleDone := make(chan struct{})
@@ -216,7 +293,7 @@ func TestExecuteToolCalls_MiddleWorkflowHandoffStopsLaterResults(t *testing.T) {
 		close(middleDone)
 		return tool.WorkflowHandoffAccepted{Transition: tool.WorkflowHandoffTransition{Next: "implement"}}, nil
 	}}
-	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelClassOf: func(string) ParallelClass { return ParallelClassTool }, MaxParallelTools: 3}, prompt.AssemblyOptions{}, nil)
 	done := make(chan turnOutcome, 1)
 	go func() {
 		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "stop", "c"))
@@ -242,7 +319,7 @@ func TestExecuteToolCalls_CancelledBatchExitsAllExecutors(t *testing.T) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}}
-	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }, MaxParallelTools: 2}, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelClassOf: func(string) ParallelClass { return ParallelClassTool }, MaxParallelTools: 2}, prompt.AssemblyOptions{}, nil)
 	done := make(chan turnOutcome, 1)
 	go func() {
 		done <- p.executeToolCalls(ctx, RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b", "c", "d"))
@@ -272,7 +349,7 @@ func TestExecuteToolCalls_MaxParallelToolsBounded(t *testing.T) {
 		atomic.AddInt32(&inFlight, -1)
 		return name, nil
 	}}
-	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }, MaxParallelTools: 2}, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelClassOf: func(string) ParallelClass { return ParallelClassTool }, MaxParallelTools: 2}, prompt.AssemblyOptions{}, nil)
 	done := make(chan RunState, 1)
 	go func() {
 		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "b", "c", "d")).State
@@ -311,7 +388,7 @@ func TestExecuteToolCalls_SiblingFailureIsolation(t *testing.T) {
 		done <- name
 		return name, nil
 	}}
-	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelClassOf: func(string) ParallelClass { return ParallelClassTool }, MaxParallelTools: 3}, prompt.AssemblyOptions{}, nil)
 	result := make(chan RunState, 1)
 	go func() {
 		result <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("a", "bad", "c")).State
@@ -348,7 +425,7 @@ func TestExecuteToolCalls_SharedPreBatchSnapshot(t *testing.T) {
 		mu.Unlock()
 		return name, nil
 	}}
-	p := newTurnProgressor(RunRequest{Executor: executor, ParallelTool: func(string) bool { return true }}, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelClassOf: func(string) ParallelClass { return ParallelClassTool }, MaxParallelTools: 2}, prompt.AssemblyOptions{}, nil)
 	state := RunState{Conversation: initial, Lineage: newConversationLineage(initial)}
 	p.executeToolCalls(context.Background(), state, parallelCalls("a", "b"))
 	mu.Lock()
@@ -2713,5 +2790,92 @@ func TestPrepareTurn_ResetsLastBudget(t *testing.T) {
 	}
 	if p.lastBudget.EstimatedPromptTokens <= 0 {
 		t.Fatalf("p.lastBudget.EstimatedPromptTokens = %d, want > 0 after reset", p.lastBudget.EstimatedPromptTokens)
+	}
+}
+
+func TestParallelRunLength_ZeroMaxParallelToolsForcesSerialization(t *testing.T) {
+	calls := parallelCalls("read", "read", "grep").Message.ToolCalls
+	p := newTurnProgressor(RunRequest{ParallelClassOf: func(string) ParallelClass { return ParallelClassTool }, MaxParallelTools: 0}, prompt.AssemblyOptions{}, nil)
+
+	if got := p.parallelRunLength(calls, 0); got != 1 {
+		t.Fatalf("parallelRunLength(0) = %d, want 1 (MaxParallelTools: 0 forces serial), received a batch when MaxParallelTools <= 1", got)
+	}
+}
+
+func TestParallelRunLength_ClassChangeBreaksRun(t *testing.T) {
+	calls := parallelCalls("grep", "grep", "code", "grep").Message.ToolCalls
+	classifier := func(name string) ParallelClass {
+		if name == "code" {
+			return ParallelClassDelegation
+		}
+		if name == "grep" {
+			return ParallelClassTool
+		}
+		return ParallelClassNone
+	}
+	p := newTurnProgressor(RunRequest{ParallelClassOf: classifier, MaxParallelTools: 2, MaxParallelDelegations: 2}, prompt.AssemblyOptions{}, nil)
+
+	if got := p.parallelRunLength(calls, 0); got != 2 {
+		t.Fatalf("parallelRunLength(0) = %d, want 2 (two greps of same tool class)", got)
+	}
+	if got := p.parallelRunLength(calls, 2); got != 1 {
+		t.Fatalf("parallelRunLength(2) = %d, want 1 (code is delegation class, breaks run from tool class)", got)
+	}
+	if got := p.parallelRunLength(calls, 3); got != 1 {
+		t.Fatalf("parallelRunLength(3) = %d, want 1 (single grep after delegation class break)", got)
+	}
+}
+
+func TestExecuteToolCalls_SeparateLimitsForDelegationAndToolClasses(t *testing.T) {
+	var delegationInFlight, toolInFlight, maxDelegationInFlight, maxToolInFlight int32
+	barrier := make(chan struct{})
+	executor := parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
+		if name == "code" {
+			atomic.AddInt32(&delegationInFlight, 1)
+			defer atomic.AddInt32(&delegationInFlight, -1)
+			for {
+				old := atomic.LoadInt32(&maxDelegationInFlight)
+				current := atomic.LoadInt32(&delegationInFlight)
+				if current <= old || atomic.CompareAndSwapInt32(&maxDelegationInFlight, old, current) {
+					break
+				}
+			}
+		} else {
+			atomic.AddInt32(&toolInFlight, 1)
+			defer atomic.AddInt32(&toolInFlight, -1)
+			for {
+				old := atomic.LoadInt32(&maxToolInFlight)
+				current := atomic.LoadInt32(&toolInFlight)
+				if current <= old || atomic.CompareAndSwapInt32(&maxToolInFlight, old, current) {
+					break
+				}
+			}
+		}
+		<-barrier
+		return name, nil
+	}}
+	classifier := func(name string) ParallelClass {
+		if name == "code" {
+			return ParallelClassDelegation
+		}
+		if name == "grep" {
+			return ParallelClassTool
+		}
+		return ParallelClassNone
+	}
+	p := newTurnProgressor(RunRequest{Executor: executor, ParallelClassOf: classifier, MaxParallelTools: 4, MaxParallelDelegations: 1, Events: output.NoopSink{}}, prompt.AssemblyOptions{}, nil)
+	done := make(chan RunState, 1)
+	go func() {
+		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("grep", "grep", "code", "code", "grep")).State
+	}()
+	runtime.Gosched()
+	time.Sleep(10 * time.Millisecond)
+	close(barrier)
+	<-done
+	if atomic.LoadInt32(&maxToolInFlight) > 2 {
+		t.Fatalf("max tool-class in-flight = %d, want <= 2 (two greps in first run)", maxToolInFlight)
+	}
+	if atomic.LoadInt32(&maxDelegationInFlight) > 1 {
+		t.Fatalf("max delegation-class in-flight = %d, want <= 1 (max_parallel_delegations: 1)", maxDelegationInFlight)
 	}
 }

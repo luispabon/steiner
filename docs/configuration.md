@@ -28,6 +28,7 @@ Key environment variables:
 | `STEINER_LOG_LEVEL`           | `logging.level`                   |
 | `STEINER_LOG_FILE`            | `logging.file`                    |
 | `STEINER_TOOL_OUTPUT_MAX_BYTES` | `limits.tool_output_max_bytes`  |
+| `STEINER_MAX_PARALLEL_TOOLS`  | `limits.max_parallel_tools`       |
 | `STEINER_TUI_FPS`             | `tui.fps`                         |
 
 ### Environment variable expansion in config values
@@ -538,7 +539,10 @@ Runtime limits for turns, tokens, and tool execution.
 | `max_tokens`         | int                       | `500000` | Maximum total tokens (input + output) consumed before the run is stopped. |
 | `tool_timeout_default`| duration string          | `"30s"`  | Default timeout applied to any tool not listed in `tool_timeouts`. |
 | `tool_timeouts`      | map[string]duration string| see below | Per-tool timeout overrides. |
-| `tool_output_max_bytes`| int                     | `65536`  | Maximum bytes of output captured from a single tool call. Output is truncated to this limit. |
+| `tool_output_max_bytes`| int                     | `65536`  | Maximum bytes of output captured from a single tool call. Output is truncated to this limit. Applies to both the parent run and each child sub-agent's own tool executor. |
+| `max_parallel_tools` | int                       | `4`      | Maximum number of ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`) executed concurrently within a single turn. Must be at least `1`; `1` forces serial execution for these tools. Distinct from `sub_agent.max_parallel`, which bounds delegation-tool concurrency independently. Applies to both the parent run and each child sub-agent's own turns. |
+
+> **Breaking change**: `max_parallel_tools: 0` previously meant unbounded concurrency; it is now rejected at startup. Set it to `1` for the equivalent serial behaviour, or a positive number for bounded concurrency. `sub_agent.max_parallel: 0` previously had no runtime effect at all (the field was dead); it is likewise now rejected — set it to `1` or higher.
 
 Default `tool_timeouts`:
 
@@ -560,6 +564,7 @@ limits:
     grep: 30s
     ls: 5s
   tool_output_max_bytes: 65536
+  max_parallel_tools: 4
 ```
 
 `tool_timeout_default` and `tool_timeouts` also apply to MCP tools: every MCP call is
@@ -581,7 +586,7 @@ do and tool allowlists for each specialised agent type, see
 | `enabled`      | bool                       | `true`                                   | Master switch. Set to `false` to remove all delegation tools from the model. |
 | `max_turns`    | int                        | `30`                                     | Maximum turns allowed for each child agent run. A floor of 15 turns is enforced internally. |
 | `max_tokens`   | int                        | `100000`                                 | Maximum tokens a child agent may consume. |
-| `max_parallel` | int                        | `3`                                      | Maximum concurrent delegation tool calls within one turn. `0` means unbounded; `1` means serial. |
+| `max_parallel` | int                        | `3`                                      | Maximum number of delegation-tool calls (specialized sub-agent spawns, `follow_up`) executed concurrently within a single parent turn. Must be at least `1`; `1` forces serial execution for delegation calls. Independent of `limits.max_parallel_tools`, which bounds ordinary tool-call concurrency — a mixed batch never lets the two compete for the same semaphore slots. |
 
 Each specialised agent type (`explore`, `research`, `code`, `plan`, `verify`,
 `vision`) has its own hardcoded tool allowlist; there is no user-configurable
@@ -749,6 +754,8 @@ Constrains filesystem access for tools that read or write files.
 
 Note: the TUI file picker shows `.steiner/` contents except `.steiner/tmp` and `.steiner/worktrees`, which are always hidden to keep the picker fast. The same exclusion rules still apply to `glob` and `grep` tools.
 
+This block also applies to each child sub-agent's own tool executor, not just the parent's.
+
 ```yaml
 paths:
   project_root_only: true
@@ -802,6 +809,8 @@ Baseline context management settings.
 context_management:
   read_annotations: true
 ```
+
+This block also applies to each child sub-agent's own context manager, not just the parent's.
 
 ---
 

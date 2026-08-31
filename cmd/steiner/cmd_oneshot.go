@@ -44,6 +44,7 @@ type phaseRunnerParams struct {
 	StreamingPreferred bool
 	Events             output.EventSink
 	PromptCacheKey     string
+	SessionID          string
 	PhasePrompt        string
 	ProjectAgentsPath  string
 	WorkflowMode       prompt.WorkflowMode
@@ -77,6 +78,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 		streamingPreferred: params.StreamingPreferred,
 		projectAgentsPath:  params.ProjectAgentsPath,
 		promptCacheKeyFn:   func() string { return params.PromptCacheKey },
+		sessionIDFn:        func() string { return params.SessionID },
 		phasePrompt:        params.PhasePrompt,
 		workflowMode:       params.WorkflowMode,
 		currentEffective:   params.CurrentEffective,
@@ -234,6 +236,7 @@ func (f phaseRunnerFactory) phaseParams(phase oneshot.Phase, modelAlias string, 
 		ProjectAgentsPath:  filepath.Join(f.identity.WorktreePath(f.rootDir), "AGENTS.md"),
 		Events:             f.events,
 		PromptCacheKey:     f.identity.ID,
+		SessionID:          f.identity.ID,
 		PhasePrompt:        phasePrompt,
 		WorkflowMode:       prompt.DelegatedChildWorkflowMode(),
 		CurrentEffective:   f.currentEffective,

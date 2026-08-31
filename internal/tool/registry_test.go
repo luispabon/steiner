@@ -155,3 +155,60 @@ func TestMCPProvenance(t *testing.T) {
 		t.Errorf("Subset().Get() MCP = %+v, want %+v", got.MCP, prov)
 	}
 }
+
+func TestGetReturnsDefensiveCopy(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name: "read",
+		ParameterSchema: map[string]any{
+			"nested": map[string]any{"value": "original"},
+			"items":  []any{"original"},
+		},
+	})
+
+	got, ok := reg.Get("read")
+	if !ok {
+		t.Fatal("Get() = false, want true")
+	}
+	got.ParameterSchema["added"] = true
+	got.ParameterSchema["nested"].(map[string]any)["value"] = "changed"
+	got.ParameterSchema["items"].([]any)[0] = "changed"
+
+	stored, ok := reg.Get("read")
+	if !ok {
+		t.Fatal("second Get() = false, want true")
+	}
+	if _, ok := stored.ParameterSchema["added"]; ok {
+		t.Fatal("Get() returned schema mutation to registry")
+	}
+	if got := stored.ParameterSchema["nested"].(map[string]any)["value"]; got != "original" {
+		t.Fatalf("nested schema value = %v, want original", got)
+	}
+	if got := stored.ParameterSchema["items"].([]any)[0]; got != "original" {
+		t.Fatalf("schema item = %v, want original", got)
+	}
+}
+
+func TestIsParallelSafe(t *testing.T) {
+	reg := NewRegistry(
+		ToolDef{Name: "read", ParallelSafe: true},
+		ToolDef{Name: "glob", ParallelSafe: true},
+		ToolDef{Name: "bash"},
+		ToolDef{Name: "mcp_tool", ParallelSafe: true, MCP: MCPProvenance{Server: "some-server", ToolName: "mcp_tool"}},
+	)
+
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"read", true},
+		{"glob", true},
+		{"bash", false},
+		{"mcp_tool", false},
+		{"missing", false},
+	}
+	for _, tt := range tests {
+		if got := reg.IsParallelSafe(tt.name); got != tt.want {
+			t.Errorf("IsParallelSafe(%q) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

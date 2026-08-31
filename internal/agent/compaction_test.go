@@ -590,7 +590,7 @@ func TestSummarizeCompactorRunsEmergencyStageWhenNormalCompactionLeavesPromptToo
 		Provider:      providerStub,
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:               3300,
+			ContextSize:               4000,
 			MaxCompletionTokens:       128,
 			SafetyMarginTokens:        0,
 			SummaryMaxTokens:          64,

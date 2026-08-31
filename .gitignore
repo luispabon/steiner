@@ -9,6 +9,7 @@ project_planning/
 .project_planning/
 /steiner
 .steiner/plans/
+.steiner/traces/
 
 .steiner/home/
 internal/provider/testdata/codex_ws_probe_output.jsonl

@@ -24,4 +24,7 @@ func applyLimitsPatch(dst *LimitsConfig, patch *limitsPatch) {
 	if patch.ToolOutputMaxBytes != nil {
 		dst.ToolOutputMaxBytes = *patch.ToolOutputMaxBytes
 	}
+	if patch.MaxParallelTools != nil {
+		dst.MaxParallelTools = *patch.MaxParallelTools
+	}
 }

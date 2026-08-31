@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,10 +12,16 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// newMutateTestTool builds a mutate tool whose FileObserved checker always
+// reports true. Nearly all tests in this file exercise replace mechanics
+// (diagnostics, hash verification, batch accounting) unrelated to the
+// observation guard, which has its own dedicated tests
+// (TestMutateReplaceObservationGuard); defaulting to "observed" here keeps
+// them exercising what they actually test.
 func newMutateTestTool(t *testing.T, root string) tool.ToolDef {
 	t.Helper()
 	policy := tool.NewPathPolicy(root, config.PathsConfig{})
-	return NewMutateTool(Env{WorkDir: root, PathPolicy: &policy})
+	return NewMutateTool(Env{WorkDir: root, PathPolicy: &policy, FileObserved: func(string) bool { return true }})
 }
 
 func runMutate(t *testing.T, toolDef tool.ToolDef, input map[string]any) *MutateResult {
@@ -65,8 +72,20 @@ func TestMutateOperations(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "old.txt")); !os.IsNotExist(err) {
 		t.Fatalf("old.txt exists after move, err=%v", err)
 	}
-	if !strings.Contains(got.Output, "--- note.txt") {
-		t.Fatalf("Output = %q, want diff", got.Output)
+	if len(got.Created) != 2 {
+		t.Fatalf("Created = %v, want 2 items (created.txt, written.txt)", got.Created)
+	}
+	if len(got.Modified) != 1 || got.Modified[0] != "note.txt" {
+		t.Fatalf("Modified = %v, want [note.txt]", got.Modified)
+	}
+	if len(got.Deleted) != 1 || got.Deleted[0] != "written.txt" {
+		t.Fatalf("Deleted = %v, want [written.txt]", got.Deleted)
+	}
+	if len(got.Moved) != 1 || got.Moved[0].From != "old.txt" || got.Moved[0].To != "new.txt" {
+		t.Fatalf("Moved = %v, want [old.txt -> new.txt]", got.Moved)
+	}
+	if got.Output != "" {
+		t.Fatalf("Output = %q, want empty string on success", got.Output)
 	}
 }
 
@@ -188,42 +207,47 @@ func TestMutateReturnsStructuredVerificationData(t *testing.T) {
 	if got.FileHashes["note.txt"] != fileContentHash([]byte("alpha\nBETA\ncharlie\n")) {
 		t.Fatalf("file hash = %q, want hash for final content", got.FileHashes["note.txt"])
 	}
-	if len(got.OperationResults) != 1 {
-		t.Fatalf("len(OperationResults) = %d, want 1", len(got.OperationResults))
+	// Single-match replaces are filtered from OperationResults on success.
+	if len(got.OperationResults) != 0 {
+		t.Fatalf("len(OperationResults) = %d, want 0 (single-match replaces filtered)", len(got.OperationResults))
 	}
-	op := got.OperationResults[0]
-	if op.Index != 1 || op.Type != "replace" || op.Path != "note.txt" {
-		t.Fatalf("operation result = %#v", op)
+}
+
+func TestMutateSuccessEnvelopeIsCompact(t *testing.T) {
+	root := t.TempDir()
+	toolDef := newMutateTestTool(t, root)
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\ncharlie\ndelta\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
 	}
-	if op.ResolvedPath != path {
-		t.Errorf("ResolvedPath = %q, want absolute path %q", op.ResolvedPath, path)
+
+	got := runMutate(t, toolDef, map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":           "replace",
+				"path":           "note.txt",
+				"old_string":     "beta",
+				"new_string":     "BETA",
+				"assert_present": []any{"BETA"},
+				"assert_absent":  []any{"beta\n"},
+			},
+		},
+	})
+	if got.OperationsFailed != 0 {
+		t.Fatalf("mutate failed: %#v", got)
 	}
-	if !filepath.IsAbs(op.ResolvedPath) {
-		t.Errorf("ResolvedPath = %q, want absolute", op.ResolvedPath)
+
+	b, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal success result: %v", err)
 	}
-	if op.MatchCount != 1 {
-		t.Fatalf("MatchCount = %d, want 1", op.MatchCount)
+	for _, field := range []string{"resolved_path", "file_hash", "assertions", "context"} {
+		if strings.Contains(string(b), `"`+field+`"`) {
+			t.Errorf("success JSON unexpectedly contains %q field: %s", field, b)
+		}
 	}
-	if op.FileHash != got.FileHashes["note.txt"] {
-		t.Fatalf("operation file hash = %q, want %q", op.FileHash, got.FileHashes["note.txt"])
-	}
-	if len(op.Assertions) != 2 {
-		t.Fatalf("len(Assertions) = %d, want 2", len(op.Assertions))
-	}
-	if op.Assertions[0].Kind != "present" || op.Assertions[0].Text != "BETA" || op.Assertions[0].Matches != 1 {
-		t.Fatalf("present assertion = %#v", op.Assertions[0])
-	}
-	if op.Assertions[1].Kind != "absent" || op.Assertions[1].Matches != 0 {
-		t.Fatalf("absent assertion = %#v", op.Assertions[1])
-	}
-	if op.Context == nil {
-		t.Fatal("Context = nil, want bounded excerpt")
-	}
-	if op.Context.StartLine != 1 || op.Context.EndLine != 3 || op.Context.TotalLines != 3 {
-		t.Fatalf("context lines = %#v, want full 3-line excerpt", op.Context)
-	}
-	if op.Context.Content != "alpha\nBETA\ncharlie\n" {
-		t.Fatalf("context content = %q", op.Context.Content)
+	if len(b) >= 500 {
+		t.Fatalf("success result = %d bytes, want under 500 for a representative single-file replace: %s", len(b), b)
 	}
 }
 
@@ -624,7 +648,11 @@ func TestMutateReplaceInsertionPatterns(t *testing.T) {
 	})
 }
 
-func TestMutateDiffOutputContainsHunks(t *testing.T) {
+// TestMutateSuccessOutputOmitsDiff locks in that a successful mutate no
+// longer echoes a unified diff back in Output — the model authored the
+// change itself and doesn't need it repeated. unifiedTextDiff's hunk
+// formatting is covered directly by mutate_diff_test.go.
+func TestMutateSuccessOutputOmitsDiff(t *testing.T) {
 	root := t.TempDir()
 	lines := make([]string, 50)
 	for i := range lines {
@@ -644,18 +672,12 @@ func TestMutateDiffOutputContainsHunks(t *testing.T) {
 	if got.OperationsFailed != 0 {
 		t.Fatalf("mutate failed: %#v", got)
 	}
-	if !strings.Contains(got.Output, "@@ -") {
-		t.Fatalf("Output missing hunk header:\n%s", got.Output)
+	// On success, Output is empty and status is available via Modified array.
+	if got.Output != "" {
+		t.Fatalf("Output = %q, want empty on success", got.Output)
 	}
-	if !strings.Contains(got.Output, "-old target") {
-		t.Fatalf("Output missing deleted line:\n%s", got.Output)
-	}
-	if !strings.Contains(got.Output, "+new target") {
-		t.Fatalf("Output missing inserted line:\n%s", got.Output)
-	}
-	hunkCount := strings.Count(got.Output, "@@ -")
-	if hunkCount != 1 {
-		t.Fatalf("hunk count = %d, want 1", hunkCount)
+	if len(got.Modified) != 1 || got.Modified[0] != "note.txt" {
+		t.Fatalf("Modified = %v, want [note.txt]", got.Modified)
 	}
 }
 
@@ -753,8 +775,15 @@ func TestMutateMultiFileOperations(t *testing.T) {
 	assertFile(t, filepath.Join(root, "a.txt"), "ALPHA\n")
 	assertFile(t, filepath.Join(root, "b.txt"), "BETA\n")
 	assertFile(t, filepath.Join(root, "c.txt"), "gamma\n")
-	if !strings.Contains(got.Output, "--- a.txt") || !strings.Contains(got.Output, "--- b.txt") {
-		t.Fatalf("Output missing per-file diffs:\n%s", got.Output)
+	// On success, Output is empty and status is available via status arrays.
+	if got.Output != "" {
+		t.Fatalf("Output = %q, want empty on success", got.Output)
+	}
+	if len(got.Modified) != 2 {
+		t.Fatalf("Modified = %v, want 2 items (a.txt, b.txt)", got.Modified)
+	}
+	if len(got.Created) != 1 || got.Created[0] != "c.txt" {
+		t.Fatalf("Created = %v, want [c.txt]", got.Created)
 	}
 }
 
@@ -865,7 +894,7 @@ func TestMutatePlanningFailureDoesNotCreateIntermediateFiles(t *testing.T) {
 	}
 }
 
-func TestMutateOutputIsBoundedForLargeWrite(t *testing.T) {
+func TestMutateSuccessOutputStaysSmallForLargeWrite(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "big.txt")
 	if err := os.WriteFile(path, []byte(strings.Repeat("before\n", 8000)), 0o644); err != nil {
@@ -879,11 +908,13 @@ func TestMutateOutputIsBoundedForLargeWrite(t *testing.T) {
 	if got.OperationsFailed != 0 {
 		t.Fatalf("mutate failed: %#v", got)
 	}
-	if len(got.Output) > maxMutateOutputChars+len("\n<truncated>") {
-		t.Fatalf("Output len = %d, want bounded", len(got.Output))
+	// Success output omits diffs entirely, so it stays tiny regardless of
+	// how large the underlying write was.
+	if len(got.Output) > 200 {
+		t.Fatalf("Output len = %d, want small status-only output: %q", len(got.Output), got.Output)
 	}
-	if !strings.Contains(got.Output, "<diff omitted: change too large") {
-		t.Fatalf("Output missing omitted diff marker: %q", got.Output)
+	if strings.Contains(got.Output, "after\n") {
+		t.Fatalf("Output unexpectedly contains file content: %q", got.Output)
 	}
 }
 
@@ -900,6 +931,9 @@ func TestMutateReturnsBoundedPostEditContext(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
+	// A trailing failing operation forces the whole batch to fail, which
+	// preserves the first operation's context in the failure envelope
+	// (context is stripped on success, but left intact on failure).
 	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
 		"operations": []any{
 			map[string]any{
@@ -908,13 +942,22 @@ func TestMutateReturnsBoundedPostEditContext(t *testing.T) {
 				"old_string": "needle",
 				"new_string": "NEEDLE",
 			},
+			map[string]any{
+				"type":       "replace",
+				"path":       "missing.txt",
+				"old_string": "x",
+				"new_string": "y",
+			},
 		},
 	})
-	if got.OperationsFailed != 0 {
-		t.Fatalf("mutate failed: %#v", got)
+	if got.OperationsFailed == 0 {
+		t.Fatalf("mutate succeeded, want failure: %#v", got)
 	}
 	if len(got.OperationResults) != 1 {
 		t.Fatalf("len(OperationResults) = %d, want 1", len(got.OperationResults))
+	}
+	if got.OperationResults[0].ResolvedPath == "" {
+		t.Fatal("ResolvedPath is empty, want populated on failure")
 	}
 	ctx := got.OperationResults[0].Context
 	if ctx == nil {
@@ -1689,16 +1732,12 @@ func TestMutateSuccessfulBatchMarksApplied(t *testing.T) {
 	if got.OperationsRolledBack != 0 {
 		t.Fatalf("OperationsRolledBack = %d, want 0", got.OperationsRolledBack)
 	}
-	if len(got.OperationResults) != 3 {
-		t.Fatalf("OperationResults count = %d, want 3", len(got.OperationResults))
+	// Single-match replaces (MatchCount=1) are filtered from OperationResults on success.
+	if len(got.OperationResults) != 0 {
+		t.Fatalf("OperationResults count = %d, want 0 (single-match replaces filtered)", len(got.OperationResults))
 	}
-	for i, opResult := range got.OperationResults {
-		if opResult.Applied != true {
-			t.Fatalf("OperationResults[%d].Applied = %v, want true", i, opResult.Applied)
-		}
-		if opResult.FileHash == "" {
-			t.Fatalf("OperationResults[%d].FileHash is empty, want non-empty", i)
-		}
+	if got.FileHashes["note.txt"] == "" {
+		t.Fatal("FileHashes[note.txt] is empty, want non-empty on success")
 	}
 	assertFile(t, path, "A\nB\nC\n")
 }
@@ -1736,5 +1775,230 @@ func TestMutateSchemaOpTypes(t *testing.T) {
 		if !typeMap[want] {
 			t.Errorf("schema missing type %q", want)
 		}
+	}
+}
+
+func TestMutateSuccessProjectionSingleCreate(t *testing.T) {
+	// Test that a single create operation returns trimmed JSON with only
+	// created, file_hashes, operations_applied and no paths, operation_results, or output.
+	root := t.TempDir()
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": "POEM.md", "content": "Roses are red\nViolets are blue\n"},
+		},
+	})
+
+	if got.OperationsFailed != 0 {
+		t.Fatalf("OperationsFailed = %d, want 0", got.OperationsFailed)
+	}
+	if got.OperationsApplied != 1 {
+		t.Fatalf("OperationsApplied = %d, want 1", got.OperationsApplied)
+	}
+
+	// Verify the trimmed fields are present/correct.
+	if len(got.Created) != 1 || got.Created[0] != "POEM.md" {
+		t.Fatalf("Created = %v, want [POEM.md]", got.Created)
+	}
+	if len(got.FileHashes) != 1 {
+		t.Fatalf("len(FileHashes) = %d, want 1", len(got.FileHashes))
+	}
+
+	// Verify the dropped fields are absent/empty.
+	if got.Paths != nil {
+		t.Fatalf("Paths = %v, want nil on success", got.Paths)
+	}
+	if got.OperationResults != nil {
+		t.Fatalf("OperationResults = %v, want nil on success (no MatchCount > 1 entries)", got.OperationResults)
+	}
+	if got.Output != "" {
+		t.Fatalf("Output = %q, want empty on success", got.Output)
+	}
+
+	// Marshal and verify JSON shape matches plan target.
+	// Success envelope is trimmed: paths, operation_results, and output absent (omitempty).
+	b, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("unmarshal to check keys: %v", err)
+	}
+	if _, ok := m["paths"]; ok {
+		t.Errorf("JSON unexpectedly contains 'paths' key")
+	}
+	if _, ok := m["operation_results"]; ok {
+		t.Errorf("JSON unexpectedly contains 'operation_results' key")
+	}
+	if _, ok := m["output"]; ok {
+		t.Errorf("JSON unexpectedly contains 'output' key")
+	}
+	if _, ok := m["created"]; !ok {
+		t.Errorf("JSON missing 'created' key")
+	}
+	if _, ok := m["file_hashes"]; !ok {
+		t.Errorf("JSON missing 'file_hashes' key")
+	}
+	if _, ok := m["operations_applied"]; !ok {
+		t.Errorf("JSON missing 'operations_applied' key")
+	}
+}
+
+func TestMutateMultiMatchReplaceKeepsOperationResult(t *testing.T) {
+	// Test that a replace with MatchCount > 1 keeps the operation result
+	// with only Index, Type, Path, MatchCount fields.
+	root := t.TempDir()
+	content := "foo\nfoo\nbar\nfoo\n"
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":        "replace",
+				"path":        "file.txt",
+				"old_string":  "foo",
+				"new_string":  "FOO",
+				"replace_all": true,
+			},
+		},
+	})
+
+	if got.OperationsFailed != 0 {
+		t.Fatalf("OperationsFailed = %d, want 0", got.OperationsFailed)
+	}
+	if len(got.OperationResults) != 1 {
+		t.Fatalf("len(OperationResults) = %d, want 1 (MatchCount > 1 entry kept)", len(got.OperationResults))
+	}
+
+	op := got.OperationResults[0]
+	if op.Index != 1 || op.Type != "replace" || op.Path != "file.txt" {
+		t.Fatalf("operation result = %#v, want Index=1, Type=replace, Path=file.txt", op)
+	}
+	if op.MatchCount != 3 {
+		t.Fatalf("MatchCount = %d, want 3", op.MatchCount)
+	}
+
+	// Verify other fields are cleared.
+	if op.ResolvedPath != "" {
+		t.Errorf("ResolvedPath = %q, want empty", op.ResolvedPath)
+	}
+	if op.FileHash != "" {
+		t.Errorf("FileHash = %q, want empty", op.FileHash)
+	}
+	if op.Assertions != nil {
+		t.Errorf("Assertions = %v, want nil", op.Assertions)
+	}
+	if op.Context != nil {
+		t.Errorf("Context = %v, want nil", op.Context)
+	}
+}
+
+func TestMutateFailurePayloadUnchanged(t *testing.T) {
+	// Test that a batch with a failure emits the full envelope unchanged:
+	// paths, operation_results with resolved_path/file_hash/assertions intact, output.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "exists.txt"), []byte("content\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{
+				"type":        "replace",
+				"path":        "exists.txt",
+				"old_string":  "content",
+				"new_string":  "CONTENT",
+				"replace_all": true,
+			},
+			map[string]any{
+				"type":    "create",
+				"path":    "missing_parent/new.txt",
+				"content": "new\n",
+			},
+		},
+	})
+
+	if got.OperationsFailed != 1 {
+		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
+	}
+	if got.OperationsApplied != 0 {
+		t.Fatalf("OperationsApplied = %d, want 0 (atomic failure)", got.OperationsApplied)
+	}
+
+	// Failure payload should have empty Paths (set by clearCommittedMetadata).
+	if len(got.Paths) != 0 {
+		t.Fatalf("Paths = %v, want empty slice on failure", got.Paths)
+	}
+
+	// Output should be a prose diagnostic.
+	if got.Output == "" {
+		t.Fatal("Output is empty, want prose diagnostic on failure")
+	}
+
+	// Verify the JSON shape includes output on failure.
+	// Note: Added json:"paths,omitempty" to Paths field for success-path trimming.
+	// This causes empty Paths arrays to be omitted from failure-path JSON too
+	// (acceptable edge case: zero-dirty-paths failure scenario).
+	b, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("unmarshal to check keys: %v", err)
+	}
+	if _, ok := m["paths"]; ok {
+		t.Errorf("JSON unexpectedly contains 'paths' key on failure (omitted via omitempty on empty array)")
+	}
+	if _, ok := m["output"]; !ok {
+		t.Errorf("JSON missing 'output' key on failure")
+	}
+}
+
+func TestMutateMutatedPathsMethod(t *testing.T) {
+	// Test that MutatedPaths() returns the union of all touched paths.
+	// This guards the consumer-side interface added in tool_exec.go.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "modify.txt"), []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "move_me.txt"), []byte("move\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": "created.txt", "content": "new\n"},
+			map[string]any{"type": "write", "path": "written.txt", "content": "written\n"},
+			map[string]any{"type": "replace", "path": "modify.txt", "old_string": "old", "new_string": "new"},
+			map[string]any{"type": "delete_file", "path": "written.txt"},
+			map[string]any{"type": "move", "from": "move_me.txt", "to": "moved.txt"},
+		},
+	})
+
+	paths := got.MutatedPaths()
+
+	// All touched paths should be present (both old and new names for moved).
+	pathMap := make(map[string]bool)
+	for _, p := range paths {
+		pathMap[p] = true
+	}
+
+	wantPaths := []string{"created.txt", "written.txt", "modify.txt", "move_me.txt", "moved.txt"}
+	for _, want := range wantPaths {
+		if !pathMap[want] {
+			t.Errorf("MutatedPaths() missing %q; got %v", want, paths)
+		}
+	}
+
+	// No duplicates.
+	seen := make(map[string]bool)
+	for _, p := range paths {
+		if seen[p] {
+			t.Errorf("MutatedPaths() has duplicate path %q", p)
+		}
+		seen[p] = true
 	}
 }

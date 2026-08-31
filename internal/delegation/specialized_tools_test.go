@@ -22,6 +22,22 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// runRequestsEqualIgnoringFuncFields compares two RunRequest values for
+// equality, ignoring func-typed fields (e.g. ParallelClassOf, DrainSteers):
+// reflect.DeepEqual on func values reports non-nil funcs as unequal even when
+// both come from the same struct copy, which would otherwise make this
+// comparison spuriously fail once a request always carries a non-nil
+// ParallelClassOf.
+func runRequestsEqualIgnoringFuncFields(a, b agent.RunRequest) bool {
+	a.ParallelClassOf = nil
+	b.ParallelClassOf = nil
+	a.DrainSteers = nil
+	b.DrainSteers = nil
+	a.TurnBudgetNotice = nil
+	b.TurnBudgetNotice = nil
+	return reflect.DeepEqual(a, b)
+}
+
 type mockRunner struct {
 	runFunc func(context.Context, agent.RunRequest) (agent.RunState, error)
 }
@@ -156,6 +172,62 @@ func startedEvents(events []output.Event) []output.Event {
 		}
 	}
 	return started
+}
+
+func TestSpecializedHandler_CancelledBeforeDispatchCleansToolCallTrace(t *testing.T) {
+	const agentID = "child-cancelled-before-dispatch"
+	originalIDGen := idGen
+	idGen = func() string { return agentID }
+	t.Cleanup(func() { idGen = originalIDGen })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var traceWriter *toolCallTraceWriter
+	events := output.SinkFunc(func(event output.Event) {
+		if event.Type != output.EventTypeDelegationStarted {
+			return
+		}
+		toolCallTraceRegistryMu.Lock()
+		traceWriter = toolCallTraceRegistry[agentID]
+		toolCallTraceRegistryMu.Unlock()
+		cancel()
+	})
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		t.Fatal("runner called after cancellation before dispatch")
+		return agent.RunState{}, nil
+	}})
+	deps.Events = events
+	deps.WorkDir = t.TempDir()
+
+	raw, err := SpecializedToolDef(AgentTypeExplore, deps).Handler(ctx, map[string]any{"task": "explore"})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	result, ok := raw.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+	delegationResult, ok := result.Value.(Result)
+	if !ok {
+		t.Fatalf("result.Value is %T, want Result", result.Value)
+	}
+	if delegationResult.Status != StatusCancelled {
+		t.Errorf("result status = %q, want %q", delegationResult.Status, StatusCancelled)
+	}
+	if traceWriter == nil {
+		t.Fatal("trace writer was not registered before cancellation")
+	}
+
+	toolCallTraceRegistryMu.Lock()
+	_, registered := toolCallTraceRegistry[agentID]
+	toolCallTraceRegistryMu.Unlock()
+	if registered {
+		t.Error("cancelled child trace writer remains registered")
+	}
+	if _, err := traceWriter.file.Stat(); err == nil {
+		t.Error("trace writer file Stat succeeded after close")
+	}
 }
 
 func TestSpecializedHandler_DispatchGateFollowerWaits(t *testing.T) {
@@ -992,8 +1064,11 @@ func TestSpecializedHandler_SavesChildSession(t *testing.T) {
 	if session.Spec.SystemPrompt != AgentSystemPrompt(AgentTypeExplore) {
 		t.Fatalf("Spec.SystemPrompt = %q, want %q", session.Spec.SystemPrompt, AgentSystemPrompt(AgentTypeExplore))
 	}
-	if !reflect.DeepEqual(session.Request, capturedReq) {
+	if !runRequestsEqualIgnoringFuncFields(session.Request, capturedReq) {
 		t.Fatal("saved request does not match child run request")
+	}
+	if capturedReq.TurnBudgetNotice == nil {
+		t.Fatal("expected TurnBudgetNotice to be set on the dispatched child run request")
 	}
 	if !reflect.DeepEqual(session.Conversation, state.Conversation) {
 		t.Fatalf("Conversation = %#v, want %#v", session.Conversation, state.Conversation)
@@ -1203,8 +1278,11 @@ func TestSpecializedHandler_SavesSessionForStructuredFailure(t *testing.T) {
 	if !ok {
 		t.Fatal("session was not saved for structured failure")
 	}
-	if !reflect.DeepEqual(session.Request, capturedReq) {
+	if !runRequestsEqualIgnoringFuncFields(session.Request, capturedReq) {
 		t.Fatal("saved request does not match child run request")
+	}
+	if capturedReq.TurnBudgetNotice == nil {
+		t.Fatal("expected TurnBudgetNotice to be set on the dispatched child run request")
 	}
 	if len(session.Conversation) != 0 {
 		t.Fatalf("Conversation length = %d, want 0", len(session.Conversation))

@@ -368,14 +368,21 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		ImageStore:         r.runtime.imageStore,
 		SourceConversation: setup.conversation,
 	}
-	if r.runtime.cfg.SubAgent.Enabled {
-		req.ParallelTool = delegation.IsDelegationTool
-		req.MaxParallelTools = r.runtime.cfg.SubAgent.MaxParallel
-	} else {
-		// Leave parallel delegation fields unset when delegation is disabled.
-		req.ParallelTool = nil
-		req.MaxParallelTools = 0
+	// delegation.IsDelegationTool matching a name has no effect when
+	// delegation is disabled: BuildDelegateRegistry never registers
+	// delegation tools into activeRegistry in that case, so the model can
+	// never call a name the predicate would match. No branching is needed.
+	req.ParallelClassOf = func(name string) agent.ParallelClass {
+		if delegation.IsDelegationTool(name) {
+			return agent.ParallelClassDelegation
+		}
+		if activeRegistry.IsParallelSafe(name) {
+			return agent.ParallelClassTool
+		}
+		return agent.ParallelClassNone
 	}
+	req.MaxParallelTools = r.runtime.cfg.Limits.MaxParallelTools
+	req.MaxParallelDelegations = r.runtime.cfg.SubAgent.MaxParallel
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder
 	}

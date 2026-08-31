@@ -25,6 +25,7 @@ func NewReadTool(env Env) tool.ToolDef {
 	readTool := toolkit.NewReadFileTool()
 	return tool.ToolDef{
 		Name:            "read",
+		ParallelSafe:    true,
 		Description:     "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Returns line-numbered content and pagination metadata for text files. Output is bounded; continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
 		ParameterSchema: ReadSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {

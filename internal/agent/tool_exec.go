@@ -10,6 +10,10 @@ type mutated interface {
 	WasMutated() bool
 }
 
+type mutatedPaths interface {
+	MutatedPaths() []string
+}
+
 func recordMutationForContextManager(cm *ContextStateManager, toolName string, _ map[string]any, result any) {
 	if cm == nil || !strings.EqualFold(strings.TrimSpace(toolName), "mutate") {
 		return
@@ -23,6 +27,9 @@ func recordMutationForContextManager(cm *ContextStateManager, toolName string, _
 }
 
 func mutationResultPaths(result any) []string {
+	if mp, ok := result.(mutatedPaths); ok {
+		return mp.MutatedPaths()
+	}
 	data, err := json.Marshal(result)
 	if err != nil {
 		return nil

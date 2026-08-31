@@ -21,6 +21,7 @@ type SubAgentHandlerDeps struct {
 	Runner               AgentRunner
 	WorkDir              string
 	HomeDir              string
+	SessionID            string
 	ProjectContextConfig config.ProjectContextConfig
 	// ResolvedModel is the parent's config-resolved model, used as the fallback
 	// for sub-agents without a per-type alias. It must not carry session-time
@@ -66,6 +67,18 @@ type SubAgentHandlerDeps struct {
 	// /new. This is a deliberate accepted scope choice — a stale shard hint
 	// costs at most a cache miss, never a correctness issue — not a bug.
 	CacheKeyStore *CacheKeyStore
+	// MaxParallelTools bounds how many parallel-safe tool calls a child may
+	// run concurrently within its own turn. Distinct from SubAgentCfg.MaxParallel,
+	// which bounds concurrent delegation spawns from the parent.
+	MaxParallelTools int
+	// Limits and Paths are forwarded to the child's tool executor so it
+	// respects the same tool_output_max_bytes cap and path policy as the
+	// parent, instead of running with library defaults.
+	Limits config.LimitsConfig
+	Paths  config.PathsConfig
+	// ContextManagement is forwarded to the child's ContextStateManager so it
+	// respects the same context_management settings as the parent.
+	ContextManagement config.ContextManagementConfig
 }
 
 // ChildSession tracks persisted state for a delegated child session.
