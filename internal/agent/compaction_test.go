@@ -13,6 +13,91 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestHasCompactionSourceUsesAssistantCycles(t *testing.T) {
+	assistantToolCycle := []Message{
+		{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "call_1", Name: "read"}}},
+		{Role: MessageRoleTool, ToolCallID: "call_1", Content: "result"},
+	}
+	tests := []struct {
+		name       string
+		messages   []Message
+		wantSource bool
+	}{
+		{name: "empty", wantSource: false},
+		{name: "lone user", messages: []Message{{Role: MessageRoleUser}}, wantSource: false},
+		{name: "user and assistant", messages: []Message{{Role: MessageRoleUser}, {Role: MessageRoleAssistant}}, wantSource: false},
+		{name: "user and tool", messages: []Message{{Role: MessageRoleUser}, {Role: MessageRoleTool}}, wantSource: false},
+		{name: "one assistant tool cycle", messages: assistantToolCycle, wantSource: false},
+		{
+			name: "one user with multiple assistant tool cycles",
+			messages: append([]Message{{Role: MessageRoleUser}}, append(assistantToolCycle, []Message{
+				{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "call_2", Name: "read"}}},
+				{Role: MessageRoleTool, ToolCallID: "call_2", Content: "result"},
+			}...)...),
+			wantSource: true,
+		},
+		{
+			name:       "two user turns",
+			messages:   []Message{{Role: MessageRoleUser}, {Role: MessageRoleAssistant}, {Role: MessageRoleUser}, {Role: MessageRoleAssistant}},
+			wantSource: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasCompactionSource(tt.messages); got != tt.wantSource {
+				t.Fatalf("HasCompactionSource() = %v, want %v", got, tt.wantSource)
+			}
+		})
+	}
+}
+
+func TestCompactionSplitsAssistantCyclesAndKeepsToolResultsPaired(t *testing.T) {
+	messages := []Message{
+		{Role: MessageRoleSummary, Content: "summary prefix"},
+		{Role: MessageRoleContextBlock, Content: "context prefix"},
+		{Role: MessageRoleUser, Content: "request"},
+		{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "call_1", Name: "read"}}},
+		{Role: MessageRoleTool, ToolCallID: "call_1", Content: "result 1"},
+		{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "call_2", Name: "read"}}},
+		{Role: MessageRoleTool, ToolCallID: "call_2", Content: "result 2"},
+	}
+
+	turns := splitCompactionTurns(messages)
+	if got, want := len(turns), 3; got != want {
+		t.Fatalf("compaction units = %d, want %d", got, want)
+	}
+	if got, want := len(turns[0]), 2; got != want {
+		t.Fatalf("prefix unit length = %d, want %d", got, want)
+	}
+	if got, want := len(turns[1]), 3; got != want {
+		t.Fatalf("first assistant cycle length = %d, want %d", got, want)
+	}
+	if got, want := len(turns[2]), 2; got != want {
+		t.Fatalf("second assistant cycle length = %d, want %d", got, want)
+	}
+
+	source, retained := compactionSourceAndRetention(messages, messages, emergencyCompactionRetainTurns)
+	if got, want := len(source), 5; got != want {
+		t.Fatalf("source length = %d, want %d", got, want)
+	}
+	if got, want := len(retained), 2; got != want {
+		t.Fatalf("retained length = %d, want %d", got, want)
+	}
+	if got, want := source[3].ToolCalls[0].ID, "call_1"; got != want {
+		t.Fatalf("source assistant tool call = %q, want %q", got, want)
+	}
+	if got, want := source[4].ToolCallID, "call_1"; got != want {
+		t.Fatalf("source tool result = %q, want %q", got, want)
+	}
+	if got, want := retained[0].ToolCalls[0].ID, "call_2"; got != want {
+		t.Fatalf("retained assistant tool call = %q, want %q", got, want)
+	}
+	if got, want := retained[1].ToolCallID, "call_2"; got != want {
+		t.Fatalf("retained tool result = %q, want %q", got, want)
+	}
+}
+
 func TestCompactionEscalationPolicy(t *testing.T) {
 	stableFit := prompt.RequestTokenBudget{ContextSize: 400, TotalTokens: 460}
 	fragileFit := prompt.RequestTokenBudget{ContextSize: 400, TotalTokens: 560}
