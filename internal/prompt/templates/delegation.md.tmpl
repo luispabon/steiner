@@ -17,9 +17,13 @@ After an orchestrated workflow, write commit messages and PR titles/bodies from 
 {{ end }}
 Every `code` sub-agent runs in an isolated git worktree under `.steiner/worktrees/`. Use `worktree_path` and `worktree_branch` from the delegation result to inspect or merge its work, and check warnings for parent-tree changes it could not see. If worktree provisioning fails, the code call fails; there is no shared-tree fallback. After merging and verifying the work, ALWAYS prune the worktree.
 
+## Deliverable boundaries
+
+A deliverable is one package boundary, at most one independent design decision: contract/protocol, persistence/lifecycle behavior, consumer behavior, or compatibility migration. Inventing or reconciling more than one crosses a boundary. Mechanical propagation of an already-established contract across packages stays one deliverable. Unclear if a task crosses a boundary, or whether two steps share files? Use `explore`, not direct reads. Governs step sizing, parallel dispatch, `follow_up` reuse, and `code` briefs below.
+
 ## Continuing sub-agents
 
-Use a reuse-first lifecycle within each bounded deliverable. After each sub-agent result, inspect `session_resumable`, but treat it as session state, not workspace validation: prefer `follow_up` before cold dispatch only when the session is resumable, the next request remains within the same bounded deliverable, and the same live workspace is available. `follow_up` resumes the saved agent session, retaining its conversation and tools; it can use the workspace only when that same live workspace still exists. Use warm `follow_up` for continuation of the same discovery, implementation step, or narrow review scope.
+Use a reuse-first lifecycle within one deliverable (above). After each sub-agent result, inspect `session_resumable`, but treat it as session state, not workspace validation: prefer `follow_up` before cold dispatch only when the session is resumable, the next request remains within the same deliverable, and the same live workspace is available. `follow_up` resumes the saved agent session, retaining its conversation and tools; it can use the workspace only when that same live workspace still exists. Use warm `follow_up` for continuation of the same discovery, implementation step, or narrow review scope. Don't stretch `follow_up` into a domain the worker never touched; dispatch a separate `code` task for that domain.
 
 Follow-ups must be sequential, never concurrent.
 
@@ -34,12 +38,12 @@ Unless a skill overrides it, follow this workflow:
   "Investigate the request. Clarify ambiguities, use `explore` for the codebase, and `research` when external information is needed."
   "Summarise understanding as **Goal, Assumptions, Scope, and Unknowns**, then run a `feedback_amend_loop`."
   "Present a brief high-level solution and implementation plan. If multiple viable approaches exist, compare their pros/cons and recommend one. Run a `feedback_amend_loop`."
-  "Break the approved plan into logical, self-contained implementation steps; combine trivial adjacent steps."
+  "Break the approved plan into implementation steps split at package and lifecycle boundaries (see Deliverable boundaries); combine trivial adjacent steps."
 -}}
 {{- if .AdvisorEnabled }}{{ $steps = append $steps "Consult `advisor`. If you think it's unnecessary, state why." }}{{ end -}}
 {{- $steps = append $steps
-  "Implement each step with `code` sub-agents, in parallel or serially as appropriate:\n   * Ensure the sub-agents ran code checks and fixed any failures, or use `follow_up` to exhort them to.\n   * Merge verified work and clean up its worktree."
-  "After all steps are merged, run `sanity_check`, then `review` for plan adherence and code quality. Resolve all findings with a fresh `code` sub-agent (or `follow_up` the old one if there was just one), then `sanity_check`, then `follow_up` the same `review`. Repeat the `code`/ `sanity_check` / `review` loop until clean."
+  "Implement each step with `code` sub-agents: parallel where steps are file-disjoint and consume an already-stable interface, serial otherwise.\n   * Ensure the sub-agents ran code checks and fixed any failures, or use `follow_up` to exhort them to.\n   * Merge verified work and clean up its worktree."
+  "After all steps are merged, run `sanity_check`, then `review` for plan adherence and code quality. Resolve findings within the domain the original worker already touched via `follow_up`; findings outside it go to a separate `code` task. Then `sanity_check`, then `follow_up` the same `review`. Repeat until clean."
 -}}
 {{- range $i, $s := $steps }}{{ add1 $i }}. {{ $s }}
 {{ end }}
@@ -62,7 +66,7 @@ Examples:
 
 ## Briefing a sub-agent
 
-For `code`, specify the exact files and relevant symbols/sections to change. Pre-digest the design: `code` executes, it does not design. Assign one deliverable per task.
+For `code`, specify the exact files and relevant symbols/sections to change. Pre-digest the design: `code` executes, it does not design. Assign one deliverable per task (see Deliverable boundaries).
 
 For `review`, specify the files or diff range and what to check.
 
