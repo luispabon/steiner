@@ -72,19 +72,44 @@ For every field on a tool result struct, ask in this order:
    outright.** Also remove whatever computed it — don't leave dead
    computation behind (e.g. `grep`'s `grepFileHashes()`, which hashed every
    matched file's full disk content for a field nothing ever read).
-5. **Decoupling the TUI's content source from the provider's is a last
-   resort, not yet used anywhere in this codebase**, and probably shouldn't
-   be reached for first. It sounds appealing (full TUI fidelity, minimal
-   provider payload) but doesn't actually work cleanly: since only the
-   provider-bound string persists to disk, a resumed session can only ever
-   reconstruct the TUI preview from that same trimmed string — so a
-   live/persisted split just creates an asymmetry (full fidelity live,
-   degraded after every resume) instead of solving the problem. If you
-   really can't resolve a field via steps 1-4, that asymmetry needs to be a
-   deliberate, called-out decision — not a silent side effect — and probably
-   needs new persistence machinery (e.g. actually persisting
-   `ToolCallFinishedEvent.Preview`, which is currently `json:"-"` and never
-   written to disk) to avoid the asymmetry entirely.
+5. **If the tool's host-only data is large, numeric/structured, and has no
+   preview dependency at all, use the `ToolResultProjector` interface**
+   (`internal/agent/delegation_projection.go`) instead of trying to
+   fold/derive it away. This *is* already used in this codebase — by
+   delegation (`internal/delegation/result.go`'s `Result.ProjectToolResult()
+   agent.DelegationResultEnvelope`) — and is the right tool when a struct
+   carries a lot of session/execution metadata (turn counts, token counts,
+   cache stats — see delegation's `Result`) that a human never needs to see
+   rendered and the model never needs either. It works cleanly for
+   delegation specifically because there's no dedicated
+   `preview_delegate.go` — delegation results fall through to the generic
+   preview fallback, so projecting away the metadata before it ever reaches
+   `BuildToolPreview` loses nothing on the TUI side. Before reaching for
+   this, check whether the tool you're trimming has a dedicated
+   `preview_<tool>.go` that reads fields you'd be projecting away — if it
+   does, this pattern reintroduces the exact preview-fidelity problem steps
+   3/6 exist to avoid, just via a different mechanism.
+6. **Decoupling the TUI's content source from the provider's when a preview
+   *does* depend on the data is a last resort.** It sounds appealing (full
+   TUI fidelity, minimal provider payload) but doesn't actually work
+   cleanly: since only the provider-bound string persists to disk, a
+   resumed session can only ever reconstruct the TUI preview from that same
+   trimmed string — so a live/persisted split just creates an asymmetry
+   (full fidelity live, degraded after every resume) instead of solving the
+   problem. If you really can't resolve a field via steps 1-5, that
+   asymmetry needs to be a deliberate, called-out decision — not a silent
+   side effect — and probably needs new persistence machinery (e.g. actually
+   persisting `ToolCallFinishedEvent.Preview`, which is currently `json:"-"`
+   and never written to disk) to avoid the asymmetry entirely.
+
+**Quick reference — which of steps 3/5/6 to reach for:**
+
+| Situation | Technique | Example |
+|---|---|---|
+| TUI needs a *count* already reconstructable from `output` | Derive in the preview builder | glob/ls/grep `returned` → `len(entries)` |
+| TUI needs *text* with a live preview dependency, no derivation possible | Fold the text into `output` at the source | bash `message` → inline marker in `output` |
+| Host data is large/structured/numeric, *no* preview dependency exists | `ToolResultProjector` interface | delegation `Result` → `DelegationResultEnvelope` |
+| TUI genuinely needs data that can't be derived or folded | Decouple content sources (last resort) | not yet needed by any tool trimmed so far |
 
 ## Verify against real session data, don't guess either direction
 
@@ -138,3 +163,26 @@ Every one of the #608-#619 issues explicitly excludes changing `mutate`
 result behavior. Don't let a "consistent pattern" impulse pull `mutate`'s
 result shape into a tool-result trim PR — if `mutate` needs the same
 treatment, that's its own issue/plan.
+
+## Survey of what's already been done, as of this writing
+
+- **glob/ls/display_file** (#609/#611/#613, commit `8279a957`) — landed.
+  Established the derive-in-preview technique (see quick reference table).
+- **Sub-agent/delegation tools** (#620, commit `61cb8c39`) — landed. Uses
+  the `ToolResultProjector` interface; see step 5 above.
+- **`mutate`** — already been through multiple prior trimming passes
+  (predates this GitHub-issue-driven initiative): "stage 1: trim mutate
+  success envelope", "stage 7: require observation or file_hash for mutate
+  replace", and a pass that deleted mutate's entire unified-diff-generation
+  feature (~850 lines, `mutate_diff.go`) from the success output. Not
+  virgin territory, and explicitly a non-goal for any of #608-#619 — but if
+  a future session does get asked to trim it, note before starting: what's
+  left on `MutateResult`/`MutateOperationResult` (`resolved_path`,
+  `file_hashes`, `paths`, `operation_results[].context`/`assertions`) has
+  zero `preview_mutate.go` consumer, but `file_hash`/`file_hashes` are very
+  likely the *supply side* of the exact mechanism that made `read`'s
+  `file_hash` load-bearing at 31% usage above (mutate hands back a fresh
+  hash after writing so a *subsequent* mutate can verify against it without
+  an intervening read) — verify against session history before touching it,
+  the same way `read`'s `file_hash` was verified here, not assumed either
+  way.
