@@ -31,8 +31,8 @@ func saveFetchedContent(workDir, content, contentType string, truncated bool, ma
 
 	runes := []rune(content)
 	previewRunes := runes
-	if len(runes) > inlineThreshold {
-		previewRunes = runes[:inlineThreshold]
+	if len(runes) > savedContentPreviewRunes {
+		previewRunes = runes[:savedContentPreviewRunes]
 	}
 	preview := string(previewRunes)
 
@@ -52,7 +52,6 @@ func saveFetchedContent(workDir, content, contentType string, truncated bool, ma
 		ContentLength: len(runes),
 		FilePath:      relPath,
 		NextOffset:    nextOffset,
-		Truncated:     truncated,
 		Message:       message,
 		TotalLines:    totalLines,
 	}, nil
