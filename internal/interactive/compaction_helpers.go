@@ -56,23 +56,7 @@ func (s *Session) emitCompactError(err error) {
 }
 
 func manualCompactionHasSource(messages []agent.Message) bool {
-	if len(messages) == 0 {
-		return false
-	}
-	turns := 0
-	inTurn := false
-	for _, message := range messages {
-		if message.Role == agent.MessageRoleUser {
-			turns++
-			inTurn = true
-			continue
-		}
-		if !inTurn {
-			turns++
-			inTurn = true
-		}
-	}
-	return turns > 1
+	return agent.HasCompactionSource(messages)
 }
 
 // snapshotTools returns the tools the last request sent, so the compaction is

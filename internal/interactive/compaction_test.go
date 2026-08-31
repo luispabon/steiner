@@ -85,6 +85,66 @@ func TestManualCompactionSkipsSingleTurnConversation(t *testing.T) {
 	}
 }
 
+func TestManualCompactionHasSourceUsesAssistantCycles(t *testing.T) {
+	assistantToolCycle := []agent.Message{
+		{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call_1", Name: "read"}}},
+		{Role: agent.MessageRoleTool, ToolCallID: "call_1"},
+	}
+	tests := []struct {
+		name       string
+		messages   []agent.Message
+		wantSource bool
+	}{
+		{name: "empty", wantSource: false},
+		{name: "lone user", messages: []agent.Message{{Role: agent.MessageRoleUser}}, wantSource: false},
+		{name: "user and assistant", messages: []agent.Message{{Role: agent.MessageRoleUser}, {Role: agent.MessageRoleAssistant}}, wantSource: false},
+		{name: "user and tool", messages: []agent.Message{{Role: agent.MessageRoleUser}, {Role: agent.MessageRoleTool}}, wantSource: false},
+		{name: "one assistant tool cycle", messages: assistantToolCycle, wantSource: false},
+		{
+			name: "one user with multiple assistant tool cycles",
+			messages: append([]agent.Message{{Role: agent.MessageRoleUser}}, append(assistantToolCycle, []agent.Message{
+				{Role: agent.MessageRoleAssistant, Content: "final"},
+			}...)...),
+			wantSource: true,
+		},
+		{
+			name:       "two user turns",
+			messages:   twoTurnConversation(),
+			wantSource: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := manualCompactionHasSource(tt.messages); got != tt.wantSource {
+				t.Fatalf("manualCompactionHasSource() = %v, want %v", got, tt.wantSource)
+			}
+		})
+	}
+}
+
+func TestManualCompactionAllowsMultipleAssistantCyclesInSingleTurn(t *testing.T) {
+	var gotConversation []agent.Message
+	runner := &runExecutorFunc{compact: func(_ context.Context, conversation []agent.Message, _ []string, _ []provider.ToolSpec) ([]agent.Message, error) {
+		gotConversation = cloneMessages(conversation)
+		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+	}}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+	s.SetConversation([]agent.Message{
+		{Role: agent.MessageRoleUser, Content: "request"},
+		{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call_1", Name: "read"}}},
+		{Role: agent.MessageRoleTool, ToolCallID: "call_1", Content: "result"},
+		{Role: agent.MessageRoleAssistant, Content: "final"},
+	})
+
+	s.manualCompaction(context.Background())
+	if got, want := len(gotConversation), 4; got != want {
+		t.Fatalf("Compact conversation length = %d, want %d", got, want)
+	}
+	if got, want := s.Conversation()[0].Content, "summary"; got != want {
+		t.Fatalf("conversation[0] = %q, want %q", got, want)
+	}
+}
+
 func TestManualCompactionUsesRunnerCompact(t *testing.T) {
 	var gotConversation []agent.Message
 	var gotSkills []string

@@ -97,6 +97,13 @@ func compactionSourceAndRetention(fullMessages, retentionBase []Message, retainT
 	return sourceMessages, cloneMessages(retainedMessages)
 }
 
+// HasCompactionSource reports whether emergency compaction can separate source
+// messages from the most recent retained compaction unit.
+func HasCompactionSource(messages []Message) bool {
+	sourceMessages, _ := compactionSourceAndRetention(messages, messages, emergencyCompactionRetainTurns)
+	return len(sourceMessages) > 0
+}
+
 func splitCompactionTurns(messages []Message) [][]Message {
 	if len(messages) == 0 {
 		return nil
@@ -104,12 +111,17 @@ func splitCompactionTurns(messages []Message) [][]Message {
 
 	turns := make([][]Message, 0, len(messages))
 	current := make([]Message, 0, len(messages))
+	hasAssistant := false
 	for _, message := range messages {
-		if message.Role == MessageRoleUser && len(current) > 0 {
+		if len(current) > 0 && (message.Role == MessageRoleUser || (message.Role == MessageRoleAssistant && hasAssistant)) {
 			turns = append(turns, current)
 			current = make([]Message, 0, len(messages)-len(turns))
+			hasAssistant = false
 		}
 		current = append(current, message)
+		if message.Role == MessageRoleAssistant {
+			hasAssistant = true
+		}
 	}
 	if len(current) > 0 {
 		turns = append(turns, current)
