@@ -23,7 +23,7 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees eight
 | `vision`    | Analyze an image by ID — the sub-agent receives the image directly               | `task`, `image_id`                                         | No                     |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
 
-The seven specialised tools (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`) are hardcoded with purpose-built system prompts and tool allowlists. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
+The seven specialised tools (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`) are hardcoded with purpose-built system prompts and tool allowlists. Delegation results sent to the provider use a compact envelope with exact `output`, optional failure status/reason, and optional persisted-session continuation. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
 
 ### Advisor
 
@@ -203,7 +203,7 @@ The `vision` tool requires two parameters:
 
 When you paste an image, the TUI displays its assigned ID below the submitted message. Pass that ID to `vision` to examine the image.
 
-After the initial `vision` call, use `follow_up` with the returned `agent_id` to ask additional questions about the same image. The provider's server-side prompt cache makes follow-ups cheap.
+After the initial `vision` call, use the `agent_id` inside the returned `continuation` object with `follow_up` to ask additional questions about the same image. The provider's server-side prompt cache makes follow-ups cheap.
 
 The `vision` tool is only registered when the selected profile's `sub_agents.vision`
 is configured. It requires a vision-capable model:

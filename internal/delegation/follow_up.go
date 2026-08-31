@@ -79,7 +79,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	}
 	childCtx, err := deps.ActiveController.Register(agentID, ctx, spec.AgentType, worktree)
 	if err != nil {
-		return nil, err
+		return nil, childSetupError(err)
 	}
 	defer deps.ActiveController.Unregister(agentID)
 	emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
@@ -91,7 +91,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	opts = append(opts, withChildDone(func() { deps.ActiveController.MarkComplete(agentID) }))
 	result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 	if err == nil {
-		deps.SessionStore.Update(agentID, SessionUpdateParams{
+		updatedOK := deps.SessionStore.Update(agentID, SessionUpdateParams{
 			Conversation:  state.Conversation,
 			TurnCount:     state.TurnCount,
 			TokenCount:    runUsage.OutputTokens,
@@ -99,11 +99,12 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			TokenUsage:    runUsage,
 		})
 		updated, ok := deps.SessionStore.Get(agentID)
-		if !ok {
+		if !updatedOK || !ok {
 			return nil, fmt.Errorf("follow_up: session disappeared for agent %q", agentID)
 		}
 		if delegationResult, ok := result.Value.(Result); ok {
 			delegationResult.FollowUpCount = updated.FollowUpCount
+			delegationResult.persisted = true
 			result.Value = delegationResult
 		}
 	}

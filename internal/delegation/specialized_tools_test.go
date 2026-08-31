@@ -1222,17 +1222,14 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 	// The child RunRequest prompt must include the image in the first user message.
 	_ = capturedReq // runner captured the request; build verification via Result
 
-	// Verify the result contains the follow-up reminder.
+	// Verify the host result keeps the exact child output.
 	execResult, _ := raw.(tool.ExecutionResult)
 	dr, ok := execResult.Value.(Result)
 	if !ok {
 		t.Fatalf("ExecutionResult.Value is %T, want Result", execResult.Value)
 	}
-	if !strings.Contains(dr.Output, "follow_up") {
-		t.Errorf("result output %q should mention 'follow_up'", dr.Output)
-	}
-	if !strings.Contains(dr.Output, "agent_id") {
-		t.Errorf("result output %q should mention 'agent_id'", dr.Output)
+	if dr.Output != "task result" {
+		t.Errorf("result output %q, want exact child output", dr.Output)
 	}
 
 	// Verify the image was base64-encoded from disk correctly.

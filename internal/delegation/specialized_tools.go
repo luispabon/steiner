@@ -325,13 +325,13 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, deps)
 		if err != nil {
 			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
-			return nil, err
+			return nil, childSetupError(err)
 		}
 
 		provisionedWorktree, warnings, err := specializedWorktree(ctx, agentType, deps.WorkDir, agentID)
 		if err != nil {
 			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
-			return nil, err
+			return nil, childSetupError(err)
 		}
 
 		handlerDeps, override := specializedBootstrapDeps(agentType, deps, resolvedProvider, resolvedModel, allowedTools, provisionedWorktree)
@@ -340,13 +340,13 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		if err != nil {
 			err = fmt.Errorf("%s: build child run: %w", agentType, err)
 			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
-			return nil, err
+			return nil, childSetupError(err)
 		}
 		spec.Limits = limits
 		childCtx, err := deps.ActiveController.Register(agentID, ctx, agentType, provisionedWorktree)
 		if err != nil {
 			cleanupRegistrationWorktree(agentType, deps.WorkDir, provisionedWorktree)
-			return nil, err
+			return nil, childSetupError(err)
 		}
 		defer deps.ActiveController.Unregister(agentID)
 		emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, agentType)
@@ -357,6 +357,12 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			removeAndCloseToolCallTraceWriter(spec.AgentID)
 			emitDelegateStopped(deps.Events, spec, agentType)
 			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings)
+			if deps.SessionStore != nil && deps.SessionStore.Save(&ChildSession{Spec: spec, Request: req, Remediation: codeRemediationConfig(provisionedWorktree)}) {
+				if dr, ok := result.Value.(Result); ok {
+					dr.persisted = true
+					result.Value = dr
+				}
+			}
 			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 			return result, nil
 		}
@@ -370,7 +376,12 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		opts = append(opts, withChildDone(func() { deps.ActiveController.MarkComplete(spec.AgentID) }))
 		result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 		if err == nil && deps.SessionStore != nil {
-			saveChildSession(deps.SessionStore, spec, req, state, runUsage, remediation)
+			if saveChildSession(deps.SessionStore, spec, req, state, runUsage, remediation) {
+				if dr, ok := result.Value.(Result); ok {
+					dr.persisted = true
+					result.Value = dr
+				}
+			}
 		}
 		if err != nil {
 			if result != (tool.ExecutionResult{}) {

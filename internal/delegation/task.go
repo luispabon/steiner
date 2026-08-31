@@ -318,10 +318,24 @@ func runChildToCompletion(
 
 func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsage, err error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
 	status := StatusFailed
+	stopReason := ""
 	ctxCancelled := errors.Is(err, context.Canceled)
 	ctxDeadline := errors.Is(err, context.DeadlineExceeded)
+	usefulActivity := delegateHasUsefulActivity(state)
 	if ctxCancelled || ctxDeadline {
-		status = StatusCancelled
+		if usefulActivity {
+			status = StatusPartial
+			if ctxCancelled {
+				stopReason = "cancelled"
+			} else {
+				stopReason = "limit reached"
+			}
+		} else {
+			status = StatusCancelled
+			if ctxDeadline {
+				stopReason = "limit reached"
+			}
+		}
 	}
 
 	tc.add("failed", "delegation failed", map[string]any{
@@ -332,6 +346,7 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 		"child_stop_reason": string(state.StopReason),
 		"child_turns":       state.TurnCount,
 		"child_tokens":      runUsage.OutputTokens,
+		"useful_activity":   usefulActivity,
 	})
 
 	result := Result{
@@ -343,7 +358,8 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 		CacheReadTokens:   runUsage.CacheReadTokens,
 		CacheCreateTokens: runUsage.CacheCreateTokens,
 		ToolCallCount:     countToolCalls(state.Conversation),
-		SessionResumable:  status == StatusCancelled,
+		StopReason:        stopReason,
+		SessionResumable:  ctxCancelled || ctxDeadline,
 	}
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		result.Output = msg.Content
@@ -369,6 +385,13 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 			TokenCount: result.TokenCount,
 		},
 	}
+}
+
+func delegateHasUsefulActivity(state agent.RunState) bool {
+	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok && strings.TrimSpace(msg.Content) != "" {
+		return true
+	}
+	return countToolCalls(state.Conversation) > 0
 }
 
 func failedDelegateSummaryText(err error, state agent.RunState) string {

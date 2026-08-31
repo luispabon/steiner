@@ -19,6 +19,7 @@ type replayedDelegateResult struct {
 	InputTokens       int    `json:"input_tokens"`
 	CacheReadTokens   int    `json:"cache_read_tokens"`
 	CacheCreateTokens int    `json:"cache_create_tokens"`
+	compact           bool
 }
 
 type replayedDelegationState struct {
@@ -40,11 +41,54 @@ func decodeReplayedDelegateResult(content string) (replayedDelegateResult, bool)
 		return replayedDelegateResult{}, false
 	}
 
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &fields); err != nil || fields == nil {
+		return replayedDelegateResult{}, false
+	}
+	if _, ok := fields["output"]; ok && compactEnvelopeFields(fields) {
+		var compact struct {
+			Output       string                        `json:"output"`
+			Status       string                        `json:"status"`
+			Continuation *agent.DelegationContinuation `json:"continuation"`
+		}
+		if err := json.Unmarshal([]byte(content), &compact); err != nil {
+			return replayedDelegateResult{}, false
+		}
+		result := replayedDelegateResult{Output: compact.Output, Status: compact.Status, compact: true}
+		if compact.Continuation != nil {
+			result.AgentID = compact.Continuation.AgentID
+		}
+		return result, true
+	}
+
 	var result replayedDelegateResult
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
+	if err := json.Unmarshal([]byte(content), &result); err != nil || !fullDelegateResultFields(fields) {
 		return replayedDelegateResult{}, false
 	}
 	return result, true
+}
+
+func compactEnvelopeFields(fields map[string]json.RawMessage) bool {
+	for key := range fields {
+		switch key {
+		case "output", "status", "reason", "continuation":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func fullDelegateResultFields(fields map[string]json.RawMessage) bool {
+	for _, key := range []string{
+		"agent_id", "summary", "turn_count", "token_count", "tool_call_count", "error",
+		"input_tokens", "cache_read_tokens", "cache_create_tokens",
+	} {
+		if _, ok := fields[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func buildReplayedDelegationState(toolCallID string, retention *agent.MessageRetention, content string) replayedDelegationState {
@@ -57,7 +101,11 @@ func buildReplayedDelegationState(toolCallID string, retention *agent.MessageRet
 
 	decoded, ok := decodeReplayedDelegateResult(content)
 	if ok {
-		applyDecodedDelegationState(&state, decoded)
+		if !decoded.compact && decoded.AgentID == "" && decoded.Status == "" && decoded.Summary == "" && decoded.Error == "" {
+			state.output = content
+		} else {
+			applyDecodedDelegationState(&state, decoded)
+		}
 	}
 	applyRetainedDelegationState(&state, retention)
 	if state.status == "failed" && ok && decoded.Error != "" {

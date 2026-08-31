@@ -44,6 +44,29 @@ func TestDecodeReplayedDelegateResult(t *testing.T) {
 			},
 		},
 		{
+			name:    "compact envelope with continuation",
+			content: `{"output":"exact compact output","continuation":{"agent_id":"agent-compact"}}`,
+			wantOK:  true,
+			want:    replayedDelegateResult{AgentID: "agent-compact", Output: "exact compact output", compact: true},
+		},
+		{
+			name:    "compact envelope without continuation",
+			content: `{"output":" exact compact output with spaces "}`,
+			wantOK:  true,
+			want:    replayedDelegateResult{Output: " exact compact output with spaces ", compact: true},
+		},
+		{
+			name:    "cancelled compact envelope",
+			content: `{"output":"cancelled output","status":"cancelled"}`,
+			wantOK:  true,
+			want:    replayedDelegateResult{Status: "cancelled", Output: "cancelled output", compact: true},
+		},
+		{
+			name:    "non-delegation JSON shape",
+			content: `{"output":"generic","other":"field"}`,
+			wantOK:  false,
+		},
+		{
 			name:    "partial payload with missing optional fields",
 			content: `{"agent_id":"agent-7","output":"partial output"}`,
 			wantOK:  true,
@@ -171,6 +194,27 @@ func TestBuildReplayedDelegationState(t *testing.T) {
 		}
 		if state != want {
 			t.Errorf("buildReplayedDelegationState() = %+v, want %+v", state, want)
+		}
+	})
+
+	t.Run("compact output without continuation preserves exact output", func(t *testing.T) {
+		t.Parallel()
+		content := `{"output":" exact child output \nwith whitespace "}`
+		state := buildReplayedDelegationState("call-compact", nil, content)
+		if state.output != " exact child output \nwith whitespace " {
+			t.Errorf("output = %q, want exact child output", state.output)
+		}
+	})
+
+	t.Run("cancelled compact output preserves decoded output", func(t *testing.T) {
+		t.Parallel()
+		content := `{"output":"cancelled child output","status":"cancelled"}`
+		state := buildReplayedDelegationState("call-cancelled", nil, content)
+		if state.status != "cancelled" {
+			t.Fatalf("status = %q, want cancelled", state.status)
+		}
+		if state.output != "cancelled child output" {
+			t.Errorf("output = %q, want %q", state.output, "cancelled child output")
 		}
 	})
 

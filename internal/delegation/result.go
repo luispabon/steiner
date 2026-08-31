@@ -77,3 +77,44 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 
 	return result
 }
+
+// ProjectToolResult returns the compact provider-facing delegation result.
+func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
+	envelope := agent.DelegationResultEnvelope{Output: r.Output}
+	if r.persisted && r.AgentID != "" {
+		envelope.Continuation = &agent.DelegationContinuation{AgentID: r.AgentID}
+	}
+	switch r.Status {
+	case StatusComplete:
+	case StatusPartial:
+		envelope.Status = "partial"
+		envelope.Reason = projectionReason(r)
+	case StatusCancelled:
+		envelope.Status = "cancelled"
+		envelope.Reason = cancellationProjectionReason(r)
+	case StatusFailed:
+		envelope.Status = "failed"
+		envelope.Reason = "unknown failure"
+	}
+	return envelope
+}
+
+func projectionReason(r Result) string {
+	if r.StopReason == "cancelled" {
+		return "cancelled"
+	}
+	return "limit reached"
+}
+
+func cancellationProjectionReason(r Result) string {
+	if r.StopReason == "limit reached" {
+		return "limit reached"
+	}
+	return ""
+}
+
+func (r *Result) clearPersistence() {
+	if r != nil {
+		r.persisted = false
+	}
+}

@@ -111,14 +111,15 @@ func NewSessionStore() *SessionStore {
 }
 
 // Save stores a full child session keyed by session.Spec.AgentID.
-func (s *SessionStore) Save(session *ChildSession) {
+func (s *SessionStore) Save(session *ChildSession) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if _, ok := s.tombstones[session.Spec.AgentID]; ok {
-		return
+		return false
 	}
 	s.sessions[session.Spec.AgentID] = session
+	return true
 }
 
 // Get returns the stored child session for id.
@@ -152,16 +153,16 @@ func (s *SessionStore) Invalidate(id string) {
 }
 
 // Update replaces the conversation and accumulates session usage counters.
-func (s *SessionStore) Update(id string, params SessionUpdateParams) {
+func (s *SessionStore) Update(id string, params SessionUpdateParams) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if _, ok := s.tombstones[id]; ok {
-		return
+		return false
 	}
 	session, ok := s.sessions[id]
 	if !ok {
-		return
+		return false
 	}
 
 	session.Conversation = params.Conversation
@@ -170,6 +171,7 @@ func (s *SessionStore) Update(id string, params SessionUpdateParams) {
 	session.ToolCallCount += params.ToolCallCount
 	session.TokenUsage = session.TokenUsage.Add(params.TokenUsage)
 	session.FollowUpCount++
+	return true
 }
 
 // Reset clears all stored sessions. Call this on conversation boundaries
@@ -190,8 +192,8 @@ func (s *SessionStore) Count() int {
 	return len(s.sessions)
 }
 
-func saveChildSession(store *SessionStore, spec Spec, req agent.RunRequest, state agent.RunState, cache TokenUsage, remediation *RemediationConfig) {
-	store.Save(&ChildSession{
+func saveChildSession(store *SessionStore, spec Spec, req agent.RunRequest, state agent.RunState, cache TokenUsage, remediation *RemediationConfig) bool {
+	return store.Save(&ChildSession{
 		Spec:          spec,
 		Request:       req,
 		Conversation:  state.Conversation,

@@ -50,7 +50,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(AgentTypeVision, deps)
 		if err != nil {
 			emitDelegateFailed(deps.Events, spec, AgentTypeVision, err.Error())
-			return nil, err
+			return nil, childSetupError(err)
 		}
 
 		req, limits, err := BuildChildRun(ctx, deps.SubAgentHandlerDeps, ChildBootstrapOverrides{
@@ -63,14 +63,14 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		if err != nil {
 			err = fmt.Errorf("vision: build child run: %w", err)
 			emitDelegateFailed(deps.Events, spec, AgentTypeVision, err.Error())
-			return nil, err
+			return nil, childSetupError(err)
 		}
 		spec.Limits = limits
 		worktree := CodeWorktree{}
 		childCtx, err := deps.ActiveController.Register(agentID, ctx, AgentTypeVision, worktree)
 		if err != nil {
 			cleanupRegistrationWorktree(AgentTypeVision, deps.WorkDir, worktree)
-			return nil, err
+			return nil, childSetupError(err)
 		}
 		defer deps.ActiveController.Unregister(agentID)
 		emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, AgentTypeVision)
@@ -80,13 +80,24 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		if childCtx.Err() != nil {
 			emitDelegateStopped(deps.Events, spec, AgentTypeVision)
 			result := cancelledBeforeDispatchResult(spec.AgentID)
+			if deps.SessionStore != nil && deps.SessionStore.Save(&ChildSession{Spec: spec, Request: req}) {
+				if dr, ok := result.Value.(Result); ok {
+					dr.persisted = true
+					result.Value = dr
+				}
+			}
 			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 			return result, nil
 		}
 
 		result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, withChildDone(func() { deps.ActiveController.MarkComplete(spec.AgentID) }))
 		if err == nil && deps.SessionStore != nil {
-			saveChildSession(deps.SessionStore, spec, req, state, runUsage, nil)
+			if saveChildSession(deps.SessionStore, spec, req, state, runUsage, nil) {
+				if dr, ok := result.Value.(Result); ok {
+					dr.persisted = true
+					result.Value = dr
+				}
+			}
 		}
 		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 		if err != nil {
@@ -94,11 +105,6 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 				return result, nil
 			}
 			return nil, fmt.Errorf("vision failed: %w", err)
-		}
-
-		if dr, ok := result.Value.(Result); ok {
-			dr.Output += fmt.Sprintf("\n\nTo ask follow-up questions about this image, use follow_up with agent_id: %q", agentID)
-			result.Value = dr
 		}
 
 		return result, nil
