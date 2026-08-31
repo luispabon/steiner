@@ -72,9 +72,8 @@ func NewReadTool(env Env) tool.ToolDef {
 
 			if diveResult.IsError {
 				return &ReadResult{
-					Path:         displayPath,
-					ResolvedPath: resolvedPath,
-					Output:       contentText,
+					Path:   displayPath,
+					Output: contentText,
 				}, nil
 			}
 
@@ -97,7 +96,7 @@ func NewReadTool(env Env) tool.ToolDef {
 			}
 
 			// Bound lines to cap per-line rune count.
-			boundedLines, reasons := boundLines(outputLines, lineBoundingConfig{
+			boundedLines, _ := boundLines(outputLines, lineBoundingConfig{
 				maxLineRunes:   readMaxLineRunes,
 				maxOutputRunes: readMaxOutputRunes,
 			})
@@ -111,21 +110,16 @@ func NewReadTool(env Env) tool.ToolDef {
 			}
 
 			result := ReadResult{
-				Path:         displayPath,
-				ResolvedPath: resolvedPath,
-				FileHash:     fileContentHash(data),
-				StartLine:    startLine,
-				EndLine:      endLine,
-				TotalLines:   totalLines,
-				Output:       boundedOutput,
+				Path:       displayPath,
+				FileHash:   fileContentHash(data),
+				StartLine:  startLine,
+				EndLine:    endLine,
+				TotalLines: totalLines,
+				Output:     boundedOutput,
 			}
 
 			if endLine > 0 && endLine < totalLines {
 				result.NextOffset = endLine + 1
-				reasons = append(reasons, "paged")
-			}
-			if len(reasons) > 0 {
-				result.TruncationReasons = reasons
 			}
 
 			return result, nil
@@ -188,9 +182,8 @@ func readImageFile(absPath, displayPath, resolvedPath string) (*ReadResult, erro
 	}
 
 	return &ReadResult{
-		Path:         displayPath,
-		ResolvedPath: resolvedPath,
-		Output:       summary,
+		Path:   displayPath,
+		Output: summary,
 		Image: &ImageBlock{
 			FilePath:  absPath,
 			MediaType: mediaType,
