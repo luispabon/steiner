@@ -188,7 +188,7 @@ A parallel batch receives one shared pre-batch conversation snapshot. Siblings t
 | `InputTokens`       | Cumulative uncached prompt tokens consumed by the child across extensions and follow-ups   |
 | `CacheReadTokens`   | Cumulative cache-read tokens consumed by the child across extensions and follow-ups        |
 | `CacheCreateTokens` | Cumulative cache-create tokens consumed by the child across extensions and follow-ups      |
-| `StopReason`        | Populated on partial: `"max_turns"` or `"max_tokens"` |
+| `StopReason`        | Populated on partial: `"max_turns"`, `"max_tokens"`, or `"cancelled"` |
 
 The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSession.TokenUsage`, so these token counters report the child agent's whole-life totals.
 
@@ -197,11 +197,11 @@ The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSessi
 | Field | Description |
 |-------|-------------|
 | `output` | Exact child output, without trimming or host diagnostics |
-| `status` | Optional status for partial, cancelled, or failed results |
-| `reason` | Optional status reason |
+| `status` | Omitted on normal success; otherwise `partial`, `cancelled`, or `failed` |
+| `reason` | Optional recovery reason: `limit reached`, `cancelled`, `unknown failure`, or `child setup failed` |
 | `continuation.agent_id` | Optional saved-session agent ID; present only when the child session was persisted |
 
-The full host `Result`, retention metadata, raw errors, traces, counters, and internal paths stay host-only. The provider receives no host diagnostics beyond the compact fields above.
+Normal success omits `status` and `reason`. The full host `Result`, retention metadata, raw errors, traces, counters, and internal paths stay host-only. The provider receives no host diagnostics beyond the compact fields above.
 
 **ToolRetention** persists on the parent conversation message as metadata that is not sent to the provider:
 
