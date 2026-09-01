@@ -10,6 +10,7 @@ const (
 	templateDelegation     = "delegation.md.tmpl"
 	templateAdvisor        = "advisor.md.tmpl"
 	templateCoreRules      = "core_rules.md.tmpl"
+	templateToolBatching   = "tool_batching.md.tmpl"
 	templateWorkflow       = "workflow_approval.md.tmpl"
 	templateSandbox        = "sandbox.md.tmpl"
 	templateExecutionModes = "execution_modes.md.tmpl"
@@ -33,6 +34,7 @@ const (
 	sectionDelegation     sectionID = "delegation"
 	sectionAdvisor        sectionID = "advisor"
 	sectionCoreRules      sectionID = "core_rules"
+	sectionToolBatching   sectionID = "tool_batching"
 	sectionWorkflow       sectionID = "workflow"
 	sectionExecutionModes sectionID = "execution_modes"
 	sectionCaveHuman      sectionID = "cave_human"
@@ -54,6 +56,7 @@ var defaultSectionOrder = []sectionID{
 	sectionDelegation,
 	sectionAdvisor,
 	sectionCoreRules,
+	sectionToolBatching,
 	sectionWorkflow,
 	sectionSandbox,
 	sectionExecutionModes,
@@ -85,6 +88,9 @@ var systemSections = map[sectionID]sectionRenderer{
 	sectionCoreRules: func(sectionContext) string {
 		return renderTemplate(templateCoreRules, nil)
 	},
+	sectionToolBatching: func(sectionContext) string {
+		return renderTemplate(templateToolBatching, nil)
+	},
 	sectionWorkflow: func(ctx sectionContext) string {
 		return renderWorkflowInstructions(ctx.workflowMode)
 	},
@@ -110,6 +116,7 @@ var overrideSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
 	sectionAdvisor,
+	sectionToolBatching,
 }
 
 // delegationInstructions renders the orchestration canon: role prose, the
