@@ -108,42 +108,67 @@ type DelegateDeps struct {
 	AdvisorState *advisor.SharedState
 }
 
-// registerAdvisorTool resolves the advisor model and provider, then registers
-// the advisor tool on cloned. Split out of BuildDelegateRegistry to keep its
-// cyclomatic complexity down.
-func registerAdvisorTool(cloned *tool.Registry, deps DelegateDeps) error {
+// advisorRuntime holds the resolved advisor provider, model, and configuration.
+type advisorRuntime struct {
+	provider   provider.Provider
+	model      provider.ResolvedModel
+	events     output.EventSink
+	recorder   *usagestats.Recorder
+	workDir    string
+	pathPolicy tool.PathPolicy
+	cacheKey   string
+	maxTokens  *int
+}
+
+// newAdvisorRuntime resolves the advisor model and provider, returning the runtime
+// state needed to mint advisor tool definitions. It contains the resolution logic
+// from registerAdvisorTool up to and including cache-key resolution.
+func newAdvisorRuntime(deps DelegateDeps) (advisorRuntime, error) {
 	advisorAlias := strings.TrimSpace(deps.Config.Models.Effective.Advisor)
 	if advisorAlias == "" {
 		advisorAlias = strings.TrimSpace(deps.Config.Models.Effective.DefaultModel)
 	}
 	advisorResolved, err := provider.ResolveWithDiscovery(deps.Config, advisorAlias, deps.HTTPClient)
 	if err != nil {
-		return fmt.Errorf("resolve advisor model %q: %w", advisorAlias, err)
+		return advisorRuntime{}, fmt.Errorf("resolve advisor model %q: %w", advisorAlias, err)
 	}
 	if deps.AdvisorCfg.Timeout != nil {
 		advisorResolved.ProviderConfig.Timeout = *deps.AdvisorCfg.Timeout
 	}
 	advisorProvider, err := resolveToolProvider(deps.Provider, deps.ResolvedModel, advisorResolved, deps.ProviderFactory)
 	if err != nil {
-		return fmt.Errorf("build advisor provider for %q: %w", advisorAlias, err)
+		return advisorRuntime{}, fmt.Errorf("build advisor provider for %q: %w", advisorAlias, err)
 	}
 	advisorPolicy := tool.NewPathPolicy(deps.WorkDir, deps.Config.Paths)
 
-	cloned.Register(advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
-		Provider: advisorProvider,
-		Model:    advisorResolved,
-		Events:   deps.Events,
+	return advisorRuntime{
+		provider:   advisorProvider,
+		model:      advisorResolved,
+		events:     deps.Events,
+		recorder:   deps.UsageRecorder,
+		workDir:    deps.WorkDir,
+		pathPolicy: advisorPolicy,
+		cacheKey:   resolveAdvisorCacheKey(deps.CacheKeyStore),
+		maxTokens:  deps.AdvisorCfg.MaxTokens,
+	}, nil
+}
+
+// toolDef mints a tool definition for the advisor bound to a specific budget and state.
+func (r advisorRuntime) toolDef(maxUses int, state *advisor.SharedState) tool.ToolDef {
+	return advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
+		Provider: r.provider,
+		Model:    r.model,
+		Events:   r.events,
 		Config: advisor.Config{
-			MaxUsesPerRun: deps.AdvisorCfg.MaxUsesPerRun,
-			MaxTokens:     deps.AdvisorCfg.MaxTokens,
+			MaxUsesPerRun: maxUses,
+			MaxTokens:     r.maxTokens,
 		},
-		UsageRecorder: deps.UsageRecorder,
-		WorkDir:       deps.WorkDir,
-		PathPolicy:    &advisorPolicy,
-		CacheKey:      resolveAdvisorCacheKey(deps.CacheKeyStore),
-		SharedState:   deps.AdvisorState,
-	})))
-	return nil
+		UsageRecorder: r.recorder,
+		WorkDir:       r.workDir,
+		PathPolicy:    &r.pathPolicy,
+		CacheKey:      r.cacheKey,
+		SharedState:   state,
+	}))
 }
 
 // resolveAdvisorCacheKey returns the advisor's cache key from store when
@@ -163,9 +188,11 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	cloned := deps.BaseRegistry.Clone()
 
 	if deps.AdvisorCfg.Enabled {
-		if err := registerAdvisorTool(cloned, deps); err != nil {
+		advRuntime, err := newAdvisorRuntime(deps)
+		if err != nil {
 			return nil, err
 		}
+		cloned.Register(advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerRun, deps.AdvisorState))
 	}
 
 	if !deps.SubAgentCfg.Enabled {

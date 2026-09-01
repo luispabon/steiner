@@ -284,10 +284,11 @@ type SubAgentConfig struct {
 
 // AdvisorConfig controls the optional advisor reasoning pass.
 type AdvisorConfig struct {
-	Enabled       bool      `yaml:"enabled"`
-	MaxUsesPerRun int       `yaml:"max_uses_per_run"`
-	MaxTokens     *int      `yaml:"max_tokens"`
-	Timeout       *Duration `yaml:"timeout"`
+	Enabled            bool      `yaml:"enabled"`
+	MaxUsesPerRun      int       `yaml:"max_uses_per_run"`
+	MaxUsesPerSubAgent int       `yaml:"max_uses_per_sub_agent"`
+	MaxTokens          *int      `yaml:"max_tokens"`
+	Timeout            *Duration `yaml:"timeout"`
 }
 
 type oneshotConfig struct {
