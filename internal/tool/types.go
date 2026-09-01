@@ -47,9 +47,17 @@ type ToolRetention struct {
 
 // JSONEnvelope is the structured tool result envelope returned to providers.
 type JSONEnvelope struct {
-	OK     bool               `json:"ok"`
-	Result any                `json:"result,omitempty"`
-	Error  *JSONEnvelopeError `json:"error,omitempty"`
+	OK bool `json:"ok"`
+	// Result is sent to the model when ModelResult is absent (the default,
+	// unchanged behavior for every tool that doesn't set it).
+	Result any `json:"result,omitempty"`
+	// ModelResult, when present, is what's sent to the model instead of
+	// Result — Result is then retained host-side only (not sent to the
+	// model, not separately persisted). Use this when a tool's full result
+	// is large or carries raw logs/diagnostics beyond what the model needs
+	// to act on.
+	ModelResult any                `json:"model_result,omitempty"`
+	Error       *JSONEnvelopeError `json:"error,omitempty"`
 }
 
 // JSONEnvelopeError describes a failed JSONEnvelope result.
