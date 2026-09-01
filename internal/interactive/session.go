@@ -127,12 +127,6 @@ func (s *Session) ActiveRunController() *ActiveRunController {
 	return s.runController
 }
 
-// Skills returns the session's skills tracker, which records which skills are
-// enabled.
-func (s *Session) Skills() *Skills {
-	return s.skills
-}
-
 // SnapshotStore returns the session's request-context snapshot store.
 func (s *Session) SnapshotStore() *SnapshotStore {
 	return s.snapshots
@@ -277,6 +271,11 @@ func (s *Session) Mode() config.ExecutionMode {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.mode
+}
+
+// Skills returns the names of all currently enabled skills, in canonical order.
+func (s *Session) Skills() []string {
+	return s.skills.Snapshot()
 }
 
 // SetMode updates the execution mode. If m is the same as the current mode,

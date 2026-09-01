@@ -154,7 +154,7 @@ func TestManualCompactionUsesRunnerCompact(t *testing.T) {
 		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
 	}}
 	s := mustCompactionSession(t, Dependencies{Runner: runner, SkillNames: []string{"skill-a"}})
-	s.Skills().Set("skill-a", true)
+	s.skills.Set("skill-a", true)
 	s.SetConversation(twoTurnConversation())
 	s.manualCompaction(context.Background(), "focus on auth")
 	if got, want := runner.compactSteering, "focus on auth"; got != want {
