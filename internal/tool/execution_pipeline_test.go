@@ -234,6 +234,61 @@ func TestDecodeExecutionOutputSuccess(t *testing.T) {
 	}
 }
 
+func TestDecodeExecutionOutputModelResultProjection(t *testing.T) {
+	metadata := ExecutionMetadata{ExitCode: 0}
+	result, err := decodeExecutionOutput([]byte(`{"ok":true,"result":{"status":"ok","diff":"...huge..."},"model_result":{"status":"ok"}}`), metadata, "test_tool")
+	if err != nil {
+		t.Fatalf("decodeExecutionOutput() error = %v", err)
+	}
+	execResult, ok := result.(ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+	resultMap, ok := execResult.Value.(map[string]any)
+	if !ok {
+		t.Fatalf("result value type = %T, want map[string]any", execResult.Value)
+	}
+	if _, hasDiff := resultMap["diff"]; hasDiff {
+		t.Fatalf("result value = %v, want model_result projection without 'diff'", resultMap)
+	}
+	if resultMap["status"] != "ok" {
+		t.Fatalf("result status = %v, want 'ok'", resultMap["status"])
+	}
+}
+
+func TestDecodeExecutionOutputEmptyModelResultGuard(t *testing.T) {
+	metadata := ExecutionMetadata{ExitCode: 0}
+	result, err := decodeExecutionOutput([]byte(`{"ok":true,"model_result":""}`), metadata, "test_tool")
+	if err != nil {
+		t.Fatalf("decodeExecutionOutput() error = %v", err)
+	}
+	execResult, ok := result.(ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+	if execResult.Value != "(no content)" {
+		t.Fatalf("result value = %q, want '(no content)'", execResult.Value)
+	}
+}
+
+func TestDecodeExecutionOutputNonzeroExit(t *testing.T) {
+	metadata := ExecutionMetadata{ExitCode: 1}
+	_, err := decodeExecutionOutput([]byte(`{"ok":true,"result":{"status":"ok"}}`), metadata, "test_tool")
+	if err == nil {
+		t.Fatal("decodeExecutionOutput() error = nil, want ToolExecutionError")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "nonzero_exit" {
+		t.Fatalf("error kind = %q, want nonzero_exit", toolErr.Kind)
+	}
+	if toolErr.ExitCode != 1 {
+		t.Fatalf("error exit code = %d, want 1", toolErr.ExitCode)
+	}
+}
+
 func TestExecuteToolBashCwdOverride(t *testing.T) {
 	helper := mustBuildHelperBinary(t)
 	reg := NewRegistry(ToolDef{

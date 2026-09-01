@@ -306,7 +306,6 @@ type ToolConfig struct {
 	Description string         `yaml:"description"`
 	Parameters  map[string]any `yaml:"parameters"`
 	Timeout     Duration       `yaml:"timeout"`
-	Constraints map[string]any `yaml:"constraints"`
 }
 
 // ProjectContextConfig defines extra project files included in prompts.

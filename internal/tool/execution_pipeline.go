@@ -340,8 +340,26 @@ func decodeExecutionOutput(stdout []byte, metadata ExecutionMetadata, toolName s
 		}
 	}
 
+	if metadata.ExitCode != 0 {
+		return nil, &ToolExecutionError{
+			Tool:     toolName,
+			Kind:     "nonzero_exit",
+			Message:  fmt.Sprintf("tool exited with status %d despite reporting ok:true", metadata.ExitCode),
+			ExitCode: metadata.ExitCode,
+			Output:   metadata,
+			Details:  outputDetails(metadata),
+		}
+	}
+
+	value := envelope.Result
+	if envelope.ModelResult != nil {
+		value = envelope.ModelResult
+	}
+	if s, ok := value.(string); ok && strings.TrimSpace(s) == "" {
+		value = "(no content)"
+	}
 	return ExecutionResult{
-		Value:    envelope.Result,
+		Value:    value,
 		Metadata: metadata,
 	}, nil
 }

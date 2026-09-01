@@ -37,9 +37,6 @@ func applyToolPatch(dst *ToolConfig, patch *toolPatch) {
 		dst.Parameters = copyStringAnyMap(*patch.Parameters)
 	}
 	setIfPresent(&dst.Timeout, patch.Timeout)
-	if patch.Constraints != nil {
-		dst.Constraints = copyStringAnyMap(*patch.Constraints)
-	}
 }
 
 func applySandboxPatch(cfg *SandboxConfig, patch *sandboxPatch) {
