@@ -1,9 +1,11 @@
 package delegation
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func makeRunStateWithToolCall(turnCount, tokenCount int, stopReason agent.StopReason, toolName string, toolArgs map[string]any) agent.RunState {
@@ -207,8 +209,8 @@ func TestCountAdvisorUsage(t *testing.T) {
 					},
 				},
 				{
-					Role: agent.MessageRoleTool,
-					Name: "advisor",
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
 					Content: "advice",
 				},
 			},
@@ -225,8 +227,8 @@ func TestCountAdvisorUsage(t *testing.T) {
 					},
 				},
 				{
-					Role: agent.MessageRoleTool,
-					Name: "advisor",
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
 					Content: "advisor budget exhausted for this session (1/1); proceed on your own judgment",
 				},
 			},
@@ -243,8 +245,8 @@ func TestCountAdvisorUsage(t *testing.T) {
 					},
 				},
 				{
-					Role: agent.MessageRoleTool,
-					Name: "advisor",
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
 					Content: "good advice",
 				},
 				{
@@ -254,8 +256,8 @@ func TestCountAdvisorUsage(t *testing.T) {
 					},
 				},
 				{
-					Role: agent.MessageRoleTool,
-					Name: "advisor",
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
 					Content: "advisor budget exhausted for this session (1/1); proceed on your own judgment",
 				},
 				{
@@ -265,8 +267,8 @@ func TestCountAdvisorUsage(t *testing.T) {
 					},
 				},
 				{
-					Role: agent.MessageRoleTool,
-					Name: "advisor",
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
 					Content: "advisor budget exhausted for this session (1/1); proceed on your own judgment",
 				},
 			},
@@ -284,13 +286,13 @@ func TestCountAdvisorUsage(t *testing.T) {
 					},
 				},
 				{
-					Role: agent.MessageRoleTool,
-					Name: "read",
+					Role:    agent.MessageRoleTool,
+					Name:    "read",
 					Content: "file content",
 				},
 				{
-					Role: agent.MessageRoleTool,
-					Name: "advisor",
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
 					Content: "advice",
 				},
 			},
@@ -307,6 +309,75 @@ func TestCountAdvisorUsage(t *testing.T) {
 			}
 			if denied != tt.wantDenied {
 				t.Errorf("denied=%d, want %d", denied, tt.wantDenied)
+			}
+		})
+	}
+}
+
+func TestFinalizeAdvisorBudgetAndSummary(t *testing.T) {
+	tests := []struct {
+		name               string
+		result             Result
+		advisorAvailable   bool
+		budget             int
+		wantBudget         int
+		wantOutputContains string
+	}{
+		{
+			name:             "advisor unavailable, zero budget",
+			result:           Result{Output: "output"},
+			advisorAvailable: false,
+			budget:           0,
+			wantBudget:       0,
+		},
+		{
+			name:               "advisor available with default budget of 1",
+			result:             Result{Output: "output", AdvisorUses: 1},
+			advisorAvailable:   true,
+			budget:             1,
+			wantBudget:         1,
+			wantOutputContains: "advisor: 1 used, 0 denied",
+		},
+		{
+			name:               "advisor available with custom budget of 3",
+			result:             Result{Output: "output", AdvisorUses: 2, AdvisorDenied: 1},
+			advisorAvailable:   true,
+			budget:             3,
+			wantBudget:         3,
+			wantOutputContains: "advisor: 2 used, 1 denied (budget exhausted)",
+		},
+		{
+			name:             "advisor available but budget is zero (treated as unavailable)",
+			result:           Result{Output: "output"},
+			advisorAvailable: true,
+			budget:           0,
+			wantBudget:       0,
+		},
+		{
+			name:             "no advisor activity, budget not shown",
+			result:           Result{Output: "output", AdvisorUses: 0, AdvisorDenied: 0},
+			advisorAvailable: true,
+			budget:           1,
+			wantBudget:       1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			execResult := tool.ExecutionResult{Value: tt.result}
+			got := finalizeAdvisorBudgetAndSummary(execResult, tt.advisorAvailable, tt.budget)
+
+			gotResult, ok := got.Value.(Result)
+			if !ok {
+				t.Fatalf("got Value type %T, want Result", got.Value)
+			}
+
+			if gotResult.AdvisorBudget != tt.wantBudget {
+				t.Errorf("AdvisorBudget=%d, want %d", gotResult.AdvisorBudget, tt.wantBudget)
+			}
+
+			if tt.wantOutputContains != "" && !strings.Contains(gotResult.Output, tt.wantOutputContains) {
+				t.Errorf("Output %q does not contain %q", gotResult.Output, tt.wantOutputContains)
 			}
 		})
 	}

@@ -83,6 +83,9 @@ type SubAgentHandlerDeps struct {
 	// with a budget state keyed by agent ID. Called during child bootstrap to
 	// register advisor for code, review, and evaluate agent types.
 	AdvisorForChild func(agentID string) (tool.ToolDef, bool)
+	// AdvisorSubAgentBudget is the configured per-child advisor budget, from
+	// config.AdvisorConfig.MaxUsesPerSubAgent. Used to populate Result.AdvisorBudget.
+	AdvisorSubAgentBudget int
 }
 
 // ChildSession tracks persisted state for a delegated child session.

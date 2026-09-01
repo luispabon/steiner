@@ -340,14 +340,15 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 
 // finalizeAdvisorBudgetAndSummary sets the advisor budget on the result and appends
 // a summary line to the output when advisor usage is non-zero.
-func finalizeAdvisorBudgetAndSummary(result tool.ExecutionResult, advisorAvailable bool) tool.ExecutionResult {
+// budget is the configured MaxUsesPerSubAgent for this child (0 if advisor unavailable).
+func finalizeAdvisorBudgetAndSummary(result tool.ExecutionResult, advisorAvailable bool, budget int) tool.ExecutionResult {
 	dr, ok := result.Value.(Result)
 	if !ok {
 		return result
 	}
 
-	if advisorAvailable {
-		dr.AdvisorBudget = 1
+	if advisorAvailable && budget > 0 {
+		dr.AdvisorBudget = budget
 	} else {
 		dr.AdvisorBudget = 0
 	}
@@ -589,7 +590,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		result = applySpecializedWorktreeResult(agentType, result, provisionedWorktree, warnings)
-		result = finalizeAdvisorBudgetAndSummary(result, advisorAvailable)
+		result = finalizeAdvisorBudgetAndSummary(result, advisorAvailable, deps.AdvisorSubAgentBudget)
 		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 
 		return result, nil

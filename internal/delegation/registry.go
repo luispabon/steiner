@@ -262,6 +262,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		Paths:                 deps.Config.Paths,
 		ContextManagement:     deps.Config.ContextManagement,
 		AdvisorForChild:       advisorForChild,
+		AdvisorSubAgentBudget: deps.AdvisorCfg.MaxUsesPerSubAgent,
 	}
 
 	// Register the follow_up tool.

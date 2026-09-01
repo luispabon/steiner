@@ -110,7 +110,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 		}
 	}
 	advisorAvailable := childHasAdvisorTool(session.Request)
-	result = finalizeAdvisorBudgetAndSummary(result, advisorAvailable)
+	result = finalizeAdvisorBudgetAndSummary(result, advisorAvailable, deps.AdvisorSubAgentBudget)
 	applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, agentID, &result)
 	if err != nil {
 		if result != (tool.ExecutionResult{}) {
