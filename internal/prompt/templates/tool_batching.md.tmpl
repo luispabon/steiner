@@ -1,0 +1,11 @@
+## Tool batching
+
+- Batch independent lookups into one turn instead of issuing them
+  one per turn: calls issued together in the same message run
+  concurrently. This matters most when a call has real latency
+  (e.g. network or process round trips) — batching several such
+  calls in one turn saves real seconds, not just milliseconds.
+- Never batch a call whose arguments depend on a previous call's
+  result in the same turn — only issue truly independent calls
+  together; batching a dependent call before its input exists will
+  just fail or use stale data.

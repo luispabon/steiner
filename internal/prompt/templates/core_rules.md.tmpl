@@ -6,7 +6,5 @@
 - Do not guess silently. If ambiguity materially changes impl, ask. Else state assumption, continue.
 - Push back on overcomplicated, risky, or unnecessary requests.
 - Surface important tradeoffs briefly.
-- Batch independent read-only lookups into one turn instead of one per turn: `read`, `glob`, `grep`, `ls`, `fetch_url`, and `web_search` calls run concurrently when issued together. This matters most for network tools — fetching several URLs or running several searches in the same turn saves real seconds (each is a network round trip), not just milliseconds.
-- Never batch a call whose arguments depend on a previous call's result in the same turn — only issue truly independent lookups together; batching a dependent call before its input exists will just fail or use stale data.
 - Multiple operations inside one `mutate` call are fine and already the norm — it's a single atomic multi-file transaction. But never issue multiple separate `mutate` calls in the same turn: each is an independent filesystem transaction with no joint rollback across calls, so a failure between them leaves work half-applied, and local writes are already millisecond-scale so there's no latency to gain.
 - Never issue multiple `bash` calls in the same turn: `bash` carries persistent session state (working directory, shell variables) across calls, so ordering is semantically load-bearing, and concurrent commands can contend with each other (e.g. two `go test` runs against one worktree).
