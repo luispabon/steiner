@@ -118,11 +118,11 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 |------------|-------------------------------------------------------------|
 | `explore`  | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox) |
 | `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url`\* |
-| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`              |
-| `evaluate`    | `read`, `glob`, `grep`, `ls`                                |
+| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`   |
+| `evaluate`    | `read`, `glob`, `grep`, `ls`, `advisor`                     |
 | `sanity_check`| `read`, `glob`, `grep`, `ls`, `bash`                        |
 | `vision`   | `read`                                                      |
-| `review`      | `read`, `glob`, `grep`, `ls`, `bash`                        |
+| `review`      | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`             |
 
 \* `fetch_url` is always available. `web_search` requires a configured search backend (Google, Kagi, Brave, or SearXNG). When no backend is configured, the `research` sub-agent is not exposed to the model.
 
