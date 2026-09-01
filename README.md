@@ -239,7 +239,9 @@ For manual compaction, use `/compact` or `/compact <focus text>` to guide the su
 
 ## Sub-agent delegation
 
-Delegation is steiner's primary context management strategy. `steiner` exposes eight sub-agent tools that delegate bounded tasks to isolated child agents. Sub-agent delegation is enabled by default — the model sees these tools alongside the built-ins, and its system prompt casts it as the orchestrator: it plans, dispatches, verifies, and integrates rather than doing the default implementation work itself:
+Delegation is steiner's primary context management strategy. `steiner` exposes eight sub-agent tools that delegate bounded tasks to isolated child agents. Sub-agent delegation is enabled by default — the model sees these tools alongside the built-ins, and its system prompt casts it as the orchestrator: it plans, dispatches, verifies, and integrates rather than doing the default implementation work itself.
+
+Each delegation tool accepts a structured brief with six required fields: `objective` (single outcome), `context` (why, how it fits, what's decided), `deliverable` (exact artifact or answer and its shape), `constraints` (boundaries and prohibited actions), `success_criteria` (observable completion conditions), and `checks` (applicable validations to run). These fields ensure complete hand-off between orchestrator and child.
 
 | Tool | What it does | Can mutate? |
 |------|--------------|-------------|
