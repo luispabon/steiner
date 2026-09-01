@@ -14,6 +14,17 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+func lifecycleTestStructuredTask(objective string) map[string]any {
+	return map[string]any{
+		"objective":        objective,
+		"context":          "context",
+		"deliverable":      "deliverable",
+		"constraints":      []any{},
+		"success_criteria": []any{},
+		"checks":           []any{},
+	}
+}
+
 func TestSpecializedCodeHandlerRegistersWorktreeAndUnregisters(t *testing.T) {
 	repo, cleanup := setupTestRepo(t)
 	defer cleanup()
@@ -43,7 +54,7 @@ func TestSpecializedCodeHandlerRegistersWorktreeAndUnregisters(t *testing.T) {
 	deps.ActiveController = controller
 	deps.WorkDir = repo
 
-	if _, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), map[string]any{"task": "implement"}); err != nil {
+	if _, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), lifecycleTestStructuredTask("implement")); err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
 	if ids := controller.ActiveAgentIDs(); len(ids) != 0 {
@@ -136,7 +147,7 @@ func TestSpecializedHandlerCacheWaitingCancellationReturnsCancelled(t *testing.T
 	}
 	resultCh := make(chan handlerResult, 1)
 	go func() {
-		value, err := newSpecializedHandler(AgentTypeExplore, deps)(context.Background(), map[string]any{"task": "wait"})
+		value, err := newSpecializedHandler(AgentTypeExplore, deps)(context.Background(), lifecycleTestStructuredTask("wait"))
 		resultCh <- handlerResult{value: value, err: err}
 	}()
 
