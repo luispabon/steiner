@@ -8,14 +8,15 @@ import (
 )
 
 const (
-	testIdentityMarker   = "You are steiner, a lean coding agent."
-	testDelegationMarker = "## Your role"
-	testSandboxMarker    = "## Sandbox\n\nThe sandbox is enabled. The filesystem is read-only except the current\nworkdir."
-	testCoreRulesMarker  = "Core rules:"
-	testWorkflowMarker   = "Before editing:"
-	testCaveHumanMarker  = "## Output voice"
-	parentApprovalLine   = "Ask for user's permission before editing."
-	childApprovalLine    = "Do not ask for permission to proceed or for confirmation before editing."
+	testIdentityMarker     = "You are steiner, a lean coding agent."
+	testDelegationMarker   = "## Your role"
+	testSandboxMarker      = "## Sandbox\n\nThe sandbox is enabled. The filesystem is read-only except the current\nworkdir."
+	testCoreRulesMarker    = "Core rules:"
+	testToolBatchingMarker = "## Tool batching"
+	testWorkflowMarker     = "Before editing:"
+	testCaveHumanMarker    = "## Output voice"
+	parentApprovalLine     = "Ask for user's permission before editing."
+	childApprovalLine      = "Do not ask for permission to proceed or for confirmation before editing."
 )
 
 func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
@@ -64,8 +65,8 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 		{
 			name:            "delegation enabled",
 			delegation:      true,
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "A cold initial sub-agent brief is six-part and MUST use every section of this template:", "## Your workflow"},
 			wantIdentityCnt: 1,
 		},
@@ -73,8 +74,8 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			name:            "sandbox enabled between workflow and execution modes",
 			delegation:      true,
 			sandbox:         true,
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker, testSandboxMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker, testSandboxMarker},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testSandboxMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testSandboxMarker},
 			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "A cold initial sub-agent brief is six-part and MUST use every section of this template:", "## Your workflow"},
 			wantIdentityCnt: 1,
 		},
@@ -82,18 +83,18 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			name:            "sandbox disabled",
 			delegation:      true,
 			sandbox:         false,
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantAbsent:      []string{testSandboxMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "A cold initial sub-agent brief is six-part and MUST use every section of this template:", "## Your workflow"},
 			wantIdentityCnt: 1,
 		},
 		{
 			name:            "delegation disabled",
 			delegation:      false,
-			wantPresent:     []string{testIdentityMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantPresent:     []string{testIdentityMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantAbsent:      []string{testDelegationMarker},
-			wantOrder:       []string{testIdentityMarker, testCoreRulesMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide."},
 			wantIdentityCnt: 1,
 		},
@@ -102,8 +103,8 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			delegation:      true,
 			caveHuman:       true,
 			suffix:          "system suffix",
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker, testCaveHumanMarker, "system suffix"},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testWorkflowMarker, testCaveHumanMarker, "system suffix"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testCaveHumanMarker, "system suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testCaveHumanMarker, "system suffix"},
 			wantSuffixLast:  true,
 			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide."},
 			wantIdentityCnt: 1,
@@ -113,9 +114,9 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			override:        "Custom override content",
 			delegation:      true,
 			suffix:          "suffix",
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, "Custom override content", "suffix"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", "suffix"},
 			wantAbsent:      []string{testCoreRulesMarker, testWorkflowMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, "Custom override content", "suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -126,9 +127,9 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			sandbox:         true,
 			mounts:          []string{"/host/rw"},
 			suffix:          "suffix",
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, "Custom override content", "suffix"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", "suffix"},
 			wantAbsent:      []string{testCoreRulesMarker, testWorkflowMarker, testSandboxMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, "Custom override content", "suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -136,9 +137,9 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			name:            "override without delegation",
 			override:        "Custom override content",
 			delegation:      false,
-			wantPresent:     []string{testIdentityMarker, "Custom override content"},
+			wantPresent:     []string{testIdentityMarker, testToolBatchingMarker, "Custom override content"},
 			wantAbsent:      []string{testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
-			wantOrder:       []string{testIdentityMarker, "Custom override content"},
+			wantOrder:       []string{testIdentityMarker, testToolBatchingMarker, "Custom override content"},
 			wantIdentityCnt: 1,
 		},
 		{
@@ -147,17 +148,17 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			delegation:      true,
 			caveHuman:       true,
 			suffix:          "suffix",
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, "Custom override content", testCaveHumanMarker, "suffix"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", testCaveHumanMarker, "suffix"},
 			wantAbsent:      []string{testCoreRulesMarker, testWorkflowMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, "Custom override content", testCaveHumanMarker, "suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", testCaveHumanMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
 		{
 			name:            "advisor enabled",
 			advisor:         true,
-			wantPresent:     []string{testIdentityMarker, "## Advisor", testCoreRulesMarker, testWorkflowMarker},
-			wantOrder:       []string{testIdentityMarker, "## Advisor", testCoreRulesMarker, testWorkflowMarker},
+			wantPresent:     []string{testIdentityMarker, "## Advisor", testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, "## Advisor", testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantIdentityCnt: 1,
 		},
 	}
