@@ -98,14 +98,6 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 		Events:       events,
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
-					TurnCount:    1,
-					TokenCount:   1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
 			capturedReq = req
 			return agent.RunState{
 				Conversation: []agent.Message{
@@ -185,8 +177,8 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 	if session.TurnCount != 5 {
 		t.Fatalf("stored TurnCount=%d, want 5", session.TurnCount)
 	}
-	if session.TokenCount != 56 {
-		t.Fatalf("stored TokenCount=%d, want 56", session.TokenCount)
+	if session.TokenCount != 55 {
+		t.Fatalf("stored TokenCount=%d, want 55", session.TokenCount)
 	}
 	if session.ToolCallCount != 2 {
 		t.Fatalf("stored ToolCallCount=%d, want 2", session.ToolCallCount)
@@ -215,14 +207,6 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
-					TurnCount:    1,
-					TokenCount:   1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
 			call++
 			return agent.RunState{
 				Conversation: providerToAgentMessages(req.Prompt.Conversation),
@@ -261,8 +245,8 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 	if session.TurnCount != 4 {
 		t.Fatalf("stored TurnCount=%d, want 4", session.TurnCount)
 	}
-	if session.TokenCount != 27 {
-		t.Fatalf("stored TokenCount=%d, want 27", session.TokenCount)
+	if session.TokenCount != 25 {
+		t.Fatalf("stored TokenCount=%d, want 25", session.TokenCount)
 	}
 }
 
@@ -281,14 +265,6 @@ func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
-					TurnCount:    1,
-					TokenCount:   1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
 			if len(req.Prompt.Conversation) != 1 {
 				return agent.RunState{}, errors.New("expected follow-up to start from appended user message")
 			}
@@ -394,9 +370,6 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 				SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
 				SessionStore: store,
 				Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-					if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-						return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete}, nil
-					}
 					if len(req.Prompt.Conversation) > 0 && strings.Contains(req.Prompt.Conversation[len(req.Prompt.Conversation)-1].Content, "Pre-remediation HEAD") {
 						remediationCalls++
 						remediationRequest = req
@@ -504,15 +477,7 @@ func TestFollowUpHandler_AllowsMutateChildInBuildMode(t *testing.T) {
 	runs := 0
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
 		SessionStore: store,
-		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
-					TurnCount:    1,
-					TokenCount:   1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
+		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			runs++
 			return agent.RunState{
 				Conversation: []agent.Message{
@@ -558,15 +523,7 @@ func TestFollowUpHandler_NonMutateChildNotDeniedInPlanMode(t *testing.T) {
 	runs := 0
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
 		SessionStore: store,
-		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
-					TurnCount:    1,
-					TokenCount:   1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
+		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			runs++
 			return agent.RunState{
 				Conversation: []agent.Message{
@@ -689,14 +646,6 @@ func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 30, MaxTokens: 100000},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
-					TurnCount:    1,
-					TokenCount:   1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
 			capturedReq = req
 			runs++
 
@@ -792,15 +741,7 @@ func TestFollowUpHandler_AccumulatesTokenUsageFromPriorSession(t *testing.T) {
 				}
 			}
 		}),
-		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
-					TurnCount:    1,
-					TokenCount:   1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
+		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			return agent.RunState{
 				Conversation: []agent.Message{
 					{Role: agent.MessageRoleUser, Content: "initial task"},
@@ -852,7 +793,7 @@ func TestFollowUpHandler_AccumulatesTokenUsageFromPriorSession(t *testing.T) {
 	if !ok {
 		t.Fatal("session missing after follow-up")
 	}
-	wantUsage := TokenUsage{InputTokens: 120, CacheReadTokens: 905, CacheCreateTokens: 0, OutputTokens: 16}
+	wantUsage := TokenUsage{InputTokens: 120, CacheReadTokens: 905, CacheCreateTokens: 0, OutputTokens: 15}
 	if session.TokenUsage != wantUsage {
 		t.Fatalf("stored TokenUsage=%+v, want %+v", session.TokenUsage, wantUsage)
 	}
@@ -892,14 +833,6 @@ func TestFollowUpHandler_ReusesOriginalProjectRoot(t *testing.T) {
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
-					TurnCount:    1,
-					TokenCount:   1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
 			capturedReq = req
 			return agent.RunState{
 				Conversation: []agent.Message{

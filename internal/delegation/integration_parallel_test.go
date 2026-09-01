@@ -69,7 +69,6 @@ type parallelHarness struct {
 	completed            atomic.Int32
 	completedTasks       sync.Map
 	taskCalls            sync.Map
-	summaries            sync.Map
 	allStarted           chan struct{}
 	providerStarted      chan struct{}
 	providerStartedOnce  sync.Once
@@ -146,13 +145,8 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 			return provider.ChatResponse{}, ctx.Err()
 		}
 		if !h.blockOnCtx {
-			calls := h.taskCallsFor(task).Add(1)
-			if calls == 2 {
-				h.signalSummary(task)
-				h.countCompleted(task)
-				h.active.Add(-1)
-				return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "summary"}, FinishReason: "stop"}, nil
-			}
+			h.taskCallsFor(task).Add(1)
+
 			select {
 			case <-h.release(task):
 			case <-ctx.Done():
@@ -168,33 +162,6 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 func (h *parallelHarness) taskCallsFor(task string) *atomic.Int32 {
 	calls, _ := h.taskCalls.LoadOrStore(task, &atomic.Int32{})
 	return calls.(*atomic.Int32)
-}
-
-func (h *parallelHarness) signalSummary(task string) {
-	// Extract task ID from assembled markdown (e.g., "task-0" from full markdown)
-	taskID := task
-	for i := 0; i < 10; i++ {
-		id := fmt.Sprintf("task-%d", i)
-		if strings.Contains(task, id) {
-			taskID = id
-			break
-		}
-	}
-	channel, _ := h.summaries.LoadOrStore(taskID, make(chan struct{}, 1))
-	select {
-	case channel.(chan struct{}) <- struct{}{}:
-	default:
-	}
-}
-
-func (h *parallelHarness) waitSummary(t *testing.T, task, message string) {
-	t.Helper()
-	channel, _ := h.summaries.LoadOrStore(task, make(chan struct{}, 1))
-	select {
-	case <-channel.(chan struct{}):
-	case <-time.After(10 * time.Second):
-		t.Fatal(message)
-	}
 }
 
 func (h *parallelHarness) countCompleted(task string) {
@@ -622,13 +589,10 @@ func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 	waitParallel(t, h.allStarted, "ordering batch did not start three children")
 	close(releases["task-2"])
 	waitCompletions(1, "task-2 did not complete (parent side)")
-	h.waitSummary(t, "task-2", "task-2 summary was not served")
 	close(releases["task-1"])
 	waitCompletions(2, "task-1 did not complete (parent side)")
-	h.waitSummary(t, "task-1", "task-1 summary was not served")
 	close(releases["task-0"])
 	waitCompletions(3, "task-0 did not complete (parent side)")
-	h.waitSummary(t, "task-0", "task-0 summary was not served")
 	run := receiveParallel(t, result, "ordering parallel run did not finish")
 	if run.err != nil {
 		t.Fatal(run.err)

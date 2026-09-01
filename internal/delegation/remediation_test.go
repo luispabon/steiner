@@ -207,9 +207,6 @@ func TestSpawnDelegate_RemediationSurvivesSummary(t *testing.T) {
 	remediationCalls := 0
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 		calls++
-		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "retained summary"}}, StopReason: agent.StopReasonComplete, TurnCount: 2, TokenCount: 200}, nil
-		}
 		if len(req.Prompt.Conversation) > 0 && strings.Contains(req.Prompt.Conversation[len(req.Prompt.Conversation)-1].Content, "Pre-remediation HEAD") {
 			remediationCalls++
 			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "committed changes"}}, StopReason: agent.StopReasonComplete, TurnCount: 2, TokenCount: 200}, nil
@@ -250,23 +247,20 @@ func TestSpawnDelegate_RemediationSurvivesSummary(t *testing.T) {
 	if !strings.Contains(delegationResult.Output, "<remediation note: committed remaining changes; worktree left clean>") {
 		t.Errorf("output = %q, missing remediation note", delegationResult.Output)
 	}
-	if delegationResult.TurnCount != 2 || delegationResult.TokenCount != 500 {
-		t.Errorf("counts = (%d, %d), want (2, 500)", delegationResult.TurnCount, delegationResult.TokenCount)
+	if delegationResult.TurnCount != 2 || delegationResult.TokenCount != 300 {
+		t.Errorf("counts = (%d, %d), want (2, 300)", delegationResult.TurnCount, delegationResult.TokenCount)
 	}
-	if state.TurnCount != 2 || remediationCalls != 1 || calls != 3 {
-		t.Errorf("state turn=%d, remediation calls=%d, total calls=%d; want 2, 1, 3", state.TurnCount, remediationCalls, calls)
+	if state.TurnCount != 2 || remediationCalls != 1 || calls != 2 {
+		t.Errorf("state turn=%d, remediation calls=%d, total calls=%d; want 2, 1, 2", state.TurnCount, remediationCalls, calls)
 	}
-	if delegationResult.Summary != "retained summary" {
-		t.Errorf("summary = %q, want retained summary", delegationResult.Summary)
+	if delegationResult.Summary != "task result\n\n<remediation note: committed remaining changes; worktree left clean>" {
+		t.Errorf("summary = %q, want remediation output", delegationResult.Summary)
 	}
 }
 
 func TestSpawnDelegate_NonCompleteDirtySkipsRemediation(t *testing.T) {
 	remediationCalls := 0
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "retained summary"}}, StopReason: agent.StopReasonComplete}, nil
-		}
 		if len(req.Prompt.Conversation) > 0 && strings.Contains(req.Prompt.Conversation[len(req.Prompt.Conversation)-1].Content, "Pre-remediation HEAD") {
 			remediationCalls++
 		}

@@ -12,16 +12,16 @@ Every turn in the main conversation accumulates tokens — model output, tool ca
 
 ## Delegation as context management
 
-Sub-agents are the primary mechanism for keeping the parent context lean. When the model delegates exploration, code changes, or research to a child agent, the full turn-by-turn transcript of that work never enters the parent conversation. Only a structured result and a bounded summary (≤4000 chars) return.
+Sub-agents are the primary mechanism for keeping the parent context lean. When the model delegates exploration, code changes, or research to a child agent, the full turn-by-turn transcript of that work never enters the parent conversation. Only a structured result and a locally derived bounded summary (≤4000 chars) return.
 
 Contrast this with doing the same work inline: every `read`, `grep`, `bash`, and model response accumulates as permanent conversation history, rapidly filling the window and triggering compaction. Delegation avoids the problem entirely — it's context management by isolation.
 
-### How delegate summaries persist
+### How locally derived delegate summaries persist
 
-1. After a child agent completes, a **summarisation turn** asks the child model to summarise its work in ≤4000 characters.
+1. After a child agent completes, the handler derives a summary locally from output or cancellation/activity state, with a 4000-rune cap. No extra provider call is made.
 2. The summary is stored as `ToolRetention` (`kind: delegate_summary`) on the tool result message.
 3. This retention is attached to the parent's `Message.Retention` field when the tool result is ingested.
-4. This retention summary is capped once, at generation time (see step 1) — it is not re-budgeted during prompt assembly. It reaches the parent as a plain conversation message and is not currently gated by any `internal/prompt` byte budget (the `tool_summary`/`tool_result`/`delegation_result` budget machinery exists in code but is not wired into the live prompt-assembly path today).
+4. The retention is not re-budgeted during prompt assembly. It reaches the parent as a plain conversation message and is not currently gated by any `internal/prompt` byte budget.
 5. When compaction occurs, delegate summary messages in the retained recent turns survive implicitly — the compacting model sees them as part of the conversation it summarises.
 
 Child agents use the same prompt assembly and compaction path as the parent for their own (ephemeral) contexts, but those child transcripts are discarded when the child exits. Nothing leaks back to the parent beyond the final structured result.
@@ -128,7 +128,7 @@ Budgets are configurable via `AssemblyPolicy` in the prompt package. Zero values
 
 - **Lineage never pruned**: all `ConversationGeneration`s are preserved; the active generation is the latest.
 - **Preamble never truncated**: the system prompt is always delivered in full and bypasses the budget tracker.
-- **Delegate transcripts never leak**: child agent conversation is discarded on exit; only the structured result and bounded summary persist.
+- **Delegate transcripts never leak**: child agent conversation is discarded on exit; only structured result and locally derived bounded summary persist.
 - **Children use the same compaction path**: sub-agents have the same context manager and compaction logic as the parent.
 - **Compaction is lossy but bounded**: summaries are capped.
 - **70% threshold**: compaction triggers when estimated prompt tokens reach 70% of the context window, reserving headroom for the model response.

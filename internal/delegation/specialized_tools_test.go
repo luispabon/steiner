@@ -1803,9 +1803,6 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 		store := NewSessionStore()
 		var capturedReq agent.RunRequest
 		runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return successRunState(), nil
-			}
 			capturedReq = req
 			return successRunState(), nil
 		}}
@@ -1901,9 +1898,6 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 			SubAgentCfg:  config.SubAgentConfig{},
 			SessionStore: store,
 			Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-				if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-					return successRunState(), nil
-				}
 				followUpReq = req
 				return successRunState(), nil
 			}},
@@ -1934,9 +1928,6 @@ func TestVisionHandler_ExtraAllowedTools(t *testing.T) {
 	mcpTool := "mcp__gallery__find"
 	var capturedReq agent.RunRequest
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-			return successRunState(), nil
-		}
 		capturedReq = req
 		return successRunState(), nil
 	}}
