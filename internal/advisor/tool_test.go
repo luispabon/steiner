@@ -2,6 +2,7 @@ package advisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
@@ -574,6 +576,107 @@ func TestHandlerValidCallWithFilesIncrementsUseAndReachesProvider(t *testing.T) 
 	}
 	if len(prov.requests) != 1 {
 		t.Fatalf("provider calls after exhaustion = %d, want 1", len(prov.requests))
+	}
+}
+
+func TestHandlerDedupesFileAlreadyFullyReadInSnapshot(t *testing.T) {
+	t.Parallel()
+
+	workDir, policy := newAdvisorTestPolicy(t)
+	content := "steps: []\n"
+	if err := os.WriteFile(filepath.Join(workDir, "plan.yaml"), []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	hash := builtin.FileContentHash([]byte(content))
+	readResult, err := json.Marshal(builtin.ReadResult{
+		Path: "plan.yaml", StartLine: 1, EndLine: 1, TotalLines: 1, FileHash: hash, Output: content,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}},
+	}
+	handler := NewHandler(HandlerDeps{
+		Provider:   prov,
+		Model:      provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Config:     Config{MaxUsesPerRun: 1},
+		WorkDir:    workDir,
+		PathPolicy: policy,
+	})
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+		{Role: provider.MessageRoleTool, Name: "read", ToolCallID: "id-1", Content: string(readResult)},
+	})
+
+	got, err := handler(ctx, map[string]any{"files": []any{"plan.yaml"}})
+	if err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+	if got != "note" {
+		t.Fatalf("handler() = %#v, want advisor note", got)
+	}
+	last := prov.requests[0].Messages[len(prov.requests[0].Messages)-1]
+	if strings.Contains(last.Content, content) {
+		t.Fatalf("provider request still contains deduped file content: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "already fully present above") {
+		t.Fatalf("provider request missing dedup marker: %q", last.Content)
+	}
+}
+
+// TestHandlerDedupesAgainstARealReadToolResult exercises the real read
+// builtin (not a hand-built ReadResult) to prove its Path field is directly
+// comparable to loadAdvisorFiles' DisplayPath for the same file and same
+// PathPolicy, so dedup fires against genuine conversation history.
+func TestHandlerDedupesAgainstARealReadToolResult(t *testing.T) {
+	t.Parallel()
+
+	workDir, policy := newAdvisorTestPolicy(t)
+	content := "steps: []\n"
+	if err := os.WriteFile(filepath.Join(workDir, "plan.yaml"), []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	readDef := builtin.NewReadTool(builtin.Env{WorkDir: workDir, PathPolicy: policy})
+	readOut, err := readDef.Handler(context.Background(), map[string]any{"path": "plan.yaml"})
+	if err != nil {
+		t.Fatalf("read handler() error = %v", err)
+	}
+	readJSON, err := json.Marshal(readOut)
+	if err != nil {
+		t.Fatalf("json.Marshal(readOut) error = %v", err)
+	}
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}},
+	}
+	handler := NewHandler(HandlerDeps{
+		Provider:   prov,
+		Model:      provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Config:     Config{MaxUsesPerRun: 1},
+		WorkDir:    workDir,
+		PathPolicy: policy,
+	})
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+		{Role: provider.MessageRoleTool, Name: "read", ToolCallID: "id-1", Content: string(readJSON)},
+	})
+
+	got, err := handler(ctx, map[string]any{"files": []any{"plan.yaml"}})
+	if err != nil {
+		t.Fatalf("handler() error = %v", err)
+	}
+	if got != "note" {
+		t.Fatalf("handler() = %#v, want advisor note", got)
+	}
+	last := prov.requests[0].Messages[len(prov.requests[0].Messages)-1]
+	if strings.Contains(last.Content, content) {
+		t.Fatalf("provider request still contains deduped file content: %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "already fully present above") {
+		t.Fatalf("provider request missing dedup marker (Path/DisplayPath mismatch would surface here): %q", last.Content)
 	}
 }
 

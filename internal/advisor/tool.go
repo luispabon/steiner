@@ -121,10 +121,16 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	if err != nil {
 		return nil, fmt.Errorf("advisor: %w", err)
 	}
+	snapshot, ok := agent.ConversationSnapshotFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("advisor: live conversation snapshot missing from context")
+	}
+
 	files, err := loadAdvisorFiles(deps.WorkDir, deps.PathPolicy, in.Files)
 	if err != nil {
 		return nil, err
 	}
+	files = dedupeAgainstSnapshot(files, snapshot, deps.WorkDir)
 
 	s.shared.mu.Lock()
 	nextUse := s.shared.uses + 1
@@ -138,11 +144,6 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	}
 	s.shared.uses = nextUse
 	s.shared.mu.Unlock()
-
-	snapshot, ok := agent.ConversationSnapshotFromContext(ctx)
-	if !ok {
-		return nil, fmt.Errorf("advisor: live conversation snapshot missing from context")
-	}
 
 	// Keep the provider-visible tool list stable for the whole run so prompt/KV
 	// cache prefixes stay reusable. The per-session cap lives in shared handler

@@ -605,6 +605,24 @@ func TestBuildMessagesTruncatesQuestion(t *testing.T) {
 	}
 }
 
+func TestRenderAdvisorFilesDedupedFileSkipsContentBlock(t *testing.T) {
+	files := []advisorFile{
+		{DisplayPath: "a.go", Content: "", TotalBytes: 100, Deduped: true},
+		{DisplayPath: "b.go", Content: "package b\n", TotalBytes: len("package b\n")},
+	}
+
+	got := renderAdvisorFiles(files)
+	if !strings.Contains(got, "File: a.go (already fully present above from an earlier read in this conversation; content unchanged)") {
+		t.Fatalf("missing dedup marker: %q", got)
+	}
+	if strings.Contains(got, "a.go\n```") {
+		t.Fatalf("deduped file should not emit a code fence: %q", got)
+	}
+	if !strings.Contains(got, "File: b.go") || !strings.Contains(got, "package b\n") {
+		t.Fatalf("non-deduped file missing content block: %q", got)
+	}
+}
+
 func TestFlattenToolMessagesDeterminism(t *testing.T) {
 	input := []provider.Message{
 		{
