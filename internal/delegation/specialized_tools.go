@@ -356,7 +356,7 @@ func finalizeAdvisorBudgetAndSummary(result tool.ExecutionResult, advisorAvailab
 	if dr.AdvisorUses > 0 || dr.AdvisorDenied > 0 {
 		var status string
 		if dr.AdvisorDenied > 0 {
-			status = fmt.Sprintf(" (budget exhausted)")
+			status = " (budget exhausted)"
 		}
 		summaryLine := fmt.Sprintf("advisor: %d used, %d denied%s", dr.AdvisorUses, dr.AdvisorDenied, status)
 		if strings.TrimSpace(dr.Output) != "" {

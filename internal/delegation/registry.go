@@ -183,6 +183,42 @@ func resolveAdvisorCacheKey(store *CacheKeyStore) string {
 	return cacheKeyOrMint(store, cacheKeyAgentTypeAdvisor)
 }
 
+// buildAdvisorTools registers parent and child advisor tools when enabled,
+// returning an advisorForChild factory if child advisor access is configured.
+func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (tool.ToolDef, bool), error) {
+	if !deps.AdvisorCfg.Enabled {
+		return nil, nil
+	}
+	advRuntime, err := newAdvisorRuntime(deps)
+	if err != nil {
+		return nil, err
+	}
+	cloned.Register(advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerRun, deps.AdvisorState))
+
+	if deps.AdvisorBudgetStore == nil {
+		return nil, nil
+	}
+	advisorForChild := func(agentID string) (tool.ToolDef, bool) {
+		if agentID == "" {
+			return tool.ToolDef{}, false
+		}
+		state := deps.AdvisorBudgetStore.StateFor(agentID)
+		scopedEvents := withAgentScope(agentID, "", deps.Events)
+		scopedRuntime := advisorRuntime{
+			provider:   advRuntime.provider,
+			model:      advRuntime.model,
+			events:     scopedEvents,
+			recorder:   advRuntime.recorder,
+			workDir:    advRuntime.workDir,
+			pathPolicy: advRuntime.pathPolicy,
+			cacheKey:   advRuntime.cacheKey,
+			maxTokens:  advRuntime.maxTokens,
+		}
+		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
+	}
+	return advisorForChild, nil
+}
+
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
 // and registering advisor, delegation, and specialized sub-agent tools when enabled.
 func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
@@ -192,24 +228,9 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 
 	cloned := deps.BaseRegistry.Clone()
 
-	var advisorForChild func(string) (tool.ToolDef, bool)
-
-	if deps.AdvisorCfg.Enabled {
-		advRuntime, err := newAdvisorRuntime(deps)
-		if err != nil {
-			return nil, err
-		}
-		cloned.Register(advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerRun, deps.AdvisorState))
-
-		if deps.AdvisorBudgetStore != nil {
-			advisorForChild = func(agentID string) (tool.ToolDef, bool) {
-				if agentID == "" {
-					return tool.ToolDef{}, false
-				}
-				state := deps.AdvisorBudgetStore.StateFor(agentID)
-				return advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
-			}
-		}
+	advisorForChild, err := buildAdvisorTools(cloned, deps)
+	if err != nil {
+		return nil, err
 	}
 
 	if !deps.SubAgentCfg.Enabled {

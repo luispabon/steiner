@@ -215,6 +215,9 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 			InputTokens:       result.InputTokens,
 			CacheReadTokens:   result.CacheReadTokens,
 			CacheCreateTokens: result.CacheCreateTokens,
+			AdvisorBudget:     result.AdvisorBudget,
+			AdvisorUses:       result.AdvisorUses,
+			AdvisorDenied:     result.AdvisorDenied,
 		}))
 	}
 	if fields := toolCallTraceFields(spec.AgentID); fields != nil {

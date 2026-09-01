@@ -22,10 +22,57 @@ func TestDelegationCompleteMetaIncludesOnlyStatusDurationAndCache(t *testing.T) 
 		advisorMaxUses: 2,
 	}
 
-	got := delegationCompleteMeta(dd)
+	got, _ := delegationCompleteMeta(dd)
 	want := []string{"complete", "cache 95.2%", "12.4s"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
+	}
+}
+
+func TestDelegationAdvisorMeta(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		dd       *delegationDisplayState
+		wantText string
+		wantWarn bool
+	}{
+		{
+			name:     "zero budget",
+			dd:       &delegationDisplayState{advisorBudget: 0},
+			wantText: "",
+			wantWarn: false,
+		},
+		{
+			name:     "permitted unused",
+			dd:       &delegationDisplayState{advisorBudget: 1, advisorUses: 0, advisorDenied: 0},
+			wantText: "advisor 0/1",
+			wantWarn: false,
+		},
+		{
+			name:     "used once",
+			dd:       &delegationDisplayState{advisorBudget: 1, advisorUses: 1, advisorDenied: 0},
+			wantText: "advisor 1/1",
+			wantWarn: false,
+		},
+		{
+			name:     "used with denials",
+			dd:       &delegationDisplayState{advisorBudget: 1, advisorUses: 1, advisorDenied: 2},
+			wantText: "advisor 1/1 +2 denied",
+			wantWarn: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotText, gotWarn := delegationAdvisorMeta(tt.dd)
+			if gotText != tt.wantText {
+				t.Errorf("delegationAdvisorMeta text = %q, want %q", gotText, tt.wantText)
+			}
+			if gotWarn != tt.wantWarn {
+				t.Errorf("delegationAdvisorMeta warn = %v, want %v", gotWarn, tt.wantWarn)
+			}
+		})
 	}
 }
 
@@ -165,7 +212,7 @@ func TestDelegationCompleteMetaOmitsCacheHitRateWhenNotOK(t *testing.T) {
 		cacheHitOK:   false,
 	}
 
-	got := delegationCompleteMeta(dd)
+	got, _ := delegationCompleteMeta(dd)
 	want := []string{"complete", "12.4s"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
@@ -250,7 +297,7 @@ func TestDelegationCompleteMetaOrdersModelCacheAndElapsed(t *testing.T) {
 		elapsed:      "12.4s",
 	}
 
-	got := delegationCompleteMeta(dd)
+	got, _ := delegationCompleteMeta(dd)
 	want := []string{"complete", "gpt-x/high", "cache 95.2%", "12.4s"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
@@ -267,7 +314,7 @@ func TestDelegationBudgetMetaOrdersModelBeforeAdvisorUse(t *testing.T) {
 		advisorMaxUses: 2,
 	}
 
-	got := delegationBudgetMeta(dd)
+	got, _ := delegationBudgetMeta(dd)
 	want := []string{"budget exhausted", "gpt-x/high", "1/2"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationBudgetMeta() = %v, want %v", got, want)
@@ -282,7 +329,7 @@ func TestDelegationFailedMetaOrdersModelBeforeElapsed(t *testing.T) {
 		elapsed:   "12.4s",
 	}
 
-	got := delegationFailedMeta(dd)
+	got, _ := delegationFailedMeta(dd)
 	want := []string{"failed", "gpt-x/high", "12.4s"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationFailedMeta() = %v, want %v", got, want)

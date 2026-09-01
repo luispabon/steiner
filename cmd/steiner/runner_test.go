@@ -662,7 +662,7 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 
 	// Invoke the handler. modelResolver (and providerFactory) runs before the
 	// agent run starts, so the capture happens even though the run fails fast.
-	toolDef.Handler(context.Background(), map[string]any{"task": "test"}) //nolint:errcheck
+	toolDef.Handler(context.Background(), map[string]any{"objective": "test", "context": "test context", "deliverable": "result"}) //nolint:errcheck
 
 	if !capturedModel.ReasoningEchoBack {
 		t.Error("modelResolver did not set ReasoningEchoBack: Resolve was used instead of ResolveWithDiscovery")
@@ -723,7 +723,7 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 		t.Fatalf("specialized tool %q not in registry", delegation.AgentTypeExplore)
 	}
 
-	toolDef.Handler(context.Background(), map[string]any{"task": "test"}) //nolint:errcheck
+	toolDef.Handler(context.Background(), map[string]any{"objective": "test", "context": "test context", "deliverable": "result"}) //nolint:errcheck
 
 	if got, want := capturedModel.EffectiveLimits.ContextWindow, 262144; got != want {
 		t.Fatalf("captured context window = %d, want %d", got, want)
@@ -883,7 +883,7 @@ func exploreDelegationResponses() []provider.ChatResponse {
 			Message: provider.Message{
 				Role: provider.MessageRoleAssistant,
 				ToolCalls: []provider.ToolCall{
-					{ID: "call_1", Name: "explore", Arguments: map[string]any{"task": "analyze"}},
+					{ID: "call_1", Name: "explore", Arguments: map[string]any{"objective": "analyze", "context": "codebase", "deliverable": "findings"}},
 				},
 			},
 			FinishReason: "tool_calls",
@@ -1011,7 +1011,7 @@ func codeDelegationResponses() []provider.ChatResponse {
 			Message: provider.Message{
 				Role: provider.MessageRoleAssistant,
 				ToolCalls: []provider.ToolCall{
-					{ID: "call_1", Name: "code", Arguments: map[string]any{"task": "write a file"}},
+					{ID: "call_1", Name: "code", Arguments: map[string]any{"objective": "write a file", "context": "repo", "deliverable": "file"}},
 				},
 			},
 			FinishReason: "tool_calls",

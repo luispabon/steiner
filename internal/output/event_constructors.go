@@ -383,6 +383,9 @@ type DelegationCompleteParams struct {
 	InputTokens       int
 	CacheReadTokens   int
 	CacheCreateTokens int
+	AdvisorBudget     int
+	AdvisorUses       int
+	AdvisorDenied     int
 }
 
 // NewDelegationCompleteEvent creates a new delegation complete event.

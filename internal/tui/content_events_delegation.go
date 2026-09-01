@@ -694,6 +694,9 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 			}
 			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 			dd.output = payload.Output
+			dd.advisorBudget = payload.AdvisorBudget
+			dd.advisorUses = payload.AdvisorUses
+			dd.advisorDenied = payload.AdvisorDenied
 		}
 		b.markDelegationDirty(loc.seg)
 		delete(b.activeDelegations, payload.AgentID)
@@ -710,6 +713,9 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 		toolCallCount: payload.ToolCallCount,
 		output:        payload.Output,
 		collapsed:     true,
+		advisorBudget: payload.AdvisorBudget,
+		advisorUses:   payload.AdvisorUses,
+		advisorDenied: payload.AdvisorDenied,
 	}
 	dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
 	b.appendDelegationSegment(dd)
@@ -743,6 +749,12 @@ func (b *contentBuffer) handleAdvisorStarted(event output.Event) {
 		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
 		return
 	}
+
+	agentID := event.Scope.AgentID
+	if agentID != "" && b.appendScopedAdvisorStarted(agentID, payload) {
+		return
+	}
+
 	idx := len(b.segments)
 	modelName, reasoning := b.resolveDelegationModel(payload.Model)
 	b.segments = append(b.segments, contentSegment{
@@ -767,12 +779,32 @@ func (b *contentBuffer) handleAdvisorStarted(event output.Event) {
 	b.activeAdvisorSegment = idx + 1
 }
 
+func (b *contentBuffer) appendScopedAdvisorStarted(agentID string, payload output.AdvisorStartedEvent) bool {
+	loc, active := b.activeDelegations[agentID]
+	if !active || loc.dd == nil {
+		return false
+	}
+	dd := loc.dd
+	dd.advisorBudget = payload.MaxUses
+	dd.advisorUses = payload.UseNumber
+	dd.advisorQuestion = payload.Question
+	dd.advisorFiles = payload.Files
+	b.markDelegationDirty(loc.seg)
+	return true
+}
+
 func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 	payload, ok := event.Payload.(output.AdvisorCompleteEvent)
 	if !ok {
 		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
 		return
 	}
+
+	agentID := event.Scope.AgentID
+	if agentID != "" && b.appendScopedAdvisorComplete(agentID, payload) {
+		return
+	}
+
 	idx := b.activeAdvisorSegment - 1
 	if idx < 0 || idx >= len(b.segments) || b.segments[idx].kind != segmentDelegation || b.segments[idx].delegData == nil || !b.segments[idx].delegData.isAdvisor {
 		idx = len(b.segments)
@@ -813,12 +845,30 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 	})
 }
 
+func (b *contentBuffer) appendScopedAdvisorComplete(agentID string, payload output.AdvisorCompleteEvent) bool {
+	loc, active := b.activeDelegations[agentID]
+	if !active || loc.dd == nil {
+		return false
+	}
+	dd := loc.dd
+	dd.advisorUses = payload.UseNumber
+	dd.advisorBudget = payload.MaxUses
+	b.markDelegationDirty(loc.seg)
+	return true
+}
+
 func (b *contentBuffer) handleAdvisorBudgetExhausted(event output.Event) {
 	payload, ok := event.Payload.(output.AdvisorBudgetExhaustedEvent)
 	if !ok {
 		b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentStatus)
 		return
 	}
+
+	agentID := event.Scope.AgentID
+	if agentID != "" && b.appendScopedAdvisorBudgetExhausted(agentID, payload) {
+		return
+	}
+
 	modelName, reasoning := b.resolveDelegationModel(payload.Model)
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentDelegation,
@@ -839,6 +889,19 @@ func (b *contentBuffer) handleAdvisorBudgetExhausted(event output.Event) {
 		},
 		renderDirty: true,
 	})
+}
+
+func (b *contentBuffer) appendScopedAdvisorBudgetExhausted(agentID string, payload output.AdvisorBudgetExhaustedEvent) bool {
+	loc, active := b.activeDelegations[agentID]
+	if !active || loc.dd == nil {
+		return false
+	}
+	dd := loc.dd
+	dd.advisorBudget = payload.MaxUses
+	dd.advisorUses = payload.Used
+	dd.advisorDenied++
+	b.markDelegationDirty(loc.seg)
+	return true
 }
 
 func (b *contentBuffer) handleAdvisorThinkingChunk(event output.Event) {

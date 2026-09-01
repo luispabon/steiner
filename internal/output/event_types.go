@@ -410,13 +410,19 @@ type DelegationCompleteEvent struct {
 	InputTokens       int    `json:"input_tokens,omitempty"`
 	CacheReadTokens   int    `json:"cache_read_tokens,omitempty"`
 	CacheCreateTokens int    `json:"cache_create_tokens,omitempty"`
+	AdvisorBudget     int    `json:"advisor_budget,omitempty"`
+	AdvisorUses       int    `json:"advisor_uses,omitempty"`
+	AdvisorDenied     int    `json:"advisor_denied,omitempty"`
 }
 
 // DelegationFailedEvent records a failed delegated child task.
 type DelegationFailedEvent struct {
-	AgentID     string `json:"agent_id"`
-	TaskPreview string `json:"task_preview"`
-	Error       string `json:"error"`
+	AgentID       string `json:"agent_id"`
+	TaskPreview   string `json:"task_preview"`
+	Error         string `json:"error"`
+	AdvisorBudget int    `json:"advisor_budget,omitempty"`
+	AdvisorUses   int    `json:"advisor_uses,omitempty"`
+	AdvisorDenied int    `json:"advisor_denied,omitempty"`
 }
 
 // DelegationExtensionEvent is the payload for EventTypeDelegationExtension.

@@ -1455,3 +1455,86 @@ func TestActiveDelegateRowsPreserveGroupEntryOrder(t *testing.T) {
 		t.Fatalf("group rows = %#v, want child-1 then child-2", rows)
 	}
 }
+
+func TestAdvisorEventRoutingToActiveChild(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
+	initialSegments := len(buffer.segments)
+
+	event := output.NewAdvisorStartedEvent("advisor-model", 1, 1, "question", nil)
+	event = output.WithAgentScope(event, "child-id")
+	buffer.AppendEvent(event)
+
+	if len(buffer.segments) != initialSegments {
+		t.Errorf("scoped advisor event appended new segment: before %d, after %d", initialSegments, len(buffer.segments))
+	}
+
+	loc, ok := buffer.activeDelegations["child-id"]
+	if !ok {
+		t.Fatal("child delegation not in active delegations")
+	}
+	dd := loc.dd
+	if dd.advisorBudget != 1 {
+		t.Errorf("child advisorBudget = %d, want 1", dd.advisorBudget)
+	}
+	if dd.advisorQuestion != "question" {
+		t.Errorf("child advisorQuestion = %q, want 'question'", dd.advisorQuestion)
+	}
+}
+
+func TestAdvisorEventRoutingParentUnscoped(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
+	initialSegments := len(buffer.segments)
+
+	event := output.NewAdvisorStartedEvent("advisor-model", 1, 1, "question", nil)
+	buffer.AppendEvent(event)
+
+	if len(buffer.segments) != initialSegments+1 {
+		t.Errorf("unscoped advisor event did not append new segment: before %d, after %d", initialSegments, len(buffer.segments))
+	}
+
+	if buffer.segments[initialSegments].delegData == nil || !buffer.segments[initialSegments].delegData.isAdvisor {
+		t.Fatal("new segment is not an advisor delegation")
+	}
+}
+
+func TestAdvisorBudgetExhaustedRoutingToActiveChild(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
+	initialSegments := len(buffer.segments)
+
+	event := output.NewAdvisorBudgetExhaustedEvent("advisor-model", 1, 1, "budget full", "question", nil)
+	event = output.WithAgentScope(event, "child-id")
+	buffer.AppendEvent(event)
+
+	if len(buffer.segments) != initialSegments {
+		t.Errorf("scoped budget exhausted event appended new segment: before %d, after %d", initialSegments, len(buffer.segments))
+	}
+
+	loc, ok := buffer.activeDelegations["child-id"]
+	if !ok {
+		t.Fatal("child delegation not in active delegations")
+	}
+	dd := loc.dd
+	if dd.advisorDenied != 1 {
+		t.Errorf("child advisorDenied = %d, want 1", dd.advisorDenied)
+	}
+}
+
+func TestAdvisorBudgetExhaustedParentUnscoped(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
+	initialSegments := len(buffer.segments)
+
+	event := output.NewAdvisorBudgetExhaustedEvent("advisor-model", 1, 1, "budget full", "question", nil)
+	buffer.AppendEvent(event)
+
+	if len(buffer.segments) != initialSegments+1 {
+		t.Errorf("unscoped budget exhausted event did not append new segment: before %d, after %d", initialSegments, len(buffer.segments))
+	}
+
+	if buffer.segments[initialSegments].delegData == nil || !buffer.segments[initialSegments].delegData.isAdvisor {
+		t.Fatal("new segment is not an advisor delegation")
+	}
+}
