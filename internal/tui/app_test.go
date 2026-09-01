@@ -39,6 +39,61 @@ func TestSetInitialModeSeedsModel(t *testing.T) {
 	}
 }
 
+func TestSetInitialEnabledSkillsSeedsModel(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  []string
+		initial []string
+		want    map[string]bool
+	}{
+		{
+			name:    "seed empty on empty config",
+			config:  []string{},
+			initial: []string{},
+			want:    map[string]bool{},
+		},
+		{
+			name:    "seed skills when present in config",
+			config:  []string{"sql", "python", "bash"},
+			initial: []string{"sql", "bash"},
+			want: map[string]bool{
+				"sql":    true,
+				"python": false,
+				"bash":   true,
+			},
+		},
+		{
+			name:    "ignore unknown skills",
+			config:  []string{"sql", "python"},
+			initial: []string{"sql", "unknown"},
+			want: map[string]bool{
+				"sql":    true,
+				"python": false,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := NewApp(Config{
+				SkillNames:           tt.config,
+				InitialEnabledSkills: tt.initial,
+			})
+
+			m := newModel(app.cfg, nil)
+			if len(m.enabledSkills) != len(tt.want) {
+				t.Fatalf("model enabledSkills len = %d, want %d", len(m.enabledSkills), len(tt.want))
+			}
+			for name, wantEnabled := range tt.want {
+				if got, ok := m.enabledSkills[name]; !ok {
+					t.Errorf("skill %q missing from enabledSkills", name)
+				} else if got != wantEnabled {
+					t.Errorf("skill %q enabled = %v, want %v", name, got, wantEnabled)
+				}
+			}
+		})
+	}
+}
+
 func TestResumeSeedsInitialModeBeforeToggle(t *testing.T) {
 	store := tuiTestSessionStore{}
 	sess, err := interactive.NewSession(interactive.Dependencies{

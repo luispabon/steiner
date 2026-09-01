@@ -70,8 +70,9 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	if err := resumeInteractiveSession(cmd.Context(), sess, flags.resume, &rt); err != nil {
 		return err
 	}
-	// The persisted mode is restored now; seed the model so the sidebar/footer and toggle match the session.
+	// The persisted mode and skills are restored now; seed the model so the sidebar/footer and toggle match the session.
 	tuiApp.SetInitialMode(string(sess.Mode()))
+	tuiApp.SetInitialEnabledSkills(sess.Skills())
 	p := tuiApp.NewProgram(interactiveProgramOptions(rt.cfg)...)
 	return runInteractiveSession(cmd, sess, p, &rt)
 }

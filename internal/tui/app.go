@@ -84,7 +84,10 @@ type Config struct {
 	// InitialMode is the execution mode ("plan" or "build") active at startup,
 	// e.g. string(sess.Mode()). Seeds the footer badge and sidebar row before
 	// any mode_changed event arrives.
-	InitialMode          string
+	InitialMode string
+	// InitialEnabledSkills lists the skill names enabled at startup (e.g. from a
+	// resumed session), matching InitialMode's seeding pattern.
+	InitialEnabledSkills []string
 	ProviderBaseURL      string
 	ProviderName         string
 	HomeDir              string
@@ -169,6 +172,13 @@ func NewApp(cfg Config) *App {
 // concurrency-safe.
 func (a *App) SetInitialMode(mode string) {
 	a.cfg.InitialMode = mode
+}
+
+// SetInitialEnabledSkills overrides the set of skills enabled at startup used
+// to seed the TUI model when the program is next created. Safe only before
+// NewProgram and not concurrency-safe.
+func (a *App) SetInitialEnabledSkills(names []string) {
+	a.cfg.InitialEnabledSkills = names
 }
 
 // Subscriber returns the event subscriber exposed to the runtime.
