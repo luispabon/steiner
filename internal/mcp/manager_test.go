@@ -300,15 +300,12 @@ func TestManagerConnect(t *testing.T) {
 		if err != nil {
 			t.Fatalf("echo returned Go error %v, want nil", err)
 		}
-		echo, ok := env.(tool.JSONEnvelope)
+		echo, ok := env.(string)
 		if !ok {
-			t.Fatalf("echo result type = %T, want tool.JSONEnvelope", env)
+			t.Fatalf("echo result type = %T, want string", env)
 		}
-		if !echo.OK {
-			t.Errorf("echo OK = false, want true (error: %+v)", echo.Error)
-		}
-		if got := echo.Result; got != "hi" {
-			t.Errorf("echo result = %v, want %q", got, "hi")
+		if echo != "hi" {
+			t.Errorf("echo result = %v, want %q", echo, "hi")
 		}
 
 		env, err = findTool(t, m.ToolDefs(), "mcp__fixture__boom").Handler(context.Background(), nil)
@@ -347,15 +344,12 @@ func TestManagerConnect(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readonly_echo returned Go error %v, want nil", err)
 		}
-		echo, ok := env.(tool.JSONEnvelope)
+		echo, ok := env.(string)
 		if !ok {
-			t.Fatalf("readonly_echo result type = %T, want tool.JSONEnvelope", env)
+			t.Fatalf("readonly_echo result type = %T, want string", env)
 		}
-		if !echo.OK {
-			t.Errorf("readonly_echo OK = false, want true (error: %+v)", echo.Error)
-		}
-		if got := echo.Result; got != "hi" {
-			t.Errorf("readonly_echo result = %v, want %q", got, "hi")
+		if echo != "hi" {
+			t.Errorf("readonly_echo result = %v, want %q", echo, "hi")
 		}
 
 		// boom has no readOnlyHint: it falls through to approval, and a nil
@@ -379,15 +373,12 @@ func TestManagerConnect(t *testing.T) {
 		if err != nil {
 			t.Fatalf("echo returned Go error %v, want nil", err)
 		}
-		echo, ok := env.(tool.JSONEnvelope)
+		echo, ok := env.(string)
 		if !ok {
-			t.Fatalf("echo result type = %T, want tool.JSONEnvelope", env)
+			t.Fatalf("echo result type = %T, want string", env)
 		}
-		if !echo.OK {
-			t.Errorf("echo OK = false, want true (error: %+v)", echo.Error)
-		}
-		if got := echo.Result; got != "hi" {
-			t.Errorf("echo result = %v, want %q", got, "hi")
+		if echo != "hi" {
+			t.Errorf("echo result = %v, want %q", echo, "hi")
 		}
 	})
 
@@ -418,12 +409,9 @@ func TestManagerConnect(t *testing.T) {
 		if err != nil {
 			t.Fatalf("echo returned Go error %v, want nil", err)
 		}
-		echo, ok := env.(tool.JSONEnvelope)
-		if !ok {
-			t.Fatalf("echo result type = %T, want tool.JSONEnvelope", env)
-		}
-		if !echo.OK || echo.Result != "hi" {
-			t.Errorf("echo = %+v, want OK with result %q", echo, "hi")
+		echo, ok := env.(string)
+		if !ok || echo != "hi" {
+			t.Errorf("echo = %#v, want OK with result %q", env, "hi")
 		}
 	})
 

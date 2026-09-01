@@ -156,7 +156,6 @@ type toolPatch struct {
 	Description *string         `yaml:"description"`
 	Parameters  *map[string]any `yaml:"parameters"`
 	Timeout     *Duration       `yaml:"timeout"`
-	Constraints *map[string]any `yaml:"constraints"`
 }
 
 type projectContextPatch struct {

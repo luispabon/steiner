@@ -648,7 +648,37 @@ tools:
 | `description` | string          | —       | Human-readable description shown to the model in the tool schema. |
 | `parameters`  | map[string]any  | —       | JSON Schema fragment describing the tool's input parameters. |
 | `timeout`     | duration string | —       | Per-tool timeout. Overrides `limits.tool_timeout_default` for this tool. |
-| `constraints` | map[string]any  | —       | Arbitrary constraint metadata passed to the tool executor. |
+
+### Tool contract
+
+steiner invokes `exec` (with `subcommand` as its first argument, if set) as a
+subprocess for each call. The contract is fixed and not configurable per tool:
+
+- **stdin**: the model's validated input arguments, as a single JSON object,
+  written once and then closed.
+- **stdout**: a single JSON object on completion:
+  - Success: `{"ok": true, "result": <any JSON value>}`. `result` is what the
+    model sees, verbatim.
+  - Failure: `{"ok": false, "error": {"kind": "<short slug>", "message": "<human-readable>", "details": <optional any>}}`.
+    `kind` and `message` are model-visible; `details` is host-side only (shown
+    in logs/TUI, not sent to the model).
+  - Optionally, alongside `result`: `"model_result": <any JSON value>`. When
+    present, `model_result` — not `result` — is what the model sees;
+    `result` is then retained host-side only (session history, TUI). Use
+    this when your tool's full result is large, includes raw
+    logs/diagnostics, or otherwise carries more than the model needs to act
+    on. Omit it to keep sending `result` to the model directly (default,
+    unchanged behavior).
+- **exit code**: a nonzero exit code is always treated as a failure,
+  regardless of what stdout contains — even a well-formed
+  `{"ok": true, ...}` response is discarded and reported to the model as an
+  error if the process exits nonzero. Exit `0` on every successful call; use
+  the `ok: false` envelope, not a nonzero exit code, to signal a specific
+  failure.
+- stdout/stderr raw bytes are captured host-side (bounded by
+  `limits.tool_output_max_bytes`) and are never sent to the model on
+  success; they surface only inside a failure's `details` when stdout
+  wasn't valid JSON or the process itself failed to run.
 
 ```yaml
 tools:
@@ -657,6 +687,23 @@ tools:
     subcommand: -w
     description: Format Go source files in place.
     timeout: 10s
+```
+
+A minimal conforming tool, reading arguments from stdin and writing the
+envelope to stdout:
+
+```json
+// stdin
+{"path": "main.go"}
+
+// stdout (success, no model_result — result goes straight to the model)
+{"ok": true, "result": {"formatted": true}}
+
+// stdout (success, with model_result — result is host-only)
+{"ok": true, "result": {"formatted": true, "diff": "...200 lines..."}, "model_result": {"formatted": true}}
+
+// stdout (failure)
+{"ok": false, "error": {"kind": "invalid_input", "message": "path not found"}}
 ```
 
 ---

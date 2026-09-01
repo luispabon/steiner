@@ -225,15 +225,12 @@ func TestIntegrationAnnotationAutoAllow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readonly_echo returned Go error %v, want nil", err)
 	}
-	echo, ok := env.(tool.JSONEnvelope)
+	echo, ok := env.(string)
 	if !ok {
-		t.Fatalf("readonly_echo result type = %T, want tool.JSONEnvelope", env)
+		t.Fatalf("readonly_echo result type = %T, want string", env)
 	}
-	if !echo.OK {
-		t.Errorf("readonly_echo OK = false, want true (error: %+v)", echo.Error)
-	}
-	if got := echo.Result; got != "hi" {
-		t.Errorf("readonly_echo result = %v, want %q", got, "hi")
+	if echo != "hi" {
+		t.Errorf("readonly_echo result = %v, want %q", echo, "hi")
 	}
 	if got := len(approver.reqs); got != 0 {
 		t.Errorf("approver recorded %d requests, want 0 (readOnlyHint auto-allows)", got)
@@ -291,15 +288,12 @@ func TestIntegrationTrustAnnotationsFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readonly_echo returned Go error %v, want nil", err)
 	}
-	echo, ok := env.(tool.JSONEnvelope)
+	echo, ok := env.(string)
 	if !ok {
-		t.Fatalf("readonly_echo result type = %T, want tool.JSONEnvelope", env)
+		t.Fatalf("readonly_echo result type = %T, want string", env)
 	}
-	if !echo.OK {
-		t.Errorf("readonly_echo OK = false, want true (error: %+v)", echo.Error)
-	}
-	if got := echo.Result; got != "hi" {
-		t.Errorf("readonly_echo result = %v, want %q", got, "hi")
+	if echo != "hi" {
+		t.Errorf("readonly_echo result = %v, want %q", echo, "hi")
 	}
 	if got := len(approver.reqs); got != 1 {
 		t.Errorf("approver recorded %d requests, want 1 (readOnlyHint ignored without trust_annotations)", got)

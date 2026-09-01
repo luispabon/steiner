@@ -140,6 +140,10 @@ func renderAdvisorFiles(files []advisorFile) string {
 	var sb strings.Builder
 	remaining := maxAdvisorFilesTotalBytes
 	for _, f := range files {
+		if f.Deduped {
+			fmt.Fprintf(&sb, "File: %s (already fully present above from an earlier read in this conversation; content unchanged)\n\n", f.DisplayPath)
+			continue
+		}
 		content := elideKnownTotal(f.Content, maxAdvisorFileBytes, f.TotalBytes)
 		if len(content) > remaining {
 			content = elide(content, remaining)

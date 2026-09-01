@@ -1,12 +1,16 @@
 package advisor
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 // advisorFile is one caller-supplied artifact loaded for the advisor's
@@ -19,6 +23,10 @@ type advisorFile struct {
 	DisplayPath string
 	Content     string
 	TotalBytes  int
+	// Deduped is true when Content was cleared because the full,
+	// byte-identical file already appears in snapshot as a prior full
+	// "read" tool result — see dedupeAgainstSnapshot.
+	Deduped bool
 }
 
 // advisorInput is the decoded optional input to the advisor tool.
@@ -123,6 +131,68 @@ func readCapped(absPath string, capBytes int) (string, int, error) {
 		return "", 0, err
 	}
 	return string(data), int(info.Size()), nil
+}
+
+// dedupeAgainstSnapshot clears the content of any file whose full,
+// unmodified bytes already appear in snapshot as a prior full-file "read"
+// result, so the advisor request doesn't resend it. Only applies to files
+// loadAdvisorFiles read in full (TotalBytes <= maxAdvisorFileBytes) — a
+// capped read's Content is a prefix, not the whole file, and read's
+// file_hash is always computed over the whole file, so a capped file has
+// nothing valid to compare against.
+func dedupeAgainstSnapshot(files []advisorFile, snapshot []provider.Message, workDir string) []advisorFile {
+	for i := range files {
+		f := &files[i]
+		if f.TotalBytes > maxAdvisorFileBytes {
+			continue
+		}
+		hash, ok := findFullFileReadHash(snapshot, f.DisplayPath, workDir)
+		if !ok || hash != builtin.FileContentHash([]byte(f.Content)) {
+			continue
+		}
+		f.Content = ""
+		f.Deduped = true
+	}
+	return files
+}
+
+// findFullFileReadHash scans snapshot most-recent-first for a "read" tool
+// result covering path in full (start_line 1 through total_lines) and
+// returns its file_hash. A message that isn't a "read" result, doesn't
+// decode as one, is for a different path, or covers only part of the file
+// is skipped — including a compacted/summarized message, which naturally
+// fails to decode and is treated as "not found" (fail safe: falls back to
+// sending content, never a false dedup).
+//
+// rr.Path is run through relDisplayPath(workDir, ...) before comparison
+// because read.go only relativizes its display path when the path policy's
+// DisplayPath doesn't already start with "/" (in practice it always does),
+// while loadAdvisorFiles relativizes unconditionally. Both sides start from
+// the same policy.DisplayPath(absPath) value, so applying the same
+// relDisplayPath transform to rr.Path here restores comparability with
+// path (an advisorFile.DisplayPath, already relativized) without changing
+// read.go.
+func findFullFileReadHash(snapshot []provider.Message, path, workDir string) (string, bool) {
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		m := snapshot[i]
+		if m.Role != provider.MessageRoleTool || m.Name != "read" {
+			continue
+		}
+		var rr builtin.ReadResult
+		if err := json.Unmarshal([]byte(m.Content), &rr); err != nil {
+			continue
+		}
+		if relDisplayPath(workDir, rr.Path) != path || rr.TotalLines == 0 || rr.StartLine != 1 || rr.EndLine != rr.TotalLines {
+			continue
+		}
+		if strings.Contains(rr.Output, builtin.LineTruncationMarker) {
+			// A per-line clip means Output isn't a byte-faithful copy of
+			// the file even though the range/hash look complete.
+			continue
+		}
+		return rr.FileHash, true
+	}
+	return "", false
 }
 
 // relDisplayPath returns p relative to workDir when possible. For paths

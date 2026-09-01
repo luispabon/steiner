@@ -127,7 +127,7 @@ func (p *mutatePlanner) verifyFileHash(index int, opType string, state *mutateFi
 	if state.isDir {
 		return fmt.Errorf("mutate: operation %d %s: file_hash requires a file, but %s is a directory", index, opType, state.displayPath)
 	}
-	actual := fileContentHash(state.original)
+	actual := FileContentHash(state.original)
 	if actual != fileHash {
 		return fmt.Errorf("mutate: operation %d %s: file_hash mismatch on %s — expected %s, got %s (file changed since last read; re-read to get fresh hash)", index, opType, state.displayPath, fileHash, actual)
 	}
@@ -240,7 +240,7 @@ func (p *mutatePlanner) finalizeResult() {
 				if p.result.FileHashes == nil {
 					p.result.FileHashes = make(map[string]string)
 				}
-				p.result.FileHashes[state.displayPath] = fileContentHash(state.content)
+				p.result.FileHashes[state.displayPath] = FileContentHash(state.content)
 			}
 		}
 	}
@@ -261,7 +261,7 @@ func (p *mutatePlanner) recordTextOperation(index int, op MutateOperation, state
 		Path:         state.displayPath,
 		ResolvedPath: p.resolvedDisplayPath(state.path),
 		MatchCount:   matchCount,
-		FileHash:     fileContentHash(state.content),
+		FileHash:     FileContentHash(state.content),
 		Assertions:   assertions,
 		Context:      buildMutateContext(state.content, anchorLine),
 	})
@@ -280,7 +280,7 @@ func (p *mutatePlanner) recordMovedOperation(index int, op MutateOperation, stat
 		To:           op.To,
 		Path:         state.displayPath,
 		ResolvedPath: p.resolvedDisplayPath(state.path),
-		FileHash:     fileContentHash(state.content),
+		FileHash:     FileContentHash(state.content),
 		Assertions:   assertions,
 		Context:      buildMutateContext(state.content, 1),
 	})
