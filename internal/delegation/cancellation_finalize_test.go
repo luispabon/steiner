@@ -220,10 +220,7 @@ func TestSpecializedCodeDiscardWaitsForRunner(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var runCalls atomic.Int32
-	runner := &mockRunner{runFunc: func(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
-		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete}, nil
-		}
+	runner := &mockRunner{runFunc: func(ctx context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		runCalls.Add(1)
 		close(entered)
 		<-release

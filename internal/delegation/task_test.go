@@ -414,11 +414,8 @@ func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
 
 func TestSpawnDelegateAccumulatesExtensionUsage(t *testing.T) {
 	calls := 0
-	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		calls++
-		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete, TokenCount: 1}, nil
-		}
 		if calls == 1 {
 			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{Name: "read"}}}}, StopReason: agent.StopReasonMaxTurns, TokenCount: 10}, nil
 		}
@@ -430,8 +427,8 @@ func TestSpawnDelegateAccumulatesExtensionUsage(t *testing.T) {
 		t.Fatalf("SpawnDelegate error: %v", err)
 	}
 	got := result.Value.(Result)
-	if got.TokenCount != 31 || usage.OutputTokens != 31 {
-		t.Fatalf("output usage = (%d, %d), want (31, 31)", got.TokenCount, usage.OutputTokens)
+	if got.TokenCount != 30 || usage.OutputTokens != 30 {
+		t.Fatalf("output usage = (%d, %d), want (30, 30)", got.TokenCount, usage.OutputTokens)
 	}
 }
 
@@ -452,48 +449,6 @@ func TestSpawnDelegateAccumulatesErroredExtensionUsage(t *testing.T) {
 	got := result.Value.(Result)
 	if got.TokenCount != 30 || usage.OutputTokens != 30 || got.InputTokens != 2 || got.CacheReadTokens != 3 || got.CacheCreateTokens != 4 {
 		t.Fatalf("errored extension usage = result(%d,%d,%d,%d), usage output=%d; want (30,2,3,4), 30", got.TokenCount, got.InputTokens, got.CacheReadTokens, got.CacheCreateTokens, usage.OutputTokens)
-	}
-}
-
-func TestSpawnDelegateAccumulatesSummaryUsage(t *testing.T) {
-	calls := 0
-	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-		calls++
-		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete, TokenCount: 7, InputTokens: 11, CacheReadTokens: 13, CacheCreateTokens: 17}, nil
-		}
-		return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "done"}}, StopReason: agent.StopReasonComplete, TokenCount: 5, InputTokens: 2, CacheReadTokens: 3, CacheCreateTokens: 4}, nil
-	}}
-
-	result, _, usage, err := SpawnDelegate(context.Background(), Spec{AgentID: "summary-usage"}, agent.RunRequest{}, runner, nil, nil)
-	if err != nil {
-		t.Fatalf("SpawnDelegate error: %v", err)
-	}
-	got := result.Value.(Result)
-	if got.TokenCount != 12 || got.InputTokens != 13 || got.CacheReadTokens != 16 || got.CacheCreateTokens != 21 {
-		t.Fatalf("summary usage result = (%d,%d,%d,%d), want (12,13,16,21)", got.TokenCount, got.InputTokens, got.CacheReadTokens, got.CacheCreateTokens)
-	}
-	if usage != (TokenUsage{OutputTokens: 12, InputTokens: 13, CacheReadTokens: 16, CacheCreateTokens: 21}) {
-		t.Fatalf("summary usage = %+v, want cumulative usage", usage)
-	}
-}
-
-func TestSpawnDelegate_SummaryTurnGetsNoTurnBudgetNotice(t *testing.T) {
-	var capturedSummaryReq agent.RunRequest
-	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-			capturedSummaryReq = req
-			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete}, nil
-		}
-		return successRunState(), nil
-	}}
-
-	_, _, _, err := SpawnDelegate(context.Background(), Spec{AgentID: "summary-no-notice"}, agent.RunRequest{}, runner, nil, nil)
-	if err != nil {
-		t.Fatalf("SpawnDelegate error: %v", err)
-	}
-	if capturedSummaryReq.TurnBudgetNotice != nil {
-		t.Fatal("expected the summarisation turn's request to carry a nil TurnBudgetNotice")
 	}
 }
 
@@ -521,9 +476,6 @@ func TestTurnBudgetNoticeFunc(t *testing.T) {
 func TestSpawnDelegate_SetsInitialTurnBudgetNotice(t *testing.T) {
 	var capturedReq agent.RunRequest
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete}, nil
-		}
 		capturedReq = req
 		return successRunState(), nil
 	}}

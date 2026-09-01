@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -121,8 +119,6 @@ func cancelledBeforeDispatchResult(agentID string) tool.ExecutionResult {
 }
 
 // SpawnDelegate executes a child agent with the given specification and runner.
-// It always runs a follow-up summarisation turn after successful completion and
-// returns the full visible output plus hidden retention metadata.
 //
 //nolint:gocyclo // delegation lifecycle branches cover setup, execution, remediation, and retention.
 func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner AgentRunner, events output.EventSink, logger *TraceLogger, opts ...spawnOption) (tool.ExecutionResult, agent.RunState, TokenUsage, error) {
@@ -204,41 +200,24 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		"has_output":         strings.TrimSpace(result.Output) != "",
 	})
 
-	summaryCtx, summaryCancel := context.WithTimeout(childCtx, 30*time.Second)
-	defer summaryCancel()
-	summaryText, summaryUsage := retainedDelegateSummary(summaryCtx, runner, req, state)
-	result.TokenCount += summaryUsage.OutputTokens
-	result.InputTokens += summaryUsage.InputTokens
-	result.CacheReadTokens += summaryUsage.CacheReadTokens
-	result.CacheCreateTokens += summaryUsage.CacheCreateTokens
-	runUsage = runUsage.Add(summaryUsage)
-	tc.add("result_final", "usage folded (incl. summary)", map[string]any{"tokens_used": result.TokenCount, "status": string(result.Status)})
-	if summaryText == "" {
-		needsSynthetic := result.Status == StatusCancelled ||
-			(strings.TrimSpace(result.Output) == "" && countToolCalls(state.Conversation) > 0)
-
-		if needsSynthetic {
-			// Cancellation or empty output with tool activity: the child
-			// session is preserved, so synthesize a summary that tells the
-			// parent the session can be resumed.
-			synthetic := cancelledActivitySummary(state)
-			if synthetic != "" {
-				summaryText = synthetic
-				tc.add("summary", "summary from cancelled activity", map[string]any{"length": len(summaryText)})
-			} else {
-				summaryText = cappedRetentionPreview(result.Output)
-				tc.add("summary", "summary empty, using output preview", nil)
-			}
-			if result.Status == StatusCancelled {
-				result.SessionResumable = true
-			}
-		} else {
+	tc.add("result_final", "final result", map[string]any{"tokens_used": result.TokenCount, "status": string(result.Status)})
+	needsSynthetic := result.Status == StatusCancelled ||
+		(strings.TrimSpace(result.Output) == "" && countToolCalls(state.Conversation) > 0)
+	summaryText := ""
+	if needsSynthetic {
+		// Cancellation or empty output with tool activity: derive a summary
+		// that tells the parent the session can be resumed.
+		summaryText = cancelledActivitySummary(state)
+		if summaryText == "" {
 			summaryText = cappedRetentionPreview(result.Output)
-			tc.add("summary", "summary empty, using output preview", nil)
+		}
+		if result.Status == StatusCancelled {
+			result.SessionResumable = true
 		}
 	} else {
-		tc.add("summary", "summary generated", map[string]any{"length": len(summaryText)})
+		summaryText = cappedRetentionPreview(result.Output)
 	}
+	tc.add("summary", "summary derived locally", map[string]any{"length": len(summaryText)})
 	result.Summary = summaryText
 	result.Output = appendAdvisorSummaryLine(result.Output, result.AdvisorUses, result.AdvisorDenied)
 	if events != nil {
@@ -456,44 +435,6 @@ func failedDelegateSummaryText(err error, state agent.RunState) string {
 	return truncateUTF8(strings.Join(parts, "\n"))
 }
 
-func retainedDelegateSummary(ctx context.Context, runner AgentRunner, req agent.RunRequest, state agent.RunState) (string, TokenUsage) {
-	summaryReq := req
-	summaryReq.Events = nil
-	summaryReq.Limits.MaxTurns = 1
-	summaryReq.Limits.TurnTimeout = 0
-	summaryReq.Tools = nil
-	summaryReq.Executor = summaryOnlyExecutor{}
-	// The checkpoint's 70%-of-MaxTurns threshold floors to 0 turns at
-	// MaxTurns=1, which would misfire on every summary turn and inject the
-	// notice right before the model's retention summary. The summary turn
-	// isn't part of the extension flow, so it never needs this signal.
-	summaryReq.TurnBudgetNotice = nil
-	rawConv := agent.ToReplaySafeProviderMessages(state.Conversation)
-	for i := range rawConv {
-		rawConv[i].Turn = 0
-	}
-	summaryReq.Prompt.Conversation = rawConv
-	summaryReq.Prompt.Conversation = append(summaryReq.Prompt.Conversation, provider.Message{
-		Role:    provider.MessageRoleUser,
-		Content: fmt.Sprintf("Summarize the assistant response you just gave for retention only. Keep it under %d characters. Include key findings, paths, decisions, risks, and the next action when relevant. Do not address the parent and do not add new instructions.", delegateRetentionSummaryMaxRunes),
-	})
-
-	summaryState, err := runner.Run(ctx, summaryReq)
-	usage := tokenUsageOf(summaryState)
-	if err != nil {
-		return "", usage
-	}
-	summaryOutput := ""
-	if msg, ok := agent.LastAssistantMessage(summaryState.Conversation); ok {
-		summaryOutput = strings.TrimSpace(msg.Content)
-	}
-	summaryOutput = strings.TrimSpace(summaryOutput)
-	if summaryOutput == "" {
-		return "", usage
-	}
-	return truncateUTF8(summaryOutput), usage
-}
-
 func cancelledActivitySummary(state agent.RunState) string {
 	toolCount := countToolCalls(state.Conversation)
 	if toolCount == 0 {
@@ -541,12 +482,6 @@ func truncateUTF8(text string) string {
 		return string(runes[:maxRunes])
 	}
 	return string(runes[:maxRunes-3]) + "..."
-}
-
-type summaryOnlyExecutor struct{}
-
-func (summaryOnlyExecutor) Execute(context.Context, string, string, map[string]any) (any, error) {
-	return nil, fmt.Errorf("delegate summary turn does not permit tools")
 }
 
 // runStateFields builds trace fields from a child run's outcome.

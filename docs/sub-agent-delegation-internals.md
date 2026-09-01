@@ -30,7 +30,7 @@ Delegated tools retain full host `Result` records and retention metadata, while 
 │  │  - emit DelegationStarted        │       │
 │  │  - runner.Run(childCtx, req)     │       │
 │  │  - auto-extension loop (≤3x)     │       │
-│  │  - summarisation turn            │       │
+│  │  - derive local retention summary│       │
 │  │  - emit DelegationComplete       │       │
 │  └──────────────┬───────────────────┘       │
 │                 │                           │
@@ -157,7 +157,7 @@ Beyond key reuse, `CacheKeyStore` also **staggers concurrent same-key dispatches
 3. **Run** the child agent loop via the `AgentRunner` interface.
 4. **Auto-extension loop** (up to 3 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
 5. **Build result** from final state (maps `StopReason` → `Status`). Token counters (input, cache, and output) are accumulated across extension re-runs and prior follow-ups (`Spec.PriorTokenUsage`) rather than taken from the final state alone.
-6. **Summarisation turn**: runs a single no-tool turn asking the model to summarise its work in ≤4000 chars.
+6. **Derive retention summary locally**: use the final output, or derive cancellation/activity details when cancelled or when tool activity produced no output; cap the result at 4000 runes. No extra provider call is made.
 7. **Emit** `DelegationCompleteEvent` or `DelegationFailedEvent`. `DelegationCompleteEvent` carries `InputTokens`/`CacheReadTokens`/`CacheCreateTokens` alongside the existing turn/tool/token counts; it is constructed via `NewDelegationCompleteEvent`, which takes a `DelegationCompleteParams` struct rather than positional arguments, so the TUI can render the child agent's cumulative cache hit rate in the tool box.
 8. **Return** `tool.ExecutionResult` with `ToolRetention` metadata attached.
 
@@ -184,7 +184,7 @@ A parallel batch receives one shared pre-batch conversation snapshot. Siblings t
 | `AgentID`           | Matches the request                                   |
 | `Status`            | `complete`, `partial`, `failed`, or `cancelled`       |
 | `Output`            | Last assistant message content                        |
-| `Summary`           | Retained summary (≤4000 runes)                        |
+| `Summary`           | Locally derived retained summary (≤4000 runes)        |
 | `TurnCount`         | Turns consumed by the child                           |
 | `TokenCount`        | Tokens consumed by the child                          |
 | `InputTokens`       | Cumulative uncached prompt tokens consumed by the child across extensions and follow-ups   |
@@ -210,13 +210,13 @@ Normal success omits `status` and `reason`. The full host `Result`, retention me
 | Field        | Description          |
 |--------------|----------------------|
 | `Kind`       | `"delegate_summary"` |
-| `Summary`    | Condensed findings   |
+| `Summary`    | Locally derived condensed findings (≤4000 runes) |
 | `AgentID`    | Child agent ID       |
 | `Status`     | Result status        |
 | `TurnCount`  | Turns consumed       |
 | `TokenCount` | Tokens consumed      |
 
-**Summarisation turn.** After the child completes, a follow-up single-turn (no tools allowed) asks the model to produce a concise summary. If the summarisation turn fails or returns empty, the raw output is truncated to 4000 runes as a fallback.
+**Local retention summary.** After the child completes, retention is derived without another provider call. Successful output uses a capped preview; cancellation or empty output with tool activity uses a local cancellation/activity summary, with a 4000-rune cap.
 
 **Retention path.** The child agent's full transcript is not copied into the parent session. The parent keeps the delegate result plus a bounded summary. Compaction may later summarise older parent conversation state, including delegated work, through the normal baseline path.
 
