@@ -39,6 +39,11 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 	for _, name := range cfg.SkillNames {
 		enabledSkills[name] = false
 	}
+	for _, name := range cfg.InitialEnabledSkills {
+		if _, ok := enabledSkills[name]; ok {
+			enabledSkills[name] = true
+		}
+	}
 
 	accentHex := resolveAccentPreset(cfg.AccentPreset, rand.Intn)
 	if accentHex == "" {
