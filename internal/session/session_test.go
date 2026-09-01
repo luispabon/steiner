@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -336,5 +337,126 @@ func TestForkOfKeylessRecordMaterializesKeyOnFirstFork(t *testing.T) {
 	}
 	if got, want := secondFork.PromptCacheKey, "legacy-id"; got != want {
 		t.Fatalf("fork-of-fork PromptCacheKey = %q, want %q (propagated, not empty)", got, want)
+	}
+}
+
+func TestSessionSkillsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		skills []string
+	}{
+		{
+			name:   "empty skills slice",
+			skills: []string{},
+		},
+		{
+			name:   "nil skills slice",
+			skills: nil,
+		},
+		{
+			name:   "single skill",
+			skills: []string{"skill-a"},
+		},
+		{
+			name:   "multiple skills",
+			skills: []string{"skill-a", "skill-b", "skill-c"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := Session{
+				ID:        "test-id",
+				CreatedAt: time.Now().UTC(),
+				UpdatedAt: time.Now().UTC(),
+				Title:     "Test",
+				Model:     "gpt-4",
+				Skills:    tt.skills,
+				Lineage:   agent.ConversationLineage{NextGenerationID: 1},
+			}
+
+			// Marshal to JSON
+			data, err := json.Marshal(original)
+			if err != nil {
+				t.Fatalf("json.Marshal failed: %v", err)
+			}
+
+			// Unmarshal back
+			var unmarshaled Session
+			if err := json.Unmarshal(data, &unmarshaled); err != nil {
+				t.Fatalf("json.Unmarshal failed: %v", err)
+			}
+
+			// Verify Skills match (handling nil vs empty slice)
+			if len(unmarshaled.Skills) != len(tt.skills) {
+				t.Errorf("Skills length mismatch: got %d, want %d", len(unmarshaled.Skills), len(tt.skills))
+			}
+			for i, skill := range tt.skills {
+				if i >= len(unmarshaled.Skills) {
+					t.Errorf("Skills[%d] missing after round-trip", i)
+					continue
+				}
+				if unmarshaled.Skills[i] != skill {
+					t.Errorf("Skills[%d] = %q, want %q", i, unmarshaled.Skills[i], skill)
+				}
+			}
+		})
+	}
+}
+
+func TestForkCarriesSkills(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		skills []string
+	}{
+		{
+			name:   "fork with no skills",
+			skills: nil,
+		},
+		{
+			name:   "fork with one skill",
+			skills: []string{"skill-a"},
+		},
+		{
+			name:   "fork with multiple skills",
+			skills: []string{"skill-x", "skill-y", "skill-z"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := Session{
+				ID:        "original-id",
+				CreatedAt: time.Now().UTC().Add(-time.Hour),
+				UpdatedAt: time.Now().UTC().Add(-time.Hour),
+				Title:     "Original",
+				Model:     "gpt-4",
+				Skills:    tt.skills,
+				Lineage:   agent.ConversationLineage{NextGenerationID: 1},
+			}
+
+			forked, err := Fork(original)
+			if err != nil {
+				t.Fatalf("Fork failed: %v", err)
+			}
+
+			// Verify Skills are carried over
+			if len(forked.Skills) != len(original.Skills) {
+				t.Errorf("forked Skills length = %d, want %d", len(forked.Skills), len(original.Skills))
+			}
+			for i, skill := range original.Skills {
+				if i >= len(forked.Skills) {
+					t.Errorf("forked Skills[%d] missing", i)
+					continue
+				}
+				if forked.Skills[i] != skill {
+					t.Errorf("forked Skills[%d] = %q, want %q", i, forked.Skills[i], skill)
+				}
+			}
+		})
 	}
 }

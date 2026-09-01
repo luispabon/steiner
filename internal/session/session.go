@@ -18,6 +18,7 @@ type Session struct {
 	Model     string                    `json:"model"`
 	Group     string                    `json:"group,omitempty"`
 	Mode      string                    `json:"mode,omitempty"`
+	Skills    []string                  `json:"skills,omitempty"`
 	Lineage   agent.ConversationLineage `json:"lineage"`
 	// PromptCacheKey identifies the prefix family this session's payload belongs
 	// to, for provider-side cache routing. NOT an identifier: a fork deliberately
@@ -116,6 +117,7 @@ func Fork(s Session) (Session, error) {
 		Title:     forkTitle,
 		Model:     s.Model,
 		Group:     strings.TrimSpace(s.Group),
+		Skills:    s.Skills,
 		Lineage:   s.Lineage.Clone(),
 		// The fork deliberately shares the parent's prompt cache key so the
 		// warm prefix carries over; CacheKey() heals pre-change records that
