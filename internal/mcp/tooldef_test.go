@@ -109,8 +109,8 @@ func TestMCPApprovalRetainsExecutionCallID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	envelope, ok := result.(tool.JSONEnvelope)
-	if !ok || !envelope.OK || envelope.Result != "hi" {
+	text, ok := result.(string)
+	if !ok || text != "hi" {
 		t.Fatalf("result = %#v, want successful MCP response", result)
 	}
 	if len(approver.reqs) != 1 {
@@ -141,12 +141,9 @@ func TestMCPHandlerPlanModeDynamic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build-mode call returned Go error %v, want nil", err)
 	}
-	envelope, ok := env.(tool.JSONEnvelope)
-	if !ok {
-		t.Fatalf("build-mode result type = %T, want tool.JSONEnvelope", env)
-	}
-	if !envelope.OK || envelope.Result != "hi" {
-		t.Errorf("build-mode result = %+v, want OK with result %q", envelope, "hi")
+	text, ok := env.(string)
+	if !ok || text != "hi" {
+		t.Errorf("build-mode result = %#v, want OK with result %q", env, "hi")
 	}
 	if len(approver.reqs) != 0 {
 		t.Fatalf("RequestApproval invoked %d times in build mode, want 0", len(approver.reqs))
@@ -158,12 +155,9 @@ func TestMCPHandlerPlanModeDynamic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan-mode call returned Go error %v, want nil", err)
 	}
-	envelope, ok = env.(tool.JSONEnvelope)
-	if !ok {
-		t.Fatalf("plan-mode result type = %T, want tool.JSONEnvelope", env)
-	}
-	if !envelope.OK || envelope.Result != "hi" {
-		t.Errorf("plan-mode result = %+v, want OK with result %q after approval", envelope, "hi")
+	text, ok = env.(string)
+	if !ok || text != "hi" {
+		t.Errorf("plan-mode result = %#v, want OK with result %q after approval", env, "hi")
 	}
 	if len(approver.reqs) != 1 {
 		t.Fatalf("RequestApproval invoked %d times in plan mode, want 1", len(approver.reqs))
@@ -331,15 +325,12 @@ func TestApproval(t *testing.T) {
 				if err != nil {
 					t.Fatalf("handler returned Go error %v, want nil", err)
 				}
-				envelope, ok := env.(tool.JSONEnvelope)
+				text, ok := env.(string)
 				if !ok {
-					t.Fatalf("result type = %T, want tool.JSONEnvelope", env)
+					t.Fatalf("result type = %T, want string", env)
 				}
-				if !envelope.OK {
-					t.Errorf("OK = false, want true (error: %+v)", envelope.Error)
-				}
-				if envelope.Result != tt.wantResult {
-					t.Errorf("result = %q, want %q", envelope.Result, tt.wantResult)
+				if text != tt.wantResult {
+					t.Errorf("result = %q, want %q", text, tt.wantResult)
 				}
 			default:
 				t.Fatal("test case has no expected outcome")
@@ -379,16 +370,9 @@ func TestMCPToolDefOutputTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("big_output returned Go error %v, want nil", err)
 	}
-	envelope, ok := env.(tool.JSONEnvelope)
+	result, ok := env.(string)
 	if !ok {
-		t.Fatalf("big_output result type = %T, want tool.JSONEnvelope", env)
-	}
-	if !envelope.OK {
-		t.Fatalf("big_output OK = false, want true (error: %+v)", envelope.Error)
-	}
-	result, ok := envelope.Result.(string)
-	if !ok {
-		t.Fatalf("big_output result type = %T, want string", envelope.Result)
+		t.Fatalf("big_output result type = %T, want string", env)
 	}
 	wantMarker := fmt.Sprintf("\n<truncated output shown=%d total=%d>", limit, 200000)
 	if !strings.HasSuffix(result, wantMarker) {
@@ -403,12 +387,32 @@ func TestMCPToolDefOutputTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("small big_output returned Go error %v, want nil", err)
 	}
-	envelope, ok = env.(tool.JSONEnvelope)
-	if !ok {
-		t.Fatalf("small big_output result type = %T, want tool.JSONEnvelope", env)
+	smallResult, ok := env.(string)
+	if !ok || smallResult != strings.Repeat("X", 32) {
+		t.Errorf("small result = %#v, want OK with 32 X's", env)
 	}
-	if !envelope.OK || envelope.Result != strings.Repeat("X", 32) {
-		t.Errorf("small result = %+v, want OK with 32 X's", envelope)
+}
+
+// TestMCPToolDefEmptyContent proves a successful call whose flattened text is
+// empty (fixture big_output with bytes=0 returns a single TextContent with an
+// empty string) never sends an empty string as the tool message's content.
+func TestMCPToolDefEmptyContent(t *testing.T) {
+	fixtureBin := buildFixture(t)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+	if err != nil {
+		t.Fatalf("connect fixture: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	def := mcpToolDef(sess, &mcpsdk.Tool{Name: "big_output"}, func() tool.ApprovalResponder { return nil }, func() bool { return false }, config.MCPServerConfig{Approval: "allow"}, config.LimitsConfig{})
+
+	env, err := def.Handler(context.Background(), map[string]any{"bytes": float64(0)})
+	if err != nil {
+		t.Fatalf("big_output(bytes=0) returned Go error %v, want nil", err)
+	}
+	text, ok := env.(string)
+	if !ok || text != "(no content)" {
+		t.Errorf("result = %#v, want %q", env, "(no content)")
 	}
 }
 

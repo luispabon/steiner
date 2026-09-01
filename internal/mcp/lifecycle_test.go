@@ -83,12 +83,9 @@ func TestLifecycleDeathReconnectNoReplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("echo after reconnect returned Go error %v, want nil", err)
 	}
-	envelope, ok := env.(tool.JSONEnvelope)
-	if !ok {
-		t.Fatalf("echo result type = %T, want tool.JSONEnvelope", env)
-	}
-	if !envelope.OK || envelope.Result != "hi" {
-		t.Errorf("echo result = %+v, want OK with result %q", envelope, "hi")
+	text, ok := env.(string)
+	if !ok || text != "hi" {
+		t.Errorf("echo result = %#v, want OK with result %q", env, "hi")
 	}
 
 	// Tool set frozen: identical names and count before and after death +
@@ -215,12 +212,9 @@ func TestLifecycleCallsBlockDuringReconnect(t *testing.T) {
 		if out.err != nil {
 			t.Fatalf("echo after reconnect returned Go error %v, want nil", out.err)
 		}
-		envelope, ok := out.env.(tool.JSONEnvelope)
-		if !ok {
-			t.Fatalf("echo result type = %T, want tool.JSONEnvelope", out.env)
-		}
-		if !envelope.OK || envelope.Result != "hi" {
-			t.Errorf("echo result = %+v, want OK with result %q", envelope, "hi")
+		text, ok := out.env.(string)
+		if !ok || text != "hi" {
+			t.Errorf("echo result = %#v, want OK with result %q", out.env, "hi")
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("echo never returned after the reconnect was released")
@@ -385,12 +379,9 @@ func TestLifecycleTimeoutNoReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("echo after timeout returned Go error %v, want nil", err)
 	}
-	envelope, ok := env.(tool.JSONEnvelope)
-	if !ok {
-		t.Fatalf("echo result type = %T, want tool.JSONEnvelope", env)
-	}
-	if !envelope.OK || envelope.Result != "still alive" {
-		t.Errorf("echo result = %+v, want OK with %q", envelope, "still alive")
+	text, ok := env.(string)
+	if !ok || text != "still alive" {
+		t.Errorf("echo result = %#v, want OK with %q", env, "still alive")
 	}
 
 	// The sleep call reached the server exactly once; the echo once; a single
@@ -463,26 +454,26 @@ func TestLifecycleHTTPReconnect(t *testing.T) {
 	if st := stateByName(m.ServerStates(), "remote"); st == nil || st.Status != ServerStatusConnected {
 		t.Fatalf("initial state = %+v, want connected", st)
 	}
-	call := func(text string) (tool.JSONEnvelope, error) {
+	call := func(text string) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		env, err := findTool(t, m.ToolDefs(), "mcp__remote__test_tool").Handler(ctx, map[string]any{"text": text})
 		if err != nil {
-			return tool.JSONEnvelope{}, err
+			return "", err
 		}
-		envelope, ok := env.(tool.JSONEnvelope)
+		result, ok := env.(string)
 		if !ok {
-			t.Fatalf("test_tool result type = %T, want tool.JSONEnvelope", env)
+			t.Fatalf("test_tool result type = %T, want string", env)
 		}
-		return envelope, nil
+		return result, nil
 	}
 
-	envelope, err := call("hello")
+	result, err := call("hello")
 	if err != nil {
 		t.Fatalf("first test_tool call: %v", err)
 	}
-	if !envelope.OK || envelope.Result != "hello" {
-		t.Fatalf("first call result = %+v, want OK with %q", envelope, "hello")
+	if result != "hello" {
+		t.Fatalf("first call result = %q, want %q", result, "hello")
 	}
 
 	// Terminate the current session server-side: the next POST carrying its
@@ -499,12 +490,12 @@ func TestLifecycleHTTPReconnect(t *testing.T) {
 		t.Errorf("status transitions = %v, want [connected reconnecting connected]", got)
 	}
 
-	envelope, err = call("again")
+	result, err = call("again")
 	if err != nil {
 		t.Fatalf("test_tool call after HTTP reconnect: %v", err)
 	}
-	if !envelope.OK || envelope.Result != "again" {
-		t.Errorf("call after reconnect result = %+v, want OK with %q", envelope, "again")
+	if result != "again" {
+		t.Errorf("call after reconnect result = %q, want %q", result, "again")
 	}
 }
 

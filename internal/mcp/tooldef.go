@@ -145,9 +145,10 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 	}
 }
 
-// callMCPTool invokes the tool on the server and wraps the outcome in a
-// JSONEnvelope. Tool-level failures surface as a non-OK envelope with a nil Go
-// error; only transport failures return non-nil errors.
+// callMCPTool invokes the tool on the server. A successful call returns the
+// flattened text directly (D19: bare string, not an envelope). Tool-level
+// failures surface as a non-OK JSONEnvelope with a nil Go error; only
+// transport failures return non-nil errors.
 //
 // The call is bounded per D19: the per-tool timeout (keyed by the full
 // registered tool name) wins over the default, a sub-nanosecond timeout is the
@@ -169,7 +170,7 @@ func callMCPTool(ctx context.Context, session *Session, toolName, serverName str
 
 	result, err := session.Call(callCtx, toolName, input)
 	if err != nil {
-		return nil, fmt.Errorf("call mcp tool %q on server %q: %w", toolName, serverName, err)
+		return nil, fmt.Errorf("MCP tool %q (server %q) failed: %w", toolName, serverName, err)
 	}
 
 	// Flatten content: only text content is rendered; other types are named
@@ -179,8 +180,16 @@ func callMCPTool(ctx context.Context, session *Session, toolName, serverName str
 		switch ct := c.(type) {
 		case *mcpsdk.TextContent:
 			parts = append(parts, ct.Text)
+		case *mcpsdk.ImageContent:
+			parts = append(parts, "[image content omitted]")
+		case *mcpsdk.AudioContent:
+			parts = append(parts, "[audio content omitted]")
+		case *mcpsdk.ResourceLink:
+			parts = append(parts, fmt.Sprintf("[resource link omitted: %s]", ct.URI))
+		case *mcpsdk.EmbeddedResource:
+			parts = append(parts, "[embedded resource omitted]")
 		default:
-			parts = append(parts, fmt.Sprintf("[%T content not rendered]", ct))
+			parts = append(parts, "[unsupported content omitted]")
 		}
 	}
 	text := strings.Join(parts, "\n")
@@ -209,10 +218,10 @@ func callMCPTool(ctx context.Context, session *Session, toolName, serverName str
 		}, nil
 	}
 
-	return tool.JSONEnvelope{
-		OK:     true,
-		Result: text,
-	}, nil
+	if strings.TrimSpace(text) == "" {
+		text = "(no content)"
+	}
+	return text, nil
 }
 
 // formatArgumentsPreview renders the call arguments as sorted "key: value"

@@ -98,15 +98,12 @@ func TestMCPTransportParity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("handler returned Go error %v, want nil", err)
 			}
-			envelope, ok := env.(tool.JSONEnvelope)
+			text, ok := env.(string)
 			if !ok {
-				t.Fatalf("result type = %T, want tool.JSONEnvelope", env)
+				t.Fatalf("result type = %T, want string", env)
 			}
-			if !envelope.OK {
-				t.Errorf("OK = false, want true (error: %+v)", envelope.Error)
-			}
-			if envelope.Result != "hi" {
-				t.Errorf("result = %v, want %q", envelope.Result, "hi")
+			if text != "hi" {
+				t.Errorf("result = %v, want %q", text, "hi")
 			}
 		})
 
