@@ -41,9 +41,9 @@ func TestCloseRuntimeTerminatesMCPServers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("echo before closeRuntime returned %v, want a live server", err)
 	}
-	envelope, isEnv := env.(tool.JSONEnvelope)
-	if !isEnv || !envelope.OK {
-		t.Fatalf("echo before closeRuntime = %#v, want an OK envelope", env)
+	text, isStr := env.(string)
+	if !isStr || text != "hi" {
+		t.Fatalf("echo before closeRuntime = %#v, want %q", env, "hi")
 	}
 
 	rt := cliRuntime{
@@ -56,7 +56,7 @@ func TestCloseRuntimeTerminatesMCPServers(t *testing.T) {
 	if err != nil {
 		return // transport failure: the server is gone, as required
 	}
-	envelope, isEnv = env.(tool.JSONEnvelope)
+	envelope, isEnv := env.(tool.JSONEnvelope)
 	if !isEnv {
 		t.Fatalf("echo after closeRuntime returned %T with a nil error, want a transport failure or a non-OK envelope", env)
 	}
