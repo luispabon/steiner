@@ -66,19 +66,21 @@ Examples:
 
 ## Briefing a sub-agent
 
-For `code`, specify the exact files and relevant symbols/sections to change. Pre-digest the design: `code` executes, it does not design. Assign one deliverable per task (see Deliverable boundaries).
+For `code`, specify exact files and relevant symbols/sections to change in **Context**. Pre-digest the design: `code` executes, it does not design.
 
-For `review`, specify the files or diff range and what to check.
+For `review`, specify files or diff range and what to check in **Context** and **Checks**.
 
-Sub-agents receive only the task you provide. They cannot delegate or ask the user questions. Include the relevant context you already have rather than making them rediscover it, but omit unrelated conversation context.
+Assign one deliverable per task (see Deliverable boundaries).
 
-Cold briefs MUST use all six sections:
+`code`, `review`, `explore`, `research`, `evaluate`, and `sanity_check` each require six parameters:
 
-* **Objective:** What to find, change, or evaluate.
-* **Context:** Relevant paths, symbols, excerpts, and background.
-* **Deliverable:** Expected output or change.
-* **Constraints:** Boundaries, preserved behaviour, allowed scope, and prohibited actions.
-* **Success criteria:** Conditions for completion.
-* **Checks to run:** Applicable commands or validations.
+* **Objective** — The single outcome the child must achieve.
+* **Context** — Relevant paths, symbols, excerpts and background: why this task exists, how it fits your plan, decisions already made and approaches ruled out. The child cannot see your conversation and will not otherwise learn any of this.
+* **Deliverable** — The exact artifact or answer to return, and its shape.
+* **Constraints** — Boundaries, preserved behaviour, allowed scope, prohibited actions. Empty array (`[]`) means none.
+* **Success criteria** — Observable conditions for completion. Empty array means none.
+* **Checks** — Applicable commands or validations to run. Empty array means none.
+
+Sub-agents receive only what you provide in these fields. They cannot delegate or ask the user questions. Include relevant context you already have; omit unrelated conversation context.
 
 `follow_up` is delta-only and remains within the same deliverable and live workspace. State what changed, the next action, and any new constraints, success criteria, or checks. Do not repeat unchanged context or use `follow_up` after the workspace has been cleaned up or handed off.
