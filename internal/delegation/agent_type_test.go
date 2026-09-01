@@ -72,7 +72,6 @@ func TestIsDelegationTool(t *testing.T) {
 		{name: "glob", want: false},
 		{name: "grep", want: false},
 		{name: "ls", want: false},
-		{name: "scratchpad", want: false},
 		{name: "fetch_url", want: false},
 		{name: "display_file", want: false},
 		{name: "advisor", want: false},

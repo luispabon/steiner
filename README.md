@@ -206,7 +206,6 @@ See [Model enumeration](docs/model-enumeration.md) for provider details, caching
 | `grep` | Search file contents with surrounding context |
 | `ls` | List directory contents |
 | `bash` | Run shell commands (sandboxed by default) |
-| `scratchpad` | Record working state; persists across compaction |
 | `fetch_url` | Fetch a URL and return its content: HTML has its main content extracted and converted to markdown (falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.) returned raw, images always saved to `.steiner/tmp/fetched` and available through the `read` tool; large responses saved to disk in full, with the `read` tool used to paginate. `.steiner/tmp/fetched` is pruned at startup: files older than 7 days are removed, then oldest-first until the directory is under 250MB (files younger than 1 hour are never evicted by the budget rule) |
 | `display_file` | Show a file in the TUI overlay without adding to conversation |
 | `advisor` | Ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`) |
