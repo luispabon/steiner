@@ -98,7 +98,7 @@ func TestNewSessionWithSkillNames(t *testing.T) {
 	if s == nil {
 		t.Fatal("NewSession returned nil session")
 	}
-	names := s.Skills().Snapshot()
+	names := s.Skills()
 	if got := len(names); got != 0 {
 		t.Fatalf("initial enabled skill count = %d, want 0", got)
 	}
@@ -975,7 +975,7 @@ func TestClearConversationResetsSkills(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{})
 	s.SetConversation([]agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}})
-	s.Skills().Set("skill-a", true)
+	s.skills.Set("skill-a", true)
 
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
 		t.Fatalf("Handle(ClearConversation) = %v, want nil", err)
@@ -983,7 +983,7 @@ func TestClearConversationResetsSkills(t *testing.T) {
 	if got := s.Conversation(); got != nil {
 		t.Fatalf("conversation after ClearConversation = %v, want nil", got)
 	}
-	if got := s.Skills().Snapshot(); len(got) != 0 {
+	if got := s.Skills(); len(got) != 0 {
 		t.Fatalf("enabled skills after ClearConversation = %v, want empty", got)
 	}
 }
@@ -1763,7 +1763,7 @@ func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 		t.Fatalf("Handle(SetSkillEnabled enable test) = %v, want nil", err)
 	}
 
-	snap := s.Skills().Snapshot()
+	snap := s.Skills()
 	if len(snap) != 2 {
 		t.Fatalf("initial skills = %v, want 2", snap)
 	}
@@ -1773,7 +1773,7 @@ func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 		t.Fatalf("Handle(SetSkillEnabled) = %v, want nil", err)
 	}
 
-	snap = s.Skills().Snapshot()
+	snap = s.Skills()
 	if len(snap) != 1 || snap[0] != "test" {
 		t.Fatalf("skills after disable = %v, want [test]", snap)
 	}
@@ -1809,8 +1809,8 @@ func TestSessionAccessorsNonNil(t *testing.T) {
 	if s.ActiveRunController() == nil {
 		t.Error("ActiveRunController() returned nil")
 	}
-	if s.Skills() == nil {
-		t.Error("Skills() returned nil")
+	if got := s.Skills(); len(got) != 0 {
+		t.Errorf("Skills() = %v, want empty", got)
 	}
 	if s.SnapshotStore() == nil {
 		t.Error("SnapshotStore() returned nil")
