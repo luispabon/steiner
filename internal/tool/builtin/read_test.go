@@ -120,7 +120,7 @@ func TestReadTool(t *testing.T) {
 		if result.FileHash == "" {
 			t.Fatal("FileHash is empty, want non-empty hash")
 		}
-		expected := fileContentHash([]byte(content))
+		expected := FileContentHash([]byte(content))
 		if result.FileHash != expected {
 			t.Errorf("FileHash = %q, want %q", result.FileHash, expected)
 		}

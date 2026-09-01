@@ -36,9 +36,9 @@ func TestFileContentHash(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := fileContentHash(tt.input)
+			got := FileContentHash(tt.input)
 			if !hexPattern.MatchString(got) {
-				t.Fatalf("fileContentHash() = %q, want 8-char uppercase hex", got)
+				t.Fatalf("FileContentHash() = %q, want 8-char uppercase hex", got)
 			}
 			results[tt.name] = got
 		})
@@ -52,8 +52,8 @@ func TestFileContentHash(t *testing.T) {
 	// Deterministic: calling twice with same input returns same output.
 	t.Run("deterministic", func(t *testing.T) {
 		input := []byte("determinism check\n")
-		first := fileContentHash(input)
-		second := fileContentHash(input)
+		first := FileContentHash(input)
+		second := FileContentHash(input)
 		if first != second {
 			t.Errorf("non-deterministic: first=%s second=%s", first, second)
 		}
@@ -90,8 +90,8 @@ func TestFileContentHashTrailingWhitespaceEquivalence(t *testing.T) {
 
 	for _, tt := range pairs {
 		t.Run(tt.name, func(t *testing.T) {
-			hashA := fileContentHash(tt.a)
-			hashB := fileContentHash(tt.b)
+			hashA := FileContentHash(tt.a)
+			hashB := FileContentHash(tt.b)
 			if hashA != hashB {
 				t.Errorf("hashes differ: %q→%s vs %q→%s", tt.a, hashA, tt.b, hashB)
 			}

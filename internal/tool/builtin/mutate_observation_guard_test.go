@@ -68,7 +68,7 @@ func TestMutateReplaceObservationGuard(t *testing.T) {
 					"path":       "note.txt",
 					"old_string": "one",
 					"new_string": "ONE",
-					"file_hash":  fileContentHash([]byte(content)),
+					"file_hash":  FileContentHash([]byte(content)),
 				},
 			},
 		})

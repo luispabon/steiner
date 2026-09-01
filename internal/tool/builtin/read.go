@@ -109,7 +109,7 @@ func NewReadTool(env Env) tool.ToolDef {
 
 			result := ReadResult{
 				Path:       displayPath,
-				FileHash:   fileContentHash(data),
+				FileHash:   FileContentHash(data),
 				StartLine:  startLine,
 				EndLine:    endLine,
 				TotalLines: totalLines,

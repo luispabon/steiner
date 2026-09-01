@@ -13,6 +13,13 @@ const readMaxLineRunes = 2000
 // page always returns at least one full line and NextOffset advances.
 const readMaxOutputRunes = 65536
 
+// LineTruncationMarker is appended to a line clipped by maxLineRunes.
+// Exported so callers that need to know whether a read result's Output is a
+// byte-faithful copy of the file (not just line-count-complete) can check
+// for it — see internal/advisor/files.go's dedup check, which must not
+// treat a per-line-clipped read as equivalent to the real file.
+const LineTruncationMarker = "…<truncated>"
+
 // lineBoundingConfig controls how rendered lines are truncated.
 type lineBoundingConfig struct {
 	maxLineRunes   int // per-line rune cap; 0 means use default (400)
@@ -31,7 +38,7 @@ func boundLines(lines []string, cfg lineBoundingConfig) []string {
 	for _, line := range lines {
 		runes := []rune(line)
 		if len(runes) > cfg.maxLineRunes {
-			line = string(runes[:cfg.maxLineRunes]) + "…<truncated>"
+			line = string(runes[:cfg.maxLineRunes]) + LineTruncationMarker
 		}
 		result = append(result, line)
 	}

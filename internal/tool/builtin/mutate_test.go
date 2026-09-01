@@ -204,7 +204,7 @@ func TestMutateReturnsStructuredVerificationData(t *testing.T) {
 	if got.OperationsFailed != 0 {
 		t.Fatalf("mutate failed: %#v", got)
 	}
-	if got.FileHashes["note.txt"] != fileContentHash([]byte("alpha\nBETA\ncharlie\n")) {
+	if got.FileHashes["note.txt"] != FileContentHash([]byte("alpha\nBETA\ncharlie\n")) {
 		t.Fatalf("file hash = %q, want hash for final content", got.FileHashes["note.txt"])
 	}
 	// Single-match replaces are filtered from OperationResults on success.
@@ -1065,7 +1065,7 @@ func TestMutateFileHashVerification(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
-		hash := fileContentHash([]byte(content))
+		hash := FileContentHash([]byte(content))
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
 			"operations": []any{
 				map[string]any{"type": "replace", "path": "note.txt", "old_string": "hello", "new_string": "HELLO", "file_hash": hash},
@@ -1135,7 +1135,7 @@ func TestMutateFileHashVerification(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
-		hash := fileContentHash([]byte(content))
+		hash := FileContentHash([]byte(content))
 
 		// Valid hash succeeds
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
@@ -1173,7 +1173,7 @@ func TestMutateFileHashVerification(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte(content), 0o644); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
-		hash := fileContentHash([]byte(content))
+		hash := FileContentHash([]byte(content))
 
 		// Valid hash succeeds
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
@@ -1214,7 +1214,7 @@ func TestMutateFileHashVerification(t *testing.T) {
 		// Since verifyFileHash checks state.original (disk snapshot), the hash of the modified
 		// content is now stale and should fail
 		modifiedContent := "AAA\n"
-		modifiedHash := fileContentHash([]byte(modifiedContent))
+		modifiedHash := FileContentHash([]byte(modifiedContent))
 
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
 			"operations": []any{
@@ -1235,7 +1235,7 @@ func TestMutateFileHashVerification(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "note2.txt"), []byte("xxx\n"), 0o644); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
-		xxxHash := fileContentHash([]byte("xxx\n"))
+		xxxHash := FileContentHash([]byte("xxx\n"))
 		got = runMutate(t, newMutateTestTool(t, root), map[string]any{
 			"operations": []any{
 				map[string]any{"type": "replace", "path": "note2.txt", "old_string": "xxx", "new_string": "XXX", "file_hash": xxxHash},
@@ -1254,7 +1254,7 @@ func TestMutateFileHashVerification(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "src.txt"), []byte(content), 0o644); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
-		hash := fileContentHash([]byte(content))
+		hash := FileContentHash([]byte(content))
 
 		// Valid hash succeeds
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
@@ -1296,7 +1296,7 @@ func TestMutateHashBatchSemantics(t *testing.T) {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
-		hash := fileContentHash([]byte(content))
+		hash := FileContentHash([]byte(content))
 		got := runMutate(t, newMutateTestTool(t, root), map[string]any{
 			"operations": []any{
 				map[string]any{"type": "replace", "path": "file.txt", "old_string": "hello", "new_string": "world", "file_hash": hash},
@@ -1319,7 +1319,7 @@ func TestMutateHashBatchSemantics(t *testing.T) {
 		if err := os.WriteFile(path, []byte(originalContent), 0o644); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
-		oldHash := fileContentHash([]byte(originalContent))
+		oldHash := FileContentHash([]byte(originalContent))
 
 		// Externally modify the file
 		modifiedContent := "modified\n"
