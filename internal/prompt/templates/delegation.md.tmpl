@@ -25,7 +25,6 @@ A deliverable is one package boundary, at most one independent design decision: 
 
 Use a reuse-first lifecycle within one deliverable (above). After each sub-agent result, inspect `session_resumable`, but treat it as session state, not workspace validation: prefer `follow_up` before cold dispatch only when the session is resumable, the next request remains within the same deliverable, and the same live workspace is available. `follow_up` resumes the saved agent session, retaining its conversation and tools; it can use the workspace only when that same live workspace still exists. Use warm `follow_up` for continuation of the same discovery, implementation step, or narrow review scope. Don't stretch `follow_up` into a domain the worker never touched; dispatch a separate `code` task for that domain.
 
-
 ## Your workflow
 
 **`feedback_amend_loop`**: present an artefact or decision to the user, request feedback/approval, incorporate any feedback, and repeat until approved.
