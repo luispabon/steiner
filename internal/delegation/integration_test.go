@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -342,75 +341,10 @@ func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 	}
 }
 
-func TestOversizedOutputTriggersSummarisation(t *testing.T) {
-	t.Skip("obsolete provider summarisation test")
+func TestLocalRetentionCapsPreviewAndKeepsFullOutput(t *testing.T) {
 	longContent := strings.Repeat("x", 5000)
 	prov := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{Message: provider.Message{Content: longContent}, FinishReason: "stop"},
-			{Message: provider.Message{Content: "short summary"}, FinishReason: "stop"},
-		},
-	}
-
-	spec := Spec{
-		Task:    "test task",
-		AgentID: "agent-4",
-		Limits: Limits{
-			MaxTurns:          5,
-			OutputLimitTokens: 100,
-		},
-	}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	sink := output.NoopSink{}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	runner := agent.NewRunner()
-	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result.Retention == nil {
-		t.Fatal("result.Retention = nil, want summary retention")
-	}
-	if result.Retention.Summary != cappedRetentionPreview(longContent) {
-		t.Errorf("Summary: got %q, want capped output preview", result.Retention.Summary)
-	}
-	if prov.callCount != 1 {
-		t.Errorf("callCount: got %d, want 1", prov.callCount)
-	}
-	if len(prov.requests) != 1 {
-		t.Fatalf("requests: got %d, want 1", len(prov.requests))
-	}
-
-	summaryReq := prov.requests[1]
-	var sawOversizedAnswer, sawLimitInstruction bool
-	for _, msg := range summaryReq.Messages {
-		if msg.Content == longContent {
-			sawOversizedAnswer = true
-		}
-		if strings.Contains(msg.Content, "under 4000 characters") {
-			sawLimitInstruction = true
-		}
-	}
-	if !sawOversizedAnswer {
-		t.Error("expected summary retry to include the oversized assistant response")
-	}
-	if !sawLimitInstruction {
-		t.Error("expected summary retry to instruct the model to stay within approximately the output limit")
-	}
-}
-
-func TestOversizedOutputKeepsFullVisibleOutput(t *testing.T) {
-	longContent := strings.Repeat("x", 5000)
-	overlongSummary := strings.Repeat("y", 5000)
-	prov := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{Message: provider.Message{Content: longContent}, FinishReason: "stop"},
-			{Message: provider.Message{Content: overlongSummary}, FinishReason: "stop"},
-		},
+		responses: []provider.ChatResponse{{Message: provider.Message{Content: longContent}, FinishReason: "stop"}},
 	}
 
 	spec := Spec{
@@ -451,12 +385,9 @@ func TestOversizedOutputKeepsFullVisibleOutput(t *testing.T) {
 	}
 }
 
-func TestSummaryFailureFallsBackToCappedPreview(t *testing.T) {
-	prov := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{Message: provider.Message{Content: strings.Repeat("full-output ", 200)}, FinishReason: "stop"},
-		},
-	}
+func TestLocalRetentionAlwaysUsesCappedPreview(t *testing.T) {
+	outputText := strings.Repeat("full-output ", 200)
+	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: outputText}, FinishReason: "stop"}}}
 
 	spec := Spec{
 		Task:    "test task",
@@ -472,7 +403,7 @@ func TestSummaryFailureFallsBackToCappedPreview(t *testing.T) {
 	runner := &presetRunner{states: []agent.RunState{{
 		TurnCount:    1,
 		StopReason:   agent.StopReasonComplete,
-		Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: strings.Repeat("full-output ", 200)}},
+		Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: outputText}},
 	}}}
 
 	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, output.NoopSink{}, nil)
@@ -492,14 +423,8 @@ func TestSummaryFailureFallsBackToCappedPreview(t *testing.T) {
 	if result.Retention == nil {
 		t.Fatal("result.Retention = nil, want fallback summary")
 	}
-	if result.Retention.Summary == "" {
-		t.Fatal("result.Retention.Summary = empty, want capped preview")
-	}
-	if len([]rune(result.Retention.Summary)) > 4000 {
-		t.Fatalf("result.Retention.Summary too long: %d runes", len([]rune(result.Retention.Summary)))
-	}
-	if strings.Contains(result.Retention.Summary, "summary turn failed") {
-		t.Fatalf("retention summary leaked summary failure: %q", result.Retention.Summary)
+	if result.Retention.Summary != cappedRetentionPreview(outputText) {
+		t.Fatalf("result.Retention.Summary = %q, want capped preview", result.Retention.Summary)
 	}
 }
 
@@ -545,105 +470,6 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "delegate") {
 		t.Fatalf("delegate error = %v, want it to mention delegate", err)
 	}
-}
-
-func TestSummaryUsesDetachedContextNotSpecTimeout(t *testing.T) {
-	t.Skip("obsolete provider summarisation test")
-	spec := Spec{
-		Task:    "test task",
-		AgentID: "agent-7",
-		Limits: Limits{
-			MaxTurns:          5,
-			OutputLimitTokens: 100,
-			Timeout:           2 * time.Millisecond,
-		},
-	}
-
-	var summaryCtxErr error
-	var summaryCtxHasDeadline bool
-	runner := &presetRunner{
-		states: []agent.RunState{
-			{
-				TurnCount:  1,
-				StopReason: agent.StopReasonComplete,
-				Conversation: []agent.Message{
-					{Role: agent.MessageRoleAssistant, Content: strings.Repeat("z", 5000)},
-				},
-			},
-			completeState("summary"),
-		},
-	}
-
-	// Use a wrapper that inspects the summary call's context
-	wrapped := &summaryCtxInspector{
-		inner: runner,
-	}
-
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agent.Limits{MaxTurns: 5, MaxTokens: 0}, output.NoopSink{})
-
-	// Sleep past the spec timeout so childCtx is expired before summary
-	time.Sleep(3 * time.Millisecond)
-
-	result, _, _, err := SpawnDelegate(context.Background(), spec, req, wrapped, output.NoopSink{}, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	summaryCtxErr = wrapped.summaryCtxErr
-	summaryCtxHasDeadline = wrapped.summaryDeadline
-
-	// Summary context should NOT be cancelled (detached from spec timeout)
-	if summaryCtxErr != nil {
-		t.Errorf("summary context was cancelled: %v — expected detached context", summaryCtxErr)
-	}
-	// Summary context should have a deadline (the 30s detached one)
-	if !summaryCtxHasDeadline {
-		t.Error("summary context has no deadline, expected 30s timeout")
-	}
-	if got := wrapped.summaryTurnTimeout; got != 0 {
-		t.Fatalf("summary request TurnTimeout = %v, want 0", got)
-	}
-
-	typedResult, ok := result.Value.(Result)
-	if !ok {
-		t.Fatalf("result.Value type = %T, want Result", result.Value)
-	}
-	if len(typedResult.Output) != 5000 {
-		t.Fatalf("Output length %d, want full visible output", len(typedResult.Output))
-	}
-}
-
-type summaryCtxInspector struct {
-	inner              *presetRunner
-	summaryCtxErr      error
-	summaryDeadline    bool
-	summaryTurnTimeout time.Duration
-}
-
-func (r *summaryCtxInspector) Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error) {
-	r.inner.reqs = append(r.inner.reqs, req)
-	i := r.inner.calls
-	r.inner.calls++
-
-	if i > 0 {
-		r.summaryCtxErr = ctx.Err()
-		_, r.summaryDeadline = ctx.Deadline()
-		r.summaryTurnTimeout = req.Limits.TurnTimeout
-	}
-
-	var st agent.RunState
-	if i < len(r.inner.states) {
-		st = r.inner.states[i]
-	} else if len(r.inner.states) > 0 {
-		st = r.inner.states[len(r.inner.states)-1]
-	}
-	var err error
-	if i < len(r.inner.errors) {
-		err = r.inner.errors[i]
-	}
-	return st, err
 }
 
 // TestParentContextIsolation verifies that a child doing multi-turn work with
@@ -1200,170 +1026,11 @@ func TestZeroTurnCancellationTellsParentSessionPreserved(t *testing.T) {
 	}
 }
 
-// TestSummaryTurnDoesNotEmitEvents verifies that events from the summary turn do
-// not appear in the parent sink. It uses presetRunner so both calls are
-// controlled; after the main run the event count is recorded, then the summary
-// run must not add any turn_started or assistant_message events.
-func TestSummaryTurnDoesNotEmitEvents(t *testing.T) {
-	t.Skip("obsolete provider summarisation test")
-	spec := makeSpec("summary-events-agent", 1000)
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	sink := &collectingSink{}
-
-	runner := &presetRunner{
-		states: []agent.RunState{
-			completeState("task done"),
-			completeState("short summary"),
-		},
-	}
-
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if runner.calls != 2 {
-		t.Fatalf("runner.calls = %d, want 2", runner.calls)
-	}
-
-	// The summary run request must have Events = nil.
-	summaryReq := runner.reqs[1]
-	if summaryReq.Events != nil {
-		t.Errorf("summary run request Events = %v, want nil", summaryReq.Events)
-	}
-}
-
-// TestSummaryUsesFullConversation verifies that the summary turn receives the
-// full delegate conversation (not just the initial prompt + last fragment).
-func TestSummaryUsesFullConversation(t *testing.T) {
-	t.Skip("obsolete provider summarisation test")
-	spec := makeSpec("summary-conv-agent", 10000)
-	sink := &collectingSink{}
-
-	// Build a realistic multi-turn conversation for the main run state.
-	fullConversation := []agent.Message{
-		{Role: agent.MessageRoleUser, Content: "do the task"},
-		{
-			Role:      agent.MessageRoleAssistant,
-			ToolCalls: []agent.ToolCall{{ID: "tc-1", Name: "bash", Arguments: map[string]any{"cmd": "ls"}}},
-		},
-		{Role: agent.MessageRoleTool, Content: "file1.go\nfile2.go", ToolCallID: "tc-1"},
-		{Role: agent.MessageRoleAssistant, Content: "I found the files"},
-	}
-
-	mainState := agent.RunState{
-		TurnCount:    2,
-		StopReason:   agent.StopReasonComplete,
-		Conversation: fullConversation,
-	}
-	summaryState := agent.RunState{
-		TurnCount:  1,
-		StopReason: agent.StopReasonComplete,
-		Conversation: []agent.Message{
-			{Role: agent.MessageRoleAssistant, Content: "summary of findings"},
-		},
-	}
-
-	runner := &presetRunner{
-		states: []agent.RunState{mainState, summaryState},
-	}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if runner.calls != 2 {
-		t.Fatalf("runner.calls = %d, want 2", runner.calls)
-	}
-
-	// The summary request (second call) must contain the full conversation.
-	summaryReq := runner.reqs[1]
-	wantMessages := agent.ToProviderMessages(fullConversation)
-	// The summary request conversation should start with the full conversation
-	// messages followed by the summarise instruction.
-	if len(summaryReq.Prompt.Conversation) < len(wantMessages) {
-		t.Fatalf("summary conversation length %d < full conversation length %d",
-			len(summaryReq.Prompt.Conversation), len(wantMessages))
-	}
-	for i, want := range wantMessages {
-		got := summaryReq.Prompt.Conversation[i]
-		if got.Role != want.Role || got.Content != want.Content {
-			t.Errorf("summary conversation[%d]: got role=%q content=%q, want role=%q content=%q",
-				i, got.Role, got.Content, want.Role, want.Content)
-		}
-	}
-}
-
-func TestSummarySanitizesDanglingToolCalls(t *testing.T) {
-	t.Skip("obsolete provider summarisation test")
-	spec := makeSpec("summary-sanitize-agent", 10000)
-	sink := &collectingSink{}
-
-	mainConversation := []agent.Message{
-		{Role: agent.MessageRoleUser, Content: "investigate"},
-		{
-			Role:    agent.MessageRoleAssistant,
-			Content: "searching",
-			ToolCalls: []agent.ToolCall{
-				{ID: "call-1", Name: "grep", Arguments: map[string]any{"pattern": "commit"}},
-			},
-		},
-	}
-	mainState := agent.RunState{
-		TurnCount:    1,
-		StopReason:   agent.StopReasonCancelled,
-		Conversation: mainConversation,
-	}
-	summaryState := agent.RunState{
-		TurnCount:  1,
-		StopReason: agent.StopReasonComplete,
-		Conversation: []agent.Message{
-			{Role: agent.MessageRoleAssistant, Content: "summary"},
-		},
-	}
-
-	runner := &presetRunner{
-		states: []agent.RunState{mainState, summaryState},
-	}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if runner.calls != 2 {
-		t.Fatalf("runner.calls = %d, want 2", runner.calls)
-	}
-
-	summaryReq := runner.reqs[1]
-	if got := summaryReq.Prompt.Conversation[1].ToolCalls; len(got) != 0 {
-		t.Fatalf("summary request retained dangling tool calls: %#v", got)
-	}
-}
-
 // TestResultSummaryPopulated verifies that Result.Summary is
 // populated after a successful SpawnDelegate call.
 func TestResultSummaryPopulated(t *testing.T) {
 	prov := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{Message: provider.Message{Content: "task output"}, FinishReason: "stop"},
-			{Message: provider.Message{Content: "condensed summary"}, FinishReason: "stop"},
-		},
+		responses: []provider.ChatResponse{{Message: provider.Message{Content: "task output"}, FinishReason: "stop"}},
 	}
 
 	spec := makeSpec("summary-populated-agent", 10000)
@@ -1415,81 +1082,39 @@ func TestTruncateTaskPreviewRuneSafe(t *testing.T) {
 	}
 }
 
-func TestDelegationCompleteEventEmittedAfterSummary(t *testing.T) {
-	t.Skip("obsolete provider summarisation test")
+func TestDelegationCompleteEventEmittedAfterLocalSummary(t *testing.T) {
 	spec := makeSpec("event-order-agent", 10000)
 	sink := &collectingSink{}
-
-	var summaryCallSawCompleteEvent bool
-	runner := &presetRunner{
-		states: []agent.RunState{
-			{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "task done"}}, StopReason: agent.StopReasonComplete, TokenCount: 10, InputTokens: 20, CacheReadTokens: 30, CacheCreateTokens: 40},
-			{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary text"}}, StopReason: agent.StopReasonComplete, TokenCount: 3, InputTokens: 4, CacheReadTokens: 5, CacheCreateTokens: 6},
-		},
-	}
-
-	// Wrap the runner to check event state at summary call time
-	wrappedRunner := &eventOrderCheckRunner{
-		inner: runner,
-		sink:  sink,
-	}
+	runner := &presetRunner{states: []agent.RunState{{
+		Conversation:      []agent.Message{{Role: agent.MessageRoleAssistant, Content: "task done"}},
+		StopReason:        agent.StopReasonComplete,
+		TokenCount:        10,
+		InputTokens:       20,
+		CacheReadTokens:   30,
+		CacheCreateTokens: 40,
+	}}}
 
 	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
 	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	_, _, _, err := SpawnDelegate(context.Background(), spec, req, wrappedRunner, sink, nil)
+	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	summaryCallSawCompleteEvent = wrappedRunner.sawCompleteAtSummaryCall
-	if summaryCallSawCompleteEvent {
-		t.Error("DelegationComplete event was emitted before the summary call")
+	if runner.calls != 1 {
+		t.Fatalf("runner.calls = %d, want 1", runner.calls)
 	}
-	var complete output.DelegationCompleteEvent
-	for _, ev := range sink.events {
-		if ev.Type == output.EventTypeDelegationComplete {
-			complete = ev.Payload.(output.DelegationCompleteEvent)
-		}
+	complete, ok := completeEventFrom(sink.events)
+	if !ok {
+		t.Fatal("no DelegationCompleteEvent emitted")
 	}
 	if complete.TokenCount != 10 || complete.InputTokens != 20 || complete.CacheReadTokens != 30 || complete.CacheCreateTokens != 40 {
 		t.Fatalf("complete event usage = (output=%d, input=%d, read=%d, create=%d), want (10, 20, 30, 40)", complete.TokenCount, complete.InputTokens, complete.CacheReadTokens, complete.CacheCreateTokens)
 	}
-}
-
-type eventOrderCheckRunner struct {
-	inner                    *presetRunner
-	sink                     *collectingSink
-	sawCompleteAtSummaryCall bool
-}
-
-func (r *eventOrderCheckRunner) Run(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-	r.inner.reqs = append(r.inner.reqs, req)
-	i := r.inner.calls
-	r.inner.calls++
-
-	if i > 0 {
-		for _, ev := range r.sink.events {
-			if ev.Type == output.EventTypeDelegationComplete {
-				r.sawCompleteAtSummaryCall = true
-				break
-			}
-		}
+	if got := result.Value.(Result).Summary; got != "task done" {
+		t.Fatalf("summary = %q, want local output", got)
 	}
-
-	var st agent.RunState
-	if i < len(r.inner.states) {
-		st = r.inner.states[i]
-	} else if len(r.inner.states) > 0 {
-		st = r.inner.states[len(r.inner.states)-1]
-	}
-	var err error
-	if i < len(r.inner.errors) {
-		err = r.inner.errors[i]
-	}
-	return st, err
 }
 
 func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
@@ -1605,41 +1230,6 @@ func TestFollowUpSanitizesSavedDanglingToolCalls(t *testing.T) {
 	last := req.Prompt.Conversation[len(req.Prompt.Conversation)-1]
 	if last.Role != provider.MessageRoleUser || last.Content != "continue" {
 		t.Fatalf("last follow-up message = %#v, want appended user follow-up", last)
-	}
-}
-
-func TestSummaryUsesChildContext(t *testing.T) {
-	t.Skip("obsolete provider summarisation test")
-	spec := makeSpec("child-ctx-agent", 10000)
-
-	runner := &presetRunner{
-		states: []agent.RunState{
-			completeState("task done"),
-		},
-		errors: []error{
-			context.Canceled,
-		},
-	}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, output.NoopSink{})
-
-	parentCtx, parentCancel := context.WithCancel(context.Background())
-	parentCancel()
-
-	result, _, _, err := SpawnDelegate(parentCtx, spec, req, runner, output.NoopSink{}, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	delResult, ok := result.Value.(Result)
-	if !ok {
-		t.Fatal("expected Result")
-	}
-	if delResult.Status != StatusPartial {
-		t.Errorf("expected StatusPartial, got: %v", delResult.Status)
 	}
 }
 
