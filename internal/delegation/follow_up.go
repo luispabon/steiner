@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
@@ -108,6 +109,8 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			result.Value = delegationResult
 		}
 	}
+	advisorAvailable := childHasAdvisorTool(session.Request)
+	result = finalizeAdvisorBudgetAndSummary(result, advisorAvailable)
 	applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, agentID, &result)
 	if err != nil {
 		if result != (tool.ExecutionResult{}) {
@@ -152,6 +155,16 @@ func denyFollowUpInPlanMode(ctx context.Context, childHasMutate bool) error {
 func childHasMutateTool(req agent.RunRequest) bool {
 	for _, toolSpec := range req.Tools {
 		if toolSpec.Function.Name == "mutate" {
+			return true
+		}
+	}
+	return false
+}
+
+// childHasAdvisorTool reports whether the child session's request includes the "advisor" tool.
+func childHasAdvisorTool(req agent.RunRequest) bool {
+	for _, toolSpec := range req.Tools {
+		if toolSpec.Function.Name == advisor.ToolName {
 			return true
 		}
 	}

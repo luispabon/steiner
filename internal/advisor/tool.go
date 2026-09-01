@@ -16,10 +16,14 @@ import (
 // ToolName is the registered provider-facing name of the advisor tool.
 const ToolName = "advisor"
 
+// BudgetExhaustedMessagePrefix is the stable prefix used to identify
+// budget-exhausted messages in tool results, used for counting denials.
+const BudgetExhaustedMessagePrefix = "advisor budget exhausted for this session"
+
 // BudgetExhaustedMessage returns the exact model-visible message used when the
 // per-session advisor cap is exhausted.
 func BudgetExhaustedMessage(used, max int) string {
-	return fmt.Sprintf("advisor budget exhausted for this session (%d/%d); proceed on your own judgment", used, max)
+	return fmt.Sprintf("%s (%d/%d); proceed on your own judgment", BudgetExhaustedMessagePrefix, used, max)
 }
 
 // ToolDef returns the provider-facing advisor tool definition.

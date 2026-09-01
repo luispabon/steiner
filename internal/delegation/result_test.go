@@ -183,3 +183,131 @@ func TestBuildResultCarriesCacheTokens(t *testing.T) {
 		t.Errorf("CacheCreateTokens=%d, want 50", got.CacheCreateTokens)
 	}
 }
+
+func TestCountAdvisorUsage(t *testing.T) {
+	tests := []struct {
+		name       string
+		conv       []agent.Message
+		wantUses   int
+		wantDenied int
+	}{
+		{
+			name:       "no advisor calls",
+			conv:       []agent.Message{},
+			wantUses:   0,
+			wantDenied: 0,
+		},
+		{
+			name: "one successful advisor call",
+			conv: []agent.Message{
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c1", Name: "advisor", Arguments: map[string]any{"question": "test"}},
+					},
+				},
+				{
+					Role: agent.MessageRoleTool,
+					Name: "advisor",
+					Content: "advice",
+				},
+			},
+			wantUses:   1,
+			wantDenied: 0,
+		},
+		{
+			name: "one denied advisor call",
+			conv: []agent.Message{
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c1", Name: "advisor", Arguments: map[string]any{"question": "test"}},
+					},
+				},
+				{
+					Role: agent.MessageRoleTool,
+					Name: "advisor",
+					Content: "advisor budget exhausted for this session (1/1); proceed on your own judgment",
+				},
+			},
+			wantUses:   0,
+			wantDenied: 1,
+		},
+		{
+			name: "three calls, two denied (one successful, two denied)",
+			conv: []agent.Message{
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c1", Name: "advisor", Arguments: map[string]any{"question": "q1"}},
+					},
+				},
+				{
+					Role: agent.MessageRoleTool,
+					Name: "advisor",
+					Content: "good advice",
+				},
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c2", Name: "advisor", Arguments: map[string]any{"question": "q2"}},
+					},
+				},
+				{
+					Role: agent.MessageRoleTool,
+					Name: "advisor",
+					Content: "advisor budget exhausted for this session (1/1); proceed on your own judgment",
+				},
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c3", Name: "advisor", Arguments: map[string]any{"question": "q3"}},
+					},
+				},
+				{
+					Role: agent.MessageRoleTool,
+					Name: "advisor",
+					Content: "advisor budget exhausted for this session (1/1); proceed on your own judgment",
+				},
+			},
+			wantUses:   1,
+			wantDenied: 2,
+		},
+		{
+			name: "advisor call with other tools",
+			conv: []agent.Message{
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c1", Name: "read", Arguments: map[string]any{"path": "file.go"}},
+						{ID: "c2", Name: "advisor", Arguments: map[string]any{"question": "test"}},
+					},
+				},
+				{
+					Role: agent.MessageRoleTool,
+					Name: "read",
+					Content: "file content",
+				},
+				{
+					Role: agent.MessageRoleTool,
+					Name: "advisor",
+					Content: "advice",
+				},
+			},
+			wantUses:   1,
+			wantDenied: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uses, denied := countAdvisorUsage(tt.conv)
+			if uses != tt.wantUses {
+				t.Errorf("uses=%d, want %d", uses, tt.wantUses)
+			}
+			if denied != tt.wantDenied {
+				t.Errorf("denied=%d, want %d", denied, tt.wantDenied)
+			}
+		})
+	}
+}

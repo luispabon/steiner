@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 )
 
@@ -28,18 +29,47 @@ func countToolCalls(conversation []agent.Message) int {
 	return n
 }
 
+func countAdvisorUsage(conversation []agent.Message) (uses, denied int) {
+	attempts := 0
+	denied = 0
+
+	for _, msg := range conversation {
+		if msg.Role == agent.MessageRoleAssistant {
+			for _, call := range msg.ToolCalls {
+				if call.Name == advisor.ToolName {
+					attempts++
+				}
+			}
+		}
+		if msg.Role == agent.MessageRoleTool && msg.Name == advisor.ToolName {
+			if strings.HasPrefix(msg.Content, advisor.BudgetExhaustedMessagePrefix) {
+				denied++
+			}
+		}
+	}
+
+	uses = attempts - denied
+	if uses < 0 {
+		uses = 0
+	}
+	return uses, denied
+}
+
 func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector, cache TokenUsage) Result {
 	output := ""
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		output = msg.Content
 	}
 
+	uses, denied := countAdvisorUsage(state.Conversation)
 	result := Result{
 		AgentID:           agentID,
 		Output:            output,
 		TurnCount:         state.TurnCount,
 		TokenCount:        cache.OutputTokens,
 		ToolCallCount:     countToolCalls(state.Conversation),
+		AdvisorUses:       uses,
+		AdvisorDenied:     denied,
 		InputTokens:       cache.InputTokens,
 		CacheReadTokens:   cache.CacheReadTokens,
 		CacheCreateTokens: cache.CacheCreateTokens,

@@ -338,6 +338,37 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 	}
 }
 
+// finalizeAdvisorBudgetAndSummary sets the advisor budget on the result and appends
+// a summary line to the output when advisor usage is non-zero.
+func finalizeAdvisorBudgetAndSummary(result tool.ExecutionResult, advisorAvailable bool) tool.ExecutionResult {
+	dr, ok := result.Value.(Result)
+	if !ok {
+		return result
+	}
+
+	if advisorAvailable {
+		dr.AdvisorBudget = 1
+	} else {
+		dr.AdvisorBudget = 0
+	}
+
+	if dr.AdvisorUses > 0 || dr.AdvisorDenied > 0 {
+		var status string
+		if dr.AdvisorDenied > 0 {
+			status = fmt.Sprintf(" (budget exhausted)")
+		}
+		summaryLine := fmt.Sprintf("advisor: %d used, %d denied%s", dr.AdvisorUses, dr.AdvisorDenied, status)
+		if strings.TrimSpace(dr.Output) != "" {
+			dr.Output = dr.Output + "\n" + summaryLine
+		} else {
+			dr.Output = summaryLine
+		}
+	}
+
+	result.Value = dr
+	return result
+}
+
 // structuredBrief holds the decoded fields from a structured task dispatch.
 type structuredBrief struct {
 	Objective       string   `json:"objective"`
@@ -558,6 +589,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		result = applySpecializedWorktreeResult(agentType, result, provisionedWorktree, warnings)
+		result = finalizeAdvisorBudgetAndSummary(result, advisorAvailable)
 		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 
 		return result, nil

@@ -108,6 +108,17 @@ type Result struct {
 	// ToolCallCount is the number of tool calls the child executed across all turns.
 	ToolCallCount int `json:"tool_call_count"`
 
+	// AdvisorBudget is the effective per-child advisor budget for this delegation,
+	// zero if advisor was never available to this child.
+	AdvisorBudget int `json:"advisor_budget,omitempty"`
+
+	// AdvisorUses is the number of successful advisor calls made by the child.
+	AdvisorUses int `json:"advisor_uses,omitempty"`
+
+	// AdvisorDenied is the number of advisor calls the child attempted after
+	// the budget was exhausted.
+	AdvisorDenied int `json:"advisor_denied,omitempty"`
+
 	// FollowUpCount is the number of successful follow-up turns resumed for this child.
 	FollowUpCount int `json:"follow_up_count,omitempty"`
 
