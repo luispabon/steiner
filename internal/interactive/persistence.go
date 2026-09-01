@@ -55,6 +55,7 @@ func (s *Session) saveSession() error {
 	sess.ID = s.sessionID
 	sess.PromptCacheKey = s.promptCacheKey
 	sess.Mode = string(s.mode)
+	sess.Skills = s.skills.Snapshot()
 	if s.sessionTitle != "" {
 		sess = sess.WithTitle(s.sessionTitle)
 	}
@@ -122,6 +123,10 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	if s.modeListener != nil {
 		s.modeListener(mode)
 	}
+	s.skills.Reset()
+	for _, name := range sess.Skills {
+		s.skills.Set(name, true)
+	}
 	msgs := append([]agent.Message(nil), s.conversation...)
 	s.mu.Unlock()
 
@@ -187,6 +192,7 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 		Group:          s.sessionGroup,
 		Lineage:        s.lineage,
 		PromptCacheKey: s.promptCacheKey,
+		Skills:         s.skills.Snapshot(),
 	}
 	originalTitle := s.sessionTitle
 	s.mu.RUnlock()
