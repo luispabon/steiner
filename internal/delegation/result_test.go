@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/tool"
 )
 
 func makeRunStateWithToolCall(turnCount, tokenCount int, stopReason agent.StopReason, toolName string, toolArgs map[string]any) agent.RunState {
@@ -314,70 +313,105 @@ func TestCountAdvisorUsage(t *testing.T) {
 	}
 }
 
-func TestFinalizeAdvisorBudgetAndSummary(t *testing.T) {
+func TestEffectiveAdvisorBudget(t *testing.T) {
 	tests := []struct {
-		name               string
-		result             Result
-		advisorAvailable   bool
-		budget             int
-		wantBudget         int
-		wantOutputContains string
+		name             string
+		advisorAvailable bool
+		budget           int
+		wantBudget       int
 	}{
 		{
 			name:             "advisor unavailable, zero budget",
-			result:           Result{Output: "output"},
 			advisorAvailable: false,
 			budget:           0,
 			wantBudget:       0,
 		},
 		{
-			name:               "advisor available with default budget of 1",
-			result:             Result{Output: "output", AdvisorUses: 1},
-			advisorAvailable:   true,
-			budget:             1,
-			wantBudget:         1,
-			wantOutputContains: "advisor: 1 used, 0 denied",
+			name:             "advisor available with default budget of 1",
+			advisorAvailable: true,
+			budget:           1,
+			wantBudget:       1,
 		},
 		{
-			name:               "advisor available with custom budget of 3",
-			result:             Result{Output: "output", AdvisorUses: 2, AdvisorDenied: 1},
-			advisorAvailable:   true,
-			budget:             3,
-			wantBudget:         3,
-			wantOutputContains: "advisor: 2 used, 1 denied (budget exhausted)",
+			name:             "advisor available with custom budget of 3",
+			advisorAvailable: true,
+			budget:           3,
+			wantBudget:       3,
 		},
 		{
 			name:             "advisor available but budget is zero (treated as unavailable)",
-			result:           Result{Output: "output"},
 			advisorAvailable: true,
 			budget:           0,
 			wantBudget:       0,
 		},
 		{
-			name:             "no advisor activity, budget not shown",
-			result:           Result{Output: "output", AdvisorUses: 0, AdvisorDenied: 0},
-			advisorAvailable: true,
-			budget:           1,
-			wantBudget:       1,
+			name:             "advisor unavailable, non-zero budget",
+			advisorAvailable: false,
+			budget:           5,
+			wantBudget:       0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			execResult := tool.ExecutionResult{Value: tt.result}
-			got := finalizeAdvisorBudgetAndSummary(execResult, tt.advisorAvailable, tt.budget)
-
-			gotResult, ok := got.Value.(Result)
-			if !ok {
-				t.Fatalf("got Value type %T, want Result", got.Value)
+			got := effectiveAdvisorBudget(tt.advisorAvailable, tt.budget)
+			if got != tt.wantBudget {
+				t.Errorf("effectiveAdvisorBudget=%d, want %d", got, tt.wantBudget)
 			}
+		})
+	}
+}
 
-			if gotResult.AdvisorBudget != tt.wantBudget {
-				t.Errorf("AdvisorBudget=%d, want %d", gotResult.AdvisorBudget, tt.wantBudget)
+func TestAppendAdvisorSummaryLine(t *testing.T) {
+	tests := []struct {
+		name               string
+		output             string
+		uses               int
+		denied             int
+		wantOutputContains string
+		wantUnchanged      bool
+	}{
+		{
+			name:          "no advisor activity leaves output unchanged",
+			output:        "output",
+			uses:          0,
+			denied:        0,
+			wantUnchanged: true,
+		},
+		{
+			name:               "uses only",
+			output:             "output",
+			uses:               1,
+			denied:             0,
+			wantOutputContains: "advisor: 1 used, 0 denied",
+		},
+		{
+			name:               "uses and denied, budget exhausted",
+			output:             "output",
+			uses:               2,
+			denied:             1,
+			wantOutputContains: "advisor: 2 used, 1 denied (budget exhausted)",
+		},
+		{
+			name:               "empty output, denied only",
+			output:             "",
+			uses:               0,
+			denied:             1,
+			wantOutputContains: "advisor: 0 used, 1 denied (budget exhausted)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := appendAdvisorSummaryLine(tt.output, tt.uses, tt.denied)
+			if tt.wantUnchanged {
+				if got != tt.output {
+					t.Errorf("got %q, want unchanged %q", got, tt.output)
+				}
+				return
 			}
-
-			if tt.wantOutputContains != "" && !strings.Contains(gotResult.Output, tt.wantOutputContains) {
-				t.Errorf("Output %q does not contain %q", gotResult.Output, tt.wantOutputContains)
+			if !strings.Contains(got, tt.wantOutputContains) {
+				t.Errorf("Output %q does not contain %q", got, tt.wantOutputContains)
 			}
 		})
 	}

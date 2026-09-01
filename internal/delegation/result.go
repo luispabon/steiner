@@ -55,6 +55,34 @@ func countAdvisorUsage(conversation []agent.Message) (uses, denied int) {
 	return uses, denied
 }
 
+// effectiveAdvisorBudget returns the per-child advisor budget to stamp onto a
+// Spec, treating a zero-or-negative configured budget the same as advisor
+// being unavailable.
+func effectiveAdvisorBudget(advisorAvailable bool, budget int) int {
+	if advisorAvailable && budget > 0 {
+		return budget
+	}
+	return 0
+}
+
+// appendAdvisorSummaryLine appends an "advisor: N used, M denied" line to
+// output when advisor usage is non-zero, so the parent model and the TUI see
+// the same text. Returns output unchanged when uses and denied are both zero.
+func appendAdvisorSummaryLine(output string, uses, denied int) string {
+	if uses == 0 && denied == 0 {
+		return output
+	}
+	status := ""
+	if denied > 0 {
+		status = " (budget exhausted)"
+	}
+	line := fmt.Sprintf("advisor: %d used, %d denied%s", uses, denied, status)
+	if strings.TrimSpace(output) == "" {
+		return line
+	}
+	return output + "\n" + line
+}
+
 func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector, cache TokenUsage) Result {
 	output := ""
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {

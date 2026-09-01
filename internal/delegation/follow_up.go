@@ -70,6 +70,8 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	spec := session.Spec
 	spec.Limits = freshLimits
 	spec.PriorTokenUsage = session.TokenUsage
+	advisorAvailable := childHasAdvisorTool(session.Request)
+	spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 
 	worktree := CodeWorktree{}
 	if isCode {
@@ -109,8 +111,6 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			result.Value = delegationResult
 		}
 	}
-	advisorAvailable := childHasAdvisorTool(session.Request)
-	result = finalizeAdvisorBudgetAndSummary(result, advisorAvailable, deps.AdvisorSubAgentBudget)
 	applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, agentID, &result)
 	if err != nil {
 		if result != (tool.ExecutionResult{}) {

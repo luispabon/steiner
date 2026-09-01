@@ -338,38 +338,6 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 	}
 }
 
-// finalizeAdvisorBudgetAndSummary sets the advisor budget on the result and appends
-// a summary line to the output when advisor usage is non-zero.
-// budget is the configured MaxUsesPerSubAgent for this child (0 if advisor unavailable).
-func finalizeAdvisorBudgetAndSummary(result tool.ExecutionResult, advisorAvailable bool, budget int) tool.ExecutionResult {
-	dr, ok := result.Value.(Result)
-	if !ok {
-		return result
-	}
-
-	if advisorAvailable && budget > 0 {
-		dr.AdvisorBudget = budget
-	} else {
-		dr.AdvisorBudget = 0
-	}
-
-	if dr.AdvisorUses > 0 || dr.AdvisorDenied > 0 {
-		var status string
-		if dr.AdvisorDenied > 0 {
-			status = " (budget exhausted)"
-		}
-		summaryLine := fmt.Sprintf("advisor: %d used, %d denied%s", dr.AdvisorUses, dr.AdvisorDenied, status)
-		if strings.TrimSpace(dr.Output) != "" {
-			dr.Output = dr.Output + "\n" + summaryLine
-		} else {
-			dr.Output = summaryLine
-		}
-	}
-
-	result.Value = dr
-	return result
-}
-
 // structuredBrief holds the decoded fields from a structured task dispatch.
 type structuredBrief struct {
 	Objective       string   `json:"objective"`
@@ -526,6 +494,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 
 		advisorAvailable := slices.Contains(allowedTools, advisor.ToolName) && deps.AdvisorForChild != nil
 		spec.SystemSuffix = AgentSystemSuffix(agentType, advisorAvailable)
+		spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 
 		provisionedWorktree, warnings, err := specializedWorktree(ctx, agentType, deps.WorkDir, agentID)
 		if err != nil {
@@ -556,6 +525,10 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			removeAndCloseToolCallTraceWriter(spec.AgentID)
 			emitDelegateStopped(deps.Events, spec, agentType)
 			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings)
+			if dr, ok := result.Value.(Result); ok {
+				dr.AdvisorBudget = spec.AdvisorBudget
+				result.Value = dr
+			}
 			if deps.SessionStore != nil && deps.SessionStore.Save(&ChildSession{Spec: spec, Request: req, Remediation: codeRemediationConfig(provisionedWorktree)}) {
 				if dr, ok := result.Value.(Result); ok {
 					dr.persisted = true
@@ -590,7 +563,6 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		result = applySpecializedWorktreeResult(agentType, result, provisionedWorktree, warnings)
-		result = finalizeAdvisorBudgetAndSummary(result, advisorAvailable, deps.AdvisorSubAgentBudget)
 		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 
 		return result, nil

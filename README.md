@@ -252,10 +252,9 @@ Each delegation tool accepts a structured brief with six required fields: `objec
 | `sanity_check` | Run tests, linters, builds, or other checks and report pass or fail | No |
 | `review` | Examine code changes for bugs, regressions, missing tests, or plan adherence | No |
 | `vision` | Analyze a pasted image by ID — sub-agent receives the image directly | No |
-| `advisor`\* | Ask a stronger-model steering advisor for guidance within a child agent | No |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message | No |
 
-\* `advisor` is available only to `code`, `review`, and `evaluate` sub-agents when `advisor.enabled` is true and `advisor.max_uses_per_sub_agent > 0`.
+`code`, `review`, and `evaluate` children may additionally call `advisor` for stronger-model steering when `advisor.enabled` is true, capped per child by `advisor.max_uses_per_sub_agent`.
 
 Delegation calls can fan out in parallel; configure the width with `sub_agent.max_parallel` (default `3`, minimum `1`, `1` serial). Ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`) are bounded separately by `limits.max_parallel_tools` (default `4`, minimum `1`). See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
 

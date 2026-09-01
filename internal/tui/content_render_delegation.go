@@ -290,7 +290,7 @@ func (b *contentBuffer) renderStyledDelegationMeta(metaParts []string, advisorWa
 		return ""
 	}
 	var styled []string
-	for i, part := range metaParts {
+	for _, part := range metaParts {
 		if advisorWarn && strings.HasPrefix(part, "advisor ") {
 			idx := strings.LastIndex(part, " +")
 			if idx > 0 {
@@ -303,7 +303,6 @@ func (b *contentBuffer) renderStyledDelegationMeta(metaParts []string, advisorWa
 		} else {
 			styled = append(styled, b.styles.FgDim.Render(part))
 		}
-		_ = i
 	}
 	return strings.Join(styled, " · ")
 }

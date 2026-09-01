@@ -731,6 +731,11 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 		if dd := loc.dd; dd != nil {
 			dd.status = "failed"
 			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+			if payload.AdvisorBudget > 0 {
+				dd.advisorBudget = payload.AdvisorBudget
+				dd.advisorUses = payload.AdvisorUses
+				dd.advisorDenied = payload.AdvisorDenied
+			}
 		}
 		b.markDelegationDirty(loc.seg)
 		delete(b.activeDelegations, payload.AgentID)
@@ -739,7 +744,14 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 	if b.wasCancellationFinalized(payload.AgentID) {
 		return
 	}
-	dd := &delegationDisplayState{agentID: payload.AgentID, status: "failed", collapsed: true}
+	dd := &delegationDisplayState{
+		agentID:       payload.AgentID,
+		status:        "failed",
+		collapsed:     true,
+		advisorBudget: payload.AdvisorBudget,
+		advisorUses:   payload.AdvisorUses,
+		advisorDenied: payload.AdvisorDenied,
+	}
 	b.appendDelegationSegment(dd)
 }
 

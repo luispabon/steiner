@@ -62,6 +62,12 @@ type Spec struct {
 	// Used by the TUI to bind this delegation's display box without relying on
 	// event-arrival order. Internal bookkeeping only, not part of the wire contract.
 	ParentCallID string `json:"-"`
+
+	// AdvisorBudget is the effective per-child advisor budget for this
+	// delegation, zero if advisor is unavailable to this child. Set by the
+	// specialized/follow_up handlers before SpawnDelegate runs so SpawnDelegate
+	// can stamp it onto Result before the completion/failed event is emitted.
+	AdvisorBudget int `json:"-"`
 }
 
 // GetAgentID returns the AgentID from this Spec.
