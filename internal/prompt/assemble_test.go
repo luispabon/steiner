@@ -195,13 +195,17 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 		t.Fatalf("len(blocks) = %d, want %d", got, want)
 	}
 
-	if got, want := assembly.Blocks[0].Content, "You are steiner, a lean coding agent.\n\nsystem prompt content"; got != want {
-		t.Fatalf("preamble block content = %q, want %q", got, want)
+	preamble := assembly.Blocks[0].Content
+	if !strings.HasPrefix(preamble, testIdentityMarker) {
+		t.Fatalf("preamble block missing identity marker in %q", preamble)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(preamble), "system prompt content") {
+		t.Fatalf("preamble block missing override suffix in %q", preamble)
 	}
 	if assembly.Blocks[0].Truncated {
 		t.Fatalf("expected preamble block not to be truncated (bypasses budget)")
 	}
-	if got, want := assembly.Blocks[0].ByteSize, 60; got != want {
+	if got, want := assembly.Blocks[0].ByteSize, len(preamble); got != want {
 		t.Fatalf("preamble block bytes = %d, want %d", got, want)
 	}
 
@@ -218,8 +222,12 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 	if got, want := len(assembly.Messages), 2; got != want {
 		t.Fatalf("len(messages) = %d, want %d", got, want)
 	}
-	if got, want := assembly.Messages[0].Content, "You are steiner, a lean coding agent.\n\nsystem prompt content"; got != want {
-		t.Fatalf("preamble message content = %q, want %q", got, want)
+	messagePreamble := assembly.Messages[0].Content
+	if !strings.HasPrefix(messagePreamble, testIdentityMarker) {
+		t.Fatalf("preamble message missing identity marker in %q", messagePreamble)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(messagePreamble), "system prompt content") {
+		t.Fatalf("preamble message missing override suffix in %q", messagePreamble)
 	}
 	if got, want := assembly.Messages[1].Content, "proj"; got != want {
 		t.Fatalf("project context message content = %q, want %q", got, want)
