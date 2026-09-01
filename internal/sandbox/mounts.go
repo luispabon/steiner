@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 )
@@ -32,6 +33,15 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 	if readOnlyProject {
 		args = append(args, "--ro-bind", writableRoot, writableRoot)
 		args = append(args, "--bind", filepath.Join(writableRoot, ".steiner", "plans"), filepath.Join(writableRoot, ".steiner", "plans"))
+		// Plan mode keeps the working tree read-only but must still allow git
+		// metadata operations (branch/commit/stage) so a planning session can
+		// hand off to implementation. .git is existence-gated (unlike
+		// .steiner/plans, it cannot be created) and bound whole rather than by
+		// path, since git writes transient lock files (index.lock,
+		// config.lock, packed-refs.new) that don't exist at mount time.
+		for _, gitBind := range gitWritableBinds(writableRoot) {
+			args = append(args, "--bind", gitBind, gitBind)
+		}
 	} else {
 		args = append(args, "--bind", writableRoot, writableRoot)
 	}
@@ -71,6 +81,61 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 	args = append(args, "--chdir", workDir)
 
 	return args
+}
+
+// gitWritableBinds returns the absolute paths that must be bound writable
+// (on top of an otherwise read-only project mount) for git plumbing to work:
+// the repo's .git directory, or — for a linked worktree, where .git is a
+// pointer file — the worktree-specific gitdir and its shared common dir.
+// Returns nil (no binds) whenever a path can't be resolved or doesn't exist;
+// bwrap hard-fails the whole invocation if a bind source is missing, so
+// binds are only ever emitted for paths confirmed to exist.
+func gitWritableBinds(root string) []string {
+	gitPath := filepath.Join(root, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return nil
+	}
+	if info.IsDir() {
+		return []string{gitPath}
+	}
+
+	// .git is a file: linked worktree, pointing at the real gitdir via
+	// "gitdir: <path>".
+	data, err := os.ReadFile(gitPath)
+	if err != nil {
+		return nil
+	}
+	const prefix = "gitdir:"
+	line := strings.TrimSpace(string(data))
+	if !strings.HasPrefix(line, prefix) {
+		return nil
+	}
+	gitDir := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(root, gitDir)
+	}
+	if _, err := os.Stat(gitDir); err != nil {
+		return nil
+	}
+	binds := []string{gitPath, gitDir}
+
+	// The worktree gitdir holds only worktree-local state (HEAD, index,
+	// logs); refs, objects, and config live in the common dir it points to
+	// via "commondir". Branch/commit operations need that writable too.
+	if commonData, readErr := os.ReadFile(filepath.Join(gitDir, "commondir")); readErr == nil {
+		commonDir := strings.TrimSpace(string(commonData))
+		if !filepath.IsAbs(commonDir) {
+			commonDir = filepath.Join(gitDir, commonDir)
+		}
+		if resolved, absErr := filepath.Abs(commonDir); absErr == nil {
+			if _, statErr := os.Stat(resolved); statErr == nil && resolved != gitDir {
+				binds = append(binds, resolved)
+			}
+		}
+	}
+
+	return binds
 }
 
 func cacheMountPath(userHome string) string {
