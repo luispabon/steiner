@@ -12,15 +12,15 @@ The parent's preamble spells out a numbered workflow: an initial code-local inve
 
 Sub-agent delegation is **enabled by default**. When it is, the model sees eight additional tools alongside the built-in ones:
 
-| Tool        | What it does                                                                     | Extra params                                               | Can mutate?            |
+| Tool        | What it does                                                                     | Structured task fields                                     | Can mutate?            |
 |-------------|----------------------------------------------------------------------------------|------------------------------------------------------------|------------------------|
-| `explore`   | Navigate the codebase to find files, symbols, call sites, and patterns           | `task` only                                                | No                     |
-| `research`  | Gather and synthesise information from the codebase or web                       | `task` only                                                | No                     |
-| `code`      | Implement a scoped change — read relevant files, write changes, run tests        | `task` only                                                | Yes (`mutate`, `bash`) |
-| `evaluate`    | Analyse a sub-problem, evaluate options, and produce a structured recommendation | `task` only                                                | No                     |
-| `sanity_check`| Run tests, linters, builds, or other checks and report pass or fail              | `task` only                                                | No                     |
-| `review`      | Examine code changes for bugs, regressions, missing tests, or plan adherence     | `task` only                                                | No                     |
-| `vision`    | Analyze an image by ID — the sub-agent receives the image directly               | `task`, `image_id`                                         | No                     |
+| `explore`   | Navigate the codebase to find files, symbols, call sites, and patterns           | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | No                     |
+| `research`  | Gather and synthesise information from the codebase or web                       | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | No                     |
+| `code`      | Implement a scoped change — read relevant files, write changes, run tests        | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | Yes (`mutate`, `bash`) |
+| `evaluate`    | Analyse a sub-problem, evaluate options, and produce a structured recommendation | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | No                     |
+| `sanity_check`| Run tests, linters, builds, or other checks and report pass or fail              | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | No                     |
+| `review`      | Examine code changes for bugs, regressions, missing tests, or plan adherence     | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | No                     |
+| `vision`    | Analyze an image by ID — the sub-agent receives the image directly               | All six task fields + `image_id`                            | No                     |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
 
 The seven specialised tools (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`) are hardcoded with purpose-built system prompts and tool allowlists. Delegation results sent to the provider use a compact envelope with exact `output`, optional failure status/reason, and optional persisted-session continuation. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
@@ -118,11 +118,11 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 |------------|-------------------------------------------------------------|
 | `explore`  | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox) |
 | `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url`\* |
-| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`              |
-| `evaluate`    | `read`, `glob`, `grep`, `ls`                                |
+| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`   |
+| `evaluate`    | `read`, `glob`, `grep`, `ls`, `advisor`                     |
 | `sanity_check`| `read`, `glob`, `grep`, `ls`, `bash`                        |
 | `vision`   | `read`                                                      |
-| `review`      | `read`, `glob`, `grep`, `ls`, `bash`                        |
+| `review`      | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`             |
 
 \* `fetch_url` is always available. `web_search` requires a configured search backend (Google, Kagi, Brave, or SearXNG). When no backend is configured, the `research` sub-agent is not exposed to the model.
 

@@ -179,6 +179,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		ExtraAllowedTools:     extraAllowedTools,
 		CacheKeyStore:         r.runtime.delegationCacheKeyStore,
 		AdvisorState:          r.runtime.advisorState,
+		AdvisorBudgetStore:    r.runtime.delegationAdvisorBudgetStore,
 		SandboxTmpDir:         sandboxTmpDir,
 		SandboxEnabled:        r.sandboxEnabled(),
 		SandboxWritableMounts: sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),

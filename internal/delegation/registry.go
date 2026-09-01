@@ -106,44 +106,74 @@ type DelegateDeps struct {
 	// (once per turn). Nil means no reuse: each call gets a private counter,
 	// so the cap is enforced per BuildDelegateRegistry call only.
 	AdvisorState *advisor.SharedState
+	// AdvisorBudgetStore provides per-child advisor budgets, keyed by agent ID.
+	// When non-nil and advisor is enabled, each code/review/evaluate child gets
+	// its own SharedState from the store, surviving follow_up resumptions under
+	// the same agent ID. Nil means no child advisor access.
+	AdvisorBudgetStore *AdvisorBudgetStore
 }
 
-// registerAdvisorTool resolves the advisor model and provider, then registers
-// the advisor tool on cloned. Split out of BuildDelegateRegistry to keep its
-// cyclomatic complexity down.
-func registerAdvisorTool(cloned *tool.Registry, deps DelegateDeps) error {
+// advisorRuntime holds the resolved advisor provider, model, and configuration.
+type advisorRuntime struct {
+	provider   provider.Provider
+	model      provider.ResolvedModel
+	events     output.EventSink
+	recorder   *usagestats.Recorder
+	workDir    string
+	pathPolicy tool.PathPolicy
+	cacheKey   string
+	maxTokens  *int
+}
+
+// newAdvisorRuntime resolves the advisor model and provider, returning the runtime
+// state needed to mint advisor tool definitions. It contains the resolution logic
+// from registerAdvisorTool up to and including cache-key resolution.
+func newAdvisorRuntime(deps DelegateDeps) (advisorRuntime, error) {
 	advisorAlias := strings.TrimSpace(deps.Config.Models.Effective.Advisor)
 	if advisorAlias == "" {
 		advisorAlias = strings.TrimSpace(deps.Config.Models.Effective.DefaultModel)
 	}
 	advisorResolved, err := provider.ResolveWithDiscovery(deps.Config, advisorAlias, deps.HTTPClient)
 	if err != nil {
-		return fmt.Errorf("resolve advisor model %q: %w", advisorAlias, err)
+		return advisorRuntime{}, fmt.Errorf("resolve advisor model %q: %w", advisorAlias, err)
 	}
 	if deps.AdvisorCfg.Timeout != nil {
 		advisorResolved.ProviderConfig.Timeout = *deps.AdvisorCfg.Timeout
 	}
 	advisorProvider, err := resolveToolProvider(deps.Provider, deps.ResolvedModel, advisorResolved, deps.ProviderFactory)
 	if err != nil {
-		return fmt.Errorf("build advisor provider for %q: %w", advisorAlias, err)
+		return advisorRuntime{}, fmt.Errorf("build advisor provider for %q: %w", advisorAlias, err)
 	}
 	advisorPolicy := tool.NewPathPolicy(deps.WorkDir, deps.Config.Paths)
 
-	cloned.Register(advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
-		Provider: advisorProvider,
-		Model:    advisorResolved,
-		Events:   deps.Events,
+	return advisorRuntime{
+		provider:   advisorProvider,
+		model:      advisorResolved,
+		events:     deps.Events,
+		recorder:   deps.UsageRecorder,
+		workDir:    deps.WorkDir,
+		pathPolicy: advisorPolicy,
+		cacheKey:   resolveAdvisorCacheKey(deps.CacheKeyStore),
+		maxTokens:  deps.AdvisorCfg.MaxTokens,
+	}, nil
+}
+
+// toolDef mints a tool definition for the advisor bound to a specific budget and state.
+func (r advisorRuntime) toolDef(maxUses int, state *advisor.SharedState) tool.ToolDef {
+	return advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
+		Provider: r.provider,
+		Model:    r.model,
+		Events:   r.events,
 		Config: advisor.Config{
-			MaxUsesPerRun: deps.AdvisorCfg.MaxUsesPerRun,
-			MaxTokens:     deps.AdvisorCfg.MaxTokens,
+			MaxUsesPerRun: maxUses,
+			MaxTokens:     r.maxTokens,
 		},
-		UsageRecorder: deps.UsageRecorder,
-		WorkDir:       deps.WorkDir,
-		PathPolicy:    &advisorPolicy,
-		CacheKey:      resolveAdvisorCacheKey(deps.CacheKeyStore),
-		SharedState:   deps.AdvisorState,
-	})))
-	return nil
+		UsageRecorder: r.recorder,
+		WorkDir:       r.workDir,
+		PathPolicy:    &r.pathPolicy,
+		CacheKey:      r.cacheKey,
+		SharedState:   state,
+	}))
 }
 
 // resolveAdvisorCacheKey returns the advisor's cache key from store when
@@ -151,6 +181,42 @@ func registerAdvisorTool(cloned *tool.Registry, deps DelegateDeps) error {
 // to mint one.
 func resolveAdvisorCacheKey(store *CacheKeyStore) string {
 	return cacheKeyOrMint(store, cacheKeyAgentTypeAdvisor)
+}
+
+// buildAdvisorTools registers parent and child advisor tools when enabled,
+// returning an advisorForChild factory if child advisor access is configured.
+func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (tool.ToolDef, bool), error) {
+	if !deps.AdvisorCfg.Enabled {
+		return nil, nil
+	}
+	advRuntime, err := newAdvisorRuntime(deps)
+	if err != nil {
+		return nil, err
+	}
+	cloned.Register(advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerRun, deps.AdvisorState))
+
+	if deps.AdvisorBudgetStore == nil {
+		return nil, nil
+	}
+	advisorForChild := func(agentID string) (tool.ToolDef, bool) {
+		if agentID == "" {
+			return tool.ToolDef{}, false
+		}
+		state := deps.AdvisorBudgetStore.StateFor(agentID)
+		scopedEvents := withAgentScope(agentID, "", deps.Events)
+		scopedRuntime := advisorRuntime{
+			provider:   advRuntime.provider,
+			model:      advRuntime.model,
+			events:     scopedEvents,
+			recorder:   advRuntime.recorder,
+			workDir:    advRuntime.workDir,
+			pathPolicy: advRuntime.pathPolicy,
+			cacheKey:   advRuntime.cacheKey,
+			maxTokens:  advRuntime.maxTokens,
+		}
+		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
+	}
+	return advisorForChild, nil
 }
 
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
@@ -162,10 +228,9 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 
 	cloned := deps.BaseRegistry.Clone()
 
-	if deps.AdvisorCfg.Enabled {
-		if err := registerAdvisorTool(cloned, deps); err != nil {
-			return nil, err
-		}
+	advisorForChild, err := buildAdvisorTools(cloned, deps)
+	if err != nil {
+		return nil, err
 	}
 
 	if !deps.SubAgentCfg.Enabled {
@@ -217,6 +282,8 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		Limits:                deps.Config.Limits,
 		Paths:                 deps.Config.Paths,
 		ContextManagement:     deps.Config.ContextManagement,
+		AdvisorForChild:       advisorForChild,
+		AdvisorSubAgentBudget: deps.AdvisorCfg.MaxUsesPerSubAgent,
 	}
 
 	// Register the follow_up tool.

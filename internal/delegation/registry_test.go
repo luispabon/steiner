@@ -485,3 +485,83 @@ func TestBuildDelegateRegistryRegistersAdvisorSchemaWithQuestionAndFiles(t *test
 		t.Fatal("registered advisor schema missing files property")
 	}
 }
+
+func TestBuildDelegateRegistryAdvisorNotRegisteredWhenDisabled(t *testing.T) {
+	reg, err := BuildDelegateRegistry(DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: false},
+		Provider:     &fakeProvider{},
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens: 256,
+		Config:    advisorTestConfig(),
+	})
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+	if _, ok := reg.Get(advisor.ToolName); ok {
+		t.Fatal("advisor tool registered when disabled")
+	}
+}
+
+func TestBuildDelegateRegistryAdvisorUsesConfigMaxUsesPerRun(t *testing.T) {
+	state := advisor.NewSharedState()
+	prov := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
+	}}
+	providerFactory := func(provider.ResolvedModel) (provider.Provider, error) { return prov, nil }
+
+	deps := DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 2},
+		Provider:     prov,
+		Events:       output.NoopSink{},
+		WorkDir:      "/tmp/work",
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens:       256,
+		Config:          advisorTestConfig(),
+		ProviderFactory: providerFactory,
+		AdvisorState:    state,
+	}
+
+	reg, err := BuildDelegateRegistry(deps)
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+
+	def, ok := reg.Get(advisor.ToolName)
+	if !ok {
+		t.Fatal("advisor tool not registered")
+	}
+
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "hi"},
+	})
+
+	callAdvisorHandler(t, reg)
+	callAdvisorHandler(t, reg)
+
+	def, ok = reg.Get(advisor.ToolName)
+	if !ok {
+		t.Fatal("advisor tool not registered on third call")
+	}
+
+	got, err := def.Handler(ctx, map[string]any{"question": "test"})
+	if err != nil {
+		t.Fatalf("third call handler() error = %v", err)
+	}
+
+	want := advisor.BudgetExhaustedMessage(2, 2)
+	if got != want {
+		t.Fatalf("third call handler() = %#v, want %q (MaxUsesPerRun=2 from config)", got, want)
+	}
+}

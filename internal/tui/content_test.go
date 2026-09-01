@@ -122,7 +122,7 @@ func TestAppendEventDelegationComplete(t *testing.T) {
 
 func TestAppendEventDelegationFailed(t *testing.T) {
 	t.Parallel()
-	event := output.NewDelegationFailedEvent("child-3", "build package", "compilation error")
+	event := output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "child-3", TaskPreview: "build package", Error: "compilation error"})
 
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
@@ -185,7 +185,7 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 		},
 		{
 			name:  "delegation_failed",
-			event: output.NewDelegationFailedEvent("agent-3", "secret task", "error details"),
+			event: output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "agent-3", TaskPreview: "secret task", Error: "error details"}),
 		},
 	}
 
@@ -309,7 +309,7 @@ func TestFormatDelegationEvent(t *testing.T) {
 		},
 		{
 			name:      "failed",
-			event:     output.NewDelegationFailedEvent("test-agent", "task", "err"),
+			event:     output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "test-agent", TaskPreview: "task", Error: "err"}),
 			wantMatch: "delegate: failed test-agent",
 		},
 	}
@@ -730,7 +730,7 @@ func TestDelegationFailedLifecycle(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("fail-agent", "risky task"))
-	buffer.AppendEvent(output.NewDelegationFailedEvent("fail-agent", "risky task", "boom"))
+	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "fail-agent", TaskPreview: "risky task", Error: "boom"}))
 
 	if buffer.HasActiveDelegations() {
 		t.Fatal("HasActiveDelegations = true after failed, want false")
@@ -903,7 +903,7 @@ func TestDelegationBlockRendering(t *testing.T) {
 			name: "failed_has_agent_id",
 			setup: func(b *contentBuffer) {
 				b.AppendEvent(output.NewDelegationStartedEvent("f-agent", "work"))
-				b.AppendEvent(output.NewDelegationFailedEvent("f-agent", "work", "err"))
+				b.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "f-agent", TaskPreview: "work", Error: "err"}))
 			},
 			checks:  []string{"f-agent"},
 			nocheck: []string{"err"},

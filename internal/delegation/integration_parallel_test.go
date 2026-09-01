@@ -113,7 +113,7 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 		if h.started.Add(1) == int32(h.target) {
 			close(h.allStarted)
 		}
-		if h.failTask == task {
+		if h.failTask != "" && strings.Contains(task, h.failTask) {
 			h.countCompleted(task)
 			h.active.Add(-1)
 			return provider.ChatResponse{}, errors.New("child failed")
@@ -171,7 +171,16 @@ func (h *parallelHarness) taskCallsFor(task string) *atomic.Int32 {
 }
 
 func (h *parallelHarness) signalSummary(task string) {
-	channel, _ := h.summaries.LoadOrStore(task, make(chan struct{}, 1))
+	// Extract task ID from assembled markdown (e.g., "task-0" from full markdown)
+	taskID := task
+	for i := 0; i < 10; i++ {
+		id := fmt.Sprintf("task-%d", i)
+		if strings.Contains(task, id) {
+			taskID = id
+			break
+		}
+	}
+	channel, _ := h.summaries.LoadOrStore(taskID, make(chan struct{}, 1))
 	select {
 	case channel.(chan struct{}) <- struct{}{}:
 	default:
@@ -189,9 +198,15 @@ func (h *parallelHarness) waitSummary(t *testing.T, task, message string) {
 }
 
 func (h *parallelHarness) countCompleted(task string) {
-	if strings.HasPrefix(task, "task-") {
-		if _, loaded := h.completedTasks.LoadOrStore(task, struct{}{}); !loaded {
-			h.completed.Add(1)
+	// Extract the task identifier from the assembled markdown (e.g., "task-0")
+	// The task string is now full assembled markdown like "## Objective\n\ntask-0\n..."
+	for i := 0; i < 10; i++ {
+		taskID := fmt.Sprintf("task-%d", i)
+		if strings.Contains(task, taskID) {
+			if _, loaded := h.completedTasks.LoadOrStore(taskID, struct{}{}); !loaded {
+				h.completed.Add(1)
+			}
+			return
 		}
 	}
 }
@@ -199,7 +214,18 @@ func (h *parallelHarness) countCompleted(task string) {
 func delegationParentResponse(names ...string) provider.ChatResponse {
 	calls := make([]provider.ToolCall, len(names))
 	for i, name := range names {
-		calls[i] = provider.ToolCall{ID: fmt.Sprintf("call-%d", i), Name: name, Arguments: map[string]any{"task": fmt.Sprintf("task-%d", i)}}
+		calls[i] = provider.ToolCall{
+			ID:   fmt.Sprintf("call-%d", i),
+			Name: name,
+			Arguments: map[string]any{
+				"objective":        fmt.Sprintf("task-%d", i),
+				"context":          "context",
+				"deliverable":      "deliverable",
+				"constraints":      []any{},
+				"success_criteria": []any{},
+				"checks":           []any{},
+			},
+		}
 	}
 	return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: calls}, FinishReason: "tool_calls"}
 }
@@ -418,21 +444,33 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 		switch event.Type {
 		case output.EventTypeDelegationStarted:
 			started, ok := event.Payload.(output.DelegationStartedEvent)
-			if !ok || !strings.HasPrefix(started.TaskPreview, "task-") {
+			if !ok {
 				continue
 			}
-			wantCallID := "call-" + strings.TrimPrefix(started.TaskPreview, "task-")
+			// Extract task ID from the markdown preview (e.g., "task-0" from the full markdown)
+			var taskID string
+			for i := 0; i < 10; i++ {
+				id := fmt.Sprintf("task-%d", i)
+				if strings.Contains(started.TaskPreview, id) {
+					taskID = id
+					break
+				}
+			}
+			if taskID == "" {
+				continue
+			}
+			wantCallID := "call-" + strings.TrimPrefix(taskID, "task-")
 			if started.CallID != wantCallID {
-				t.Errorf("task %q started with call ID %q, want %q", started.TaskPreview, started.CallID, wantCallID)
+				t.Errorf("task %q started with call ID %q, want %q", taskID, started.CallID, wantCallID)
 			}
-			if prior, ok := agentByTask[started.TaskPreview]; ok && prior != started.AgentID {
-				t.Errorf("task %q started with multiple agent IDs %q and %q", started.TaskPreview, prior, started.AgentID)
+			if prior, ok := agentByTask[taskID]; ok && prior != started.AgentID {
+				t.Errorf("task %q started with multiple agent IDs %q and %q", taskID, prior, started.AgentID)
 			}
-			if prior, ok := taskByAgent[started.AgentID]; ok && prior != started.TaskPreview {
-				t.Errorf("agent ID %q reused for tasks %q and %q", started.AgentID, prior, started.TaskPreview)
+			if prior, ok := taskByAgent[started.AgentID]; ok && prior != taskID {
+				t.Errorf("agent ID %q reused for tasks %q and %q", started.AgentID, prior, taskID)
 			}
-			agentByTask[started.TaskPreview] = started.AgentID
-			taskByAgent[started.AgentID] = started.TaskPreview
+			agentByTask[taskID] = started.AgentID
+			taskByAgent[started.AgentID] = taskID
 		case output.EventTypeDelegationComplete:
 			complete, ok := event.Payload.(output.DelegationCompleteEvent)
 			if ok {
@@ -558,8 +596,11 @@ func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 	ready := make(chan struct{})
 	close(ready)
 	h.release = func(task string) <-chan struct{} {
-		if release, ok := releases[task]; ok {
-			return release
+		// Extract task ID from assembled markdown
+		for taskID := range releases {
+			if strings.Contains(task, taskID) {
+				return releases[taskID]
+			}
 		}
 		return ready
 	}

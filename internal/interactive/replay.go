@@ -189,7 +189,11 @@ func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[strin
 		task := taskFromArgs(pending.Arguments)
 		s.events.Emit(output.NewDelegationStartedEvent(state.agentID, task))
 		if state.status == "failed" {
-			s.events.Emit(output.NewDelegationFailedEvent(state.agentID, task, state.error))
+			s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+				AgentID:     state.agentID,
+				TaskPreview: task,
+				Error:       state.error,
+			}))
 		} else {
 			s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 				AgentID:           state.agentID,

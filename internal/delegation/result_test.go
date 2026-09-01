@@ -1,6 +1,7 @@
 package delegation
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -181,5 +182,237 @@ func TestBuildResultCarriesCacheTokens(t *testing.T) {
 	}
 	if got.CacheCreateTokens != 50 {
 		t.Errorf("CacheCreateTokens=%d, want 50", got.CacheCreateTokens)
+	}
+}
+
+func TestCountAdvisorUsage(t *testing.T) {
+	tests := []struct {
+		name       string
+		conv       []agent.Message
+		wantUses   int
+		wantDenied int
+	}{
+		{
+			name:       "no advisor calls",
+			conv:       []agent.Message{},
+			wantUses:   0,
+			wantDenied: 0,
+		},
+		{
+			name: "one successful advisor call",
+			conv: []agent.Message{
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c1", Name: "advisor", Arguments: map[string]any{"question": "test"}},
+					},
+				},
+				{
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
+					Content: "advice",
+				},
+			},
+			wantUses:   1,
+			wantDenied: 0,
+		},
+		{
+			name: "one denied advisor call",
+			conv: []agent.Message{
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c1", Name: "advisor", Arguments: map[string]any{"question": "test"}},
+					},
+				},
+				{
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
+					Content: "advisor budget exhausted for this session (1/1); proceed on your own judgment",
+				},
+			},
+			wantUses:   0,
+			wantDenied: 1,
+		},
+		{
+			name: "three calls, two denied (one successful, two denied)",
+			conv: []agent.Message{
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c1", Name: "advisor", Arguments: map[string]any{"question": "q1"}},
+					},
+				},
+				{
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
+					Content: "good advice",
+				},
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c2", Name: "advisor", Arguments: map[string]any{"question": "q2"}},
+					},
+				},
+				{
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
+					Content: "advisor budget exhausted for this session (1/1); proceed on your own judgment",
+				},
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c3", Name: "advisor", Arguments: map[string]any{"question": "q3"}},
+					},
+				},
+				{
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
+					Content: "advisor budget exhausted for this session (1/1); proceed on your own judgment",
+				},
+			},
+			wantUses:   1,
+			wantDenied: 2,
+		},
+		{
+			name: "advisor call with other tools",
+			conv: []agent.Message{
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c1", Name: "read", Arguments: map[string]any{"path": "file.go"}},
+						{ID: "c2", Name: "advisor", Arguments: map[string]any{"question": "test"}},
+					},
+				},
+				{
+					Role:    agent.MessageRoleTool,
+					Name:    "read",
+					Content: "file content",
+				},
+				{
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
+					Content: "advice",
+				},
+			},
+			wantUses:   1,
+			wantDenied: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uses, denied := countAdvisorUsage(tt.conv)
+			if uses != tt.wantUses {
+				t.Errorf("uses=%d, want %d", uses, tt.wantUses)
+			}
+			if denied != tt.wantDenied {
+				t.Errorf("denied=%d, want %d", denied, tt.wantDenied)
+			}
+		})
+	}
+}
+
+func TestEffectiveAdvisorBudget(t *testing.T) {
+	tests := []struct {
+		name             string
+		advisorAvailable bool
+		budget           int
+		wantBudget       int
+	}{
+		{
+			name:             "advisor unavailable, zero budget",
+			advisorAvailable: false,
+			budget:           0,
+			wantBudget:       0,
+		},
+		{
+			name:             "advisor available with default budget of 1",
+			advisorAvailable: true,
+			budget:           1,
+			wantBudget:       1,
+		},
+		{
+			name:             "advisor available with custom budget of 3",
+			advisorAvailable: true,
+			budget:           3,
+			wantBudget:       3,
+		},
+		{
+			name:             "advisor available but budget is zero (treated as unavailable)",
+			advisorAvailable: true,
+			budget:           0,
+			wantBudget:       0,
+		},
+		{
+			name:             "advisor unavailable, non-zero budget",
+			advisorAvailable: false,
+			budget:           5,
+			wantBudget:       0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := effectiveAdvisorBudget(tt.advisorAvailable, tt.budget)
+			if got != tt.wantBudget {
+				t.Errorf("effectiveAdvisorBudget=%d, want %d", got, tt.wantBudget)
+			}
+		})
+	}
+}
+
+func TestAppendAdvisorSummaryLine(t *testing.T) {
+	tests := []struct {
+		name               string
+		output             string
+		uses               int
+		denied             int
+		wantOutputContains string
+		wantUnchanged      bool
+	}{
+		{
+			name:          "no advisor activity leaves output unchanged",
+			output:        "output",
+			uses:          0,
+			denied:        0,
+			wantUnchanged: true,
+		},
+		{
+			name:               "uses only",
+			output:             "output",
+			uses:               1,
+			denied:             0,
+			wantOutputContains: "advisor: 1 used, 0 denied",
+		},
+		{
+			name:               "uses and denied, budget exhausted",
+			output:             "output",
+			uses:               2,
+			denied:             1,
+			wantOutputContains: "advisor: 2 used, 1 denied (budget exhausted)",
+		},
+		{
+			name:               "empty output, denied only",
+			output:             "",
+			uses:               0,
+			denied:             1,
+			wantOutputContains: "advisor: 0 used, 1 denied (budget exhausted)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := appendAdvisorSummaryLine(tt.output, tt.uses, tt.denied)
+			if tt.wantUnchanged {
+				if got != tt.output {
+					t.Errorf("got %q, want unchanged %q", got, tt.output)
+				}
+				return
+			}
+			if !strings.Contains(got, tt.wantOutputContains) {
+				t.Errorf("Output %q does not contain %q", got, tt.wantOutputContains)
+			}
+		})
 	}
 }

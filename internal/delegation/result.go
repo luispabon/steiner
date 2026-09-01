@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 )
 
@@ -28,18 +29,75 @@ func countToolCalls(conversation []agent.Message) int {
 	return n
 }
 
+func countAdvisorUsage(conversation []agent.Message) (uses, denied int) {
+	attempts := 0
+	denied = 0
+
+	for _, msg := range conversation {
+		if msg.Role == agent.MessageRoleAssistant {
+			for _, call := range msg.ToolCalls {
+				if call.Name == advisor.ToolName {
+					attempts++
+				}
+			}
+		}
+		if msg.Role == agent.MessageRoleTool && msg.Name == advisor.ToolName {
+			if strings.HasPrefix(msg.Content, advisor.BudgetExhaustedMessagePrefix) {
+				denied++
+			}
+		}
+	}
+
+	uses = attempts - denied
+	if uses < 0 {
+		uses = 0
+	}
+	return uses, denied
+}
+
+// effectiveAdvisorBudget returns the per-child advisor budget to stamp onto a
+// Spec, treating a zero-or-negative configured budget the same as advisor
+// being unavailable.
+func effectiveAdvisorBudget(advisorAvailable bool, budget int) int {
+	if advisorAvailable && budget > 0 {
+		return budget
+	}
+	return 0
+}
+
+// appendAdvisorSummaryLine appends an "advisor: N used, M denied" line to
+// output when advisor usage is non-zero, so the parent model and the TUI see
+// the same text. Returns output unchanged when uses and denied are both zero.
+func appendAdvisorSummaryLine(output string, uses, denied int) string {
+	if uses == 0 && denied == 0 {
+		return output
+	}
+	status := ""
+	if denied > 0 {
+		status = " (budget exhausted)"
+	}
+	line := fmt.Sprintf("advisor: %d used, %d denied%s", uses, denied, status)
+	if strings.TrimSpace(output) == "" {
+		return line
+	}
+	return output + "\n" + line
+}
+
 func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector, cache TokenUsage) Result {
 	output := ""
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		output = msg.Content
 	}
 
+	uses, denied := countAdvisorUsage(state.Conversation)
 	result := Result{
 		AgentID:           agentID,
 		Output:            output,
 		TurnCount:         state.TurnCount,
 		TokenCount:        cache.OutputTokens,
 		ToolCallCount:     countToolCalls(state.Conversation),
+		AdvisorUses:       uses,
+		AdvisorDenied:     denied,
 		InputTokens:       cache.InputTokens,
 		CacheReadTokens:   cache.CacheReadTokens,
 		CacheCreateTokens: cache.CacheCreateTokens,

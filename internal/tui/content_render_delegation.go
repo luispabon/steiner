@@ -128,6 +128,20 @@ func (b *contentBuffer) renderAdvisorFilesBody(dd *delegationDisplayState, width
 	return rows
 }
 
+func (b *contentBuffer) renderAdvisorDenialWarning(dd *delegationDisplayState, width int) string {
+	count := dd.advisorDenied
+	if count <= 0 {
+		return ""
+	}
+	var text string
+	if count == 1 {
+		text = "⚠ 1 further request denied — budget exhausted"
+	} else {
+		text = fmt.Sprintf("⚠ %d further requests denied — budget exhausted", count)
+	}
+	return b.styles.Warn.Render(truncateRunes(text, max(1, width)))
+}
+
 func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width int) string {
 	_, statusWidth := b.renderDelegationHeaderStatus(dd)
 	meta := b.renderDelegationHeaderMeta(dd)
@@ -256,16 +270,41 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 			parts = append(parts, b.styles.FgDim.Render(formatElapsed(dd.startTime, nanoNow())))
 		}
 	case "complete":
-		parts = append(parts, b.styles.FgDim.Render(strings.Join(delegationCompleteMeta(dd), " · ")))
+		metaParts, warn := delegationCompleteMeta(dd)
+		parts = append(parts, b.renderStyledDelegationMeta(metaParts, warn))
 	case "budget_exhausted":
-		parts = append(parts, b.styles.FgDim.Render(strings.Join(delegationBudgetMeta(dd), " · ")))
+		metaParts, warn := delegationBudgetMeta(dd)
+		parts = append(parts, b.renderStyledDelegationMeta(metaParts, warn))
 	case "failed":
-		parts = append(parts, b.styles.FgDim.Render(strings.Join(delegationFailedMeta(dd), " · ")))
+		metaParts, warn := delegationFailedMeta(dd)
+		parts = append(parts, b.renderStyledDelegationMeta(metaParts, warn))
 	}
 	if dd.status == "active" && len(parts) > 1 {
 		return parts[0] + " " + strings.Join(parts[1:], " · ")
 	}
 	return strings.Join(parts, " ")
+}
+
+func (b *contentBuffer) renderStyledDelegationMeta(metaParts []string, advisorWarn bool) string {
+	if len(metaParts) == 0 {
+		return ""
+	}
+	var styled []string
+	for _, part := range metaParts {
+		if advisorWarn && strings.HasPrefix(part, "advisor ") {
+			idx := strings.LastIndex(part, " +")
+			if idx > 0 {
+				prefix := part[:idx]
+				suffix := part[idx:]
+				styled = append(styled, b.styles.FgDim.Render(prefix)+b.styles.Warn.Render(suffix))
+			} else {
+				styled = append(styled, b.styles.FgDim.Render(part))
+			}
+		} else {
+			styled = append(styled, b.styles.FgDim.Render(part))
+		}
+	}
+	return strings.Join(styled, " · ")
 }
 
 func delegationModelEffort(dd *delegationDisplayState) string {
@@ -275,7 +314,20 @@ func delegationModelEffort(dd *delegationDisplayState) string {
 	return formatModelEffort(dd.modelName, dd.reasoning)
 }
 
-func delegationCompleteMeta(dd *delegationDisplayState) []string {
+func delegationAdvisorMeta(dd *delegationDisplayState) (string, bool) {
+	if dd == nil || dd.advisorBudget == 0 {
+		return "", false
+	}
+	text := fmt.Sprintf("advisor %d/%d", dd.advisorUses, dd.advisorBudget)
+	warn := false
+	if dd.advisorDenied > 0 {
+		text += fmt.Sprintf(" +%d denied", dd.advisorDenied)
+		warn = true
+	}
+	return text, warn
+}
+
+func delegationCompleteMeta(dd *delegationDisplayState) ([]string, bool) {
 	status := strings.TrimSpace(dd.resultStatus)
 	if status == "" {
 		status = "complete"
@@ -290,10 +342,14 @@ func delegationCompleteMeta(dd *delegationDisplayState) []string {
 	if dd.elapsed != "" {
 		meta = append(meta, dd.elapsed)
 	}
-	return meta
+	advisorText, warn := delegationAdvisorMeta(dd)
+	if advisorText != "" {
+		meta = append(meta, advisorText)
+	}
+	return meta, warn
 }
 
-func delegationBudgetMeta(dd *delegationDisplayState) []string {
+func delegationBudgetMeta(dd *delegationDisplayState) ([]string, bool) {
 	meta := []string{"budget exhausted"}
 	if modelEffort := delegationModelEffort(dd); modelEffort != "" {
 		meta = append(meta, modelEffort)
@@ -301,10 +357,14 @@ func delegationBudgetMeta(dd *delegationDisplayState) []string {
 	if dd.advisorUse > 0 && dd.advisorMaxUses > 0 {
 		meta = append(meta, fmt.Sprintf("%d/%d", dd.advisorUse, dd.advisorMaxUses))
 	}
-	return meta
+	advisorText, warn := delegationAdvisorMeta(dd)
+	if advisorText != "" {
+		meta = append(meta, advisorText)
+	}
+	return meta, warn
 }
 
-func delegationFailedMeta(dd *delegationDisplayState) []string {
+func delegationFailedMeta(dd *delegationDisplayState) ([]string, bool) {
 	meta := []string{"failed"}
 	if modelEffort := delegationModelEffort(dd); modelEffort != "" {
 		meta = append(meta, modelEffort)
@@ -312,7 +372,11 @@ func delegationFailedMeta(dd *delegationDisplayState) []string {
 	if dd.elapsed != "" {
 		meta = append(meta, dd.elapsed)
 	}
-	return meta
+	advisorText, warn := delegationAdvisorMeta(dd)
+	if advisorText != "" {
+		meta = append(meta, advisorText)
+	}
+	return meta, warn
 }
 
 func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplayState, width int) string {

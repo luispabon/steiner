@@ -46,6 +46,9 @@ func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig) {
 		if cfg.MaxUsesPerRun < 1 {
 			*problems = append(*problems, "advisor.max_uses_per_run must be at least 1 when enabled")
 		}
+		if cfg.MaxUsesPerSubAgent < 1 {
+			*problems = append(*problems, "advisor.max_uses_per_sub_agent must be at least 1 when enabled")
+		}
 	}
 	if cfg.MaxTokens != nil && *cfg.MaxTokens < 1 {
 		*problems = append(*problems, "advisor.max_tokens must be greater than zero when set")

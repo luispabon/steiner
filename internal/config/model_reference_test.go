@@ -96,7 +96,7 @@ func TestModelReferenceValidationAndOverrides(t *testing.T) {
 		{
 			name: "advisor",
 			setup: func(cfg *Config) {
-				cfg.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
+				cfg.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1, MaxUsesPerSubAgent: 1}
 				profile := cfg.Models.Profiles["default"]
 				profile.Advisor = "local/raw-model"
 				cfg.Models.Profiles["default"] = profile

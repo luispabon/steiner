@@ -94,9 +94,10 @@ func defaultConfig() Config {
 			MaxParallel: 3,
 		},
 		Advisor: AdvisorConfig{
-			Enabled:       false,
-			MaxUsesPerRun: 3,
-			Timeout:       advisorTimeout(),
+			Enabled:            false,
+			MaxUsesPerRun:      3,
+			MaxUsesPerSubAgent: 1,
+			Timeout:            advisorTimeout(),
 		},
 		OneShot: oneshotConfig{
 			AutoPR: false,

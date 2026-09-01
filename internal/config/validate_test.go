@@ -867,13 +867,13 @@ func TestValidateAdvisorConfig(t *testing.T) {
 		{
 			name: "enabled advisor allows empty assignment",
 			mutate: func(c *Config) {
-				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
+				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1, MaxUsesPerSubAgent: 1}
 			},
 		},
 		{
 			name: "enabled advisor allows empty assignment in named profile",
 			mutate: func(c *Config) {
-				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1}
+				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1, MaxUsesPerSubAgent: 1}
 				c.Models.Profiles["named"] = ModelProfile{DefaultModel: "default", advisorSet: true}
 			},
 		},
@@ -933,10 +933,11 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			name: "valid advisor config",
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{
-					Enabled:       true,
-					MaxUsesPerRun: 2,
-					MaxTokens:     intPtr(256),
-					Timeout:       durationPtr(MustDuration("240s")),
+					Enabled:            true,
+					MaxUsesPerRun:      2,
+					MaxUsesPerSubAgent: 1,
+					MaxTokens:          intPtr(256),
+					Timeout:            durationPtr(MustDuration("240s")),
 				}
 				setDefaultAdvisor(c)
 			},

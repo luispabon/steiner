@@ -10,6 +10,7 @@ func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 func applyAdvisorPatch(dst *AdvisorConfig, patch *advisorPatch) {
 	setIfPresent(&dst.Enabled, patch.Enabled)
 	setIfPresent(&dst.MaxUsesPerRun, patch.MaxUsesPerRun)
+	setIfPresent(&dst.MaxUsesPerSubAgent, patch.MaxUsesPerSubAgent)
 	if patch.MaxTokens != nil {
 		value := *patch.MaxTokens
 		dst.MaxTokens = &value

@@ -383,6 +383,9 @@ type DelegationCompleteParams struct {
 	InputTokens       int
 	CacheReadTokens   int
 	CacheCreateTokens int
+	AdvisorBudget     int
+	AdvisorUses       int
+	AdvisorDenied     int
 }
 
 // NewDelegationCompleteEvent creates a new delegation complete event.
@@ -420,12 +423,25 @@ func NewSteerReceivedEvent(text string) Event {
 	return newEvent(EventTypeSteerReceived, SteerReceivedEvent{Text: text})
 }
 
+// DelegationFailedParams holds the arguments for NewDelegationFailedEvent.
+type DelegationFailedParams struct {
+	AgentID       string
+	TaskPreview   string
+	Error         string
+	AdvisorBudget int
+	AdvisorUses   int
+	AdvisorDenied int
+}
+
 // NewDelegationFailedEvent creates a new delegation failed event.
-func NewDelegationFailedEvent(agentID, taskPreview, errMsg string) Event {
+func NewDelegationFailedEvent(p DelegationFailedParams) Event {
 	return newEvent(EventTypeDelegationFailed, DelegationFailedEvent{
-		AgentID:     agentID,
-		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
-		Error:       errMsg,
+		AgentID:       p.AgentID,
+		TaskPreview:   TruncateWithEllipsis(p.TaskPreview, 120),
+		Error:         p.Error,
+		AdvisorBudget: p.AdvisorBudget,
+		AdvisorUses:   p.AdvisorUses,
+		AdvisorDenied: p.AdvisorDenied,
 	})
 }
 

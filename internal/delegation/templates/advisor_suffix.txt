@@ -1,0 +1,8 @@
+## Advisor guidance (one call only)
+
+You have exactly ONE advisor call for your entire lifetime. Use it strategically:
+- Call when genuinely stuck or blocked, or before committing to an approach you cannot evaluate yourself.
+- Do NOT spend it as a reflexive opening move or to confirm a decision you have already made.
+- Do NOT spend it as a final sign-off or sanity check at the end.
+
+The advisor has your full conversation context but cannot read files or call tools itself—it advises only.

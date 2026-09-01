@@ -95,7 +95,7 @@ func (b *contentBuffer) delegationSectionRows(dd *delegationDisplayState, width 
 			}
 		}
 	}
-	if dd.isAdvisor {
+	if dd.isAdvisor || dd.advisorBudget > 0 {
 		if strings.TrimSpace(dd.advisorQuestion) != "" {
 			hasSections = true
 			rows = append(rows, delegationRow{kind: delegationRowQuestionHeader, text: b.renderDelegationSectionHeader("question")})
@@ -109,6 +109,11 @@ func (b *contentBuffer) delegationSectionRows(dd *delegationDisplayState, width 
 			for _, line := range b.renderAdvisorFilesBody(dd, width) {
 				rows = append(rows, delegationRow{kind: delegationRowFilesBody, text: line})
 			}
+		}
+		if dd.advisorDenied > 0 {
+			hasSections = true
+			denialLine := b.renderAdvisorDenialWarning(dd, width)
+			rows = append(rows, delegationRow{kind: delegationRowFilesBody, text: denialLine})
 		}
 	}
 	return rows, hasSections

@@ -14,6 +14,17 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
+func finalizationTestStructuredTask(objective string) map[string]any {
+	return map[string]any{
+		"objective":        objective,
+		"context":          "context",
+		"deliverable":      "deliverable",
+		"constraints":      []any{},
+		"success_criteria": []any{},
+		"checks":           []any{},
+	}
+}
+
 func TestFinalizeDelegateCancellationKeepsSessionAndWorktree(t *testing.T) {
 	repo, cleanup := setupTestRepo(t)
 	defer cleanup()
@@ -229,7 +240,7 @@ func TestSpecializedCodeDiscardWaitsForRunner(t *testing.T) {
 
 	resultCh := make(chan error, 1)
 	go func() {
-		_, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), map[string]any{"task": "wait"})
+		_, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), finalizationTestStructuredTask("wait"))
 		resultCh <- err
 	}()
 

@@ -326,7 +326,7 @@ func TestScopedCancellationFinalizesOnlyTargetDelegation(t *testing.T) {
 		AgentID: "child-1",
 		Status:  "complete",
 	}))
-	buffer.AppendEvent(output.NewDelegationFailedEvent("child-1", "first task", "late failure"))
+	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "child-1", TaskPreview: "first task", Error: "late failure"}))
 	if len(buffer.segments) != segmentsBeforeLateEvents {
 		t.Fatalf("segments after unscoped late terminal events = %d, want %d", len(buffer.segments), segmentsBeforeLateEvents)
 	}
@@ -344,7 +344,7 @@ func TestUnknownDelegationTerminalEventsUseFallbackDisplay(t *testing.T) {
 		AgentID: "unknown-complete",
 		Status:  "complete",
 	}))
-	buffer.AppendEvent(output.NewDelegationFailedEvent("unknown-failed", "unknown task", "error"))
+	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "unknown-failed", TaskPreview: "unknown task", Error: "error"}))
 
 	states := delegationStates(buffer)
 	if len(states) != 2 {
@@ -1382,7 +1382,7 @@ func TestActiveDelegateRowsExcludeCompletedAndFailed(t *testing.T) {
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("failed", "failed task", "", "", "review"))
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("active", "live task", "", "", "explore"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "complete", Status: "complete"}))
-	buffer.AppendEvent(output.NewDelegationFailedEvent("failed", "failed task", "error"))
+	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "failed", TaskPreview: "failed task", Error: "error"}))
 
 	rows := buffer.ActiveDelegateRows()
 	if len(rows) != 1 {
@@ -1453,5 +1453,205 @@ func TestActiveDelegateRowsPreserveGroupEntryOrder(t *testing.T) {
 	}
 	if rows[0].agentID != "child-1" || rows[1].agentID != "child-2" {
 		t.Fatalf("group rows = %#v, want child-1 then child-2", rows)
+	}
+}
+
+func TestAdvisorEventRoutingToActiveChild(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
+	initialSegments := len(buffer.segments)
+
+	event := output.NewAdvisorStartedEvent("advisor-model", 1, 1, "question", nil)
+	event = output.WithAgentScope(event, "child-id")
+	buffer.AppendEvent(event)
+
+	if len(buffer.segments) != initialSegments {
+		t.Errorf("scoped advisor event appended new segment: before %d, after %d", initialSegments, len(buffer.segments))
+	}
+
+	loc, ok := buffer.activeDelegations["child-id"]
+	if !ok {
+		t.Fatal("child delegation not in active delegations")
+	}
+	dd := loc.dd
+	if dd.advisorBudget != 1 {
+		t.Errorf("child advisorBudget = %d, want 1", dd.advisorBudget)
+	}
+	if dd.advisorQuestion != "question" {
+		t.Errorf("child advisorQuestion = %q, want 'question'", dd.advisorQuestion)
+	}
+}
+
+func TestAdvisorEventRoutingParentUnscoped(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
+	initialSegments := len(buffer.segments)
+
+	event := output.NewAdvisorStartedEvent("advisor-model", 1, 1, "question", nil)
+	buffer.AppendEvent(event)
+
+	if len(buffer.segments) != initialSegments+1 {
+		t.Errorf("unscoped advisor event did not append new segment: before %d, after %d", initialSegments, len(buffer.segments))
+	}
+
+	if buffer.segments[initialSegments].delegData == nil || !buffer.segments[initialSegments].delegData.isAdvisor {
+		t.Fatal("new segment is not an advisor delegation")
+	}
+}
+
+func TestAdvisorBudgetExhaustedRoutingToActiveChild(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
+	initialSegments := len(buffer.segments)
+
+	event := output.NewAdvisorBudgetExhaustedEvent("advisor-model", 1, 1, "budget full", "question", nil)
+	event = output.WithAgentScope(event, "child-id")
+	buffer.AppendEvent(event)
+
+	if len(buffer.segments) != initialSegments {
+		t.Errorf("scoped budget exhausted event appended new segment: before %d, after %d", initialSegments, len(buffer.segments))
+	}
+
+	loc, ok := buffer.activeDelegations["child-id"]
+	if !ok {
+		t.Fatal("child delegation not in active delegations")
+	}
+	dd := loc.dd
+	if dd.advisorDenied != 1 {
+		t.Errorf("child advisorDenied = %d, want 1", dd.advisorDenied)
+	}
+}
+
+func TestAdvisorBudgetExhaustedParentUnscoped(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
+	initialSegments := len(buffer.segments)
+
+	event := output.NewAdvisorBudgetExhaustedEvent("advisor-model", 1, 1, "budget full", "question", nil)
+	buffer.AppendEvent(event)
+
+	if len(buffer.segments) != initialSegments+1 {
+		t.Errorf("unscoped budget exhausted event did not append new segment: before %d, after %d", initialSegments, len(buffer.segments))
+	}
+
+	if buffer.segments[initialSegments].delegData == nil || !buffer.segments[initialSegments].delegData.isAdvisor {
+		t.Fatal("new segment is not an advisor delegation")
+	}
+}
+
+// TestAdvisorThinkingChunkScopedToActiveChildMutatesChildState pins I1: an
+// advisor thinking chunk scoped to an active child agent ID is already
+// routed by the generic scoped-delegation event path (AppendEvent line 397
+// -> appendScopedDelegationEvent -> applyDelegationThinkingChunk) added in
+// "Step 7: Complete nested advisor attribution with scoped budget tracking".
+// It mutates that child's delegationDisplayState and appends no new
+// top-level segment; handleAdvisorThinkingChunk's activeAdvisorSegment
+// fallback is unreachable for this case. No production code change is
+// needed for I1 — this test is a regression pin.
+func TestAdvisorThinkingChunkScopedToActiveChildMutatesChildState(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.showThinking = true
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "review"))
+	initialSegments := len(buffer.segments)
+
+	event := output.NewThinkingChunkEventWithSource(0, "advisor reasoning text", output.ChunkSourceAdvisor)
+	event = output.WithAgentScope(event, "child-id")
+	buffer.AppendEvent(event)
+
+	if len(buffer.segments) != initialSegments {
+		t.Errorf("scoped advisor thinking chunk appended new segment: before %d, after %d", initialSegments, len(buffer.segments))
+	}
+
+	loc, ok := buffer.activeDelegations["child-id"]
+	if !ok {
+		t.Fatal("child delegation not in active delegations")
+	}
+	dd := loc.dd
+	if len(dd.entries) != 1 {
+		t.Fatalf("child entries = %d, want 1", len(dd.entries))
+	}
+	entry := dd.entries[0]
+	if entry.source != output.ChunkSourceAdvisor {
+		t.Errorf("entry source = %q, want %q", entry.source, output.ChunkSourceAdvisor)
+	}
+	if entry.body != "advisor reasoning text" {
+		t.Errorf("entry body = %q, want %q", entry.body, "advisor reasoning text")
+	}
+	if buffer.activeAdvisorSegment != 0 {
+		t.Errorf("activeAdvisorSegment = %d, want 0 (unscoped fallback not used)", buffer.activeAdvisorSegment)
+	}
+}
+
+// TestAdvisorThinkingChunkUnscopedUsesActiveAdvisorSegment is the mirror of
+// the above: an unscoped advisor thinking chunk keeps today's behaviour,
+// routing through the package-global activeAdvisorSegment fallback.
+func TestAdvisorThinkingChunkUnscopedUsesActiveAdvisorSegment(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.showThinking = true
+	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1, "question", nil))
+	if buffer.activeAdvisorSegment == 0 {
+		t.Fatal("activeAdvisorSegment not set after unscoped advisor started")
+	}
+	initialSegments := len(buffer.segments)
+
+	event := output.NewThinkingChunkEventWithSource(0, "unscoped advisor reasoning", output.ChunkSourceAdvisor)
+	buffer.AppendEvent(event)
+
+	if len(buffer.segments) != initialSegments {
+		t.Errorf("unscoped advisor thinking chunk appended new segment: before %d, after %d", initialSegments, len(buffer.segments))
+	}
+
+	idx := buffer.activeAdvisorSegment - 1
+	dd := buffer.segments[idx].delegData
+	if dd == nil || !dd.isAdvisor {
+		t.Fatal("active advisor segment missing or not an advisor delegation")
+	}
+	if len(dd.entries) != 1 || dd.entries[0].body != "unscoped advisor reasoning" {
+		t.Fatalf("advisor segment entries = %#v, want one entry with the chunk body", dd.entries)
+	}
+}
+
+// TestHandleDelegationFailedCarriesAdvisorCountersForActiveChild is the B2
+// TUI-side test: a DelegationFailedEvent for an active child with non-zero
+// advisor counters updates the child's delegationDisplayState so the
+// rendered failed meta line surfaces "advisor n/m".
+func TestHandleDelegationFailedCarriesAdvisorCountersForActiveChild(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "review"))
+
+	event := output.NewDelegationFailedEvent(output.DelegationFailedParams{
+		AgentID:       "child-id",
+		TaskPreview:   "test task",
+		Error:         "boom",
+		AdvisorBudget: 3,
+		AdvisorUses:   2,
+		AdvisorDenied: 1,
+	})
+	event = output.WithAgentScope(event, "child-id")
+	buffer.AppendEvent(event)
+
+	loc, ok := buffer.findDelegation("child-id")
+	if !ok {
+		t.Fatal("failed child delegation not found")
+	}
+	dd := loc.dd
+	if dd.status != "failed" {
+		t.Errorf("status = %q, want failed", dd.status)
+	}
+	if dd.advisorBudget != 3 || dd.advisorUses != 2 || dd.advisorDenied != 1 {
+		t.Errorf("advisor counters = %d/%d/%d, want 3/2/1", dd.advisorBudget, dd.advisorUses, dd.advisorDenied)
+	}
+	metaParts, warn := delegationFailedMeta(dd)
+	if !warn {
+		t.Error("delegationFailedMeta warn = false, want true (denied > 0)")
+	}
+	found := false
+	for _, part := range metaParts {
+		if strings.Contains(part, "advisor 2/3") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("meta parts %#v do not contain advisor usage", metaParts)
 	}
 }

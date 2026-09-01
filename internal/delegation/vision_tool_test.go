@@ -38,10 +38,16 @@ func TestVisionHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
 	deps.CacheKeyStore = NewCacheKeyStore()
 
 	handler := newVisionHandler(deps)
-	if _, err := handler(context.Background(), map[string]any{
-		"task":     "describe image",
-		"image_id": ref.ID,
-	}); err != nil {
+	input := map[string]any{
+		"objective":        "describe image",
+		"context":          "background",
+		"deliverable":      "description",
+		"constraints":      []any{},
+		"success_criteria": []any{},
+		"checks":           []any{},
+		"image_id":         ref.ID,
+	}
+	if _, err := handler(context.Background(), input); err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
 	if capturedReq.Events == nil {

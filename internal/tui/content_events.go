@@ -228,6 +228,9 @@ type delegationDisplayState struct {
 	baselineTokenCount    int
 	advisorUse            int
 	advisorMaxUses        int
+	advisorBudget         int
+	advisorUses           int
+	advisorDenied         int
 	advisorQuestion       string
 	advisorFiles          []string
 	extCurrent            int

@@ -195,7 +195,11 @@ func TestDelegationFailedEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event := NewDelegationFailedEvent(tt.agentID, tt.taskPreview, tt.error)
+			event := NewDelegationFailedEvent(DelegationFailedParams{
+				AgentID:     tt.agentID,
+				TaskPreview: tt.taskPreview,
+				Error:       tt.error,
+			})
 
 			if event.Type != EventTypeDelegationFailed {
 				t.Errorf("Type = %s, want %s", event.Type, EventTypeDelegationFailed)

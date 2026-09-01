@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
@@ -26,7 +27,8 @@ type SpecializedToolDeps struct {
 }
 
 // SpecializedToolDef returns a ToolDef for the given agent type.
-// The tool name matches the agent type string and accepts a "task" parameter.
+// The tool name matches the agent type string and accepts structured task fields:
+// objective, context, deliverable, constraints, success_criteria, and checks.
 // Vision uses an extended schema with an additional required "image_id" parameter
 // and a dedicated handler that reads the image from the ImageStore.
 func SpecializedToolDef(agentType AgentType, deps SpecializedToolDeps) tool.ToolDef {
@@ -37,16 +39,39 @@ func SpecializedToolDef(agentType AgentType, deps SpecializedToolDeps) tool.Tool
 			ParameterSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"task": map[string]any{
+					"objective": map[string]any{
 						"type":        "string",
-						"description": "What to analyze or describe about the image.",
+						"description": "The single outcome this child must achieve.",
+					},
+					"context": map[string]any{
+						"type":        "string",
+						"description": "Relevant paths, symbols, excerpts and background: why this task exists, how it fits the caller's larger plan, decisions already made and approaches ruled out. The child cannot see the caller's conversation and will not otherwise learn any of this.",
+					},
+					"deliverable": map[string]any{
+						"type":        "string",
+						"description": "The exact artifact or answer to return, and its shape.",
+					},
+					"constraints": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Boundaries, preserved behaviour, allowed scope, prohibited actions.",
+					},
+					"success_criteria": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Observable conditions for completion.",
+					},
+					"checks": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Applicable commands or validations to run.",
 					},
 					"image_id": map[string]any{
 						"type":        "string",
 						"description": "Required. The image ID to examine (e.g. 'img-1'). Shown in the image placeholder in the conversation.",
 					},
 				},
-				"required": []any{"task", "image_id"},
+				"required": []any{"objective", "context", "deliverable", "constraints", "success_criteria", "checks", "image_id"},
 			},
 			Handler: newVisionHandler(deps),
 		}
@@ -57,12 +82,35 @@ func SpecializedToolDef(agentType AgentType, deps SpecializedToolDeps) tool.Tool
 		ParameterSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"task": map[string]any{
+				"objective": map[string]any{
 					"type":        "string",
-					"description": "Required. Self-contained task with objective, context, deliverable, constraints, success criteria, and checks to run.",
+					"description": "The single outcome this child must achieve.",
+				},
+				"context": map[string]any{
+					"type":        "string",
+					"description": "Relevant paths, symbols, excerpts and background: why this task exists, how it fits the caller's larger plan, decisions already made and approaches ruled out. The child cannot see the caller's conversation and will not otherwise learn any of this.",
+				},
+				"deliverable": map[string]any{
+					"type":        "string",
+					"description": "The exact artifact or answer to return, and its shape.",
+				},
+				"constraints": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Boundaries, preserved behaviour, allowed scope, prohibited actions.",
+				},
+				"success_criteria": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Observable conditions for completion.",
+				},
+				"checks": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Applicable commands or validations to run.",
 				},
 			},
-			"required": []any{"task"},
+			"required": []any{"objective", "context", "deliverable", "constraints", "success_criteria", "checks"},
 		},
 		Handler: newSpecializedHandler(agentType, deps),
 	}
@@ -290,6 +338,71 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 	}
 }
 
+// structuredBrief holds the decoded fields from a structured task dispatch.
+type structuredBrief struct {
+	Objective       string   `json:"objective"`
+	Ctx             string   `json:"context"`
+	Deliverable     string   `json:"deliverable"`
+	Constraints     []string `json:"constraints"`
+	SuccessCriteria []string `json:"success_criteria"`
+	Checks          []string `json:"checks"`
+}
+
+// assembleTaskContent renders a structuredBrief into a deterministic markdown
+// message for the child agent. The output always uses the fixed field order
+// (Objective, Context, Deliverable, Constraints, Success criteria, Checks)
+// and omits empty optional sections entirely. This text becomes part of the
+// cached prompt prefix, so determinism is essential.
+func assembleTaskContent(b structuredBrief) string {
+	var buf strings.Builder
+
+	buf.WriteString("## Objective\n\n")
+	buf.WriteString(b.Objective)
+	buf.WriteString("\n\n")
+
+	buf.WriteString("## Context\n\n")
+	buf.WriteString(b.Ctx)
+	buf.WriteString("\n\n")
+
+	buf.WriteString("## Deliverable\n\n")
+	buf.WriteString(b.Deliverable)
+
+	if len(b.Constraints) > 0 {
+		buf.WriteString("\n\n## Constraints\n\n")
+		for i, item := range b.Constraints {
+			if i > 0 {
+				buf.WriteString("\n")
+			}
+			buf.WriteString("- ")
+			buf.WriteString(item)
+		}
+	}
+
+	if len(b.SuccessCriteria) > 0 {
+		buf.WriteString("\n\n## Success criteria\n\n")
+		for i, item := range b.SuccessCriteria {
+			if i > 0 {
+				buf.WriteString("\n")
+			}
+			buf.WriteString("- ")
+			buf.WriteString(item)
+		}
+	}
+
+	if len(b.Checks) > 0 {
+		buf.WriteString("\n\n## Checks\n\n")
+		for i, item := range b.Checks {
+			if i > 0 {
+				buf.WriteString("\n")
+			}
+			buf.WriteString("- ")
+			buf.WriteString(item)
+		}
+	}
+
+	return buf.String()
+}
+
 // newSpecializedHandler returns a handler for the given agent type.
 // It uses the per-type system prompt and allowed-tool list, leaving other
 // delegation parameters at their configured defaults.
@@ -304,10 +417,64 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			return nil, err
 		}
 
-		task, _ := input["task"].(string)
-		if task == "" {
-			return nil, fmt.Errorf("%s: task is required", agentType)
+		brief := structuredBrief{
+			Constraints:     []string{},
+			SuccessCriteria: []string{},
+			Checks:          []string{},
 		}
+
+		objective, _ := input["objective"].(string)
+		objective = strings.TrimSpace(objective)
+		if objective == "" {
+			return nil, fmt.Errorf("%s: objective is required and must be non-empty", agentType)
+		}
+		brief.Objective = objective
+
+		contextStr, _ := input["context"].(string)
+		contextStr = strings.TrimSpace(contextStr)
+		if contextStr == "" {
+			return nil, fmt.Errorf("%s: context is required and must be non-empty", agentType)
+		}
+		brief.Ctx = contextStr
+
+		deliverable, _ := input["deliverable"].(string)
+		deliverable = strings.TrimSpace(deliverable)
+		if deliverable == "" {
+			return nil, fmt.Errorf("%s: deliverable is required and must be non-empty", agentType)
+		}
+		brief.Deliverable = deliverable
+
+		if constraintsRaw, ok := input["constraints"].([]any); ok {
+			for i, item := range constraintsRaw {
+				s, ok := item.(string)
+				if !ok {
+					return nil, fmt.Errorf("%s: constraints[%d] is not a string", agentType, i)
+				}
+				brief.Constraints = append(brief.Constraints, s)
+			}
+		}
+
+		if criteriaRaw, ok := input["success_criteria"].([]any); ok {
+			for i, item := range criteriaRaw {
+				s, ok := item.(string)
+				if !ok {
+					return nil, fmt.Errorf("%s: success_criteria[%d] is not a string", agentType, i)
+				}
+				brief.SuccessCriteria = append(brief.SuccessCriteria, s)
+			}
+		}
+
+		if checksRaw, ok := input["checks"].([]any); ok {
+			for i, item := range checksRaw {
+				s, ok := item.(string)
+				if !ok {
+					return nil, fmt.Errorf("%s: checks[%d] is not a string", agentType, i)
+				}
+				brief.Checks = append(brief.Checks, s)
+			}
+		}
+
+		task := assembleTaskContent(brief)
 
 		agentID := generateAgentID()
 		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
@@ -318,15 +485,16 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			ParentCallID: callID,
 			AgentID:      agentID,
 		}
-		if agentType == AgentTypeCode {
-			spec.SystemSuffix = AgentSystemSuffix(agentType)
-		}
 
 		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, deps)
 		if err != nil {
 			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
 			return nil, childSetupError(err)
 		}
+
+		advisorAvailable := slices.Contains(allowedTools, advisor.ToolName) && deps.AdvisorForChild != nil
+		spec.SystemSuffix = AgentSystemSuffix(agentType, advisorAvailable)
+		spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 
 		provisionedWorktree, warnings, err := specializedWorktree(ctx, agentType, deps.WorkDir, agentID)
 		if err != nil {
@@ -357,6 +525,10 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			removeAndCloseToolCallTraceWriter(spec.AgentID)
 			emitDelegateStopped(deps.Events, spec, agentType)
 			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings)
+			if dr, ok := result.Value.(Result); ok {
+				dr.AdvisorBudget = spec.AdvisorBudget
+				result.Value = dr
+			}
 			if deps.SessionStore != nil && deps.SessionStore.Save(&ChildSession{Spec: spec, Request: req, Remediation: codeRemediationConfig(provisionedWorktree)}) {
 				if dr, ok := result.Value.(Result); ok {
 					dr.persisted = true

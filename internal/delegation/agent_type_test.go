@@ -127,38 +127,96 @@ func TestAgentSystemPrompt(t *testing.T) {
 
 func TestAgentSystemSuffix(t *testing.T) {
 	tests := []struct {
-		name      string
-		agentType AgentType
-		contains  []string
-		wantEmpty bool
+		name           string
+		agentType      AgentType
+		advisorEnabled bool
+		contains       []string
+		wantEmpty      bool
 	}{
 		{
-			name:      "code agent suffix",
-			agentType: AgentTypeCode,
+			name:           "code agent suffix without advisor",
+			agentType:      AgentTypeCode,
+			advisorEnabled: false,
 			contains: []string{
 				"git status --porcelain",
 				"Do not merge, rebase, or push",
 				"Do not discard, reset, restore, stash, switch branches",
 			},
 		},
-		{name: "explore agent has no suffix", agentType: AgentTypeExplore, wantEmpty: true},
+		{
+			name:           "code agent suffix with advisor",
+			agentType:      AgentTypeCode,
+			advisorEnabled: true,
+			contains: []string{
+				"git status --porcelain",
+				"Do not merge, rebase, or push",
+				"Do not discard, reset, restore, stash, switch branches",
+				"exactly ONE advisor call",
+				"Do NOT spend it as a reflexive opening move",
+				"Do NOT spend it as a final sign-off",
+			},
+		},
+		{
+			name:           "review agent suffix without advisor",
+			agentType:      AgentTypeReview,
+			advisorEnabled: false,
+			wantEmpty:      true,
+		},
+		{
+			name:           "review agent suffix with advisor",
+			agentType:      AgentTypeReview,
+			advisorEnabled: true,
+			contains: []string{
+				"exactly ONE advisor call",
+				"Do NOT spend it as a reflexive opening move",
+				"Do NOT spend it as a final sign-off",
+			},
+		},
+		{
+			name:           "evaluate agent suffix without advisor",
+			agentType:      AgentTypeEvaluate,
+			advisorEnabled: false,
+			wantEmpty:      true,
+		},
+		{
+			name:           "evaluate agent suffix with advisor",
+			agentType:      AgentTypeEvaluate,
+			advisorEnabled: true,
+			contains: []string{
+				"exactly ONE advisor call",
+				"Do NOT spend it as a reflexive opening move",
+				"Do NOT spend it as a final sign-off",
+			},
+		},
+		{
+			name:           "explore agent has no suffix with advisor enabled",
+			agentType:      AgentTypeExplore,
+			advisorEnabled: true,
+			wantEmpty:      true,
+		},
+		{
+			name:           "vision agent has no suffix with advisor enabled",
+			agentType:      AgentTypeVision,
+			advisorEnabled: true,
+			wantEmpty:      true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := AgentSystemSuffix(tt.agentType)
+			got := AgentSystemSuffix(tt.agentType, tt.advisorEnabled)
 			if tt.wantEmpty {
 				if got != "" {
-					t.Fatalf("AgentSystemSuffix(%q) = %q, want empty", tt.agentType, got)
+					t.Fatalf("AgentSystemSuffix(%q, %v) = %q, want empty", tt.agentType, tt.advisorEnabled, got)
 				}
 				return
 			}
 			if got == "" {
-				t.Fatal("AgentSystemSuffix(code) returned empty string")
+				t.Fatalf("AgentSystemSuffix(%q, %v) returned empty string", tt.agentType, tt.advisorEnabled)
 			}
 			for _, phrase := range tt.contains {
 				if !strings.Contains(got, phrase) {
-					t.Errorf("AgentSystemSuffix(code) does not contain %q", phrase)
+					t.Errorf("AgentSystemSuffix(%q, %v) does not contain %q", tt.agentType, tt.advisorEnabled, phrase)
 				}
 			}
 		})
@@ -334,18 +392,38 @@ func TestTemplateLoading(t *testing.T) {
 		})
 	}
 
-	// Verify code suffix loads
-	suffix := AgentSystemSuffix(AgentTypeCode)
+	// Verify code suffix loads with advisor disabled
+	suffix := AgentSystemSuffix(AgentTypeCode, false)
 	if suffix == "" {
-		t.Error("AgentSystemSuffix(code) failed to load")
+		t.Error("AgentSystemSuffix(code, false) failed to load")
 	}
 
-	// Verify other types have no suffix
+	// Verify code suffix loads with advisor enabled and contains advisor text
+	suffixWithAdvisor := AgentSystemSuffix(AgentTypeCode, true)
+	if suffixWithAdvisor == "" {
+		t.Error("AgentSystemSuffix(code, true) failed to load")
+	}
+	if !strings.Contains(suffixWithAdvisor, "exactly ONE advisor call") {
+		t.Error("AgentSystemSuffix(code, true) missing advisor guidance")
+	}
+
+	// Verify other types have no suffix when advisor is disabled
 	for _, at := range AllAgentTypes() {
 		if at != AgentTypeCode {
-			if suffix := AgentSystemSuffix(at); suffix != "" {
-				t.Errorf("AgentSystemSuffix(%q) should be empty, got non-empty string", at)
+			if suffix := AgentSystemSuffix(at, false); suffix != "" {
+				t.Errorf("AgentSystemSuffix(%q, false) should be empty, got non-empty string", at)
 			}
+		}
+	}
+
+	// Verify review and evaluate have advisor suffix when enabled
+	for _, at := range []AgentType{AgentTypeReview, AgentTypeEvaluate} {
+		suffix := AgentSystemSuffix(at, true)
+		if suffix == "" {
+			t.Errorf("AgentSystemSuffix(%q, true) should not be empty", at)
+		}
+		if !strings.Contains(suffix, "exactly ONE advisor call") {
+			t.Errorf("AgentSystemSuffix(%q, true) missing advisor guidance", at)
 		}
 	}
 }

@@ -79,6 +79,13 @@ type SubAgentHandlerDeps struct {
 	// ContextManagement is forwarded to the child's ContextStateManager so it
 	// respects the same context_management settings as the parent.
 	ContextManagement config.ContextManagementConfig
+	// AdvisorForChild, when non-nil, provides a per-child advisor tool definition
+	// with a budget state keyed by agent ID. Called during child bootstrap to
+	// register advisor for code, review, and evaluate agent types.
+	AdvisorForChild func(agentID string) (tool.ToolDef, bool)
+	// AdvisorSubAgentBudget is the configured per-child advisor budget, from
+	// config.AdvisorConfig.MaxUsesPerSubAgent. Used to populate Result.AdvisorBudget.
+	AdvisorSubAgentBudget int
 }
 
 // ChildSession tracks persisted state for a delegated child session.

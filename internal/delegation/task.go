@@ -79,10 +79,27 @@ func emitDelegateFailed(events output.EventSink, spec Spec, agentType AgentType,
 	if events == nil {
 		return
 	}
-	event := output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), errMsg)
+	// Setup-failure sites call this before the child ever ran, so advisor usage
+	// is always zero here; post-run failures set advisor fields directly (see
+	// SpawnDelegate).
+	event := output.NewDelegationFailedEvent(output.DelegationFailedParams{
+		AgentID:     spec.AgentID,
+		TaskPreview: truncateTaskPreview(spec.Task, 120),
+		Error:       errMsg,
+	})
 	event = output.WithAgentScope(event, spec.AgentID)
 	event = output.WithAgentTypeScope(event, string(agentType))
 	events.Emit(event)
+}
+
+// advisorFieldsOf extracts the advisor budget/uses/denied counters from a
+// delegation Result carried in a tool.ExecutionResult, returning zeros when
+// the value isn't a Result.
+func advisorFieldsOf(result tool.ExecutionResult) (budget, uses, denied int) {
+	if dr, ok := result.Value.(Result); ok {
+		return dr.AdvisorBudget, dr.AdvisorUses, dr.AdvisorDenied
+	}
+	return 0, 0, 0
 }
 
 func cancelledBeforeDispatchResult(agentID string) tool.ExecutionResult {
@@ -139,11 +156,20 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 	tc.add("child_run_complete", "initial run finished", runStateFields(childCtx, state, err))
 
 	if err != nil {
-		if events != nil {
-			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), err.Error()))
-		}
 		runUsage := tokenUsageOf(state)
-		return failedDelegateExecution(spec, state, runUsage, err, tc, logger), state, runUsage, nil
+		failedResult := failedDelegateExecution(spec, state, runUsage, err, tc, logger)
+		if events != nil {
+			budget, uses, denied := advisorFieldsOf(failedResult)
+			events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+				AgentID:       spec.AgentID,
+				TaskPreview:   truncateTaskPreview(spec.Task, 120),
+				Error:         err.Error(),
+				AdvisorBudget: budget,
+				AdvisorUses:   uses,
+				AdvisorDenied: denied,
+			}))
+		}
+		return failedResult, state, runUsage, nil
 	}
 
 	state, runUsage, extensionsGranted, extErr := runChildToCompletion(childCtx, req, runner, spec.Limits.MaxTurns, events, tc, state, spec.AgentID)
@@ -151,13 +177,23 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		o.onChildDone()
 	}
 	if extErr != nil {
+		failedResult := failedDelegateExecution(spec, state, runUsage, extErr, tc, logger)
 		if events != nil {
-			events.Emit(output.NewDelegationFailedEvent(spec.AgentID, truncateTaskPreview(spec.Task, 120), extErr.Error()))
+			budget, uses, denied := advisorFieldsOf(failedResult)
+			events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+				AgentID:       spec.AgentID,
+				TaskPreview:   truncateTaskPreview(spec.Task, 120),
+				Error:         extErr.Error(),
+				AdvisorBudget: budget,
+				AdvisorUses:   uses,
+				AdvisorDenied: denied,
+			}))
 		}
-		return failedDelegateExecution(spec, state, runUsage, extErr, tc, logger), state, runUsage, nil
+		return failedResult, state, runUsage, nil
 	}
 
 	state, runUsage, result := applyRemediationResult(childCtx, spec, req, runner, state, runUsage, o.remediation, tc)
+	result.AdvisorBudget = spec.AdvisorBudget
 
 	tc.add("result", "status mapped", map[string]any{
 		"status":             string(result.Status),
@@ -204,6 +240,7 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		tc.add("summary", "summary generated", map[string]any{"length": len(summaryText)})
 	}
 	result.Summary = summaryText
+	result.Output = appendAdvisorSummaryLine(result.Output, result.AdvisorUses, result.AdvisorDenied)
 	if events != nil {
 		events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 			AgentID:           spec.AgentID,
@@ -215,6 +252,9 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 			InputTokens:       result.InputTokens,
 			CacheReadTokens:   result.CacheReadTokens,
 			CacheCreateTokens: result.CacheCreateTokens,
+			AdvisorBudget:     result.AdvisorBudget,
+			AdvisorUses:       result.AdvisorUses,
+			AdvisorDenied:     result.AdvisorDenied,
 		}))
 	}
 	if fields := toolCallTraceFields(spec.AgentID); fields != nil {
@@ -349,6 +389,7 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 		"useful_activity":   usefulActivity,
 	})
 
+	advisorUses, advisorDenied := countAdvisorUsage(state.Conversation)
 	result := Result{
 		AgentID:           spec.AgentID,
 		Status:            status,
@@ -360,6 +401,9 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 		ToolCallCount:     countToolCalls(state.Conversation),
 		StopReason:        stopReason,
 		SessionResumable:  ctxCancelled || ctxDeadline,
+		AdvisorBudget:     spec.AdvisorBudget,
+		AdvisorUses:       advisorUses,
+		AdvisorDenied:     advisorDenied,
 	}
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		result.Output = msg.Content
