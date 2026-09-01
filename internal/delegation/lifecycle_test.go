@@ -246,7 +246,7 @@ func TestSpecializedCodeCacheWaitingCancellationDiscardsAfterCompletion(t *testi
 
 	resultCh := make(chan error, 1)
 	go func() {
-		_, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), map[string]any{"task": "wait"})
+		_, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), lifecycleTestStructuredTask("wait"))
 		resultCh <- err
 	}()
 
