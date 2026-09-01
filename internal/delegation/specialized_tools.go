@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
@@ -318,15 +319,15 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			ParentCallID: callID,
 			AgentID:      agentID,
 		}
-		if agentType == AgentTypeCode {
-			spec.SystemSuffix = AgentSystemSuffix(agentType)
-		}
 
 		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, deps)
 		if err != nil {
 			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
 			return nil, childSetupError(err)
 		}
+
+		advisorAvailable := slices.Contains(allowedTools, advisor.ToolName) && deps.AdvisorForChild != nil
+		spec.SystemSuffix = AgentSystemSuffix(agentType, advisorAvailable)
 
 		provisionedWorktree, warnings, err := specializedWorktree(ctx, agentType, deps.WorkDir, agentID)
 		if err != nil {
