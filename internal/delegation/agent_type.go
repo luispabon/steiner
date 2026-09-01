@@ -81,10 +81,10 @@ var (
 var agentAllowlists = map[AgentType][]string{
 	AgentTypeExplore:     {"read", "glob", "grep", "ls", "bash"},
 	AgentTypeResearch:    {"read", "glob", "grep", "ls", "web_search", "fetch_url"},
-	AgentTypeCode:        {"read", "glob", "grep", "ls", "mutate", "bash"},
-	AgentTypeEvaluate:    {"read", "glob", "grep", "ls"},
+	AgentTypeCode:        {"read", "glob", "grep", "ls", "mutate", "bash", "advisor"},
+	AgentTypeEvaluate:    {"read", "glob", "grep", "ls", "advisor"},
 	AgentTypeSanityCheck: {"read", "glob", "grep", "ls", "bash"},
-	AgentTypeReview:      {"read", "glob", "grep", "ls", "bash"},
+	AgentTypeReview:      {"read", "glob", "grep", "ls", "bash", "advisor"},
 	AgentTypeVision:      {"read"},
 }
 

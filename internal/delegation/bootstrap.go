@@ -3,7 +3,9 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"slices"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
@@ -86,6 +88,14 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 	})
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, override.AllowedTools)
+
+	if slices.Contains(override.AllowedTools, advisor.ToolName) && deps.AdvisorForChild != nil {
+		if def, ok := deps.AdvisorForChild(spec.AgentID); ok {
+			visibleReg.Register(def)
+			execReg.Register(def)
+		}
+	}
+
 	readOnlyBash := deps.SandboxEnabled && override.AgentType == AgentTypeExplore
 	traceRoot := override.ProjectRoot
 	if traceRoot == "" {

@@ -106,6 +106,11 @@ type DelegateDeps struct {
 	// (once per turn). Nil means no reuse: each call gets a private counter,
 	// so the cap is enforced per BuildDelegateRegistry call only.
 	AdvisorState *advisor.SharedState
+	// AdvisorBudgetStore provides per-child advisor budgets, keyed by agent ID.
+	// When non-nil and advisor is enabled, each code/review/evaluate child gets
+	// its own SharedState from the store, surviving follow_up resumptions under
+	// the same agent ID. Nil means no child advisor access.
+	AdvisorBudgetStore *AdvisorBudgetStore
 }
 
 // advisorRuntime holds the resolved advisor provider, model, and configuration.
@@ -187,12 +192,24 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 
 	cloned := deps.BaseRegistry.Clone()
 
+	var advisorForChild func(string) (tool.ToolDef, bool)
+
 	if deps.AdvisorCfg.Enabled {
 		advRuntime, err := newAdvisorRuntime(deps)
 		if err != nil {
 			return nil, err
 		}
 		cloned.Register(advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerRun, deps.AdvisorState))
+
+		if deps.AdvisorBudgetStore != nil {
+			advisorForChild = func(agentID string) (tool.ToolDef, bool) {
+				if agentID == "" {
+					return tool.ToolDef{}, false
+				}
+				state := deps.AdvisorBudgetStore.StateFor(agentID)
+				return advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
+			}
+		}
 	}
 
 	if !deps.SubAgentCfg.Enabled {
@@ -244,6 +261,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		Limits:                deps.Config.Limits,
 		Paths:                 deps.Config.Paths,
 		ContextManagement:     deps.Config.ContextManagement,
+		AdvisorForChild:       advisorForChild,
 	}
 
 	// Register the follow_up tool.
