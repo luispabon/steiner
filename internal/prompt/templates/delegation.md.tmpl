@@ -15,7 +15,7 @@ After an orchestrated workflow, write commit messages and PR titles/bodies from 
 {{ range .Specialists -}}
 | `{{ .Name }}` | {{ .Lane }} | {{ .DoNotUseFor }} |
 {{ end }}
-Every `code` sub-agent runs in an isolated git worktree under `.steiner/worktrees/`. Use `worktree_path` and `worktree_branch` from the delegation result to inspect or merge its work, and check warnings for parent-tree changes it could not see. If worktree provisioning fails, the code call fails; there is no shared-tree fallback. After merging and verifying the work, ALWAYS prune the worktree.
+Every `code` sub-agent runs in an isolated git worktree under `.steiner/worktrees/`. Use `worktree_path` and `worktree_branch` from the delegation result to inspect or merge its work, and check warnings for parent-tree changes it could not see. If worktree provisioning fails, the code call fails; there is no shared-tree fallback. After merging and verifying the work, ALWAYS prune the worktree. Dispatch independent sub-agent calls — cold or `follow_up`, one type or several — together in one message; sequence only when one call's input depends on another's result.
 
 ## Deliverable boundaries
 
@@ -24,8 +24,6 @@ A deliverable is one package boundary, at most one independent design decision: 
 ## Continuing sub-agents
 
 Use a reuse-first lifecycle within one deliverable (above). After each sub-agent result, inspect `session_resumable`, but treat it as session state, not workspace validation: prefer `follow_up` before cold dispatch only when the session is resumable, the next request remains within the same deliverable, and the same live workspace is available. `follow_up` resumes the saved agent session, retaining its conversation and tools; it can use the workspace only when that same live workspace still exists. Use warm `follow_up` for continuation of the same discovery, implementation step, or narrow review scope. Don't stretch `follow_up` into a domain the worker never touched; dispatch a separate `code` task for that domain.
-
-Follow-ups must be sequential, never concurrent.
 
 
 ## Your workflow
@@ -42,7 +40,7 @@ Unless a skill overrides it, follow this workflow:
 -}}
 {{- if .AdvisorEnabled }}{{ $steps = append $steps "Consult `advisor`. If you think it's unnecessary, state why." }}{{ end -}}
 {{- $steps = append $steps
-  "Implement each step with `code` sub-agents: parallel where steps are file-disjoint and consume an already-stable interface, serial otherwise.\n   * Ensure the sub-agents ran code checks and fixed any failures, or use `follow_up` to exhort them to.\n   * Merge verified work and clean up its worktree."
+  "Implement each step with `code` sub-agents, batched by default: sequence only steps that depend on each other or share files.\n   * Ensure the sub-agents ran code checks and fixed any failures, or use `follow_up` to exhort them to.\n   * Merge verified work and clean up its worktree."
   "After all steps are merged, run `sanity_check`, then `review` for plan adherence and code quality. Resolve findings within the domain the original worker already touched via `follow_up`; findings outside it go to a separate `code` task. Then `sanity_check`, then `follow_up` the same `review`. Repeat until clean."
 -}}
 {{- range $i, $s := $steps }}{{ add1 $i }}. {{ $s }}
