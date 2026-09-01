@@ -195,13 +195,13 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 		t.Fatalf("len(blocks) = %d, want %d", got, want)
 	}
 
-	if got, want := assembly.Blocks[0].Content, "You are steiner, a lean coding agent.\n\nsystem prompt content"; got != want {
+	if got, want := assembly.Blocks[0].Content, "You are steiner, a lean coding agent.\n\n## Tool batching\n\n- Batch independent lookups into one turn instead of issuing them\n  one per turn: calls issued together in the same message run\n  concurrently. This matters most when a call has real latency\n  (e.g. network or process round trips) — batching several such\n  calls in one turn saves real seconds, not just milliseconds.\n- Never batch a call whose arguments depend on a previous call's\n  result in the same turn — only issue truly independent calls\n  together; batching a dependent call before its input exists will\n  just fail or use stale data.\n\nsystem prompt content"; got != want {
 		t.Fatalf("preamble block content = %q, want %q", got, want)
 	}
 	if assembly.Blocks[0].Truncated {
 		t.Fatalf("expected preamble block not to be truncated (bypasses budget)")
 	}
-	if got, want := assembly.Blocks[0].ByteSize, 60; got != want {
+	if got, want := assembly.Blocks[0].ByteSize, 627; got != want {
 		t.Fatalf("preamble block bytes = %d, want %d", got, want)
 	}
 
@@ -218,7 +218,7 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 	if got, want := len(assembly.Messages), 2; got != want {
 		t.Fatalf("len(messages) = %d, want %d", got, want)
 	}
-	if got, want := assembly.Messages[0].Content, "You are steiner, a lean coding agent.\n\nsystem prompt content"; got != want {
+	if got, want := assembly.Messages[0].Content, "You are steiner, a lean coding agent.\n\n## Tool batching\n\n- Batch independent lookups into one turn instead of issuing them\n  one per turn: calls issued together in the same message run\n  concurrently. This matters most when a call has real latency\n  (e.g. network or process round trips) — batching several such\n  calls in one turn saves real seconds, not just milliseconds.\n- Never batch a call whose arguments depend on a previous call's\n  result in the same turn — only issue truly independent calls\n  together; batching a dependent call before its input exists will\n  just fail or use stale data.\n\nsystem prompt content"; got != want {
 		t.Fatalf("preamble message content = %q, want %q", got, want)
 	}
 	if got, want := assembly.Messages[1].Content, "proj"; got != want {
