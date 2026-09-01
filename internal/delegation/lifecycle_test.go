@@ -82,10 +82,7 @@ func TestFollowUpCodeHandlerRegistersSessionWorktreeAndUnregisters(t *testing.T)
 
 	controller := NewActiveController()
 	var calls int
-	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-		if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, StopReason: agent.StopReasonComplete}, nil
-		}
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		if calls == 0 {
 			ids := controller.ActiveAgentIDs()
 			if len(ids) != 1 {

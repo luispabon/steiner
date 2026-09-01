@@ -119,15 +119,7 @@ func TestFollowUpCompleteEventCarriesAdvisorBudget(t *testing.T) {
 		Events:                events,
 		SessionStore:          store,
 		AdvisorSubAgentBudget: 5,
-		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}},
-					TurnCount:    1,
-					TokenCount:   1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
+		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			return agent.RunState{
 				Conversation: []agent.Message{
 					{Role: agent.MessageRoleUser, Content: "initial task"},
@@ -176,14 +168,7 @@ func TestSpawnDelegateOutputCarriesAdvisorSummaryLine(t *testing.T) {
 
 	t.Run("non-zero usage appends summary line to Output only", func(t *testing.T) {
 		events := &recordingEventSink{}
-		runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "retained summary"}},
-					TurnCount:    1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
+		runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			return agent.RunState{
 				Conversation: conversationWithAdvisorUse,
 				TurnCount:    1,
@@ -220,14 +205,7 @@ func TestSpawnDelegateOutputCarriesAdvisorSummaryLine(t *testing.T) {
 
 	t.Run("zero usage leaves Output unchanged", func(t *testing.T) {
 		events := &recordingEventSink{}
-		runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if _, ok := req.Executor.(summaryOnlyExecutor); ok {
-				return agent.RunState{
-					Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "retained summary"}},
-					TurnCount:    1,
-					StopReason:   agent.StopReasonComplete,
-				}, nil
-			}
+		runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			return agent.RunState{
 				Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "final output"}},
 				TurnCount:    1,
