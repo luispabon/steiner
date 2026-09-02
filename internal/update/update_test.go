@@ -1269,6 +1269,28 @@ func TestCheck_StableUpToDate(t *testing.T) {
 	}
 }
 
+func TestCheck_StableCurrentNewer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(release{TagName: "v1.2.0"})
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	latestVer, needsUpdate, err := Check(context.Background(), "v1.3.0", "owner", "repo", "", "stable", "")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if latestVer != "v1.2.0" {
+		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.2.0")
+	}
+	if needsUpdate {
+		t.Errorf("Check needsUpdate = true, want false")
+	}
+}
+
 func TestCheck_DevAlwaysNeedsUpdate(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1333,8 +1355,52 @@ func TestCheck_SpecificVersion(t *testing.T) {
 	if latestVer != "v1.0.0" {
 		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.0.0")
 	}
-	if needsUpdate {
-		t.Errorf("Check needsUpdate = true, want false (current v1.2.0 >= v1.0.0)")
+	if !needsUpdate {
+		t.Errorf("Check needsUpdate = false, want true (explicit target is authoritative)")
+	}
+}
+
+func TestCheck_SpecificVersionEqualCurrent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(release{TagName: "v1.0.0"})
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	latestVer, needsUpdate, err := Check(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "v1.0.0")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if latestVer != "v1.0.0" {
+		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.0.0")
+	}
+	if !needsUpdate {
+		t.Errorf("Check needsUpdate = false, want true (explicit target is authoritative)")
+	}
+}
+
+func TestCheck_SpecificVersionWithInvalidCurrent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(release{TagName: "v1.0.0"})
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	latestVer, needsUpdate, err := Check(context.Background(), "not-a-version", "owner", "repo", "", "stable", "v1.0.0")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if latestVer != "v1.0.0" {
+		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.0.0")
+	}
+	if !needsUpdate {
+		t.Errorf("Check needsUpdate = false, want true (explicit target is authoritative)")
 	}
 }
 
@@ -1354,8 +1420,14 @@ func TestCheck_SpecificVersionWithoutV(t *testing.T) {
 	defer saveHTTPClient()()
 	httpClient = newTestClient(server.URL)
 
-	_, _, err := Check(context.Background(), "v1.2.0", "owner", "repo", "", "stable", "1.0.0")
+	latestVer, needsUpdate, err := Check(context.Background(), "v1.2.0", "owner", "repo", "", "stable", "1.0.0")
 	if err != nil {
 		t.Fatalf("Check: %v", err)
+	}
+	if latestVer != "v1.0.0" {
+		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.0.0")
+	}
+	if !needsUpdate {
+		t.Errorf("Check needsUpdate = false, want true (explicit target is authoritative)")
 	}
 }
