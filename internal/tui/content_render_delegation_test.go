@@ -439,7 +439,6 @@ func TestRenderDelegationGroupSegmentWithMixedLabelUsesDefaultBorder(t *testing.
 }
 
 func TestRenderDelegationBriefBodyIncludesAllFields(t *testing.T) {
-	t.Parallel()
 	buffer := newTestBuffer(t)
 	dd := &delegationDisplayState{
 		briefObjective:       "implement feature",
@@ -483,7 +482,6 @@ func TestRenderDelegationBriefBodyIncludesAllFields(t *testing.T) {
 }
 
 func TestRenderDelegationBriefBodyOmitsEmptyFields(t *testing.T) {
-	t.Parallel()
 	buffer := newTestBuffer(t)
 	dd := &delegationDisplayState{
 		briefObjective:   "task",
@@ -507,7 +505,6 @@ func TestRenderDelegationBriefBodyOmitsEmptyFields(t *testing.T) {
 }
 
 func TestAdvisorStatsOnlyInFooterWhenTerminal(t *testing.T) {
-	t.Parallel()
 	buffer := newTestBuffer(t)
 
 	// Completed non-advisor delegation with advisor budget
@@ -542,7 +539,6 @@ func TestAdvisorStatsOnlyInFooterWhenTerminal(t *testing.T) {
 }
 
 func TestAdvisorStatsNotInFooterWhenActive(t *testing.T) {
-	t.Parallel()
 	buffer := newTestBuffer(t)
 
 	// Active non-advisor delegation with advisor budget
@@ -564,7 +560,6 @@ func TestAdvisorStatsNotInFooterWhenActive(t *testing.T) {
 }
 
 func TestNonAdvisorBoxDoesNotRenderQuestionFiles(t *testing.T) {
-	t.Parallel()
 	buffer := newTestBuffer(t)
 
 	// Non-advisor delegation with advisor question/files (should be ignored)
@@ -596,7 +591,6 @@ func TestNonAdvisorBoxDoesNotRenderQuestionFiles(t *testing.T) {
 }
 
 func TestAdvisorBoxRendersQuestionFiles(t *testing.T) {
-	t.Parallel()
 	buffer := newTestBuffer(t)
 
 	// Advisor delegation (should render question/files)
