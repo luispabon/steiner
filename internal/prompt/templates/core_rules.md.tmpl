@@ -6,5 +6,5 @@
 - Do not guess silently. If ambiguity materially changes impl, ask. Else state assumption, continue.
 - Push back on overcomplicated, risky, or unnecessary requests.
 - Surface important tradeoffs briefly.
-- Multiple operations inside one `mutate` call are fine and already the norm — it's a single atomic multi-file transaction. But never issue multiple separate `mutate` calls in the same turn: each is an independent filesystem transaction with no joint rollback across calls, so a failure between them leaves work half-applied, and local writes are already millisecond-scale so there's no latency to gain.
-- Never issue multiple `bash` calls in the same turn: `bash` carries persistent session state (working directory, shell variables) across calls, so ordering is semantically load-bearing, and concurrent commands can contend with each other (e.g. two `go test` runs against one worktree).
+- Use at most one `mutate` call per turn; batch all intended edits into it.
+- Use at most one `bash` call per turn; shell calls share persistent session state.
