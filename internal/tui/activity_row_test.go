@@ -7,6 +7,34 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+func TestToolCallDetail(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		tool string
+		args map[string]any
+		want string
+	}{
+		{name: "specialized type", tool: "sub_agent", args: map[string]any{"type": "code"}, want: "code"},
+		{name: "specialized type is normalized", tool: "sub_agent", args: map[string]any{"type": " Code "}, want: "code"},
+		{name: "missing type", tool: "sub_agent", want: "sub_agent"},
+		{name: "non-string type", tool: "sub_agent", args: map[string]any{"type": 42}, want: "sub_agent"},
+		{name: "blank type", tool: "sub_agent", args: map[string]any{"type": "  "}, want: "sub_agent"},
+		{name: "ordinary tool ignores type", tool: "read", args: map[string]any{"type": "code"}, want: "read"},
+		{name: "tool is trimmed", tool: "  read  ", args: map[string]any{"type": "code"}, want: "read"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := toolCallDetail(tt.tool, tt.args); got != tt.want {
+				t.Fatalf("toolCallDetail(%q, %#v) = %q, want %q", tt.tool, tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func newActivityTestModel(t *testing.T) *Model {
 	t.Helper()
 	m := newModel(Config{
