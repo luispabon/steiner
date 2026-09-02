@@ -5,6 +5,9 @@ import (
 	"os"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
+
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -16,6 +19,8 @@ func testStyles(accentHex string) *theme.Styles {
 }
 
 func TestMain(m *testing.M) {
+	lipgloss.Writer.Profile = colorprofile.ASCII
+
 	tmp, err := os.MkdirTemp("", "steiner-tui-test")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create temp dir for tui tests: %v\n", err)
