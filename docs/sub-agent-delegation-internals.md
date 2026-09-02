@@ -10,8 +10,10 @@ Delegated tools retain full host `Result` records and retention metadata, while 
 ┌─────────────────────────────────────────────┐
 │  Parent Agent Loop (internal/agent)         │
 │                                             │
-│  Specialized sub-agent tools (explore,      │
-│  research, code, evaluate, sanity_check, review, vision) call into    │
+│  `sub_agent` tool dispatch handler routes   │
+│  on type parameter (explore, research,      │
+│  code, evaluate, sanity_check, review, vision) │
+│  to type-specific handlers that call        │
 │  BuildChildRun() directly.                  │
 │                                             │
 │                 ▼                           │
@@ -60,13 +62,13 @@ The controller is process-lifetime state. `cmd/steiner` constructs one controlle
 
 ### Tool registration
 
-When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the base registry and registers the `follow_up` tool plus a specialised tool for each agent type (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, and conditionally `vision`). Specialised tools are thin wrappers over the same delegation infrastructure (`BuildChildRun` + `SpawnDelegate`) with a baked-in system prompt, a per-type tool allowlist (`AgentAllowedTools`), and a structured task schema with six required fields: `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, and `checks`. The `vision` tool additionally requires an `image_id` parameter and is only registered when the selected profile's `sub_agents.vision` assignment is configured.
+When `SubAgent.Enabled` is `true`, `delegation.BuildDelegateRegistry` clones the base registry and registers the `follow_up` tool plus a unified `sub_agent` tool. The `sub_agent` tool uses `SubAgentToolDef(deps, excludeTypes)` to build a schema with a `type` enum parameter and six required shared fields: `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, and `checks`. The `type` parameter routes to one of seven type-specific handlers via `newSubAgentDispatchHandler`, each with a baked-in system prompt and per-type tool allowlist (`AgentAllowedTools`). Type `vision` additionally requires an `image_id` parameter and is excluded from the enum when the selected profile's `sub_agents.vision` assignment is not configured.
 
-`fetch_url` is registered unconditionally in the base built-in tool set. `web_search` is registered conditionally — it is added to both the parent registry and the extended base registry (used for child bootstrapping) only when a `web.Searcher` backend is configured. When no search backend is configured, the `research` sub-agent type is excluded from delegation entirely, so no stub or unavailable tool is ever exposed.
+`fetch_url` is registered unconditionally in the base built-in tool set. `web_search` is registered conditionally — it is added to both the parent registry and the extended base registry (used for child bootstrapping) only when a `web.Searcher` backend is configured. When no search backend is configured, type `research` is passed to `SubAgentToolDef` in the `excludeTypes` argument so it is omitted from the `type` enum, and no stub or unavailable type is exposed.
 
 ### Code worktree provisioning
 
-For `AgentTypeCode` only, `newSpecializedHandler` (`internal/delegation/specialized_tools.go`) runs a provisioning step **before** `BuildChildRun` is called. This step:
+For type `code` only, the type-specific handler in `newSpecializedHandler` (`internal/delegation/specialized_tools.go`) runs a provisioning step **before** `BuildChildRun` is called. This step:
 
 1. **Calls `DirtyPaths`** (`internal/delegation/worktree.go`) to collect any uncommitted or untracked files in the parent working tree, as best-effort information (failures are silently skipped). If changes are found, a warning is recorded describing them — the child worktree will not see these changes, which may be significant context loss.
 
@@ -83,15 +85,15 @@ For `AgentTypeCode` only, `newSpecializedHandler` (`internal/delegation/speciali
    - `WorktreeBranch` — the branch name of the provisioned worktree (e.g. `delegate/a1b2c3d4/main/child-1`).
    - `Warnings` — a slice of human-readable warning strings covering dirty-tree changes and post-run remediation failures. Empty for successful provisioning of a clean tree.
 
-All other agent types (`explore`, `research`, `evaluate`, `sanity_check`, `review`, `vision`) skip worktree provisioning and remediation entirely; their results always have empty `WorktreePath`, `WorktreeBranch`, and `Warnings` fields. `follow_up` reuses each child's originally-captured `agent.RunRequest` from `SessionStore` verbatim, including its executor already rooted at the original worktree, without re-provisioning.
+All other types (`explore`, `research`, `evaluate`, `sanity_check`, `review`, `vision`) skip worktree provisioning and remediation entirely; their results always have empty `WorktreePath`, `WorktreeBranch`, and `Warnings` fields. `follow_up` reuses each child's originally-captured `agent.RunRequest` from `SessionStore` verbatim, including its executor already rooted at the original worktree, without re-provisioning.
 
 ### Active delegate lifecycle
 
-A specialized or vision handler builds the child request, then registers the child with the shared `ActiveController`. For a code child, registration happens after worktree provisioning and request construction; for other types it happens after request construction. Registration occurs before dispatch gating. The handler passes the controller-created child context to the cache dispatch gate and to the child runner.
+The handler that owns each type's dispatch builds the child request, then registers the child with the shared `ActiveController`. For type `code`, registration happens after worktree provisioning and request construction; for other types it happens after request construction. Registration occurs before dispatch gating. The handler passes the controller-created child context to the cache dispatch gate and to the child runner.
 
-The started lifecycle event is emitted after registration and before the gate. It carries agent ID and type scope, and its payload also carries the plain agent-type string used by the TUI without an `internal/delegation` import. A follower waiting at the cache gate emits `delegation_cache_waiting` and waits on the registered child context, so it can be stopped before provider dispatch and is visible in the selector while waiting. If that context is already cancelled when the gate returns, the handler emits a scoped `StopReasonEvent` with reason `cancelled` and returns a cancelled result without starting the child runner. A child that reaches normal terminal handling keeps the existing complete or failed delegation events.
+The started lifecycle event is emitted after registration and before the gate. It carries agent ID and type scope, and its payload also carries the plain type string used by the TUI without an `internal/delegation` import. A follower waiting at the cache gate emits `delegation_cache_waiting` and waits on the registered child context, so it can be stopped before provider dispatch and is visible in the selector while waiting. If that context is already cancelled when the gate returns, the handler emits a scoped `StopReasonEvent` with reason `cancelled` and returns a cancelled result without starting the child runner. A child that reaches normal terminal handling keeps the existing complete or failed delegation events.
 
-The handler defers `ActiveController.Unregister` until after session persistence and cancellation finalization. `follow_up` preserves the stored `Spec.AgentType`; when the session is a code session, it reconstructs the controller registration's worktree metadata from the session's remediation data, so follow-up cancellation refers to the original checkout. Registration failure is intentionally invisible to lifecycle UI: no delegate became active or visible, so handlers emit no started, stopped, or failed lifecycle event. Code provisioning is still cleaned up on that path, and duplicate IDs cannot replace or corrupt the existing controller row.
+The handler defers `ActiveController.Unregister` until after session persistence and cancellation finalization. `follow_up` preserves the stored `Spec.AgentType`; when the session is a type `code` session, it reconstructs the controller registration's worktree metadata from the session's remediation data, so follow-up cancellation refers to the original checkout. Registration failure is intentionally invisible to lifecycle UI: no delegate became active or visible, so handlers emit no started, stopped, or failed lifecycle event. Type `code` provisioning is still cleaned up on that path, and duplicate IDs cannot replace or corrupt the existing controller row.
 
 **Known limitation**: worktrees are never automatically removed. The `steiner worktrees --list`, `--prune`, and `--prune-all` commands manage cleanup, and operate only on worktrees git itself currently reports as real and delegation-owned (with `delegate/`-prefixed branches). A directory under `.steiner/worktrees/` that becomes orphaned or untracked by git (e.g. after a crash mid-provision, or after a manual `git worktree prune` outside the CLI) is not reachable by any of these commands and requires manual `rm -rf` by a human. This is a deliberate safety tradeoff — never delete a path git doesn't vouch for — rather than an oversight. Future extensions to the cleanup tooling should respect this constraint: only remove paths that git reports as real worktrees.
 

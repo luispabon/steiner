@@ -30,6 +30,9 @@ const (
 	AgentTypeVision AgentType = "vision"
 )
 
+// SubAgentToolName is the name of the unified sub-agent delegation tool.
+const SubAgentToolName = "sub_agent"
+
 // cacheKeyAgentTypeAdvisor names the advisor's slot in the CacheKeyStore. The
 // advisor is not a delegation agent type — this value is deliberately absent
 // from AllAgentTypes and validAgentTypeSet (see below).
@@ -41,25 +44,15 @@ func AllAgentTypes() []AgentType {
 }
 
 // IsDelegationTool reports whether name is a delegation tool registered by
-// BuildDelegateRegistry: a specialized agent-type tool or follow_up.
+// BuildDelegateRegistry: the sub_agent tool or follow_up.
 func IsDelegationTool(name string) bool {
-	if name == FollowUpToolName {
-		return true
-	}
-	return ValidAgentType(name)
+	return name == SubAgentToolName || name == FollowUpToolName
 }
 
 // AllSpecializedDelegateTools returns the canonical specialized delegate tool
-// names used by delegation-aware UIs and other cross-package callers. It
-// includes all agent types plus follow_up because follow_up is not an AgentType
-// but behaves like the same specialized delegation surface in the TUI.
+// names used by delegation-aware UIs and other cross-package callers.
 func AllSpecializedDelegateTools() []string {
-	tools := make([]string, 0, len(AllAgentTypes())+1)
-	for _, t := range AllAgentTypes() {
-		tools = append(tools, string(t))
-	}
-	tools = append(tools, FollowUpToolName)
-	return tools
+	return []string{SubAgentToolName, FollowUpToolName}
 }
 
 // ValidAgentType reports whether s is a recognized agent type name.

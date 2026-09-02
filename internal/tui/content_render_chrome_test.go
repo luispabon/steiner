@@ -13,7 +13,6 @@ import (
 // newTestBuffer returns a minimal contentBuffer suitable for rendering tests.
 func newTestBuffer(t *testing.T) *contentBuffer {
 	t.Helper()
-	lipgloss.Writer.Profile = colorprofile.ASCII
 	styles := testStyles("#5599ff")
 	return &contentBuffer{
 		styles:   styles,

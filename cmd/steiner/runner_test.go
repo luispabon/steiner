@@ -53,8 +53,8 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 			if req.MaxParallelDelegations != tt.wantMaxDelegation {
 				t.Fatalf("MaxParallelDelegations = %d, want %d", req.MaxParallelDelegations, tt.wantMaxDelegation)
 			}
-			if got := req.ParallelClassOf("code"); got != agent.ParallelClassDelegation {
-				t.Fatalf("ParallelClassOf(code) = %v, want ParallelClassDelegation (delegation tool name)", got)
+			if got := req.ParallelClassOf("sub_agent"); got != agent.ParallelClassDelegation {
+				t.Fatalf("ParallelClassOf(sub_agent) = %v, want ParallelClassDelegation (delegation tool name)", got)
 			}
 			if got := req.ParallelClassOf("read"); got != agent.ParallelClassTool {
 				t.Fatalf("ParallelClassOf(read) = %v, want ParallelClassTool (registry-marked parallel-safe)", got)
@@ -423,23 +423,10 @@ func TestBuildActiveRegistry_SpecializedToolsPresent_WhenEnabled(t *testing.T) {
 		nameSet[n] = true
 	}
 
-	// Research and vision agents are excluded when not configured.
-	for _, agentType := range delegation.AllAgentTypes() {
-		if agentType == delegation.AgentTypeResearch {
-			if nameSet[string(agentType)] {
-				t.Errorf("research tool should not be in registry when no searcher configured")
-			}
-			continue
-		}
-		if agentType == delegation.AgentTypeVision {
-			if nameSet[string(agentType)] {
-				t.Errorf("vision tool should not be in registry when no vision model configured")
-			}
-			continue
-		}
-		if !nameSet[string(agentType)] {
-			t.Errorf("specialized tool %q not found in registry; got %v", agentType, names)
-		}
+	// Sub-agent tool consolidates all agent types (research and vision are excluded
+	// when not configured, but the sub_agent tool is still present with reduced enum).
+	if !nameSet[delegation.SubAgentToolName] {
+		t.Errorf("sub_agent tool not found in registry; got %v", names)
 	}
 }
 
@@ -655,14 +642,14 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 		t.Fatalf("buildActiveRegistry() error = %v", err)
 	}
 
-	toolDef, ok := reg.Get(string(delegation.AgentTypeExplore))
+	toolDef, ok := reg.Get(delegation.SubAgentToolName)
 	if !ok {
-		t.Fatalf("specialized tool %q not in registry", delegation.AgentTypeExplore)
+		t.Fatalf("sub_agent tool not in registry")
 	}
 
 	// Invoke the handler. modelResolver (and providerFactory) runs before the
 	// agent run starts, so the capture happens even though the run fails fast.
-	toolDef.Handler(context.Background(), map[string]any{"objective": "test", "context": "test context", "deliverable": "result"}) //nolint:errcheck
+	toolDef.Handler(context.Background(), subAgentTask("explore", "test", "test context", "result")) //nolint:errcheck
 
 	if !capturedModel.ReasoningEchoBack {
 		t.Error("modelResolver did not set ReasoningEchoBack: Resolve was used instead of ResolveWithDiscovery")
@@ -718,12 +705,12 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 		t.Fatalf("buildActiveRegistry() error = %v", err)
 	}
 
-	toolDef, ok := reg.Get(string(delegation.AgentTypeExplore))
+	toolDef, ok := reg.Get(delegation.SubAgentToolName)
 	if !ok {
-		t.Fatalf("specialized tool %q not in registry", delegation.AgentTypeExplore)
+		t.Fatalf("sub_agent tool not in registry")
 	}
 
-	toolDef.Handler(context.Background(), map[string]any{"objective": "test", "context": "test context", "deliverable": "result"}) //nolint:errcheck
+	toolDef.Handler(context.Background(), subAgentTask("explore", "test", "test context", "result")) //nolint:errcheck
 
 	if got, want := capturedModel.EffectiveLimits.ContextWindow, 262144; got != want {
 		t.Fatalf("captured context window = %d, want %d", got, want)
@@ -883,7 +870,7 @@ func exploreDelegationResponses() []provider.ChatResponse {
 			Message: provider.Message{
 				Role: provider.MessageRoleAssistant,
 				ToolCalls: []provider.ToolCall{
-					{ID: "call_1", Name: "explore", Arguments: map[string]any{"objective": "analyze", "context": "codebase", "deliverable": "findings"}},
+					{ID: "call_1", Name: delegation.SubAgentToolName, Arguments: subAgentTask("explore", "analyze", "codebase", "findings")},
 				},
 			},
 			FinishReason: "tool_calls",
@@ -1011,7 +998,7 @@ func codeDelegationResponses() []provider.ChatResponse {
 			Message: provider.Message{
 				Role: provider.MessageRoleAssistant,
 				ToolCalls: []provider.ToolCall{
-					{ID: "call_1", Name: "code", Arguments: map[string]any{"objective": "write a file", "context": "repo", "deliverable": "file"}},
+					{ID: "call_1", Name: delegation.SubAgentToolName, Arguments: subAgentTask("code", "write a file", "repo", "file")},
 				},
 			},
 			FinishReason: "tool_calls",

@@ -71,14 +71,17 @@ func TestRunnerReadImageRoutesIncapableParentOnce(t *testing.T) {
 		switch name {
 		case "read":
 			return builtin.ReadResult{Image: &builtin.ImageBlock{FilePath: "/tmp/image.png", MediaType: "image/png", Data: "read-image-data"}}, nil
-		case "vision":
+		case "sub_agent":
 			visionCalls++
-			task, ok := input["task"].(string)
-			if !ok || !contains(task, "inspect image.png") {
-				t.Fatalf("vision task = %q, want parent user request", task)
+			if input["type"] != "vision" {
+				t.Fatalf("type = %v, want vision", input["type"])
 			}
-			if contains(task, `{"path":"image.png"}`) {
-				t.Fatal("vision task used read tool JSON instead of parent user request")
+			visionContext, ok := input["context"].(string)
+			if !ok || !contains(visionContext, "inspect image.png") {
+				t.Fatalf("context = %q, want parent user request", visionContext)
+			}
+			if contains(visionContext, `{"path":"image.png"}`) {
+				t.Fatal("context used read tool JSON instead of parent user request")
 			}
 			if input["image_id"] != "img-1" {
 				t.Fatalf("image_id = %v, want img-1", input["image_id"])
@@ -266,8 +269,11 @@ func TestRunnerReadImageRetainedAcrossVisionCapabilityRetry(t *testing.T) {
 			return builtin.ReadResult{Image: &builtin.ImageBlock{
 				FilePath: "/tmp/image.png", MediaType: "image/png", Data: "read-image-data", Width: 2, Height: 3, SizeBytes: 4,
 			}}, nil
-		case "vision":
+		case "sub_agent":
 			visionCalls++
+			if input["type"] != "vision" {
+				t.Fatalf("type = %v, want vision", input["type"])
+			}
 			if input["image_id"] != "img-1" {
 				t.Fatalf("image_id = %v, want img-1", input["image_id"])
 			}

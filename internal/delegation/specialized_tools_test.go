@@ -1,8 +1,10 @@
 package delegation
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -106,9 +108,17 @@ func validStructuredTask(taskDescription string) map[string]any {
 	}
 }
 
-// validStructuredTaskWithImageID returns a valid structured task input with image_id for vision testing.
-func validStructuredTaskWithImageID(taskDescription, imageID string) map[string]any {
+// subAgentTask returns a valid sub-agent task input for the given agent type.
+func subAgentTask(agentType AgentType, taskDescription string) map[string]any {
 	task := validStructuredTask(taskDescription)
+	task["type"] = string(agentType)
+	return task
+}
+
+// subAgentTaskWithImageID returns a valid sub-agent task input for vision with image_id.
+func subAgentTaskWithImageID(taskDescription, imageID string) map[string]any {
+	task := validStructuredTask(taskDescription)
+	task["type"] = string(AgentTypeVision)
 	task["image_id"] = imageID
 	return task
 }
@@ -377,7 +387,7 @@ func TestSpecializedHandler_CancelledBeforeDispatchCleansToolCallTrace(t *testin
 	deps.Events = events
 	deps.WorkDir = t.TempDir()
 
-	raw, err := SpecializedToolDef(AgentTypeExplore, deps).Handler(ctx, validStructuredTask("explore"))
+	raw, err := SubAgentToolDef(deps, nil).Handler(ctx, subAgentTask(AgentTypeExplore, "explore"))
 	if err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
@@ -662,67 +672,189 @@ func TestSpecializedHandler_RegisterFailureDoesNotCreateNonCodeWorktree(t *testi
 	}
 }
 
-func TestSpecializedToolDef(t *testing.T) {
-	agentTypes := AllAgentTypes()
-	if len(agentTypes) == 0 {
-		t.Fatal("AllAgentTypes returned empty slice")
-	}
-
+func TestSubAgentToolDef_Schema(t *testing.T) {
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
 
-	for _, agentType := range agentTypes {
-		agentType := agentType
-		t.Run(string(agentType), func(t *testing.T) {
-			def := SpecializedToolDef(agentType, deps)
+	def := SubAgentToolDef(deps, nil)
 
-			if def.Name != string(agentType) {
-				t.Errorf("Name=%q, want %q", def.Name, string(agentType))
-			}
-			if def.Description == "" {
-				t.Error("Description is empty")
-			}
-			if def.Handler == nil {
-				t.Fatal("Handler is nil")
-			}
-			schemaType, ok := def.ParameterSchema["type"].(string)
-			if !ok || schemaType != "object" {
-				t.Errorf("schema type=%v, want 'object'", def.ParameterSchema["type"])
-			}
-			props, ok := def.ParameterSchema["properties"].(map[string]any)
-			if !ok {
-				t.Fatal("properties missing from schema")
-			}
+	if def.Name != SubAgentToolName {
+		t.Errorf("Name=%q, want %q", def.Name, SubAgentToolName)
+	}
+	if def.Description == "" {
+		t.Error("Description is empty")
+	}
+	if def.Handler == nil {
+		t.Fatal("Handler is nil")
+	}
 
-			// All specialized tools must have the six structured task fields.
-			requiredFields := []string{"objective", "context", "deliverable", "constraints", "success_criteria", "checks"}
-			for _, field := range requiredFields {
-				if _, has := props[field]; !has {
-					t.Errorf("schema properties missing required field %q", field)
-				}
-			}
+	schemaType, ok := def.ParameterSchema["type"].(string)
+	if !ok || schemaType != "object" {
+		t.Errorf("schema type=%v, want 'object'", def.ParameterSchema["type"])
+	}
 
-			// Vision has all six plus image_id.
-			if agentType == AgentTypeVision {
-				if _, hasImageID := props["image_id"]; !hasImageID {
-					t.Error("vision schema missing 'image_id'")
-				}
-			}
+	props, ok := def.ParameterSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("properties missing from schema")
+	}
 
-			required, ok := def.ParameterSchema["required"].([]any)
-			if !ok {
-				t.Fatal("required missing from schema")
+	// All sub-agent tools must have the type field plus six structured task fields.
+	requiredFields := []string{"type", "objective", "context", "deliverable", "constraints", "success_criteria", "checks"}
+	for _, field := range requiredFields {
+		if _, has := props[field]; !has {
+			t.Errorf("schema properties missing field %q", field)
+		}
+	}
+
+	// image_id is always present in properties but not required.
+	if _, hasImageID := props["image_id"]; !hasImageID {
+		t.Error("schema missing 'image_id'")
+	}
+
+	required, ok := def.ParameterSchema["required"].([]any)
+	if !ok {
+		t.Fatal("required missing from schema")
+	}
+
+	// Required fields should be exactly 7: type, objective, context, deliverable, constraints, success_criteria, checks.
+	if len(required) != 7 {
+		t.Errorf("required fields count=%d, want 7", len(required))
+	}
+
+	// Verify the type enum has all 7 agent types.
+	typeField, ok := props["type"].(map[string]any)
+	if !ok {
+		t.Fatal("type field is not a map")
+	}
+	enumVals, ok := typeField["enum"].([]any)
+	if !ok {
+		t.Fatal("type field missing enum")
+	}
+
+	wantEnum := make([]any, 0, len(AllAgentTypes()))
+	for _, at := range AllAgentTypes() {
+		wantEnum = append(wantEnum, string(at))
+	}
+	if !reflect.DeepEqual(enumVals, wantEnum) {
+		t.Errorf("type enum = %v, want %v in AllAgentTypes order", enumVals, wantEnum)
+	}
+}
+
+func TestSubAgentToolDef_ExcludeTypes(t *testing.T) {
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+
+	excludeTypes := []AgentType{AgentTypeResearch, AgentTypeVision}
+	def := SubAgentToolDef(deps, excludeTypes)
+
+	props, _ := def.ParameterSchema["properties"].(map[string]any)
+	typeField, _ := props["type"].(map[string]any)
+	enumVals, _ := typeField["enum"].([]any)
+
+	excludedSet := map[AgentType]bool{AgentTypeResearch: true, AgentTypeVision: true}
+	wantEnum := make([]any, 0, len(AllAgentTypes())-len(excludedSet))
+	for _, at := range AllAgentTypes() {
+		if !excludedSet[at] {
+			wantEnum = append(wantEnum, string(at))
+		}
+	}
+	if !reflect.DeepEqual(enumVals, wantEnum) {
+		t.Errorf("type enum = %v, want %v (remaining types in AllAgentTypes order)", enumVals, wantEnum)
+	}
+}
+
+func TestSubAgentToolDef_SchemaIsDeterministic(t *testing.T) {
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+
+	tests := []struct {
+		name         string
+		excludeTypes []AgentType
+	}{
+		{name: "no excludes", excludeTypes: nil},
+		{name: "with excludes", excludeTypes: []AgentType{AgentTypeResearch, AgentTypeVision}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def1 := SubAgentToolDef(deps, tt.excludeTypes)
+			def2 := SubAgentToolDef(deps, tt.excludeTypes)
+
+			b1, err := json.Marshal(def1.ParameterSchema)
+			if err != nil {
+				t.Fatalf("marshal schema 1: %v", err)
 			}
-			// All non-vision agents have 6 required fields; vision has 7 (6 + image_id).
-			if agentType == AgentTypeVision {
-				if len(required) != 7 {
-					t.Errorf("vision required fields count=%d, want 7", len(required))
-				}
-			} else {
-				if len(required) != 6 {
-					t.Errorf("required fields count=%d, want 6", len(required))
-				}
+			b2, err := json.Marshal(def2.ParameterSchema)
+			if err != nil {
+				t.Fatalf("marshal schema 2: %v", err)
+			}
+			if !bytes.Equal(b1, b2) {
+				t.Errorf("schema marshal not deterministic:\n%s\nvs\n%s", b1, b2)
+			}
+		})
+	}
+}
+
+func TestSubAgentDispatch_Errors(t *testing.T) {
+	tests := []struct {
+		name         string
+		excludeTypes []AgentType
+		input        map[string]any
+		wantErr      string
+	}{
+		{
+			name:    "missing type",
+			input:   validStructuredTask("t"),
+			wantErr: "sub_agent: type is required and must be non-empty",
+		},
+		{
+			name: "whitespace type",
+			input: func() map[string]any {
+				task := validStructuredTask("t")
+				task["type"] = "   "
+				return task
+			}(),
+			wantErr: "sub_agent: type is required and must be non-empty",
+		},
+		{
+			name:    "unknown type",
+			input:   subAgentTask(AgentType("bogus"), "t"),
+			wantErr: `sub_agent: unknown or unavailable type "bogus"; valid types:`,
+		},
+		{
+			name:         "excluded type",
+			excludeTypes: []AgentType{AgentTypeVision},
+			input:        subAgentTask(AgentTypeVision, "t"),
+			wantErr:      `sub_agent: type "vision" is unavailable; valid types:`,
+		},
+		{
+			name:    "vision missing image_id",
+			input:   subAgentTask(AgentTypeVision, "t"),
+			wantErr: `sub_agent: type is "vision" but image_id is missing or empty`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var runCalled bool
+			runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+				runCalled = true
+				return successRunState(), nil
+			}}
+			def := SubAgentToolDef(minimalDeps(runner), tt.excludeTypes)
+
+			_, err := def.Handler(context.Background(), tt.input)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+			if runCalled {
+				t.Error("runner was invoked despite validation failure")
 			}
 		})
 	}
@@ -740,18 +872,18 @@ func TestSpecializedHandler_EmptyTask(t *testing.T) {
 			if agentType == AgentTypeVision || agentType == AgentTypeCode {
 				t.Skip("vision and code agents require special setup; tested separately")
 			}
-			def := SpecializedToolDef(agentType, minimalDeps(runner))
+			def := SubAgentToolDef(minimalDeps(runner), nil)
 
-			_, err := def.Handler(context.Background(), map[string]any{})
+			_, err := def.Handler(context.Background(), map[string]any{
+				"type": string(agentType),
+			})
 			if err == nil {
 				t.Error("expected error for missing fields")
-			}
-			if !strings.Contains(err.Error(), string(agentType)) {
-				t.Errorf("error %q should mention agent type %q", err.Error(), agentType)
 			}
 
 			// Test with empty objective
 			_, err = def.Handler(context.Background(), map[string]any{
+				"type":             string(agentType),
 				"objective":        "",
 				"context":          "context",
 				"deliverable":      "deliverable",
@@ -768,6 +900,7 @@ func TestSpecializedHandler_EmptyTask(t *testing.T) {
 
 			// Test with blank objective (whitespace only)
 			_, err = def.Handler(context.Background(), map[string]any{
+				"type":             string(agentType),
 				"objective":        "   ",
 				"context":          "context",
 				"deliverable":      "deliverable",
@@ -781,6 +914,7 @@ func TestSpecializedHandler_EmptyTask(t *testing.T) {
 
 			// Test with empty context
 			_, err = def.Handler(context.Background(), map[string]any{
+				"type":             string(agentType),
 				"objective":        "objective",
 				"context":          "",
 				"deliverable":      "deliverable",
@@ -797,6 +931,7 @@ func TestSpecializedHandler_EmptyTask(t *testing.T) {
 
 			// Test with empty deliverable
 			_, err = def.Handler(context.Background(), map[string]any{
+				"type":             string(agentType),
 				"objective":        "objective",
 				"context":          "context",
 				"deliverable":      "",
@@ -812,59 +947,11 @@ func TestSpecializedHandler_EmptyTask(t *testing.T) {
 			}
 
 			// Test with valid structured task should succeed
-			_, err = def.Handler(context.Background(), validStructuredTask("test"))
+			_, err = def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test"))
 			if err != nil {
 				t.Errorf("valid structured task returned error: %v", err)
 			}
 		})
-	}
-}
-
-func TestAllSpecializedToolDefs_Count(t *testing.T) {
-	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
-		return successRunState(), nil
-	}})
-
-	defs := AllSpecializedToolDefs(deps, nil)
-
-	want := len(AllAgentTypes())
-	if len(defs) != want {
-		t.Errorf("AllSpecializedToolDefs returned %d defs, want %d", len(defs), want)
-	}
-
-	// All names must be distinct.
-	seen := make(map[string]bool, len(defs))
-	for _, def := range defs {
-		if seen[def.Name] {
-			t.Errorf("duplicate tool name %q", def.Name)
-		}
-		seen[def.Name] = true
-	}
-
-	// Each name must match a known agent type.
-	for _, def := range defs {
-		if !ValidAgentType(def.Name) {
-			t.Errorf("tool name %q is not a valid agent type", def.Name)
-		}
-	}
-}
-
-func TestAllSpecializedToolDefs_ExcludeTypes(t *testing.T) {
-	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
-		return successRunState(), nil
-	}})
-
-	defs := AllSpecializedToolDefs(deps, []AgentType{AgentTypeResearch})
-
-	want := len(AllAgentTypes()) - 1
-	if len(defs) != want {
-		t.Errorf("AllSpecializedToolDefs with exclude returned %d defs, want %d", len(defs), want)
-	}
-
-	for _, def := range defs {
-		if def.Name == string(AgentTypeResearch) {
-			t.Errorf("research agent should be excluded but was found in defs")
-		}
 	}
 }
 
@@ -883,9 +970,9 @@ func TestSpecializedHandler_UsesTypeSystemPrompt(t *testing.T) {
 			}}
 
 			deps := minimalDeps(runner)
-			def := SpecializedToolDef(agentType, deps)
+			def := SubAgentToolDef(deps, nil)
 
-			_, err := def.Handler(context.Background(), validStructuredTask("test task"))
+			_, err := def.Handler(context.Background(), subAgentTask(agentType, "test task"))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -947,9 +1034,9 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 				t.Cleanup(cleanup)
 				deps.WorkDir = repo
 			}
-			def := SpecializedToolDef(agentType, deps)
+			def := SubAgentToolDef(deps, nil)
 
-			_, err := def.Handler(context.Background(), validStructuredTask("test task"))
+			_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task"))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -968,9 +1055,9 @@ func TestSpecializedHandler_ReturnsExecutionResult(t *testing.T) {
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
-	def := SpecializedToolDef(AgentTypeExplore, deps)
+	def := SubAgentToolDef(deps, nil)
 
-	raw, err := def.Handler(context.Background(), validStructuredTask("explore something"))
+	raw, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "explore something"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1022,8 +1109,8 @@ func TestSpecializedHandler_UsesPerTypeModel(t *testing.T) {
 		},
 	}
 
-	def := SpecializedToolDef(agentType, deps)
-	_, err := def.Handler(context.Background(), validStructuredTask("test task"))
+	def := SubAgentToolDef(deps, nil)
+	_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1041,7 +1128,6 @@ func TestSpecializedHandler_UsesPerTypeModel(t *testing.T) {
 
 func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 	// No Agents entry for the agent type: use the selected profile default.
-	agentType := AgentTypeExplore
 	const defaultAlias = "profile-default"
 	resolverCalledWith := ""
 	resolvedModel := provider.ResolvedModel{Alias: defaultAlias, BackendModelID: "profile-model"}
@@ -1071,8 +1157,8 @@ func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 		DefaultModel:  defaultAlias,
 	}
 
-	def := SpecializedToolDef(agentType, deps)
-	_, err := def.Handler(context.Background(), validStructuredTask("test task"))
+	def := SubAgentToolDef(deps, nil)
+	_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1115,8 +1201,8 @@ func TestSpecializedHandler_FallsBackWithNilResolver(t *testing.T) {
 		},
 	}
 
-	def := SpecializedToolDef(agentType, deps)
-	_, err := def.Handler(context.Background(), validStructuredTask("test task"))
+	def := SubAgentToolDef(deps, nil)
+	_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1143,7 +1229,7 @@ func TestSpecializedHandler_EmptyModelConfigUsesProfileDefault(t *testing.T) {
 	deps.AgentModels = map[string]string{string(AgentTypeExplore): ""}
 	deps.DefaultModel = defaultAlias
 
-	if _, err := SpecializedToolDef(AgentTypeExplore, deps).Handler(context.Background(), validStructuredTask("test task")); err != nil {
+	if _, err := SubAgentToolDef(deps, nil).Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if resolverCalledWith != defaultAlias {
@@ -1168,7 +1254,7 @@ func TestSpecializedHandler_ProfileDefaultResolverError(t *testing.T) {
 	}
 	deps.DefaultModel = defaultAlias
 
-	_, err := SpecializedToolDef(AgentTypeExplore, deps).Handler(context.Background(), validStructuredTask("test task"))
+	_, err := SubAgentToolDef(deps, nil).Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task"))
 	if err == nil {
 		t.Fatal("expected profile default resolution error")
 	}
@@ -1228,8 +1314,8 @@ func TestSpecializedHandler_ModelResolverError(t *testing.T) {
 		},
 	}
 
-	def := SpecializedToolDef(agentType, deps)
-	_, err := def.Handler(context.Background(), validStructuredTask("test task"))
+	def := SubAgentToolDef(deps, nil)
+	_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task"))
 	if err == nil {
 		t.Fatal("expected error from ModelResolver")
 	}
@@ -1284,8 +1370,8 @@ func TestSpecializedHandler_SavesChildSession(t *testing.T) {
 		},
 	}
 
-	def := SpecializedToolDef(AgentTypeExplore, deps)
-	_, err := def.Handler(context.Background(), validStructuredTask("inspect code"))
+	def := SubAgentToolDef(deps, nil)
+	_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "inspect code"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1328,7 +1414,7 @@ func TestVisionToolDef_Schema(t *testing.T) {
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
-	def := SpecializedToolDef(AgentTypeVision, deps)
+	def := SubAgentToolDef(deps, nil)
 
 	schema, ok := def.ParameterSchema["properties"].(map[string]any)
 	if !ok {
@@ -1359,41 +1445,56 @@ func TestVisionToolDef_Schema(t *testing.T) {
 	}
 	for _, field := range requiredFields {
 		if !requiredSet[field] {
-			t.Errorf("%q must be required in vision schema", field)
+			t.Errorf("%q must be required in schema", field)
 		}
 	}
-	if !requiredSet["image_id"] {
-		t.Error("'image_id' must be required in vision schema")
+	// image_id is present but not required in schema; handler enforces it for type=vision
+	if requiredSet["image_id"] {
+		t.Error("'image_id' must NOT be in required array (conditionally required by handler)")
 	}
-	// Should have 7 required fields: 6 task fields + image_id
+	// Should have 7 required fields: type + 6 task fields (image_id is not required)
 	if len(requiredSet) != 7 {
-		t.Errorf("vision schema has %d required fields, want 7", len(requiredSet))
+		t.Errorf("schema has %d required fields, want 7 (type + 6 task fields)", len(requiredSet))
 	}
 }
 
 func TestVisionToolDef_DescriptionMentionsFollowUp(t *testing.T) {
+	// Updated: SubAgentToolDef is a unified tool for all types.
+	// The follow_up guidance was vision-specific (reusing agent_id for follow-up questions
+	// about the same cached image). The unified tool description doesn't repeat type-specific
+	// guidance; that's in the type enum descriptions. Verify the unified description
+	// mentions the type parameter for agent-specific behavior.
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
-	def := SpecializedToolDef(AgentTypeVision, deps)
+	def := SubAgentToolDef(deps, nil)
 
-	if !strings.Contains(def.Description, "follow_up") {
-		t.Errorf("vision tool description should mention 'follow_up', got: %q", def.Description)
+	if !strings.Contains(def.Description, "type") {
+		t.Errorf("sub_agent tool description should reference the 'type' parameter, got: %q", def.Description)
 	}
 }
 
 func TestVisionToolSkippedWithoutModel(t *testing.T) {
-	// When the vision model is not configured, AllSpecializedToolDefs should
-	// not include a vision tool.
+	// When the vision model is not configured, SubAgentToolDef should
+	// exclude vision from the type enum.
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
 	// SubAgentCfg.Agents has no "vision" entry → model is empty.
-	defs := AllSpecializedToolDefs(deps, []AgentType{AgentTypeVision})
+	def := SubAgentToolDef(deps, []AgentType{AgentTypeVision})
 
-	for _, def := range defs {
-		if def.Name == string(AgentTypeVision) {
-			t.Error("vision tool should be excluded but was found in defs")
+	if def.Name != SubAgentToolName {
+		t.Errorf("tool name=%q, want %q", def.Name, SubAgentToolName)
+	}
+
+	props, _ := def.ParameterSchema["properties"].(map[string]any)
+	typeField, _ := props["type"].(map[string]any)
+	enumVals, _ := typeField["enum"].([]any)
+
+	// Vision should not be in the enum
+	for _, val := range enumVals {
+		if val == string(AgentTypeVision) {
+			t.Error("vision should be excluded from type enum")
 		}
 	}
 }
@@ -1413,9 +1514,9 @@ func TestVisionHandler_UnknownImageID(t *testing.T) {
 		},
 		ImageStore: store,
 	}
-	def := SpecializedToolDef(AgentTypeVision, deps)
+	def := SubAgentToolDef(deps, nil)
 
-	input := validStructuredTaskWithImageID("describe the image", "img-99")
+	input := subAgentTaskWithImageID("describe the image", "img-99")
 	_, err := def.Handler(context.Background(), input)
 	if err == nil {
 		t.Fatal("expected error for unknown image_id")
@@ -1454,9 +1555,9 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 		},
 		ImageStore: store,
 	}
-	def := SpecializedToolDef(AgentTypeVision, deps)
+	def := SubAgentToolDef(deps, nil)
 
-	input := validStructuredTaskWithImageID("describe what you see", ref.ID)
+	input := subAgentTaskWithImageID("describe what you see", ref.ID)
 	raw, err := def.Handler(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1483,6 +1584,59 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 	// Verify the image was base64-encoded from disk correctly.
 	wantEncoded := base64.StdEncoding.EncodeToString(imgContent)
 	_ = wantEncoded // encoding correctness is implicit; the handler would error if os.ReadFile failed
+}
+
+// TestVisionRoutingArgs_PassesHandlerValidation pins the argument shape that
+// internal/agent's VisionRoutingArgs builds against the real sub_agent
+// dispatch and vision handler validation. internal/agent cannot import
+// internal/delegation (import cycle), so this test lives here to catch drift
+// between the two sides if either changes independently.
+func TestVisionRoutingArgs_PassesHandlerValidation(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "test.png")
+	imgContent := []byte("fake-png-content")
+	if err := os.WriteFile(imgPath, imgContent, 0o600); err != nil {
+		t.Fatalf("write temp image: %v", err)
+	}
+
+	store := agent.NewImageStore(dir)
+	ref := store.Register(imgPath, "image/png", 100, 200, len(imgContent))
+
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{},
+			Provider:    stubProvider{},
+			ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Description: "read"}),
+			Runner:      runner,
+			Events:      noopEventSink{},
+			WorkDir:     dir,
+		},
+		ImageStore: store,
+	}
+	def := SubAgentToolDef(deps, nil)
+
+	input := agent.VisionRoutingArgs(ref.ID, "some user request")
+
+	raw, err := def.Handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("VisionRoutingArgs rejected by sub_agent validation: %v", err)
+	}
+
+	execResult, ok := raw.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+	dr, ok := execResult.Value.(Result)
+	if !ok {
+		t.Fatalf("ExecutionResult.Value is %T, want Result", execResult.Value)
+	}
+	if dr.Output != "task result" {
+		t.Errorf("result output %q, want exact child output from the vision child", dr.Output)
+	}
 }
 
 func TestSpecializedHandler_SavesSessionForStructuredFailure(t *testing.T) {
@@ -1513,8 +1667,8 @@ func TestSpecializedHandler_SavesSessionForStructuredFailure(t *testing.T) {
 		},
 	}
 
-	def := SpecializedToolDef(AgentTypeExplore, deps)
-	_, err := def.Handler(context.Background(), validStructuredTask("inspect code"))
+	def := SubAgentToolDef(deps, nil)
+	_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "inspect code"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1572,8 +1726,8 @@ func TestSubAgentHandlerDepsCarriesSandboxState(t *testing.T) {
 		},
 	}
 
-	def := SpecializedToolDef(AgentTypeExplore, deps)
-	_, err := def.Handler(context.Background(), validStructuredTask("test sandbox state"))
+	def := SubAgentToolDef(deps, nil)
+	_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test sandbox state"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -1613,8 +1767,8 @@ func TestSubAgentHandlerDepsDisabledSandboxNotCarried(t *testing.T) {
 		},
 	}
 
-	def := SpecializedToolDef(AgentTypeExplore, deps)
-	_, err := def.Handler(context.Background(), validStructuredTask("test disabled sandbox"))
+	def := SubAgentToolDef(deps, nil)
+	_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test disabled sandbox"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -1643,9 +1797,9 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 					return successRunState(), nil
 				}}
 				deps := minimalDeps(runner)
-				def := SpecializedToolDef(agentType, deps)
+				def := SubAgentToolDef(deps, nil)
 
-				_, err := def.Handler(context.Background(), validStructuredTask("test task"))
+				_, err := def.Handler(context.Background(), subAgentTask(agentType, "test task"))
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
@@ -1674,9 +1828,9 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 					t.Cleanup(cleanup)
 					deps.WorkDir = repo
 				}
-				def := SpecializedToolDef(agentType, deps)
+				def := SubAgentToolDef(deps, nil)
 
-				_, err := def.Handler(context.Background(), validStructuredTask("test task"))
+				_, err := def.Handler(context.Background(), subAgentTask(agentType, "test task"))
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
@@ -1709,9 +1863,9 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 		}}
 		deps := minimalDeps(runner)
 		deps.ImageStore = store
-		def := SpecializedToolDef(AgentTypeVision, deps)
+		def := SubAgentToolDef(deps, nil)
 
-		input := validStructuredTaskWithImageID("describe the image", ref.ID)
+		input := subAgentTaskWithImageID("describe the image", ref.ID)
 		_, err := def.Handler(context.Background(), input)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -1819,8 +1973,8 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 			},
 			ModelResolver: nil,
 		}
-		def := SpecializedToolDef(agentType, deps)
-		if _, err := def.Handler(context.Background(), validStructuredTask("test task")); err != nil {
+		def := SubAgentToolDef(deps, nil)
+		if _, err := def.Handler(context.Background(), subAgentTask(agentType, "test task")); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		return capturedReq, store
@@ -1945,8 +2099,8 @@ func TestVisionHandler_ExtraAllowedTools(t *testing.T) {
 		ImageStore: store,
 	}
 
-	def := SpecializedToolDef(AgentTypeVision, deps)
-	input := validStructuredTaskWithImageID("describe the image", ref.ID)
+	def := SubAgentToolDef(deps, nil)
+	input := subAgentTaskWithImageID("describe the image", ref.ID)
 	raw, err := def.Handler(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1992,8 +2146,8 @@ func TestSpecializedHandler_CodeProvisionesWorktree(t *testing.T) {
 		ModelResolver: nil,
 	}
 
-	def := SpecializedToolDef(AgentTypeCode, deps)
-	raw, err := def.Handler(ctx, validStructuredTask("implement a feature"))
+	def := SubAgentToolDef(deps, nil)
+	raw, err := def.Handler(ctx, subAgentTask(AgentTypeCode, "implement a feature"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -2068,8 +2222,8 @@ func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
 		ModelResolver: nil,
 	}
 
-	def := SpecializedToolDef(AgentTypeCode, deps)
-	raw, err := def.Handler(ctx, validStructuredTask("implement a feature"))
+	def := SubAgentToolDef(deps, nil)
+	raw, err := def.Handler(ctx, subAgentTask(AgentTypeCode, "implement a feature"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -2120,8 +2274,8 @@ func TestSpecializedHandler_CodeFatalOnProvisioningFailure(t *testing.T) {
 		},
 	}
 
-	def := SpecializedToolDef(AgentTypeCode, deps)
-	raw, err := def.Handler(ctx, validStructuredTask("implement a feature"))
+	def := SubAgentToolDef(deps, nil)
+	raw, err := def.Handler(ctx, subAgentTask(AgentTypeCode, "implement a feature"))
 	if err == nil {
 		t.Fatal("expected fatal worktree provisioning error")
 	}
@@ -2175,8 +2329,8 @@ func TestSpecializedHandler_NonCodeAgentsNoWorktreeFields(t *testing.T) {
 				ModelResolver: nil,
 			}
 
-			def := SpecializedToolDef(agentType, deps)
-			raw, err := def.Handler(ctx, validStructuredTask("test task"))
+			def := SubAgentToolDef(deps, nil)
+			raw, err := def.Handler(ctx, subAgentTask(AgentTypeExplore, "test task"))
 			if err != nil {
 				t.Fatalf("handler error: %v", err)
 			}
@@ -2204,7 +2358,7 @@ func TestSpecializedHandler_ParentCallIDFromContext(t *testing.T) {
 	deps.Events = sink
 	ctx := context.WithValue(context.Background(), tool.ExecutionCallIDKey{}, "call_ABC")
 
-	if _, err := SpecializedToolDef(AgentTypeExplore, deps).Handler(ctx, validStructuredTask("inspect")); err != nil {
+	if _, err := SubAgentToolDef(deps, nil).Handler(ctx, subAgentTask(AgentTypeExplore, "inspect")); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 	if len(sink.events) == 0 {
@@ -2235,7 +2389,7 @@ func TestVisionHandler_ParentCallIDFromContext(t *testing.T) {
 	deps.ImageStore = store
 	ctx := context.WithValue(context.Background(), tool.ExecutionCallIDKey{}, "call_VISION")
 
-	if _, err := SpecializedToolDef(AgentTypeVision, deps).Handler(ctx, validStructuredTaskWithImageID("describe", ref.ID)); err != nil {
+	if _, err := SubAgentToolDef(deps, nil).Handler(ctx, subAgentTaskWithImageID("describe", ref.ID)); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 	if len(sink.events) == 0 {

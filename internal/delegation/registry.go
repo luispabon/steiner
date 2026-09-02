@@ -314,9 +314,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	if deps.Config.Models.Effective.SubAgents[string(AgentTypeVision)] == "" || deps.ImageStore == nil {
 		excludeTypes = append(excludeTypes, AgentTypeVision)
 	}
-	for _, def := range AllSpecializedToolDefs(specializedDeps, excludeTypes) {
-		cloned.Register(def)
-	}
+	cloned.Register(SubAgentToolDef(specializedDeps, excludeTypes))
 
 	return cloned, nil
 }

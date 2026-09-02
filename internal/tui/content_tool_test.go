@@ -20,15 +20,17 @@ func TestSpecializedDelegateToolAccessor(t *testing.T) {
 		tool string
 		want bool
 	}{
-		{name: "explore", tool: "explore", want: true},
-		{name: "research", tool: "research", want: true},
-		{name: "code", tool: "code", want: true},
-		{name: "evaluate", tool: "evaluate", want: true},
-		{name: "sanity_check", tool: "sanity_check", want: true},
-		{name: "review", tool: "review", want: true},
+		{name: "explore", tool: "explore", want: false},
+		{name: "research", tool: "research", want: false},
+		{name: "code", tool: "code", want: false},
+		{name: "evaluate", tool: "evaluate", want: false},
+		{name: "sanity_check", tool: "sanity_check", want: false},
+		{name: "review", tool: "review", want: false},
+		{name: "sub_agent", tool: "sub_agent", want: true},
 		{name: "follow_up", tool: "follow_up", want: true},
-		{name: "uppercase tool", tool: "Explore", want: true},
-		{name: "trimmed tool", tool: "  evaluate  ", want: true},
+		{name: "uppercase tool", tool: "Sub_Agent", want: true},
+		{name: "mixed-case and whitespace normalization", tool: " Sub_Agent ", want: true},
+		{name: "trimmed_tool", tool: "  sub_agent  ", want: true},
 		{name: "delegate", tool: "delegate", want: false},
 		{name: "read", tool: "read", want: false},
 		{name: "empty", tool: "", want: false},
@@ -44,7 +46,7 @@ func TestSpecializedDelegateToolAccessor(t *testing.T) {
 		})
 	}
 
-	wantTools := []string{"explore", "research", "code", "evaluate", "sanity_check", "review", "vision", "follow_up"}
+	wantTools := []string{"sub_agent", "follow_up"}
 	if got := delegation.AllSpecializedDelegateTools(); !slices.Equal(got, wantTools) {
 		t.Fatalf("delegation.AllSpecializedDelegateTools() = %v, want %v", got, wantTools)
 	}

@@ -181,17 +181,28 @@ func (h *parallelHarness) countCompleted(task string) {
 func delegationParentResponse(names ...string) provider.ChatResponse {
 	calls := make([]provider.ToolCall, len(names))
 	for i, name := range names {
-		calls[i] = provider.ToolCall{
-			ID:   fmt.Sprintf("call-%d", i),
-			Name: name,
-			Arguments: map[string]any{
-				"objective":        fmt.Sprintf("task-%d", i),
-				"context":          "context",
-				"deliverable":      "deliverable",
-				"constraints":      []any{},
-				"success_criteria": []any{},
-				"checks":           []any{},
-			},
+		// Check if this is a valid agent type - if so, use sub_agent with type parameter
+		if ValidAgentType(name) {
+			calls[i] = provider.ToolCall{
+				ID:   fmt.Sprintf("call-%d", i),
+				Name: SubAgentToolName,
+				Arguments: map[string]any{
+					"type":             name,
+					"objective":        fmt.Sprintf("task-%d", i),
+					"context":          "context",
+					"deliverable":      "deliverable",
+					"constraints":      []any{},
+					"success_criteria": []any{},
+					"checks":           []any{},
+				},
+			}
+		} else {
+			// Regular tool call - use the name as-is
+			calls[i] = provider.ToolCall{
+				ID:        fmt.Sprintf("call-%d", i),
+				Name:      name,
+				Arguments: map[string]any{},
+			}
 		}
 	}
 	return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: calls}, FinishReason: "tool_calls"}

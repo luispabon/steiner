@@ -239,32 +239,26 @@ For manual compaction, use `/compact` or `/compact <focus text>` to guide the su
 
 ## Sub-agent delegation
 
-Delegation is steiner's primary context management strategy. `steiner` exposes eight sub-agent tools that delegate bounded tasks to isolated child agents. Sub-agent delegation is enabled by default — the model sees these tools alongside the built-ins, and its system prompt casts it as the orchestrator: it plans, dispatches, verifies, and integrates rather than doing the default implementation work itself.
+Delegation is steiner's primary context management strategy. `steiner` exposes two sub-agent tools that delegate bounded tasks to isolated child agents. Sub-agent delegation is enabled by default — the model sees these tools alongside the built-ins, and its system prompt casts it as the orchestrator: it plans, dispatches, verifies, and integrates rather than doing the default implementation work itself.
 
-Each delegation tool accepts a structured brief with six required fields: `objective` (single outcome), `context` (why, how it fits, what's decided), `deliverable` (exact artifact or answer and its shape), `constraints` (boundaries and prohibited actions), `success_criteria` (observable completion conditions), and `checks` (applicable validations to run). These fields ensure complete hand-off between orchestrator and child.
+The `sub_agent` tool accepts a structured brief with six required fields: `objective` (single outcome), `context` (why, how it fits, what's decided), `deliverable` (exact artifact or answer and its shape), `constraints` (boundaries and prohibited actions), `success_criteria` (observable completion conditions), and `checks` (applicable validations to run). These fields ensure complete hand-off between orchestrator and child.
 
-| Tool | What it does | Can mutate? |
-|------|--------------|-------------|
-| `explore` | Navigate the codebase to find files, symbols, call sites, and patterns | No |
-| `research` | Gather and synthesise information from the codebase or web | No |
-| `code` | Implement a scoped change — read relevant files, write changes, run tests | Yes |
-| `evaluate` | Analyse a sub-problem, evaluate options, and produce a structured recommendation | No |
-| `sanity_check` | Run tests, linters, builds, or other checks and report pass or fail | No |
-| `review` | Examine code changes for bugs, regressions, missing tests, or plan adherence | No |
-| `vision` | Analyze a pasted image by ID — sub-agent receives the image directly | No |
-| `follow_up` | Resume an existing sub-agent session by agent ID with a new user message | No |
+| Tool | Type values | What it does | Can mutate? |
+|------|-------------|--------------|-------------|
+| `sub_agent` | `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision` | Dispatch a specialized sub-agent by type. | Only type `code` can mutate |
+| `follow_up` | — | Resume an existing sub-agent session by agent ID with a new user message | No |
 
-`code`, `review`, and `evaluate` children may additionally call `advisor` for stronger-model steering when `advisor.enabled` is true, capped per child by `advisor.max_uses_per_sub_agent`.
+Type `code`, `review`, and `evaluate` children may additionally call `advisor` for stronger-model steering when `advisor.enabled` is true, capped per child by `advisor.max_uses_per_sub_agent`.
 
 Delegation calls can fan out in parallel; configure the width with `sub_agent.max_parallel` (default `3`, minimum `1`, `1` serial). Ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`) are bounded separately by `limits.max_parallel_tools` (default `4`, minimum `1`). See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
 
-Every `code` sub-agent automatically runs in its own isolated, runtime-provisioned git worktree under `.steiner/worktrees/`. Worktrees persist until explicitly pruned via the CLI: `steiner worktrees --list` (show all delegation worktrees), `steiner worktrees --prune <id>` (remove a worktree by its ID), or `steiner worktrees --prune-all` (remove all delegation worktrees).
+Every `sub_agent` type `code` automatically runs in its own isolated, runtime-provisioned git worktree under `.steiner/worktrees/`. Worktrees persist until explicitly pruned via the CLI: `steiner worktrees --list` (show all delegation worktrees), `steiner worktrees --prune <id>` (remove a worktree by its ID), or `steiner worktrees --prune-all` (remove all delegation worktrees).
 
 In interactive TUI sessions, leftover delegate worktrees are offered for cleanup on exit when the session is idle; the offer only covers worktrees created by the current process.
 
 ## Execution modes
 
-Interactive sessions run in `plan` or `build` mode. In `plan` mode project edits are restricted: `mutate` writes are limited to `.steiner/plans/`, the `code` sub-agent tool and any `follow_up` targeting a mutation-capable child are denied, and when the bubblewrap sandbox is active the rest of the project is bind-mounted read-only for `bash` as well. Plan artifacts may be written under `.steiner/plans/`. Plan mode doubles as a chat/Q&A mode: discuss freely, and write a plan file only when handing off. Call `workflow_handoff` to hand an approved plan off: `implement` and `review` start structured `/implement` and `/review` workflows from `overview.md` + `plan.yaml`, while `build` directly executes a standalone `plan.md` in build mode without skill discovery.
+Interactive sessions run in `plan` or `build` mode. In `plan` mode project edits are restricted: `mutate` writes are limited to `.steiner/plans/`, `sub_agent` type `code` and any `follow_up` targeting a mutation-capable child are denied, and when the bubblewrap sandbox is active the rest of the project is bind-mounted read-only for `bash` as well. Plan artifacts may be written under `.steiner/plans/`. Plan mode doubles as a chat/Q&A mode: discuss freely, and write a plan file only when handing off. Call `workflow_handoff` to hand an approved plan off: `implement` and `review` start structured `/implement` and `/review` workflows from `overview.md` + `plan.yaml`, while `build` directly executes a standalone `plan.md` in build mode without skill discovery.
 
 Switch modes with Shift+Tab, `/mode [plan|build]`, or by directly invoking a skill (`/plan` sets `plan` mode, invoking any other skill sets `build` mode). The mode never changes the system prompt prefix or tool definitions. A bracketed notice is prepended to every outgoing user message in both modes (sticky). These notices are stored in the conversation and maintained through prompt caching. The default mode is set by `modes.default` in config (`build` unless configured otherwise).
 
@@ -291,15 +285,15 @@ See [docs/canon-drift-checks.md](docs/canon-drift-checks.md) for what counts as 
 
 When you paste an image (Ctrl+V), steiner saves it to `.steiner/tmp/images/` and assigns it a session-unique ID (e.g. `img-1`). The TUI displays the ID, dimensions, size, and file path below the submitted message.
 
-The strip placeholder — shown on subsequent turns when image data is omitted — includes the ID and file path so the model knows where to find the image. To re-examine it, call `vision` with the image ID:
+The strip placeholder — shown on subsequent turns when image data is omitted — includes the ID and file path so the model knows where to find the image. To re-examine it, call `sub_agent` with type `vision` and the image ID:
 
 ```
-vision(task: "what color is the button?", image_id: "img-1")
+sub_agent(type: "vision", objective: "describe what color the button is", context: "...", deliverable: "...", constraints: [], success_criteria: [], checks: [], image_id: "img-1")
 ```
 
-For follow-up questions about the same image, use `follow_up` with the `agent_id` returned by the initial `vision` call — the image is already in the sub-agent's history and cached server-side.
+For follow-up questions about the same image, use `follow_up` with the `agent_id` returned by the initial type `vision` call — the image is already in the sub-agent's history and cached server-side.
 
-The `vision` tool requires a vision-capable model configured under the selected profile's `sub_agents.vision` assignment. Image files are deleted automatically when the agent exits.
+The `vision` type requires a vision-capable model configured under the selected profile's `sub_agents.vision` assignment. Image files are deleted automatically when the agent exits.
 
 ## MCP
 

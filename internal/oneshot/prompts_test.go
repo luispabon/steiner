@@ -29,7 +29,7 @@ func TestLoadPrompt(t *testing.T) {
 				"validated units",
 				"Research Decision",
 				"Research is required by default",
-				"`research` tool",
+				"`sub_agent` tool with type `research`",
 				"overview.md",
 				"plan.yaml",
 				"## Decision Log",

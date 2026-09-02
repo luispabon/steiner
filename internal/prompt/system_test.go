@@ -288,7 +288,7 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 
 	// The roster table is rendered from the specialists slice, so assert
 	// against the live roster rather than a hardcoded table dump.
-	if !strings.Contains(content, "| Agent | Lane | Do not use for |") {
+	if !strings.Contains(content, "| Type | Lane | Do not use for |") {
 		t.Fatalf("delegation preamble missing roster table header in %q", content)
 	}
 	for _, name := range SpecialistNames() {

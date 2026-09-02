@@ -1,6 +1,6 @@
 # Sub-agent delegation
 
-`steiner` exposes eight sub-agent-as-tool operations that delegate bounded tasks to isolated child agents. When delegation is enabled, the parent's system prompt casts it as the orchestrator: its job is to orchestrate sub-agents — it plans the work, chooses the right specialist for each piece, dispatches it with a complete brief, and verifies and integrates its output, preserving its context for orchestration rather than doing the implementation itself.
+`steiner` exposes a unified `sub_agent` tool that dispatches bounded tasks to isolated child agents, with a `type` parameter selecting the specialist type. When delegation is enabled, the parent's system prompt casts it as the orchestrator: its job is to orchestrate sub-agents — it plans the work, chooses the right specialist for each piece, dispatches it with a complete brief, and verifies and integrates its output, preserving its context for orchestration rather than doing the implementation itself.
 
 The parent's preamble spells out a numbered workflow: an initial code-local investigation via `explore`, clarifying questions one at a time, any further research via `research` or `explore`, a Goal/Assumptions/Scope/Unknowns summary for user confirmation, a high-level implementation plan (with `evaluate` for harder, scoped sub-problems), breaking the plan into single-logical-unit implementation steps, then one cold `code` sub-agent per new step. Eligible continuation uses `follow_up` first; related corrections can return to the implementing agent, and narrow re-review can return to the original reviewer, while widened or high-risk review is fresh. Follow-ups require a resumable session, the same bounded deliverable and scope, and the original live workspace; otherwise dispatch cold, and use follow-ups sequentially rather than concurrently. The workflow then ends with `sanity_check`. When the advisor is enabled, the workflow includes an inline step to consult `advisor` and incorporate its feedback (step 7, with the later steps renumbered); the detailed advisor guidance lives in its own `## Advisor` preamble section. Local work is reserved for genuinely self-contained actions — a single bounded lookup, a self-contained formatting action such as running `gofmt`, or a tiny user-directed correction whose exact replacement text or source lines are supplied in the request; everything else is delegated by default.
 
@@ -10,20 +10,14 @@ The parent's preamble spells out a numbered workflow: an initial code-local inve
 
 ## Available tools
 
-Sub-agent delegation is **enabled by default**. When it is, the model sees eight additional tools alongside the built-in ones:
+Sub-agent delegation is **enabled by default**. When it is, the model sees two additional tools alongside the built-in ones:
 
-| Tool        | What it does                                                                     | Structured task fields                                     | Can mutate?            |
-|-------------|----------------------------------------------------------------------------------|------------------------------------------------------------|------------------------|
-| `explore`   | Navigate the codebase to find files, symbols, call sites, and patterns           | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | No                     |
-| `research`  | Gather and synthesise information from the codebase or web                       | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | No                     |
-| `code`      | Implement a scoped change — read relevant files, write changes, run tests        | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | Yes (`mutate`, `bash`) |
-| `evaluate`    | Analyse a sub-problem, evaluate options, and produce a structured recommendation | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | No                     |
-| `sanity_check`| Run tests, linters, builds, or other checks and report pass or fail              | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | No                     |
-| `review`      | Examine code changes for bugs, regressions, missing tests, or plan adherence     | `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks` | No                     |
-| `vision`    | Analyze an image by ID — the sub-agent receives the image directly               | All six task fields + `image_id`                            | No                     |
-| `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                      | No (resumes existing)  |
+| Tool        | What it does                                                                     | Parameters                                                                           | Can mutate?            |
+|-------------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------|------------------------|
+| `sub_agent` | Dispatch a specialized sub-agent by type: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision` | `type` enum + `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks`, and optionally `image_id` (required for type `vision`) | Depends on type; only `code` can mutate |
+| `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                                                  | No (resumes existing)  |
 
-The seven specialised tools (`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`) are hardcoded with purpose-built system prompts and tool allowlists. Delegation results sent to the provider use a compact envelope with exact `output`, optional failure status/reason, and optional persisted-session continuation. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
+The `sub_agent` tool routes to type-specific handlers with purpose-built system prompts and tool allowlists. Delegation results sent to the provider use a compact envelope with exact `output`, optional failure status/reason, and optional persisted-session continuation. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
 
 ### Advisor
 
@@ -33,15 +27,15 @@ The `advisor` tool is a pure reasoning pass for the parent agent. It reads the l
 
 | Situation                                              | Tool                                                                                                                             |
 |--------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
-| Find DRY/refactoring opportunities across the codebase | `explore` — report files, repeated patterns, risks, next steps                                                                   |
-| Fix a bug but location is unknown                      | `explore` — search likely areas and report exact files/code                                                                      |
-| Need to understand an external API or library          | `research` — gather docs, usage examples, and constraints                                                                        |
-| Implement a small known change in one package          | `code` — implement if ownership and tests are clear                                                                              |
-| Understand how a feature works across multiple files   | `explore` — trace the call chain, then reassess before editing                                                                   |
-| Evaluate two approaches to a design problem            | `evaluate` — analyse tradeoffs, then `code` the chosen approach                                                                  |
-| Close out a free-form implementation phase             | `review` the cumulative change, use eligible `follow_up` for same-scope amendments or narrow re-review, otherwise cold-dispatch `code` or a fresh independent `review`, then `sanity_check` |
-| Review implemented changes before merge                | `review` — examine code for bugs, regressions, missing tests                                                                     |
-| Describe or query a pasted image                       | `vision` — the sub-agent receives the image and answers                                                                          |
+| Find DRY/refactoring opportunities across the codebase | `sub_agent` type `explore` — report files, repeated patterns, risks, next steps                                                                   |
+| Fix a bug but location is unknown                      | `sub_agent` type `explore` — search likely areas and report exact files/code                                                                      |
+| Need to understand an external API or library          | `sub_agent` type `research` — gather docs, usage examples, and constraints                                                                        |
+| Implement a small known change in one package          | `sub_agent` type `code` — implement if ownership and tests are clear                                                                              |
+| Understand how a feature works across multiple files   | `sub_agent` type `explore` — trace the call chain, then reassess before editing                                                                   |
+| Evaluate two approaches to a design problem            | `sub_agent` type `evaluate` — analyse tradeoffs, then type `code` the chosen approach                                                                  |
+| Close out a free-form implementation phase             | type `review` the cumulative change, use eligible `follow_up` for same-scope amendments or narrow re-review, otherwise cold-dispatch type `code` or a fresh independent type `review`, then type `sanity_check` |
+| Review implemented changes before merge                | `sub_agent` type `review` — examine code for bugs, regressions, missing tests                                                                     |
+| Describe or query a pasted image                       | `sub_agent` type `vision` — the sub-agent receives the image and answers                                                                          |
 
 `evaluate` is for focused sub-problem analysis, **not** overall task planning.
 
@@ -192,20 +186,26 @@ profile's `sub_agents.<type>` assignments freely.
 | **Balanced**  | `research`, `review`, `vision`          | Requires synthesis or judgment — gathering information, reviewing code changes, analyzing images. Needs a model that can weigh context and produce nuanced output. |
 | **Top-thinker** | `evaluate`                           | Deep reasoning on scoped sub-problems — analysing tradeoffs, evaluating approaches. Benefits most from a stronger model's deliberation capacity. |
 
-### `vision` tool
+### `vision` type
 
-The `vision` tool requires two parameters:
+The `sub_agent` with type `vision` requires the six standard task fields plus `image_id`:
 
-| Parameter  | Type   | Description |
-|------------|--------|-------------|
-| `task`     | string | What to analyze or describe about the image. |
-| `image_id` | string | The image ID shown in the placeholder (e.g. `img-1`). |
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | string | `vision` |
+| `objective` | string | What to analyze or describe about the image. |
+| `context` | string | Background and any relevant constraints. |
+| `deliverable` | string | The shape of the answer expected. |
+| `constraints` | array | Boundaries and scope. |
+| `success_criteria` | array | Observable completion conditions. |
+| `checks` | array | Validations to run. |
+| `image_id` | string | The image ID shown in the placeholder (e.g. `img-1`). Required for type `vision`. |
 
-When you paste an image, the TUI displays its assigned ID below the submitted message. Pass that ID to `vision` to examine the image.
+When you paste an image, the TUI displays its assigned ID below the submitted message. Pass that ID to `sub_agent` with type `vision` to examine the image.
 
-After the initial `vision` call, use the `agent_id` inside the returned `continuation` object with `follow_up` to ask additional questions about the same image. The provider's server-side prompt cache makes follow-ups cheap.
+After the initial type `vision` call, use the `agent_id` inside the returned `continuation` object with `follow_up` to ask additional questions about the same image. The provider's server-side prompt cache makes follow-ups cheap.
 
-The `vision` tool is only registered when the selected profile's `sub_agents.vision`
+The `vision` type is only available when the selected profile's `sub_agents.vision`
 is configured. It requires a vision-capable model:
 
 ```yaml
