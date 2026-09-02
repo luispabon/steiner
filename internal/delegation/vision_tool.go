@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/provider"
@@ -23,61 +22,9 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		deps.ActiveController = NewActiveController()
 	}
 	return func(ctx context.Context, input map[string]any) (any, error) {
-		brief := structuredBrief{
-			Constraints:     []string{},
-			SuccessCriteria: []string{},
-			Checks:          []string{},
-		}
-
-		objective, _ := input["objective"].(string)
-		objective = strings.TrimSpace(objective)
-		if objective == "" {
-			return nil, fmt.Errorf("vision: objective is required and must be non-empty")
-		}
-		brief.Objective = objective
-
-		contextStr, _ := input["context"].(string)
-		contextStr = strings.TrimSpace(contextStr)
-		if contextStr == "" {
-			return nil, fmt.Errorf("vision: context is required and must be non-empty")
-		}
-		brief.Ctx = contextStr
-
-		deliverable, _ := input["deliverable"].(string)
-		deliverable = strings.TrimSpace(deliverable)
-		if deliverable == "" {
-			return nil, fmt.Errorf("vision: deliverable is required and must be non-empty")
-		}
-		brief.Deliverable = deliverable
-
-		if constraintsRaw, ok := input["constraints"].([]any); ok {
-			for i, item := range constraintsRaw {
-				s, ok := item.(string)
-				if !ok {
-					return nil, fmt.Errorf("vision: constraints[%d] is not a string", i)
-				}
-				brief.Constraints = append(brief.Constraints, s)
-			}
-		}
-
-		if criteriaRaw, ok := input["success_criteria"].([]any); ok {
-			for i, item := range criteriaRaw {
-				s, ok := item.(string)
-				if !ok {
-					return nil, fmt.Errorf("vision: success_criteria[%d] is not a string", i)
-				}
-				brief.SuccessCriteria = append(brief.SuccessCriteria, s)
-			}
-		}
-
-		if checksRaw, ok := input["checks"].([]any); ok {
-			for i, item := range checksRaw {
-				s, ok := item.(string)
-				if !ok {
-					return nil, fmt.Errorf("vision: checks[%d] is not a string", i)
-				}
-				brief.Checks = append(brief.Checks, s)
-			}
+		brief, err := parseStructuredBrief(string(AgentTypeVision), input)
+		if err != nil {
+			return nil, err
 		}
 
 		task := assembleTaskContent(brief)

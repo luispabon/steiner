@@ -120,6 +120,18 @@ func SubAgentToolDef(deps SpecializedToolDeps, excludeTypes []AgentType) tool.To
 // newSubAgentDispatchHandler returns a handler that routes to the appropriate
 // sub-agent handler based on the type parameter.
 func newSubAgentDispatchHandler(deps SpecializedToolDeps, excluded map[AgentType]bool) func(ctx context.Context, input map[string]any) (any, error) {
+	handlers := make(map[AgentType]func(ctx context.Context, input map[string]any) (any, error))
+	for _, agentType := range AllAgentTypes() {
+		if excluded[agentType] {
+			continue
+		}
+		if agentType == AgentTypeVision {
+			handlers[agentType] = newVisionHandler(deps)
+			continue
+		}
+		handlers[agentType] = newSpecializedHandler(agentType, deps)
+	}
+
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		rawType, _ := input["type"].(string)
 		rawType = strings.TrimSpace(rawType)
@@ -144,9 +156,8 @@ func newSubAgentDispatchHandler(deps SpecializedToolDeps, excluded map[AgentType
 			if imageID == "" {
 				return nil, fmt.Errorf("sub_agent: type is \"vision\" but image_id is missing or empty")
 			}
-			return newVisionHandler(deps)(ctx, input)
 		}
-		return newSpecializedHandler(agentType, deps)(ctx, input)
+		return handlers[agentType](ctx, input)
 	}
 }
 
@@ -372,11 +383,85 @@ type structuredBrief struct {
 	Checks          []string `json:"checks"`
 }
 
+func parseStructuredBrief(prefix string, input map[string]any) (structuredBrief, error) {
+	brief := structuredBrief{
+		Constraints:     []string{},
+		SuccessCriteria: []string{},
+		Checks:          []string{},
+	}
+
+	objective, _ := input["objective"].(string)
+	objective = strings.TrimSpace(objective)
+	if objective == "" {
+		return structuredBrief{}, fmt.Errorf("%s: objective is required and must be non-empty", prefix)
+	}
+	brief.Objective = objective
+
+	contextStr, _ := input["context"].(string)
+	contextStr = strings.TrimSpace(contextStr)
+	if contextStr == "" {
+		return structuredBrief{}, fmt.Errorf("%s: context is required and must be non-empty", prefix)
+	}
+	brief.Ctx = contextStr
+
+	deliverable, _ := input["deliverable"].(string)
+	deliverable = strings.TrimSpace(deliverable)
+	if deliverable == "" {
+		return structuredBrief{}, fmt.Errorf("%s: deliverable is required and must be non-empty", prefix)
+	}
+	brief.Deliverable = deliverable
+
+	if constraintsRaw, ok := input["constraints"].([]any); ok {
+		for i, item := range constraintsRaw {
+			s, ok := item.(string)
+			if !ok {
+				return structuredBrief{}, fmt.Errorf("%s: constraints[%d] is not a string", prefix, i)
+			}
+			brief.Constraints = append(brief.Constraints, s)
+		}
+	}
+
+	if criteriaRaw, ok := input["success_criteria"].([]any); ok {
+		for i, item := range criteriaRaw {
+			s, ok := item.(string)
+			if !ok {
+				return structuredBrief{}, fmt.Errorf("%s: success_criteria[%d] is not a string", prefix, i)
+			}
+			brief.SuccessCriteria = append(brief.SuccessCriteria, s)
+		}
+	}
+
+	if checksRaw, ok := input["checks"].([]any); ok {
+		for i, item := range checksRaw {
+			s, ok := item.(string)
+			if !ok {
+				return structuredBrief{}, fmt.Errorf("%s: checks[%d] is not a string", prefix, i)
+			}
+			brief.Checks = append(brief.Checks, s)
+		}
+	}
+
+	return brief, nil
+}
+
 // assembleTaskContent renders a structuredBrief into a deterministic markdown
 // message for the child agent. The output always uses the fixed field order
 // (Objective, Context, Deliverable, Constraints, Success criteria, Checks)
 // and omits empty optional sections entirely. This text becomes part of the
 // cached prompt prefix, so determinism is essential.
+func writeListItemSection(buf *strings.Builder, title string, items []string) {
+	buf.WriteString("\n\n## ")
+	buf.WriteString(title)
+	buf.WriteString("\n\n")
+	for i, item := range items {
+		if i > 0 {
+			buf.WriteString("\n")
+		}
+		buf.WriteString("- ")
+		buf.WriteString(item)
+	}
+}
+
 func assembleTaskContent(b structuredBrief) string {
 	var buf strings.Builder
 
@@ -392,36 +477,15 @@ func assembleTaskContent(b structuredBrief) string {
 	buf.WriteString(b.Deliverable)
 
 	if len(b.Constraints) > 0 {
-		buf.WriteString("\n\n## Constraints\n\n")
-		for i, item := range b.Constraints {
-			if i > 0 {
-				buf.WriteString("\n")
-			}
-			buf.WriteString("- ")
-			buf.WriteString(item)
-		}
+		writeListItemSection(&buf, "Constraints", b.Constraints)
 	}
 
 	if len(b.SuccessCriteria) > 0 {
-		buf.WriteString("\n\n## Success criteria\n\n")
-		for i, item := range b.SuccessCriteria {
-			if i > 0 {
-				buf.WriteString("\n")
-			}
-			buf.WriteString("- ")
-			buf.WriteString(item)
-		}
+		writeListItemSection(&buf, "Success criteria", b.SuccessCriteria)
 	}
 
 	if len(b.Checks) > 0 {
-		buf.WriteString("\n\n## Checks\n\n")
-		for i, item := range b.Checks {
-			if i > 0 {
-				buf.WriteString("\n")
-			}
-			buf.WriteString("- ")
-			buf.WriteString(item)
-		}
+		writeListItemSection(&buf, "Checks", b.Checks)
 	}
 
 	return buf.String()
@@ -441,61 +505,9 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			return nil, err
 		}
 
-		brief := structuredBrief{
-			Constraints:     []string{},
-			SuccessCriteria: []string{},
-			Checks:          []string{},
-		}
-
-		objective, _ := input["objective"].(string)
-		objective = strings.TrimSpace(objective)
-		if objective == "" {
-			return nil, fmt.Errorf("%s: objective is required and must be non-empty", agentType)
-		}
-		brief.Objective = objective
-
-		contextStr, _ := input["context"].(string)
-		contextStr = strings.TrimSpace(contextStr)
-		if contextStr == "" {
-			return nil, fmt.Errorf("%s: context is required and must be non-empty", agentType)
-		}
-		brief.Ctx = contextStr
-
-		deliverable, _ := input["deliverable"].(string)
-		deliverable = strings.TrimSpace(deliverable)
-		if deliverable == "" {
-			return nil, fmt.Errorf("%s: deliverable is required and must be non-empty", agentType)
-		}
-		brief.Deliverable = deliverable
-
-		if constraintsRaw, ok := input["constraints"].([]any); ok {
-			for i, item := range constraintsRaw {
-				s, ok := item.(string)
-				if !ok {
-					return nil, fmt.Errorf("%s: constraints[%d] is not a string", agentType, i)
-				}
-				brief.Constraints = append(brief.Constraints, s)
-			}
-		}
-
-		if criteriaRaw, ok := input["success_criteria"].([]any); ok {
-			for i, item := range criteriaRaw {
-				s, ok := item.(string)
-				if !ok {
-					return nil, fmt.Errorf("%s: success_criteria[%d] is not a string", agentType, i)
-				}
-				brief.SuccessCriteria = append(brief.SuccessCriteria, s)
-			}
-		}
-
-		if checksRaw, ok := input["checks"].([]any); ok {
-			for i, item := range checksRaw {
-				s, ok := item.(string)
-				if !ok {
-					return nil, fmt.Errorf("%s: checks[%d] is not a string", agentType, i)
-				}
-				brief.Checks = append(brief.Checks, s)
-			}
+		brief, err := parseStructuredBrief(string(agentType), input)
+		if err != nil {
+			return nil, err
 		}
 
 		task := assembleTaskContent(brief)
