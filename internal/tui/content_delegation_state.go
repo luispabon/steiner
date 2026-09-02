@@ -178,3 +178,15 @@ func summarizeFollowUpArgs(args map[string]any) string {
 	}
 	return "follow up"
 }
+
+// applyStructuredBrief applies a structured brief to a delegationDisplayState,
+// populating its prompt and brief fields.
+func (dd *delegationDisplayState) applyStructuredBrief(b structuredDelegateBrief) {
+	dd.promptText = b.objective
+	dd.briefObjective = b.objective
+	dd.briefContext = b.context
+	dd.briefDeliverable = b.deliverable
+	dd.briefConstraints = b.constraints
+	dd.briefSuccessCriteria = b.successCriteria
+	dd.briefChecks = b.checks
+}

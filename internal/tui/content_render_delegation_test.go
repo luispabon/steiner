@@ -22,57 +22,10 @@ func TestDelegationCompleteMetaIncludesOnlyStatusDurationAndCache(t *testing.T) 
 		advisorMaxUses: 2,
 	}
 
-	got, _ := delegationCompleteMeta(dd)
+	got := delegationCompleteMeta(dd)
 	want := []string{"complete", "cache 95.2%", "12.4s"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
-	}
-}
-
-func TestDelegationAdvisorMeta(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		dd       *delegationDisplayState
-		wantText string
-		wantWarn bool
-	}{
-		{
-			name:     "zero budget",
-			dd:       &delegationDisplayState{advisorBudget: 0},
-			wantText: "",
-			wantWarn: false,
-		},
-		{
-			name:     "permitted unused",
-			dd:       &delegationDisplayState{advisorBudget: 1, advisorUses: 0, advisorDenied: 0},
-			wantText: "advisor 0/1",
-			wantWarn: false,
-		},
-		{
-			name:     "used once",
-			dd:       &delegationDisplayState{advisorBudget: 1, advisorUses: 1, advisorDenied: 0},
-			wantText: "advisor 1/1",
-			wantWarn: false,
-		},
-		{
-			name:     "used with denials",
-			dd:       &delegationDisplayState{advisorBudget: 1, advisorUses: 1, advisorDenied: 2},
-			wantText: "advisor 1/1 +2 denied",
-			wantWarn: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotText, gotWarn := delegationAdvisorMeta(tt.dd)
-			if gotText != tt.wantText {
-				t.Errorf("delegationAdvisorMeta text = %q, want %q", gotText, tt.wantText)
-			}
-			if gotWarn != tt.wantWarn {
-				t.Errorf("delegationAdvisorMeta warn = %v, want %v", gotWarn, tt.wantWarn)
-			}
-		})
 	}
 }
 
@@ -212,7 +165,7 @@ func TestDelegationCompleteMetaOmitsCacheHitRateWhenNotOK(t *testing.T) {
 		cacheHitOK:   false,
 	}
 
-	got, _ := delegationCompleteMeta(dd)
+	got := delegationCompleteMeta(dd)
 	want := []string{"complete", "12.4s"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
@@ -297,7 +250,7 @@ func TestDelegationCompleteMetaOrdersModelCacheAndElapsed(t *testing.T) {
 		elapsed:      "12.4s",
 	}
 
-	got, _ := delegationCompleteMeta(dd)
+	got := delegationCompleteMeta(dd)
 	want := []string{"complete", "gpt-x/high", "cache 95.2%", "12.4s"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationCompleteMeta() = %v, want %v", got, want)
@@ -314,7 +267,7 @@ func TestDelegationBudgetMetaOrdersModelBeforeAdvisorUse(t *testing.T) {
 		advisorMaxUses: 2,
 	}
 
-	got, _ := delegationBudgetMeta(dd)
+	got := delegationBudgetMeta(dd)
 	want := []string{"budget exhausted", "gpt-x/high", "1/2"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationBudgetMeta() = %v, want %v", got, want)
@@ -329,7 +282,7 @@ func TestDelegationFailedMetaOrdersModelBeforeElapsed(t *testing.T) {
 		elapsed:   "12.4s",
 	}
 
-	got, _ := delegationFailedMeta(dd)
+	got := delegationFailedMeta(dd)
 	want := []string{"failed", "gpt-x/high", "12.4s"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("delegationFailedMeta() = %v, want %v", got, want)
@@ -482,5 +435,195 @@ func TestRenderDelegationGroupSegmentWithMixedLabelUsesDefaultBorder(t *testing.
 	// Just verify it renders without error and contains entries
 	if !strings.Contains(rendered, "child-1") || !strings.Contains(rendered, "child-2") {
 		t.Errorf("rendered output missing entries: %q", rendered)
+	}
+}
+
+func TestRenderDelegationBriefBodyIncludesAllFields(t *testing.T) {
+	t.Parallel()
+	buffer := newTestBuffer(t)
+	dd := &delegationDisplayState{
+		briefObjective:       "implement feature",
+		briefContext:         "background info",
+		briefDeliverable:     "working code",
+		briefConstraints:     []string{"no breaking changes", "use Go 1.25"},
+		briefSuccessCriteria: []string{"tests pass"},
+		briefChecks:          []string{"go test ./...", "go vet ./..."},
+	}
+
+	lines := buffer.renderDelegationBriefBody(dd, 80)
+	if len(lines) == 0 {
+		t.Fatal("renderDelegationBriefBody returned no lines")
+	}
+
+	text := strings.Join(lines, "\n")
+	if !strings.Contains(text, "objective") {
+		t.Error("brief body missing 'objective' label")
+	}
+	if !strings.Contains(text, "context") {
+		t.Error("brief body missing 'context' label")
+	}
+	if !strings.Contains(text, "deliverable") {
+		t.Error("brief body missing 'deliverable' label")
+	}
+	if !strings.Contains(text, "constraints") {
+		t.Error("brief body missing 'constraints' label")
+	}
+	if !strings.Contains(text, "success criteria") {
+		t.Error("brief body missing 'success criteria' label")
+	}
+	if !strings.Contains(text, "checks") {
+		t.Error("brief body missing 'checks' label")
+	}
+	if !strings.Contains(text, "no breaking changes") {
+		t.Error("brief body missing constraint text")
+	}
+	if !strings.Contains(text, "tests pass") {
+		t.Error("brief body missing success criteria text")
+	}
+}
+
+func TestRenderDelegationBriefBodyOmitsEmptyFields(t *testing.T) {
+	t.Parallel()
+	buffer := newTestBuffer(t)
+	dd := &delegationDisplayState{
+		briefObjective:   "task",
+		briefContext:     "",
+		briefDeliverable: "result",
+		// empty slices are omitted
+	}
+
+	lines := buffer.renderDelegationBriefBody(dd, 80)
+	text := strings.Join(lines, "\n")
+
+	if strings.Contains(text, "context") {
+		t.Error("brief body should not include empty context label")
+	}
+	if !strings.Contains(text, "objective") {
+		t.Error("brief body should include objective")
+	}
+	if !strings.Contains(text, "deliverable") {
+		t.Error("brief body should include deliverable")
+	}
+}
+
+func TestAdvisorStatsOnlyInFooterWhenTerminal(t *testing.T) {
+	t.Parallel()
+	buffer := newTestBuffer(t)
+
+	// Completed non-advisor delegation with advisor budget
+	dd := &delegationDisplayState{
+		isAdvisor:       false,
+		status:          "complete",
+		advisorBudget:   2,
+		advisorUses:     1,
+		advisorDenied:   0,
+		modelName:       "gpt-x",
+		turnCount:       1,
+	}
+
+	// Check header meta does NOT contain "advisor"
+	headerMeta := buffer.renderDelegationHeaderMeta(dd)
+	if strings.Contains(headerMeta, "advisor") {
+		t.Errorf("header meta should not contain 'advisor', got %q", headerMeta)
+	}
+
+	// Check footer stats DO contain "Advisor:"
+	stats := delegationStatsParts(buffer, dd)
+	found := false
+	for _, stat := range stats {
+		if strings.Contains(stat, "Advisor:") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("footer stats should contain 'Advisor:', got %v", stats)
+	}
+}
+
+func TestAdvisorStatsNotInFooterWhenActive(t *testing.T) {
+	t.Parallel()
+	buffer := newTestBuffer(t)
+
+	// Active non-advisor delegation with advisor budget
+	dd := &delegationDisplayState{
+		isAdvisor:     false,
+		status:        "active",
+		advisorBudget: 2,
+		advisorUses:   1,
+		advisorDenied: 0,
+	}
+
+	// Check footer stats do NOT yet contain "Advisor:"
+	stats := delegationStatsParts(buffer, dd)
+	for _, stat := range stats {
+		if strings.Contains(stat, "Advisor:") {
+			t.Errorf("active delegation footer should not contain 'Advisor:', got %v", stats)
+		}
+	}
+}
+
+func TestNonAdvisorBoxDoesNotRenderQuestionFiles(t *testing.T) {
+	t.Parallel()
+	buffer := newTestBuffer(t)
+
+	// Non-advisor delegation with advisor question/files (should be ignored)
+	dd := &delegationDisplayState{
+		isAdvisor:         false,
+		collapsed:         false,
+		advisorBudget:     2,
+		advisorQuestion:   "should not render",
+		advisorFiles:      []string{"file1.go", "file2.go"},
+	}
+
+	rows, _ := buffer.delegationSectionRows(dd, 80)
+
+	// Check that no question/files rows are rendered
+	for _, row := range rows {
+		if strings.Contains(row.text, "question") {
+			t.Errorf("non-advisor box should not render question header")
+		}
+		if strings.Contains(row.text, "files") {
+			t.Errorf("non-advisor box should not render files header")
+		}
+		if strings.Contains(row.text, "should not render") {
+			t.Errorf("non-advisor box should not render advisor question text")
+		}
+		if strings.Contains(row.text, "file1.go") {
+			t.Errorf("non-advisor box should not render advisor files")
+		}
+	}
+}
+
+func TestAdvisorBoxRendersQuestionFiles(t *testing.T) {
+	t.Parallel()
+	buffer := newTestBuffer(t)
+
+	// Advisor delegation (should render question/files)
+	dd := &delegationDisplayState{
+		isAdvisor:       true,
+		collapsed:       false,
+		advisorQuestion: "what to check?",
+		advisorFiles:    []string{"file1.go"},
+	}
+
+	rows, _ := buffer.delegationSectionRows(dd, 80)
+
+	// Check that question/files rows ARE rendered for advisor
+	questionFound := false
+	filesFound := false
+	for _, row := range rows {
+		if strings.Contains(row.text, "question") {
+			questionFound = true
+		}
+		if strings.Contains(row.text, "files") {
+			filesFound = true
+		}
+	}
+	if !questionFound {
+		t.Error("advisor box should render question header")
+	}
+	if !filesFound {
+		t.Error("advisor box should render files header")
 	}
 }
