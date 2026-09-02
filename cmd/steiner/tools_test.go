@@ -261,7 +261,7 @@ func TestMCPToolExposedToChildStillRequiresApproval(t *testing.T) {
 			ExtraAllowedTools: exposure,
 		},
 	}, nil)
-	if _, err := def.Handler(context.Background(), map[string]any{"type": "research", "objective": "research the codebase", "context": "initial context", "deliverable": "findings", "constraints": []any{}, "success_criteria": []any{}, "checks": []any{}}); err != nil {
+	if _, err := def.Handler(context.Background(), subAgentTask("research", "research the codebase", "initial context", "findings")); err != nil {
 		t.Fatalf("research handler: %v", err)
 	}
 	if len(runner.reqs) == 0 {

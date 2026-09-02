@@ -649,7 +649,7 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 
 	// Invoke the handler. modelResolver (and providerFactory) runs before the
 	// agent run starts, so the capture happens even though the run fails fast.
-	toolDef.Handler(context.Background(), map[string]any{"type": "explore", "objective": "test", "context": "test context", "deliverable": "result", "constraints": []any{}, "success_criteria": []any{}, "checks": []any{}}) //nolint:errcheck
+	toolDef.Handler(context.Background(), subAgentTask("explore", "test", "test context", "result")) //nolint:errcheck
 
 	if !capturedModel.ReasoningEchoBack {
 		t.Error("modelResolver did not set ReasoningEchoBack: Resolve was used instead of ResolveWithDiscovery")
@@ -710,7 +710,7 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 		t.Fatalf("sub_agent tool not in registry")
 	}
 
-	toolDef.Handler(context.Background(), map[string]any{"type": "explore", "objective": "test", "context": "test context", "deliverable": "result", "constraints": []any{}, "success_criteria": []any{}, "checks": []any{}}) //nolint:errcheck
+	toolDef.Handler(context.Background(), subAgentTask("explore", "test", "test context", "result")) //nolint:errcheck
 
 	if got, want := capturedModel.EffectiveLimits.ContextWindow, 262144; got != want {
 		t.Fatalf("captured context window = %d, want %d", got, want)
@@ -870,7 +870,7 @@ func exploreDelegationResponses() []provider.ChatResponse {
 			Message: provider.Message{
 				Role: provider.MessageRoleAssistant,
 				ToolCalls: []provider.ToolCall{
-					{ID: "call_1", Name: delegation.SubAgentToolName, Arguments: map[string]any{"type": "explore", "objective": "analyze", "context": "codebase", "deliverable": "findings", "constraints": []any{}, "success_criteria": []any{}, "checks": []any{}}},
+					{ID: "call_1", Name: delegation.SubAgentToolName, Arguments: subAgentTask("explore", "analyze", "codebase", "findings")},
 				},
 			},
 			FinishReason: "tool_calls",
@@ -998,7 +998,7 @@ func codeDelegationResponses() []provider.ChatResponse {
 			Message: provider.Message{
 				Role: provider.MessageRoleAssistant,
 				ToolCalls: []provider.ToolCall{
-					{ID: "call_1", Name: delegation.SubAgentToolName, Arguments: map[string]any{"type": "code", "objective": "write a file", "context": "repo", "deliverable": "file", "constraints": []any{}, "success_criteria": []any{}, "checks": []any{}}},
+					{ID: "call_1", Name: delegation.SubAgentToolName, Arguments: subAgentTask("code", "write a file", "repo", "file")},
 				},
 			},
 			FinishReason: "tool_calls",
