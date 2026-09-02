@@ -475,6 +475,21 @@ func (b *contentBuffer) markDelegationDirty(idx int) {
 	b.gen++
 }
 
+func delegateCallDetails(tool string, args map[string]any) (label, prompt string, brief *structuredDelegateBrief) {
+	if !isSpecializedDelegateTool(tool) {
+		return "", delegateArgText(args), nil
+	}
+
+	if typeArg, ok := args["type"].(string); ok {
+		label = strings.ToLower(strings.TrimSpace(typeArg))
+	}
+	if parsed, ok := parseStructuredDelegateBrief(args); ok {
+		brief = &parsed
+		return label, parsed.objective, brief
+	}
+	return label, delegateArgText(args), nil
+}
+
 func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload output.ToolCallStartedEvent) {
 	if loc.dd == nil {
 		return
@@ -482,22 +497,17 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 	dd := loc.dd
 	dd.parentCallID = payload.CallID
 	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
-	if isSpecializedDelegateTool(payload.Tool) {
-		if brief, ok := parseStructuredDelegateBrief(payload.Arguments); ok {
-			dd.applyStructuredBrief(brief)
-		} else {
-			dd.promptText = delegateArgText(payload.Arguments)
-		}
+	toolLabel, promptText, brief := delegateCallDetails(payload.Tool, payload.Arguments)
+	if brief != nil {
+		dd.applyStructuredBrief(*brief)
 	} else {
-		dd.promptText = delegateArgText(payload.Arguments)
+		dd.promptText = promptText
 	}
 	if dd.taskPreview == "" {
 		dd.taskPreview = dd.parentArgs
 	}
-	if dd.toolLabel == "" && isSpecializedDelegateTool(payload.Tool) {
-		if typeArg, ok := payload.Arguments["type"].(string); ok {
-			dd.toolLabel = strings.ToLower(strings.TrimSpace(typeArg))
-		}
+	if dd.toolLabel == "" {
+		dd.toolLabel = toolLabel
 	}
 	b.markDelegationDirty(loc.seg)
 }
@@ -545,20 +555,7 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 	}
 
 	summary := summarizeArgs(payload.Tool, payload.Arguments)
-	toolLabel := ""
-	promptText := ""
-	if isSpecializedDelegateTool(payload.Tool) {
-		if typeArg, ok := payload.Arguments["type"].(string); ok {
-			toolLabel = strings.ToLower(strings.TrimSpace(typeArg))
-		}
-		if brief, ok := parseStructuredDelegateBrief(payload.Arguments); ok {
-			promptText = brief.objective
-		} else {
-			promptText = delegateArgText(payload.Arguments)
-		}
-	} else {
-		promptText = delegateArgText(payload.Arguments)
-	}
+	toolLabel, promptText, brief := delegateCallDetails(payload.Tool, payload.Arguments)
 	dd := &delegationDisplayState{
 		toolLabel:       toolLabel,
 		taskPreview:     summary,
@@ -570,10 +567,8 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		collapsed:       true,
 		extMax:          defaultDelegationExtensionMax,
 	}
-	if isSpecializedDelegateTool(payload.Tool) {
-		if brief, ok := parseStructuredDelegateBrief(payload.Arguments); ok {
-			dd.applyStructuredBrief(brief)
-		}
+	if brief != nil {
+		dd.applyStructuredBrief(*brief)
 	}
 	idx := b.appendDelegationSegment(dd)
 	b.pendingDelegateParents = append(b.pendingDelegateParents, delegationLocator{seg: idx, dd: dd})
