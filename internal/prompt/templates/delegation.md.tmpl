@@ -81,20 +81,22 @@ Examples:
 
 ## Briefing a sub-agent
 
-Assign one deliverable per task.
+Fresh briefs must be self-contained and task-specific. Include only facts, settled decisions, contracts, and requirements needed for the deliverable.
 
 `code`: provide exact files/symbols and a pre-decided design.
 `review`: provide the files/diff range and required checks.
 
-Every `sub_agent` call includes these params:
-- **type**: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision`.
-- **Objective**: one required outcome.
-- **Context**: relevant paths, symbols, excerpts, background, prior decisions.
-- **Deliverable**: exact output and format.
-- **Constraints**: scope, preserved behaviour, prohibited actions.
-- **Success criteria**: observable completion conditions.
-- **Checks**: commands or validations to run.
+Assign one deliverable per task.
 
-Sub-agents see only this brief and cannot delegate or question the user.
+`sub_agent` requires:
 
-`follow_up` is delta-only. State only changes, next action, and new constraints/checks. Use it only while the same deliverable and workspace remain live.
+- **Objective** — one concrete outcome.
+- **Context** — needed paths, symbols, state, errors, decisions, and contracts.
+- **Deliverable** — exact change, artifact, or answer to return.
+- **Constraints** — write scope, non-goals, preserved behaviour, prohibited actions.
+- **Success criteria** — observable completion conditions.
+- **Checks** — narrow validations for this deliverable.
+
+Sub-agents see only their brief and cannot delegate or ask the user. Pass decisions, not deliberation.
+
+`follow_up` is delta-only: state the next action and anything new or changed. Do not repeat retained context.
