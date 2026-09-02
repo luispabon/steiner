@@ -304,7 +304,7 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		want   string
 		detail string
 	}{
-		{" |\n\nEvery ", "blank line between the roster table and the worktree paragraph"},
+		{"|\n\nEach ", "blank line between the roster table and the worktree paragraph"},
 		{"follow this workflow:\n\n1. ", "blank line between the workflow lead-in and the numbered list"},
 		{"\n\n## Delegation vs direct work", "blank line between the numbered list and the following header"},
 	} {
@@ -351,7 +351,7 @@ func workflowSection(t *testing.T, content string) string {
 func TestSystemPreambleDelegationWorkflow(t *testing.T) {
 	t.Parallel()
 
-	const baseSteps = 6
+	const baseSteps = 5
 
 	cases := []struct {
 		name      string
@@ -550,7 +550,7 @@ func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 	// The before-editing and verification bullets of the shared workflow block
 	// are pinned here so a regression in renderWorkflowInstructions is caught.
 	for _, want := range []string{
-		"- Ensure relevant files and nearby tests are inspected before making changes.",
+		"- Inspect relevant files and nearby tests.",
 		"- Ensure the narrowest relevant checks run first.",
 	} {
 		if !strings.Contains(parent, want) {

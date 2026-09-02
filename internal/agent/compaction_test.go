@@ -544,7 +544,7 @@ func TestSummarizeCompactorRunsEmergencyStageWhenNormalCompactionLeavesPromptToo
 			{
 				Message: provider.Message{
 					Role:    provider.MessageRoleAssistant,
-					Content: strings.Repeat("normal summary detail ", 600),
+					Content: strings.Repeat("normal summary detail ", 1200),
 				},
 				FinishReason: "stop",
 			},
@@ -590,7 +590,7 @@ func TestSummarizeCompactorRunsEmergencyStageWhenNormalCompactionLeavesPromptToo
 		Provider:      providerStub,
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:               4000,
+			ContextSize:               6000,
 			MaxCompletionTokens:       128,
 			SafetyMarginTokens:        0,
 			SummaryMaxTokens:          64,
