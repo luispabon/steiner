@@ -2998,41 +2998,7 @@ func TestRenderToolPreviewUsesStructuredBashView(t *testing.T) {
 	}
 }
 
-func TestIsSpecializedDelegateTool(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		tool string
-		want bool
-	}{
-		// Old specialist names are no longer recognized; only sub_agent/follow_up are
-		{"explore", false},
-		{"research", false},
-		{"code", false},
-		{"evaluate", false},
-		{"sanity_check", false},
-		{"review", false},
-		// New unified tool name (case-insensitive)
-		{"sub_agent", true},
-		{"Sub_Agent", true},
-		{"SUB_AGENT", true},
-		// follow_up is still recognized
-		{"follow_up", true},
-		// whitespace trimmed
-		{" sub_agent ", true},
-		// non-specialized tools
-		{"delegate", false},
-		{"bash", false},
-		{"read", false},
-		{"", false},
-	}
-	for _, tt := range tests {
-		if got := isSpecializedDelegateTool(tt.tool); got != tt.want {
-			t.Errorf("isSpecializedDelegateTool(%q) = %v, want %v", tt.tool, got, tt.want)
-		}
-	}
-}
-
-func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
+func TestSummarizeArgsLegacyDelegateNamesUseGenericFallback(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		tool string
@@ -3041,43 +3007,50 @@ func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
 	}{
 		{
 			tool: "explore",
-			args: map[string]any{"task": "look into the auth module"},
-			want: "look into the auth module",
+			args: map[string]any{"task": "look into the auth module", "path": "auth"},
+			want: "auth",
 		},
 		{
 			tool: "research",
-			args: map[string]any{"task": "find all usages of X"},
-			want: "find all usages of X",
+			args: map[string]any{"task": "find all usages of X", "path": "usages"},
+			want: "usages",
 		},
 		{
 			tool: "code",
-			args: map[string]any{"task": "implement the retry logic"},
-			want: "implement the retry logic",
+			args: map[string]any{"task": "implement the retry logic", "path": "retry"},
+			want: "retry",
 		},
 		{
 			tool: "evaluate",
-			args: map[string]any{"task": "plan the migration"},
-			want: "plan the migration",
+			args: map[string]any{"task": "plan the migration", "path": "migration"},
+			want: "migration",
 		},
 		{
 			tool: "sanity_check",
-			args: map[string]any{"task": "run all tests and confirm green"},
-			want: "run all tests and confirm green",
-		},
-		{
-			tool: "mutate",
-			args: map[string]any{"operations": []any{
-				map[string]any{"type": "replace", "path": "internal/tool/builtin/mutate.go"},
-				map[string]any{"type": "move", "from": "old.go", "to": "new.go"},
-			}},
-			want: "replace internal/tool/builtin/mutate.go (+1 more)",
+			args: map[string]any{"task": "run all tests and confirm green", "path": "tests"},
+			want: "tests",
 		},
 	}
 	for _, tt := range tests {
-		got := summarizeArgs(tt.tool, tt.args)
-		if got != tt.want {
-			t.Errorf("summarizeArgs(%q, ...) = %q, want %q", tt.tool, got, tt.want)
-		}
+		t.Run(tt.tool, func(t *testing.T) {
+			t.Parallel()
+			got := summarizeArgs(tt.tool, tt.args)
+			if got != tt.want {
+				t.Errorf("summarizeArgs(%q, ...) = %q, want %q", tt.tool, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSummarizeArgsSubAgentUsesObjective(t *testing.T) {
+	t.Parallel()
+	args := map[string]any{
+		"objective": "primary objective",
+		"task":      "fallback task",
+	}
+
+	if got := summarizeArgs("sub_agent", args); got != "primary objective" {
+		t.Errorf("summarizeArgs(%q, ...) = %q, want objective %q", "sub_agent", got, "primary objective")
 	}
 }
 
