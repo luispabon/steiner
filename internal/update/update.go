@@ -318,6 +318,10 @@ func Check(ctx context.Context, currentVersion, owner, repo, token, channel, tar
 
 		latestTag := release.TagName
 
+		if targetVersion != "" {
+			return latestTag, true, nil
+		}
+
 		if isDevVersion(currentVersion) {
 			return latestTag, true, nil
 		}
