@@ -248,7 +248,7 @@ func TestMCPToolExposedToChildStillRequiresApproval(t *testing.T) {
 	}
 
 	runner := &capturingChildRunner{}
-	def := delegation.SpecializedToolDef(delegation.AgentTypeResearch, delegation.SpecializedToolDeps{
+	def := delegation.SubAgentToolDef(delegation.SpecializedToolDeps{
 		SubAgentHandlerDeps: delegation.SubAgentHandlerDeps{
 			SubAgentCfg:       config.SubAgentConfig{},
 			Provider:          stubProvider{},
@@ -260,8 +260,8 @@ func TestMCPToolExposedToChildStillRequiresApproval(t *testing.T) {
 			SessionStore:      delegation.NewSessionStore(),
 			ExtraAllowedTools: exposure,
 		},
-	})
-	if _, err := def.Handler(context.Background(), map[string]any{"objective": "research the codebase", "context": "initial context", "deliverable": "findings"}); err != nil {
+	}, nil)
+	if _, err := def.Handler(context.Background(), map[string]any{"type": "research", "objective": "research the codebase", "context": "initial context", "deliverable": "findings", "constraints": []any{}, "success_criteria": []any{}, "checks": []any{}}); err != nil {
 		t.Fatalf("research handler: %v", err)
 	}
 	if len(runner.reqs) == 0 {

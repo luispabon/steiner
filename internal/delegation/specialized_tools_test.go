@@ -106,13 +106,6 @@ func validStructuredTask(taskDescription string) map[string]any {
 	}
 }
 
-// validStructuredTaskWithImageID returns a valid structured task input with image_id for vision testing.
-func validStructuredTaskWithImageID(taskDescription, imageID string) map[string]any {
-	task := validStructuredTask(taskDescription)
-	task["image_id"] = imageID
-	return task
-}
-
 // subAgentTask returns a valid sub-agent task input for the given agent type.
 func subAgentTask(agentType AgentType, taskDescription string) map[string]any {
 	task := validStructuredTask(taskDescription)
@@ -1353,26 +1346,32 @@ func TestVisionToolDef_Schema(t *testing.T) {
 	}
 	for _, field := range requiredFields {
 		if !requiredSet[field] {
-			t.Errorf("%q must be required in vision schema", field)
+			t.Errorf("%q must be required in schema", field)
 		}
 	}
-	if !requiredSet["image_id"] {
-		t.Error("'image_id' must be required in vision schema")
+	// image_id is present but not required in schema; handler enforces it for type=vision
+	if requiredSet["image_id"] {
+		t.Error("'image_id' must NOT be in required array (conditionally required by handler)")
 	}
-	// Should have 7 required fields: 6 task fields + image_id
+	// Should have 7 required fields: type + 6 task fields (image_id is not required)
 	if len(requiredSet) != 7 {
-		t.Errorf("vision schema has %d required fields, want 7", len(requiredSet))
+		t.Errorf("schema has %d required fields, want 7 (type + 6 task fields)", len(requiredSet))
 	}
 }
 
 func TestVisionToolDef_DescriptionMentionsFollowUp(t *testing.T) {
+	// Updated: SubAgentToolDef is a unified tool for all types.
+	// The follow_up guidance was vision-specific (reusing agent_id for follow-up questions
+	// about the same cached image). The unified tool description doesn't repeat type-specific
+	// guidance; that's in the type enum descriptions. Verify the unified description
+	// mentions the type parameter for agent-specific behavior.
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
 	def := SubAgentToolDef(deps, nil)
 
-	if !strings.Contains(def.Description, "follow_up") {
-		t.Errorf("vision tool description should mention 'follow_up', got: %q", def.Description)
+	if !strings.Contains(def.Description, "type") {
+		t.Errorf("sub_agent tool description should reference the 'type' parameter, got: %q", def.Description)
 	}
 }
 
@@ -1418,7 +1417,7 @@ func TestVisionHandler_UnknownImageID(t *testing.T) {
 	}
 	def := SubAgentToolDef(deps, nil)
 
-	input := validStructuredTaskWithImageID("describe the image", "img-99")
+	input := subAgentTaskWithImageID("describe the image", "img-99")
 	_, err := def.Handler(context.Background(), input)
 	if err == nil {
 		t.Fatal("expected error for unknown image_id")
@@ -1459,7 +1458,7 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 	}
 	def := SubAgentToolDef(deps, nil)
 
-	input := validStructuredTaskWithImageID("describe what you see", ref.ID)
+	input := subAgentTaskWithImageID("describe what you see", ref.ID)
 	raw, err := def.Handler(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1648,7 +1647,7 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 				deps := minimalDeps(runner)
 				def := SubAgentToolDef(deps, nil)
 
-				_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task"))
+				_, err := def.Handler(context.Background(), subAgentTask(agentType, "test task"))
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
@@ -1679,7 +1678,7 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 				}
 				def := SubAgentToolDef(deps, nil)
 
-				_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task"))
+				_, err := def.Handler(context.Background(), subAgentTask(agentType, "test task"))
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
@@ -1714,7 +1713,7 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 		deps.ImageStore = store
 		def := SubAgentToolDef(deps, nil)
 
-		input := validStructuredTaskWithImageID("describe the image", ref.ID)
+		input := subAgentTaskWithImageID("describe the image", ref.ID)
 		_, err := def.Handler(context.Background(), input)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -1823,7 +1822,7 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 			ModelResolver: nil,
 		}
 		def := SubAgentToolDef(deps, nil)
-		if _, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task")); err != nil {
+		if _, err := def.Handler(context.Background(), subAgentTask(agentType, "test task")); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		return capturedReq, store
@@ -1949,7 +1948,7 @@ func TestVisionHandler_ExtraAllowedTools(t *testing.T) {
 	}
 
 	def := SubAgentToolDef(deps, nil)
-	input := validStructuredTaskWithImageID("describe the image", ref.ID)
+	input := subAgentTaskWithImageID("describe the image", ref.ID)
 	raw, err := def.Handler(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
