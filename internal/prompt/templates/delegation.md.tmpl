@@ -15,11 +15,11 @@ After an orchestrated workflow, write commit messages and PR titles/bodies from 
 {{ range .Specialists -}}
 | `{{ .Name }}` | {{ .Lane }} | {{ .DoNotUseFor }} |
 {{ end }}
-Every `code` sub-agent runs in an isolated git worktree under `.steiner/worktrees/`. Use `worktree_path` and `worktree_branch` from the delegation result to inspect or merge its work, and check warnings for parent-tree changes it could not see. If worktree provisioning fails, the code call fails; there is no shared-tree fallback. After merging and verifying the work, ALWAYS prune the worktree. Dispatch independent sub-agent calls — cold or `follow_up`, one type or several — together in one message; sequence only when one call's input depends on another's result.
+Every `sub_agent` type `code` runs in an isolated git worktree under `.steiner/worktrees/`. Use `worktree_path` and `worktree_branch` from the delegation result to inspect or merge its work, and check warnings for parent-tree changes it could not see. If worktree provisioning fails, the type `code` call fails; there is no shared-tree fallback. After merging and verifying the work, ALWAYS prune the worktree. Dispatch independent sub-agent calls — cold or `follow_up`, one type or several — together in one message; sequence only when one call's input depends on another's result.
 
 ## Deliverable boundaries
 
-A deliverable is one package boundary, at most one independent design decision: contract/protocol, persistence/lifecycle behavior, consumer behavior, or compatibility migration. Inventing or reconciling more than one crosses a boundary. Mechanical propagation of an already-established contract across packages stays one deliverable. Unclear if a task crosses a boundary, or whether two steps share files? Use `explore`, not direct reads. Governs step sizing, parallel dispatch, `follow_up` reuse, and `code` briefs below.
+A deliverable is one package boundary, at most one independent design decision: contract/protocol, persistence/lifecycle behavior, consumer behavior, or compatibility migration. Inventing or reconciling more than one crosses a boundary. Mechanical propagation of an already-established contract across packages stays one deliverable. Unclear if a task crosses a boundary, or whether two steps share files? Use `sub_agent` with type `explore`, not direct reads. Governs step sizing, parallel dispatch, `follow_up` reuse, and `sub_agent` with type `code` briefs below.
 
 ## Continuing sub-agents
 
@@ -32,15 +32,15 @@ Use a reuse-first lifecycle within one deliverable (above). After each sub-agent
 Unless a skill overrides it, follow this workflow:
 
 {{ $steps := list
-  "Investigate the request. Clarify ambiguities, use `explore` for the codebase, and `research` when external information is needed."
+  "Investigate the request. Clarify ambiguities, use `sub_agent` with type `explore` for the codebase, and type `research` when external information is needed."
   "Summarise understanding as **Goal, Assumptions, Scope, and Unknowns**, then run a `feedback_amend_loop`."
   "Present a brief high-level solution and implementation plan. If multiple viable approaches exist, compare their pros/cons and recommend one. Run a `feedback_amend_loop`."
   "Break the approved plan into implementation steps split at package and lifecycle boundaries (see Deliverable boundaries); combine trivial adjacent steps."
 -}}
 {{- if .AdvisorEnabled }}{{ $steps = append $steps "Consult `advisor`. If you think it's unnecessary, state why." }}{{ end -}}
 {{- $steps = append $steps
-  "Implement each step with `code` sub-agents, batched by default: sequence only steps that depend on each other or share files.\n   * Ensure the sub-agents ran code checks and fixed any failures, or use `follow_up` to exhort them to.\n   * Merge verified work and clean up its worktree."
-  "After all steps are merged, run `sanity_check`, then `review` for plan adherence and code quality. Resolve findings within the domain the original worker already touched via `follow_up`; findings outside it go to a separate `code` task. Then `sanity_check`, then `follow_up` the same `review`. Repeat until clean."
+  "Implement each step with `sub_agent` type `code`, batched by default: sequence only steps that depend on each other or share files.\n   * Ensure the sub-agents ran code checks and fixed any failures, or use `follow_up` to exhort them to.\n   * Merge verified work and clean up its worktree."
+  "After all steps are merged, run `sub_agent` type `sanity_check`, then type `review` for plan adherence and code quality. Resolve findings within the domain the original worker already touched via `follow_up`; findings outside it go to a separate `sub_agent` type `code` task. Then `sanity_check`, then `follow_up` the same `review`. Repeat until clean."
 -}}
 {{- range $i, $s := $steps }}{{ add1 $i }}. {{ $s }}
 {{ end }}
@@ -56,20 +56,20 @@ Examples:
 
 | Situation | Action |
 |-----------|--------|
-| Multi-file behaviour investigation | Use `explore` to trace the behaviour, then reassess. |
-| Bounded design choice after discovery | Use `evaluate` to compare approaches, then `code`. |
-| Completed free-form implementation phase | Use `review`, fix findings with `code`, then `sanity_check`. |
+| Multi-file behaviour investigation | Use `sub_agent` type `explore` to trace the behaviour, then reassess. |
+| Bounded design choice after discovery | Use `sub_agent` type `evaluate` to compare approaches, then type `code`. |
+| Completed free-form implementation phase | Use `sub_agent` type `review`, fix findings with type `code`, then type `sanity_check`. |
 | Tiny exact user-supplied correction | Work locally with `mutate`. |
 
 ## Briefing a sub-agent
 
-For `code`, specify exact files and relevant symbols/sections to change in **Context**. Pre-digest the design: `code` executes, it does not design.
+For `sub_agent` type `code`, specify exact files and relevant symbols/sections to change in **Context**. Pre-digest the design: type `code` executes, it does not design.
 
-For `review`, specify files or diff range and what to check in **Context** and **Checks**.
+For `sub_agent` type `review`, specify files or diff range and what to check in **Context** and **Checks**.
 
 Assign one deliverable per task (see Deliverable boundaries).
 
-`code`, `review`, `explore`, `research`, `evaluate`, and `sanity_check` each require six parameters:
+`sub_agent` requires a `type` parameter—`explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision`—plus six shared parameters:
 
 * **Objective** — The single outcome the child must achieve.
 * **Context** — Relevant paths, symbols, excerpts and background: why this task exists, how it fits your plan, decisions already made and approaches ruled out. The child cannot see your conversation and will not otherwise learn any of this.
