@@ -26,62 +26,59 @@ type SpecializedToolDeps struct {
 	DefaultModel string
 }
 
-// SpecializedToolDef returns a ToolDef for the given agent type.
-// The tool name matches the agent type string and accepts structured task fields:
-// objective, context, deliverable, constraints, success_criteria, and checks.
-// Vision uses an extended schema with an additional required "image_id" parameter
-// and a dedicated handler that reads the image from the ImageStore.
-func SpecializedToolDef(agentType AgentType, deps SpecializedToolDeps) tool.ToolDef {
-	if agentType == AgentTypeVision {
-		return tool.ToolDef{
-			Name:        string(agentType),
-			Description: specializedDescription(agentType),
-			ParameterSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"objective": map[string]any{
-						"type":        "string",
-						"description": "The single outcome this child must achieve.",
-					},
-					"context": map[string]any{
-						"type":        "string",
-						"description": "Relevant paths, symbols, excerpts and background: why this task exists, how it fits the caller's larger plan, decisions already made and approaches ruled out. The child cannot see the caller's conversation and will not otherwise learn any of this.",
-					},
-					"deliverable": map[string]any{
-						"type":        "string",
-						"description": "The exact artifact or answer to return, and its shape.",
-					},
-					"constraints": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string"},
-						"description": "Boundaries, preserved behaviour, allowed scope, prohibited actions.",
-					},
-					"success_criteria": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string"},
-						"description": "Observable conditions for completion.",
-					},
-					"checks": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string"},
-						"description": "Applicable commands or validations to run.",
-					},
-					"image_id": map[string]any{
-						"type":        "string",
-						"description": "Required. The image ID to examine (e.g. 'img-1'). Shown in the image placeholder in the conversation.",
-					},
-				},
-				"required": []any{"objective", "context", "deliverable", "constraints", "success_criteria", "checks", "image_id"},
-			},
-			Handler: newVisionHandler(deps),
+// specializedDescription returns a short description for each agent type.
+func specializedDescription(t AgentType) string {
+	switch t {
+	case AgentTypeExplore:
+		return "Spawn a read-only exploration sub-agent to navigate the codebase and locate files, symbols, or patterns."
+	case AgentTypeResearch:
+		return "Spawn a research sub-agent to gather and synthesize information from the codebase or web."
+	case AgentTypeCode:
+		return "Spawn a coding sub-agent to implement a scoped change, run tests, and report results."
+	case AgentTypeEvaluate:
+		return "Spawn an analysis sub-agent to evaluate a scoped sub-problem and produce a structured recommendation."
+	case AgentTypeSanityCheck:
+		return "Spawn a verification sub-agent to run tests, lint, or build checks and report pass/fail results."
+	case AgentTypeReview:
+		return "Spawn a review sub-agent to examine code changes for bugs, regressions, missing tests, or plan adherence."
+	case AgentTypeVision:
+		return "Spawn a vision sub-agent to analyze an image. The sub-agent receives the image directly and describes or answers questions about it. After the initial call, use follow_up with the returned agent_id to ask additional questions about the same image — the image is cached server-side so follow-ups are cheap."
+	default:
+		return "Spawn a specialized sub-agent."
+	}
+}
+
+// SubAgentToolDef returns a unified ToolDef for all sub-agent types with a type enum parameter.
+// It accepts structured task fields: type, objective, context, deliverable, constraints,
+// success_criteria, checks, and optionally image_id. Vision requires image_id.
+func SubAgentToolDef(deps SpecializedToolDeps, excludeTypes []AgentType) tool.ToolDef {
+	excluded := make(map[AgentType]bool, len(excludeTypes))
+	for _, t := range excludeTypes {
+		excluded[t] = true
+	}
+
+	var enumValues []any
+	var typeDescriptionParts []string
+	for _, agentType := range AllAgentTypes() {
+		if !excluded[agentType] {
+			enumValues = append(enumValues, string(agentType))
+			typeDescriptionParts = append(typeDescriptionParts, fmt.Sprintf("%s: %s", agentType, specializedDescription(agentType)))
 		}
 	}
+
+	typeDescription := strings.Join(typeDescriptionParts, " | ")
+
 	return tool.ToolDef{
-		Name:        string(agentType),
-		Description: specializedDescription(agentType),
+		Name:        SubAgentToolName,
+		Description: "Spawn a specialized sub-agent of the given type; see the type parameter for what each type does.",
 		ParameterSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
+				"type": map[string]any{
+					"type":        "string",
+					"enum":        enumValues,
+					"description": typeDescription,
+				},
 				"objective": map[string]any{
 					"type":        "string",
 					"description": "The single outcome this child must achieve.",
@@ -109,32 +106,60 @@ func SpecializedToolDef(agentType AgentType, deps SpecializedToolDeps) tool.Tool
 					"items":       map[string]any{"type": "string"},
 					"description": "Applicable commands or validations to run.",
 				},
+				"image_id": map[string]any{
+					"type":        "string",
+					"description": "Required when type is \"vision\". The image ID to examine (e.g. 'img-1'). Shown in the image placeholder in the conversation.",
+				},
 			},
-			"required": []any{"objective", "context", "deliverable", "constraints", "success_criteria", "checks"},
+			"required": []any{"type", "objective", "context", "deliverable", "constraints", "success_criteria", "checks"},
 		},
-		Handler: newSpecializedHandler(agentType, deps),
+		Handler: newSubAgentDispatchHandler(deps, excluded),
 	}
 }
 
-// specializedDescription returns a short description for each agent type.
-func specializedDescription(t AgentType) string {
-	switch t {
-	case AgentTypeExplore:
-		return "Spawn a read-only exploration sub-agent to navigate the codebase and locate files, symbols, or patterns."
-	case AgentTypeResearch:
-		return "Spawn a research sub-agent to gather and synthesize information from the codebase or web."
-	case AgentTypeCode:
-		return "Spawn a coding sub-agent to implement a scoped change, run tests, and report results."
-	case AgentTypeEvaluate:
-		return "Spawn an analysis sub-agent to evaluate a scoped sub-problem and produce a structured recommendation."
-	case AgentTypeSanityCheck:
-		return "Spawn a verification sub-agent to run tests, lint, or build checks and report pass/fail results."
-	case AgentTypeReview:
-		return "Spawn a review sub-agent to examine code changes for bugs, regressions, missing tests, or plan adherence."
-	case AgentTypeVision:
-		return "Spawn a vision sub-agent to analyze an image. The sub-agent receives the image directly and describes or answers questions about it. After the initial call, use follow_up with the returned agent_id to ask additional questions about the same image — the image is cached server-side so follow-ups are cheap."
-	default:
-		return "Spawn a specialized sub-agent."
+// newSubAgentDispatchHandler returns a handler that routes to the appropriate
+// sub-agent handler based on the type parameter.
+func newSubAgentDispatchHandler(deps SpecializedToolDeps, excluded map[AgentType]bool) func(ctx context.Context, input map[string]any) (any, error) {
+	return func(ctx context.Context, input map[string]any) (any, error) {
+		rawType, _ := input["type"].(string)
+		rawType = strings.TrimSpace(rawType)
+		if rawType == "" {
+			return nil, fmt.Errorf("sub_agent: type is required and must be non-empty")
+		}
+
+		if !ValidAgentType(rawType) {
+			validTypes := make([]string, 0, len(AllAgentTypes())-len(excluded))
+			for _, t := range AllAgentTypes() {
+				if !excluded[t] {
+					validTypes = append(validTypes, string(t))
+				}
+			}
+			return nil, fmt.Errorf("sub_agent: unknown or unavailable type %q; valid types: %s", rawType, strings.Join(validTypes, ", "))
+		}
+
+		agentType := AgentType(rawType)
+		if excluded[agentType] {
+			validTypes := make([]string, 0, len(AllAgentTypes())-len(excluded))
+			for _, t := range AllAgentTypes() {
+				if !excluded[t] {
+					validTypes = append(validTypes, string(t))
+				}
+			}
+			return nil, fmt.Errorf("sub_agent: type %q is unavailable; valid types: %s", rawType, strings.Join(validTypes, ", "))
+		}
+
+		if agentType == AgentTypeVision {
+			imageID, _ := input["image_id"].(string)
+			imageID = strings.TrimSpace(imageID)
+			if imageID == "" {
+				return nil, fmt.Errorf("sub_agent: type is \"vision\" but image_id is missing or empty")
+			}
+		}
+
+		if agentType == AgentTypeVision {
+			return newVisionHandler(deps)(ctx, input)
+		}
+		return newSpecializedHandler(agentType, deps)(ctx, input)
 	}
 }
 
@@ -567,19 +592,4 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 
 		return result, nil
 	}
-}
-
-// AllSpecializedToolDefs returns ToolDefs for recognized agent types, skipping any in excludeTypes.
-func AllSpecializedToolDefs(deps SpecializedToolDeps, excludeTypes []AgentType) []tool.ToolDef {
-	excluded := make(map[AgentType]bool, len(excludeTypes))
-	for _, t := range excludeTypes {
-		excluded[t] = true
-	}
-	var defs []tool.ToolDef
-	for _, t := range AllAgentTypes() {
-		if !excluded[t] {
-			defs = append(defs, SpecializedToolDef(t, deps))
-		}
-	}
-	return defs
 }

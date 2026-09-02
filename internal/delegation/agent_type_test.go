@@ -48,7 +48,7 @@ func TestAllAgentTypes(t *testing.T) {
 
 func TestAllSpecializedDelegateTools(t *testing.T) {
 	tools := AllSpecializedDelegateTools()
-	want := []string{"explore", "research", "code", "evaluate", "sanity_check", "review", "vision", "follow_up"}
+	want := []string{SubAgentToolName, FollowUpToolName}
 
 	if !slices.Equal(tools, want) {
 		t.Fatalf("AllSpecializedDelegateTools() = %v, want %v", tools, want)
@@ -65,6 +65,7 @@ func TestIsDelegationTool(t *testing.T) {
 		name string
 		want bool
 	}{
+		{name: SubAgentToolName, want: true},
 		{name: FollowUpToolName, want: true},
 		{name: "read", want: false},
 		{name: "mutate", want: false},

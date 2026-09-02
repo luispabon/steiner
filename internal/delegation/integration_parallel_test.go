@@ -183,8 +183,9 @@ func delegationParentResponse(names ...string) provider.ChatResponse {
 	for i, name := range names {
 		calls[i] = provider.ToolCall{
 			ID:   fmt.Sprintf("call-%d", i),
-			Name: name,
+			Name: SubAgentToolName,
 			Arguments: map[string]any{
+				"type":             name,
 				"objective":        fmt.Sprintf("task-%d", i),
 				"context":          "context",
 				"deliverable":      "deliverable",
