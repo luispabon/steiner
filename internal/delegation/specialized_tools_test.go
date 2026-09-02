@@ -1,8 +1,10 @@
 package delegation
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -729,8 +731,13 @@ func TestSubAgentToolDef_Schema(t *testing.T) {
 	if !ok {
 		t.Fatal("type field missing enum")
 	}
-	if len(enumVals) != 7 {
-		t.Errorf("type enum has %d values, want 7", len(enumVals))
+
+	wantEnum := make([]any, 0, len(AllAgentTypes()))
+	for _, at := range AllAgentTypes() {
+		wantEnum = append(wantEnum, string(at))
+	}
+	if !reflect.DeepEqual(enumVals, wantEnum) {
+		t.Errorf("type enum = %v, want %v in AllAgentTypes order", enumVals, wantEnum)
 	}
 }
 
@@ -746,18 +753,110 @@ func TestSubAgentToolDef_ExcludeTypes(t *testing.T) {
 	typeField, _ := props["type"].(map[string]any)
 	enumVals, _ := typeField["enum"].([]any)
 
-	// Should have 5 types (7 - 2 excluded).
-	if len(enumVals) != 5 {
-		t.Errorf("type enum has %d values, want 5 after excluding 2", len(enumVals))
+	excludedSet := map[AgentType]bool{AgentTypeResearch: true, AgentTypeVision: true}
+	wantEnum := make([]any, 0, len(AllAgentTypes())-len(excludedSet))
+	for _, at := range AllAgentTypes() {
+		if !excludedSet[at] {
+			wantEnum = append(wantEnum, string(at))
+		}
+	}
+	if !reflect.DeepEqual(enumVals, wantEnum) {
+		t.Errorf("type enum = %v, want %v (remaining types in AllAgentTypes order)", enumVals, wantEnum)
+	}
+}
+
+func TestSubAgentToolDef_SchemaIsDeterministic(t *testing.T) {
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+
+	tests := []struct {
+		name         string
+		excludeTypes []AgentType
+	}{
+		{name: "no excludes", excludeTypes: nil},
+		{name: "with excludes", excludeTypes: []AgentType{AgentTypeResearch, AgentTypeVision}},
 	}
 
-	// Verify excluded types are not in the enum.
-	enumMap := make(map[any]bool)
-	for _, v := range enumVals {
-		enumMap[v] = true
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def1 := SubAgentToolDef(deps, tt.excludeTypes)
+			def2 := SubAgentToolDef(deps, tt.excludeTypes)
+
+			b1, err := json.Marshal(def1.ParameterSchema)
+			if err != nil {
+				t.Fatalf("marshal schema 1: %v", err)
+			}
+			b2, err := json.Marshal(def2.ParameterSchema)
+			if err != nil {
+				t.Fatalf("marshal schema 2: %v", err)
+			}
+			if !bytes.Equal(b1, b2) {
+				t.Errorf("schema marshal not deterministic:\n%s\nvs\n%s", b1, b2)
+			}
+		})
 	}
-	if enumMap[string(AgentTypeResearch)] || enumMap[string(AgentTypeVision)] {
-		t.Error("excluded types still present in enum")
+}
+
+func TestSubAgentDispatch_Errors(t *testing.T) {
+	tests := []struct {
+		name         string
+		excludeTypes []AgentType
+		input        map[string]any
+		wantErr      string
+	}{
+		{
+			name:    "missing type",
+			input:   validStructuredTask("t"),
+			wantErr: "sub_agent: type is required and must be non-empty",
+		},
+		{
+			name: "whitespace type",
+			input: func() map[string]any {
+				task := validStructuredTask("t")
+				task["type"] = "   "
+				return task
+			}(),
+			wantErr: "sub_agent: type is required and must be non-empty",
+		},
+		{
+			name:    "unknown type",
+			input:   subAgentTask(AgentType("bogus"), "t"),
+			wantErr: `sub_agent: unknown or unavailable type "bogus"; valid types:`,
+		},
+		{
+			name:         "excluded type",
+			excludeTypes: []AgentType{AgentTypeVision},
+			input:        subAgentTask(AgentTypeVision, "t"),
+			wantErr:      `sub_agent: type "vision" is unavailable; valid types:`,
+		},
+		{
+			name:    "vision missing image_id",
+			input:   subAgentTask(AgentTypeVision, "t"),
+			wantErr: `sub_agent: type is "vision" but image_id is missing or empty`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var runCalled bool
+			runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+				runCalled = true
+				return successRunState(), nil
+			}}
+			def := SubAgentToolDef(minimalDeps(runner), tt.excludeTypes)
+
+			_, err := def.Handler(context.Background(), tt.input)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+			if runCalled {
+				t.Error("runner was invoked despite validation failure")
+			}
+		})
 	}
 }
 
@@ -1485,6 +1584,59 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 	// Verify the image was base64-encoded from disk correctly.
 	wantEncoded := base64.StdEncoding.EncodeToString(imgContent)
 	_ = wantEncoded // encoding correctness is implicit; the handler would error if os.ReadFile failed
+}
+
+// TestVisionRoutingArgs_PassesHandlerValidation pins the argument shape that
+// internal/agent's VisionRoutingArgs builds against the real sub_agent
+// dispatch and vision handler validation. internal/agent cannot import
+// internal/delegation (import cycle), so this test lives here to catch drift
+// between the two sides if either changes independently.
+func TestVisionRoutingArgs_PassesHandlerValidation(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "test.png")
+	imgContent := []byte("fake-png-content")
+	if err := os.WriteFile(imgPath, imgContent, 0o600); err != nil {
+		t.Fatalf("write temp image: %v", err)
+	}
+
+	store := agent.NewImageStore(dir)
+	ref := store.Register(imgPath, "image/png", 100, 200, len(imgContent))
+
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}}
+
+	deps := SpecializedToolDeps{
+		SubAgentHandlerDeps: SubAgentHandlerDeps{
+			SubAgentCfg: config.SubAgentConfig{},
+			Provider:    stubProvider{},
+			ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Description: "read"}),
+			Runner:      runner,
+			Events:      noopEventSink{},
+			WorkDir:     dir,
+		},
+		ImageStore: store,
+	}
+	def := SubAgentToolDef(deps, nil)
+
+	input := agent.VisionRoutingArgs(ref.ID, "some user request")
+
+	raw, err := def.Handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("VisionRoutingArgs rejected by sub_agent validation: %v", err)
+	}
+
+	execResult, ok := raw.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+	dr, ok := execResult.Value.(Result)
+	if !ok {
+		t.Fatalf("ExecutionResult.Value is %T, want Result", execResult.Value)
+	}
+	if dr.Output != "task result" {
+		t.Errorf("result output %q, want exact child output from the vision child", dr.Output)
+	}
 }
 
 func TestSpecializedHandler_SavesSessionForStructuredFailure(t *testing.T) {

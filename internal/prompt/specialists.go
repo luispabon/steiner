@@ -20,33 +20,33 @@ type specialist struct {
 var specialists = []specialist{
 	{
 		name:        "explore",
-		lane:        "Call `sub_agent` with type `explore` to navigate the codebase: find files, symbols, patterns, usages, or call sites",
-		doNotUseFor: "questions that are answerable from the web or documentation--that is `research`",
+		lane:        "Navigate the codebase: find files, symbols, patterns, usages, or call sites",
+		doNotUseFor: "questions that are answerable from the web or documentation—that is `research`",
 	},
 	{
 		name:        "research",
-		lane:        "Call `sub_agent` with type `research` to search the web, read documentation, and synthesize external sources (read-only)",
-		doNotUseFor: "anything answerable from the repository alone--that is `explore`",
+		lane:        "Search the web, read documentation, and synthesize external sources (read-only)",
+		doNotUseFor: "anything answerable from the repository alone—that is `explore`",
 	},
 	{
 		name:        "code",
-		lane:        "Call `sub_agent` with type `code` to implement a scoped change: one deliverable, exact files named, design pre-digested",
+		lane:        "Implement a scoped change: one deliverable, exact files named, design pre-digested",
 		doNotUseFor: "design decisions or work whose files have not been identified",
 	},
 	{
 		name:        "evaluate",
-		lane:        "Call `sub_agent` with type `evaluate` to analyse a scoped sub-problem, weigh options, and recommend an approach",
+		lane:        "Analyse a scoped sub-problem, weigh options, and recommend an approach",
 		doNotUseFor: "task planning or questions with one obvious answer",
 	},
 	{
 		name:        "sanity_check",
-		lane:        "Call `sub_agent` with type `sanity_check` to run tests, lint, and builds; report pass or fail; make no changes",
+		lane:        "Run tests, lint, and builds; report pass or fail; make no changes",
 		doNotUseFor: "anything that changes files",
 	},
 	{
 		name:        "review",
-		lane:        "Call `sub_agent` with type `review` to examine code changes for bugs, regressions, missing tests, and plan adherence; make no fixes",
-		doNotUseFor: `broad "review the whole PR" scopes or applying fixes`,
+		lane:        "Examine code changes for bugs, regressions, missing tests, and plan adherence; make no fixes",
+		doNotUseFor: "broad “review the whole PR” scopes or applying fixes",
 	},
 }
 

@@ -83,7 +83,7 @@ func TestIsDelegationTool(t *testing.T) {
 		tests = append(tests, struct {
 			name string
 			want bool
-		}{name: string(agentType), want: true})
+		}{name: string(agentType), want: false})
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -91,14 +91,6 @@ func TestIsDelegationTool(t *testing.T) {
 				t.Fatalf("IsDelegationTool(%q) = %v, want %v", tt.name, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestIsDelegationToolCoversAllAgentTypes(t *testing.T) {
-	for _, agentType := range AllAgentTypes() {
-		if !IsDelegationTool(string(agentType)) {
-			t.Errorf("IsDelegationTool(%q) = false, want true", agentType)
-		}
 	}
 }
 

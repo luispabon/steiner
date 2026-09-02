@@ -128,23 +128,13 @@ func newSubAgentDispatchHandler(deps SpecializedToolDeps, excluded map[AgentType
 		}
 
 		if !ValidAgentType(rawType) {
-			validTypes := make([]string, 0, len(AllAgentTypes())-len(excluded))
-			for _, t := range AllAgentTypes() {
-				if !excluded[t] {
-					validTypes = append(validTypes, string(t))
-				}
-			}
+			validTypes := availableAgentTypeNames(excluded)
 			return nil, fmt.Errorf("sub_agent: unknown or unavailable type %q; valid types: %s", rawType, strings.Join(validTypes, ", "))
 		}
 
 		agentType := AgentType(rawType)
 		if excluded[agentType] {
-			validTypes := make([]string, 0, len(AllAgentTypes())-len(excluded))
-			for _, t := range AllAgentTypes() {
-				if !excluded[t] {
-					validTypes = append(validTypes, string(t))
-				}
-			}
+			validTypes := availableAgentTypeNames(excluded)
 			return nil, fmt.Errorf("sub_agent: type %q is unavailable; valid types: %s", rawType, strings.Join(validTypes, ", "))
 		}
 
@@ -154,13 +144,22 @@ func newSubAgentDispatchHandler(deps SpecializedToolDeps, excluded map[AgentType
 			if imageID == "" {
 				return nil, fmt.Errorf("sub_agent: type is \"vision\" but image_id is missing or empty")
 			}
-		}
-
-		if agentType == AgentTypeVision {
 			return newVisionHandler(deps)(ctx, input)
 		}
 		return newSpecializedHandler(agentType, deps)(ctx, input)
 	}
+}
+
+// availableAgentTypeNames returns the string names of all agent types not in
+// excluded, in AllAgentTypes order.
+func availableAgentTypeNames(excluded map[AgentType]bool) []string {
+	validTypes := make([]string, 0, len(AllAgentTypes())-len(excluded))
+	for _, t := range AllAgentTypes() {
+		if !excluded[t] {
+			validTypes = append(validTypes, string(t))
+		}
+	}
+	return validTypes
 }
 
 // resolveModel resolves the provider and model for a specific agent type,

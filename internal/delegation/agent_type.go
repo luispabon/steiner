@@ -44,12 +44,9 @@ func AllAgentTypes() []AgentType {
 }
 
 // IsDelegationTool reports whether name is a delegation tool registered by
-// BuildDelegateRegistry: the sub_agent tool, follow_up, or a legacy agent-type tool.
+// BuildDelegateRegistry: the sub_agent tool or follow_up.
 func IsDelegationTool(name string) bool {
-	if name == SubAgentToolName || name == FollowUpToolName {
-		return true
-	}
-	return ValidAgentType(name)
+	return name == SubAgentToolName || name == FollowUpToolName
 }
 
 // AllSpecializedDelegateTools returns the canonical specialized delegate tool

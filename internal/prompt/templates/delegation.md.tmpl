@@ -10,8 +10,10 @@ After an orchestrated workflow, write commit messages and PR titles/bodies from 
 
 ## Your sub-agents
 
-| Agent | Lane | Do not use for |
-|-------|------|-----------------|
+Call `sub_agent` with the `type` below.
+
+| Type | Lane | Do not use for |
+|------|------|-----------------|
 {{ range .Specialists -}}
 | `{{ .Name }}` | {{ .Lane }} | {{ .DoNotUseFor }} |
 {{ end }}

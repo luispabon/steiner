@@ -53,8 +53,8 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 			if req.MaxParallelDelegations != tt.wantMaxDelegation {
 				t.Fatalf("MaxParallelDelegations = %d, want %d", req.MaxParallelDelegations, tt.wantMaxDelegation)
 			}
-			if got := req.ParallelClassOf("code"); got != agent.ParallelClassDelegation {
-				t.Fatalf("ParallelClassOf(code) = %v, want ParallelClassDelegation (delegation tool name)", got)
+			if got := req.ParallelClassOf("sub_agent"); got != agent.ParallelClassDelegation {
+				t.Fatalf("ParallelClassOf(sub_agent) = %v, want ParallelClassDelegation (delegation tool name)", got)
 			}
 			if got := req.ParallelClassOf("read"); got != agent.ParallelClassTool {
 				t.Fatalf("ParallelClassOf(read) = %v, want ParallelClassTool (registry-marked parallel-safe)", got)

@@ -135,6 +135,22 @@ func visionTaskContent(messages []Message, index int) string {
 	return message.Content
 }
 
+// VisionRoutingArgs returns the sub_agent tool arguments used when an image
+// is automatically routed to a vision sub-agent. It is exported so
+// internal/delegation can pin the argument shape against the real handler.
+func VisionRoutingArgs(imageID, originalContent string) map[string]any {
+	return map[string]any{
+		"type":             "vision",
+		"objective":        "Describe the attached image in full, exact detail so the main agent (which cannot see images) can rely entirely on your description.",
+		"context":          fmt.Sprintf("The user's request to the main agent was: %s", strconv.Quote(originalContent)),
+		"deliverable":      "A complete description covering layout, text (quoted verbatim), colours, dimensions, and anything notable, biased toward the user's request but comprehensive.",
+		"constraints":      []string{},
+		"success_criteria": []string{},
+		"checks":           []string{},
+		"image_id":         imageID,
+	}
+}
+
 // routeImageToVision calls the vision tool for a single image and appends
 // the result as an inline description block to the message's Content.
 // originalContent is the relevant parent user request, or the message content
@@ -144,16 +160,7 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 		return fmt.Errorf("image has no ID")
 	}
 
-	args := map[string]any{
-		"type":             "vision",
-		"objective":        "Describe the attached image in full, exact detail so the main agent (which cannot see images) can rely entirely on your description.",
-		"context":          fmt.Sprintf("The user's request to the main agent was: %s", strconv.Quote(originalContent)),
-		"deliverable":      "A complete description covering layout, text (quoted verbatim), colours, dimensions, and anything notable, biased toward the user's request but comprehensive.",
-		"constraints":      []string{},
-		"success_criteria": []string{},
-		"checks":           []string{},
-		"image_id":         img.ID,
-	}
+	args := VisionRoutingArgs(img.ID, originalContent)
 	callID := fmt.Sprintf("vision-auto-%s", img.ID)
 
 	emitEvent(p.request.Events, output.NewToolCallStartedEvent(0, "sub_agent", callID, args))
