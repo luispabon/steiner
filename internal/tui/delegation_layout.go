@@ -95,7 +95,7 @@ func (b *contentBuffer) delegationSectionRows(dd *delegationDisplayState, width 
 			}
 		}
 	}
-	if dd.isAdvisor || dd.advisorBudget > 0 {
+	if dd.isAdvisor {
 		if strings.TrimSpace(dd.advisorQuestion) != "" {
 			hasSections = true
 			rows = append(rows, delegationRow{kind: delegationRowQuestionHeader, text: b.renderDelegationSectionHeader("question")})

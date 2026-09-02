@@ -233,6 +233,12 @@ type delegationDisplayState struct {
 	advisorDenied         int
 	advisorQuestion       string
 	advisorFiles          []string
+	briefObjective        string
+	briefContext          string
+	briefDeliverable      string
+	briefConstraints      []string
+	briefSuccessCriteria  []string
+	briefChecks           []string
 	extCurrent            int
 	extMax                int
 }

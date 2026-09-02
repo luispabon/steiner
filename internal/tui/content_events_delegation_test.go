@@ -1641,17 +1641,4 @@ func TestHandleDelegationFailedCarriesAdvisorCountersForActiveChild(t *testing.T
 	if dd.advisorBudget != 3 || dd.advisorUses != 2 || dd.advisorDenied != 1 {
 		t.Errorf("advisor counters = %d/%d/%d, want 3/2/1", dd.advisorBudget, dd.advisorUses, dd.advisorDenied)
 	}
-	metaParts, warn := delegationFailedMeta(dd)
-	if !warn {
-		t.Error("delegationFailedMeta warn = false, want true (denied > 0)")
-	}
-	found := false
-	for _, part := range metaParts {
-		if strings.Contains(part, "advisor 2/3") {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("meta parts %#v do not contain advisor usage", metaParts)
-	}
 }

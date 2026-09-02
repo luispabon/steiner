@@ -482,7 +482,15 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 	dd := loc.dd
 	dd.parentCallID = payload.CallID
 	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
-	dd.promptText = delegateArgText(payload.Arguments)
+	if isSpecializedDelegateTool(payload.Tool) {
+		if brief, ok := parseStructuredDelegateBrief(payload.Arguments); ok {
+			dd.applyStructuredBrief(brief)
+		} else {
+			dd.promptText = delegateArgText(payload.Arguments)
+		}
+	} else {
+		dd.promptText = delegateArgText(payload.Arguments)
+	}
 	if dd.taskPreview == "" {
 		dd.taskPreview = dd.parentArgs
 	}
@@ -535,10 +543,17 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 	}
 
 	summary := summarizeArgs(payload.Tool, payload.Arguments)
-	promptText := delegateArgText(payload.Arguments)
 	toolLabel := ""
+	promptText := ""
 	if isSpecializedDelegateTool(payload.Tool) {
 		toolLabel = strings.ToLower(strings.TrimSpace(payload.Tool))
+		if brief, ok := parseStructuredDelegateBrief(payload.Arguments); ok {
+			promptText = brief.objective
+		} else {
+			promptText = delegateArgText(payload.Arguments)
+		}
+	} else {
+		promptText = delegateArgText(payload.Arguments)
 	}
 	dd := &delegationDisplayState{
 		toolLabel:       toolLabel,
@@ -550,6 +565,11 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		status:          "active",
 		collapsed:       true,
 		extMax:          defaultDelegationExtensionMax,
+	}
+	if isSpecializedDelegateTool(payload.Tool) {
+		if brief, ok := parseStructuredDelegateBrief(payload.Arguments); ok {
+			dd.applyStructuredBrief(brief)
+		}
 	}
 	idx := b.appendDelegationSegment(dd)
 	b.pendingDelegateParents = append(b.pendingDelegateParents, delegationLocator{seg: idx, dd: dd})

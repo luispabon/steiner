@@ -68,7 +68,7 @@ func delegateArgText(args map[string]any) string {
 	if len(args) == 0 {
 		return ""
 	}
-	for _, key := range []string{"task", "prompt", "description", "instructions", "goal"} {
+	for _, key := range []string{"objective", "task", "prompt", "description", "instructions", "goal"} {
 		if v, ok := args[key]; ok {
 			return fmt.Sprintf("%v", v)
 		}
@@ -78,6 +78,52 @@ func delegateArgText(args map[string]any) string {
 		return fmt.Sprintf("%v", args[keys[0]])
 	}
 	return ""
+}
+
+type structuredDelegateBrief struct {
+	objective, context, deliverable      string
+	constraints, successCriteria, checks []string
+}
+
+// parseStructuredDelegateBrief extracts the objective/context/deliverable/
+// constraints/success_criteria/checks fields a specialized delegate tool
+// call sends (schema: internal/delegation/specialized_tools.go:82-113).
+// ok is false when objective is missing/blank, signalling the caller
+// should fall back to delegateArgText's flat-text behavior instead.
+func parseStructuredDelegateBrief(args map[string]any) (structuredDelegateBrief, bool) {
+	objective, _ := args["objective"].(string)
+	objective = strings.TrimSpace(objective)
+	if objective == "" {
+		return structuredDelegateBrief{}, false
+	}
+	b := structuredDelegateBrief{objective: objective}
+	if v, ok := args["context"].(string); ok {
+		b.context = strings.TrimSpace(v)
+	}
+	if v, ok := args["deliverable"].(string); ok {
+		b.deliverable = strings.TrimSpace(v)
+	}
+	b.constraints = stringSliceArg(args["constraints"])
+	b.successCriteria = stringSliceArg(args["success_criteria"])
+	b.checks = stringSliceArg(args["checks"])
+	return b, true
+}
+
+func stringSliceArg(v any) []string {
+	raw, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func summarizeMutateArgs(args map[string]any) string {

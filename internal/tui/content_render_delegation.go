@@ -96,6 +96,9 @@ func (b *contentBuffer) renderDelegationPromptHeader(dd *delegationDisplayState)
 }
 
 func (b *contentBuffer) renderDelegationPromptBody(dd *delegationDisplayState, width int) []string {
+	if dd.briefObjective != "" {
+		return b.renderDelegationBriefBody(dd, width)
+	}
 	lines := b.wrapStyledDelegationLines(dd.promptText, width, b.styles.FgMute.Italic(true))
 	if len(lines) == 0 {
 		return nil
@@ -120,12 +123,7 @@ func (b *contentBuffer) renderAdvisorQuestionBody(dd *delegationDisplayState, wi
 }
 
 func (b *contentBuffer) renderAdvisorFilesBody(dd *delegationDisplayState, width int) []string {
-	rows := make([]string, 0, len(dd.advisorFiles))
-	for _, p := range dd.advisorFiles {
-		line := "• " + strings.TrimSpace(p)
-		rows = append(rows, b.styles.FgMute.Render(truncateRunes(line, max(1, width))))
-	}
-	return rows
+	return b.renderBulletList(dd.advisorFiles, width, b.styles.FgMute)
 }
 
 func (b *contentBuffer) renderAdvisorDenialWarning(dd *delegationDisplayState, width int) string {
@@ -270,14 +268,14 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 			parts = append(parts, b.styles.FgDim.Render(formatElapsed(dd.startTime, nanoNow())))
 		}
 	case "complete":
-		metaParts, warn := delegationCompleteMeta(dd)
-		parts = append(parts, b.renderStyledDelegationMeta(metaParts, warn))
+		metaParts := delegationCompleteMeta(dd)
+		parts = append(parts, b.renderStyledDelegationMeta(metaParts))
 	case "budget_exhausted":
-		metaParts, warn := delegationBudgetMeta(dd)
-		parts = append(parts, b.renderStyledDelegationMeta(metaParts, warn))
+		metaParts := delegationBudgetMeta(dd)
+		parts = append(parts, b.renderStyledDelegationMeta(metaParts))
 	case "failed":
-		metaParts, warn := delegationFailedMeta(dd)
-		parts = append(parts, b.renderStyledDelegationMeta(metaParts, warn))
+		metaParts := delegationFailedMeta(dd)
+		parts = append(parts, b.renderStyledDelegationMeta(metaParts))
 	}
 	if dd.status == "active" && len(parts) > 1 {
 		return parts[0] + " " + strings.Join(parts[1:], " · ")
@@ -285,24 +283,13 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 	return strings.Join(parts, " ")
 }
 
-func (b *contentBuffer) renderStyledDelegationMeta(metaParts []string, advisorWarn bool) string {
+func (b *contentBuffer) renderStyledDelegationMeta(metaParts []string) string {
 	if len(metaParts) == 0 {
 		return ""
 	}
 	var styled []string
 	for _, part := range metaParts {
-		if advisorWarn && strings.HasPrefix(part, "advisor ") {
-			idx := strings.LastIndex(part, " +")
-			if idx > 0 {
-				prefix := part[:idx]
-				suffix := part[idx:]
-				styled = append(styled, b.styles.FgDim.Render(prefix)+b.styles.Warn.Render(suffix))
-			} else {
-				styled = append(styled, b.styles.FgDim.Render(part))
-			}
-		} else {
-			styled = append(styled, b.styles.FgDim.Render(part))
-		}
+		styled = append(styled, b.styles.FgDim.Render(part))
 	}
 	return strings.Join(styled, " · ")
 }
@@ -314,20 +301,7 @@ func delegationModelEffort(dd *delegationDisplayState) string {
 	return formatModelEffort(dd.modelName, dd.reasoning)
 }
 
-func delegationAdvisorMeta(dd *delegationDisplayState) (string, bool) {
-	if dd == nil || dd.advisorBudget == 0 {
-		return "", false
-	}
-	text := fmt.Sprintf("advisor %d/%d", dd.advisorUses, dd.advisorBudget)
-	warn := false
-	if dd.advisorDenied > 0 {
-		text += fmt.Sprintf(" +%d denied", dd.advisorDenied)
-		warn = true
-	}
-	return text, warn
-}
-
-func delegationCompleteMeta(dd *delegationDisplayState) ([]string, bool) {
+func delegationCompleteMeta(dd *delegationDisplayState) []string {
 	status := strings.TrimSpace(dd.resultStatus)
 	if status == "" {
 		status = "complete"
@@ -342,14 +316,10 @@ func delegationCompleteMeta(dd *delegationDisplayState) ([]string, bool) {
 	if dd.elapsed != "" {
 		meta = append(meta, dd.elapsed)
 	}
-	advisorText, warn := delegationAdvisorMeta(dd)
-	if advisorText != "" {
-		meta = append(meta, advisorText)
-	}
-	return meta, warn
+	return meta
 }
 
-func delegationBudgetMeta(dd *delegationDisplayState) ([]string, bool) {
+func delegationBudgetMeta(dd *delegationDisplayState) []string {
 	meta := []string{"budget exhausted"}
 	if modelEffort := delegationModelEffort(dd); modelEffort != "" {
 		meta = append(meta, modelEffort)
@@ -357,14 +327,10 @@ func delegationBudgetMeta(dd *delegationDisplayState) ([]string, bool) {
 	if dd.advisorUse > 0 && dd.advisorMaxUses > 0 {
 		meta = append(meta, fmt.Sprintf("%d/%d", dd.advisorUse, dd.advisorMaxUses))
 	}
-	advisorText, warn := delegationAdvisorMeta(dd)
-	if advisorText != "" {
-		meta = append(meta, advisorText)
-	}
-	return meta, warn
+	return meta
 }
 
-func delegationFailedMeta(dd *delegationDisplayState) ([]string, bool) {
+func delegationFailedMeta(dd *delegationDisplayState) []string {
 	meta := []string{"failed"}
 	if modelEffort := delegationModelEffort(dd); modelEffort != "" {
 		meta = append(meta, modelEffort)
@@ -372,11 +338,7 @@ func delegationFailedMeta(dd *delegationDisplayState) ([]string, bool) {
 	if dd.elapsed != "" {
 		meta = append(meta, dd.elapsed)
 	}
-	advisorText, warn := delegationAdvisorMeta(dd)
-	if advisorText != "" {
-		meta = append(meta, advisorText)
-	}
-	return meta, warn
+	return meta
 }
 
 func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplayState, width int) string {
@@ -604,7 +566,24 @@ func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string
 	if dd.extMax > 0 {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Extension: %d/%d", dd.extCurrent, dd.extMax)))
 	}
+	if advStats := b.renderDelegationStatsAdvisor(dd); advStats != "" {
+		parts = append(parts, advStats)
+	}
 	return parts
+}
+
+func (b *contentBuffer) renderDelegationStatsAdvisor(dd *delegationDisplayState) string {
+	if dd.isAdvisor || dd.advisorBudget <= 0 {
+		return ""
+	}
+	if dd.status != "complete" && dd.status != "failed" && dd.status != "budget_exhausted" {
+		return ""
+	}
+	text := fmt.Sprintf("Advisor: %d/%d", dd.advisorUses, dd.advisorBudget)
+	if dd.advisorDenied > 0 {
+		return b.styles.FgDim.Render(text) + b.styles.Warn.Render(fmt.Sprintf(" +%d denied", dd.advisorDenied))
+	}
+	return b.styles.FgDim.Render(text)
 }
 
 func delegationStatsDuration(dd *delegationDisplayState) string {
