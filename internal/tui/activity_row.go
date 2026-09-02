@@ -207,6 +207,15 @@ func approvalResultLabel(eventType string) string {
 	}
 }
 
-func toolCallDetail(tool string) string {
-	return strings.TrimSpace(tool)
+func toolCallDetail(tool string, args map[string]any) string {
+	tool = strings.TrimSpace(tool)
+	if !isSpecializedDelegateTool(tool) {
+		return tool
+	}
+	if typeArg, ok := args["type"].(string); ok {
+		if typeArg = strings.ToLower(strings.TrimSpace(typeArg)); typeArg != "" {
+			return typeArg
+		}
+	}
+	return tool
 }
