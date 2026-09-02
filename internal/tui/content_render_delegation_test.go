@@ -512,13 +512,13 @@ func TestAdvisorStatsOnlyInFooterWhenTerminal(t *testing.T) {
 
 	// Completed non-advisor delegation with advisor budget
 	dd := &delegationDisplayState{
-		isAdvisor:       false,
-		status:          "complete",
-		advisorBudget:   2,
-		advisorUses:     1,
-		advisorDenied:   0,
-		modelName:       "gpt-x",
-		turnCount:       1,
+		isAdvisor:     false,
+		status:        "complete",
+		advisorBudget: 2,
+		advisorUses:   1,
+		advisorDenied: 0,
+		modelName:     "gpt-x",
+		turnCount:     1,
 	}
 
 	// Check header meta does NOT contain "advisor"
@@ -569,11 +569,11 @@ func TestNonAdvisorBoxDoesNotRenderQuestionFiles(t *testing.T) {
 
 	// Non-advisor delegation with advisor question/files (should be ignored)
 	dd := &delegationDisplayState{
-		isAdvisor:         false,
-		collapsed:         false,
-		advisorBudget:     2,
-		advisorQuestion:   "should not render",
-		advisorFiles:      []string{"file1.go", "file2.go"},
+		isAdvisor:       false,
+		collapsed:       false,
+		advisorBudget:   2,
+		advisorQuestion: "should not render",
+		advisorFiles:    []string{"file1.go", "file2.go"},
 	}
 
 	rows, _ := buffer.delegationSectionRows(dd, 80)

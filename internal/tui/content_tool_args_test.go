@@ -7,12 +7,12 @@ import (
 func TestParseStructuredDelegateBriefWithObjective(t *testing.T) {
 	t.Parallel()
 	args := map[string]any{
-		"objective":       "implement feature X",
-		"context":         "background info",
-		"deliverable":     "working code",
-		"constraints":     []any{"constraint 1", "constraint 2"},
+		"objective":        "implement feature X",
+		"context":          "background info",
+		"deliverable":      "working code",
+		"constraints":      []any{"constraint 1", "constraint 2"},
 		"success_criteria": []any{"success 1"},
-		"checks":          []any{},
+		"checks":           []any{},
 	}
 
 	b, ok := parseStructuredDelegateBrief(args)
@@ -67,7 +67,7 @@ func TestParseStructuredDelegateBriefNoObjective(t *testing.T) {
 func TestParseStructuredDelegateBriefFiltersEmptyStrings(t *testing.T) {
 	t.Parallel()
 	args := map[string]any{
-		"objective": "task",
+		"objective":   "task",
 		"constraints": []any{"c1", "  ", "c2", ""},
 	}
 
