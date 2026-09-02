@@ -144,16 +144,21 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 		return fmt.Errorf("image has no ID")
 	}
 
-	task := wrapVisionTask(originalContent)
 	args := map[string]any{
-		"task":     task,
-		"image_id": img.ID,
+		"type":             "vision",
+		"objective":        "Describe the attached image in full, exact detail so the main agent (which cannot see images) can rely entirely on your description.",
+		"context":          fmt.Sprintf("The user's request to the main agent was: %s", strconv.Quote(originalContent)),
+		"deliverable":      "A complete description covering layout, text (quoted verbatim), colours, dimensions, and anything notable, biased toward the user's request but comprehensive.",
+		"constraints":      []string{},
+		"success_criteria": []string{},
+		"checks":           []string{},
+		"image_id":         img.ID,
 	}
 	callID := fmt.Sprintf("vision-auto-%s", img.ID)
 
-	emitEvent(p.request.Events, output.NewToolCallStartedEvent(0, "vision", callID, args))
+	emitEvent(p.request.Events, output.NewToolCallStartedEvent(0, "sub_agent", callID, args))
 
-	raw, err := p.request.Executor.Execute(ctx, "vision", callID, args)
+	raw, err := p.request.Executor.Execute(ctx, "sub_agent", callID, args)
 	if err != nil {
 		return p.failVisionCall(callID, err)
 	}
@@ -174,7 +179,7 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 		Output string `json:"output"`
 	}
 	if err := json.Unmarshal([]byte(env.Content), &result); err != nil {
-		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", err))
+		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "sub_agent", callID, "", err))
 		return fmt.Errorf("unmarshal vision result: %w", err)
 	}
 
@@ -197,7 +202,7 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 
 	img.Data = ""
 
-	emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, env.Content, nil))
+	emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "sub_agent", callID, env.Content, nil))
 
 	emitEvent(p.request.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
 		Severity: "info",
@@ -211,7 +216,7 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 // failVisionCall emits a finished event for the failed vision call and
 // returns the wrapped error.
 func (p *turnProgressor) failVisionCall(callID string, err error) error {
-	emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "vision", callID, "", err))
+	emitEvent(p.request.Events, output.NewToolCallFinishedEvent(0, "sub_agent", callID, "", err))
 	return fmt.Errorf("vision call: %w", err)
 }
 
@@ -234,16 +239,4 @@ func (p *turnProgressor) stripImageFallback(msg *Message, img *ImageBlock) {
 		msg.Content = msg.Content + "\n" + fallback
 	}
 	img.Data = ""
-}
-
-// wrapVisionTask wraps the user's request into a task string for the vision
-// sub-agent, instructing it to describe the image in detail.
-func wrapVisionTask(userText string) string {
-	const template = `The main agent cannot see images and will rely entirely on your description.
-Describe the attached image in full, exact detail — layout, text (quoted verbatim),
-colours, dimensions, and anything notable. The user's request to the main agent was:
-%s
-Bias your detail toward that request, but describe comprehensively.`
-
-	return fmt.Sprintf(template, strconv.Quote(userText))
 }

@@ -204,11 +204,17 @@ func TestHandleImagesForVision_WithSubAgent_RoutesSuccessfully(t *testing.T) {
 
 	executor := &fakeExecutor{
 		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
-			if toolName != "vision" {
+			if toolName != "sub_agent" {
 				t.Fatalf("unexpected tool: %s", toolName)
+			}
+			if input["type"] != "vision" {
+				t.Fatalf("unexpected type: %v", input["type"])
 			}
 			if input["image_id"] != "img-1" {
 				t.Fatalf("unexpected image_id: %v", input["image_id"])
+			}
+			if input["objective"] == "" {
+				t.Fatalf("objective should not be empty")
 			}
 			return tool.ExecutionResult{Value: visionProjectionTestResult{}}, nil
 		},
@@ -236,6 +242,9 @@ func TestHandleImagesForVision_WithSubAgent_RoutesSuccessfully(t *testing.T) {
 	}
 	if !contains(content, "screenshot showing a button") {
 		t.Fatalf("content should contain image description, got: %s", content)
+	}
+	if contains(content, "could not be processed") {
+		t.Fatalf("content should NOT contain fallback message, got: %s", content)
 	}
 
 	// Verify lineage was also updated.
@@ -615,9 +624,12 @@ func TestRouteImageToVision_EmitsDiagnosticEvent(t *testing.T) {
 	}
 
 	executor := &fakeExecutor{
-		execute: func(_ context.Context, toolName string, _ map[string]any) (any, error) {
-			if toolName != "vision" {
+		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+			if toolName != "sub_agent" {
 				t.Fatalf("unexpected tool: %s", toolName)
+			}
+			if input["type"] != "vision" {
+				t.Fatalf("unexpected type: %v", input["type"])
 			}
 			result := map[string]any{
 				"continuation": map[string]any{"agent_id": "vision-sub-1"},
@@ -716,9 +728,12 @@ func TestRouteImageToVision_EmitsToolCallEvents(t *testing.T) {
 	}
 
 	executor := &fakeExecutor{
-		execute: func(_ context.Context, toolName string, _ map[string]any) (any, error) {
-			if toolName != "vision" {
+		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+			if toolName != "sub_agent" {
 				t.Fatalf("unexpected tool: %s", toolName)
+			}
+			if input["type"] != "vision" {
+				t.Fatalf("unexpected type: %v", input["type"])
 			}
 			result := map[string]any{
 				"continuation": map[string]any{"agent_id": "vision-sub-1"},
@@ -748,31 +763,31 @@ func TestRouteImageToVision_EmitsToolCallEvents(t *testing.T) {
 	for _, event := range capturedEvents {
 		switch payload := event.Payload.(type) {
 		case output.ToolCallStartedEvent:
-			if payload.Tool == "vision" {
+			if payload.Tool == "sub_agent" {
 				startedEvent = &payload
 			}
 		case output.ToolCallFinishedEvent:
-			if payload.Tool == "vision" {
+			if payload.Tool == "sub_agent" {
 				finishedEvent = &payload
 			}
 		}
 	}
 
 	if startedEvent == nil {
-		t.Fatalf("no ToolCallStartedEvent for vision found. captured events: %v", capturedEvents)
+		t.Fatalf("no ToolCallStartedEvent for sub_agent found. captured events: %v", capturedEvents)
 	}
-	if startedEvent.Tool != "vision" {
-		t.Fatalf("startedEvent.Tool = %q, want vision", startedEvent.Tool)
+	if startedEvent.Tool != "sub_agent" {
+		t.Fatalf("startedEvent.Tool = %q, want sub_agent", startedEvent.Tool)
 	}
 	if startedEvent.CallID != "vision-auto-img-1" {
 		t.Fatalf("startedEvent.CallID = %q, want vision-auto-img-1", startedEvent.CallID)
 	}
 
 	if finishedEvent == nil {
-		t.Fatalf("no ToolCallFinishedEvent for vision found. captured events: %v", capturedEvents)
+		t.Fatalf("no ToolCallFinishedEvent for sub_agent found. captured events: %v", capturedEvents)
 	}
-	if finishedEvent.Tool != "vision" {
-		t.Fatalf("finishedEvent.Tool = %q, want vision", finishedEvent.Tool)
+	if finishedEvent.Tool != "sub_agent" {
+		t.Fatalf("finishedEvent.Tool = %q, want sub_agent", finishedEvent.Tool)
 	}
 	if finishedEvent.CallID != "vision-auto-img-1" {
 		t.Fatalf("finishedEvent.CallID = %q, want vision-auto-img-1", finishedEvent.CallID)
@@ -829,11 +844,11 @@ func TestHandleImagesForVision_MultipleImagesInOnceMessage_UncontaminatedText(t 
 		}),
 	}
 
-	var capturedTasks []string
+	var capturedContexts []string
 	executor := &fakeExecutor{
 		execute: func(_ context.Context, _ string, input map[string]any) (any, error) {
-			task := input["task"].(string)
-			capturedTasks = append(capturedTasks, task)
+			ctxArg := input["context"].(string)
+			capturedContexts = append(capturedContexts, ctxArg)
 
 			imageID := input["image_id"].(string)
 			result := map[string]any{
@@ -857,26 +872,26 @@ func TestHandleImagesForVision_MultipleImagesInOnceMessage_UncontaminatedText(t 
 		t.Fatalf("mutated = false, want true")
 	}
 
-	if len(capturedTasks) != 2 {
-		t.Fatalf("expected 2 executor calls, got %d", len(capturedTasks))
+	if len(capturedContexts) != 2 {
+		t.Fatalf("expected 2 executor calls, got %d", len(capturedContexts))
 	}
 
-	// Both tasks should contain the same original user text, not contaminated by the first image's description
+	// Both contexts should contain the same original user text, not contaminated by the first image's description
 	expectedSubstring := "what's in these images?"
-	for i, task := range capturedTasks {
-		if !contains(task, expectedSubstring) {
-			t.Fatalf("task[%d] should contain original user text %q, got: %s", i, expectedSubstring, task)
+	for i, context := range capturedContexts {
+		if !contains(context, expectedSubstring) {
+			t.Fatalf("context[%d] should contain original user text %q, got: %s", i, expectedSubstring, context)
 		}
 	}
 
-	// Verify that task[1] does NOT contain task[0]'s description (which would indicate contamination)
-	if contains(capturedTasks[1], "description for img-1") {
-		t.Fatalf("task[1] is contaminated with task[0]'s output. task[1]: %s", capturedTasks[1])
+	// Verify that context[1] does NOT contain context[0]'s description (which would indicate contamination)
+	if contains(capturedContexts[1], "description for img-1") {
+		t.Fatalf("context[1] is contaminated with context[0]'s output. context[1]: %s", capturedContexts[1])
 	}
 
-	// Both tasks should be identical since they're based on the same original content
-	if capturedTasks[0] != capturedTasks[1] {
-		t.Fatalf("tasks should be identical (same original content), but task[0] != task[1]\ntask[0]: %s\ntask[1]: %s", capturedTasks[0], capturedTasks[1])
+	// Both contexts should be identical since they're based on the same original content
+	if capturedContexts[0] != capturedContexts[1] {
+		t.Fatalf("contexts should be identical (same original content), but context[0] != context[1]\ncontext[0]: %s\ncontext[1]: %s", capturedContexts[0], capturedContexts[1])
 	}
 }
 
