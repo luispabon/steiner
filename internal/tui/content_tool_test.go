@@ -29,6 +29,7 @@ func TestSpecializedDelegateToolAccessor(t *testing.T) {
 		{name: "sub_agent", tool: "sub_agent", want: true},
 		{name: "follow_up", tool: "follow_up", want: true},
 		{name: "uppercase tool", tool: "Sub_Agent", want: true},
+		{name: "mixed-case and whitespace normalization", tool: " Sub_Agent ", want: true},
 		{name: "trimmed_tool", tool: "  sub_agent  ", want: true},
 		{name: "delegate", tool: "delegate", want: false},
 		{name: "read", tool: "read", want: false},
