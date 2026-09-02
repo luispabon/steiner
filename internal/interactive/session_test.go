@@ -2797,14 +2797,14 @@ func TestLoadSessionRestoresDelegationBoxes(t *testing.T) {
 						{
 							Role: agent.MessageRoleAssistant,
 							ToolCalls: []agent.ToolCall{
-								{ID: "call_explore_1", Name: "explore", Arguments: map[string]any{"task": "find auth files"}},
+								{ID: "call_explore_1", Name: "sub_agent", Arguments: map[string]any{"type": "explore", "task": "find auth files"}},
 							},
 						},
 						{
 							Role:       agent.MessageRoleTool,
 							Content:    "found 3 files",
 							ToolCallID: "call_explore_1",
-							Name:       "explore",
+							Name:       "sub_agent",
 							Retention: &agent.MessageRetention{
 								AgentID:    "agent-abc123",
 								Status:     "complete",
@@ -2907,7 +2907,7 @@ func TestLoadSessionRestoresDelegationBoxes(t *testing.T) {
 	if got, want := toolStarted[0].CallID, "call_explore_1"; got != want {
 		t.Fatalf("tool started call id = %q, want %q", got, want)
 	}
-	if got, want := toolStarted[0].Tool, "explore"; got != want {
+	if got, want := toolStarted[0].Tool, "sub_agent"; got != want {
 		t.Fatalf("tool started tool = %q, want %q", got, want)
 	}
 
@@ -2948,14 +2948,14 @@ func TestLoadSessionRestoresDelegationBoxesWithoutRetention(t *testing.T) {
 						{
 							Role: agent.MessageRoleAssistant,
 							ToolCalls: []agent.ToolCall{
-								{ID: "call_delegate_2", Name: "explore", Arguments: map[string]any{"task": "handle this"}},
+								{ID: "call_delegate_2", Name: "sub_agent", Arguments: map[string]any{"type": "explore", "task": "handle this"}},
 							},
 						},
 						{
 							Role:       agent.MessageRoleTool,
 							Content:    "done",
 							ToolCallID: "call_delegate_2",
-							Name:       "explore",
+							Name:       "sub_agent",
 							Retention:  nil,
 						},
 					},
@@ -3053,7 +3053,7 @@ func TestLoadSessionMixesDelegateAndRegularToolCalls(t *testing.T) {
 							Role: agent.MessageRoleAssistant,
 							ToolCalls: []agent.ToolCall{
 								{ID: "call_reg_1", Name: "read", Arguments: map[string]any{"path": "main.go"}},
-								{ID: "call_del_1", Name: "explore", Arguments: map[string]any{"task": "find tests"}},
+								{ID: "call_del_1", Name: "sub_agent", Arguments: map[string]any{"type": "explore", "task": "find tests"}},
 							},
 						},
 						{
@@ -3067,7 +3067,7 @@ func TestLoadSessionMixesDelegateAndRegularToolCalls(t *testing.T) {
 							Role:       agent.MessageRoleTool,
 							Content:    "found tests",
 							ToolCallID: "call_del_1",
-							Name:       "explore",
+							Name:       "sub_agent",
 							Retention: &agent.MessageRetention{
 								AgentID:    "agent-exp-1",
 								Status:     "complete",
@@ -3124,7 +3124,7 @@ func TestLoadSessionMixesDelegateAndRegularToolCalls(t *testing.T) {
 	if got, want := toolStarted[1].CallID, "call_del_1"; got != want {
 		t.Fatalf("tool started call id = %q, want %q", got, want)
 	}
-	if got, want := toolStarted[1].Tool, "explore"; got != want {
+	if got, want := toolStarted[1].Tool, "sub_agent"; got != want {
 		t.Fatalf("tool started tool = %q, want %q", got, want)
 	}
 
@@ -3223,14 +3223,14 @@ func TestLoadSessionRestoresDelegationBoxesFromStructuredResult(t *testing.T) {
 						{
 							Role: agent.MessageRoleAssistant,
 							ToolCalls: []agent.ToolCall{
-								{ID: "call_evaluate_1", Name: "evaluate", Arguments: map[string]any{"task": "plan the rollout"}},
+								{ID: "call_evaluate_1", Name: "sub_agent", Arguments: map[string]any{"type": "evaluate", "task": "plan the rollout"}},
 							},
 						},
 						{
 							Role:       agent.MessageRoleTool,
 							Content:    `{"agent_id":"agent-evaluate-1","status":"partial","output":"final prose output","summary":"summary text","turn_count":3,"token_count":456,"tool_call_count":2}`,
 							ToolCallID: "call_evaluate_1",
-							Name:       "evaluate",
+							Name:       "sub_agent",
 						},
 					},
 				},
@@ -3287,7 +3287,7 @@ func TestLoadSessionRestoresDelegationBoxesFromStructuredResult(t *testing.T) {
 	if got, want := len(toolStarted), 1; got != want {
 		t.Fatalf("tool started events = %d, want %d", got, want)
 	}
-	if got, want := toolStarted[0].Tool, "evaluate"; got != want {
+	if got, want := toolStarted[0].Tool, "sub_agent"; got != want {
 		t.Fatalf("tool started tool = %q, want %q", got, want)
 	}
 	if got, want := len(delegationStarted), 1; got != want {
@@ -3341,14 +3341,14 @@ func TestLoadSessionRestoresFailedDelegationBoxesFromStructuredResult(t *testing
 						{
 							Role: agent.MessageRoleAssistant,
 							ToolCalls: []agent.ToolCall{
-								{ID: "call_sanity_check_1", Name: "sanity_check", Arguments: map[string]any{"task": "verify the fix"}},
+								{ID: "call_sanity_check_1", Name: "sub_agent", Arguments: map[string]any{"type": "sanity_check", "task": "verify the fix"}},
 							},
 						},
 						{
 							Role:       agent.MessageRoleTool,
 							Content:    `{"agent_id":"agent-sanity_check-1","status":"failed","error":"verification failed after tests","turn_count":4,"token_count":789}`,
 							ToolCallID: "call_sanity_check_1",
-							Name:       "sanity_check",
+							Name:       "sub_agent",
 						},
 					},
 				},
@@ -3418,14 +3418,14 @@ func TestLoadSessionRestoresDelegationBoxesWithMalformedStructuredResultFallback
 						{
 							Role: agent.MessageRoleAssistant,
 							ToolCalls: []agent.ToolCall{
-								{ID: "call_research_1", Name: "research", Arguments: map[string]any{"task": "research docs"}},
+								{ID: "call_research_1", Name: "sub_agent", Arguments: map[string]any{"type": "research", "task": "research docs"}},
 							},
 						},
 						{
 							Role:       agent.MessageRoleTool,
 							Content:    "{not-json",
 							ToolCallID: "call_research_1",
-							Name:       "research",
+							Name:       "sub_agent",
 						},
 					},
 				},

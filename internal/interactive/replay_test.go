@@ -16,17 +16,18 @@ func TestIsDelegateToolCall(t *testing.T) {
 		want     bool
 	}{
 		{name: "delegate is no longer a delegate tool", toolName: "delegate", want: false},
-		{name: "explore is delegate tool", toolName: "explore", want: true},
-		{name: "research is delegate tool", toolName: "research", want: true},
-		{name: "code is delegate tool", toolName: "code", want: true},
-		{name: "evaluate is delegate tool", toolName: "evaluate", want: true},
-		{name: "sanity_check is delegate tool", toolName: "sanity_check", want: true},
+		{name: "explore is not a delegate tool anymore", toolName: "explore", want: false},
+		{name: "research is not a delegate tool anymore", toolName: "research", want: false},
+		{name: "code is not a delegate tool anymore", toolName: "code", want: false},
+		{name: "evaluate is not a delegate tool anymore", toolName: "evaluate", want: false},
+		{name: "sanity_check is not a delegate tool anymore", toolName: "sanity_check", want: false},
+		{name: "sub_agent is delegate tool", toolName: "sub_agent", want: true},
 		{name: "follow_up is delegate tool", toolName: "follow_up", want: true},
 		{name: "read is not delegate tool", toolName: "read", want: false},
 		{name: "mutate is not delegate tool", toolName: "mutate", want: false},
 		{name: "bash is not delegate tool", toolName: "bash", want: false},
 		{name: "delegate uppercase is no longer a delegate tool", toolName: "DELEGATE", want: false},
-		{name: "explore uppercase", toolName: "EXPLORE", want: true},
+		{name: "sub_agent uppercase", toolName: "SUB_AGENT", want: true},
 		{name: "follow_up uppercase", toolName: "FOLLOW_UP", want: true},
 		{name: "empty string is not delegate tool", toolName: "", want: false},
 	}
@@ -208,13 +209,13 @@ func TestReplaySessionMessagesDelegateEvent(t *testing.T) {
 				Role:    agent.MessageRoleAssistant,
 				Content: "delegating",
 				ToolCalls: []agent.ToolCall{
-					{ID: "call-d1", Name: "explore", Arguments: map[string]any{"task": "investigate bug"}},
+					{ID: "call-d1", Name: "sub_agent", Arguments: map[string]any{"type": "explore", "task": "investigate bug"}},
 				},
 			},
 			{
 				Role:       agent.MessageRoleTool,
 				ToolCallID: "call-d1",
-				Name:       "explore",
+				Name:       "sub_agent",
 				Content:    `{"agent_id":"agent-99","status":"complete","output":"found it","turn_count":2,"token_count":50,"tool_call_count":1}`,
 			},
 		}
@@ -259,13 +260,13 @@ func TestReplaySessionMessagesDelegateEvent(t *testing.T) {
 				Role:    agent.MessageRoleAssistant,
 				Content: "delegating",
 				ToolCalls: []agent.ToolCall{
-					{ID: "call-d2", Name: "explore", Arguments: map[string]any{"task": "investigate other bug"}},
+					{ID: "call-d2", Name: "sub_agent", Arguments: map[string]any{"type": "explore", "task": "investigate other bug"}},
 				},
 			},
 			{
 				Role:       agent.MessageRoleTool,
 				ToolCallID: "call-d2",
-				Name:       "explore",
+				Name:       "sub_agent",
 				Content:    `{"agent_id":"agent-100","status":"failed","error":"delegate crashed"}`,
 			},
 		}
