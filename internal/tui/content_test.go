@@ -807,8 +807,8 @@ func TestDelegationPromptStateFromParentCall(t *testing.T) {
 
 	task := strings.Repeat("inspect docs carefully ", 6)
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
-		"task": task,
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
+		"type": "explore", "task": task,
 	}))
 
 	dd := buffer.segments[0].delegData
@@ -830,7 +830,7 @@ func TestDelegationPromptStateWithParentCallBeforeStarted(t *testing.T) {
 	}
 
 	task := strings.Repeat("inspect docs carefully ", 6)
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{"task": task}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{"type": "explore", "task": task}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
 
 	dd := buffer.segments[0].delegData
@@ -942,8 +942,8 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 		styles:        testStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
-		"task": "initial task preview",
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
+		"type": "explore", "task": "initial task preview",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "initial task preview"))
 	buffer.AppendEvent(output.WithAgentScope(
@@ -967,8 +967,8 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 		styles:        testStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
-		"task": "inspect docs",
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
+		"type": "explore", "task": "inspect docs",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
@@ -1010,7 +1010,7 @@ func TestRenderDelegationPromptSubsectionCollapsedAndExpanded(t *testing.T) {
 	}
 
 	prompt := "inspect the prompt layout\nwith a line that wraps nicely"
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"task": prompt,
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", prompt))
@@ -1082,7 +1082,7 @@ func TestRenderDelegationBlankPromptSkipsSubsection(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", ""))
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"task": "",
 	}))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
@@ -1129,8 +1129,8 @@ func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
 		styles:        testStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
-		"task": "inspect docs",
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
+		"type": "explore", "task": "inspect docs",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
@@ -2043,7 +2043,7 @@ func TestAppendEventDelegateParentToolCallMergesIntoDelegationSegment(t *testing
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"task": "fix the bug in module X",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "fix the bug in module X"))
@@ -2084,7 +2084,7 @@ func TestAppendEventDelegationStartedBeforeDelegateParentToolCallMergesIntoOneSe
 	}
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "fix the bug in module X"))
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"task": "fix the bug in module X",
 	}))
 
@@ -2280,8 +2280,8 @@ func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
 		showThinking:  true,
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_delegate_1", map[string]any{
-		"task": "inspect docs",
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
+		"type": "explore", "task": "inspect docs",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, "inspect files", output.ChunkSourceAssistant), "child-1"))
@@ -3004,18 +3004,21 @@ func TestIsSpecializedDelegateTool(t *testing.T) {
 		tool string
 		want bool
 	}{
-		{"explore", true},
-		{"research", true},
-		{"code", true},
-		{"evaluate", true},
-		{"sanity_check", true},
-		{"review", true},
-		// case-insensitive
-		{"Explore", true},
-		{"RESEARCH", true},
-		{"Code", true},
+		// Old specialist names are no longer recognized; only sub_agent/follow_up are
+		{"explore", false},
+		{"research", false},
+		{"code", false},
+		{"evaluate", false},
+		{"sanity_check", false},
+		{"review", false},
+		// New unified tool name (case-insensitive)
+		{"sub_agent", true},
+		{"Sub_Agent", true},
+		{"SUB_AGENT", true},
+		// follow_up is still recognized
+		{"follow_up", true},
 		// whitespace trimmed
-		{" evaluate ", true},
+		{" sub_agent ", true},
 		// non-specialized tools
 		{"delegate", false},
 		{"bash", false},
@@ -3080,12 +3083,12 @@ func TestSummarizeArgsSpecializedDelegateTools(t *testing.T) {
 
 func TestSpecializedDelegateToolCallCreatesSingleDelegationSegment(t *testing.T) {
 	t.Parallel()
-	tools := []string{"explore", "research", "code", "evaluate", "sanity_check", "review"}
-	for _, tool := range tools {
-		t.Run(tool, func(t *testing.T) {
+	types := []string{"explore", "research", "code", "evaluate", "sanity_check", "review"}
+	for _, typeVal := range types {
+		t.Run(typeVal, func(t *testing.T) {
 			t.Parallel()
 			buffer := &contentBuffer{segments: make([]contentSegment, 0)}
-			buffer.AppendEvent(output.NewToolCallStartedEvent(1, tool, "call-1", map[string]any{"task": "do something"}))
+			buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", map[string]any{"type": typeVal, "task": "do something"}))
 
 			if len(buffer.segments) != 1 {
 				t.Fatalf("segments count = %d, want 1 (single delegation box)", len(buffer.segments))
@@ -3097,8 +3100,8 @@ func TestSpecializedDelegateToolCallCreatesSingleDelegationSegment(t *testing.T)
 			if seg.delegData == nil {
 				t.Fatal("delegData = nil, want delegation state")
 			}
-			if seg.delegData.toolLabel != tool {
-				t.Errorf("toolLabel = %q, want %q", seg.delegData.toolLabel, tool)
+			if seg.delegData.toolLabel != typeVal {
+				t.Errorf("toolLabel = %q, want %q", seg.delegData.toolLabel, typeVal)
 			}
 		})
 	}
@@ -3111,7 +3114,7 @@ func TestDelegationHeaderRendersSpecializedToolLabel(t *testing.T) {
 		styles:        testStyles(theme.AccentAmber),
 		collapseState: make(map[int]bool),
 	}
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call-1", map[string]any{"task": "map the codebase"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", map[string]any{"type": "explore", "task": "map the codebase"}))
 
 	if len(buffer.segments) == 0 || buffer.segments[0].delegData == nil {
 		t.Fatal("expected delegation segment")
@@ -3156,7 +3159,7 @@ func TestRenderReplayDelegationUsesParentToolStartForPromptAndOutput(t *testing.
 	}
 
 	jsonBlob := `{"agent_id":"agent-evaluate-1","status":"complete","output":"final prose output","tool_call_count":2}`
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "evaluate", "call_evaluate_1", map[string]any{
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_evaluate_1", map[string]any{"type": "evaluate",
 		"task": "plan the rollout\nwith full prompt text",
 	}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-evaluate-1", "plan the rollout\nwith full prompt text"))
@@ -3222,7 +3225,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 		styles:        testStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "explore", "task": "do work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewModelCallStartedEvent(1, "qwen3-coder-30b", 12), "agent-1"))
 	buffer.AppendEvent(output.WithAgentScope(
@@ -3269,7 +3272,7 @@ func TestDelegationStatsFooterHiddenWhenCollapsed(t *testing.T) {
 		styles:        testStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "explore", "task": "do work"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 		AgentID:       "agent-1",
@@ -3327,7 +3330,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 			styles:        testStyles(theme.AccentAmber),
 		}
 
-		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
+		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "explore", "task": "do work"}))
 		buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
 		buffer.ToggleLastDelegationOutput()
 
@@ -3345,7 +3348,7 @@ func TestDelegationExtensionCounter(t *testing.T) {
 			styles:        testStyles(theme.AccentAmber),
 		}
 
-		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call_1", map[string]any{"task": "do work"}))
+		buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "explore", "task": "do work"}))
 		buffer.AppendEvent(output.NewDelegationStartedEvent("agent-1", "do work"))
 		buffer.AppendEvent(output.NewDelegationExtensionEvent("agent-1", 1, 5))
 		buffer.AppendEvent(output.NewDelegationExtensionEvent("agent-1", 2, 5))
@@ -3919,13 +3922,13 @@ func TestFollowUpToolCallCreatesDelegationSegmentWithMatchedLabel(t *testing.T) 
 		collapseState: make(map[int]bool),
 	}
 
-	// First create an original delegation with "code" label
+	// First create an original delegation with "code" type via sub_agent
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeToolCallStarted,
 		Payload: output.ToolCallStartedEvent{
 			CallID:    "parent-1",
-			Tool:      "code",
-			Arguments: map[string]any{"task": "implement feature"},
+			Tool:      "sub_agent",
+			Arguments: map[string]any{"type": "code", "task": "implement feature"},
 		},
 	})
 
@@ -4092,13 +4095,13 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 		activeDelegations: make(map[string]delegationLocator),
 	}
 
-	// 1. Parent calls the specialized "code" delegation tool.
+	// 1. Parent calls the specialized "code" delegation tool via sub_agent.
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeToolCallStarted,
 		Payload: output.ToolCallStartedEvent{
 			CallID:    "parent-code",
-			Tool:      "code",
-			Arguments: map[string]any{"task": "implement feature"},
+			Tool:      "sub_agent",
+			Arguments: map[string]any{"type": "code", "task": "implement feature"},
 		},
 	})
 
