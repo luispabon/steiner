@@ -291,8 +291,10 @@ func normalizeVersionTag(v string) string {
 
 // Check reports whether an update is available on the given channel.
 // targetVersion, if non-empty, requests a specific stable version tag
-// instead of the latest. It returns the version string for the release
-// that would be installed and whether an update is needed.
+// instead of the latest. An explicit target is authoritative and sets
+// needsUpdate to true even when currentVersion is newer or equal. It returns
+// the version string for the release that would be installed and whether an
+// update is needed.
 func Check(ctx context.Context, currentVersion, owner, repo, token, channel, targetVersion string) (latestVersion string, needsUpdate bool, err error) {
 	switch channel {
 	case "dev":
