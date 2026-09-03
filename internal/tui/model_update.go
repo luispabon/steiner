@@ -170,7 +170,42 @@ func (m *Model) handleModelReasoningResolvedMsg(msg modelReasoningResolvedMsg) (
 	return m, nil
 }
 
+// clearConversationState unconditionally clears conversation state and TUI
+// chrome. It is used by callers that must always clear regardless of
+// in-flight work — namely acceptWorkflowHandoff, which runs while the
+// workflow_handoff tool call itself is still registered active (its
+// ToolCallFinishedEvent only arrives asynchronously, after this call
+// returns). Callers that should refuse to clear during an active run must
+// use clearConversationStateWithError instead.
+//
+//nolint:unparam // tea.Cmd remains part of the workflow handoff call contract.
 func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
+	// Error is already surfaced via a content status line inside
+	// performClearConversationState; nothing further to do with it here.
+	_ = m.performClearConversationState()
+	return m, nil
+}
+
+// clearConversationStateWithError refuses to clear while a run is in
+// progress, otherwise clears unconditionally via performClearConversationState.
+func (m *Model) clearConversationStateWithError() (tea.Model, bool, error) {
+	if m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning {
+		m.content.AppendLine("status: cannot clear while a run is in progress")
+		m.input.Reset()
+		m.historyIdx = 0
+		m.syncInputChrome()
+		m.relayoutInput()
+		m.syncViewport()
+		return m, false, nil
+	}
+	err := m.performClearConversationState()
+	return m, true, err
+}
+
+// performClearConversationState resets conversation content and TUI chrome
+// unconditionally. It does not check whether a run is active — callers own
+// that decision.
+func (m *Model) performClearConversationState() error {
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
@@ -179,8 +214,20 @@ func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
 	m.selection = m.selection.clear()
 	m.clearDragState()
 	m.imageMarkers = nil
+	m.activity = m.activity.clear()
+	m.status.mode = ""
+	m.status.approvalActive = false
+	m.status.streaming = false
+	m.approval = approvalState{}
+	m.steerQueued = false
+	m.interruptPending = false
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
+	m.sidebar.perfDurationMs = 0
+	m.sidebar.perfTTFTMs = 0
+	m.sidebar.perfOutputTPS = 0
+	m.sidebar.currentTurn = 0
+	m.sidebar.maxTurns = 0
 	for name := range m.enabledSkills {
 		m.enabledSkills[name] = false
 	}
@@ -189,16 +236,20 @@ func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
 	} else {
 		m.status.context = ""
 	}
+	m.setCompaction(compactionState{})
 	m.syncSidebar()
+	var clearErr error
 	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.ClearConversation{}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		clearErr = m.controller.Handle(context.Background(), interactive.ClearConversation{})
+		if clearErr != nil {
+			m.content.AppendLine(fmt.Sprintf("status: %v", clearErr))
 		}
 	}
 	m.input.Reset()
 	m.historyIdx = 0
+	m.syncInputChrome()
 	m.syncViewport()
-	return m, nil
+	return clearErr
 }
 
 func (m *Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd) {

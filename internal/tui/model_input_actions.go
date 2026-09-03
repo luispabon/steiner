@@ -40,7 +40,11 @@ func (m *Model) executeInterruptAction() *Model {
 }
 
 func (m *Model) executeClearAction() (tea.Model, tea.Cmd) {
-	return m.clearConversationState()
+	next, cleared, err := m.clearConversationStateWithError()
+	if cleared && err == nil && m.clearConversationHooks != nil {
+		m.clearConversationHooks()
+	}
+	return next, nil
 }
 
 func (m *Model) executeCompactAction(action inputAction) (tea.Model, tea.Cmd) {

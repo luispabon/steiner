@@ -116,6 +116,9 @@ type Config struct {
 	// Must reset session-scoped sandbox state (e.g., empty /tmp contents) without
 	// tearing down the sandbox itself. May be nil.
 	SessionResetCleanup func()
+	// ClearConversationHooks is called by /clear after it discards the current conversation.
+	// It is not called by other state resets, such as workflow handoff. May be nil.
+	ClearConversationHooks func()
 	// WorktreeCleanup coordinates counting worktrees and recording cleanup intent on exit.
 	WorktreeCleanup *WorktreeCleanupPlan
 	// SandboxStatus seeds the initial sandbox status at startup.

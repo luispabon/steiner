@@ -5789,6 +5789,292 @@ func TestViewportSelectionClearedOnClearConversation(t *testing.T) {
 	}
 }
 
+func TestClearConversationStateResetsSessionChrome(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.activity = m.activity.static("stopped", "end_turn")
+	m.status.mode = "end_turn"
+	m.status.streaming = true
+	m.status.approvalActive = true
+	m.approval = approvalState{
+		active:         true,
+		tool:           "write",
+		mode:           "build",
+		preview:        "preview",
+		kind:           "path",
+		server:         "server",
+		mcpToolName:    "tool",
+		identity:       "identity",
+		selectedAction: 1,
+	}
+	m.sidebar.perfDurationMs = 100
+	m.sidebar.perfTTFTMs = 200
+	m.sidebar.perfOutputTPS = 30.5
+	m.sidebar.currentTurn = 2
+	m.sidebar.maxTurns = 5
+	m.setCompaction(compactionState{summary: "compacting"})
+	m.steerQueued = true
+	m.interruptPending = true
+
+	m.clearConversationState()
+
+	if m.activity.label != "" || m.activity.detail != "" || m.activity.spinning {
+		t.Errorf("activity = %#v, want cleared", m.activity)
+	}
+	if m.status.mode != "" || m.status.streaming || m.status.approvalActive {
+		t.Errorf("status = %#v, want cleared", m.status)
+	}
+	if m.approval != (approvalState{}) {
+		t.Errorf("approval = %#v, want zero value", m.approval)
+	}
+	if m.sidebar.perfDurationMs != 0 || m.sidebar.perfTTFTMs != 0 || m.sidebar.perfOutputTPS != 0 {
+		t.Errorf("sidebar performance = duration %d, ttft %d, tps %f; want zero values",
+			m.sidebar.perfDurationMs, m.sidebar.perfTTFTMs, m.sidebar.perfOutputTPS)
+	}
+	if m.sidebar.currentTurn != 0 || m.sidebar.maxTurns != 0 {
+		t.Errorf("sidebar turns = current %d, max %d; want zero values",
+			m.sidebar.currentTurn, m.sidebar.maxTurns)
+	}
+	if m.compaction.Active() || m.sidebar.compaction.Active() || m.content.compaction.Active() {
+		t.Error("compaction state survived clearConversationState")
+	}
+	if m.steerQueued || m.interruptPending {
+		t.Errorf("pending input state survived clearConversationState: steer=%v interrupt=%v", m.steerQueued, m.interruptPending)
+	}
+	if got, want := m.input.Placeholder, "ask steiner — / for commands, @ for files"; got != want {
+		t.Errorf("input placeholder = %q, want %q", got, want)
+	}
+}
+
+func TestClearConversationStateRefusesActiveWork(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.content.activeDelegations = map[string]delegationLocator{"child-1": {}}
+	m.activity = m.activity.static("stopped", "end_turn")
+	m.steerQueued = true
+	m.interruptPending = true
+
+	m.executeClearAction()
+
+	if !m.content.HasActiveDelegations() {
+		t.Error("active delegation was cleared instead of refusing clear")
+	}
+	if m.activity.label != "stopped" || !m.steerQueued || !m.interruptPending {
+		t.Error("clearConversationState modified state while active work was present")
+	}
+	if got := m.content.segments[len(m.content.segments)-1].text; got != "cannot clear while a run is in progress" {
+		t.Errorf("status segment = %q, want refusal message", got)
+	}
+}
+
+func assertClearConversationRefused(t *testing.T, m *Model) {
+	t.Helper()
+	if len(m.content.segments) == 0 {
+		t.Fatal("clear refusal was not appended to content")
+	}
+	if got := m.content.segments[len(m.content.segments)-1].text; got != "cannot clear while a run is in progress" {
+		t.Errorf("status segment = %q, want refusal message", got)
+	}
+}
+
+func TestClearConversationRefusesDuringStreaming(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.content.AppendLine("old transcript")
+	m.activity = m.activity.waiting("running", "model")
+
+	m.executeClearAction()
+
+	if !m.activity.busy() || !strings.Contains(m.content.String(m.viewport.Width()), "old transcript") {
+		t.Error("clearConversationState modified state during streaming")
+	}
+	assertClearConversationRefused(t, m)
+}
+
+func TestClearConversationRefusesDuringCompaction(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.content.AppendLine("old transcript")
+	m.setCompaction(compactionState{active: true, summary: "compacting"})
+
+	m.executeClearAction()
+
+	if !m.compaction.Active() || !strings.Contains(m.content.String(m.viewport.Width()), "old transcript") {
+		t.Error("clearConversationState modified state during compaction")
+	}
+	assertClearConversationRefused(t, m)
+}
+
+func TestClearConversationRefusesDuringActiveToolCalls(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.content.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "call-1", nil))
+
+	m.executeClearAction()
+
+	if !m.content.HasActiveToolCalls() {
+		t.Error("active tool call was cleared instead of refusing clear")
+	}
+	assertClearConversationRefused(t, m)
+}
+
+func TestClearConversationFiresDelegationHook(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{Controller: &testController{}}, nil)
+	hookCalls := 0
+	m.clearConversationHooks = func() { hookCalls++ }
+
+	m.executeClearAction()
+
+	if hookCalls != 1 {
+		t.Errorf("clear conversation hook calls = %d, want 1", hookCalls)
+	}
+}
+
+func TestClearConversationDoesNotFireDelegationHookOnControllerError(t *testing.T) {
+	t.Parallel()
+	controllerErr := errors.New("clear controller failed")
+	m := newModel(Config{Controller: &testController{err: controllerErr}}, nil)
+	hookCalls := 0
+	m.clearConversationHooks = func() { hookCalls++ }
+
+	m.executeClearAction()
+
+	if hookCalls != 0 {
+		t.Errorf("clear conversation hook calls = %d, want 0", hookCalls)
+	}
+	if got := m.content.String(m.viewport.Width()); !strings.Contains(got, controllerErr.Error()) {
+		t.Errorf("content = %q, want controller error", got)
+	}
+}
+
+func TestClearConversationRefusalResetsInput(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.input.SetValue("/clear")
+	m.historyIdx = 2
+	m.activity = m.activity.waiting("running", "model")
+
+	m.executeClearAction()
+
+	if got := m.input.Value(); got != "" {
+		t.Errorf("input value = %q, want empty", got)
+	}
+	if m.historyIdx != 0 {
+		t.Errorf("history index = %d, want 0", m.historyIdx)
+	}
+	if got := m.content.String(m.viewport.Width()); !strings.Contains(got, "cannot clear while a run is in progress") {
+		t.Errorf("content = %q, want clear refusal", got)
+	}
+}
+
+func TestClearConversationRefusesDuringOneshot(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.content.AppendLine("old transcript")
+	m.input.SetValue("/clear")
+	m.oneshotRunning = true
+
+	m.executeClearAction()
+
+	if got := m.content.String(m.viewport.Width()); !strings.Contains(got, "old transcript") {
+		t.Error("clearConversationState cleared content during oneshot")
+	}
+	if got := m.input.Value(); got != "" {
+		t.Errorf("input value = %q, want empty", got)
+	}
+	if !m.oneshotRunning {
+		t.Error("oneshotRunning = false, want true after refusal")
+	}
+	assertClearConversationRefused(t, m)
+}
+
+func TestWorkflowHandoffDoesNotFireDelegationHook(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.content.AppendLine("old transcript")
+	hookCalls := 0
+	m.clearConversationHooks = func() { hookCalls++ }
+	m.workflowHandoff = openWorkflowHandoffModal(80, 24, output.WorkflowHandoffEvent{
+		Next:   "review",
+		Target: ".steiner/plans/step-3",
+	}, interactive.WorkflowHandoffModelSelection{})
+
+	next, _ := m.acceptWorkflowHandoff()
+	cleared, ok := next.(*Model)
+	if !ok {
+		t.Fatalf("handoff result type = %T, want *Model", next)
+	}
+	if hookCalls != 0 {
+		t.Errorf("clear conversation hook calls during handoff = %d, want 0", hookCalls)
+	}
+	if strings.Contains(cleared.content.String(cleared.viewport.Width()), "old transcript") {
+		t.Error("handoff did not clear old transcript")
+	}
+}
+
+// TestWorkflowHandoffAcceptClearsWithActiveToolCall reproduces the real
+// accept-time state: the workflow_handoff tool call itself is still
+// registered active in the content buffer when the user accepts, because its
+// ToolCallFinishedEvent only arrives asynchronously after the agent loop
+// goroutine unblocks — well after acceptWorkflowHandoff has already run.
+// clearConversationState must clear unconditionally regardless, or handoff
+// silently leaves the old transcript in place while RotateSession still
+// fires underneath it.
+func TestWorkflowHandoffAcceptClearsWithActiveToolCall(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.content.AppendLine("old transcript")
+	m.content.appendToolCallStartedEvent(output.Event{
+		Type: output.EventTypeToolCallStarted,
+		Payload: output.ToolCallStartedEvent{
+			Tool:   "workflow_handoff",
+			CallID: "call-1",
+		},
+	})
+	if !m.content.HasActiveToolCalls() {
+		t.Fatal("setup: expected active tool call to be registered")
+	}
+	m.workflowHandoff = openWorkflowHandoffModal(80, 24, output.WorkflowHandoffEvent{
+		Next:   "review",
+		Target: ".steiner/plans/step-3",
+	}, interactive.WorkflowHandoffModelSelection{})
+
+	next, _ := m.acceptWorkflowHandoff()
+	cleared, ok := next.(*Model)
+	if !ok {
+		t.Fatalf("handoff result type = %T, want *Model", next)
+	}
+	if strings.Contains(cleared.content.String(cleared.viewport.Width()), "old transcript") {
+		t.Error("handoff did not clear old transcript while a tool call was still active — clear was refused")
+	}
+}
+
+func TestClearConversationStateRenderClearsChrome(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{Controller: &testController{}}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.activity = m.activity.static("stopped", "end_turn")
+	m.status.mode = "end_turn"
+	m.sidebar.perfDurationMs = 1234
+	m.sidebar.perfTTFTMs = 56
+	m.sidebar.perfOutputTPS = 78.9
+	m.content.AppendLine("stale segment")
+	m.content.AppendLine("another stale segment")
+	m.syncViewport()
+
+	before := stripANSI(m.View().Content)
+	if !strings.Contains(before, "stopped") || !strings.Contains(before, "1.2s") {
+		t.Fatalf("rendered stale chrome = %q, want activity and performance values", before)
+	}
+
+	m.clearConversationState()
+	after := stripANSI(m.View().Content)
+	if strings.Contains(after, "stopped") || strings.Contains(after, "1.2s") {
+		t.Fatalf("rendered chrome after clear = %q, contains stale values", after)
+	}
+}
+
 func TestSegmentContentLineRoundTrip(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)

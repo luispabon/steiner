@@ -206,11 +206,13 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		Duration: time.Duration(rt.cfg.DesktopNotifications.Duration) * time.Second,
 		AppName:  "steiner",
 	})
-	if rt.sandbox != nil {
-		sb := rt.sandbox
-		tuiCfg.SessionResetCleanup = func() {
-			_ = sb.ResetTmp()
+	tuiCfg.SessionResetCleanup = func() {
+		if rt.sandbox != nil {
+			_ = rt.sandbox.ResetTmp()
 		}
+	}
+	tuiCfg.ClearConversationHooks = func() {
+		delegation.ResetForNewConversation(rt.delegationSessionStore, rt.delegationAdvisorBudgetStore)
 	}
 	tuiCfg.ResolveReasoningFunc = func() (map[string]provider.ReasoningCapabilities, map[string]string) {
 		return provider.ResolveReasoningBatch(rt.cfg, rt.httpClient)

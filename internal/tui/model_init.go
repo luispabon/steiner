@@ -95,6 +95,7 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		imageStore:                   cfg.ImageStore,
 		visionCapabilities:           cfg.VisionCapabilities,
 		sessionResetCleanup:          cfg.SessionResetCleanup,
+		clearConversationHooks:       cfg.ClearConversationHooks,
 		worktreePlan:                 cfg.WorktreeCleanup,
 		resolveReasoningFunc:         cfg.ResolveReasoningFunc,
 		resolveReasoningForAliasFunc: cfg.ResolveReasoningForAliasFunc,
