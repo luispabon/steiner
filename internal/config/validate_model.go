@@ -16,7 +16,7 @@ func providerNeedsBaseURL(providerType ProviderType) bool {
 
 func providerNeedsCredential(providerType ProviderType) bool {
 	switch providerType {
-	case ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic, ProviderTypeGemini:
+	case ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic, ProviderTypeGemini, ProviderTypeOpencodeGo, ProviderTypeOpencodeZen:
 		return true
 	default:
 		return false
@@ -108,7 +108,7 @@ func validateProvidersConfig(problems *[]string, providers map[string]ProviderCo
 			switch p.Type {
 			case ProviderTypeOpenAICompat, ProviderTypeOllama, ProviderTypeLMStudio,
 				ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic,
-				ProviderTypeGemini, ProviderTypeLiteLLM, ProviderTypeCodex:
+				ProviderTypeGemini, ProviderTypeLiteLLM, ProviderTypeCodex, ProviderTypeOpencodeGo, ProviderTypeOpencodeZen:
 				// valid
 			default:
 				*problems = append(*problems, fmt.Sprintf("providers[%q].type %q is not supported", name, p.Type))

@@ -260,6 +260,10 @@ func defaultProviderBaseURL(providerType config.ProviderType) string {
 		return "https://api.openai.com/v1"
 	case config.ProviderTypeCodex:
 		return "https://api.openai.com/v1"
+	case config.ProviderTypeOpencodeGo:
+		return "https://opencode.ai/zen/go/v1"
+	case config.ProviderTypeOpencodeZen:
+		return "https://opencode.ai/zen/v1"
 	default:
 		return ""
 	}

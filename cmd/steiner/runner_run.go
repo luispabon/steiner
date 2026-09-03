@@ -139,7 +139,7 @@ func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider
 	if cache := r.runtime.codexWSCache; cache != nil && isCodexWSDispatch(rm) {
 		return r.cachedCodexWSProvider(cache, rm)
 	}
-	prov, err := r.runtime.providerFactory(rm)
+	prov, err := r.runtime.providerFactory(rm, r.sessionID())
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func (r cliRunner) cachedCodexWSProvider(cache *codexWSCache, rm provider.Resolv
 	}
 	cache.mu.Unlock()
 
-	built, err := r.runtime.providerFactory(rm)
+	built, err := r.runtime.providerFactory(rm, r.sessionID())
 	if err != nil {
 		return nil, err
 	}

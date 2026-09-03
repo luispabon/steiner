@@ -49,7 +49,7 @@ func TestCLIRunnerCompactUsesResolvedLimitsAndAssembly(t *testing.T) {
 				},
 				SubAgent: config.SubAgentConfig{Enabled: true}, Advisor: config.AdvisorConfig{Enabled: true},
 			},
-			providerFactory: func(rm provider.ResolvedModel) (provider.Provider, error) { captured = rm; return prov, nil },
+			providerFactory: func(rm provider.ResolvedModel, _ string) (provider.Provider, error) { captured = rm; return prov, nil },
 			httpClient:      srv.Client(), projectRoot: projectRoot, workDir: projectRoot, homeDir: projectRoot,
 		},
 		currentAlias: func() string { return "test" },

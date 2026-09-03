@@ -479,7 +479,7 @@ models:
 	if err != nil {
 		t.Fatalf("provider.Resolve() error = %v", err)
 	}
-	builtProvider, err := rt.providerFactory(rm)
+	builtProvider, err := rt.providerFactory(rm, "test-session")
 	if err != nil {
 		t.Fatalf("providerFactory() error = %v", err)
 	}

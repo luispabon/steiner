@@ -170,8 +170,12 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}, nil
 }
 
-func buildRuntimeProviderFactory(_ config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) func(provider.ResolvedModel) (provider.Provider, error) {
-	return func(rm provider.ResolvedModel) (provider.Provider, error) {
+func buildRuntimeProviderFactory(_ config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) func(provider.ResolvedModel, string) (provider.Provider, error) {
+	return func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
+		if rm.ProviderConfig.Type == config.ProviderTypeOpencodeGo || rm.ProviderConfig.Type == config.ProviderTypeOpencodeZen {
+			return newOpencodeProvider(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, sessionID)
+		}
+
 		providerType := rm.EffectiveProviderType
 		if providerType == "" {
 			providerType = rm.ProviderConfig.Type
@@ -192,6 +196,19 @@ func buildRuntimeProviderFactory(_ config.Config, httpClient *http.Client, strea
 			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
 		}
 	}
+}
+
+// newOpencodeProvider builds a provider for opencode_go/opencode_zen, injecting
+// the X-Opencode-Session header and dispatching to either the Anthropic-native
+// or OpenAI-compatible transport based on the model's resolved effective transport.
+func newOpencodeProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, sessionID string) (provider.Provider, error) {
+	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog)
+	cfg.Headers = cloneStringMap(cfg.Headers)
+	cfg.Headers["X-Opencode-Session"] = sessionID
+	if rm.EffectiveProviderType == config.ProviderTypeAnthropic {
+		return newAnthropic(cfg)
+	}
+	return newOpenAICompat(cfg)
 }
 
 func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (provider.Provider, error) {

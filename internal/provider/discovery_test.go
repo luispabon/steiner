@@ -220,6 +220,8 @@ func TestNewDiscoverer_ReturnsCorrectType(t *testing.T) {
 		{"ollama", false, "*provider.ollamaDiscoverer"},
 		{"lmstudio", false, "*provider.lmStudioDiscoverer"},
 		{"openai_compat", false, "*provider.genericDiscoverer"},
+		{"opencode_go", false, "*provider.genericDiscoverer"},
+		{"opencode_zen", false, "*provider.genericDiscoverer"},
 		{"openai", true, ""},
 		{"anthropic", true, ""},
 	}

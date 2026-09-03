@@ -45,7 +45,7 @@ func ForType(t string) (Enumerator, error) {
 // client uses a new default http.Client.
 func ForTypeWithClient(t config.ProviderType, client *http.Client) (Enumerator, error) {
 	switch t {
-	case config.ProviderTypeOpenAI, config.ProviderTypeOpenAICompat, config.ProviderTypeLiteLLM:
+	case config.ProviderTypeOpenAI, config.ProviderTypeOpenAICompat, config.ProviderTypeLiteLLM, config.ProviderTypeOpencodeGo, config.ProviderTypeOpencodeZen:
 		return NewOpenAIEnumerator(client), nil
 	case config.ProviderTypeOllama:
 		return NewOllamaEnumerator(client), nil
@@ -67,7 +67,7 @@ func SupportsType(providerType config.ProviderType) bool {
 	switch providerType {
 	case config.ProviderTypeOpenAI, config.ProviderTypeOpenAICompat, config.ProviderTypeLiteLLM,
 		config.ProviderTypeOllama, config.ProviderTypeLMStudio, config.ProviderTypeOpenRouter,
-		config.ProviderTypeAnthropic, config.ProviderTypeCodex:
+		config.ProviderTypeAnthropic, config.ProviderTypeCodex, config.ProviderTypeOpencodeGo, config.ProviderTypeOpencodeZen:
 		return true
 	default:
 		return false

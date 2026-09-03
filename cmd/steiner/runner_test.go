@@ -632,7 +632,7 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 	// providerFactory captures the ResolvedModel passed by modelResolver and
 	// returns a failProvider so the subsequent sub-agent run exits immediately.
 	var capturedModel provider.ResolvedModel
-	providerFactory := func(rm provider.ResolvedModel) (provider.Provider, error) {
+	providerFactory := func(rm provider.ResolvedModel, _ string) (provider.Provider, error) {
 		capturedModel = rm
 		return failProvider{}, nil
 	}
@@ -695,7 +695,7 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 	}
 
 	var capturedModel provider.ResolvedModel
-	providerFactory := func(rm provider.ResolvedModel) (provider.Provider, error) {
+	providerFactory := func(rm provider.ResolvedModel, _ string) (provider.Provider, error) {
 		capturedModel = rm
 		return failProvider{}, nil
 	}

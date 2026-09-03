@@ -53,7 +53,7 @@ type cliRuntime struct {
 	sandboxStatus                string
 	configWarnings               []string
 	provider                     provider.Provider
-	providerFactory              func(provider.ResolvedModel) (provider.Provider, error)
+	providerFactory              func(provider.ResolvedModel, string) (provider.Provider, error)
 	codexWSCache                 *codexWSCache
 	httpClient                   *http.Client
 	registry                     *tool.Registry
