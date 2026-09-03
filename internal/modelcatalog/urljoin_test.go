@@ -19,6 +19,8 @@ func TestJoinModelsURL(t *testing.T) {
 		{"ollama suffixed", "ollama", "http://example.test/proxy/v1/", "http://example.test/proxy/api/tags"},
 		{"lmstudio bare", "lmstudio", "http://example.test", "http://example.test/api/v1/models"},
 		{"lmstudio suffixed", "lmstudio", "http://example.test/v1/", "http://example.test/api/v1/models"},
+		{"opencode_go default base", "opencode_go", "https://opencode.ai/zen/go/v1", "https://opencode.ai/zen/go/v1/models"},
+		{"opencode_zen default base", "opencode_zen", "https://opencode.ai/zen/v1", "https://opencode.ai/zen/v1/models"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

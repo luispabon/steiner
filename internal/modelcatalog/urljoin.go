@@ -18,7 +18,7 @@ func joinModelsURL(providerType, baseURL string) (string, error) {
 	path := strings.TrimRight(u.Path, "/")
 	hasV1 := strings.HasSuffix(path, "/v1")
 	switch providerType {
-	case "openai", "openai_compat", "litellm":
+	case "openai", "openai_compat", "litellm", "opencode_go", "opencode_zen":
 		if hasV1 {
 			path = appendURLPath(path, "/models")
 		} else {
