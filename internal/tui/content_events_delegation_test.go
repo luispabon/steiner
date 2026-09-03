@@ -687,6 +687,72 @@ func TestDelegationToolCallFinished_FollowUp_DrainsQueue(t *testing.T) {
 	}
 }
 
+// TestDelegationStarted_ConcurrentFollowUps_BindByAgentIDNotFIFO guards
+// against the bug in https://github.com/luispabon/steiner/issues/593: when
+// two follow_up boxes are pending at once and a DelegationStartedEvent's
+// CallID does not match either of them (e.g. a producer bug reusing a stale
+// ParentCallID), the CallID-based bind must not fall back to blind FIFO
+// ordering — that misroutes the event, and every scoped stream chunk that
+// follows, into an unrelated agent's box.
+func TestDelegationStarted_ConcurrentFollowUps_BindByAgentIDNotFIFO(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Two follow_up calls are in flight together: child-3 first, then child-5.
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "call_fu_3", map[string]any{"agent_id": "child-3", "message": "continue child-3"}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "call_fu_5", map[string]any{"agent_id": "child-5", "message": "continue child-5"}))
+	if len(buffer.pendingDelegateParents) != 2 {
+		t.Fatalf("pendingDelegateParents len = %d, want 2", len(buffer.pendingDelegateParents))
+	}
+
+	// child-5's DelegationStartedEvent arrives with a CallID that matches
+	// neither pending entry's parentCallID (simulating a stale ParentCallID
+	// carried over from the original delegate call). It must still bind to
+	// the child-5 box, not the first (child-3) box in the queue.
+	started := output.NewDelegationStartedEventWithType("child-5", "continue child-5", "stale-call-id", "", "")
+	started = output.WithAgentScope(started, "child-5")
+	buffer.AppendEvent(started)
+
+	if len(buffer.pendingDelegateParents) != 1 {
+		t.Fatalf("pendingDelegateParents len = %d, want 1 after bind", len(buffer.pendingDelegateParents))
+	}
+	if buffer.pendingDelegateParents[0].dd.followUpAgentID != "child-3" {
+		t.Fatalf("remaining pending entry followUpAgentID = %q, want %q", buffer.pendingDelegateParents[0].dd.followUpAgentID, "child-3")
+	}
+
+	// Adjacent delegation boxes merge into a single delegationGroup segment.
+	if len(buffer.segments) != 1 || buffer.segments[0].delegGroupData == nil {
+		t.Fatalf("segments = %#v, want 1 segmentDelegationGroup", buffer.segments)
+	}
+	entries := buffer.segments[0].delegGroupData.entries
+	if len(entries) != 2 {
+		t.Fatalf("delegationGroup entries = %d, want 2", len(entries))
+	}
+	child3Box, child5Box := entries[0], entries[1]
+	if child3Box.agentID != "" {
+		t.Fatalf("child-3 box agentID = %q, want empty (must remain unbound)", child3Box.agentID)
+	}
+	if child5Box.agentID != "child-5" {
+		t.Fatalf("child-5 box agentID = %q, want %q", child5Box.agentID, "child-5")
+	}
+
+	// A scoped assistant chunk for child-5 must land in child-5's box, not
+	// child-3's — this is the observable symptom from the issue.
+	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "child-5 output", output.ChunkSourceAssistant), "child-5"))
+	if child5Box.lastEntry() == nil || !strings.Contains(child5Box.lastEntry().body, "child-5 output") {
+		t.Fatalf("child-5 box did not receive its scoped chunk: %#v", child5Box.entries)
+	}
+	if child3Box.lastEntry() != nil {
+		t.Fatalf("child-3 box unexpectedly received a chunk meant for child-5: %#v", child3Box.entries)
+	}
+}
+
 func TestAdvisorThinkingChunkRoutingBySource(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{

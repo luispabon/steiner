@@ -70,6 +70,12 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	spec := session.Spec
 	spec.Limits = freshLimits
 	spec.PriorTokenUsage = session.TokenUsage
+	// ParentCallID must be this follow_up call's own CallID, not the
+	// original delegate call's (carried over from session.Spec) — the TUI
+	// binds each follow-up's display box to its DelegationStartedEvent by
+	// matching CallID, and a stale ID causes it to fall back to FIFO
+	// matching, misrouting streaming into an unrelated agent's box.
+	spec.ParentCallID, _ = ctx.Value(tool.ExecutionCallIDKey{}).(string)
 	advisorAvailable := childHasAdvisorTool(session.Request)
 	spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 

@@ -375,6 +375,31 @@ func (b *contentBuffer) dequeuePendingDelegateParentSegment() (delegationLocator
 	})
 }
 
+// dequeuePendingDelegateParentByFollowUpAgentID matches a pending follow-up
+// box against the DelegationStartedEvent's AgentID, so a follow-up call whose
+// CallID lookup misses (e.g. a stale ParentCallID) still binds to the correct
+// box instead of falling through to blind FIFO ordering, which can attach
+// this event to an unrelated agent's pending box when several follow-ups or
+// delegations are in flight together. Unlike drainPending, non-matching
+// entries are left in place rather than discarded.
+func (b *contentBuffer) dequeuePendingDelegateParentByFollowUpAgentID(agentID string) (delegationLocator, bool) {
+	if agentID == "" {
+		return delegationLocator{}, false
+	}
+	list := &b.pendingDelegateParents
+	for i, loc := range *list {
+		if loc.dd == nil || loc.seg < 0 || loc.seg >= len(b.segments) {
+			continue
+		}
+		if loc.dd.agentID != "" || !loc.dd.isFollowUp || loc.dd.followUpAgentID != agentID {
+			continue
+		}
+		*list = append((*list)[:i], (*list)[i+1:]...)
+		return loc, true
+	}
+	return delegationLocator{}, false
+}
+
 func (b *contentBuffer) removeFromPendingDelegateParents(dd *delegationDisplayState) {
 	for i, loc := range b.pendingDelegateParents {
 		if loc.dd == dd {
@@ -654,6 +679,10 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		return
 	}
 	if loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID); found {
+		bind(loc)
+		return
+	}
+	if loc, found := b.dequeuePendingDelegateParentByFollowUpAgentID(payload.AgentID); found {
 		bind(loc)
 		return
 	}

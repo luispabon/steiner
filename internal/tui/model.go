@@ -201,6 +201,7 @@ type Model struct {
 	imageStore                   *agent.ImageStore
 	visionCapabilities           *agent.VisionCapabilities
 	sessionResetCleanup          func()
+	clearConversationHooks       func()
 	sessionStartedAt             *time.Time
 
 	// Render caches for width/height-dependent styles.

@@ -250,6 +250,65 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 	}
 }
 
+// TestFollowUpHandler_DelegationStartedUsesFollowUpCallID guards against a
+// regression where the follow_up handler reused the original delegate call's
+// ParentCallID (stored on session.Spec) when emitting DelegationStartedEvent.
+// The TUI binds each follow-up's display box to its own DelegationStartedEvent
+// by matching CallID; a stale ID makes the bind fall back to FIFO segment
+// matching, which can attach one agent's streaming output to another agent's
+// box when multiple follow-ups/delegations are pending concurrently.
+func TestFollowUpHandler_DelegationStartedUsesFollowUpCallID(t *testing.T) {
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: Spec{
+			AgentID:      "child-3",
+			AgentType:    AgentTypeReview,
+			Task:         "inspect code",
+			ParentCallID: "original-delegate-call-id",
+		},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Limits: agent.Limits{MaxTurns: 1, MaxTokens: 1},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+			{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		},
+		TurnCount: 1,
+	})
+
+	events := &recordingEventSink{}
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
+		Events:       events,
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			return agent.RunState{
+				Conversation: providerToAgentMessages(req.Prompt.Conversation),
+				TurnCount:    2,
+				StopReason:   agent.StopReasonComplete,
+			}, nil
+		}},
+	})
+
+	ctx := context.WithValue(context.Background(), tool.ExecutionCallIDKey{}, "follow-up-call-id")
+	if _, err := handler(ctx, map[string]any{"agent_id": "child-3", "message": "continue"}); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	started := startedEvents(events.Events())
+	if len(started) != 1 {
+		t.Fatalf("started events = %d, want 1", len(started))
+	}
+	payload, ok := started[0].Payload.(output.DelegationStartedEvent)
+	if !ok {
+		t.Fatalf("started payload = %T, want DelegationStartedEvent", started[0].Payload)
+	}
+	if payload.CallID != "follow-up-call-id" {
+		t.Fatalf("DelegationStartedEvent.CallID = %q, want the follow_up call's own CallID %q, not the original delegate call's ID carried over from session.Spec", payload.CallID, "follow-up-call-id")
+	}
+}
+
 func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{
