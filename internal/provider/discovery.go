@@ -36,7 +36,7 @@ func NewDiscoverer(cfg config.ProviderConfig, httpClient *http.Client) ModelMeta
 		return &ollamaDiscoverer{baseURL: cfg.BaseURL, httpClient: httpClient}
 	case config.ProviderTypeLMStudio:
 		return &lmStudioDiscoverer{baseURL: cfg.BaseURL, httpClient: httpClient}
-	case config.ProviderTypeOpenAICompat:
+	case config.ProviderTypeOpenAICompat, config.ProviderTypeOpencodeGo, config.ProviderTypeOpencodeZen:
 		return &genericDiscoverer{baseURL: cfg.BaseURL, httpClient: httpClient}
 	case config.ProviderTypeCodex:
 		return nil
