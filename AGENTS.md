@@ -123,7 +123,7 @@ A code change must update its matching docs in the same commit:
 | # | Change | Update |
 |---|---|---|
 | 1 | `internal/tool`: add/remove/rename a built-in tool | README "Built-in tools"; this file's "Built-in tools" list; sub-agent allowlist tables in docs/sub-agent-delegation.md if the tool appears there |
-| 2 | `internal/config`: add/change/remove a field | docs/configuration.md field entry; defaults section if defaults changed; README config examples if a commonly-used field; if a prompt-injection toggle (e.g. `cave_human`) — also docs/optional-features.md and the README "Other features" one-liner |
+| 2 | `internal/config`: add/change/remove a field | docs/configuration.md detailed field entry; compact reference in `skills/configure/SKILL.md`; defaults section if defaults changed; README config examples if a commonly-used field; if a prompt-injection toggle (e.g. `cave_human`) — also docs/optional-features.md and the README "Other features" one-liner |
 | 3 | `internal/delegation`: add/remove a sub-agent type or change a tool allowlist | docs/sub-agent-delegation.md types table; docs/sub-agent-delegation-internals.md if architecture/bootstrapping/tool construction changed; README sub-agent delegation tool table |
 | 4 | `internal/prompt`: change compaction, budgets, or context-management behaviour | docs/context-management.md if user-facing; docs/context-management-internals.md for internal behaviour; README "Context management" section if the high-level description changed |
 | 5 | New top-level feature, or a new package under `internal/` | README feature section; a docs/ page if it warrants detail; a new package gets an entry in the Repo map above; a new row in this table |

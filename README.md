@@ -262,6 +262,8 @@ Interactive sessions run in `plan` or `build` mode. In `plan` mode project edits
 
 Switch modes with Shift+Tab, `/mode [plan|build]`, or by directly invoking a skill (`/plan` sets `plan` mode, invoking any other skill sets `build` mode). The mode never changes the system prompt prefix or tool definitions. A bracketed notice is prepended to every outgoing user message in both modes (sticky). These notices are stored in the conversation and maintained through prompt caching. The default mode is set by `modes.default` in config (`build` unless configured otherwise).
 
+Use `/configure` for guided help with project-local or global Steiner configuration. Global edits remain subject to normal exact-path approval for `~/.config/steiner/config.yaml`. `/config` is separate: it displays the compiled configuration.
+
 Without a working sandbox (`sandbox.enabled: false`, non-Linux, or `bwrap` unavailable), plan mode is an agent/tool policy, not a filesystem-level guarantee: `bash` runs unenforced, while the `mutate` write restriction and the sub-agent denials stay hard-gated regardless of sandbox state.
 
 See [docs/execution-modes.md](docs/execution-modes.md) for the full enforcement matrix and persistence details.
