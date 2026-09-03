@@ -295,6 +295,52 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: "providers contains an empty alias",
 		},
+		{
+			name: "opencode_go with api_key",
+			cfg: func() Config {
+				c := validBase()
+				c.Providers["opencode"] = ProviderConfig{
+					Type:   ProviderTypeOpencodeGo,
+					APIKey: "test-key",
+				}
+				return c
+			}(),
+			wantErr: "",
+		},
+		{
+			name: "opencode_zen with api_key_env",
+			cfg: func() Config {
+				c := validBase()
+				c.Providers["opencode"] = ProviderConfig{
+					Type:      ProviderTypeOpencodeZen,
+					APIKeyEnv: "OPENCODE_API_KEY",
+				}
+				return c
+			}(),
+			wantErr: "",
+		},
+		{
+			name: "opencode_go without api key",
+			cfg: func() Config {
+				c := validBase()
+				c.Providers["opencode"] = ProviderConfig{
+					Type: ProviderTypeOpencodeGo,
+				}
+				return c
+			}(),
+			wantErr: `providers["opencode"] must set api_key or api_key_env`,
+		},
+		{
+			name: "opencode_zen without api key",
+			cfg: func() Config {
+				c := validBase()
+				c.Providers["opencode"] = ProviderConfig{
+					Type: ProviderTypeOpencodeZen,
+				}
+				return c
+			}(),
+			wantErr: `providers["opencode"] must set api_key or api_key_env`,
+		},
 
 		// Model validation
 		{

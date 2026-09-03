@@ -42,6 +42,10 @@ const (
 	ProviderTypeLiteLLM ProviderType = "litellm"
 	// ProviderTypeCodex targets the OpenAI Codex API via OAuth.
 	ProviderTypeCodex ProviderType = "codex"
+	// ProviderTypeOpencodeGo targets the OpenCode Go API.
+	ProviderTypeOpencodeGo ProviderType = "opencode_go"
+	// ProviderTypeOpencodeZen targets the OpenCode Zen API.
+	ProviderTypeOpencodeZen ProviderType = "opencode_zen"
 )
 
 // CodexTransport specifies the transport mode for Codex requests.
