@@ -1779,3 +1779,43 @@ func TestSubAgentTypesMixedGroupsWithDefaultBorder(t *testing.T) {
 		t.Errorf("border label = %q, want empty string for mixed types", label)
 	}
 }
+
+// TestFollowUpToUnfindableDelegationFallsBackToAgentType covers issue #656:
+// a follow_up call targeting an agent whose original spawn isn't in this
+// transcript (e.g. resumed from a session recorded before the specialized
+// delegate tools were consolidated into sub_agent, so the spawn call used a
+// bare tool name like "review" that isn't recognized as a delegate call).
+// findChildDelegationInfo can't recover a toolLabel from a record that was
+// never created, but DelegationStartedEvent's AgentType is authoritative
+// (sourced from the persisted child session, not the transcript), so the
+// header must render using it instead of a blank label.
+func TestFollowUpToUnfindableDelegationFallsBackToAgentType(t *testing.T) {
+	t.Parallel()
+	buffer := newTestBuffer(t)
+
+	// The original spawn is NOT replayed as a specialized delegate tool call
+	// (simulating a pre-consolidation session), so it renders as a plain
+	// tool call and never becomes a findable delegation record.
+	buffer.AppendEvent(output.NewToolCallStartedEvent(0, "review", "call_1",
+		map[string]any{"task": "review the diff"}))
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(0, "follow_up", "call_2",
+		map[string]any{"agent_id": "child-1", "message": "check again"}))
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "preview", "call_2", "", "review"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID: "child-1", Status: "complete",
+	}))
+
+	loc, found := buffer.findDelegation("child-1")
+	if !found || loc.dd == nil {
+		t.Fatal("delegation not found")
+	}
+	if got := loc.dd.effectiveTypeLabel(); got != "review" {
+		t.Errorf("effectiveTypeLabel() = %q, want %q (toolLabel=%q agentType=%q)",
+			got, "review", loc.dd.toolLabel, loc.dd.agentType)
+	}
+	_, borderStyle := buffer.delegationStyles(loc.dd.effectiveTypeLabel())
+	if borderStyle.GetForeground() == buffer.styles.DelegateBorderDefault.GetForeground() {
+		t.Error("border style fell back to default; want the review-specific border")
+	}
+}

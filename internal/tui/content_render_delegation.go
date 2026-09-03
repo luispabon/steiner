@@ -24,9 +24,23 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 
 	lines := b.renderDelegationBoxRows(dd, width)
 
-	_, borderStyle := b.delegationStyles(dd.toolLabel)
+	_, borderStyle := b.delegationStyles(dd.effectiveTypeLabel())
 	box := renderStyledBox(strings.Join(lines, "\n"), borderStyle.GetForeground(), lipgloss.Color(theme.BgElev), width) + "\n"
 	return box
+}
+
+// effectiveTypeLabel returns the specialized agent type to use for rendering
+// (label text, tag color, border color), preferring toolLabel (parsed from
+// the spawning tool call's "type" argument) and falling back to agentType
+// (carried authoritatively on DelegationStartedEvent) when toolLabel could
+// not be resolved — e.g. a follow-up whose original delegation record isn't
+// in this transcript, such as one resumed from a session recorded before
+// specialized delegate tools were consolidated into sub_agent.
+func (dd *delegationDisplayState) effectiveTypeLabel() string {
+	if dd.toolLabel != "" {
+		return dd.toolLabel
+	}
+	return dd.agentType
 }
 
 func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, width int) string {
@@ -69,9 +83,9 @@ func delegationGroupBorderLabel(group *delegationGroupSegment) string {
 	if group == nil || len(group.entries) == 0 {
 		return ""
 	}
-	first := strings.ToLower(strings.TrimSpace(group.entries[0].toolLabel))
+	first := strings.ToLower(strings.TrimSpace(group.entries[0].effectiveTypeLabel()))
 	for _, dd := range group.entries[1:] {
-		if strings.ToLower(strings.TrimSpace(dd.toolLabel)) != first {
+		if strings.ToLower(strings.TrimSpace(dd.effectiveTypeLabel())) != first {
 			return ""
 		}
 	}
@@ -194,8 +208,9 @@ func (b *contentBuffer) delegationHeaderLabel(dd *delegationDisplayState) (strin
 		tagStyle, _ := b.delegationStyles("advisor")
 		return "advisor", tagStyle
 	}
-	tagStyle, _ := b.delegationStyles(dd.toolLabel)
-	return dd.toolLabel, tagStyle
+	label := dd.effectiveTypeLabel()
+	tagStyle, _ := b.delegationStyles(label)
+	return label, tagStyle
 }
 
 func delegationHeaderAgentID(dd *delegationDisplayState) string {
