@@ -17,7 +17,7 @@ Use this skill when a user asks to understand or change Steiner configuration. A
 
 ## Configure Skill Reference
 
-Canonical compact reference for safe configuration edits; copied verbatim into the `configure` skill.
+Sole canonical compact reference for safe configuration edits; use this file as the source of truth.
 
 **Targets/precedence.** Project: `.steiner/config.yaml` or `--config <path>`; global: `~/.config/steiner/config.yaml`. Order: defaults, global YAML, project YAML, env, CLI; later wins. `--profile <name>` selects a profile; `STEINER_MODEL`, then `--model <ref>`, select the active model; `--verbose` enables verbose logging; `--unsafe` forces `sandbox.enabled: false`. Scalar expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`; undefined variables fail except `${VAR:-}`. Keys/comments are unchanged.
 
@@ -79,7 +79,6 @@ Canonical compact reference for safe configuration edits; copied verbatim into t
 | `sandbox.warning_on_unsupported_platform`|bool|`true`|Warn if sandbox is unavailable or bypassed. |
 | `sandbox.env_passthrough`|[]string|`[]`|Extra environment names; only trailing `*` is a prefix wildcard. |
 | `sandbox.env_passthrough_all`|bool|`false`|Disable environment filtering, including credential filtering. |
-
 | `sandbox.host_mounts.<index>.path`|string|—|Host path; `~` expands. |
 | `sandbox.host_mounts.<index>.mode`|string|—|`ro` or `rw`; host paths are read-only by default. |
 | `permissions.docker`|bool|`false`|Permit sandboxed tools to reach Docker socket; otherwise socket and `DOCKER_HOST` are masked. |
@@ -95,44 +94,34 @@ Canonical compact reference for safe configuration edits; copied verbatim into t
 | `oneshot.auto_pr`|bool|`false`|Allow oneshot closeout to push and open a PR/MR. |
 | `desktop_notifications.enabled`|bool|`false`|Enable desktop notifications. |
 | `desktop_notifications.duration`|int|`0`|Seconds; 0 persists, positive auto-dismisses, negative invalid. |
-
-
 | `tools.<tool>.exec`|string|—|Executable; required. |
 | `tools.<tool>.subcommand`|string|—|First executable argument. |
 | `tools.<tool>.description`|string|—|Model-visible description. |
 | `tools.<tool>.parameters`|map[string]any|—|JSON Schema input data. |
 | `tools.<tool>.parameters.<key>`|any|—|JSON Schema input data. |
 | `tools.<tool>.timeout`|duration|—|Tool timeout overriding default; positive. |
-
 | `project_context.max_bytes`|int|`8000`|Extra-context byte budget; at least 1. |
 | `project_context.max_tokens`|int|—|Deprecated alias; if max_bytes is unset, becomes `max_tokens * 4`. |
 | `project_context.extra_files`|[]string|—|Project-root-relative context files. |
 | `project_context.ignore_files`|[]string|—|Excludes entries from extra_files. |
-
 | `paths.project_root_only`|bool|`true`|Restrict tool paths to project root. |
 | `paths.writable_paths`|[]string|`[]`|Extra paths mutation tools may write. |
 | `paths.blocked_paths`|[]string|`[]`|Always-denied paths. |
 | `paths.exclude_paths`|[]string|—|Excluded from listings and glob results. |
 | `paths.exclude_patterns`|[]string|—|Excluded glob patterns. |
-
 | `logging.enabled`|bool|`false`|Enable file logging. |
 | `logging.level`|string|`info`|`trace`, `debug`, `info`, `warn`, or `error`. |
 | `logging.file`|string|`~/.local/share/steiner/steiner.log`|Log path; may contain prompts and tool output. |
 | `logging.thinking_chunk`|bool|`false`|Include reasoning tokens in logs. |
 | `logging.compaction_log_file`|string|—|Separate compaction-event log path. |
-
 | `context_management.read_annotations`|bool|`true`|Annotate reads with path and line range. |
-
 | `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |
 | `search.searxng_url`|string|—|Required for `searxng`. |
 | `search.google_cx`|string|—|Required for `google`. |
 | `search.google_api_key`|string|—|Required for `google`; prefer environment storage. |
 | `search.kagi_api_key`|string|—|Required for `kagi`; prefer environment storage. |
 | `search.brave_api_key`|string|—|Required for `brave`; prefer environment storage. |
-
 | `mcp.enabled`|bool|`true`|Enable MCP client. |
-
-
 | `mcp.servers.<server>.enabled`|bool|`false`|Start server. |
 | `mcp.servers.<server>.transport`|string|`stdio`|`stdio` or `http`. |
 | `mcp.servers.<server>.command`|string|—|Required for stdio; empty for http. |
@@ -148,9 +137,7 @@ Canonical compact reference for safe configuration edits; copied verbatim into t
 | `mcp.servers.<server>.allowed_tools`|[]string|—|Native-name allowlist; explicit `[]` denies all. |
 | `mcp.servers.<server>.blocked_tools`|[]string|—|Native-name denylist after allowlist. |
 | `mcp.servers.<server>.sub_agents`|[]string|closed|Child types allowed: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`. |
-
 | `modes.default`|string|`build`|`plan` or `build`; plan limits edits to `.steiner/plans/`. |
-
 | `tui.fps`|int|`60`|Interactive renderer rate, 1 through 120. |
 | `cave_human`|bool|`false`|Add terse output and anti-AI-writing-tells instructions. |
 
