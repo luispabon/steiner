@@ -176,10 +176,11 @@ type toolCallLocator struct {
 
 // delegationDisplayState tracks in-flight or finished delegation state for rendering.
 type delegationDisplayState struct {
-	isAdvisor               bool
-	agentID                 string
-	agentType               string
-	toolLabel               string // specialized tool name used for rendering (e.g. "explore")
+	isAdvisor bool
+	agentID   string
+	agentType string
+	toolLabel string // specialized tool name used for rendering (e.g. "explore")
+	// (see effectiveTypeLabel in content_render_delegation.go for how these two combine)
 	taskPreview             string // truncated to ~80 chars
 	promptText              string
 	promptCollapsed         bool

@@ -1062,7 +1062,7 @@ func (b *contentBuffer) findChildDelegationInfo(agentID string) (label, toolLabe
 		return "", ""
 	}
 	if loc, ok := b.findDelegation(agentID); ok {
-		return agentID, loc.dd.toolLabel
+		return agentID, loc.dd.effectiveTypeLabel()
 	}
 	return agentID, ""
 }
