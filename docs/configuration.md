@@ -908,7 +908,6 @@ search:
 
 ---
 
-
 ## Examples
 
 ### Example 1: minimal local LLM (Ollama or LM Studio)
