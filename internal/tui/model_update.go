@@ -180,7 +180,9 @@ func (m *Model) handleModelReasoningResolvedMsg(msg modelReasoningResolvedMsg) (
 //
 //nolint:unparam // tea.Cmd remains part of the workflow handoff call contract.
 func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
-	m.performClearConversationState()
+	// Error is already surfaced via a content status line inside
+	// performClearConversationState; nothing further to do with it here.
+	_ = m.performClearConversationState()
 	return m, nil
 }
 
