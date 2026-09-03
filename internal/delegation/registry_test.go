@@ -59,7 +59,7 @@ func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
 	prov := &fakeProvider{responses: []provider.ChatResponse{
 		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
 	}}
-	providerFactory := func(provider.ResolvedModel) (provider.Provider, error) { return prov, nil }
+	providerFactory := func(provider.ResolvedModel, string) (provider.Provider, error) { return prov, nil }
 
 	deps := DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
@@ -126,7 +126,7 @@ func TestBuildDelegateRegistryAdvisorFallsBackToProfileDefault(t *testing.T) {
 		},
 		MaxTokens: 256,
 		Config:    cfg,
-		ProviderFactory: func(model provider.ResolvedModel) (provider.Provider, error) {
+		ProviderFactory: func(model provider.ResolvedModel, _ string) (provider.Provider, error) {
 			captured = model
 			return &fakeProvider{}, nil
 		},
@@ -164,7 +164,7 @@ func TestBuildDelegateRegistryAdvisorNamedProfileFallsBackToProfileDefault(t *te
 		},
 		MaxTokens: 256,
 		Config:    cfg,
-		ProviderFactory: func(model provider.ResolvedModel) (provider.Provider, error) {
+		ProviderFactory: func(model provider.ResolvedModel, _ string) (provider.Provider, error) {
 			captured = model
 			return &fakeProvider{}, nil
 		},
@@ -225,7 +225,7 @@ func TestBuildDelegateRegistryAdvisorBudgetPersistsAcrossCallsViaAdvisorState(t 
 	prov := &fakeProvider{responses: []provider.ChatResponse{
 		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
 	}}
-	providerFactory := func(provider.ResolvedModel) (provider.Provider, error) { return prov, nil }
+	providerFactory := func(provider.ResolvedModel, string) (provider.Provider, error) { return prov, nil }
 
 	deps := DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
@@ -384,7 +384,7 @@ func TestBuildDelegateRegistryAppliesAdvisorTimeout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var captured provider.ResolvedModel
-			providerFactory := func(m provider.ResolvedModel) (provider.Provider, error) {
+			providerFactory := func(m provider.ResolvedModel, _ string) (provider.Provider, error) {
 				captured = m
 				return &fakeProvider{}, nil
 			}
@@ -514,7 +514,7 @@ func TestBuildDelegateRegistryAdvisorUsesConfigMaxUsesPerRun(t *testing.T) {
 	prov := &fakeProvider{responses: []provider.ChatResponse{
 		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
 	}}
-	providerFactory := func(provider.ResolvedModel) (provider.Provider, error) { return prov, nil }
+	providerFactory := func(provider.ResolvedModel, string) (provider.Provider, error) { return prov, nil }
 
 	deps := DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),

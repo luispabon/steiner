@@ -73,7 +73,7 @@ func TestRuntimeStreamErrorLoggerReachesProvider(t *testing.T) {
 			InitialBackoff: config.MustDuration("1ms"),
 			MaxBackoff:     config.MustDuration("1ms"),
 		},
-	})
+	}, "test-session")
 	if err != nil {
 		t.Fatalf("factory() error = %v", err)
 	}

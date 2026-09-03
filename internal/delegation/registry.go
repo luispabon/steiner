@@ -52,7 +52,7 @@ type DelegateDeps struct {
 	// Config is the full runtime configuration used for child prompt and model resolution.
 	Config config.Config
 	// ProviderFactory builds providers for resolved child models when one is required.
-	ProviderFactory func(provider.ResolvedModel) (provider.Provider, error)
+	ProviderFactory func(provider.ResolvedModel, string) (provider.Provider, error)
 	// HTTPClient is used for model discovery when resolving child models.
 	HTTPClient *http.Client
 	// Searcher provides the web search backend when available.
@@ -140,7 +140,7 @@ func newAdvisorRuntime(deps DelegateDeps) (advisorRuntime, error) {
 	if deps.AdvisorCfg.Timeout != nil {
 		advisorResolved.ProviderConfig.Timeout = *deps.AdvisorCfg.Timeout
 	}
-	advisorProvider, err := resolveToolProvider(deps.Provider, deps.ResolvedModel, advisorResolved, deps.ProviderFactory)
+	advisorProvider, err := resolveToolProvider(deps.Provider, deps.ResolvedModel, advisorResolved, deps.ProviderFactory, deps.SessionID)
 	if err != nil {
 		return advisorRuntime{}, fmt.Errorf("build advisor provider for %q: %w", advisorAlias, err)
 	}
@@ -329,7 +329,7 @@ func buildModelResolver(deps DelegateDeps) func(string) (provider.Provider, prov
 		if deps.ProviderFactory == nil {
 			return deps.Provider, resolved, nil
 		}
-		p, err := deps.ProviderFactory(resolved)
+		p, err := deps.ProviderFactory(resolved, deps.SessionID)
 		if err != nil {
 			return nil, provider.ResolvedModel{}, err
 		}
@@ -337,9 +337,9 @@ func buildModelResolver(deps DelegateDeps) func(string) (provider.Provider, prov
 	}
 }
 
-func resolveToolProvider(current provider.Provider, currentModel provider.ResolvedModel, target provider.ResolvedModel, providerFactory func(provider.ResolvedModel) (provider.Provider, error)) (provider.Provider, error) {
+func resolveToolProvider(current provider.Provider, currentModel provider.ResolvedModel, target provider.ResolvedModel, providerFactory func(provider.ResolvedModel, string) (provider.Provider, error), sessionID string) (provider.Provider, error) {
 	if providerFactory != nil {
-		return providerFactory(target)
+		return providerFactory(target, sessionID)
 	}
 	if current != nil && currentModel.ProviderAlias == target.ProviderAlias && currentModel.EffectiveProviderType == target.EffectiveProviderType {
 		return current, nil

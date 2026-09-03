@@ -165,7 +165,7 @@ func TestProviderFactoryBypassesCacheForDirectCalls(t *testing.T) {
 	rm := codexResolvedModel("codex")
 
 	for i := 0; i < 3; i++ {
-		if _, err := factory(rm); err != nil {
+		if _, err := factory(rm, "test-session"); err != nil {
 			t.Fatalf("factory() error = %v", err)
 		}
 	}

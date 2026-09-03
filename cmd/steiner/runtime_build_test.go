@@ -83,7 +83,7 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 
 		factory := buildRuntimeProviderFactory(config.Config{}, httpClient, streamErrorLog)
 
-		gotProvider, err := factory(rm)
+		gotProvider, err := factory(rm, "test-session")
 		if wantErr != "" {
 			if err == nil {
 				t.Fatalf("factory() error = nil, want %q", wantErr)
@@ -326,7 +326,7 @@ func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKe
 		BackendModelID:        "codex-default",
 		EffectiveProviderType: config.ProviderTypeCodex,
 	}
-	if _, err := factory(codexRM); err != nil {
+	if _, err := factory(codexRM, "test-session"); err != nil {
 		t.Fatalf("factory() error = %v", err)
 	}
 	if gotCfg.BaseURL != "https://chatgpt.com/backend-api/codex" {
@@ -359,7 +359,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 		BackendModelID:        "codex-default",
 		EffectiveProviderType: config.ProviderTypeCodex,
 	}
-	_, err := factory(codexRM)
+	_, err := factory(codexRM, "test-session")
 	if err == nil {
 		t.Fatal("factory() error = nil, want actionable error")
 	}
@@ -380,13 +380,71 @@ func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 		BackendModelID:        "codex-default",
 		EffectiveProviderType: config.ProviderTypeCodex,
 	}
-	_, err := factory(codexRM)
+	_, err := factory(codexRM, "test-session")
 	if err == nil {
 		t.Fatal("factory() error = nil, want actionable error")
 	}
 	want := "codex provider requires authentication — run 'steiner login codex' first"
 	if err.Error() != want {
 		t.Fatalf("factory() error = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestBuildRuntimeProviderFactoryOpencodeInjectsSessionHeader(t *testing.T) {
+	oldNewOpenAICompat := newOpenAICompat
+	t.Cleanup(func() { newOpenAICompat = oldNewOpenAICompat })
+
+	var gotCfg provider.ClientConfig
+	newOpenAICompat = func(cfg provider.ClientConfig) (provider.Provider, error) {
+		gotCfg = cfg
+		return &fakeProvider{}, nil
+	}
+
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+
+	rm := provider.ResolvedModel{
+		Alias:                 "opencode-go-model",
+		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeOpencodeGo, BaseURL: "http://opencode.example/v1"},
+		BackendModelID:        "opencode-backend",
+		EffectiveProviderType: config.ProviderTypeOpenAICompat,
+	}
+	if _, err := factory(rm, "session-abc"); err != nil {
+		t.Fatalf("factory() error = %v", err)
+	}
+	if got := gotCfg.Headers["X-Opencode-Session"]; got != "session-abc" {
+		t.Fatalf("X-Opencode-Session = %q, want session-abc", got)
+	}
+}
+
+// TestBuildRuntimeProviderFactoryOpencodeZenAnthropicSurvivesEffectiveTransport
+// covers a Claude-family model configured under opencode_zen whose
+// EffectiveProviderType has been overridden to anthropic (mirroring
+// resolveEffectiveTransport's models.dev-driven fallback). The header must
+// still be injected because dispatch is keyed on the configured provider
+// type, not the effective transport.
+func TestBuildRuntimeProviderFactoryOpencodeZenAnthropicSurvivesEffectiveTransport(t *testing.T) {
+	oldNewAnthropic := newAnthropic
+	t.Cleanup(func() { newAnthropic = oldNewAnthropic })
+
+	var gotCfg provider.ClientConfig
+	newAnthropic = func(cfg provider.ClientConfig) (provider.Provider, error) {
+		gotCfg = cfg
+		return &fakeProvider{}, nil
+	}
+
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+
+	rm := provider.ResolvedModel{
+		Alias:                 "claude-on-opencode-zen",
+		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeOpencodeZen, BaseURL: "http://opencode-zen.example/v1"},
+		BackendModelID:        "claude-backend",
+		EffectiveProviderType: config.ProviderTypeAnthropic,
+	}
+	if _, err := factory(rm, "session-xyz"); err != nil {
+		t.Fatalf("factory() error = %v", err)
+	}
+	if got := gotCfg.Headers["X-Opencode-Session"]; got != "session-xyz" {
+		t.Fatalf("X-Opencode-Session = %q, want session-xyz", got)
 	}
 }
 
@@ -451,7 +509,7 @@ func TestCodexTransportSwitch(t *testing.T) {
 				BackendModelID:        "codex-default",
 				EffectiveProviderType: config.ProviderTypeCodex,
 			}
-			_, err := factory(codexRM)
+			_, err := factory(codexRM, "test-session")
 			if err != nil {
 				t.Fatalf("factory() error = %v", err)
 			}
