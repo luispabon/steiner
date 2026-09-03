@@ -9,7 +9,7 @@ import (
 func joinModelsURL(providerType, baseURL string) (string, error) {
 	switch providerType {
 	case "openrouter":
-		return joinPath(baseURL, func(path string, hasV1 bool) string {
+		return joinPath(baseURL, func(path string, _ bool) string {
 			if strings.HasSuffix(path, "/api/v1") {
 				return appendURLPath(path, "/models")
 			}
