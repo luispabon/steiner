@@ -223,6 +223,7 @@ func (m *Model) performClearConversationState() error {
 	m.interruptPending = false
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
+	m.status.promptUsed = 0
 	m.sidebar.perfDurationMs = 0
 	m.sidebar.perfTTFTMs = 0
 	m.sidebar.perfOutputTPS = 0
