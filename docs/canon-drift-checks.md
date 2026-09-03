@@ -38,7 +38,7 @@ The substantive overlap is pinned by the oneshot/skill shared block check above.
 
 Only `delegationInstructions` in `internal/prompt/system.go`, and the template it renders, `internal/prompt/templates/delegation.md.tmpl`. The other preamble templates — `core_rules.md.tmpl`, `advisor.md.tmpl`, `execution_modes.md.tmpl`, `workflow_approval.md.tmpl`, `sandbox.md.tmpl` — and the agent-type prompt templates in `internal/delegation/templates/` are out of scope. The boundary is drawn at `delegationInstructions` because that's where the observed drift in #445 occurred, and because it has the most distinctive vocabulary (specialist names, routing rules, tool names) to check against.
 
-The compact configuration reference section in `docs/configuration.md` is a separate canonical source. The copy in `skills/configure/SKILL.md` must stay synchronized with it. `skills/configure_test.go` checks the copy's equality and schema paths. The bundled skill budget check above ensures every bundled skill fits the shared assembly budget without truncation.
+The compact configuration reference lives only in `skills/configure/SKILL.md`, which owns the bundled skill's self-contained copy. `skills/configure_test.go` verifies real embedded discovery, exactly one reference heading, the 12,288-byte limit, and coverage of reflected `config.Config` schema paths. The bundled skill budget check above ensures every bundled skill fits the shared assembly budget without truncation.
 
 ## Consumer files
 

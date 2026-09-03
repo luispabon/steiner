@@ -3,7 +3,6 @@ package skills_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -16,7 +15,9 @@ import (
 
 const configureReferenceHeading = "## Configure Skill Reference"
 
-func TestConfigureSkillIsEmbeddedAndMatchesCanonicalReference(t *testing.T) {
+const maxConfigureReferenceBytes = 12_288
+
+func TestConfigureSkillIsEmbeddedAndCoversCanonicalConfig(t *testing.T) {
 	loader := skill.Loader{BundledFS: skills.FS}
 	discovered, err := loader.Discover(context.Background())
 	if err != nil {
@@ -41,24 +42,15 @@ func TestConfigureSkillIsEmbeddedAndMatchesCanonicalReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load configure skill: %v", err)
 	}
-	docs, err := os.ReadFile("../docs/configuration.md")
-	if err != nil {
-		t.Fatalf("read configuration docs: %v", err)
-	}
-
-	docsReference, err := extractConfigureReference(string(docs))
-	if err != nil {
-		t.Fatalf("extract docs reference: %v", err)
-	}
 	skillReference, err := extractConfigureReference(loaded.Content)
 	if err != nil {
 		t.Fatalf("extract configure skill reference: %v", err)
 	}
-	if docsReference != skillReference {
-		t.Fatalf("canonical reference differs: %s", describeReferenceDifference(docsReference, skillReference))
+	if len(skillReference) > maxConfigureReferenceBytes {
+		t.Fatalf("configure skill reference is %d bytes, want <= %d", len(skillReference), maxConfigureReferenceBytes)
 	}
 
-	referencePaths := extractReferencePaths(docsReference)
+	referencePaths := extractReferencePaths(skillReference)
 	if len(referencePaths) == 0 {
 		t.Fatal("canonical reference contains no path rows")
 	}
@@ -113,22 +105,6 @@ func extractConfigureReference(content string) (string, error) {
 		offset += len(line)
 	}
 	return content[start:end], nil
-}
-
-func describeReferenceDifference(docs, skill string) string {
-	limit := len(docs)
-	if len(skill) < limit {
-		limit = len(skill)
-	}
-	index := 0
-	for index < limit && docs[index] == skill[index] {
-		index++
-	}
-	line := 1 + strings.Count(docs[:index], "\n")
-	if index == limit && len(docs) != len(skill) {
-		return fmt.Sprintf("length differs at byte %d on line %d (docs=%d, skill=%d)", index, line, len(docs), len(skill))
-	}
-	return fmt.Sprintf("first difference at byte %d on line %d (docs=%q, skill=%q)", index, line, docs[index], skill[index])
 }
 
 func extractReferencePaths(section string) map[string]struct{} {
