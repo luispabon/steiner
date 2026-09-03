@@ -26,7 +26,7 @@ type openAIModel struct {
 
 // Enumerate discovers models from an OpenAI-compatible endpoint.
 func (e *OpenAIEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ EnumerationOptions) (EnumerationResult, error) {
-	endpoint, err := joinModelsURL(ep.Type, ep.BaseURL)
+	endpoint, err := joinOpenAIStyleModelsURL(ep.BaseURL)
 	if err != nil {
 		return EnumerationResult{}, err
 	}
