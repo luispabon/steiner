@@ -18,6 +18,8 @@ The specialist roster itself is not hand-written markdown. `internal/prompt/spec
 
 - **Oneshot/skill shared block check** (`internal/oneshot/prompts_shared_test.go`, `TestSharedBlocksMatchSkillCounterparts`). Pins the four spans that `internal/oneshot/prompts/{plan,review}.md` share byte-identically with `skills/{plan,review}/SKILL.md`: the research triggers, the `plan.yaml` step schema, the review input list, and the review status mapping. Runs as part of `go test ./internal/oneshot/`.
 
+- **Bundled skill budget check** (`internal/prompt/assemble_test.go`, `TestAssembleAllBundledSkillsFit`). Discovers every real embedded skill with `skill.Loader` and `skills.FS`, then enables all discovered names through production `Assemble` with its default policy. Every `ContextSourceSkill` block must fit the shared skill budget without truncation. This check covers the configure skill too, without making it a delegation-canon consumer.
+
 All of them run as part of `make check`.
 
 ## Oneshot prompts versus interactive skills
@@ -35,6 +37,8 @@ The substantive overlap is pinned by the oneshot/skill shared block check above.
 ## What counts as canon
 
 Only `delegationInstructions` in `internal/prompt/system.go`, and the template it renders, `internal/prompt/templates/delegation.md.tmpl`. The other preamble templates — `core_rules.md.tmpl`, `advisor.md.tmpl`, `execution_modes.md.tmpl`, `workflow_approval.md.tmpl`, `sandbox.md.tmpl` — and the agent-type prompt templates in `internal/delegation/templates/` are out of scope. The boundary is drawn at `delegationInstructions` because that's where the observed drift in #445 occurred, and because it has the most distinctive vocabulary (specialist names, routing rules, tool names) to check against.
+
+The compact configuration reference section in `docs/configuration.md` is a separate canonical source. The copy in `skills/configure/SKILL.md` must stay synchronized with it. `skills/configure_test.go` checks the copy's equality and schema paths. The bundled skill budget check above ensures every bundled skill fits the shared assembly budget without truncation.
 
 ## Consumer files
 

@@ -12,6 +12,8 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/skill"
+	bundledskills "github.com/luispabon/steiner/skills"
 )
 
 //nolint:gocyclo
@@ -514,6 +516,47 @@ func TestAssembleLoadsBundledSkills(t *testing.T) {
 	}
 	if got := assembly.Messages[gotIndex].Content; !strings.Contains(got, "## Active Skills") {
 		t.Fatalf("skill message content missing framing block: %q", got)
+	}
+}
+
+func TestAssembleAllBundledSkillsFit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	loader := skill.Loader{BundledFS: bundledskills.FS}
+	discovered, err := loader.Discover(ctx)
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if len(discovered) == 0 {
+		t.Fatal("Discover() found no bundled skills")
+	}
+
+	names := make([]string, 0, len(discovered))
+	for _, discoveredSkill := range discovered {
+		names = append(names, discoveredSkill.Name)
+	}
+
+	assembly, err := Assemble(ctx, AssemblyOptions{
+		SkillsBundledFS: bundledskills.FS,
+		SkillNames:      names,
+	})
+	if err != nil {
+		t.Fatalf("Assemble() error = %v", err)
+	}
+
+	skillBlocks := 0
+	for _, block := range assembly.Blocks {
+		if block.Source != ContextSourceSkill {
+			continue
+		}
+		skillBlocks++
+		if block.Truncated {
+			t.Fatalf("bundled skill block %q was truncated", block.Path)
+		}
+	}
+	if got, want := skillBlocks, len(names)+1; got != want {
+		t.Fatalf("bundled skill blocks = %d, want %d (one framing block plus each discovered skill)", got, want)
 	}
 }
 
