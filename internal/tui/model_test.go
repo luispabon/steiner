@@ -6059,18 +6059,21 @@ func TestClearConversationStateRenderClearsChrome(t *testing.T) {
 	m.sidebar.perfDurationMs = 1234
 	m.sidebar.perfTTFTMs = 56
 	m.sidebar.perfOutputTPS = 78.9
+	m.sidebar.contextBudget = 128000
+	m.status.contextBudget = 128000
+	m.status.promptUsed = 64000
 	m.content.AppendLine("stale segment")
 	m.content.AppendLine("another stale segment")
 	m.syncViewport()
 
 	before := stripANSI(m.View().Content)
-	if !strings.Contains(before, "stopped") || !strings.Contains(before, "1.2s") {
-		t.Fatalf("rendered stale chrome = %q, want activity and performance values", before)
+	if !strings.Contains(before, "stopped") || !strings.Contains(before, "1.2s") || !strings.Contains(before, "64000/128000") {
+		t.Fatalf("rendered stale chrome = %q, want activity, performance, and footer token occupancy values", before)
 	}
 
 	m.clearConversationState()
 	after := stripANSI(m.View().Content)
-	if strings.Contains(after, "stopped") || strings.Contains(after, "1.2s") {
+	if strings.Contains(after, "stopped") || strings.Contains(after, "1.2s") || strings.Contains(after, "64000/128000") {
 		t.Fatalf("rendered chrome after clear = %q, contains stale values", after)
 	}
 }
