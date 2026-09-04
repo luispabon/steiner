@@ -34,7 +34,11 @@ func (s sidebarState) brandLines(width int) []string {
 	out[2] = third
 
 	if s.updateAvailable && s.latestVersion != "" {
-		text := fitText(fmt.Sprintf("↑ %s available · steiner upgrade", s.latestVersion), width)
+		// Shortened from "↑ %s available · steiner upgrade" (Part D's spec
+		// text) so long dev-channel tags (e.g. dev-8-g8bd663f) still fit the
+		// sidebar's 32-column inner width without fitText truncating the
+		// call-to-action.
+		text := fitText(fmt.Sprintf("↑ %s · upgrade", s.latestVersion), width)
 		msg := s.styles.Accent.Background(lipgloss.Color(theme.Black)).Render(text)
 		if pad := width - lipgloss.Width(msg); pad > 0 {
 			msg += bg.Render(strings.Repeat(" ", pad))

@@ -9,6 +9,11 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+// brandLinesTestWidth mirrors the inner width View actually passes to
+// brandLines (sidebarWidth minus horizontal padding on both sides), so tests
+// exercise real production wrapping/truncation/padding behaviour.
+const brandLinesTestWidth = sidebarWidth - sidebarPadH*2
+
 func TestSidebarStateBrandLines(t *testing.T) {
 	styles := testStyles(theme.AccentAmber)
 
@@ -30,7 +35,14 @@ func TestSidebarStateBrandLines(t *testing.T) {
 			updateAvailable: true,
 			latestVersion:   "v1.2.3",
 			wantLines:       4,
-			wantContains:    []string{"v1.2.3", "steiner upgrade"},
+			wantContains:    []string{"v1.2.3", "upgrade"},
+		},
+		{
+			name:            "update available with long dev channel tag",
+			updateAvailable: true,
+			latestVersion:   "dev-8-g8bd663f",
+			wantLines:       4,
+			wantContains:    []string{"dev-8-g8bd663f", "upgrade"},
 		},
 		{
 			name:            "update available but empty version guards output",
@@ -48,7 +60,7 @@ func TestSidebarStateBrandLines(t *testing.T) {
 				updateAvailable: tc.updateAvailable,
 				latestVersion:   tc.latestVersion,
 			}
-			lines := s.brandLines(36)
+			lines := s.brandLines(brandLinesTestWidth)
 			if len(lines) != tc.wantLines {
 				t.Fatalf("brandLines() returned %d lines, want %d: %#v", len(lines), tc.wantLines, lines)
 			}
@@ -59,8 +71,8 @@ func TestSidebarStateBrandLines(t *testing.T) {
 						t.Errorf("last brand line %q does not contain %q", last, want)
 					}
 				}
-				if got := lipgloss.Width(lines[len(lines)-1]); got != 36 {
-					t.Errorf("last brand line width = %d, want %d (padded to full sidebar width)", got, 36)
+				if got := lipgloss.Width(lines[len(lines)-1]); got != brandLinesTestWidth {
+					t.Errorf("last brand line width = %d, want %d (padded to full sidebar width)", got, brandLinesTestWidth)
 				}
 			}
 		})
