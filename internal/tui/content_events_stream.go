@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"log/slog"
+	"runtime"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -37,6 +39,11 @@ func (b *contentBuffer) appendAssistantMessageEvent(event output.Event) {
 
 func (b *contentBuffer) finishStreaming() {
 	if b.streaming {
+		if td := b.liveThinkingSegment(); td != nil {
+			slog.Debug("finishStreaming finalizing open thinking segment",
+				"caller", callerName(2), "phase", b.streamingPhase, "source", b.streamingSource,
+				"thinking_body_len", len(td.body), "pending_stream_buffer_len", len(b.streamBuffer))
+		}
 		b.finalizeThinkingBlock()
 		if strings.TrimSpace(b.streamBuffer) != "" {
 			b.appendMarkdownBlock(b.streamBuffer)
@@ -46,6 +53,21 @@ func (b *contentBuffer) finishStreaming() {
 	b.streaming = false
 	b.streamingPhase = ""
 	b.streamingSource = ""
+}
+
+// callerName reports the function name skip frames above its own call site,
+// for debug logging that identifies which code path triggered a mid-stream
+// finalize (see finishStreaming).
+func callerName(skip int) string {
+	pc, _, _, ok := runtime.Caller(skip)
+	if !ok {
+		return "unknown"
+	}
+	fn := runtime.FuncForPC(pc)
+	if fn == nil {
+		return "unknown"
+	}
+	return fn.Name()
 }
 
 func (b *contentBuffer) liveThinkingSegment() *thinkingBlockData {
@@ -69,6 +91,15 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 	if text == "" {
 		return
 	}
+
+	// Flush any assistant text that arrived before this thinking chunk into
+	// its own segment now, so it renders in arrival order instead of being
+	// deferred until the turn's streaming buffer is flushed at turn end.
+	if b.liveThinkingSegment() == nil && strings.TrimSpace(b.streamBuffer) != "" {
+		b.appendMarkdownBlock(b.streamBuffer)
+		b.streamBuffer = ""
+	}
+
 	b.streaming = true
 	b.streamingPhase = "thinking"
 	b.streamingSource = source
