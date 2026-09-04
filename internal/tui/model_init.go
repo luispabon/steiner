@@ -99,6 +99,7 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		worktreePlan:                 cfg.WorktreeCleanup,
 		resolveReasoningFunc:         cfg.ResolveReasoningFunc,
 		resolveReasoningForAliasFunc: cfg.ResolveReasoningForAliasFunc,
+		checkUpdateFunc:              cfg.CheckUpdateFunc,
 		mode:                         cfg.InitialMode,
 		ticking:                      true,
 	}
@@ -429,6 +430,13 @@ func (m *Model) Init() tea.Cmd {
 		cmds = append(cmds, func() tea.Msg {
 			caps, efforts := resolve()
 			return modelReasoningResolvedMsg{capabilities: caps, efforts: efforts}
+		})
+	}
+	if m.checkUpdateFunc != nil {
+		check := m.checkUpdateFunc
+		cmds = append(cmds, func() tea.Msg {
+			latest, needs := check()
+			return updateCheckResultMsg{latestVersion: latest, available: needs}
 		})
 	}
 	if m.modelEntriesUpdates != nil {

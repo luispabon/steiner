@@ -410,6 +410,8 @@ without one. Set `STEINER_GITHUB_TOKEN` in your environment to authenticate:
 export STEINER_GITHUB_TOKEN=ghp_...
 ```
 
+On interactive startup, steiner passively checks GitHub for a newer release (TTL-cached, at most once per `update_check.interval_hours`) and shows a sidebar nudge when one is available. Set `update_check.enabled: false` to disable.
+
 ### Specific version
 
 Pass a version tag to install a specific stable release instead of the latest:
