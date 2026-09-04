@@ -16,6 +16,9 @@ import (
 // ErrWorktreeProvisioning is a sentinel error for worktree provisioning failures.
 var ErrWorktreeProvisioning = errors.New("git worktree provisioning failed")
 
+// ErrCodeWorktreeRequiresCommit indicates that a code worktree cannot be created because the parent repository has no commit.
+var ErrCodeWorktreeRequiresCommit = errors.New("code worktree requires a commit")
+
 // ErrWorktreeNotDelegation indicates an attempt to prune a worktree that is not owned by delegation.
 var ErrWorktreeNotDelegation = errors.New("worktree is not delegation-owned")
 
@@ -34,8 +37,14 @@ type CodeWorktree struct {
 
 // getParentBranchName returns the current branch of the parent repo, or "detached" if HEAD is detached.
 func getParentBranchName(ctx context.Context, projectRoot string) (string, error) {
+	if _, err := gitOutput(ctx, projectRoot, "rev-parse", "--is-inside-work-tree"); err != nil {
+		return "", err
+	}
 	out, err := gitOutput(ctx, projectRoot, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
+		if _, verifyErr := gitOutput(ctx, projectRoot, "rev-parse", "--verify", "HEAD"); verifyErr != nil {
+			return "", ErrCodeWorktreeRequiresCommit
+		}
 		return "", err
 	}
 	branch := strings.TrimSpace(out)
@@ -87,7 +96,7 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 	// Derive the parent branch name and process hash for collision-free identity.
 	parentBranch, err := getParentBranchName(ctx, projectRoot)
 	if err != nil {
-		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
+		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, err))
 	}
 	sanitizedBranch := sanitizeBranchName(parentBranch)
 	processHash := getProcessHash()

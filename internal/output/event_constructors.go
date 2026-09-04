@@ -426,6 +426,7 @@ func NewSteerReceivedEvent(text string) Event {
 // DelegationFailedParams holds the arguments for NewDelegationFailedEvent.
 type DelegationFailedParams struct {
 	AgentID       string
+	CallID        string
 	TaskPreview   string
 	Error         string
 	AdvisorBudget int
@@ -437,6 +438,7 @@ type DelegationFailedParams struct {
 func NewDelegationFailedEvent(p DelegationFailedParams) Event {
 	return newEvent(EventTypeDelegationFailed, DelegationFailedEvent{
 		AgentID:       p.AgentID,
+		CallID:        p.CallID,
 		TaskPreview:   TruncateWithEllipsis(p.TaskPreview, 120),
 		Error:         p.Error,
 		AdvisorBudget: p.AdvisorBudget,
