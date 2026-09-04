@@ -94,6 +94,8 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `oneshot.auto_pr`|bool|`false`|Allow oneshot closeout to push and open a PR/MR. |
 | `desktop_notifications.enabled`|bool|`false`|Enable desktop notifications. |
 | `desktop_notifications.duration`|int|`0`|Seconds; 0 persists, positive auto-dismisses, negative invalid. |
+| `update_check.enabled`|bool|`true`|Enable passive startup version-upgrade check. |
+| `update_check.interval_hours`|int|`6`|Minimum hours between checks; non-negative. |
 | `tools.<tool>.exec`|string|—|Executable; required. |
 | `tools.<tool>.subcommand`|string|—|First executable argument. |
 | `tools.<tool>.description`|string|—|Model-visible description. |

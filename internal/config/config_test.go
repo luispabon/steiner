@@ -126,6 +126,16 @@ func TestDefaultConfigDesktopNotificationsDefaultsToFalseAndZero(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigUpdateCheckDefaultsToTrueAndSixHours(t *testing.T) {
+	cfg := defaultConfig()
+	if !cfg.UpdateCheck.Enabled {
+		t.Fatal("update_check.enabled = false, want true")
+	}
+	if cfg.UpdateCheck.IntervalHours != 6 {
+		t.Fatalf("update_check.interval_hours = %d, want 6", cfg.UpdateCheck.IntervalHours)
+	}
+}
+
 func TestDefaultConfigOneShotDefaultsToEmpty(t *testing.T) {
 	cfg := defaultConfig()
 	if len(cfg.Models.Profiles["default"].OneShot) != 0 {
@@ -1549,6 +1559,101 @@ models:
 	}
 	if cfg.DesktopNotifications.Duration != 0 {
 		t.Fatalf("desktop_notifications.duration = %d, want 0", cfg.DesktopNotifications.Duration)
+	}
+}
+
+func TestLoadUpdateCheckConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  profiles:
+    default:
+      default_model: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+update_check:
+  enabled: false
+  interval_hours: 12
+`)
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = os.Chdir(cwd)
+		})
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.UpdateCheck.Enabled {
+		t.Fatal("update_check.enabled = true, want false")
+	}
+	if cfg.UpdateCheck.IntervalHours != 12 {
+		t.Fatalf("update_check.interval_hours = %d, want 12", cfg.UpdateCheck.IntervalHours)
+	}
+}
+
+func TestLoadUpdateCheckConfigOmitted(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "project")
+	projectConfigDir := filepath.Join(projectDir, ".steiner")
+	mustMkdirAll(t, projectConfigDir)
+
+	writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  profiles:
+    default:
+      default_model: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+`)
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = os.Chdir(cwd)
+		})
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(LoadOptions{
+		HomeDir: filepath.Join(tempDir, "home"),
+		Env:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !cfg.UpdateCheck.Enabled {
+		t.Fatal("update_check.enabled = false, want true")
+	}
+	if cfg.UpdateCheck.IntervalHours != 6 {
+		t.Fatalf("update_check.interval_hours = %d, want 6", cfg.UpdateCheck.IntervalHours)
 	}
 }
 

@@ -21,6 +21,7 @@ func validate(cfg Config) error {
 	validateSearchConfig(&problems, cfg.Search)
 	validateMCPConfig(&problems, cfg.MCP)
 	validateDesktopNotificationsConfig(&problems, cfg.DesktopNotifications)
+	validateUpdateCheckConfig(&problems, cfg.UpdateCheck)
 	validateModesConfig(&problems, cfg.Modes)
 
 	if len(problems) > 0 {
@@ -138,5 +139,11 @@ func validateLimitsConfig(problems *[]string, cfg LimitsConfig) {
 func validateDesktopNotificationsConfig(problems *[]string, cfg desktopNotificationsConfig) {
 	if cfg.Duration < 0 {
 		*problems = append(*problems, "desktop_notifications.duration must be non-negative")
+	}
+}
+
+func validateUpdateCheckConfig(problems *[]string, cfg UpdateCheckConfig) {
+	if cfg.IntervalHours < 0 {
+		*problems = append(*problems, "update_check.interval_hours must be non-negative")
 	}
 }
