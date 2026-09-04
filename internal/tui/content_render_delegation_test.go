@@ -455,23 +455,23 @@ func TestRenderDelegationBriefBodyIncludesAllFields(t *testing.T) {
 	}
 
 	text := strings.Join(lines, "\n")
-	if !strings.Contains(text, "objective") {
-		t.Error("brief body missing 'objective' label")
+	if !strings.Contains(text, "Objective") {
+		t.Error("brief body missing 'Objective' label")
 	}
-	if !strings.Contains(text, "context") {
-		t.Error("brief body missing 'context' label")
+	if !strings.Contains(text, "Context") {
+		t.Error("brief body missing 'Context' label")
 	}
-	if !strings.Contains(text, "deliverable") {
-		t.Error("brief body missing 'deliverable' label")
+	if !strings.Contains(text, "Deliverable") {
+		t.Error("brief body missing 'Deliverable' label")
 	}
-	if !strings.Contains(text, "constraints") {
-		t.Error("brief body missing 'constraints' label")
+	if !strings.Contains(text, "Constraints") {
+		t.Error("brief body missing 'Constraints' label")
 	}
-	if !strings.Contains(text, "success criteria") {
-		t.Error("brief body missing 'success criteria' label")
+	if !strings.Contains(text, "Success criteria") {
+		t.Error("brief body missing 'Success criteria' label")
 	}
-	if !strings.Contains(text, "checks") {
-		t.Error("brief body missing 'checks' label")
+	if !strings.Contains(text, "Checks") {
+		t.Error("brief body missing 'Checks' label")
 	}
 	if !strings.Contains(text, "no breaking changes") {
 		t.Error("brief body missing constraint text")
@@ -493,13 +493,13 @@ func TestRenderDelegationBriefBodyOmitsEmptyFields(t *testing.T) {
 	lines := buffer.renderDelegationBriefBody(dd, 80)
 	text := strings.Join(lines, "\n")
 
-	if strings.Contains(text, "context") {
+	if strings.Contains(text, "Context") {
 		t.Error("brief body should not include empty context label")
 	}
-	if !strings.Contains(text, "objective") {
+	if !strings.Contains(text, "Objective") {
 		t.Error("brief body should include objective")
 	}
-	if !strings.Contains(text, "deliverable") {
+	if !strings.Contains(text, "Deliverable") {
 		t.Error("brief body should include deliverable")
 	}
 }
