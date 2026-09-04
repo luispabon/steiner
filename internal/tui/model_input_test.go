@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -393,8 +394,8 @@ func TestProfileSlashCommandDisplaysControllerError(t *testing.T) {
 	m.input.SetValue("/profile fast")
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	if got := m.content.segments[len(m.content.segments)-1].text; got != "profile switch failed" {
-		t.Fatalf("error status = %q, want profile switch failed", got)
+	if got := stripANSI(m.content.segments[len(m.content.segments)-1].text); !strings.Contains(got, "profile switch failed") {
+		t.Fatalf("error status = %q, want to contain profile switch failed", got)
 	}
 	if m.input.Value() != "" {
 		t.Fatalf("input value = %q, want empty", m.input.Value())

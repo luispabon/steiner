@@ -17,7 +17,7 @@ type worktreeCountMsg struct {
 func (m *Model) doExit() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.RequestExit{}); err != nil {
-			m.content.AppendLine("status: " + err.Error())
+			m.appendError(err)
 		}
 		return m, nil
 	}

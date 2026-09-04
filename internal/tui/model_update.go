@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -259,7 +258,7 @@ func (m *Model) performClearConversationState() error {
 	if m.controller != nil {
 		clearErr = m.controller.Handle(context.Background(), interactive.ClearConversation{})
 		if clearErr != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", clearErr))
+			m.appendError(clearErr)
 		}
 	}
 	m.input.Reset()
@@ -273,7 +272,7 @@ func (m *Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd
 	m.showThinking = !m.showThinking
 	m.content.showThinking = m.showThinking
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
-		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
+		m.content.AppendLine(m.styles.WarningStyle.Render(fmt.Sprintf("prefs save failed: %v", err)))
 	}
 	for i := range m.content.segments {
 		if m.content.segments[i].kind == segmentThinkingBlock {
@@ -311,7 +310,7 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.profilePicker.styles = m.styles
 	m.oneshotResumePicker.styles = m.styles
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
-		fmt.Fprintf(os.Stderr, "prefs save: %v\n", err)
+		m.content.AppendLine(m.styles.WarningStyle.Render(fmt.Sprintf("prefs save failed: %v", err)))
 	}
 	for i := range m.content.segments {
 		m.content.segments[i].renderDirty = true
@@ -683,4 +682,9 @@ func (m *Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.C
 	m.input.InsertString(label)
 	m.syncInputChrome()
 	return m, nil
+}
+
+// appendError renders err as a styled warning status line in the content view.
+func (m *Model) appendError(err error) {
+	m.content.AppendLine(m.styles.WarningStyle.Render(fmt.Sprintf("status: %v", err)))
 }

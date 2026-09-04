@@ -138,7 +138,7 @@ func (m *Model) sendSkillEnabledAction(skill string, enabled bool) {
 		return
 	}
 	if err := m.controller.Handle(context.Background(), interactive.SetSkillEnabled{Name: skill, Enabled: enabled}); err != nil {
-		m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		m.appendError(err)
 	}
 }
 

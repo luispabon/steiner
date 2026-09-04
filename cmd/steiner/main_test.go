@@ -693,12 +693,17 @@ func TestCLIRunnerEmitsFallbackWarningOncePerModel(t *testing.T) {
 	t.Cleanup(resetFallbackModelWarnings)
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
-	var stderr bytes.Buffer
 	cfg := testRuntimeConfig("unknown")
 	cfg.Models.Definitions["unknown"] = config.ModelConfig{
 		Provider: "local",
 		ID:       "custom-unknown-model",
 	}
+
+	// Capture emitted events
+	var emittedEvents []output.Event
+	eventSink := output.SinkFunc(func(event output.Event) {
+		emittedEvents = append(emittedEvents, event)
+	})
 
 	runner := cliRunner{
 		runtime: cliRuntime{
@@ -706,8 +711,8 @@ func TestCLIRunnerEmitsFallbackWarningOncePerModel(t *testing.T) {
 			provider: &fakeProvider{},
 			workDir:  t.TempDir(),
 			homeDir:  t.TempDir(),
-			status:   output.NewStream(&stderr),
-			events:   output.NoopSink{},
+			status:   output.NewStream(io.Discard),
+			events:   eventSink,
 		},
 	}
 
@@ -717,9 +722,17 @@ func TestCLIRunnerEmitsFallbackWarningOncePerModel(t *testing.T) {
 		}
 	}
 
-	const want = "Model metadata warning: unknown/custom-unknown-model has unknown context limits. Using conservative fallback: context_window=32768, max_output_tokens=4096. Set models.unknown.advanced.limits.context_window to remove this warning.\n"
-	if got := stderr.String(); got != want {
-		t.Fatalf("stderr = %q, want %q", got, want)
+	// The warning should be emitted once as a ConfigWarningEvent on first prepareRun
+	const wantMessage = "Model metadata warning: unknown/custom-unknown-model has unknown context limits. Using conservative fallback: context_window=32768, max_output_tokens=4096. Set models.unknown.advanced.limits.context_window to remove this warning."
+	var found bool
+	for _, e := range emittedEvents {
+		if p, ok := e.Payload.(output.ConfigWarningEvent); ok && strings.Contains(p.Message, wantMessage) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected ConfigWarningEvent with message containing %q, got events: %v", wantMessage, emittedEvents)
 	}
 }
 

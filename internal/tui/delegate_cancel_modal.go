@@ -205,7 +205,7 @@ func (m *Model) refreshDelegateCancelSelector() {
 func (m *Model) executeDelegateCancelAction(action interactive.Action) *Model {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), action); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.appendError(err)
 			m.syncViewport()
 		}
 	}
