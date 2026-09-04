@@ -32,6 +32,15 @@ func (s sidebarState) brandLines(width int) []string {
 		third += bg.Render(strings.Repeat(" ", pad))
 	}
 	out[2] = third
+
+	if s.updateAvailable && s.latestVersion != "" {
+		text := fitText(fmt.Sprintf("↑ %s available · steiner upgrade", s.latestVersion), width)
+		msg := s.styles.Accent.Background(lipgloss.Color(theme.Black)).Render(text)
+		if pad := width - lipgloss.Width(msg); pad > 0 {
+			msg += bg.Render(strings.Repeat(" ", pad))
+		}
+		out = append(out, msg)
+	}
 	return out
 }
 

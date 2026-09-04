@@ -28,6 +28,11 @@ type modelReasoningResolvedMsg struct {
 	efforts      map[string]string
 }
 
+type updateCheckResultMsg struct {
+	latestVersion string
+	available     bool
+}
+
 type modelEntriesUpdatedMsg struct {
 	entries []ModelEntry
 	ok      bool
@@ -94,6 +99,8 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case modelReasoningResolvedMsg:
 		return m.handleModelReasoningResolvedMsg(msg)
+	case updateCheckResultMsg:
+		return m.handleUpdateCheckResultMsg(msg)
 	case syncDebounceFiredMsg:
 		return m.handleSyncDebounceFiredMsg(msg)
 	case clipboardImageMsg:
@@ -167,6 +174,15 @@ func (m *Model) handleModelReasoningResolvedMsg(msg modelReasoningResolvedMsg) (
 	m.status.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.sidebar.reasoning = m.reasoningLabels[m.currentModelAlias]
 	m.syncSidebar()
+	return m, nil
+}
+
+func (m *Model) handleUpdateCheckResultMsg(msg updateCheckResultMsg) (tea.Model, tea.Cmd) {
+	if msg.available {
+		m.sidebar.updateAvailable = msg.available
+		m.sidebar.latestVersion = msg.latestVersion
+		m.syncSidebar()
+	}
 	return m, nil
 }
 

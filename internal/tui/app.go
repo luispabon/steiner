@@ -75,6 +75,12 @@ type Config struct {
 	// ResolveReasoningFunc's batch resolution has completed, so the reasoning
 	// picker step isn't silently skipped during that startup window.
 	ResolveReasoningForAliasFunc func(alias string) (provider.ReasoningCapabilities, string)
+	// CheckUpdateFunc, when non-nil, is invoked asynchronously after the TUI
+	// has rendered to check for a newer steiner release without blocking
+	// startup. It returns the latest available version string and whether an
+	// update is available; a nil/zero result (empty version) means no update
+	// check result is available for this run.
+	CheckUpdateFunc func() (latestVersion string, needsUpdate bool)
 	// CurrentModelAlias is the alias (not the backend model ID) of the model
 	// active at startup, e.g. cfg.Models.Effective.ActiveOrchestratorModel.
 	CurrentModelAlias string

@@ -155,6 +155,7 @@ type Model struct {
 	reasoningPicker              reasoningPickerOverlay
 	reasoningLabels              map[string]string
 	resolveReasoningFunc         func() (map[string]provider.ReasoningCapabilities, map[string]string)
+	checkUpdateFunc              func() (string, bool)
 	worktreePlan                 *WorktreeCleanupPlan
 	exitFlowPhase                int
 	worktreeCleanupModal         worktreeCleanupModalState

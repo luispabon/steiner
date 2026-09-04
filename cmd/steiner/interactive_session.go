@@ -25,6 +25,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
+	"github.com/luispabon/steiner/internal/update"
 )
 
 type delegationCanceller struct{ c *delegation.ActiveController }
@@ -223,6 +224,18 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 			return provider.ReasoningCapabilities{}, ""
 		}
 		return rm.Reasoning, rm.ReasoningEffectiveEffort
+	}
+	if rt.cfg.UpdateCheck.Enabled {
+		tuiCfg.CheckUpdateFunc = func() (latestVersion string, needsUpdate bool) {
+			interval := time.Duration(rt.cfg.UpdateCheck.IntervalHours) * time.Hour
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			latest, needs, err := update.CheckCached(ctx, update.DefaultCachePath(), interval, version, "luispabon", "steiner", os.Getenv("STEINER_GITHUB_TOKEN"), channel)
+			if err != nil {
+				return "", false
+			}
+			return latest, needs
+		}
 	}
 	return tui.NewApp(tuiCfg)
 }
