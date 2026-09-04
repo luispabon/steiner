@@ -98,7 +98,7 @@ func TestFollowUpCodeHandlerRegistersSessionWorktreeAndUnregisters(t *testing.T)
 		return successRunState(), nil
 	}}
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		SubAgentCfg:      config.SubAgentConfig{MaxTurns: 2, MaxTokens: 20},
+		SubAgentCfg:      config.SubAgentConfig{MaxTurns: 2, MaxTokens: 20, MaxFollowUps: 100},
 		SessionStore:     store,
 		ActiveController: controller,
 		Runner:           runner,

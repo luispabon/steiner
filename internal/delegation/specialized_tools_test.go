@@ -83,7 +83,7 @@ func successRunState() agent.RunState {
 func minimalDeps(runner AgentRunner) SpecializedToolDeps {
 	return SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{},
+			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
 			Runner:      runner,
@@ -1020,7 +1020,7 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 
 			deps := SpecializedToolDeps{
 				SubAgentHandlerDeps: SubAgentHandlerDeps{
-					SubAgentCfg: config.SubAgentConfig{},
+					SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 					Provider:    stubProvider{},
 					ParentReg:   tool.NewRegistry(allDefs...),
 					Runner:      runner,
@@ -1354,7 +1354,7 @@ func TestSpecializedHandler_SavesChildSession(t *testing.T) {
 	)
 	deps := SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{},
+			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
 			Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -1503,7 +1503,7 @@ func TestVisionHandler_UnknownImageID(t *testing.T) {
 	store := agent.NewImageStore(t.TempDir())
 	deps := SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{},
+			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
 			Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
@@ -1546,7 +1546,7 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 
 	deps := SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{},
+			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Description: "read"}),
 			Runner:      runner,
@@ -1608,7 +1608,7 @@ func TestVisionRoutingArgs_PassesHandlerValidation(t *testing.T) {
 
 	deps := SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{},
+			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Description: "read"}),
 			Runner:      runner,
@@ -1651,7 +1651,7 @@ func TestSpecializedHandler_SavesSessionForStructuredFailure(t *testing.T) {
 	)
 	deps := SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{},
+			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
 			Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -1753,7 +1753,7 @@ func TestSubAgentHandlerDepsDisabledSandboxNotCarried(t *testing.T) {
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }}),
-			SubAgentCfg: config.SubAgentConfig{},
+			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 			Events:      noopEventSink{},
 			WorkDir:     "/tmp/work",
 			// SandboxEnabled defaults to false; no writable mounts configured.
@@ -2049,7 +2049,7 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 
 		var followUpReq agent.RunRequest
 		handler := NewFollowUpHandler(SubAgentHandlerDeps{
-			SubAgentCfg:  config.SubAgentConfig{},
+			SubAgentCfg:  config.SubAgentConfig{MaxFollowUps: 100},
 			SessionStore: store,
 			Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 				followUpReq = req
@@ -2136,7 +2136,7 @@ func TestSpecializedHandler_CodeProvisionesWorktree(t *testing.T) {
 
 	deps := SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{},
+			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
 			Runner:      runner,
@@ -2212,7 +2212,7 @@ func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
 
 	deps := SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{},
+			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
 			Runner:      runner,
@@ -2319,7 +2319,7 @@ func TestSpecializedHandler_NonCodeAgentsNoWorktreeFields(t *testing.T) {
 		t.Run(string(agentType), func(t *testing.T) {
 			deps := SpecializedToolDeps{
 				SubAgentHandlerDeps: SubAgentHandlerDeps{
-					SubAgentCfg: config.SubAgentConfig{},
+					SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 					Provider:    stubProvider{},
 					ParentReg:   tool.NewRegistry(),
 					Runner:      runner,

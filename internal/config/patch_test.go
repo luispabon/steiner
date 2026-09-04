@@ -531,6 +531,24 @@ func TestApplySubAgentPatch(t *testing.T) {
 			patch:   subAgentPatch{},
 			want:    SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 1000},
 		},
+		{
+			name:    "unset max_follow_ups leaves default",
+			initial: SubAgentConfig{MaxFollowUps: 5},
+			patch:   subAgentPatch{},
+			want:    SubAgentConfig{MaxFollowUps: 5},
+		},
+		{
+			name:    "zero max_follow_ups is preserved",
+			initial: SubAgentConfig{MaxFollowUps: 5},
+			patch:   subAgentPatch{MaxFollowUps: intPtr(0)},
+			want:    SubAgentConfig{MaxFollowUps: 0},
+		},
+		{
+			name:    "sets max_follow_ups",
+			initial: SubAgentConfig{MaxFollowUps: 5},
+			patch:   subAgentPatch{MaxFollowUps: intPtr(10)},
+			want:    SubAgentConfig{MaxFollowUps: 10},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

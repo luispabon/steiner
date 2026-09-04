@@ -94,7 +94,7 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 	var capturedReq agent.RunRequest
 	events := &recordingEventSink{}
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 7, MaxTokens: 77},
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 7, MaxTokens: 77, MaxFollowUps: 100},
 		Events:       events,
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -204,7 +204,7 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 
 	call := 0
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 			call++
@@ -279,7 +279,7 @@ func TestFollowUpHandler_DelegationStartedUsesFollowUpCallID(t *testing.T) {
 
 	events := &recordingEventSink{}
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
 		Events:       events,
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -321,7 +321,7 @@ func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 	})
 
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 			if len(req.Prompt.Conversation) != 1 {
@@ -426,7 +426,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 				}
 			}
 			handler := NewFollowUpHandler(SubAgentHandlerDeps{
-				SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
+				SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
 				SessionStore: store,
 				Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 					if len(req.Prompt.Conversation) > 0 && strings.Contains(req.Prompt.Conversation[len(req.Prompt.Conversation)-1].Content, "Pre-remediation HEAD") {
@@ -535,6 +535,7 @@ func TestFollowUpHandler_AllowsMutateChildInBuildMode(t *testing.T) {
 
 	runs := 0
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			runs++
@@ -581,6 +582,7 @@ func TestFollowUpHandler_NonMutateChildNotDeniedInPlanMode(t *testing.T) {
 
 	runs := 0
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			runs++
@@ -702,7 +704,7 @@ func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
 	var capturedReq agent.RunRequest
 	runs := 0
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 30, MaxTokens: 100000},
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 30, MaxTokens: 100000, MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 			capturedReq = req
@@ -790,7 +792,7 @@ func TestFollowUpHandler_AccumulatesTokenUsageFromPriorSession(t *testing.T) {
 
 	var capturedEvent *output.DelegationCompleteEvent
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50},
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
 		SessionStore: store,
 		Events: output.SinkFunc(func(ev output.Event) {
 			if ev.Type == output.EventTypeDelegationComplete {
@@ -889,7 +891,7 @@ func TestFollowUpHandler_ReusesOriginalProjectRoot(t *testing.T) {
 
 	var capturedReq agent.RunRequest
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 100},
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 100, MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 			capturedReq = req
@@ -919,5 +921,142 @@ func TestFollowUpHandler_ReusesOriginalProjectRoot(t *testing.T) {
 	if capturedReq.Prompt.ProjectRoot != originalProjectRoot {
 		t.Errorf("follow-up ProjectRoot = %q, want %q (original worktree path)",
 			capturedReq.Prompt.ProjectRoot, originalProjectRoot)
+	}
+}
+
+func TestFollowUpHandler_EnforcesMaxFollowUps(t *testing.T) {
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: Spec{
+			AgentID:   "child-max",
+			AgentType: AgentTypeReview,
+			Task:      "inspect code",
+		},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Limits: agent.Limits{MaxTurns: 2, MaxTokens: 9},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+			{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		},
+		TurnCount:     1,
+		TokenCount:    10,
+		ToolCallCount: 0,
+		FollowUpCount: 0,
+	})
+
+	events := &recordingEventSink{}
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 2},
+		Events:       events,
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			return agent.RunState{
+				Conversation: providerToAgentMessages(req.Prompt.Conversation),
+				TurnCount:    2,
+				TokenCount:   15,
+				StopReason:   agent.StopReasonComplete,
+			}, nil
+		}},
+	})
+
+	first, err := handler(context.Background(), map[string]any{"agent_id": "child-max", "message": "follow up one"})
+	if err != nil {
+		t.Fatalf("first follow-up error: %v", err)
+	}
+	if first == nil {
+		t.Fatal("first follow-up returned nil result")
+	}
+
+	second, err := handler(context.Background(), map[string]any{"agent_id": "child-max", "message": "follow up two"})
+	if err != nil {
+		t.Fatalf("second follow-up error: %v", err)
+	}
+	if second == nil {
+		t.Fatal("second follow-up returned nil result")
+	}
+
+	third, err := handler(context.Background(), map[string]any{"agent_id": "child-max", "message": "follow up three"})
+	if err == nil {
+		t.Fatal("third follow-up should have returned error at max ceiling")
+	}
+	if third != nil {
+		t.Fatalf("third follow-up returned non-nil result: %v", third)
+	}
+
+	want := `follow_up: agent "child-max" has reached the maximum of 2 follow-up resumes`
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("error message = %q, want to contain %q", err.Error(), want)
+	}
+
+	startedEventsAfterRefusal := startedEvents(events.Events())
+	if len(startedEventsAfterRefusal) != 2 {
+		t.Fatalf("DelegationStartedEvent count = %d, want 2 (refusing third follow-up means no event emitted for it)", len(startedEventsAfterRefusal))
+	}
+}
+
+func TestFollowUpHandler_CountsAttemptsTowardCeiling(t *testing.T) {
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: Spec{
+			AgentID:   "child-counted",
+			AgentType: AgentTypeReview,
+			Task:      "inspect code",
+		},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Limits: agent.Limits{MaxTurns: 2, MaxTokens: 9},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+			{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		},
+		TurnCount:     1,
+		TokenCount:    10,
+		ToolCallCount: 0,
+		FollowUpCount: 0,
+	})
+
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 2},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			return agent.RunState{
+				Conversation: providerToAgentMessages(req.Prompt.Conversation),
+				TurnCount:    2,
+				TokenCount:   15,
+				StopReason:   agent.StopReasonComplete,
+			}, nil
+		}},
+		Events: &recordingEventSink{},
+	})
+
+	call := 0
+	for call = 0; call < 3; call++ {
+		_, err := handler(context.Background(), map[string]any{
+			"agent_id": "child-counted",
+			"message":  fmt.Sprintf("follow-up %d", call+1),
+		})
+		if call < 2 {
+			if err != nil {
+				t.Fatalf("call %d: unexpected error: %v", call+1, err)
+			}
+		} else {
+			if err == nil {
+				t.Fatalf("call 3: expected error at ceiling, got nil")
+			}
+			if !strings.Contains(err.Error(), "has reached the maximum of 2 follow-up resumes") {
+				t.Fatalf("call 3: error = %q, want 'reached the maximum'", err.Error())
+			}
+		}
+	}
+
+	session, ok := store.Get("child-counted")
+	if !ok {
+		t.Fatal("session missing")
+	}
+	if session.FollowUpCount != 2 {
+		t.Fatalf("final FollowUpCount=%d, want 2 (ceiling enforced, no attempt 3)", session.FollowUpCount)
 	}
 }

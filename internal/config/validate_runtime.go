@@ -39,6 +39,9 @@ func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, _ map[string
 	if cfg.MaxTokens < 1 {
 		*problems = append(*problems, "sub_agent.max_tokens must be at least 1 when enabled")
 	}
+	if cfg.MaxFollowUps < 1 {
+		*problems = append(*problems, "sub_agent.max_follow_ups must be at least 1 when enabled")
+	}
 }
 
 func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig) {

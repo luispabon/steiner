@@ -615,6 +615,7 @@ do and tool allowlists for each specialised agent type, see
 | `max_turns`    | int  | `30`     | Maximum turns allowed for each child agent run. A floor of 15 turns is enforced internally.                                                                                                                                                                                                                                                                                     |
 | `max_tokens`   | int  | `100000` | Maximum tokens a child agent may consume.                                                                                                                                                                                                                                                                                                                                       |
 | `max_parallel` | int  | `3`      | Maximum number of delegation-tool calls (specialized sub-agent spawns, `follow_up`) executed concurrently within a single parent turn. Must be at least `1`; `1` forces serial execution for delegation calls. Independent of `limits.max_parallel_tools`, which bounds ordinary tool-call concurrency — a mixed batch never lets the two compete for the same semaphore slots. |
+| `max_follow_ups` | int | `5`      | Maximum number of follow-up resumes allowed per delegated child agent. When a child reaches this ceiling, new follow-ups are refused and must be redelegated fresh. With `max_turns: 30` default, worst-case accumulated turn budget is `30 + 5×30 = 180` turns for a single child across its full resume lifetime. |
 
 Each specialised agent type (`explore`, `research`, `code`, `plan`, `verify`,
 `vision`) has its own hardcoded tool allowlist; there is no user-configurable
@@ -631,6 +632,7 @@ sub_agent:
   max_parallel: 3
   max_turns: 30
   max_tokens: 100000
+  max_follow_ups: 5
 
 models:
   definitions:
