@@ -2,7 +2,6 @@
 package prefs
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -117,8 +116,8 @@ func closeAndRemoveTempFile(tmp *os.File) {
 		return
 	}
 	name := tmp.Name()
-	if err := tmp.Close(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "close temp prefs file %s: %v\n", name, err)
-	}
+	// Best-effort cleanup on an already-failing save; the caller returns the
+	// original error.
+	_ = tmp.Close()
 	_ = os.Remove(name)
 }
