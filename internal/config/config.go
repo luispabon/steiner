@@ -285,6 +285,11 @@ type SubAgentConfig struct {
 	// calls (read, glob, grep, ls, fetch_url, web_search) in the same turn —
 	// see internal/agent.ParallelClass.
 	MaxParallel int `yaml:"max_parallel"`
+	// MaxFollowUps caps how many times a single delegated child may be resumed
+	// via follow_up. Each resume extends the child's turn budget cumulatively
+	// (see delegation.buildContinuationRequest), so this bounds the worst-case
+	// accumulated per-child turn allowance as well as resume count itself.
+	MaxFollowUps int `yaml:"max_follow_ups"`
 }
 
 // AdvisorConfig controls the optional advisor reasoning pass.

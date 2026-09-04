@@ -652,7 +652,7 @@ func TestBuildChildRunDoesNotInheritActiveSkills(t *testing.T) {
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
@@ -684,7 +684,7 @@ func TestBuildChildRunAllowedTools(t *testing.T) {
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
@@ -727,7 +727,7 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 	}
@@ -776,7 +776,7 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
@@ -805,7 +805,7 @@ func TestBuildChildRunThreadsMaxParallelTools(t *testing.T) {
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:        parent,
-		SubAgentCfg:      config.SubAgentConfig{},
+		SubAgentCfg:      config.SubAgentConfig{MaxFollowUps: 100},
 		Events:           output.NoopSink{},
 		WorkDir:          "/tmp/work",
 		Provider:         stubProvider{},
@@ -853,7 +853,7 @@ func TestBuildChildRunThreadsToolOutputMaxBytes(t *testing.T) {
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
@@ -885,7 +885,7 @@ func TestBuildChildRunDefaultToolOutputMaxBytesWhenUnset(t *testing.T) {
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
@@ -919,7 +919,7 @@ func TestBuildChildRunThreadsPathsBlockedPaths(t *testing.T) {
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     workDir,
 		Provider:    stubProvider{},
@@ -949,7 +949,7 @@ func TestBuildChildRunThreadsContextManagement(t *testing.T) {
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:         parent,
-		SubAgentCfg:       config.SubAgentConfig{},
+		SubAgentCfg:       config.SubAgentConfig{MaxFollowUps: 100},
 		Events:            output.NoopSink{},
 		WorkDir:           "/tmp/work",
 		Provider:          stubProvider{},
@@ -972,7 +972,7 @@ func TestBuildChildRunIncludesModel(t *testing.T) {
 	)
 	deps := SubAgentHandlerDeps{
 		ParentReg:     parent,
-		SubAgentCfg:   config.SubAgentConfig{},
+		SubAgentCfg:   config.SubAgentConfig{MaxFollowUps: 100},
 		Events:        output.NoopSink{},
 		WorkDir:       "/tmp/work",
 		Provider:      stubProvider{},
@@ -995,7 +995,7 @@ func TestBuildChildRunIncludesMaxTokens(t *testing.T) {
 	mt := 42000
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
@@ -1020,7 +1020,7 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 	)
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
@@ -1074,7 +1074,7 @@ func TestBuildChildRunIncludesTurnTimeout(t *testing.T) {
 	)
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 		Provider:    stubProvider{},
@@ -1214,7 +1214,7 @@ func TestBuildChildRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			deps := SubAgentHandlerDeps{
 				ParentReg:   parent,
-				SubAgentCfg: config.SubAgentConfig{},
+				SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 				Events:      output.NoopSink{},
 				WorkDir:     "/tmp/work",
 				Provider:    stubProvider{},
@@ -1238,7 +1238,7 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 		rec := usagestats.New(nil)
 		deps := SubAgentHandlerDeps{
 			ParentReg:     parent,
-			SubAgentCfg:   config.SubAgentConfig{},
+			SubAgentCfg:   config.SubAgentConfig{MaxFollowUps: 100},
 			Events:        output.NoopSink{},
 			WorkDir:       "/tmp/work",
 			Provider:      stubProvider{},
@@ -1256,7 +1256,7 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 	t.Run("recorder stays nil when not provided", func(t *testing.T) {
 		deps := SubAgentHandlerDeps{
 			ParentReg:     parent,
-			SubAgentCfg:   config.SubAgentConfig{},
+			SubAgentCfg:   config.SubAgentConfig{MaxFollowUps: 100},
 			Events:        output.NoopSink{},
 			WorkDir:       "/tmp/work",
 			Provider:      stubProvider{},
@@ -1282,7 +1282,7 @@ func TestBuildChildRunSandboxDisabled(t *testing.T) {
 	)
 	deps := SubAgentHandlerDeps{
 		ParentReg:      parent,
-		SubAgentCfg:    config.SubAgentConfig{},
+		SubAgentCfg:    config.SubAgentConfig{MaxFollowUps: 100},
 		Events:         output.NoopSink{},
 		WorkDir:        "/tmp/work",
 		Provider:       stubProvider{},
@@ -1311,7 +1311,7 @@ func TestBuildChildRunSandboxEnabled(t *testing.T) {
 	)
 	deps := SubAgentHandlerDeps{
 		ParentReg:             parent,
-		SubAgentCfg:           config.SubAgentConfig{},
+		SubAgentCfg:           config.SubAgentConfig{MaxFollowUps: 100},
 		Events:                output.NoopSink{},
 		WorkDir:               "/tmp/work",
 		Provider:              stubProvider{},
@@ -1366,7 +1366,7 @@ func TestChildBashIsSandboxed(t *testing.T) {
 	wrapper := &recordingSandboxWrapper{}
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     workDir,
 		Provider:    stubProvider{},
@@ -1409,7 +1409,7 @@ func TestChildModeGetterAppliesReadOnlyProjectInPlanMode(t *testing.T) {
 	wrapper := &recordingSandboxWrapper{}
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{},
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     workDir,
 		Provider:    stubProvider{},
@@ -1458,7 +1458,7 @@ func TestChildExploreBashContextIsReadOnly(t *testing.T) {
 			})
 			deps := SubAgentHandlerDeps{
 				ParentReg:      parent,
-				SubAgentCfg:    config.SubAgentConfig{},
+				SubAgentCfg:    config.SubAgentConfig{MaxFollowUps: 100},
 				Events:         output.NoopSink{},
 				WorkDir:        "/tmp/work",
 				Provider:       stubProvider{},
@@ -1633,7 +1633,7 @@ func TestBuildChildRunSandboxTmpDir(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			deps := SubAgentHandlerDeps{
 				ParentReg:     parent,
-				SubAgentCfg:   config.SubAgentConfig{},
+				SubAgentCfg:   config.SubAgentConfig{MaxFollowUps: 100},
 				Events:        output.NoopSink{},
 				WorkDir:       workDir,
 				Provider:      stubProvider{},

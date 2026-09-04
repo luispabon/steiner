@@ -129,10 +129,11 @@ type limitsPatch struct {
 }
 
 type subAgentPatch struct {
-	Enabled     *bool `yaml:"enabled"`
-	MaxTurns    *int  `yaml:"max_turns"`
-	MaxTokens   *int  `yaml:"max_tokens"`
-	MaxParallel *int  `yaml:"max_parallel"`
+	Enabled      *bool `yaml:"enabled"`
+	MaxTurns     *int  `yaml:"max_turns"`
+	MaxTokens    *int  `yaml:"max_tokens"`
+	MaxParallel  *int  `yaml:"max_parallel"`
+	MaxFollowUps *int  `yaml:"max_follow_ups"`
 }
 
 type advisorPatch struct {

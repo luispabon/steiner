@@ -531,6 +531,36 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: `max_tokens must be at least 1 when enabled`,
 		},
+		{
+			name: "subagent zero max_follow_ups when enabled",
+			cfg: func() Config {
+				c := validBase()
+				c.SubAgent.Enabled = true
+				c.SubAgent.MaxFollowUps = 0
+				return c
+			}(),
+			wantErr: `max_follow_ups must be at least 1 when enabled`,
+		},
+		{
+			name: "subagent negative max_follow_ups when enabled",
+			cfg: func() Config {
+				c := validBase()
+				c.SubAgent.Enabled = true
+				c.SubAgent.MaxFollowUps = -1
+				return c
+			}(),
+			wantErr: `max_follow_ups must be at least 1 when enabled`,
+		},
+		{
+			name: "subagent zero max_follow_ups when disabled",
+			cfg: func() Config {
+				c := validBase()
+				c.SubAgent.Enabled = false
+				c.SubAgent.MaxFollowUps = 0
+				return c
+			}(),
+			wantErr: "",
+		},
 
 		// Project context max bytes < 1
 		{

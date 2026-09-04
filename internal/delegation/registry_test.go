@@ -63,7 +63,7 @@ func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
 
 	deps := DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
-		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 100},
 		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 5},
 		Provider:     prov,
 		Events:       output.NoopSink{},
@@ -115,7 +115,7 @@ func TestBuildDelegateRegistryAdvisorFallsBackToProfileDefault(t *testing.T) {
 	var captured provider.ResolvedModel
 	_, err := BuildDelegateRegistry(DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
-		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 100},
 		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
 		Provider:     &fakeProvider{},
 		Events:       output.NoopSink{},
@@ -153,7 +153,7 @@ func TestBuildDelegateRegistryAdvisorNamedProfileFallsBackToProfileDefault(t *te
 	var captured provider.ResolvedModel
 	_, err := BuildDelegateRegistry(DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
-		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 100},
 		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
 		Provider:     &fakeProvider{},
 		Events:       output.NoopSink{},
@@ -183,7 +183,7 @@ func TestBuildDelegateRegistryAdvisorProfileDefaultResolverError(t *testing.T) {
 	cfg.Models.Effective.DefaultModel = "missing-profile-default"
 	_, err := BuildDelegateRegistry(DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
-		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 100},
 		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
 		Provider:     &fakeProvider{},
 		Events:       output.NoopSink{},
@@ -205,7 +205,7 @@ func TestBuildDelegateRegistryExcludesVisionForEmptyAssignment(t *testing.T) {
 	cfg.Models.Effective.SubAgents = map[string]string{string(AgentTypeVision): ""}
 	reg, err := BuildDelegateRegistry(DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
-		SubAgentCfg:  config.SubAgentConfig{Enabled: true},
+		SubAgentCfg:  config.SubAgentConfig{Enabled: true, MaxFollowUps: 100},
 		Provider:     &fakeProvider{},
 		Events:       output.NoopSink{},
 		WorkDir:      "/tmp/work",
@@ -229,7 +229,7 @@ func TestBuildDelegateRegistryAdvisorBudgetPersistsAcrossCallsViaAdvisorState(t 
 
 	deps := DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
-		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 100},
 		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
 		Provider:     prov,
 		Events:       output.NoopSink{},
@@ -286,7 +286,7 @@ func TestBuildDelegateRegistryAdvisorCacheKeyFallsBackWhenStoreNil(t *testing.T)
 
 	reg, err := BuildDelegateRegistry(DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
-		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 100},
 		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 5},
 		Provider:     prov,
 		Events:       output.NoopSink{},
@@ -454,7 +454,7 @@ func TestBuildDelegateRegistryRegistersAdvisorSchemaWithQuestionAndFiles(t *test
 
 	reg, err := BuildDelegateRegistry(DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
-		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 100},
 		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
 		Provider:     &fakeProvider{},
 		Events:       output.NoopSink{},
@@ -489,7 +489,7 @@ func TestBuildDelegateRegistryRegistersAdvisorSchemaWithQuestionAndFiles(t *test
 func TestBuildDelegateRegistryAdvisorNotRegisteredWhenDisabled(t *testing.T) {
 	reg, err := BuildDelegateRegistry(DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
-		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 100},
 		AdvisorCfg:   config.AdvisorConfig{Enabled: false},
 		Provider:     &fakeProvider{},
 		Events:       output.NoopSink{},
@@ -518,7 +518,7 @@ func TestBuildDelegateRegistryAdvisorUsesConfigMaxUsesPerRun(t *testing.T) {
 
 	deps := DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
-		SubAgentCfg:  config.SubAgentConfig{Enabled: false},
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 100},
 		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 2},
 		Provider:     prov,
 		Events:       output.NoopSink{},

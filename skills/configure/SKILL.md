@@ -83,12 +83,13 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `sandbox.host_mounts.<index>.mode`|string|—|`ro` or `rw`; host paths are read-only by default. |
 | `permissions.docker`|bool|`false`|Allow sandboxed tools to reach Docker socket; otherwise masked. |
 | `sub_agent.enabled`|bool|`true`|Enable child agents. |
-| `sub_agent.max_turns`|int|`30`|Per-child turns; runtime floor 15. |
+| `sub_agent.max_turns`|int|`30`|Per-child turns (min 15). |
 | `sub_agent.max_tokens`|int|`100000`|Per-child token limit. |
-| `sub_agent.max_parallel`|int|`3`|Concurrent delegation calls; at least 1. |
+| `sub_agent.max_parallel`|int|`3`|Concurrent delegation calls. |
+| `sub_agent.max_follow_ups`|int|`5`|Follow-ups. |
 | `advisor.enabled`|bool|`false`|Enable advisor. |
-| `advisor.max_uses_per_run`|int|`3`|Per-session advisor cap; at least 1 when enabled. |
-| `advisor.max_uses_per_sub_agent`|int|`1`|Per-child advisor cap; at least 1 when enabled. |
+| `advisor.max_uses_per_run`|int|`3`|Session advisor cap (min 1). |
+| `advisor.max_uses_per_sub_agent`|int|`1`|Child advisor cap (min 1). |
 | `advisor.max_tokens`|int or null|nil|Optional positive advisor output-token ceiling. |
 | `advisor.timeout`|duration or null|`180s`|Optional positive advisor-only HTTP timeout. |
 | `oneshot.auto_pr`|bool|`false`|Allow oneshot closeout to push and open a PR/MR. |

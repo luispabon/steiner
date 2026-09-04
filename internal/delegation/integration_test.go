@@ -507,7 +507,7 @@ func TestParentContextIsolation(t *testing.T) {
 	deps := SubAgentHandlerDeps{
 		Provider:    childProv,
 		ParentReg:   parentReg,
-		SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000},
+		SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000, MaxFollowUps: 100},
 		Events:      output.NoopSink{},
 		WorkDir:     "/tmp/work",
 	}
@@ -1204,7 +1204,8 @@ func TestFollowUpSanitizesSavedDanglingToolCalls(t *testing.T) {
 		Runner:       runner,
 		SessionStore: store,
 		SubAgentCfg: config.SubAgentConfig{
-			MaxTurns: 5,
+			MaxTurns:     5,
+			MaxFollowUps: 100,
 		},
 	})
 
@@ -1268,7 +1269,8 @@ func TestCrossTurnSessionStorePreservesSessions(t *testing.T) {
 		Runner:       followUpRunner,
 		SessionStore: sharedStore,
 		SubAgentCfg: config.SubAgentConfig{
-			MaxTurns: 3,
+			MaxTurns:     3,
+			MaxFollowUps: 100,
 		},
 		Events: output.NoopSink{},
 	})

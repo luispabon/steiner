@@ -64,6 +64,12 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	if err := denyFollowUpInPlanMode(ctx, childHasMutate); err != nil {
 		return nil, err
 	}
+	if deps.SubAgentCfg.MaxFollowUps > 0 && session.FollowUpCount >= deps.SubAgentCfg.MaxFollowUps {
+		return nil, fmt.Errorf(
+			"follow_up: agent %q has reached the maximum of %d follow-up resumes; "+
+				"delegate a fresh sub-agent for further work instead of continuing this one",
+			agentID, deps.SubAgentCfg.MaxFollowUps)
+	}
 	freshLimits := DefaultLimits(deps.SubAgentCfg)
 	req := buildContinuationRequest(session.Request, session.Conversation, message, session.TurnCount, freshLimits)
 
