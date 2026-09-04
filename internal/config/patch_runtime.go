@@ -30,6 +30,11 @@ func applyDesktopNotificationsPatch(dst *desktopNotificationsConfig, patch *desk
 	setIfPresent(&dst.Duration, patch.Duration)
 }
 
+func applyUpdateCheckPatch(dst *UpdateCheckConfig, patch *updateCheckPatch) {
+	setIfPresent(&dst.Enabled, patch.Enabled)
+	setIfPresent(&dst.IntervalHours, patch.IntervalHours)
+}
+
 func applyToolPatch(dst *ToolConfig, patch *toolPatch) {
 	setIfPresent(&dst.Exec, patch.Exec)
 	setIfPresent(&dst.Subcommand, patch.Subcommand)

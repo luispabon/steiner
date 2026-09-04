@@ -173,6 +173,7 @@ type Config struct {
 	Advisor              AdvisorConfig              `yaml:"advisor"`
 	OneShot              oneshotConfig              `yaml:"oneshot"`
 	DesktopNotifications desktopNotificationsConfig `yaml:"desktop_notifications"`
+	UpdateCheck          UpdateCheckConfig          `yaml:"update_check"`
 	Tools                map[string]ToolConfig      `yaml:"tools"`
 	ProjectContext       ProjectContextConfig       `yaml:"project_context"`
 	Paths                PathsConfig                `yaml:"paths"`
@@ -302,6 +303,12 @@ type oneshotConfig struct {
 type desktopNotificationsConfig struct {
 	Enabled  bool `yaml:"enabled"`
 	Duration int  `yaml:"duration"`
+}
+
+// UpdateCheckConfig configures the passive startup version-upgrade check.
+type UpdateCheckConfig struct {
+	Enabled       bool `yaml:"enabled"`
+	IntervalHours int  `yaml:"interval_hours"`
 }
 
 // ToolConfig defines an externally configured tool.
