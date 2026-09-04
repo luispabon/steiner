@@ -189,7 +189,7 @@ func (m *Model) openContextOverlayImmediate() {
 		return
 	}
 	if err := m.controller.Handle(context.Background(), interactive.RequestContextReport{}); err != nil {
-		m.content.AppendLine(fmt.Sprintf("status: %v", err))
+		m.appendError(err)
 	}
 }
 

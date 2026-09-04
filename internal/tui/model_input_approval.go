@@ -63,7 +63,7 @@ func (m *Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, t
 			Mode:     m.approval.mode,
 			Decision: string(decision),
 		}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.appendError(err)
 		}
 	}
 	m.approval = approvalState{}

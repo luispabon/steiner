@@ -24,7 +24,7 @@ func (m *Model) toggledMode() string {
 func (m *Model) executeToggleModeAction() tea.Model {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SwitchMode{Mode: config.ExecutionMode(m.toggledMode())}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.appendError(err)
 		}
 	}
 	m.syncViewport()
@@ -36,7 +36,7 @@ func (m *Model) executeToggleModeAction() tea.Model {
 func (m *Model) executeSetModeAction(mode string) (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SwitchMode{Mode: config.ExecutionMode(mode)}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.appendError(err)
 		}
 	}
 	m.input.Reset()

@@ -20,7 +20,7 @@ import (
 func (m *Model) executeInterruptAction() *Model {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.InterruptActiveRun{}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.appendError(err)
 		}
 	}
 	m.interruptPending = true
@@ -50,7 +50,7 @@ func (m *Model) executeClearAction() (tea.Model, tea.Cmd) {
 func (m *Model) executeCompactAction(action inputAction) (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.TriggerManualCompaction{Steering: action.compactionSteering}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.appendError(err)
 		}
 	}
 	m.input.Reset()
@@ -63,7 +63,7 @@ func (m *Model) executeCompactAction(action inputAction) (tea.Model, tea.Cmd) {
 func (m *Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.RequestConfigReport{}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.appendError(err)
 		}
 	}
 	m.input.Reset()
@@ -195,7 +195,7 @@ func (m *Model) executeSwitchProfileAction(name string) (tea.Model, tea.Cmd) {
 	name = strings.TrimSpace(name)
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SwitchProfile{Name: name}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.appendError(err)
 		} else {
 			m.content.AppendLine(fmt.Sprintf("status: profile switched to %s", name))
 			m.sidebar.profile = name
@@ -324,7 +324,7 @@ func (m *Model) executeSubmitAction(value string, submitText string, displayText
 	images := m.pendingImageBlocks()
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText, Images: images}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.appendError(err)
 			m.input.Reset()
 			return m, sessionCmd
 		}
@@ -358,7 +358,7 @@ func (m *Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea
 
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SwitchMode{Mode: skillExecutionMode(skillName)}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", err))
+			m.appendError(err)
 		}
 	}
 	m.syncSidebar()

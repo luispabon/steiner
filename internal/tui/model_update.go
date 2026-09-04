@@ -258,7 +258,7 @@ func (m *Model) performClearConversationState() error {
 	if m.controller != nil {
 		clearErr = m.controller.Handle(context.Background(), interactive.ClearConversation{})
 		if clearErr != nil {
-			m.content.AppendLine(fmt.Sprintf("status: %v", clearErr))
+			m.appendError(clearErr)
 		}
 	}
 	m.input.Reset()
@@ -682,4 +682,9 @@ func (m *Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.C
 	m.input.InsertString(label)
 	m.syncInputChrome()
 	return m, nil
+}
+
+// appendError renders err as a styled warning status line in the content view.
+func (m *Model) appendError(err error) {
+	m.content.AppendLine(m.styles.WarningStyle.Render(fmt.Sprintf("status: %v", err)))
 }

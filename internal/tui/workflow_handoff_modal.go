@@ -209,7 +209,7 @@ func (m *Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	modelName := strings.TrimSpace(m.workflowHandoff.modelAlias)
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitWorkflowHandoff{Decision: "accept"}); err != nil {
-			m.content.AppendLine("status: " + err.Error())
+			m.appendError(err)
 			m.syncViewport()
 			return m, nil
 		}
@@ -217,7 +217,7 @@ func (m *Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	if modelName != "" && modelName != strings.TrimSpace(m.primaryModel) {
 		if m.controller != nil {
 			if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName}); err != nil {
-				m.content.AppendLine("status: " + err.Error())
+				m.appendError(err)
 				m.syncViewport()
 				return m, nil
 			}
@@ -236,7 +236,7 @@ func (m *Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 		// controller may be nil in tests; skip rotation when there's no backing session.
 		if cleared.controller != nil {
 			if err := cleared.controller.Handle(context.Background(), interactive.RotateSession{}); err != nil {
-				cleared.content.AppendLine("status: " + err.Error())
+				cleared.appendError(err)
 				cleared.syncViewport()
 				return cleared, nil
 			}
@@ -249,7 +249,7 @@ func (m *Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 func (m *Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitWorkflowHandoff{Decision: "dismiss"}); err != nil {
-			m.content.AppendLine("status: " + err.Error())
+			m.appendError(err)
 		}
 	}
 	m.workflowHandoff = m.workflowHandoff.close()
