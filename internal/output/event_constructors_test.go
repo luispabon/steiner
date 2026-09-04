@@ -2,6 +2,7 @@ package output
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -268,4 +269,401 @@ func TestNewMCPStatusEvent(t *testing.T) {
 	if got := p.Origins["mcp__srv_a__echo"]; got.Server != "srv-a" || got.Tool != "echo" {
 		t.Fatalf("Origins[mcp__srv_a__echo] = %+v, want srv-a/echo", got)
 	}
+}
+
+func TestNewContextCompactionEvent(t *testing.T) {
+	tests := []struct {
+		name    string
+		turn    int
+		summary []string
+		check   func(t *testing.T, event Event)
+	}{
+		{
+			name:    "zero turn",
+			turn:    0,
+			summary: []string{},
+			check: func(t *testing.T, event Event) {
+				if event.Type != EventTypeContextDiagnostics {
+					t.Fatalf("Type = %q, want %q", event.Type, EventTypeContextDiagnostics)
+				}
+				if event.Payload == nil {
+					t.Fatal("Payload is nil")
+				}
+			},
+		},
+		{
+			name:    "with turn and one summary",
+			turn:    5,
+			summary: []string{"summary text"},
+			check: func(t *testing.T, event Event) {
+				if event.Type != EventTypeContextDiagnostics {
+					t.Fatalf("Type = %q", event.Type)
+				}
+				p, ok := event.Payload.(ContextCompactionEvent)
+				if !ok {
+					t.Fatalf("Payload type = %T", event.Payload)
+				}
+				if p.Turn != 5 {
+					t.Fatalf("Turn = %d, want 5", p.Turn)
+				}
+				if p.SummaryPreview != "summary text" {
+					t.Fatalf("SummaryPreview = %q, want %q", p.SummaryPreview, "summary text")
+				}
+			},
+		},
+		{
+			name:    "with multiple summary args (only first used)",
+			turn:    1,
+			summary: []string{"first", "second", "third"},
+			check: func(t *testing.T, event Event) {
+				p, ok := event.Payload.(ContextCompactionEvent)
+				if !ok {
+					t.Fatalf("Payload type = %T", event.Payload)
+				}
+				if p.SummaryPreview != "first" {
+					t.Fatalf("SummaryPreview = %q, want %q", p.SummaryPreview, "first")
+				}
+			},
+		},
+		{
+			name:    "no summary args",
+			turn:    2,
+			summary: []string{},
+			check: func(t *testing.T, event Event) {
+				p, ok := event.Payload.(ContextCompactionEvent)
+				if !ok {
+					t.Fatalf("Payload type = %T", event.Payload)
+				}
+				if p.SummaryPreview != "" {
+					t.Fatalf("SummaryPreview = %q, want empty", p.SummaryPreview)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := NewContextCompactionEvent(
+				tt.turn, 0, 0, 0, 0, 0, false, "", tt.summary...,
+			)
+			tt.check(t, event)
+		})
+	}
+}
+
+func TestNewContextSessionHealthEvent(t *testing.T) {
+	event := NewContextSessionHealthEvent("prompt", 3, 2, "warn", "degraded", "guidance", "note1", "note2")
+	if event.Type != EventTypeContextDiagnostics {
+		t.Fatalf("Type = %q, want %q", event.Type, EventTypeContextDiagnostics)
+	}
+	if event.Timestamp.IsZero() {
+		t.Fatal("Timestamp is zero")
+	}
+	if event.Timestamp.Location() != time.UTC {
+		t.Fatalf("Location = %v, want UTC", event.Timestamp.Location())
+	}
+	p, ok := event.Payload.(ContextSessionHealthEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T", event.Payload)
+	}
+	if p.Scope != "prompt" {
+		t.Fatalf("Scope = %q", p.Scope)
+	}
+	if p.Turn != 3 {
+		t.Fatalf("Turn = %d", p.Turn)
+	}
+	if p.CompactionCount != 2 {
+		t.Fatalf("CompactionCount = %d", p.CompactionCount)
+	}
+	if p.Severity != "warn" {
+		t.Fatalf("Severity = %q", p.Severity)
+	}
+	if len(p.Notes) != 2 {
+		t.Fatalf("Notes length = %d, want 2", len(p.Notes))
+	}
+}
+
+func TestNewContextBudgetEvent(t *testing.T) {
+	event := NewContextBudgetEvent("context", 5, 500, 1000, true, "note1")
+	if event.Type != EventTypeContextDiagnostics {
+		t.Fatalf("Type = %q", event.Type)
+	}
+	p, ok := event.Payload.(ContextBudgetEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T", event.Payload)
+	}
+	if p.Scope != "context" {
+		t.Fatalf("Scope = %q", p.Scope)
+	}
+	if p.Turn != 5 {
+		t.Fatalf("Turn = %d", p.Turn)
+	}
+	if p.UsedBytes != 500 {
+		t.Fatalf("UsedBytes = %d", p.UsedBytes)
+	}
+	if p.BudgetBytes != 1000 {
+		t.Fatalf("BudgetBytes = %d", p.BudgetBytes)
+	}
+	if !p.Truncated {
+		t.Error("Truncated should be true")
+	}
+	if len(p.Notes) != 1 {
+		t.Fatalf("Notes length = %d, want 1", len(p.Notes))
+	}
+}
+
+func TestNewContextTokenBudgetEvent(t *testing.T) {
+	event := NewContextTokenBudgetEvent(
+		"context", 3, 1000, 950, 4096, 50.0, 0.75, 100, 1050,
+		"ok", false, "note1", "note2",
+	)
+	if event.Type != EventTypeContextDiagnostics {
+		t.Fatalf("Type = %q", event.Type)
+	}
+	p, ok := event.Payload.(ContextBudgetEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T", event.Payload)
+	}
+	if p.PromptTokens != 1000 {
+		t.Fatalf("PromptTokens = %d", p.PromptTokens)
+	}
+	if p.ContextWindow != 4096 {
+		t.Fatalf("ContextWindow = %d", p.ContextWindow)
+	}
+	if p.ContextUsagePercent != 50.0 {
+		t.Fatalf("ContextUsagePercent = %v", p.ContextUsagePercent)
+	}
+	if len(p.Notes) != 2 {
+		t.Fatalf("Notes length = %d", len(p.Notes))
+	}
+}
+
+func TestNewFileAnnotationEvent(t *testing.T) {
+	tests := []struct {
+		name       string
+		turn       int
+		path       string
+		action     string
+		reason     string
+		prevTurn   int
+		notes      []string
+		checkNotes func(t *testing.T, notes []string)
+	}{
+		{
+			name:     "basic annotation",
+			turn:     1,
+			path:     "file.txt",
+			action:   "skip",
+			reason:   "too large",
+			prevTurn: 0,
+			notes:    []string{},
+			checkNotes: func(t *testing.T, notes []string) {
+				if len(notes) != 0 {
+					t.Fatalf("Notes length = %d, want 0", len(notes))
+				}
+			},
+		},
+		{
+			name:     "with previous turn",
+			turn:     5,
+			path:     "other.txt",
+			action:   "read",
+			reason:   "context",
+			prevTurn: 3,
+			notes:    []string{},
+			checkNotes: func(t *testing.T, notes []string) {
+				if len(notes) == 0 {
+					t.Fatal("expected notes with previous_turn")
+				}
+				found := false
+				for _, note := range notes {
+					if note == "previous_turn=3" {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Logf("notes = %v", notes)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := NewFileAnnotationEvent(tt.turn, tt.path, tt.action, tt.reason, tt.prevTurn, tt.notes...)
+			if event.Type != EventTypeContextDiagnostics {
+				t.Fatalf("Type = %q", event.Type)
+			}
+			p, ok := event.Payload.(ContextFileAnnotationEvent)
+			if !ok {
+				t.Fatalf("Payload type = %T", event.Payload)
+			}
+			if p.Path != tt.path {
+				t.Fatalf("Path = %q", p.Path)
+			}
+			if p.Action != tt.action {
+				t.Fatalf("Action = %q", p.Action)
+			}
+			tt.checkNotes(t, p.Notes)
+		})
+	}
+}
+
+func TestNewAssistantMessageEvent(t *testing.T) {
+	event := NewAssistantMessageEvent(2, "assistant", "Hello, world!")
+	if event.Type != EventTypeAssistantMessage {
+		t.Fatalf("Type = %q", event.Type)
+	}
+	if event.Timestamp.IsZero() {
+		t.Fatal("Timestamp is zero")
+	}
+	if event.Timestamp.Location() != time.UTC {
+		t.Fatalf("Location = %v, want UTC", event.Timestamp.Location())
+	}
+	p, ok := event.Payload.(AssistantMessageEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T", event.Payload)
+	}
+	if p.Turn != 2 {
+		t.Fatalf("Turn = %d", p.Turn)
+	}
+	if p.Role != "assistant" {
+		t.Fatalf("Role = %q", p.Role)
+	}
+	if p.Content != "Hello, world!" {
+		t.Fatalf("Content = %q", p.Content)
+	}
+}
+
+func TestNewThinkingChunkEventWithSource(t *testing.T) {
+	event := NewThinkingChunkEventWithSource(1, "thinking...", ChunkSourceAssistant)
+	if event.Type != EventTypeThinkingChunk {
+		t.Fatalf("Type = %q", event.Type)
+	}
+	p, ok := event.Payload.(ThinkingChunkEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T", event.Payload)
+	}
+	if p.Turn != 1 {
+		t.Fatalf("Turn = %d", p.Turn)
+	}
+	if p.Content != "thinking..." {
+		t.Fatalf("Content = %q", p.Content)
+	}
+	if p.Source != ChunkSourceAssistant {
+		t.Fatalf("Source = %v", p.Source)
+	}
+}
+
+func TestNewAssistantChunkEventWithSource(t *testing.T) {
+	event := NewAssistantChunkEventWithSource(1, "chunk", ChunkSourceAssistant)
+	if event.Type != EventTypeAssistantChunk {
+		t.Fatalf("Type = %q", event.Type)
+	}
+	p, ok := event.Payload.(AssistantChunkEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T", event.Payload)
+	}
+	if p.Turn != 1 {
+		t.Fatalf("Turn = %d", p.Turn)
+	}
+	if p.Content != "chunk" {
+		t.Fatalf("Content = %q", p.Content)
+	}
+}
+
+func TestNewStopReasonEvent(t *testing.T) {
+	tests := []struct {
+		name      string
+		turn      int
+		reason    string
+		err       error
+		checkText func(t *testing.T, summary, action string)
+	}{
+		{
+			name:   "complete with turn",
+			turn:   5,
+			reason: "complete",
+			err:    nil,
+			checkText: func(t *testing.T, summary, _ string) {
+				if summary == "" {
+					t.Error("summary should not be empty")
+				}
+				if !contains(summary, "5") {
+					t.Error("summary should contain turn count")
+				}
+			},
+		},
+		{
+			name:   "max_turns",
+			turn:   10,
+			reason: "max_turns",
+			err:    nil,
+			checkText: func(t *testing.T, summary, _ string) {
+				if !contains(summary, "turn limit") {
+					t.Error("summary should mention turn limit")
+				}
+			},
+		},
+		{
+			name:   "cancelled",
+			turn:   3,
+			reason: "cancelled",
+			err:    nil,
+			checkText: func(t *testing.T, summary, _ string) {
+				if !contains(summary, "cancelled") {
+					t.Error("summary should mention cancelled")
+				}
+			},
+		},
+		{
+			name:   "error reason with error",
+			turn:   1,
+			reason: "error",
+			err:    errors.New("test error"),
+			checkText: func(t *testing.T, summary, _ string) {
+				if summary == "" {
+					t.Error("summary should not be empty")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := NewStopReasonEvent(tt.turn, tt.reason, tt.err)
+			if event.Type != EventTypeStopReason {
+				t.Fatalf("Type = %q", event.Type)
+			}
+			p, ok := event.Payload.(StopReasonEvent)
+			if !ok {
+				t.Fatalf("Payload type = %T", event.Payload)
+			}
+			tt.checkText(t, p.Summary, p.Action)
+			if tt.err != nil && p.Error == "" {
+				t.Error("Error should not be empty")
+			}
+		})
+	}
+}
+
+func TestWithAgentScopeModifier(t *testing.T) {
+	event := NewAssistantMessageEvent(1, "test", "content")
+	if event.Scope.AgentID != "" {
+		t.Fatal("initial AgentID should be empty")
+	}
+	event = WithAgentScope(event, "agent-1")
+	if event.Scope.AgentID != "agent-1" {
+		t.Fatalf("AgentID = %q, want agent-1", event.Scope.AgentID)
+	}
+	// Empty agent ID should be a no-op
+	event2 := WithAgentScope(event, "")
+	if event2.Scope.AgentID != "agent-1" {
+		t.Fatalf("AgentID = %q, want agent-1 (unchanged)", event2.Scope.AgentID)
+	}
+}
+
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }

@@ -290,3 +290,123 @@ func TestDefaultTokenPath(t *testing.T) {
 		t.Errorf("DefaultTokenPath() base = %q, want codex_auth.json", filepath.Base(path))
 	}
 }
+
+func TestWithOpenAIAPIKey(t *testing.T) {
+	tests := []struct {
+		name            string
+		token           *oauth2.Token
+		apiKey          string
+		wantNil         bool
+		wantIDToken     string
+		wantAccountID   string
+		wantAPIKey      string
+		checkNotMutated bool
+	}{
+		{
+			name:    "nil token",
+			token:   nil,
+			apiKey:  "test_api_key",
+			wantNil: true,
+		},
+		{
+			name: "token with existing extras plus api key",
+			token: (&oauth2.Token{
+				AccessToken:  "test_token",
+				RefreshToken: "test_refresh",
+				TokenType:    "Bearer",
+			}).WithExtra(map[string]any{
+				"id_token":               "id_value",
+				chatGPTAccountIDExtraKey: "acct_value",
+			}),
+			apiKey:          "test_api_key",
+			wantIDToken:     "id_value",
+			wantAccountID:   "acct_value",
+			wantAPIKey:      "test_api_key",
+			checkNotMutated: true,
+		},
+		{
+			name: "empty api key string",
+			token: (&oauth2.Token{
+				AccessToken:  "test_token",
+				RefreshToken: "test_refresh",
+				TokenType:    "Bearer",
+			}).WithExtra(map[string]any{
+				"id_token": "id_value",
+			}),
+			apiKey:      "",
+			wantIDToken: "id_value",
+			wantAPIKey:  "",
+		},
+		{
+			name: "token with no existing extras",
+			token: &oauth2.Token{
+				AccessToken:  "test_token",
+				RefreshToken: "test_refresh",
+				TokenType:    "Bearer",
+			},
+			apiKey:     "test_api_key",
+			wantAPIKey: "test_api_key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var originalIDToken string
+			var originalAccountID string
+			if tt.token != nil && tt.checkNotMutated {
+				originalIDToken = tokenExtraString(tt.token, "id_token")
+				originalAccountID = tokenExtraString(tt.token, chatGPTAccountIDExtraKey)
+			}
+
+			result := WithOpenAIAPIKey(tt.token, tt.apiKey)
+
+			if tt.wantNil {
+				if result != nil {
+					t.Errorf("result = %v, want nil", result)
+				}
+				return
+			}
+
+			if result == nil {
+				t.Fatalf("result is nil, expected non-nil")
+			}
+
+			if result.AccessToken != "test_token" {
+				t.Errorf("AccessToken = %q, want test_token", result.AccessToken)
+			}
+
+			if tt.wantIDToken != "" {
+				if result.Extra("id_token") != tt.wantIDToken {
+					t.Errorf("Extra(id_token) = %v, want %q", result.Extra("id_token"), tt.wantIDToken)
+				}
+			}
+
+			if tt.wantAccountID != "" {
+				if result.Extra(chatGPTAccountIDExtraKey) != tt.wantAccountID {
+					t.Errorf("Extra(account_id) = %v, want %q", result.Extra(chatGPTAccountIDExtraKey), tt.wantAccountID)
+				}
+			}
+
+			if tt.apiKey != "" {
+				if result.Extra(OpenAIAPIKeyExtraKey) != tt.wantAPIKey {
+					t.Errorf("Extra(openai_api_key) = %v, want %q", result.Extra(OpenAIAPIKeyExtraKey), tt.wantAPIKey)
+				}
+			} else {
+				if result.Extra(OpenAIAPIKeyExtraKey) != nil {
+					t.Errorf("Extra(openai_api_key) = %v, want nil (omitted when empty)", result.Extra(OpenAIAPIKeyExtraKey))
+				}
+			}
+
+			if tt.checkNotMutated {
+				afterIDToken := tokenExtraString(tt.token, "id_token")
+				afterAccountID := tokenExtraString(tt.token, chatGPTAccountIDExtraKey)
+				if afterIDToken != originalIDToken {
+					t.Errorf("original token id_token was mutated: was %q, now %q", originalIDToken, afterIDToken)
+				}
+				if afterAccountID != originalAccountID {
+					t.Errorf("original token account_id was mutated: was %q, now %q", originalAccountID, afterAccountID)
+				}
+			}
+		})
+	}
+}
