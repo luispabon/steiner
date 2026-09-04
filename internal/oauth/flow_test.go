@@ -3,9 +3,14 @@ package oauth
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -122,4 +127,211 @@ func TestGenerateState(t *testing.T) {
 	if state1 == state2 {
 		t.Errorf("states should be unique, got same value twice")
 	}
+}
+
+func TestServeCallback(t *testing.T) {
+	tests := []struct {
+		name          string
+		queryParams   url.Values
+		expectedState string
+		wantCode      string
+		wantErrSubstr string
+		wantStatusOK  bool
+	}{
+		{
+			name: "success",
+			queryParams: url.Values{
+				"code":  {"abc"},
+				"state": {"expected_state_value"},
+			},
+			expectedState: "expected_state_value",
+			wantCode:      "abc",
+			wantStatusOK:  true,
+		},
+		{
+			name: "error param",
+			queryParams: url.Values{
+				"error": {"access_denied"},
+				"state": {"expected_state_value"},
+			},
+			expectedState: "expected_state_value",
+			wantErrSubstr: "auth error: access_denied",
+		},
+		{
+			name: "error param with xss",
+			queryParams: url.Values{
+				"error": {"<script>alert(1)</script>"},
+				"state": {"expected_state_value"},
+			},
+			expectedState: "expected_state_value",
+			wantErrSubstr: "auth error: <script>alert(1)</script>",
+		},
+		{
+			name: "state mismatch",
+			queryParams: url.Values{
+				"code":  {"abc"},
+				"state": {"wrong_state"},
+			},
+			expectedState: "expected_state_value",
+			wantErrSubstr: "state mismatch",
+		},
+		{
+			name: "missing code",
+			queryParams: url.Values{
+				"state": {"expected_state_value"},
+			},
+			expectedState: "expected_state_value",
+			wantErrSubstr: "no authorization code",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var lc net.ListenConfig
+			l, err := lc.Listen(context.Background(), "tcp", "localhost:0")
+			if err != nil {
+				t.Fatalf("net.Listen() error = %v", err)
+			}
+			addr := l.Addr().(*net.TCPAddr)
+
+			codeChan := make(chan string, 1)
+			errChan := make(chan error, 1)
+
+			served := make(chan struct{})
+			go func() {
+				serveCallback(l, "/callback", tt.expectedState, codeChan, errChan)
+				close(served)
+			}()
+
+			callbackURL := fmt.Sprintf("http://localhost:%d/callback?%s", addr.Port, tt.queryParams.Encode())
+			resp, err := http.Get(callbackURL) //nolint:noctx
+			if err != nil {
+				t.Fatalf("http.Get() error = %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("io.ReadAll() error = %v", err)
+			}
+
+			if tt.wantStatusOK && resp.StatusCode != http.StatusOK {
+				t.Errorf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+			if !tt.wantStatusOK && resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("StatusCode = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+			}
+
+			select {
+			case code := <-codeChan:
+				if tt.wantCode == "" {
+					t.Errorf("got code %q, expected none", code)
+				} else if code != tt.wantCode {
+					t.Errorf("code = %q, want %q", code, tt.wantCode)
+				}
+			case err := <-errChan:
+				switch {
+				case tt.wantErrSubstr == "":
+					t.Errorf("got error %v, expected none", err)
+				case err == nil:
+					t.Errorf("got nil error, want one containing %q", tt.wantErrSubstr)
+				case err.Error() != tt.wantErrSubstr:
+					t.Errorf("error = %q, want %q", err.Error(), tt.wantErrSubstr)
+				}
+			case <-time.After(1 * time.Second):
+				t.Errorf("callback channel timeout")
+			}
+
+			if tt.wantErrSubstr != "" && tt.name == "error param with xss" {
+				bodyStr := string(body)
+				if contains(bodyStr, "<script>") {
+					t.Errorf("response body contains unescaped <script> tag")
+				}
+				if !contains(bodyStr, "&lt;script&gt;") {
+					t.Errorf("response body should contain escaped &lt;script&gt;")
+				}
+			}
+
+			select {
+			case <-served:
+			case <-time.After(2 * time.Second):
+				t.Errorf("listener not closed after request")
+			}
+		})
+	}
+}
+
+func TestOpenBrowser(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skipf("TestOpenBrowser skipped on %s", runtime.GOOS)
+	}
+
+	tmpDir := t.TempDir()
+	markerPath := filepath.Join(tmpDir, "marker.txt")
+
+	var binName string
+	switch runtime.GOOS {
+	case "darwin":
+		binName = "open"
+	case "linux":
+		binName = "xdg-open"
+	}
+
+	fakeBinDir := filepath.Join(tmpDir, "bin")
+	if err := os.Mkdir(fakeBinDir, 0o755); err != nil {
+		t.Fatalf("mkdir() error = %v", err)
+	}
+
+	scriptPath := filepath.Join(fakeBinDir, binName)
+	scriptContent := fmt.Sprintf("#!/bin/sh\necho \"$@\" > %s\n", markerPath)
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0o755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", fakeBinDir)
+
+	err := openBrowser("https://example.test")
+	if err != nil {
+		t.Errorf("openBrowser() error = %v", err)
+	}
+
+	for i := 0; i < 200; i++ {
+		time.Sleep(10 * time.Millisecond)
+		if _, err := os.Stat(markerPath); err == nil {
+			data, err := os.ReadFile(markerPath)
+			if err != nil {
+				t.Fatalf("ReadFile() error = %v", err)
+			}
+			if !contains(string(data), "https://example.test") {
+				t.Errorf("marker file = %q, want to contain https://example.test", string(data))
+			}
+			return
+		}
+	}
+	t.Errorf("marker file not created after 2 seconds")
+}
+
+func TestOpenBrowserEmptyPath(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skipf("TestOpenBrowserEmptyPath skipped on %s", runtime.GOOS)
+	}
+
+	t.Setenv("PATH", "")
+
+	err := openBrowser("https://example.test")
+	if err == nil {
+		t.Errorf("openBrowser() expected error with empty PATH, got nil")
+	}
+	if !contains(err.Error(), "start browser:") || !contains(err.Error(), "$PATH") {
+		t.Errorf("error = %q, want to contain 'start browser:' and '$PATH'", err.Error())
+	}
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i < len(s)-len(substr)+1; i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

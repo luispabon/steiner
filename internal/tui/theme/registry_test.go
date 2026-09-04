@@ -58,3 +58,69 @@ func TestDefault(t *testing.T) {
 		t.Fatalf("Default() returned %T, want steinerTheme", d)
 	}
 }
+
+func withIsolatedRegistry(t *testing.T, fn func(t *testing.T)) {
+	mu.Lock()
+	savedThemes := themes
+	savedDefName := defName
+	themes = make(map[string]Theme)
+	defName = ""
+	mu.Unlock()
+
+	defer func() {
+		mu.Lock()
+		themes = savedThemes
+		defName = savedDefName
+		mu.Unlock()
+	}()
+
+	fn(t)
+}
+
+func TestGetFallsBackAndErrors(t *testing.T) {
+	withIsolatedRegistry(t, func(t *testing.T) {
+		Register("test-theme", mockTheme{id: "test"})
+
+		got, err := Get("test-theme")
+		if err != nil {
+			t.Fatalf("Get(registered theme) should not error, got %v", err)
+		}
+		if _, ok := got.(mockTheme); !ok {
+			t.Fatalf("Get(test-theme) returned %T, want mockTheme", got)
+		}
+
+		_, err = Get("nonexistent")
+		if err == nil {
+			t.Fatal("Get(nonexistent) should error when steiner is not available, got nil")
+		}
+	})
+}
+
+func TestGetWithEmptyRegistry(t *testing.T) {
+	withIsolatedRegistry(t, func(t *testing.T) {
+		_, err := Get("any-name")
+		if err == nil {
+			t.Fatal("Get on empty registry should error, got nil")
+		}
+	})
+}
+
+func TestDefaultWithIsolatedRegistry(t *testing.T) {
+	withIsolatedRegistry(t, func(t *testing.T) {
+		d := Default()
+		if d != nil {
+			t.Fatalf("Default on empty registry should return nil, got %v", d)
+		}
+	})
+
+	withIsolatedRegistry(t, func(t *testing.T) {
+		Register("only-theme", mockTheme{id: "only"})
+		d := Default()
+		if d == nil {
+			t.Fatal("Default with one registered theme should return it, got nil")
+		}
+		if _, ok := d.(mockTheme); !ok {
+			t.Fatalf("Default returned %T, want mockTheme", d)
+		}
+	})
+}

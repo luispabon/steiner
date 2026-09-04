@@ -195,3 +195,23 @@ func TestNotificationBody(t *testing.T) {
 		})
 	}
 }
+
+func TestNewEnabledFallsBackToStub(t *testing.T) {
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
+
+	svc := New(Options{Enabled: true, AppName: "steiner"})
+
+	avail, _ := svc.Availability()
+	if avail {
+		t.Error("Availability() = true, want false")
+	}
+
+	err := svc.Notify(context.Background(), Notification{
+		Project: "test",
+		Branch:  "main",
+		Reason:  "Testing",
+	})
+	if err != nil {
+		t.Errorf("Notify() error = %v, want nil", err)
+	}
+}

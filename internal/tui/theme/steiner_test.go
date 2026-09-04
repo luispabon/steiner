@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func TestBuildGlamourStyleSheet_nonNil(t *testing.T) {
@@ -49,6 +50,57 @@ func TestBuildGlamourStyleSheet_rendersHeading(t *testing.T) {
 	}
 	if !strings.Contains(out, "Heading") {
 		t.Errorf("rendered output lost text: %q", out)
+	}
+}
+
+func TestSteinerThemeColors(t *testing.T) {
+	theme := steinerTheme{}
+	tests := []struct {
+		name    string
+		getter  func() interface{}
+		wantHex string
+	}{
+		{name: "Background", getter: func() interface{} { return theme.Background() }, wantHex: ColorHex(lipgloss.Color(Bg))},
+		{name: "Foreground", getter: func() interface{} { return theme.Foreground() }, wantHex: ColorHex(lipgloss.Color(Fg))},
+		{name: "Accent", getter: func() interface{} { return theme.Accent() }, wantHex: ColorHex(lipgloss.Color(AccentAmber))},
+		{name: "Muted", getter: func() interface{} { return theme.Muted() }, wantHex: ColorHex(lipgloss.Color(FgMute))},
+		{name: "Border", getter: func() interface{} { return theme.Border() }, wantHex: ColorHex(lipgloss.Color(Border))},
+		{name: "Error", getter: func() interface{} { return theme.Error() }, wantHex: ColorHex(lipgloss.Color(Removed))},
+		{name: "Warning", getter: func() interface{} { return theme.Warning() }, wantHex: ColorHex(lipgloss.Color(Warn))},
+		{name: "Success", getter: func() interface{} { return theme.Success() }, wantHex: ColorHex(lipgloss.Color(Added))},
+		{name: "SyntaxKeyword", getter: func() interface{} { return theme.SyntaxKeyword() }, wantHex: ColorHex(lipgloss.Color(AccentAmber))},
+		{name: "SyntaxString", getter: func() interface{} { return theme.SyntaxString() }, wantHex: ColorHex(lipgloss.Color(Added))},
+		{name: "SyntaxComment", getter: func() interface{} { return theme.SyntaxComment() }, wantHex: ColorHex(lipgloss.Color(FgMute))},
+		{name: "SyntaxFunction", getter: func() interface{} { return theme.SyntaxFunction() }, wantHex: ColorHex(lipgloss.Color(User))},
+		{name: "SyntaxNumber", getter: func() interface{} { return theme.SyntaxNumber() }, wantHex: ColorHex(lipgloss.Color(Warn))},
+		{name: "SyntaxOperator", getter: func() interface{} { return theme.SyntaxOperator() }, wantHex: ColorHex(lipgloss.Color(Tool))},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ColorHex(tt.getter().(interface {
+				RGBA() (uint32, uint32, uint32, uint32)
+			}))
+			if got != tt.wantHex {
+				t.Errorf("ColorHex(%s()) = %q, want %q", tt.name, got, tt.wantHex)
+			}
+		})
+	}
+}
+
+func TestSteinerGlamourStyleSheet(t *testing.T) {
+	theme := steinerTheme{}
+	opt := theme.GlamourStyleSheet()
+	if opt == nil {
+		t.Fatal("GlamourStyleSheet() returned nil")
+	}
+
+	r, err := glamour.NewTermRenderer(opt, glamour.WithWordWrap(80))
+	if err != nil {
+		t.Fatalf("NewTermRenderer with steiner theme: %v", err)
+	}
+	if r == nil {
+		t.Fatal("NewTermRenderer returned nil")
 	}
 }
 

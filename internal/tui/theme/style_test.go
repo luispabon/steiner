@@ -302,6 +302,124 @@ func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 	}
 }
 
+func TestColorHex(t *testing.T) {
+	tests := []struct {
+		name string
+		c    color.Color
+		want string
+	}{
+		{name: "nil color", c: nil, want: ""},
+		{name: "black opaque", c: lipgloss.Color("#000000"), want: "#000000"},
+		{name: "white opaque", c: lipgloss.Color("#FFFFFF"), want: "#ffffff"},
+		{name: "red opaque", c: lipgloss.Color("#FF0000"), want: "#ff0000"},
+		{name: "custom hex", c: lipgloss.Color("#E8814B"), want: "#e8814b"},
+		{name: "zero rgba", c: &color.RGBA{R: 0, G: 0, B: 0, A: 0}, want: "#000000"},
+		{name: "opaque rgba", c: &color.RGBA{R: 255, G: 0, B: 0, A: 255}, want: "#ff0000"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ColorHex(tt.c)
+			if got != tt.want {
+				t.Errorf("ColorHex() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBgEscapeMalformed(t *testing.T) {
+	tests := []struct {
+		name string
+		bg   string
+		want string
+	}{
+		{name: "empty string", bg: "", want: ""},
+		{name: "hash only", bg: "#", want: ""},
+		{name: "short hex", bg: "#fff", want: ""},
+		{name: "long hex", bg: "#aabbccdd", want: ""},
+		{name: "no hash prefix works", bg: "aabbcc", want: "\x1b[48;2;170;187;204m"},
+		{name: "non-hex chars returns black", bg: "#gggggg", want: "\x1b[48;2;0;0;0m"},
+		{name: "valid hex", bg: "#aabbcc", want: "\x1b[48;2;170;187;204m"},
+		{name: "valid hex uppercase", bg: "#AABBCC", want: "\x1b[48;2;170;187;204m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := bgEscape(tt.bg)
+			if got != tt.want {
+				t.Errorf("bgEscape(%q) = %q, want %q", tt.bg, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWithBgEdgeCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		s     string
+		bg    string
+		check func(t *testing.T, got string)
+	}{
+		{
+			name: "empty input",
+			s:    "",
+			bg:   BgElev,
+			check: func(t *testing.T, got string) {
+				if got != "" {
+					t.Errorf("empty input should produce empty output, got %q", got)
+				}
+			},
+		},
+		{
+			name: "only newlines",
+			s:    "\n\n",
+			bg:   BgElev,
+			check: func(t *testing.T, got string) {
+				if !strings.Contains(got, "\n\n") {
+					t.Errorf("only newlines input should preserve newlines, got %q", got)
+				}
+			},
+		},
+		{
+			name: "line with mixed resets",
+			s:    "a\x1b[mtext\x1b[0mb",
+			bg:   BgElev,
+			check: func(t *testing.T, got string) {
+				if stripANSI(got) != "atextb" {
+					t.Errorf("mixed resets: stripped text = %q, want %q", stripANSI(got), "atextb")
+				}
+			},
+		},
+		{
+			name: "line already ending in bg reset",
+			s:    "test\x1b[49m",
+			bg:   BgElev,
+			check: func(t *testing.T, got string) {
+				if !strings.Contains(got, "test") {
+					t.Errorf("bg reset suffix: lost text")
+				}
+			},
+		},
+		{
+			name: "invalid bg hex passthrough",
+			s:    "hello",
+			bg:   "#invalid",
+			check: func(t *testing.T, got string) {
+				if got != "hello" {
+					t.Errorf("invalid bg hex should passthrough unchanged, got %q", got)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := WithBg(tt.s, tt.bg)
+			tt.check(t, got)
+		})
+	}
+}
+
 // TestTruncateAndPadVertical pins TruncateAndPadVertical's byte-level contract:
 // truncation at the maxHeight-th newline, exact-fit and over-height early
 // returns that must return the input string itself (no copy — verified via

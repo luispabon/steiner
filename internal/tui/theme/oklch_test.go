@@ -135,6 +135,58 @@ func TestHexToRGB(t *testing.T) {
 	}
 }
 
+func TestAccentHue(t *testing.T) {
+	tests := []struct {
+		name     string
+		hex      string
+		checkHue func(t *testing.T, got float64)
+	}{
+		{
+			name: "achromatic gray",
+			hex:  "#808080",
+			checkHue: func(t *testing.T, got float64) {
+				if got != 0 {
+					t.Errorf("achromatic color should return 0, got %f", got)
+				}
+			},
+		},
+		{
+			name: "red primary (case rf)",
+			hex:  "#FF0000",
+			checkHue: func(t *testing.T, got float64) {
+				if got < 0 || got >= 60 {
+					t.Errorf("red should be in [0, 60), got %f", got)
+				}
+			},
+		},
+		{
+			name: "green primary (case gf)",
+			hex:  "#00FF00",
+			checkHue: func(t *testing.T, got float64) {
+				if got < 120 || got >= 180 {
+					t.Errorf("green should be in [120, 180), got %f", got)
+				}
+			},
+		},
+		{
+			name: "blue primary (case bf)",
+			hex:  "#0000FF",
+			checkHue: func(t *testing.T, got float64) {
+				if got < 240 || got >= 300 {
+					t.Errorf("blue should be in [240, 300), got %f", got)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := accentHue(tt.hex)
+			tt.checkHue(t, got)
+		})
+	}
+}
+
 func TestSortedAccentPresetNames(t *testing.T) {
 	want := []string{
 		"terracotta", "amber", "gold", "yellow", "lime",
