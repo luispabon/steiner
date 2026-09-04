@@ -125,5 +125,9 @@ func defaultConfig() Config {
 		Modes: ModesConfig{
 			Default: ExecutionModeBuild,
 		},
+		UpdateCheck: UpdateCheckConfig{
+			Enabled:       true,
+			IntervalHours: 6,
+		},
 	}
 }

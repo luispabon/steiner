@@ -73,8 +73,9 @@ If `OPENAI_API_KEY` is not set, configuration loading fails. If `OPENAI_BASE_URL
 | `modes`                 | block | see below | Execution mode configuration.                                                                                                                                                                                        |
 | `cave_human`            | bool  | `false`   | When `true`, enables `cave_human` - combines terse output with an "avoid AI-writing tells" instruction that is applied to the system preamble, compaction prompts, and sub-agent prompts.                            |
 | `advisor`               | block | see below | Optional stronger-model steering config. When enabled, the advisor tool is available to the main loop and its per-run cap is enforced in handler state so the tool registry stays static for prompt-cache integrity. |
-| `oneshot`               | block | empty     | Closeout settings for autonomous oneshot runs. Per-phase model assignments live in the selected model profile.                                                                                                       |
+| `oneshot`               | block | see below | Closeout settings for autonomous oneshot runs. Per-phase model assignments live in the selected model profile.                                                                                                       |
 | `desktop_notifications` | block | see below | Desktop notification settings for run completion and events.                                                                                                                                                         |
+| `update_check`          | block | see below | Passive startup version-upgrade check settings.                                                                                                                                                                      |
 | `mcp`                   | block | see below | Model Context Protocol server configuration.                                                                                                                                                                         |
 | `tui`                   | block | see below | Interactive terminal UI settings.                                                                                                                                                                                    |
 
@@ -175,6 +176,30 @@ Setting `duration: 0` creates permanent notifications that the user must manuall
 desktop_notifications:
   enabled: true
   duration: 0
+```
+
+---
+
+## `update_check` block
+
+Controls the passive startup version-upgrade check. This check runs asynchronously at startup and notifies the user if a newer version is available. All fields are optional and default to enabled with a 6-hour interval.
+
+| Field            | Type | Default | Description                                                                                                                          |
+| ---------------- | ---- | ------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`        | bool | `true`  | Master switch. Set to `false` to disable the startup version-upgrade check.                                                         |
+| `interval_hours` | int  | `6`     | Minimum hours between consecutive update checks. Set to a non-negative integer. Must be >= 0. When set to `0`, every startup checks. |
+
+```yaml
+update_check:
+  enabled: true
+  interval_hours: 6
+```
+
+To disable the check entirely:
+
+```yaml
+update_check:
+  enabled: false
 ```
 
 ---

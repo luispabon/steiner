@@ -22,6 +22,8 @@ type sidebarState struct {
 	model                 string
 	reasoning             string
 	version               string
+	updateAvailable       bool
+	latestVersion         string
 	profile               string
 	provider              string
 	providerName          string

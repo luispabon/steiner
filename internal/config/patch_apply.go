@@ -109,6 +109,9 @@ func applyRuntimeConfigPatch(cfg *Config, patch configPatch) {
 	if patch.DesktopNotifications != nil {
 		applyDesktopNotificationsPatch(&cfg.DesktopNotifications, patch.DesktopNotifications)
 	}
+	if patch.UpdateCheck != nil {
+		applyUpdateCheckPatch(&cfg.UpdateCheck, patch.UpdateCheck)
+	}
 	if patch.Sandbox != nil {
 		applySandboxPatch(&cfg.Sandbox, patch.Sandbox)
 	}

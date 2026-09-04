@@ -13,6 +13,7 @@ type configPatch struct {
 	Advisor              *advisorPatch              `yaml:"advisor"`
 	OneShot              *oneshotPatch              `yaml:"oneshot"`
 	DesktopNotifications *desktopNotificationsPatch `yaml:"desktop_notifications"`
+	UpdateCheck          *updateCheckPatch          `yaml:"update_check"`
 	Tools                *map[string]toolPatch      `yaml:"tools"`
 	ProjectContext       *projectContextPatch       `yaml:"project_context"`
 	Paths                *pathsPatch                `yaml:"paths"`
@@ -149,6 +150,11 @@ type oneshotPatch struct {
 type desktopNotificationsPatch struct {
 	Enabled  *bool `yaml:"enabled"`
 	Duration *int  `yaml:"duration"`
+}
+
+type updateCheckPatch struct {
+	Enabled       *bool `yaml:"enabled"`
+	IntervalHours *int  `yaml:"interval_hours"`
 }
 
 type toolPatch struct {
