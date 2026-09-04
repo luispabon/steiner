@@ -535,6 +535,7 @@ func TestFollowUpHandler_AllowsMutateChildInBuildMode(t *testing.T) {
 
 	runs := 0
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			runs++
@@ -581,6 +582,7 @@ func TestFollowUpHandler_NonMutateChildNotDeniedInPlanMode(t *testing.T) {
 
 	runs := 0
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			runs++

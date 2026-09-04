@@ -2049,7 +2049,7 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 
 		var followUpReq agent.RunRequest
 		handler := NewFollowUpHandler(SubAgentHandlerDeps{
-			SubAgentCfg:  config.SubAgentConfig{},
+			SubAgentCfg:  config.SubAgentConfig{MaxFollowUps: 100},
 			SessionStore: store,
 			Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 				followUpReq = req

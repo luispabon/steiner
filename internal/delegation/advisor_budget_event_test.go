@@ -8,6 +8,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
@@ -116,6 +117,7 @@ func TestFollowUpCompleteEventCarriesAdvisorBudget(t *testing.T) {
 
 	events := &recordingEventSink{}
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:           config.SubAgentConfig{MaxFollowUps: 100},
 		Events:                events,
 		SessionStore:          store,
 		AdvisorSubAgentBudget: 5,
