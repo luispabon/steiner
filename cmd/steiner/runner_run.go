@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -51,7 +50,7 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 	if r.runtime.visionCapabilities != nil {
 		r.runtime.visionCapabilities.SetDerived(alias, agent.VisionStateFromPtr(rm.Vision))
 	}
-	emitFallbackWarnings(r.runtime.status, rm)
+	emitFallbackWarnings(r.runtime.events, rm)
 	emitTransportDiagnostic(r.runtime.events, rm)
 
 	prov, err := r.runtimeProvider(rm)
@@ -86,7 +85,7 @@ func emitTransportDiagnostic(events output.EventSink, rm provider.ResolvedModel)
 	}
 }
 
-func emitFallbackWarnings(stream *output.EventStream, rm provider.ResolvedModel) {
+func emitFallbackWarnings(events output.EventSink, rm provider.ResolvedModel) {
 	if rm.MetadataSource != "fallback" || len(rm.Warnings) == 0 {
 		return
 	}
@@ -94,12 +93,11 @@ func emitFallbackWarnings(stream *output.EventStream, rm provider.ResolvedModel)
 	if _, loaded := fallbackWarningModels.LoadOrStore(key, struct{}{}); loaded {
 		return
 	}
+	if events == nil {
+		return
+	}
 	for _, warn := range rm.Warnings {
-		if stream != nil {
-			stream.Printf("%s\n", warn)
-			continue
-		}
-		fmt.Fprintf(os.Stderr, "%s\n", warn)
+		events.Emit(output.NewConfigWarningEvent(warn))
 	}
 }
 
