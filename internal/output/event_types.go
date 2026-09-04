@@ -418,6 +418,7 @@ type DelegationCompleteEvent struct {
 // DelegationFailedEvent records a failed delegated child task.
 type DelegationFailedEvent struct {
 	AgentID       string `json:"agent_id"`
+	CallID        string `json:"call_id,omitempty"`
 	TaskPreview   string `json:"task_preview"`
 	Error         string `json:"error"`
 	AdvisorBudget int    `json:"advisor_budget,omitempty"`
