@@ -27,14 +27,14 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 
 |Path|Type|Default|Semantics|
 |-|-|-|-
-| `providers.<name>.type`|string|—|`openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`. `gemini` passes config validation but is not implemented by the runtime factory. |
+| `providers.<name>.type`|string|—|`openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`. `gemini` passes validation but is unimplemented. |
 | `providers.<name>.base_url`|string|local: `http://localhost:11434/v1`|API endpoint; required for `openai_compat`, `ollama`, `lmstudio`, `litellm`. |
-| `providers.<name>.api_key`|string|—|Literal credential; prefer `api_key_env`. Required for credentialed provider types unless `api_key_env` is set. |
+| `providers.<name>.api_key`|string|—|Literal credential; prefer `api_key_env`. Required unless `api_key_env` set. |
 | `providers.<name>.api_key_env`|string|—|Environment variable containing credential. |
 | `providers.<name>.headers`|map[string]string|—|Extra provider HTTP headers. |
 | `providers.<name>.headers.<key>`|string|—|One extra header value. |
 | `providers.<name>.timeout`|duration|local: `30s`|Per-request timeout. |
-| `providers.<name>.codex.min_request_interval`|duration|`0s`|Minimum gap between Codex requests; positive enables pacing. |
+| `providers.<name>.codex.min_request_interval`|duration|`0s`|Min gap between Codex requests; positive enables pacing. |
 | `providers.<name>.codex.transport`|string|`http`|`http` or `websocket`; websocket is experimental and has no HTTP fallback. |
 | `models.discovery_enabled`|bool|`true`|Discover provider models, or use configured entries only when false. |
 | `models.definitions.<alias>.provider`|string|`local`|Provider name. |
@@ -48,7 +48,7 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `models.definitions.<alias>.retry.max_attempts`|int|`5`|Total attempts; at least 1. |
 | `models.definitions.<alias>.retry.initial_backoff`|duration|`250ms`|First retry wait. |
 | `models.definitions.<alias>.retry.max_backoff`|duration|`5s`|Exponential cap; not below initial backoff. |
-| `models.definitions.<alias>.retry.retry_after_max`|duration|`60s`|Maximum `Retry-After` wait; not below initial backoff. |
+| `models.definitions.<alias>.retry.retry_after_max`|duration|`60s`|Max `Retry-After` wait; not below initial backoff. |
 | `models.definitions.<alias>.prompts.system`|string|—|Replaces default system prompt. |
 | `models.definitions.<alias>.prompts.system_suffix`|string|—|Appends after default system prompt. |
 | `models.definitions.<alias>.prompts.compaction`|string|—|Replaces compaction prompt. |
@@ -81,7 +81,7 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `sandbox.env_passthrough_all`|bool|`false`|Disable environment filtering, including credential filtering. |
 | `sandbox.host_mounts.<index>.path`|string|—|Host path; `~` expands. |
 | `sandbox.host_mounts.<index>.mode`|string|—|`ro` or `rw`; host paths are read-only by default. |
-| `permissions.docker`|bool|`false`|Permit sandboxed tools to reach Docker socket; otherwise socket and `DOCKER_HOST` are masked. |
+| `permissions.docker`|bool|`false`|Allow sandboxed tools to reach Docker socket; otherwise masked. |
 | `sub_agent.enabled`|bool|`true`|Enable child agents. |
 | `sub_agent.max_turns`|int|`30`|Per-child turns; runtime floor 15. |
 | `sub_agent.max_tokens`|int|`100000`|Per-child token limit. |
@@ -93,9 +93,9 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `advisor.timeout`|duration or null|`180s`|Optional positive advisor-only HTTP timeout. |
 | `oneshot.auto_pr`|bool|`false`|Allow oneshot closeout to push and open a PR/MR. |
 | `desktop_notifications.enabled`|bool|`false`|Enable desktop notifications. |
-| `desktop_notifications.duration`|int|`0`|Seconds; 0 persists, positive auto-dismisses, negative invalid. |
-| `update_check.enabled`|bool|`true`|Enable passive startup version-upgrade check. |
-| `update_check.interval_hours`|int|`6`|Minimum hours between checks; non-negative. |
+| `desktop_notifications.duration`|int|`0`|0 persists, positive auto-dismisses, negative invalid. |
+| `update_check.enabled`|bool|`true`|Enable startup update check. |
+| `update_check.interval_hours`|int|`6`|Hours between checks; non-negative. |
 | `tools.<tool>.exec`|string|—|Executable; required. |
 | `tools.<tool>.subcommand`|string|—|First executable argument. |
 | `tools.<tool>.description`|string|—|Model-visible description. |
@@ -113,7 +113,7 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `paths.exclude_patterns`|[]string|—|Excluded glob patterns. |
 | `logging.enabled`|bool|`false`|Enable file logging. |
 | `logging.level`|string|`info`|`trace`, `debug`, `info`, `warn`, or `error`. |
-| `logging.file`|string|`~/.local/share/steiner/steiner.log`|Log path; may contain prompts and tool output. |
+| `logging.file`|string|`~/.local/share/steiner/steiner.log`|Log path; may contain prompts/tool output. |
 | `logging.thinking_chunk`|bool|`false`|Include reasoning tokens in logs. |
 | `logging.compaction_log_file`|string|—|Separate compaction-event log path. |
 | `context_management.read_annotations`|bool|`true`|Annotate reads with path and line range. |
@@ -138,7 +138,7 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `mcp.servers.<server>.connect_timeout`|duration|`15s`|Zero uses 15s; negative invalid. |
 | `mcp.servers.<server>.allowed_tools`|[]string|—|Native-name allowlist; explicit `[]` denies all. |
 | `mcp.servers.<server>.blocked_tools`|[]string|—|Native-name denylist after allowlist. |
-| `mcp.servers.<server>.sub_agents`|[]string|closed|Child types allowed: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`. |
+| `mcp.servers.<server>.sub_agents`|[]string|closed|Allowed types: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`. |
 | `modes.default`|string|`build`|`plan` or `build`; plan limits edits to `.steiner/plans/`. |
 | `tui.fps`|int|`60`|Interactive renderer rate, 1 through 120. |
 | `cave_human`|bool|`false`|Add terse output and anti-AI-writing-tells instructions. |
