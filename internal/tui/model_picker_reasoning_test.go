@@ -529,6 +529,58 @@ func TestModelPickerEnterSkipsOnDemandResolveOnceBatchResolved(t *testing.T) {
 	}
 }
 
+func TestModelPickerEnterFallsBackToOnDemandResolveForUnbatchedAlias(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{}
+	resolveCalls := 0
+
+	m := newModel(Config{
+		Model:      "small",
+		ModelNames: []string{"small", "large"},
+		Controller: ctrl,
+		// ResolveReasoningFunc returns capabilities only for "small", deliberately
+		// omitting "large" — simulating a discovered/unaliased model that the startup
+		// batch never covered because it wasn't in cfg.Models.Definitions.
+		ResolveReasoningFunc: func() (map[string]provider.ReasoningCapabilities, map[string]string) {
+			return map[string]provider.ReasoningCapabilities{"small": {}}, map[string]string{}
+		},
+		ResolveReasoningForAliasFunc: func(alias string) (provider.ReasoningCapabilities, string) {
+			resolveCalls++
+			if alias == "large" {
+				return provider.ReasoningCapabilities{SupportedEfforts: []string{"low", "high"}}, ""
+			}
+			return provider.ReasoningCapabilities{}, ""
+		},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 20})
+
+	// Batch resolution completes, populating capabilities for "small" only.
+	// "large" is completely absent from the map.
+	m = updateModel(t, m, modelReasoningResolvedMsg{
+		capabilities: map[string]provider.ReasoningCapabilities{"small": {}},
+		efforts:      map[string]string{},
+	})
+
+	if !m.reasoningBatchResolved {
+		t.Fatal("reasoningBatchResolved = false, want true after batch resolution")
+	}
+
+	m.input.SetValue("/model")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown}) // select "large"
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if resolveCalls != 1 {
+		t.Fatalf("ResolveReasoningForAliasFunc called %d times, want 1 for unbatched alias even after batch resolved", resolveCalls)
+	}
+	if m.modelPicker.IsOpen() {
+		t.Fatal("modelPicker.IsOpen() = true, want false once reasoning step opens")
+	}
+	if !m.reasoningPicker.IsOpen() {
+		t.Fatal("reasoningPicker.IsOpen() = false, want true — on-demand resolve should have found reasoning support for unbatched alias")
+	}
+}
+
 func lastSwitchModelAction(t *testing.T, ctrl *testController) (interactive.SwitchModel, bool) {
 	t.Helper()
 	for i := len(ctrl.actions) - 1; i >= 0; i-- {

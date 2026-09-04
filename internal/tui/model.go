@@ -507,14 +507,16 @@ func newReasoningLabels(efforts map[string]string, caps map[string]provider.Reas
 }
 
 // resolveReasoningForAliasIfPending synchronously resolves reasoning
-// capabilities for a single model alias when the batch resolution fired from
-// Init has not completed yet. This covers the startup window where the user
-// opens the /model picker and selects a model before the async
-// modelReasoningResolvedMsg arrives, so the reasoning picker step is not
-// silently skipped for a model that does support configurable effort. Once
-// the batch resolution completes, this is a no-op.
+// capabilities for a single model alias when nothing is yet known about that
+// alias — i.e. it is absent from m.modelReasoningCapabilities. This covers
+// both the startup window (before the async modelReasoningResolvedMsg
+// arrives) and models the startup batch never covers at all, such as a
+// discovered-but-unaliased model that isn't listed under cfg.Models.Definitions.
+// Once an alias has an entry in m.modelReasoningCapabilities — whether from
+// the batch or from a prior on-demand resolve — this is a no-op for that
+// alias.
 func (m *Model) resolveReasoningForAliasIfPending(alias string) *Model {
-	if m.reasoningBatchResolved || m.resolveReasoningForAliasFunc == nil {
+	if _, known := m.modelReasoningCapabilities[alias]; known || m.resolveReasoningForAliasFunc == nil {
 		return m
 	}
 	caps, effort := m.resolveReasoningForAliasFunc(alias)
