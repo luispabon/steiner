@@ -789,18 +789,31 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 		delete(b.activeDelegations, payload.AgentID)
 		return
 	}
+	if payload.CallID != "" {
+		if loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID); found {
+			loc.dd.agentID = payload.AgentID
+			loc.dd.agentType = event.Scope.AgentType
+			loc.dd.status = "failed"
+			b.markDelegationDirty(loc.seg)
+			return
+		}
+	}
 	if b.wasCancellationFinalized(payload.AgentID) {
 		return
 	}
 	dd := &delegationDisplayState{
 		agentID:       payload.AgentID,
+		parentCallID:  payload.CallID,
 		status:        "failed",
 		collapsed:     true,
 		advisorBudget: payload.AdvisorBudget,
 		advisorUses:   payload.AdvisorUses,
 		advisorDenied: payload.AdvisorDenied,
 	}
-	b.appendDelegationSegment(dd)
+	idx := b.appendDelegationSegment(dd)
+	if payload.CallID != "" {
+		b.pendingDelegationStarts = append(b.pendingDelegationStarts, delegationLocator{seg: idx, dd: dd})
+	}
 }
 
 func (b *contentBuffer) handleAdvisorStarted(event output.Event) {

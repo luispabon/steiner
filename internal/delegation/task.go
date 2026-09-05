@@ -82,6 +82,7 @@ func emitDelegateFailed(events output.EventSink, spec Spec, agentType AgentType,
 	// SpawnDelegate).
 	event := output.NewDelegationFailedEvent(output.DelegationFailedParams{
 		AgentID:     spec.AgentID,
+		CallID:      spec.ParentCallID,
 		TaskPreview: truncateTaskPreview(spec.Task, 120),
 		Error:       errMsg,
 	})
@@ -158,6 +159,7 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 			budget, uses, denied := advisorFieldsOf(failedResult)
 			events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
 				AgentID:       spec.AgentID,
+				CallID:        spec.ParentCallID,
 				TaskPreview:   truncateTaskPreview(spec.Task, 120),
 				Error:         err.Error(),
 				AdvisorBudget: budget,
@@ -178,6 +180,7 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 			budget, uses, denied := advisorFieldsOf(failedResult)
 			events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
 				AgentID:       spec.AgentID,
+				CallID:        spec.ParentCallID,
 				TaskPreview:   truncateTaskPreview(spec.Task, 120),
 				Error:         extErr.Error(),
 				AdvisorBudget: budget,

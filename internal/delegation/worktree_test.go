@@ -12,6 +12,19 @@ import (
 	"testing"
 )
 
+func TestProvisionCodeWorktree_UnbornHeadRequiresCommit(t *testing.T) {
+	repo := t.TempDir()
+	runCmd(t, repo, "git", "init")
+
+	_, err := ProvisionCodeWorktree(context.Background(), repo, "unborn-agent")
+	if !errors.Is(err, ErrCodeWorktreeRequiresCommit) {
+		t.Fatalf("error = %v, want ErrCodeWorktreeRequiresCommit", err)
+	}
+	if !errors.Is(err, ErrWorktreeProvisioning) {
+		t.Fatalf("error = %v, want ErrWorktreeProvisioning", err)
+	}
+}
+
 func TestProvisionCodeWorktree_BranchesFromCurrentHead(t *testing.T) {
 	ctx := context.Background()
 	repo, cleanup := setupTestRepo(t)
