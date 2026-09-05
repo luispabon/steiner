@@ -351,7 +351,7 @@ func workflowSection(t *testing.T, content string) string {
 func TestSystemPreambleDelegationWorkflow(t *testing.T) {
 	t.Parallel()
 
-	const baseSteps = 5
+	const baseSteps = 6
 
 	cases := []struct {
 		name      string
