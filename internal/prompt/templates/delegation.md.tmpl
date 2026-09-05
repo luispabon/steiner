@@ -54,8 +54,9 @@ Unless a skill overrides it, follow this workflow:
 -}}
 {{- if .AdvisorEnabled }}{{ $steps = append $steps "Consult `advisor`. If you think it's unnecessary, state why." }}{{ end -}}
 {{- $steps = append $steps
-  "Implement with `code`, batched when independent.\n   * Ensure sub-agents ran code checks and fixed any failures, or use `follow_up` to make them.\n   * Merge verified work and clean up its worktree."
-  "After all steps are merged, run `sanity_check`, then `review` for plan adherence and code quality. Resolve findings within the domain the original worker already touched via `follow_up`; findings outside it go to a separate `code` task. Then `sanity_check`, then `follow_up` the same `review`. Repeat until clean."
+  "Implement with `code`, batched when independent.\n   * Ensure sub-agents ran code checks and fixed any failures, or use `follow_up` to make them.\n   * Merge verified work."
+  "After all steps are merged, run `sanity_check` and `review` in parallel for plan adherence and code quality. Resolve findings within the domain the original worker already touched via `follow_up`; findings outside it go to a separate `code` task. Then `sanity_check` and `follow_up` the same `review` in parallel. Repeat until clean."
+  "Clean up all created worktrees"
 -}}
 {{- range $i, $s := $steps }}{{ add1 $i }}. {{ $s }}
 {{ end }}
