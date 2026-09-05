@@ -359,14 +359,42 @@ func TestDelegationFailedCallIDBindsPendingParent(t *testing.T) {
 func TestDelegationFailedBeforeToolStartBindsLater(t *testing.T) {
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "child-1", CallID: "call-1", Error: "setup"}))
+	if len(buffer.segments) != 1 || len(buffer.pendingDelegateParents) != 0 || len(buffer.pendingDelegationStarts) != 1 {
+		t.Fatalf("segments=%d parent-pending=%d start-pending=%d, want one segment and one failed start entry", len(buffer.segments), len(buffer.pendingDelegateParents), len(buffer.pendingDelegationStarts))
+	}
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", map[string]any{"type": "code", "objective": "one"}))
 
-	if len(buffer.segments) != 1 || len(buffer.pendingDelegateParents) != 0 {
-		t.Fatalf("segments=%d pending=%d, want one segment and no pending entry", len(buffer.segments), len(buffer.pendingDelegateParents))
+	if len(buffer.segments) != 1 || len(buffer.pendingDelegateParents) != 0 || len(buffer.pendingDelegationStarts) != 0 {
+		t.Fatalf("segments=%d parent-pending=%d start-pending=%d, want one segment and no pending entries after binding", len(buffer.segments), len(buffer.pendingDelegateParents), len(buffer.pendingDelegationStarts))
 	}
 	loc, ok := buffer.findDelegation("child-1")
 	if !ok || loc.dd.status != "failed" || loc.dd.parentCallID != "call-1" {
 		t.Fatalf("delegation = %#v, want failed child-1 bound to call-1", loc.dd)
+	}
+}
+
+func TestDelegationFailedUnmatchedCallIDDoesNotQueueParentFallback(t *testing.T) {
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-existing", map[string]any{"type": "code", "objective": "existing"}))
+	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "child-unknown", CallID: "call-unknown", Error: "setup"}))
+
+	states := delegationStates(buffer)
+	if len(states) != 2 {
+		t.Fatalf("delegation states = %d, want pending parent and failed fallback", len(states))
+	}
+	if states[1].agentID != "child-unknown" || states[1].status != "failed" {
+		t.Fatalf("fallback = %#v, want failed child-unknown", states[1])
+	}
+	if len(buffer.pendingDelegateParents) != 1 || buffer.pendingDelegateParents[0].dd != states[0] {
+		t.Fatalf("pending parent entries = %#v, want only existing parent", buffer.pendingDelegateParents)
+	}
+	if len(buffer.pendingDelegationStarts) != 1 || buffer.pendingDelegationStarts[0].dd != states[1] {
+		t.Fatalf("pending start entries = %#v, want only failed fallback", buffer.pendingDelegationStarts)
+	}
+
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-unknown", map[string]any{"type": "code", "objective": "unknown"}))
+	if len(delegationStates(buffer)) != 2 || len(buffer.pendingDelegationStarts) != 0 {
+		t.Fatalf("states=%d start-pending=%d, want two states and no pending failed fallback after binding", len(delegationStates(buffer)), len(buffer.pendingDelegationStarts))
 	}
 }
 
