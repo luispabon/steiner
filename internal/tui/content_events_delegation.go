@@ -375,17 +375,6 @@ func (b *contentBuffer) dequeuePendingDelegateParentSegment() (delegationLocator
 	})
 }
 
-func (b *contentBuffer) dequeuePendingFailedDelegateParentByCallID(callID string) (delegationLocator, bool) {
-	for i, loc := range b.pendingDelegateParents {
-		if loc.dd == nil || loc.seg < 0 || loc.seg >= len(b.segments) || loc.dd.parentCallID != callID || loc.dd.status != "failed" {
-			continue
-		}
-		b.pendingDelegateParents = append(b.pendingDelegateParents[:i], b.pendingDelegateParents[i+1:]...)
-		return loc, true
-	}
-	return delegationLocator{}, false
-}
-
 // dequeuePendingDelegateParentByFollowUpAgentID matches a pending follow-up
 // box against the DelegationStartedEvent's AgentID, so a follow-up call whose
 // CallID lookup misses (e.g. a stale ParentCallID) still binds to the correct
@@ -581,10 +570,6 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 }
 
 func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolCallStartedEvent) {
-	if loc, found := b.dequeuePendingFailedDelegateParentByCallID(payload.CallID); found {
-		b.bindParentDelegateCall(loc, payload)
-		return
-	}
 	if loc, found := b.dequeuePendingDelegationStartByCallID(payload.CallID); found {
 		b.bindParentDelegateCall(loc, payload)
 		return
@@ -827,7 +812,7 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 	}
 	idx := b.appendDelegationSegment(dd)
 	if payload.CallID != "" {
-		b.pendingDelegateParents = append(b.pendingDelegateParents, delegationLocator{seg: idx, dd: dd})
+		b.pendingDelegationStarts = append(b.pendingDelegationStarts, delegationLocator{seg: idx, dd: dd})
 	}
 }
 
