@@ -31,3 +31,11 @@ func TestSetupErrorProjectToolErrorGeneric(t *testing.T) {
 		t.Errorf("Reason = %q, want child setup failed", envelope.Reason)
 	}
 }
+
+func TestSetupErrorProjectToolErrorRequiresCommit(t *testing.T) {
+	envelope := (&SetupError{err: ErrCodeWorktreeRequiresCommit}).ProjectToolError()
+	want := "code sub-agent requires a Git repository with at least one commit; commit the project files and retry"
+	if envelope.Reason != want {
+		t.Fatalf("Reason = %q, want %q", envelope.Reason, want)
+	}
+}
