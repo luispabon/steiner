@@ -61,6 +61,9 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	}
 	childHasMutate := childHasMutateTool(session.Request)
 	isCode := childHasMutate && session.Remediation != nil
+	if err := denyFollowUpOnDeadCodeWorktree(ctx, agentID, isCode, session.Remediation); err != nil {
+		return nil, err
+	}
 	if err := denyFollowUpInPlanMode(ctx, childHasMutate); err != nil {
 		return nil, err
 	}
@@ -151,6 +154,18 @@ func validateFollowUp(input map[string]any, deps SubAgentHandlerDeps) (string, s
 		return "", "", nil, fmt.Errorf("follow_up: no session for agent %q", agentID)
 	}
 	return agentID, message, session, nil
+}
+
+func denyFollowUpOnDeadCodeWorktree(ctx context.Context, agentID string, isCode bool, remediation *RemediationConfig) error {
+	if !isCode {
+		return nil
+	}
+	if err := verifyCodeWorktree(ctx, remediation.WorktreePath, remediation.ExpectedBranch); err != nil {
+		return fmt.Errorf(
+			"follow_up: agent %q's code worktree is no longer usable (%w); delegate a fresh code agent instead of resuming this one",
+			agentID, err)
+	}
+	return nil
 }
 
 func denyFollowUpInPlanMode(ctx context.Context, childHasMutate bool) error {

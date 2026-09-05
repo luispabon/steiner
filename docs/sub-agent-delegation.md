@@ -68,6 +68,7 @@ Key behaviours:
 - **Tracks follow-ups** — the returned result includes a `follow_up_count` field so the parent can see how many follow-ups have occurred.
 - **Auto-approved** — the `follow_up` tool is approval mode `auto` (no user gate).
 - **No nesting** — `follow_up` is stripped from child agent registries, so sub-agents cannot follow-up on other sub-agents.
+- **Enforces live worktree for code agents** — `follow_up` against a `code` session checks up front that its worktree still exists on disk and is on the expected branch. If the worktree was deleted, pruned, or repointed since the session was created, `follow_up` fails immediately with an error instead of running the child; delegate a fresh `code` agent instead of resuming.
 
 ### Parallel fan-out
 

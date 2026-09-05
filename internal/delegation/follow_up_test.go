@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -374,25 +375,28 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 	tests := []struct {
 		name               string
 		tools              []provider.ToolSpec
-		remediation        *RemediationConfig
+		buildRemediation   func(t *testing.T) *RemediationConfig
 		wantRemediation    bool
-		wantExpectedPath   string
 		wantExpectedBranch string
 	}{
 		{
 			name:  "code session",
 			tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}},
-			remediation: &RemediationConfig{
-				WorktreePath:   "/tmp/code-worktree",
-				ExpectedBranch: "delegate/code-session",
-				IsDirty: func(context.Context) ([]string, error) {
-					return []string{"changed.go"}, nil
-				},
-				Head:      func(context.Context) (string, error) { return "before-remediation", nil },
-				Committed: func(context.Context, string, []string) (bool, error) { return true, nil },
+			buildRemediation: func(t *testing.T) *RemediationConfig {
+				repo, cleanup := setupTestRepo(t)
+				t.Cleanup(cleanup)
+				runCmd(t, repo, "git", "checkout", "-b", "delegate/code-session")
+				return &RemediationConfig{
+					WorktreePath:   repo,
+					ExpectedBranch: "delegate/code-session",
+					IsDirty: func(context.Context) ([]string, error) {
+						return []string{"changed.go"}, nil
+					},
+					Head:      func(context.Context) (string, error) { return "before-remediation", nil },
+					Committed: func(context.Context, string, []string) (bool, error) { return true, nil },
+				}
 			},
 			wantRemediation:    true,
-			wantExpectedPath:   "/tmp/code-worktree",
 			wantExpectedBranch: "delegate/code-session",
 		},
 		{
@@ -403,21 +407,29 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var remediation *RemediationConfig
+			if tt.buildRemediation != nil {
+				remediation = tt.buildRemediation(t)
+			}
+			wantExpectedPath := ""
+			if remediation != nil {
+				wantExpectedPath = remediation.WorktreePath
+			}
 			store := NewSessionStore()
 			store.Save(&ChildSession{
 				Spec:         Spec{AgentID: "follow-up-agent", Task: "continue work"},
 				Request:      agent.RunRequest{Prompt: promptWithConversation("initial task"), Tools: tt.tools},
 				Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "initial result"}},
 				TurnCount:    1,
-				Remediation:  tt.remediation,
+				Remediation:  remediation,
 			})
 
 			remediationCalls := 0
 			remediationDirtyChecks := 0
 			var remediationRequest agent.RunRequest
-			if tt.remediation != nil {
-				isDirty := tt.remediation.IsDirty
-				tt.remediation.IsDirty = func(ctx context.Context) ([]string, error) {
+			if remediation != nil {
+				isDirty := remediation.IsDirty
+				remediation.IsDirty = func(ctx context.Context) ([]string, error) {
 					remediationDirtyChecks++
 					if remediationDirtyChecks == 1 {
 						return isDirty(ctx)
@@ -458,8 +470,8 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 					t.Fatalf("output = %q, missing remediation note", result.Output)
 				}
 				prompt := remediationRequest.Prompt.Conversation[len(remediationRequest.Prompt.Conversation)-1].Content
-				if !strings.Contains(prompt, tt.wantExpectedPath) || !strings.Contains(prompt, tt.wantExpectedBranch) {
-					t.Fatalf("remediation prompt = %q, want path %q and branch %q", prompt, tt.wantExpectedPath, tt.wantExpectedBranch)
+				if !strings.Contains(prompt, wantExpectedPath) || !strings.Contains(prompt, tt.wantExpectedBranch) {
+					t.Fatalf("remediation prompt = %q, want path %q and branch %q", prompt, wantExpectedPath, tt.wantExpectedBranch)
 				}
 			} else if strings.Contains(result.Output, "<remediation note:") {
 				t.Fatalf("non-code follow-up output = %q, unexpectedly contains remediation note", result.Output)
@@ -469,7 +481,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 				if !ok {
 					t.Fatal("session missing after code follow-up")
 				}
-				if session.Remediation != tt.remediation {
+				if session.Remediation != remediation {
 					t.Fatal("remediation state was not preserved in session")
 				}
 				if session.FollowUpCount != 1 || session.TurnCount != 2 || session.TokenCount != 10 {
@@ -608,6 +620,178 @@ func TestFollowUpHandler_NonMutateChildNotDeniedInPlanMode(t *testing.T) {
 	}
 	if runs != 1 {
 		t.Fatalf("runs = %d, want 1 (non-mutate child must not be denied in plan mode)", runs)
+	}
+}
+
+func TestFollowUpHandler_RejectsDeadCodeWorktree(t *testing.T) {
+	tests := []struct {
+		name           string
+		setupWorktree  func(t *testing.T) string
+		expectedBranch string
+		wantCause      string
+	}{
+		{
+			name: "worktree directory deleted",
+			setupWorktree: func(t *testing.T) string {
+				dir := t.TempDir()
+				path := filepath.Join(dir, "gone")
+				return path
+			},
+			expectedBranch: "delegate/child-dead",
+			wantCause:      "verify worktree path",
+		},
+		{
+			name: "worktree exists but branch mismatch",
+			setupWorktree: func(t *testing.T) string {
+				repo, cleanup := setupTestRepo(t)
+				t.Cleanup(cleanup)
+				runCmd(t, repo, "git", "checkout", "-b", "unexpected-branch")
+				return repo
+			},
+			expectedBranch: "delegate/child-dead",
+			wantCause:      "verify worktree branch",
+		},
+		{
+			name: "worktree exists but has no .git (recreated by mutate)",
+			setupWorktree: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			expectedBranch: "delegate/child-dead",
+			wantCause:      "git branch --show-current",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			worktreePath := tt.setupWorktree(t)
+
+			store := NewSessionStore()
+			store.Save(&ChildSession{
+				Spec:    Spec{AgentID: "child-dead", Task: "fix bug"},
+				Request: agent.RunRequest{Prompt: promptWithConversation("initial task"), Tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}}},
+				Remediation: &RemediationConfig{
+					WorktreePath:   worktreePath,
+					ExpectedBranch: tt.expectedBranch,
+				},
+			})
+
+			runs := 0
+			events := &recordingEventSink{}
+			activeController := NewActiveController()
+			handler := NewFollowUpHandler(SubAgentHandlerDeps{
+				SubAgentCfg:      config.SubAgentConfig{MaxFollowUps: 100},
+				Events:           events,
+				SessionStore:     store,
+				ActiveController: activeController,
+				Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+					runs++
+					return agent.RunState{}, nil
+				}},
+			})
+
+			_, err := handler(context.Background(), map[string]any{
+				"agent_id": "child-dead",
+				"message":  "continue",
+			})
+			if err == nil {
+				t.Fatal("expected error for dead code worktree")
+			}
+			if !strings.Contains(err.Error(), `follow_up: agent "child-dead"'s code worktree is no longer usable`) {
+				t.Fatalf("error = %q, want it to name the failure and remedy", err.Error())
+			}
+			if !strings.Contains(err.Error(), "delegate a fresh code agent instead") {
+				t.Fatalf("error = %q, want remedy text", err.Error())
+			}
+			if !strings.Contains(err.Error(), tt.wantCause) {
+				t.Fatalf("error = %q, want it to wrap the underlying cause %q", err.Error(), tt.wantCause)
+			}
+			if runs != 0 {
+				t.Fatalf("runs = %d, want 0 (child must never run against a dead worktree)", runs)
+			}
+			if started := startedEvents(events.Events()); len(started) != 0 {
+				t.Fatalf("started events = %d, want 0 (no DelegationStartedEvent for a rejected follow-up)", len(started))
+			}
+			if ids := activeController.ActiveAgentIDs(); len(ids) != 0 {
+				t.Fatalf("active agent ids = %v, want none registered", ids)
+			}
+		})
+	}
+}
+
+func TestFollowUpHandler_NonCodeSessionSkipsWorktreeCheck(t *testing.T) {
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec:    Spec{AgentID: "child-readonly-followup", Task: "investigate"},
+		Request: agent.RunRequest{Prompt: promptWithConversation("initial task"), Tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "read"}}}},
+	})
+
+	runs := 0
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxFollowUps: 100},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			runs++
+			return agent.RunState{
+				Conversation: providerToAgentMessages(req.Prompt.Conversation),
+				TurnCount:    1,
+				StopReason:   agent.StopReasonComplete,
+			}, nil
+		}},
+	})
+
+	_, err := handler(context.Background(), map[string]any{
+		"agent_id": "child-readonly-followup",
+		"message":  "continue",
+	})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if runs != 1 {
+		t.Fatalf("runs = %d, want 1 (non-code follow-up must not be gated by the worktree check)", runs)
+	}
+}
+
+func TestFollowUpHandler_CodeSessionWithLiveWorktreeStillResumes(t *testing.T) {
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+	runCmd(t, repo, "git", "checkout", "-b", "delegate/child-live")
+
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec:    Spec{AgentID: "child-live", Task: "fix bug"},
+		Request: agent.RunRequest{Prompt: promptWithConversation("initial task"), Tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}}},
+		Remediation: &RemediationConfig{
+			WorktreePath:   repo,
+			ExpectedBranch: "delegate/child-live",
+			IsDirty:        func(context.Context) ([]string, error) { return nil, nil },
+			Head:           func(context.Context) (string, error) { return "head", nil },
+			Committed:      func(context.Context, string, []string) (bool, error) { return true, nil },
+		},
+	})
+
+	runs := 0
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxFollowUps: 100},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			runs++
+			return agent.RunState{
+				Conversation: providerToAgentMessages(req.Prompt.Conversation),
+				TurnCount:    1,
+				StopReason:   agent.StopReasonComplete,
+			}, nil
+		}},
+	})
+
+	_, err := handler(context.Background(), map[string]any{
+		"agent_id": "child-live",
+		"message":  "continue",
+	})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if runs != 1 {
+		t.Fatalf("runs = %d, want 1 (a live, correctly-branched worktree must still resume)", runs)
 	}
 }
 
