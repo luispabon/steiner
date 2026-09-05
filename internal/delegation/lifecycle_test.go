@@ -63,6 +63,10 @@ func TestSpecializedCodeHandlerRegistersWorktreeAndUnregisters(t *testing.T) {
 }
 
 func TestFollowUpCodeHandlerRegistersSessionWorktreeAndUnregisters(t *testing.T) {
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+	runCmd(t, repo, "git", "checkout", "-b", "delegate/session-worktree")
+
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{AgentID: "code-follow-up", AgentType: AgentTypeCode, Task: "continue"},
@@ -72,7 +76,7 @@ func TestFollowUpCodeHandlerRegistersSessionWorktreeAndUnregisters(t *testing.T)
 		},
 		Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "initial"}},
 		Remediation: &RemediationConfig{
-			WorktreePath:   "/tmp/session-worktree",
+			WorktreePath:   repo,
 			ExpectedBranch: "delegate/session-worktree",
 			IsDirty:        func(context.Context) ([]string, error) { return nil, nil },
 			Head:           func(context.Context) (string, error) { return "head", nil },
@@ -89,7 +93,7 @@ func TestFollowUpCodeHandlerRegistersSessionWorktreeAndUnregisters(t *testing.T)
 				t.Errorf("active agents during follow-up = %v, want one", ids)
 			} else {
 				worktree, ok := controller.WorktreeFor(ids[0])
-				if !ok || worktree != (CodeWorktree{Path: "/tmp/session-worktree", Branch: "delegate/session-worktree"}) {
+				if !ok || worktree != (CodeWorktree{Path: repo, Branch: "delegate/session-worktree"}) {
 					t.Errorf("active follow-up worktree = %+v, %t, want session worktree", worktree, ok)
 				}
 			}

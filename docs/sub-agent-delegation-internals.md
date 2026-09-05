@@ -87,6 +87,8 @@ For type `code` only, the type-specific handler in `newSpecializedHandler` (`int
 
 All other types (`explore`, `research`, `evaluate`, `sanity_check`, `review`, `vision`) skip worktree provisioning and remediation entirely; their results always have empty `WorktreePath`, `WorktreeBranch`, and `Warnings` fields. `follow_up` reuses each child's originally-captured `agent.RunRequest` from `SessionStore` verbatim, including its executor already rooted at the original worktree, without re-provisioning.
 
+Before resuming a `code` session, `runFollowUp` calls `denyFollowUpOnDeadCodeWorktree`, which runs `verifyCodeWorktree` against the session's stored `Remediation.WorktreePath`/`ExpectedBranch` — the same precondition check used at initial provisioning. This runs before `ActiveController.Register` and before the started lifecycle event fires, so a deleted, pruned, or repointed worktree fails fast with a plain error and never registers, dispatches, or emits a started event for the child. There is no bypass: a dead-worktree `code` session cannot be resumed for read-only/Q&A use either — delegate a fresh `code` agent instead.
+
 ### Active delegate lifecycle
 
 The handler that owns each type's dispatch builds the child request, then registers the child with the shared `ActiveController`. For type `code`, registration happens after worktree provisioning and request construction; for other types it happens after request construction. Registration occurs before dispatch gating. The handler passes the controller-created child context to the cache dispatch gate and to the child runner.
