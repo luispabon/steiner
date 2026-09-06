@@ -1,8 +1,6 @@
 package prompt
 
 import (
-	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -13,10 +11,10 @@ const (
 	testSandboxMarker      = "## Sandbox\n\nThe sandbox is enabled. The filesystem is read-only except the current\nworkdir."
 	testCoreRulesMarker    = "Core rules:"
 	testToolBatchingMarker = "## Tool batching"
-	testWorkflowMarker     = "Before editing:"
+	testWorkflowMarker     = "## Work methodology"
 	testCaveHumanMarker    = "## Output voice"
-	parentApprovalLine     = "Ask for user's permission before editing."
-	childApprovalLine      = "Do not ask for permission to proceed or for confirmation before editing."
+	parentApprovalLine     = "- Ask the user for confirmation before editing."
+	childApprovalLine      = "Do not ask the user for approval, confirmation, or feedback."
 )
 
 func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
@@ -114,9 +112,9 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			override:        "Custom override content",
 			delegation:      true,
 			suffix:          "suffix",
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", "suffix"},
-			wantAbsent:      []string{testCoreRulesMarker, testWorkflowMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", "suffix"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
+			wantAbsent:      []string{testCoreRulesMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -127,9 +125,9 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			sandbox:         true,
 			mounts:          []string{"/host/rw"},
 			suffix:          "suffix",
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", "suffix"},
-			wantAbsent:      []string{testCoreRulesMarker, testWorkflowMarker, testSandboxMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", "suffix"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
+			wantAbsent:      []string{testCoreRulesMarker, testSandboxMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -137,9 +135,9 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			name:            "override without delegation",
 			override:        "Custom override content",
 			delegation:      false,
-			wantPresent:     []string{testIdentityMarker, testToolBatchingMarker, "Custom override content"},
-			wantAbsent:      []string{testDelegationMarker, testCoreRulesMarker, testWorkflowMarker},
-			wantOrder:       []string{testIdentityMarker, testToolBatchingMarker, "Custom override content"},
+			wantPresent:     []string{testIdentityMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content"},
+			wantAbsent:      []string{testDelegationMarker, testCoreRulesMarker},
+			wantOrder:       []string{testIdentityMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content"},
 			wantIdentityCnt: 1,
 		},
 		{
@@ -148,9 +146,9 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			delegation:      true,
 			caveHuman:       true,
 			suffix:          "suffix",
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", testCaveHumanMarker, "suffix"},
-			wantAbsent:      []string{testCoreRulesMarker, testWorkflowMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, "Custom override content", testCaveHumanMarker, "suffix"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", testCaveHumanMarker, "suffix"},
+			wantAbsent:      []string{testCoreRulesMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", testCaveHumanMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -305,7 +303,6 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 		detail string
 	}{
 		{"|\n\nEach ", "blank line between the roster table and the worktree paragraph"},
-		{"follow this workflow:\n\n1. ", "blank line between the workflow lead-in and the numbered list"},
 		{"\n\n## Delegation vs direct work", "blank line between the numbered list and the following header"},
 	} {
 		if !strings.Contains(content, seam.want) {
@@ -323,108 +320,86 @@ var delegationSectionHeaders = []string{
 	"## Your role",
 	"## Your sub-agents",
 	"## Continuing sub-agents",
-	"## Your workflow",
 	"## Delegation vs direct work",
 	"## Briefing a sub-agent",
 }
 
-var workflowStepPattern = regexp.MustCompile(`(?m)^(\d+)\. `)
-
-// workflowSection returns the rendered `## Your workflow` section, bounded by
-// the next canon header.
-func workflowSection(t *testing.T, content string) string {
-	t.Helper()
-
-	start := strings.Index(content, "## Your workflow")
-	end := strings.Index(content, "## Delegation vs direct work")
-	if start == -1 || end == -1 || end <= start {
-		t.Fatalf("cannot locate workflow section (start=%d end=%d) in %q", start, end, content)
-	}
-	return content[start:end]
-}
-
-// TestSystemPreambleDelegationWorkflow pins the numbered `## Your workflow`
-// list: numbering stays contiguous from 1, the optional advisor step renders
-// only when advisorEnabled, and the steps after it renumber accordingly. The
-// disabled form must not name the `advisor` tool at all — it must be absent,
-// not reworded.
-func TestSystemPreambleDelegationWorkflow(t *testing.T) {
+func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 	t.Parallel()
 
-	const baseSteps = 6
-
 	cases := []struct {
-		name      string
-		advisor   bool
-		wantSteps int
+		name            string
+		delegation      bool
+		mode            workflowMode
+		wantParallel    bool
+		wantParentRules bool
+		wantChildRules  bool
+		wantDelegation  bool
 	}{
-		{name: "advisor disabled", advisor: false, wantSteps: baseSteps},
-		{name: "advisor enabled", advisor: true, wantSteps: baseSteps + 1},
+		{name: "parent delegation enabled", delegation: true, mode: workflowModeParent, wantParallel: true, wantParentRules: true, wantDelegation: true},
+		{name: "parent delegation disabled", delegation: false, mode: workflowModeParent, wantParentRules: true},
+		{name: "delegated child", delegation: false, mode: workflowModeDelegatedChild, wantChildRules: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			content := systemPreambleWithAdvisor(SystemPreambleParams{
-				DelegationEnabled: true,
-				AdvisorEnabled:    tc.advisor,
-				Mode:              workflowModeParent,
+				DelegationEnabled: tc.delegation,
+				Mode:              tc.mode,
 			}).Content
-			section := workflowSection(t, content)
 
-			matches := workflowStepPattern.FindAllStringSubmatch(section, -1)
-			if len(matches) != tc.wantSteps {
-				t.Fatalf("workflow step count = %d, want %d in %q", len(matches), tc.wantSteps, section)
-			}
-			for i, m := range matches {
-				got, err := strconv.Atoi(m[1])
-				if err != nil {
-					t.Fatalf("workflow step number %q not an integer: %v", m[1], err)
-				}
-				if got != i+1 {
-					t.Fatalf("workflow numbering is not contiguous: step %d is numbered %d in %q", i+1, got, section)
+			for _, want := range []string{"## Work methodology", "### While editing", "### Verification", "## Final response"} {
+				if !strings.Contains(content, want) {
+					t.Fatalf("preamble missing %q in %q", want, content)
 				}
 			}
-
-			advisorLines := 0
-			for _, line := range strings.Split(section, "\n") {
-				if strings.Contains(line, "`advisor`") {
-					advisorLines++
+			if got := strings.Contains(content, "Complete independent deliverables in parallel."); got != tc.wantParallel {
+				t.Fatalf("parallel-deliverable rule present = %v, want %v", got, tc.wantParallel)
+			}
+			if got := strings.Contains(content, "### Splitting tasks into deliverables"); got != tc.wantParentRules {
+				t.Fatalf("parent methodology present = %v, want %v", got, tc.wantParentRules)
+			}
+			if got := strings.Contains(content, "This delegated brief is authorization to proceed."); got != tc.wantChildRules {
+				t.Fatalf("child authorization present = %v, want %v", got, tc.wantChildRules)
+			}
+			if got := strings.Contains(content, "## Your sub-agents"); got != tc.wantDelegation {
+				t.Fatalf("delegation canon present = %v, want %v", got, tc.wantDelegation)
+			}
+			if tc.mode == workflowModeParent && !tc.delegation {
+				workflowStart := strings.Index(content, testWorkflowMarker)
+				workflowEnd := strings.Index(content, "## Execution modes")
+				if workflowStart == -1 || workflowEnd == -1 || workflowEnd <= workflowStart {
+					t.Fatalf("cannot isolate workflow methodology in %q", content)
+				}
+				workflow := content[workflowStart:workflowEnd]
+				for _, unavailable := range []string{"`sub_agent`", "`follow_up`", "`code`", "`explore`", "`evaluate`", "`review`", "`sanity_check`", "`advisor`"} {
+					if strings.Contains(workflow, unavailable) {
+						t.Fatalf("delegation-disabled parent unexpectedly contains %q in %q", unavailable, workflow)
+					}
 				}
 			}
-			wantAdvisorLines := 0
-			if tc.advisor {
-				wantAdvisorLines = 1
-			}
-			if advisorLines != wantAdvisorLines {
-				t.Fatalf("workflow lines naming `advisor` = %d, want %d in %q", advisorLines, wantAdvisorLines, section)
+			if tc.mode == workflowModeDelegatedChild {
+				for _, forbidden := range []string{"## Your role", "## Your sub-agents", "### Planning", "### Splitting tasks into deliverables", "Ask the user for confirmation before editing.", "## Advisor"} {
+					if strings.Contains(content, forbidden) {
+						t.Fatalf("child preamble unexpectedly contains %q in %q", forbidden, content)
+					}
+				}
 			}
 		})
 	}
 }
 
-// TestDelegationWorkflowConsistentAcrossOverridePath pins that the normal and
-// override preamble paths both embed the same flag-aware delegation canon, so
-// the advisor step gating and renumbering behave identically in both.
-func TestDelegationWorkflowConsistentAcrossOverridePath(t *testing.T) {
+// TestDelegationCanonIndependentOfAdvisor verifies that delegation canon is
+// unchanged when separately gated advisor guidance is enabled or disabled.
+func TestDelegationCanonIndependentOfAdvisor(t *testing.T) {
 	t.Parallel()
 
+	canon := strings.TrimSpace(delegationInstructions())
 	for _, advisor := range []bool{false, true} {
-		name := "advisor disabled"
-		if advisor {
-			name = "advisor enabled"
+		content := systemPreambleWithAdvisor(SystemPreambleParams{DelegationEnabled: true, AdvisorEnabled: advisor, Mode: workflowModeParent}).Content
+		if !strings.Contains(content, canon) {
+			t.Fatalf("delegation canon missing with advisor enabled=%v in %q", advisor, content)
 		}
-		t.Run(name, func(t *testing.T) {
-			canon := strings.TrimSpace(delegationInstructions(advisor))
-			normal := systemPreambleWithAdvisor(SystemPreambleParams{DelegationEnabled: true, AdvisorEnabled: advisor, Mode: workflowModeParent}).Content
-			override := systemPreambleWithAdvisor(SystemPreambleParams{Override: "Custom override content", DelegationEnabled: true, AdvisorEnabled: advisor, Mode: workflowModeParent}).Content
-
-			if !strings.Contains(normal, canon) {
-				t.Fatalf("normal preamble does not embed the rendered delegation canon in %q", normal)
-			}
-			if !strings.Contains(override, canon) {
-				t.Fatalf("override preamble does not embed the rendered delegation canon in %q", override)
-			}
-		})
 	}
 }
 
@@ -446,12 +421,9 @@ func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 	}
 }
 
-// TestDelegationCanonDoesNotNameAdvisorWhenDisabled pins the fact that the
-// delegation and advisor sections are gated independently: canon must not
-// point the orchestrator at `advisor` in a session where the advisor tool is
-// not registered and the advisor section is not rendered. It covers both the
-// normal and override preamble paths, which share the same flag-aware canon
-// renderer.
+// TestDelegationCanonDoesNotNameAdvisorWhenDisabled verifies that delegation
+// canon does not reference the separately gated `advisor` tool when advisor
+// guidance is disabled. It covers both normal and override preamble paths.
 func TestDelegationCanonDoesNotNameAdvisorWhenDisabled(t *testing.T) {
 	t.Parallel()
 
@@ -547,12 +519,7 @@ func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 	if !strings.Contains(parent, parentApprovalLine) {
 		t.Fatalf("parent preamble missing approval line %q in %q", parentApprovalLine, parent)
 	}
-	// The before-editing and verification bullets of the shared workflow block
-	// are pinned here so a regression in renderWorkflowInstructions is caught.
-	for _, want := range []string{
-		"- Inspect relevant files and nearby tests.",
-		"- Ensure the narrowest relevant checks run first.",
-	} {
+	for _, want := range []string{"### While editing", "### Verification", "## Final response"} {
 		if !strings.Contains(parent, want) {
 			t.Fatalf("parent preamble missing %q in %q", want, parent)
 		}
