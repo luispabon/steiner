@@ -727,10 +727,58 @@ func TestDelegatedWorkflowProfilesExcludeOrchestratorContent(t *testing.T) {
 					}
 				}
 			} else {
+				for _, marker := range []string{"## Delegated code agent", "## Code agent duties"} {
+					if strings.Contains(content, marker) {
+						t.Fatalf("non-code child contains code-child marker %q", marker)
+					}
+				}
 				for _, marker := range []string{"### While editing", "### Verification", "## Final response"} {
 					if strings.Contains(content, marker) {
 						t.Fatalf("non-code child contains %q", marker)
 					}
+				}
+			}
+		})
+	}
+}
+
+func TestCodeChildApprovedOpeningOrder(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeDelegatedChild}).Content
+	markers := []string{testIdentityMarker, "## Delegated code agent", "## Code agent duties", "## Delegated task", testCoreRulesMarker}
+	last := -1
+	for _, marker := range markers {
+		idx := strings.Index(content, marker)
+		if idx == -1 {
+			t.Fatalf("code child missing %q in %q", marker, content)
+		}
+		if idx <= last {
+			t.Fatalf("code child marker %q is out of order in %q", marker, content)
+		}
+		last = idx
+	}
+	const roleSentence = "You are steiner's delegated code agent. Complete the task in your brief within its stated scope."
+	if got := strings.Count(content, roleSentence); got != 1 {
+		t.Fatalf("code-child role sentence count = %d, want 1", got)
+	}
+}
+
+func TestCodeChildMarkersAbsentFromParentAndNonCode(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		mode workflowMode
+	}{
+		{name: "parent", mode: workflowModeParent},
+		{name: "delegated non-code", mode: workflowModeDelegatedNonCodeChild},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: tc.mode}).Content
+			for _, marker := range []string{"## Delegated code agent", "## Code agent duties"} {
+				if strings.Contains(content, marker) {
+					t.Fatalf("%s contains code-child marker %q", tc.name, marker)
 				}
 			}
 		})

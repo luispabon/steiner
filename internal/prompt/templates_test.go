@@ -20,6 +20,7 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 			data: struct{ Specialists []specialistView }{Specialists: specialistViews()},
 		},
 		{name: templateAdvisor},
+		{name: templateCodeChild},
 		{name: templateCoreRules},
 		{name: templateWorkflow, data: struct {
 			DelegatedCode     bool
