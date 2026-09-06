@@ -746,7 +746,8 @@ func TestCodeChildApprovedOpeningOrder(t *testing.T) {
 	t.Parallel()
 
 	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeDelegatedCodeSubAgent}).Content
-	markers := []string{testIdentityMarker, "## Delegated code agent", "## Code agent duties", "## Delegated task", testCoreRulesMarker}
+	const roleSentence = "You are steiner's code sub-agent. Complete the task in your brief within its stated scope."
+	markers := []string{testIdentityMarker, roleSentence, "## Code agent duties", "## Delegated task", testCoreRulesMarker}
 	last := -1
 	for _, marker := range markers {
 		idx := strings.Index(content, marker)
@@ -758,7 +759,6 @@ func TestCodeChildApprovedOpeningOrder(t *testing.T) {
 		}
 		last = idx
 	}
-	const roleSentence = "You are steiner's delegated code agent. Complete the task in your brief within its stated scope."
 	if got := strings.Count(content, roleSentence); got != 1 {
 		t.Fatalf("code-child role sentence count = %d, want 1", got)
 	}
