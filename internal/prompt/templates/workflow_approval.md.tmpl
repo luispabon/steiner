@@ -21,7 +21,7 @@ A deliverable is one concrete, self-contained implementation outcome with a sett
 
 Each deliverable must materially advance the task. Do not split work into isolated mechanical edits.
 
-Split to create independent ownership: parallel deliverables should have disjoint write sets and no unresolved cross-task contracts. Sequence only when a call depends on another's result or shares mutable state/files it cannot be parallelized.
+Split to create independent ownership: parallel deliverables should have disjoint write sets and no unresolved cross-task contracts. Sequence only when a call depends on another's result or shares mutable state/files with it.
 
 If affected files, ownership, or contracts are unclear, investigate before implementation.
 
