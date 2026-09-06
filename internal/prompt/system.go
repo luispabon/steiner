@@ -9,6 +9,7 @@ const identity = "You are steiner, a lean coding agent."
 const (
 	templateDelegation     = "delegation.md.tmpl"
 	templateAdvisor        = "advisor.md.tmpl"
+	templateCodeChild      = "code_child.md.tmpl"
 	templateCoreRules      = "core_rules.md.tmpl"
 	templateToolBatching   = "tool_batching.md.tmpl"
 	templateWorkflow       = "workflow_approval.md.tmpl"
@@ -35,6 +36,7 @@ const (
 	sectionSandbox        sectionID = "sandbox"
 	sectionDelegation     sectionID = "delegation"
 	sectionAdvisor        sectionID = "advisor"
+	sectionCodeChild      sectionID = "code_child"
 	sectionCoreRules      sectionID = "core_rules"
 	sectionToolBatching   sectionID = "tool_batching"
 	sectionWorkflow       sectionID = "workflow"
@@ -57,6 +59,7 @@ var defaultSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
 	sectionAdvisor,
+	sectionCodeChild,
 	sectionCoreRules,
 	sectionToolBatching,
 	sectionWorkflow,
@@ -86,6 +89,12 @@ var systemSections = map[sectionID]sectionRenderer{
 			return ""
 		}
 		return renderTemplate(templateAdvisor, nil)
+	},
+	sectionCodeChild: func(ctx sectionContext) string {
+		if normalizeWorkflowMode(ctx.workflowMode) != workflowModeDelegatedChild {
+			return ""
+		}
+		return strings.TrimSpace(renderTemplate(templateCodeChild, nil)) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
 	},
 	sectionCoreRules: func(sectionContext) string {
 		return renderTemplate(templateCoreRules, nil)
@@ -118,6 +127,7 @@ var overrideSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
 	sectionAdvisor,
+	sectionCodeChild,
 	sectionWorkflow,
 }
 
@@ -236,7 +246,7 @@ func renderWorkflowInstructions(mode workflowMode, delegationEnabled bool) strin
 		DelegatedNonCode:  mode == workflowModeDelegatedNonCodeChild,
 		DelegationEnabled: delegationEnabled,
 	})
-	if !isDelegatedChildMode(mode) {
+	if mode == workflowModeDelegatedChild || !isDelegatedChildMode(mode) {
 		return content
 	}
 	return strings.TrimSpace(content) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))

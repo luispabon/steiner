@@ -718,6 +718,9 @@ func TestDelegatedWorkflowProfilesExcludeOrchestratorContent(t *testing.T) {
 				t.Fatal("child missing delegated-task authorization")
 			}
 			if tc.mode == workflowModeDelegatedChild {
+				if strings.Count(content, "## Code agent duties") != 1 {
+					t.Fatalf("code child duties count = %d, want 1", strings.Count(content, "## Code agent duties"))
+				}
 				for _, marker := range []string{"### While editing", "### Verification", "## Final response"} {
 					if !strings.Contains(content, marker) {
 						t.Fatalf("code child missing %q", marker)

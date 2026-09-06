@@ -127,23 +127,15 @@ func TestAgentSystemSuffix(t *testing.T) {
 		wantEmpty      bool
 	}{
 		{
-			name:           "code agent suffix without advisor",
-			agentType:      AgentTypeCode,
-			advisorEnabled: false,
-			contains: []string{
-				"git status --porcelain",
-				"Do not merge, rebase, or push",
-				"Do not discard, reset, restore, stash, switch branches",
-			},
+			name:      "code agent has no duties suffix",
+			agentType: AgentTypeCode,
+			wantEmpty: true,
 		},
 		{
 			name:           "code agent suffix with advisor",
 			agentType:      AgentTypeCode,
 			advisorEnabled: true,
 			contains: []string{
-				"git status --porcelain",
-				"Do not merge, rebase, or push",
-				"Do not discard, reset, restore, stash, switch branches",
 				"exactly ONE advisor call",
 				"Do NOT spend it as a reflexive opening move",
 				"Do NOT spend it as a final sign-off",
@@ -385,10 +377,9 @@ func TestTemplateLoading(t *testing.T) {
 		})
 	}
 
-	// Verify code suffix loads with advisor disabled
-	suffix := AgentSystemSuffix(AgentTypeCode, false)
-	if suffix == "" {
-		t.Error("AgentSystemSuffix(code, false) failed to load")
+	// Code-agent duties are rendered by the prompt package, not as a suffix.
+	if suffix := AgentSystemSuffix(AgentTypeCode, false); suffix != "" {
+		t.Errorf("AgentSystemSuffix(code, false) should be empty, got %q", suffix)
 	}
 
 	// Verify code suffix loads with advisor enabled and contains advisor text
