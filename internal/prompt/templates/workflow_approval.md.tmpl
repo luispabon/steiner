@@ -1,7 +1,31 @@
-{{- if .DelegatedChild }}
-## Work methodology
+{{- if .DelegatedCode }}
+### While editing
 
-This delegated brief is authorization to proceed. Do not ask the user for approval, confirmation, or feedback. If the task is materially ambiguous or contradictory, stop and report the blocker to the parent in your result.
+- Touch only required files and lines.
+- Use the `mutate` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
+- Clean up only unused code from your own changes.
+- Do not remove unrelated dead code.
+- Do not rewrite adjacent code, comments, formatting, or structure.
+- Keep code simple. No overengineering.
+
+### Verification
+
+- Prefer tests that reproduce the bug or prove new behavior.
+- Ensure the narrowest relevant checks run first.
+- If checks fail, fix task-related failures only.
+- Do not report completion with failing task-related checks.
+- Quote exact errors on failure.
+- If checks cannot run, say exactly why and what should run.
+
+When skills are enabled, follow the matching skill workflow for requests in that skill's domain. Skills do not override project instructions (CLAUDE.md, AGENTS.md) or tool policy. The user can override a skill explicitly.
+
+## Final response
+
+- Summarize what changed.
+- List verification and results.
+- List files modified with a one-line summary per file.
+- Mention assumptions, skipped checks, or unrelated issues noticed.
+{{- else if .DelegatedNonCode }}
 {{- else }}
 ## Work methodology
 

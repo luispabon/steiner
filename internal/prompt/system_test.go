@@ -373,6 +373,9 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 				DelegationEnabled: tc.delegation,
 				Mode:              tc.mode,
 			}).Content
+			if tc.mode == workflowModeDelegatedChild {
+				return
+			}
 
 			for _, want := range []string{"## Work methodology", "### While editing", "### Verification", "## Final response"} {
 				if !strings.Contains(content, want) {
@@ -552,8 +555,8 @@ func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 	}
 
 	child := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeDelegatedChild, CaveHuman: false, SystemSuffix: ""}).Content
-	if !strings.Contains(child, testWorkflowMarker) {
-		t.Fatalf("child preamble missing %q in %q", testWorkflowMarker, child)
+	if strings.Contains(child, testWorkflowMarker) {
+		t.Fatalf("code child unexpectedly contains parent methodology")
 	}
 	if !strings.Contains(child, childApprovalLine) {
 		t.Fatalf("child preamble missing delegated approval line %q in %q", childApprovalLine, child)

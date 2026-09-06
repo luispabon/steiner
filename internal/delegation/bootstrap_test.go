@@ -42,12 +42,12 @@ func assertSharedChildSystemPrompt(t *testing.T, content string) {
 		"You are steiner, a lean coding agent.",
 		"Core rules:",
 		"Prefer smallest correct change.",
-		"## Work methodology",
-		"This delegated brief is authorization to proceed.",
-		"Do not ask the user for approval, confirmation, or feedback.",
 		"### While editing",
 		"### Verification",
 		"## Final response",
+		"## Delegated task",
+		"This delegated brief authorizes the work.",
+		"Do not ask the user for approval, confirmation, or feedback.",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("shared child system prompt missing %q in %q", want, content)
