@@ -77,7 +77,7 @@ var systemSections = map[sectionID]sectionRenderer{
 		if !ctx.delegationEnabled {
 			return ""
 		}
-		return delegationInstructions(ctx.advisorEnabled)
+		return delegationInstructions()
 	},
 	sectionAdvisor: func(ctx sectionContext) string {
 		if !ctx.advisorEnabled {
@@ -92,7 +92,7 @@ var systemSections = map[sectionID]sectionRenderer{
 		return renderTemplate(templateToolBatching, nil)
 	},
 	sectionWorkflow: func(ctx sectionContext) string {
-		return renderWorkflowInstructions(ctx.workflowMode)
+		return renderWorkflowInstructions(ctx.workflowMode, ctx.delegationEnabled)
 	},
 	sectionExecutionModes: func(ctx sectionContext) string {
 		if ctx.workflowMode == workflowModeDelegatedChild {
@@ -109,28 +109,25 @@ var systemSections = map[sectionID]sectionRenderer{
 }
 
 // overrideSectionOrder is the section sequence used when the user supplies a
-// system-prompt override: the shared rules, workflow, sandbox, and execution
-// mode sections are replaced by the override text, but identity, the
-// orchestration canon, and advisor guidance still render around it.
+// system-prompt override: the shared rules, sandbox, and execution mode sections
+// are replaced by the override text, but identity, delegation mechanics, advisor
+// guidance, and workflow methodology still render around it.
 var overrideSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
 	sectionAdvisor,
 	sectionToolBatching,
+	sectionWorkflow,
 }
 
-// delegationInstructions renders the orchestration canon: role prose, the
-// specialist roster table, and the workflow/routing sections, from
-// templates/delegation.md.tmpl. The `## Your workflow` advisor step renders
-// only when advisorEnabled, so the canon is byte-identical within a session —
-// advisorEnabled is session-fixed and part of the preamble cache key.
-func delegationInstructions(advisorEnabled bool) string {
+// delegationInstructions renders delegation mechanics and the specialist roster
+// from templates/delegation.md.tmpl. Advisor guidance is rendered separately by
+// the advisor section and is discretionary.
+func delegationInstructions() string {
 	return renderTemplate(templateDelegation, struct {
-		Specialists    []specialistView
-		AdvisorEnabled bool
+		Specialists []specialistView
 	}{
-		Specialists:    specialistViews(),
-		AdvisorEnabled: advisorEnabled,
+		Specialists: specialistViews(),
 	})
 }
 
@@ -226,9 +223,13 @@ func renderSections(order []sectionID, ctx sectionContext) []string {
 	return sections
 }
 
-func renderWorkflowInstructions(mode workflowMode) string {
-	return renderTemplate(templateWorkflow, struct{ DelegatedChild bool }{
-		DelegatedChild: normalizeWorkflowMode(mode) == workflowModeDelegatedChild,
+func renderWorkflowInstructions(mode workflowMode, delegationEnabled bool) string {
+	return renderTemplate(templateWorkflow, struct {
+		DelegatedChild    bool
+		DelegationEnabled bool
+	}{
+		DelegatedChild:    normalizeWorkflowMode(mode) == workflowModeDelegatedChild,
+		DelegationEnabled: delegationEnabled,
 	})
 }
 

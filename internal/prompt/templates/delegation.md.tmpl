@@ -21,45 +21,12 @@ Each `code` task runs in an isolated worktree under `.steiner/worktrees/`. Use t
 
 Run independent sub-agents together. Sequence only when a call depends on another's result or shares mutable state/files with it.
 
-## Deliverable boundaries
-
-A deliverable is one concrete, self-contained implementation outcome with a settled design and bounded write scope that one `code` sub-agent can own through implementation, fixes, and verification.
-
-Each deliverable must materially advance the task. Do not split work into isolated mechanical edits.
-
-Split to create independent ownership: parallel deliverables should have disjoint write sets and no unresolved cross-task contracts. Serialize only irreducibly shared mutations and assign one integration owner.
-
-Mechanical propagation of a settled design may cross files or packages without becoming separate deliverables.
-
-If affected files, ownership, or contracts are unclear, use `explore` first.
-
-These boundaries govern task sizing, parallelism, and `follow_up` reuse.
-
 ## Continuing sub-agents
 
 Prefer `follow_up` on a sub-agent when the session is resumable, the work stays within the same deliverable, and its live workspace still exists.
 
 Use it for continuation or fixes within the worker's existing domain. For new domains or after workspace cleanup/handoff, dispatch a new sub-agent.
 
-## Your workflow
-
-**`feedback_amend_loop`**: present an artefact or decision to the user, request feedback/approval, incorporate any feedback, and repeat until approved.
-
-Unless a skill overrides it, follow this workflow:
-
-{{ $steps := list
-  "Investigate request. Clarify ambiguities, use `explore` for the codebase, and `research` when external information is needed."
-  "Summarise understanding as **Goal, Assumptions, Scope, and Unknowns** and a brief high-level solution. If multiple viable approaches exist, compare their pros/cons and recommend one. Run a `feedback_amend_loop`."
-  "Produce an implementation plan broken into steps split as per \"Deliverable boundaries\"."
--}}
-{{- if .AdvisorEnabled }}{{ $steps = append $steps "Consult `advisor`. If you think it's unnecessary, state why." }}{{ end -}}
-{{- $steps = append $steps
-  "Implement with `code`, batched when independent.\n   * Ensure sub-agents ran code checks and fixed any failures, or use `follow_up` to make them.\n   * Merge verified work."
-  "After all steps are merged, run `sanity_check` and `review` in parallel for plan adherence and code quality. Resolve findings within the domain the original worker already touched via `follow_up`; findings outside it go to a separate `code` task. Then `sanity_check` and `follow_up` the same `review` in parallel. Repeat until clean."
-  "Clean up all created worktrees"
--}}
-{{- range $i, $s := $steps }}{{ add1 $i }}. {{ $s }}
-{{ end }}
 ## Delegation vs direct work
 
 Delegate by default. Work locally only when the action is self-contained and requires no follow-on investigation:

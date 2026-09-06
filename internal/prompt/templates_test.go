@@ -17,14 +17,14 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 	}{
 		{
 			name: templateDelegation,
-			data: struct {
-				Specialists    []specialistView
-				AdvisorEnabled bool
-			}{Specialists: specialistViews(), AdvisorEnabled: true},
+			data: struct{ Specialists []specialistView }{Specialists: specialistViews()},
 		},
 		{name: templateAdvisor},
 		{name: templateCoreRules},
-		{name: templateWorkflow, data: struct{ DelegatedChild bool }{DelegatedChild: true}},
+		{name: templateWorkflow, data: struct {
+			DelegatedChild    bool
+			DelegationEnabled bool
+		}{DelegatedChild: true, DelegationEnabled: true}},
 		{name: templateSandbox, data: struct{ Mounts []string }{Mounts: []string{"/a", "/b"}}},
 		{name: templateExecutionModes},
 		{name: templateCompactionSystem},
