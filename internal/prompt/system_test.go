@@ -114,7 +114,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			suffix:          "suffix",
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
 			wantAbsent:      []string{testCoreRulesMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -127,7 +127,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			suffix:          "suffix",
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
 			wantAbsent:      []string{testCoreRulesMarker, testSandboxMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -137,7 +137,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			delegation:      false,
 			wantPresent:     []string{testIdentityMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content"},
 			wantAbsent:      []string{testDelegationMarker, testCoreRulesMarker},
-			wantOrder:       []string{testIdentityMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content"},
+			wantOrder:       []string{testIdentityMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker},
 			wantIdentityCnt: 1,
 		},
 		{
@@ -148,7 +148,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			suffix:          "suffix",
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", testCaveHumanMarker, "suffix"},
 			wantAbsent:      []string{testCoreRulesMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", testCaveHumanMarker, "suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, testCaveHumanMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -214,6 +214,32 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOverridePreamblePlacesToolBatchingAfterOverride(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{
+		Override:          "specialist override",
+		DelegationEnabled: true,
+		CaveHuman:         true,
+		Mode:              workflowModeParent,
+		SystemSuffix:      "caller suffix",
+	}).Content
+
+	override := strings.Index(content, "specialist override")
+	batching := strings.Index(content, testToolBatchingMarker)
+	caveHuman := strings.Index(content, testCaveHumanMarker)
+	suffix := strings.Index(content, "caller suffix")
+	if override == -1 || batching == -1 || caveHuman == -1 || suffix == -1 {
+		t.Fatalf("missing ordering marker in %q", content)
+	}
+	if override >= batching {
+		t.Fatalf("override marker at index %d should precede tool batching at index %d in %q", override, batching, content)
+	}
+	if batching >= caveHuman || caveHuman >= suffix {
+		t.Fatalf("expected tool batching, cave-human, and suffix order in %q", content)
 	}
 }
 

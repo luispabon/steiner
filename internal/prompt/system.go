@@ -116,7 +116,6 @@ var overrideSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
 	sectionAdvisor,
-	sectionToolBatching,
 	sectionWorkflow,
 }
 
@@ -194,6 +193,7 @@ func systemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
 func buildOverridePreamble(override string, ctx sectionContext) string {
 	sections := renderSections(overrideSectionOrder, ctx)
 	sections = append(sections, override)
+	sections = append(sections, renderSections([]sectionID{sectionToolBatching}, ctx)...)
 	if caveHuman := strings.TrimSpace(systemSections[sectionCaveHuman](ctx)); caveHuman != "" {
 		sections = append(sections, caveHuman)
 	}
