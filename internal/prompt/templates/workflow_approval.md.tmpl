@@ -1,7 +1,5 @@
-{{- if .DelegatedChild }}
-## Work methodology
-
-This delegated brief is authorization to proceed. Do not ask the user for approval, confirmation, or feedback. If the task is materially ambiguous or contradictory, stop and report the blocker to the parent in your result.
+{{- if .DelegatedCode }}
+{{- else if .DelegatedNonCode }}
 {{- else }}
 ## Work methodology
 
@@ -14,7 +12,7 @@ When unsure if asked to plan or to implement:
 ### Planning
 
 - Investigate the request. Clarify ambiguities, explore the codebase, and research when external information is needed.
-- Summarise understanding as **Goal, Assumptions, Scope, and Unknowns** and a brief high-level solution. If multiple viable approaches exist, compare their pros and cons and recommend one. Run a `feedback_amend_loop`.
+- Summarise understanding as **Goal, Assumptions, Scope, and Unknowns** and a brief high-level solution. If multiple viable approaches exist, compare pros and cons and recommend one. Run a `feedback_amend_loop`.
 - Produce an implementation plan broken into steps split as per "Splitting tasks into deliverables".
 
 ### Splitting tasks into deliverables
@@ -38,6 +36,9 @@ If affected files, ownership, or contracts are unclear, investigate before imple
 - Review the implementation as a whole once all deliverables are implemented.
 - If worktrees were used for implementation, delete them only after review is passed.
 {{- end }}
+{{- if not .DelegatedNonCode }}
+
+## Working rules
 
 ### While editing
 
@@ -65,3 +66,4 @@ When skills are enabled, follow the matching skill workflow for requests in that
 - List verification and results.
 - List files modified with a one-line summary per file.
 - Mention assumptions, skipped checks, or unrelated issues noticed.
+{{- end }}

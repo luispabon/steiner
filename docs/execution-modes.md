@@ -45,7 +45,7 @@ Under a working sandbox, plan mode's guarantee is "the working tree stays read-o
 
 `bash` and subprocess tools receive identical `readOnlyProject` treatment because the executor resolves the sandbox decision exactly once per tool call, in `internal/tool.Executor.runPipeline`, and both dispatch paths consume that same resolved decision (see [Tool sandboxing](tool-sandboxing.md#sandbox-wrapper-resolution)). Earlier, `bash` and subprocess tools computed their sandbox mode independently, which let a config-defined subprocess tool run with an unrestricted (writable) project mount in plan mode while `bash` was correctly read-only.
 
-Child agents (see [Sub-agent delegation](sub-agent-delegation.md)) inherit the parent's live execution mode: the composition root threads a `ModeGetter` into every child executor the same way it threads the sandbox wrapper. A child's own `mutate` calls are restricted to `.steiner/plans/` and its `bash`/subprocess calls get the read-only project mount whenever the parent session is in plan mode, exactly as if the parent had run the command itself.
+Child agents (see [Sub-agent delegation](sub-agent-delegation.md)) inherit the parent's live execution mode: the composition root threads a `ModeGetter` into every child executor the same way it threads the sandbox wrapper. A child's own `mutate` calls are restricted to `.steiner/plans/` and its `bash`/subprocess calls get the read-only project mount whenever the parent session is in plan mode, exactly as if the parent had run the command itself. Child preambles suppress the execution-modes section. Code children retain the shared editing, verification, and final-response workflow sections; non-code children receive only delegated-task authorization.
 
 ## Persistence
 

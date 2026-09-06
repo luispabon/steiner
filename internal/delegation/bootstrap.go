@@ -50,6 +50,17 @@ func childContextSkips(agentType AgentType) (skipProjectContext, skipAgents bool
 	return
 }
 
+func childWorkflowMode(agentType AgentType) prompt.WorkflowMode {
+	switch agentType {
+	case AgentTypeExplore, AgentTypeResearch, AgentTypeEvaluate, AgentTypeSanityCheck, AgentTypeReview, AgentTypeVision:
+		return prompt.DelegatedNonCodeChildWorkflowMode()
+	case AgentTypeCode:
+		return prompt.DelegatedCodeSubAgentWorkflowMode()
+	default:
+		return prompt.DelegatedChildWorkflowMode()
+	}
+}
+
 // BuildChildRun assembles a complete agent.RunRequest for a delegated child agent.
 // It derives final limits by combining SubAgentConfig defaults with spec-level
 // overrides, builds child prompt and tool registries, and returns the assembled
@@ -85,6 +96,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		skipAgents:         skipAgents,
 		sandboxEnabled:     deps.SandboxEnabled,
 		writableMounts:     deps.SandboxWritableMounts,
+		workflowMode:       childWorkflowMode(override.AgentType),
 	})
 
 	visibleReg, execReg := buildChildRegistries(deps.ParentReg, override.AllowedTools)
@@ -145,6 +157,9 @@ func deriveChildLimits(cfg config.SubAgentConfig, overrides Limits) Limits {
 // configured extra files) is included so child agents inherit project
 // conventions without the parent forwarding them.
 func buildChildPrompt(p childPromptParams) prompt.AssemblyOptions {
+	if p.workflowMode == "" {
+		p.workflowMode = prompt.DelegatedChildWorkflowMode()
+	}
 	taskContent := p.spec.Task
 	if p.spec.Context != "" {
 		taskContent = fmt.Sprintf("%s\n\nAdditional context:\n%s", p.spec.Task, p.spec.Context)
@@ -166,7 +181,7 @@ func buildChildPrompt(p childPromptParams) prompt.AssemblyOptions {
 		CaveHuman:                 p.caveHuman,
 		SandboxEnabled:            p.sandboxEnabled,
 		SandboxWritableMounts:     append([]string(nil), p.writableMounts...),
-		WorkflowMode:              prompt.DelegatedChildWorkflowMode(),
+		WorkflowMode:              p.workflowMode,
 		Conversation: []provider.Message{
 			msg,
 		},
@@ -186,6 +201,7 @@ func buildChildPrompt(p childPromptParams) prompt.AssemblyOptions {
 // (e.g. multiple bools) could be transposed without compiler protection.
 type childPromptParams struct {
 	spec               Spec
+	workflowMode       prompt.WorkflowMode
 	workDir            string
 	homeDir            string
 	projectContextCfg  config.ProjectContextConfig

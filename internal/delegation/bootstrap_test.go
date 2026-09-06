@@ -42,12 +42,12 @@ func assertSharedChildSystemPrompt(t *testing.T, content string) {
 		"You are steiner, a lean coding agent.",
 		"Core rules:",
 		"Prefer smallest correct change.",
-		"## Work methodology",
-		"This delegated brief is authorization to proceed.",
-		"Do not ask the user for approval, confirmation, or feedback.",
 		"### While editing",
 		"### Verification",
 		"## Final response",
+		"## Delegated task",
+		"This delegated brief authorizes the work.",
+		"Do not ask the user for approval, confirmation, or feedback.",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("shared child system prompt missing %q in %q", want, content)
@@ -113,6 +113,28 @@ func TestChildContextSkips(t *testing.T) {
 			gotProjectContext, gotAgents := childContextSkips(tt.agentType)
 			if gotProjectContext != tt.skipProjectContext || gotAgents != tt.skipAgents {
 				t.Errorf("childContextSkips(%q) = (%v, %v), want (%v, %v)", tt.agentType, gotProjectContext, gotAgents, tt.skipProjectContext, tt.skipAgents)
+			}
+		})
+	}
+}
+
+func TestChildWorkflowMode(t *testing.T) {
+	tests := []struct {
+		agentType AgentType
+		wantMode  prompt.WorkflowMode
+	}{
+		{AgentTypeCode, prompt.DelegatedCodeSubAgentWorkflowMode()},
+		{AgentTypeExplore, prompt.DelegatedNonCodeChildWorkflowMode()},
+		{AgentTypeResearch, prompt.DelegatedNonCodeChildWorkflowMode()},
+		{AgentTypeEvaluate, prompt.DelegatedNonCodeChildWorkflowMode()},
+		{AgentTypeSanityCheck, prompt.DelegatedNonCodeChildWorkflowMode()},
+		{AgentTypeReview, prompt.DelegatedNonCodeChildWorkflowMode()},
+		{AgentTypeVision, prompt.DelegatedNonCodeChildWorkflowMode()},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.agentType), func(t *testing.T) {
+			if got := childWorkflowMode(tt.agentType); got != tt.wantMode {
+				t.Errorf("childWorkflowMode(%q) = %q, want %q", tt.agentType, got, tt.wantMode)
 			}
 		})
 	}

@@ -9,9 +9,11 @@ const identity = "You are steiner, a lean coding agent."
 const (
 	templateDelegation     = "delegation.md.tmpl"
 	templateAdvisor        = "advisor.md.tmpl"
+	templateCodeChild      = "code_child.md.tmpl"
 	templateCoreRules      = "core_rules.md.tmpl"
 	templateToolBatching   = "tool_batching.md.tmpl"
 	templateWorkflow       = "workflow_approval.md.tmpl"
+	templateDelegatedTask  = "delegated_task.md.tmpl"
 	templateSandbox        = "sandbox.md.tmpl"
 	templateExecutionModes = "execution_modes.md.tmpl"
 )
@@ -22,8 +24,10 @@ type workflowMode string
 type WorkflowMode = workflowMode
 
 const (
-	workflowModeParent         workflowMode = "parent"
-	workflowModeDelegatedChild workflowMode = "delegated_child"
+	workflowModeParent                workflowMode = "parent"
+	workflowModeDelegatedChild        workflowMode = "delegated_child"
+	workflowModeDelegatedCodeSubAgent workflowMode = "delegated_code_sub_agent"
+	workflowModeDelegatedNonCodeChild workflowMode = "delegated_non_code_child"
 )
 
 type sectionID string
@@ -33,6 +37,7 @@ const (
 	sectionSandbox        sectionID = "sandbox"
 	sectionDelegation     sectionID = "delegation"
 	sectionAdvisor        sectionID = "advisor"
+	sectionCodeChild      sectionID = "code_child"
 	sectionCoreRules      sectionID = "core_rules"
 	sectionToolBatching   sectionID = "tool_batching"
 	sectionWorkflow       sectionID = "workflow"
@@ -55,6 +60,7 @@ var defaultSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
 	sectionAdvisor,
+	sectionCodeChild,
 	sectionCoreRules,
 	sectionToolBatching,
 	sectionWorkflow,
@@ -85,6 +91,12 @@ var systemSections = map[sectionID]sectionRenderer{
 		}
 		return renderTemplate(templateAdvisor, nil)
 	},
+	sectionCodeChild: func(ctx sectionContext) string {
+		if normalizeWorkflowMode(ctx.workflowMode) != workflowModeDelegatedCodeSubAgent {
+			return ""
+		}
+		return strings.TrimSpace(renderTemplate(templateCodeChild, nil)) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
+	},
 	sectionCoreRules: func(sectionContext) string {
 		return renderTemplate(templateCoreRules, nil)
 	},
@@ -95,7 +107,7 @@ var systemSections = map[sectionID]sectionRenderer{
 		return renderWorkflowInstructions(ctx.workflowMode, ctx.delegationEnabled)
 	},
 	sectionExecutionModes: func(ctx sectionContext) string {
-		if ctx.workflowMode == workflowModeDelegatedChild {
+		if isDelegatedChildMode(ctx.workflowMode) {
 			return ""
 		}
 		return renderTemplate(templateExecutionModes, nil)
@@ -116,7 +128,7 @@ var overrideSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
 	sectionAdvisor,
-	sectionToolBatching,
+	sectionCodeChild,
 	sectionWorkflow,
 }
 
@@ -194,6 +206,7 @@ func systemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
 func buildOverridePreamble(override string, ctx sectionContext) string {
 	sections := renderSections(overrideSectionOrder, ctx)
 	sections = append(sections, override)
+	sections = append(sections, renderSections([]sectionID{sectionToolBatching}, ctx)...)
 	if caveHuman := strings.TrimSpace(systemSections[sectionCaveHuman](ctx)); caveHuman != "" {
 		sections = append(sections, caveHuman)
 	}
@@ -224,22 +237,38 @@ func renderSections(order []sectionID, ctx sectionContext) []string {
 }
 
 func renderWorkflowInstructions(mode workflowMode, delegationEnabled bool) string {
-	return renderTemplate(templateWorkflow, struct {
-		DelegatedChild    bool
+	mode = normalizeWorkflowMode(mode)
+	content := renderTemplate(templateWorkflow, struct {
+		DelegatedCode     bool
+		DelegatedNonCode  bool
 		DelegationEnabled bool
 	}{
-		DelegatedChild:    normalizeWorkflowMode(mode) == workflowModeDelegatedChild,
+		DelegatedCode:     isCodeChildMode(mode),
+		DelegatedNonCode:  mode == workflowModeDelegatedNonCodeChild,
 		DelegationEnabled: delegationEnabled,
 	})
+	if mode == workflowModeDelegatedCodeSubAgent || !isDelegatedChildMode(mode) {
+		return content
+	}
+	return strings.TrimSpace(content) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
 }
 
 func normalizeWorkflowMode(mode workflowMode) workflowMode {
 	switch mode {
-	case workflowModeDelegatedChild:
-		return workflowModeDelegatedChild
+	case workflowModeDelegatedChild, workflowModeDelegatedCodeSubAgent, workflowModeDelegatedNonCodeChild:
+		return mode
 	default:
 		return workflowModeParent
 	}
+}
+
+func isDelegatedChildMode(mode workflowMode) bool {
+	return normalizeWorkflowMode(mode) != workflowModeParent
+}
+
+func isCodeChildMode(mode workflowMode) bool {
+	mode = normalizeWorkflowMode(mode)
+	return mode == workflowModeDelegatedChild || mode == workflowModeDelegatedCodeSubAgent
 }
 
 // ParentWorkflowMode returns the default workflow wording for parent runs.
@@ -247,7 +276,17 @@ func ParentWorkflowMode() workflowMode {
 	return workflowModeParent
 }
 
-// DelegatedChildWorkflowMode returns workflow wording for delegated child runs.
+// DelegatedChildWorkflowMode returns legacy delegated-child workflow wording.
 func DelegatedChildWorkflowMode() workflowMode {
 	return workflowModeDelegatedChild
+}
+
+// DelegatedCodeSubAgentWorkflowMode identifies delegated code sub-agent prompts.
+func DelegatedCodeSubAgentWorkflowMode() workflowMode {
+	return workflowModeDelegatedCodeSubAgent
+}
+
+// DelegatedNonCodeChildWorkflowMode returns workflow wording for delegated non-code child runs.
+func DelegatedNonCodeChildWorkflowMode() workflowMode {
+	return workflowModeDelegatedNonCodeChild
 }

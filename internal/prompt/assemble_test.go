@@ -201,7 +201,7 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 	if !strings.HasPrefix(preamble, testIdentityMarker) {
 		t.Fatalf("preamble block missing identity marker in %q", preamble)
 	}
-	if !strings.HasSuffix(strings.TrimSpace(preamble), "system prompt content") {
+	if !strings.HasSuffix(strings.TrimSpace(preamble), "- Never batch a tool call whose arguments depend on a previous tool call.") {
 		t.Fatalf("preamble block missing override suffix in %q", preamble)
 	}
 	if assembly.Blocks[0].Truncated {
@@ -228,7 +228,7 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 	if !strings.HasPrefix(messagePreamble, testIdentityMarker) {
 		t.Fatalf("preamble message missing identity marker in %q", messagePreamble)
 	}
-	if !strings.HasSuffix(strings.TrimSpace(messagePreamble), "system prompt content") {
+	if !strings.HasSuffix(strings.TrimSpace(messagePreamble), "- Never batch a tool call whose arguments depend on a previous tool call.") {
 		t.Fatalf("preamble message missing override suffix in %q", messagePreamble)
 	}
 	if got, want := assembly.Messages[1].Content, "proj"; got != want {

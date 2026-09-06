@@ -114,7 +114,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			suffix:          "suffix",
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
 			wantAbsent:      []string{testCoreRulesMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -127,7 +127,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			suffix:          "suffix",
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
 			wantAbsent:      []string{testCoreRulesMarker, testSandboxMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -137,7 +137,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			delegation:      false,
 			wantPresent:     []string{testIdentityMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content"},
 			wantAbsent:      []string{testDelegationMarker, testCoreRulesMarker},
-			wantOrder:       []string{testIdentityMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content"},
+			wantOrder:       []string{testIdentityMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker},
 			wantIdentityCnt: 1,
 		},
 		{
@@ -148,7 +148,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			suffix:          "suffix",
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", testCaveHumanMarker, "suffix"},
 			wantAbsent:      []string{testCoreRulesMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", testCaveHumanMarker, "suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, testCaveHumanMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -214,6 +214,32 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOverridePreamblePlacesToolBatchingAfterOverride(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{
+		Override:          "specialist override",
+		DelegationEnabled: true,
+		CaveHuman:         true,
+		Mode:              workflowModeParent,
+		SystemSuffix:      "caller suffix",
+	}).Content
+
+	override := strings.Index(content, "specialist override")
+	batching := strings.Index(content, testToolBatchingMarker)
+	caveHuman := strings.Index(content, testCaveHumanMarker)
+	suffix := strings.Index(content, "caller suffix")
+	if override == -1 || batching == -1 || caveHuman == -1 || suffix == -1 {
+		t.Fatalf("missing ordering marker in %q", content)
+	}
+	if override >= batching {
+		t.Fatalf("override marker at index %d should precede tool batching at index %d in %q", override, batching, content)
+	}
+	if batching >= caveHuman || caveHuman >= suffix {
+		t.Fatalf("expected tool batching, cave-human, and suffix order in %q", content)
 	}
 }
 
@@ -316,6 +342,13 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	}
 }
 
+func boolCount(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 var delegationSectionHeaders = []string{
 	"## Your role",
 	"## Your sub-agents",
@@ -332,13 +365,16 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 		delegation      bool
 		mode            workflowMode
 		wantParallel    bool
+		wantMethodology bool
+		wantWorkflow    bool
 		wantParentRules bool
 		wantChildRules  bool
 		wantDelegation  bool
 	}{
-		{name: "parent delegation enabled", delegation: true, mode: workflowModeParent, wantParallel: true, wantParentRules: true, wantDelegation: true},
-		{name: "parent delegation disabled", delegation: false, mode: workflowModeParent, wantParentRules: true},
-		{name: "delegated child", delegation: false, mode: workflowModeDelegatedChild, wantChildRules: true},
+		{name: "parent delegation enabled", delegation: true, mode: workflowModeParent, wantParallel: true, wantMethodology: true, wantWorkflow: true, wantParentRules: true, wantDelegation: true},
+		{name: "parent delegation disabled", delegation: false, mode: workflowModeParent, wantMethodology: true, wantWorkflow: true, wantParentRules: true},
+		{name: "delegated code child", delegation: false, mode: workflowModeDelegatedChild, wantMethodology: true, wantChildRules: true},
+		{name: "delegated non-code child", delegation: false, mode: workflowModeDelegatedNonCodeChild, wantChildRules: true},
 	}
 
 	for _, tc := range cases {
@@ -348,9 +384,13 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 				Mode:              tc.mode,
 			}).Content
 
-			for _, want := range []string{"## Work methodology", "### While editing", "### Verification", "## Final response"} {
-				if !strings.Contains(content, want) {
-					t.Fatalf("preamble missing %q in %q", want, content)
+			if got := strings.Count(content, "## Work methodology"); got != boolCount(tc.wantWorkflow) {
+				t.Fatalf("workflow heading count = %d, want %d in %q", got, boolCount(tc.wantWorkflow), content)
+			}
+			for _, marker := range []string{"### While editing", "### Verification", "## Final response"} {
+				wantCount := boolCount(tc.wantMethodology)
+				if got := strings.Count(content, marker); got != wantCount {
+					t.Fatalf("methodology marker %q count = %d, want %d in %q", marker, got, wantCount, content)
 				}
 			}
 			if got := strings.Contains(content, "Complete independent deliverables in parallel."); got != tc.wantParallel {
@@ -359,7 +399,7 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 			if got := strings.Contains(content, "### Splitting tasks into deliverables"); got != tc.wantParentRules {
 				t.Fatalf("parent methodology present = %v, want %v", got, tc.wantParentRules)
 			}
-			if got := strings.Contains(content, "This delegated brief is authorization to proceed."); got != tc.wantChildRules {
+			if got := strings.Contains(content, "## Delegated task"); got != tc.wantChildRules {
 				t.Fatalf("child authorization present = %v, want %v", got, tc.wantChildRules)
 			}
 			if got := strings.Contains(content, "## Your sub-agents"); got != tc.wantDelegation {
@@ -378,10 +418,13 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 					}
 				}
 			}
-			if tc.mode == workflowModeDelegatedChild {
-				for _, forbidden := range []string{"## Your role", "## Your sub-agents", "### Planning", "### Splitting tasks into deliverables", "Ask the user for confirmation before editing.", "## Advisor"} {
+			if tc.mode != workflowModeParent {
+				if got := strings.Count(content, "## Delegated task"); got != 1 {
+					t.Fatalf("delegated-task authorization count = %d, want 1 in %q", got, content)
+				}
+				for _, forbidden := range []string{"## Your role", "## Your sub-agents", "## Continuing sub-agents", "## Delegation vs direct work", "## Briefing a sub-agent", "## Advisor", "### Planning", "### Splitting tasks into deliverables", "### Implementing", "Ask the user for confirmation before editing."} {
 					if strings.Contains(content, forbidden) {
-						t.Fatalf("child preamble unexpectedly contains %q in %q", forbidden, content)
+						t.Fatalf("child preamble unexpectedly contains orchestrator marker %q in %q", forbidden, content)
 					}
 				}
 			}
@@ -526,8 +569,8 @@ func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 	}
 
 	child := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeDelegatedChild, CaveHuman: false, SystemSuffix: ""}).Content
-	if !strings.Contains(child, testWorkflowMarker) {
-		t.Fatalf("child preamble missing %q in %q", testWorkflowMarker, child)
+	if strings.Contains(child, testWorkflowMarker) {
+		t.Fatalf("code child unexpectedly contains parent methodology")
 	}
 	if !strings.Contains(child, childApprovalLine) {
 		t.Fatalf("child preamble missing delegated approval line %q in %q", childApprovalLine, child)
@@ -552,6 +595,12 @@ func TestSystemPreambleExecutionModesAbsentInDelegatedChild(t *testing.T) {
 	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: false, Mode: workflowModeDelegatedChild, CaveHuman: false, SystemSuffix: ""}).Content
 	if strings.Contains(content, "## Execution modes") {
 		t.Fatalf("delegated child preamble should not contain execution modes section in %q", content)
+	}
+	for _, mode := range []workflowMode{workflowModeDelegatedNonCodeChild} {
+		content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: mode}).Content
+		if strings.Contains(content, "## Execution modes") {
+			t.Fatalf("non-code delegated child preamble should not contain execution modes section in %q", content)
+		}
 	}
 }
 
@@ -642,6 +691,97 @@ func TestSystemPreambleRoleProseViaOverride(t *testing.T) {
 	}
 	if !strings.Contains(content, "Custom override content") {
 		t.Fatalf("override preamble missing override content in %q", content)
+	}
+}
+
+func TestDelegatedWorkflowProfilesExcludeOrchestratorContent(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		mode     workflowMode
+		override string
+	}{
+		{name: "code", mode: workflowModeDelegatedCodeSubAgent},
+		{name: "code override", mode: workflowModeDelegatedCodeSubAgent, override: "custom override"},
+		{name: "non-code", mode: workflowModeDelegatedNonCodeChild},
+		{name: "non-code override", mode: workflowModeDelegatedNonCodeChild, override: "custom override"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Override: tc.override, Mode: tc.mode}).Content
+			for _, marker := range []string{"## Work methodology", "### Splitting tasks into deliverables", "### Planning", "### Implementing"} {
+				if strings.Contains(content, marker) {
+					t.Fatalf("child contains orchestrator-only marker %q", marker)
+				}
+			}
+			if !strings.Contains(content, "## Delegated task") {
+				t.Fatal("child missing delegated-task authorization")
+			}
+			if tc.mode == workflowModeDelegatedCodeSubAgent {
+				if strings.Count(content, "## Code agent duties") != 1 {
+					t.Fatalf("code child duties count = %d, want 1", strings.Count(content, "## Code agent duties"))
+				}
+				for _, marker := range []string{"### While editing", "### Verification", "## Final response"} {
+					if !strings.Contains(content, marker) {
+						t.Fatalf("code child missing %q", marker)
+					}
+				}
+			} else {
+				for _, marker := range []string{"## Delegated code agent", "## Code agent duties"} {
+					if strings.Contains(content, marker) {
+						t.Fatalf("non-code child contains code-child marker %q", marker)
+					}
+				}
+				for _, marker := range []string{"### While editing", "### Verification", "## Final response"} {
+					if strings.Contains(content, marker) {
+						t.Fatalf("non-code child contains %q", marker)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCodeChildApprovedOpeningOrder(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeDelegatedCodeSubAgent}).Content
+	const roleSentence = "You are steiner's code sub-agent. Complete the task in your brief within its stated scope."
+	markers := []string{testIdentityMarker, roleSentence, "## Code agent duties", "## Delegated task", testCoreRulesMarker}
+	last := -1
+	for _, marker := range markers {
+		idx := strings.Index(content, marker)
+		if idx == -1 {
+			t.Fatalf("code child missing %q in %q", marker, content)
+		}
+		if idx <= last {
+			t.Fatalf("code child marker %q is out of order in %q", marker, content)
+		}
+		last = idx
+	}
+	if got := strings.Count(content, roleSentence); got != 1 {
+		t.Fatalf("code-child role sentence count = %d, want 1", got)
+	}
+}
+
+func TestCodeChildMarkersAbsentFromParentAndNonCode(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		mode workflowMode
+	}{
+		{name: "parent", mode: workflowModeParent},
+		{name: "delegated non-code", mode: workflowModeDelegatedNonCodeChild},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: tc.mode}).Content
+			for _, marker := range []string{"## Delegated code agent", "## Code agent duties"} {
+				if strings.Contains(content, marker) {
+					t.Fatalf("%s contains code-child marker %q", tc.name, marker)
+				}
+			}
+		})
 	}
 }
 

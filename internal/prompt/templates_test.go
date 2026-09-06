@@ -20,11 +20,14 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 			data: struct{ Specialists []specialistView }{Specialists: specialistViews()},
 		},
 		{name: templateAdvisor},
+		{name: templateCodeChild},
 		{name: templateCoreRules},
 		{name: templateWorkflow, data: struct {
-			DelegatedChild    bool
+			DelegatedCode     bool
+			DelegatedNonCode  bool
 			DelegationEnabled bool
-		}{DelegatedChild: true, DelegationEnabled: true}},
+		}{DelegatedCode: true, DelegationEnabled: true}},
+		{name: templateDelegatedTask},
 		{name: templateSandbox, data: struct{ Mounts []string }{Mounts: []string{"/a", "/b"}}},
 		{name: templateExecutionModes},
 		{name: templateCompactionSystem},

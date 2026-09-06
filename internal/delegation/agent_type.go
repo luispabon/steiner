@@ -4,7 +4,6 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
-	"strings"
 )
 
 //go:embed templates/*.txt
@@ -69,7 +68,6 @@ var (
 	sanityCheckPrompt  string
 	reviewPrompt       string
 	visionPrompt       string
-	codeAgentSuffix    string
 	advisorAgentSuffix string
 )
 
@@ -108,7 +106,6 @@ func init() {
 	sanityCheckPrompt = mustLoadTemplate("sanity_check.txt")
 	reviewPrompt = mustLoadTemplate("review.txt")
 	visionPrompt = mustLoadTemplate("vision.txt")
-	codeAgentSuffix = mustLoadTemplate("code_suffix.txt")
 	advisorAgentSuffix = mustLoadTemplate("advisor_suffix.txt")
 }
 
@@ -142,25 +139,11 @@ func AgentAllowedTools(t AgentType) []string {
 	return nil
 }
 
-// AgentSystemSuffix returns the system suffix for the given agent type.
-// When advisorEnabled is true and the agent type supports advisor, appends the
-// advisor guidance to its base suffix.
+// AgentSystemSuffix returns the advisor system suffix for agent types that
+// support advisor. Code-agent duties are rendered by the prompt package.
 func AgentSystemSuffix(t AgentType, advisorEnabled bool) string {
-	baseSuffix := ""
-	if t == AgentTypeCode {
-		baseSuffix = codeAgentSuffix
-	}
-
-	if !advisorEnabled {
-		return baseSuffix
-	}
-
-	if t != AgentTypeCode && t != AgentTypeReview && t != AgentTypeEvaluate {
-		return baseSuffix
-	}
-
-	if baseSuffix != "" {
-		return strings.TrimRight(baseSuffix, "\n") + "\n\n" + advisorAgentSuffix
+	if !advisorEnabled || (t != AgentTypeCode && t != AgentTypeReview && t != AgentTypeEvaluate) {
+		return ""
 	}
 	return advisorAgentSuffix
 }
