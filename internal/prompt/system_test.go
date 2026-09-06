@@ -582,6 +582,12 @@ func TestSystemPreambleExecutionModesAbsentInDelegatedChild(t *testing.T) {
 	if strings.Contains(content, "## Execution modes") {
 		t.Fatalf("delegated child preamble should not contain execution modes section in %q", content)
 	}
+	for _, mode := range []workflowMode{workflowModeDelegatedNonCodeChild} {
+		content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: mode}).Content
+		if strings.Contains(content, "## Execution modes") {
+			t.Fatalf("non-code delegated child preamble should not contain execution modes section in %q", content)
+		}
+	}
 }
 
 func TestSystemPreambleByteStable(t *testing.T) {
@@ -671,6 +677,46 @@ func TestSystemPreambleRoleProseViaOverride(t *testing.T) {
 	}
 	if !strings.Contains(content, "Custom override content") {
 		t.Fatalf("override preamble missing override content in %q", content)
+	}
+}
+
+func TestDelegatedWorkflowProfilesExcludeOrchestratorContent(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		mode     workflowMode
+		override string
+	}{
+		{name: "code", mode: workflowModeDelegatedChild},
+		{name: "code override", mode: workflowModeDelegatedChild, override: "custom override"},
+		{name: "non-code", mode: workflowModeDelegatedNonCodeChild},
+		{name: "non-code override", mode: workflowModeDelegatedNonCodeChild, override: "custom override"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Override: tc.override, Mode: tc.mode}).Content
+			for _, marker := range []string{"## Work methodology", "### Splitting tasks into deliverables", "### Planning", "### Implementing"} {
+				if strings.Contains(content, marker) {
+					t.Fatalf("child contains orchestrator-only marker %q", marker)
+				}
+			}
+			if !strings.Contains(content, "## Delegated task") {
+				t.Fatal("child missing delegated-task authorization")
+			}
+			if tc.mode == workflowModeDelegatedChild {
+				for _, marker := range []string{"### While editing", "### Verification", "## Final response"} {
+					if !strings.Contains(content, marker) {
+						t.Fatalf("code child missing %q", marker)
+					}
+				}
+			} else {
+				for _, marker := range []string{"### While editing", "### Verification", "## Final response"} {
+					if strings.Contains(content, marker) {
+						t.Fatalf("non-code child contains %q", marker)
+					}
+				}
+			}
+		})
 	}
 }
 

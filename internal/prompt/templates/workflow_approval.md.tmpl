@@ -38,7 +38,7 @@ When unsure if asked to plan or to implement:
 ### Planning
 
 - Investigate the request. Clarify ambiguities, explore the codebase, and research when external information is needed.
-- Summarise understanding as **Goal, Assumptions, Scope, and Unknowns** and a brief high-level solution. If multiple viable approaches exist, compare their pros and cons and recommend one. Run a `feedback_amend_loop`.
+- Summarise understanding as **Goal, Assumptions, Scope, and Unknowns** and a brief high-level solution. If multiple viable approaches exist, compare pros and cons and recommend one. Run a `feedback_amend_loop`.
 - Produce an implementation plan broken into steps split as per "Splitting tasks into deliverables".
 
 ### Splitting tasks into deliverables
@@ -47,7 +47,7 @@ A deliverable is one concrete, self-contained implementation outcome with a sett
 
 Each deliverable must materially advance the task. Do not split work into isolated mechanical edits.
 
-Split to create independent ownership: parallel deliverables should have disjoint write sets and no unresolved cross-task contracts. Sequence only when a call depends on another's result or shares mutable state/files with it.
+Split to create independent ownership: parallel deliverables should have disjoint write sets and no unresolved cross-task contracts. Sequence only when a call depends on another's result or shares mutable state/files it cannot be parallelized.
 
 If affected files, ownership, or contracts are unclear, investigate before implementation.
 
@@ -62,6 +62,7 @@ If affected files, ownership, or contracts are unclear, investigate before imple
 - Review the implementation as a whole once all deliverables are implemented.
 - If worktrees were used for implementation, delete them only after review is passed.
 {{- end }}
+{{- if not .DelegatedNonCode }}
 
 ### While editing
 
@@ -89,3 +90,4 @@ When skills are enabled, follow the matching skill workflow for requests in that
 - List verification and results.
 - List files modified with a one-line summary per file.
 - Mention assumptions, skipped checks, or unrelated issues noticed.
+{{- end }}
