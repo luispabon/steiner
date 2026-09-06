@@ -702,8 +702,8 @@ func TestDelegatedWorkflowProfilesExcludeOrchestratorContent(t *testing.T) {
 		mode     workflowMode
 		override string
 	}{
-		{name: "code", mode: workflowModeDelegatedChild},
-		{name: "code override", mode: workflowModeDelegatedChild, override: "custom override"},
+		{name: "code", mode: workflowModeDelegatedCodeSubAgent},
+		{name: "code override", mode: workflowModeDelegatedCodeSubAgent, override: "custom override"},
 		{name: "non-code", mode: workflowModeDelegatedNonCodeChild},
 		{name: "non-code override", mode: workflowModeDelegatedNonCodeChild, override: "custom override"},
 	} {
@@ -717,7 +717,7 @@ func TestDelegatedWorkflowProfilesExcludeOrchestratorContent(t *testing.T) {
 			if !strings.Contains(content, "## Delegated task") {
 				t.Fatal("child missing delegated-task authorization")
 			}
-			if tc.mode == workflowModeDelegatedChild {
+			if tc.mode == workflowModeDelegatedCodeSubAgent {
 				if strings.Count(content, "## Code agent duties") != 1 {
 					t.Fatalf("code child duties count = %d, want 1", strings.Count(content, "## Code agent duties"))
 				}
@@ -745,7 +745,7 @@ func TestDelegatedWorkflowProfilesExcludeOrchestratorContent(t *testing.T) {
 func TestCodeChildApprovedOpeningOrder(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeDelegatedChild}).Content
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeDelegatedCodeSubAgent}).Content
 	markers := []string{testIdentityMarker, "## Delegated code agent", "## Code agent duties", "## Delegated task", testCoreRulesMarker}
 	last := -1
 	for _, marker := range markers {

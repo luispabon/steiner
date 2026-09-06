@@ -26,6 +26,7 @@ type WorkflowMode = workflowMode
 const (
 	workflowModeParent                workflowMode = "parent"
 	workflowModeDelegatedChild        workflowMode = "delegated_child"
+	workflowModeDelegatedCodeSubAgent workflowMode = "delegated_code_sub_agent"
 	workflowModeDelegatedNonCodeChild workflowMode = "delegated_non_code_child"
 )
 
@@ -91,7 +92,7 @@ var systemSections = map[sectionID]sectionRenderer{
 		return renderTemplate(templateAdvisor, nil)
 	},
 	sectionCodeChild: func(ctx sectionContext) string {
-		if normalizeWorkflowMode(ctx.workflowMode) != workflowModeDelegatedChild {
+		if normalizeWorkflowMode(ctx.workflowMode) != workflowModeDelegatedCodeSubAgent {
 			return ""
 		}
 		return strings.TrimSpace(renderTemplate(templateCodeChild, nil)) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
@@ -242,11 +243,11 @@ func renderWorkflowInstructions(mode workflowMode, delegationEnabled bool) strin
 		DelegatedNonCode  bool
 		DelegationEnabled bool
 	}{
-		DelegatedCode:     mode == workflowModeDelegatedChild,
+		DelegatedCode:     isCodeChildMode(mode),
 		DelegatedNonCode:  mode == workflowModeDelegatedNonCodeChild,
 		DelegationEnabled: delegationEnabled,
 	})
-	if mode == workflowModeDelegatedChild || !isDelegatedChildMode(mode) {
+	if mode == workflowModeDelegatedCodeSubAgent || !isDelegatedChildMode(mode) {
 		return content
 	}
 	return strings.TrimSpace(content) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
@@ -254,7 +255,7 @@ func renderWorkflowInstructions(mode workflowMode, delegationEnabled bool) strin
 
 func normalizeWorkflowMode(mode workflowMode) workflowMode {
 	switch mode {
-	case workflowModeDelegatedChild, workflowModeDelegatedNonCodeChild:
+	case workflowModeDelegatedChild, workflowModeDelegatedCodeSubAgent, workflowModeDelegatedNonCodeChild:
 		return mode
 	default:
 		return workflowModeParent
@@ -265,14 +266,24 @@ func isDelegatedChildMode(mode workflowMode) bool {
 	return normalizeWorkflowMode(mode) != workflowModeParent
 }
 
+func isCodeChildMode(mode workflowMode) bool {
+	mode = normalizeWorkflowMode(mode)
+	return mode == workflowModeDelegatedChild || mode == workflowModeDelegatedCodeSubAgent
+}
+
 // ParentWorkflowMode returns the default workflow wording for parent runs.
 func ParentWorkflowMode() workflowMode {
 	return workflowModeParent
 }
 
-// DelegatedChildWorkflowMode returns workflow wording for delegated code child runs.
+// DelegatedChildWorkflowMode returns legacy delegated-child workflow wording.
 func DelegatedChildWorkflowMode() workflowMode {
 	return workflowModeDelegatedChild
+}
+
+// DelegatedCodeSubAgentWorkflowMode identifies delegated code sub-agent prompts.
+func DelegatedCodeSubAgentWorkflowMode() workflowMode {
+	return workflowModeDelegatedCodeSubAgent
 }
 
 // DelegatedNonCodeChildWorkflowMode returns workflow wording for delegated non-code child runs.

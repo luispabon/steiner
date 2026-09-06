@@ -54,6 +54,8 @@ func childWorkflowMode(agentType AgentType) prompt.WorkflowMode {
 	switch agentType {
 	case AgentTypeExplore, AgentTypeResearch, AgentTypeEvaluate, AgentTypeSanityCheck, AgentTypeReview, AgentTypeVision:
 		return prompt.DelegatedNonCodeChildWorkflowMode()
+	case AgentTypeCode:
+		return prompt.DelegatedCodeSubAgentWorkflowMode()
 	default:
 		return prompt.DelegatedChildWorkflowMode()
 	}

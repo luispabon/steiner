@@ -123,7 +123,7 @@ func TestChildWorkflowMode(t *testing.T) {
 		agentType AgentType
 		wantMode  prompt.WorkflowMode
 	}{
-		{AgentTypeCode, prompt.DelegatedChildWorkflowMode()},
+		{AgentTypeCode, prompt.DelegatedCodeSubAgentWorkflowMode()},
 		{AgentTypeExplore, prompt.DelegatedNonCodeChildWorkflowMode()},
 		{AgentTypeResearch, prompt.DelegatedNonCodeChildWorkflowMode()},
 		{AgentTypeEvaluate, prompt.DelegatedNonCodeChildWorkflowMode()},
