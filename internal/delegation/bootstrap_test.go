@@ -118,6 +118,28 @@ func TestChildContextSkips(t *testing.T) {
 	}
 }
 
+func TestChildWorkflowMode(t *testing.T) {
+	tests := []struct {
+		agentType AgentType
+		wantMode  prompt.WorkflowMode
+	}{
+		{AgentTypeCode, prompt.DelegatedChildWorkflowMode()},
+		{AgentTypeExplore, prompt.DelegatedNonCodeChildWorkflowMode()},
+		{AgentTypeResearch, prompt.DelegatedNonCodeChildWorkflowMode()},
+		{AgentTypeEvaluate, prompt.DelegatedNonCodeChildWorkflowMode()},
+		{AgentTypeSanityCheck, prompt.DelegatedNonCodeChildWorkflowMode()},
+		{AgentTypeReview, prompt.DelegatedNonCodeChildWorkflowMode()},
+		{AgentTypeVision, prompt.DelegatedNonCodeChildWorkflowMode()},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.agentType), func(t *testing.T) {
+			if got := childWorkflowMode(tt.agentType); got != tt.wantMode {
+				t.Errorf("childWorkflowMode(%q) = %q, want %q", tt.agentType, got, tt.wantMode)
+			}
+		})
+	}
+}
+
 func TestBuildChildRunUsesOverrideProviderAndModel(t *testing.T) {
 	rawProvider := stubProvider{name: "raw"}
 	resolvedProvider := stubProvider{name: "resolved"}

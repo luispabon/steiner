@@ -342,6 +342,13 @@ func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	}
 }
 
+func boolCount(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 var delegationSectionHeaders = []string{
 	"## Your role",
 	"## Your sub-agents",
@@ -358,13 +365,16 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 		delegation      bool
 		mode            workflowMode
 		wantParallel    bool
+		wantMethodology bool
+		wantWorkflow    bool
 		wantParentRules bool
 		wantChildRules  bool
 		wantDelegation  bool
 	}{
-		{name: "parent delegation enabled", delegation: true, mode: workflowModeParent, wantParallel: true, wantParentRules: true, wantDelegation: true},
-		{name: "parent delegation disabled", delegation: false, mode: workflowModeParent, wantParentRules: true},
-		{name: "delegated child", delegation: false, mode: workflowModeDelegatedChild, wantChildRules: true},
+		{name: "parent delegation enabled", delegation: true, mode: workflowModeParent, wantParallel: true, wantMethodology: true, wantWorkflow: true, wantParentRules: true, wantDelegation: true},
+		{name: "parent delegation disabled", delegation: false, mode: workflowModeParent, wantMethodology: true, wantWorkflow: true, wantParentRules: true},
+		{name: "delegated code child", delegation: false, mode: workflowModeDelegatedChild, wantMethodology: true, wantChildRules: true},
+		{name: "delegated non-code child", delegation: false, mode: workflowModeDelegatedNonCodeChild, wantChildRules: true},
 	}
 
 	for _, tc := range cases {
@@ -373,13 +383,14 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 				DelegationEnabled: tc.delegation,
 				Mode:              tc.mode,
 			}).Content
-			if tc.mode == workflowModeDelegatedChild {
-				return
-			}
 
-			for _, want := range []string{"## Work methodology", "### While editing", "### Verification", "## Final response"} {
-				if !strings.Contains(content, want) {
-					t.Fatalf("preamble missing %q in %q", want, content)
+			if got := strings.Count(content, "## Work methodology"); got != boolCount(tc.wantWorkflow) {
+				t.Fatalf("workflow heading count = %d, want %d in %q", got, boolCount(tc.wantWorkflow), content)
+			}
+			for _, marker := range []string{"### While editing", "### Verification", "## Final response"} {
+				wantCount := boolCount(tc.wantMethodology)
+				if got := strings.Count(content, marker); got != wantCount {
+					t.Fatalf("methodology marker %q count = %d, want %d in %q", marker, got, wantCount, content)
 				}
 			}
 			if got := strings.Contains(content, "Complete independent deliverables in parallel."); got != tc.wantParallel {
@@ -388,7 +399,7 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 			if got := strings.Contains(content, "### Splitting tasks into deliverables"); got != tc.wantParentRules {
 				t.Fatalf("parent methodology present = %v, want %v", got, tc.wantParentRules)
 			}
-			if got := strings.Contains(content, "This delegated brief is authorization to proceed."); got != tc.wantChildRules {
+			if got := strings.Contains(content, "## Delegated task"); got != tc.wantChildRules {
 				t.Fatalf("child authorization present = %v, want %v", got, tc.wantChildRules)
 			}
 			if got := strings.Contains(content, "## Your sub-agents"); got != tc.wantDelegation {
@@ -407,10 +418,13 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 					}
 				}
 			}
-			if tc.mode == workflowModeDelegatedChild {
-				for _, forbidden := range []string{"## Your role", "## Your sub-agents", "### Planning", "### Splitting tasks into deliverables", "Ask the user for confirmation before editing.", "## Advisor"} {
+			if tc.mode != workflowModeParent {
+				if got := strings.Count(content, "## Delegated task"); got != 1 {
+					t.Fatalf("delegated-task authorization count = %d, want 1 in %q", got, content)
+				}
+				for _, forbidden := range []string{"## Your role", "## Your sub-agents", "## Continuing sub-agents", "## Delegation vs direct work", "## Briefing a sub-agent", "## Advisor", "### Planning", "### Splitting tasks into deliverables", "### Implementing", "Ask the user for confirmation before editing."} {
 					if strings.Contains(content, forbidden) {
-						t.Fatalf("child preamble unexpectedly contains %q in %q", forbidden, content)
+						t.Fatalf("child preamble unexpectedly contains orchestrator marker %q in %q", forbidden, content)
 					}
 				}
 			}
