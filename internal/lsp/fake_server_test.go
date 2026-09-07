@@ -71,6 +71,8 @@ type fakeServer struct {
 	exitOnce sync.Once
 	exited   chan struct{}
 	onExit   func()
+	// onDidOpen, when non-nil, is invoked after DidOpen is recorded.
+	onDidOpen func(context.Context, *protocol.DidOpenTextDocumentParams)
 }
 
 func newFakeServer() *fakeServer {
@@ -155,8 +157,11 @@ func (f *fakeServer) Definition(ctx context.Context, params *protocol.Definition
 	return f.definitionResult, nil
 }
 
-func (f *fakeServer) DidOpen(context.Context, *protocol.DidOpenTextDocumentParams) error {
+func (f *fakeServer) DidOpen(ctx context.Context, params *protocol.DidOpenTextDocumentParams) error {
 	f.record("textDocument/didOpen")
+	if f.onDidOpen != nil {
+		f.onDidOpen(ctx, params)
+	}
 	return nil
 }
 
