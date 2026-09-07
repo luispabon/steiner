@@ -130,6 +130,7 @@ type blockingSession struct {
 	diags    chan PublishedDiagnostics
 	progress chan ProgressEvent
 	exited   chan struct{}
+	onClose  func()
 }
 
 func newBlockingSession(entered chan<- struct{}, release <-chan struct{}) *blockingSession {
@@ -161,6 +162,9 @@ func (s *blockingSession) Progress() <-chan ProgressEvent { return s.progress }
 func (s *blockingSession) Exited() <-chan struct{} { return s.exited }
 
 func (s *blockingSession) Close(context.Context) error {
+	if s.onClose != nil {
+		s.onClose()
+	}
 	s.entered <- struct{}{}
 	<-s.release
 	return nil

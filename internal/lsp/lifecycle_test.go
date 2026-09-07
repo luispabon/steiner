@@ -15,6 +15,57 @@ import (
 
 const lifecycleTestTimeout = 5 * time.Second
 
+func TestManagerClosePreservesProcessContextForGracefulSession(t *testing.T) {
+	m := NewManager(config.LSPConfig{}, t.TempDir(), nil, func(string) {}, nil)
+
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	closeChecked := make(chan struct{})
+	m.sessions[sessionKey{server: "test", root: t.TempDir()}] = &entry{
+		state: ServerState{Status: ServerStatusReady},
+		session: &blockingSession{
+			entered:  entered,
+			release:  release,
+			diags:    make(chan PublishedDiagnostics),
+			progress: make(chan ProgressEvent),
+			exited:   make(chan struct{}),
+			onClose: func() {
+				if err := m.spawnCtx.Err(); !errors.Is(err, context.Canceled) {
+					t.Errorf("spawn context error = %v, want context canceled", err)
+				}
+				if err := m.mgrCtx.Err(); err != nil {
+					t.Errorf("process context canceled before graceful close: %v", err)
+				}
+				close(closeChecked)
+			},
+		},
+	}
+
+	closeDone := make(chan struct{})
+	go func() {
+		if err := m.Close(); err != nil {
+			t.Errorf("manager close: %v", err)
+		}
+		close(closeDone)
+	}()
+
+	select {
+	case <-closeChecked:
+	case <-time.After(lifecycleTestTimeout):
+		t.Fatal("timeout waiting for graceful session close")
+	}
+	close(release)
+
+	select {
+	case <-closeDone:
+	case <-time.After(lifecycleTestTimeout):
+		t.Fatal("timeout waiting for manager close")
+	}
+	if err := m.mgrCtx.Err(); !errors.Is(err, context.Canceled) {
+		t.Errorf("process context error = %v, want context canceled after cleanup", err)
+	}
+}
+
 func TestManagerSessionSurvivesRequestContextCancellation(t *testing.T) {
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")

@@ -31,8 +31,10 @@ type Manager struct {
 	warnFn    func(string)
 	stderr    io.Writer
 
-	mgrCtx    context.Context
-	mgrCancel context.CancelFunc
+	mgrCtx      context.Context
+	mgrCancel   context.CancelFunc
+	spawnCtx    context.Context
+	spawnCancel context.CancelFunc
 
 	mu       sync.Mutex
 	sessions map[sessionKey]*entry
@@ -65,6 +67,7 @@ type entry struct {
 // workspace is the default workspace root when no markers are found.
 func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, warnFn func(string), stderr io.Writer) *Manager {
 	mgrCtx, mgrCancel := context.WithCancel(context.Background())
+	spawnCtx, spawnCancel := context.WithCancel(context.Background())
 
 	m := &Manager{
 		cfg:         cfg,
@@ -74,6 +77,8 @@ func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, warnFn func
 		stderr:      stderr,
 		mgrCtx:      mgrCtx,
 		mgrCancel:   mgrCancel,
+		spawnCtx:    spawnCtx,
+		spawnCancel: spawnCancel,
 		sessions:    make(map[sessionKey]*entry),
 		stopReaper:  make(chan struct{}),
 		resultCache: newResultCache(resultCacheMaxEntries),
@@ -228,7 +233,7 @@ func (m *Manager) spawnServer(_ context.Context, _ string, srv config.LSPServerC
 	env := buildServerEnv(os.Environ(), srv, cacheDir)
 
 	// Create a child context with a handshake timeout.
-	spawnCtx, cancel := context.WithTimeout(m.mgrCtx, time.Duration(m.cfg.ReadyTimeout.Duration()))
+	handshakeCtx, cancel := context.WithTimeout(m.spawnCtx, time.Duration(m.cfg.ReadyTimeout.Duration()))
 	defer cancel()
 
 	spec := TransportSpec{
@@ -241,7 +246,7 @@ func (m *Manager) spawnServer(_ context.Context, _ string, srv config.LSPServerC
 		Wrap:                  m.wrap,
 	}
 
-	sess, err := newTransport(spawnCtx, m.mgrCtx, spec)
+	sess, err := newTransport(handshakeCtx, m.mgrCtx, spec)
 	if err != nil {
 		return nil, fmt.Errorf("spawn transport: %w", err)
 	}
@@ -320,7 +325,8 @@ func (m *Manager) ServerStates() []ServerState {
 // Close gracefully shuts down all live sessions and stops the reaper.
 // It is idempotent: calling it multiple times is safe.
 func (m *Manager) Close() error {
-	m.mgrCancel()
+	m.spawnCancel()
+	defer m.mgrCancel()
 
 	if m.resultCache != nil {
 		m.resultCache.clear()
