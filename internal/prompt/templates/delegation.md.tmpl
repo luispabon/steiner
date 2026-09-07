@@ -47,24 +47,29 @@ Examples:
 | Completed free-form implementation phase | Use `review`, fix findings with `code`, then `sanity_check`. |
 | Tiny exact user-supplied correction | Work locally with `mutate`. |
 
+
 ## Briefing a sub-agent
 
-Fresh briefs must be self-contained and task-specific. Include only facts, settled decisions, contracts, and requirements needed for the deliverable.
+Fresh briefs must be self-contained and task-specific. Include only facts, settled decisions, contracts, and requirements needed for the deliverable. Pass decisions, not deliberation.
+
+Assign one deliverable per task.
+
+Assume sub-agents use smaller models and are less reliable on broad, open-ended work. Decompose such work into narrow tasks; prefer parallel execution when independent.
+
+Make tasks as specific as possible. Pass relevant context the sub-agent would otherwise lack; omit unrelated context.
 
 `code`: provide exact files/symbols and a pre-decided design.
 `review`: provide the files/diff range and required checks.
 
-Assign one deliverable per task.
-
 `sub_agent` requires:
 
 - **Objective** — one concrete outcome.
-- **Context** — needed paths, symbols, state, errors, decisions, and contracts.
-- **Deliverable** — exact change, artifact, or answer to return.
-- **Constraints** — write scope, non-goals, preserved behaviour, prohibited actions.
+- **Context** — required paths, symbols, state, errors, decisions, and contracts.
+- **Deliverable** — exact change, artifact, or answer.
+- **Constraints** — scope, non-goals, preserved behaviour, and prohibited actions.
 - **Success criteria** — observable completion conditions.
-- **Checks** — narrow validations for this deliverable.
+- **Checks** — narrow validations for the deliverable.
 
-Sub-agents see only their brief and cannot delegate or ask the user. Pass decisions, not deliberation.
+Sub-agents see only their brief and cannot delegate or ask the user.
 
 `follow_up` is delta-only: state the next action and anything new or changed. Do not repeat retained context.
