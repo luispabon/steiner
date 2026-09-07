@@ -194,6 +194,10 @@ func TestDiagnosticsReplaceNotAppend(t *testing.T) {
 	if result.Items[0].Severity != "warning" {
 		t.Errorf("expected severity 'warning', got %q", result.Items[0].Severity)
 	}
+
+	if result.WindowExpired {
+		t.Error("expected WindowExpired=false (server published)")
+	}
 }
 
 // TestDiagnosticsOtherFilesExcluded tests that publications for unrelated files
@@ -285,6 +289,10 @@ func TestDiagnosticsOtherFilesExcluded(t *testing.T) {
 	if result.Items[0].Message != "opened file error" {
 		t.Errorf("expected message 'opened file error', got %q", result.Items[0].Message)
 	}
+
+	if result.WindowExpired {
+		t.Error("expected WindowExpired=false (server published for requested file)")
+	}
 }
 
 // TestDiagnosticsEmptyWindow tests that an empty window (server never publishes)
@@ -338,6 +346,187 @@ func TestDiagnosticsEmptyWindow(t *testing.T) {
 
 	if result.Truncated {
 		t.Error("expected Truncated=false")
+	}
+}
+
+// TestDiagnosticsEmptyPublication tests that when the server publishes an
+// explicitly EMPTY diagnostics list for the requested file, the result has
+// WindowExpired=false with zero items (scenario 4b: empty publication).
+// This distinguishes from TestDiagnosticsEmptyWindow where the server never
+// publishes at all, yielding WindowExpired=true.
+func TestDiagnosticsEmptyPublication(t *testing.T) {
+	fs := newFakeServer()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	cfg := config.LSPConfig{
+		DiagnosticsWindow: config.MustDuration("50ms"),
+		MaxResults:        100,
+	}
+
+	ent := &entry{
+		state:     ServerState{Status: ServerStatusReady},
+		session:   sess,
+		readiness: newReadiness(cfg),
+	}
+	ent.readiness.markReady()
+
+	// Set up the server to publish an EMPTY diagnostics list.
+	fs.onDidOpen = func(ctx context.Context, params *protocol.DidOpenTextDocumentParams) {
+		go func() {
+			time.Sleep(5 * time.Millisecond)
+			bgCtx := context.WithoutCancel(ctx)
+			// Publish an empty diagnostics list (server says: this file is clean).
+			diagParams := &protocol.PublishDiagnosticsParams{
+				URI:         params.TextDocument.URI,
+				Diagnostics: []protocol.Diagnostic{}, // explicitly empty
+			}
+			fs.notifyDiagnostics(bgCtx, t, diagParams)
+		}()
+	}
+
+	ent.cycleMu.Lock()
+	result, err := (&Manager{cfg: cfg}).collectDiagnostics(ctx, ent, sess, testFile)
+	ent.cycleMu.Unlock()
+
+	if err != nil {
+		t.Fatalf("collectDiagnostics: %v", err)
+	}
+
+	if len(result.Items) != 0 {
+		t.Fatalf("expected 0 diagnostics, got %d", len(result.Items))
+	}
+
+	if result.WindowExpired {
+		t.Error("expected WindowExpired=false (server published empty list)")
+	}
+
+	if result.Truncated {
+		t.Error("expected Truncated=false")
+	}
+}
+
+// TestDiagnosticsDistinguishEmptyVsNone tests that two zero-item cases are
+// distinguishable ONLY via WindowExpired: empty publication (false) vs. no
+// publication (true). Both have len(Items)==0, so WindowExpired is the sole
+// differentiator.
+func TestDiagnosticsDistinguishEmptyVsNone(t *testing.T) {
+	// Test case 1: server publishes empty list
+	{
+		fs := newFakeServer()
+
+		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
+
+		sess, _, err := startFakeSession(ctx, t, fs, nil)
+		if err != nil {
+			t.Fatalf("startFakeSession: %v", err)
+		}
+
+		tmpdir := t.TempDir()
+		testFile := filepath.Join(tmpdir, "test.go")
+		if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+
+		cfg := config.LSPConfig{
+			DiagnosticsWindow: config.MustDuration("50ms"),
+			MaxResults:        100,
+		}
+
+		ent := &entry{
+			state:     ServerState{Status: ServerStatusReady},
+			session:   sess,
+			readiness: newReadiness(cfg),
+		}
+		ent.readiness.markReady()
+
+		fs.onDidOpen = func(ctx context.Context, params *protocol.DidOpenTextDocumentParams) {
+			go func() {
+				time.Sleep(5 * time.Millisecond)
+				bgCtx := context.WithoutCancel(ctx)
+				diagParams := &protocol.PublishDiagnosticsParams{
+					URI:         params.TextDocument.URI,
+					Diagnostics: []protocol.Diagnostic{},
+				}
+				fs.notifyDiagnostics(bgCtx, t, diagParams)
+			}()
+		}
+
+		ent.cycleMu.Lock()
+		result, err := (&Manager{cfg: cfg}).collectDiagnostics(ctx, ent, sess, testFile)
+		ent.cycleMu.Unlock()
+
+		if err != nil {
+			t.Fatalf("case 1 (empty publication): %v", err)
+		}
+
+		if len(result.Items) != 0 {
+			t.Fatalf("case 1: expected 0 items, got %d", len(result.Items))
+		}
+		if result.WindowExpired {
+			t.Error("case 1: expected WindowExpired=false (server published empty list)")
+		}
+	}
+
+	// Test case 2: server never publishes
+	{
+		fs := newFakeServer()
+
+		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
+
+		sess, _, err := startFakeSession(ctx, t, fs, nil)
+		if err != nil {
+			t.Fatalf("startFakeSession: %v", err)
+		}
+
+		tmpdir := t.TempDir()
+		testFile := filepath.Join(tmpdir, "test.go")
+		if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+
+		cfg := config.LSPConfig{
+			DiagnosticsWindow: config.MustDuration("50ms"),
+			MaxResults:        100,
+		}
+
+		ent := &entry{
+			state:     ServerState{Status: ServerStatusReady},
+			session:   sess,
+			readiness: newReadiness(cfg),
+		}
+		ent.readiness.markReady()
+
+		// Don't set onDidOpen, so server never publishes.
+
+		ent.cycleMu.Lock()
+		result, err := (&Manager{cfg: cfg}).collectDiagnostics(ctx, ent, sess, testFile)
+		ent.cycleMu.Unlock()
+
+		if err != nil {
+			t.Fatalf("case 2 (no publication): %v", err)
+		}
+
+		if len(result.Items) != 0 {
+			t.Fatalf("case 2: expected 0 items, got %d", len(result.Items))
+		}
+		if !result.WindowExpired {
+			t.Error("case 2: expected WindowExpired=true (server never published)")
+		}
 	}
 }
 
@@ -411,6 +600,10 @@ func TestDiagnosticsCapAtMaxResults(t *testing.T) {
 
 	if !result.Truncated {
 		t.Error("expected Truncated=true")
+	}
+
+	if result.WindowExpired {
+		t.Error("expected WindowExpired=false (server published)")
 	}
 }
 
@@ -518,6 +711,10 @@ func TestDiagnosticsSeverityOrdering(t *testing.T) {
 			t.Errorf("diagnostic %d: expected message %q, got %q", i, expected[i], item.Message)
 		}
 	}
+
+	if result.WindowExpired {
+		t.Error("expected WindowExpired=false (server published)")
+	}
 }
 
 // TestDiagnosticsStaleNotificationsNotLeaking tests that multiple consecutive
@@ -618,6 +815,10 @@ func TestDiagnosticsStaleNotificationsNotLeaking(t *testing.T) {
 		t.Errorf("first call: expected 'first', got %q", result1.Items[0].Message)
 	}
 
+	if result1.WindowExpired {
+		t.Error("first call: expected WindowExpired=false (server published)")
+	}
+
 	// Second call - should get "second", not "first" (no leak from first call)
 	ent.cycleMu.Lock()
 	result2, err := (&Manager{cfg: cfg}).collectDiagnostics(ctx, ent, sess, testFile)
@@ -635,6 +836,10 @@ func TestDiagnosticsStaleNotificationsNotLeaking(t *testing.T) {
 	}
 	if result2.Items[0].Severity != "warning" {
 		t.Errorf("second call: expected severity 'warning', got %q", result2.Items[0].Severity)
+	}
+
+	if result2.WindowExpired {
+		t.Error("second call: expected WindowExpired=false (server published)")
 	}
 }
 
@@ -776,6 +981,14 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 	}
 	if resultB.Items[0].Message != "diagnostic for B" {
 		t.Errorf("resultB: expected message 'diagnostic for B', got %q", resultB.Items[0].Message)
+	}
+
+	// Both should have WindowExpired=false since both received publications.
+	if resultA.WindowExpired {
+		t.Error("resultA: expected WindowExpired=false (server published)")
+	}
+	if resultB.WindowExpired {
+		t.Error("resultB: expected WindowExpired=false (server published)")
 	}
 
 	// Verify that the recorded method sequence shows two complete non-interleaved cycles.

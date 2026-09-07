@@ -116,8 +116,11 @@ func (m *Manager) collectDiagnostics(ctx context.Context, ent *entry, sess sessi
 				result = flattenAndSortDiagnostics(diags, m.cfg.MaxResults, false, file)
 				return nil
 			case <-windowTimer.C:
-				// Window expired; return collected-so-far, WindowExpired=true.
-				result = flattenAndSortDiagnostics(diags, m.cfg.MaxResults, true, file)
+				// Window expired. Check if we received any publication for the requested file.
+				// WindowExpired=true only if the server never published for this file.
+				// If a publication was received (even with zero items), WindowExpired=false.
+				_, receivedPublication := diags[file]
+				result = flattenAndSortDiagnostics(diags, m.cfg.MaxResults, !receivedPublication, file)
 				return nil
 			case <-sess.Exited():
 				// Server died; return error.
