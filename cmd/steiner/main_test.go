@@ -39,6 +39,12 @@ func restoreEnv(key, value string, present bool) error {
 }
 
 func TestMain(m *testing.M) {
+	// Skip test framework setup if running as LSP helper subprocess.
+	if os.Getenv(lspHelperEnv) != "" {
+		m.Run()
+		return
+	}
+
 	tmp, err := os.MkdirTemp("", "steiner-cmd-test")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create temp dir for cmd tests: %v\n", err)

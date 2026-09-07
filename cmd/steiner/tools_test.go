@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -13,6 +14,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"go.lsp.dev/jsonrpc2"
+	"go.lsp.dev/protocol"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -340,6 +344,177 @@ func mcpFixtureManagerWithCfg(t *testing.T, srv config.MCPServerConfig) *mcp.Man
 	return mgr
 }
 
+// lspHelperEnv is the environment variable that selects re-exec mode for the fake LSP server.
+const lspHelperEnv = "STEINER_LSP_TEST_HELPER"
+
+// TestLSPHelperProcess is not a test: it is the entry point of the child process
+// spawned by lspFixtureManager, and does nothing in a normal test run.
+func TestLSPHelperProcess(t *testing.T) {
+	mode := os.Getenv(lspHelperEnv)
+	switch mode {
+	case "":
+		// Normal test mode, do nothing.
+	case "lsp":
+		// Run as a fake LSP server.
+		runLSPServerHelper()
+	default:
+		t.Fatalf("unknown lsp helper mode %q", mode)
+	}
+}
+
+// runLSPServerHelper implements a minimal in-process LSP server for testing.
+// It speaks the LSP protocol over stdin/stdout.
+func runLSPServerHelper() {
+	ctx := context.Background()
+	stream := jsonrpc2.NewStream(&lspReadWriteCloser{r: os.Stdin, w: os.Stdout})
+	fs := &minimalLSPServer{exited: make(chan struct{})}
+	fs.onExit = func() {
+		close(fs.exited)
+	}
+	_, serverConn, _ := protocol.NewServer(ctx, fs, stream)
+	defer serverConn.Close()
+
+	select {
+	case <-fs.exited:
+	}
+}
+
+// lspReadWriteCloser adapts stdin/stdout pipes to io.ReadWriteCloser.
+type lspReadWriteCloser struct {
+	r io.ReadCloser
+	w io.WriteCloser
+}
+
+func (rwc *lspReadWriteCloser) Read(b []byte) (int, error) {
+	return rwc.r.Read(b)
+}
+
+func (rwc *lspReadWriteCloser) Write(b []byte) (int, error) {
+	return rwc.w.Write(b)
+}
+
+func (rwc *lspReadWriteCloser) Close() error {
+	_ = rwc.w.Close()
+	return rwc.r.Close()
+}
+
+// minimalLSPServer is a minimal LSP server that implements just enough to complete
+// the handshake and report its process ID.
+type minimalLSPServer struct {
+	protocol.UnimplementedServer
+	exited chan struct{}
+	onExit func()
+}
+
+func (s *minimalLSPServer) Initialize(ctx context.Context, params *protocol.InitializeParams) (*protocol.InitializeResult, error) {
+	fmt.Fprintf(os.Stderr, "steiner-lsp-helper-pid=%d\n", os.Getpid())
+	return &protocol.InitializeResult{
+		Capabilities: protocol.ServerCapabilities{
+			DefinitionProvider: protocol.Boolean(true),
+		},
+	}, nil
+}
+
+func (s *minimalLSPServer) Initialized(context.Context, *protocol.InitializedParams) error {
+	return nil
+}
+
+func (s *minimalLSPServer) Shutdown(context.Context) error {
+	return nil
+}
+
+func (s *minimalLSPServer) Exit(context.Context) error {
+	if s.onExit != nil {
+		s.onExit()
+	}
+	return nil
+}
+
+// lspFixtureManagerWithPID spawns a fake LSP server process and returns a connected manager
+// along with the server's process ID. It blocks until the server reaches ServerStatusReady.
+func lspFixtureManagerWithPID(t *testing.T, cacheDir, workDir string) (*lsp.Manager, int) {
+	t.Helper()
+	stderrBuf := &bytes.Buffer{}
+	cfg := config.LSPConfig{
+		Enabled:      true,
+		IdleTimeout:  config.MustDuration("30s"),
+		ReadyTimeout: config.MustDuration("2s"),
+		CacheDir:     cacheDir,
+		Servers: map[string]config.LSPServerConfig{
+			"test": {
+				Enabled:        true,
+				Command:        os.Args[0],
+				Args:           []string{"-test.run=TestLSPHelperProcess"},
+				FileExtensions: []string{".test"},
+				RootMarkers:    []string{"root.marker"},
+				Env:            map[string]string{lspHelperEnv: "lsp"},
+			},
+		},
+	}
+
+	mgr := lsp.NewManager(cfg, workDir, nil, func(string) {}, stderrBuf)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	// Trigger server startup by attempting a tool operation. This forces the
+	// manager to spawn the server and complete the handshake.
+	if err := os.WriteFile(filepath.Join(workDir, "test.test"), []byte("test"), 0o644); err != nil {
+		t.Fatalf("create test file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "root.marker"), []byte(""), 0o644); err != nil {
+		t.Fatalf("create root marker: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	reg := runtimeRegistryWithSinkAndMode(config.Config{
+		Limits: config.LimitsConfig{ToolTimeoutDefault: config.MustDuration("30s")},
+		LSP:    cfg,
+		Tools:  map[string]config.ToolConfig{},
+	}, workDir, nil, false, nil, nil, nil, mgr)
+
+	def, ok := reg.Get("definitions")
+	if !ok {
+		t.Fatal("definitions tool not found in registry")
+	}
+
+	// Call the definitions tool to trigger server startup.
+	_, _ = def.Handler(ctx, map[string]any{"file": filepath.Join(workDir, "test.test"), "line": float64(1), "column": float64(1)})
+
+	// Verify the server reached ready status.
+	states := mgr.ServerStates()
+	if len(states) == 0 {
+		t.Fatalf("no servers in manager after startup (stderr: %s)", stderrBuf.String())
+	}
+	if states[0].Status != lsp.ServerStatusReady {
+		t.Logf("server stderr: %s", stderrBuf.String())
+		t.Fatalf("server status = %v, want ServerStatusReady", states[0].Status)
+	}
+
+	// Extract PID from stderr output.
+	pid, err := extractLSPHelperPID(stderrBuf.String())
+	if err != nil {
+		t.Fatalf("extract LSP helper PID: %v (stderr: %s)", err, stderrBuf.String())
+	}
+
+	return mgr, pid
+}
+
+// extractLSPHelperPID parses the PID from the stderr output of the LSP helper.
+func extractLSPHelperPID(stderr string) (int, error) {
+	for _, line := range strings.Split(stderr, "\n") {
+		if strings.HasPrefix(line, "steiner-lsp-helper-pid=") {
+			pidStr := strings.TrimPrefix(line, "steiner-lsp-helper-pid=")
+			var pid int
+			_, err := fmt.Sscanf(pidStr, "%d", &pid)
+			if err != nil {
+				return 0, fmt.Errorf("parse PID: %w", err)
+			}
+			return pid, nil
+		}
+	}
+	return 0, fmt.Errorf("PID not found in stderr")
+}
+
 // TestLSPToolsRegisteredWhenEnabledWithUnavailableServer verifies that LSP tools
 // register unconditionally based on config, not server state. When lsp.enabled=true
 // and a server's binary does not exist, all three LSP tools still register in the
@@ -443,41 +618,5 @@ func TestLSPRegistryOrderingDeterministic(t *testing.T) {
 	}
 	if want := []string{"definitions", "diagnostics", "references"}; !slices.Equal(lspToolsInRegistry, want) {
 		t.Fatalf("LSP tools in wrong order: got %v, want %v", lspToolsInRegistry, want)
-	}
-}
-
-// TestSessionShutdownTerminatesLSPServers verifies that calling Manager.Close()
-// on session shutdown actually terminates the language server processes.
-func TestSessionShutdownTerminatesLSPServers(t *testing.T) {
-	cfg := registryTestConfig()
-	cfg.LSP = config.LSPConfig{
-		Enabled: true,
-		Servers: map[string]config.LSPServerConfig{
-			"test": {
-				Enabled:        true,
-				Command:        "/nonexistent/fake-lsp-server",
-				FileExtensions: []string{".test"},
-			},
-		},
-	}
-
-	mgr := lsp.NewManager(cfg.LSP, t.TempDir(), nil, func(string) {}, io.Discard)
-	defer mgr.Close()
-
-	// Verify that after close, any existing sessions are terminated.
-	// Since our fake server doesn't exist, there are no sessions to verify,
-	// but we can verify that Close() completes without error.
-	closeErr := mgr.Close()
-	if closeErr != nil {
-		t.Logf("manager.Close() returned: %v (acceptable for unavailable servers)", closeErr)
-	}
-
-	// Verify that server states report the expected status after close.
-	states := mgr.ServerStates()
-	// States should be empty or show failed status (never started since binary doesn't exist).
-	for _, state := range states {
-		if state.Status == lsp.ServerStatusReady || state.Status == lsp.ServerStatusStarting {
-			t.Errorf("server %q in unexpected state %v after close", state.Name, state.Status)
-		}
 	}
 }
