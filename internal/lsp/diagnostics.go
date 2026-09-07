@@ -47,23 +47,11 @@ func (m *Manager) Diagnostics(ctx context.Context, file string) (DiagResult, err
 		return DiagResult{}, err
 	}
 
-	// Await readiness (but don't hold the lock during the wait).
-	incomplete, err := m.awaitReady(ctx, ent)
-	if err != nil {
-		return DiagResult{}, err
-	}
-
-	note := ""
-	if incomplete {
-		note = "server still indexing"
-	}
-
 	// Now acquire the cycle lock and hold it for drain → open → collect → close.
 	ent.cycleMu.Lock()
 	defer ent.cycleMu.Unlock()
 
 	result, err := m.collectDiagnostics(ctx, ent, sess, file)
-	result.Note = note
 
 	// Store in cache only if the result is not provisional.
 	// WindowExpired=true means collection window closed (timer fired) — provisional.
