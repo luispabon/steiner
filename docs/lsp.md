@@ -151,9 +151,10 @@ The harness mirrors `Manager.spawnServer`'s environment: `HOME`,
 `XDG_CACHE_HOME` and `GOCACHE` all point at a per-workspace cache directory. A
 **cold** run is therefore a fresh gopls index *and* a fresh `GOCACHE`, but a
 **warm** `GOMODCACHE` — `GOMODCACHE`, `GOPATH` and `PATH` are inherited from the
-real environment, as they are for a spawned server. A genuine first run on a machine with an empty module cache pays module
-download time on top of every cold number below; that scenario is not measured
-here and is part of what `ready_timeout` protects against.
+real environment, as they are for a spawned server. A genuine first run on a
+machine with an empty module cache pays module download time on top of every
+cold number below; that scenario is not measured here and is part of what
+`ready_timeout` protects against.
 
 ### Workspace load
 
