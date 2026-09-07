@@ -165,7 +165,7 @@ func TestResultsCapAtMaxResults(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	// Create fake locations: 5 of them.
 	locs := make([]Location, 5)
@@ -239,7 +239,7 @@ func TestDefinitionsInvalidPosition(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()

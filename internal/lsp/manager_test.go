@@ -718,7 +718,7 @@ func TestManagerCacheDirExistsAndPersists(t *testing.T) {
 	}
 
 	// Close shouldn't delete the cache directory.
-	m.Close()
+	_ = m.Close()
 
 	// Cache should still exist.
 	if _, err := os.Stat(filepath.Join(cacheDir, "steiner", "lsp")); err != nil {

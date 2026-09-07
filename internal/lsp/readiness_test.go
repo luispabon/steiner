@@ -32,7 +32,7 @@ func TestReadinessBegEndFlipsReady(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
 	go m.trackReadiness(ent, sess, ent.readiness)
@@ -96,7 +96,7 @@ func TestReadinessNoProgressFlipsReadyAfterGracePeriod(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
 	go m.trackReadiness(ent, sess, ent.readiness)
@@ -136,7 +136,7 @@ func TestReadinessUnterminatedBeginReturnsIncompleteAfterTimeout(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
 	go m.trackReadiness(ent, sess, ent.readiness)
@@ -184,7 +184,7 @@ func TestReadinessCancelledCtx(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
 	go m.trackReadiness(ent, sess, ent.readiness)
@@ -225,7 +225,7 @@ func TestReadinessServerExitWhileBlocked(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
 	go m.trackReadiness(ent, sess, ent.readiness)
@@ -267,7 +267,7 @@ func TestReadinessConcurrentAwaiters(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
 	go m.trackReadiness(ent, sess, ent.readiness)
@@ -328,7 +328,7 @@ func TestReadinessMultipleTokens(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
 	go m.trackReadiness(ent, sess, ent.readiness)
@@ -388,7 +388,7 @@ func TestReadinessIgnoreOrphanEnd(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
 	go m.trackReadiness(ent, sess, ent.readiness)
@@ -465,7 +465,7 @@ func TestReadinessReadyBeforeTimeoutThenAwaitAfter(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
 	go m.trackReadiness(ent, sess, ent.readiness)
@@ -531,7 +531,7 @@ func TestReadinessServerExitThenAwaitAfter(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
 	go m.trackReadiness(ent, sess, ent.readiness)
