@@ -398,6 +398,26 @@ func (rwc *lspReadWriteCloser) Close() error {
 	return rwc.r.Close()
 }
 
+// syncBuffer is a thread-safe bytes.Buffer wrapper for concurrent read/write access.
+// It protects concurrent writes from io.Copy (spawned by os/exec) and reads from the test
+// goroutine with a mutex.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 // minimalLSPServer is a minimal LSP server that implements just enough to complete
 // the handshake and report its process ID.
 type minimalLSPServer struct {
@@ -434,7 +454,7 @@ func (s *minimalLSPServer) Exit(context.Context) error {
 // along with the server's process ID. It blocks until the server reaches ServerStatusReady.
 func lspFixtureManagerWithPID(t *testing.T, cacheDir, workDir string) (*lsp.Manager, int) {
 	t.Helper()
-	stderrBuf := &bytes.Buffer{}
+	stderrBuf := &syncBuffer{}
 	cfg := config.LSPConfig{
 		Enabled:      true,
 		IdleTimeout:  config.MustDuration("30s"),
