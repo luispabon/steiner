@@ -49,7 +49,7 @@ func TestManagerExtensionRouting(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
 	defer cancel()
@@ -92,7 +92,7 @@ func TestManagerNoServerForExtension(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
 	defer cancel()
@@ -145,7 +145,7 @@ func TestManagerNearestRootWins(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
 	defer cancel()

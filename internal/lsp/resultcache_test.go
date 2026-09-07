@@ -300,16 +300,17 @@ func TestResultCache_ConcurrentAccess_RaceFree(t *testing.T) {
 				}
 
 				// Mix of gets and puts
-				if iter%3 == 0 {
+				switch iter % 3 {
+				case 0:
 					// Get (read)
 					cache.get(key)
-				} else if iter%3 == 1 {
+				case 1:
 					// Put (write)
 					result := &Result{
 						Locations: []Location{{File: fmt.Sprintf("/root/file%d.go", keyIdx), Line: keyIdx + 1, Column: 1}},
 					}
 					cache.put(key, result)
-				} else {
+				default:
 					// Clear
 					cache.clear()
 				}
