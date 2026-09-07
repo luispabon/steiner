@@ -510,6 +510,12 @@ func lspFixtureManagerWithPID(t *testing.T, cacheDir, workDir string) (*lsp.Mana
 		t.Fatalf("server status = %v, want ServerStatusReady", states[0].Status)
 	}
 
+	// os/exec copies child stderr asynchronously, so wait briefly for the PID line.
+	deadline := time.Now().Add(time.Second)
+	for !strings.Contains(stderrBuf.String(), "steiner-lsp-helper-pid=") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	// Extract PID from stderr output.
 	pid, err := extractLSPHelperPID(stderrBuf.String())
 	if err != nil {
