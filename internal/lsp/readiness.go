@@ -21,13 +21,12 @@ const (
 // progress cycle completes, when ReadyGracePeriod elapses without any begin,
 // or when ReadyTimeout elapses with an incomplete begin/end cycle.
 // The state is read-only after readyCh closes.
+// State transitions are owned exclusively by trackReadiness; awaitReady is a passive observer.
 type readiness struct {
 	state        readinessState
 	readyCh      chan struct{}
-	startedAt    time.Time
 	openTokens   map[string]struct{}
 	completedOne bool
-	cfg          config.LSPConfig
 }
 
 // newReadiness creates a readiness tracker for a newly-spawned session.
@@ -35,9 +34,7 @@ func newReadiness(cfg config.LSPConfig) *readiness {
 	return &readiness{
 		state:      readinessNotReady,
 		readyCh:    make(chan struct{}),
-		startedAt:  time.Now(),
 		openTokens: make(map[string]struct{}),
-		cfg:        cfg,
 	}
 }
 
@@ -86,46 +83,29 @@ func (m *Manager) awaitReady(ctx context.Context, e *entry) (incomplete bool, er
 		return false, nil
 	}
 
-	remaining := time.Duration(m.cfg.ReadyTimeout.Duration()) - time.Since(r.startedAt)
-	if remaining < 0 {
-		remaining = 0
-	}
-
-	timer := time.NewTimer(remaining)
-	defer timer.Stop()
-
 	select {
 	case <-r.readyCh:
 		e.mu.Lock()
 		isTimedOut := r.state == readinessTimedOut
 		e.mu.Unlock()
 		return isTimedOut, nil
-	case <-timer.C:
-		e.mu.Lock()
-		r.markTimedOut()
-		e.mu.Unlock()
-		return true, nil
 	case <-ctx.Done():
 		return false, ctx.Err()
 	case <-sess.Exited():
 		return false, errServerExited
+	case <-m.mgrCtx.Done():
+		return false, m.mgrCtx.Err()
 	}
 }
 
 // trackReadiness consumes progress events from the session and manages the
 // readiness state. It runs as a background goroutine started once the session
 // becomes live. It is responsible for closing e.readiness.readyCh when
-// readiness is determined (ready or timedOut), and for exiting cleanly when
-// the session ends or the manager context is cancelled.
+// readiness is determined (ready or timedOut) via markReady() or markTimedOut().
+// It exits cleanly when the session ends or the manager context is cancelled,
+// leaving the state unmodified for those cases; awaitReady independently
+// observes sess.Exited() or caller ctx.Done() to signal early exit.
 func (m *Manager) trackReadiness(e *entry, sess session, r *readiness) {
-	defer func() {
-		e.mu.Lock()
-		if !r.isTerminal() {
-			close(r.readyCh)
-		}
-		e.mu.Unlock()
-	}()
-
 	gracePeriodTimer := time.NewTimer(time.Duration(m.cfg.ReadyGracePeriod.Duration()))
 	defer gracePeriodTimer.Stop()
 

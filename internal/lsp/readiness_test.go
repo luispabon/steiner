@@ -441,3 +441,138 @@ func TestReadinessIgnoreOrphanEnd(t *testing.T) {
 		t.Error("awaitReady returned incomplete=true, want false")
 	}
 }
+
+// TestReadinessReadyBeforeTimeoutThenAwaitAfter verifies that when readiness
+// reaches ready before timeout, a caller invoking awaitReady after the timeout
+// window has passed still correctly returns incomplete=false. This tests that
+// the redundant timer race condition does not exist.
+func TestReadinessReadyBeforeTimeoutThenAwaitAfter(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	cfg := config.LSPConfig{
+		ReadyTimeout:     config.MustDuration("50ms"),
+		ReadyGracePeriod: config.MustDuration("20ms"),
+	}
+
+	tmpdir := t.TempDir()
+	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	defer m.Close()
+
+	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	go m.trackReadiness(ent, sess, ent.readiness)
+
+	// Send begin/end to trigger readiness immediately.
+	begin, _ := json.Marshal(protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading workspace"})
+	progressParams := protocol.ProgressParams{
+		Token: protocol.String("token1"),
+		Value: protocol.LSPAny(begin),
+	}
+	if err := fs.client.Progress(ctx, &progressParams); err != nil {
+		t.Fatalf("send begin: %v", err)
+	}
+
+	end, _ := json.Marshal(protocol.WorkDoneProgressEnd{Kind: "end"})
+	progressParams.Value = protocol.LSPAny(end)
+	if err := fs.client.Progress(ctx, &progressParams); err != nil {
+		t.Fatalf("send end: %v", err)
+	}
+
+	// Wait for readyCh to close, confirming readiness was reached.
+	select {
+	case <-ent.readiness.readyCh:
+		// readyCh closed, readiness reached as expected.
+	case <-time.After(1 * time.Second):
+		t.Fatal("readyCh never closed; readiness was not determined")
+	}
+
+	// Sleep past the ReadyTimeout to exercise the race window on the old code.
+	time.Sleep(100 * time.Millisecond)
+
+	// Now call awaitReady. On the broken code, this could race with the redundant timer
+	// and incorrectly return incomplete=true. On the fixed code, it must return
+	// incomplete=false deterministically.
+	incomplete, err := m.awaitReady(ctx, ent)
+
+	if err != nil {
+		t.Errorf("awaitReady: %v", err)
+	}
+	if incomplete {
+		t.Error("awaitReady returned incomplete=true, want false (readiness was reached before timeout)")
+	}
+}
+
+// TestReadinessServerExitThenAwaitAfter verifies that when the server exits
+// while notReady, a caller invoking awaitReady after the exit has already
+// happened correctly returns errServerExited (not falsely claiming readiness).
+// This tests that the defer's channel-close-without-state bug does not exist.
+func TestReadinessServerExitThenAwaitAfter(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	sess, proc, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	cfg := config.LSPConfig{
+		ReadyTimeout:     config.MustDuration("5s"),
+		ReadyGracePeriod: config.MustDuration("5s"),
+	}
+
+	tmpdir := t.TempDir()
+	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	defer m.Close()
+
+	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	go m.trackReadiness(ent, sess, ent.readiness)
+
+	// Send only begin, no end, so readiness stays notReady.
+	begin, _ := json.Marshal(protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading"})
+	progressParams := protocol.ProgressParams{
+		Token: protocol.String("token1"),
+		Value: protocol.LSPAny(begin),
+	}
+	if err := fs.client.Progress(ctx, &progressParams); err != nil {
+		t.Fatalf("send begin: %v", err)
+	}
+
+	// Exit the server while notReady.
+	proc.markExited()
+
+	// Give trackReadiness time to exit and handle the exit case.
+	time.Sleep(50 * time.Millisecond)
+
+	// Now call awaitReady after the exit has already happened.
+	// On the broken code, readyCh would be closed (by the defer) but state
+	// would still be notReady, causing it to falsely return (false, nil).
+	// On the fixed code, it must return errServerExited.
+	incomplete, err := m.awaitReady(ctx, ent)
+
+	if err != errServerExited {
+		t.Errorf("awaitReady returned %v, want errServerExited", err)
+	}
+
+	// Verify the invariant: readyCh must still be open and state must be notReady
+	// (on the broken code, the defer closes readyCh without setting state).
+	ent.mu.Lock()
+	r := ent.readiness
+	select {
+	case <-r.readyCh:
+		t.Error("readyCh closed without terminal state; the defer bug exists")
+	default:
+		// readyCh still open, as expected on the fixed code.
+	}
+	if r.isTerminal() {
+		t.Error("readiness state is terminal after server exit; should stay notReady")
+	}
+	ent.mu.Unlock()
+	_ = incomplete
+}
