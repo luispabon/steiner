@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luispabon/steiner/internal/config"
 	"go.lsp.dev/protocol"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 func TestDefinitionsSingleLocation(t *testing.T) {
@@ -393,16 +394,17 @@ func isNonInterleavedSequence(methods []string) bool {
 	// Extract two cycles: each cycle is didOpen → definition → didClose.
 	cycles := 0
 	for i < len(methods) {
-		if i+3 <= len(methods) &&
+		switch {
+		case i+3 <= len(methods) &&
 			methods[i] == "textDocument/didOpen" &&
 			methods[i+1] == "textDocument/definition" &&
-			methods[i+2] == "textDocument/didClose" {
+			methods[i+2] == "textDocument/didClose":
 			cycles++
 			i += 3
-		} else if i < len(methods) && methods[i] == "textDocument/didOpen" {
+		case i < len(methods) && methods[i] == "textDocument/didOpen":
 			// Found a didOpen at position i, but it's not followed by the expected sequence.
 			return false
-		} else {
+		default:
 			// Skip non-cycle methods.
 			i++
 		}

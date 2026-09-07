@@ -3,6 +3,7 @@ package lsp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -146,7 +147,8 @@ func TestCacheDirLocationStructure(t *testing.T) {
 
 	// Verify the structure is <configDir>/steiner/lsp/<hash>
 	expectedBase := filepath.Join(configDir, "steiner", "lsp")
-	if !filepath.HasPrefix(dir, expectedBase) {
-		t.Errorf("cache dir %q does not start with expected base %q", dir, expectedBase)
+	rel, err := filepath.Rel(expectedBase, dir)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		t.Errorf("cache dir %q is not under expected base %q", dir, expectedBase)
 	}
 }

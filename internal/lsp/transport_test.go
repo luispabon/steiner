@@ -42,11 +42,9 @@ func runLSPServerHelper() {
 	stream := jsonrpc2.NewStream(&readWriteCloser{r: os.Stdin, w: os.Stdout})
 	fs := fakeServerForHelper()
 	_, serverConn, _ := protocol.NewServer(ctx, fs, stream)
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
-	select {
-	case <-fs.exited:
-	}
+	<-fs.exited
 }
 
 // fakeServerForHelper creates a minimal LSP server for helper process testing.

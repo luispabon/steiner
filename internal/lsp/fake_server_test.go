@@ -147,7 +147,7 @@ func (f *fakeServer) Initialized(context.Context, *protocol.InitializedParams) e
 	return nil
 }
 
-func (f *fakeServer) Definition(ctx context.Context, params *protocol.DefinitionParams) (protocol.DefinitionResult, error) {
+func (f *fakeServer) Definition(ctx context.Context, _ *protocol.DefinitionParams) (protocol.DefinitionResult, error) {
 	f.record("textDocument/definition")
 	if f.definitionHold != nil {
 		select {

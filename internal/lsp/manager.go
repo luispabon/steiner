@@ -102,10 +102,7 @@ func (m *Manager) entryFor(ctx context.Context, file string) (*entry, session, e
 	m.mu.Unlock()
 
 	// Resolve the root.
-	root, err := resolveRoot(file, m.workspace, srv.RootMarkers)
-	if err != nil {
-		return nil, nil, fmt.Errorf("resolve root: %w", err)
-	}
+	root := resolveRoot(file, m.workspace, srv.RootMarkers)
 
 	key := sessionKey{server: serverName, root: root}
 
@@ -208,16 +205,13 @@ func (m *Manager) resolveSessionKey(file string) (sessionKey, bool) {
 		return sessionKey{}, false // no server for this extension
 	}
 
-	root, err := resolveRoot(file, m.workspace, m.cfg.Servers[serverName].RootMarkers)
-	if err != nil {
-		return sessionKey{}, false // cache is best-effort; skip on error
-	}
+	root := resolveRoot(file, m.workspace, m.cfg.Servers[serverName].RootMarkers)
 
 	return sessionKey{server: serverName, root: root}, true
 }
 
 // spawnServer spawns a single server process with the configured environment.
-func (m *Manager) spawnServer(ctx context.Context, serverName string, srv config.LSPServerConfig, root string) (session, error) {
+func (m *Manager) spawnServer(_ context.Context, _ string, srv config.LSPServerConfig, root string) (session, error) {
 	// Get cache directory for this root.
 	cacheDir, err := cacheDirFor(m.cfg.CacheDir, root)
 	if err != nil {

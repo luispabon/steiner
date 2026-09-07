@@ -45,7 +45,7 @@ func TestManagerSessionSurvivesRequestContextCancellation(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx1, cancel1 := context.WithTimeout(context.Background(), lifecycleTestTimeout)
 	defer cancel1()
@@ -104,7 +104,7 @@ func TestManagerReaperDoesNotKillInFlightRequests(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), lifecycleTestTimeout)
 	defer cancel()
@@ -148,7 +148,7 @@ func TestManagerIdleTimeoutZeroDisablesReaping(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	// Should not panic; reaper should not be started.
 	// This test just checks that zero timeout doesn't cause a panic.
@@ -210,7 +210,7 @@ func TestManagerFailedEntryRetryAfterCooldown(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), lifecycleTestTimeout)
 	defer cancel()

@@ -81,7 +81,7 @@ func (m *Manager) Diagnostics(ctx context.Context, file string) (DiagResult, err
 
 // collectDiagnostics holds entry.cycleMu and implements the drain-then-collect cycle.
 // The caller must already hold ent.cycleMu.
-func (m *Manager) collectDiagnostics(ctx context.Context, ent *entry, sess session, file string) (DiagResult, error) {
+func (m *Manager) collectDiagnostics(ctx context.Context, _ *entry, sess session, file string) (DiagResult, error) {
 	// Drain stale notifications from a prior call so they don't leak into this result.
 	// We're holding cycleMu, so no other caller can be draining concurrently.
 	drainDiagnostics(sess.Diagnostics())

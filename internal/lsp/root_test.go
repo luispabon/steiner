@@ -17,7 +17,7 @@ func TestResolveRoot(t *testing.T) {
 			setup: func(t *testing.T) (string, string, string) {
 				tmpdir := t.TempDir()
 				rootMarker := filepath.Join(tmpdir, "go.mod")
-				if err := writeFile(rootMarker, ""); err != nil {
+				if err := writeFile(rootMarker); err != nil {
 					t.Fatal(err)
 				}
 				subdir := filepath.Join(tmpdir, "pkg", "a")
@@ -34,13 +34,13 @@ func TestResolveRoot(t *testing.T) {
 			setup: func(t *testing.T) (string, string, string) {
 				tmpdir := t.TempDir()
 				outerMarker := filepath.Join(tmpdir, "go.mod")
-				if err := writeFile(outerMarker, ""); err != nil {
+				if err := writeFile(outerMarker); err != nil {
 					t.Fatal(err)
 				}
 
 				subdir := filepath.Join(tmpdir, "pkg")
 				innerMarker := filepath.Join(subdir, "go.mod")
-				if err := writeFile(innerMarker, ""); err != nil {
+				if err := writeFile(innerMarker); err != nil {
 					t.Fatal(err)
 				}
 
@@ -67,7 +67,7 @@ func TestResolveRoot(t *testing.T) {
 			setup: func(t *testing.T) (string, string, string) {
 				tmpdir := t.TempDir()
 				marker := filepath.Join(tmpdir, "pyproject.toml")
-				if err := writeFile(marker, ""); err != nil {
+				if err := writeFile(marker); err != nil {
 					t.Fatal(err)
 				}
 				subdir := filepath.Join(tmpdir, "pkg", "a")
@@ -84,10 +84,7 @@ func TestResolveRoot(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			file, workspace, wantRoot := tt.setup(t)
-			got, err := resolveRoot(file, workspace, tt.markers)
-			if err != nil {
-				t.Fatalf("resolveRoot: %v", err)
-			}
+			got := resolveRoot(file, workspace, tt.markers)
 
 			if got != wantRoot {
 				t.Errorf("resolveRoot = %q, want %q", got, wantRoot)
@@ -96,11 +93,11 @@ func TestResolveRoot(t *testing.T) {
 	}
 }
 
-func writeFile(path, content string) error {
+func writeFile(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	return os.WriteFile(path, []byte(""), 0o644)
 }
 
 func mkdirAll(path string) error {

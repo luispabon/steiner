@@ -30,7 +30,7 @@ type readiness struct {
 }
 
 // newReadiness creates a readiness tracker for a newly-spawned session.
-func newReadiness(cfg config.LSPConfig) *readiness {
+func newReadiness(_ config.LSPConfig) *readiness {
 	return &readiness{
 		state:      readinessNotReady,
 		readyCh:    make(chan struct{}),

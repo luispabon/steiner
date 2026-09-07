@@ -3,12 +3,14 @@ package lsp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/luispabon/steiner/internal/config"
 	"go.lsp.dev/protocol"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 // TestReadinessBegEndFlipsReady verifies that a single begin/end cycle marks
@@ -194,7 +196,7 @@ func TestReadinessCancelledCtx(t *testing.T) {
 	incomplete, err := m.awaitReady(cancelCtx, ent)
 	elapsed := time.Since(start)
 
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("awaitReady returned %v, want context.Canceled", err)
 	}
 	if elapsed >= 1*time.Second {
@@ -236,7 +238,7 @@ func TestReadinessServerExitWhileBlocked(t *testing.T) {
 	incomplete, err := m.awaitReady(ctx, ent)
 	elapsed := time.Since(start)
 
-	if err != errServerExited {
+	if !errors.Is(err, errServerExited) {
 		t.Errorf("awaitReady returned %v, want errServerExited", err)
 	}
 	if elapsed >= 1*time.Second {
@@ -300,7 +302,7 @@ func TestReadinessConcurrentAwaiters(t *testing.T) {
 		if res.incomplete != firstIncomplete {
 			t.Errorf("goroutine %d: incomplete=%v, want %v", i, res.incomplete, firstIncomplete)
 		}
-		if res.err != firstErr {
+		if !errors.Is(res.err, firstErr) {
 			t.Errorf("goroutine %d: err=%v, want %v", i, res.err, firstErr)
 		}
 	}
@@ -556,7 +558,7 @@ func TestReadinessServerExitThenAwaitAfter(t *testing.T) {
 	// On the fixed code, it must return errServerExited.
 	incomplete, err := m.awaitReady(ctx, ent)
 
-	if err != errServerExited {
+	if !errors.Is(err, errServerExited) {
 		t.Errorf("awaitReady returned %v, want errServerExited", err)
 	}
 

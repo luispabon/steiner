@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luispabon/steiner/internal/config"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 // TestDiagnosticsSinglePublication tests that a single publication for the
@@ -759,7 +760,6 @@ func TestDiagnosticsStaleNotificationsNotLeaking(t *testing.T) {
 			firstCallDone = true
 			go func() {
 				time.Sleep(5 * time.Millisecond)
-				bgCtx := context.WithoutCancel(ctx)
 				diagParams := &protocol.PublishDiagnosticsParams{
 					URI: params.TextDocument.URI,
 					Diagnostics: []protocol.Diagnostic{
@@ -773,7 +773,7 @@ func TestDiagnosticsStaleNotificationsNotLeaking(t *testing.T) {
 						},
 					},
 				}
-				bgCtx = context.WithoutCancel(ctx)
+				bgCtx := context.WithoutCancel(ctx)
 				fs.notifyDiagnostics(bgCtx, t, diagParams)
 			}()
 		} else {
@@ -893,11 +893,12 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 			bgCtx := context.WithoutCancel(ctx)
 			// Publish diagnostics specific to the opened file.
 			var msg string
-			if currentOpenedFile == fileA {
+			switch currentOpenedFile {
+			case fileA:
 				msg = "diagnostic for A"
-			} else if currentOpenedFile == fileB {
+			case fileB:
 				msg = "diagnostic for B"
-			} else {
+			default:
 				return
 			}
 
@@ -1016,15 +1017,16 @@ func isNonInterleavedDiagnosticsCycles(methods []string) bool {
 	// Extract two cycles: each cycle is didOpen → didClose.
 	cycles := 0
 	for i < len(methods) {
-		if i+2 <= len(methods) &&
+		switch {
+		case i+2 <= len(methods) &&
 			methods[i] == "textDocument/didOpen" &&
-			methods[i+1] == "textDocument/didClose" {
+			methods[i+1] == "textDocument/didClose":
 			cycles++
 			i += 2
-		} else if i < len(methods) && methods[i] == "textDocument/didOpen" {
+		case i < len(methods) && methods[i] == "textDocument/didOpen":
 			// Found a didOpen at position i, but it's not followed by didClose.
 			return false
-		} else {
+		default:
 			// Skip non-cycle methods.
 			i++
 		}

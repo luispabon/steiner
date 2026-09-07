@@ -12,7 +12,7 @@ import (
 func TestToolDefsCount(t *testing.T) {
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
 	if len(defs) != 3 {
@@ -23,7 +23,7 @@ func TestToolDefsCount(t *testing.T) {
 func TestToolDefsNames(t *testing.T) {
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
 	expectedNames := []string{"definitions", "references", "diagnostics"}
@@ -61,11 +61,11 @@ func TestToolDefsOrdering(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m1 := NewManager(tt.cfg, "/workspace", nil, func(string) {}, nil)
-			defer m1.Close()
+			defer func() { _ = m1.Close() }()
 			defs1 := ToolDefs(m1)
 
 			m2 := NewManager(tt.cfg, "/workspace", nil, func(string) {}, nil)
-			defer m2.Close()
+			defer func() { _ = m2.Close() }()
 			defs2 := ToolDefs(m2)
 
 			if len(defs1) != len(defs2) {
@@ -95,7 +95,7 @@ func TestToolDefsOrdering(t *testing.T) {
 func TestToolDefsParallelSafe(t *testing.T) {
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
 	for _, def := range defs {
@@ -108,7 +108,7 @@ func TestToolDefsParallelSafe(t *testing.T) {
 func TestToolDefsSchemas(t *testing.T) {
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
 
@@ -179,7 +179,7 @@ func TestReferencesIncludeDeclarationDefault(t *testing.T) {
 		},
 	}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
 	refTool := defs[1]
@@ -200,7 +200,7 @@ func TestReferencesIncludeDeclarationDefault(t *testing.T) {
 func TestNoServerError(t *testing.T) {
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
 
@@ -239,7 +239,7 @@ func TestServerExitedError(t *testing.T) {
 		},
 	}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	result, goErr := handleNavigationError(m, "test.go", errServerExited)
 	msg, ok := result.(string)
@@ -266,7 +266,7 @@ func TestFailedServerError(t *testing.T) {
 		},
 	}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	err := errors.New("other error")
 
@@ -274,7 +274,7 @@ func TestFailedServerError(t *testing.T) {
 	if result != nil {
 		t.Errorf("handleNavigationError returned non-nil result for non-unavailable error: %v", result)
 	}
-	if goErr == nil || goErr != err {
+	if goErr == nil || !errors.Is(goErr, err) {
 		t.Errorf("handleNavigationError should return original error, got %v", goErr)
 	}
 }
