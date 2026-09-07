@@ -42,10 +42,11 @@ type sessionKey struct {
 
 // entry tracks one active server session.
 type entry struct {
-	state   ServerState
-	session session
-	mu      sync.Mutex
-	ready   chan struct{}
+	state     ServerState
+	session   session
+	readiness *readiness
+	mu        sync.Mutex
+	ready     chan struct{}
 }
 
 // NewManager creates a Manager with the given configuration.
@@ -168,7 +169,11 @@ func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) 
 
 			ent.state.Status = ServerStatusReady
 			ent.session = sess
+			r := newReadiness(m.cfg)
+			ent.readiness = r
 			ent.mu.Unlock()
+
+			go m.trackReadiness(ent, sess, r)
 
 			return sess, nil
 		default:
