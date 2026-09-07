@@ -32,6 +32,8 @@ type Manager struct {
 
 	reapTicker *time.Ticker
 	stopReaper chan struct{}
+
+	resultCache *resultCache
 }
 
 // sessionKey uniquely identifies a (server, root) pair.
@@ -58,15 +60,16 @@ func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, warnFn func
 	mgrCtx, mgrCancel := context.WithCancel(context.Background())
 
 	m := &Manager{
-		cfg:        cfg,
-		workspace:  workspace,
-		wrap:       wrap,
-		warnFn:     warnFn,
-		stderr:     stderr,
-		mgrCtx:     mgrCtx,
-		mgrCancel:  mgrCancel,
-		sessions:   make(map[sessionKey]*entry),
-		stopReaper: make(chan struct{}),
+		cfg:         cfg,
+		workspace:   workspace,
+		wrap:        wrap,
+		warnFn:      warnFn,
+		stderr:      stderr,
+		mgrCtx:      mgrCtx,
+		mgrCancel:   mgrCancel,
+		sessions:    make(map[sessionKey]*entry),
+		stopReaper:  make(chan struct{}),
+		resultCache: newResultCache(resultCacheMaxEntries),
 	}
 
 	// Start idle reaper if IdleTimeout is non-zero.
@@ -193,6 +196,26 @@ func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) 
 	return sess, err
 }
 
+// resolveSessionKey computes the (server, root) session key for a file without
+// side effects. It is used by the result cache to build cache keys.
+// On error, it returns ok=false; the caller should skip the cache (best-effort).
+func (m *Manager) resolveSessionKey(file string) (sessionKey, bool) {
+	m.mu.Lock()
+	serverName := m.serverForExtension(file)
+	m.mu.Unlock()
+
+	if serverName == "" {
+		return sessionKey{}, false // no server for this extension
+	}
+
+	root, err := resolveRoot(file, m.workspace, m.cfg.Servers[serverName].RootMarkers)
+	if err != nil {
+		return sessionKey{}, false // cache is best-effort; skip on error
+	}
+
+	return sessionKey{server: serverName, root: root}, true
+}
+
 // spawnServer spawns a single server process with the configured environment.
 func (m *Manager) spawnServer(ctx context.Context, serverName string, srv config.LSPServerConfig, root string) (session, error) {
 	// Get cache directory for this root.
@@ -276,6 +299,10 @@ func (m *Manager) ServerStates() []ServerState {
 // It is idempotent: calling it multiple times is safe.
 func (m *Manager) Close() error {
 	m.mgrCancel()
+
+	if m.resultCache != nil {
+		m.resultCache.clear()
+	}
 
 	if m.reapTicker != nil {
 		m.reapTicker.Stop()

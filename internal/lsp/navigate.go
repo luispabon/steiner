@@ -21,6 +21,27 @@ func (m *Manager) Definitions(ctx context.Context, file string, line, col int) (
 		return Result{}, fmt.Errorf("invalid position: line %d col %d", line, col)
 	}
 
+	// Build cache key and check for cached result.
+	// If key resolution fails (best-effort), skip cache and proceed.
+	if sessionKey, ok := m.resolveSessionKey(file); ok {
+		fileHash := hashFileContent(file)
+		if fileHash != "" {
+			key := cacheKey{
+				server:      sessionKey.server,
+				root:        sessionKey.root,
+				method:      "definitions",
+				file:        file,
+				line:        line,
+				column:      col,
+				fileHash:    fileHash,
+				includeDecl: false,
+			}
+			if cached, hit := m.resultCache.get(key); hit {
+				return *cached.(*Result), nil
+			}
+		}
+	}
+
 	// Get the entry so we can lock the cycle.
 	ent, sess, err := m.entryFor(ctx, file)
 	if err != nil {
@@ -63,17 +84,61 @@ func (m *Manager) Definitions(ctx context.Context, file string, line, col int) (
 		truncated = true
 	}
 
-	return Result{
+	result := Result{
 		Locations:  locations,
 		Incomplete: incomplete,
 		Truncated:  truncated,
-	}, nil
+	}
+
+	// Store in cache only if the result is not provisional.
+	// Incomplete=true means readiness gate timed out, so the result is provisional.
+	if !incomplete {
+		if sessionKey, ok := m.resolveSessionKey(file); ok {
+			fileHash := hashFileContent(file)
+			if fileHash != "" {
+				key := cacheKey{
+					server:      sessionKey.server,
+					root:        sessionKey.root,
+					method:      "definitions",
+					file:        file,
+					line:        line,
+					column:      col,
+					fileHash:    fileHash,
+					includeDecl: false,
+				}
+				m.resultCache.put(key, &result)
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // References returns all references to a symbol at the given position in a file.
 func (m *Manager) References(ctx context.Context, file string, line, col int, includeDecl bool) (Result, error) {
 	if line < 1 || col < 1 {
 		return Result{}, fmt.Errorf("invalid position: line %d col %d", line, col)
+	}
+
+	// Build cache key and check for cached result.
+	// If key resolution fails (best-effort), skip cache and proceed.
+	if sessionKey, ok := m.resolveSessionKey(file); ok {
+		fileHash := hashFileContent(file)
+		if fileHash != "" {
+			key := cacheKey{
+				server:      sessionKey.server,
+				root:        sessionKey.root,
+				method:      "references",
+				file:        file,
+				line:        line,
+				column:      col,
+				fileHash:    fileHash,
+				includeDecl: includeDecl,
+			}
+			if cached, hit := m.resultCache.get(key); hit {
+				return *cached.(*Result), nil
+			}
+		}
 	}
 
 	// Get the entry so we can lock the cycle.
@@ -118,11 +183,34 @@ func (m *Manager) References(ctx context.Context, file string, line, col int, in
 		truncated = true
 	}
 
-	return Result{
+	result := Result{
 		Locations:  locations,
 		Incomplete: incomplete,
 		Truncated:  truncated,
-	}, nil
+	}
+
+	// Store in cache only if the result is not provisional.
+	// Incomplete=true means readiness gate timed out, so the result is provisional.
+	if !incomplete {
+		if sessionKey, ok := m.resolveSessionKey(file); ok {
+			fileHash := hashFileContent(file)
+			if fileHash != "" {
+				key := cacheKey{
+					server:      sessionKey.server,
+					root:        sessionKey.root,
+					method:      "references",
+					file:        file,
+					line:        line,
+					column:      col,
+					fileHash:    fileHash,
+					includeDecl: includeDecl,
+				}
+				m.resultCache.put(key, &result)
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // sortLocations sorts locations deterministically by (File, Line, Column).
