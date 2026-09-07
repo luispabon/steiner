@@ -199,7 +199,7 @@ func TestManagerSameKeyReusesProcess(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
 	defer cancel()
@@ -270,7 +270,7 @@ func TestManagerDifferentRootsDistinctProcesses(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
 	defer cancel()
@@ -338,7 +338,7 @@ func TestManagerConcurrentCallsNoDoubleSpawn(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
 	defer cancel()
@@ -386,7 +386,7 @@ func TestManagerMissingBinaryMarkedFailed(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, warnFn, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
 	defer cancel()
@@ -457,7 +457,7 @@ func TestManagerIdleReapingTerminatesServer(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
 	defer cancel()
@@ -615,7 +615,7 @@ func TestManagerContextCancellationDuringSpawn(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	file := filepath.Join(tmpdir, "file.go")
 
@@ -687,7 +687,7 @@ func TestManagerCacheDirExistsAndPersists(t *testing.T) {
 	}
 
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
 	defer cancel()
