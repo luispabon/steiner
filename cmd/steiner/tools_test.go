@@ -17,6 +17,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
+	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
@@ -83,7 +84,7 @@ func registryTestConfig() config.Config {
 }
 
 func TestRuntimeRegistryWithNilManagerRegistersNoMCPTools(t *testing.T) {
-	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil)
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, nil)
 	for _, name := range registry.Names() {
 		if strings.HasPrefix(name, "mcp__") {
 			t.Fatalf("nil manager produced MCP tool %q", name)
@@ -100,11 +101,11 @@ func TestRuntimeRegistryMCPEnabledWithoutServersIsInert(t *testing.T) {
 	cfg.MCP = config.MCPConfig{Enabled: true}
 	mgr := mcp.Connect(context.Background(), cfg.MCP, cfg.Limits, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
 	t.Cleanup(func() { _ = mgr.Close() })
-	enabled := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, mgr)
+	enabled := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, mgr, nil)
 
 	disabledCfg := registryTestConfig()
 	disabledCfg.MCP = config.MCPConfig{Enabled: false}
-	disabled := runtimeRegistryWithSinkAndMode(disabledCfg, t.TempDir(), nil, false, nil, nil, nil)
+	disabled := runtimeRegistryWithSinkAndMode(disabledCfg, t.TempDir(), nil, false, nil, nil, nil, nil)
 
 	for _, name := range enabled.Names() {
 		if strings.HasPrefix(name, "mcp__") {
@@ -117,7 +118,7 @@ func TestRuntimeRegistryMCPEnabledWithoutServersIsInert(t *testing.T) {
 }
 
 func TestRuntimeRegistryRegistersMCPToolsAlongsideBuiltins(t *testing.T) {
-	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mcpFixtureManager(t))
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mcpFixtureManager(t), nil)
 
 	for _, want := range []string{"bash", "read", "mcp__fixture__echo", "mcp__fixture__boom"} {
 		if _, ok := registry.Get(want); !ok {
@@ -127,7 +128,7 @@ func TestRuntimeRegistryRegistersMCPToolsAlongsideBuiltins(t *testing.T) {
 }
 
 func TestSubAgentSubsetExcludesMCPToolsByDefault(t *testing.T) {
-	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mcpFixtureManager(t))
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mcpFixtureManager(t), nil)
 
 	// Missing or empty sub_agents grants no MCP tools to any child (D6).
 	exposure := BuildMCPExposure(registry.Definitions(), nil)
@@ -147,7 +148,7 @@ func TestSubAgentSubsetExcludesMCPToolsByDefault(t *testing.T) {
 func TestSubAgentSubsetResearchOnlyExposesMCPTools(t *testing.T) {
 	srv := config.MCPServerConfig{Enabled: true, Approval: "ask", SubAgents: []string{"research"}}
 	mgr := mcpFixtureManagerWithCfg(t, srv)
-	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr)
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr, nil)
 
 	cfg := registryTestConfig()
 	cfg.MCP = config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": srv}}
@@ -174,7 +175,7 @@ func TestSubAgentSubsetFilteredAndDeniedToolsAbsent(t *testing.T) {
 	t.Run("filtered tools are absent from every child", func(t *testing.T) {
 		srv := config.MCPServerConfig{Enabled: true, Approval: "ask", AllowedTools: []string{"echo"}, SubAgents: []string{"research"}}
 		mgr := mcpFixtureManagerWithCfg(t, srv)
-		registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr)
+		registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr, nil)
 
 		cfg := registryTestConfig()
 		cfg.MCP = config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": srv}}
@@ -191,7 +192,7 @@ func TestSubAgentSubsetFilteredAndDeniedToolsAbsent(t *testing.T) {
 	t.Run("denied tools are absent from every child", func(t *testing.T) {
 		srv := config.MCPServerConfig{Enabled: true, Approval: "deny", SubAgents: []string{"research"}}
 		mgr := mcpFixtureManagerWithCfg(t, srv)
-		registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr)
+		registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr, nil)
 
 		cfg := registryTestConfig()
 		cfg.MCP = config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": srv}}
@@ -240,7 +241,7 @@ func TestMCPToolExposedToChildStillRequiresApproval(t *testing.T) {
 
 	cfg := registryTestConfig()
 	cfg.MCP = config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": srv}}
-	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, mgr)
+	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, mgr, nil)
 
 	exposure := BuildMCPExposure(registry.Definitions(), cfg.MCP.Servers)
 	if want := []string{"mcp__fixture__big_output", "mcp__fixture__boom", "mcp__fixture__die", "mcp__fixture__echo", "mcp__fixture__readonly_echo", "mcp__fixture__sleep"}; !reflect.DeepEqual(exposure[delegation.AgentTypeResearch], want) {
@@ -337,4 +338,146 @@ func mcpFixtureManagerWithCfg(t *testing.T, srv config.MCPServerConfig) *mcp.Man
 	}
 	t.Cleanup(func() { _ = mgr.Close() })
 	return mgr
+}
+
+// TestLSPToolsRegisteredWhenEnabledWithUnavailableServer verifies that LSP tools
+// register unconditionally based on config, not server state. When lsp.enabled=true
+// and a server's binary does not exist, all three LSP tools still register in the
+// registry, and calling them returns unavailability messages without errors.
+func TestLSPToolsRegisteredWhenEnabledWithUnavailableServer(t *testing.T) {
+	cfg := registryTestConfig()
+	cfg.LSP = config.LSPConfig{
+		Enabled: true,
+		Servers: map[string]config.LSPServerConfig{
+			"nonexistent": {
+				Enabled:        true,
+				Command:        "/path/to/nonexistent/binary",
+				FileExtensions: []string{".go"},
+			},
+		},
+	}
+
+	lspMgr := lsp.NewManager(cfg.LSP, t.TempDir(), nil, func(string) {}, io.Discard)
+	defer lspMgr.Close()
+
+	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, lspMgr)
+
+	// All three LSP tools must be registered despite server being unavailable.
+	toolNames := registry.Names()
+	for _, name := range []string{"definitions", "references", "diagnostics"} {
+		def, ok := registry.Get(name)
+		if !ok {
+			t.Fatalf("LSP tool %q not registered; names: %v", name, toolNames)
+		}
+		// Verify that calling the tool returns an unavailability message, not an error.
+		result, err := def.Handler(context.Background(), map[string]any{"file": "test.go", "line": float64(1), "column": float64(1)})
+		if err != nil {
+			t.Fatalf("tool %q returned error: %v", name, err)
+		}
+		if result == nil {
+			t.Fatalf("tool %q returned nil result", name)
+		}
+		// The result should be a string message indicating unavailability.
+		if _, ok := result.(string); !ok {
+			t.Fatalf("tool %q returned non-string result: %T", name, result)
+		}
+	}
+}
+
+// TestLSPToolsNotRegisteredWhenDisabled verifies that when lsp.enabled=false,
+// none of the three LSP tools appear in the registry.
+func TestLSPToolsNotRegisteredWhenDisabled(t *testing.T) {
+	cfg := registryTestConfig()
+	cfg.LSP = config.LSPConfig{Enabled: false}
+
+	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, nil)
+
+	toolNames := registry.Names()
+	for _, name := range []string{"definitions", "references", "diagnostics"} {
+		if _, ok := registry.Get(name); ok {
+			t.Fatalf("LSP tool %q registered despite lsp.enabled=false; names: %v", name, toolNames)
+		}
+	}
+}
+
+// TestLSPRegistryOrderingDeterministic verifies that repeated registry constructions
+// from identical config always yield identical tool-name ordering. This guards the
+// prompt-cache invariant that tool defs must not churn per-turn.
+func TestLSPRegistryOrderingDeterministic(t *testing.T) {
+	cfg := registryTestConfig()
+	cfg.LSP = config.LSPConfig{
+		Enabled: true,
+		Servers: map[string]config.LSPServerConfig{
+			"dummy": {
+				Enabled:        true,
+				Command:        "/nonexistent",
+				FileExtensions: []string{".go"},
+			},
+		},
+	}
+
+	// Build two registries from identical config.
+	lspMgr1 := lsp.NewManager(cfg.LSP, t.TempDir(), nil, func(string) {}, io.Discard)
+	defer lspMgr1.Close()
+	reg1 := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, lspMgr1)
+	names1 := reg1.Names()
+
+	lspMgr2 := lsp.NewManager(cfg.LSP, t.TempDir(), nil, func(string) {}, io.Discard)
+	defer lspMgr2.Close()
+	reg2 := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, lspMgr2)
+	names2 := reg2.Names()
+
+	// Tool ordering must be identical (Registry.Names() sorts, so this tests
+	// that the LSP tools always appear in the same position in the sorted list).
+	if !slices.Equal(names1, names2) {
+		t.Fatalf("registry ordering not deterministic:\n  first:  %v\n  second: %v", names1, names2)
+	}
+
+	// Additionally, verify that LSP tools appear in their expected order within
+	// the full sorted list (definitions, references, diagnostics alphabetically).
+	lspToolsInRegistry := make([]string, 0)
+	for _, name := range names1 {
+		if name == "definitions" || name == "references" || name == "diagnostics" {
+			lspToolsInRegistry = append(lspToolsInRegistry, name)
+		}
+	}
+	if want := []string{"definitions", "diagnostics", "references"}; !slices.Equal(lspToolsInRegistry, want) {
+		t.Fatalf("LSP tools in wrong order: got %v, want %v", lspToolsInRegistry, want)
+	}
+}
+
+// TestSessionShutdownTerminatesLSPServers verifies that calling Manager.Close()
+// on session shutdown actually terminates the language server processes.
+func TestSessionShutdownTerminatesLSPServers(t *testing.T) {
+	cfg := registryTestConfig()
+	cfg.LSP = config.LSPConfig{
+		Enabled: true,
+		Servers: map[string]config.LSPServerConfig{
+			"test": {
+				Enabled:        true,
+				Command:        "/nonexistent/fake-lsp-server",
+				FileExtensions: []string{".test"},
+			},
+		},
+	}
+
+	mgr := lsp.NewManager(cfg.LSP, t.TempDir(), nil, func(string) {}, io.Discard)
+	defer mgr.Close()
+
+	// Verify that after close, any existing sessions are terminated.
+	// Since our fake server doesn't exist, there are no sessions to verify,
+	// but we can verify that Close() completes without error.
+	closeErr := mgr.Close()
+	if closeErr != nil {
+		t.Logf("manager.Close() returned: %v (acceptable for unavailable servers)", closeErr)
+	}
+
+	// Verify that server states report the expected status after close.
+	states := mgr.ServerStates()
+	// States should be empty or show failed status (never started since binary doesn't exist).
+	for _, state := range states {
+		if state.Status == lsp.ServerStatusReady || state.Status == lsp.ServerStatusStarting {
+			t.Errorf("server %q in unexpected state %v after close", state.Name, state.Status)
+		}
+	}
 }

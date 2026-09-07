@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/sandbox"
@@ -40,14 +41,14 @@ func runtimeRegistry(cfg config.Config, workDir string) *tool.Registry {
 // runtimeRegistryWithSink builds a tool registry with an optional event sink and
 // interactive flag, used in interactive mode to wire the display_file tool.
 func runtimeRegistryWithSink(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox) *tool.Registry {
-	return runtimeRegistryWithSinkAndMode(cfg, workDir, displaySink, interactive, handoffResponder, sb, nil)
+	return runtimeRegistryWithSinkAndMode(cfg, workDir, displaySink, interactive, handoffResponder, sb, nil, nil)
 }
 
 // runtimeRegistryWithSinkAndMode builds a tool registry with optional event sink and
-// interactive flag. Used in interactive mode. mgr, if non-nil, contributes MCP tool
-// definitions after built-ins and config tools. Execution-mode-aware sandbox wrapping
-// is resolved per tool call by the executor, not here.
-func runtimeRegistryWithSinkAndMode(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox, mgr *mcp.Manager) *tool.Registry {
+// interactive flag. Used in interactive mode. mcpMgr and lspMgr, if non-nil, contribute
+// MCP and LSP tool definitions after built-ins and config tools. Execution-mode-aware
+// sandbox wrapping is resolved per tool call by the executor, not here.
+func runtimeRegistryWithSinkAndMode(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox, mcpMgr *mcp.Manager, lspMgr *lsp.Manager) *tool.Registry {
 	registry := tool.NewRegistry(coreToolDefinitions(cfg, workDir, displaySink, interactive, handoffResponder, sb)...)
 	for _, def := range tool.NewRegistryFromConfig(cfg).Definitions() {
 		registry.Register(def)
@@ -55,8 +56,16 @@ func runtimeRegistryWithSinkAndMode(cfg config.Config, workDir string, displaySi
 	// Register MCP tools after built-ins and config tools.
 	// MCP tools are excluded from sub-agents automatically because
 	// Registry.Subset is include-list based. Ticket #6 handles deliberate exposure.
-	if mgr != nil {
-		for _, def := range mgr.ToolDefs() {
+	if mcpMgr != nil {
+		for _, def := range mcpMgr.ToolDefs() {
+			registry.Register(def)
+		}
+	}
+	// Register LSP tools after built-ins, config, and MCP tools.
+	// LSP tools are also excluded from sub-agents automatically.
+	// Registration is unconditional on config alone; it never depends on server state.
+	if lspMgr != nil {
+		for _, def := range lsp.ToolDefs(lspMgr) {
 			registry.Register(def)
 		}
 	}
