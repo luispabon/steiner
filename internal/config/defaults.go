@@ -123,13 +123,17 @@ func defaultConfig() Config {
 		MCP: MCPConfig{
 			Enabled: true,
 		},
+		// The four timeouts below are calibrated against gopls v0.23.0; see
+		// docs/lsp.md "Timeout calibration" for the measurements and
+		// internal/lsp/calibrate_manual_test.go for the harness that produced
+		// them. IdleTimeout is a policy choice, not a measurement.
 		LSP: LSPConfig{
 			Enabled:           false,
 			IdleTimeout:       MustDuration("5m"),
 			RequestTimeout:    MustDuration("10s"),
 			ReadyTimeout:      MustDuration("30s"),
 			ReadyGracePeriod:  MustDuration("2s"),
-			DiagnosticsWindow: MustDuration("3s"),
+			DiagnosticsWindow: MustDuration("2s"),
 			MaxResults:        200,
 		},
 		Modes: ModesConfig{

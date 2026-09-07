@@ -142,6 +142,33 @@ func TestDefaultConfigLSPIdleTimeout(t *testing.T) {
 	}
 }
 
+// TestDefaultConfigLSPCalibratedTimeouts pins the timeouts derived from the
+// gopls measurements recorded in docs/lsp.md "Timeout calibration". Changing
+// one of these values means re-running internal/lsp/calibrate_manual_test.go
+// and updating that section.
+func TestDefaultConfigLSPCalibratedTimeouts(t *testing.T) {
+	cfg := defaultConfig()
+
+	tests := []struct {
+		name string
+		got  Duration
+		want Duration
+	}{
+		{name: "RequestTimeout", got: cfg.LSP.RequestTimeout, want: MustDuration("10s")},
+		{name: "ReadyTimeout", got: cfg.LSP.ReadyTimeout, want: MustDuration("30s")},
+		{name: "ReadyGracePeriod", got: cfg.LSP.ReadyGracePeriod, want: MustDuration("2s")},
+		{name: "DiagnosticsWindow", got: cfg.LSP.DiagnosticsWindow, want: MustDuration("2s")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.got != tc.want {
+				t.Errorf("DefaultConfig().LSP.%s = %v, want %v", tc.name, tc.got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDefaultConfigLSPMaxResults(t *testing.T) {
 	cfg := defaultConfig()
 	if cfg.LSP.MaxResults != 200 {
