@@ -1,0 +1,324 @@
+package lsp
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/luispabon/steiner/internal/config"
+)
+
+func TestFormatLocationsEmpty(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := Result{
+		Locations:  []Location{},
+		Incomplete: false,
+		Truncated:  false,
+	}
+
+	output := formatLocations("/workspace", res, cfg)
+	if output != "" {
+		t.Errorf("formatLocations empty result: got %q, want empty", output)
+	}
+}
+
+func TestFormatLocationsIncompleteEmpty(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100, ReadyTimeout: config.MustDuration("5s")}
+	res := Result{
+		Locations:  []Location{},
+		Incomplete: true,
+		Truncated:  false,
+	}
+
+	output := formatLocations("/workspace", res, cfg)
+	if !strings.Contains(output, "indexing had not finished") {
+		t.Errorf("formatLocations incomplete: message missing indexing note: %q", output)
+	}
+	if !strings.Contains(output, "5s") {
+		t.Errorf("formatLocations incomplete: message missing timeout value: %q", output)
+	}
+}
+
+func TestFormatLocationsSingle(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := Result{
+		Locations: []Location{
+			{File: "/workspace/src/main.go", Line: 10, Column: 5},
+		},
+		Incomplete: false,
+		Truncated:  false,
+	}
+
+	output := formatLocations("/workspace", res, cfg)
+	if !strings.Contains(output, "src/main.go:10:5") {
+		t.Errorf("formatLocations single: expected src/main.go:10:5 in %q", output)
+	}
+	if strings.Contains(output, "/workspace/") {
+		t.Errorf("formatLocations single: path should be relative, got %q", output)
+	}
+}
+
+func TestFormatLocationsTruncated(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 10}
+	res := Result{
+		Locations: []Location{
+			{File: "/workspace/a.go", Line: 1, Column: 1},
+		},
+		Incomplete: false,
+		Truncated:  true,
+	}
+
+	output := formatLocations("/workspace", res, cfg)
+	if !strings.Contains(output, "more results omitted") {
+		t.Errorf("formatLocations truncated: expected omission note in %q", output)
+	}
+	if !strings.Contains(output, "max_results=10") {
+		t.Errorf("formatLocations truncated: expected max_results=10 in %q", output)
+	}
+}
+
+func TestFormatLocationsFallbackAbsolute(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := Result{
+		Locations: []Location{
+			{File: "/other/path/main.go", Line: 1, Column: 1},
+		},
+		Incomplete: false,
+		Truncated:  false,
+	}
+
+	output := formatLocations("/workspace", res, cfg)
+	if !strings.Contains(output, "/other/path/main.go") {
+		t.Errorf("formatLocations fallback: expected absolute path in %q", output)
+	}
+}
+
+func TestDiagnosticsOutputClean(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := DiagResult{
+		Items:         []Diagnostic{},
+		Truncated:     false,
+		WindowExpired: false,
+		Note:          "",
+	}
+
+	output := formatDiagnostics("/workspace", res, cfg)
+	if !strings.Contains(output, "No diagnostics found.") {
+		t.Errorf("formatDiagnostics clean: expected 'No diagnostics found.' in %q", output)
+	}
+	if strings.Contains(output, "collection window") {
+		t.Errorf("formatDiagnostics clean: should not mention collection window, got %q", output)
+	}
+}
+
+func TestDiagnosticsOutputProvisional(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := DiagResult{
+		Items:         []Diagnostic{},
+		Truncated:     false,
+		WindowExpired: true,
+		Note:          "",
+	}
+
+	output := formatDiagnostics("/workspace", res, cfg)
+	if !strings.Contains(output, "collection window") {
+		t.Errorf("formatDiagnostics provisional: expected 'collection window' phrase in %q", output)
+	}
+	if !strings.Contains(output, "state is unknown") {
+		t.Errorf("formatDiagnostics provisional: expected 'state is unknown' in %q", output)
+	}
+	if strings.Contains(output, "No diagnostics found.") {
+		t.Errorf("formatDiagnostics provisional: should not say 'No diagnostics found.', got %q", output)
+	}
+}
+
+func TestDiagnosticsOutputDistinguishesCleanFromProvisional(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+
+	cleanRes := DiagResult{
+		Items:         []Diagnostic{},
+		Truncated:     false,
+		WindowExpired: false,
+		Note:          "",
+	}
+	cleanOutput := formatDiagnostics("/workspace", cleanRes, cfg)
+
+	provisionalRes := DiagResult{
+		Items:         []Diagnostic{},
+		Truncated:     false,
+		WindowExpired: true,
+		Note:          "",
+	}
+	provisionalOutput := formatDiagnostics("/workspace", provisionalRes, cfg)
+
+	if cleanOutput == provisionalOutput {
+		t.Errorf("clean and provisional outputs are identical: %q", cleanOutput)
+	}
+
+	if !strings.Contains(cleanOutput, "No diagnostics found.") {
+		t.Errorf("clean output missing 'No diagnostics found.': %q", cleanOutput)
+	}
+
+	if !strings.Contains(provisionalOutput, "collection window") {
+		t.Errorf("provisional output missing 'collection window': %q", provisionalOutput)
+	}
+
+	if strings.Contains(cleanOutput, "collection window") {
+		t.Errorf("clean output should not contain 'collection window': %q", cleanOutput)
+	}
+
+	if strings.Contains(provisionalOutput, "No diagnostics found.") {
+		t.Errorf("provisional output should not contain 'No diagnostics found.': %q", provisionalOutput)
+	}
+}
+
+func TestDiagnosticsWithItems(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := DiagResult{
+		Items: []Diagnostic{
+			{
+				File:     "/workspace/main.go",
+				Line:     5,
+				Column:   10,
+				Severity: "error",
+				Message:  "undefined variable",
+				Source:   "gopls",
+				Code:     "undeclaredName",
+			},
+		},
+		Truncated:     false,
+		WindowExpired: false,
+		Note:          "",
+	}
+
+	output := formatDiagnostics("/workspace", res, cfg)
+	if !strings.Contains(output, "main.go:5:10") {
+		t.Errorf("formatDiagnostics with items: expected main.go:5:10 in %q", output)
+	}
+	if !strings.Contains(output, "error") {
+		t.Errorf("formatDiagnostics with items: expected 'error' severity in %q", output)
+	}
+	if !strings.Contains(output, "undefined variable") {
+		t.Errorf("formatDiagnostics with items: expected message in %q", output)
+	}
+	if !strings.Contains(output, "[gopls/undeclaredName]") {
+		t.Errorf("formatDiagnostics with items: expected [gopls/undeclaredName] in %q", output)
+	}
+}
+
+func TestDiagnosticsOmitSourceAndCodeWhenEmpty(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := DiagResult{
+		Items: []Diagnostic{
+			{
+				File:     "/workspace/main.go",
+				Line:     5,
+				Column:   10,
+				Severity: "warning",
+				Message:  "unused variable",
+				Source:   "",
+				Code:     "",
+			},
+		},
+		Truncated:     false,
+		WindowExpired: false,
+		Note:          "",
+	}
+
+	output := formatDiagnostics("/workspace", res, cfg)
+	if strings.Contains(output, "[]") {
+		t.Errorf("formatDiagnostics: should not render empty brackets, got %q", output)
+	}
+	if !strings.Contains(output, "main.go:5:10 warning: unused variable") {
+		t.Errorf("formatDiagnostics: expected main.go:5:10 warning: unused variable in %q", output)
+	}
+}
+
+func TestDiagnosticsTruncated(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 10}
+	res := DiagResult{
+		Items: []Diagnostic{
+			{
+				File:     "/workspace/main.go",
+				Line:     1,
+				Column:   1,
+				Severity: "error",
+				Message:  "test",
+			},
+		},
+		Truncated:     true,
+		WindowExpired: false,
+		Note:          "",
+	}
+
+	output := formatDiagnostics("/workspace", res, cfg)
+	if !strings.Contains(output, "more diagnostics omitted") {
+		t.Errorf("formatDiagnostics truncated: expected omission note in %q", output)
+	}
+	if !strings.Contains(output, "max_results=10") {
+		t.Errorf("formatDiagnostics truncated: expected max_results=10 in %q", output)
+	}
+}
+
+func TestDiagnosticsWithNote(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := DiagResult{
+		Items:         []Diagnostic{},
+		Truncated:     false,
+		WindowExpired: false,
+		Note:          "server still indexing",
+	}
+
+	output := formatDiagnostics("/workspace", res, cfg)
+	if !strings.Contains(output, "server still indexing") {
+		t.Errorf("formatDiagnostics with note: expected note in %q", output)
+	}
+}
+
+func TestMakeRelative(t *testing.T) {
+	tests := []struct {
+		name    string
+		root    string
+		absPath string
+		want    string
+	}{
+		{
+			name:    "direct child",
+			root:    "/workspace",
+			absPath: "/workspace/main.go",
+			want:    "main.go",
+		},
+		{
+			name:    "nested path",
+			root:    "/workspace",
+			absPath: "/workspace/src/pkg/main.go",
+			want:    "src/pkg/main.go",
+		},
+		{
+			name:    "outside root",
+			root:    "/workspace",
+			absPath: "/other/file.go",
+			want:    "/other/file.go",
+		},
+		{
+			name:    "empty root",
+			root:    "",
+			absPath: "/workspace/main.go",
+			want:    "/workspace/main.go",
+		},
+		{
+			name:    "empty path",
+			root:    "/workspace",
+			absPath: "",
+			want:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := makeRelative(tt.root, tt.absPath)
+			if got != tt.want {
+				t.Errorf("makeRelative(%q, %q) = %q, want %q", tt.root, tt.absPath, got, tt.want)
+			}
+		})
+	}
+}
