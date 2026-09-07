@@ -105,7 +105,7 @@ func loadUntilReady(t *testing.T, ctx context.Context, gopls, root, cacheDir str
 	t.Helper()
 
 	start := time.Now()
-	sess, err := newTransport(ctx, TransportSpec{
+	sess, err := newTransport(ctx, ctx, TransportSpec{
 		Command:  gopls,
 		Env:      calibEnv(cacheDir),
 		RootPath: root,

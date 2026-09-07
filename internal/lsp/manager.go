@@ -227,7 +227,7 @@ func (m *Manager) spawnServer(_ context.Context, _ string, srv config.LSPServerC
 
 	env := buildServerEnv(os.Environ(), srv, cacheDir)
 
-	// Create a child context with a handshake timeout, but detached from cancellation.
+	// Create a child context with a handshake timeout.
 	spawnCtx, cancel := context.WithTimeout(m.mgrCtx, time.Duration(m.cfg.ReadyTimeout.Duration()))
 	defer cancel()
 
@@ -241,7 +241,7 @@ func (m *Manager) spawnServer(_ context.Context, _ string, srv config.LSPServerC
 		Wrap:                  m.wrap,
 	}
 
-	sess, err := newTransport(spawnCtx, spec)
+	sess, err := newTransport(spawnCtx, m.mgrCtx, spec)
 	if err != nil {
 		return nil, fmt.Errorf("spawn transport: %w", err)
 	}

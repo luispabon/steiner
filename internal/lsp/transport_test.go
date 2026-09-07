@@ -74,7 +74,7 @@ func TestNewTransportRejectsProcessesThatDoNotSpeakLSP(t *testing.T) {
 			defer cancel()
 
 			start := time.Now()
-			s, err := newTransport(ctx, TransportSpec{
+			s, err := newTransport(ctx, ctx, TransportSpec{
 				Command:  os.Args[0],
 				Args:     []string{"-test.run=TestLSPHelperProcess"},
 				Env:      []string{helperEnv + "=" + tt.mode},

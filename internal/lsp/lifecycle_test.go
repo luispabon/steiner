@@ -52,25 +52,41 @@ func TestManagerSessionSurvivesRequestContextCancellation(t *testing.T) {
 
 	file := filepath.Join(tmpdir, "file.go")
 	sess1, err := m.sessionFor(ctx1, file)
-	if err != nil && !errors.Is(err, errNoServer) {
+	if err != nil {
 		t.Fatalf("sessionFor: %v", err)
 	}
+	if sess1 == nil {
+		t.Fatal("sessionFor returned a nil session")
+	}
 
-	// Cancel the request context.
+	// Cancel the request context. The ready server must remain alive.
 	cancel1()
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-sess1.Exited():
+		t.Fatal("server exited when the handshake context was cancelled")
+	case <-time.After(100 * time.Millisecond):
+	}
 
 	// A new request context should get the same session (process should still be alive).
 	ctx2, cancel2 := context.WithTimeout(context.Background(), lifecycleTestTimeout)
 	defer cancel2()
 
 	sess2, err := m.sessionFor(ctx2, file)
-	if err != nil && !errors.Is(err, errNoServer) {
+	if err != nil {
 		t.Fatalf("sessionFor after context cancel: %v", err)
 	}
 
-	if sess1 != nil && sess2 != nil && sess1 != sess2 {
+	if sess1 != sess2 {
 		t.Error("process should survive request context cancellation")
+	}
+
+	if err := m.Close(); err != nil {
+		t.Fatalf("manager close: %v", err)
+	}
+	select {
+	case <-sess1.Exited():
+	case <-time.After(lifecycleTestTimeout):
+		t.Fatal("server did not exit after manager close")
 	}
 }
 

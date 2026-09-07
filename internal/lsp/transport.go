@@ -38,8 +38,8 @@ type childProcess interface {
 }
 
 // newTransport spawns a language server process and completes the handshake.
-func newTransport(ctx context.Context, spec TransportSpec) (session, error) {
-	cmd := exec.CommandContext(ctx, spec.Command, spec.Args...)
+func newTransport(handshakeCtx, processCtx context.Context, spec TransportSpec) (session, error) {
+	cmd := exec.CommandContext(processCtx, spec.Command, spec.Args...)
 	cmd.Env = spec.Env
 	if spec.Wrap != nil {
 		cmd = spec.Wrap(cmd)
@@ -67,7 +67,7 @@ func newTransport(ctx context.Context, spec TransportSpec) (session, error) {
 
 	stream := jsonrpc2.NewStream(&readWriteCloser{r: stdout, w: stdin})
 
-	s, err := newSession(ctx, stream, spec.RootPath, spec.InitializationOptions, proc)
+	s, err := newSession(handshakeCtx, stream, spec.RootPath, spec.InitializationOptions, proc)
 	if err != nil {
 		proc.Kill()
 		return nil, err
