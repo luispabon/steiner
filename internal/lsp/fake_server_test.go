@@ -73,6 +73,8 @@ type fakeServer struct {
 	onExit   func()
 	// onDidOpen, when non-nil, is invoked after DidOpen is recorded.
 	onDidOpen func(context.Context, *protocol.DidOpenTextDocumentParams)
+	// onDidClose, when non-nil, is invoked after DidClose is recorded.
+	onDidClose func(context.Context, *protocol.DidCloseTextDocumentParams)
 }
 
 func newFakeServer() *fakeServer {
@@ -165,8 +167,11 @@ func (f *fakeServer) DidOpen(ctx context.Context, params *protocol.DidOpenTextDo
 	return nil
 }
 
-func (f *fakeServer) DidClose(context.Context, *protocol.DidCloseTextDocumentParams) error {
+func (f *fakeServer) DidClose(ctx context.Context, params *protocol.DidCloseTextDocumentParams) error {
 	f.record("textDocument/didClose")
+	if f.onDidClose != nil {
+		f.onDidClose(ctx, params)
+	}
 	return nil
 }
 

@@ -717,6 +717,19 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 	var resultA, resultB DiagResult
 	var errA, errB error
 
+	// Wait for both DidClose notifications to be recorded by the fake server.
+	// Since DidClose is async, the client's call returns before the server
+	// processes it, so we need to synchronize with a hook to ensure both
+	// DidClose calls are recorded before we check the sequence.
+	didCloseCount := 0
+	didCloseDone := make(chan struct{})
+	fs.onDidClose = func(_ context.Context, _ *protocol.DidCloseTextDocumentParams) {
+		didCloseCount++
+		if didCloseCount == 2 {
+			close(didCloseDone)
+		}
+	}
+
 	// Launch two concurrent collectDiagnostics calls on the same entry and session,
 	// one for each file. They should serialize at the cycleMu level.
 	wg.Add(2)
@@ -734,6 +747,13 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 	}()
 
 	wg.Wait()
+
+	// Wait for both DidClose notifications to be recorded by the fake server.
+	select {
+	case <-didCloseDone:
+	case <-time.After(testTimeout):
+		t.Fatal("timeout waiting for both DidClose notifications to be recorded")
+	}
 
 	if errA != nil {
 		t.Fatalf("collectDiagnostics for A: %v", errA)
