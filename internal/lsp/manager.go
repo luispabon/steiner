@@ -42,10 +42,10 @@ type sessionKey struct {
 
 // entry tracks one active server session.
 type entry struct {
-	state    ServerState
-	session  session
-	mu       sync.Mutex
-	spawning bool
+	state   ServerState
+	session session
+	mu      sync.Mutex
+	ready   chan struct{}
 }
 
 // NewManager creates a Manager with the given configuration.
@@ -121,62 +121,62 @@ func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) 
 	}
 	m.mu.Unlock()
 
-	// Check if the entry is already live or in a failed state within cooldown.
-	ent.mu.Lock()
-	switch ent.state.Status {
-	case ServerStatusReady:
-		ent.mu.Unlock()
-		return ent.session, nil
-	case ServerStatusFailed:
-		// Check if we're still within the cooldown window.
-		if time.Since(ent.state.StartedAt) < time.Duration(m.cfg.IdleTimeout.Duration()) {
+	// Loop until we have a session or a definite error.
+	for {
+		ent.mu.Lock()
+		switch ent.state.Status {
+		case ServerStatusReady:
+			sess := ent.session
 			ent.mu.Unlock()
-			return nil, ent.state.Err
+			return sess, nil
+		case ServerStatusStarting:
+			ready := ent.ready
+			ent.mu.Unlock()
+			select {
+			case <-ready:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		case ServerStatusFailed:
+			if time.Since(ent.state.StartedAt) < time.Duration(m.cfg.IdleTimeout.Duration()) {
+				err := ent.state.Err
+				ent.mu.Unlock()
+				return nil, err
+			}
+			ent.state.Status = ServerStatusDeclared
+			ent.state.StartedAt = time.Now()
+			fallthrough
+		case ServerStatusDeclared, ServerStatusStopped:
+			ent.state.Status = ServerStatusStarting
+			ent.state.StartedAt = time.Now()
+			ent.ready = make(chan struct{})
+			ready := ent.ready
+			ent.mu.Unlock()
+
+			sess, err := m.spawnServer(ctx, serverName, srv, root)
+
+			ent.mu.Lock()
+			close(ready)
+			if err != nil {
+				ent.state.Status = ServerStatusFailed
+				ent.state.Err = err
+				ent.mu.Unlock()
+				m.warnFn(fmt.Sprintf("spawn server %s: %v", serverName, err))
+				return nil, err
+			}
+
+			ent.state.Status = ServerStatusReady
+			ent.session = sess
+			ent.mu.Unlock()
+
+			return sess, nil
+		default:
+			status := ent.state.Status
+			ent.mu.Unlock()
+			return nil, fmt.Errorf("unexpected server status: %s", status)
 		}
-		// Cooldown expired; allow re-spawn attempt.
-		ent.state.Status = ServerStatusDeclared
-		ent.state.StartedAt = time.Now()
-	case ServerStatusStopped:
-		// Session was idle-reaped or explicitly closed; allow restart.
-		ent.state.Status = ServerStatusDeclared
-		ent.state.StartedAt = time.Now()
 	}
-
-	// Check if another goroutine is already spawning for this key.
-	if ent.state.Status == ServerStatusStarting {
-		ent.mu.Unlock()
-		// Wait for the spawn to complete and then retry.
-		time.Sleep(10 * time.Millisecond)
-		return m.sessionFor(ctx, file)
-	}
-
-	if ent.state.Status != ServerStatusDeclared {
-		ent.mu.Unlock()
-		// This shouldn't happen, but guard against it.
-		return nil, fmt.Errorf("unexpected server status: %s", ent.state.Status)
-	}
-
-	// Mark as starting to prevent concurrent spawns.
-	ent.state.Status = ServerStatusStarting
-	ent.mu.Unlock()
-
-	// Spawn the server (outside the mutex to avoid holding the lock during spawn).
-	sess, err := m.spawnServer(ctx, serverName, srv, root)
-
-	ent.mu.Lock()
-	if err != nil {
-		ent.state.Status = ServerStatusFailed
-		ent.state.Err = err
-		ent.mu.Unlock()
-		m.warnFn(fmt.Sprintf("spawn server %s: %v", serverName, err))
-		return nil, err
-	}
-
-	ent.state.Status = ServerStatusReady
-	ent.session = sess
-	ent.mu.Unlock()
-
-	return sess, nil
 }
 
 // spawnServer spawns a single server process with the configured environment.

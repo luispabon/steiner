@@ -573,6 +573,89 @@ func TestManagerCloseIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestManagerContextCancellationDuringSpawn(t *testing.T) {
+	tmpdir := t.TempDir()
+	cacheDir := filepath.Join(tmpdir, "cache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache: %v", err)
+	}
+
+	marker := filepath.Join(tmpdir, "go.mod")
+	if err := os.WriteFile(marker, []byte(""), 0o644); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	spawnEntered := make(chan struct{})
+	spawnGate := make(chan struct{})
+	var once sync.Once
+
+	wrapFn := func(cmd *exec.Cmd) *exec.Cmd {
+		once.Do(func() {
+			close(spawnEntered)
+			<-spawnGate
+		})
+		return cmd
+	}
+
+	cfg := config.LSPConfig{
+		Enabled:      true,
+		IdleTimeout:  config.MustDuration("30s"),
+		ReadyTimeout: config.MustDuration("10s"),
+		CacheDir:     cacheDir,
+		Servers: map[string]config.LSPServerConfig{
+			"go": {
+				Enabled:        true,
+				Command:        os.Args[0],
+				Args:           []string{"-test.run=TestLSPHelperProcess"},
+				FileExtensions: []string{".go"},
+				RootMarkers:    []string{"go.mod"},
+				Env:            map[string]string{helperEnv: "lsp"},
+			},
+		},
+	}
+
+	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
+	defer m.Close()
+
+	file := filepath.Join(tmpdir, "file.go")
+
+	var wg sync.WaitGroup
+
+	// Goroutine A: starts the spawn and stalls in wrap.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = m.sessionFor(ctx, file)
+	}()
+
+	// Wait for goroutine A to enter the stall point.
+	<-spawnEntered
+
+	// Goroutine B: arrives during the spawn with a short timeout.
+	start := time.Now()
+	bgCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := m.sessionFor(bgCtx, file)
+
+	elapsed := time.Since(start)
+
+	// B should exit promptly with context cancellation, not wait for the full spawn.
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+
+	if elapsed >= 1*time.Second {
+		t.Errorf("sessionFor took %v, should have returned within ~100ms due to context timeout", elapsed)
+	}
+
+	// Release goroutine A so it can clean up.
+	close(spawnGate)
+	wg.Wait()
+}
+
 func TestManagerCacheDirExistsAndPersists(t *testing.T) {
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
