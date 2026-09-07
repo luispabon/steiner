@@ -27,7 +27,7 @@ type PublishedDiagnostics struct {
 	Items   []Diagnostic
 }
 
-// ProgressEvent represents a progress notification (e.g., workspace/didChangeWatchedFiles).
+// ProgressEvent represents a $/progress work-done notification.
 type ProgressEvent struct {
 	Token   string // unique token per progress sequence
 	Kind    string // "begin", "report", "end"

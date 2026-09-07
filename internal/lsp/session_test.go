@@ -1,216 +1,393 @@
 package lsp
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"slices"
 	"testing"
 	"time"
+
+	"go.lsp.dev/protocol"
+	"go.lsp.dev/uri"
 )
 
-// TestSessionInterfaceExported verifies that session is the internal interface
-func TestSessionInterfaceExported(t *testing.T) {
-	var _ session = (*impl)(nil)
-}
-
-// TestLocationStruct verifies Location struct fields
-func TestLocationStruct(t *testing.T) {
-	loc := Location{
-		File:      "/tmp/test.go",
-		Line:      10,
-		Column:    5,
-		EndLine:   10,
-		EndColumn: 20,
-	}
-
-	if loc.Line != 10 || loc.Column != 5 {
-		t.Errorf("location start: got (%d,%d), want (10,5)", loc.Line, loc.Column)
-	}
-	if loc.EndLine != 10 || loc.EndColumn != 20 {
-		t.Errorf("location end: got (%d,%d), want (10,20)", loc.EndLine, loc.EndColumn)
+// targetRange is the 0-based range every definition fixture reports.
+func targetRange() protocol.Range {
+	return protocol.Range{
+		Start: protocol.Position{Line: 4, Character: 2},
+		End:   protocol.Position{Line: 4, Character: 9},
 	}
 }
 
-// TestDiagnosticStruct verifies Diagnostic struct fields
-func TestDiagnosticStruct(t *testing.T) {
-	d := Diagnostic{
-		File:     "/tmp/test.go",
-		Line:     1,
-		Column:   5,
-		Severity: "error",
-		Source:   "gopls",
-		Message:  "undefined: x",
-		Code:     "go/undeclaredName",
-	}
+func TestSessionDefinitionRoundTrip(t *testing.T) {
+	target := uri.File("/src/target.go")
 
-	if d.File != "/tmp/test.go" {
-		t.Errorf("File: got %s, want /tmp/test.go", d.File)
-	}
-	if d.Severity != "error" {
-		t.Errorf("Severity: got %s, want error", d.Severity)
-	}
-}
-
-// TestPublishedDiagnosticsStruct verifies PublishedDiagnostics struct fields
-func TestPublishedDiagnosticsStruct(t *testing.T) {
-	pd := PublishedDiagnostics{
-		File:    "/tmp/test.go",
-		Version: ptrInt32Helper(1),
-		Items: []Diagnostic{
-			{
-				File:     "/tmp/test.go",
-				Line:     1,
-				Column:   1,
-				Severity: "error",
-				Message:  "test error",
-			},
-		},
-	}
-
-	if pd.File != "/tmp/test.go" {
-		t.Errorf("File: got %s, want /tmp/test.go", pd.File)
-	}
-	if len(pd.Items) != 1 {
-		t.Errorf("Items count: got %d, want 1", len(pd.Items))
-	}
-}
-
-// TestProgressEventStruct verifies ProgressEvent struct fields
-func TestProgressEventStruct(t *testing.T) {
-	pe := ProgressEvent{
-		Token:   "123",
-		Kind:    "begin",
-		Message: "Loading workspace",
-	}
-
-	if pe.Token != "123" {
-		t.Errorf("Token: got %s, want 123", pe.Token)
-	}
-	if pe.Kind != "begin" {
-		t.Errorf("Kind: got %s, want begin", pe.Kind)
-	}
-}
-
-// TestStderrRedirection verifies stderr can be redirected
-func TestStderrRedirection(t *testing.T) {
-	buf := &bytes.Buffer{}
-	spec := TransportSpec{
-		Command:  "echo",
-		Args:     []string{"test"},
-		RootPath: "/tmp",
-		Stderr:   buf,
-	}
-
-	if spec.Stderr != buf {
-		t.Error("stderr not properly set")
-	}
-}
-
-// TestChannelClosureOnExit verifies Exited channel semantics
-func TestChannelClosureOnExit(t *testing.T) {
-	exited := make(chan struct{})
-	close(exited)
-
-	select {
-	case <-exited:
-		// Expected: channel is closed
-	default:
-		t.Error("exited channel should be closed")
-	}
-}
-
-// TestSessionContextHandling verifies context propagation
-func TestSessionContextHandling(t *testing.T) {
-	ctx := context.Background()
-
-	// Verify context is not done yet
-	select {
-	case <-ctx.Done():
-		t.Error("context should not be done yet")
-	default:
-		// Expected
-	}
-
-	// Test timeout context
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
-	defer cancel()
-
-	time.Sleep(2 * time.Millisecond)
-
-	select {
-	case <-timeoutCtx.Done():
-		// Expected: context timed out
-	default:
-		t.Error("timeout context should be done")
-	}
-}
-
-// TestLocationConversion verifies 0-based to 1-based conversion logic
-func TestLocationConversion(t *testing.T) {
 	tests := []struct {
-		name     string
-		lspLine  uint32
-		lspChar  uint32
-		wantLine int
-		wantChar int
+		name   string
+		result protocol.DefinitionResult
+		want   []Location
 	}{
-		{"zero-based", 0, 0, 1, 1},
-		{"line 5", 4, 10, 5, 11},
+		{
+			name:   "single location",
+			result: &protocol.Location{URI: target, Range: targetRange()},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "location slice",
+			result: protocol.LocationSlice{{URI: target, Range: targetRange()}},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "definition links",
+			result: protocol.DefinitionLinkSlice{{TargetURI: target, TargetRange: targetRange(), TargetSelectionRange: targetRange()}},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "no result",
+			result: nil,
+			want:   []Location{},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			line := int(tt.lspLine) + 1
-			char := int(tt.lspChar) + 1
-			if line != tt.wantLine || char != tt.wantChar {
-				t.Errorf("conversion: got (%d, %d), want (%d, %d)", line, char, tt.wantLine, tt.wantChar)
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			fs := newFakeServer()
+			fs.definitionResult = tt.result
+			s, _, err := startFakeSession(ctx, t, fs, nil)
+			if err != nil {
+				t.Fatalf("start session: %v", err)
+			}
+
+			got, err := s.Definition(ctx, "/src/caller.go", 12, 4)
+			if err != nil {
+				t.Fatalf("definition: %v", err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("definition = %+v, want %+v", got, tt.want)
+			}
+			if methods := fs.recorded(); !slices.Contains(methods, "textDocument/definition") {
+				t.Errorf("server did not receive definition request, got %v", methods)
 			}
 		})
 	}
 }
 
-// TestNoGoLSPDevExports is a compile-time check that go.lsp.dev types don't leak
-func TestNoGoLSPDevExports(t *testing.T) {
-	_ = Location{}
-	_ = Diagnostic{}
-	_ = PublishedDiagnostics{}
-	_ = ProgressEvent{}
-	_ = TransportSpec{}
+func TestSessionHandshakeHonoursContextDeadline(t *testing.T) {
+	fs := newFakeServer()
+	fs.stallInitialize()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	if _, _, err := startFakeSession(ctx, t, fs, nil); err == nil {
+		t.Fatal("expected handshake to fail on context deadline")
+	} else if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("handshake error = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > testTimeout {
+		t.Errorf("handshake took %v, want it bounded by the context deadline", elapsed)
+	}
 }
 
-// TestChannelCreation verifies channels are created with appropriate buffer sizes
-func TestChannelCreation(t *testing.T) {
-	diag := make(chan PublishedDiagnostics, 10)
-	prog := make(chan ProgressEvent, 10)
+func TestSessionRequestFailsWhenServerExits(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
 
-	// Verify we can send without blocking
+	fs := newFakeServer()
+	fs.stallDefinition()
+	s, proc, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	// The request context stays generous so a timeout cannot masquerade as an exit.
+	callCtx, callCancel := context.WithTimeout(ctx, testTimeout)
+	defer callCancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, defErr := s.Definition(callCtx, "/src/caller.go", 1, 1)
+		errCh <- defErr
+	}()
+
+	time.AfterFunc(20*time.Millisecond, proc.markExited)
+
 	select {
-	case diag <- PublishedDiagnostics{}:
-	default:
-		t.Error("diagnostics channel full")
+	case defErr := <-errCh:
+		if !errors.Is(defErr, errServerExited) {
+			t.Fatalf("definition error = %v, want errServerExited", defErr)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("definition did not return after the server exited")
+	}
+}
+
+func TestSessionRequestsRejectedAfterServerExit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	s, proc, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	proc.markExited()
+
+	if _, err := s.Definition(ctx, "/src/caller.go", 1, 1); !errors.Is(err, errServerExited) {
+		t.Errorf("definition error = %v, want errServerExited", err)
+	}
+	if err := s.DidClose(ctx, "/src/caller.go"); !errors.Is(err, errServerExited) {
+		t.Errorf("did close error = %v, want errServerExited", err)
+	}
+}
+
+func TestSessionCloseSendsShutdownBeforeExit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	s, proc, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	if err := s.Close(ctx); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 
 	select {
-	case prog <- ProgressEvent{}:
-	default:
-		t.Error("progress channel full")
+	case <-fs.exited:
+	case <-time.After(testTimeout):
+		t.Fatal("server never received exit")
+	}
+
+	methods := fs.recorded()
+	shutdownAt := slices.Index(methods, "shutdown")
+	exitAt := slices.Index(methods, "exit")
+	if shutdownAt < 0 || exitAt < 0 {
+		t.Fatalf("methods = %v, want both shutdown and exit", methods)
+	}
+	if shutdownAt > exitAt {
+		t.Errorf("methods = %v, want shutdown before exit", methods)
+	}
+	if proc.wasKilled() {
+		t.Error("a server that exited cleanly must not be force-terminated")
 	}
 }
 
-// TestClientHandlerNotification verifies client handler is instantiable
-func TestClientHandlerNotification(t *testing.T) {
-	handler := &clientHandler{
-		diagnosticsChan: make(chan PublishedDiagnostics, 10),
-		progressChan:    make(chan ProgressEvent, 10),
+func TestSessionCloseForceKillsUnresponsiveServer(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	fs.ignoreExit = true
+	s, proc, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("start session: %v", err)
 	}
 
-	if handler.diagnosticsChan == nil {
-		t.Error("diagnosticsChan is nil")
+	closeErr := s.Close(ctx)
+	if closeErr == nil {
+		t.Fatal("expected close to report the unresponsive server")
 	}
-	if handler.progressChan == nil {
-		t.Error("progressChan is nil")
+	if !proc.wasKilled() {
+		t.Error("close did not force-terminate the unresponsive server")
 	}
 }
 
-func ptrInt32Helper(v int32) *int32 {
-	return &v
+func TestSessionForwardsDiagnosticsAndProgress(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	s, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	fs.notifyDiagnostics(ctx, t, &protocol.PublishDiagnosticsParams{
+		URI:     uri.File("/src/broken.go"),
+		Version: protocol.NewOptional(int32(7)),
+		Diagnostics: []protocol.Diagnostic{{
+			Range:    targetRange(),
+			Severity: protocol.DiagnosticSeverityWarning,
+			Source:   protocol.NewOptional("gopls"),
+			Code:     protocol.String("unusedvar"),
+			Message:  protocol.String("declared and not used: x"),
+		}},
+	})
+
+	select {
+	case got := <-s.Diagnostics():
+		want := PublishedDiagnostics{
+			File:  "/src/broken.go",
+			Items: []Diagnostic{{File: "/src/broken.go", Line: 5, Column: 3, Severity: "warning", Source: "gopls", Message: "declared and not used: x", Code: "unusedvar"}},
+		}
+		if got.File != want.File {
+			t.Errorf("file = %q, want %q", got.File, want.File)
+		}
+		if got.Version == nil || *got.Version != 7 {
+			t.Errorf("version = %v, want 7", got.Version)
+		}
+		if !slices.Equal(got.Items, want.Items) {
+			t.Errorf("items = %+v, want %+v", got.Items, want.Items)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("diagnostics never arrived")
+	}
+
+	begin, err := json.Marshal(protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading packages"})
+	if err != nil {
+		t.Fatalf("marshal begin: %v", err)
+	}
+	fs.notifyProgress(ctx, t, &protocol.ProgressParams{
+		Token: protocol.String("load"),
+		Value: protocol.LSPAny(begin),
+	})
+
+	select {
+	case got := <-s.Progress():
+		want := ProgressEvent{Token: "load", Kind: "begin", Message: "Loading packages"}
+		if got != want {
+			t.Errorf("progress = %+v, want %+v", got, want)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("progress event never arrived")
+	}
+}
+
+func TestSessionProgressEventDecoding(t *testing.T) {
+	message := "3/25 packages"
+
+	tests := []struct {
+		name  string
+		value any
+		token protocol.ProgressToken
+		want  ProgressEvent
+		ok    bool
+	}{
+		{
+			name:  "begin falls back to title",
+			value: protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading packages"},
+			token: protocol.String("load"),
+			want:  ProgressEvent{Token: "load", Kind: "begin", Message: "Loading packages"},
+			ok:    true,
+		},
+		{
+			name:  "begin prefers message",
+			value: protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading packages", Message: &message},
+			token: protocol.String("load"),
+			want:  ProgressEvent{Token: "load", Kind: "begin", Message: message},
+			ok:    true,
+		},
+		{
+			name:  "report",
+			value: protocol.WorkDoneProgressReport{Kind: "report", Message: &message},
+			token: protocol.Integer(42),
+			want:  ProgressEvent{Token: "42", Kind: "report", Message: message},
+			ok:    true,
+		},
+		{
+			name:  "end",
+			value: protocol.WorkDoneProgressEnd{Kind: "end", Message: &message},
+			token: protocol.String("load"),
+			want:  ProgressEvent{Token: "load", Kind: "end", Message: message},
+			ok:    true,
+		},
+		{
+			name:  "unknown kind is dropped",
+			value: map[string]string{"kind": "restart"},
+			token: protocol.String("load"),
+			ok:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := json.Marshal(tt.value)
+			if err != nil {
+				t.Fatalf("marshal value: %v", err)
+			}
+
+			got, ok := decodeProgress(&protocol.ProgressParams{Token: tt.token, Value: protocol.LSPAny(raw)})
+			if ok != tt.ok {
+				t.Fatalf("decodeProgress ok = %v, want %v", ok, tt.ok)
+			}
+			if ok && got != tt.want {
+				t.Errorf("decodeProgress = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSessionForwardsInitializationOptions(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	opts := map[string]any{
+		"build": map[string]any{"directoryFilters": []any{"-node_modules"}},
+		"ui":    map[string]any{"semanticTokens": true},
+	}
+
+	fs := newFakeServer()
+	if _, _, err := startFakeSession(ctx, t, fs, opts); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	params := fs.initializeParams()
+	if params == nil {
+		t.Fatal("server did not record initialize params")
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(params.InitializationOptions, &got); err != nil {
+		t.Fatalf("decode initialization options %q: %v", params.InitializationOptions, err)
+	}
+	wantRaw, err := json.Marshal(opts)
+	if err != nil {
+		t.Fatalf("marshal want: %v", err)
+	}
+	var want map[string]any
+	if err := json.Unmarshal(wantRaw, &want); err != nil {
+		t.Fatalf("decode want: %v", err)
+	}
+	if !mapsEqualJSON(got, want) {
+		t.Errorf("initializationOptions = %+v, want %+v", got, want)
+	}
+}
+
+func TestSessionOmitsEmptyInitializationOptions(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	if _, _, err := startFakeSession(ctx, t, fs, nil); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	params := fs.initializeParams()
+	if params == nil {
+		t.Fatal("server did not record initialize params")
+	}
+	if len(params.InitializationOptions) != 0 {
+		t.Errorf("initializationOptions = %q, want absent", params.InitializationOptions)
+	}
+}
+
+// mapsEqualJSON compares two decoded JSON objects.
+func mapsEqualJSON(a, b map[string]any) bool {
+	left, err := json.Marshal(a)
+	if err != nil {
+		return false
+	}
+	right, err := json.Marshal(b)
+	if err != nil {
+		return false
+	}
+	return string(left) == string(right)
 }

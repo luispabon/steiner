@@ -3,31 +3,47 @@
 package lsp
 
 import (
+	"errors"
+	"fmt"
 	"os/exec"
 	"syscall"
 	"time"
 )
 
-// killProcess terminates the process group with SIGTERM then SIGKILL if needed.
+// termGracePeriod is how long the process group has to handle SIGTERM before
+// SIGKILL follows.
+const termGracePeriod = 100 * time.Millisecond
+
+// setProcessGroup puts the server in its own process group so killProcess can
+// signal the whole tree, including helpers the server spawned.
+func setProcessGroup(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
+}
+
+// killProcess terminates the process group with SIGTERM then SIGKILL.
 func killProcess(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
+	pgid := -cmd.Process.Pid
 
-	// Try SIGTERM first
-	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM); err != nil {
-		// Process may already be dead
-		return nil
+	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		return fmt.Errorf("terminate process group: %w", err)
 	}
 
-	// Wait a short time for graceful shutdown
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(termGracePeriod)
 
-	// Force kill with SIGKILL
-	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
-		// Process may already be dead
-		return nil
+	if err := syscall.Kill(pgid, syscall.SIGKILL); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		return fmt.Errorf("kill process group: %w", err)
 	}
-
 	return nil
 }

@@ -2,306 +2,225 @@ package lsp
 
 import (
 	"context"
-	"fmt"
-	"io"
+	"net"
 	"sync"
 	"testing"
 	"time"
 
+	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
-	"go.lsp.dev/uri"
 )
 
-// TestFakeServerStructures tests that the basic types are correctly defined.
-func TestFakeServerStructures(t *testing.T) {
-	// Test Location struct
-	loc := Location{
-		File:      "/tmp/test.go",
-		Line:      10,
-		Column:    5,
-		EndLine:   10,
-		EndColumn: 20,
-	}
-	if loc.File != "/tmp/test.go" {
-		t.Errorf("Location.File: got %s, want /tmp/test.go", loc.File)
-	}
+// testTimeout bounds every wait in the session tests.
+const testTimeout = 2 * time.Second
 
-	// Test Diagnostic struct
-	diag := Diagnostic{
-		File:     "/tmp/test.go",
-		Line:     5,
-		Column:   10,
-		Severity: "error",
-		Source:   "test",
-		Message:  "test error",
-		Code:     "E001",
-	}
-	if diag.Severity != "error" {
-		t.Errorf("Diagnostic.Severity: got %s, want error", diag.Severity)
-	}
+// fakeProcess is a childProcess double: the test decides when the "process"
+// exits and can observe whether it was force-terminated.
+type fakeProcess struct {
+	exited     chan struct{}
+	exitOnce   sync.Once
+	killed     chan struct{}
+	killedOnce sync.Once
+}
 
-	// Test PublishedDiagnostics struct
-	pd := PublishedDiagnostics{
-		File:    "/tmp/test.go",
-		Version: ptrInt32(1),
-		Items:   []Diagnostic{diag},
-	}
-	if len(pd.Items) != 1 {
-		t.Errorf("PublishedDiagnostics.Items: got %d, want 1", len(pd.Items))
-	}
+func newFakeProcess() *fakeProcess {
+	return &fakeProcess{exited: make(chan struct{}), killed: make(chan struct{})}
+}
 
-	// Test ProgressEvent struct
-	pe := ProgressEvent{
-		Token:   "123",
-		Kind:    "begin",
-		Message: "Loading",
-	}
-	if pe.Token != "123" {
-		t.Errorf("ProgressEvent.Token: got %s, want 123", pe.Token)
+func (p *fakeProcess) Exited() <-chan struct{} { return p.exited }
+
+func (p *fakeProcess) Kill() {
+	p.killedOnce.Do(func() { close(p.killed) })
+	p.markExited()
+}
+
+func (p *fakeProcess) markExited() {
+	p.exitOnce.Do(func() { close(p.exited) })
+}
+
+func (p *fakeProcess) wasKilled() bool {
+	select {
+	case <-p.killed:
+		return true
+	default:
+		return false
 	}
 }
 
-// TestReadWriteCloser tests the pipe adapter.
-func TestReadWriteCloser(t *testing.T) {
-	r, w := io.Pipe()
+// fakeServer is an in-process language server. It records the methods it
+// received and lets tests stall or divert individual requests.
+type fakeServer struct {
+	protocol.UnimplementedServer
 
-	rwc := &readWriteCloser{
-		r: r,
-		w: w,
-	}
+	// initializeHold, when non-nil, blocks the initialize response until
+	// releaseHolds is called or the request context ends.
+	initializeHold chan struct{}
+	// definitionHold, when non-nil, blocks the definition response likewise.
+	definitionHold chan struct{}
+	releaseOnce    sync.Once
+	// definitionResult is returned by textDocument/definition.
+	definitionResult protocol.DefinitionResult
+	// ignoreExit makes the server accept exit without ever going away.
+	ignoreExit bool
 
-	// Test Write in a goroutine to avoid blocking
-	done := make(chan error, 1)
-	go func() {
-		n, err := rwc.Write([]byte("test"))
-		if err != nil {
-			done <- err
-			return
+	mu         sync.Mutex
+	methods    []string
+	initParams *protocol.InitializeParams
+
+	client   protocol.Client
+	exitOnce sync.Once
+	exited   chan struct{}
+	onExit   func()
+}
+
+func newFakeServer() *fakeServer {
+	return &fakeServer{exited: make(chan struct{})}
+}
+
+// stallInitialize makes the server accept initialize but withhold its response.
+func (f *fakeServer) stallInitialize() {
+	f.initializeHold = make(chan struct{})
+}
+
+// stallDefinition makes the server accept definition but withhold its response.
+func (f *fakeServer) stallDefinition() {
+	f.definitionHold = make(chan struct{})
+}
+
+// releaseHolds lets every stalled handler finish, so the connection can be torn
+// down without waiting on an in-flight request.
+func (f *fakeServer) releaseHolds() {
+	f.releaseOnce.Do(func() {
+		if f.initializeHold != nil {
+			close(f.initializeHold)
 		}
-		if n != 4 {
-			done <- fmt.Errorf("write: got %d bytes, want 4", n)
-			return
+		if f.definitionHold != nil {
+			close(f.definitionHold)
 		}
-		done <- nil
-	}()
+	})
+}
 
-	// Read the data to unblock the write
-	buf := make([]byte, 4)
-	_, err := r.Read(buf)
+func (f *fakeServer) record(method string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.methods = append(f.methods, method)
+}
+
+func (f *fakeServer) recorded() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.methods...)
+}
+
+func (f *fakeServer) initializeParams() *protocol.InitializeParams {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.initParams
+}
+
+func (f *fakeServer) Initialize(ctx context.Context, params *protocol.InitializeParams) (*protocol.InitializeResult, error) {
+	f.record("initialize")
+	f.mu.Lock()
+	f.initParams = params
+	f.mu.Unlock()
+
+	if f.initializeHold != nil {
+		select {
+		case <-f.initializeHold:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return &protocol.InitializeResult{
+		Capabilities: protocol.ServerCapabilities{
+			DefinitionProvider: protocol.Boolean(true),
+		},
+	}, nil
+}
+
+func (f *fakeServer) Initialized(context.Context, *protocol.InitializedParams) error {
+	f.record("initialized")
+	return nil
+}
+
+func (f *fakeServer) Definition(ctx context.Context, _ *protocol.DefinitionParams) (protocol.DefinitionResult, error) {
+	f.record("textDocument/definition")
+	if f.definitionHold != nil {
+		select {
+		case <-f.definitionHold:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return f.definitionResult, nil
+}
+
+func (f *fakeServer) Shutdown(context.Context) error {
+	f.record("shutdown")
+	return nil
+}
+
+func (f *fakeServer) Exit(context.Context) error {
+	f.record("exit")
+	f.exitOnce.Do(func() { close(f.exited) })
+	if !f.ignoreExit && f.onExit != nil {
+		f.onExit()
+	}
+	return nil
+}
+
+// notifyDiagnostics publishes diagnostics to the connected session.
+func (f *fakeServer) notifyDiagnostics(ctx context.Context, t *testing.T, params *protocol.PublishDiagnosticsParams) {
+	t.Helper()
+	if err := f.client.PublishDiagnostics(ctx, params); err != nil {
+		t.Fatalf("publish diagnostics: %v", err)
+	}
+}
+
+// notifyProgress sends a $/progress notification to the connected session.
+func (f *fakeServer) notifyProgress(ctx context.Context, t *testing.T, params *protocol.ProgressParams) {
+	t.Helper()
+	if err := f.client.Progress(ctx, params); err != nil {
+		t.Fatalf("send progress: %v", err)
+	}
+}
+
+// startFakeSession connects a session to fs over an in-memory pipe and returns
+// the handshake outcome. The session is closed at the end of the test.
+func startFakeSession(ctx context.Context, t *testing.T, fs *fakeServer, initOpts map[string]any) (*impl, *fakeProcess, error) {
+	t.Helper()
+
+	clientPipe, serverPipe := net.Pipe()
+	_, serverConn, client := protocol.NewServer(context.Background(), fs, jsonrpc2.NewStream(serverPipe))
+	fs.client = client
+
+	proc := newFakeProcess()
+	fs.onExit = func() {
+		// A real server drops the connection and the process reaps shortly after
+		// exit; do the close off the handler goroutine to avoid deadlocking it.
+		proc.markExited()
+		go func() {
+			_ = serverConn.Close()
+		}()
+	}
+
+	// Cleanups run last-in-first-out: release stalled handlers before either
+	// connection is closed, otherwise the close blocks on an in-flight request.
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientPipe.Close()
+	})
+	t.Cleanup(fs.releaseHolds)
+
+	s, err := newSession(ctx, jsonrpc2.NewStream(clientPipe), t.TempDir(), initOpts, proc)
 	if err != nil {
-		t.Fatalf("Read failed: %v", err)
+		return nil, proc, err
 	}
-
-	// Wait for write goroutine
-	if err := <-done; err != nil {
-		t.Fatalf("Write error: %v", err)
-	}
-
-	// Test Close
-	if err := rwc.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	r.Close()
-	w.Close()
-}
-
-// TestHandshakeStructure tests that handshake can be called without error setup.
-func TestHandshakeStructure(t *testing.T) {
-	// This tests the handshake function structure exists and can be referenced
-	_ = handshake // function exists
-}
-
-// TestClientHandlerInterface tests that clientHandler implements protocol.Client
-func TestClientHandlerInterface(t *testing.T) {
-	handler := &clientHandler{
-		diagnosticsChan: make(chan PublishedDiagnostics, 1),
-		progressChan:    make(chan ProgressEvent, 1),
-	}
-
-	// Verify handler implements the interface by calling a method
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	// Call a no-op method to verify interface compliance
-	err := handler.LogTrace(ctx, nil)
-	if err != nil {
-		t.Errorf("LogTrace: got error %v, want nil", err)
-	}
-}
-
-// TestSessionInterfaceType tests that the session interface is correctly defined.
-func TestSessionInterfaceType(t *testing.T) {
-	// Ensure impl satisfies session interface
-	var _ session = (*impl)(nil)
-}
-
-// TestTransportSpecType tests TransportSpec structure.
-func TestTransportSpecType(t *testing.T) {
-	spec := TransportSpec{
-		Command:  "gopls",
-		Args:     []string{"serve"},
-		Env:      []string{"VAR=value"},
-		RootPath: "/tmp",
-		Stderr:   io.Discard,
-	}
-
-	if spec.Command != "gopls" {
-		t.Errorf("Command: got %s, want gopls", spec.Command)
-	}
-	if len(spec.Args) != 1 {
-		t.Errorf("Args: got %d, want 1", len(spec.Args))
-	}
-}
-
-// TestErrorServerExited tests the error constant.
-func TestErrorServerExited(t *testing.T) {
-	if errServerExited.Error() != "language server exited" {
-		t.Errorf("error message: got %q, want %q", errServerExited.Error(), "language server exited")
-	}
-}
-
-// TestURIConversions tests URI handling.
-func TestURIConversions(t *testing.T) {
-	// Test uri.File creates a proper URI
-	u := uri.File("/tmp/test.go")
-	if string(u) == "" {
-		t.Error("uri.File returned empty URI")
-	}
-
-	// Test conversion to string
-	s := string(u)
-	if s == "" {
-		t.Error("URI to string conversion returned empty")
-	}
-}
-
-// TestLocationConversions tests location conversions from 0-based to 1-based.
-func TestLocationConversions(t *testing.T) {
-	tests := []struct {
-		name     string
-		line0    uint32
-		col0     uint32
-		wantLine int
-		wantCol  int
-	}{
-		{"zero-based", 0, 0, 1, 1},
-		{"line 5", 4, 10, 5, 11},
-		{"line 10 col 20", 9, 19, 10, 20},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			line := int(tt.line0) + 1
-			col := int(tt.col0) + 1
-			if line != tt.wantLine || col != tt.wantCol {
-				t.Errorf("got (%d,%d), want (%d,%d)", line, col, tt.wantLine, tt.wantCol)
-			}
-		})
-	}
-}
-
-// TestNullableHandling tests Nullable type usage.
-func TestNullableHandling(t *testing.T) {
-	// Test NewNullable
-	n := protocol.NewNullable("test")
-	if v, ok := n.Get(); !ok || v != "test" {
-		t.Errorf("NewNullable: got %q (ok=%v), want test (ok=true)", v, ok)
-	}
-}
-
-// TestOptionalHandling tests Optional type usage.
-func TestOptionalHandling(t *testing.T) {
-	// Test NewOptional
-	o := protocol.NewOptional(int32(42))
-	if v, ok := o.Get(); !ok || v != 42 {
-		t.Errorf("NewOptional: got %d (ok=%v), want 42 (ok=true)", v, ok)
-	}
-
-	// Test zero Optional
-	var o2 protocol.Optional[int32]
-	if _, ok := o2.Get(); ok {
-		t.Errorf("zero Optional: got ok=true, want ok=false")
-	}
-}
-
-// TestChannelBuffering tests diagnostics and progress channels.
-func TestChannelBuffering(t *testing.T) {
-	diags := make(chan PublishedDiagnostics, 10)
-	progs := make(chan ProgressEvent, 10)
-
-	// Should not block on first send
-	select {
-	case diags <- PublishedDiagnostics{File: "test.go"}:
-	case <-time.After(100 * time.Millisecond):
-		t.Error("diagnostics channel blocked unexpectedly")
-	}
-
-	select {
-	case progs <- ProgressEvent{Token: "123"}:
-	case <-time.After(100 * time.Millisecond):
-		t.Error("progress channel blocked unexpectedly")
-	}
-}
-
-// TestContextPropagation tests that context works through selection.
-func TestContextPropagation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	select {
-	case <-ctx.Done():
-		// Expected
-	default:
-		t.Error("context should be canceled")
-	}
-}
-
-// TestExitedChannelBehavior tests the exited channel behavior.
-func TestExitedChannelBehavior(t *testing.T) {
-	exited := make(chan struct{})
-
-	select {
-	case <-exited:
-		t.Error("channel should not be closed yet")
-	default:
-		// Expected
-	}
-
-	close(exited)
-
-	select {
-	case <-exited:
-		// Expected
-	default:
-		t.Error("channel should be closed now")
-	}
-}
-
-// TestMutexSafety tests basic mutex usage patterns.
-func TestMutexSafety(t *testing.T) {
-	var mu sync.Mutex
-	var value int
-
-	// Simulate concurrent access pattern
-	done := make(chan bool)
-
-	go func() {
-		mu.Lock()
-		value++
-		mu.Unlock()
-		done <- true
-	}()
-
-	<-done
-
-	mu.Lock()
-	if value != 1 {
-		t.Errorf("value: got %d, want 1", value)
-	}
-	mu.Unlock()
-}
-
-func ptrInt32(v int32) *int32 {
-	return &v
+	s.shutdownTimeout = 200 * time.Millisecond
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
+		_ = s.Close(closeCtx)
+	})
+	return s, proc, nil
 }
