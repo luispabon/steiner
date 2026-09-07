@@ -19,11 +19,11 @@ Use this skill when a user asks to understand or change Steiner configuration. A
 
 Sole canonical compact reference for safe configuration edits; use this file as the source of truth.
 
-**Targets/precedence.** Project: `.steiner/config.yaml` or `--config <path>`; global: `~/.config/steiner/config.yaml`. Order: defaults, global YAML, project YAML, env, CLI; later wins. `--profile <name>` selects a profile; `STEINER_MODEL`, then `--model <ref>`, select the active model; `--verbose` enables verbose logging; `--unsafe` forces `sandbox.enabled: false`. Scalar expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`; undefined variables fail except `${VAR:-}`. Keys/comments are unchanged.
+**Targets/precedence.** Project: `.steiner/config.yaml`; global: `~/.config/steiner/config.yaml`. Order: defaults < global < project < env < CLI. Scalar expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`.
 
-**Environment.** `STEINER_MODEL` -> active model; `STEINER_SUB_AGENTS_MAX_PARALLEL` -> `sub_agent.max_parallel`; `STEINER_TUI_FPS` -> `tui.fps`; `STEINER_MAX_TURNS`, `STEINER_MAX_TOKENS`, `STEINER_TOOL_OUTPUT_MAX_BYTES`, `STEINER_MAX_PARALLEL_TOOLS` -> matching `limits` fields; `STEINER_LOG_LEVEL`, `STEINER_LOG_FILE`, `STEINER_COMPACTION_LOG_FILE` -> matching `logging` fields. `GOOGLE_SEARCH_CX`, `GOOGLE_SEARCH_API_KEY`, `KAGI_API_KEY`, `BRAVE_API_KEY` fill empty matching `search` fields. Integer overrides must parse as integers.
+**Environment.** Map `STEINER_*` and `*_API_KEY` env vars to config fields. Integer overrides parse as ints.
 
-**Path notation.** `<name>`, `<alias>`, `<profile>`, `<server>`, `<tool>`, `<key>` are map keys; `<index>` is a list index. `duration` is a Go duration. `—` means unset/required/conditional. Defaults are compiled; profile maps inherit from `models.profiles.default` where stated.
+**Path notation.** `<name>`, `<alias>`, `<profile>`, `<server>`, `<tool>`, `<key>` are map keys; `<index>` is list index. `—` is unset/required.
 
 |Path|Type|Default|Semantics|
 |-|-|-|-
@@ -140,6 +140,22 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `mcp.servers.<server>.allowed_tools`|[]string|—|Native-name allowlist; explicit `[]` denies all. |
 | `mcp.servers.<server>.blocked_tools`|[]string|—|Native-name denylist after allowlist. |
 | `mcp.servers.<server>.sub_agents`|[]string|closed|Allowed types: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`. |
+| `lsp.enabled`|bool|`false`|—|
+| `lsp.idle_timeout`|duration|`5m`|—|
+| `lsp.request_timeout`|duration|`10s`|—|
+| `lsp.ready_timeout`|duration|`30s`|—|
+| `lsp.ready_grace_period`|duration|`2s`|—|
+| `lsp.diagnostics_window`|duration|`2s`|—|
+| `lsp.max_results`|int|`200`|—|
+| `lsp.cache_dir`|string|—|—|
+| `lsp.servers.<name>.enabled`|bool|`false`|—|
+| `lsp.servers.<name>.command`|string|—|—|
+| `lsp.servers.<name>.args`|[]string|—|—|
+| `lsp.servers.<name>.env`|map[string]string|—|—|
+| `lsp.servers.<name>.env.<name>`|string|—|—|
+| `lsp.servers.<name>.file_extensions`|[]string|—|—|
+| `lsp.servers.<name>.root_markers`|[]string|—|—|
+| `lsp.servers.<name>.initialization_options`|map[string]any|—|—|
 | `modes.default`|string|`build`|`plan` or `build`; plan limits edits to `.steiner/plans/`. |
 | `tui.fps`|int|`60`|Interactive renderer rate, 1 through 120. |
 | `cave_human`|bool|`false`|Add terse output and anti-AI-writing-tells instructions. |

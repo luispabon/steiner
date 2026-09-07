@@ -4,6 +4,125 @@ Steiner can connect to language servers to answer navigation and diagnostics
 queries. Servers are configured under `lsp.servers` and are off by default
 (`lsp.enabled: false`). See docs/configuration.md for the field reference.
 
+## The three tools
+
+Three built-in tools become available when a language server is configured and working:
+
+- **definitions** — Jump to the definition of a symbol at a given location. Returns a list of locations in other files (or the same file) where the symbol is defined. If multiple definitions exist (rare), all are returned, up to `lsp.max_results`.
+- **references** — Find all references to a symbol. By default includes the symbol's declaration; pass `include_declaration: false` to exclude it. Results are returned up to `lsp.max_results`.
+- **diagnostics** — Get diagnostics (errors, warnings, information, hints) for a file. Returns what the language server has published for that file. Diagnostics reflect the server's state at query time; if the server is still indexing, results may be incomplete or provisional.
+
+All three tools gracefully degrade when no server is configured for a file's extension, when a server is disabled, or when a server fails to start — they return a clear message instead of an error. See [Graceful degradation](#graceful-degradation) below for the messages and what they mean.
+
+## Language server setup
+
+Steiner does not install or manage language servers. You must install servers separately before configuring them in steiner. Each server is a separate executable that you run from `lsp.servers.<name>.command`.
+
+### Copy-paste server examples
+
+#### gopls (Go)
+
+```yaml
+lsp:
+  servers:
+    gopls:
+      enabled: true
+      command: gopls
+      file_extensions: [".go"]
+      root_markers: ["go.mod", ".git"]
+      env:
+        GOCACHE: ${XDG_CACHE_HOME}/go
+        GOMODCACHE: ${GOPATH}/pkg/mod
+```
+
+Install: `go install github.com/golang/tools/gopls@latest`
+
+#### typescript-language-server (TypeScript / JavaScript)
+
+```yaml
+lsp:
+  servers:
+    tsserver:
+      enabled: true
+      command: typescript-language-server
+      args: ["--stdio"]
+      file_extensions: [".ts", ".tsx", ".js", ".jsx"]
+      root_markers: ["package.json", "tsconfig.json"]
+```
+
+Install: `npm install -g typescript-language-server typescript`
+
+#### pyright (Python)
+
+```yaml
+lsp:
+  servers:
+    pyright:
+      enabled: true
+      command: pyright-langserver
+      args: ["--stdio"]
+      file_extensions: [".py"]
+      root_markers: ["pyproject.toml", "setup.py", ".git"]
+```
+
+Install: `pip install pyright` (or use your package manager)
+
+#### rust-analyzer (Rust)
+
+```yaml
+lsp:
+  servers:
+    rust-analyzer:
+      enabled: true
+      command: rust-analyzer
+      file_extensions: [".rs"]
+      root_markers: ["Cargo.toml", ".git"]
+```
+
+Install: Per [rust-analyzer installation](https://rust-analyzer.github.io/manual.html#installation)
+
+## Lifecycle
+
+Language servers are started lazily on first use and kept alive until idle for `lsp.idle_timeout` (default 5m). When a request is issued to a server:
+
+1. If the server is not running, it is spawned and initialized.
+2. The initialization includes a `lsp.ready_timeout` (default 30s) wait for the server to signal readiness (the first workspace load complete). If readiness is not signaled within the timeout, the request proceeds anyway with an incomplete flag in the response.
+3. The request is sent to the server with a per-request timeout of `lsp.request_timeout` (default 10s).
+4. If the server becomes idle (no requests for `lsp.idle_timeout`), it is shut down.
+
+The readiness gate is a best-effort optimization: servers that emit progress events are tracked closely, and servers that emit no progress are given `lsp.ready_grace_period` (default 2s) to send an initial event before the readiness gate closes. This allows requests to proceed to a truly ready server as soon as indexing completes, and prevents requests from blocking indefinitely on servers that never report progress.
+
+## Persistent cache directory
+
+By default, each language server's cache (index, compiled code, etc.) is stored under the system user cache directory. Steiner derives a per-workspace cache subdirectory based on a hash of the workspace root, creating the path:
+
+```
+<lsp.cache_dir or XDG_CACHE_HOME>/steiner/lsp/<16-char-hash-of-workspace-root>/
+```
+
+When `lsp.cache_dir` is set in config, it overrides the user cache directory. The cache is **never cleaned up automatically** — users are responsible for removing old caches manually if needed.
+
+## Graceful degradation
+
+The three LSP tools return human-readable messages instead of errors when a server is unavailable:
+
+- **"No language server is configured for .ext. Configure one under `lsp.servers` to enable this tool."** — The file extension has no server declared in config, or the configured server is disabled.
+- **"Language server <name> failed to start: <error>."** — The server executable was not found, did not start, or crashed during initialization.
+- **"Language server <name> exited unexpectedly."** — The server was running but crashed or exited during a request.
+
+When a query completes successfully but the server was still indexing, the result may be incomplete. The response includes a note: *"results may be incomplete if the language server's indexing has not finished."* This is expected and not an error.
+
+## Diagnostics collection window
+
+The `diagnostics` tool collects published diagnostics for a file by opening it and waiting for `lsp.diagnostics_window` (default 2s) to collect all incoming diagnostics messages from the server. Unlike pull-based diagnostics (which would request diagnostics on demand), this push-based approach respects the server's optimization: servers batch and rate-limit diagnostics publications, and we honor those choices rather than forcing a full re-check.
+
+The `lsp.diagnostics_window` is unconditional latency: the tool always waits the full window even if the server publishes diagnostics immediately. This ensures completeness without being surprising.
+
+## Known limitations
+
+- Language servers other than gopls are unverified for cache requirements. If you encounter cache-related issues with other servers, open an issue.
+- Hover, document symbols (`textDocument/documentSymbol`), rename (`textDocument/rename`), and other LSP features are not yet implemented. The three tools (definitions, references, diagnostics) are the current focus.
+
 ## Timeout calibration
 
 The `lsp.*` timeout defaults in `internal/config/defaults.go` are derived from

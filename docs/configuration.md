@@ -77,6 +77,7 @@ If `OPENAI_API_KEY` is not set, configuration loading fails. If `OPENAI_BASE_URL
 | `desktop_notifications` | block | see below | Desktop notification settings for run completion and events.                                                                                                                                                         |
 | `update_check`          | block | see below | Passive startup version-upgrade check settings.                                                                                                                                                                      |
 | `mcp`                   | block | see below | Model Context Protocol server configuration.                                                                                                                                                                         |
+| `lsp`                   | block | see below | Language server protocol configuration for code intelligence (definitions, references, diagnostics).                                                                                                               |
 | `tui`                   | block | see below | Interactive terminal UI settings.                                                                                                                                                                                    |
 
 ## `advisor` block
@@ -789,6 +790,59 @@ mcp:
 When using `http` transport with an `Authorization` header, use the strict env expansion syntax (e.g. `${VAR}`) to inject environment variables. See the [environment variable expansion](#environment-variable-expansion-in-config-values) section for details.
 
 MCP behaviour is covered by hermetic, CI-safe integration tests under `internal/mcp/` for both transports (stdio and HTTP) through the manager path; live validation against third-party MCP servers remains manual work tracked in #438. See [docs/mcp.md](mcp.md).
+
+---
+
+## `lsp` block
+
+Configures optional language server connections for code intelligence (definitions, references, diagnostics). LSP is disabled by default. When enabled, servers must be configured explicitly under `servers.<name>`. See [docs/lsp.md](lsp.md) for lifecycle, caching, and graceful degradation details.
+
+| Field                  | Type                           | Default | Description                                                                                                                                                                             |
+| ---------------------- | ------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`              | bool                           | `false` | Master switch. Set to `true` to enable LSP code intelligence tools.                                                                                                                    |
+| `idle_timeout`         | duration                       | `5m`    | Server idle timeout before shutdown.                                                                                                                                                  |
+| `request_timeout`      | duration                       | `10s`   | Per-request timeout; hung servers and still-indexing servers must answer within this window.                                                                                          |
+| `ready_timeout`        | duration                       | `30s`   | Timeout for server readiness (initialization and first workspace load). If exceeded, requests proceed anyway with `incomplete` flag.                                                   |
+| `ready_grace_period`   | duration                       | `2s`    | Grace period for servers that never send progress events; without this, silent servers look failed.                                                                                   |
+| `diagnostics_window`   | duration                       | `2s`    | Time window to collect published diagnostics after file open; unconditional latency on every diagnostics query.                                                                       |
+| `max_results`          | int                            | `200`   | Maximum results returned per navigation query (definitions, references).                                                                                                               |
+| `cache_dir`            | string                         | —       | Optional persistent cache directory for server state. When unset, defaults to system user cache dir. See [docs/lsp.md](lsp.md) for cache layout and cleanup.                          |
+| `servers`              | map[string]LSPServerConfig     | —       | Per-server configuration under `lsp.servers.<name>`.                                                                                                                                  |
+
+Each server entry (`LSPServerConfig`) supports:
+
+| Field                    | Type              | Default | Description                                                                                                                                                        |
+| ------------------------ | ----------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`                | bool              | `false` | Whether this server is started on first use.                                                                                                                      |
+| `command`                | string            | —       | Executable that starts the server. Required.                                                                                                                     |
+| `args`                   | []string          | —       | Arguments passed to the server executable.                                                                                                                       |
+| `env`                    | map[string]string | —       | Extra environment variables for the server process (inherit PATH, HOME, etc. from host). Consider setting `GOCACHE`, `GOPRIVATE`, or language-specific variables. |
+| `file_extensions`        | []string          | —       | File extensions this server handles (e.g. `.go`, `.ts`, `.py`). Must include the dot. Required.                                                                 |
+| `root_markers`           | []string          | —       | Files or directories (e.g. `go.mod`, `package.json`) that identify workspace root. Required.                                                                    |
+| `initialization_options` | map[string]any    | —       | Server-specific initialization options passed during handshake.                                                                                                  |
+
+```yaml
+lsp:
+  enabled: true
+  cache_dir: ~/.cache/steiner/lsp
+  servers:
+    gopls:
+      enabled: true
+      command: gopls
+      file_extensions: [".go"]
+      root_markers: ["go.mod", ".git"]
+      initialization_options:
+        analyses:
+          fillstruct: true
+    tsserver:
+      enabled: true
+      command: typescript-language-server
+      args: ["--stdio"]
+      file_extensions: [".ts", ".tsx", ".js"]
+      root_markers: ["package.json", "tsconfig.json"]
+```
+
+A language server is never installed by steiner — users must install servers separately (e.g. `go install github.com/golang/tools/gopls@latest`). See [docs/lsp.md](lsp.md) for copy-paste examples for gopls, typescript-language-server, pyright, and rust-analyzer.
 
 ---
 
