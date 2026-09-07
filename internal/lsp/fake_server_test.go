@@ -143,7 +143,7 @@ func (f *fakeServer) Initialized(context.Context, *protocol.InitializedParams) e
 	return nil
 }
 
-func (f *fakeServer) Definition(ctx context.Context, _ *protocol.DefinitionParams) (protocol.DefinitionResult, error) {
+func (f *fakeServer) Definition(ctx context.Context, params *protocol.DefinitionParams) (protocol.DefinitionResult, error) {
 	f.record("textDocument/definition")
 	if f.definitionHold != nil {
 		select {
@@ -153,6 +153,16 @@ func (f *fakeServer) Definition(ctx context.Context, _ *protocol.DefinitionParam
 		}
 	}
 	return f.definitionResult, nil
+}
+
+func (f *fakeServer) DidOpen(context.Context, *protocol.DidOpenTextDocumentParams) error {
+	f.record("textDocument/didOpen")
+	return nil
+}
+
+func (f *fakeServer) DidClose(context.Context, *protocol.DidCloseTextDocumentParams) error {
+	f.record("textDocument/didClose")
+	return nil
 }
 
 func (f *fakeServer) Shutdown(context.Context) error {

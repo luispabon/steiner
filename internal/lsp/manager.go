@@ -47,6 +47,7 @@ type entry struct {
 	readiness *readiness
 	mu        sync.Mutex
 	ready     chan struct{}
+	cycleMu   sync.Mutex // serializes open→request→close cycles for the same session
 }
 
 // NewManager creates a Manager with the given configuration.
@@ -83,14 +84,15 @@ func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, warnFn func
 	return m
 }
 
-// sessionFor returns or spawns a live session for the given file.
+// entryFor returns or spawns a live entry (server session wrapper) for the given file.
 // It returns errNoServer if no enabled server declares the file's extension.
-func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) {
+// The caller must not hold m.mu when calling this method.
+func (m *Manager) entryFor(ctx context.Context, file string) (*entry, session, error) {
 	m.mu.Lock()
 	serverName := m.serverForExtension(file)
 	if serverName == "" {
 		m.mu.Unlock()
-		return nil, errNoServer
+		return nil, nil, errNoServer
 	}
 
 	srv := m.cfg.Servers[serverName]
@@ -99,7 +101,7 @@ func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) 
 	// Resolve the root.
 	root, err := resolveRoot(file, m.workspace, srv.RootMarkers)
 	if err != nil {
-		return nil, fmt.Errorf("resolve root: %w", err)
+		return nil, nil, fmt.Errorf("resolve root: %w", err)
 	}
 
 	key := sessionKey{server: serverName, root: root}
@@ -129,7 +131,7 @@ func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) 
 		case ServerStatusReady:
 			sess := ent.session
 			ent.mu.Unlock()
-			return sess, nil
+			return ent, sess, nil
 		case ServerStatusStarting:
 			ready := ent.ready
 			ent.mu.Unlock()
@@ -137,13 +139,13 @@ func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) 
 			case <-ready:
 				continue
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, nil, ctx.Err()
 			}
 		case ServerStatusFailed:
 			if time.Since(ent.state.StartedAt) < time.Duration(m.cfg.IdleTimeout.Duration()) {
 				err := ent.state.Err
 				ent.mu.Unlock()
-				return nil, err
+				return nil, nil, err
 			}
 			ent.state.Status = ServerStatusDeclared
 			ent.state.StartedAt = time.Now()
@@ -164,7 +166,7 @@ func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) 
 				ent.state.Err = err
 				ent.mu.Unlock()
 				m.warnFn(fmt.Sprintf("spawn server %s: %v", serverName, err))
-				return nil, err
+				return nil, nil, err
 			}
 
 			ent.state.Status = ServerStatusReady
@@ -175,13 +177,20 @@ func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) 
 
 			go m.trackReadiness(ent, sess, r)
 
-			return sess, nil
+			return ent, sess, nil
 		default:
 			status := ent.state.Status
 			ent.mu.Unlock()
-			return nil, fmt.Errorf("unexpected server status: %s", status)
+			return nil, nil, fmt.Errorf("unexpected server status: %s", status)
 		}
 	}
+}
+
+// sessionFor returns or spawns a live session for the given file.
+// It returns errNoServer if no enabled server declares the file's extension.
+func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) {
+	_, sess, err := m.entryFor(ctx, file)
+	return sess, err
 }
 
 // spawnServer spawns a single server process with the configured environment.
