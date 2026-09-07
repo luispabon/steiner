@@ -19,9 +19,9 @@ Use this skill when a user asks to understand or change Steiner configuration. A
 
 Sole canonical compact reference for safe configuration edits; use this file as the source of truth.
 
-**Targets/precedence.** Project: `.steiner/config.yaml`; global: `~/.config/steiner/config.yaml`. Order: defaults < global < project < env < CLI. Scalar expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`.
+**Targets/precedence.** Project: `.steiner/config.yaml` or `--config <path>`; global: `~/.config/steiner/config.yaml`. Order: defaults, global YAML, project YAML, env, CLI; later wins. `--profile <name>` selects a profile; `STEINER_MODEL`, then `--model <ref>`, select the active model; `--verbose` enables verbose logging; `--unsafe` forces `sandbox.enabled: false`. Scalar expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`; undefined variables fail except `${VAR:-}`.
 
-**Environment.** Map `STEINER_*` and `*_API_KEY` env vars to config fields. Integer overrides parse as ints.
+**Environment.** `STEINER_MODEL` -> active model; `STEINER_SUB_AGENTS_MAX_PARALLEL` -> `sub_agent.max_parallel`; `STEINER_TUI_FPS` -> `tui.fps`; `STEINER_MAX_TURNS`, `STEINER_MAX_TOKENS`, `STEINER_TOOL_OUTPUT_MAX_BYTES`, `STEINER_MAX_PARALLEL_TOOLS` -> matching `limits` fields; `STEINER_LOG_LEVEL`, `STEINER_LOG_FILE`, `STEINER_COMPACTION_LOG_FILE` -> matching `logging` fields. `GOOGLE_SEARCH_CX`, `GOOGLE_SEARCH_API_KEY`, `KAGI_API_KEY`, `BRAVE_API_KEY` fill empty matching `search` fields. Integer overrides must parse as integers.
 
 **Path notation.** `<name>`, `<alias>`, `<profile>`, `<server>`, `<tool>`, `<key>` are map keys; `<index>` is list index. `—` is unset/required.
 
@@ -31,7 +31,6 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `providers.<name>.base_url`|string|local: `http://localhost:11434/v1`|API endpoint; required for `openai_compat`, `ollama`, `lmstudio`, `litellm`. |
 | `providers.<name>.api_key`|string|—|Literal credential; prefer `api_key_env`. Required unless `api_key_env` set. |
 | `providers.<name>.api_key_env`|string|—|Environment variable containing credential. |
-| `providers.<name>.headers`|map[string]string|—|Extra provider HTTP headers. |
 | `providers.<name>.headers.<key>`|string|—|One extra header value. |
 | `providers.<name>.timeout`|duration|local: `30s`|Per-request timeout. |
 | `providers.<name>.codex.min_request_interval`|duration|`0s`|Min gap between Codex requests; positive enables pacing. |
@@ -40,9 +39,7 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `models.definitions.<alias>.provider`|string|`local`|Provider name. |
 | `models.definitions.<alias>.id`|string|`qwen3-35b-a3b`|Model ID. |
 | `models.definitions.<alias>.params`|map[string]any|—|Request parameters. |
-| `models.definitions.<alias>.params.<key>`|any|—|One standard request parameter. |
 | `models.definitions.<alias>.extra_params`|map[string]any|—|Provider parameters. |
-| `models.definitions.<alias>.extra_params.<key>`|any|—|One provider-specific parameter. |
 | `models.definitions.<alias>.prompt_suffix`|string|—|Appended to each user message. |
 | `models.definitions.<alias>.retry.enabled`|bool|`true`|Retry transient or rate-limit errors. |
 | `models.definitions.<alias>.retry.max_attempts`|int|`5`|Total attempts; at least 1. |
@@ -61,11 +58,8 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `models.definitions.<alias>.vision`|bool or null|null|Null assumes vision; false strips images. |
 | `models.profiles.<profile>.default_model`|string|default: `default`|Default model and role fallback; required for default profile. |
 | `models.profiles.<profile>.advisor`|string|—|Advisor model. |
-| `models.profiles.<profile>.sub_agents`|map[string]string|—|Agent models. |
 | `models.profiles.<profile>.sub_agents.<key>`|string|—|Model by `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision`. |
-| `models.profiles.<profile>.oneshot`|map[string]string|—|Phase models. |
 | `models.profiles.<profile>.oneshot.<key>`|string|—|Model by `plan`, `implement`, or `review`; missing uses profile default. |
-| `models.profiles.<profile>.workflow_handoff`|map[string]string|—|Destination models. |
 | `models.profiles.<profile>.workflow_handoff.<key>`|string|—|Model by `implement`, `review`, or `build`; missing uses profile default. |
 | `limits.max_turns`|int|`50`|Maximum turns; non-negative. |
 | `limits.max_tokens`|int|`500000`|Total input plus output tokens; at least 1. |
@@ -101,7 +95,6 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `tools.<tool>.subcommand`|string|—|First executable argument. |
 | `tools.<tool>.description`|string|—|Model-visible description. |
 | `tools.<tool>.parameters`|map[string]any|—|JSON Schema input data. |
-| `tools.<tool>.parameters.<key>`|any|—|JSON Schema input data. |
 | `tools.<tool>.timeout`|duration|—|Tool timeout overriding default; positive. |
 | `project_context.max_bytes`|int|`8000`|Extra-context byte budget; at least 1. |
 | `project_context.max_tokens`|int|—|Deprecated alias; if max_bytes is unset, becomes `max_tokens * 4`. |
@@ -151,7 +144,6 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `lsp.servers.<name>.enabled`|bool|`false`|—|
 | `lsp.servers.<name>.command`|string|—|—|
 | `lsp.servers.<name>.args`|[]string|—|—|
-| `lsp.servers.<name>.env`|map[string]string|—|—|
 | `lsp.servers.<name>.env.<name>`|string|—|—|
 | `lsp.servers.<name>.file_extensions`|[]string|—|—|
 | `lsp.servers.<name>.root_markers`|[]string|—|—|
