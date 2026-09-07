@@ -174,7 +174,7 @@ func TestResultCache_ProvisionalNotCached_Diagnostics(t *testing.T) {
 		Items:         []Diagnostic{{Line: 1, Column: 1, Message: "error"}},
 		Truncated:     false,
 		WindowExpired: false,
-		Note:          "complete",
+		Total:         1,
 	}
 	cache.put(key, completeResult)
 

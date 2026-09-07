@@ -531,6 +531,92 @@ func TestDiagnosticsDistinguishEmptyVsNone(t *testing.T) {
 	}
 }
 
+// TestDiagnosticsCancelledCollection tests that an interrupted collection is
+// only reported as authoritative when the server actually published for the
+// requested file; otherwise the file was never checked and the result is
+// provisional (WindowExpired=true).
+func TestDiagnosticsCancelledCollection(t *testing.T) {
+	tests := []struct {
+		name              string
+		publish           bool
+		wantItems         int
+		wantWindowExpired bool
+	}{
+		{name: "no publication is provisional", publish: false, wantItems: 0, wantWindowExpired: true},
+		{name: "publication is authoritative", publish: true, wantItems: 1, wantWindowExpired: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := newFakeServer()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			sess, _, err := startFakeSession(ctx, t, fs, nil)
+			if err != nil {
+				t.Fatalf("startFakeSession: %v", err)
+			}
+
+			tmpdir := t.TempDir()
+			testFile := filepath.Join(tmpdir, "test.go")
+			if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+				t.Fatalf("write file: %v", err)
+			}
+
+			// A long window ensures the cancellation, not the timer, ends collection.
+			cfg := config.LSPConfig{
+				DiagnosticsWindow: config.MustDuration("30s"),
+				MaxResults:        100,
+			}
+
+			ent := &entry{
+				state:     ServerState{Status: ServerStatusReady},
+				session:   sess,
+				readiness: newReadiness(cfg),
+			}
+			ent.readiness.markReady()
+
+			fs.onDidOpen = func(ctx context.Context, params *protocol.DidOpenTextDocumentParams) {
+				bgCtx := context.WithoutCancel(ctx)
+				go func() {
+					if tt.publish {
+						fs.notifyDiagnostics(bgCtx, t, &protocol.PublishDiagnosticsParams{
+							URI: params.TextDocument.URI,
+							Diagnostics: []protocol.Diagnostic{
+								{
+									Range: protocol.Range{
+										Start: protocol.Position{Line: 0, Character: 0},
+										End:   protocol.Position{Line: 0, Character: 5},
+									},
+									Severity: protocol.DiagnosticSeverityError,
+									Message:  protocol.String("published before cancel"),
+								},
+							},
+						})
+					}
+					time.Sleep(20 * time.Millisecond)
+					cancel()
+				}()
+			}
+
+			ent.cycleMu.Lock()
+			result, err := (&Manager{cfg: cfg}).collectDiagnostics(ctx, ent, sess, testFile)
+			ent.cycleMu.Unlock()
+
+			if err != nil {
+				t.Fatalf("collectDiagnostics: %v", err)
+			}
+			if len(result.Items) != tt.wantItems {
+				t.Fatalf("got %d diagnostics, want %d", len(result.Items), tt.wantItems)
+			}
+			if result.WindowExpired != tt.wantWindowExpired {
+				t.Errorf("WindowExpired = %v, want %v", result.WindowExpired, tt.wantWindowExpired)
+			}
+		})
+	}
+}
+
 // TestDiagnosticsCapAtMaxResults tests that over-cap results are truncated to
 // MaxResults with Truncated=true (scenario 5).
 func TestDiagnosticsCapAtMaxResults(t *testing.T) {

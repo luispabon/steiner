@@ -12,13 +12,19 @@ type Result struct {
 	Locations  []Location
 	Incomplete bool
 	Truncated  bool
-	Note       string
+	// Total is the number of locations before truncation at MaxResults.
+	Total int
 }
 
 // Definitions returns all definitions for a symbol at the given position in a file.
 func (m *Manager) Definitions(ctx context.Context, file string, line, col int) (Result, error) {
 	if line < 1 || col < 1 {
 		return Result{}, fmt.Errorf("invalid position: line %d col %d", line, col)
+	}
+
+	file, err := absWorkspacePath(m.workspace, file)
+	if err != nil {
+		return Result{}, err
 	}
 
 	// Build cache key and check for cached result.
@@ -78,6 +84,7 @@ func (m *Manager) Definitions(ctx context.Context, file string, line, col int) (
 
 	// Sort deterministically and cap at MaxResults.
 	sortLocations(locations)
+	total := len(locations)
 	truncated := false
 	if len(locations) > m.cfg.MaxResults {
 		locations = locations[:m.cfg.MaxResults]
@@ -88,6 +95,7 @@ func (m *Manager) Definitions(ctx context.Context, file string, line, col int) (
 		Locations:  locations,
 		Incomplete: incomplete,
 		Truncated:  truncated,
+		Total:      total,
 	}
 
 	// Store in cache only if the result is not provisional.
@@ -118,6 +126,11 @@ func (m *Manager) Definitions(ctx context.Context, file string, line, col int) (
 func (m *Manager) References(ctx context.Context, file string, line, col int, includeDecl bool) (Result, error) {
 	if line < 1 || col < 1 {
 		return Result{}, fmt.Errorf("invalid position: line %d col %d", line, col)
+	}
+
+	file, err := absWorkspacePath(m.workspace, file)
+	if err != nil {
+		return Result{}, err
 	}
 
 	// Build cache key and check for cached result.
@@ -177,6 +190,7 @@ func (m *Manager) References(ctx context.Context, file string, line, col int, in
 
 	// Sort deterministically and cap at MaxResults.
 	sortLocations(locations)
+	total := len(locations)
 	truncated := false
 	if len(locations) > m.cfg.MaxResults {
 		locations = locations[:m.cfg.MaxResults]
@@ -187,6 +201,7 @@ func (m *Manager) References(ctx context.Context, file string, line, col int, in
 		Locations:  locations,
 		Incomplete: incomplete,
 		Truncated:  truncated,
+		Total:      total,
 	}
 
 	// Store in cache only if the result is not provisional.

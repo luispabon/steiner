@@ -30,10 +30,10 @@ lsp:
       command: gopls
       file_extensions: [".go"]
       root_markers: ["go.mod", ".git"]
-      env:
-        GOCACHE: ${XDG_CACHE_HOME}/go
-        GOMODCACHE: ${GOPATH}/pkg/mod
 ```
+
+The server inherits steiner's environment, so no `env:` block is needed; add one
+only to override individual variables.
 
 Install: `go install github.com/golang/tools/gopls@latest`
 
@@ -151,8 +151,7 @@ The harness mirrors `Manager.spawnServer`'s environment: `HOME`,
 `XDG_CACHE_HOME` and `GOCACHE` all point at a per-workspace cache directory. A
 **cold** run is therefore a fresh gopls index *and* a fresh `GOCACHE`, but a
 **warm** `GOMODCACHE` — `GOMODCACHE`, `GOPATH` and `PATH` are inherited from the
-real environment, as a user filling in `lsp.servers.<name>.env` must supply
-them. A genuine first run on a machine with an empty module cache pays module
+real environment, as they are for a spawned server. A genuine first run on a machine with an empty module cache pays module
 download time on top of every cold number below; that scenario is not measured
 here and is part of what `ready_timeout` protects against.
 

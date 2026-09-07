@@ -9,9 +9,9 @@ import (
 // DiagResult is the result of a diagnostics query.
 type DiagResult struct {
 	Items         []Diagnostic
-	Truncated     bool   // set when results capped at MaxResults
-	WindowExpired bool   // set when collection window closed (timer fired vs ctx cancelled)
-	Note          string // e.g., readiness status
+	Truncated     bool // set when results capped at MaxResults
+	WindowExpired bool // set when the file's state is unknown: collection ended, by timer or cancellation, without a publication for it
+	Total         int  // number of diagnostics before truncation at MaxResults
 }
 
 // Diagnostics collects server-pushed diagnostics for a file within the configured window.
@@ -20,6 +20,11 @@ type DiagResult struct {
 // WindowExpired=true and a nil error. Errors are reserved for real failures
 // (server exit, context cancellation, network issues).
 func (m *Manager) Diagnostics(ctx context.Context, file string) (DiagResult, error) {
+	file, err := absWorkspacePath(m.workspace, file)
+	if err != nil {
+		return DiagResult{}, err
+	}
+
 	// Build cache key and check for cached result.
 	// If key resolution fails (best-effort), skip cache and proceed.
 	if sessionKey, ok := m.resolveSessionKey(file); ok {
@@ -100,8 +105,11 @@ func (m *Manager) collectDiagnostics(ctx context.Context, _ *entry, sess session
 		for {
 			select {
 			case <-ctx.Done():
-				// Context cancelled; return collected-so-far, WindowExpired=false.
-				result = flattenAndSortDiagnostics(diags, m.cfg.MaxResults, false, file)
+				// Context cancelled; return collected-so-far. Without a publication
+				// for the requested file the collection is interrupted, not clean,
+				// so mark it expired rather than claiming the file checked out.
+				_, receivedPublication := diags[file]
+				result = flattenAndSortDiagnostics(diags, m.cfg.MaxResults, !receivedPublication, file)
 				return nil
 			case <-windowTimer.C:
 				// Window expired. Check if we received any publication for the requested file.
@@ -150,6 +158,7 @@ func flattenAndSortDiagnostics(diags map[string][]Diagnostic, maxResults int, wi
 	// Sort by (Line, Column, Severity).
 	sortDiagnostics(items)
 
+	total := len(items)
 	truncated := false
 	if len(items) > maxResults {
 		items = items[:maxResults]
@@ -160,6 +169,7 @@ func flattenAndSortDiagnostics(diags map[string][]Diagnostic, maxResults int, wi
 		Items:         items,
 		Truncated:     truncated,
 		WindowExpired: windowExpired,
+		Total:         total,
 	}
 }
 

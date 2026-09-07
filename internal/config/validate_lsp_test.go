@@ -265,6 +265,45 @@ func TestValidateLSPDuplicateFileExtension(t *testing.T) {
 	}
 }
 
+func TestValidateLSPDuplicateFileExtensionDifferentCase(t *testing.T) {
+	// Manager.serverForExtension matches case-insensitively, so ".go" and ".GO"
+	// claim the same files and must be rejected as duplicates.
+	cfg := LSPConfig{
+		Enabled:           true,
+		IdleTimeout:       MustDuration("5m"),
+		RequestTimeout:    MustDuration("10s"),
+		ReadyTimeout:      MustDuration("30s"),
+		ReadyGracePeriod:  MustDuration("2s"),
+		DiagnosticsWindow: MustDuration("3s"),
+		MaxResults:        200,
+		Servers: map[string]LSPServerConfig{
+			"go": {
+				Enabled:        true,
+				Command:        "gopls",
+				FileExtensions: []string{".go"},
+				RootMarkers:    []string{"go.mod"},
+			},
+			"go-alt": {
+				Enabled:        true,
+				Command:        "gopls-alt",
+				FileExtensions: []string{".GO"},
+				RootMarkers:    []string{"go.mod"},
+			},
+		},
+	}
+	err := validateLSP(cfg)
+	if err == nil {
+		t.Fatal("validateLSP() error = nil, want non-nil")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "go") || !strings.Contains(errMsg, "go-alt") {
+		t.Fatalf("validateLSP() error = %v, want error naming both servers", errMsg)
+	}
+	if !strings.Contains(errMsg, ".go") && !strings.Contains(errMsg, ".GO") {
+		t.Fatalf("validateLSP() error = %v, want error quoting the extension as configured", errMsg)
+	}
+}
+
 func TestValidateLSPNonPositiveIdleTimeout(t *testing.T) {
 	cfg := LSPConfig{
 		Enabled:           true,

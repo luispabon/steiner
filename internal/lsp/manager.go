@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +17,11 @@ import (
 
 // errNoServer is returned when no enabled server declares the file's extension.
 var errNoServer = errors.New("no server for file extension")
+
+// spawnFailureBackoff is how long a server that failed to start is left alone
+// before another request retries it. It is deliberately distinct from
+// IdleTimeout, which governs how long a healthy but unused session is kept.
+const spawnFailureBackoff = 30 * time.Second
 
 // Manager owns the language server processes for a session.
 type Manager struct {
@@ -142,7 +149,7 @@ func (m *Manager) entryFor(ctx context.Context, file string) (*entry, session, e
 				return nil, nil, ctx.Err()
 			}
 		case ServerStatusFailed:
-			if time.Since(ent.state.StartedAt) < time.Duration(m.cfg.IdleTimeout.Duration()) {
+			if time.Since(ent.state.StartedAt) < spawnFailureBackoff {
 				err := ent.state.Err
 				ent.mu.Unlock()
 				return nil, nil, err
@@ -218,23 +225,7 @@ func (m *Manager) spawnServer(_ context.Context, _ string, srv config.LSPServerC
 		return nil, fmt.Errorf("cache dir: %w", err)
 	}
 
-	// Build environment: start with configured env, add HOME, XDG_CACHE_HOME, GOCACHE.
-	env := make([]string, 0, len(srv.Env)+3)
-
-	for k, v := range srv.Env {
-		env = append(env, k+"="+v)
-	}
-
-	// Add cache-related vars if not already set.
-	if _, ok := srv.Env["HOME"]; !ok {
-		env = append(env, "HOME="+cacheDir)
-	}
-	if _, ok := srv.Env["XDG_CACHE_HOME"]; !ok {
-		env = append(env, "XDG_CACHE_HOME="+cacheDir)
-	}
-	if _, ok := srv.Env["GOCACHE"]; !ok {
-		env = append(env, "GOCACHE="+filepath.Join(cacheDir, "go"))
-	}
+	env := buildServerEnv(os.Environ(), srv, cacheDir)
 
 	// Create a child context with a handshake timeout, but detached from cancellation.
 	spawnCtx, cancel := context.WithTimeout(m.mgrCtx, time.Duration(m.cfg.ReadyTimeout.Duration()))
@@ -256,6 +247,43 @@ func (m *Manager) spawnServer(_ context.Context, _ string, srv config.LSPServerC
 	}
 
 	return sess, nil
+}
+
+// buildServerEnv materialises the environment for a spawned language server.
+// base is steiner's own environment: servers such as gopls shell out to their
+// toolchain constantly and are non-functional without PATH. srv.Env overrides
+// the inherited values, and the cache-related defaults apply only when srv.Env
+// leaves them unset, so the per-workspace cache directory wins over the host's.
+// The result is sorted so repeated spawns produce an identical environment.
+func buildServerEnv(base []string, srv config.LSPServerConfig, cacheDir string) []string {
+	env := make(map[string]string, len(base)+len(srv.Env)+3)
+
+	for _, kv := range base {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			env[k] = v
+		}
+	}
+
+	for k, v := range srv.Env {
+		env[k] = v
+	}
+
+	if _, ok := srv.Env["HOME"]; !ok {
+		env["HOME"] = cacheDir
+	}
+	if _, ok := srv.Env["XDG_CACHE_HOME"]; !ok {
+		env["XDG_CACHE_HOME"] = cacheDir
+	}
+	if _, ok := srv.Env["GOCACHE"]; !ok {
+		env["GOCACHE"] = filepath.Join(cacheDir, "go")
+	}
+
+	out := make([]string, 0, len(env))
+	for k, v := range env {
+		out = append(out, k+"="+v)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // serverForExtension returns the first enabled server that declares the file extension.
@@ -361,21 +389,23 @@ func (m *Manager) doReap() {
 	now := time.Now()
 	idleThreshold := now.Add(-time.Duration(m.cfg.IdleTimeout.Duration()))
 
-	var toClose []*entry
+	// Snapshot the sessions under ent.mu; reading ent.session without the lock
+	// would race with entryFor assigning it after a spawn.
+	var toClose []session
 	for _, ent := range m.sessions {
 		ent.mu.Lock()
 		if ent.state.Status == ServerStatusReady && ent.state.LastUsed.Before(idleThreshold) {
-			toClose = append(toClose, ent)
+			toClose = append(toClose, ent.session)
 			ent.state.Status = ServerStatusStopped
 		}
 		ent.mu.Unlock()
 	}
 	m.mu.Unlock()
 
-	for _, ent := range toClose {
-		if ent.session != nil {
+	for _, sess := range toClose {
+		if sess != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = ent.session.Close(ctx)
+			_ = sess.Close(ctx)
 			cancel()
 		}
 	}

@@ -144,7 +144,7 @@ func cloneResult(val any) any {
 			Locations:  locs,
 			Incomplete: v.Incomplete,
 			Truncated:  v.Truncated,
-			Note:       v.Note,
+			Total:      v.Total,
 		}
 	case *DiagResult:
 		if v == nil {
@@ -156,7 +156,7 @@ func cloneResult(val any) any {
 			Items:         diags,
 			Truncated:     v.Truncated,
 			WindowExpired: v.WindowExpired,
-			Note:          v.Note,
+			Total:         v.Total,
 		}
 	default:
 		return val // unknown type, return as-is

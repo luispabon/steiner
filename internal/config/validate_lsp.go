@@ -106,10 +106,13 @@ func validateServer(name string, srv LSPServerConfig) []string {
 func checkDuplicateExtensions(name string, srv LSPServerConfig, extensionMap map[string]string) []string {
 	var problems []string
 	for _, ext := range srv.FileExtensions {
-		if existing, ok := extensionMap[ext]; ok {
+		// Match on the lowercased extension: Manager.serverForExtension routes
+		// case-insensitively, so ".go" and ".GO" claim the same files.
+		key := strings.ToLower(ext)
+		if existing, ok := extensionMap[key]; ok {
 			problems = append(problems, fmt.Sprintf("lsp: file extension %q claimed by both %q and %q", ext, existing, name))
 		} else {
-			extensionMap[ext] = name
+			extensionMap[key] = name
 		}
 	}
 	return problems

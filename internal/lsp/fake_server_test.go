@@ -60,6 +60,8 @@ type fakeServer struct {
 	releaseOnce    sync.Once
 	// definitionResult is returned by textDocument/definition.
 	definitionResult protocol.DefinitionResult
+	// referencesResult is returned by textDocument/references.
+	referencesResult []protocol.Location
 	// ignoreExit makes the server accept exit without ever going away.
 	ignoreExit bool
 
@@ -157,6 +159,11 @@ func (f *fakeServer) Definition(ctx context.Context, _ *protocol.DefinitionParam
 		}
 	}
 	return f.definitionResult, nil
+}
+
+func (f *fakeServer) References(context.Context, *protocol.ReferenceParams) ([]protocol.Location, error) {
+	f.record("textDocument/references")
+	return f.referencesResult, nil
 }
 
 func (f *fakeServer) DidOpen(ctx context.Context, params *protocol.DidOpenTextDocumentParams) error {

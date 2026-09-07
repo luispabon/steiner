@@ -452,10 +452,10 @@ func spawnWithoutProgress(ctx context.Context, command, root string, env []strin
 
 // calibEnv mirrors Manager.spawnServer's environment: HOME, XDG_CACHE_HOME and
 // GOCACHE all rooted at the per-workspace cache dir, so a fresh dir reproduces
-// a first-ever run. PATH, GOPATH and GOMODCACHE come from the real environment
-// because spawnServer passes no environment of its own — a user configuring
-// lsp.servers.<name>.env has to supply them, and without GOMODCACHE gopls would
-// re-download the module graph and the measurement would be of the network.
+// a first-ever run. PATH, GOPATH and GOMODCACHE come from the real environment,
+// as they do for a spawned server, which inherits steiner's environment; without
+// GOMODCACHE gopls would re-download the module graph and the measurement would
+// be of the network.
 func calibEnv(cacheDir string) []string {
 	env := []string{
 		"HOME=" + cacheDir,

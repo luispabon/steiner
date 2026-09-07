@@ -65,14 +65,12 @@ func TestFormatLocationsTruncated(t *testing.T) {
 		},
 		Incomplete: false,
 		Truncated:  true,
+		Total:      42,
 	}
 
 	output := formatLocations("/workspace", res, cfg)
-	if !strings.Contains(output, "more results omitted") {
-		t.Errorf("formatLocations truncated: expected omission note in %q", output)
-	}
-	if !strings.Contains(output, "max_results=10") {
-		t.Errorf("formatLocations truncated: expected max_results=10 in %q", output)
+	if !strings.Contains(output, "... 41 more results omitted (max_results=10)") {
+		t.Errorf("formatLocations truncated: expected exact omission note in %q", output)
 	}
 }
 
@@ -98,7 +96,6 @@ func TestDiagnosticsOutputClean(t *testing.T) {
 		Items:         []Diagnostic{},
 		Truncated:     false,
 		WindowExpired: false,
-		Note:          "",
 	}
 
 	output := formatDiagnostics("/workspace", res, cfg)
@@ -116,7 +113,6 @@ func TestDiagnosticsOutputProvisional(t *testing.T) {
 		Items:         []Diagnostic{},
 		Truncated:     false,
 		WindowExpired: true,
-		Note:          "",
 	}
 
 	output := formatDiagnostics("/workspace", res, cfg)
@@ -138,7 +134,6 @@ func TestDiagnosticsOutputDistinguishesCleanFromProvisional(t *testing.T) {
 		Items:         []Diagnostic{},
 		Truncated:     false,
 		WindowExpired: false,
-		Note:          "",
 	}
 	cleanOutput := formatDiagnostics("/workspace", cleanRes, cfg)
 
@@ -146,7 +141,6 @@ func TestDiagnosticsOutputDistinguishesCleanFromProvisional(t *testing.T) {
 		Items:         []Diagnostic{},
 		Truncated:     false,
 		WindowExpired: true,
-		Note:          "",
 	}
 	provisionalOutput := formatDiagnostics("/workspace", provisionalRes, cfg)
 
@@ -187,7 +181,6 @@ func TestDiagnosticsWithItems(t *testing.T) {
 		},
 		Truncated:     false,
 		WindowExpired: false,
-		Note:          "",
 	}
 
 	output := formatDiagnostics("/workspace", res, cfg)
@@ -221,7 +214,6 @@ func TestDiagnosticsOmitSourceAndCodeWhenEmpty(t *testing.T) {
 		},
 		Truncated:     false,
 		WindowExpired: false,
-		Note:          "",
 	}
 
 	output := formatDiagnostics("/workspace", res, cfg)
@@ -247,30 +239,40 @@ func TestDiagnosticsTruncated(t *testing.T) {
 		},
 		Truncated:     true,
 		WindowExpired: false,
-		Note:          "",
+		Total:         13,
 	}
 
 	output := formatDiagnostics("/workspace", res, cfg)
-	if !strings.Contains(output, "more diagnostics omitted") {
-		t.Errorf("formatDiagnostics truncated: expected omission note in %q", output)
-	}
-	if !strings.Contains(output, "max_results=10") {
-		t.Errorf("formatDiagnostics truncated: expected max_results=10 in %q", output)
+	if !strings.Contains(output, "... 12 more diagnostics omitted (max_results=10)") {
+		t.Errorf("formatDiagnostics truncated: expected exact omission note in %q", output)
 	}
 }
 
-func TestDiagnosticsWithNote(t *testing.T) {
-	cfg := config.LSPConfig{MaxResults: 100}
-	res := DiagResult{
-		Items:         []Diagnostic{},
-		Truncated:     false,
-		WindowExpired: false,
-		Note:          "server still indexing",
+func TestFormatOmittedCounts(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 2}
+
+	locations := Result{
+		Locations: []Location{
+			{File: "/workspace/a.go", Line: 1, Column: 1},
+			{File: "/workspace/b.go", Line: 2, Column: 1},
+		},
+		Truncated: true,
+		Total:     3,
+	}
+	if got, want := formatLocations("/workspace", locations, cfg), "... 1 more results omitted (max_results=2)"; !strings.Contains(got, want) {
+		t.Errorf("formatLocations = %q, want it to contain %q", got, want)
 	}
 
-	output := formatDiagnostics("/workspace", res, cfg)
-	if !strings.Contains(output, "server still indexing") {
-		t.Errorf("formatDiagnostics with note: expected note in %q", output)
+	diags := DiagResult{
+		Items: []Diagnostic{
+			{File: "/workspace/a.go", Line: 1, Column: 1, Severity: "error", Message: "one"},
+			{File: "/workspace/a.go", Line: 2, Column: 1, Severity: "error", Message: "two"},
+		},
+		Truncated: true,
+		Total:     3,
+	}
+	if got, want := formatDiagnostics("/workspace", diags, cfg), "... 1 more diagnostics omitted (max_results=2)"; !strings.Contains(got, want) {
+		t.Errorf("formatDiagnostics = %q, want it to contain %q", got, want)
 	}
 }
 

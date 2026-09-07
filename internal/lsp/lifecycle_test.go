@@ -228,8 +228,8 @@ func TestManagerFailedEntryRetryAfterCooldown(t *testing.T) {
 		t.Errorf("spawn retry within cooldown, before %d, after %d", beforeCount, spawnCount)
 	}
 
-	// After cooldown, should retry.
-	time.Sleep(150 * time.Millisecond)
+	// After the spawn-failure backoff, should retry.
+	rewindSpawnFailure(t, m)
 	_, _ = m.sessionFor(ctx, file)
 	if spawnCount <= beforeCount {
 		t.Errorf("no retry after cooldown, before %d, after %d", beforeCount, spawnCount)
