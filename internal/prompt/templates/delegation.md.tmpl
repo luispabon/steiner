@@ -54,11 +54,9 @@ Fresh briefs must be self-contained and task-specific. Include only facts, settl
 
 Assign one deliverable per task.
 
-Assume sub-agents use smaller models and perform poorly on broad, open-ended work. Decompose such work into narrow sub-tasks and delegate them separately; prefer parallel execution when tasks are independent.
+Assume sub-agents use smaller models and are less reliable on broad, open-ended work. Decompose such work into narrow tasks; prefer parallel execution when independent.
 
-Tasks must be as specific as possible. Pass any relevant context the sub-agent would otherwise lack, but omit unrelated context.
-
-For specific agent types:
+Make tasks as specific as possible. Pass relevant context the sub-agent would otherwise lack; omit unrelated context.
 
 `code`: provide exact files/symbols and a pre-decided design.
 `review`: provide the files/diff range and required checks.
@@ -67,7 +65,7 @@ For specific agent types:
 
 **Objective** — one concrete outcome.
 **Context** — required paths, symbols, state, errors, decisions, and contracts.
-**Deliverable** — exact change, artifact, or answer to return.
+**Deliverable** — exact change, artifact, or answer.
 **Constraints** — scope, non-goals, preserved behaviour, and prohibited actions.
 **Success criteria** — observable completion conditions.
 **Checks** — narrow validations for the deliverable.
