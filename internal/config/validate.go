@@ -20,6 +20,9 @@ func validate(cfg Config) error {
 	validateSandboxConfig(&problems, cfg.Sandbox)
 	validateSearchConfig(&problems, cfg.Search)
 	validateMCPConfig(&problems, cfg.MCP)
+	if err := validateLSP(cfg.LSP); err != nil {
+		problems = append(problems, err.Error())
+	}
 	validateDesktopNotificationsConfig(&problems, cfg.DesktopNotifications)
 	validateUpdateCheckConfig(&problems, cfg.UpdateCheck)
 	validateModesConfig(&problems, cfg.Modes)

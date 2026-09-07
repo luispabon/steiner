@@ -128,6 +128,27 @@ func TestApplyAdvisorPatchMaxUsesPerSubAgent(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigLSPEnabled(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.LSP.Enabled {
+		t.Errorf("DefaultConfig().LSP.Enabled = true, want false")
+	}
+}
+
+func TestDefaultConfigLSPIdleTimeout(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.LSP.IdleTimeout != MustDuration("5m") {
+		t.Errorf("DefaultConfig().LSP.IdleTimeout = %v, want %v", cfg.LSP.IdleTimeout, MustDuration("5m"))
+	}
+}
+
+func TestDefaultConfigLSPMaxResults(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.LSP.MaxResults != 200 {
+		t.Errorf("DefaultConfig().LSP.MaxResults = %d, want 200", cfg.LSP.MaxResults)
+	}
+}
+
 func TestValidateAdvisorConfigMaxUsesPerSubAgent(t *testing.T) {
 	tests := []struct {
 		name    string

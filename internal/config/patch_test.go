@@ -1062,3 +1062,144 @@ func TestModelDefinitionPatchPreservesSupportedEffortsNilAndEmpty(t *testing.T) 
 		})
 	}
 }
+
+func TestApplyLSPPatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial LSPConfig
+		patch   lspPatch
+		want    LSPConfig
+	}{
+		{
+			name:    "applies top-level enabled",
+			initial: LSPConfig{},
+			patch:   lspPatch{Enabled: boolPtr(true)},
+			want:    LSPConfig{Enabled: true},
+		},
+		{
+			name:    "sets idle_timeout",
+			initial: LSPConfig{IdleTimeout: MustDuration("5m")},
+			patch:   lspPatch{IdleTimeout: durationPtr(MustDuration("10m"))},
+			want:    LSPConfig{IdleTimeout: MustDuration("10m")},
+		},
+		{
+			name:    "sets max_results",
+			initial: LSPConfig{MaxResults: 100},
+			patch:   lspPatch{MaxResults: intPtr(200)},
+			want:    LSPConfig{MaxResults: 200},
+		},
+		{
+			name:    "adds a new server",
+			initial: LSPConfig{},
+			patch: lspPatch{
+				Servers: &map[string]lspServerPatch{
+					"go": {Enabled: boolPtr(true), Command: stringPtr("gopls")},
+				},
+			},
+			want: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {Enabled: true, Command: "gopls"},
+				},
+			},
+		},
+		{
+			name: "partial server override preserves fields",
+			initial: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {Enabled: true, Command: "gopls", FileExtensions: []string{".go"}},
+				},
+			},
+			patch: lspPatch{
+				Servers: &map[string]lspServerPatch{
+					"go": {Enabled: boolPtr(false)},
+				},
+			},
+			want: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {Enabled: false, Command: "gopls", FileExtensions: []string{".go"}},
+				},
+			},
+		},
+		{
+			name: "merges env per-key",
+			initial: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {Env: map[string]string{"A": "1"}},
+				},
+			},
+			patch: lspPatch{
+				Servers: &map[string]lspServerPatch{
+					"go": {Env: stringMapPtr(map[string]string{"B": "2"})},
+				},
+			},
+			want: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {Env: map[string]string{"A": "1", "B": "2"}},
+				},
+			},
+		},
+		{
+			name: "replaces file_extensions wholesale",
+			initial: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {FileExtensions: []string{".go", ".mod"}},
+				},
+			},
+			patch: lspPatch{
+				Servers: &map[string]lspServerPatch{
+					"go": {FileExtensions: stringSlicePtr([]string{".go"})},
+				},
+			},
+			want: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {FileExtensions: []string{".go"}},
+				},
+			},
+		},
+		{
+			name: "replaces root_markers wholesale when non-nil",
+			initial: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {RootMarkers: []string{"go.mod", "go.sum"}},
+				},
+			},
+			patch: lspPatch{
+				Servers: &map[string]lspServerPatch{
+					"go": {RootMarkers: stringSlicePtr([]string{"go.mod"})},
+				},
+			},
+			want: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {RootMarkers: []string{"go.mod"}},
+				},
+			},
+		},
+		{
+			name: "merges initialization_options per-key",
+			initial: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {InitializationOptions: map[string]any{"optionA": "value1"}},
+				},
+			},
+			patch: lspPatch{
+				Servers: &map[string]lspServerPatch{
+					"go": {InitializationOptions: stringAnyMapPtr(map[string]any{"optionB": "value2"})},
+				},
+			},
+			want: LSPConfig{
+				Servers: map[string]LSPServerConfig{
+					"go": {InitializationOptions: map[string]any{"optionA": "value1", "optionB": "value2"}},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applyLSPPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applyLSPPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}

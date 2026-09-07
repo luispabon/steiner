@@ -123,6 +123,15 @@ func defaultConfig() Config {
 		MCP: MCPConfig{
 			Enabled: true,
 		},
+		LSP: LSPConfig{
+			Enabled:           false,
+			IdleTimeout:       MustDuration("5m"),
+			RequestTimeout:    MustDuration("10s"),
+			ReadyTimeout:      MustDuration("30s"),
+			ReadyGracePeriod:  MustDuration("2s"),
+			DiagnosticsWindow: MustDuration("3s"),
+			MaxResults:        200,
+		},
 		Modes: ModesConfig{
 			Default: ExecutionModeBuild,
 		},
