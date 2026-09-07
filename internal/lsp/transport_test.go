@@ -5,6 +5,9 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"go.lsp.dev/jsonrpc2"
+	"go.lsp.dev/protocol"
 )
 
 // helperEnv selects the behaviour of the child process spawned by
@@ -24,9 +27,35 @@ func TestLSPHelperProcess(t *testing.T) {
 		// on its own and terminate the process.
 		time.Sleep(time.Minute)
 		os.Exit(1)
+	case "lsp":
+		// Speak LSP over stdio: accept initialize and exit cleanly.
+		runLSPServerHelper()
 	default:
 		t.Fatalf("unknown helper mode %q", mode)
 	}
+}
+
+// runLSPServerHelper implements an in-process LSP server for testing.
+// It speaks the LSP protocol over stdin/stdout.
+func runLSPServerHelper() {
+	ctx := context.Background()
+	stream := jsonrpc2.NewStream(&readWriteCloser{r: os.Stdin, w: os.Stdout})
+	fs := fakeServerForHelper()
+	_, serverConn, _ := protocol.NewServer(ctx, fs, stream)
+	defer serverConn.Close()
+
+	select {
+	case <-fs.exited:
+	}
+}
+
+// fakeServerForHelper creates a minimal LSP server for helper process testing.
+func fakeServerForHelper() *fakeServer {
+	fs := &fakeServer{exited: make(chan struct{})}
+	fs.onExit = func() {
+		close(fs.exited)
+	}
+	return fs
 }
 
 func TestNewTransportRejectsProcessesThatDoNotSpeakLSP(t *testing.T) {

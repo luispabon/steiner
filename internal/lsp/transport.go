@@ -10,6 +10,9 @@ import (
 	"go.lsp.dev/jsonrpc2"
 )
 
+// WrapFn wraps a server command before launch, e.g. inside the sandbox.
+type WrapFn func(*exec.Cmd) *exec.Cmd
+
 // TransportSpec specifies how to spawn and initialize a language server.
 type TransportSpec struct {
 	Command string
@@ -21,6 +24,8 @@ type TransportSpec struct {
 	// initializationOptions.
 	InitializationOptions map[string]any
 	Stderr                io.Writer
+	// Wrap transforms the command before launch, e.g. inside the sandbox.
+	Wrap WrapFn
 }
 
 // childProcess abstracts process lifecycle so session construction is testable
@@ -36,6 +41,9 @@ type childProcess interface {
 func newTransport(ctx context.Context, spec TransportSpec) (session, error) {
 	cmd := exec.CommandContext(ctx, spec.Command, spec.Args...)
 	cmd.Env = spec.Env
+	if spec.Wrap != nil {
+		cmd = spec.Wrap(cmd)
+	}
 	if spec.Stderr != nil {
 		cmd.Stderr = spec.Stderr
 	} else {
