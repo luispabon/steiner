@@ -220,10 +220,15 @@ func TestAgentAllowedTools(t *testing.T) {
 		})
 	}
 
-	t.Run("explore has bash but no mutation tools", func(t *testing.T) {
+	t.Run("explore has bash and lsp tools but no mutation tools", func(t *testing.T) {
 		tools := AgentAllowedTools(AgentTypeExplore)
 		if !slices.Contains(tools, "bash") {
 			t.Fatal("AgentAllowedTools(explore) missing bash")
+		}
+		for _, lspTool := range []string{"definitions", "references", "diagnostics"} {
+			if !slices.Contains(tools, lspTool) {
+				t.Fatalf("AgentAllowedTools(explore) missing %q", lspTool)
+			}
 		}
 		for _, m := range append(legacyMutationTools, "mutate") {
 			if slices.Contains(tools, m) {
@@ -232,31 +237,36 @@ func TestAgentAllowedTools(t *testing.T) {
 		}
 	})
 
-	t.Run("evaluate has no mutation tools", func(t *testing.T) {
+	t.Run("evaluate has no mutation tools and no lsp tools", func(t *testing.T) {
 		tools := AgentAllowedTools(AgentTypeEvaluate)
-		for _, m := range append(legacyMutationTools, "bash", "mutate") {
+		for _, m := range append(legacyMutationTools, "bash", "mutate", "definitions", "references", "diagnostics") {
 			if slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(evaluate) should not contain %q", m)
 			}
 		}
 	})
 
-	t.Run("sanity_check has bash but not mutation tools", func(t *testing.T) {
+	t.Run("sanity_check has bash but not mutation tools or lsp tools", func(t *testing.T) {
 		tools := AgentAllowedTools(AgentTypeSanityCheck)
 		if !slices.Contains(tools, "bash") {
 			t.Fatal("AgentAllowedTools(sanity_check) missing bash")
 		}
-		for _, m := range append(legacyMutationTools, "mutate") {
+		for _, m := range append(legacyMutationTools, "mutate", "definitions", "references", "diagnostics") {
 			if slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(sanity_check) should not contain %q", m)
 			}
 		}
 	})
 
-	t.Run("review has bash but not mutation tools", func(t *testing.T) {
+	t.Run("review has bash and lsp tools but not mutation tools", func(t *testing.T) {
 		tools := AgentAllowedTools(AgentTypeReview)
 		if !slices.Contains(tools, "bash") {
 			t.Fatal("AgentAllowedTools(review) missing bash")
+		}
+		for _, lspTool := range []string{"definitions", "references", "diagnostics"} {
+			if !slices.Contains(tools, lspTool) {
+				t.Fatalf("AgentAllowedTools(review) missing %q", lspTool)
+			}
 		}
 		for _, m := range append(legacyMutationTools, "mutate") {
 			if slices.Contains(tools, m) {
@@ -265,7 +275,7 @@ func TestAgentAllowedTools(t *testing.T) {
 		}
 	})
 
-	t.Run("research has web_search and fetch_url but not mutation tools or bash", func(t *testing.T) {
+	t.Run("research has web_search and fetch_url but not mutation tools, bash, or lsp tools", func(t *testing.T) {
 		tools := AgentAllowedTools(AgentTypeResearch)
 		if !slices.Contains(tools, "web_search") {
 			t.Fatal("AgentAllowedTools(research) missing web_search")
@@ -273,16 +283,16 @@ func TestAgentAllowedTools(t *testing.T) {
 		if !slices.Contains(tools, "fetch_url") {
 			t.Fatal("AgentAllowedTools(research) missing fetch_url")
 		}
-		for _, m := range append(legacyMutationTools, "bash", "mutate") {
+		for _, m := range append(legacyMutationTools, "bash", "mutate", "definitions", "references", "diagnostics") {
 			if slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(research) should not contain %q", m)
 			}
 		}
 	})
 
-	t.Run("code has mutate and bash", func(t *testing.T) {
+	t.Run("code has mutate, bash, and lsp tools", func(t *testing.T) {
 		tools := AgentAllowedTools(AgentTypeCode)
-		for _, m := range []string{"mutate", "bash"} {
+		for _, m := range []string{"mutate", "bash", "definitions", "references", "diagnostics"} {
 			if !slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(code) missing %q", m)
 			}
@@ -290,6 +300,15 @@ func TestAgentAllowedTools(t *testing.T) {
 		for _, m := range legacyMutationTools {
 			if slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(code) should not contain legacy mutation tool %q", m)
+			}
+		}
+	})
+
+	t.Run("vision has no lsp tools", func(t *testing.T) {
+		tools := AgentAllowedTools(AgentTypeVision)
+		for _, lspTool := range []string{"definitions", "references", "diagnostics"} {
+			if slices.Contains(tools, lspTool) {
+				t.Fatalf("AgentAllowedTools(vision) should not contain %q", lspTool)
 			}
 		}
 	})
