@@ -261,7 +261,9 @@ func TestWorktreesFlagValidation_ListAndPrune(t *testing.T) {
 	cmd.SetArgs([]string{"--list", "--prune", "test-agent"})
 
 	var out bytes.Buffer
+	var errOut bytes.Buffer
 	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
 
 	err = cmd.Execute()
 	if err == nil {
@@ -300,7 +302,9 @@ func TestWorktreesFlagValidation_PruneAndPruneAll(t *testing.T) {
 	cmd.SetArgs([]string{"--prune", "test-agent", "--prune-all"})
 
 	var out bytes.Buffer
+	var errOut bytes.Buffer
 	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
 
 	err = cmd.Execute()
 	if err == nil {
@@ -330,7 +334,9 @@ func TestWorktreesFlagValidation_NoFlags(t *testing.T) {
 	cmd.SetArgs([]string{})
 
 	var out bytes.Buffer
+	var errOut bytes.Buffer
 	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
 
 	err = cmd.Execute()
 	if err == nil {

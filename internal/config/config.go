@@ -142,6 +142,30 @@ type MCPServerConfig struct {
 	SubAgents        []string          `yaml:"sub_agents"`
 }
 
+// LSPConfig configures optional LSP-backed code intelligence.
+type LSPConfig struct {
+	Enabled           bool                       `yaml:"enabled"`
+	IdleTimeout       Duration                   `yaml:"idle_timeout"`
+	RequestTimeout    Duration                   `yaml:"request_timeout"`
+	ReadyTimeout      Duration                   `yaml:"ready_timeout"`
+	ReadyGracePeriod  Duration                   `yaml:"ready_grace_period"`
+	DiagnosticsWindow Duration                   `yaml:"diagnostics_window"`
+	MaxResults        int                        `yaml:"max_results"`
+	CacheDir          string                     `yaml:"cache_dir"`
+	Servers           map[string]LSPServerConfig `yaml:"servers"`
+}
+
+// LSPServerConfig declares one language server.
+type LSPServerConfig struct {
+	Enabled               bool              `yaml:"enabled"`
+	Command               string            `yaml:"command"`
+	Args                  []string          `yaml:"args"`
+	Env                   map[string]string `yaml:"env"`
+	FileExtensions        []string          `yaml:"file_extensions"`
+	RootMarkers           []string          `yaml:"root_markers"`
+	InitializationOptions map[string]any    `yaml:"initialization_options"`
+}
+
 // SandboxConfig controls bubblewrap sandbox behaviour for tool execution.
 type SandboxConfig struct {
 	Enabled                      bool        `yaml:"enabled"`
@@ -182,6 +206,7 @@ type Config struct {
 	CaveHuman            bool                       `yaml:"cave_human"`
 	Search               SearchConfig               `yaml:"search"`
 	MCP                  MCPConfig                  `yaml:"mcp"`
+	LSP                  LSPConfig                  `yaml:"lsp"`
 	Modes                ModesConfig                `yaml:"modes"`
 	TUI                  TUIConfig                  `yaml:"tui"`
 	Selection            SelectionConfig            `yaml:"-"`

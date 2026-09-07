@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -63,6 +64,40 @@ func TestCloseRuntimeTerminatesMCPServers(t *testing.T) {
 	if envelope.OK {
 		t.Fatal("MCP echo call succeeded after closeRuntime: manager Close was not invoked")
 	}
+}
+
+// TestCloseRuntimeTerminatesLSPServers proves closeRuntime invokes the LSP
+// manager's Close: after teardown a connected server process no longer exists.
+func TestCloseRuntimeTerminatesLSPServers(t *testing.T) {
+	cacheDir := t.TempDir()
+	workDir := t.TempDir()
+	mgr, pid := lspFixtureManagerWithPID(t, cacheDir, workDir)
+
+	// Sanity: before closeRuntime, the server process is alive. We verify this by
+	// attempting to send signal 0 (a no-op that only tests if the process exists).
+	// If this fails, the server is already gone and the test is not meaningful.
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("server process %d not alive before closeRuntime: %v", pid, err)
+	}
+
+	rt := cliRuntime{
+		lspManager: mgr,
+		events:     output.NoopSink{},
+	}
+	closeRuntime(&rt)
+
+	// After closeRuntime, poll for the process to exit. The manager's Close()
+	// should have terminated the underlying process. Signalling a dead process
+	// returns "no such process" error.
+	const maxAttempts = 50
+	const pollInterval = 100 * time.Millisecond
+	for i := 0; i < maxAttempts; i++ {
+		if err := syscall.Kill(pid, 0); err != nil {
+			return // Process is confirmed dead.
+		}
+		time.Sleep(pollInterval)
+	}
+	t.Fatalf("server process %d still alive after closeRuntime (polled %v)", pid, maxAttempts*pollInterval)
 }
 
 // TestCloseRuntimeWithoutMCPIsSafe ensures teardown tolerates a nil manager and

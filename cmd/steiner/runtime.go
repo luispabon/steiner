@@ -17,6 +17,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/history"
+	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/modelcatalog"
 	"github.com/luispabon/steiner/internal/output"
@@ -69,6 +70,7 @@ type cliRuntime struct {
 	mcpManager                   *mcp.Manager
 	mcpState                     *mcpStateProducer
 	mcpInit                      *mcpInitOnce
+	lspManager                   *lsp.Manager
 	stdin                        io.Reader
 	human                        *output.EventStream
 	status                       *output.EventStream
@@ -121,7 +123,10 @@ func closeRuntime(rt *cliRuntime) {
 	if rt.imageStore != nil {
 		_ = rt.imageStore.Cleanup()
 	}
-	// Terminate MCP servers before the sandbox tmp dir is removed.
+	// Terminate language and MCP servers before the sandbox tmp dir is removed.
+	if rt.lspManager != nil {
+		emitCloseWarning(rt.events, "close lsp servers", rt.lspManager.Close())
+	}
 	if rt.mcpManager != nil {
 		emitCloseWarning(rt.events, "close mcp servers", rt.mcpManager.Close())
 	}

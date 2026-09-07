@@ -128,6 +128,54 @@ func TestApplyAdvisorPatchMaxUsesPerSubAgent(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigLSPEnabled(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.LSP.Enabled {
+		t.Errorf("DefaultConfig().LSP.Enabled = true, want false")
+	}
+}
+
+func TestDefaultConfigLSPIdleTimeout(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.LSP.IdleTimeout != MustDuration("5m") {
+		t.Errorf("DefaultConfig().LSP.IdleTimeout = %v, want %v", cfg.LSP.IdleTimeout, MustDuration("5m"))
+	}
+}
+
+// TestDefaultConfigLSPCalibratedTimeouts pins the timeouts derived from the
+// gopls measurements recorded in docs/lsp.md "Timeout calibration". Changing
+// one of these values means re-running internal/lsp/calibrate_manual_test.go
+// and updating that section.
+func TestDefaultConfigLSPCalibratedTimeouts(t *testing.T) {
+	cfg := defaultConfig()
+
+	tests := []struct {
+		name string
+		got  Duration
+		want Duration
+	}{
+		{name: "RequestTimeout", got: cfg.LSP.RequestTimeout, want: MustDuration("10s")},
+		{name: "ReadyTimeout", got: cfg.LSP.ReadyTimeout, want: MustDuration("30s")},
+		{name: "ReadyGracePeriod", got: cfg.LSP.ReadyGracePeriod, want: MustDuration("2s")},
+		{name: "DiagnosticsWindow", got: cfg.LSP.DiagnosticsWindow, want: MustDuration("2s")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.got != tc.want {
+				t.Errorf("DefaultConfig().LSP.%s = %v, want %v", tc.name, tc.got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDefaultConfigLSPMaxResults(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.LSP.MaxResults != 200 {
+		t.Errorf("DefaultConfig().LSP.MaxResults = %d, want 200", cfg.LSP.MaxResults)
+	}
+}
+
 func TestValidateAdvisorConfigMaxUsesPerSubAgent(t *testing.T) {
 	tests := []struct {
 		name    string

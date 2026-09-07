@@ -149,4 +149,7 @@ func applyToolingConfigPatch(cfg *Config, patch configPatch) {
 	if patch.MCP != nil {
 		applyMCPPatch(&cfg.MCP, patch.MCP)
 	}
+	if patch.LSP != nil {
+		applyLSPPatch(&cfg.LSP, patch.LSP)
+	}
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/history"
+	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/oauth"
 	"github.com/luispabon/steiner/internal/output"
@@ -113,9 +114,16 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		mcpMgr, mcpState = connectRuntimeMCP(ctx, cfg, sb, flags.asyncMCP, events, mcpStderr)
 	}
 
-	// Rebuild registry with sandbox and MCP tools now that workDir and homeDir are known.
-	if sb != nil || mcpMgr != nil {
-		registry = buildRuntimeRegistryWithSandbox(cfg, workDir, sb, mcpMgr)
+	// Construct LSP manager when enabled. Unlike MCP, servers start lazily on
+	// first tool call, so this never blocks startup.
+	var lspMgr *lsp.Manager
+	if cfg.LSP.Enabled {
+		lspMgr = connectRuntimeLSP(cfg, sb, workDir, flags.asyncMCP, events)
+	}
+
+	// Rebuild registry with sandbox, MCP and LSP tools now that workDir and homeDir are known.
+	if sb != nil || mcpMgr != nil || lspMgr != nil {
+		registry = buildRuntimeRegistryWithSandbox(cfg, workDir, sb, mcpMgr, lspMgr)
 	}
 	historyWriter, sessionStore, err := buildRuntimeSessionStores(homeDir)
 	if err != nil {
@@ -142,6 +150,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		sandbox:                      sb,
 		mcpManager:                   mcpMgr,
 		mcpState:                     mcpState,
+		lspManager:                   lspMgr,
 		stdin:                        cmd.InOrStdin(),
 		human:                        output.NewStream(cmd.OutOrStdout()),
 		status:                       output.NewStream(cmd.ErrOrStderr()),
@@ -402,14 +411,41 @@ func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandb
 	return mgr, producer
 }
 
+// connectRuntimeLSP constructs the language server manager when LSP is enabled.
+// Unlike MCP there is no WaitInit — language servers start lazily on first tool call,
+// so this never blocks CLI startup. Server warnings are routed through the same
+// session_health diagnostic channel as MCP.
+func connectRuntimeLSP(cfg config.Config, sb *sandbox.Sandbox, workDir string, asyncMCP bool, events output.EventSink) *lsp.Manager {
+	var wrap func(*exec.Cmd) *exec.Cmd
+	if sb != nil {
+		wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
+	}
+	warnFn := func(msg string) {
+		events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Severity: "warning",
+			Notes:    []string{msg},
+		}))
+	}
+	stderr := selectLSPStderr(asyncMCP)
+	return lsp.NewManager(cfg.LSP, workDir, wrap, warnFn, stderr)
+}
+
+func selectLSPStderr(asyncMCP bool) io.Writer {
+	if asyncMCP {
+		return io.Discard
+	}
+	return os.Stderr
+}
+
 func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry) {
-	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, nil)
+	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, nil, nil)
 	return workDir, registry
 }
 
-// buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox and MCP tools.
-func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox, mgr *mcp.Manager) *tool.Registry {
-	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, mgr)
+// buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox, MCP and LSP tools.
+func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox, mcpMgr *mcp.Manager, lspMgr *lsp.Manager) *tool.Registry {
+	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, mcpMgr, lspMgr)
 	return registry
 }
 

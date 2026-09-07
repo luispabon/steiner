@@ -16,6 +16,7 @@ internal/config/         Config loading, merging, validation, defaults
 internal/delegation/     Delegation contracts and scaffolding
 internal/history/        Conversation history persistence
 internal/interactive/    Interactive session orchestration: run flow, replay, session/snapshot reports, dispatch (drives internal/agent)
+internal/lsp/            Language server connections (LSP protocol, tool definitions, server lifecycle)
 internal/mcp/            MCP server connections (stdio transport, tool registration)
 internal/metadata/       Local cache of model metadata from models.dev
 internal/modelcatalog/   Provider model catalog: enumerators, cache, popularity, merge/rank
@@ -93,7 +94,7 @@ make build-binaries
 
 Before finalizing Go changes, run `make check`. If a check cannot run, report the exact command and failure.
 
-Go version: `1.25`.
+Go version: `1.26`.
 
 ## Go conventions
 
@@ -134,8 +135,9 @@ A code change must update its matching docs in the same commit:
 | 10 | Optional feature change (`cave_human`, accent colour, web search, image paste, conversation forking, code simplification, Codex OAuth) | docs/optional-features.md's section; README "Other features" one-liner if the summary changed |
 | 11 | Execution mode change (plan/build enforcement, mode-switching UX, `modes.default`) | docs/execution-modes.md; README "Execution modes" section if the high-level description changed; docs/sub-agent-delegation.md Safety section if the `code`/`follow_up` denial scope changed |
 | 12 | `internal/mcp`: manager, transport, naming, approval, or tooldef behaviour | docs/mcp.md if user-facing; docs/configuration.md for config field changes; README MCP section if the high-level description changed |
+| 13 | `internal/lsp`: new server type, new config field, new tool, or server-lifecycle behaviour | docs/lsp.md for user-facing behaviour and server setup examples; docs/configuration.md for config field changes; README LSP feature section if the high-level description changed; sub-agent allowlist tables in docs/sub-agent-delegation.md if tool availability changed |
 
-**13.** `delegationInstructions`/consumer-file changes (`internal/prompt/system.go`'s `delegationInstructions`, `internal/prompt/specialists.go`'s `specialists` slice, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
+**14.** `delegationInstructions`/consumer-file changes (`internal/prompt/system.go`'s `delegationInstructions`, `internal/prompt/specialists.go`'s `specialists` slice, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
 
 * Update docs/canon-drift-checks.md if the change affects what counts as canon or the consumer file list.
 * The `## Your sub-agents` table renders from the `specialists` slice in `internal/prompt/specialists.go` — edit the slice, never the markdown.
@@ -156,6 +158,9 @@ Steiner exposes these model-facing built-in tools:
 - `fetch_url` — fetch a URL and return its content as markdown (main content extracted, falling back to the full document if extraction finds nothing) or image data
 - `display_file` — show a file in the TUI overlay without adding contents to conversation
 - `advisor` — ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`)
+- `definitions` — jump to symbol definitions; requires `lsp.enabled` and a configured language server for the file's extension
+- `references` — find all references to a symbol; requires `lsp.enabled` and a configured language server for the file's extension
+- `diagnostics` — get diagnostics for a file; requires `lsp.enabled` and a configured language server for the file's extension
 - `workflow_handoff` — transition to a different workflow with approved artifacts
 - `mcp__<server>__<tool>` — MCP tools registered from connected MCP servers appear alongside built-ins with the `mcp__` prefix (tool names may include an optional 8-hex SHA-256 hash suffix when sanitisation or truncation is required). Their schemas and results come from third-party servers, not steiner.
 

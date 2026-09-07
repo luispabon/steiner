@@ -21,6 +21,7 @@ type configPatch struct {
 	ContextManagement    *contextManagementPatch    `yaml:"context_management"`
 	Search               *searchPatch               `yaml:"search"`
 	MCP                  *mcpPatch                  `yaml:"mcp"`
+	LSP                  *lspPatch                  `yaml:"lsp"`
 	Modes                *modesPatch                `yaml:"modes"`
 }
 
@@ -216,6 +217,28 @@ type mcpServerPatch struct {
 	AllowedTools     *[]string          `yaml:"allowed_tools"`
 	BlockedTools     *[]string          `yaml:"blocked_tools"`
 	SubAgents        *[]string          `yaml:"sub_agents"`
+}
+
+type lspPatch struct {
+	Enabled           *bool                      `yaml:"enabled"`
+	IdleTimeout       *Duration                  `yaml:"idle_timeout"`
+	RequestTimeout    *Duration                  `yaml:"request_timeout"`
+	ReadyTimeout      *Duration                  `yaml:"ready_timeout"`
+	ReadyGracePeriod  *Duration                  `yaml:"ready_grace_period"`
+	DiagnosticsWindow *Duration                  `yaml:"diagnostics_window"`
+	MaxResults        *int                       `yaml:"max_results"`
+	CacheDir          *string                    `yaml:"cache_dir"`
+	Servers           *map[string]lspServerPatch `yaml:"servers"`
+}
+
+type lspServerPatch struct {
+	Enabled               *bool              `yaml:"enabled"`
+	Command               *string            `yaml:"command"`
+	Args                  *[]string          `yaml:"args"`
+	Env                   *map[string]string `yaml:"env"`
+	FileExtensions        *[]string          `yaml:"file_extensions"`
+	RootMarkers           *[]string          `yaml:"root_markers"`
+	InitializationOptions *map[string]any    `yaml:"initialization_options"`
 }
 
 type modesPatch struct {

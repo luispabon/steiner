@@ -188,6 +188,21 @@ models:
 
 See [Configuration](docs/configuration.md) for all provider types, model fields, limit overrides, sandbox settings, sub-agent config, and environment variables.
 
+**Example — LSP code intelligence**:
+
+```yaml
+lsp:
+  enabled: true
+  servers:
+    gopls:
+      enabled: true
+      command: gopls
+      file_extensions: [".go"]
+      root_markers: ["go.mod", ".git"]
+```
+
+See [Configuration](docs/configuration.md) for the full LSP reference and [LSP servers](docs/lsp.md) for setup examples and calibration details.
+
 ## Model discovery
 
 Steiner discovers available models from configured providers and adds them to the `/model` chooser. Discovery is enabled by default; set `models.discovery_enabled: false` to use configured entries only. Model references accept either a config alias or a raw `provider/model-id` reference, such as `openrouter/openai/gpt-4o`.
@@ -209,6 +224,9 @@ See [Model enumeration](docs/model-enumeration.md) for provider details, caching
 | `fetch_url` | Fetch a URL and return its content: HTML has its main content extracted and converted to markdown (falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.) returned raw, images always saved to `.steiner/tmp/fetched` and available through the `read` tool; large responses saved to disk in full, with the `read` tool used to paginate. `.steiner/tmp/fetched` is pruned at startup: files older than 7 days are removed, then oldest-first until the directory is under 250MB (files younger than 1 hour are never evicted by the budget rule) |
 | `display_file` | Show a file in the TUI overlay without adding to conversation |
 | `advisor` | Ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`) |
+| `definitions` | Jump to symbol definitions; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
+| `references` | Find all references to a symbol; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
+| `diagnostics` | Get diagnostics (errors, warnings, etc.) for a file; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
 | `workflow_handoff` | Transition to a different workflow with approved artifacts |
 
 MCP tools from connected servers appear alongside built-ins with the `mcp__<server>__<tool>` prefix.
@@ -250,7 +268,7 @@ The `sub_agent` tool accepts a structured brief with six required fields: `objec
 
 Type `code`, `review`, and `evaluate` children may additionally call `advisor` for stronger-model steering when `advisor.enabled` is true, capped per child by `advisor.max_uses_per_sub_agent`.
 
-Delegation calls can fan out in parallel; configure the width with `sub_agent.max_parallel` (default `3`, minimum `1`, `1` serial). Ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`) are bounded separately by `limits.max_parallel_tools` (default `4`, minimum `1`). See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
+Delegation calls can fan out in parallel; configure the width with `sub_agent.max_parallel` (default `3`, minimum `1`, `1` serial). Ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`, `definitions`, `references`, `diagnostics`) are bounded separately by `limits.max_parallel_tools` (default `4`, minimum `1`). See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
 
 Every `sub_agent` type `code` automatically runs in its own isolated, runtime-provisioned git worktree under `.steiner/worktrees/`. Worktrees persist until explicitly pruned via the CLI: `steiner worktrees --list` (show all delegation worktrees), `steiner worktrees --prune <id>` (remove a worktree by its ID), or `steiner worktrees --prune-all` (remove all delegation worktrees).
 
@@ -319,6 +337,29 @@ mcp:
 See [MCP servers](docs/mcp.md) for the full reference.
 
 MCP behaviour is covered by hermetic, CI-safe tests for both transports; live validation against real third-party servers is tracked in #438.
+
+## LSP-backed code intelligence
+
+Connect language servers (LSP) to navigate code: jump to definitions, find references, view diagnostics. LSP is disabled by default. When enabled, servers are configured under `lsp.servers` and lazily started on first use (explore, code, and review agents can access the three tools). The three navigation tools gracefully degrade when no server is configured for a file's extension or when a server fails to start.
+
+```yaml
+lsp:
+  enabled: true
+  servers:
+    gopls:
+      enabled: true
+      command: gopls
+      file_extensions: [".go"]
+      root_markers: ["go.mod", ".git"]
+    typescript-language-server:
+      enabled: true
+      command: typescript-language-server
+      args: ["--stdio"]
+      file_extensions: [".ts", ".tsx", ".js"]
+      root_markers: ["package.json", "tsconfig.json"]
+```
+
+Language servers are not installed by steiner — you must install them separately (e.g. `go install github.com/golang/tools/gopls@latest`, `npm install -g typescript-language-server`). See [LSP servers](docs/lsp.md) for server setup examples (gopls, typescript-language-server, pyright, rust-analyzer) and timeout calibration notes.
 
 ## Optional features
 

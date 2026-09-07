@@ -22,6 +22,9 @@ require (
 	github.com/sahilm/fuzzy v0.1.3
 	github.com/spf13/cobra v1.10.2
 	github.com/tiktoken-go/tokenizer v0.8.1
+	go.lsp.dev/jsonrpc2 v1.0.1
+	go.lsp.dev/protocol v1.0.1
+	go.lsp.dev/uri v1.0.1
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
@@ -40,6 +43,7 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/dlclark/regexp2/v2 v2.7.1 // indirect
 	github.com/ebitengine/purego v0.10.2 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
