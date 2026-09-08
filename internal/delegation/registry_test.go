@@ -54,6 +54,52 @@ func callAdvisorHandler(t *testing.T, reg *tool.Registry) {
 	}
 }
 
+func TestBuildDelegateRegistryDisablesChildLSPGuidanceWithoutServers(t *testing.T) {
+	for _, servers := range []map[string]config.LSPServerConfig{nil, {}} {
+		t.Run("enabled LSP without configured servers", func(t *testing.T) {
+			fake := &fakeProvider{responses: []provider.ChatResponse{
+				{Message: provider.Message{Content: "child result"}, FinishReason: "stop"},
+			}}
+			sessions := NewSessionStore()
+			deps := DelegateDeps{
+				BaseRegistry: tool.NewRegistry(),
+				SubAgentCfg:  config.SubAgentConfig{Enabled: true, MaxFollowUps: 1},
+				Provider:     fake, Events: output.NoopSink{}, WorkDir: t.TempDir(), HomeDir: t.TempDir(),
+				ResolvedModel: provider.ResolvedModel{EffectiveLimits: provider.EffectiveLimits{ContextWindow: 32768, MaxOutputTokens: 1024}},
+				MaxTokens:     1024, Config: config.Config{LSP: config.LSPConfig{Enabled: true, Servers: servers}},
+				Sandbox: tool.Unsandboxed{}, SessionStore: sessions,
+			}
+			registry, err := BuildDelegateRegistry(deps)
+			if err != nil {
+				t.Fatalf("BuildDelegateRegistry() error = %v", err)
+			}
+			def, ok := registry.Get(SubAgentToolName)
+			if !ok {
+				t.Fatal("sub_agent tool not registered")
+			}
+			result, err := def.Handler(context.Background(), subAgentTask("explore", "inspect the codebase"))
+			if err != nil {
+				t.Fatalf("sub_agent handler() error = %v", err)
+			}
+			delegationResult, ok := result.(tool.ExecutionResult)
+			if !ok {
+				t.Fatalf("sub_agent result = %T, want tool.ExecutionResult", result)
+			}
+			childResult, ok := delegationResult.Value.(Result)
+			if !ok {
+				t.Fatalf("delegation result value = %T, want delegation.Result", delegationResult.Value)
+			}
+			session, ok := sessions.Get(childResult.AgentID)
+			if !ok {
+				t.Fatalf("child session for agent %q not saved", childResult.AgentID)
+			}
+			if strings.Contains(session.Request.Prompt.PromptOverrides.SystemSuffix, "## Code intelligence (LSP)") {
+				t.Fatalf("child system suffix = %q, want no LSP guidance", session.Request.Prompt.PromptOverrides.SystemSuffix)
+			}
+		})
+	}
+}
+
 func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
 	store := NewCacheKeyStore()
 	prov := &fakeProvider{responses: []provider.ChatResponse{

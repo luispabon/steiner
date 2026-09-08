@@ -760,6 +760,18 @@ func TestPromptAssemblyCarriesSandboxState(t *testing.T) {
 			t.Errorf("AssemblyOptions.SandboxWritableMounts = %v, want empty when sandbox is bypassed", opts.SandboxWritableMounts)
 		}
 	})
+
+	for _, servers := range []map[string]config.LSPServerConfig{nil, {}} {
+		t.Run("LSP enabled without configured servers", func(t *testing.T) {
+			runner := cliRunner{runtime: cliRuntime{cfg: config.Config{
+				LSP: config.LSPConfig{Enabled: true, Servers: servers},
+			}}}
+			opts := runner.promptAssembly(nil, nil, prompt.ModelTokenBudget{}, config.ModelPrompts{})
+			if opts.LSPEnabled {
+				t.Error("AssemblyOptions.LSPEnabled = true, want false without configured LSP servers")
+			}
+		})
+	}
 }
 
 // TestRunnerDelegateDepsCarryRuntimeSandboxState proves the production
