@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 type session interface {
 	Definition(ctx context.Context, file string, line, col int) ([]Location, error)
 	References(ctx context.Context, file string, line, col int, includeDecl bool) ([]Location, error)
+	Hover(ctx context.Context, file string, line, col int) (HoverContent, error)
 	DidOpen(ctx context.Context, file, languageID, text string, version int32) error
 	DidClose(ctx context.Context, file string) error
 	// Diagnostics streams publishDiagnostics notifications. The channel is never
@@ -137,6 +139,27 @@ func (s *impl) References(ctx context.Context, file string, line, col int, inclu
 		}
 	}
 	return locs, nil
+}
+
+// Hover requests hover information at the given position.
+func (s *impl) Hover(ctx context.Context, file string, line, col int) (HoverContent, error) {
+	params := protocol.HoverParams{
+		TextDocumentPositionParams: textPosition(file, line, col),
+	}
+
+	result, err := s.callWithExitCheck(ctx, func() (any, error) {
+		return s.server.Hover(ctx, &params)
+	})
+	if err != nil {
+		return HoverContent{}, err
+	}
+
+	hover, ok := result.(*protocol.Hover)
+	if !ok || hover == nil {
+		return HoverContent{}, nil
+	}
+
+	return HoverContent{Text: hoverContentsToText(hover.Contents)}, nil
 }
 
 // DidOpen notifies the server that a document was opened.
@@ -428,6 +451,56 @@ func toLocation(u uri.URI, r protocol.Range) Location {
 		EndLine:   int(r.End.Line) + 1,
 		EndColumn: int(r.End.Character) + 1,
 	}
+}
+
+// hoverContentsToText normalizes hover contents from the LSP protocol into plain text.
+// Handles four arms: MarkupContent, String (deprecated), MarkedStringWithLanguage (deprecated),
+// and MarkedStringSlice (deprecated). Returns an empty string for nil input.
+func hoverContentsToText(contents protocol.HoverContents) string {
+	if contents == nil {
+		return ""
+	}
+
+	switch c := contents.(type) {
+	case *protocol.MarkupContent:
+		if c != nil {
+			return c.Value
+		}
+	case protocol.String:
+		return string(c)
+	case *protocol.MarkedStringWithLanguage: //nolint:staticcheck // sent for older servers
+		if c != nil {
+			return fmt.Sprintf("```%s\n%s\n```", c.Language, c.Value)
+		}
+	case protocol.MarkedStringSlice:
+		var parts []string
+		for i := range c {
+			text := markedStringToText(c[i])
+			if text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n\n")
+	}
+	return ""
+}
+
+// markedStringToText normalizes a single MarkedString (which is a union of
+// string or MarkedStringWithLanguage) into plain text.
+func markedStringToText(ms protocol.MarkedString) string { //nolint:staticcheck // sent for older servers
+	if ms == nil {
+		return ""
+	}
+
+	switch m := ms.(type) {
+	case protocol.String:
+		return string(m)
+	case *protocol.MarkedStringWithLanguage: //nolint:staticcheck // sent for older servers
+		if m != nil {
+			return fmt.Sprintf("```%s\n%s\n```", m.Language, m.Value)
+		}
+	}
+	return ""
 }
 
 // messageText renders a diagnostic message, which is either a plain string or

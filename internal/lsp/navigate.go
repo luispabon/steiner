@@ -16,6 +16,12 @@ type Result struct {
 	Total int
 }
 
+// HoverResult is the result of a hover query.
+type HoverResult struct {
+	Content    HoverContent
+	Incomplete bool
+}
+
 // Definitions returns all definitions for a symbol at the given position in a file.
 func (m *Manager) Definitions(ctx context.Context, file string, line, col int) (Result, error) {
 	if line < 1 || col < 1 {
@@ -226,6 +232,57 @@ func (m *Manager) References(ctx context.Context, file string, line, col int, in
 	}
 
 	return result, nil
+}
+
+// Hover returns hover information at the given position in a file.
+func (m *Manager) Hover(ctx context.Context, file string, line, col int) (HoverResult, error) {
+	if line < 1 || col < 1 {
+		return HoverResult{}, fmt.Errorf("invalid position: line %d col %d", line, col)
+	}
+
+	file, err := absWorkspacePath(m.workspace, file)
+	if err != nil {
+		return HoverResult{}, err
+	}
+
+	// Get the entry so we can lock the cycle.
+	ent, sess, err := m.entryFor(ctx, file)
+	if err != nil {
+		return HoverResult{}, err
+	}
+
+	// Await readiness (but don't hold the lock during the wait).
+	incomplete, err := m.awaitReady(ctx, ent)
+	if err != nil {
+		return HoverResult{}, err
+	}
+
+	// Now acquire the cycle lock and hold it for open → request → close.
+	ent.cycleMu.Lock()
+	defer ent.cycleMu.Unlock()
+
+	// Define the request with a timeout scoped to the request only.
+	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(m.cfg.RequestTimeout.Duration()))
+	defer cancel()
+
+	var hoverContent HoverContent
+	err = withDocument(ctx, sess, file, func() error {
+		// Issue the request within the request timeout.
+		content, err := sess.Hover(reqCtx, file, line, col)
+		if err != nil {
+			return fmt.Errorf("hover request: %w", err)
+		}
+		hoverContent = content
+		return nil
+	})
+	if err != nil {
+		return HoverResult{}, err
+	}
+
+	return HoverResult{
+		Content:    hoverContent,
+		Incomplete: incomplete,
+	}, nil
 }
 
 // sortLocations sorts locations deterministically by (File, Line, Column).

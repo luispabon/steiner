@@ -15,8 +15,8 @@ func TestToolDefsCount(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
-	if len(defs) != 3 {
-		t.Fatalf("ToolDefs returned %d tools, want 3", len(defs))
+	if len(defs) != 4 {
+		t.Fatalf("ToolDefs returned %d tools, want 4", len(defs))
 	}
 }
 
@@ -26,7 +26,7 @@ func TestToolDefsNames(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
-	expectedNames := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics"}
+	expectedNames := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"}
 
 	for i, expected := range expectedNames {
 		if i >= len(defs) {
@@ -79,7 +79,7 @@ func TestToolDefsOrdering(t *testing.T) {
 				}
 			}
 
-			expectedOrder := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics"}
+			expectedOrder := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"}
 			for i, expected := range expectedOrder {
 				if i >= len(defs1) {
 					break
@@ -131,6 +131,11 @@ func TestToolDefsSchemas(t *testing.T) {
 			name:     "diagnostics schema",
 			toolIdx:  2,
 			required: []string{"file"},
+		},
+		{
+			name:     "hover schema",
+			toolIdx:  3,
+			required: []string{"file", "line", "column"},
 		},
 	}
 
@@ -256,6 +261,88 @@ func TestServerExitedError(t *testing.T) {
 }
 
 func TestFailedServerError(t *testing.T) {
+	cfg := config.LSPConfig{
+		Servers: map[string]config.LSPServerConfig{
+			"mock": {
+				Enabled:        true,
+				FileExtensions: []string{".go"},
+				Command:        "true",
+			},
+		},
+	}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	err := errors.New("other error")
+
+	result, goErr := handleNavigationError(m, "test.go", err)
+	if result != nil {
+		t.Errorf("handleNavigationError returned non-nil result for non-unavailable error: %v", result)
+	}
+	if goErr == nil || !errors.Is(goErr, err) {
+		t.Errorf("handleNavigationError should return original error, got %v", goErr)
+	}
+}
+
+func TestNoServerErrorHover(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+
+	input := map[string]any{
+		"file":   "test.unknown",
+		"line":   1.0,
+		"column": 1.0,
+	}
+
+	result, err := defs[3].Handler(context.Background(), input)
+	if err != nil {
+		t.Errorf("hover handler returned error: %v", err)
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if !strings.Contains(msg, "No language server is configured") {
+		t.Errorf("message does not contain expected unavailability text: %q", msg)
+	}
+	if !strings.Contains(msg, ".unknown") {
+		t.Errorf("message does not contain file extension: %q", msg)
+	}
+}
+
+func TestServerExitedErrorHover(t *testing.T) {
+	cfg := config.LSPConfig{
+		Servers: map[string]config.LSPServerConfig{
+			"mock": {
+				Enabled:        true,
+				FileExtensions: []string{".go"},
+				Command:        "true",
+			},
+		},
+	}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	result, goErr := handleNavigationError(m, "test.go", errServerExited)
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if goErr != nil {
+		t.Fatalf("expected nil error, got %v", goErr)
+	}
+
+	if !strings.Contains(msg, "exited unexpectedly") {
+		t.Errorf("message does not contain expected text: %q", msg)
+	}
+}
+
+func TestFailedServerErrorHover(t *testing.T) {
 	cfg := config.LSPConfig{
 		Servers: map[string]config.LSPServerConfig{
 			"mock": {
