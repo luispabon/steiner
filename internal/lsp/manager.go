@@ -116,15 +116,19 @@ func (m *Manager) entryFor(ctx context.Context, file string) (*entry, session, e
 	// Resolve the root.
 	root := resolveRoot(file, m.workspace, srv.RootMarkers)
 
-	key := sessionKey{server: serverName, root: root}
+	return m.entryForKey(ctx, serverName, srv, sessionKey{server: serverName, root: root})
+}
 
+// entryForKey is entryFor's state machine, keyed directly so workspace-mode
+// symbol search can reuse it without a file to route through.
+func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config.LSPServerConfig, key sessionKey) (*entry, session, error) {
 	m.mu.Lock()
 	ent := m.sessions[key]
 	if ent == nil {
 		ent = &entry{
 			state: ServerState{
 				Name:      serverName,
-				Root:      root,
+				Root:      key.root,
 				Status:    ServerStatusDeclared,
 				StartedAt: time.Now(),
 				LastUsed:  time.Now(),
@@ -169,7 +173,7 @@ func (m *Manager) entryFor(ctx context.Context, file string) (*entry, session, e
 			ready := ent.ready
 			ent.mu.Unlock()
 
-			sess, err := m.spawnServer(ctx, serverName, srv, root)
+			sess, err := m.spawnServer(ctx, serverName, srv, key.root)
 
 			ent.mu.Lock()
 			close(ready)
@@ -220,6 +224,43 @@ func (m *Manager) resolveSessionKey(file string) (sessionKey, bool) {
 	root := resolveRoot(file, m.workspace, m.cfg.Servers[serverName].RootMarkers)
 
 	return sessionKey{server: serverName, root: root}, true
+}
+
+// existingSessionKeyForServer returns the sessionKey of an already-created entry
+// for serverName, if any (lexicographically smallest root if more than one, for
+// determinism), so workspace-mode symbol search prefers a running session over
+// spawning a second one at a different root for the same server.
+func (m *Manager) existingSessionKeyForServer(serverName string) (sessionKey, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var found sessionKey
+	ok := false
+	for key := range m.sessions {
+		if key.server != serverName {
+			continue
+		}
+		if !ok || key.root < found.root {
+			found = key
+			ok = true
+		}
+	}
+	return found, ok
+}
+
+// enabledServerNames returns the names of enabled servers in cfg.Servers, sorted.
+// Held under m.mu even though cfg is not mutated after construction, matching the
+// locking discipline serverForExtension already documents for reading m.cfg.Servers.
+func (m *Manager) enabledServerNames() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	names := make([]string, 0, len(m.cfg.Servers))
+	for name, srv := range m.cfg.Servers {
+		if srv.Enabled {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // spawnServer spawns a single server process with the configured environment.
