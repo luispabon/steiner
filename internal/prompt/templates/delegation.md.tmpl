@@ -17,7 +17,7 @@ Call `sub_agent` with the `type` below. From now on, we refer to those sub-agent
 {{ range .Specialists -}}
 | `{{ .Name }}` | {{ .Lane }} | {{ .DoNotUseFor }} |
 {{ end }}
-Each `code` task runs in an isolated worktree under `.steiner/worktrees/`. Use the returned `worktree_path` and `worktree_branch` from delegation result to inspect or merge it. Check delegation warnings for unseen parent-tree changes. After merging and verification, always prune the worktree. No shared-tree fallback exists.
+Each `code` task runs in an isolated worktree under `.steiner/worktrees/`. Use the returned `worktree_path` from the delegation result — a project-relative path — to inspect or merge it. After merging and verification, always prune the worktree. No shared-tree fallback exists.
 
 Run independent sub-agents together. Sequence only when a call depends on another's result or shares mutable state/files with it.
 

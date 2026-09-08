@@ -2195,6 +2195,119 @@ func TestSpecializedHandler_CodeProvisionesWorktree(t *testing.T) {
 	}
 }
 
+// TestSpecializedHandler_CodeCancelledBeforeDispatchRetainsPath verifies that
+// a code agent cancelled before dispatch (worktree already provisioned) still
+// carries a provider-visible worktree_path — the worktree exists on disk and
+// remains inspectable even though the child never ran.
+func TestSpecializedHandler_CodeCancelledBeforeDispatchRetainsPath(t *testing.T) {
+	const agentID = "child-code-cancelled-before-dispatch"
+	originalIDGen := idGen
+	idGen = func() string { return agentID }
+	t.Cleanup(func() { idGen = originalIDGen })
+
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	events := output.SinkFunc(func(event output.Event) {
+		if event.Type != output.EventTypeDelegationStarted {
+			return
+		}
+		cancel()
+	})
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		t.Fatal("runner called after cancellation before dispatch")
+		return agent.RunState{}, nil
+	}})
+	deps.Events = events
+	deps.WorkDir = repo
+
+	raw, err := SubAgentToolDef(deps, nil).Handler(ctx, subAgentTask(AgentTypeCode, "implement a feature"))
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	result, ok := raw.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("handler returned %T, want tool.ExecutionResult", raw)
+	}
+	delegationResult, ok := result.Value.(Result)
+	if !ok {
+		t.Fatalf("result.Value is %T, want Result", result.Value)
+	}
+	if delegationResult.Status != StatusCancelled {
+		t.Fatalf("result status = %q, want %q", delegationResult.Status, StatusCancelled)
+	}
+	if delegationResult.WorktreePath == "" {
+		t.Fatal("internal WorktreePath is empty; expected the provisioned worktree to be retained")
+	}
+
+	envelope := delegationResult.ProjectToolResult()
+	if !strings.HasPrefix(envelope.WorktreePath, ".steiner"+string(filepath.Separator)+"worktrees"+string(filepath.Separator)) {
+		t.Fatalf("projected worktree_path = %q for cancelled-before-dispatch result, want to start with .steiner/worktrees/", envelope.WorktreePath)
+	}
+	if strings.Contains(envelope.WorktreePath, repo) {
+		t.Fatalf("projected worktree_path = %q, should not contain absolute project root %q", envelope.WorktreePath, repo)
+	}
+}
+
+// TestSpecializedHandler_CodeFailedRetainsPath verifies that a code agent
+// whose child run terminates with an error still carries the provider-visible
+// worktree_path — a failed run's worktree stays on disk so the parent can
+// inspect what happened.
+func TestSpecializedHandler_CodeFailedRetainsPath(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return agent.RunState{
+			Conversation: []agent.Message{
+				{Role: agent.MessageRoleAssistant, Content: "hit an unrecoverable error"},
+			},
+			TurnCount:  1,
+			TokenCount: 50,
+			StopReason: agent.StopReasonError,
+		}, nil
+	}}
+
+	deps := minimalDeps(runner)
+	deps.WorkDir = repo
+
+	raw, err := SubAgentToolDef(deps, nil).Handler(ctx, subAgentTask(AgentTypeCode, "implement a feature"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	result, ok := raw.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", raw)
+	}
+	delegationResult, ok := result.Value.(Result)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want Result", result.Value)
+	}
+
+	if delegationResult.Status != StatusFailed {
+		t.Fatalf("Status = %q, want %q", delegationResult.Status, StatusFailed)
+	}
+	if delegationResult.WorktreePath == "" {
+		t.Fatal("internal WorktreePath is empty; expected the provisioned worktree to be retained on failure")
+	}
+
+	envelope := delegationResult.ProjectToolResult()
+	if envelope.Status != "failed" {
+		t.Fatalf("envelope status = %q, want %q", envelope.Status, "failed")
+	}
+	if !strings.HasPrefix(envelope.WorktreePath, ".steiner"+string(filepath.Separator)+"worktrees"+string(filepath.Separator)) {
+		t.Fatalf("projected worktree_path = %q for failed result, want to start with .steiner/worktrees/", envelope.WorktreePath)
+	}
+	if strings.Contains(envelope.WorktreePath, repo) {
+		t.Fatalf("projected worktree_path = %q, should not contain absolute project root %q", envelope.WorktreePath, repo)
+	}
+}
+
 func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
 	ctx := context.Background()
 	repo, cleanup := setupTestRepo(t)
@@ -2294,7 +2407,7 @@ func TestApplyCodeWorktreeResult_MergesWarnings(t *testing.T) {
 	result := tool.ExecutionResult{Value: Result{
 		Warnings: []string{"dirty worktree after failed remediation"},
 	}}
-	got := applyCodeWorktreeResult(result, CodeWorktree{Path: "/tmp/worktree", Branch: "delegate/test"}, []string{"parent tree was dirty"})
+	got := applyCodeWorktreeResult(result, CodeWorktree{Path: "/tmp/worktree", Branch: "delegate/test"}, []string{"parent tree was dirty"}, "/tmp")
 	delegationResult, ok := got.Value.(Result)
 	if !ok {
 		t.Fatalf("result.Value type = %T, want Result", got.Value)

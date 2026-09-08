@@ -1,6 +1,6 @@
 User-facing documentation: [Sub-agent Delegation](sub-agent-delegation.md).
 
-Delegated tools retain full host `Result` records and retention metadata, while provider messages use compact JSON projections with exact child output. The projection may include `status` and `reason`, plus `continuation.agent_id` only after confirmed session persistence. Raw diagnostics remain host-only, and replay preserves compact content instead of restoring hidden fields.
+Delegated tools retain full host `Result` records and retention metadata, while provider messages use compact JSON projections with exact child output. The projection may include `status` and `reason`, `continuation.agent_id` only after confirmed session persistence, and `worktree_path` (project-relative, for code agents only) enabling parent inspection of worktrees without follow_up. Raw diagnostics, absolute paths, branch metadata, session state, and traces remain host-only, and replay preserves compact content instead of restoring hidden fields.
 
 ## Part 2 — Internals
 
@@ -81,9 +81,13 @@ For type `code` only, the type-specific handler in `newSpecializedHandler` (`int
 5. **Enables post-run remediation** with `codeRemediationConfig(CodeWorktree)`. If the completed code run leaves the provisioned worktree dirty, `SpawnDelegate` runs a remediation turn that tells the child to stage only intended changes, commit them on the expected branch, and leave the worktree clean. The remediation config is saved with the session, so `follow_up` reuses the original worktree path and expected branch and applies the same remediation to later code follow-ups. Remediation state, conversation, turn counts, and cache usage continue through the normal session update path.
 
 6. **Populates `Result` fields** (only for `AgentTypeCode`):
-   - `WorktreePath` — the absolute path to the provisioned worktree.
-   - `WorktreeBranch` — the branch name of the provisioned worktree (e.g. `delegate/a1b2c3d4/main/child-1`).
-   - `Warnings` — a slice of human-readable warning strings covering dirty-tree changes and post-run remediation failures. Empty for successful provisioning of a clean tree.
+   - **Host-only fields** (never sent to provider):
+     - `WorktreePath` — the absolute path to the provisioned worktree.
+     - `WorktreeBranch` — the branch name of the provisioned worktree (e.g. `delegate/a1b2c3d4/main/child-1`).
+   - **Provider-visible fields**:
+     - `worktree_path` (in the projection envelope) — a project-relative path derived from `WorktreePath`, falling under `.steiner/worktrees/`, containing process hash, branch-derived, and agent-identifying components. Omitted when unavailable or for non-code sessions. Present on all code results with a provisioned worktree regardless of outcome (complete, partial, cancelled, or failed) — the worktree remains on disk for inspection even after a failed run.
+   - **Always host-only**:
+     - `Warnings` — a slice of human-readable warning strings covering dirty-tree changes and post-run remediation failures. Empty for successful provisioning of a clean tree. Never sent to provider.
 
 All other types (`explore`, `research`, `evaluate`, `sanity_check`, `review`, `vision`) skip worktree provisioning and remediation entirely; their results always have empty `WorktreePath`, `WorktreeBranch`, and `Warnings` fields. `follow_up` reuses each child's originally-captured `agent.RunRequest` from `SessionStore` verbatim, including its executor already rooted at the original worktree, without re-provisioning.
 
@@ -206,8 +210,9 @@ The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSessi
 | `status` | Omitted on normal success; otherwise `partial`, `cancelled`, or `failed` |
 | `reason` | Optional recovery reason: `limit reached`, `cancelled`, `unknown failure`, or `child setup failed` |
 | `continuation.agent_id` | Optional saved-session agent ID; present only when the child session was persisted |
+| `worktree_path` | Optional project-relative worktree locator (`.steiner/worktrees/...`); present only for `AgentTypeCode` results with a provisioned worktree, on any status including `failed` |
 
-Normal success omits `status` and `reason`. The full host `Result`, retention metadata, raw errors, traces, counters, and internal paths stay host-only. The provider receives no host diagnostics beyond the compact fields above.
+Normal success omits `status` and `reason`. The full host `Result`, retention metadata, raw errors, traces, counters, the absolute worktree path, `worktree_branch`, and warnings stay host-only. The provider receives no host diagnostics beyond the compact fields above.
 
 **ToolRetention** persists on the parent conversation message as metadata that is not sent to the provider:
 
