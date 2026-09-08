@@ -97,6 +97,16 @@ Language servers are started lazily on first use and kept alive until idle for `
 
 The readiness gate is a best-effort optimization: servers that emit progress events are tracked closely, and servers that emit no progress are given `lsp.ready_grace_period` (default 2s) to send an initial event before the readiness gate closes. This allows requests to proceed to a truly ready server as soon as indexing completes, and prevents requests from blocking indefinitely on servers that never report progress.
 
+## TUI status display
+
+The sidebar shows an "LSP" row once at least one configured server reaches `starting`, `ready`, or `failed` — it stays hidden entirely until then, and idle-reaped (`stopped`) servers don't bring it back or count against it.
+
+Color follows the same semantics as an aggregate health signal: green when every active server is `ready`, a spinner while any is `starting`, and red only when any is `failed`. `stopped` is treated as inactive, never as a failure.
+
+The row shows the active servers' names comma-joined when they fit the sidebar width, falling back to an `N/M` count (ready-count / ever-active-count) otherwise.
+
+The `/lsp` slash command opens an overlay listing every live session — one row per server+workspace-root pair, so a server with multiple workspace roots gets multiple rows — plus a "not started" row for every configured server with no session yet. Each row shows status and root, and (for `failed`) the error text or (for `ready`/`stopped`) start/last-used timestamps.
+
 ## Persistent cache directory
 
 By default, each language server's cache (index, compiled code, etc.) is stored under the system user cache directory. Steiner derives a per-workspace cache subdirectory based on a hash of the workspace root, creating the path:

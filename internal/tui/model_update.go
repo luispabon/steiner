@@ -338,6 +338,7 @@ func (m *Model) handleComposerBlinkMsg(_ composerBlinkMsg) (tea.Model, tea.Cmd) 
 	return m, composerBlinkCmd()
 }
 
+//nolint:gocyclo // per-tick fan-out intentionally stays explicit
 func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount

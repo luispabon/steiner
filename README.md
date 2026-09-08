@@ -362,6 +362,8 @@ lsp:
 
 Language servers are not installed by steiner — you must install them separately (e.g. `go install github.com/golang/tools/gopls@latest`, `npm install -g typescript-language-server`). See [LSP servers](docs/lsp.md) for server setup examples (gopls, typescript-language-server, pyright, rust-analyzer) and timeout calibration notes.
 
+Server status surfaces as a sidebar row plus the `/lsp` overlay; see [TUI status display](docs/lsp.md#tui-status-display).
+
 ## Optional features
 
 ### Advisor

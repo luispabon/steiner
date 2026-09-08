@@ -197,6 +197,7 @@ func (o mcpOverlay) View() string {
 	return o.RenderWithBg(o.styles.PaletteOverlay, full, theme.BgElev)
 }
 
+//nolint:dupl // same scroll/key-handling as lspOverlay.Update; types differ
 func (o mcpOverlay) Update(msg tea.Msg) (mcpOverlay, tea.Cmd) {
 	if !o.IsOpen() {
 		return o, nil
