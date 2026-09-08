@@ -141,15 +141,14 @@ Resume a suitable warm agent before cold dispatch only when it remains available
 
 Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.
 
-1. Read `worktree_path` and `worktree_branch` from the delegation result.
-2. Check `warnings` for entries noting uncommitted parent-tree changes the child could not see — every worktree branches from the parent's HEAD, so commit those on the feature branch before the next dispatch if the child needs them.
-3. `follow_up` results do not repopulate `worktree_path`/`worktree_branch`; retain the values from the initial `code` result across any follow-up calls on the same agent.
-4. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <worktree-branch>`.
+1. Read `worktree_path` from the delegation result — a project-relative path (e.g. `.steiner/worktrees/<process>/<branch>/<agent>`) and the sole worktree locator returned to you. The branch name and any dirty-tree warnings are host-only and not returned; if you need the branch name, read it from the worktree itself: `git -C <worktree-path> branch --show-current`.
+2. `follow_up` results also carry `worktree_path` for the same code agent, resolving to the same worktree as the initial `code` result.
+3. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <branch-name>` (from step 1).
 
 ### Delegation Steps
 
 1. dispatch the scoped task to a `code` sub-agent
-2. read the result: `worktree_path`, `worktree_branch`, and any `warnings`
+2. read the result: `worktree_path`
 3. review the result against the step contract
 4. merge the returned branch into the feature branch
 5. run required verification for that point in the flow

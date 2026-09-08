@@ -85,7 +85,7 @@ For type `code` only, the type-specific handler in `newSpecializedHandler` (`int
      - `WorktreePath` — the absolute path to the provisioned worktree.
      - `WorktreeBranch` — the branch name of the provisioned worktree (e.g. `delegate/a1b2c3d4/main/child-1`).
    - **Provider-visible fields**:
-     - `worktree_path` (in the projection envelope) — a project-relative path derived from `WorktreePath`, falling under `.steiner/worktrees/`, containing process hash, branch-derived, and agent-identifying components. Omitted when unavailable or for non-code sessions. Present on all valid code results (complete, partial, cancelled) where the worktree was provisioned.
+     - `worktree_path` (in the projection envelope) — a project-relative path derived from `WorktreePath`, falling under `.steiner/worktrees/`, containing process hash, branch-derived, and agent-identifying components. Omitted when unavailable or for non-code sessions. Present on all code results with a provisioned worktree regardless of outcome (complete, partial, cancelled, or failed) — the worktree remains on disk for inspection even after a failed run.
    - **Always host-only**:
      - `Warnings` — a slice of human-readable warning strings covering dirty-tree changes and post-run remediation failures. Empty for successful provisioning of a clean tree. Never sent to provider.
 
@@ -210,8 +210,9 @@ The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSessi
 | `status` | Omitted on normal success; otherwise `partial`, `cancelled`, or `failed` |
 | `reason` | Optional recovery reason: `limit reached`, `cancelled`, `unknown failure`, or `child setup failed` |
 | `continuation.agent_id` | Optional saved-session agent ID; present only when the child session was persisted |
+| `worktree_path` | Optional project-relative worktree locator (`.steiner/worktrees/...`); present only for `AgentTypeCode` results with a provisioned worktree, on any status including `failed` |
 
-Normal success omits `status` and `reason`. The full host `Result`, retention metadata, raw errors, traces, counters, and internal paths stay host-only. The provider receives no host diagnostics beyond the compact fields above.
+Normal success omits `status` and `reason`. The full host `Result`, retention metadata, raw errors, traces, counters, the absolute worktree path, `worktree_branch`, and warnings stay host-only. The provider receives no host diagnostics beyond the compact fields above.
 
 **ToolRetention** persists on the parent conversation message as metadata that is not sent to the provider:
 

@@ -1014,6 +1014,79 @@ func TestFollowUpHandler_CodeSessionPartialRetainsPath(t *testing.T) {
 	}
 }
 
+func TestFollowUpHandler_CodeSessionCancelledRetainsPath(t *testing.T) {
+	// Test that a cancelled follow-up result still includes the worktree path.
+	projectRoot := t.TempDir()
+	parentRepo := setupTestRepoIn(t, projectRoot)
+
+	worktreeDir := filepath.Join(projectRoot, ".steiner", "worktrees", "a1b2c3d4", "main", "child-cancelled")
+	if err := os.MkdirAll(worktreeDir, 0o755); err != nil {
+		t.Fatalf("failed to create worktree dir: %v", err)
+	}
+
+	runCmd(t, parentRepo, "git", "worktree", "add", "-b", "delegate/child-cancelled", worktreeDir, "HEAD")
+
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: Spec{AgentID: "child-cancelled", Task: "implement feature"},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Tools:  []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}},
+		},
+		Remediation: &RemediationConfig{
+			WorktreePath:   worktreeDir,
+			ExpectedBranch: "delegate/child-cancelled",
+			IsDirty:        func(context.Context) ([]string, error) { return nil, nil },
+			Head:           func(context.Context) (string, error) { return "abc123", nil },
+			Committed:      func(context.Context, string, []string) (bool, error) { return true, nil },
+		},
+	})
+
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		WorkDir:      projectRoot,
+		SubAgentCfg:  config.SubAgentConfig{MaxFollowUps: 100},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+			// Simulate the run being cancelled before any turn completes.
+			return agent.RunState{StopReason: agent.StopReasonCancelled}, nil
+		}},
+	})
+
+	result, err := handler(context.Background(), map[string]any{
+		"agent_id": "child-cancelled",
+		"message":  "continue",
+	})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	execResult, ok := result.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", result)
+	}
+
+	delegationResult, ok := execResult.Value.(Result)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want Result", execResult.Value)
+	}
+
+	if delegationResult.Status != StatusCancelled {
+		t.Fatalf("Status = %q, want %q", delegationResult.Status, StatusCancelled)
+	}
+
+	if delegationResult.WorktreePath != worktreeDir {
+		t.Fatalf("internal WorktreePath = %q, want %q", delegationResult.WorktreePath, worktreeDir)
+	}
+
+	envelope := delegationResult.ProjectToolResult()
+	if !strings.HasPrefix(envelope.WorktreePath, ".steiner"+string(filepath.Separator)+"worktrees"+string(filepath.Separator)) {
+		t.Fatalf("projected worktree_path = %q for cancelled result, want to start with .steiner/worktrees/", envelope.WorktreePath)
+	}
+	if strings.Contains(envelope.WorktreePath, projectRoot) {
+		t.Fatalf("projected worktree_path = %q, should not contain absolute project root", envelope.WorktreePath)
+	}
+}
+
 func TestChildHasMutateTool(t *testing.T) {
 	tests := []struct {
 		name  string
