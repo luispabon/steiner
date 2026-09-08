@@ -86,6 +86,37 @@ func formatDiagnostics(workspace string, res DiagResult, cfg config.LSPConfig) s
 	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
+// formatSymbols renders SymbolResult symbols as relative paths in a bounded output string.
+// When Truncated is set, appends an omission note; when Incomplete is set, prepends
+// an indexing note. Returns the formatted string or an empty string if no symbols.
+func formatSymbols(workspace string, res SymbolResult, cfg config.LSPConfig) string {
+	var parts []string
+
+	if res.Incomplete {
+		parts = append(parts, fmt.Sprintf("Workspace indexing had not finished within %s; results may be incomplete.", cfg.ReadyTimeout))
+		parts = append(parts, "")
+	}
+
+	if len(res.Symbols) == 0 && res.Incomplete {
+		return strings.Join(parts, "\n")
+	}
+
+	for _, sym := range res.Symbols {
+		relPath := makeRelative(workspace, sym.File)
+		line := fmt.Sprintf("%s:%d:%d  %s  %s", relPath, sym.Line, sym.Column, sym.Kind, sym.Name)
+		if sym.Container != "" {
+			line += fmt.Sprintf("  (in %s)", sym.Container)
+		}
+		parts = append(parts, line)
+	}
+
+	if res.Truncated {
+		parts = append(parts, fmt.Sprintf("... %d more results omitted (max_results=%d)", res.Total-len(res.Symbols), cfg.MaxResults))
+	}
+
+	return strings.Join(parts, "\n")
+}
+
 // makeRelative converts an absolute path to be relative to root, falling back to the
 // absolute path if relativization fails or produces a path starting with "..".
 func makeRelative(root, absPath string) string {

@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -579,5 +580,308 @@ func TestDidCloseEvenOnError(t *testing.T) {
 	}
 	if !hasClose {
 		t.Error("didClose not recorded despite error/cancellation")
+	}
+}
+
+func TestDocumentSymbolsWithoutQuery(t *testing.T) {
+	fs := newFakeServer()
+	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
+		{Name: "Foo", Kind: protocol.SymbolKindFunction, Range: protocol.Range{Start: protocol.Position{Line: 1, Character: 0}, End: protocol.Position{Line: 1, Character: 5}}},
+		{Name: "Bar", Kind: protocol.SymbolKindFunction, Range: protocol.Range{Start: protocol.Position{Line: 5, Character: 0}, End: protocol.Position{Line: 5, Character: 5}}},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	res, err := m.DocumentSymbols(ctx, testFile, "")
+	if err != nil {
+		t.Fatalf("DocumentSymbols: %v", err)
+	}
+	if len(res.Symbols) != 2 {
+		t.Fatalf("DocumentSymbols: got %d symbols, want 2", len(res.Symbols))
+	}
+}
+
+func TestDocumentSymbolsWithQuery(t *testing.T) {
+	fs := newFakeServer()
+	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
+		{Name: "Foo", Kind: protocol.SymbolKindFunction, Range: protocol.Range{Start: protocol.Position{Line: 1, Character: 0}, End: protocol.Position{Line: 1, Character: 5}}},
+		{Name: "Bar", Kind: protocol.SymbolKindFunction, Range: protocol.Range{Start: protocol.Position{Line: 5, Character: 0}, End: protocol.Position{Line: 5, Character: 5}}},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	res, err := m.DocumentSymbols(ctx, testFile, "foo")
+	if err != nil {
+		t.Fatalf("DocumentSymbols: %v", err)
+	}
+	if len(res.Symbols) != 1 || res.Symbols[0].Name != "Foo" {
+		t.Fatalf("DocumentSymbols with query: got %+v, want [Foo]", res.Symbols)
+	}
+}
+
+func TestDocumentSymbolsCacheDoesNotLeakAcrossQueries(t *testing.T) {
+	fs := newFakeServer()
+	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
+		{Name: "Foo", Kind: protocol.SymbolKindFunction, Range: protocol.Range{Start: protocol.Position{Line: 1, Character: 0}, End: protocol.Position{Line: 1, Character: 5}}},
+		{Name: "Bar", Kind: protocol.SymbolKindFunction, Range: protocol.Range{Start: protocol.Position{Line: 5, Character: 0}, End: protocol.Position{Line: 5, Character: 5}}},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	// First call: query "Foo".
+	res1, err := m.DocumentSymbols(ctx, testFile, "Foo")
+	if err != nil {
+		t.Fatalf("DocumentSymbols (Foo): %v", err)
+	}
+	if len(res1.Symbols) != 1 || res1.Symbols[0].Name != "Foo" {
+		t.Fatalf("DocumentSymbols (Foo): got %+v, want [Foo]", res1.Symbols)
+	}
+
+	// Second call: query "Bar" against the same file. Must not reuse the
+	// first call's filtered list even though the request hits the cache for
+	// the underlying document scan.
+	res2, err := m.DocumentSymbols(ctx, testFile, "Bar")
+	if err != nil {
+		t.Fatalf("DocumentSymbols (Bar): %v", err)
+	}
+	if len(res2.Symbols) != 1 || res2.Symbols[0].Name != "Bar" {
+		t.Fatalf("DocumentSymbols (Bar): got %+v, want [Bar] (cache leaked Foo's filtered list)", res2.Symbols)
+	}
+
+	calls := 0
+	for _, method := range fs.recorded() {
+		if method == "textDocument/documentSymbol" {
+			calls++
+		}
+	}
+	if calls != 1 {
+		t.Errorf("textDocument/documentSymbol called %d times, want 1 (second call should hit the underlying cache)", calls)
+	}
+}
+
+// symbolStubSession is a minimal session double for WorkspaceSymbols fan-out
+// tests: it answers WorkspaceSymbol only, after an optional delay, and stubs
+// every other session method with a no-op.
+type symbolStubSession struct {
+	result  []SymbolInfo
+	err     error
+	delay   time.Duration
+	exited  chan struct{}
+	calledc chan time.Time
+}
+
+func newSymbolStubSession(result []SymbolInfo, err error, delay time.Duration) *symbolStubSession {
+	return &symbolStubSession{
+		result:  result,
+		err:     err,
+		delay:   delay,
+		exited:  make(chan struct{}),
+		calledc: make(chan time.Time, 1),
+	}
+}
+
+func (s *symbolStubSession) Definition(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+func (s *symbolStubSession) References(context.Context, string, int, int, bool) ([]Location, error) {
+	return nil, nil
+}
+func (s *symbolStubSession) Hover(context.Context, string, int, int) (HoverContent, error) {
+	return HoverContent{}, nil
+}
+func (s *symbolStubSession) WorkspaceSymbol(ctx context.Context, _ string) ([]SymbolInfo, error) {
+	s.calledc <- time.Now()
+	if s.delay > 0 {
+		select {
+		case <-time.After(s.delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return s.result, s.err
+}
+func (s *symbolStubSession) DocumentSymbol(context.Context, string) ([]SymbolInfo, error) {
+	return nil, nil
+}
+func (s *symbolStubSession) DidOpen(context.Context, string, string, string, int32) error { return nil }
+func (s *symbolStubSession) DidClose(context.Context, string) error                       { return nil }
+func (s *symbolStubSession) Diagnostics() <-chan PublishedDiagnostics                     { return nil }
+func (s *symbolStubSession) Progress() <-chan ProgressEvent                               { return nil }
+func (s *symbolStubSession) Exited() <-chan struct{}                                      { return s.exited }
+func (s *symbolStubSession) Close(context.Context) error                                  { return nil }
+
+// workspaceSymbolTestManager builds a Manager wired with pre-injected, ready
+// sessions for the given server names, so WorkspaceSymbols reuses them without
+// spawning a real process.
+func workspaceSymbolTestManager(t *testing.T, workspace string, servers map[string]session) *Manager {
+	t.Helper()
+
+	cfgServers := make(map[string]config.LSPServerConfig, len(servers))
+	for name := range servers {
+		cfgServers[name] = config.LSPServerConfig{Enabled: true, FileExtensions: []string{"." + name}}
+	}
+
+	cfg := config.LSPConfig{
+		MaxResults:     100,
+		RequestTimeout: config.MustDuration("2s"),
+		Servers:        cfgServers,
+	}
+	m := NewManager(cfg, workspace, nil, func(string) {}, nil)
+	t.Cleanup(func() { _ = m.Close() })
+
+	m.sessions = make(map[sessionKey]*entry)
+	for name, sess := range servers {
+		key := sessionKey{server: name, root: resolveWorkspaceRoot(workspace, nil)}
+		m.sessions[key] = &entry{state: ServerState{Status: ServerStatusReady, Name: name, Root: key.root}, session: sess}
+	}
+
+	return m
+}
+
+func TestWorkspaceSymbolsBestEffortMerge(t *testing.T) {
+	tmpdir := t.TempDir()
+
+	good := newSymbolStubSession([]SymbolInfo{
+		{Location: Location{File: "/a.go", Line: 1, Column: 1}, Name: "Foo", Kind: "function"},
+	}, nil, 0)
+	bad := newSymbolStubSession(nil, errors.New("boom"), 0)
+
+	m := workspaceSymbolTestManager(t, tmpdir, map[string]session{"good": good, "bad": bad})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	res, err := m.WorkspaceSymbols(ctx, "Foo")
+	if err != nil {
+		t.Fatalf("WorkspaceSymbols: %v", err)
+	}
+	if len(res.Symbols) != 1 || res.Symbols[0].Name != "Foo" {
+		t.Fatalf("WorkspaceSymbols: got %+v, want [Foo]", res.Symbols)
+	}
+	if !res.Incomplete {
+		t.Error("WorkspaceSymbols: Incomplete = false, want true (one server errored)")
+	}
+}
+
+func TestWorkspaceSymbolsConcurrentFanOut(t *testing.T) {
+	tmpdir := t.TempDir()
+
+	delay := 200 * time.Millisecond
+	s1 := newSymbolStubSession(nil, nil, delay)
+	s2 := newSymbolStubSession(nil, nil, delay)
+
+	m := workspaceSymbolTestManager(t, tmpdir, map[string]session{"one": s1, "two": s2})
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	if _, err := m.WorkspaceSymbols(ctx, "Foo"); err != nil {
+		t.Fatalf("WorkspaceSymbols: %v", err)
+	}
+
+	var called1, called2 time.Time
+	select {
+	case called1 = <-s1.calledc:
+	default:
+		t.Fatal("server one was never called")
+	}
+	select {
+	case called2 = <-s2.calledc:
+	default:
+		t.Fatal("server two was never called")
+	}
+
+	// Both requests must have started within a small fraction of delay of each
+	// other: if they ran sequentially, the second start would trail the first
+	// by roughly delay, not a small fraction of it.
+	gap := called2.Sub(called1)
+	if gap < 0 {
+		gap = -gap
+	}
+	if gap >= delay/2 {
+		t.Errorf("server calls started %v apart, want well under %v (requests should run concurrently, not sequentially)", gap, delay/2)
+	}
+}
+
+func TestWorkspaceSymbolsReusesExistingSession(t *testing.T) {
+	tmpdir := t.TempDir()
+
+	sess := newSymbolStubSession([]SymbolInfo{
+		{Location: Location{File: "/a.go", Line: 1, Column: 1}, Name: "Foo", Kind: "function"},
+	}, nil, 0)
+
+	m := workspaceSymbolTestManager(t, tmpdir, map[string]session{"go": sess})
+
+	// Record the existing session count before the call.
+	before := len(m.sessions)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	if _, err := m.WorkspaceSymbols(ctx, "Foo"); err != nil {
+		t.Fatalf("WorkspaceSymbols: %v", err)
+	}
+
+	select {
+	case <-sess.calledc:
+	default:
+		t.Error("existing session was not queried")
+	}
+
+	if len(m.sessions) != before {
+		t.Errorf("WorkspaceSymbols spawned a new session: got %d sessions, want %d (existing session should be reused)", len(m.sessions), before)
+	}
+}
+
+func TestWorkspaceSymbolsNoEnabledServers(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	m := NewManager(cfg, t.TempDir(), nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	_, err := m.WorkspaceSymbols(context.Background(), "Foo")
+	if !errors.Is(err, errNoServer) {
+		t.Errorf("WorkspaceSymbols with no enabled servers: got err=%v, want errNoServer", err)
 	}
 }

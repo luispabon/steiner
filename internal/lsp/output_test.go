@@ -377,6 +377,76 @@ func TestFormatOmittedCounts(t *testing.T) {
 	}
 }
 
+func TestFormatSymbolsEmpty(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := SymbolResult{Symbols: []SymbolInfo{}}
+
+	output := formatSymbols("/workspace", res, cfg)
+	if output != "" {
+		t.Errorf("formatSymbols empty result: got %q, want empty", output)
+	}
+}
+
+func TestFormatSymbolsIncompleteEmpty(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100, ReadyTimeout: config.MustDuration("5s")}
+	res := SymbolResult{Symbols: []SymbolInfo{}, Incomplete: true}
+
+	output := formatSymbols("/workspace", res, cfg)
+	if !strings.Contains(output, "indexing had not finished") {
+		t.Errorf("formatSymbols incomplete: message missing indexing note: %q", output)
+	}
+	if !strings.Contains(output, "5s") {
+		t.Errorf("formatSymbols incomplete: message missing timeout value: %q", output)
+	}
+}
+
+func TestFormatSymbolsSingle(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := SymbolResult{
+		Symbols: []SymbolInfo{
+			{Location: Location{File: "/workspace/src/main.go", Line: 10, Column: 5}, Name: "Foo", Kind: "function"},
+		},
+	}
+
+	output := formatSymbols("/workspace", res, cfg)
+	if !strings.Contains(output, "src/main.go:10:5") || !strings.Contains(output, "function") || !strings.Contains(output, "Foo") {
+		t.Errorf("formatSymbols single: unexpected output %q", output)
+	}
+	if strings.Contains(output, "/workspace/") {
+		t.Errorf("formatSymbols single: path should be relative, got %q", output)
+	}
+}
+
+func TestFormatSymbolsContainer(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := SymbolResult{
+		Symbols: []SymbolInfo{
+			{Location: Location{File: "/workspace/main.go", Line: 5, Column: 1}, Name: "Close", Kind: "method", Container: "Manager"},
+		},
+	}
+
+	output := formatSymbols("/workspace", res, cfg)
+	if !strings.Contains(output, "(in Manager)") {
+		t.Errorf("formatSymbols container: expected container note, got %q", output)
+	}
+}
+
+func TestFormatSymbolsTruncated(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 10}
+	res := SymbolResult{
+		Symbols: []SymbolInfo{
+			{Location: Location{File: "/workspace/a.go", Line: 1, Column: 1}, Name: "Foo", Kind: "function"},
+		},
+		Truncated: true,
+		Total:     42,
+	}
+
+	output := formatSymbols("/workspace", res, cfg)
+	if !strings.Contains(output, "... 41 more results omitted (max_results=10)") {
+		t.Errorf("formatSymbols truncated: expected exact omission note in %q", output)
+	}
+}
+
 func TestMakeRelative(t *testing.T) {
 	tests := []struct {
 		name    string

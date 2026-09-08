@@ -155,6 +155,14 @@ func (s *blockingSession) Hover(context.Context, string, int, int) (HoverContent
 	return HoverContent{}, nil
 }
 
+func (s *blockingSession) WorkspaceSymbol(context.Context, string) ([]SymbolInfo, error) {
+	return nil, nil
+}
+
+func (s *blockingSession) DocumentSymbol(context.Context, string) ([]SymbolInfo, error) {
+	return nil, nil
+}
+
 func (s *blockingSession) DidOpen(context.Context, string, string, string, int32) error { return nil }
 
 func (s *blockingSession) DidClose(context.Context, string) error { return nil }

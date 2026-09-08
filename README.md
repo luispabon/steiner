@@ -228,6 +228,7 @@ See [Model enumeration](docs/model-enumeration.md) for provider details, caching
 | `lsp_references` | Find all references to a symbol using `line`+`column` or `symbol` name; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
 | `lsp_diagnostics` | Get diagnostics (errors, warnings, etc.) for a file; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
 | `lsp_hover` | Get hover information for a symbol using `line`+`column` or `symbol` name; returns type signature and documentation from the configured language server, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
+| `lsp_symbols` | Search for symbols by name across the workspace (`query`), or outline a file's symbols (`file`); pass both to filter one file's outline by name; requires `lsp.enabled` and at least one configured, enabled language server |
 | `workflow_handoff` | Transition to a different workflow with approved artifacts |
 
 MCP tools from connected servers appear alongside built-ins with the `mcp__<server>__<tool>` prefix.
@@ -269,7 +270,7 @@ The `sub_agent` tool accepts a structured brief with six required fields: `objec
 
 Type `code`, `review`, and `evaluate` children may additionally call `advisor` for stronger-model steering when `advisor.enabled` is true, capped per child by `advisor.max_uses_per_sub_agent`.
 
-Delegation calls can fan out in parallel; configure the width with `sub_agent.max_parallel` (default `3`, minimum `1`, `1` serial). Ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`, `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`) are bounded separately by `limits.max_parallel_tools` (default `4`, minimum `1`). See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
+Delegation calls can fan out in parallel; configure the width with `sub_agent.max_parallel` (default `3`, minimum `1`, `1` serial). Ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`, `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`, `lsp_symbols`) are bounded separately by `limits.max_parallel_tools` (default `4`, minimum `1`). See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
 
 Every `sub_agent` type `code` automatically runs in its own isolated, runtime-provisioned git worktree under `.steiner/worktrees/`. Worktrees persist until explicitly pruned via the CLI: `steiner worktrees --list` (show all delegation worktrees), `steiner worktrees --prune <id>` (remove a worktree by its ID), or `steiner worktrees --prune-all` (remove all delegation worktrees).
 

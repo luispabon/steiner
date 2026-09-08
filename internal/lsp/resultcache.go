@@ -25,7 +25,7 @@ type resultCache struct {
 type cacheKey struct {
 	server      string // server name
 	root        string // workspace root
-	method      string // "definitions", "references", or "diagnostics"
+	method      string // "definitions", "references", "diagnostics", or "document_symbol"
 	file        string // absolute file path
 	line        int    // 1-indexed line number
 	column      int    // 1-indexed column number
@@ -33,7 +33,7 @@ type cacheKey struct {
 	includeDecl bool   // for references; false for definitions/diagnostics
 }
 
-// cacheEntry holds a cached result: either a Result or DiagResult.
+// cacheEntry holds a cached result: a Result, DiagResult, or SymbolResult.
 type cacheEntry struct {
 	key cacheKey
 	val any // *Result or *DiagResult
@@ -131,9 +131,21 @@ func (c *resultCache) clear() {
 }
 
 // cloneResult creates a deep copy of a cached result to prevent concurrent
-// modification of slice backing arrays. It handles both Result and DiagResult.
+// modification of slice backing arrays. It handles Result, DiagResult, and SymbolResult.
 func cloneResult(val any) any {
 	switch v := val.(type) {
+	case *SymbolResult:
+		if v == nil {
+			return nil
+		}
+		symbols := make([]SymbolInfo, len(v.Symbols))
+		copy(symbols, v.Symbols)
+		return &SymbolResult{
+			Symbols:    symbols,
+			Incomplete: v.Incomplete,
+			Truncated:  v.Truncated,
+			Total:      v.Total,
+		}
 	case *Result:
 		if v == nil {
 			return nil

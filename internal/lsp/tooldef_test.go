@@ -19,8 +19,8 @@ func TestToolDefsCount(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
-	if len(defs) != 4 {
-		t.Fatalf("ToolDefs returned %d tools, want 4", len(defs))
+	if len(defs) != 5 {
+		t.Fatalf("ToolDefs returned %d tools, want 5", len(defs))
 	}
 }
 
@@ -30,7 +30,7 @@ func TestToolDefsNames(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
-	expectedNames := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"}
+	expectedNames := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"}
 
 	for i, expected := range expectedNames {
 		if i >= len(defs) {
@@ -83,7 +83,7 @@ func TestToolDefsOrdering(t *testing.T) {
 				}
 			}
 
-			expectedOrder := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"}
+			expectedOrder := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"}
 			for i, expected := range expectedOrder {
 				if i >= len(defs1) {
 					break
@@ -145,6 +145,12 @@ func TestToolDefsSchemas(t *testing.T) {
 			toolIdx:    3,
 			properties: []string{"file", "line", "column", "symbol"},
 			required:   []string{"file"},
+		},
+		{
+			name:       "symbols schema",
+			toolIdx:    4,
+			properties: []string{"query", "file"},
+			required:   []string{},
 		},
 	}
 
@@ -719,4 +725,110 @@ func TestColumnAndSymbolSupplied(t *testing.T) {
 	}
 
 	t.Errorf("column+symbol: column should win and skip symbol resolution")
+}
+
+func TestSymbolsToolBothArgsEmpty(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	symbolsToolDef := defs[4]
+
+	_, err := symbolsToolDef.Handler(context.Background(), map[string]any{})
+	if err == nil {
+		t.Fatal("expected error when both query and file are empty")
+	}
+	if !strings.Contains(err.Error(), "at least one of query or file is required") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestSymbolsToolNoServerWorkspaceMode(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	symbolsToolDef := defs[4]
+
+	result, err := symbolsToolDef.Handler(context.Background(), map[string]any{"query": "Foo"})
+	if err != nil {
+		t.Fatalf("symbols handler returned error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "No language server is enabled") {
+		t.Errorf("expected workspace-mode unavailability message, got: %q", msg)
+	}
+}
+
+func TestSymbolsToolNoServerDocumentMode(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	symbolsToolDef := defs[4]
+
+	result, err := symbolsToolDef.Handler(context.Background(), map[string]any{"file": "test.unknown"})
+	if err != nil {
+		t.Fatalf("symbols handler returned error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "No language server is configured") {
+		t.Errorf("expected document-mode unavailability message, got: %q", msg)
+	}
+	if !strings.Contains(msg, ".unknown") {
+		t.Errorf("message does not contain file extension: %q", msg)
+	}
+}
+
+func TestSymbolsToolDocumentModeSuccess(t *testing.T) {
+	fs := newFakeServer()
+	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
+		{
+			Name: "Foo",
+			Kind: protocol.SymbolKindFunction,
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 1, Character: 5},
+				End:   protocol.Position{Line: 1, Character: 8},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\nfunc Foo() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+	defs := ToolDefs(m)
+	symbolsToolDef := defs[4]
+
+	result, err := symbolsToolDef.Handler(ctx, map[string]any{"file": "test.go"})
+	if err != nil {
+		t.Fatalf("symbols handler: expected nil error, got %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "test.go:2:6") || !strings.Contains(msg, "function") || !strings.Contains(msg, "Foo") {
+		t.Errorf("unexpected output: %q", msg)
+	}
 }

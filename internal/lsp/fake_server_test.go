@@ -64,6 +64,10 @@ type fakeServer struct {
 	referencesResult []protocol.Location
 	// hoverResult is returned by textDocument/hover.
 	hoverResult *protocol.Hover
+	// workspaceSymbolResult is returned by workspace/symbol.
+	workspaceSymbolResult protocol.WorkspaceSymbolResult
+	// documentSymbolResult is returned by textDocument/documentSymbol.
+	documentSymbolResult protocol.DocumentSymbolResult
 	// ignoreExit makes the server accept exit without ever going away.
 	ignoreExit bool
 
@@ -171,6 +175,16 @@ func (f *fakeServer) References(context.Context, *protocol.ReferenceParams) ([]p
 func (f *fakeServer) Hover(context.Context, *protocol.HoverParams) (*protocol.Hover, error) {
 	f.record("textDocument/hover")
 	return f.hoverResult, nil
+}
+
+func (f *fakeServer) Symbols(context.Context, *protocol.WorkspaceSymbolParams) (protocol.WorkspaceSymbolResult, error) {
+	f.record("workspace/symbol")
+	return f.workspaceSymbolResult, nil
+}
+
+func (f *fakeServer) DocumentSymbol(context.Context, *protocol.DocumentSymbolParams) (protocol.DocumentSymbolResult, error) {
+	f.record("textDocument/documentSymbol")
+	return f.documentSymbolResult, nil
 }
 
 func (f *fakeServer) DidOpen(ctx context.Context, params *protocol.DidOpenTextDocumentParams) error {

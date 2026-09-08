@@ -10,13 +10,14 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// ToolDefs returns the four LSP tool definitions in deterministic order: lsp_definitions, lsp_references, lsp_diagnostics, lsp_hover.
+// ToolDefs returns the five LSP tool definitions in deterministic order: lsp_definitions, lsp_references, lsp_diagnostics, lsp_hover, lsp_symbols.
 func ToolDefs(m *Manager) []tool.ToolDef {
 	return []tool.ToolDef{
 		definitionsTool(m),
 		referencesTool(m),
 		diagnosticsTool(m),
 		hoverTool(m),
+		symbolsTool(m),
 	}
 }
 
@@ -261,6 +262,89 @@ func hoverTool(m *Manager) tool.ToolDef {
 			return output, nil
 		},
 	}
+}
+
+func symbolsTool(m *Manager) tool.ToolDef {
+	return tool.ToolDef{
+		Name:         "lsp_symbols",
+		ParallelSafe: true,
+		Description:  "Search for symbols by name across the workspace (query), or outline a file's symbols (file). Pass both to filter one file's outline by name. Requires at least one configured, enabled language server. Results may be incomplete if indexing has not finished.",
+		ParameterSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Symbol name to search for (substring match)"},
+				"file":  map[string]any{"type": "string", "description": "File path to outline (workspace-relative or absolute)"},
+			},
+			"required":             []string{},
+			"additionalProperties": false,
+		},
+		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			query, _ := input["query"].(string)
+			file, _ := input["file"].(string)
+			if query == "" && file == "" {
+				return nil, fmt.Errorf("lsp_symbols: at least one of query or file is required")
+			}
+
+			var result SymbolResult
+			var err error
+			if file != "" {
+				result, err = m.DocumentSymbols(ctx, file, query)
+			} else {
+				result, err = m.WorkspaceSymbols(ctx, query)
+			}
+
+			if unavailableMsg, goErr := handleSymbolsError(m, file, err); unavailableMsg != nil {
+				return unavailableMsg, nil
+			} else if goErr != nil {
+				return nil, goErr
+			}
+
+			output := formatSymbols(m.workspace, result, m.cfg)
+			if output == "" {
+				output = "(no symbols found)"
+			}
+			return output, nil
+		},
+	}
+}
+
+// handleSymbolsError processes errors from DocumentSymbols or WorkspaceSymbols,
+// converting unavailability cases to readable result strings and returning an
+// error for genuine failures. Unlike handleNavigationError, file may be empty
+// (workspace mode), in which case there is no extension to report and
+// findServerNameForFile/findFailedServer are not consulted.
+func handleSymbolsError(m *Manager, file string, err error) (any, error) {
+	if err == nil {
+		return nil, nil
+	}
+
+	if errors.Is(err, errNoServer) {
+		if file == "" {
+			return "No language server is enabled. Configure one under `lsp.servers` to enable this tool.", nil
+		}
+		ext := strings.ToLower(filepath.Ext(file))
+		msg := fmt.Sprintf("No language server is configured for %s. Configure one under `lsp.servers` to enable this tool.", ext)
+		return msg, nil
+	}
+
+	if file == "" {
+		return nil, err
+	}
+
+	if errors.Is(err, errServerExited) {
+		serverName := findServerNameForFile(m, file)
+		if serverName == "" {
+			return "Language server exited unexpectedly.", nil
+		}
+		return fmt.Sprintf("Language server %s exited unexpectedly.", serverName), nil
+	}
+
+	failedServer := findFailedServer(m, file)
+	if failedServer != nil {
+		return fmt.Sprintf("Language server %s failed to start: %v.", failedServer.Name, failedServer.Err), nil
+	}
+
+	return nil, err
 }
 
 // handleNavigationError processes errors from Definitions or References, converting

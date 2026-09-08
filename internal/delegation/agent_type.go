@@ -72,12 +72,12 @@ var (
 )
 
 var agentAllowlists = map[AgentType][]string{
-	AgentTypeExplore:     {"read", "glob", "grep", "ls", "bash", "lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"},
+	AgentTypeExplore:     {"read", "glob", "grep", "ls", "bash", "lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeResearch:    {"read", "glob", "grep", "ls", "web_search", "fetch_url"},
-	AgentTypeCode:        {"read", "glob", "grep", "ls", "mutate", "bash", "advisor", "lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"},
+	AgentTypeCode:        {"read", "glob", "grep", "ls", "mutate", "bash", "advisor", "lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeEvaluate:    {"read", "glob", "grep", "ls", "advisor"},
 	AgentTypeSanityCheck: {"read", "glob", "grep", "ls", "bash"},
-	AgentTypeReview:      {"read", "glob", "grep", "ls", "bash", "advisor", "lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"},
+	AgentTypeReview:      {"read", "glob", "grep", "ls", "bash", "advisor", "lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeVision:      {"read"},
 }
 

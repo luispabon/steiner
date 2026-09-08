@@ -39,9 +39,15 @@ func handshake(ctx context.Context, server protocol.Server, rootPath string, ini
 				PublishDiagnostics: &protocol.PublishDiagnosticsClientCapabilities{
 					DiagnosticsCapabilities: protocol.DiagnosticsCapabilities{},
 				},
+				DocumentSymbol: &protocol.DocumentSymbolClientCapabilities{
+					HierarchicalDocumentSymbolSupport: ptrBool(true),
+				},
 			},
 			Window: &protocol.WindowClientCapabilities{
 				WorkDoneProgress: ptrBool(true),
+			},
+			Workspace: &protocol.WorkspaceClientCapabilities{
+				Symbol: &protocol.WorkspaceSymbolClientCapabilities{},
 			},
 		},
 	}
