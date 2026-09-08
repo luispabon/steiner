@@ -147,12 +147,28 @@ func (s *blockingSession) Definition(context.Context, string, int, int) ([]Locat
 	return nil, nil
 }
 
+func (s *blockingSession) Implementation(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+
+func (s *blockingSession) TypeDefinition(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+
 func (s *blockingSession) References(context.Context, string, int, int, bool) ([]Location, error) {
 	return nil, nil
 }
 
 func (s *blockingSession) Hover(context.Context, string, int, int) (HoverContent, error) {
 	return HoverContent{}, nil
+}
+
+func (s *blockingSession) WorkspaceSymbol(context.Context, string) ([]SymbolInfo, error) {
+	return nil, nil
+}
+
+func (s *blockingSession) DocumentSymbol(context.Context, string) ([]SymbolInfo, error) {
+	return nil, nil
 }
 
 func (s *blockingSession) DidOpen(context.Context, string, string, string, int32) error { return nil }

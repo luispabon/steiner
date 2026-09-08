@@ -2,6 +2,7 @@ package agent
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -33,5 +34,40 @@ func TestNormalizeToolResultProjectionUsesMarkerNotJSONShape(t *testing.T) {
 	generic := normalizeToolResult(map[string]any{"output": "generic"})
 	if generic.Projected {
 		t.Fatal("generic JSON-shaped result was marked projected")
+	}
+}
+
+type projectedResultWithWorktree struct{}
+
+func (projectedResultWithWorktree) ProjectToolResult() DelegationResultEnvelope {
+	return DelegationResultEnvelope{
+		Output:       "done",
+		WorktreePath: ".steiner/worktrees/abc/main/agent-1",
+	}
+}
+
+func TestWorktreePathSerializesWhenPopulated(t *testing.T) {
+	content, ok := projectedToolResult(projectedResultWithWorktree{})
+	if !ok {
+		t.Fatal("projection failed")
+	}
+	if !strings.Contains(content, `"worktree_path":".steiner/worktrees/abc/main/agent-1"`) {
+		t.Fatalf("projected result missing worktree_path: %s", content)
+	}
+}
+
+type projectedResultNoWorktree struct{}
+
+func (projectedResultNoWorktree) ProjectToolResult() DelegationResultEnvelope {
+	return DelegationResultEnvelope{Output: "done"}
+}
+
+func TestWorktreePathOmittedWhenEmpty(t *testing.T) {
+	content, ok := projectedToolResult(projectedResultNoWorktree{})
+	if !ok {
+		t.Fatal("projection failed")
+	}
+	if strings.Contains(content, `"worktree_path"`) {
+		t.Fatalf("projected result should omit worktree_path: %s", content)
 	}
 }

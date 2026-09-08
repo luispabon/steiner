@@ -17,8 +17,12 @@ import (
 // session is one live connection to a language server process.
 type session interface {
 	Definition(ctx context.Context, file string, line, col int) ([]Location, error)
+	Implementation(ctx context.Context, file string, line, col int) ([]Location, error)
+	TypeDefinition(ctx context.Context, file string, line, col int) ([]Location, error)
 	References(ctx context.Context, file string, line, col int, includeDecl bool) ([]Location, error)
 	Hover(ctx context.Context, file string, line, col int) (HoverContent, error)
+	WorkspaceSymbol(ctx context.Context, query string) ([]SymbolInfo, error)
+	DocumentSymbol(ctx context.Context, file string) ([]SymbolInfo, error)
 	DidOpen(ctx context.Context, file, languageID, text string, version int32) error
 	DidClose(ctx context.Context, file string) error
 	// Diagnostics streams publishDiagnostics notifications. The channel is never
@@ -88,6 +92,8 @@ func newSession(ctx context.Context, stream jsonrpc2.Stream, rootPath string, in
 }
 
 // Definition requests the definition of a symbol at the given position.
+//
+//nolint:dupl // identical to Implementation and TypeDefinition; mechanical clone across protocol.DefinitionResult-aliased types
 func (s *impl) Definition(ctx context.Context, file string, line, col int) ([]Location, error) {
 	params := protocol.DefinitionParams{
 		TextDocumentPositionParams: textPosition(file, line, col),
@@ -95,6 +101,77 @@ func (s *impl) Definition(ctx context.Context, file string, line, col int) ([]Lo
 
 	result, err := s.callWithExitCheck(ctx, func() (any, error) {
 		return s.server.Definition(ctx, &params)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	locs := []Location{}
+	switch r := result.(type) {
+	case *protocol.Location:
+		if r != nil {
+			locs = append(locs, toLocation(r.URI, r.Range))
+		}
+	case protocol.LocationSlice:
+		for i := range r {
+			locs = append(locs, toLocation(r[i].URI, r[i].Range))
+		}
+	case protocol.DefinitionLinkSlice:
+		for i := range r {
+			locs = append(locs, toLocation(r[i].TargetURI, r[i].TargetRange))
+		}
+	}
+	return locs, nil
+}
+
+// Implementation requests the concrete implementations of an interface or
+// interface method at the given position. protocol.ImplementationResult is an
+// alias of protocol.DefinitionResult, so the three result arms are identical
+// to Definition's.
+//
+//nolint:dupl // identical to Definition and TypeDefinition; mechanical clone across protocol.DefinitionResult-aliased types
+func (s *impl) Implementation(ctx context.Context, file string, line, col int) ([]Location, error) {
+	params := protocol.ImplementationParams{
+		TextDocumentPositionParams: textPosition(file, line, col),
+	}
+
+	result, err := s.callWithExitCheck(ctx, func() (any, error) {
+		return s.server.Implementation(ctx, &params)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	locs := []Location{}
+	switch r := result.(type) {
+	case *protocol.Location:
+		if r != nil {
+			locs = append(locs, toLocation(r.URI, r.Range))
+		}
+	case protocol.LocationSlice:
+		for i := range r {
+			locs = append(locs, toLocation(r[i].URI, r[i].Range))
+		}
+	case protocol.DefinitionLinkSlice:
+		for i := range r {
+			locs = append(locs, toLocation(r[i].TargetURI, r[i].TargetRange))
+		}
+	}
+	return locs, nil
+}
+
+// TypeDefinition requests the type declaration for the symbol at the given
+// position. protocol.TypeDefinitionResult is likewise an alias of
+// protocol.DefinitionResult.
+//
+//nolint:dupl // identical to Definition and Implementation; mechanical clone across protocol.DefinitionResult-aliased types
+func (s *impl) TypeDefinition(ctx context.Context, file string, line, col int) ([]Location, error) {
+	params := protocol.TypeDefinitionParams{
+		TextDocumentPositionParams: textPosition(file, line, col),
+	}
+
+	result, err := s.callWithExitCheck(ctx, func() (any, error) {
+		return s.server.TypeDefinition(ctx, &params)
 	})
 	if err != nil {
 		return nil, err
@@ -160,6 +237,123 @@ func (s *impl) Hover(ctx context.Context, file string, line, col int) (HoverCont
 	}
 
 	return HoverContent{Text: hoverContentsToText(hover.Contents)}, nil
+}
+
+// WorkspaceSymbol searches for symbols matching query across the workspace.
+func (s *impl) WorkspaceSymbol(ctx context.Context, query string) ([]SymbolInfo, error) {
+	params := protocol.WorkspaceSymbolParams{Query: query}
+
+	result, err := s.callWithExitCheck(ctx, func() (any, error) {
+		return s.server.Symbols(ctx, &params)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	symbols := []SymbolInfo{}
+	switch r := result.(type) {
+	case protocol.SymbolInformationSlice:
+		for i := range r {
+			symbols = append(symbols, symbolInformationToSymbolInfo(r[i]))
+		}
+	case protocol.WorkspaceSymbolSlice:
+		for i := range r {
+			symbols = append(symbols, workspaceSymbolToSymbolInfo(r[i]))
+		}
+	}
+	return symbols, nil
+}
+
+// DocumentSymbol requests the outline of symbols in file.
+func (s *impl) DocumentSymbol(ctx context.Context, file string) ([]SymbolInfo, error) {
+	params := protocol.DocumentSymbolParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: uri.File(file)},
+	}
+
+	result, err := s.callWithExitCheck(ctx, func() (any, error) {
+		return s.server.DocumentSymbol(ctx, &params)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	symbols := []SymbolInfo{}
+	switch r := result.(type) {
+	case protocol.SymbolInformationSlice:
+		for i := range r {
+			symbols = append(symbols, symbolInformationToSymbolInfo(r[i]))
+		}
+	case protocol.DocumentSymbolSlice:
+		symbols = append(symbols, flattenDocumentSymbols(file, r, "")...)
+	}
+	return symbols, nil
+}
+
+// symbolInformationToSymbolInfo converts a flat SymbolInformation (shared by
+// workspace/symbol and textDocument/documentSymbol's flat arm) into a SymbolInfo.
+func symbolInformationToSymbolInfo(si protocol.SymbolInformation) SymbolInfo {
+	container := ""
+	if si.ContainerName != nil {
+		container = *si.ContainerName
+	}
+	return SymbolInfo{
+		Location:  toLocation(si.Location.URI, si.Location.Range),
+		Name:      si.Name,
+		Kind:      symbolKindName(si.Kind),
+		Container: container,
+	}
+}
+
+// workspaceSymbolToSymbolInfo converts a WorkspaceSymbol, whose Location may be
+// a full Location or a LocationUriOnly (no range), into a SymbolInfo.
+func workspaceSymbolToSymbolInfo(ws protocol.WorkspaceSymbol) SymbolInfo {
+	container := ""
+	if ws.ContainerName != nil {
+		container = *ws.ContainerName
+	}
+
+	var loc Location
+	switch l := ws.Location.(type) {
+	case *protocol.Location:
+		if l != nil {
+			loc = toLocation(l.URI, l.Range)
+		}
+	case *protocol.LocationUriOnly:
+		if l != nil {
+			loc = Location{File: l.URI.FsPath(), Line: 1, Column: 1}
+		}
+	}
+
+	return SymbolInfo{
+		Location:  loc,
+		Name:      ws.Name,
+		Kind:      symbolKindName(ws.Kind),
+		Container: container,
+	}
+}
+
+// flattenDocumentSymbols recursively flattens a nested DocumentSymbol tree into
+// a flat slice, passing each node's Name down as its children's Container.
+func flattenDocumentSymbols(file string, syms []protocol.DocumentSymbol, container string) []SymbolInfo {
+	var out []SymbolInfo
+	for _, sym := range syms {
+		out = append(out, SymbolInfo{
+			Location: Location{
+				File:      file,
+				Line:      int(sym.Range.Start.Line) + 1,
+				Column:    int(sym.Range.Start.Character) + 1,
+				EndLine:   int(sym.Range.End.Line) + 1,
+				EndColumn: int(sym.Range.End.Character) + 1,
+			},
+			Name:      sym.Name,
+			Kind:      symbolKindName(sym.Kind),
+			Container: container,
+		})
+		if len(sym.Children) > 0 {
+			out = append(out, flattenDocumentSymbols(file, sym.Children, sym.Name)...)
+		}
+	}
+	return out
 }
 
 // DidOpen notifies the server that a document was opened.
@@ -542,4 +736,43 @@ func severityToString(severity protocol.DiagnosticSeverity) string {
 	default:
 		return fmt.Sprintf("%d", severity)
 	}
+}
+
+// symbolKindNames maps SymbolKind to a human-readable string.
+var symbolKindNames = map[protocol.SymbolKind]string{
+	protocol.SymbolKindFile:          "file",
+	protocol.SymbolKindModule:        "module",
+	protocol.SymbolKindNamespace:     "namespace",
+	protocol.SymbolKindPackage:       "package",
+	protocol.SymbolKindClass:         "class",
+	protocol.SymbolKindMethod:        "method",
+	protocol.SymbolKindProperty:      "property",
+	protocol.SymbolKindField:         "field",
+	protocol.SymbolKindConstructor:   "constructor",
+	protocol.SymbolKindEnum:          "enum",
+	protocol.SymbolKindInterface:     "interface",
+	protocol.SymbolKindFunction:      "function",
+	protocol.SymbolKindVariable:      "var",
+	protocol.SymbolKindConstant:      "const",
+	protocol.SymbolKindString:        "string",
+	protocol.SymbolKindNumber:        "number",
+	protocol.SymbolKindBoolean:       "boolean",
+	protocol.SymbolKindArray:         "array",
+	protocol.SymbolKindObject:        "object",
+	protocol.SymbolKindKey:           "key",
+	protocol.SymbolKindNull:          "null",
+	protocol.SymbolKindEnumMember:    "enum_member",
+	protocol.SymbolKindStruct:        "struct",
+	protocol.SymbolKindEvent:         "event",
+	protocol.SymbolKindOperator:      "operator",
+	protocol.SymbolKindTypeParameter: "type_parameter",
+}
+
+// symbolKindName converts a SymbolKind to a human-readable string, falling
+// back to the numeric value for kinds not enumerated here.
+func symbolKindName(k protocol.SymbolKind) string {
+	if name, ok := symbolKindNames[k]; ok {
+		return name
+	}
+	return fmt.Sprintf("%d", k)
 }

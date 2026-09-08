@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -65,6 +66,70 @@ func (o OverlayShell) openShell() OverlayShell {
 func (o OverlayShell) closeShell() OverlayShell {
 	o.open = false
 	return o
+}
+
+// scrollKeyResult describes the outcome of interpreting a key press against
+// the shared scroll/paging/close key bindings used by overlays that render a
+// scrollable, line-based body (e.g. mcpOverlay, lspOverlay).
+type scrollKeyResult struct {
+	// handled reports whether the key press matched a scroll or close binding.
+	handled bool
+	// close reports whether the overlay should close (Esc/Enter).
+	close bool
+	// offset is the new scroll offset; meaningful only when handled is true
+	// and close is false.
+	offset int
+}
+
+// handleScrollKey interprets a key press against the shared ↑/↓, j/k,
+// PgUp/PgDown, Home/End and Esc/Enter bindings used by scrollable overlays,
+// given the current scroll offset, the number of visible body lines and the
+// total number of body lines. It holds no per-overlay state, so overlays
+// that differ only in list contents and rendering can share it: the caller
+// applies the returned offset or close action to its own concrete type.
+func (o OverlayShell) handleScrollKey(msg tea.Msg, offset, visibleHeight, totalLines int) scrollKeyResult {
+	keyMsg, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return scrollKeyResult{}
+	}
+
+	clamp := func(v int) int {
+		if v < 0 {
+			v = 0
+		}
+		maxOffset := totalLines - visibleHeight
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		if v > maxOffset {
+			v = maxOffset
+		}
+		return v
+	}
+
+	switch keyMsg.Code {
+	case tea.KeyEsc, tea.KeyEnter:
+		return scrollKeyResult{handled: true, close: true}
+	case tea.KeyUp:
+		return scrollKeyResult{handled: true, offset: clamp(offset - 1)}
+	case tea.KeyDown:
+		return scrollKeyResult{handled: true, offset: clamp(offset + 1)}
+	case tea.KeyPgUp:
+		return scrollKeyResult{handled: true, offset: clamp(offset - visibleHeight)}
+	case tea.KeyPgDown:
+		return scrollKeyResult{handled: true, offset: clamp(offset + visibleHeight)}
+	case tea.KeyHome:
+		return scrollKeyResult{handled: true, offset: clamp(0)}
+	case tea.KeyEnd:
+		return scrollKeyResult{handled: true, offset: clamp(totalLines)}
+	}
+	switch keyMsg.Text {
+	case "k":
+		return scrollKeyResult{handled: true, offset: clamp(offset - 1)}
+	case "j":
+		return scrollKeyResult{handled: true, offset: clamp(offset + 1)}
+	}
+	return scrollKeyResult{}
 }
 
 // overlayWidth computes the width of the framed box from the terminal width.

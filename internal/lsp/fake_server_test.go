@@ -61,10 +61,21 @@ type fakeServer struct {
 	releaseOnce    sync.Once
 	// definitionResult is returned by textDocument/definition.
 	definitionResult protocol.DefinitionResult
+	// implementationResult is returned by textDocument/implementation.
+	// protocol.ImplementationResult is an alias of protocol.DefinitionResult.
+	implementationResult protocol.DefinitionResult
+	implementationErr    error
+	// typeDefinitionResult is returned by textDocument/typeDefinition.
+	typeDefinitionResult protocol.DefinitionResult
+	typeDefinitionErr    error
 	// referencesResult is returned by textDocument/references.
 	referencesResult []protocol.Location
 	// hoverResult is returned by textDocument/hover.
 	hoverResult *protocol.Hover
+	// workspaceSymbolResult is returned by workspace/symbol.
+	workspaceSymbolResult protocol.WorkspaceSymbolResult
+	// documentSymbolResult is returned by textDocument/documentSymbol.
+	documentSymbolResult protocol.DocumentSymbolResult
 	// ignoreExit makes the server accept exit without ever going away.
 	ignoreExit bool
 
@@ -142,7 +153,9 @@ func (f *fakeServer) Initialize(ctx context.Context, params *protocol.Initialize
 	}
 	return &protocol.InitializeResult{
 		Capabilities: protocol.ServerCapabilities{
-			DefinitionProvider: protocol.Boolean(true),
+			DefinitionProvider:     protocol.Boolean(true),
+			ImplementationProvider: protocol.Boolean(true),
+			TypeDefinitionProvider: protocol.Boolean(true),
 		},
 	}, nil
 }
@@ -164,6 +177,22 @@ func (f *fakeServer) Definition(ctx context.Context, _ *protocol.DefinitionParam
 	return f.definitionResult, nil
 }
 
+func (f *fakeServer) Implementation(_ context.Context, _ *protocol.ImplementationParams) (protocol.ImplementationResult, error) {
+	f.record("textDocument/implementation")
+	if f.implementationErr != nil {
+		return nil, f.implementationErr
+	}
+	return f.implementationResult, nil
+}
+
+func (f *fakeServer) TypeDefinition(_ context.Context, _ *protocol.TypeDefinitionParams) (protocol.TypeDefinitionResult, error) {
+	f.record("textDocument/typeDefinition")
+	if f.typeDefinitionErr != nil {
+		return nil, f.typeDefinitionErr
+	}
+	return f.typeDefinitionResult, nil
+}
+
 func (f *fakeServer) References(context.Context, *protocol.ReferenceParams) ([]protocol.Location, error) {
 	f.record("textDocument/references")
 	return f.referencesResult, nil
@@ -172,6 +201,16 @@ func (f *fakeServer) References(context.Context, *protocol.ReferenceParams) ([]p
 func (f *fakeServer) Hover(context.Context, *protocol.HoverParams) (*protocol.Hover, error) {
 	f.record("textDocument/hover")
 	return f.hoverResult, nil
+}
+
+func (f *fakeServer) Symbols(context.Context, *protocol.WorkspaceSymbolParams) (protocol.WorkspaceSymbolResult, error) {
+	f.record("workspace/symbol")
+	return f.workspaceSymbolResult, nil
+}
+
+func (f *fakeServer) DocumentSymbol(context.Context, *protocol.DocumentSymbolParams) (protocol.DocumentSymbolResult, error) {
+	f.record("textDocument/documentSymbol")
+	return f.documentSymbolResult, nil
 }
 
 func (f *fakeServer) DidOpen(ctx context.Context, params *protocol.DidOpenTextDocumentParams) error {

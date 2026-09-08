@@ -301,6 +301,7 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.slashOverlay.styles = m.styles
 	m.fileList.styles = m.styles
 	m.mcpOverlay.styles = m.styles
+	m.lspOverlay.styles = m.styles
 	m.filePicker.styles = m.styles
 	m.sessionPicker.styles = m.styles
 	m.modelPicker.styles = m.styles
@@ -337,9 +338,14 @@ func (m *Model) handleComposerBlinkMsg(_ composerBlinkMsg) (tea.Model, tea.Cmd) 
 	return m, composerBlinkCmd()
 }
 
+//nolint:gocyclo // per-tick fan-out intentionally stays explicit
 func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount
+	if m.pollLSPStatesFunc != nil {
+		m.lspServers = m.pollLSPStatesFunc()
+		m.syncSidebar()
+	}
 	m.activity = m.activity.advance()
 	m.status.promptUsed = m.sidebar.promptUsed
 	m.status.contextBudget = m.sidebar.contextBudget
@@ -362,7 +368,7 @@ func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	if m.content.HasActiveCompactions() {
 		m.content.AdvanceCompactionSpinners()
 	}
-	if m.contentDirty || m.content.streaming || m.compaction.Active() || m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.content.HasActiveCompactions() || m.sidebar.mcpConnecting {
+	if m.contentDirty || m.content.streaming || m.compaction.Active() || m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.content.HasActiveCompactions() || m.sidebar.mcpConnecting || m.sidebar.lspStarting {
 		m.syncViewport()
 		m.contentDirty = false
 	}
@@ -379,6 +385,7 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	m.height = msg.Height
 	m.fileList.OverlayShell = m.fileList.WithDimensions(msg.Width, msg.Height)
 	m.mcpOverlay.OverlayShell = m.mcpOverlay.WithDimensions(msg.Width, msg.Height)
+	m.lspOverlay.OverlayShell = m.lspOverlay.WithDimensions(msg.Width, msg.Height)
 
 	if m.contextOverlay.IsOpen() {
 		m.contextOverlay.OverlayShell = m.contextOverlay.WithDimensions(msg.Width, msg.Height)

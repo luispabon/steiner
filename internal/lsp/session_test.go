@@ -76,6 +76,156 @@ func TestSessionDefinitionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSessionImplementationRoundTrip(t *testing.T) {
+	target := uri.File("/src/target.go")
+
+	tests := []struct {
+		name   string
+		result protocol.ImplementationResult
+		want   []Location
+	}{
+		{
+			name:   "single location",
+			result: &protocol.Location{URI: target, Range: targetRange()},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "location slice",
+			result: protocol.LocationSlice{{URI: target, Range: targetRange()}},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "definition links",
+			result: protocol.DefinitionLinkSlice{{TargetURI: target, TargetRange: targetRange(), TargetSelectionRange: targetRange()}},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "no result",
+			result: nil,
+			want:   []Location{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			fs := newFakeServer()
+			fs.implementationResult = tt.result
+			s, _, err := startFakeSession(ctx, t, fs, nil)
+			if err != nil {
+				t.Fatalf("start session: %v", err)
+			}
+
+			got, err := s.Implementation(ctx, "/src/caller.go", 12, 4)
+			if err != nil {
+				t.Fatalf("implementation: %v", err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("implementation = %+v, want %+v", got, tt.want)
+			}
+			if methods := fs.recorded(); !slices.Contains(methods, "textDocument/implementation") {
+				t.Errorf("server did not receive implementation request, got %v", methods)
+			}
+		})
+	}
+}
+
+func TestSessionTypeDefinitionRoundTrip(t *testing.T) {
+	target := uri.File("/src/target.go")
+
+	tests := []struct {
+		name   string
+		result protocol.TypeDefinitionResult
+		want   []Location
+	}{
+		{
+			name:   "single location",
+			result: &protocol.Location{URI: target, Range: targetRange()},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "location slice",
+			result: protocol.LocationSlice{{URI: target, Range: targetRange()}},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "definition links",
+			result: protocol.DefinitionLinkSlice{{TargetURI: target, TargetRange: targetRange(), TargetSelectionRange: targetRange()}},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "no result",
+			result: nil,
+			want:   []Location{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			fs := newFakeServer()
+			fs.typeDefinitionResult = tt.result
+			s, _, err := startFakeSession(ctx, t, fs, nil)
+			if err != nil {
+				t.Fatalf("start session: %v", err)
+			}
+
+			got, err := s.TypeDefinition(ctx, "/src/caller.go", 12, 4)
+			if err != nil {
+				t.Fatalf("type definition: %v", err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("type definition = %+v, want %+v", got, tt.want)
+			}
+			if methods := fs.recorded(); !slices.Contains(methods, "textDocument/typeDefinition") {
+				t.Errorf("server did not receive type definition request, got %v", methods)
+			}
+		})
+	}
+}
+
+func TestSessionImplementationCapabilityDeclared(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	_, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	caps := fs.initializeParams().Capabilities.TextDocument
+	if caps.Implementation == nil {
+		t.Fatal("Implementation capability not declared")
+	}
+	if caps.Implementation.LinkSupport == nil || !*caps.Implementation.LinkSupport {
+		t.Error("Implementation LinkSupport not true")
+	}
+}
+
+func TestSessionTypeDefinitionCapabilityDeclared(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	_, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	caps := fs.initializeParams().Capabilities.TextDocument
+	if caps.TypeDefinition == nil {
+		t.Fatal("TypeDefinition capability not declared")
+	}
+	if caps.TypeDefinition.LinkSupport == nil || !*caps.TypeDefinition.LinkSupport {
+		t.Error("TypeDefinition LinkSupport not true")
+	}
+}
+
 func TestSessionHandshakeHonoursContextDeadline(t *testing.T) {
 	fs := newFakeServer()
 	fs.stallInitialize()
@@ -441,6 +591,222 @@ func TestHoverContentsToText(t *testing.T) {
 				t.Errorf("hoverContentsToText = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+func TestSessionWorkspaceSymbolFlat(t *testing.T) {
+	target := uri.File("/src/target.go")
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	fs.workspaceSymbolResult = protocol.SymbolInformationSlice{
+		{
+			BaseSymbolInformation: protocol.BaseSymbolInformation{
+				Name:          "Foo",
+				Kind:          protocol.SymbolKindFunction,
+				ContainerName: strPtr("pkg"),
+			},
+			Location: protocol.Location{URI: target, Range: targetRange()},
+		},
+	}
+
+	s, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	got, err := s.WorkspaceSymbol(ctx, "Foo")
+	if err != nil {
+		t.Fatalf("WorkspaceSymbol: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("WorkspaceSymbol: got %d symbols, want 1", len(got))
+	}
+	want := SymbolInfo{
+		Location:  Location{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10},
+		Name:      "Foo",
+		Kind:      "function",
+		Container: "pkg",
+	}
+	if got[0] != want {
+		t.Errorf("WorkspaceSymbol: got %+v, want %+v", got[0], want)
+	}
+}
+
+func TestSessionWorkspaceSymbolWorkspaceSymbolSlice(t *testing.T) {
+	target := uri.File("/src/target.go")
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	fs.workspaceSymbolResult = protocol.WorkspaceSymbolSlice{
+		{
+			BaseSymbolInformation: protocol.BaseSymbolInformation{
+				Name: "Bar",
+				Kind: protocol.SymbolKindStruct,
+			},
+			Location: &protocol.Location{URI: target, Range: targetRange()},
+		},
+	}
+
+	s, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	got, err := s.WorkspaceSymbol(ctx, "Bar")
+	if err != nil {
+		t.Fatalf("WorkspaceSymbol: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("WorkspaceSymbol: got %d symbols, want 1", len(got))
+	}
+	if got[0].Name != "Bar" || got[0].Kind != "struct" || got[0].Line != 5 || got[0].Column != 3 {
+		t.Errorf("WorkspaceSymbol: unexpected result %+v", got[0])
+	}
+}
+
+func TestSessionWorkspaceSymbolLocationUriOnly(t *testing.T) {
+	target := uri.File("/src/target.go")
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	fs.workspaceSymbolResult = protocol.WorkspaceSymbolSlice{
+		{
+			BaseSymbolInformation: protocol.BaseSymbolInformation{
+				Name: "Baz",
+				Kind: protocol.SymbolKindVariable,
+			},
+			Location: &protocol.LocationUriOnly{URI: target},
+			// Data disambiguates the wire encoding from SymbolInformationSlice:
+			// without it, a bare LocationUriOnly-only WorkspaceSymbol element is
+			// shape-identical to a SymbolInformation element and the generated
+			// decoder resolves the ambiguity in favor of SymbolInformationSlice.
+			Data: protocol.LSPAny(`1`),
+		},
+	}
+
+	s, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	got, err := s.WorkspaceSymbol(ctx, "Baz")
+	if err != nil {
+		t.Fatalf("WorkspaceSymbol: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("WorkspaceSymbol: got %d symbols, want 1", len(got))
+	}
+	want := SymbolInfo{
+		Location: Location{File: "/src/target.go", Line: 1, Column: 1},
+		Name:     "Baz",
+		Kind:     "var",
+	}
+	if got[0] != want {
+		t.Errorf("WorkspaceSymbol (LocationUriOnly): got %+v, want %+v", got[0], want)
+	}
+}
+
+func TestSessionDocumentSymbolFlat(t *testing.T) {
+	target := uri.File("/src/target.go")
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	fs.documentSymbolResult = protocol.SymbolInformationSlice{
+		{
+			BaseSymbolInformation: protocol.BaseSymbolInformation{
+				Name: "Foo",
+				Kind: protocol.SymbolKindFunction,
+			},
+			Location: protocol.Location{URI: target, Range: targetRange()},
+		},
+	}
+
+	s, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	got, err := s.DocumentSymbol(ctx, "/src/target.go")
+	if err != nil {
+		t.Fatalf("DocumentSymbol: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "Foo" {
+		t.Fatalf("DocumentSymbol: unexpected result %+v", got)
+	}
+}
+
+func TestSessionDocumentSymbolNestedChildren(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
+		{
+			Name:  "Manager",
+			Kind:  protocol.SymbolKindStruct,
+			Range: targetRange(),
+			Children: []protocol.DocumentSymbol{
+				{
+					Name:  "Close",
+					Kind:  protocol.SymbolKindMethod,
+					Range: targetRange(),
+				},
+			},
+		},
+	}
+
+	s, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	got, err := s.DocumentSymbol(ctx, "/src/manager.go")
+	if err != nil {
+		t.Fatalf("DocumentSymbol: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("DocumentSymbol: got %d symbols, want 2", len(got))
+	}
+	if got[0].Name != "Manager" || got[0].Container != "" {
+		t.Errorf("DocumentSymbol[0]: got %+v, want Name=Manager Container=\"\"", got[0])
+	}
+	if got[1].Name != "Close" || got[1].Container != "Manager" {
+		t.Errorf("DocumentSymbol[1]: got %+v, want Name=Close Container=Manager", got[1])
+	}
+	if got[1].File != "/src/manager.go" {
+		t.Errorf("DocumentSymbol[1].File: got %q, want /src/manager.go", got[1].File)
+	}
+}
+
+func TestSessionDocumentSymbolEmptyResult(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	fs.documentSymbolResult = protocol.DocumentSymbolSlice{}
+
+	s, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	got, err := s.DocumentSymbol(ctx, "/src/empty.go")
+	if err != nil {
+		t.Fatalf("DocumentSymbol: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("DocumentSymbol: got %d symbols, want 0", len(got))
 	}
 }
 

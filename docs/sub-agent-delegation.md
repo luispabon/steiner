@@ -69,10 +69,11 @@ Key behaviours:
 - **Auto-approved** — the `follow_up` tool is approval mode `auto` (no user gate).
 - **No nesting** — `follow_up` is stripped from child agent registries, so sub-agents cannot follow-up on other sub-agents.
 - **Enforces live worktree for code agents** — `follow_up` against a `code` session checks up front that its worktree still exists on disk and is on the expected branch. If the worktree was deleted, pruned, or repointed since the session was created, `follow_up` fails immediately with an error instead of running the child; delegate a fresh `code` agent instead of resuming.
+- **Includes worktree_path for code results** — For code sessions, the result envelope includes `worktree_path` — a project-relative path (e.g., `.steiner/worktrees/processHash/branchName/agentID`) to the agent's isolated worktree. This path is relative to the parent project root and contains process, branch-derived, and agent-identifying components (not a fully opaque handle). The path allows parent agents to inspect the worktree content via `read`, `bash`, `grep`, `glob`, or `ls` without needing a `follow_up` call. The field is omitted when no valid worktree exists or for non-code sessions. It appears on all code results where the worktree was provisioned, regardless of outcome (complete, partial, cancelled, or failed) — the worktree remains on disk for inspection even after a failed run.
 
 ### Parallel fan-out
 
-Multiple delegation calls made in one turn execute concurrently. The fan-out width is bounded independently by `sub_agent.max_parallel` (default `3`, minimum `1`), separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_references/lsp_diagnostics/lsp_hover), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [docs/configuration.md](configuration.md#limits-block). A value of `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
+Multiple delegation calls made in one turn execute concurrently. The fan-out width is bounded independently by `sub_agent.max_parallel` (default `3`, minimum `1`), separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_implementations/lsp_type_definitions/lsp_references/lsp_diagnostics/lsp_hover/lsp_symbols), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [docs/configuration.md](configuration.md#limits-block). A value of `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
 
 ### Stopping active delegates
 
@@ -103,7 +104,7 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 - MCP tools are registered from third-party servers and are only exposed to sub-agents when the server's `sub_agents` list explicitly includes the agent type. Approval is per-server and controlled by the parent's configuration.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
 - The child's full conversation transcript is not copied into the parent session; only a structured result and bounded summary persist.
-- The result the parent model sees never carries a `trace` field, tool-call counts, or internal file paths. Per-tool-call traces and counters are recorded host-side only (debug log and `.steiner/traces/`, see [docs/sub-agent-delegation-internals.md](sub-agent-delegation-internals.md)) for diagnostics, never sent to the provider.
+- The result the parent model sees excludes absolute worktree paths, `worktree_branch`, traces, tool-call counts, session metadata, and diagnostic counters. Per-tool-call traces, counters, warnings, and advisor usage are recorded host-side only (debug log and `.steiner/traces/`, see [docs/sub-agent-delegation-internals.md](sub-agent-delegation-internals.md)) for diagnostics, never sent to the provider. The project-relative `worktree_path` (`.steiner/worktrees/...`) is included for code agents with valid provisioned worktrees, allowing parent agents to inspect worktrees via `read`/`bash`/`grep`/`glob`/`ls` without needing a `follow_up` call.
 - While the parent interactive session is in `plan` execution mode, the `code` sub-agent tool is denied outright, and `follow_up` is denied when it targets a session spawned by `code` — both can mutate files, which plan mode disallows. See [docs/execution-modes.md](execution-modes.md) for the full enforcement matrix.
 - Two workflows deliberately diverge from the system prompt's `Delegation vs direct work` section, and are labelled as such at their source: `skills/review/SKILL.md` and `skills/simplify/SKILL.md` permit a last-resort inline-fixes tier — looser than the section — for when delegation tooling itself is unavailable; `skills/implement/SKILL.md` and `internal/oneshot/prompts/implement.md` forbid any direct file-mutation tool use on implementation-scoped files — stricter than the section's allowance to apply `mutate` directly to a tiny correction whose exact replacement text or source lines are supplied in the current request, because the executor owns the feature branch and delegation is that workflow's whole point. The oneshot review phase (`internal/oneshot/prompts/review.md`) goes further still and has no inline-fix tier at all.
 
@@ -111,17 +112,17 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 
 | Agent      | Tools available                                             |
 |------------|-------------------------------------------------------------|
-| `explore`  | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox), `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`† |
+| `explore`  | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox), `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
 | `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url`\* |
-| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`, `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`† |
+| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
 | `evaluate`    | `read`, `glob`, `grep`, `ls`, `advisor`                     |
 | `sanity_check`| `read`, `glob`, `grep`, `ls`, `bash`                        |
 | `vision`   | `read`                                                      |
-| `review`      | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`, `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`† |
+| `review`      | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
 
 \* `fetch_url` is always available. `web_search` requires a configured search backend (Google, Kagi, Brave, or SearXNG). When no backend is configured, the `research` sub-agent is not exposed to the model.
 
-† `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, and `lsp_hover` require `lsp.enabled` and a configured language server for the file's extension. When `lsp.enabled: false`, these tools are not registered and agents cannot access them.
+† `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`, and `lsp_symbols` require `lsp.enabled` and a configured language server for the file's extension (`lsp_symbols` in workspace-search mode requires at least one configured, enabled server, not necessarily one for a specific extension). When `lsp.enabled: false`, these tools are not registered and agents cannot access them.
 
 ### Extra tools per agent type
 

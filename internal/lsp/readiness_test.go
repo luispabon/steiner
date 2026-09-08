@@ -22,12 +22,28 @@ func (s *readinessTestSession) Definition(context.Context, string, int, int) ([]
 	return nil, nil
 }
 
+func (s *readinessTestSession) Implementation(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+
+func (s *readinessTestSession) TypeDefinition(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+
 func (s *readinessTestSession) References(context.Context, string, int, int, bool) ([]Location, error) {
 	return nil, nil
 }
 
 func (s *readinessTestSession) Hover(context.Context, string, int, int) (HoverContent, error) {
 	return HoverContent{}, nil
+}
+
+func (s *readinessTestSession) WorkspaceSymbol(context.Context, string) ([]SymbolInfo, error) {
+	return nil, nil
+}
+
+func (s *readinessTestSession) DocumentSymbol(context.Context, string) ([]SymbolInfo, error) {
+	return nil, nil
 }
 
 func (s *readinessTestSession) DidOpen(context.Context, string, string, string, int32) error {

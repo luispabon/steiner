@@ -34,14 +34,26 @@ func handshake(ctx context.Context, server protocol.Server, rootPath string, ini
 				Definition: &protocol.DefinitionClientCapabilities{
 					LinkSupport: ptrBool(true),
 				},
+				Implementation: &protocol.ImplementationClientCapabilities{
+					LinkSupport: ptrBool(true),
+				},
+				TypeDefinition: &protocol.TypeDefinitionClientCapabilities{
+					LinkSupport: ptrBool(true),
+				},
 				References: &protocol.ReferenceClientCapabilities{},
 				Hover:      &protocol.HoverClientCapabilities{},
 				PublishDiagnostics: &protocol.PublishDiagnosticsClientCapabilities{
 					DiagnosticsCapabilities: protocol.DiagnosticsCapabilities{},
 				},
+				DocumentSymbol: &protocol.DocumentSymbolClientCapabilities{
+					HierarchicalDocumentSymbolSupport: ptrBool(true),
+				},
 			},
 			Window: &protocol.WindowClientCapabilities{
 				WorkDoneProgress: ptrBool(true),
+			},
+			Workspace: &protocol.WorkspaceClientCapabilities{
+				Symbol: &protocol.WorkspaceSymbolClientCapabilities{},
 			},
 		},
 	}

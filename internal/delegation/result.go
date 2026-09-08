@@ -142,6 +142,9 @@ func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
 	if r.persisted && r.AgentID != "" {
 		envelope.Continuation = &agent.DelegationContinuation{AgentID: r.AgentID}
 	}
+	if r.providerWorktreePath != "" {
+		envelope.WorktreePath = r.providerWorktreePath
+	}
 	switch r.Status {
 	case StatusComplete:
 	case StatusPartial:

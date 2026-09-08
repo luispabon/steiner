@@ -16,10 +16,9 @@ const worktreeHandlingBlock = "### Worktree Handling\n" +
 	"\n" +
 	"Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.\n" +
 	"\n" +
-	"1. Read `worktree_path` and `worktree_branch` from the delegation result.\n" +
-	"2. Check `warnings` for entries noting uncommitted parent-tree changes the child could not see — every worktree branches from the parent's HEAD, so commit those on the feature branch before the next dispatch if the child needs them.\n" +
-	"3. `follow_up` results do not repopulate `worktree_path`/`worktree_branch`; retain the values from the initial `code` result across any follow-up calls on the same agent.\n" +
-	"4. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <worktree-branch>`.\n"
+	"1. Read `worktree_path` from the delegation result — a project-relative path (e.g. `.steiner/worktrees/<process>/<branch>/<agent>`) and the sole worktree locator returned to you. The branch name and any dirty-tree warnings are host-only and not returned; if you need the branch name, read it from the worktree itself: `git -C <worktree-path> branch --show-current`.\n" +
+	"2. `follow_up` results also carry `worktree_path` for the same code agent, resolving to the same worktree as the initial `code` result.\n" +
+	"3. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <branch-name>` (from step 1).\n"
 
 const preCommitChecklistBlock = "### Pre-Commit Checklist\n" +
 	"\n" +

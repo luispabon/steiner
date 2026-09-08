@@ -224,10 +224,13 @@ See [Model enumeration](docs/model-enumeration.md) for provider details, caching
 | `fetch_url` | Fetch a URL and return its content: HTML has its main content extracted and converted to markdown (falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.) returned raw, images always saved to `.steiner/tmp/fetched` and available through the `read` tool; large responses saved to disk in full, with the `read` tool used to paginate. `.steiner/tmp/fetched` is pruned at startup: files older than 7 days are removed, then oldest-first until the directory is under 250MB (files younger than 1 hour are never evicted by the budget rule) |
 | `display_file` | Show a file in the TUI overlay without adding to conversation |
 | `advisor` | Ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`) |
-| `lsp_definitions` | Jump to symbol definitions; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
-| `lsp_references` | Find all references to a symbol; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
+| `lsp_definitions` | Jump to symbol definitions using `line`+`column` or `symbol` name; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
+| `lsp_implementations` | Find the concrete implementations of an interface or interface method using `line`+`column` or `symbol` name; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
+| `lsp_type_definitions` | Jump to the type declaration of a variable, field, or parameter using `line`+`column` or `symbol` name; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
+| `lsp_references` | Find all references to a symbol using `line`+`column` or `symbol` name; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
 | `lsp_diagnostics` | Get diagnostics (errors, warnings, etc.) for a file; returns results from the configured language server for the file's extension, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
-| `lsp_hover` | Get hover information for a symbol at a position; returns type signature and documentation from the configured language server, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
+| `lsp_hover` | Get hover information for a symbol using `line`+`column` or `symbol` name; returns type signature and documentation from the configured language server, or a message if no server is enabled (requires `lsp.enabled` and a configured server) |
+| `lsp_symbols` | Search for symbols by name across the workspace (`query`), or outline a file's symbols (`file`); pass both to filter one file's outline by name; requires `lsp.enabled` and at least one configured, enabled language server |
 | `workflow_handoff` | Transition to a different workflow with approved artifacts |
 
 MCP tools from connected servers appear alongside built-ins with the `mcp__<server>__<tool>` prefix.
@@ -269,7 +272,7 @@ The `sub_agent` tool accepts a structured brief with six required fields: `objec
 
 Type `code`, `review`, and `evaluate` children may additionally call `advisor` for stronger-model steering when `advisor.enabled` is true, capped per child by `advisor.max_uses_per_sub_agent`.
 
-Delegation calls can fan out in parallel; configure the width with `sub_agent.max_parallel` (default `3`, minimum `1`, `1` serial). Ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`, `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`) are bounded separately by `limits.max_parallel_tools` (default `4`, minimum `1`). See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
+Delegation calls can fan out in parallel; configure the width with `sub_agent.max_parallel` (default `3`, minimum `1`, `1` serial). Ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`, `lsp_symbols`) are bounded separately by `limits.max_parallel_tools` (default `4`, minimum `1`). See [docs/sub-agent-delegation.md](docs/sub-agent-delegation.md) for full documentation, including per-agent tool allowlists and safety restrictions.
 
 Every `sub_agent` type `code` automatically runs in its own isolated, runtime-provisioned git worktree under `.steiner/worktrees/`. Worktrees persist until explicitly pruned via the CLI: `steiner worktrees --list` (show all delegation worktrees), `steiner worktrees --prune <id>` (remove a worktree by its ID), or `steiner worktrees --prune-all` (remove all delegation worktrees).
 
@@ -361,6 +364,8 @@ lsp:
 ```
 
 Language servers are not installed by steiner — you must install them separately (e.g. `go install github.com/golang/tools/gopls@latest`, `npm install -g typescript-language-server`). See [LSP servers](docs/lsp.md) for server setup examples (gopls, typescript-language-server, pyright, rust-analyzer) and timeout calibration notes.
+
+Server status surfaces as a sidebar row plus the `/lsp` overlay; see [TUI status display](docs/lsp.md#tui-status-display).
 
 ## Optional features
 

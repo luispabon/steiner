@@ -25,6 +25,42 @@ var ErrWorktreeNotDelegation = errors.New("worktree is not delegation-owned")
 // ErrWorktreePathEscape indicates that the worktree path would escape the delegation directory.
 var ErrWorktreePathEscape = errors.New("worktree id escapes the delegation worktrees directory")
 
+// providerRelativeWorktreePath computes a project-relative path for a worktree to expose
+// in the provider result. It returns an empty string if the path cannot be safely resolved
+// as relative to the project root or if it doesn't fall under .steiner/worktrees/.
+func providerRelativeWorktreePath(projectRoot, worktreePath string) string {
+	if projectRoot == "" || worktreePath == "" {
+		return ""
+	}
+
+	absRoot, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return ""
+	}
+	absRoot = filepath.Clean(absRoot)
+
+	absWorktree, err := filepath.Abs(worktreePath)
+	if err != nil {
+		return ""
+	}
+	absWorktree = filepath.Clean(absWorktree)
+
+	rel, err := filepath.Rel(absRoot, absWorktree)
+	if err != nil {
+		return ""
+	}
+
+	if strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return ""
+	}
+
+	if !strings.HasPrefix(rel, ".steiner"+string(filepath.Separator)+"worktrees"+string(filepath.Separator)) {
+		return ""
+	}
+
+	return rel
+}
+
 // worktreeMu serializes concurrent git worktree add calls against the same .git
 // metadata store to avoid index-lock races.
 var worktreeMu sync.Mutex

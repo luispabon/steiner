@@ -3,10 +3,16 @@ package lsp
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"go.lsp.dev/jsonrpc2"
+	"go.lsp.dev/protocol"
+
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestToolDefsCount(t *testing.T) {
@@ -15,8 +21,8 @@ func TestToolDefsCount(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
-	if len(defs) != 4 {
-		t.Fatalf("ToolDefs returned %d tools, want 4", len(defs))
+	if len(defs) != 7 {
+		t.Fatalf("ToolDefs returned %d tools, want 7", len(defs))
 	}
 }
 
@@ -26,7 +32,7 @@ func TestToolDefsNames(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
-	expectedNames := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"}
+	expectedNames := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols", "lsp_implementations", "lsp_type_definitions"}
 
 	for i, expected := range expectedNames {
 		if i >= len(defs) {
@@ -79,7 +85,7 @@ func TestToolDefsOrdering(t *testing.T) {
 				}
 			}
 
-			expectedOrder := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"}
+			expectedOrder := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols", "lsp_implementations", "lsp_type_definitions"}
 			for i, expected := range expectedOrder {
 				if i >= len(defs1) {
 					break
@@ -113,29 +119,52 @@ func TestToolDefsSchemas(t *testing.T) {
 	defs := ToolDefs(m)
 
 	tests := []struct {
-		name     string
-		toolIdx  int
-		required []string
+		name       string
+		toolIdx    int
+		properties []string
+		required   []string
 	}{
 		{
-			name:     "definitions schema",
-			toolIdx:  0,
-			required: []string{"file", "line", "column"},
+			name:       "definitions schema",
+			toolIdx:    0,
+			properties: []string{"file", "line", "column", "symbol"},
+			required:   []string{"file"},
 		},
 		{
-			name:     "references schema",
-			toolIdx:  1,
-			required: []string{"file", "line", "column"},
+			name:       "references schema",
+			toolIdx:    1,
+			properties: []string{"file", "line", "column", "symbol", "include_declaration"},
+			required:   []string{"file"},
 		},
 		{
-			name:     "diagnostics schema",
-			toolIdx:  2,
-			required: []string{"file"},
+			name:       "diagnostics schema",
+			toolIdx:    2,
+			properties: []string{"file"},
+			required:   []string{"file"},
 		},
 		{
-			name:     "hover schema",
-			toolIdx:  3,
-			required: []string{"file", "line", "column"},
+			name:       "hover schema",
+			toolIdx:    3,
+			properties: []string{"file", "line", "column", "symbol"},
+			required:   []string{"file"},
+		},
+		{
+			name:       "symbols schema",
+			toolIdx:    4,
+			properties: []string{"query", "file"},
+			required:   []string{},
+		},
+		{
+			name:       "implementations schema",
+			toolIdx:    5,
+			properties: []string{"file", "line", "column", "symbol"},
+			required:   []string{"file"},
+		},
+		{
+			name:       "type_definitions schema",
+			toolIdx:    6,
+			properties: []string{"file", "line", "column", "symbol"},
+			required:   []string{"file"},
 		},
 	}
 
@@ -147,9 +176,9 @@ func TestToolDefsSchemas(t *testing.T) {
 				t.Fatalf("schema has no properties object")
 			}
 
-			for _, req := range tt.required {
-				if _, ok := props[req]; !ok {
-					t.Errorf("required field %q not in properties", req)
+			for _, prop := range tt.properties {
+				if _, ok := props[prop]; !ok {
+					t.Errorf("property %q not in properties", prop)
 				}
 			}
 
@@ -363,5 +392,787 @@ func TestFailedServerErrorHover(t *testing.T) {
 	}
 	if goErr == nil || !errors.Is(goErr, err) {
 		t.Errorf("handleNavigationError should return original error, got %v", goErr)
+	}
+}
+
+func TestSymbolResolutionError(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, t.TempDir(), nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	// Update manager workspace to match tmpdir
+	m.workspace = tmpdir
+
+	input := map[string]any{
+		"file":   "test.go",
+		"symbol": "NonExistentSymbol",
+	}
+
+	result, err := defsTool.Handler(context.Background(), input)
+	if err != nil {
+		t.Errorf("definitions handler with symbol: expected nil Go error, got %v", err)
+		return
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if !strings.Contains(msg, "not found") {
+		t.Errorf("expected 'not found' in result, got: %q", msg)
+	}
+}
+
+// symbolTestManager builds a Manager wired to a fake LSP session for symbol
+// resolution tests. It registers a "go" server for .go files and injects a
+// ready entry keyed by the session's actual (server, root) resolution, so
+// requests reach entryFor without spawning a real process.
+func symbolTestManager(t *testing.T, sess session, workspace, testFile string) *Manager {
+	t.Helper()
+
+	cfg := config.LSPConfig{
+		MaxResults:     100,
+		RequestTimeout: config.MustDuration("2s"),
+		Servers: map[string]config.LSPServerConfig{
+			"go": {Enabled: true, FileExtensions: []string{".go"}},
+		},
+	}
+	m := NewManager(cfg, workspace, nil, func(string) {}, nil)
+	t.Cleanup(func() { _ = m.Close() })
+
+	root := resolveRoot(testFile, workspace, nil)
+	ent := &entry{state: ServerState{Status: ServerStatusReady}, session: sess}
+	m.sessions = map[sessionKey]*entry{{server: "go", root: root}: ent}
+
+	return m
+}
+
+func TestSymbolResolutionSuccess(t *testing.T) {
+	fs := newFakeServer()
+	fs.definitionResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 1, Character: 5},
+			End:   protocol.Position{Line: 1, Character: 8},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\nfunc Foo() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	result, err := defsTool.Handler(ctx, map[string]any{
+		"file":   "test.go",
+		"symbol": "Foo",
+	})
+	if err != nil {
+		t.Fatalf("definitions handler with symbol: expected nil Go error, got %v", err)
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	wantEcho := "resolved test.go:2:6 (Foo)"
+	if !strings.HasPrefix(msg, wantEcho+"\n") {
+		t.Fatalf("expected output to start with %q, got: %q", wantEcho+"\n", msg)
+	}
+
+	locationOutput := strings.TrimPrefix(msg, wantEcho+"\n")
+	if locationOutput == "" || locationOutput == "(no definitions found)" {
+		t.Errorf("expected formatted location output after echo line, got: %q", locationOutput)
+	}
+}
+
+func TestSymbolResolutionEmptyResult(t *testing.T) {
+	fs := newFakeServer()
+	// fs.definitionResult left unset: the server returns zero locations.
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\nfunc Foo() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	result, err := defsTool.Handler(ctx, map[string]any{
+		"file":   "test.go",
+		"symbol": "Foo",
+	})
+	if err != nil {
+		t.Fatalf("definitions handler with symbol: expected nil Go error, got %v", err)
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	// The echo line must not suppress the "(no definitions found)" fallback
+	// just because it makes the combined output non-empty.
+	wantEcho := "resolved test.go:2:6 (Foo)"
+	want := wantEcho + "\n(no definitions found)"
+	if msg != want {
+		t.Errorf("output = %q, want %q", msg, want)
+	}
+}
+
+func TestSymbolResolutionCacheSharesWithColumnPath(t *testing.T) {
+	fs := newFakeServer()
+	fs.definitionResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 1, Character: 5},
+			End:   protocol.Position{Line: 1, Character: 8},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\nfunc Foo() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	// First call: explicit column.
+	res, err := m.Definitions(ctx, testFile, 2, 6)
+	if err != nil {
+		t.Fatalf("Definitions (column path): %v", err)
+	}
+	if res.Incomplete {
+		t.Fatalf("Definitions (column path): Incomplete = true, want false (caching only happens for non-provisional results)")
+	}
+
+	// Resolve the equivalent symbol position and confirm it yields the
+	// identical (line, col) the explicit call used.
+	_, resolvedLine, resolvedCol, err := resolveSymbolPosition(tmpdir, "test.go", "Foo", 0)
+	if err != nil {
+		t.Fatalf("resolveSymbolPosition: %v", err)
+	}
+	if resolvedLine != 2 || resolvedCol != 6 {
+		t.Fatalf("resolveSymbolPosition: got (%d, %d), want (2, 6)", resolvedLine, resolvedCol)
+	}
+
+	// Second call: via the resolved symbol position. Should hit the cache.
+	if _, err := m.Definitions(ctx, testFile, resolvedLine, resolvedCol); err != nil {
+		t.Fatalf("Definitions (symbol-resolved path): %v", err)
+	}
+
+	calls := 0
+	for _, method := range fs.recorded() {
+		if method == "textDocument/definition" {
+			calls++
+		}
+	}
+	if calls != 1 {
+		t.Errorf("textDocument/definition called %d times, want 1 (second call should hit the cache)", calls)
+	}
+}
+
+func TestColumnWithoutLineError(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	input := map[string]any{
+		"file":   "test.go",
+		"column": 5.0,
+	}
+
+	result, err := defsTool.Handler(context.Background(), input)
+	if err != nil {
+		t.Errorf("definitions handler: expected nil Go error, got %v", err)
+		return
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if !strings.Contains(msg, "column requires line") {
+		t.Errorf("expected 'column requires line' in result, got: %q", msg)
+	}
+}
+
+func TestNeitherColumnNorSymbolError(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	input := map[string]any{
+		"file": "test.go",
+	}
+
+	result, err := defsTool.Handler(context.Background(), input)
+	if err != nil {
+		t.Errorf("definitions handler: expected nil Go error, got %v", err)
+		return
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if !strings.Contains(msg, "requires either column") && !strings.Contains(msg, "requires either") {
+		t.Errorf("expected parameter error in result, got: %q", msg)
+	}
+}
+
+func TestColumnPathNoEchoLine(t *testing.T) {
+	cfg := config.LSPConfig{
+		Servers: map[string]config.LSPServerConfig{
+			"test": {
+				Enabled:        true,
+				FileExtensions: []string{".go"},
+				Command:        "echo",
+			},
+		},
+	}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	input := map[string]any{
+		"file":   "test.unknown",
+		"line":   1.0,
+		"column": 1.0,
+	}
+
+	result, err := defsTool.Handler(context.Background(), input)
+	if err != nil {
+		t.Errorf("definitions handler: expected nil Go error, got %v", err)
+		return
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	// With explicit column, should NOT have echo line (no "resolved" prefix)
+	if strings.Contains(msg, "resolved") {
+		t.Errorf("column path should not produce echo line, got: %q", msg)
+	}
+}
+
+func TestColumnAndSymbolSupplied(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	input := map[string]any{
+		"file":   "test.go",
+		"line":   1.0,
+		"column": 1.0,
+		"symbol": "ShouldBeIgnored",
+	}
+
+	result, err := defsTool.Handler(context.Background(), input)
+	if err == nil {
+		// With no server configured, should get "No language server is configured" message
+		// This proves the column path was taken (no symbol resolution happened)
+		msg, ok := result.(string)
+		if ok && strings.Contains(msg, "No language server") {
+			// Good: we took the column path, not symbol path
+			return
+		}
+	}
+
+	t.Errorf("column+symbol: column should win and skip symbol resolution")
+}
+
+func TestSymbolsToolBothArgsEmpty(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	symbolsToolDef := defs[4]
+
+	_, err := symbolsToolDef.Handler(context.Background(), map[string]any{})
+	if err == nil {
+		t.Fatal("expected error when both query and file are empty")
+	}
+	if !strings.Contains(err.Error(), "at least one of query or file is required") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestSymbolsToolNoServerWorkspaceMode(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	symbolsToolDef := defs[4]
+
+	result, err := symbolsToolDef.Handler(context.Background(), map[string]any{"query": "Foo"})
+	if err != nil {
+		t.Fatalf("symbols handler returned error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "No language server is enabled") {
+		t.Errorf("expected workspace-mode unavailability message, got: %q", msg)
+	}
+}
+
+func TestSymbolsToolNoServerDocumentMode(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	symbolsToolDef := defs[4]
+
+	result, err := symbolsToolDef.Handler(context.Background(), map[string]any{"file": "test.unknown"})
+	if err != nil {
+		t.Fatalf("symbols handler returned error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "No language server is configured") {
+		t.Errorf("expected document-mode unavailability message, got: %q", msg)
+	}
+	if !strings.Contains(msg, ".unknown") {
+		t.Errorf("message does not contain file extension: %q", msg)
+	}
+}
+
+func TestSymbolsToolDocumentModeSuccess(t *testing.T) {
+	fs := newFakeServer()
+	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
+		{
+			Name: "Foo",
+			Kind: protocol.SymbolKindFunction,
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 1, Character: 5},
+				End:   protocol.Position{Line: 1, Character: 8},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\nfunc Foo() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+	defs := ToolDefs(m)
+	symbolsToolDef := defs[4]
+
+	result, err := symbolsToolDef.Handler(ctx, map[string]any{"file": "test.go"})
+	if err != nil {
+		t.Fatalf("symbols handler: expected nil error, got %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "test.go:2:6") || !strings.Contains(msg, "function") || !strings.Contains(msg, "Foo") {
+		t.Errorf("unexpected output: %q", msg)
+	}
+}
+
+func TestImplementationsToolNoServer(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	var implTool tool.ToolDef
+	for _, d := range defs {
+		if d.Name == "lsp_implementations" {
+			implTool = d
+			break
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	result, err := implTool.Handler(ctx, map[string]any{"file": testFile, "line": float64(1), "column": float64(1)})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "No language server is configured") {
+		t.Errorf("expected unavailability message, got: %q", msg)
+	}
+}
+
+func TestImplementationsToolMethodNotFound(t *testing.T) {
+	fs := newFakeServer()
+	fs.implementationErr = jsonrpc2.NewError(jsonrpc2.MethodNotFound, "unsupported")
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+	defs := ToolDefs(m)
+	var implTool tool.ToolDef
+	for _, d := range defs {
+		if d.Name == "lsp_implementations" {
+			implTool = d
+			break
+		}
+	}
+
+	result, err := implTool.Handler(ctx, map[string]any{"file": testFile, "line": float64(1), "column": float64(1)})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "does not support this request") {
+		t.Errorf("expected method-not-found message, got: %q", msg)
+	}
+}
+
+func TestImplementationsToolEmptyResult(t *testing.T) {
+	fs := newFakeServer()
+	fs.implementationResult = nil
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+	defs := ToolDefs(m)
+	var implTool tool.ToolDef
+	for _, d := range defs {
+		if d.Name == "lsp_implementations" {
+			implTool = d
+			break
+		}
+	}
+
+	result, err := implTool.Handler(ctx, map[string]any{"file": testFile, "line": float64(1), "column": float64(1)})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if msg != "(no implementations found)" {
+		t.Errorf("empty result message: got %q, want '(no implementations found)'", msg)
+	}
+}
+
+func TestImplementationsToolSymbolEcho(t *testing.T) {
+	fs := newFakeServer()
+	fs.implementationResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 5},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+	defs := ToolDefs(m)
+	var implTool tool.ToolDef
+	for _, d := range defs {
+		if d.Name == "lsp_implementations" {
+			implTool = d
+			break
+		}
+	}
+
+	result, err := implTool.Handler(ctx, map[string]any{"file": testFile, "symbol": "TestFunc"})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "TestFunc") {
+		t.Errorf("symbol echo missing from output: %q", msg)
+	}
+}
+
+func TestTypeDefinitionsToolNoServer(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	var typeDefTool tool.ToolDef
+	for _, d := range defs {
+		if d.Name == "lsp_type_definitions" {
+			typeDefTool = d
+			break
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	result, err := typeDefTool.Handler(ctx, map[string]any{"file": testFile, "line": float64(1), "column": float64(1)})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "No language server is configured") {
+		t.Errorf("expected unavailability message, got: %q", msg)
+	}
+}
+
+func TestTypeDefinitionsToolMethodNotFound(t *testing.T) {
+	fs := newFakeServer()
+	fs.typeDefinitionErr = jsonrpc2.NewError(jsonrpc2.MethodNotFound, "unsupported")
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+	defs := ToolDefs(m)
+	var typeDefTool tool.ToolDef
+	for _, d := range defs {
+		if d.Name == "lsp_type_definitions" {
+			typeDefTool = d
+			break
+		}
+	}
+
+	result, err := typeDefTool.Handler(ctx, map[string]any{"file": testFile, "line": float64(1), "column": float64(1)})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "does not support this request") {
+		t.Errorf("expected method-not-found message, got: %q", msg)
+	}
+}
+
+func TestTypeDefinitionsToolEmptyResult(t *testing.T) {
+	fs := newFakeServer()
+	fs.typeDefinitionResult = nil
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+	defs := ToolDefs(m)
+	var typeDefTool tool.ToolDef
+	for _, d := range defs {
+		if d.Name == "lsp_type_definitions" {
+			typeDefTool = d
+			break
+		}
+	}
+
+	result, err := typeDefTool.Handler(ctx, map[string]any{"file": testFile, "line": float64(1), "column": float64(1)})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if msg != "(no type definition found)" {
+		t.Errorf("empty result message: got %q, want '(no type definition found)'", msg)
+	}
+}
+
+func TestTypeDefinitionsToolSymbolEcho(t *testing.T) {
+	fs := newFakeServer()
+	fs.typeDefinitionResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 5},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+	defs := ToolDefs(m)
+	var typeDefTool tool.ToolDef
+	for _, d := range defs {
+		if d.Name == "lsp_type_definitions" {
+			typeDefTool = d
+			break
+		}
+	}
+
+	result, err := typeDefTool.Handler(ctx, map[string]any{"file": testFile, "symbol": "TestType"})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(msg, "TestType") {
+		t.Errorf("symbol echo missing from output: %q", msg)
 	}
 }

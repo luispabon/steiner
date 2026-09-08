@@ -56,6 +56,12 @@ type sidebarState struct {
 	mcpTotal              int
 	mcpConnecting         bool
 	mcpFailed             bool
+	lspServers            []LSPServerStatus
+	lspActive             int // N: servers with >=1 ready session
+	lspTotalKnown         int // M: servers with >=1 active (starting/ready/failed) session this poll
+	lspStarting           bool
+	lspFailed             bool
+	lspSingleName         string // comma-joined names of active servers, unfitted
 }
 
 func newSidebarState() sidebarState {

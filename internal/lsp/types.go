@@ -39,3 +39,11 @@ type ProgressEvent struct {
 type HoverContent struct {
 	Text string
 }
+
+// SymbolInfo represents one symbol result from workspace/symbol or textDocument/documentSymbol.
+type SymbolInfo struct {
+	Location
+	Name      string
+	Kind      string // human-readable SymbolKind name: "function", "struct", "interface", ...
+	Container string // enclosing symbol name, e.g. the type a method belongs to; may be empty
+}
