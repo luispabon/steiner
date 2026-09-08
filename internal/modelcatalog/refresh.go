@@ -86,7 +86,7 @@ func (s *Service) RefreshAll(ctx context.Context, endpoints []Endpoint, opts Ref
 
 func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bool) RefreshResult {
 	result := RefreshResult{Alias: endpoint.Alias}
-	if !force {
+	if endpoint.Prepare == nil && !force {
 		found, fresh, _ := s.cache.Status(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
 		if found && fresh {
 			models, found, _ := s.cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
@@ -97,10 +97,27 @@ func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bo
 			return result
 		}
 	}
-
-	etag := s.cachedETag(endpoint)
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
+	if endpoint.Prepare != nil {
+		prepared, err := endpoint.Prepare(ctx)
+		if err != nil {
+			return failedRefresh(result, fmt.Errorf("prepare model endpoint for %s: %w", endpoint.Alias, err))
+		}
+		endpoint = prepared
+		if !force {
+			found, fresh, _ := s.cache.Status(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+			if found && fresh {
+				models, found, _ := s.cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+				if found {
+					s.setDiscovered(endpoint.Alias, models)
+				}
+				result.Status = RefreshStatusFreshSkipped
+				return result
+			}
+		}
+	}
+	etag := s.cachedETag(endpoint)
 	enumerator, err := s.dispatcher(endpoint.Type, s.client)
 	if err != nil {
 		return failedRefresh(result, fmt.Errorf("create model enumerator: %w", err))

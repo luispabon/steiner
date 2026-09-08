@@ -137,7 +137,13 @@ func startModelCatalogRefresh(ctx context.Context, rt cliRuntime, sess *interact
 		defer close(updates)
 		rt.modelCatalog.RefreshAll(ctx, rt.modelCatalogEndpoints, modelcatalog.RefreshOptions{
 			Force: false,
-			OnResult: func(_ string, _ error) {
+			OnResult: func(alias string, err error) {
+				if err != nil && rt.events != nil {
+					rt.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+						Kind: "session_health", Severity: "warning",
+						Notes: []string{fmt.Sprintf("model catalog refresh failed for %s: %v", alias, err)},
+					}))
+				}
 				entries := modelEntriesFromChoices(rt.modelCatalog.Choices(&rt.cfg, sess.CurrentModelAlias()))
 				select {
 				case updates <- entries:

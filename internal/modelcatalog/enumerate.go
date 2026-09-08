@@ -22,6 +22,7 @@ type Endpoint struct {
 	BaseURL string
 	APIKey  string
 	Headers map[string]string
+	Prepare func(context.Context) (Endpoint, error)
 }
 
 // EnumerationOptions controls conditional enumeration requests.
