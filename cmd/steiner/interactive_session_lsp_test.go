@@ -23,10 +23,11 @@ func TestLSPTUIStatesFrom(t *testing.T) {
 	lastUsed := startedAt.Add(time.Minute)
 
 	tests := []struct {
-		name      string
-		cfg       config.Config
-		live      []lsp.ServerState
-		wantNames []string
+		name       string
+		cfg        config.Config
+		live       []lsp.ServerState
+		wantNames  []string
+		wantStatus map[string]string
 	}{
 		{
 			name:      "no config and no live state yields empty slice",
@@ -57,6 +58,32 @@ func TestLSPTUIStatesFrom(t *testing.T) {
 			},
 			wantNames: []string{"gopls", "gopls"},
 		},
+		{
+			name: "disabled configured server with no live state synthesizes disabled",
+			cfg: config.Config{
+				LSP: config.LSPConfig{
+					Servers: map[string]config.LSPServerConfig{
+						"gopls": {Enabled: false},
+					},
+				},
+			},
+			live:       nil,
+			wantNames:  []string{"gopls"},
+			wantStatus: map[string]string{"gopls": "disabled"},
+		},
+		{
+			name: "enabled configured server with no live state synthesizes not started",
+			cfg: config.Config{
+				LSP: config.LSPConfig{
+					Servers: map[string]config.LSPServerConfig{
+						"gopls": {Enabled: true},
+					},
+				},
+			},
+			live:       nil,
+			wantNames:  []string{"gopls"},
+			wantStatus: map[string]string{"gopls": "not started"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -71,6 +98,11 @@ func TestLSPTUIStatesFrom(t *testing.T) {
 			sort.Strings(wantSorted)
 			if !equalStrings(names, wantSorted) {
 				t.Fatalf("names = %v, want %v", names, wantSorted)
+			}
+			for _, s := range got {
+				if wantStatus, ok := tc.wantStatus[s.Name]; ok && s.Status != wantStatus {
+					t.Fatalf("status for %s = %q, want %q", s.Name, s.Status, wantStatus)
+				}
 			}
 		})
 	}
