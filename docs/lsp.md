@@ -14,6 +14,10 @@ Three built-in tools become available when a language server is configured and w
 
 All three tools gracefully degrade when no server is configured for a file's extension, when a server is disabled, or when a server fails to start — they return a clear message instead of an error. See [Graceful degradation](#graceful-degradation) below for the messages and what they mean.
 
+### Getting a column for these tools
+
+All three tools take a `line`/`column` location, 1-based and rune-counted. Rather than hand-counting characters, use `grep` with `line_numbers` (the default): content-mode output renders matched lines as `line:col: content`, where the column is where the match starts. Note the column marks the *match's* start, not necessarily the target identifier's own position — e.g. `grep "func Hello"` matches at `func`, not at `Hello`. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result straight into `lsp_definitions` or `lsp_references`.
+
 ## Language server setup
 
 Steiner does not install or manage language servers. You must install servers separately before configuring them in steiner. Each server is a separate executable that you run from `lsp.servers.<name>.command`.
