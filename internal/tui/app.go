@@ -144,6 +144,9 @@ type Config struct {
 	// MCPToolOrigins maps a registry tool name (e.g. "mcp__server__tool") to
 	// the MCP server and tool it originated from.
 	MCPToolOrigins map[string]MCPToolOrigin
+	// LSPEnabled reports whether LSP is switched on in config, distinguishing
+	// "off" from "on with zero configured servers" for the /lsp overlay.
+	LSPEnabled bool
 }
 
 // OneshotRunnerFactoryBuilder builds a phase runner factory bound to a specific

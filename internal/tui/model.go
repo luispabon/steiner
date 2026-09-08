@@ -111,6 +111,7 @@ type Model struct {
 	skillNames          []string
 	skillDescriptions   map[string]string
 	mcpEnabled          bool
+	lspEnabled          bool
 	mcpServers          []MCPServerStatus
 	lspServers          []LSPServerStatus
 	mcpToolOrigins      map[string]MCPToolOrigin

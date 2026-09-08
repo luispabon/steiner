@@ -199,6 +199,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		tuiCfg.SessionStore = rt.sessionStore
 	}
 	tuiCfg.MCPEnabled, tuiCfg.MCPServers, tuiCfg.MCPToolOrigins = mcpTUIState(rt.cfg, rt.mcpManager, rt.registry)
+	tuiCfg.LSPEnabled = rt.cfg.LSP.Enabled
 	tuiCfg.PollLSPStatesFunc = func() []tui.LSPServerStatus {
 		return lspTUIStates(rt.cfg, rt.lspManager)
 	}

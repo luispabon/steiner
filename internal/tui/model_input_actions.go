@@ -129,7 +129,7 @@ func (m *Model) executeShowMCPAction() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) executeShowLSPAction() (tea.Model, tea.Cmd) {
-	m.lspOverlay = m.lspOverlay.Open(sortLSPServerStatuses(m.lspServers), true)
+	m.lspOverlay = m.lspOverlay.Open(sortLSPServerStatuses(m.lspServers), m.lspEnabled)
 	m.lspOverlay.OverlayShell = m.lspOverlay.WithDimensions(m.width, m.height)
 	m.input.Reset()
 	m.historyIdx = 0
