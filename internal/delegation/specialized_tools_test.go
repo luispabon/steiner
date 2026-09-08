@@ -2294,7 +2294,7 @@ func TestApplyCodeWorktreeResult_MergesWarnings(t *testing.T) {
 	result := tool.ExecutionResult{Value: Result{
 		Warnings: []string{"dirty worktree after failed remediation"},
 	}}
-	got := applyCodeWorktreeResult(result, CodeWorktree{Path: "/tmp/worktree", Branch: "delegate/test"}, []string{"parent tree was dirty"})
+	got := applyCodeWorktreeResult(result, CodeWorktree{Path: "/tmp/worktree", Branch: "delegate/test"}, []string{"parent tree was dirty"}, "/tmp")
 	delegationResult, ok := got.Value.(Result)
 	if !ok {
 		t.Fatalf("result.Value type = %T, want Result", got.Value)

@@ -416,3 +416,117 @@ func TestAppendAdvisorSummaryLine(t *testing.T) {
 		})
 	}
 }
+
+func TestProviderRelativeWorktreePath(t *testing.T) {
+	tests := []struct {
+		name           string
+		projectRoot    string
+		worktreePath   string
+		wantPath       string
+		wantOmitted    bool
+	}{
+		{
+			name:        "empty project root yields omitted",
+			projectRoot: "",
+			worktreePath: "/home/x/proj/.steiner/worktrees/abc/main/agent-1",
+			wantOmitted: true,
+		},
+		{
+			name:        "empty worktree path yields omitted",
+			projectRoot: "/home/x/proj",
+			worktreePath: "",
+			wantOmitted: true,
+		},
+		{
+			name:        "worktree outside root yields omitted",
+			projectRoot: "/home/x/proj",
+			worktreePath: "/etc/passwd",
+			wantOmitted: true,
+		},
+		{
+			name:        "worktree not under .steiner/worktrees yields omitted",
+			projectRoot: "/home/x/proj",
+			worktreePath: "/home/x/proj/other/path",
+			wantOmitted: true,
+		},
+		{
+			name:        "valid relative path converts correctly",
+			projectRoot: "/home/x/proj",
+			worktreePath: "/home/x/proj/.steiner/worktrees/abc/main/agent-1",
+			wantPath:    ".steiner/worktrees/abc/main/agent-1",
+		},
+		{
+			name:        "valid with trailing slashes normalizes",
+			projectRoot: "/home/x/proj/",
+			worktreePath: "/home/x/proj/.steiner/worktrees/abc/main/agent-1/",
+			wantPath:    ".steiner/worktrees/abc/main/agent-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := providerRelativeWorktreePath(tt.projectRoot, tt.worktreePath)
+			if tt.wantOmitted {
+				if got != "" {
+					t.Errorf("expected omitted (empty) result, got %q", got)
+				}
+			} else {
+				if got != tt.wantPath {
+					t.Errorf("got %q, want %q", got, tt.wantPath)
+				}
+			}
+		})
+	}
+}
+
+func TestProjectToolResultWorktreePathSerialization(t *testing.T) {
+	tests := []struct {
+		name        string
+		result      Result
+		wantPath    string
+		wantOmitted bool
+	}{
+		{
+			name: "empty provider path is omitted",
+			result: Result{
+				Output: "done",
+				Status: StatusComplete,
+			},
+			wantOmitted: true,
+		},
+		{
+			name: "populated provider path is included",
+			result: Result{
+				Output:                "done",
+				Status:                StatusComplete,
+				providerWorktreePath: ".steiner/worktrees/abc/main/agent-1",
+			},
+			wantPath: ".steiner/worktrees/abc/main/agent-1",
+		},
+		{
+			name: "absolute WorktreePath does not leak to envelope",
+			result: Result{
+				Output:           "done",
+				Status:           StatusComplete,
+				WorktreePath:     "/home/x/proj/.steiner/worktrees/abc/main/agent-1",
+				providerWorktreePath: "",
+			},
+			wantOmitted: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			envelope := tt.result.ProjectToolResult()
+			if tt.wantOmitted {
+				if envelope.WorktreePath != "" {
+					t.Errorf("expected omitted worktree_path, got %q", envelope.WorktreePath)
+				}
+			} else {
+				if envelope.WorktreePath != tt.wantPath {
+					t.Errorf("got %q, want %q", envelope.WorktreePath, tt.wantPath)
+				}
+			}
+		})
+	}
+}

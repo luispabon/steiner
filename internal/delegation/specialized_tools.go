@@ -261,11 +261,12 @@ func provisionCodeWorktreeAndWarnings(ctx context.Context, workDir string, agent
 }
 
 // applyCodeWorktreeResult updates the delegation result with worktree path, branch, and warnings.
-func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree, warnings []string) tool.ExecutionResult {
+func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree, warnings []string, workDir string) tool.ExecutionResult {
 	if delegationResult, ok := result.Value.(Result); ok {
 		if worktree.Path != "" {
 			delegationResult.WorktreePath = worktree.Path
 			delegationResult.WorktreeBranch = worktree.Branch
+			delegationResult.providerWorktreePath = providerRelativeWorktreePath(workDir, worktree.Path)
 		}
 		delegationResult.Warnings = append(append([]string(nil), warnings...), delegationResult.Warnings...)
 		result.Value = delegationResult
@@ -344,9 +345,9 @@ func codeRemediationConfig(worktree CodeWorktree) *RemediationConfig {
 	}
 }
 
-func applySpecializedWorktreeResult(agentType AgentType, result tool.ExecutionResult, worktree CodeWorktree, warnings []string) tool.ExecutionResult {
+func applySpecializedWorktreeResult(agentType AgentType, result tool.ExecutionResult, worktree CodeWorktree, warnings []string, workDir string) tool.ExecutionResult {
 	if agentType == AgentTypeCode {
-		return applyCodeWorktreeResult(result, worktree, warnings)
+		return applyCodeWorktreeResult(result, worktree, warnings, workDir)
 	}
 	return result
 }
@@ -560,7 +561,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		if childCtx.Err() != nil {
 			removeAndCloseToolCallTraceWriter(spec.AgentID)
 			emitDelegateStopped(deps.Events, spec, agentType)
-			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings)
+			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings, deps.WorkDir)
 			if dr, ok := result.Value.(Result); ok {
 				dr.AdvisorBudget = spec.AdvisorBudget
 				result.Value = dr
@@ -598,7 +599,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			return nil, fmt.Errorf("%s failed: %w", agentType, err)
 		}
 
-		result = applySpecializedWorktreeResult(agentType, result, provisionedWorktree, warnings)
+		result = applySpecializedWorktreeResult(agentType, result, provisionedWorktree, warnings, deps.WorkDir)
 		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
 
 		return result, nil

@@ -12,6 +12,7 @@ type DelegationResultEnvelope struct {
 	Status       string                  `json:"status,omitempty"`
 	Reason       string                  `json:"reason,omitempty"`
 	Continuation *DelegationContinuation `json:"continuation,omitempty"`
+	WorktreePath string                  `json:"worktree_path,omitempty"`
 }
 
 // DelegationContinuation identifies a child session that can be resumed.

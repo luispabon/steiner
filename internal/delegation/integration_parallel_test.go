@@ -697,25 +697,6 @@ func TestParallelDelegationCodeAgentsReceiveDistinctWorktrees(t *testing.T) {
 	h := newParallelHarness(delegationParentResponse("code", "code"), 2)
 	h.workDir = tmpRepo
 
-	// Collect WorktreePath values from the results using a sync.Map to avoid -race issues.
-	worktreeResults := &sync.Map{}
-
-	// Inject a custom child response handler that captures WorktreePath.
-	originalChild := h.provider.child
-	h.provider.child = func(ctx context.Context, task string) (provider.ChatResponse, error) {
-		// Let the original harness logic run first.
-		resp, err := originalChild(ctx, task)
-		if err != nil {
-			return resp, err
-		}
-
-		// Extract the agentID from the task (e.g., "task-0" -> "0").
-		// The response contains the parent's tool results; we can't extract WorktreePath here.
-		// Instead, we'll verify distinct worktrees by checking the structured tool results.
-
-		return resp, nil
-	}
-
 	result := startParallelParent(context.Background(), h, 2, tool.NewRegistry())
 	waitParallel(t, h.allStarted, "two code children did not start")
 	close(h.done)
@@ -724,8 +705,8 @@ func TestParallelDelegationCodeAgentsReceiveDistinctWorktrees(t *testing.T) {
 		t.Fatal(run.err)
 	}
 
-	// Extract WorktreePath values from tool results JSON.
-	// Tool results have the format: {"status":"complete","...","worktree_path":"..."}
+	// Extract worktree_path values from tool results JSON to verify relative paths are present.
+	// Tool results have the format: {"output":"...","worktree_path":".steiner/worktrees/..."}
 	results := toolResults(run.state)
 	if len(results) != 2 {
 		t.Fatalf("tool result count = %d, want 2", len(results))
@@ -733,20 +714,27 @@ func TestParallelDelegationCodeAgentsReceiveDistinctWorktrees(t *testing.T) {
 
 	var worktreePaths []string
 	for i, result := range results {
-		// Parse the JSON to extract worktree_path.
 		var parsed map[string]interface{}
 		if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-			t.Logf("result %d failed to parse JSON: %v (result: %q)", i, err, result)
-			continue
+			t.Fatalf("result %d failed to parse JSON: %v", i, err)
 		}
 		if path, ok := parsed["worktree_path"].(string); ok && path != "" {
 			worktreePaths = append(worktreePaths, path)
-			worktreeResults.Store(fmt.Sprintf("code-%d", i), path)
+			if !strings.HasPrefix(path, ".steiner/worktrees/") {
+				t.Errorf("worktree_path %q does not start with .steiner/worktrees/", path)
+			}
+			if strings.Contains(path, tmpRepo) {
+				t.Errorf("worktree_path %q leaks absolute project root %q", path, tmpRepo)
+			}
 		}
 	}
 
-	if len(worktreePaths) != 0 {
-		t.Fatalf("provider result leaked worktree_path values: %v", worktreePaths)
+	if len(worktreePaths) != 2 {
+		t.Fatalf("expected 2 worktree_path values, got %d: %v", len(worktreePaths), worktreePaths)
+	}
+
+	if worktreePaths[0] == worktreePaths[1] {
+		t.Fatalf("parallel code agents should have distinct worktrees, both got %q", worktreePaths[0])
 	}
 }
 

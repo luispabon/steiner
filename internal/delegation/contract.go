@@ -158,6 +158,10 @@ type Result struct {
 	Warnings []string `json:"warnings,omitempty"`
 
 	persisted bool
+	// providerWorktreePath is the project-relative path to the worktree,
+	// computed from WorktreePath. It is unexported and sent only to the provider
+	// via ProjectToolResult, never exposed in JSON or stored in the session.
+	providerWorktreePath string
 }
 
 // Limits defines resource constraints for a child execution.
