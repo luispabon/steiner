@@ -530,7 +530,8 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		}
 
 		advisorAvailable := slices.Contains(allowedTools, advisor.ToolName) && deps.AdvisorForChild != nil
-		spec.SystemSuffix = AgentSystemSuffix(agentType, advisorAvailable)
+		lspAvailable := deps.LSPEnabled && slices.Contains(allowedTools, "lsp_definitions")
+		spec.SystemSuffix = AgentSystemSuffix(agentType, advisorAvailable, lspAvailable)
 		spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 
 		provisionedWorktree, warnings, err := specializedWorktree(ctx, agentType, deps.WorkDir, agentID)

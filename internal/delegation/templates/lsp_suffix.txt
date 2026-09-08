@@ -1,0 +1,3 @@
+## Code intelligence (LSP)
+
+A language server is available to you. Prefer `lsp_references`/`lsp_implementations`/`lsp_definitions`/`lsp_type_definitions`/`lsp_symbols`/`lsp_hover` over grep for symbol-level questions — they match bindings, not text. `lsp_implementations` in particular answers "what satisfies this interface" for Go's structural interfaces, which grep cannot do at all. Run `lsp_diagnostics` on a file after editing it, before reporting the work done. An empty result means the server found nothing, not that the tool is broken.

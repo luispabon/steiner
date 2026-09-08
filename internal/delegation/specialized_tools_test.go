@@ -323,6 +323,7 @@ func TestSpecializedHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
 	}})
 	deps.Events = events
 	deps.CacheKeyStore = NewCacheKeyStore()
+	deps.LSPEnabled = true
 
 	handler := newSpecializedHandler(AgentTypeExplore, deps)
 	if _, err := handler(context.Background(), validStructuredTask("explore")); err != nil {
@@ -331,6 +332,9 @@ func TestSpecializedHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
 
 	if capturedReq.Events == nil {
 		t.Fatal("runner did not capture req.Events")
+	}
+	if !strings.Contains(capturedReq.Prompt.PromptOverrides.SystemSuffix, "## Code intelligence (LSP)") {
+		t.Fatalf("child system suffix = %q, want LSP guidance", capturedReq.Prompt.PromptOverrides.SystemSuffix)
 	}
 	if got := waitingEvents(events.Events()); len(got) != 0 {
 		t.Fatalf("leader emitted %d waiting events, want none", len(got))
