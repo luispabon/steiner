@@ -25,6 +25,7 @@ func ToolDefs(m *Manager) []tool.ToolDef {
 	}
 }
 
+//nolint:dupl // identical to implementationsTool and typeDefinitionTool; mechanical clone across protocol.DefinitionResult-aliased types
 func definitionsTool(m *Manager) tool.ToolDef {
 	return tool.ToolDef{
 		Name:         "lsp_definitions",
@@ -312,6 +313,7 @@ func symbolsTool(m *Manager) tool.ToolDef {
 	}
 }
 
+//nolint:dupl // identical to definitionsTool and typeDefinitionTool; mechanical clone across protocol.DefinitionResult-aliased types
 func implementationsTool(m *Manager) tool.ToolDef {
 	return tool.ToolDef{
 		Name:         "lsp_implementations",
@@ -363,6 +365,7 @@ func implementationsTool(m *Manager) tool.ToolDef {
 	}
 }
 
+//nolint:dupl // identical to definitionsTool and implementationsTool; mechanical clone across protocol.DefinitionResult-aliased types
 func typeDefinitionTool(m *Manager) tool.ToolDef {
 	return tool.ToolDef{
 		Name:         "lsp_type_definitions",

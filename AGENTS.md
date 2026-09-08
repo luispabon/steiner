@@ -159,6 +159,8 @@ Steiner exposes these model-facing built-in tools:
 - `display_file` — show a file in the TUI overlay without adding contents to conversation
 - `advisor` — ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`)
 - `lsp_definitions` — jump to symbol definitions; requires `lsp.enabled` and a configured language server for the file's extension
+- `lsp_implementations` — find the concrete implementations of an interface or interface method (`textDocument/implementation`); requires `lsp.enabled` and a configured language server for the file's extension that supports the request
+- `lsp_type_definitions` — jump to the type declaration of a variable, field, or parameter (`textDocument/typeDefinition`); requires `lsp.enabled` and a configured language server for the file's extension that supports the request
 - `lsp_references` — find all references to a symbol; requires `lsp.enabled` and a configured language server for the file's extension
 - `lsp_diagnostics` — get diagnostics for a file; requires `lsp.enabled` and a configured language server for the file's extension
 - `lsp_hover` — get hover information (type signature + doc comment) for a symbol at a position; requires `lsp.enabled` and a configured language server for the file's extension

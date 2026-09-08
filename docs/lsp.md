@@ -4,21 +4,23 @@ Steiner can connect to language servers to answer navigation and diagnostics
 queries. Servers are configured under `lsp.servers` and are off by default
 (`lsp.enabled: false`). See docs/configuration.md for the field reference.
 
-## The five tools
+## The seven tools
 
-Five built-in tools become available when a language server is configured and working:
+Seven built-in tools become available when a language server is configured and working:
 
 - **lsp_definitions** — Jump to the definition of a symbol. Address the position with `line`+`column`, or with a `symbol` name (optionally narrowed by `line`). Returns a list of locations in other files (or the same file) where the symbol is defined. If multiple definitions exist (rare), all are returned, up to `lsp.max_results`.
+- **lsp_implementations** — Find the concrete implementations of an interface or interface method. Address the position with `line`+`column`, or with a `symbol` name (optionally narrowed by `line`). This is the answer to "what actually runs when this is called?" — particularly useful on interface methods where `lsp_definitions` returns only the interface declaration, not the concrete types. Grep cannot replicate this for Go's structural interfaces (no `implements` keyword to search for). Returns a list of locations up to `lsp.max_results`.
+- **lsp_type_definitions** — Jump to the type declaration for a variable, field, or parameter. Address the position with `line`+`column`, or with a `symbol` name (optionally narrowed by `line`). Returns a list of locations up to `lsp.max_results`.
 - **lsp_references** — Find all references to a symbol. Address the position with `line`+`column`, or with a `symbol` name (optionally narrowed by `line`). By default includes the symbol's declaration; pass `include_declaration: false` to exclude it. Results are returned up to `lsp.max_results`.
 - **lsp_diagnostics** — Get diagnostics (errors, warnings, information, hints) for a file. Returns what the language server has published for that file. Diagnostics reflect the server's state at query time; if the server is still indexing, results may be incomplete or provisional.
 - **lsp_hover** — Get hover information for a symbol. Address the position with `line`+`column`, or with a `symbol` name (optionally narrowed by `line`). Returns the type signature and documentation comment (if available) for the symbol. Results are truncated to 4000 characters if longer.
-- **lsp_symbols** — Search for symbols by name, or outline a file. Takes no `line`/`column`: it addresses symbols by name (`query`) or by file (`file`), not by position. Routing rule: **`file` present** (with or without `query`) selects **document mode** — routed exactly like the other four tools via the file's extension, calling `textDocument/documentSymbol`; if `query` is also present, results are filtered client-side by case-insensitive substring match on symbol name after flattening. **`file` absent, `query` present** selects **workspace mode** — there is no file to route on, so every enabled, configured server is queried concurrently via `workspace/symbol` (reusing an already-running session for a server where one exists, rather than spawning a second one at a different root), and results are merged best-effort across servers.
+- **lsp_symbols** — Search for symbols by name, or outline a file. Takes no `line`/`column`: it addresses symbols by name (`query`) or by file (`file`), not by position. Routing rule: **`file` present** (with or without `query`) selects **document mode** — routed exactly like the other tools via the file's extension, calling `textDocument/documentSymbol`; if `query` is also present, results are filtered client-side by case-insensitive substring match on symbol name after flattening. **`file` absent, `query` present** selects **workspace mode** — there is no file to route on, so every enabled, configured server is queried concurrently via `workspace/symbol` (reusing an already-running session for a server where one exists, rather than spawning a second one at a different root), and results are merged best-effort across servers.
 
-All five tools gracefully degrade when no server is configured for a file's extension, when a server is disabled, or when a server fails to start — they return a clear message instead of an error. See [Graceful degradation](#graceful-degradation) below for the messages and what they mean.
+All seven tools gracefully degrade when no server is configured for a file's extension, when a server is disabled, or when a server fails to start — they return a clear message instead of an error. See [Graceful degradation](#graceful-degradation) below for the messages and what they mean.
 
 ### Addressing a position with line/column or symbol
 
-The three navigation tools (`lsp_definitions`, `lsp_references`, `lsp_hover`) support two ways to specify a position. `lsp_symbols` does not: it takes no position at all, addressing symbols by name or by file instead — see the `lsp_symbols` bullet above.
+The five position-addressing navigation tools (`lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_hover`) support two ways to specify a position. `lsp_symbols` does not: it takes no position at all, addressing symbols by name or by file instead — see the `lsp_symbols` bullet above.
 
 **Option 1: Explicit `line` and `column` (1-based, rune-counted)**
 
@@ -135,12 +137,13 @@ When `lsp.cache_dir` is set in config, it overrides the user cache directory. Th
 
 ## Graceful degradation
 
-The five LSP tools return human-readable messages instead of errors when a server is unavailable:
+The seven LSP tools return human-readable messages instead of errors when a server is unavailable:
 
 - **"No language server is configured for .ext. Configure one under `lsp.servers` to enable this tool."** — The file extension has no server declared in config, or the configured server is disabled. `lsp_symbols` in document mode (`file` supplied) uses this message too.
 - **"No language server is enabled. Configure one under `lsp.servers` to enable this tool."** — `lsp_symbols` in workspace mode (`query` only, no `file`): there is no extension to route on, so this message is used instead when zero servers are enabled.
 - **"Language server <name> failed to start: <error>."** — The server executable was not found, did not start, or crashed during initialization.
 - **"Language server <name> exited unexpectedly."** — The server was running but crashed or exited during a request.
+- **"Language server <name> does not support this request."** — The requested LSP method (e.g., `textDocument/implementation` or `textDocument/typeDefinition`) is optional and not implemented by this server. Some perfectly healthy, correctly configured servers do not implement all methods — this is expected and not an error.
 
 When a query completes successfully but the server was still indexing, the result may be incomplete. The response includes a note: *"results may be incomplete if the language server's indexing has not finished."* This is expected and not an error.
 
@@ -165,7 +168,7 @@ There is no config field to enable or disable this separately: it runs unconditi
 ## Known limitations
 
 - Language servers other than gopls are unverified for cache requirements. If you encounter cache-related issues with other servers, open an issue.
-- Rename (`textDocument/rename`) and other LSP features are not yet implemented. The five tools (lsp_definitions, lsp_references, lsp_diagnostics, lsp_hover, lsp_symbols) are the current focus.
+- Rename (`textDocument/rename`) and other LSP features are not yet implemented. The seven tools (lsp_definitions, lsp_implementations, lsp_type_definitions, lsp_references, lsp_diagnostics, lsp_hover, lsp_symbols) are the current focus.
 - Post-mutate diagnostics injection only checks the files a `mutate` call touched, up to its per-call cap. Files beyond that cap are not checked, and breakage in files the mutation didn't touch is not reported — e.g. if editing file A breaks a downstream file B that wasn't part of the same `mutate` call, B's breakage won't show up here. Check B explicitly with `lsp_diagnostics` or a build.
 
 ## Timeout calibration

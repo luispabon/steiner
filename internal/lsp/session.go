@@ -91,6 +91,7 @@ func newSession(ctx context.Context, stream jsonrpc2.Stream, rootPath string, in
 	}, nil
 }
 
+//nolint:dupl // identical to Implementation and TypeDefinition; mechanical clone across protocol.DefinitionResult-aliased types
 // Definition requests the definition of a symbol at the given position.
 func (s *impl) Definition(ctx context.Context, file string, line, col int) ([]Location, error) {
 	params := protocol.DefinitionParams{
@@ -122,6 +123,7 @@ func (s *impl) Definition(ctx context.Context, file string, line, col int) ([]Lo
 	return locs, nil
 }
 
+//nolint:dupl // identical to Definition and TypeDefinition; mechanical clone across protocol.DefinitionResult-aliased types
 // Implementation requests the concrete implementations of an interface or
 // interface method at the given position. protocol.ImplementationResult is an
 // alias of protocol.DefinitionResult, so the three result arms are identical
@@ -156,6 +158,7 @@ func (s *impl) Implementation(ctx context.Context, file string, line, col int) (
 	return locs, nil
 }
 
+//nolint:dupl // identical to Definition and Implementation; mechanical clone across protocol.DefinitionResult-aliased types
 // TypeDefinition requests the type declaration for the symbol at the given
 // position. protocol.TypeDefinitionResult is likewise an alias of
 // protocol.DefinitionResult.
