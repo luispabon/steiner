@@ -8,16 +8,29 @@ queries. Servers are configured under `lsp.servers` and are off by default
 
 Four built-in tools become available when a language server is configured and working:
 
-- **lsp_definitions** — Jump to the definition of a symbol at a given location. Returns a list of locations in other files (or the same file) where the symbol is defined. If multiple definitions exist (rare), all are returned, up to `lsp.max_results`.
-- **lsp_references** — Find all references to a symbol. By default includes the symbol's declaration; pass `include_declaration: false` to exclude it. Results are returned up to `lsp.max_results`.
+- **lsp_definitions** — Jump to the definition of a symbol. Address the position with `line`+`column`, or with a `symbol` name (optionally narrowed by `line`). Returns a list of locations in other files (or the same file) where the symbol is defined. If multiple definitions exist (rare), all are returned, up to `lsp.max_results`.
+- **lsp_references** — Find all references to a symbol. Address the position with `line`+`column`, or with a `symbol` name (optionally narrowed by `line`). By default includes the symbol's declaration; pass `include_declaration: false` to exclude it. Results are returned up to `lsp.max_results`.
 - **lsp_diagnostics** — Get diagnostics (errors, warnings, information, hints) for a file. Returns what the language server has published for that file. Diagnostics reflect the server's state at query time; if the server is still indexing, results may be incomplete or provisional.
-- **lsp_hover** — Get hover information for a symbol at a given location. Returns the type signature and documentation comment (if available) for the symbol. Results are truncated to 4000 characters if longer.
+- **lsp_hover** — Get hover information for a symbol. Address the position with `line`+`column`, or with a `symbol` name (optionally narrowed by `line`). Returns the type signature and documentation comment (if available) for the symbol. Results are truncated to 4000 characters if longer.
 
 All four tools gracefully degrade when no server is configured for a file's extension, when a server is disabled, or when a server fails to start — they return a clear message instead of an error. See [Graceful degradation](#graceful-degradation) below for the messages and what they mean.
 
-### Getting a column for these tools
+### Addressing a position with line/column or symbol
 
-All three tools take a `line`/`column` location, 1-based and rune-counted. Rather than hand-counting characters, use `grep` with `line_numbers` (the default): content-mode output renders matched lines as `line:col: content`, where the column is where the match starts. Note the column marks the *match's* start, not necessarily the target identifier's own position — e.g. `grep "func Hello"` matches at `func`, not at `Hello`. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result straight into `lsp_definitions` or `lsp_references`.
+The three navigation tools (`lsp_definitions`, `lsp_references`, `lsp_hover`) support two ways to specify a position:
+
+**Option 1: Explicit `line` and `column` (1-based, rune-counted)**
+
+Supply both `line` and `column` to address an exact position. Rather than hand-counting characters, use `grep` with `line_numbers` (the default): content-mode output renders matched lines as `line:col: content`, where the column is where the match starts. Note the column marks the *match's* start, not necessarily the target identifier's own position — e.g. `grep "func Hello"` matches at `func`, not at `Hello`. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result straight into `lsp_definitions` or `lsp_references`.
+
+**Option 2: Symbol name (identifier-boundary matching)**
+
+Supply a `symbol` string to search for the identifier by name. The symbol search:
+- Matches at identifier boundaries, so `Foo` will not match inside `FooBar`, but will match after `.` in `m.Foo`.
+- Without `line`: scans the entire file; if the name appears on multiple lines, returns an error listing the candidate lines (up to 20). Narrow with the `line` parameter to resolve ambiguity.
+- With `line`: searches only that line; if found, uses the leftmost match; if not found, returns an error showing the line content. This is fast and unambiguous.
+
+Both addressing modes resolve to the same `line` and `column` internally, so they use the same cache. Explicit `column` takes precedence if both are supplied (symbol is silently ignored).
 
 ## Language server setup
 
