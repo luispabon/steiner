@@ -155,10 +155,13 @@ func TestOperationsResolveRelativePaths(t *testing.T) {
 
 				var openedMu sync.Mutex
 				var opened []string
+				didOpenDone := make(chan struct{})
+				var didOpenOnce sync.Once
 				fs.onDidOpen = func(ctx context.Context, params *protocol.DidOpenTextDocumentParams) {
 					openedMu.Lock()
 					opened = append(opened, params.TextDocument.URI.FsPath())
 					openedMu.Unlock()
+					didOpenOnce.Do(func() { close(didOpenDone) })
 					if op.publish != nil {
 						op.publish(ctx, t, fs, params)
 					}
@@ -174,6 +177,11 @@ func TestOperationsResolveRelativePaths(t *testing.T) {
 				outcome, err := op.run(ctx, m, file)
 				if err != nil {
 					t.Fatalf("%s path: %v", spelling, err)
+				}
+				select {
+				case <-didOpenDone:
+				case <-ctx.Done():
+					t.Fatalf("%s path: didOpen callback did not complete: %v", spelling, ctx.Err())
 				}
 				// Each run gets its own temp workspace, so compare paths relative
 				// to it rather than the tmpdir-specific absolute form.
