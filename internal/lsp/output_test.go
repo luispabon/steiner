@@ -3,6 +3,7 @@ package lsp
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/luispabon/steiner/internal/config"
 )
@@ -88,6 +89,106 @@ func TestFormatLocationsFallbackAbsolute(t *testing.T) {
 	if !strings.Contains(output, "/other/path/main.go") {
 		t.Errorf("formatLocations fallback: expected absolute path in %q", output)
 	}
+}
+
+func TestFormatHoverEmpty(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100, ReadyTimeout: config.MustDuration("5s")}
+	res := HoverResult{
+		Content:    HoverContent{Text: ""},
+		Incomplete: false,
+	}
+
+	output := formatHover(res, cfg)
+	if output != "" {
+		t.Errorf("formatHover empty result: got %q, want empty", output)
+	}
+}
+
+func TestFormatHoverIncompleteEmpty(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100, ReadyTimeout: config.MustDuration("5s")}
+	res := HoverResult{
+		Content:    HoverContent{Text: ""},
+		Incomplete: true,
+	}
+
+	output := formatHover(res, cfg)
+	if !strings.Contains(output, "indexing had not finished") {
+		t.Errorf("formatHover incomplete: message missing indexing note: %q", output)
+	}
+	if !strings.Contains(output, "5s") {
+		t.Errorf("formatHover incomplete: message missing timeout value: %q", output)
+	}
+}
+
+func TestFormatHoverWithContent(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := HoverResult{
+		Content:    HoverContent{Text: "This is hover content"},
+		Incomplete: false,
+	}
+
+	output := formatHover(res, cfg)
+	if !strings.Contains(output, "This is hover content") {
+		t.Errorf("formatHover: expected content in %q", output)
+	}
+}
+
+func TestFormatHoverTruncation(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	// Create content that exceeds maxHoverChars (4000 chars).
+	longContent := strings.Repeat("a", 4500)
+	res := HoverResult{
+		Content:    HoverContent{Text: longContent},
+		Incomplete: false,
+	}
+
+	output := formatHover(res, cfg)
+	if !strings.Contains(output, "... truncated (500 chars omitted)") {
+		t.Errorf("formatHover: expected truncation note in %q", output)
+	}
+	if len([]rune(output)) > 4000+200 { // account for truncation message
+		t.Errorf("formatHover: output too long after truncation: %d chars", len([]rune(output)))
+	}
+}
+
+func TestFormatHoverTruncationRuneBoundary(t *testing.T) {
+	cfg := config.LSPConfig{MaxResults: 100}
+	// Create content with multi-byte characters near the truncation boundary.
+	// Create 5000 runes total (exceeds maxHoverChars=4000).
+	prefix := "x"                       // 1 rune
+	middleChar := "é"                   // 1 rune (multi-byte in UTF-8)
+	suffix := strings.Repeat("y", 4998) // 4998 runes
+
+	longContent := prefix + middleChar + suffix
+
+	res := HoverResult{
+		Content:    HoverContent{Text: longContent},
+		Incomplete: false,
+	}
+
+	output := formatHover(res, cfg)
+
+	// Verify that the output is valid UTF-8 and doesn't split multi-byte runes.
+	if !isValidUTF8(output) {
+		t.Error("formatHover: output contains invalid UTF-8")
+	}
+
+	// Verify truncation happened.
+	if !strings.Contains(output, "... truncated") {
+		t.Errorf("formatHover: expected truncation note in %q", output)
+	}
+}
+
+// isValidUTF8 checks if a string is valid UTF-8.
+func isValidUTF8(s string) bool {
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		if r == utf8.RuneError && size == 1 {
+			return false
+		}
+		s = s[size:]
+	}
+	return true
 }
 
 func TestDiagnosticsOutputClean(t *testing.T) {
