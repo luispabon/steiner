@@ -29,7 +29,7 @@ func TestLSPOverlay_NewClose(t *testing.T) {
 
 func TestLSPOverlay_SlashCommandOpensOverlay(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{}, nil)
+	m := newModel(Config{LSPEnabled: true}, nil)
 	m.lspServers = []LSPServerStatus{{Name: "gopls", Root: "/repo", Status: "ready"}}
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -47,6 +47,39 @@ func TestLSPOverlay_SlashCommandOpensOverlay(t *testing.T) {
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.lspOverlay.IsOpen() {
 		t.Fatal("expected esc to close the overlay")
+	}
+}
+
+func TestLSPOverlay_SlashCommandRespectsConfigEnabled(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		lspEnabled bool
+		wantNotice bool
+	}{
+		{name: "disabled in config", lspEnabled: false, wantNotice: true},
+		{name: "enabled in config", lspEnabled: true, wantNotice: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{LSPEnabled: tc.lspEnabled}, nil)
+			m.lspServers = []LSPServerStatus{{Name: "gopls", Root: "/repo", Status: "ready"}}
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+			m.input.SetValue("/lsp")
+			m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			if !m.lspOverlay.IsOpen() {
+				t.Fatal("expected /lsp command to open the overlay")
+			}
+
+			view := m.lspOverlay.View()
+			hasNotice := strings.Contains(view, "LSP is disabled in config.")
+			if hasNotice != tc.wantNotice {
+				t.Fatalf("expected disabled notice present=%v, got view: %s", tc.wantNotice, view)
+			}
+		})
 	}
 }
 

@@ -65,6 +65,7 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		skillDescriptions:            cloneStringMap(cfg.SkillDescriptions),
 		enabledSkills:                enabledSkills,
 		mcpEnabled:                   cfg.MCPEnabled,
+		lspEnabled:                   cfg.LSPEnabled,
 		mcpServers:                   cfg.MCPServers,
 		mcpToolOrigins:               cfg.MCPToolOrigins,
 		modelNames:                   append([]string(nil), cfg.ModelNames...),
