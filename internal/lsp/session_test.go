@@ -413,7 +413,7 @@ func TestHoverContentsToText(t *testing.T) {
 		},
 		{
 			name: "marked string with language",
-			contents: &protocol.MarkedStringWithLanguage{
+			contents: &protocol.MarkedStringWithLanguage{ //nolint:staticcheck // sent for older servers
 				Language: "go",
 				Value:    "func main() {}",
 			},
@@ -423,7 +423,7 @@ func TestHoverContentsToText(t *testing.T) {
 			name: "marked string slice",
 			contents: protocol.MarkedStringSlice{
 				protocol.String("First item"),
-				&protocol.MarkedStringWithLanguage{Language: "go", Value: "func() {}"},
+				&protocol.MarkedStringWithLanguage{Language: "go", Value: "func() {}"}, //nolint:staticcheck // sent for older servers
 			},
 			want: "First item\n\n```go\nfunc() {}\n```",
 		},

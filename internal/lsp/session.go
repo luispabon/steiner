@@ -468,7 +468,7 @@ func hoverContentsToText(contents protocol.HoverContents) string {
 		}
 	case protocol.String:
 		return string(c)
-	case *protocol.MarkedStringWithLanguage:
+	case *protocol.MarkedStringWithLanguage: //nolint:staticcheck // sent for older servers
 		if c != nil {
 			return fmt.Sprintf("```%s\n%s\n```", c.Language, c.Value)
 		}
@@ -487,7 +487,7 @@ func hoverContentsToText(contents protocol.HoverContents) string {
 
 // markedStringToText normalizes a single MarkedString (which is a union of
 // string or MarkedStringWithLanguage) into plain text.
-func markedStringToText(ms protocol.MarkedString) string {
+func markedStringToText(ms protocol.MarkedString) string { //nolint:staticcheck // sent for older servers
 	if ms == nil {
 		return ""
 	}
@@ -495,7 +495,7 @@ func markedStringToText(ms protocol.MarkedString) string {
 	switch m := ms.(type) {
 	case protocol.String:
 		return string(m)
-	case *protocol.MarkedStringWithLanguage:
+	case *protocol.MarkedStringWithLanguage: //nolint:staticcheck // sent for older servers
 		if m != nil {
 			return fmt.Sprintf("```%s\n%s\n```", m.Language, m.Value)
 		}
