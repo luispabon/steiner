@@ -81,6 +81,10 @@ type Config struct {
 	// update is available; a nil/zero result (empty version) means no update
 	// check result is available for this run.
 	CheckUpdateFunc func() (latestVersion string, needsUpdate bool)
+	// PollLSPStatesFunc, when non-nil, is polled on every ticker frame while the
+	// ticker is running (see needsTicking) to refresh the LSP sidebar row and
+	// /lsp overlay from internal/lsp.Manager's live state without importing it.
+	PollLSPStatesFunc func() []LSPServerStatus
 	// CurrentModelAlias is the alias (not the backend model ID) of the model
 	// active at startup, e.g. cfg.Models.Effective.ActiveOrchestratorModel.
 	CurrentModelAlias string

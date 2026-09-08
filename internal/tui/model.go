@@ -112,6 +112,7 @@ type Model struct {
 	skillDescriptions   map[string]string
 	mcpEnabled          bool
 	mcpServers          []MCPServerStatus
+	lspServers          []LSPServerStatus
 	mcpToolOrigins      map[string]MCPToolOrigin
 	mcpWarned           map[string]bool // servers that already surfaced a failure warning in the current failure generation
 	enabledSkills       map[string]bool
@@ -145,6 +146,7 @@ type Model struct {
 	slashOverlay                 slashOverlay
 	fileList                     fileListOverlay
 	mcpOverlay                   mcpOverlay
+	lspOverlay                   lspOverlay
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay
 	oneshotResumePicker          oneshotResumePickerOverlay
@@ -156,6 +158,7 @@ type Model struct {
 	reasoningLabels              map[string]string
 	resolveReasoningFunc         func() (map[string]provider.ReasoningCapabilities, map[string]string)
 	checkUpdateFunc              func() (string, bool)
+	pollLSPStatesFunc            func() []LSPServerStatus
 	worktreePlan                 *WorktreeCleanupPlan
 	exitFlowPhase                int
 	worktreeCleanupModal         worktreeCleanupModalState
@@ -341,6 +344,8 @@ func (m *Model) syncSidebar() {
 			m.sidebar.mcpFailed = true
 		}
 	}
+	m.sidebar.lspServers = sortLSPServerStatuses(m.lspServers)
+	m.sidebar.recomputeLSPAggregate()
 }
 
 func (m *Model) activeSkillName() string {
@@ -635,6 +640,7 @@ func (m *Model) needsTicking() bool {
 		m.content.HasActiveToolCalls() ||
 		m.content.HasActiveCompactions() ||
 		m.sidebar.mcpConnecting ||
+		m.sidebar.lspStarting ||
 		m.contentDirty
 }
 

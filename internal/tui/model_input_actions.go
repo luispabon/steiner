@@ -128,6 +128,14 @@ func (m *Model) executeShowMCPAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) executeShowLSPAction() (tea.Model, tea.Cmd) {
+	m.lspOverlay = m.lspOverlay.Open(sortLSPServerStatuses(m.lspServers), true)
+	m.lspOverlay.OverlayShell = m.lspOverlay.WithDimensions(m.width, m.height)
+	m.input.Reset()
+	m.historyIdx = 0
+	return m, nil
+}
+
 func (m *Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.historyIdx = 0
