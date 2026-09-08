@@ -829,9 +829,9 @@ func TestFollowUpHandler_CodeSessionProjectsWorktreePath(t *testing.T) {
 	var capturedResult tool.ExecutionResult
 	runs := 0
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		WorkDir:       projectRoot,
-		SubAgentCfg:   config.SubAgentConfig{MaxFollowUps: 100},
-		SessionStore:  store,
+		WorkDir:      projectRoot,
+		SubAgentCfg:  config.SubAgentConfig{MaxFollowUps: 100},
+		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 			runs++
 			return agent.RunState{
@@ -900,9 +900,9 @@ func TestFollowUpHandler_CodeSessionRejectsDeadWorktreeOmitsPath(t *testing.T) {
 	})
 
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		WorkDir:       projectRoot,
-		SubAgentCfg:   config.SubAgentConfig{MaxFollowUps: 100},
-		SessionStore:  store,
+		WorkDir:      projectRoot,
+		SubAgentCfg:  config.SubAgentConfig{MaxFollowUps: 100},
+		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			return agent.RunState{}, nil
 		}},
@@ -937,7 +937,7 @@ func TestFollowUpHandler_CodeSessionPartialRetainsPath(t *testing.T) {
 
 	store := NewSessionStore()
 	store.Save(&ChildSession{
-		Spec:    Spec{AgentID: "child-partial", Task: "implement feature"},
+		Spec: Spec{AgentID: "child-partial", Task: "implement feature"},
 		Request: agent.RunRequest{
 			Prompt: promptWithConversation("initial task"),
 			Limits: agent.Limits{MaxTurns: 1},
@@ -954,10 +954,10 @@ func TestFollowUpHandler_CodeSessionPartialRetainsPath(t *testing.T) {
 
 	runs := 0
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
-		WorkDir:       projectRoot,
-		SubAgentCfg:   config.SubAgentConfig{MaxFollowUps: 100, MaxTurns: 1},
-		SessionStore:  store,
-		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		WorkDir:      projectRoot,
+		SubAgentCfg:  config.SubAgentConfig{MaxFollowUps: 100, MaxTurns: 1},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 			runs++
 			// Simulate hitting turn limit (partial result).
 			return agent.RunState{

@@ -123,11 +123,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 		if delegationResult, ok := result.Value.(Result); ok {
 			delegationResult.FollowUpCount = updated.FollowUpCount
 			delegationResult.persisted = true
-			if isCode && session.Remediation != nil {
-				delegationResult.WorktreePath = session.Remediation.WorktreePath
-				delegationResult.WorktreeBranch = session.Remediation.ExpectedBranch
-				delegationResult.providerWorktreePath = providerRelativeWorktreePath(deps.WorkDir, delegationResult.WorktreePath)
-			}
+			delegationResult = applyFollowUpWorktreeResult(delegationResult, isCode, session.Remediation, deps.WorkDir)
 			result.Value = delegationResult
 		}
 	}
@@ -171,6 +167,19 @@ func denyFollowUpOnDeadCodeWorktree(ctx context.Context, agentID string, isCode 
 			agentID, err)
 	}
 	return nil
+}
+
+// applyFollowUpWorktreeResult sets the absolute and provider-relative worktree
+// locators on a follow-up result from the stored remediation config, once the
+// worktree has already passed validation (denyFollowUpOnDeadCodeWorktree).
+func applyFollowUpWorktreeResult(result Result, isCode bool, remediation *RemediationConfig, workDir string) Result {
+	if !isCode || remediation == nil {
+		return result
+	}
+	result.WorktreePath = remediation.WorktreePath
+	result.WorktreeBranch = remediation.ExpectedBranch
+	result.providerWorktreePath = providerRelativeWorktreePath(workDir, result.WorktreePath)
+	return result
 }
 
 func denyFollowUpInPlanMode(ctx context.Context, childHasMutate bool) error {

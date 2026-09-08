@@ -419,47 +419,47 @@ func TestAppendAdvisorSummaryLine(t *testing.T) {
 
 func TestProviderRelativeWorktreePath(t *testing.T) {
 	tests := []struct {
-		name           string
-		projectRoot    string
-		worktreePath   string
-		wantPath       string
-		wantOmitted    bool
+		name         string
+		projectRoot  string
+		worktreePath string
+		wantPath     string
+		wantOmitted  bool
 	}{
 		{
-			name:        "empty project root yields omitted",
-			projectRoot: "",
+			name:         "empty project root yields omitted",
+			projectRoot:  "",
 			worktreePath: "/home/x/proj/.steiner/worktrees/abc/main/agent-1",
-			wantOmitted: true,
+			wantOmitted:  true,
 		},
 		{
-			name:        "empty worktree path yields omitted",
-			projectRoot: "/home/x/proj",
+			name:         "empty worktree path yields omitted",
+			projectRoot:  "/home/x/proj",
 			worktreePath: "",
-			wantOmitted: true,
+			wantOmitted:  true,
 		},
 		{
-			name:        "worktree outside root yields omitted",
-			projectRoot: "/home/x/proj",
+			name:         "worktree outside root yields omitted",
+			projectRoot:  "/home/x/proj",
 			worktreePath: "/etc/passwd",
-			wantOmitted: true,
+			wantOmitted:  true,
 		},
 		{
-			name:        "worktree not under .steiner/worktrees yields omitted",
-			projectRoot: "/home/x/proj",
+			name:         "worktree not under .steiner/worktrees yields omitted",
+			projectRoot:  "/home/x/proj",
 			worktreePath: "/home/x/proj/other/path",
-			wantOmitted: true,
+			wantOmitted:  true,
 		},
 		{
-			name:        "valid relative path converts correctly",
-			projectRoot: "/home/x/proj",
+			name:         "valid relative path converts correctly",
+			projectRoot:  "/home/x/proj",
 			worktreePath: "/home/x/proj/.steiner/worktrees/abc/main/agent-1",
-			wantPath:    ".steiner/worktrees/abc/main/agent-1",
+			wantPath:     ".steiner/worktrees/abc/main/agent-1",
 		},
 		{
-			name:        "valid with trailing slashes normalizes",
-			projectRoot: "/home/x/proj/",
+			name:         "valid with trailing slashes normalizes",
+			projectRoot:  "/home/x/proj/",
 			worktreePath: "/home/x/proj/.steiner/worktrees/abc/main/agent-1/",
-			wantPath:    ".steiner/worktrees/abc/main/agent-1",
+			wantPath:     ".steiner/worktrees/abc/main/agent-1",
 		},
 	}
 
@@ -497,8 +497,8 @@ func TestProjectToolResultWorktreePathSerialization(t *testing.T) {
 		{
 			name: "populated provider path is included",
 			result: Result{
-				Output:                "done",
-				Status:                StatusComplete,
+				Output:               "done",
+				Status:               StatusComplete,
 				providerWorktreePath: ".steiner/worktrees/abc/main/agent-1",
 			},
 			wantPath: ".steiner/worktrees/abc/main/agent-1",
@@ -506,9 +506,9 @@ func TestProjectToolResultWorktreePathSerialization(t *testing.T) {
 		{
 			name: "absolute WorktreePath does not leak to envelope",
 			result: Result{
-				Output:           "done",
-				Status:           StatusComplete,
-				WorktreePath:     "/home/x/proj/.steiner/worktrees/abc/main/agent-1",
+				Output:               "done",
+				Status:               StatusComplete,
+				WorktreePath:         "/home/x/proj/.steiner/worktrees/abc/main/agent-1",
 				providerWorktreePath: "",
 			},
 			wantOmitted: true,
