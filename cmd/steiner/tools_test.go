@@ -543,7 +543,7 @@ func extractLSPHelperPID(stderr string) (int, error) {
 
 // TestLSPToolsRegisteredWhenEnabledWithUnavailableServer verifies that LSP tools
 // register unconditionally based on config, not server state. When lsp.enabled=true
-// and a server's binary does not exist, all three LSP tools still register in the
+// and a server's binary does not exist, all four LSP tools still register in the
 // registry, and calling them returns unavailability messages without errors.
 func TestLSPToolsRegisteredWhenEnabledWithUnavailableServer(t *testing.T) {
 	cfg := registryTestConfig()
@@ -563,9 +563,9 @@ func TestLSPToolsRegisteredWhenEnabledWithUnavailableServer(t *testing.T) {
 
 	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, lspMgr)
 
-	// All three LSP tools must be registered despite server being unavailable.
+	// All four LSP tools must be registered despite server being unavailable.
 	toolNames := registry.Names()
-	for _, name := range []string{"lsp_definitions", "lsp_references", "lsp_diagnostics"} {
+	for _, name := range []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"} {
 		def, ok := registry.Get(name)
 		if !ok {
 			t.Fatalf("LSP tool %q not registered; names: %v", name, toolNames)
@@ -586,7 +586,7 @@ func TestLSPToolsRegisteredWhenEnabledWithUnavailableServer(t *testing.T) {
 }
 
 // TestLSPToolsNotRegisteredWhenDisabled verifies that when lsp.enabled=false,
-// none of the three LSP tools appear in the registry.
+// none of the four LSP tools appear in the registry.
 func TestLSPToolsNotRegisteredWhenDisabled(t *testing.T) {
 	cfg := registryTestConfig()
 	cfg.LSP = config.LSPConfig{Enabled: false}
@@ -594,7 +594,7 @@ func TestLSPToolsNotRegisteredWhenDisabled(t *testing.T) {
 	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, nil)
 
 	toolNames := registry.Names()
-	for _, name := range []string{"lsp_definitions", "lsp_references", "lsp_diagnostics"} {
+	for _, name := range []string{"lsp_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover"} {
 		if _, ok := registry.Get(name); ok {
 			t.Fatalf("LSP tool %q registered despite lsp.enabled=false; names: %v", name, toolNames)
 		}
@@ -635,14 +635,14 @@ func TestLSPRegistryOrderingDeterministic(t *testing.T) {
 	}
 
 	// Additionally, verify that LSP tools appear in their expected order within
-	// the full sorted list (lsp_definitions, lsp_diagnostics, lsp_references alphabetically).
+	// the full sorted list (lsp_definitions, lsp_diagnostics, lsp_hover, lsp_references alphabetically).
 	lspToolsInRegistry := make([]string, 0)
 	for _, name := range names1 {
-		if name == "lsp_definitions" || name == "lsp_references" || name == "lsp_diagnostics" {
+		if name == "lsp_definitions" || name == "lsp_references" || name == "lsp_diagnostics" || name == "lsp_hover" {
 			lspToolsInRegistry = append(lspToolsInRegistry, name)
 		}
 	}
-	if want := []string{"lsp_definitions", "lsp_diagnostics", "lsp_references"}; !slices.Equal(lspToolsInRegistry, want) {
+	if want := []string{"lsp_definitions", "lsp_diagnostics", "lsp_hover", "lsp_references"}; !slices.Equal(lspToolsInRegistry, want) {
 		t.Fatalf("LSP tools in wrong order: got %v, want %v", lspToolsInRegistry, want)
 	}
 }
