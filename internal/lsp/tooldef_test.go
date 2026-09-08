@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.lsp.dev/protocol"
+
 	"github.com/luispabon/steiner/internal/config"
 )
 
@@ -408,6 +410,189 @@ func TestSymbolResolutionError(t *testing.T) {
 
 	if !strings.Contains(msg, "not found") {
 		t.Errorf("expected 'not found' in result, got: %q", msg)
+	}
+}
+
+// symbolTestManager builds a Manager wired to a fake LSP session for symbol
+// resolution tests. It registers a "go" server for .go files and injects a
+// ready entry keyed by the session's actual (server, root) resolution, so
+// requests reach entryFor without spawning a real process.
+func symbolTestManager(t *testing.T, sess session, workspace, testFile string) *Manager {
+	t.Helper()
+
+	cfg := config.LSPConfig{
+		MaxResults:     100,
+		RequestTimeout: config.MustDuration("2s"),
+		Servers: map[string]config.LSPServerConfig{
+			"go": {Enabled: true, FileExtensions: []string{".go"}},
+		},
+	}
+	m := NewManager(cfg, workspace, nil, func(string) {}, nil)
+	t.Cleanup(func() { _ = m.Close() })
+
+	root := resolveRoot(testFile, workspace, nil)
+	ent := &entry{state: ServerState{Status: ServerStatusReady}, session: sess}
+	m.sessions = map[sessionKey]*entry{{server: "go", root: root}: ent}
+
+	return m
+}
+
+func TestSymbolResolutionSuccess(t *testing.T) {
+	fs := newFakeServer()
+	fs.definitionResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 1, Character: 5},
+			End:   protocol.Position{Line: 1, Character: 8},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\nfunc Foo() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	result, err := defsTool.Handler(ctx, map[string]any{
+		"file":   "test.go",
+		"symbol": "Foo",
+	})
+	if err != nil {
+		t.Fatalf("definitions handler with symbol: expected nil Go error, got %v", err)
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	wantEcho := "resolved test.go:2:6 (Foo)"
+	if !strings.HasPrefix(msg, wantEcho+"\n") {
+		t.Fatalf("expected output to start with %q, got: %q", wantEcho+"\n", msg)
+	}
+
+	locationOutput := strings.TrimPrefix(msg, wantEcho+"\n")
+	if locationOutput == "" || locationOutput == "(no definitions found)" {
+		t.Errorf("expected formatted location output after echo line, got: %q", locationOutput)
+	}
+}
+
+func TestSymbolResolutionEmptyResult(t *testing.T) {
+	fs := newFakeServer()
+	// fs.definitionResult left unset: the server returns zero locations.
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\nfunc Foo() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	result, err := defsTool.Handler(ctx, map[string]any{
+		"file":   "test.go",
+		"symbol": "Foo",
+	})
+	if err != nil {
+		t.Fatalf("definitions handler with symbol: expected nil Go error, got %v", err)
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	// The echo line must not suppress the "(no definitions found)" fallback
+	// just because it makes the combined output non-empty.
+	wantEcho := "resolved test.go:2:6 (Foo)"
+	want := wantEcho + "\n(no definitions found)"
+	if msg != want {
+		t.Errorf("output = %q, want %q", msg, want)
+	}
+}
+
+func TestSymbolResolutionCacheSharesWithColumnPath(t *testing.T) {
+	fs := newFakeServer()
+	fs.definitionResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 1, Character: 5},
+			End:   protocol.Position{Line: 1, Character: 8},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\nfunc Foo() {}\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	// First call: explicit column.
+	res, err := m.Definitions(ctx, testFile, 2, 6)
+	if err != nil {
+		t.Fatalf("Definitions (column path): %v", err)
+	}
+	if res.Incomplete {
+		t.Fatalf("Definitions (column path): Incomplete = true, want false (caching only happens for non-provisional results)")
+	}
+
+	// Resolve the equivalent symbol position and confirm it yields the
+	// identical (line, col) the explicit call used.
+	_, resolvedLine, resolvedCol, err := resolveSymbolPosition(tmpdir, "test.go", "Foo", 0)
+	if err != nil {
+		t.Fatalf("resolveSymbolPosition: %v", err)
+	}
+	if resolvedLine != 2 || resolvedCol != 6 {
+		t.Fatalf("resolveSymbolPosition: got (%d, %d), want (2, 6)", resolvedLine, resolvedCol)
+	}
+
+	// Second call: via the resolved symbol position. Should hit the cache.
+	if _, err := m.Definitions(ctx, testFile, resolvedLine, resolvedCol); err != nil {
+		t.Fatalf("Definitions (symbol-resolved path): %v", err)
+	}
+
+	calls := 0
+	for _, method := range fs.recorded() {
+		if method == "textDocument/definition" {
+			calls++
+		}
+	}
+	if calls != 1 {
+		t.Errorf("textDocument/definition called %d times, want 1 (second call should hit the cache)", calls)
 	}
 }
 

@@ -3,18 +3,19 @@ package lsp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestResolveSymbolPosition(t *testing.T) {
 	tests := []struct {
-		name         string
-		fileContent  string
-		symbol       string
-		line         int
-		wantLine     int
-		wantCol      int
-		wantErr      string
+		name        string
+		fileContent string
+		symbol      string
+		line        int
+		wantLine    int
+		wantCol     int
+		wantErr     string
 	}{
 		{
 			name:        "unique match on specified line",
@@ -137,7 +138,7 @@ func TestResolveSymbolPosition(t *testing.T) {
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Errorf("resolveSymbolPosition: got nil error, want error containing %q", tt.wantErr)
-				} else if !stringContains(err.Error(), tt.wantErr) {
+				} else if !strings.Contains(err.Error(), tt.wantErr) {
 					t.Errorf("resolveSymbolPosition: error = %q, want substring %q", err.Error(), tt.wantErr)
 				}
 				return
@@ -201,7 +202,7 @@ func TestResolveSymbolPositionLineZeroVsAbsent(t *testing.T) {
 	if err == nil {
 		t.Errorf("resolveSymbolPosition: expected error for ambiguous match, got nil")
 	}
-	if !stringContains(err.Error(), "found on lines") {
+	if !strings.Contains(err.Error(), "found on lines") {
 		t.Errorf("resolveSymbolPosition: error = %q, want substring 'found on lines'", err.Error())
 	}
 }
@@ -225,29 +226,7 @@ func TestResolveSymbolPositionMaxListedLines(t *testing.T) {
 	}
 
 	errMsg := err.Error()
-	if !stringContains(errMsg, "20") || !stringContains(errMsg, "and 5 more") {
+	if !strings.Contains(errMsg, "20") || !strings.Contains(errMsg, "and 5 more") {
 		t.Errorf("resolveSymbolPosition: error = %q, want to contain '20' and 'and 5 more'", errMsg)
 	}
-}
-
-// stringContains reports whether haystack contains needle as a substring.
-func stringContains(haystack, needle string) bool {
-	return len(haystack) >= len(needle) && (len(needle) == 0 || haystack[len(haystack)-len(needle):] == needle || // fast path: suffix
-		findSubstring(haystack, needle) >= 0)
-}
-
-// findSubstring finds the index of needle in haystack, or -1 if not found.
-func findSubstring(haystack, needle string) int {
-	if len(needle) == 0 {
-		return 0
-	}
-	if len(needle) > len(haystack) {
-		return -1
-	}
-	for i := 0; i <= len(haystack)-len(needle); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return i
-		}
-	}
-	return -1
 }
