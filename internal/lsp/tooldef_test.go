@@ -3,6 +3,8 @@ package lsp
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -113,29 +115,34 @@ func TestToolDefsSchemas(t *testing.T) {
 	defs := ToolDefs(m)
 
 	tests := []struct {
-		name     string
-		toolIdx  int
-		required []string
+		name       string
+		toolIdx    int
+		properties []string
+		required   []string
 	}{
 		{
-			name:     "definitions schema",
-			toolIdx:  0,
-			required: []string{"file", "line", "column"},
+			name:       "definitions schema",
+			toolIdx:    0,
+			properties: []string{"file", "line", "column", "symbol"},
+			required:   []string{"file"},
 		},
 		{
-			name:     "references schema",
-			toolIdx:  1,
-			required: []string{"file", "line", "column"},
+			name:       "references schema",
+			toolIdx:    1,
+			properties: []string{"file", "line", "column", "symbol", "include_declaration"},
+			required:   []string{"file"},
 		},
 		{
-			name:     "diagnostics schema",
-			toolIdx:  2,
-			required: []string{"file"},
+			name:       "diagnostics schema",
+			toolIdx:    2,
+			properties: []string{"file"},
+			required:   []string{"file"},
 		},
 		{
-			name:     "hover schema",
-			toolIdx:  3,
-			required: []string{"file", "line", "column"},
+			name:       "hover schema",
+			toolIdx:    3,
+			properties: []string{"file", "line", "column", "symbol"},
+			required:   []string{"file"},
 		},
 	}
 
@@ -147,9 +154,9 @@ func TestToolDefsSchemas(t *testing.T) {
 				t.Fatalf("schema has no properties object")
 			}
 
-			for _, req := range tt.required {
-				if _, ok := props[req]; !ok {
-					t.Errorf("required field %q not in properties", req)
+			for _, prop := range tt.properties {
+				if _, ok := props[prop]; !ok {
+					t.Errorf("property %q not in properties", prop)
 				}
 			}
 
@@ -364,4 +371,167 @@ func TestFailedServerErrorHover(t *testing.T) {
 	if goErr == nil || !errors.Is(goErr, err) {
 		t.Errorf("handleNavigationError should return original error, got %v", goErr)
 	}
+}
+
+func TestSymbolResolutionError(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, t.TempDir(), nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	// Update manager workspace to match tmpdir
+	m.workspace = tmpdir
+
+	input := map[string]any{
+		"file":   "test.go",
+		"symbol": "NonExistentSymbol",
+	}
+
+	result, err := defsTool.Handler(context.Background(), input)
+	if err != nil {
+		t.Errorf("definitions handler with symbol: expected nil Go error, got %v", err)
+		return
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if !strings.Contains(msg, "not found") {
+		t.Errorf("expected 'not found' in result, got: %q", msg)
+	}
+}
+
+func TestColumnWithoutLineError(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	input := map[string]any{
+		"file":   "test.go",
+		"column": 5.0,
+	}
+
+	result, err := defsTool.Handler(context.Background(), input)
+	if err != nil {
+		t.Errorf("definitions handler: expected nil Go error, got %v", err)
+		return
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if !strings.Contains(msg, "column requires line") {
+		t.Errorf("expected 'column requires line' in result, got: %q", msg)
+	}
+}
+
+func TestNeitherColumnNorSymbolError(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	input := map[string]any{
+		"file": "test.go",
+	}
+
+	result, err := defsTool.Handler(context.Background(), input)
+	if err != nil {
+		t.Errorf("definitions handler: expected nil Go error, got %v", err)
+		return
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if !strings.Contains(msg, "requires either column") && !strings.Contains(msg, "requires either") {
+		t.Errorf("expected parameter error in result, got: %q", msg)
+	}
+}
+
+func TestColumnPathNoEchoLine(t *testing.T) {
+	cfg := config.LSPConfig{
+		Servers: map[string]config.LSPServerConfig{
+			"test": {
+				Enabled:        true,
+				FileExtensions: []string{".go"},
+				Command:        "echo",
+			},
+		},
+	}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	input := map[string]any{
+		"file":   "test.unknown",
+		"line":   1.0,
+		"column": 1.0,
+	}
+
+	result, err := defsTool.Handler(context.Background(), input)
+	if err != nil {
+		t.Errorf("definitions handler: expected nil Go error, got %v", err)
+		return
+	}
+
+	msg, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	// With explicit column, should NOT have echo line (no "resolved" prefix)
+	if strings.Contains(msg, "resolved") {
+		t.Errorf("column path should not produce echo line, got: %q", msg)
+	}
+}
+
+func TestColumnAndSymbolSupplied(t *testing.T) {
+	cfg := config.LSPConfig{}
+	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	defs := ToolDefs(m)
+	defsTool := defs[0]
+
+	input := map[string]any{
+		"file":   "test.go",
+		"line":   1.0,
+		"column": 1.0,
+		"symbol": "ShouldBeIgnored",
+	}
+
+	result, err := defsTool.Handler(context.Background(), input)
+	if err == nil {
+		// With no server configured, should get "No language server is configured" message
+		// This proves the column path was taken (no symbol resolution happened)
+		msg, ok := result.(string)
+		if ok && strings.Contains(msg, "No language server") {
+			// Good: we took the column path, not symbol path
+			return
+		}
+	}
+
+	t.Errorf("column+symbol: column should win and skip symbol resolution")
 }
