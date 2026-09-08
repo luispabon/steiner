@@ -27,4 +27,9 @@ type Env struct {
 	// only). Overridden per-call from the request context by NewMutateTool,
 	// mirroring PathPolicy; nil means "not observed" for any path.
 	FileObserved tool.FileObservedChecker
+	// MutateDiagnostics queries LSP diagnostics for files a mutate call
+	// touched, when an LSP manager is configured and lsp.enabled. Nil when
+	// LSP is disabled or unconfigured — the mutate handler skips diagnostics
+	// entirely in that case.
+	MutateDiagnostics tool.MutateDiagnosticsFunc
 }

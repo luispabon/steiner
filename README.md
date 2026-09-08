@@ -341,7 +341,7 @@ MCP behaviour is covered by hermetic, CI-safe tests for both transports; live va
 
 ## LSP-backed code intelligence
 
-Connect language servers (LSP) to navigate code: jump to definitions, find references, view diagnostics. LSP is disabled by default. When enabled, servers are configured under `lsp.servers` and lazily started on first use (explore, code, and review agents can access the three tools). The three navigation tools gracefully degrade when no server is configured for a file's extension or when a server fails to start.
+Connect language servers (LSP) to navigate code: jump to definitions, find references, view diagnostics. LSP is disabled by default. When enabled, servers are configured under `lsp.servers` and lazily started on first use (explore, code, and review agents can access the three tools). The three navigation tools gracefully degrade when no server is configured for a file's extension or when a server fails to start. `mutate` results also include diagnostics for touched files automatically, when a language server is already running and ready for them — no extra tool call needed.
 
 ```yaml
 lsp:
