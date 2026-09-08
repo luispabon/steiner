@@ -488,6 +488,25 @@ func TestSystemPreambleLSPGuidance(t *testing.T) {
 	}
 }
 
+func TestSystemPreambleDoesNotNameLSPWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		override string
+	}{
+		{name: "normal preamble"},
+		{name: "override preamble", override: "Custom override content"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Override: tc.override, DelegationEnabled: true, LSPEnabled: false, Mode: workflowModeParent}).Content
+			if strings.Contains(content, "lsp_") {
+				t.Errorf("preamble names an LSP tool with LSP disabled:\n%s", content)
+			}
+		})
+	}
+}
+
 func TestSystemPreambleLSPGuidanceFollowsAdvisor(t *testing.T) {
 	t.Parallel()
 

@@ -172,17 +172,10 @@ func TestAgentSystemSuffix(t *testing.T) {
 			contains:       []string{"exactly ONE advisor call", "## Code intelligence (LSP)"},
 		},
 		{
-			name:       "explore agent suffix with lsp",
-			agentType:  AgentTypeExplore,
+			name:       "research agent has no suffix with lsp enabled",
+			agentType:  AgentTypeResearch,
 			lspEnabled: true,
-			contains:   []string{"## Code intelligence (LSP)", "lsp_references", "lsp_diagnostics"},
-		},
-		{
-			name:           "code agent combined suffix",
-			agentType:      AgentTypeCode,
-			advisorEnabled: true,
-			lspEnabled:     true,
-			contains:       []string{"exactly ONE advisor call", "## Code intelligence (LSP)"},
+			wantEmpty:  true,
 		},
 		{
 			name:           "evaluate agent suffix without advisor",
