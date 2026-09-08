@@ -8,9 +8,9 @@ queries. Servers are configured under `lsp.servers` and are off by default
 
 Three built-in tools become available when a language server is configured and working:
 
-- **definitions** — Jump to the definition of a symbol at a given location. Returns a list of locations in other files (or the same file) where the symbol is defined. If multiple definitions exist (rare), all are returned, up to `lsp.max_results`.
-- **references** — Find all references to a symbol. By default includes the symbol's declaration; pass `include_declaration: false` to exclude it. Results are returned up to `lsp.max_results`.
-- **diagnostics** — Get diagnostics (errors, warnings, information, hints) for a file. Returns what the language server has published for that file. Diagnostics reflect the server's state at query time; if the server is still indexing, results may be incomplete or provisional.
+- **lsp_definitions** — Jump to the definition of a symbol at a given location. Returns a list of locations in other files (or the same file) where the symbol is defined. If multiple definitions exist (rare), all are returned, up to `lsp.max_results`.
+- **lsp_references** — Find all references to a symbol. By default includes the symbol's declaration; pass `include_declaration: false` to exclude it. Results are returned up to `lsp.max_results`.
+- **lsp_diagnostics** — Get diagnostics (errors, warnings, information, hints) for a file. Returns what the language server has published for that file. Diagnostics reflect the server's state at query time; if the server is still indexing, results may be incomplete or provisional.
 
 All three tools gracefully degrade when no server is configured for a file's extension, when a server is disabled, or when a server fails to start — they return a clear message instead of an error. See [Graceful degradation](#graceful-degradation) below for the messages and what they mean.
 
@@ -114,14 +114,14 @@ When a query completes successfully but the server was still indexing, the resul
 
 ## Diagnostics collection window
 
-The `diagnostics` tool collects published diagnostics for a file by opening it and waiting for `lsp.diagnostics_window` (default 2s) to collect all incoming diagnostics messages from the server. Unlike pull-based diagnostics (which would request diagnostics on demand), this push-based approach respects the server's optimization: servers batch and rate-limit diagnostics publications, and we honor those choices rather than forcing a full re-check.
+The `lsp_diagnostics` tool collects published diagnostics for a file by opening it and waiting for `lsp.diagnostics_window` (default 2s) to collect all incoming diagnostics messages from the server. Unlike pull-based diagnostics (which would request diagnostics on demand), this push-based approach respects the server's optimization: servers batch and rate-limit diagnostics publications, and we honor those choices rather than forcing a full re-check.
 
 The `lsp.diagnostics_window` is unconditional latency: the tool always waits the full window even if the server publishes diagnostics immediately. This ensures completeness without being surprising.
 
 ## Known limitations
 
 - Language servers other than gopls are unverified for cache requirements. If you encounter cache-related issues with other servers, open an issue.
-- Hover, document symbols (`textDocument/documentSymbol`), rename (`textDocument/rename`), and other LSP features are not yet implemented. The three tools (definitions, references, diagnostics) are the current focus.
+- Hover, document symbols (`textDocument/documentSymbol`), rename (`textDocument/rename`), and other LSP features are not yet implemented. The three tools (lsp_definitions, lsp_references, lsp_diagnostics) are the current focus.
 
 ## Timeout calibration
 
@@ -237,7 +237,7 @@ request through early is safe; it costs latency, not accuracy.
 | Field | Value | Derivation |
 |---|---|---|
 | `idle_timeout` | 5m | Policy, not a measurement. Nothing above argues for a change. |
-| `request_timeout` | 10s | A ceiling for a hung server, not a p95-derived margin. Warm definitions peak at 529 ms and a request to a still-loading no-progress server returned in 1.79 s, both far inside it. Measured against definitions only — `references` is a heavier query and was not measured. |
+| `request_timeout` | 10s | A ceiling for a hung server, not a p95-derived margin. Warm `lsp_definitions` peak at 529 ms and a request to a still-loading no-progress server returned in 1.79 s, both far inside it. Measured against `lsp_definitions` only — `lsp_references` is a heavier query and was not measured. |
 | `ready_timeout` | 30s | Unchanged, and deliberately generous. On expiry `awaitReady` returns `incomplete=true` and the request proceeds anyway, so an over-long value costs nothing in the common case (the gate closes at ~1.2 s and the timer never fires), while an under-short one silently defeats the readiness gate on any workspace larger than this one — or on a genuine first run that also pays module downloads. |
 | `ready_grace_period` | 2s | Must exceed the time a normal server takes to emit its *first* `begin`, or `trackReadiness` wrongly concludes the server is silent. That was 61–120 ms cold and warm, so 2s carries ~17x headroom. D16 also shows that firing this timer early is not harmful, which is why headroom rather than precision is the goal. |
 | `diagnostics_window` | 2s | Lowered from a provisional 3s. `collectDiagnostics` has no early exit — it always burns the whole window, so this is unconditional latency on every diagnostics call. The last publication for a file arrived at 615 ms in the worst of 10 runs and no second pass exists to wait for, so 2s keeps ~3.3x headroom over that worst case while returning a second sooner. |

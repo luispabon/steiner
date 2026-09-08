@@ -492,12 +492,12 @@ func lspFixtureManagerWithPID(t *testing.T, cacheDir, workDir string) (*lsp.Mana
 		Tools:  map[string]config.ToolConfig{},
 	}, workDir, nil, false, nil, nil, nil, mgr)
 
-	def, ok := reg.Get("definitions")
+	def, ok := reg.Get("lsp_definitions")
 	if !ok {
-		t.Fatal("definitions tool not found in registry")
+		t.Fatal("lsp_definitions tool not found in registry")
 	}
 
-	// Call the definitions tool to trigger server startup.
+	// Call the lsp_definitions tool to trigger server startup.
 	_, _ = def.Handler(ctx, map[string]any{"file": filepath.Join(workDir, "test.test"), "line": float64(1), "column": float64(1)})
 
 	// Verify the server reached ready status.
@@ -565,7 +565,7 @@ func TestLSPToolsRegisteredWhenEnabledWithUnavailableServer(t *testing.T) {
 
 	// All three LSP tools must be registered despite server being unavailable.
 	toolNames := registry.Names()
-	for _, name := range []string{"definitions", "references", "diagnostics"} {
+	for _, name := range []string{"lsp_definitions", "lsp_references", "lsp_diagnostics"} {
 		def, ok := registry.Get(name)
 		if !ok {
 			t.Fatalf("LSP tool %q not registered; names: %v", name, toolNames)
@@ -594,7 +594,7 @@ func TestLSPToolsNotRegisteredWhenDisabled(t *testing.T) {
 	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, nil)
 
 	toolNames := registry.Names()
-	for _, name := range []string{"definitions", "references", "diagnostics"} {
+	for _, name := range []string{"lsp_definitions", "lsp_references", "lsp_diagnostics"} {
 		if _, ok := registry.Get(name); ok {
 			t.Fatalf("LSP tool %q registered despite lsp.enabled=false; names: %v", name, toolNames)
 		}
@@ -635,14 +635,14 @@ func TestLSPRegistryOrderingDeterministic(t *testing.T) {
 	}
 
 	// Additionally, verify that LSP tools appear in their expected order within
-	// the full sorted list (definitions, references, diagnostics alphabetically).
+	// the full sorted list (lsp_definitions, lsp_diagnostics, lsp_references alphabetically).
 	lspToolsInRegistry := make([]string, 0)
 	for _, name := range names1 {
-		if name == "definitions" || name == "references" || name == "diagnostics" {
+		if name == "lsp_definitions" || name == "lsp_references" || name == "lsp_diagnostics" {
 			lspToolsInRegistry = append(lspToolsInRegistry, name)
 		}
 	}
-	if want := []string{"definitions", "diagnostics", "references"}; !slices.Equal(lspToolsInRegistry, want) {
+	if want := []string{"lsp_definitions", "lsp_diagnostics", "lsp_references"}; !slices.Equal(lspToolsInRegistry, want) {
 		t.Fatalf("LSP tools in wrong order: got %v, want %v", lspToolsInRegistry, want)
 	}
 }
