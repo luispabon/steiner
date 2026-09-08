@@ -115,6 +115,17 @@ func (s *readinessProgressObserver) Progress() <-chan ProgressEvent {
 	return s.session.Progress()
 }
 
+func waitForReadinessBegin(t *testing.T, observed <-chan struct{}, token string) {
+	t.Helper()
+	timer := time.NewTimer(testTimeout)
+	defer timer.Stop()
+	select {
+	case <-observed:
+	case <-timer.C:
+		t.Fatalf("timed out waiting for begin(%s) progress to be observed", token)
+	}
+}
+
 // TestReadinessBegEndFlipsReady verifies that a single begin/end cycle marks
 // readiness as ready, and subsequent awaitReady calls return immediately.
 func TestReadinessBegEndFlipsReady(t *testing.T) {
@@ -451,7 +462,20 @@ func TestReadinessMultipleTokens(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
-	go m.trackReadiness(ent, sess, ent.readiness)
+	beginAObserved := make(chan struct{}, 1)
+	beginBObserved := make(chan struct{}, 1)
+	progressSession := &readinessProgressObserver{
+		session: &readinessProgressObserver{
+			session:  sess,
+			ent:      ent,
+			token:    "tokenA",
+			observed: beginAObserved,
+		},
+		ent:      ent,
+		token:    "tokenB",
+		observed: beginBObserved,
+	}
+	go m.trackReadiness(ent, progressSession, ent.readiness)
 
 	begin, _ := json.Marshal(protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading A"})
 	// Send begin(A)
@@ -462,12 +486,14 @@ func TestReadinessMultipleTokens(t *testing.T) {
 	if err := fs.client.Progress(ctx, &progressParams); err != nil {
 		t.Fatalf("send begin(A): %v", err)
 	}
+	waitForReadinessBegin(t, beginAObserved, "tokenA")
 
 	// Send begin(B)
 	progressParams.Token = protocol.String("tokenB")
 	if err := fs.client.Progress(ctx, &progressParams); err != nil {
 		t.Fatalf("send begin(B): %v", err)
 	}
+	waitForReadinessBegin(t, beginBObserved, "tokenB")
 
 	// Send end(A) - should trigger readiness
 	end, _ := json.Marshal(protocol.WorkDoneProgressEnd{Kind: "end"})
@@ -511,7 +537,20 @@ func TestReadinessIgnoreOrphanEnd(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
-	go m.trackReadiness(ent, sess, ent.readiness)
+	beginAObserved := make(chan struct{}, 1)
+	beginBObserved := make(chan struct{}, 1)
+	progressSession := &readinessProgressObserver{
+		session: &readinessProgressObserver{
+			session:  sess,
+			ent:      ent,
+			token:    "tokenA",
+			observed: beginAObserved,
+		},
+		ent:      ent,
+		token:    "tokenB",
+		observed: beginBObserved,
+	}
+	go m.trackReadiness(ent, progressSession, ent.readiness)
 
 	end, _ := json.Marshal(protocol.WorkDoneProgressEnd{Kind: "end"})
 	// Send end for unknown token - should be ignored
@@ -539,12 +578,14 @@ func TestReadinessIgnoreOrphanEnd(t *testing.T) {
 	if err := fs.client.Progress(ctx, &progressParams); err != nil {
 		t.Fatalf("send begin(A): %v", err)
 	}
+	waitForReadinessBegin(t, beginAObserved, "tokenA")
 
 	// Send begin(B)
 	progressParams.Token = protocol.String("tokenB")
 	if err := fs.client.Progress(ctx, &progressParams); err != nil {
 		t.Fatalf("send begin(B): %v", err)
 	}
+	waitForReadinessBegin(t, beginBObserved, "tokenB")
 
 	// Send end(A) - should trigger readiness
 	progressParams.Token = protocol.String("tokenA")
@@ -588,7 +629,14 @@ func TestReadinessReadyBeforeTimeoutThenAwaitAfter(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
-	go m.trackReadiness(ent, sess, ent.readiness)
+	beginObserved := make(chan struct{}, 1)
+	progressSession := &readinessProgressObserver{
+		session:  sess,
+		ent:      ent,
+		token:    "token1",
+		observed: beginObserved,
+	}
+	go m.trackReadiness(ent, progressSession, ent.readiness)
 
 	// Send begin/end to trigger readiness immediately.
 	begin, _ := json.Marshal(protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading workspace"})
@@ -599,6 +647,7 @@ func TestReadinessReadyBeforeTimeoutThenAwaitAfter(t *testing.T) {
 	if err := fs.client.Progress(ctx, &progressParams); err != nil {
 		t.Fatalf("send begin: %v", err)
 	}
+	waitForReadinessBegin(t, beginObserved, "token1")
 
 	end, _ := json.Marshal(protocol.WorkDoneProgressEnd{Kind: "end"})
 	progressParams.Value = protocol.LSPAny(end)

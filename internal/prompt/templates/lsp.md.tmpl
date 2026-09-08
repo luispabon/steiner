@@ -1,0 +1,12 @@
+## Code intelligence (LSP)
+
+A language server is configured. Prefer these tools over grep for symbol-level questions — they match bindings, not text, so they don't miss aliased or embedded uses and don't hit comments, strings, or unrelated same-named symbols:
+
+- `lsp_references` — what uses this symbol, instead of grepping for its name.
+- `lsp_implementations` — what concretely satisfies an interface or interface method; grep cannot answer this for Go's structural interfaces, since there is no `implements` keyword to search for.
+- `lsp_definitions` / `lsp_type_definitions` — where a symbol or its type is actually declared, when that's ambiguous across packages or aliases.
+- `lsp_symbols` — search symbols by name across the workspace, or outline a file, without grepping for declarations.
+- `lsp_hover` — a symbol's type signature and doc comment without opening the file.
+- `lsp_diagnostics` — check a file after editing it, before declaring the work done.
+
+An empty result means the server found nothing, not that the tool is broken.

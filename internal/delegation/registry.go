@@ -284,6 +284,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		ContextManagement:     deps.Config.ContextManagement,
 		AdvisorForChild:       advisorForChild,
 		AdvisorSubAgentBudget: deps.AdvisorCfg.MaxUsesPerSubAgent,
+		LSPEnabled:            deps.Config.LSP.Enabled,
 	}
 
 	// Register the follow_up tool.

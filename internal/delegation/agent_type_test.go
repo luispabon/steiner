@@ -123,6 +123,7 @@ func TestAgentSystemSuffix(t *testing.T) {
 		name           string
 		agentType      AgentType
 		advisorEnabled bool
+		lspEnabled     bool
 		contains       []string
 		wantEmpty      bool
 	}{
@@ -158,6 +159,25 @@ func TestAgentSystemSuffix(t *testing.T) {
 			},
 		},
 		{
+			name:       "explore agent suffix with lsp",
+			agentType:  AgentTypeExplore,
+			lspEnabled: true,
+			contains:   []string{"## Code intelligence (LSP)", "lsp_references", "lsp_diagnostics"},
+		},
+		{
+			name:           "code agent combined suffix",
+			agentType:      AgentTypeCode,
+			advisorEnabled: true,
+			lspEnabled:     true,
+			contains:       []string{"exactly ONE advisor call", "## Code intelligence (LSP)"},
+		},
+		{
+			name:       "research agent has no suffix with lsp enabled",
+			agentType:  AgentTypeResearch,
+			lspEnabled: true,
+			wantEmpty:  true,
+		},
+		{
 			name:           "evaluate agent suffix without advisor",
 			agentType:      AgentTypeEvaluate,
 			advisorEnabled: false,
@@ -189,7 +209,7 @@ func TestAgentSystemSuffix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := AgentSystemSuffix(tt.agentType, tt.advisorEnabled)
+			got := AgentSystemSuffix(tt.agentType, tt.advisorEnabled, tt.lspEnabled)
 			if tt.wantEmpty {
 				if got != "" {
 					t.Fatalf("AgentSystemSuffix(%q, %v) = %q, want empty", tt.agentType, tt.advisorEnabled, got)
@@ -397,12 +417,12 @@ func TestTemplateLoading(t *testing.T) {
 	}
 
 	// Code-agent duties are rendered by the prompt package, not as a suffix.
-	if suffix := AgentSystemSuffix(AgentTypeCode, false); suffix != "" {
+	if suffix := AgentSystemSuffix(AgentTypeCode, false, false); suffix != "" {
 		t.Errorf("AgentSystemSuffix(code, false) should be empty, got %q", suffix)
 	}
 
 	// Verify code suffix loads with advisor enabled and contains advisor text
-	suffixWithAdvisor := AgentSystemSuffix(AgentTypeCode, true)
+	suffixWithAdvisor := AgentSystemSuffix(AgentTypeCode, true, false)
 	if suffixWithAdvisor == "" {
 		t.Error("AgentSystemSuffix(code, true) failed to load")
 	}
@@ -413,7 +433,7 @@ func TestTemplateLoading(t *testing.T) {
 	// Verify other types have no suffix when advisor is disabled
 	for _, at := range AllAgentTypes() {
 		if at != AgentTypeCode {
-			if suffix := AgentSystemSuffix(at, false); suffix != "" {
+			if suffix := AgentSystemSuffix(at, false, false); suffix != "" {
 				t.Errorf("AgentSystemSuffix(%q, false) should be empty, got non-empty string", at)
 			}
 		}
@@ -421,7 +441,7 @@ func TestTemplateLoading(t *testing.T) {
 
 	// Verify review and evaluate have advisor suffix when enabled
 	for _, at := range []AgentType{AgentTypeReview, AgentTypeEvaluate} {
-		suffix := AgentSystemSuffix(at, true)
+		suffix := AgentSystemSuffix(at, true, false)
 		if suffix == "" {
 			t.Errorf("AgentSystemSuffix(%q, true) should not be empty", at)
 		}

@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"strings"
 )
 
 //go:embed templates/*.txt
@@ -69,6 +70,7 @@ var (
 	reviewPrompt       string
 	visionPrompt       string
 	advisorAgentSuffix string
+	lspAgentSuffix     string
 )
 
 var agentAllowlists = map[AgentType][]string{
@@ -107,6 +109,7 @@ func init() {
 	reviewPrompt = mustLoadTemplate("review.txt")
 	visionPrompt = mustLoadTemplate("vision.txt")
 	advisorAgentSuffix = mustLoadTemplate("advisor_suffix.txt")
+	lspAgentSuffix = mustLoadTemplate("lsp_suffix.txt")
 }
 
 // AgentSystemPrompt returns the system prompt for the given agent type.
@@ -139,11 +142,15 @@ func AgentAllowedTools(t AgentType) []string {
 	return nil
 }
 
-// AgentSystemSuffix returns the advisor system suffix for agent types that
-// support advisor. Code-agent duties are rendered by the prompt package.
-func AgentSystemSuffix(t AgentType, advisorEnabled bool) string {
-	if !advisorEnabled || (t != AgentTypeCode && t != AgentTypeReview && t != AgentTypeEvaluate) {
-		return ""
+// AgentSystemSuffix returns optional guidance suffixes for the given agent type.
+// Code-agent duties are rendered by the prompt package.
+func AgentSystemSuffix(t AgentType, advisorEnabled, lspEnabled bool) string {
+	var suffixes []string
+	if advisorEnabled && (t == AgentTypeCode || t == AgentTypeReview || t == AgentTypeEvaluate) {
+		suffixes = append(suffixes, advisorAgentSuffix)
 	}
-	return advisorAgentSuffix
+	if lspEnabled && (t == AgentTypeExplore || t == AgentTypeCode || t == AgentTypeReview) {
+		suffixes = append(suffixes, lspAgentSuffix)
+	}
+	return strings.Join(suffixes, "\n\n")
 }

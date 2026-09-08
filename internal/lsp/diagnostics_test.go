@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 
@@ -938,7 +939,17 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	// Record client-side send order rather than fs's server-side receipt
+	// order: protocol.Handlers wraps every method with jsonrpc2.AsyncHandler,
+	// so fakeServer's handlers run in per-message goroutines and do not
+	// preserve receipt order across messages. cycleMu serializes the
+	// session's outgoing calls, so the client-side send order is what
+	// actually reflects whether the two cycles interleaved.
+	recorder := &clientSendRecorder{}
+	sess, _, err := startFakeSessionWithClientStream(ctx, t, fs, nil, func(s jsonrpc2.Stream) jsonrpc2.Stream {
+		recorder.Stream = s
+		return recorder
+	})
 	if err != nil {
 		t.Fatalf("startFakeSession: %v", err)
 	}
@@ -1078,9 +1089,9 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 		t.Error("resultB: expected WindowExpired=false (server published)")
 	}
 
-	// Verify that the recorded method sequence shows two complete non-interleaved cycles.
+	// Verify that the client-send sequence shows two complete non-interleaved cycles.
 	// Each cycle is: didOpen → didClose (definition is not used here).
-	methods := fs.recorded()
+	methods := recorder.recorded()
 	if !isNonInterleavedDiagnosticsCycles(methods) {
 		t.Errorf("methods are interleaved (concurrency bug): %v", methods)
 	}

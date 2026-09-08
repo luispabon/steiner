@@ -83,6 +83,8 @@ type SubAgentHandlerDeps struct {
 	// with a budget state keyed by agent ID. Called during child bootstrap to
 	// register advisor for code, review, and evaluate agent types.
 	AdvisorForChild func(agentID string) (tool.ToolDef, bool)
+	// LSPEnabled is forwarded so child suffixes include LSP guidance when the parent LSP is enabled.
+	LSPEnabled bool
 	// AdvisorSubAgentBudget is the configured per-child advisor budget, from
 	// config.AdvisorConfig.MaxUsesPerSubAgent. Used to populate Result.AdvisorBudget.
 	AdvisorSubAgentBudget int

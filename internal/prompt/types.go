@@ -142,6 +142,7 @@ type AssemblyOptions struct {
 	ContextState              DurableContextState
 	DelegationEnabled         bool
 	AdvisorEnabled            bool
+	LSPEnabled                bool
 	SandboxEnabled            bool
 	// SandboxWritableMounts lists host paths mounted writable in the sandbox,
 	// rendered into the sandbox system preamble section when SandboxEnabled.

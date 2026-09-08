@@ -85,6 +85,7 @@ func preambleStep(opts AssemblyOptions) sourcePlanStep {
 					SandboxEnabled:        opts.SandboxEnabled,
 					SandboxWritableMounts: opts.SandboxWritableMounts,
 					AdvisorEnabled:        opts.AdvisorEnabled,
+					LSPEnabled:            opts.LSPEnabled,
 					Mode:                  opts.WorkflowMode,
 					CaveHuman:             opts.CaveHuman,
 					SystemSuffix:          opts.PromptOverrides.SystemSuffix,
