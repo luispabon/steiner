@@ -17,6 +17,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/modelcatalog"
 	"github.com/luispabon/steiner/internal/notify"
@@ -198,6 +199,9 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		tuiCfg.SessionStore = rt.sessionStore
 	}
 	tuiCfg.MCPEnabled, tuiCfg.MCPServers, tuiCfg.MCPToolOrigins = mcpTUIState(rt.cfg, rt.mcpManager, rt.registry)
+	tuiCfg.PollLSPStatesFunc = func() []tui.LSPServerStatus {
+		return lspTUIStates(rt.cfg, rt.lspManager)
+	}
 	tuiCfg.Recorder = rt.usageRecorder
 	tuiCfg.ImageStore = rt.imageStore
 	tuiCfg.VisionCapabilities = rt.visionCapabilities
@@ -278,6 +282,51 @@ func mcpTUIState(cfg config.Config, mgr *mcp.Manager, registry *tool.Registry) (
 	}
 
 	return enabled, servers, origins
+}
+
+// lspTUIStates converts internal/lsp's live server states plus declared
+// config into the TUI's display-only snapshot. Manager.ServerStates() only
+// has an entry for a server once a request has touched it, so servers
+// declared in config but never touched get a synthesized "not started" row,
+// mirroring mcp.DeclaredStates for the analogous MCP case. The TUI sorts on
+// every consumption path, so the order returned here is not significant.
+func lspTUIStates(cfg config.Config, mgr *lsp.Manager) []tui.LSPServerStatus {
+	var live []lsp.ServerState
+	if mgr != nil {
+		live = mgr.ServerStates()
+	}
+	return lspTUIStatesFrom(cfg, live)
+}
+
+// lspTUIStatesFrom is the pure conversion lspTUIStates delegates to, split
+// out so the config/live-state merge is testable without a real Manager.
+func lspTUIStatesFrom(cfg config.Config, live []lsp.ServerState) []tui.LSPServerStatus {
+	touched := make(map[string]bool, len(live))
+	states := make([]tui.LSPServerStatus, 0, len(live)+len(cfg.LSP.Servers))
+	for _, s := range live {
+		touched[s.Name] = true
+		errText := ""
+		if s.Err != nil {
+			errText = s.Err.Error()
+		}
+		states = append(states, tui.LSPServerStatus{
+			Name:      s.Name,
+			Root:      s.Root,
+			Status:    string(s.Status),
+			Error:     errText,
+			StartedAt: s.StartedAt,
+			LastUsed:  s.LastUsed,
+		})
+	}
+
+	for name := range cfg.LSP.Servers {
+		if touched[name] {
+			continue
+		}
+		states = append(states, tui.LSPServerStatus{Name: name, Status: "not started"})
+	}
+
+	return states
 }
 
 // mcpOutcomeLabel maps a manager ToolOutcome to the display label the TUI and
