@@ -295,7 +295,12 @@ func lspTUIStates(cfg config.Config, mgr *lsp.Manager) []tui.LSPServerStatus {
 	if mgr != nil {
 		live = mgr.ServerStates()
 	}
+	return lspTUIStatesFrom(cfg, live)
+}
 
+// lspTUIStatesFrom is the pure conversion lspTUIStates delegates to, split
+// out so the config/live-state merge is testable without a real Manager.
+func lspTUIStatesFrom(cfg config.Config, live []lsp.ServerState) []tui.LSPServerStatus {
 	touched := make(map[string]bool, len(live))
 	states := make([]tui.LSPServerStatus, 0, len(live)+len(cfg.LSP.Servers))
 	for _, s := range live {
