@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -288,7 +289,17 @@ func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	// Record client-side send order rather than fs's server-side receipt
+	// order: protocol.Handlers wraps every method with jsonrpc2.AsyncHandler,
+	// so fakeServer's handlers run in per-message goroutines and do not
+	// preserve receipt order across messages. cycleMu serializes the
+	// session's outgoing calls, so the client-side send order is what
+	// actually reflects whether the two cycles interleaved.
+	recorder := &clientSendRecorder{}
+	sess, _, err := startFakeSessionWithClientStream(ctx, t, fs, nil, func(s jsonrpc2.Stream) jsonrpc2.Stream {
+		recorder.Stream = s
+		return recorder
+	})
 	if err != nil {
 		t.Fatalf("startFakeSession: %v", err)
 	}
@@ -337,7 +348,7 @@ func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
 
 	// At this point, one should have completed (didOpen/definition/didClose cycle),
 	// and the second should be waiting on cycleMu.
-	methodsSoFar := fs.recorded()
+	methodsSoFar := recorder.recorded()
 
 	// Count how many opens we've seen so far - should be exactly 1 (first call).
 	openCount := 0
@@ -369,7 +380,7 @@ func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
 	}
 
 	// Check the full sequence for non-interleaving.
-	methods := fs.recorded()
+	methods := recorder.recorded()
 
 	// Verify that opens and closes don't interleave.
 	// Pattern should be: didOpen, definition, didClose, didOpen, definition, didClose
