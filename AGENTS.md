@@ -158,9 +158,9 @@ Steiner exposes these model-facing built-in tools:
 - `fetch_url` — fetch a URL and return its content as markdown (main content extracted, falling back to the full document if extraction finds nothing) or image data
 - `display_file` — show a file in the TUI overlay without adding contents to conversation
 - `advisor` — ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`)
-- `definitions` — jump to symbol definitions; requires `lsp.enabled` and a configured language server for the file's extension
-- `references` — find all references to a symbol; requires `lsp.enabled` and a configured language server for the file's extension
-- `diagnostics` — get diagnostics for a file; requires `lsp.enabled` and a configured language server for the file's extension
+- `lsp_definitions` — jump to symbol definitions; requires `lsp.enabled` and a configured language server for the file's extension
+- `lsp_references` — find all references to a symbol; requires `lsp.enabled` and a configured language server for the file's extension
+- `lsp_diagnostics` — get diagnostics for a file; requires `lsp.enabled` and a configured language server for the file's extension
 - `workflow_handoff` — transition to a different workflow with approved artifacts
 - `mcp__<server>__<tool>` — MCP tools registered from connected MCP servers appear alongside built-ins with the `mcp__` prefix (tool names may include an optional 8-hex SHA-256 hash suffix when sanitisation or truncation is required). Their schemas and results come from third-party servers, not steiner.
 

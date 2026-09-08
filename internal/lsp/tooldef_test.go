@@ -26,7 +26,7 @@ func TestToolDefsNames(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
-	expectedNames := []string{"definitions", "references", "diagnostics"}
+	expectedNames := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics"}
 
 	for i, expected := range expectedNames {
 		if i >= len(defs) {
@@ -79,7 +79,7 @@ func TestToolDefsOrdering(t *testing.T) {
 				}
 			}
 
-			expectedOrder := []string{"definitions", "references", "diagnostics"}
+			expectedOrder := []string{"lsp_definitions", "lsp_references", "lsp_diagnostics"}
 			for i, expected := range expectedOrder {
 				if i >= len(defs1) {
 					break

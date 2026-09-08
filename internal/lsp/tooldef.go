@@ -10,7 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// ToolDefs returns the three LSP tool definitions in deterministic order: definitions, references, diagnostics.
+// ToolDefs returns the three LSP tool definitions in deterministic order: lsp_definitions, lsp_references, lsp_diagnostics.
 func ToolDefs(m *Manager) []tool.ToolDef {
 	return []tool.ToolDef{
 		definitionsTool(m),
@@ -21,7 +21,7 @@ func ToolDefs(m *Manager) []tool.ToolDef {
 
 func definitionsTool(m *Manager) tool.ToolDef {
 	return tool.ToolDef{
-		Name:         "definitions",
+		Name:         "lsp_definitions",
 		ParallelSafe: true,
 		Description:  "Jump to symbol definitions. Requires a configured language server for the file's extension; returns empty results if no server is enabled. Results may be incomplete if the language server's indexing has not finished.",
 		ParameterSchema: map[string]any{
@@ -46,17 +46,17 @@ func definitionsTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("definitions: missing or invalid file parameter")
+				return nil, fmt.Errorf("lsp_definitions: missing or invalid file parameter")
 			}
 
 			line, ok := input["line"].(float64)
 			if !ok {
-				return nil, fmt.Errorf("definitions: missing or invalid line parameter")
+				return nil, fmt.Errorf("lsp_definitions: missing or invalid line parameter")
 			}
 
 			col, ok := input["column"].(float64)
 			if !ok {
-				return nil, fmt.Errorf("definitions: missing or invalid column parameter")
+				return nil, fmt.Errorf("lsp_definitions: missing or invalid column parameter")
 			}
 
 			result, err := m.Definitions(ctx, file, int(line), int(col))
@@ -79,7 +79,7 @@ func definitionsTool(m *Manager) tool.ToolDef {
 
 func referencesTool(m *Manager) tool.ToolDef {
 	return tool.ToolDef{
-		Name:         "references",
+		Name:         "lsp_references",
 		ParallelSafe: true,
 		Description:  "Find all references to a symbol. Requires a configured language server for the file's extension; returns empty results if no server is enabled. Results may be incomplete if the language server's indexing has not finished. By default includes the symbol's declaration; set include_declaration to false to exclude it.",
 		ParameterSchema: map[string]any{
@@ -109,17 +109,17 @@ func referencesTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("references: missing or invalid file parameter")
+				return nil, fmt.Errorf("lsp_references: missing or invalid file parameter")
 			}
 
 			line, ok := input["line"].(float64)
 			if !ok {
-				return nil, fmt.Errorf("references: missing or invalid line parameter")
+				return nil, fmt.Errorf("lsp_references: missing or invalid line parameter")
 			}
 
 			col, ok := input["column"].(float64)
 			if !ok {
-				return nil, fmt.Errorf("references: missing or invalid column parameter")
+				return nil, fmt.Errorf("lsp_references: missing or invalid column parameter")
 			}
 
 			includeDecl := true
@@ -149,7 +149,7 @@ func referencesTool(m *Manager) tool.ToolDef {
 
 func diagnosticsTool(m *Manager) tool.ToolDef {
 	return tool.ToolDef{
-		Name:         "diagnostics",
+		Name:         "lsp_diagnostics",
 		ParallelSafe: true,
 		Description:  "Get diagnostics (errors, warnings, etc.) for a file. Requires a configured language server for the file's extension; returns empty results if no server is enabled. Results represent the server's state at the time of the query and may be provisional if the server is still indexing.",
 		ParameterSchema: map[string]any{
@@ -166,7 +166,7 @@ func diagnosticsTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("diagnostics: missing or invalid file parameter")
+				return nil, fmt.Errorf("lsp_diagnostics: missing or invalid file parameter")
 			}
 
 			result, err := m.Diagnostics(ctx, file)
