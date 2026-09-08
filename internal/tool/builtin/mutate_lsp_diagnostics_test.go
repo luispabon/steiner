@@ -24,7 +24,7 @@ func newMutateDiagnosticsTestTool(root string, fn tool.MutateDiagnosticsFunc) to
 
 func TestMutateLSPDiagnosticsAppendedOnSuccess(t *testing.T) {
 	root := t.TempDir()
-	toolDef := newMutateDiagnosticsTestTool(root, func(ctx context.Context, files []string) string {
+	toolDef := newMutateDiagnosticsTestTool(root, func(_ context.Context, _ []string) string {
 		return "Diagnostics after mutation:\nfoo.go:1:1 error: bad"
 	})
 
@@ -47,7 +47,7 @@ func TestMutateLSPDiagnosticsSkippedOnFailure(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	called := false
-	toolDef := newMutateDiagnosticsTestTool(root, func(ctx context.Context, files []string) string {
+	toolDef := newMutateDiagnosticsTestTool(root, func(_ context.Context, _ []string) string {
 		called = true
 		return "should not appear"
 	})
@@ -88,7 +88,7 @@ func TestMutateLSPDiagnosticsExcludesDeletedIncludesCreated(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	var captured []string
-	toolDef := newMutateDiagnosticsTestTool(root, func(ctx context.Context, files []string) string {
+	toolDef := newMutateDiagnosticsTestTool(root, func(_ context.Context, files []string) string {
 		captured = files
 		return ""
 	})
@@ -113,7 +113,7 @@ func TestMutateLSPDiagnosticsMoveIncludesToExcludesFrom(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	var captured []string
-	toolDef := newMutateDiagnosticsTestTool(root, func(ctx context.Context, files []string) string {
+	toolDef := newMutateDiagnosticsTestTool(root, func(_ context.Context, files []string) string {
 		captured = files
 		return ""
 	})
