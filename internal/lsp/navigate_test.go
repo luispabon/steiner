@@ -725,6 +725,12 @@ func newSymbolStubSession(result []SymbolInfo, err error, delay time.Duration) *
 func (s *symbolStubSession) Definition(context.Context, string, int, int) ([]Location, error) {
 	return nil, nil
 }
+func (s *symbolStubSession) Implementation(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+func (s *symbolStubSession) TypeDefinition(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
 func (s *symbolStubSession) References(context.Context, string, int, int, bool) ([]Location, error) {
 	return nil, nil
 }
@@ -883,5 +889,503 @@ func TestWorkspaceSymbolsNoEnabledServers(t *testing.T) {
 	_, err := m.WorkspaceSymbols(context.Background(), "Foo")
 	if !errors.Is(err, errNoServer) {
 		t.Errorf("WorkspaceSymbols with no enabled servers: got err=%v, want errNoServer", err)
+	}
+}
+
+func TestImplementationsSingleLocation(t *testing.T) {
+	fs := newFakeServer()
+	fs.implementationResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 4, Character: 9},
+			End:   protocol.Position{Line: 4, Character: 15},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	result, err := m.Implementations(ctx, testFile, 5, 10)
+	if err != nil {
+		t.Fatalf("Implementations: %v", err)
+	}
+
+	if len(result.Locations) != 1 {
+		t.Fatalf("Implementations: got %d locations, want 1", len(result.Locations))
+	}
+	if result.Locations[0].Line != 5 || result.Locations[0].Column != 10 {
+		t.Errorf("Implementations position: got (%d, %d), want (5, 10)", result.Locations[0].Line, result.Locations[0].Column)
+	}
+}
+
+func TestImplementationsLocationSlice(t *testing.T) {
+	fs := newFakeServer()
+	fs.implementationResult = protocol.LocationSlice{
+		{
+			URI: "file:///a.go",
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 0, Character: 5},
+			},
+		},
+		{
+			URI: "file:///b.go",
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 10, Character: 5},
+				End:   protocol.Position{Line: 10, Character: 10},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	result, err := m.Implementations(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("Implementations: %v", err)
+	}
+
+	if len(result.Locations) != 2 {
+		t.Fatalf("Implementations: got %d locations, want 2", len(result.Locations))
+	}
+}
+
+func TestImplementationsInvalidPosition(t *testing.T) {
+	tmpdir := t.TempDir()
+	cacheDir := filepath.Join(tmpdir, "cache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache: %v", err)
+	}
+
+	cfg := config.LSPConfig{
+		Enabled:           true,
+		IdleTimeout:       config.MustDuration("5s"),
+		RequestTimeout:    config.MustDuration("1s"),
+		ReadyTimeout:      config.MustDuration("100ms"),
+		ReadyGracePeriod:  config.MustDuration("50ms"),
+		DiagnosticsWindow: config.MustDuration("5s"),
+		MaxResults:        100,
+		CacheDir:          cacheDir,
+	}
+
+	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	// Test line < 1.
+	_, err := m.Implementations(ctx, testFile, 0, 1)
+	if err == nil {
+		t.Error("Implementations with line=0 should error")
+	}
+
+	// Test col < 1.
+	_, err = m.Implementations(ctx, testFile, 1, 0)
+	if err == nil {
+		t.Error("Implementations with col=0 should error")
+	}
+}
+
+func TestImplementationsCacheHit(t *testing.T) {
+	fs := newFakeServer()
+	fs.implementationResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 5},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	// First call.
+	_, err = m.Implementations(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("Implementations: %v", err)
+	}
+
+	// Second call with same position should hit cache.
+	_, err = m.Implementations(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("Implementations: %v", err)
+	}
+
+	// Should only have called once.
+	methods := fs.recorded()
+	implCount := 0
+	for _, m := range methods {
+		if m == "textDocument/implementation" {
+			implCount++
+		}
+	}
+	if implCount != 1 {
+		t.Errorf("textDocument/implementation called %d times, want 1 (second call should hit the cache)", implCount)
+	}
+}
+
+func TestImplementationsCacheKeyDistinctFromDefinitions(t *testing.T) {
+	fs := newFakeServer()
+	implLoc := &protocol.Location{
+		URI: "file:///impl.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 5},
+		},
+	}
+	defLoc := &protocol.Location{
+		URI: "file:///def.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 5},
+		},
+	}
+
+	fs.implementationResult = implLoc
+	fs.definitionResult = defLoc
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	// Call both methods at same position.
+	implResult, err := m.Implementations(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("Implementations: %v", err)
+	}
+
+	defResult, err := m.Definitions(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("Definitions: %v", err)
+	}
+
+	// Results should differ (different URIs).
+	if implResult.Locations[0].File == defResult.Locations[0].File {
+		t.Error("Implementations and Definitions returned same result; cache keys must differ")
+	}
+
+	// Both request kinds should have been recorded.
+	methods := fs.recorded()
+	hasImpl := false
+	hasDef := false
+	for _, m := range methods {
+		if m == "textDocument/implementation" {
+			hasImpl = true
+		}
+		if m == "textDocument/definition" {
+			hasDef = true
+		}
+	}
+	if !hasImpl {
+		t.Error("textDocument/implementation not recorded")
+	}
+	if !hasDef {
+		t.Error("textDocument/definition not recorded")
+	}
+}
+
+func TestTypeDefinitionsSingleLocation(t *testing.T) {
+	fs := newFakeServer()
+	fs.typeDefinitionResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 4, Character: 9},
+			End:   protocol.Position{Line: 4, Character: 15},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	result, err := m.TypeDefinitions(ctx, testFile, 5, 10)
+	if err != nil {
+		t.Fatalf("TypeDefinitions: %v", err)
+	}
+
+	if len(result.Locations) != 1 {
+		t.Fatalf("TypeDefinitions: got %d locations, want 1", len(result.Locations))
+	}
+	if result.Locations[0].Line != 5 || result.Locations[0].Column != 10 {
+		t.Errorf("TypeDefinitions position: got (%d, %d), want (5, 10)", result.Locations[0].Line, result.Locations[0].Column)
+	}
+}
+
+func TestTypeDefinitionsLocationSlice(t *testing.T) {
+	fs := newFakeServer()
+	fs.typeDefinitionResult = protocol.LocationSlice{
+		{
+			URI: "file:///a.go",
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 0, Character: 5},
+			},
+		},
+		{
+			URI: "file:///b.go",
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 10, Character: 5},
+				End:   protocol.Position{Line: 10, Character: 10},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	result, err := m.TypeDefinitions(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("TypeDefinitions: %v", err)
+	}
+
+	if len(result.Locations) != 2 {
+		t.Fatalf("TypeDefinitions: got %d locations, want 2", len(result.Locations))
+	}
+}
+
+func TestTypeDefinitionsInvalidPosition(t *testing.T) {
+	tmpdir := t.TempDir()
+	cacheDir := filepath.Join(tmpdir, "cache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache: %v", err)
+	}
+
+	cfg := config.LSPConfig{
+		Enabled:           true,
+		IdleTimeout:       config.MustDuration("5s"),
+		RequestTimeout:    config.MustDuration("1s"),
+		ReadyTimeout:      config.MustDuration("100ms"),
+		ReadyGracePeriod:  config.MustDuration("50ms"),
+		DiagnosticsWindow: config.MustDuration("5s"),
+		MaxResults:        100,
+		CacheDir:          cacheDir,
+	}
+
+	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	// Test line < 1.
+	_, err := m.TypeDefinitions(ctx, testFile, 0, 1)
+	if err == nil {
+		t.Error("TypeDefinitions with line=0 should error")
+	}
+
+	// Test col < 1.
+	_, err = m.TypeDefinitions(ctx, testFile, 1, 0)
+	if err == nil {
+		t.Error("TypeDefinitions with col=0 should error")
+	}
+}
+
+func TestTypeDefinitionsCacheHit(t *testing.T) {
+	fs := newFakeServer()
+	fs.typeDefinitionResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 5},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	// First call.
+	_, err = m.TypeDefinitions(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("TypeDefinitions: %v", err)
+	}
+
+	// Second call with same position should hit cache.
+	_, err = m.TypeDefinitions(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("TypeDefinitions: %v", err)
+	}
+
+	// Should only have called once.
+	methods := fs.recorded()
+	typeDefCount := 0
+	for _, m := range methods {
+		if m == "textDocument/typeDefinition" {
+			typeDefCount++
+		}
+	}
+	if typeDefCount != 1 {
+		t.Errorf("textDocument/typeDefinition called %d times, want 1 (second call should hit the cache)", typeDefCount)
+	}
+}
+
+func TestTypeDefinitionsCacheKeyDistinctFromDefinitions(t *testing.T) {
+	fs := newFakeServer()
+	typeDefLoc := &protocol.Location{
+		URI: "file:///typedef.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 5},
+		},
+	}
+	defLoc := &protocol.Location{
+		URI: "file:///def.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 5},
+		},
+	}
+
+	fs.typeDefinitionResult = typeDefLoc
+	fs.definitionResult = defLoc
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	// Call both methods at same position.
+	typeDefResult, err := m.TypeDefinitions(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("TypeDefinitions: %v", err)
+	}
+
+	defResult, err := m.Definitions(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("Definitions: %v", err)
+	}
+
+	// Results should differ (different URIs).
+	if typeDefResult.Locations[0].File == defResult.Locations[0].File {
+		t.Error("TypeDefinitions and Definitions returned same result; cache keys must differ")
+	}
+
+	// Both request kinds should have been recorded.
+	methods := fs.recorded()
+	hasTypeDef := false
+	hasDef := false
+	for _, m := range methods {
+		if m == "textDocument/typeDefinition" {
+			hasTypeDef = true
+		}
+		if m == "textDocument/definition" {
+			hasDef = true
+		}
+	}
+	if !hasTypeDef {
+		t.Error("textDocument/typeDefinition not recorded")
+	}
+	if !hasDef {
+		t.Error("textDocument/definition not recorded")
 	}
 }

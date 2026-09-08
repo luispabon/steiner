@@ -73,7 +73,7 @@ Key behaviours:
 
 ### Parallel fan-out
 
-Multiple delegation calls made in one turn execute concurrently. The fan-out width is bounded independently by `sub_agent.max_parallel` (default `3`, minimum `1`), separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_references/lsp_diagnostics/lsp_hover/lsp_symbols), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [docs/configuration.md](configuration.md#limits-block). A value of `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
+Multiple delegation calls made in one turn execute concurrently. The fan-out width is bounded independently by `sub_agent.max_parallel` (default `3`, minimum `1`), separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_implementations/lsp_type_definitions/lsp_references/lsp_diagnostics/lsp_hover/lsp_symbols), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [docs/configuration.md](configuration.md#limits-block). A value of `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
 
 ### Stopping active delegates
 
@@ -112,17 +112,17 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 
 | Agent      | Tools available                                             |
 |------------|-------------------------------------------------------------|
-| `explore`  | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox), `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
+| `explore`  | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox), `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
 | `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url`\* |
-| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`, `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
+| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
 | `evaluate`    | `read`, `glob`, `grep`, `ls`, `advisor`                     |
 | `sanity_check`| `read`, `glob`, `grep`, `ls`, `bash`                        |
 | `vision`   | `read`                                                      |
-| `review`      | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`, `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
+| `review`      | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
 
 \* `fetch_url` is always available. `web_search` requires a configured search backend (Google, Kagi, Brave, or SearXNG). When no backend is configured, the `research` sub-agent is not exposed to the model.
 
-† `lsp_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`, and `lsp_symbols` require `lsp.enabled` and a configured language server for the file's extension (`lsp_symbols` in workspace-search mode requires at least one configured, enabled server, not necessarily one for a specific extension). When `lsp.enabled: false`, these tools are not registered and agents cannot access them.
+† `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`, and `lsp_symbols` require `lsp.enabled` and a configured language server for the file's extension (`lsp_symbols` in workspace-search mode requires at least one configured, enabled server, not necessarily one for a specific extension). When `lsp.enabled: false`, these tools are not registered and agents cannot access them.
 
 ### Extra tools per agent type
 

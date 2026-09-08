@@ -76,6 +76,156 @@ func TestSessionDefinitionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSessionImplementationRoundTrip(t *testing.T) {
+	target := uri.File("/src/target.go")
+
+	tests := []struct {
+		name   string
+		result protocol.ImplementationResult
+		want   []Location
+	}{
+		{
+			name:   "single location",
+			result: &protocol.Location{URI: target, Range: targetRange()},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "location slice",
+			result: protocol.LocationSlice{{URI: target, Range: targetRange()}},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "definition links",
+			result: protocol.DefinitionLinkSlice{{TargetURI: target, TargetRange: targetRange(), TargetSelectionRange: targetRange()}},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "no result",
+			result: nil,
+			want:   []Location{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			fs := newFakeServer()
+			fs.implementationResult = tt.result
+			s, _, err := startFakeSession(ctx, t, fs, nil)
+			if err != nil {
+				t.Fatalf("start session: %v", err)
+			}
+
+			got, err := s.Implementation(ctx, "/src/caller.go", 12, 4)
+			if err != nil {
+				t.Fatalf("implementation: %v", err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("implementation = %+v, want %+v", got, tt.want)
+			}
+			if methods := fs.recorded(); !slices.Contains(methods, "textDocument/implementation") {
+				t.Errorf("server did not receive implementation request, got %v", methods)
+			}
+		})
+	}
+}
+
+func TestSessionTypeDefinitionRoundTrip(t *testing.T) {
+	target := uri.File("/src/target.go")
+
+	tests := []struct {
+		name   string
+		result protocol.TypeDefinitionResult
+		want   []Location
+	}{
+		{
+			name:   "single location",
+			result: &protocol.Location{URI: target, Range: targetRange()},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "location slice",
+			result: protocol.LocationSlice{{URI: target, Range: targetRange()}},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "definition links",
+			result: protocol.DefinitionLinkSlice{{TargetURI: target, TargetRange: targetRange(), TargetSelectionRange: targetRange()}},
+			want:   []Location{{File: "/src/target.go", Line: 5, Column: 3, EndLine: 5, EndColumn: 10}},
+		},
+		{
+			name:   "no result",
+			result: nil,
+			want:   []Location{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			fs := newFakeServer()
+			fs.typeDefinitionResult = tt.result
+			s, _, err := startFakeSession(ctx, t, fs, nil)
+			if err != nil {
+				t.Fatalf("start session: %v", err)
+			}
+
+			got, err := s.TypeDefinition(ctx, "/src/caller.go", 12, 4)
+			if err != nil {
+				t.Fatalf("type definition: %v", err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("type definition = %+v, want %+v", got, tt.want)
+			}
+			if methods := fs.recorded(); !slices.Contains(methods, "textDocument/typeDefinition") {
+				t.Errorf("server did not receive type definition request, got %v", methods)
+			}
+		})
+	}
+}
+
+func TestSessionImplementationCapabilityDeclared(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	_, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	caps := fs.initializeParams().Capabilities.TextDocument
+	if caps.Implementation == nil {
+		t.Fatal("Implementation capability not declared")
+	}
+	if caps.Implementation.LinkSupport == nil || !*caps.Implementation.LinkSupport {
+		t.Error("Implementation LinkSupport not true")
+	}
+}
+
+func TestSessionTypeDefinitionCapabilityDeclared(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	fs := newFakeServer()
+	_, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	caps := fs.initializeParams().Capabilities.TextDocument
+	if caps.TypeDefinition == nil {
+		t.Fatal("TypeDefinition capability not declared")
+	}
+	if caps.TypeDefinition.LinkSupport == nil || !*caps.TypeDefinition.LinkSupport {
+		t.Error("TypeDefinition LinkSupport not true")
+	}
+}
+
 func TestSessionHandshakeHonoursContextDeadline(t *testing.T) {
 	fs := newFakeServer()
 	fs.stallInitialize()

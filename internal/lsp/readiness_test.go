@@ -22,6 +22,14 @@ func (s *readinessTestSession) Definition(context.Context, string, int, int) ([]
 	return nil, nil
 }
 
+func (s *readinessTestSession) Implementation(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+
+func (s *readinessTestSession) TypeDefinition(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+
 func (s *readinessTestSession) References(context.Context, string, int, int, bool) ([]Location, error) {
 	return nil, nil
 }

@@ -17,6 +17,8 @@ import (
 // session is one live connection to a language server process.
 type session interface {
 	Definition(ctx context.Context, file string, line, col int) ([]Location, error)
+	Implementation(ctx context.Context, file string, line, col int) ([]Location, error)
+	TypeDefinition(ctx context.Context, file string, line, col int) ([]Location, error)
 	References(ctx context.Context, file string, line, col int, includeDecl bool) ([]Location, error)
 	Hover(ctx context.Context, file string, line, col int) (HoverContent, error)
 	WorkspaceSymbol(ctx context.Context, query string) ([]SymbolInfo, error)
@@ -90,6 +92,8 @@ func newSession(ctx context.Context, stream jsonrpc2.Stream, rootPath string, in
 }
 
 // Definition requests the definition of a symbol at the given position.
+//
+//nolint:dupl // identical to Implementation and TypeDefinition; mechanical clone across protocol.DefinitionResult-aliased types
 func (s *impl) Definition(ctx context.Context, file string, line, col int) ([]Location, error) {
 	params := protocol.DefinitionParams{
 		TextDocumentPositionParams: textPosition(file, line, col),
@@ -97,6 +101,77 @@ func (s *impl) Definition(ctx context.Context, file string, line, col int) ([]Lo
 
 	result, err := s.callWithExitCheck(ctx, func() (any, error) {
 		return s.server.Definition(ctx, &params)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	locs := []Location{}
+	switch r := result.(type) {
+	case *protocol.Location:
+		if r != nil {
+			locs = append(locs, toLocation(r.URI, r.Range))
+		}
+	case protocol.LocationSlice:
+		for i := range r {
+			locs = append(locs, toLocation(r[i].URI, r[i].Range))
+		}
+	case protocol.DefinitionLinkSlice:
+		for i := range r {
+			locs = append(locs, toLocation(r[i].TargetURI, r[i].TargetRange))
+		}
+	}
+	return locs, nil
+}
+
+// Implementation requests the concrete implementations of an interface or
+// interface method at the given position. protocol.ImplementationResult is an
+// alias of protocol.DefinitionResult, so the three result arms are identical
+// to Definition's.
+//
+//nolint:dupl // identical to Definition and TypeDefinition; mechanical clone across protocol.DefinitionResult-aliased types
+func (s *impl) Implementation(ctx context.Context, file string, line, col int) ([]Location, error) {
+	params := protocol.ImplementationParams{
+		TextDocumentPositionParams: textPosition(file, line, col),
+	}
+
+	result, err := s.callWithExitCheck(ctx, func() (any, error) {
+		return s.server.Implementation(ctx, &params)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	locs := []Location{}
+	switch r := result.(type) {
+	case *protocol.Location:
+		if r != nil {
+			locs = append(locs, toLocation(r.URI, r.Range))
+		}
+	case protocol.LocationSlice:
+		for i := range r {
+			locs = append(locs, toLocation(r[i].URI, r[i].Range))
+		}
+	case protocol.DefinitionLinkSlice:
+		for i := range r {
+			locs = append(locs, toLocation(r[i].TargetURI, r[i].TargetRange))
+		}
+	}
+	return locs, nil
+}
+
+// TypeDefinition requests the type declaration for the symbol at the given
+// position. protocol.TypeDefinitionResult is likewise an alias of
+// protocol.DefinitionResult.
+//
+//nolint:dupl // identical to Definition and Implementation; mechanical clone across protocol.DefinitionResult-aliased types
+func (s *impl) TypeDefinition(ctx context.Context, file string, line, col int) ([]Location, error) {
+	params := protocol.TypeDefinitionParams{
+		TextDocumentPositionParams: textPosition(file, line, col),
+	}
+
+	result, err := s.callWithExitCheck(ctx, func() (any, error) {
+		return s.server.TypeDefinition(ctx, &params)
 	})
 	if err != nil {
 		return nil, err
