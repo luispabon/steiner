@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
@@ -16,7 +18,7 @@ import (
 // sb, if non-nil and enabled, contributes the sandbox temp directory used for
 // /tmp path rewriting. Sandbox command wrapping itself is resolved per tool call
 // by the executor (see internal/tool/execution_pipeline.go), not here.
-func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox) []tool.ToolDef {
+func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox, lspMgr *lsp.Manager) []tool.ToolDef {
 	var sandboxTmpDir string
 	if sb != nil && sb.Enabled() {
 		sandboxTmpDir = sb.TmpDir()
@@ -30,6 +32,11 @@ func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.E
 		EventSink:                displaySink,
 		Interactive:              interactive,
 		WorkflowHandoffResponder: handoffResponder,
+	}
+	if lspMgr != nil {
+		env.MutateDiagnostics = func(ctx context.Context, files []string) string {
+			return lsp.PostMutateDiagnostics(ctx, lspMgr, files)
+		}
 	}
 	return builtin.Builtins(env)
 }
@@ -49,7 +56,7 @@ func runtimeRegistryWithSink(cfg config.Config, workDir string, displaySink outp
 // MCP and LSP tool definitions after built-ins and config tools. Execution-mode-aware
 // sandbox wrapping is resolved per tool call by the executor, not here.
 func runtimeRegistryWithSinkAndMode(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox, mcpMgr *mcp.Manager, lspMgr *lsp.Manager) *tool.Registry {
-	registry := tool.NewRegistry(coreToolDefinitions(cfg, workDir, displaySink, interactive, handoffResponder, sb)...)
+	registry := tool.NewRegistry(coreToolDefinitions(cfg, workDir, displaySink, interactive, handoffResponder, sb, lspMgr)...)
 	for _, def := range tool.NewRegistryFromConfig(cfg).Definitions() {
 		registry.Register(def)
 	}
