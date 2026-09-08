@@ -72,6 +72,29 @@ func TestReadinessQueuedProgressTakesPrecedenceAtTimeout(t *testing.T) {
 	}
 }
 
+// readinessProgressObserver signals after trackReadiness has observed a begin
+// event for the target token. Progress is checked on the next select iteration,
+// after the event handler has updated openTokens.
+type readinessProgressObserver struct {
+	session
+	ent      *entry
+	token    string
+	observed chan<- struct{}
+}
+
+func (s *readinessProgressObserver) Progress() <-chan ProgressEvent {
+	s.ent.mu.Lock()
+	_, open := s.ent.readiness.openTokens[s.token]
+	s.ent.mu.Unlock()
+	if open {
+		select {
+		case s.observed <- struct{}{}:
+		default:
+		}
+	}
+	return s.session.Progress()
+}
+
 // TestReadinessBegEndFlipsReady verifies that a single begin/end cycle marks
 // readiness as ready, and subsequent awaitReady calls return immediately.
 func TestReadinessBegEndFlipsReady(t *testing.T) {
@@ -86,7 +109,7 @@ func TestReadinessBegEndFlipsReady(t *testing.T) {
 
 	cfg := config.LSPConfig{
 		ReadyTimeout:     config.MustDuration("5s"),
-		ReadyGracePeriod: config.MustDuration("100ms"),
+		ReadyGracePeriod: config.MustDuration("5s"),
 	}
 
 	tmpdir := t.TempDir()
@@ -94,22 +117,40 @@ func TestReadinessBegEndFlipsReady(t *testing.T) {
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness(cfg)}
-	go m.trackReadiness(ent, sess, ent.readiness)
+	beginObserved := make(chan struct{}, 1)
+	progressSession := &readinessProgressObserver{
+		session:  sess,
+		ent:      ent,
+		token:    "token1",
+		observed: beginObserved,
+	}
+	go m.trackReadiness(ent, progressSession, ent.readiness)
 
 	begin, _ := json.Marshal(protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading workspace"})
-	progressParams := protocol.ProgressParams{
+	beginParams := protocol.ProgressParams{
 		Token: protocol.String("token1"),
 		Value: protocol.LSPAny(begin),
 	}
 
 	start := time.Now()
-	if err := fs.client.Progress(ctx, &progressParams); err != nil {
+	if err := fs.client.Progress(ctx, &beginParams); err != nil {
 		t.Fatalf("send begin: %v", err)
 	}
 
+	beginWait := time.NewTimer(testTimeout)
+	defer beginWait.Stop()
+	select {
+	case <-beginObserved:
+	case <-beginWait.C:
+		t.Fatal("timed out waiting for begin progress to be observed")
+	}
+
 	end, _ := json.Marshal(protocol.WorkDoneProgressEnd{Kind: "end"})
-	progressParams.Value = protocol.LSPAny(end)
-	if err := fs.client.Progress(ctx, &progressParams); err != nil {
+	endParams := protocol.ProgressParams{
+		Token: protocol.String("token1"),
+		Value: protocol.LSPAny(end),
+	}
+	if err := fs.client.Progress(ctx, &endParams); err != nil {
 		t.Fatalf("send end: %v", err)
 	}
 
