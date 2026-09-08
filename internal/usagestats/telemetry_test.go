@@ -9,6 +9,8 @@ import (
 )
 
 func TestTelemetryRecordsOneLinePerObservation(t *testing.T) {
+	// Keep test persistence out of the user's real cache-stats.json.
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	path := filepath.Join(t.TempDir(), "telemetry.jsonl")
 	t.Setenv(TelemetryEnvVar, path)
 	t.Setenv(TelemetryRunEnvVar, "run-42")
@@ -73,7 +75,10 @@ func TestTelemetryRecordsOneLinePerObservation(t *testing.T) {
 }
 
 func TestTelemetryDisabledWhenEnvUnset(t *testing.T) {
-	dir := t.TempDir()
+	telemetryDir := t.TempDir()
+	// Use a separate state directory so cache-stats.json does not affect the
+	// assertion that disabled telemetry writes no files to telemetryDir.
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv(TelemetryEnvVar, "")
 
 	recorder := New(nil)
@@ -82,7 +87,7 @@ func TestTelemetryDisabledWhenEnvUnset(t *testing.T) {
 	}
 	recorder.Record(Observation{PromptTokens: 10})
 
-	entries, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(telemetryDir)
 	if err != nil {
 		t.Fatalf("read temp dir: %v", err)
 	}
@@ -92,6 +97,8 @@ func TestTelemetryDisabledWhenEnvUnset(t *testing.T) {
 }
 
 func TestTelemetryUnwritablePathDoesNotFailRecording(t *testing.T) {
+	// Keep test persistence out of the user's real cache-stats.json.
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	// A directory path can never be opened for writing, standing in for any
 	// unopenable target: recording must degrade to a no-op, not panic.
 	t.Setenv(TelemetryEnvVar, t.TempDir())
