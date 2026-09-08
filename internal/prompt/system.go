@@ -9,6 +9,7 @@ const identity = "You are steiner, a lean coding agent."
 const (
 	templateDelegation     = "delegation.md.tmpl"
 	templateAdvisor        = "advisor.md.tmpl"
+	templateLSP            = "lsp.md.tmpl"
 	templateCodeChild      = "code_child.md.tmpl"
 	templateCoreRules      = "core_rules.md.tmpl"
 	templateToolBatching   = "tool_batching.md.tmpl"
@@ -37,6 +38,7 @@ const (
 	sectionSandbox        sectionID = "sandbox"
 	sectionDelegation     sectionID = "delegation"
 	sectionAdvisor        sectionID = "advisor"
+	sectionLSP            sectionID = "lsp"
 	sectionCodeChild      sectionID = "code_child"
 	sectionCoreRules      sectionID = "core_rules"
 	sectionToolBatching   sectionID = "tool_batching"
@@ -50,6 +52,7 @@ type sectionContext struct {
 	sandboxEnabled        bool
 	sandboxWritableMounts []string
 	advisorEnabled        bool
+	lspEnabled            bool
 	caveHuman             bool
 	workflowMode          workflowMode
 }
@@ -60,6 +63,7 @@ var defaultSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
 	sectionAdvisor,
+	sectionLSP,
 	sectionCodeChild,
 	sectionCoreRules,
 	sectionToolBatching,
@@ -90,6 +94,12 @@ var systemSections = map[sectionID]sectionRenderer{
 			return ""
 		}
 		return renderTemplate(templateAdvisor, nil)
+	},
+	sectionLSP: func(ctx sectionContext) string {
+		if !ctx.lspEnabled {
+			return ""
+		}
+		return renderTemplate(templateLSP, nil)
 	},
 	sectionCodeChild: func(ctx sectionContext) string {
 		if normalizeWorkflowMode(ctx.workflowMode) != workflowModeDelegatedCodeSubAgent {
@@ -123,11 +133,13 @@ var systemSections = map[sectionID]sectionRenderer{
 // overrideSectionOrder is the section sequence used when the user supplies a
 // system-prompt override: the shared rules, sandbox, and execution mode sections
 // are replaced by the override text, but identity, delegation mechanics, advisor
-// guidance, and workflow methodology still render around it.
+// guidance, and workflow methodology still render around it. LSP guidance is
+// included when configured.
 var overrideSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
 	sectionAdvisor,
+	sectionLSP,
 	sectionCodeChild,
 	sectionWorkflow,
 }
@@ -167,6 +179,7 @@ type SystemPreambleParams struct {
 	SandboxEnabled        bool
 	SandboxWritableMounts []string
 	AdvisorEnabled        bool
+	LSPEnabled            bool
 	Mode                  WorkflowMode
 	CaveHuman             bool
 	SystemSuffix          string
@@ -183,6 +196,7 @@ func systemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
 		sandboxEnabled:        params.SandboxEnabled,
 		sandboxWritableMounts: params.SandboxWritableMounts,
 		advisorEnabled:        params.AdvisorEnabled,
+		lspEnabled:            params.LSPEnabled,
 		caveHuman:             params.CaveHuman,
 		workflowMode:          normalizeWorkflowMode(params.Mode),
 	}

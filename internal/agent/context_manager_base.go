@@ -18,6 +18,7 @@ type baseContextManager struct {
 		override              string
 		delegationEnabled     bool
 		advisorEnabled        bool
+		lspEnabled            bool
 		workflowMode          prompt.WorkflowMode
 		caveHuman             bool
 		systemSuffix          string
@@ -28,11 +29,12 @@ type baseContextManager struct {
 	events         output.EventSink
 }
 
-func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, advisorEnabled bool, workflowMode prompt.WorkflowMode, caveHuman bool, systemSuffix string, sandboxEnabled bool, sandboxWritableMounts []string) string {
+func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, advisorEnabled bool, lspEnabled bool, workflowMode prompt.WorkflowMode, caveHuman bool, systemSuffix string, sandboxEnabled bool, sandboxWritableMounts []string) string {
 	if b.cachedPreamble.content == "" ||
 		b.cachedPreamble.override != override ||
 		b.cachedPreamble.delegationEnabled != delegationEnabled ||
 		b.cachedPreamble.advisorEnabled != advisorEnabled ||
+		b.cachedPreamble.lspEnabled != lspEnabled ||
 		b.cachedPreamble.workflowMode != workflowMode ||
 		b.cachedPreamble.caveHuman != caveHuman ||
 		b.cachedPreamble.systemSuffix != systemSuffix ||
@@ -42,6 +44,7 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 			Override:              override,
 			DelegationEnabled:     delegationEnabled,
 			AdvisorEnabled:        advisorEnabled,
+			LSPEnabled:            lspEnabled,
 			Mode:                  workflowMode,
 			CaveHuman:             caveHuman,
 			SystemSuffix:          systemSuffix,
@@ -51,6 +54,7 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		b.cachedPreamble.override = override
 		b.cachedPreamble.delegationEnabled = delegationEnabled
 		b.cachedPreamble.advisorEnabled = advisorEnabled
+		b.cachedPreamble.lspEnabled = lspEnabled
 		b.cachedPreamble.workflowMode = workflowMode
 		b.cachedPreamble.caveHuman = caveHuman
 		b.cachedPreamble.systemSuffix = systemSuffix

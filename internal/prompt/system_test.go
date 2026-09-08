@@ -464,6 +464,41 @@ func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 	}
 }
 
+func TestSystemPreambleLSPGuidance(t *testing.T) {
+	t.Parallel()
+
+	const marker = "## Code intelligence (LSP)"
+	for _, tc := range []struct {
+		name     string
+		override string
+		lsp      bool
+		want     bool
+	}{
+		{name: "enabled", lsp: true, want: true},
+		{name: "disabled"},
+		{name: "enabled with override", override: "custom override", lsp: true, want: true},
+		{name: "disabled with override", override: "custom override"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Override: tc.override, LSPEnabled: tc.lsp, Mode: workflowModeParent}).Content
+			if strings.Contains(content, marker) != tc.want {
+				t.Fatalf("LSP guidance present = %t, want %t in %q", strings.Contains(content, marker), tc.want, content)
+			}
+		})
+	}
+}
+
+func TestSystemPreambleLSPGuidanceFollowsAdvisor(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{AdvisorEnabled: true, LSPEnabled: true, Mode: workflowModeParent}).Content
+	advisor := strings.Index(content, "## Advisor")
+	lsp := strings.Index(content, "## Code intelligence (LSP)")
+	if advisor == -1 || lsp == -1 || advisor >= lsp {
+		t.Fatalf("advisor and LSP sections out of order in %q", content)
+	}
+}
+
 // TestDelegationCanonDoesNotNameAdvisorWhenDisabled verifies that delegation
 // canon does not reference the separately gated `advisor` tool when advisor
 // guidance is disabled. It covers both normal and override preamble paths.

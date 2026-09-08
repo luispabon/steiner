@@ -283,6 +283,7 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
 		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
 		AdvisorEnabled:            r.runtime.cfg.Advisor.Enabled,
+		LSPEnabled:                r.runtime.cfg.LSP.Enabled,
 		SandboxEnabled:            r.sandboxEnabled(),
 		SandboxWritableMounts:     sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
 		PhasePrompt:               r.phasePrompt,
