@@ -320,11 +320,15 @@ func lspTUIStatesFrom(cfg config.Config, live []lsp.ServerState) []tui.LSPServer
 		})
 	}
 
-	for name := range cfg.LSP.Servers {
+	for name, srv := range cfg.LSP.Servers {
 		if touched[name] {
 			continue
 		}
-		states = append(states, tui.LSPServerStatus{Name: name, Status: "not started"})
+		status := "not started"
+		if !srv.Enabled {
+			status = "disabled"
+		}
+		states = append(states, tui.LSPServerStatus{Name: name, Status: status})
 	}
 
 	return states

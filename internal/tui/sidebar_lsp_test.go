@@ -14,6 +14,7 @@ func TestLSPRowEmptyWhenNoActiveServer(t *testing.T) {
 		{"none configured", nil},
 		{"all stopped", []LSPServerStatus{{Name: "gopls", Status: "stopped"}}},
 		{"unknown status", []LSPServerStatus{{Name: "gopls", Status: "declared"}}},
+		{"disabled", []LSPServerStatus{{Name: "gopls", Status: "disabled"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

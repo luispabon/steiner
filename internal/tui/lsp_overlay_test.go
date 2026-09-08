@@ -317,6 +317,7 @@ func TestLSPStateDisplayLabel(t *testing.T) {
 		"failed":      "Failed",
 		"stopped":     "Stopped",
 		"not started": "Not started",
+		"disabled":    "Disabled",
 		"mystery":     "mystery",
 	}
 	for status, want := range tests {

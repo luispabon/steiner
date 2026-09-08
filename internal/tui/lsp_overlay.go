@@ -127,6 +127,8 @@ func lspStateDisplayLabel(status string) string {
 		return "Stopped"
 	case "not started":
 		return "Not started"
+	case "disabled":
+		return "Disabled"
 	default:
 		return status
 	}
