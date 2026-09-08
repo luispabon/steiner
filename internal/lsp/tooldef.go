@@ -24,7 +24,7 @@ func definitionsTool(m *Manager) tool.ToolDef {
 	return tool.ToolDef{
 		Name:         "lsp_definitions",
 		ParallelSafe: true,
-		Description:  "Jump to symbol definitions. Requires a configured language server for the file's extension; returns empty results if no server is enabled. Results may be incomplete if the language server's indexing has not finished.",
+		Description:  "Jump to symbol definitions. Address the position with line+column, or with symbol (optionally narrowed by line). Requires a configured language server for the file's extension; returns empty results if no server is enabled. Results may be incomplete if the language server's indexing has not finished.",
 		ParameterSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -40,8 +40,12 @@ func definitionsTool(m *Manager) tool.ToolDef {
 					"type":        "integer",
 					"description": "Column number (1-based)",
 				},
+				"symbol": map[string]any{
+					"type":        "string",
+					"description": "Symbol name to search for at identifier boundaries; searches entire file if line is omitted, or just that line if line is specified",
+				},
 			},
-			"required":             []string{"file", "line", "column"},
+			"required":             []string{"file"},
 			"additionalProperties": false,
 		},
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
@@ -50,17 +54,16 @@ func definitionsTool(m *Manager) tool.ToolDef {
 				return nil, fmt.Errorf("lsp_definitions: missing or invalid file parameter")
 			}
 
-			line, ok := input["line"].(float64)
-			if !ok {
-				return nil, fmt.Errorf("lsp_definitions: missing or invalid line parameter")
+			line, lineOk := parseLineParameter(input)
+			col, colOk := parseColumnParameter(input)
+			symbol, symbolOk := parseSymbolParameter(input)
+
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_definitions", line, lineOk, col, colOk, symbol, symbolOk, file)
+			if resolveErr != "" {
+				return resolveErr, nil
 			}
 
-			col, ok := input["column"].(float64)
-			if !ok {
-				return nil, fmt.Errorf("lsp_definitions: missing or invalid column parameter")
-			}
-
-			result, err := m.Definitions(ctx, file, int(line), int(col))
+			result, err := m.Definitions(ctx, file, lineResolved, colResolved)
 
 			if unavailableMsg, goErr := handleNavigationError(m, file, err); unavailableMsg != nil {
 				return unavailableMsg, nil
@@ -73,6 +76,10 @@ func definitionsTool(m *Manager) tool.ToolDef {
 				output = "(no definitions found)"
 			}
 
+			if echoLine != "" {
+				output = echoLine + "\n" + output
+			}
+
 			return output, nil
 		},
 	}
@@ -82,7 +89,7 @@ func referencesTool(m *Manager) tool.ToolDef {
 	return tool.ToolDef{
 		Name:         "lsp_references",
 		ParallelSafe: true,
-		Description:  "Find all references to a symbol. Requires a configured language server for the file's extension; returns empty results if no server is enabled. Results may be incomplete if the language server's indexing has not finished. By default includes the symbol's declaration; set include_declaration to false to exclude it.",
+		Description:  "Find all references to a symbol. Address the position with line+column, or with symbol (optionally narrowed by line). Requires a configured language server for the file's extension; returns empty results if no server is enabled. Results may be incomplete if the language server's indexing has not finished. By default includes the symbol's declaration; set include_declaration to false to exclude it.",
 		ParameterSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -98,13 +105,17 @@ func referencesTool(m *Manager) tool.ToolDef {
 					"type":        "integer",
 					"description": "Column number (1-based)",
 				},
+				"symbol": map[string]any{
+					"type":        "string",
+					"description": "Symbol name to search for at identifier boundaries; searches entire file if line is omitted, or just that line if line is specified",
+				},
 				"include_declaration": map[string]any{
 					"type":        "boolean",
 					"description": "Include the symbol's declaration in results",
 					"default":     true,
 				},
 			},
-			"required":             []string{"file", "line", "column"},
+			"required":             []string{"file"},
 			"additionalProperties": false,
 		},
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
@@ -113,14 +124,13 @@ func referencesTool(m *Manager) tool.ToolDef {
 				return nil, fmt.Errorf("lsp_references: missing or invalid file parameter")
 			}
 
-			line, ok := input["line"].(float64)
-			if !ok {
-				return nil, fmt.Errorf("lsp_references: missing or invalid line parameter")
-			}
+			line, lineOk := parseLineParameter(input)
+			col, colOk := parseColumnParameter(input)
+			symbol, symbolOk := parseSymbolParameter(input)
 
-			col, ok := input["column"].(float64)
-			if !ok {
-				return nil, fmt.Errorf("lsp_references: missing or invalid column parameter")
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_references", line, lineOk, col, colOk, symbol, symbolOk, file)
+			if resolveErr != "" {
+				return resolveErr, nil
 			}
 
 			includeDecl := true
@@ -130,7 +140,7 @@ func referencesTool(m *Manager) tool.ToolDef {
 				}
 			}
 
-			result, err := m.References(ctx, file, int(line), int(col), includeDecl)
+			result, err := m.References(ctx, file, lineResolved, colResolved, includeDecl)
 
 			if unavailableMsg, goErr := handleNavigationError(m, file, err); unavailableMsg != nil {
 				return unavailableMsg, nil
@@ -141,6 +151,10 @@ func referencesTool(m *Manager) tool.ToolDef {
 			output := formatLocations(m.workspace, result, m.cfg)
 			if output == "" {
 				output = "(no references found)"
+			}
+
+			if echoLine != "" {
+				output = echoLine + "\n" + output
 			}
 
 			return output, nil
@@ -188,7 +202,7 @@ func hoverTool(m *Manager) tool.ToolDef {
 	return tool.ToolDef{
 		Name:         "lsp_hover",
 		ParallelSafe: true,
-		Description:  "Get hover information for a symbol at a position. Requires a configured language server for the file's extension; returns empty results if no server is enabled. Results may be incomplete if the language server's indexing has not finished.",
+		Description:  "Get hover information for a symbol at a position. Address the position with line+column, or with symbol (optionally narrowed by line). Requires a configured language server for the file's extension; returns empty results if no server is enabled. Results may be incomplete if the language server's indexing has not finished.",
 		ParameterSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -204,8 +218,12 @@ func hoverTool(m *Manager) tool.ToolDef {
 					"type":        "integer",
 					"description": "Column number (1-based)",
 				},
+				"symbol": map[string]any{
+					"type":        "string",
+					"description": "Symbol name to search for at identifier boundaries; searches entire file if line is omitted, or just that line if line is specified",
+				},
 			},
-			"required":             []string{"file", "line", "column"},
+			"required":             []string{"file"},
 			"additionalProperties": false,
 		},
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
@@ -214,17 +232,16 @@ func hoverTool(m *Manager) tool.ToolDef {
 				return nil, fmt.Errorf("lsp_hover: missing or invalid file parameter")
 			}
 
-			line, ok := input["line"].(float64)
-			if !ok {
-				return nil, fmt.Errorf("lsp_hover: missing or invalid line parameter")
+			line, lineOk := parseLineParameter(input)
+			col, colOk := parseColumnParameter(input)
+			symbol, symbolOk := parseSymbolParameter(input)
+
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_hover", line, lineOk, col, colOk, symbol, symbolOk, file)
+			if resolveErr != "" {
+				return resolveErr, nil
 			}
 
-			col, ok := input["column"].(float64)
-			if !ok {
-				return nil, fmt.Errorf("lsp_hover: missing or invalid column parameter")
-			}
-
-			result, err := m.Hover(ctx, file, int(line), int(col))
+			result, err := m.Hover(ctx, file, lineResolved, colResolved)
 
 			if unavailableMsg, goErr := handleNavigationError(m, file, err); unavailableMsg != nil {
 				return unavailableMsg, nil
@@ -235,6 +252,10 @@ func hoverTool(m *Manager) tool.ToolDef {
 			output := formatHover(result, m.cfg)
 			if output == "" {
 				output = "(no hover information)"
+			}
+
+			if echoLine != "" {
+				output = echoLine + "\n" + output
 			}
 
 			return output, nil
@@ -327,4 +348,80 @@ func findFailedServer(m *Manager, file string) *ServerState {
 	}
 
 	return nil
+}
+
+// parseLineParameter extracts the line parameter from input, returning (value, was_present).
+// Presence is determined by the key existing in the map; returns (0, false) if not present.
+func parseLineParameter(input map[string]any) (int, bool) {
+	v, ok := input["line"]
+	if !ok {
+		return 0, false
+	}
+	f, ok := v.(float64)
+	if !ok {
+		return 0, false
+	}
+	return int(f), true
+}
+
+// parseColumnParameter extracts the column parameter from input, returning (value, was_present).
+func parseColumnParameter(input map[string]any) (int, bool) {
+	v, ok := input["column"]
+	if !ok {
+		return 0, false
+	}
+	f, ok := v.(float64)
+	if !ok {
+		return 0, false
+	}
+	return int(f), true
+}
+
+// parseSymbolParameter extracts the symbol parameter from input, returning (value, was_present).
+func parseSymbolParameter(input map[string]any) (string, bool) {
+	v, ok := input["symbol"]
+	if !ok {
+		return "", false
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", false
+	}
+	return s, true
+}
+
+// resolvePosition resolves a position from either column or symbol.
+// - If column is provided, requires line; returns (line, column, "", "") if valid.
+// - If symbol is provided, calls resolveSymbolPosition; returns the resolved position and echo line.
+// - If neither, returns ("", "", "", error message).
+// - If line is provided but < 1 on symbol path, returns error message.
+// The returned echo line (3rd return) is empty string if no resolution via symbol, or "resolved FILE:LINE:COL (SYMBOL)" if symbol was used.
+func resolvePosition(m *Manager, toolName string, line int, lineOk bool, col int, colOk bool, symbol string, symbolOk bool, file string) (resolvedLine, resolvedCol int, echoLine string, errMsg string) {
+	if colOk {
+		// Column path: requires line.
+		if !lineOk {
+			return 0, 0, "", fmt.Sprintf("%s: column requires line", toolName)
+		}
+		return line, col, "", ""
+	}
+
+	if symbolOk {
+		// Symbol path.
+		if lineOk && line < 1 {
+			return 0, 0, "", fmt.Sprintf("%s: invalid line %d", toolName, line)
+		}
+
+		resolvedFile, resolvedLine, resolvedCol, err := resolveSymbolPosition(m.workspace, file, symbol, line)
+		if err != nil {
+			return 0, 0, "", err.Error()
+		}
+
+		// Build echo line with relative path.
+		relPath := makeRelative(m.workspace, resolvedFile)
+		echo := fmt.Sprintf("resolved %s:%d:%d (%s)", relPath, resolvedLine, resolvedCol, symbol)
+		return resolvedLine, resolvedCol, echo, ""
+	}
+
+	// Neither column nor symbol provided.
+	return 0, 0, "", fmt.Sprintf("%s: requires either column (with line) or symbol", toolName)
 }
