@@ -32,9 +32,27 @@ func NewMutateTool(env Env) tool.ToolDef {
 				states: make(map[string]*mutateFileState),
 			}
 			result := planner.run(in)
+			if env.MutateDiagnostics != nil && result.OperationsFailed == 0 {
+				if section := env.MutateDiagnostics(ctx, mutateDiagnosticsFiles(result)); section != "" {
+					result.Output = strings.TrimSpace(result.Output + "\n\n" + section)
+				}
+			}
 			return result, nil
 		},
 	}
+}
+
+// mutateDiagnosticsFiles returns the files a mutate call touched that still
+// exist after the mutation, for post-mutate diagnostics. Deleted files and
+// move sources are excluded since they no longer exist on disk.
+func mutateDiagnosticsFiles(result *MutateResult) []string {
+	files := make([]string, 0, len(result.Created)+len(result.Modified)+len(result.Moved))
+	files = append(files, result.Created...)
+	files = append(files, result.Modified...)
+	for _, m := range result.Moved {
+		files = append(files, m.To)
+	}
+	return files
 }
 
 var allowedFields = map[string]map[string]struct{}{
