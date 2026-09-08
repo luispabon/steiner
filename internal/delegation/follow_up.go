@@ -123,7 +123,9 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 		if delegationResult, ok := result.Value.(Result); ok {
 			delegationResult.FollowUpCount = updated.FollowUpCount
 			delegationResult.persisted = true
-			if isCode && delegationResult.WorktreePath != "" {
+			if isCode && session.Remediation != nil {
+				delegationResult.WorktreePath = session.Remediation.WorktreePath
+				delegationResult.WorktreeBranch = session.Remediation.ExpectedBranch
 				delegationResult.providerWorktreePath = providerRelativeWorktreePath(deps.WorkDir, delegationResult.WorktreePath)
 			}
 			result.Value = delegationResult
