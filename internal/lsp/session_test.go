@@ -379,6 +379,71 @@ func TestSessionOmitsEmptyInitializationOptions(t *testing.T) {
 	}
 }
 
+func TestHoverContentsToText(t *testing.T) {
+	tests := []struct {
+		name     string
+		contents protocol.HoverContents
+		want     string
+	}{
+		{
+			name:     "nil contents",
+			contents: nil,
+			want:     "",
+		},
+		{
+			name: "markup content markdown",
+			contents: &protocol.MarkupContent{
+				Kind:  "markdown",
+				Value: "# Title\n\nSome content",
+			},
+			want: "# Title\n\nSome content",
+		},
+		{
+			name: "markup content plaintext",
+			contents: &protocol.MarkupContent{
+				Kind:  "plaintext",
+				Value: "Plain text content",
+			},
+			want: "Plain text content",
+		},
+		{
+			name:     "string (deprecated)",
+			contents: protocol.String("plain string"),
+			want:     "plain string",
+		},
+		{
+			name: "marked string with language",
+			contents: &protocol.MarkedStringWithLanguage{
+				Language: "go",
+				Value:    "func main() {}",
+			},
+			want: "```go\nfunc main() {}\n```",
+		},
+		{
+			name: "marked string slice",
+			contents: protocol.MarkedStringSlice{
+				protocol.String("First item"),
+				&protocol.MarkedStringWithLanguage{Language: "go", Value: "func() {}"},
+			},
+			want: "First item\n\n```go\nfunc() {}\n```",
+		},
+		{
+			name:     "nil markup content",
+			contents: (*protocol.MarkupContent)(nil),
+			want:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hoverContentsToText(tt.contents)
+			if got != tt.want {
+				t.Errorf("hoverContentsToText = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // mapsEqualJSON compares two decoded JSON objects.
 func mapsEqualJSON(a, b map[string]any) bool {
 	left, err := json.Marshal(a)

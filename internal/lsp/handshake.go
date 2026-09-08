@@ -35,6 +35,7 @@ func handshake(ctx context.Context, server protocol.Server, rootPath string, ini
 					LinkSupport: ptrBool(true),
 				},
 				References: &protocol.ReferenceClientCapabilities{},
+				Hover:      &protocol.HoverClientCapabilities{},
 				PublishDiagnostics: &protocol.PublishDiagnosticsClientCapabilities{
 					DiagnosticsCapabilities: protocol.DiagnosticsCapabilities{},
 				},
