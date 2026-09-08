@@ -203,6 +203,9 @@ func (m *Model) renderOverlayView(base string, contentWidth int) string {
 	if m.mcpOverlay.IsOpen() {
 		return composeCenteredOverlay(base, m.mcpOverlay.View(), m.width, m.height)
 	}
+	if m.lspOverlay.IsOpen() {
+		return composeCenteredOverlay(base, m.lspOverlay.View(), m.width, m.height)
+	}
 
 	base = m.renderBottomAnchoredOverlays(base, contentWidth)
 	switch {

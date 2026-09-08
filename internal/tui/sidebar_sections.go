@@ -126,6 +126,22 @@ func (s sidebarState) statusSection(width int) []string {
 			rows = append(rows, cardFieldAccent("MCP", mcpStyle, count, s.styles))
 		}
 	}
+	if spinner, text := s.lspRow(width - keyW); text != "" {
+		lspStyle := fgBright
+		switch {
+		case s.lspFailed:
+			lspStyle = s.styles.ErrorStyle
+		case !s.lspStarting && s.lspActive == s.lspTotalKnown && s.lspTotalKnown > 0:
+			lspStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Added))
+		}
+		if spinner != "" {
+			row := cardFieldAccent("LSP", s.styles.FgMute, spinner+" ", s.styles) +
+				s.styledWithBg(lspStyle, text)
+			rows = append(rows, row)
+		} else {
+			rows = append(rows, cardFieldAccent("LSP", lspStyle, text, s.styles))
+		}
+	}
 	if len(rows) == 0 {
 		return nil
 	}
