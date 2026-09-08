@@ -26,6 +26,10 @@ func (s *readinessTestSession) References(context.Context, string, int, int, boo
 	return nil, nil
 }
 
+func (s *readinessTestSession) Hover(context.Context, string, int, int) (HoverContent, error) {
+	return HoverContent{}, nil
+}
+
 func (s *readinessTestSession) DidOpen(context.Context, string, string, string, int32) error {
 	return nil
 }
