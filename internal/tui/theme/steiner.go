@@ -94,6 +94,7 @@ func BuildGlamourStyleSheet(accentHex string) glamour.TermRendererOption {
 	cfg.Emph.Italic = ptrBool(true)
 	cfg.Strong.Color = ptrStr(accentHex)
 	cfg.Strong.Bold = ptrBool(true)
+	cfg.Item.BlockPrefix = "* "
 
 	return glamour.WithStyles(cfg)
 }
