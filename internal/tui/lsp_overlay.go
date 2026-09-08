@@ -155,22 +155,6 @@ func (o lspOverlay) maxScrollOffset() int {
 	return offset
 }
 
-func (o lspOverlay) scroll(delta int) lspOverlay {
-	o.scrollOffset += delta
-	if o.scrollOffset < 0 {
-		o.scrollOffset = 0
-	}
-	if maxOffset := o.maxScrollOffset(); o.scrollOffset > maxOffset {
-		o.scrollOffset = maxOffset
-	}
-	return o
-}
-
-func (o lspOverlay) scrollTo(offset int) lspOverlay {
-	o.scrollOffset = 0
-	return o.scroll(offset)
-}
-
 func (o lspOverlay) View() string {
 	if !o.IsOpen() {
 		return ""
@@ -197,36 +181,17 @@ func (o lspOverlay) View() string {
 	return o.RenderWithBg(o.styles.PaletteOverlay, full, theme.BgElev)
 }
 
-//nolint:dupl // same scroll/key-handling as mcpOverlay.Update; types differ
 func (o lspOverlay) Update(msg tea.Msg) (lspOverlay, tea.Cmd) {
 	if !o.IsOpen() {
 		return o, nil
 	}
-	keyMsg, ok := msg.(tea.KeyPressMsg)
-	if !ok {
+	result := o.handleScrollKey(msg, o.scrollOffset, o.visibleHeight(), len(o.lines))
+	if !result.handled {
 		return o, nil
 	}
-	switch keyMsg.Code {
-	case tea.KeyEsc, tea.KeyEnter:
+	if result.close {
 		return o.Close(), nil
-	case tea.KeyUp:
-		return o.scroll(-1), nil
-	case tea.KeyDown:
-		return o.scroll(1), nil
-	case tea.KeyPgUp:
-		return o.scroll(-o.visibleHeight()), nil
-	case tea.KeyPgDown:
-		return o.scroll(o.visibleHeight()), nil
-	case tea.KeyHome:
-		return o.scrollTo(0), nil
-	case tea.KeyEnd:
-		return o.scrollTo(len(o.lines)), nil
 	}
-	switch keyMsg.Text {
-	case "k":
-		return o.scroll(-1), nil
-	case "j":
-		return o.scroll(1), nil
-	}
+	o.scrollOffset = result.offset
 	return o, nil
 }

@@ -107,6 +107,8 @@ The row shows the active servers' names comma-joined when they fit the sidebar w
 
 The `/lsp` slash command opens an overlay listing every live session — one row per server+workspace-root pair, so a server with multiple workspace roots gets multiple rows — plus a "not started" row for every configured server with no session yet. Each row shows status and root, and (for `failed`) the error text or (for `ready`/`stopped`) start/last-used timestamps.
 
+Both displays refresh on the TUI's existing UI ticker, which runs during active turns and tool calls but stops when the session goes idle. A server idle-reaped to `stopped` while the TUI is idle can therefore keep showing stale `ready` state for a short window, until the next activity (e.g. a new message) restarts ticking and triggers a fresh poll.
+
 ## Persistent cache directory
 
 By default, each language server's cache (index, compiled code, etc.) is stored under the system user cache directory. Steiner derives a per-workspace cache subdirectory based on a hash of the workspace root, creating the path:
