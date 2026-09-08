@@ -13,6 +13,65 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+type readinessTestSession struct {
+	progress chan ProgressEvent
+	exited   chan struct{}
+}
+
+func (s *readinessTestSession) Definition(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+
+func (s *readinessTestSession) References(context.Context, string, int, int, bool) ([]Location, error) {
+	return nil, nil
+}
+
+func (s *readinessTestSession) DidOpen(context.Context, string, string, string, int32) error {
+	return nil
+}
+
+func (s *readinessTestSession) DidClose(context.Context, string) error { return nil }
+
+func (s *readinessTestSession) Diagnostics() <-chan PublishedDiagnostics { return nil }
+
+func (s *readinessTestSession) Progress() <-chan ProgressEvent { return s.progress }
+
+func (s *readinessTestSession) Exited() <-chan struct{} { return s.exited }
+
+func (s *readinessTestSession) Close(context.Context) error { return nil }
+
+// TestReadinessQueuedProgressTakesPrecedenceAtTimeout verifies that a queued
+// complete cycle is processed when the readiness timeout is already ready.
+func TestReadinessQueuedProgressTakesPrecedenceAtTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess := &readinessTestSession{
+		progress: make(chan ProgressEvent, 2),
+		exited:   make(chan struct{}),
+	}
+	sess.progress <- ProgressEvent{Token: "token", Kind: "begin"}
+	sess.progress <- ProgressEvent{Token: "token", Kind: "end"}
+
+	cfg := config.LSPConfig{
+		ReadyTimeout:     config.MustDuration("0s"),
+		ReadyGracePeriod: config.MustDuration("1h"),
+	}
+	m := NewManager(cfg, t.TempDir(), nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	go m.trackReadiness(ent, sess, ent.readiness)
+
+	incomplete, err := m.awaitReady(ctx, ent)
+	if err != nil {
+		t.Fatalf("awaitReady: %v", err)
+	}
+	if incomplete {
+		t.Error("awaitReady returned incomplete=true, want false")
+	}
+}
+
 // TestReadinessBegEndFlipsReady verifies that a single begin/end cycle marks
 // readiness as ready, and subsequent awaitReady calls return immediately.
 func TestReadinessBegEndFlipsReady(t *testing.T) {

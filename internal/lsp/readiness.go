@@ -114,35 +114,56 @@ func (m *Manager) trackReadiness(e *entry, sess session, r *readiness) {
 
 	gracePeriodFired := false
 
+	processProgress := func(event ProgressEvent) bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+
+		switch event.Kind {
+		case "begin":
+			if !gracePeriodFired {
+				gracePeriodTimer.Stop()
+				gracePeriodFired = true
+			}
+			r.openTokens[event.Token] = struct{}{}
+
+		case "end":
+			if _, ok := r.openTokens[event.Token]; ok {
+				delete(r.openTokens, event.Token)
+				r.completedOne = true
+			}
+		}
+
+		if r.completedOne {
+			r.markReady()
+			return true
+		}
+		return false
+	}
+
+	drainProgress := func() bool {
+		for {
+			select {
+			case event := <-sess.Progress():
+				if processProgress(event) {
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}
+
 	for {
 		select {
 		case event := <-sess.Progress():
-			e.mu.Lock()
-
-			switch event.Kind {
-			case "begin":
-				if !gracePeriodFired {
-					gracePeriodTimer.Stop()
-					gracePeriodFired = true
-				}
-				r.openTokens[event.Token] = struct{}{}
-
-			case "end":
-				if _, ok := r.openTokens[event.Token]; ok {
-					delete(r.openTokens, event.Token)
-					r.completedOne = true
-				}
-			}
-
-			if r.completedOne {
-				r.markReady()
-				e.mu.Unlock()
+			if processProgress(event) {
 				return
 			}
 
-			e.mu.Unlock()
-
 		case <-gracePeriodTimer.C:
+			if drainProgress() {
+				return
+			}
 			e.mu.Lock()
 			if !r.isTerminal() && !gracePeriodFired {
 				r.markReady()
@@ -152,6 +173,9 @@ func (m *Manager) trackReadiness(e *entry, sess session, r *readiness) {
 			e.mu.Unlock()
 
 		case <-readyTimeoutTimer.C:
+			if drainProgress() {
+				return
+			}
 			e.mu.Lock()
 			if !r.isTerminal() {
 				r.markTimedOut()
