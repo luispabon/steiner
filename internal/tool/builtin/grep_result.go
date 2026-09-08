@@ -173,28 +173,50 @@ func renderGrepContent(files []grepFileResult, selected []grepContentSelection, 
 		}
 
 		_, _ = fmt.Fprintf(&b, "## %s\n", file.file)
-		for windowIndex, window := range windows {
-			for lineNumber := window.start; lineNumber <= window.end; lineNumber++ {
-				line := ""
-				if lineNumber-1 >= 0 && lineNumber-1 < len(file.lines) {
-					line = strings.TrimRight(file.lines[lineNumber-1], "\r")
-				}
-				if showLines {
-					_, _ = fmt.Fprintf(&b, "%d: %s\n", lineNumber, line)
-				} else {
-					_, _ = fmt.Fprintf(&b, "%s\n", line)
-				}
-			}
-			if windowIndex < len(windows)-1 {
-				b.WriteString("\n")
-			}
-		}
+		renderGrepFileWindows(&b, file, windows, showLines)
 		if fileIndex < len(fileOrder)-1 {
 			b.WriteString("\n")
 		}
 	}
 
 	return strings.TrimSpace(b.String())
+}
+
+func renderGrepFileWindows(b *strings.Builder, file grepFileResult, windows []grepWindow, showLines bool) {
+	lineColumns := grepLineColumns(file.matches)
+	for windowIndex, window := range windows {
+		for lineNumber := window.start; lineNumber <= window.end; lineNumber++ {
+			line := ""
+			if lineNumber-1 >= 0 && lineNumber-1 < len(file.lines) {
+				line = strings.TrimRight(file.lines[lineNumber-1], "\r")
+			}
+			renderGrepLine(b, lineNumber, line, lineColumns[lineNumber], showLines)
+		}
+		if windowIndex < len(windows)-1 {
+			b.WriteString("\n")
+		}
+	}
+}
+
+func grepLineColumns(matches []grepMatch) map[int]int {
+	lineColumns := make(map[int]int, len(matches))
+	for _, m := range matches {
+		if _, exists := lineColumns[m.lineNumber]; !exists {
+			lineColumns[m.lineNumber] = m.column
+		}
+	}
+	return lineColumns
+}
+
+func renderGrepLine(b *strings.Builder, lineNumber int, line string, column int, showLines bool) {
+	switch {
+	case !showLines:
+		_, _ = fmt.Fprintf(b, "%s\n", line)
+	case column > 0:
+		_, _ = fmt.Fprintf(b, "%d:%d: %s\n", lineNumber, column, line)
+	default:
+		_, _ = fmt.Fprintf(b, "%d: %s\n", lineNumber, line)
+	}
 }
 
 func mergeGrepWindows(lineNumbers []int, totalLines, beforeContext, afterContext int) []grepWindow {

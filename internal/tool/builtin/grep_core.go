@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gobwas/glob"
 
@@ -36,7 +37,13 @@ import (
 type grepMatch struct {
 	file       string
 	lineNumber int
+	column     int
 	line       string
+}
+
+// runeColumn converts a byte offset within line into a 1-based rune column.
+func runeColumn(line string, byteOffset int) int {
+	return utf8.RuneCountInString(line[:byteOffset]) + 1
 }
 
 type grepFileResult struct {
@@ -328,12 +335,14 @@ func grepLineMatches(lines []string, contentText, relPath string, re *regexp.Reg
 func grepSingleLineMatches(lines []string, relPath string, re *regexp.Regexp) []grepMatch {
 	matches := make([]grepMatch, 0)
 	for i, line := range lines {
-		if !re.MatchString(line) {
+		loc := re.FindStringIndex(line)
+		if loc == nil {
 			continue
 		}
 		matches = append(matches, grepMatch{
 			file:       relPath,
 			lineNumber: i + 1,
+			column:     runeColumn(line, loc[0]),
 			line:       strings.TrimRight(line, "\r"),
 		})
 	}
@@ -342,10 +351,15 @@ func grepSingleLineMatches(lines []string, relPath string, re *regexp.Regexp) []
 
 func grepMultilineMatches(lines []string, contentText, relPath string, re *regexp.Regexp) []grepMatch {
 	lineMatched := make([]bool, len(lines))
+	lineColumn := make([]int, len(lines))
 	lineStarts := grepLineStarts(lines)
 	matchIndexes := re.FindAllStringIndex(contentText, -1)
 	for _, matchIndex := range matchIndexes {
 		grepMarkMatchedLines(lineMatched, lines, lineStarts, matchIndex[0], matchIndex[1])
+		startLine := grepLineForOffset(lineStarts, matchIndex[0])
+		if lineColumn[startLine] == 0 {
+			lineColumn[startLine] = runeColumn(lines[startLine], matchIndex[0]-lineStarts[startLine])
+		}
 	}
 
 	matches := make([]grepMatch, 0)
@@ -356,10 +370,24 @@ func grepMultilineMatches(lines []string, contentText, relPath string, re *regex
 		matches = append(matches, grepMatch{
 			file:       relPath,
 			lineNumber: i + 1,
+			column:     lineColumn[i],
 			line:       strings.TrimRight(lines[i], "\r"),
 		})
 	}
 	return matches
+}
+
+// grepLineForOffset returns the index of the line containing the given byte
+// offset into the joined content text, given each line's starting offset.
+func grepLineForOffset(lineStarts []int, offset int) int {
+	line := 0
+	for i, start := range lineStarts {
+		if start > offset {
+			break
+		}
+		line = i
+	}
+	return line
 }
 
 func grepLineStarts(lines []string) []int {

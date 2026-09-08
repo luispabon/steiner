@@ -218,7 +218,7 @@ See [Model enumeration](docs/model-enumeration.md) for provider details, caching
 | `read` | Read files with offset/limit pagination; preserves long lines up to its per-line cap, bounds per-page output, and continues via `next_offset`; detects and base64-encodes images |
 | `mutate` | Apply structured file mutations atomically (create, write, replace, delete_file, move); parent directories must exist for workspace paths; `replace` against an existing file requires either a same-session read observation or an explicit `file_hash` — otherwise it is rejected before planning |
 | `glob` | Find files by pattern |
-| `grep` | Search file contents with surrounding context |
+| `grep` | Search file contents with surrounding context, emitting `line:col` for feeding into `lsp_*` tools |
 | `ls` | List directory contents |
 | `bash` | Run shell commands (sandboxed by default) |
 | `fetch_url` | Fetch a URL and return its content: HTML has its main content extracted and converted to markdown (falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.) returned raw, images always saved to `.steiner/tmp/fetched` and available through the `read` tool; large responses saved to disk in full, with the `read` tool used to paginate. `.steiner/tmp/fetched` is pruned at startup: files older than 7 days are removed, then oldest-first until the directory is under 250MB (files younger than 1 hour are never evicted by the budget rule) |

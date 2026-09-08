@@ -89,7 +89,7 @@ func GrepSchema() map[string]any {
 			"type":             map[string]any{"type": "string", "description": "Search type (content, files, etc)"},
 			"output_mode":      map[string]any{"type": "string", "description": "Output mode: content, files_with_matches, or count"},
 			"case_insensitive": map[string]any{"type": "boolean", "description": "Case insensitive search"},
-			"line_numbers":     map[string]any{"type": "boolean", "description": "Include line numbers in content output"},
+			"line_numbers":     map[string]any{"type": "boolean", "description": "Include line and column numbers in content output. Column is 1-based and rune-counted (matches lsp_definitions/lsp_references), pointing at where the match starts — not necessarily the target identifier's own position. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result into an LSP tool."},
 			"after_context":    map[string]any{"type": "integer", "description": "Lines after each match in content output"},
 			"before_context":   map[string]any{"type": "integer", "description": "Lines before each match in content output"},
 			"context":          map[string]any{"type": "integer", "description": "Symmetric context lines for content output"},

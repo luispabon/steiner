@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -451,6 +452,93 @@ func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {
 	if matches[0].matches[1].file != "multiline.txt" || matches[0].matches[1].lineNumber != 2 || matches[0].matches[1].line != "beta" {
 		t.Fatalf("second match = %#v, want multiline.txt line 2 beta", matches[0].matches[1])
 	}
+	if matches[0].matches[0].column != 1 {
+		t.Fatalf("first match column = %d, want 1 (match starts at line start)", matches[0].matches[0].column)
+	}
+	if matches[0].matches[1].column != 0 {
+		t.Fatalf("continuation match column = %d, want 0 (no match start on this line)", matches[0].matches[1].column)
+	}
+}
+
+func TestRuneColumn(t *testing.T) {
+	tests := []struct {
+		name       string
+		line       string
+		byteOffset int
+		want       int
+	}{
+		{name: "match at start", line: "hello world", byteOffset: 0, want: 1},
+		{name: "match in middle", line: "hello world", byteOffset: 6, want: 7},
+		{name: "match at end", line: "hello world", byteOffset: 10, want: 11},
+		{name: "multi-byte prefix", line: "héllo wörld", byteOffset: 7, want: 7},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := runeColumn(tt.line, tt.byteOffset)
+			if got != tt.want {
+				t.Errorf("runeColumn(%q, %d) = %d, want %d", tt.line, tt.byteOffset, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGrepSingleLineMatches_Column(t *testing.T) {
+	tests := []struct {
+		name       string
+		line       string
+		pattern    string
+		wantColumn int
+	}{
+		{name: "ascii match at start", line: "hello world", pattern: "hello", wantColumn: 1},
+		{name: "ascii match in middle", line: "hello world", pattern: "world", wantColumn: 7},
+		{name: "ascii match at end", line: "abc xyz", pattern: "xyz", wantColumn: 5},
+		{name: "multi-byte line, match after multi-byte char", line: "héllo wörld", pattern: "wörld", wantColumn: 7},
+		{name: "multiple matches use first", line: "cat cat cat", pattern: "cat", wantColumn: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile(tt.pattern)
+			matches := grepSingleLineMatches([]string{tt.line}, "test.txt", re)
+			if len(matches) != 1 {
+				t.Fatalf("len(matches) = %d, want 1", len(matches))
+			}
+			if matches[0].column != tt.wantColumn {
+				t.Errorf("column = %d, want %d", matches[0].column, tt.wantColumn)
+			}
+		})
+	}
+}
+
+func TestGrepTool_ContentColumnRendering(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := "line one\nmatch here\nline three\nmatch again\nline five\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "cols.txt"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write cols.txt: %v", err)
+	}
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	env := Env{WorkDir: tmpDir, PathPolicy: &policy}
+	toolDef := NewGrepTool(env)
+	ctx := context.Background()
+
+	resultI, err := toolDef.Handler(ctx, map[string]any{
+		"pattern":     "match",
+		"output_mode": "content",
+		"context":     1,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	result, ok := resultI.(GrepResult)
+	if !ok {
+		t.Fatalf("result type = %T, want GrepResult", resultI)
+	}
+	if !strings.Contains(result.Output, "2:1: match here") {
+		t.Errorf("Output = %q, want matched line rendered as %q", result.Output, "2:1: match here")
+	}
+	if !strings.Contains(result.Output, "3: line three") {
+		t.Errorf("Output = %q, want context-only line rendered as %q", result.Output, "3: line three")
+	}
 }
 
 func TestGrepSearch_ReturnsTraversalAndReadErrors(t *testing.T) {
@@ -565,10 +653,10 @@ func TestGrepTool_PaginationAndMetadata(t *testing.T) {
 		if result.NextOffset != 2 {
 			t.Fatalf("NextOffset = %d, want 2", result.NextOffset)
 		}
-		if !strings.Contains(result.Output, "3: line 3") || !strings.Contains(result.Output, "4: match beta") || !strings.Contains(result.Output, "5: line 5") {
+		if !strings.Contains(result.Output, "3: line 3") || !strings.Contains(result.Output, "4:1: match beta") || !strings.Contains(result.Output, "5: line 5") {
 			t.Fatalf("Output = %q, want merged context around the second match", result.Output)
 		}
-		if strings.Count(result.Output, "4: match beta") != 1 {
+		if strings.Count(result.Output, "4:1: match beta") != 1 {
 			t.Fatalf("Output = %q, want one rendered match line", result.Output)
 		}
 	})
@@ -585,7 +673,7 @@ func TestGrepTool_PaginationAndMetadata(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		result := resultI.(GrepResult)
-		if strings.Count(result.Output, "4: match beta") != 1 {
+		if strings.Count(result.Output, "4:1: match beta") != 1 {
 			t.Fatalf("Output = %q, want merged windows with one beta line", result.Output)
 		}
 		if strings.Count(result.Output, "5: line 5") != 1 {
