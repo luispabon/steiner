@@ -53,6 +53,55 @@ func TestBuildGlamourStyleSheet_rendersHeading(t *testing.T) {
 	}
 }
 
+func TestBuildGlamourStyleSheet_unorderedListMarker(t *testing.T) {
+	tests := []struct {
+		name     string
+		markdown string
+	}{
+		{
+			name:     "asterisk marker",
+			markdown: "* item one\n* item two\n",
+		},
+		{
+			name:     "hyphen marker",
+			markdown: "- item one\n- item two\n",
+		},
+		{
+			name:     "plus marker",
+			markdown: "+ item one\n+ item two\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opt := BuildGlamourStyleSheet("#E8814B")
+			r, err := glamour.NewTermRenderer(
+				opt,
+				glamour.WithWordWrap(80),
+			)
+			if err != nil {
+				t.Fatalf("creating renderer: %v", err)
+			}
+
+			out, err := r.Render(tt.markdown)
+			if err != nil {
+				t.Fatalf("rendering markdown: %v", err)
+			}
+
+			cleaned := stripANSI(out)
+			if !strings.Contains(cleaned, "* item one") {
+				t.Errorf("rendered output missing '* item one': %q", cleaned)
+			}
+			if !strings.Contains(cleaned, "* item two") {
+				t.Errorf("rendered output missing '* item two': %q", cleaned)
+			}
+			if strings.Contains(cleaned, "•") {
+				t.Errorf("rendered output contains bullet character '•': %q", cleaned)
+			}
+		})
+	}
+}
+
 func TestSteinerThemeColors(t *testing.T) {
 	theme := steinerTheme{}
 	tests := []struct {
