@@ -27,6 +27,41 @@ func TestLSPOverlay_NewClose(t *testing.T) {
 	}
 }
 
+func TestLSPOverlay_SlashCommandOpensOverlay(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.lspServers = []LSPServerStatus{{Name: "gopls", Root: "/repo", Status: "ready"}}
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.input.SetValue("/lsp")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.lspOverlay.IsOpen() {
+		t.Fatal("expected /lsp command to open the overlay")
+	}
+
+	view := m.lspOverlay.View()
+	if !strings.Contains(view, "gopls") {
+		t.Fatalf("expected overlay to list configured server, got: %s", view)
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
+	if m.lspOverlay.IsOpen() {
+		t.Fatal("expected esc to close the overlay")
+	}
+}
+
+func TestLSPOverlay_CommandRegistered(t *testing.T) {
+	t.Parallel()
+	sc := lookupCommand("/lsp")
+	if sc == nil {
+		t.Fatal("expected /lsp to be registered in slashCommands")
+	}
+	action := sc.Build("")
+	if !action.showLSP {
+		t.Fatal("expected /lsp command to build a showLSP action")
+	}
+}
+
 func TestLSPOverlay_ViewEmpty(t *testing.T) {
 	t.Parallel()
 	s := testStyles("#ff0000")

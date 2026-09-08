@@ -100,6 +100,7 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		resolveReasoningFunc:         cfg.ResolveReasoningFunc,
 		resolveReasoningForAliasFunc: cfg.ResolveReasoningForAliasFunc,
 		checkUpdateFunc:              cfg.CheckUpdateFunc,
+		pollLSPStatesFunc:            cfg.PollLSPStatesFunc,
 		mode:                         cfg.InitialMode,
 		ticking:                      true,
 	}
@@ -198,6 +199,14 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			var cmd tea.Cmd
 			m.mcpOverlay, cmd = m.mcpOverlay.Update(msg)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.lspOverlay.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			var cmd tea.Cmd
+			m.lspOverlay, cmd = m.lspOverlay.Update(msg)
 			return cmd
 		},
 	},
@@ -365,6 +374,7 @@ func (m *Model) initializeOverlays(cfg Config) {
 
 	m.fileList = newFileListOverlay(m.styles)
 	m.mcpOverlay = newMCPOverlay(m.styles)
+	m.lspOverlay = newLSPOverlay(m.styles)
 	m.filePicker = newFilePickerOverlay(m.styles)
 	m.filePicker.width = m.width
 	m.filePicker.height = m.height
@@ -441,6 +451,10 @@ func (m *Model) Init() tea.Cmd {
 	}
 	if m.modelEntriesUpdates != nil {
 		cmds = append(cmds, waitForModelEntries(m.modelEntriesUpdates))
+	}
+	if m.pollLSPStatesFunc != nil {
+		m.lspServers = m.pollLSPStatesFunc()
+		m.syncSidebar()
 	}
 	return tea.Batch(cmds...)
 }

@@ -98,6 +98,14 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		ID:   "/lsp",
+		Name: "LSP servers",
+		Desc: "show LSP server status",
+		Build: func(_ string) inputAction {
+			return inputAction{showLSP: true}
+		},
+	},
+	{
 		ID:   "/mcp",
 		Name: "MCP servers",
 		Desc: "show MCP server status",

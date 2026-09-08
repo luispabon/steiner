@@ -79,6 +79,9 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.showMCP {
 		return m.executeShowMCPAction()
 	}
+	if action.showLSP {
+		return m.executeShowLSPAction()
+	}
 	if action.requestSessionPicker {
 		return m.executeRequestSessionPickerAction()
 	}
