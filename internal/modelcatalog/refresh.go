@@ -86,16 +86,8 @@ func (s *Service) RefreshAll(ctx context.Context, endpoints []Endpoint, opts Ref
 
 func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bool) RefreshResult {
 	result := RefreshResult{Alias: endpoint.Alias}
-	if !force {
-		found, fresh, _ := s.cache.Status(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
-		if found && fresh {
-			models, found, _ := s.cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
-			if found {
-				s.setDiscovered(endpoint.Alias, models)
-			}
-			result.Status = RefreshStatusFreshSkipped
-			return result
-		}
+	if s.skipIfFresh(&result, endpoint, force) {
+		return result
 	}
 	if endpoint.Prepare != nil {
 		prepareCtx, cancel := context.WithTimeout(parent, 5*time.Second)
@@ -105,16 +97,8 @@ func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bo
 			return failedRefresh(result, fmt.Errorf("prepare model endpoint for %s: %w", endpoint.Alias, err))
 		}
 		endpoint = prepared
-		if !force {
-			found, fresh, _ := s.cache.Status(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
-			if found && fresh {
-				models, found, _ := s.cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
-				if found {
-					s.setDiscovered(endpoint.Alias, models)
-				}
-				result.Status = RefreshStatusFreshSkipped
-				return result
-			}
+		if s.skipIfFresh(&result, endpoint, force) {
+			return result
 		}
 	}
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
@@ -149,6 +133,22 @@ func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bo
 	s.setDiscovered(endpoint.Alias, refresh.Models)
 	result.Status = RefreshStatusUpdated
 	return result
+}
+
+func (s *Service) skipIfFresh(result *RefreshResult, endpoint Endpoint, force bool) bool {
+	if force {
+		return false
+	}
+	found, fresh, _ := s.cache.Status(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+	if !found || !fresh {
+		return false
+	}
+	models, found, _ := s.cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+	if found {
+		s.setDiscovered(endpoint.Alias, models)
+	}
+	result.Status = RefreshStatusFreshSkipped
+	return true
 }
 
 func (s *Service) cachedETag(endpoint Endpoint) string {
