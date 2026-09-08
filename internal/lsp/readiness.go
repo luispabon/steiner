@@ -98,6 +98,60 @@ func (m *Manager) awaitReady(ctx context.Context, e *entry) (incomplete bool, er
 	}
 }
 
+func processReadinessProgress(e *entry, r *readiness, event ProgressEvent, gracePeriodFired *bool, gracePeriodTimer *time.Timer) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	switch event.Kind {
+	case "begin":
+		if !*gracePeriodFired {
+			gracePeriodTimer.Stop()
+			*gracePeriodFired = true
+		}
+		r.openTokens[event.Token] = struct{}{}
+
+	case "end":
+		if _, ok := r.openTokens[event.Token]; ok {
+			delete(r.openTokens, event.Token)
+			r.completedOne = true
+		}
+	}
+
+	if r.completedOne {
+		r.markReady()
+		return true
+	}
+	return false
+}
+
+func drainReadinessProgress(sess session, e *entry, r *readiness, gracePeriodFired *bool, gracePeriodTimer *time.Timer) bool {
+	for {
+		select {
+		case event := <-sess.Progress():
+			if processReadinessProgress(e, r, event, gracePeriodFired, gracePeriodTimer) {
+				return true
+			}
+		default:
+			return false
+		}
+	}
+}
+
+func finishReadinessAfterTimer(e *entry, r *readiness, gracePeriodFired, gracePeriod bool) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if r.isTerminal() || (gracePeriod && gracePeriodFired) {
+		return false
+	}
+	if gracePeriod {
+		r.markReady()
+	} else {
+		r.markTimedOut()
+	}
+	return true
+}
+
 // trackReadiness consumes progress events from the session and manages the
 // readiness state. It runs as a background goroutine started once the session
 // becomes live. It is responsible for closing e.readiness.readyCh when
@@ -117,48 +171,19 @@ func (m *Manager) trackReadiness(e *entry, sess session, r *readiness) {
 	for {
 		select {
 		case event := <-sess.Progress():
-			e.mu.Lock()
-
-			switch event.Kind {
-			case "begin":
-				if !gracePeriodFired {
-					gracePeriodTimer.Stop()
-					gracePeriodFired = true
-				}
-				r.openTokens[event.Token] = struct{}{}
-
-			case "end":
-				if _, ok := r.openTokens[event.Token]; ok {
-					delete(r.openTokens, event.Token)
-					r.completedOne = true
-				}
-			}
-
-			if r.completedOne {
-				r.markReady()
-				e.mu.Unlock()
+			if processReadinessProgress(e, r, event, &gracePeriodFired, gracePeriodTimer) {
 				return
 			}
-
-			e.mu.Unlock()
 
 		case <-gracePeriodTimer.C:
-			e.mu.Lock()
-			if !r.isTerminal() && !gracePeriodFired {
-				r.markReady()
-				e.mu.Unlock()
+			if drainReadinessProgress(sess, e, r, &gracePeriodFired, gracePeriodTimer) || finishReadinessAfterTimer(e, r, gracePeriodFired, true) {
 				return
 			}
-			e.mu.Unlock()
 
 		case <-readyTimeoutTimer.C:
-			e.mu.Lock()
-			if !r.isTerminal() {
-				r.markTimedOut()
-				e.mu.Unlock()
+			if drainReadinessProgress(sess, e, r, &gracePeriodFired, gracePeriodTimer) || finishReadinessAfterTimer(e, r, gracePeriodFired, false) {
 				return
 			}
-			e.mu.Unlock()
 
 		case <-sess.Exited():
 			return
