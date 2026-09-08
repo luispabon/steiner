@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"sync"
 	"testing"
@@ -203,6 +204,44 @@ func (f *fakeServer) Exit(context.Context) error {
 	return nil
 }
 
+// clientSendRecorder wraps a jsonrpc2.Stream and records the method name of
+// every outgoing call or notification, in the exact order the session writes
+// them to the wire. Unlike fakeServer.recorded (populated from inside handler
+// goroutines spawned by protocol.Handlers' AsyncHandler, which does not
+// preserve receipt order across messages), this reflects genuine client-side
+// send order, which is what a mutex like entry.cycleMu actually serializes.
+type clientSendRecorder struct {
+	jsonrpc2.Stream
+
+	mu      sync.Mutex
+	methods []string
+}
+
+func (r *clientSendRecorder) Write(ctx context.Context, msg jsonrpc2.Message) (int64, error) {
+	// The generic Write(ctx, msg) path (taken here because *clientSendRecorder
+	// cannot implement jsonrpc2's unexported frameWriter fast-path interface)
+	// boxes calls and notifications as the unexported callWire/notificationWire
+	// types, which do not implement RequestMessage. EncodeMessage is the only
+	// exported way to recover the method name generically.
+	if raw, err := jsonrpc2.EncodeMessage(msg); err == nil {
+		var envelope struct {
+			Method string `json:"method"`
+		}
+		if json.Unmarshal(raw, &envelope) == nil && envelope.Method != "" {
+			r.mu.Lock()
+			r.methods = append(r.methods, envelope.Method)
+			r.mu.Unlock()
+		}
+	}
+	return r.Stream.Write(ctx, msg)
+}
+
+func (r *clientSendRecorder) recorded() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.methods...)
+}
+
 // notifyDiagnostics publishes diagnostics to the connected session.
 func (f *fakeServer) notifyDiagnostics(ctx context.Context, t *testing.T, params *protocol.PublishDiagnosticsParams) {
 	t.Helper()
@@ -222,6 +261,17 @@ func (f *fakeServer) notifyProgress(ctx context.Context, t *testing.T, params *p
 // startFakeSession connects a session to fs over an in-memory pipe and returns
 // the handshake outcome. The session is closed at the end of the test.
 func startFakeSession(ctx context.Context, t *testing.T, fs *fakeServer, initOpts map[string]any) (*impl, *fakeProcess, error) {
+	t.Helper()
+	return startFakeSessionWithClientStream(ctx, t, fs, initOpts, nil)
+}
+
+// startFakeSessionWithClientStream behaves like startFakeSession but, when wrap
+// is non-nil, passes the client-side stream through it before handing it to
+// newSession. This lets a test observe the exact order in which the session
+// sends messages, independent of the fake server's per-message dispatch, which
+// runs each handler in its own goroutine (via protocol.Handlers' AsyncHandler)
+// and so does not preserve receipt order across messages.
+func startFakeSessionWithClientStream(ctx context.Context, t *testing.T, fs *fakeServer, initOpts map[string]any, wrap func(jsonrpc2.Stream) jsonrpc2.Stream) (*impl, *fakeProcess, error) {
 	t.Helper()
 
 	clientPipe, serverPipe := net.Pipe()
@@ -246,7 +296,12 @@ func startFakeSession(ctx context.Context, t *testing.T, fs *fakeServer, initOpt
 	})
 	t.Cleanup(fs.releaseHolds)
 
-	s, err := newSession(ctx, jsonrpc2.NewStream(clientPipe), t.TempDir(), initOpts, proc)
+	clientStream := jsonrpc2.NewStream(clientPipe)
+	if wrap != nil {
+		clientStream = wrap(clientStream)
+	}
+
+	s, err := newSession(ctx, clientStream, t.TempDir(), initOpts, proc)
 	if err != nil {
 		return nil, proc, err
 	}
