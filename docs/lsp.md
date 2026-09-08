@@ -123,10 +123,23 @@ The `lsp_diagnostics` tool collects published diagnostics for a file by opening 
 
 The `lsp.diagnostics_window` is unconditional latency: the tool always waits the full window even if the server publishes diagnostics immediately. This ensures completeness without being surprising.
 
+## Post-mutate diagnostics injection
+
+After a successful `mutate` call, the tool result gets a bounded diagnostics section appended automatically for the files the mutation touched — no extra `lsp_diagnostics` call is needed to catch a compile error the mutation just introduced.
+
+This is best-effort and only considers servers that are already running and ready. It never spawns a server to perform this check: a cold start would cost far more than the check is worth. If no server is already ready for any of the touched files, nothing is appended.
+
+To bound worst-case added latency, only a small fixed number of touched files are checked per `mutate` call. Each checked file pays the same `lsp.diagnostics_window` wait that `lsp_diagnostics` already pays for one file, so this doesn't introduce a new latency category — it applies the existing one automatically, across up to a few files.
+
+The injection is silent when there's nothing to report: if the touched files have no diagnostics, or no server is checkable for any of them, the tool result looks exactly like it does today. Unlike `lsp_diagnostics`, which returns "No diagnostics found." for an explicit query, post-mutate injection never emits a "clean" message — the model didn't ask for this check, so it only speaks up when there's something to report.
+
+There is no config field to enable or disable this separately: it runs unconditionally whenever `lsp.enabled` is true and a server is already ready for a touched file.
+
 ## Known limitations
 
 - Language servers other than gopls are unverified for cache requirements. If you encounter cache-related issues with other servers, open an issue.
 - Document symbols (`textDocument/documentSymbol`), rename (`textDocument/rename`), and other LSP features are not yet implemented. The four tools (lsp_definitions, lsp_references, lsp_diagnostics, lsp_hover) are the current focus.
+- Post-mutate diagnostics injection only checks the files a `mutate` call touched, up to its per-call cap. Files beyond that cap are not checked, and breakage in files the mutation didn't touch is not reported — e.g. if editing file A breaks a downstream file B that wasn't part of the same `mutate` call, B's breakage won't show up here. Check B explicitly with `lsp_diagnostics` or a build.
 
 ## Timeout calibration
 
