@@ -25,12 +25,12 @@ type resultCache struct {
 type cacheKey struct {
 	server      string // server name
 	root        string // workspace root
-	method      string // "definitions", "references", "diagnostics", or "document_symbol"
+	method      string // "definitions", "implementations", "type_definitions", "references", or "diagnostics"
 	file        string // absolute file path
 	line        int    // 1-indexed line number
 	column      int    // 1-indexed column number
 	fileHash    string // SHA-256 hex of file's current content
-	includeDecl bool   // for references; false for definitions/diagnostics
+	includeDecl bool   // for references; false for definitions/implementations/type_definitions/diagnostics
 }
 
 // cacheEntry holds a cached result: a Result, DiagResult, or SymbolResult.

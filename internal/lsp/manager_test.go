@@ -147,6 +147,14 @@ func (s *blockingSession) Definition(context.Context, string, int, int) ([]Locat
 	return nil, nil
 }
 
+func (s *blockingSession) Implementation(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+
+func (s *blockingSession) TypeDefinition(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+
 func (s *blockingSession) References(context.Context, string, int, int, bool) ([]Location, error) {
 	return nil, nil
 }

@@ -60,6 +60,13 @@ type fakeServer struct {
 	releaseOnce    sync.Once
 	// definitionResult is returned by textDocument/definition.
 	definitionResult protocol.DefinitionResult
+	// implementationResult is returned by textDocument/implementation.
+	// protocol.ImplementationResult is an alias of protocol.DefinitionResult.
+	implementationResult protocol.DefinitionResult
+	implementationErr    error
+	// typeDefinitionResult is returned by textDocument/typeDefinition.
+	typeDefinitionResult protocol.DefinitionResult
+	typeDefinitionErr    error
 	// referencesResult is returned by textDocument/references.
 	referencesResult []protocol.Location
 	// hoverResult is returned by textDocument/hover.
@@ -145,7 +152,9 @@ func (f *fakeServer) Initialize(ctx context.Context, params *protocol.Initialize
 	}
 	return &protocol.InitializeResult{
 		Capabilities: protocol.ServerCapabilities{
-			DefinitionProvider: protocol.Boolean(true),
+			DefinitionProvider:       protocol.Boolean(true),
+			ImplementationProvider:   protocol.Boolean(true),
+			TypeDefinitionProvider:   protocol.Boolean(true),
 		},
 	}, nil
 }
@@ -165,6 +174,22 @@ func (f *fakeServer) Definition(ctx context.Context, _ *protocol.DefinitionParam
 		}
 	}
 	return f.definitionResult, nil
+}
+
+func (f *fakeServer) Implementation(_ context.Context, _ *protocol.ImplementationParams) (protocol.ImplementationResult, error) {
+	f.record("textDocument/implementation")
+	if f.implementationErr != nil {
+		return nil, f.implementationErr
+	}
+	return f.implementationResult, nil
+}
+
+func (f *fakeServer) TypeDefinition(_ context.Context, _ *protocol.TypeDefinitionParams) (protocol.TypeDefinitionResult, error) {
+	f.record("textDocument/typeDefinition")
+	if f.typeDefinitionErr != nil {
+		return nil, f.typeDefinitionErr
+	}
+	return f.typeDefinitionResult, nil
 }
 
 func (f *fakeServer) References(context.Context, *protocol.ReferenceParams) ([]protocol.Location, error) {

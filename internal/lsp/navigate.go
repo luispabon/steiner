@@ -236,6 +236,108 @@ func (m *Manager) References(ctx context.Context, file string, line, col int, in
 	return result, nil
 }
 
+// locationsAt runs the cache/readiness/locking flow shared by Implementations
+// and TypeDefinitions, dispatching the actual LSP request through req.
+func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, line, col int,
+	req func(context.Context, session) ([]Location, error), reqErrPrefix string) (Result, error) {
+	if line < 1 || col < 1 {
+		return Result{}, fmt.Errorf("invalid position: line %d col %d", line, col)
+	}
+
+	file, err := absWorkspacePath(m.workspace, file)
+	if err != nil {
+		return Result{}, err
+	}
+
+	buildKey := func(sessionKey sessionKey, fileHash string) cacheKey {
+		return cacheKey{
+			server:      sessionKey.server,
+			root:        sessionKey.root,
+			method:      cacheMethod,
+			file:        file,
+			line:        line,
+			column:      col,
+			fileHash:    fileHash,
+			includeDecl: false,
+		}
+	}
+
+	if sk, ok := m.resolveSessionKey(file); ok {
+		if fileHash := hashFileContent(file); fileHash != "" {
+			if cached, hit := m.resultCache.get(buildKey(sk, fileHash)); hit {
+				return *cached.(*Result), nil
+			}
+		}
+	}
+
+	ent, sess, err := m.entryFor(ctx, file)
+	if err != nil {
+		return Result{}, err
+	}
+
+	incomplete, err := m.awaitReady(ctx, ent)
+	if err != nil {
+		return Result{}, err
+	}
+
+	ent.cycleMu.Lock()
+	defer ent.cycleMu.Unlock()
+
+	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(m.cfg.RequestTimeout.Duration()))
+	defer cancel()
+
+	var locations []Location
+	err = withDocument(ctx, sess, file, func() error {
+		locs, err := req(reqCtx, sess)
+		if err != nil {
+			return fmt.Errorf("%s: %w", reqErrPrefix, err)
+		}
+		locations = locs
+		return nil
+	})
+	if err != nil {
+		return Result{}, err
+	}
+
+	sortLocations(locations)
+	total := len(locations)
+	truncated := false
+	if len(locations) > m.cfg.MaxResults {
+		locations = locations[:m.cfg.MaxResults]
+		truncated = true
+	}
+
+	result := Result{Locations: locations, Incomplete: incomplete, Truncated: truncated, Total: total}
+
+	if !incomplete {
+		if sk, ok := m.resolveSessionKey(file); ok {
+			if fileHash := hashFileContent(file); fileHash != "" {
+				m.resultCache.put(buildKey(sk, fileHash), &result)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// Implementations returns the concrete implementations of the interface or
+// interface method at the given position in a file.
+func (m *Manager) Implementations(ctx context.Context, file string, line, col int) (Result, error) {
+	return m.locationsAt(ctx, "implementations", file, line, col,
+		func(ctx context.Context, sess session) ([]Location, error) {
+			return sess.Implementation(ctx, file, line, col)
+		}, "implementation request")
+}
+
+// TypeDefinitions returns the type declaration for the symbol at the given
+// position in a file.
+func (m *Manager) TypeDefinitions(ctx context.Context, file string, line, col int) (Result, error) {
+	return m.locationsAt(ctx, "type_definitions", file, line, col,
+		func(ctx context.Context, sess session) ([]Location, error) {
+			return sess.TypeDefinition(ctx, file, line, col)
+		}, "type definition request")
+}
+
 // Hover returns hover information at the given position in a file.
 func (m *Manager) Hover(ctx context.Context, file string, line, col int) (HoverResult, error) {
 	if line < 1 || col < 1 {

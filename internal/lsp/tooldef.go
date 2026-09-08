@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"go.lsp.dev/jsonrpc2"
+
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// ToolDefs returns the five LSP tool definitions in deterministic order: lsp_definitions, lsp_references, lsp_diagnostics, lsp_hover, lsp_symbols.
+// ToolDefs returns the seven LSP tool definitions in deterministic order: lsp_definitions, lsp_references, lsp_diagnostics, lsp_hover, lsp_symbols, lsp_implementations, lsp_type_definitions.
 func ToolDefs(m *Manager) []tool.ToolDef {
 	return []tool.ToolDef{
 		definitionsTool(m),
@@ -18,6 +20,8 @@ func ToolDefs(m *Manager) []tool.ToolDef {
 		diagnosticsTool(m),
 		hoverTool(m),
 		symbolsTool(m),
+		implementationsTool(m),
+		typeDefinitionTool(m),
 	}
 }
 
@@ -308,6 +312,108 @@ func symbolsTool(m *Manager) tool.ToolDef {
 	}
 }
 
+func implementationsTool(m *Manager) tool.ToolDef {
+	return tool.ToolDef{
+		Name:         "lsp_implementations",
+		ParallelSafe: true,
+		Description:  "Find the concrete implementations of an interface or interface method — the answer to \"what actually runs when this is called?\". Prefer this over lsp_definitions on an interface method: lsp_definitions returns only the interface declaration, while this returns the concrete types that satisfy it. Address the position with line+column, or with symbol (optionally narrowed by line). Requires a configured language server for the file's extension that supports textDocument/implementation; returns a message instead of results if no server is enabled or the server does not support it.",
+		ParameterSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"file":   map[string]any{"type": "string", "description": "File path to query (workspace-relative or absolute)"},
+				"line":   map[string]any{"type": "integer", "description": "Line number (1-based)"},
+				"column": map[string]any{"type": "integer", "description": "Column number (1-based)"},
+				"symbol": map[string]any{"type": "string", "description": "Symbol name to search for at identifier boundaries; searches entire file if line is omitted, or just that line if line is specified"},
+			},
+			"required":             []string{"file"},
+			"additionalProperties": false,
+		},
+		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			file, ok := input["file"].(string)
+			if !ok {
+				return nil, fmt.Errorf("lsp_implementations: missing or invalid file parameter")
+			}
+
+			line, lineOk := parseLineParameter(input)
+			col, colOk := parseColumnParameter(input)
+			symbol, symbolOk := parseSymbolParameter(input)
+
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_implementations", line, lineOk, col, colOk, symbol, symbolOk, file)
+			if resolveErr != "" {
+				return resolveErr, nil
+			}
+
+			result, err := m.Implementations(ctx, file, lineResolved, colResolved)
+
+			if unavailableMsg, goErr := handleNavigationError(m, file, err); unavailableMsg != nil {
+				return unavailableMsg, nil
+			} else if goErr != nil {
+				return nil, goErr
+			}
+
+			output := formatLocations(m.workspace, result, m.cfg)
+			if output == "" {
+				output = "(no implementations found)"
+			}
+			if echoLine != "" {
+				output = echoLine + "\n" + output
+			}
+			return output, nil
+		},
+	}
+}
+
+func typeDefinitionTool(m *Manager) tool.ToolDef {
+	return tool.ToolDef{
+		Name:         "lsp_type_definitions",
+		ParallelSafe: true,
+		Description:  "Jump to the type declaration of a variable, field, or parameter. Address the position with line+column, or with symbol (optionally narrowed by line). Requires a configured language server for the file's extension that supports textDocument/typeDefinition; returns a message instead of results if no server is enabled or the server does not support it.",
+		ParameterSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"file":   map[string]any{"type": "string", "description": "File path to query (workspace-relative or absolute)"},
+				"line":   map[string]any{"type": "integer", "description": "Line number (1-based)"},
+				"column": map[string]any{"type": "integer", "description": "Column number (1-based)"},
+				"symbol": map[string]any{"type": "string", "description": "Symbol name to search for at identifier boundaries; searches entire file if line is omitted, or just that line if line is specified"},
+			},
+			"required":             []string{"file"},
+			"additionalProperties": false,
+		},
+		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			file, ok := input["file"].(string)
+			if !ok {
+				return nil, fmt.Errorf("lsp_type_definitions: missing or invalid file parameter")
+			}
+
+			line, lineOk := parseLineParameter(input)
+			col, colOk := parseColumnParameter(input)
+			symbol, symbolOk := parseSymbolParameter(input)
+
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_type_definitions", line, lineOk, col, colOk, symbol, symbolOk, file)
+			if resolveErr != "" {
+				return resolveErr, nil
+			}
+
+			result, err := m.TypeDefinitions(ctx, file, lineResolved, colResolved)
+
+			if unavailableMsg, goErr := handleNavigationError(m, file, err); unavailableMsg != nil {
+				return unavailableMsg, nil
+			} else if goErr != nil {
+				return nil, goErr
+			}
+
+			output := formatLocations(m.workspace, result, m.cfg)
+			if output == "" {
+				output = "(no type definition found)"
+			}
+			if echoLine != "" {
+				output = echoLine + "\n" + output
+			}
+			return output, nil
+		},
+	}
+}
+
 // handleSymbolsError processes errors from DocumentSymbols or WorkspaceSymbols,
 // converting unavailability cases to readable result strings and returning an
 // error for genuine failures. Unlike handleNavigationError, file may be empty
@@ -366,6 +472,17 @@ func handleNavigationError(m *Manager, file string, err error) (any, error) {
 			return "Language server exited unexpectedly.", nil
 		}
 		return fmt.Sprintf("Language server %s exited unexpectedly.", serverName), nil
+	}
+
+	// Some methods (notably textDocument/implementation and
+	// textDocument/typeDefinition) are optional in LSP; a healthy server may
+	// answer with MethodNotFound rather than results.
+	if errors.Is(err, jsonrpc2.ErrMethodNotFound) {
+		serverName := findServerNameForFile(m, file)
+		if serverName == "" {
+			return "The language server does not support this request.", nil
+		}
+		return fmt.Sprintf("Language server %s does not support this request.", serverName), nil
 	}
 
 	failedServer := findFailedServer(m, file)
