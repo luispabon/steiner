@@ -152,9 +152,9 @@ func (f *fakeServer) Initialize(ctx context.Context, params *protocol.Initialize
 	}
 	return &protocol.InitializeResult{
 		Capabilities: protocol.ServerCapabilities{
-			DefinitionProvider:       protocol.Boolean(true),
-			ImplementationProvider:   protocol.Boolean(true),
-			TypeDefinitionProvider:   protocol.Boolean(true),
+			DefinitionProvider:     protocol.Boolean(true),
+			ImplementationProvider: protocol.Boolean(true),
+			TypeDefinitionProvider: protocol.Boolean(true),
 		},
 	}, nil
 }
