@@ -161,6 +161,7 @@ Steiner exposes these model-facing built-in tools:
 - `lsp_definitions` — jump to symbol definitions; requires `lsp.enabled` and a configured language server for the file's extension
 - `lsp_references` — find all references to a symbol; requires `lsp.enabled` and a configured language server for the file's extension
 - `lsp_diagnostics` — get diagnostics for a file; requires `lsp.enabled` and a configured language server for the file's extension
+- `lsp_hover` — get hover information (type signature + doc comment) for a symbol at a position; requires `lsp.enabled` and a configured language server for the file's extension
 - `workflow_handoff` — transition to a different workflow with approved artifacts
 - `mcp__<server>__<tool>` — MCP tools registered from connected MCP servers appear alongside built-ins with the `mcp__` prefix (tool names may include an optional 8-hex SHA-256 hash suffix when sanitisation or truncation is required). Their schemas and results come from third-party servers, not steiner.
 

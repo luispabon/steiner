@@ -62,6 +62,8 @@ type fakeServer struct {
 	definitionResult protocol.DefinitionResult
 	// referencesResult is returned by textDocument/references.
 	referencesResult []protocol.Location
+	// hoverResult is returned by textDocument/hover.
+	hoverResult *protocol.Hover
 	// ignoreExit makes the server accept exit without ever going away.
 	ignoreExit bool
 
@@ -164,6 +166,11 @@ func (f *fakeServer) Definition(ctx context.Context, _ *protocol.DefinitionParam
 func (f *fakeServer) References(context.Context, *protocol.ReferenceParams) ([]protocol.Location, error) {
 	f.record("textDocument/references")
 	return f.referencesResult, nil
+}
+
+func (f *fakeServer) Hover(context.Context, *protocol.HoverParams) (*protocol.Hover, error) {
+	f.record("textDocument/hover")
+	return f.hoverResult, nil
 }
 
 func (f *fakeServer) DidOpen(ctx context.Context, params *protocol.DidOpenTextDocumentParams) error {

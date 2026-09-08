@@ -8,6 +8,8 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+const maxHoverChars = 4000
+
 // formatLocations renders Result locations as relative paths in a bounded output string.
 // When Truncated is set, appends an omission note; when Incomplete is set, prepends
 // an indexing note. Returns the formatted string or an empty string if no locations.
@@ -101,4 +103,28 @@ func makeRelative(root, absPath string) string {
 	}
 
 	return rel
+}
+
+// formatHover renders HoverResult content with optional incompleteness note and truncation on rune boundaries.
+func formatHover(res HoverResult, cfg config.LSPConfig) string {
+	var parts []string
+	if res.Incomplete {
+		parts = append(parts, fmt.Sprintf("Workspace indexing had not finished within %s; results may be incomplete.", cfg.ReadyTimeout))
+		parts = append(parts, "")
+	}
+
+	text := strings.TrimSpace(res.Content.Text)
+	if text == "" {
+		if len(parts) > 0 {
+			return strings.Join(parts, "\n")
+		}
+		return ""
+	}
+
+	if runes := []rune(text); len(runes) > maxHoverChars {
+		omitted := len(runes) - maxHoverChars
+		text = string(runes[:maxHoverChars]) + fmt.Sprintf("\n... truncated (%d chars omitted)", omitted)
+	}
+	parts = append(parts, text)
+	return strings.Join(parts, "\n")
 }

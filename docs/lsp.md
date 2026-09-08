@@ -4,15 +4,16 @@ Steiner can connect to language servers to answer navigation and diagnostics
 queries. Servers are configured under `lsp.servers` and are off by default
 (`lsp.enabled: false`). See docs/configuration.md for the field reference.
 
-## The three tools
+## The four tools
 
-Three built-in tools become available when a language server is configured and working:
+Four built-in tools become available when a language server is configured and working:
 
 - **lsp_definitions** — Jump to the definition of a symbol at a given location. Returns a list of locations in other files (or the same file) where the symbol is defined. If multiple definitions exist (rare), all are returned, up to `lsp.max_results`.
 - **lsp_references** — Find all references to a symbol. By default includes the symbol's declaration; pass `include_declaration: false` to exclude it. Results are returned up to `lsp.max_results`.
 - **lsp_diagnostics** — Get diagnostics (errors, warnings, information, hints) for a file. Returns what the language server has published for that file. Diagnostics reflect the server's state at query time; if the server is still indexing, results may be incomplete or provisional.
+- **lsp_hover** — Get hover information for a symbol at a given location. Returns the type signature and documentation comment (if available) for the symbol. Results are truncated to 4000 characters if longer.
 
-All three tools gracefully degrade when no server is configured for a file's extension, when a server is disabled, or when a server fails to start — they return a clear message instead of an error. See [Graceful degradation](#graceful-degradation) below for the messages and what they mean.
+All four tools gracefully degrade when no server is configured for a file's extension, when a server is disabled, or when a server fails to start — they return a clear message instead of an error. See [Graceful degradation](#graceful-degradation) below for the messages and what they mean.
 
 ### Getting a column for these tools
 
@@ -108,7 +109,7 @@ When `lsp.cache_dir` is set in config, it overrides the user cache directory. Th
 
 ## Graceful degradation
 
-The three LSP tools return human-readable messages instead of errors when a server is unavailable:
+The four LSP tools return human-readable messages instead of errors when a server is unavailable:
 
 - **"No language server is configured for .ext. Configure one under `lsp.servers` to enable this tool."** — The file extension has no server declared in config, or the configured server is disabled.
 - **"Language server <name> failed to start: <error>."** — The server executable was not found, did not start, or crashed during initialization.
@@ -125,7 +126,7 @@ The `lsp.diagnostics_window` is unconditional latency: the tool always waits the
 ## Known limitations
 
 - Language servers other than gopls are unverified for cache requirements. If you encounter cache-related issues with other servers, open an issue.
-- Hover, document symbols (`textDocument/documentSymbol`), rename (`textDocument/rename`), and other LSP features are not yet implemented. The three tools (lsp_definitions, lsp_references, lsp_diagnostics) are the current focus.
+- Document symbols (`textDocument/documentSymbol`), rename (`textDocument/rename`), and other LSP features are not yet implemented. The four tools (lsp_definitions, lsp_references, lsp_diagnostics, lsp_hover) are the current focus.
 
 ## Timeout calibration
 

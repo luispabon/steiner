@@ -33,3 +33,9 @@ type ProgressEvent struct {
 	Kind    string // "begin", "report", "end"
 	Message string
 }
+
+// HoverContent is the normalized textDocument/hover result: plain text extracted
+// from whatever MarkupContent/MarkedString form the server returned.
+type HoverContent struct {
+	Text string
+}

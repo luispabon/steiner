@@ -151,6 +151,10 @@ func (s *blockingSession) References(context.Context, string, int, int, bool) ([
 	return nil, nil
 }
 
+func (s *blockingSession) Hover(context.Context, string, int, int) (HoverContent, error) {
+	return HoverContent{}, nil
+}
+
 func (s *blockingSession) DidOpen(context.Context, string, string, string, int32) error { return nil }
 
 func (s *blockingSession) DidClose(context.Context, string) error { return nil }

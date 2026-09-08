@@ -10,12 +10,13 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// ToolDefs returns the three LSP tool definitions in deterministic order: lsp_definitions, lsp_references, lsp_diagnostics.
+// ToolDefs returns the four LSP tool definitions in deterministic order: lsp_definitions, lsp_references, lsp_diagnostics, lsp_hover.
 func ToolDefs(m *Manager) []tool.ToolDef {
 	return []tool.ToolDef{
 		definitionsTool(m),
 		referencesTool(m),
 		diagnosticsTool(m),
+		hoverTool(m),
 	}
 }
 
@@ -178,6 +179,64 @@ func diagnosticsTool(m *Manager) tool.ToolDef {
 			}
 
 			output := formatDiagnostics(m.workspace, result, m.cfg)
+			return output, nil
+		},
+	}
+}
+
+func hoverTool(m *Manager) tool.ToolDef {
+	return tool.ToolDef{
+		Name:         "lsp_hover",
+		ParallelSafe: true,
+		Description:  "Get hover information for a symbol at a position. Requires a configured language server for the file's extension; returns empty results if no server is enabled. Results may be incomplete if the language server's indexing has not finished.",
+		ParameterSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"file": map[string]any{
+					"type":        "string",
+					"description": "File path to query (workspace-relative or absolute)",
+				},
+				"line": map[string]any{
+					"type":        "integer",
+					"description": "Line number (1-based)",
+				},
+				"column": map[string]any{
+					"type":        "integer",
+					"description": "Column number (1-based)",
+				},
+			},
+			"required":             []string{"file", "line", "column"},
+			"additionalProperties": false,
+		},
+		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+			file, ok := input["file"].(string)
+			if !ok {
+				return nil, fmt.Errorf("lsp_hover: missing or invalid file parameter")
+			}
+
+			line, ok := input["line"].(float64)
+			if !ok {
+				return nil, fmt.Errorf("lsp_hover: missing or invalid line parameter")
+			}
+
+			col, ok := input["column"].(float64)
+			if !ok {
+				return nil, fmt.Errorf("lsp_hover: missing or invalid column parameter")
+			}
+
+			result, err := m.Hover(ctx, file, int(line), int(col))
+
+			if unavailableMsg, goErr := handleNavigationError(m, file, err); unavailableMsg != nil {
+				return unavailableMsg, nil
+			} else if goErr != nil {
+				return nil, goErr
+			}
+
+			output := formatHover(result, m.cfg)
+			if output == "" {
+				output = "(no hover information)"
+			}
+
 			return output, nil
 		},
 	}

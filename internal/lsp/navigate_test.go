@@ -413,6 +413,111 @@ func isNonInterleavedSequence(methods []string) bool {
 	return cycles == 2
 }
 
+func TestHoverMarkupContent(t *testing.T) {
+	// Test that hover with MarkupContent is correctly returned.
+	fs := newFakeServer()
+	fs.hoverResult = &protocol.Hover{
+		Contents: &protocol.MarkupContent{
+			Kind:  "markdown",
+			Value: "# Some function\n\nThis is a function.",
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	content, err := sess.Hover(ctx, testFile, 5, 10)
+	if err != nil {
+		t.Fatalf("Hover: %v", err)
+	}
+
+	if content.Text != "# Some function\n\nThis is a function." {
+		t.Errorf("Hover content: got %q, want markdown content", content.Text)
+	}
+}
+
+func TestHoverEmptyResult(t *testing.T) {
+	// Test that nil hover result is handled correctly.
+	fs := newFakeServer()
+	fs.hoverResult = nil
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	content, err := sess.Hover(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("Hover: %v", err)
+	}
+
+	if content.Text != "" {
+		t.Errorf("Hover content for nil result: got %q, want empty", content.Text)
+	}
+}
+
+func TestHoverInvalidPosition(t *testing.T) {
+	tmpdir := t.TempDir()
+	cacheDir := filepath.Join(tmpdir, "cache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache: %v", err)
+	}
+
+	cfg := config.LSPConfig{
+		Enabled:           true,
+		IdleTimeout:       config.MustDuration("5s"),
+		RequestTimeout:    config.MustDuration("1s"),
+		ReadyTimeout:      config.MustDuration("100ms"),
+		ReadyGracePeriod:  config.MustDuration("50ms"),
+		DiagnosticsWindow: config.MustDuration("5s"),
+		MaxResults:        100,
+		CacheDir:          cacheDir,
+	}
+
+	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	defer func() { _ = m.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	// Test line < 1.
+	_, err := m.Hover(ctx, testFile, 0, 1)
+	if err == nil {
+		t.Error("Hover with line=0 should error")
+	}
+
+	// Test col < 1.
+	_, err = m.Hover(ctx, testFile, 1, 0)
+	if err == nil {
+		t.Error("Hover with col=0 should error")
+	}
+}
+
 func TestDidCloseEvenOnError(t *testing.T) {
 	// Test that DidClose is called even if Definition returns an error.
 	fs := newFakeServer()
