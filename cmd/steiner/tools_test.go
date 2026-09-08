@@ -646,3 +646,69 @@ func TestLSPRegistryOrderingDeterministic(t *testing.T) {
 		t.Fatalf("LSP tools in wrong order: got %v, want %v", lspToolsInRegistry, want)
 	}
 }
+
+// callMutateCreate invokes the mutate tool's Handler with a minimal "create"
+// operation and returns the raw result and error.
+func callMutateCreate(t *testing.T, defs []tool.ToolDef, fileName string) (any, error) {
+	t.Helper()
+	var mutateDef tool.ToolDef
+	found := false
+	for _, def := range defs {
+		if def.Name == "mutate" {
+			mutateDef = def
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("mutate tool not found in core tool definitions")
+	}
+	return mutateDef.Handler(context.Background(), map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": fileName, "content": "hello\n"},
+		},
+	})
+}
+
+// TestCoreToolDefinitionsMutateWithLSPManagerWorks verifies that passing a
+// non-nil lspMgr into coreToolDefinitions wires Env.MutateDiagnostics without
+// breaking the mutate tool's normal operation.
+func TestCoreToolDefinitionsMutateWithLSPManagerWorks(t *testing.T) {
+	cfg := registryTestConfig()
+	cfg.LSP = config.LSPConfig{Enabled: true}
+	workDir := t.TempDir()
+	lspMgr := lsp.NewManager(cfg.LSP, workDir, nil, func(string) {}, io.Discard)
+	defer lspMgr.Close()
+
+	defs := coreToolDefinitions(cfg, workDir, nil, false, nil, nil, lspMgr)
+	result, err := callMutateCreate(t, defs, "created_with_lsp.txt")
+	if err != nil {
+		t.Fatalf("mutate handler returned error with non-nil lspMgr: %v", err)
+	}
+	if result == nil {
+		t.Fatal("mutate handler returned nil result with non-nil lspMgr")
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "created_with_lsp.txt")); err != nil {
+		t.Fatalf("expected created file: %v", err)
+	}
+}
+
+// TestCoreToolDefinitionsMutateWithNilLSPManagerWorks verifies that a nil
+// lspMgr leaves Env.MutateDiagnostics unset and the mutate tool behaves
+// identically to before this stage's change.
+func TestCoreToolDefinitionsMutateWithNilLSPManagerWorks(t *testing.T) {
+	cfg := registryTestConfig()
+	workDir := t.TempDir()
+
+	defs := coreToolDefinitions(cfg, workDir, nil, false, nil, nil, nil)
+	result, err := callMutateCreate(t, defs, "created_without_lsp.txt")
+	if err != nil {
+		t.Fatalf("mutate handler returned error with nil lspMgr: %v", err)
+	}
+	if result == nil {
+		t.Fatal("mutate handler returned nil result with nil lspMgr")
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "created_without_lsp.txt")); err != nil {
+		t.Fatalf("expected created file: %v", err)
+	}
+}
