@@ -7,14 +7,17 @@ import (
 )
 
 // sidebarStateComparable mirrors every field of sidebarState except
-// modifiedFiles, which is a slice and makes sidebarState itself
+// modifiedFiles and lspServers, both slices that make sidebarState itself
 // non-comparable. It exists solely so sidebar render caching can key on "the
 // entire input" the way statusState's cache does (see renderStatus):
 // comparing this projection plus a separate modifiedFiles comparison covers
 // every field View reads, so the cache cannot go stale without the
-// comparison catching it. TestSidebarStateComparableFieldParity pins this
-// struct's field set against sidebarState's so an added field cannot be
-// silently missed.
+// comparison catching it. lspServers needs no equivalent separate
+// comparison: lspRow only reads the precomputed lsp* scalars below (see
+// recomputeLSPAggregate), which are part of this projection, so a change to
+// lspServers with no scalar change cannot occur. TestSidebarStateComparableFieldParity
+// pins this struct's field set against sidebarState's so an added field
+// cannot be silently missed.
 type sidebarStateComparable struct {
 	expanded              bool
 	model                 string
@@ -53,6 +56,11 @@ type sidebarStateComparable struct {
 	mcpTotal              int
 	mcpConnecting         bool
 	mcpFailed             bool
+	lspActive             int
+	lspTotalKnown         int
+	lspStarting           bool
+	lspFailed             bool
+	lspSingleName         string
 }
 
 // comparable projects s onto its comparable fields (everything but
@@ -96,6 +104,11 @@ func (s sidebarState) comparable() sidebarStateComparable {
 		mcpTotal:              s.mcpTotal,
 		mcpConnecting:         s.mcpConnecting,
 		mcpFailed:             s.mcpFailed,
+		lspActive:             s.lspActive,
+		lspTotalKnown:         s.lspTotalKnown,
+		lspStarting:           s.lspStarting,
+		lspFailed:             s.lspFailed,
+		lspSingleName:         s.lspSingleName,
 	}
 }
 

@@ -13,11 +13,12 @@ import (
 
 // TestSidebarStateComparableFieldParity pins sidebarStateComparable's field
 // set against sidebarState's: every sidebarState field except modifiedFiles
-// must appear in the projection with the same type, and the projection must
-// not carry any extra fields. Without this, a field added to sidebarState
-// later and forgotten in the projection would make renderSidebar's cache key
-// silently incomplete — comparable() would compile and run fine, it just
-// wouldn't notice the new field changed.
+// and lspServers (both slices, excluded because they make sidebarState
+// non-comparable) must appear in the projection with the same type, and the
+// projection must not carry any extra fields. Without this, a field added to
+// sidebarState later and forgotten in the projection would make
+// renderSidebar's cache key silently incomplete — comparable() would compile
+// and run fine, it just wouldn't notice the new field changed.
 func TestSidebarStateComparableFieldParity(t *testing.T) {
 	t.Parallel()
 
@@ -27,7 +28,7 @@ func TestSidebarStateComparableFieldParity(t *testing.T) {
 	stateFields := map[string]reflect.Type{}
 	for i := range stateType.NumField() {
 		f := stateType.Field(i)
-		if f.Name == "modifiedFiles" {
+		if f.Name == "modifiedFiles" || f.Name == "lspServers" {
 			continue
 		}
 		stateFields[f.Name] = f.Type
@@ -282,7 +283,8 @@ func TestSidebarComparableCopiesEveryField(t *testing.T) {
 	var s sidebarState
 	sv := reflect.ValueOf(&s).Elem()
 	for i := range sv.NumField() {
-		if sv.Type().Field(i).Name == "modifiedFiles" {
+		name := sv.Type().Field(i).Name
+		if name == "modifiedFiles" || name == "lspServers" {
 			continue
 		}
 		setDistinctValue(t, sv.Field(i), i)
