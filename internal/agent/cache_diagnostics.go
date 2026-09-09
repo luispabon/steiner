@@ -3,6 +3,7 @@ package agent
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"sync/atomic"
 
@@ -87,6 +88,10 @@ func perMessageHashes(messages []provider.Message) []string {
 		b.WriteString(msg.Content)
 		for _, call := range msg.ToolCalls {
 			b.WriteString(call.Name)
+			if arguments, err := json.Marshal(call.Arguments); err == nil {
+				b.Write(arguments)
+			}
+			b.WriteString(call.RawArguments)
 		}
 		hashes[i] = shortHash(b.String())
 	}

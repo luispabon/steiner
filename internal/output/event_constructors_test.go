@@ -5,7 +5,27 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 )
+
+func TestNewAPIRequestEventToolArgumentHashChanges(t *testing.T) {
+	first := provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "one"}}}}
+	second := provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "two"}}}}
+	firstHash := hashInputForMessage(first)
+	secondHash := hashInputForMessage(second)
+	if firstHash == secondHash {
+		t.Fatalf("hash inputs = %q, want different inputs for different tool arguments", firstHash)
+	}
+	firstEvent := NewAPIRequestEvent("model", []provider.Message{first}, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)
+	secondEvent := NewAPIRequestEvent("model", []provider.Message{second}, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)
+	firstPayload := firstEvent.Payload.(APIRequestEvent)
+	secondPayload := secondEvent.Payload.(APIRequestEvent)
+	if firstPayload.MessageHashes[0] == secondPayload.MessageHashes[0] {
+		t.Fatalf("message hashes = %q, want different hashes for different tool arguments", firstPayload.MessageHashes[0])
+	}
+}
 
 func TestNewOneshotFinishedEvent(t *testing.T) {
 	t.Run("without error", func(t *testing.T) {

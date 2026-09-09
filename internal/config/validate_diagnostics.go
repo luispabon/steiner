@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -42,9 +43,38 @@ func insideProjectRoot(dir, projectRoot string) bool {
 	if err != nil {
 		return false
 	}
+	absDir = resolveExistingPath(absDir)
+	absRoot = resolveExistingPath(absRoot)
 	rel, err := filepath.Rel(absRoot, absDir)
 	if err != nil {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// resolveExistingPath resolves symlinks in the existing portion of path while
+// preserving a nonexistent leaf. This prevents a symlinked diagnostics
+// directory, including one with a new child path, from bypassing containment.
+func resolveExistingPath(path string) string {
+	path = filepath.Clean(path)
+	current := path
+	var suffix []string
+	for {
+		if _, err := os.Lstat(current); err == nil {
+			resolved, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return path
+			}
+			for i := len(suffix) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffix[i])
+			}
+			return filepath.Clean(resolved)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return path
+		}
+		suffix = append(suffix, filepath.Base(current))
+		current = parent
+	}
 }

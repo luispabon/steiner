@@ -312,10 +312,9 @@ func shortContentHash(content string) string {
 }
 
 // hashInputForMessage builds the text hashed for a message's MessageHashes
-// entry: role, content, and tool call name/count (never arguments, which can
-// be large and repeat file content). This keeps a tool-call-only message
-// (empty Content) distinguishable from any other empty-content message of
-// the same role.
+// entry: role, content, and tool call names and arguments (never image data).
+// This keeps a tool-call-only message (empty Content) distinguishable from any
+// other empty-content message of the same role, and detects argument changes.
 //
 // internal/agent's perMessageHashes (cache_diagnostics.go) computes this same
 // input independently, because internal/output must not import
@@ -329,6 +328,10 @@ func hashInputForMessage(msg provider.Message) string {
 	b.WriteString(msg.Content)
 	for _, call := range msg.ToolCalls {
 		b.WriteString(call.Name)
+		if arguments, err := json.Marshal(call.Arguments); err == nil {
+			b.Write(arguments)
+		}
+		b.WriteString(call.RawArguments)
 	}
 	return b.String()
 }
