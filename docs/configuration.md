@@ -964,6 +964,17 @@ diagnostics:
   capture_bodies: false
 ```
 
+### Analyzing diagnostics
+
+`scripts/diagnostics.mjs` aggregates the `cache`/`provider`/`tool` streams (hit
+rates, retry rates, latency percentiles, failure reasons) and never prints
+individual records. `--compare <shaA> <shaB>` is the before/after operation:
+every record carries `build_sha`, so a change can be benchmarked without a
+time-window guess. A `prefix <logfile>` mode reads a session log instead, to
+show whether each turn's prompt was an append-only cache-friendly growth or a
+rewrite (`BREAK-AT-N`). Usage and mode reference is in the script's header
+comment; `make test-scripts` runs its smoke tests.
+
 ---
 
 ## `context_management` block

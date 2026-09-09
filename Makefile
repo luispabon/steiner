@@ -22,7 +22,7 @@ install-check-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 
-.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench bench-tui test-perf check
+.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench bench-tui test-perf check test-scripts
 
 build: build-binaries
 
@@ -106,6 +106,11 @@ vuln:
 
 check: tidy-check
 	$(MAKE) -j6 fmt-check imports-check build-binaries test-race vet lint vuln
+
+# Separate from `check` on purpose: it is Node tooling for scripts/*.mjs, and
+# CI's main Go-only path must not gain a Node dependency.
+test-scripts:
+	node --test scripts/diagnostics_test.mjs
 
 # Run TUI benchmarks. Default: all suites, 1s each, single count.
 # Run a specific suite: `make bench BENCH=BenchmarkKeystroke`
