@@ -345,6 +345,8 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		UsageSource:        usagestats.SourceSubAgent,
 		ContextManager:     agent.NewContextStateManager(p.ContextManagement),
 		Diagnostics:        p.Diagnostics,
+		AgentID:            p.AgentID,
+		AgentType:          string(p.AgentType),
 	}
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder

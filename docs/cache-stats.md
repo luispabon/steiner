@@ -135,31 +135,39 @@ Observations are stored in a single global JSON file shared across all concurren
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "entries": [
     {
-      "hour": "2026-06-21T14:00:00Z",
-      "provider_alias": "local",
+      "provider": "local",
       "provider_type": "openai_compat",
-      "model_id": "qwen2.5-coder:14b",
-      "non_cached_input_tokens": 500,
-      "cache_read_input_tokens": 150,
-      "cache_creation_input_tokens": 50
+      "model": "qwen2.5-coder:14b",
+      "hour_unix": 1750514400,
+      "source": "parent",
+      "requests": 3,
+      "input_tokens": 500,
+      "cache_read_tokens": 150,
+      "cache_create_tokens": 50,
+      "completion_tokens": 220
     },
     {
-      "hour": "2026-06-21T14:00:00Z",
-      "provider_alias": "anthropic",
+      "provider": "anthropic",
       "provider_type": "anthropic",
-      "model_id": "claude-3.5-sonnet",
-      "non_cached_input_tokens": 1000,
-      "cache_read_input_tokens": 800,
-      "cache_creation_input_tokens": 100
+      "model": "claude-3.5-sonnet",
+      "hour_unix": 1750514400,
+      "source": "sub_agent",
+      "requests": 2,
+      "input_tokens": 1000,
+      "cache_read_tokens": 800,
+      "cache_create_tokens": 100,
+      "completion_tokens": 340
     }
   ]
 }
 ```
 
-Each entry represents one hourly bucket for a given provider-alias, provider-type, and model-id combination. Entries accumulate (sum) all observations in that hour. The `schema_version` field allows for future migrations.
+Each entry represents one hourly bucket for a given provider-alias, provider-type, model-id **and source** combination. Entries accumulate (sum) all observations in that hour. The `schema_version` field allows for future migrations.
+
+**Schema version 2** adds `source` (one of `"parent"`, `"sub_agent"`, `"advisor"`), which the `/cache-stats` overlay and Window queries still aggregate across when rendering: this only makes per-source breakdowns possible for external analysis of the raw file, it does not change what the overlay shows. Files written by schema version 1 (no `source` field) still load: entries decode with an unspecified/`"parent"` source rather than being discarded, and are rewritten as schema version 2 on the next write.
 
 **Retention**: Fixed 8 days (pruned on load and after each write). Observations older than 8 days are dropped.
 
@@ -209,11 +217,13 @@ Finished compaction banners show the per-request summarizer cache rate in the or
 
 The `/cache-stats` slash command (in interactive mode) opens a read-only overlay displaying aggregated cache statistics across the three fixed windows (last hour, 24h, 7d):
 
-- **Layout**: One table per window, with columns: Provider, Model, Hit rate, Cached / Total.
+- **Layout**: One table per window, with columns: Provider, Model, Hit rate, Cached / Total, Uncached/req, Cached/req.
   - Provider: provider alias and type (e.g., "local (openai_compat)").
   - Model: backend model id (e.g., "qwen2.5-coder:14b").
   - Hit rate: percentage or `—` if no data.
   - Cached / Total: formatted as "X / Y" where X is cache-read tokens and Y is total input tokens, or omitted if no data.
+  - Uncached/req: average non-cache-read prompt tokens per request in the window (`—` if the window had zero requests) — non-cached input plus cache-create tokens, the same grouping Hit rate treats as "not a hit".
+  - Cached/req: average cache-read prompt tokens per request. These two columns always reproduce the row's own Hit rate (`cached / (cached + uncached)`) and decompose a hit-rate drift into "did uncached tokens grow" versus "did cached tokens shrink" — a distinction the ratio alone cannot make.
 - **No-data state**: When no observations exist for a window, the table shows a message like "No cache data in the last hour".
 - **Controls**: Scroll with ↑↓, close with esc (reuses standard report-overlay controls).
 
@@ -266,6 +276,23 @@ steiner --exec < task.txt
 ```
 
 Each line is self-contained and appended atomically. The telemetry file is never parsed, aggregated, or modified by steiner; it exists solely for external analysis or integration with monitoring tools.
+
+### Structured diagnostics cache stream
+
+Separately from `STEINER_USAGE_TELEMETRY` (which keeps working exactly as described above, unaffected by this feature), enabling `diagnostics.enabled: true` and `diagnostics.streams.cache: true` (see `docs/configuration.md`) writes one JSONL record per usage-bearing model response to `<diagnostics.dir>/cache.jsonl` — covering the top-level run and every delegated sub-agent, not just the parent. This is the richer, `build_sha`-carrying counterpart to the telemetry file above, intended for before/after comparisons across builds rather than live headless monitoring.
+
+Each record's envelope carries `source`, `agent_type`, `agent_id` (empty for the parent run), `turn` and `build_sha`; the `kind: "cache"` payload adds:
+
+- `provider_alias`, `backend_model_id`, `provider_type` — model identity.
+- `prompt_tokens`, `cache_read_tokens`, `cache_create_tokens`, `completion_tokens` — token counts from the response.
+- `cold_start` — `true` on the first usage-bearing record written by the process (one per `run_id`, regardless of which agent made that first call).
+- `cache_key_hash` — an 8 hex char hash of the request's `prompt_cache_key`; the key itself is never written.
+- `prefix_hash` — an 8 hex char hash folded cumulatively over the sent request's messages (role, content, tool call names — never tool arguments or images). A rewrite anywhere in the prefix changes this value from that point on; a pure append only changes it because the sequence grew.
+- `shared_prefix_messages` — how many leading messages of this request are identical (by per-message hash) to the last request actually sent for this same conversation. Combined with `prefix_hash`, this is what tells "pure append" (`shared_prefix_messages` covers the entire previous request) apart from "prefix rewrite" (it stops short) — the ratio alone cannot.
+
+No message content, tool arguments, or the prompt cache key itself ever appear in this stream; see `docs/configuration.md`'s `diagnostics.capture_bodies` for the separate, explicit opt-in that allows fuller capture on other streams.
+
+**Compaction/escalation caveat**: as with the per-run cache-rate figures in sub-agent and advisor tool boxes above, compaction and context-escalation model calls do not emit a `cache.jsonl` record — they still feed the aggregate `/cache-stats` store, but not this stream. An aggregate built from `cache.jsonl` will therefore undercount total requests relative to `/cache-stats` on a run with heavy compaction.
 
 ## Privacy and data security
 

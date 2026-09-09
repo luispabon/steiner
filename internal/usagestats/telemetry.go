@@ -108,3 +108,18 @@ func sourceName(s Source) string {
 		return "unknown"
 	}
 }
+
+// parseSourceName reverses sourceName for decoding storeEntry.Source. An
+// empty string covers files written before schema version 2, which carried
+// no source at all; those decode as SourceParent, the package's zero value
+// for "unspecified".
+func parseSourceName(s string) Source {
+	switch s {
+	case "sub_agent":
+		return SourceSubAgent
+	case "advisor":
+		return SourceAdvisor
+	default:
+		return SourceParent
+	}
+}

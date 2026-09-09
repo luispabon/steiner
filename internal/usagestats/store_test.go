@@ -449,6 +449,84 @@ func TestStorePruningBoundary(t *testing.T) {
 	}
 }
 
+func TestStoreLoadLegacySchemaWithoutSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.json")
+
+	now := time.Date(2024, 6, 21, 12, 0, 0, 0, time.UTC)
+	hour := now.Truncate(time.Hour)
+
+	entries := []storeEntry{
+		{Provider: "p1", ProviderType: "t1", Model: "m1", HourUnix: hour.Unix(), Requests: 3, InputTokens: 30},
+	}
+	data, _ := json.Marshal(storeFile{SchemaVersion: legacySchemaVersion, Entries: entries})
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write legacy file: %v", err)
+	}
+
+	clock := newMockClock(now)
+	oldPath := storePath
+	defer func() { storePath = oldPath }()
+	storePath = func() string { return path }
+
+	s := newStore(clock.Now)
+	buckets := s.load()
+
+	key := bucketKey{providerAlias: "p1", providerType: "t1", backendModelID: "m1", hourUnix: hour.Unix(), source: SourceParent}
+	b, ok := buckets[key]
+	if !ok {
+		t.Fatalf("expected legacy entry to decode with default source, buckets = %+v", buckets)
+	}
+	if b.Requests != 3 || b.InputTokens != 30 {
+		t.Errorf("legacy bucket: got %+v, want Requests=3 InputTokens=30", b)
+	}
+}
+
+func TestStoreWriteRoundTripPreservesSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "source-roundtrip.json")
+
+	now := time.Date(2024, 6, 21, 12, 0, 0, 0, time.UTC)
+	hour := now.Truncate(time.Hour)
+
+	clock := newMockClock(now)
+	oldPath := storePath
+	defer func() { storePath = oldPath }()
+	storePath = func() string { return path }
+
+	s1 := newStore(clock.Now)
+	key := bucketKey{providerAlias: "test", providerType: "openai", backendModelID: "gpt-4", hourUnix: hour.Unix(), source: SourceSubAgent}
+	if err := s1.write(&bucket{Requests: 1, InputTokens: 10}, key); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	s2 := newStore(clock.Now)
+	loaded := s2.load()
+
+	b, ok := loaded[key]
+	if !ok {
+		t.Fatalf("expected sub-agent bucket to round-trip, loaded = %+v", loaded)
+	}
+	if b.Requests != 1 || b.InputTokens != 10 {
+		t.Errorf("round-tripped bucket: got %+v, want Requests=1 InputTokens=10", b)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read stored file: %v", err)
+	}
+	var sf storeFile
+	if err := json.Unmarshal(data, &sf); err != nil {
+		t.Fatalf("parse stored file: %v", err)
+	}
+	if sf.SchemaVersion != schemaVersion {
+		t.Errorf("schema_version: got %d, want %d", sf.SchemaVersion, schemaVersion)
+	}
+	if len(sf.Entries) != 1 || sf.Entries[0].Source != "sub_agent" {
+		t.Errorf("entries: got %+v, want one entry with source=sub_agent", sf.Entries)
+	}
+}
+
 // mockClock provides a controllable time source for tests.
 type mockClock struct {
 	value atomic.Value
