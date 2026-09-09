@@ -125,7 +125,6 @@ function filterRecords(records, shaOverride) {
 
 const num = (xs) => xs.filter((x) => typeof x === "number" && Number.isFinite(x));
 const sum = (xs) => num(xs).reduce((a, b) => a + b, 0);
-const mean = (xs) => (num(xs).length ? sum(xs) / num(xs).length : 0);
 const pct = (xs, p) => {
 	const s = num(xs).sort((a, b) => a - b);
 	return s.length ? s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))] : 0;
