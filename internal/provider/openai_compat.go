@@ -7,8 +7,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/luispabon/steiner/internal/diagnostics"
 )
 
 var defaultHTTPClient = &http.Client{}
@@ -25,10 +23,6 @@ type ClientConfig struct {
 	ProviderType       string
 	StreamErrorLog     *StreamErrorLogger
 	MinRequestInterval time.Duration
-	// Diagnostics receives provider-stream records; emission per model call is
-	// added by stage 3 of the unified-diagnostics plan (issue #707). Nil
-	// disables the stream, and a nil *diagnostics.Writer is itself a no-op.
-	Diagnostics *diagnostics.Writer
 }
 
 // RetryConfig controls retry behavior for transient provider failures.
@@ -131,7 +125,6 @@ func newClient(cfg ClientConfig) (*Client, error) {
 		httpClient:     httpClient,
 		providerType:   cfg.ProviderType,
 		streamErrorLog: cfg.StreamErrorLog,
-		diagnostics:    cfg.Diagnostics,
 		sleep:          defaultRetrySleep,
 		rand:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
