@@ -62,6 +62,9 @@ func New(opts Options) (*Writer, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create diagnostics directory: %w", err)
 	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("secure diagnostics directory: %w", err)
+	}
 	w := &Writer{
 		dir:      dir,
 		streams:  opts.Streams,
@@ -107,6 +110,10 @@ func openStreamFile(path string) (*os.File, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open diagnostics stream: %w", err)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("secure diagnostics stream: %w", err)
 	}
 	return file, nil
 }

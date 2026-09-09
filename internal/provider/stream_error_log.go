@@ -65,12 +65,28 @@ func NewStreamErrorLoggerWithDiagnostics(path string, diag *diagnostics.Writer) 
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	dirExisted := false
+	if _, statErr := os.Stat(dir); statErr == nil {
+		dirExisted = true
+	} else if !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("stat stream error log directory: %w", statErr)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create stream error log directory: %w", err)
+	}
+	if !dirExisted {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("secure stream error log directory: %w", err)
+		}
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open stream error log: %w", err)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("secure stream error log: %w", err)
 	}
 	return &StreamErrorLogger{
 		file: f,
