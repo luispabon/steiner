@@ -167,9 +167,6 @@ func emitProviderCall(in providerCallInput) {
 	}
 
 	attempts := in.attempts
-	if attempts < 1 {
-		attempts = 1
-	}
 
 	outcome := "ok"
 	var errClass, errText string

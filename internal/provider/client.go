@@ -49,26 +49,42 @@ func (c *Client) SupportsUsageStats() bool {
 }
 
 // ChatCompletion executes a non-streaming chat completion request.
-func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatResponse, error) {
+func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (response ChatResponse, err error) {
 	if c == nil {
 		return ChatResponse{}, fmt.Errorf("provider is not initialized")
 	}
-	if err := c.pace(ctx); err != nil {
+
+	call := providerCallInput{
+		log:        c.streamErrorLog,
+		provider:   c.providerType,
+		model:      c.model,
+		transport:  "http",
+		start:      time.Now(),
+		ctx:        ctx,
+		requestURL: c.baseURLString(),
+	}
+	defer func() {
+		call.err = err
+		emitProviderCall(call)
+	}()
+
+	if err = c.pace(ctx); err != nil {
 		return ChatResponse{}, err
 	}
-	body, err := c.wire.Payload(request, false)
+	var body []byte
+	body, err = c.wire.Payload(request, false)
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	call.requestBody = body
+	call.requestHeaders = diagnosticRequestHeaders(c)
 
-	start := time.Now()
 	var (
 		attempts        int
 		ttft            time.Duration
 		responseHeaders http.Header
 	)
 	dropCacheAffinity := false
-	var response ChatResponse
 	err = c.withRetry(ctx, func(attempt int) (bool, error) {
 		attempts = attempt
 		attemptRequest := request
@@ -79,7 +95,7 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 		if err != nil {
 			return false, err
 		}
-		ttft = time.Since(start)
+		ttft = time.Since(call.start)
 		responseHeaders = resp.Header
 		defer func() {
 			_ = resp.Body.Close()
@@ -92,22 +108,9 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 		return false, err
 	}, c.classifyRetryErrorAndDropCacheAffinity(&dropCacheAffinity), nil)
 
-	emitProviderCall(providerCallInput{
-		log:             c.streamErrorLog,
-		provider:        c.providerType,
-		model:           c.model,
-		transport:       "http",
-		start:           start,
-		ttft:            ttft,
-		attempts:        attempts,
-		err:             err,
-		ctx:             ctx,
-		requestURL:      c.baseURLString(),
-		requestHeaders:  diagnosticRequestHeaders(c),
-		requestBody:     body,
-		responseHeaders: responseHeaders,
-	})
-
+	call.ttft = ttft
+	call.attempts = attempts
+	call.responseHeaders = responseHeaders
 	if err != nil {
 		return ChatResponse{}, err
 	}
@@ -119,7 +122,19 @@ func (c *Client) StreamChatCompletion(ctx context.Context, request ChatRequest) 
 	if c == nil {
 		return nil, fmt.Errorf("provider is not initialized")
 	}
+
+	call := providerCallInput{
+		log:        c.streamErrorLog,
+		provider:   c.providerType,
+		model:      c.model,
+		transport:  "sse",
+		start:      time.Now(),
+		ctx:        ctx,
+		requestURL: c.baseURLString(),
+	}
 	if err := c.pace(ctx); err != nil {
+		call.err = err
+		emitProviderCall(call)
 		out := make(chan ChatChunk)
 		close(out)
 		return out, err
@@ -127,9 +142,15 @@ func (c *Client) StreamChatCompletion(ctx context.Context, request ChatRequest) 
 
 	out := make(chan ChatChunk)
 	go func() {
-		defer close(out)
+		var err error
+		defer func() {
+			call.err = err
+			emitProviderCall(call)
+			close(out)
+		}()
 
-		if err := c.streamWithRetry(ctx, request, out); err != nil {
+		err = c.streamWithRetry(ctx, request, out, &call)
+		if err != nil {
 			select {
 			case out <- ChatChunk{Done: true, Error: err.Error(), OriginalError: err}:
 			case <-ctx.Done():
@@ -142,14 +163,15 @@ func (c *Client) StreamChatCompletion(ctx context.Context, request ChatRequest) 
 
 // streamWithRetry runs the retry loop for a streaming request, forwarding chunks
 // to out and tracking how much of the stream each attempt already delivered.
-func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out chan<- ChatChunk) error {
+func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out chan<- ChatChunk, call *providerCallInput) error {
 	body, err := c.wire.Payload(request, true)
 	if err != nil {
 		return err
 	}
+	call.requestBody = body
+	call.requestHeaders = diagnosticRequestHeaders(c)
 
 	var (
-		overallStart      = time.Now()
 		attempts          int
 		chunksReceived    int
 		partialStream     bool
@@ -210,30 +232,16 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		}
 	})
 
-	var ttft time.Duration
 	if !firstChunkAt.IsZero() {
-		ttft = firstChunkAt.Sub(overallStart)
+		call.ttft = firstChunkAt.Sub(call.start)
 	}
-	emitProviderCall(providerCallInput{
-		log:       c.streamErrorLog,
-		provider:  c.providerType,
-		model:     c.model,
-		transport: "sse",
-		start:     overallStart,
-		ttft:      ttft,
-		attempts:  attempts,
-		chunks:    chunksReceived,
-		// partial_stream means visible content arrived but the call did not
-		// complete: true on every successful stream would carry no
-		// information. err != nil here always means the final attempt failed.
-		partialStream:   partialStream && err != nil,
-		err:             err,
-		ctx:             ctx,
-		requestURL:      c.baseURLString(),
-		requestHeaders:  diagnosticRequestHeaders(c),
-		requestBody:     body,
-		responseHeaders: lastRespHeaders,
-	})
+	call.attempts = attempts
+	call.chunks = chunksReceived
+	// partial_stream means visible content arrived but the call did not
+	// complete: true on every successful stream would carry no
+	// information. err != nil here always means the final attempt failed.
+	call.partialStream = partialStream && err != nil
+	call.responseHeaders = lastRespHeaders
 
 	return err
 }
