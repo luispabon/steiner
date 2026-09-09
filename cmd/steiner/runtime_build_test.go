@@ -120,7 +120,7 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 			return &fakeProvider{}, nil
 		}
 
-		factory := buildRuntimeProviderFactory(config.Config{}, httpClient, streamErrorLog, nil)
+		factory := buildRuntimeProviderFactory(httpClient, streamErrorLog, nil)
 
 		gotProvider, err := factory(rm, "test-session")
 		if wantErr != "" {
@@ -357,7 +357,7 @@ func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKe
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -390,7 +390,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -411,7 +411,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -439,7 +439,7 @@ func TestBuildRuntimeProviderFactoryOpencodeInjectsSessionHeader(t *testing.T) {
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 	rm := provider.ResolvedModel{
 		Alias:                 "opencode-go-model",
@@ -471,7 +471,7 @@ func TestBuildRuntimeProviderFactoryOpencodeZenAnthropicSurvivesEffectiveTranspo
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 	rm := provider.ResolvedModel{
 		Alias:                 "claude-on-opencode-zen",
@@ -540,7 +540,7 @@ func TestCodexTransportSwitch(t *testing.T) {
 				return &fakeProvider{}, nil
 			}
 
-			factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
+			factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 			codexRM := provider.ResolvedModel{
 				Alias:                 "codex",
@@ -788,14 +788,14 @@ func TestSelectMCPStderr(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := selectMCPStderr(tt.logPath, tt.asyncMCP, sentinel)
+			got := selectServerStderr(tt.logPath, tt.asyncMCP, sentinel)
 			if got == tt.want {
 				return
 			}
 			if tt.logPath == "" && tt.asyncMCP {
-				t.Fatalf("selectMCPStderr() = %v, want io.Discard — MCP server stderr must never reach the terminal in interactive mode with no log file configured", got)
+				t.Fatalf("selectServerStderr() = %v, want io.Discard — MCP server stderr must never reach the terminal in interactive mode with no log file configured", got)
 			}
-			t.Fatalf("selectMCPStderr() = %v, want %v", got, tt.want)
+			t.Fatalf("selectServerStderr() = %v, want %v", got, tt.want)
 		})
 	}
 }
@@ -813,9 +813,9 @@ func TestSelectMCPStderr_LogPathFromConfig(t *testing.T) {
 	}
 
 	sentinel := &bytes.Buffer{}
-	got := selectMCPStderr(logPath, flags.asyncMCP, sentinel)
+	got := selectServerStderr(logPath, flags.asyncMCP, sentinel)
 	if got != sentinel {
-		t.Fatalf("selectMCPStderr() = %v, want the configured log writer when cfg.Logging.File drives logPath", got)
+		t.Fatalf("selectServerStderr() = %v, want the configured log writer when cfg.Logging.File drives logPath", got)
 	}
 }
 
@@ -858,14 +858,14 @@ func TestSelectLSPStderr(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := selectLSPStderr(tt.logPath, tt.asyncMCP, sentinel)
+			got := selectServerStderr(tt.logPath, tt.asyncMCP, sentinel)
 			if got == tt.want {
 				return
 			}
 			if tt.logPath == "" && tt.asyncMCP {
-				t.Fatalf("selectLSPStderr() = %v, want io.Discard — LSP server stderr must never reach the terminal in interactive mode with no log file configured", got)
+				t.Fatalf("selectServerStderr() = %v, want io.Discard — LSP server stderr must never reach the terminal in interactive mode with no log file configured", got)
 			}
-			t.Fatalf("selectLSPStderr() = %v, want %v", got, tt.want)
+			t.Fatalf("selectServerStderr() = %v, want %v", got, tt.want)
 		})
 	}
 }
@@ -883,9 +883,9 @@ func TestSelectLSPStderr_LogPathFromConfig(t *testing.T) {
 	}
 
 	sentinel := &bytes.Buffer{}
-	got := selectLSPStderr(logPath, flags.asyncMCP, sentinel)
+	got := selectServerStderr(logPath, flags.asyncMCP, sentinel)
 	if got != sentinel {
-		t.Fatalf("selectLSPStderr() = %v, want the configured log writer when cfg.Logging.File drives logPath", got)
+		t.Fatalf("selectServerStderr() = %v, want the configured log writer when cfg.Logging.File drives logPath", got)
 	}
 }
 
