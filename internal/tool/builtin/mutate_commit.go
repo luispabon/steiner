@@ -9,7 +9,14 @@ import (
 	"strings"
 )
 
-func (p *mutatePlanner) commit() (dirtyPaths []string, err error) {
+// mutateCommitFailure identifies which operation and path a commit-phase
+// write failure belongs to, for the tool diagnostics stream.
+type mutateCommitFailure struct {
+	op   string
+	path string
+}
+
+func (p *mutatePlanner) commit() (dirtyPaths []string, failure mutateCommitFailure, err error) {
 	snapshots := make(map[string]*mutateFileState, len(p.states))
 	states := make([]*mutateFileState, 0, len(p.states))
 	for path, state := range p.states {
@@ -25,6 +32,7 @@ func (p *mutatePlanner) commit() (dirtyPaths []string, err error) {
 	committed := make([]*mutateFileState, 0, len(states))
 	for _, state := range states {
 		var writeErr error
+		opType := "write"
 		if state.exists {
 			if state.needsParent {
 				writeErr = os.MkdirAll(filepath.Dir(state.path), 0o755)
@@ -37,21 +45,23 @@ func (p *mutatePlanner) commit() (dirtyPaths []string, err error) {
 				writeErr = writeFileAtomic(state.path, state.content, mode)
 			}
 		} else {
+			opType = "delete_file"
 			writeErr = os.Remove(state.path)
 			if errors.Is(writeErr, os.ErrNotExist) {
 				writeErr = nil
 			}
 		}
 		if writeErr != nil {
+			failed := mutateCommitFailure{op: opType, path: state.displayPath}
 			failedPaths, rollbackErr := rollbackMutate(committed, snapshots)
 			if rollbackErr != nil {
-				return failedPaths, errors.Join(writeErr, fmt.Errorf("rollback failed: %w", rollbackErr))
+				return failedPaths, failed, errors.Join(writeErr, fmt.Errorf("rollback failed: %w", rollbackErr))
 			}
-			return nil, writeErr
+			return nil, failed, writeErr
 		}
 		committed = append(committed, state)
 	}
-	return nil, nil
+	return nil, mutateCommitFailure{}, nil
 }
 
 func rollbackMutate(committed []*mutateFileState, snapshots map[string]*mutateFileState) ([]string, error) {
