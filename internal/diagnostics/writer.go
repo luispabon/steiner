@@ -87,7 +87,7 @@ func New(opts Options) (*Writer, error) {
 		}
 		path := filepath.Join(dir, kind.fileName())
 		if !cutoff.IsZero() {
-			if err := pruneStale(path, cutoff); err != nil {
+			if err := pruneStaleGenerations(path, cutoff); err != nil {
 				_ = w.Close()
 				return nil, err
 			}

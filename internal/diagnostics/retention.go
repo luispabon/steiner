@@ -23,6 +23,18 @@ func pruneStale(path string, cutoff time.Time) error {
 	return rewriteAfter(path, cutoff)
 }
 
+// pruneStaleGenerations applies retention to the active stream and every
+// rotated generation. Each generation has its own oldest record, so checking
+// only the active file would leave expired records in rotated files.
+func pruneStaleGenerations(path string, cutoff time.Time) error {
+	for i := maxStreamGenerations; i >= 1; i-- {
+		if err := pruneStale(fmt.Sprintf("%s.%d", path, i), cutoff); err != nil {
+			return err
+		}
+	}
+	return pruneStale(path, cutoff)
+}
+
 // oldestIsStale reports whether the file's first record predates cutoff. A
 // missing or empty file is never stale.
 func oldestIsStale(path string, cutoff time.Time) (bool, error) {

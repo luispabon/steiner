@@ -96,6 +96,30 @@ func TestRetentionDropsStaleRecordsOnOpen(t *testing.T) {
 	}
 }
 
+func TestRetentionPrunesAllGenerations(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "cache.jsonl")
+	seedStream(t, base, 2*24*time.Hour)
+	seedStream(t, base+".1", 40*24*time.Hour, 2*24*time.Hour)
+	seedStream(t, base+".2", 90*24*time.Hour, 2*24*time.Hour)
+	seedStream(t, base+".3", 2*24*time.Hour)
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Cache: true}, RetentionDays: 30})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	for _, path := range []string{base, base + ".1", base + ".2", base + ".3"} {
+		records := readRecords(t, path)
+		if len(records) != 1 || records[0].AgentID != ageLabel(2*24*time.Hour) {
+			t.Errorf("%s records = %+v, want one fresh record", path, records)
+		}
+	}
+}
+
 func TestRetentionSurvivesUndatableLines(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cache.jsonl")
