@@ -113,6 +113,10 @@ Language servers are started lazily on first use and kept alive until idle for `
 
 The readiness gate is a best-effort optimization: servers that emit progress events are tracked closely, and servers that emit no progress are given `lsp.ready_grace_period` (default 2s) to send an initial event before the readiness gate closes. This allows requests to proceed to a truly ready server as soon as indexing completes, and prevents requests from blocking indefinitely on servers that never report progress.
 
+### Server stderr
+
+Language server subprocess stderr is routed the same way as MCP server stderr: when a session log path is configured (`logging.file`), it goes to a derived sibling file (`<file>-lsp<ext>`); otherwise it is discarded in interactive mode (never printed over the live TUI) or written to the process's own stderr in non-interactive mode.
+
 ## TUI status display
 
 The sidebar shows an "LSP" row once at least one configured server reaches `starting`, `ready`, or `failed` — it stays hidden entirely until then, and idle-reaped (`stopped`) servers don't bring it back or count against it.

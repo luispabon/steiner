@@ -37,3 +37,54 @@ func TestHitRate_Direct(t *testing.T) {
 		})
 	}
 }
+
+func TestRow_PerRequest(t *testing.T) {
+	row := Row{Requests: 4, InputTokens: 40, CacheReadTokens: 60, CacheCreateTokens: 20}
+
+	uncached, ok := row.UncachedPerRequest()
+	if !ok || uncached != 15 {
+		t.Fatalf("UncachedPerRequest() = (%v, %v), want (15, true)", uncached, ok)
+	}
+	cached, ok := row.CachedPerRequest()
+	if !ok || cached != 15 {
+		t.Fatalf("CachedPerRequest() = (%v, %v), want (15, true)", cached, ok)
+	}
+
+	// The two per-request figures must reproduce HitRate: cached / (cached + uncached).
+	rate, rateOK := row.HitRate()
+	if !rateOK {
+		t.Fatal("HitRate() ok = false, want true")
+	}
+	if got := cached / (cached + uncached); got != rate {
+		t.Errorf("cached/(cached+uncached) = %v, want HitRate() = %v", got, rate)
+	}
+
+	zero := Row{}
+	if _, ok := zero.UncachedPerRequest(); ok {
+		t.Error("UncachedPerRequest() on zero requests: ok = true, want false")
+	}
+	if _, ok := zero.CachedPerRequest(); ok {
+		t.Error("CachedPerRequest() on zero requests: ok = true, want false")
+	}
+}
+
+func TestSessionReport_PerRequest(t *testing.T) {
+	sr := SessionReport{Requests: 5, CacheReadTokens: 100, TotalInputTokens: 250}
+
+	cached, ok := sr.CachedPerRequest()
+	if !ok || cached != 20 {
+		t.Fatalf("CachedPerRequest() = (%v, %v), want (20, true)", cached, ok)
+	}
+	uncached, ok := sr.UncachedPerRequest()
+	if !ok || uncached != 30 {
+		t.Fatalf("UncachedPerRequest() = (%v, %v), want (30, true)", uncached, ok)
+	}
+
+	zero := SessionReport{}
+	if _, ok := zero.CachedPerRequest(); ok {
+		t.Error("CachedPerRequest() on zero requests: ok = true, want false")
+	}
+	if _, ok := zero.UncachedPerRequest(); ok {
+		t.Error("UncachedPerRequest() on zero requests: ok = true, want false")
+	}
+}

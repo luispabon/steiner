@@ -31,17 +31,19 @@ type mutateFileState struct {
 
 func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	if len(in.Operations) == 0 {
+		p.recordFailureDetail("", "", ReasonOther)
 		return p.fail("mutate: operations is required", 0)
 	}
 	for i, op := range in.Operations {
 		if err := p.planOperation(i+1, op); err != nil {
+			p.recordFailure(op, err)
 			return p.fail(err.Error(), len(in.Operations))
 		}
 		p.applied++
 	}
 
 	p.finalizeResult()
-	dirtyPaths, err := p.commit()
+	dirtyPaths, commitFailure, err := p.commit()
 	if err != nil {
 		p.result.OperationsFailed = 1
 		p.result.OperationsRolledBack = len(in.Operations)
@@ -49,13 +51,18 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 			p.result.OperationResults[i].Applied = false
 			p.result.OperationResults[i].FileHash = ""
 		}
+		reason := classifyMutateError(err)
 		if len(dirtyPaths) > 0 {
 			p.result.Paths = dirtyPaths
 			p.result.Modified = dirtyPaths
 			p.result.Output = fmt.Sprintf("mutate: commit failed with rollback failure: %v — the following files are in an inconsistent state: %s", err, strings.Join(dirtyPaths, ", "))
+			for _, dp := range dirtyPaths {
+				p.recordFailureDetail(commitFailure.op, dp, reason)
+			}
 		} else {
 			p.result.clearCommittedMetadata()
 			p.result.Output = fmt.Sprintf("mutate: commit failed: %v", err)
+			p.recordFailureDetail(commitFailure.op, commitFailure.path, reason)
 		}
 		return &p.result
 	}
@@ -80,6 +87,20 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	}
 	p.result.Output = ""
 	return &p.result
+}
+
+// recordFailure classifies a plan-phase error against the operation that
+// produced it and records it for the tool diagnostics stream.
+func (p *mutatePlanner) recordFailure(op MutateOperation, err error) {
+	path := op.Path
+	if path == "" {
+		path = op.From
+	}
+	p.recordFailureDetail(strings.TrimSpace(op.Type), path, classifyMutateError(err))
+}
+
+func (p *mutatePlanner) recordFailureDetail(op, path, reason string) {
+	p.result.failures = append(p.result.failures, mutateOpFailure{op: op, reason: reason, path: path})
 }
 
 func (p *mutatePlanner) fail(message string, total int) *MutateResult {

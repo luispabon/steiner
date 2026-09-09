@@ -23,6 +23,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
@@ -71,15 +72,19 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	delegationLogger, err := buildDelegationLogger(cfg, flags)
+	diagnosticsWriter, err := buildRuntimeDiagnostics(cfg)
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	streamErrorLog, err := buildStreamErrorLogger(cfg, flags)
+	delegationLogger, err := buildDelegationLogger(cfg, flags, diagnosticsWriter)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	streamErrorLog, err := buildStreamErrorLogger(cfg, flags, diagnosticsWriter)
 	if err != nil {
 		return cliRuntime{}, fmt.Errorf("build stream error logger: %w", err)
 	}
-	providerFactory := buildRuntimeProviderFactory(cfg, httpClient, streamErrorLog)
+	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog)
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
 	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
@@ -110,7 +115,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		}
 		closeFn = joinClosers(closeFn, mcpServerLogWriter.Close)
 
-		mcpStderr := selectMCPStderr(mcpServerLogPath, flags.asyncMCP, mcpServerLogWriter)
+		mcpStderr := selectServerStderr(mcpServerLogPath, flags.asyncMCP, mcpServerLogWriter)
 		mcpMgr, mcpState = connectRuntimeMCP(ctx, cfg, sb, flags.asyncMCP, events, mcpStderr)
 	}
 
@@ -118,7 +123,15 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	// first tool call, so this never blocks startup.
 	var lspMgr *lsp.Manager
 	if cfg.LSP.Enabled {
-		lspMgr = connectRuntimeLSP(cfg, sb, workDir, flags.asyncMCP, events)
+		lspServerLogPath := lsp.ServerLogPath(runtimeLogFile(cfg, flags))
+		lspServerLogWriter, err := buildLSPServerLogWriter(lspServerLogPath)
+		if err != nil {
+			return cliRuntime{}, err
+		}
+		closeFn = joinClosers(closeFn, lspServerLogWriter.Close)
+
+		lspStderr := selectServerStderr(lspServerLogPath, flags.asyncMCP, lspServerLogWriter)
+		lspMgr = connectRuntimeLSP(cfg, sb, workDir, events, lspStderr)
 	}
 
 	// Rebuild registry with sandbox, MCP and LSP tools now that workDir and homeDir are known.
@@ -162,6 +175,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		sessionStore:                 sessionStore,
 		delegationLogger:             delegationLogger,
 		streamErrorLog:               streamErrorLog,
+		diagnostics:                  diagnosticsWriter,
 		delegationSessionStore:       delegation.NewSessionStore(),
 		delegationCacheKeyStore:      delegation.NewCacheKeyStore(),
 		delegationActiveController:   delegation.NewActiveController(),
@@ -179,7 +193,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}, nil
 }
 
-func buildRuntimeProviderFactory(_ config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) func(provider.ResolvedModel, string) (provider.Provider, error) {
+func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) func(provider.ResolvedModel, string) (provider.Provider, error) {
 	return func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
 		if rm.ProviderConfig.Type == config.ProviderTypeOpencodeGo || rm.ProviderConfig.Type == config.ProviderTypeOpencodeZen {
 			return newOpencodeProvider(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, sessionID)
@@ -339,14 +353,52 @@ func buildRuntimeEventSink(cfg config.Config, cmd *cobra.Command, flags *cliFlag
 		events = output.EventSink(output.NewStream(cmd.OutOrStdout()))
 	}
 	logFile := runtimeLogFile(cfg, flags)
-	if strings.TrimSpace(logFile) == "" {
-		return events, nil, nil
-	}
-	fileSink, err := output.NewFileLogSink(logFile, cfg.Logging.ThinkingChunk)
+
+	slogWriter, slogCloser, err := runtimeSlogWriter(logFile)
 	if err != nil {
 		return nil, nil, err
 	}
-	return output.NewMultiSink(events, fileSink), fileSink.Close, nil
+	output.ConfigureLogger(slogWriter, cfg.Logging.Level)
+
+	if strings.TrimSpace(logFile) == "" {
+		return events, slogCloser, nil
+	}
+	fileSink, err := output.NewFileLogSink(logFile, output.FileLogOptions{
+		ThinkingChunk:           cfg.Logging.ThinkingChunk,
+		AssistantChunk:          cfg.Logging.AssistantChunk,
+		BuildSHA:                commit,
+		Dirty:                   buildDirty(),
+		Version:                 version,
+		CaptureAPIRequestBodies: cfg.Diagnostics.CaptureBodies,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return output.NewMultiSink(events, fileSink), joinClosers(slogCloser, fileSink.Close), nil
+}
+
+// runtimeSlogWriter picks the destination for the process-wide slog handler:
+// a sibling *.slog file derived from logFile when one is configured, or
+// io.Discard otherwise. slog must never write to os.Stderr while the TUI is
+// live, the same constraint documented on selectMCPStderr.
+func runtimeSlogWriter(logFile string) (io.Writer, func() error, error) {
+	logFile = strings.TrimSpace(logFile)
+	if logFile == "" {
+		return io.Discard, nil, nil
+	}
+	path := output.SlogPath(logFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, nil, fmt.Errorf("create slog directory: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open slog file: %w", err)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return nil, nil, fmt.Errorf("secure slog file: %w", err)
+	}
+	return f, f.Close, nil
 }
 
 func runtimeLogFile(cfg config.Config, flags *cliFlags) string {
@@ -415,7 +467,7 @@ func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandb
 // Unlike MCP there is no WaitInit — language servers start lazily on first tool call,
 // so this never blocks CLI startup. Server warnings are routed through the same
 // session_health diagnostic channel as MCP.
-func connectRuntimeLSP(cfg config.Config, sb *sandbox.Sandbox, workDir string, asyncMCP bool, events output.EventSink) *lsp.Manager {
+func connectRuntimeLSP(cfg config.Config, sb *sandbox.Sandbox, workDir string, events output.EventSink, stderr io.Writer) *lsp.Manager {
 	var wrap func(*exec.Cmd) *exec.Cmd
 	if sb != nil {
 		wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
@@ -427,11 +479,26 @@ func connectRuntimeLSP(cfg config.Config, sb *sandbox.Sandbox, workDir string, a
 			Notes:    []string{msg},
 		}))
 	}
-	stderr := selectLSPStderr(asyncMCP)
 	return lsp.NewManager(cfg.LSP, workDir, wrap, warnFn, stderr)
 }
 
-func selectLSPStderr(asyncMCP bool) io.Writer {
+func buildLSPServerLogWriter(path string) (io.WriteCloser, error) {
+	w, err := lsp.NewServerLogWriter(path)
+	if err != nil {
+		return nil, fmt.Errorf("lsp server log writer: %w", err)
+	}
+	return w, nil
+}
+
+// selectServerStderr picks the destination for server subprocess stderr: the
+// derived log file when logPath is non-empty, io.Discard in interactive mode
+// otherwise (terminal corruption is non-negotiable), or os.Stderr in
+// non-interactive mode where there is no live TUI to trample. logPath must be
+// derived from the same inputs used to build logWriter.
+func selectServerStderr(logPath string, asyncMCP bool, logWriter io.Writer) io.Writer {
+	if logPath != "" {
+		return logWriter
+	}
 	if asyncMCP {
 		return io.Discard
 	}
@@ -482,18 +549,59 @@ func buildRuntimeSessionStores(homeDir string) (*history.Writer, *session.Store,
 	return historyWriter, sessionStore, nil
 }
 
-func buildDelegationLogger(cfg config.Config, flags *cliFlags) (*delegation.TraceLogger, error) {
+func buildDelegationLogger(cfg config.Config, flags *cliFlags, diag *diagnostics.Writer) (*delegation.TraceLogger, error) {
 	logPath := delegation.LogPath(runtimeLogFile(cfg, flags))
-	return delegation.NewTraceLogger(logPath)
+	return delegation.NewTraceLoggerWithDiagnostics(logPath, streamWriter(diag, diagnostics.KindTool))
 }
 
-func buildStreamErrorLogger(cfg config.Config, flags *cliFlags) (*provider.StreamErrorLogger, error) {
+func buildStreamErrorLogger(cfg config.Config, flags *cliFlags, diag *diagnostics.Writer) (*provider.StreamErrorLogger, error) {
 	path := provider.StreamErrorLogPath(runtimeLogFile(cfg, flags))
-	l, err := provider.NewStreamErrorLogger(path)
+	l, err := provider.NewStreamErrorLoggerWithDiagnostics(path, streamWriter(diag, diagnostics.KindProvider))
 	if err != nil {
 		return nil, fmt.Errorf("stream error logger: %w", err)
 	}
 	return l, nil
+}
+
+// buildRuntimeDiagnostics constructs the process diagnostics writer. Nothing
+// is constructed when diagnostics are disabled: a nil *diagnostics.Writer is a
+// no-op for every caller.
+func buildRuntimeDiagnostics(cfg config.Config) (*diagnostics.Writer, error) {
+	if !cfg.Diagnostics.Enabled {
+		return nil, nil
+	}
+	w, err := diagnostics.New(diagnostics.Options{
+		Dir:           cfg.Diagnostics.Dir,
+		RetentionDays: cfg.Diagnostics.RetentionDays,
+		Streams: diagnostics.Streams{
+			Cache:    cfg.Diagnostics.Streams.Cache,
+			Provider: cfg.Diagnostics.Streams.Provider,
+			Tool:     cfg.Diagnostics.Streams.Tool,
+		},
+		CaptureBodies: cfg.Diagnostics.CaptureBodies,
+		BuildSHA:      commit,
+		Dirty:         buildDirty(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build diagnostics writer: %w", err)
+	}
+	return w, nil
+}
+
+// streamWriter returns diag only when kind's stream is enabled, so a sink
+// reparented onto diagnostics (stream error log, delegation trace log) keeps
+// writing to its own file when the stream it would feed is off.
+func streamWriter(diag *diagnostics.Writer, kind diagnostics.Kind) *diagnostics.Writer {
+	if !diag.Enabled(kind) {
+		return nil
+	}
+	return diag
+}
+
+// buildDirty reports whether the running binary was built from a dirty working
+// tree. The linker can only set strings, so main.dirty is a string.
+func buildDirty() bool {
+	return dirty == "true"
 }
 
 func buildMCPServerLogWriter(path string) (io.WriteCloser, error) {
@@ -502,22 +610,6 @@ func buildMCPServerLogWriter(path string) (io.WriteCloser, error) {
 		return nil, fmt.Errorf("mcp server log writer: %w", err)
 	}
 	return w, nil
-}
-
-// selectMCPStderr picks the destination for MCP server subprocess stderr: the
-// derived log file when logPath is non-empty, io.Discard in interactive mode
-// otherwise (terminal corruption is non-negotiable), or os.Stderr in
-// non-interactive mode where there is no live TUI to trample. logPath must be
-// derived from the same inputs used to build logWriter; callers must not
-// recompute it independently, or the two can silently diverge.
-func selectMCPStderr(logPath string, asyncMCP bool, logWriter io.Writer) io.Writer {
-	if logPath != "" {
-		return logWriter
-	}
-	if asyncMCP {
-		return io.Discard
-	}
-	return os.Stderr
 }
 
 func buildRuntimeInputs(stdin io.Reader) (*bufio.Reader, *bufio.Reader, func() error) {

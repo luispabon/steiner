@@ -12,10 +12,49 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
+
+func TestRuntimeSlogWriterExistingFilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "session.log")
+	path := output.SlogPath(logFile)
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod parent: %v", err)
+	}
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("create slog file: %v", err)
+	}
+
+	writer, closeWriter, err := runtimeSlogWriter(logFile)
+	if err != nil {
+		t.Fatalf("runtimeSlogWriter() error = %v", err)
+	}
+	if writer == nil || closeWriter == nil {
+		t.Fatal("runtimeSlogWriter() returned nil writer or closer")
+	}
+	if err := closeWriter(); err != nil {
+		t.Fatalf("close slog writer: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat slog file: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("file mode = %o, want 0o600", info.Mode().Perm())
+	}
+	parentInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat parent: %v", err)
+	}
+	if parentInfo.Mode().Perm() != 0o755 {
+		t.Errorf("parent mode = %o, want 0o755", parentInfo.Mode().Perm())
+	}
+}
 
 func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.T) {
 	oldNewOpenAICompat := newOpenAICompat
@@ -81,7 +120,7 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 			return &fakeProvider{}, nil
 		}
 
-		factory := buildRuntimeProviderFactory(config.Config{}, httpClient, streamErrorLog)
+		factory := buildRuntimeProviderFactory(httpClient, streamErrorLog)
 
 		gotProvider, err := factory(rm, "test-session")
 		if wantErr != "" {
@@ -318,7 +357,7 @@ func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKe
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -351,7 +390,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -372,7 +411,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -400,7 +439,7 @@ func TestBuildRuntimeProviderFactoryOpencodeInjectsSessionHeader(t *testing.T) {
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil)
 
 	rm := provider.ResolvedModel{
 		Alias:                 "opencode-go-model",
@@ -432,7 +471,7 @@ func TestBuildRuntimeProviderFactoryOpencodeZenAnthropicSurvivesEffectiveTranspo
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil)
 
 	rm := provider.ResolvedModel{
 		Alias:                 "claude-on-opencode-zen",
@@ -501,7 +540,7 @@ func TestCodexTransportSwitch(t *testing.T) {
 				return &fakeProvider{}, nil
 			}
 
-			factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+			factory := buildRuntimeProviderFactory(&http.Client{}, nil)
 
 			codexRM := provider.ResolvedModel{
 				Alias:                 "codex",
@@ -749,14 +788,14 @@ func TestSelectMCPStderr(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := selectMCPStderr(tt.logPath, tt.asyncMCP, sentinel)
+			got := selectServerStderr(tt.logPath, tt.asyncMCP, sentinel)
 			if got == tt.want {
 				return
 			}
 			if tt.logPath == "" && tt.asyncMCP {
-				t.Fatalf("selectMCPStderr() = %v, want io.Discard — MCP server stderr must never reach the terminal in interactive mode with no log file configured", got)
+				t.Fatalf("selectServerStderr() = %v, want io.Discard — MCP server stderr must never reach the terminal in interactive mode with no log file configured", got)
 			}
-			t.Fatalf("selectMCPStderr() = %v, want %v", got, tt.want)
+			t.Fatalf("selectServerStderr() = %v, want %v", got, tt.want)
 		})
 	}
 }
@@ -774,9 +813,127 @@ func TestSelectMCPStderr_LogPathFromConfig(t *testing.T) {
 	}
 
 	sentinel := &bytes.Buffer{}
-	got := selectMCPStderr(logPath, flags.asyncMCP, sentinel)
+	got := selectServerStderr(logPath, flags.asyncMCP, sentinel)
 	if got != sentinel {
-		t.Fatalf("selectMCPStderr() = %v, want the configured log writer when cfg.Logging.File drives logPath", got)
+		t.Fatalf("selectServerStderr() = %v, want the configured log writer when cfg.Logging.File drives logPath", got)
+	}
+}
+
+// TestSelectLSPStderr mirrors TestSelectMCPStderr: LSP server subprocess
+// output must never fall through to os.Stderr while the TUI is live.
+func TestSelectLSPStderr(t *testing.T) {
+	sentinel := &bytes.Buffer{}
+
+	tests := []struct {
+		name     string
+		logPath  string
+		asyncMCP bool
+		want     io.Writer
+	}{
+		{
+			name:     "log file configured, interactive",
+			logPath:  "/tmp/session-lsp.log",
+			asyncMCP: true,
+			want:     sentinel,
+		},
+		{
+			name:     "log file configured, non-interactive",
+			logPath:  "/tmp/session-lsp.log",
+			asyncMCP: false,
+			want:     sentinel,
+		},
+		{
+			name:     "no log file, interactive: must be io.Discard, never os.Stderr",
+			logPath:  "",
+			asyncMCP: true,
+			want:     io.Discard,
+		},
+		{
+			name:     "no log file, non-interactive",
+			logPath:  "",
+			asyncMCP: false,
+			want:     os.Stderr,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := selectServerStderr(tt.logPath, tt.asyncMCP, sentinel)
+			if got == tt.want {
+				return
+			}
+			if tt.logPath == "" && tt.asyncMCP {
+				t.Fatalf("selectServerStderr() = %v, want io.Discard — LSP server stderr must never reach the terminal in interactive mode with no log file configured", got)
+			}
+			t.Fatalf("selectServerStderr() = %v, want %v", got, tt.want)
+		})
+	}
+}
+
+// TestSelectLSPStderr_LogPathFromConfig exercises the config-driven path (as
+// opposed to the --log-file flag) that produces logPath, confirming the
+// derived path threads through to selectLSPStderr's log-file branch.
+func TestSelectLSPStderr_LogPathFromConfig(t *testing.T) {
+	cfg := config.Config{Logging: config.LoggingConfig{Enabled: true, File: "/tmp/session.log"}}
+	flags := &cliFlags{asyncMCP: true}
+
+	logPath := lsp.ServerLogPath(runtimeLogFile(cfg, flags))
+	if logPath == "" {
+		t.Fatal("logPath = \"\", want non-empty when cfg.Logging.File is set")
+	}
+
+	sentinel := &bytes.Buffer{}
+	got := selectServerStderr(logPath, flags.asyncMCP, sentinel)
+	if got != sentinel {
+		t.Fatalf("selectServerStderr() = %v, want the configured log writer when cfg.Logging.File drives logPath", got)
+	}
+}
+
+// TestRuntimeSlogWriterDiscardsWhenNoLogFile pins the rule that slog must
+// never reach os.Stderr while the TUI is live: with no session log path
+// configured, the destination is io.Discard, not os.Stderr.
+func TestRuntimeSlogWriterDiscardsWhenNoLogFile(t *testing.T) {
+	w, closer, err := runtimeSlogWriter("")
+	if err != nil {
+		t.Fatalf("runtimeSlogWriter() error = %v", err)
+	}
+	if w != io.Discard {
+		t.Fatalf("runtimeSlogWriter(\"\") = %v, want io.Discard", w)
+	}
+	if closer != nil {
+		t.Fatalf("expected nil closer for io.Discard destination")
+	}
+}
+
+// TestRuntimeSlogWriterUsesSiblingFile confirms a configured session log path
+// derives a sibling *.slog file for the process-wide slog handler.
+func TestRuntimeSlogWriterUsesSiblingFile(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "session.log")
+
+	w, closer, err := runtimeSlogWriter(logFile)
+	if err != nil {
+		t.Fatalf("runtimeSlogWriter() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if closer != nil {
+			_ = closer()
+		}
+	})
+	if w == io.Discard {
+		t.Fatal("expected a file writer, got io.Discard")
+	}
+
+	wantPath := output.SlogPath(logFile)
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("expected slog file at %s: %v", wantPath, err)
+	}
+	info, err := os.Stat(wantPath)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("slog file mode = %o, want 0o600", info.Mode().Perm())
 	}
 }
 

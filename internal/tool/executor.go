@@ -5,8 +5,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/diagnostics"
 )
 
 // SandboxWrapper wraps commands for sandboxed or unsandboxed execution. Every
@@ -41,6 +43,10 @@ type Executor struct {
 	workDir     string
 	pathPolicy  PathPolicy
 	outputLimit int
+	// diagnostics receives one tool-stream record per Execute call, on every
+	// outcome (issue #707 stage 4). A nil writer is a no-op, so unwired paths
+	// and tests need no special handling.
+	diagnostics *diagnostics.Writer
 }
 
 // NewExecutor creates a new tool executor with the given registry, config, approver,
@@ -64,6 +70,14 @@ func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalRespond
 	}
 }
 
+// WithDiagnostics sets the diagnostics writer on the executor and returns it
+// for chaining, mirroring WithModeGetter. The composition root supplies a
+// writer only when the tool stream is enabled.
+func (e *Executor) WithDiagnostics(w *diagnostics.Writer) *Executor {
+	e.diagnostics = w
+	return e
+}
+
 // WithModeGetter sets the execution mode getter on the executor and returns it
 // for chaining. The getter is called during execution to determine the current
 // mode (plan or build). When non-nil, the mode is threaded through the execution
@@ -83,7 +97,10 @@ func (e *Executor) WorkDir() string {
 // identifies the originating tool call for approval correlation and may be
 // empty when no call ID is available.
 func (e *Executor) Execute(ctx context.Context, toolName, callID string, input map[string]any) (any, error) {
-	return e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
+	start := time.Now()
+	result, err := e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
+	e.recordDiagnostics(toolName, input, result, err, time.Since(start))
+	return result, err
 }
 
 func normalizeExecutionRoot(workDir string) string {

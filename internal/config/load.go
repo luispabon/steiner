@@ -72,7 +72,7 @@ func Load(opts LoadOptions) (Config, error) {
 	normalizePaths(&cfg, homeDir)
 	normalizeExecutionModes(&cfg)
 	applyMCPDefaults(&cfg.MCP)
-	if err := validate(cfg); err != nil {
+	if err := validate(cfg, workingDir); err != nil {
 		return Config{}, err
 	}
 

@@ -264,6 +264,7 @@ func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, sk
 		CaveHuman:         r.runtime.cfg.CaveHuman,
 		CompactionLogPath: r.runtime.compactionLogFile,
 		PromptCacheKey:    r.promptCacheKey(),
+		Diagnostics:       r.runtime.diagnostics,
 	}
 	return agent.NewRunner().Compact(ctx, req, conversation, steering)
 }
@@ -336,6 +337,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		sandboxTmpDir = r.runtime.sandbox.TmpDir()
 	}
 	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir, sandboxTmpDir, r.sandboxWrapper())
+	executor = executor.WithDiagnostics(r.runtime.diagnostics)
 	if r.modeGetterFunc != nil {
 		executor = executor.WithModeGetter(r.modeGetterFunc)
 	}
@@ -357,6 +359,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 			ModelCallTimeout: time.Duration(r.runtime.cfg.Limits.ModelCallTimeout.Duration()),
 		},
 		CaveHuman:          r.runtime.cfg.CaveHuman,
+		Diagnostics:        r.runtime.diagnostics,
 		Events:             events,
 		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,

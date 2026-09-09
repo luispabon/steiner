@@ -109,7 +109,15 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `logging.level`|string|`info`|`trace`, `debug`, `info`, `warn`, or `error`. |
 | `logging.file`|string|`~/.local/share/steiner/steiner.log`|Log path; may contain prompts/tool output. |
 | `logging.thinking_chunk`|bool|`false`|Include reasoning tokens in logs. |
+| `logging.assistant_chunk`|bool|`false`|—|
 | `logging.compaction_log_file`|string|—|Separate compaction-event log path. |
+| `diagnostics.enabled`|bool|`false`|Structured diagnostics capture; nothing created when false. |
+| `diagnostics.dir`|string|`$XDG_STATE_HOME/steiner/diagnostics`|JSONL stream dir; never from `logging.file`; rejected inside project root. |
+| `diagnostics.retention_days`|int|`30`|Drop older records on open; must be > 0 when enabled. |
+| `diagnostics.streams.cache`|bool|`false`|Prompt-cache stream. |
+| `diagnostics.streams.provider`|bool|`false`|Per-model-call stream; subsumes stream-error log. |
+| `diagnostics.streams.tool`|bool|`false`|Tool/delegation stream; subsumes delegation log. |
+| `diagnostics.capture_bodies`|bool|`false`|Full message/tool/block content instead of scalars; captures prompts. |
 | `context_management.read_annotations`|bool|`true`|Annotate reads with path and line range. |
 | `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |
 | `search.searxng_url`|string|—|Required for `searxng`. |

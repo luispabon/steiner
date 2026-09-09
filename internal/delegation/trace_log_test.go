@@ -147,6 +147,65 @@ func TestTraceLogger_CreatesParentDirs(t *testing.T) {
 	}
 }
 
+func TestTraceLogger_ExistingFilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "delegation.log")
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod parent: %v", err)
+	}
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("create log file: %v", err)
+	}
+
+	logger, err := NewTraceLogger(path)
+	if err != nil {
+		t.Fatalf("NewTraceLogger: %v", err)
+	}
+	t.Cleanup(func() { _ = logger.Close() })
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat file: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("file mode = %o, want 0o600", info.Mode().Perm())
+	}
+	parentInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat parent: %v", err)
+	}
+	if parentInfo.Mode().Perm() != 0o755 {
+		t.Errorf("parent mode = %o, want 0o755", parentInfo.Mode().Perm())
+	}
+}
+
+func TestTraceLogger_ExactPermissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "delegation.log")
+
+	logger, err := NewTraceLogger(path)
+	if err != nil {
+		t.Fatalf("NewTraceLogger: %v", err)
+	}
+	defer logger.Close() //nolint:errcheck
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat file: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("file mode = %o, want 0o600", info.Mode().Perm())
+	}
+
+	dirInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat dir: %v", err)
+	}
+	if dirInfo.Mode().Perm() != 0o700 {
+		t.Errorf("dir mode = %o, want 0o700", dirInfo.Mode().Perm())
+	}
+}
+
 func TestLogPath(t *testing.T) {
 	tests := []struct {
 		input string

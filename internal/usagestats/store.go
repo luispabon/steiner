@@ -9,8 +9,18 @@ import (
 )
 
 const (
+	// retentionDays intentionally stays at its original value: the JSONL
+	// telemetry file (see telemetry.go) is now the benchmark substrate for
+	// before/after comparisons, and this store stays the glanceable
+	// /cache-stats surface. Do not extend retention here; extend the JSONL
+	// consumer instead.
 	retentionDays = 8
-	schemaVersion = 1
+	// schemaVersion 2 adds storeEntry.Source so the persisted store can break
+	// results down by call surface (parent/sub-agent/advisor). legacySchemaVersion
+	// covers files written before that field existed; those decode with an
+	// empty/unknown source rather than being discarded.
+	schemaVersion       = 2
+	legacySchemaVersion = 1
 )
 
 var storePath = defaultStorePath
@@ -26,12 +36,15 @@ func defaultStorePath() string {
 	return filepath.Join(home, ".local", "state", "steiner", "cache-stats.json")
 }
 
-// storeEntry is the on-disk representation of a bucket.
+// storeEntry is the on-disk representation of a bucket. Source is absent from
+// files written before schema version 2; decodeBuckets treats a missing value
+// as an unknown/unspecified source rather than failing to decode.
 type storeEntry struct {
 	Provider          string `json:"provider"`
 	ProviderType      string `json:"provider_type"`
 	Model             string `json:"model"`
 	HourUnix          int64  `json:"hour_unix"`
+	Source            string `json:"source,omitempty"`
 	Requests          int    `json:"requests"`
 	InputTokens       int    `json:"input_tokens"`
 	CacheReadTokens   int    `json:"cache_read_tokens"`
@@ -98,20 +111,35 @@ func (s *store) decodeBuckets(data []byte) map[bucketKey]*bucket {
 	}
 
 	var sf storeFile
-	if err := json.Unmarshal(data, &sf); err != nil || sf.SchemaVersion != schemaVersion {
+	if err := json.Unmarshal(data, &sf); err != nil {
 		return buckets
 	}
+	if sf.SchemaVersion != schemaVersion && sf.SchemaVersion != legacySchemaVersion {
+		return buckets
+	}
+
+	// Entries from a legacySchemaVersion file predate storeEntry.Source: they
+	// carry no per-source attribution at all, so decode them as SourceUnknown
+	// rather than parseSourceName's default of SourceParent, which would
+	// misrepresent pre-upgrade aggregate history as current parent-run
+	// traffic in a per-source breakdown.
+	legacy := sf.SchemaVersion == legacySchemaVersion
 
 	cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
 	for _, ent := range sf.Entries {
 		if ent.HourUnix <= cutoff {
 			continue
 		}
+		source := SourceUnknown
+		if !legacy {
+			source = parseSourceName(ent.Source)
+		}
 		key := bucketKey{
 			providerAlias:  ent.Provider,
 			providerType:   ent.ProviderType,
 			backendModelID: ent.Model,
 			hourUnix:       ent.HourUnix,
+			source:         source,
 		}
 		buckets[key] = &bucket{
 			Requests:          ent.Requests,
@@ -134,6 +162,7 @@ func (s *store) atomicWrite(dir string, buckets map[bucketKey]*bucket) error {
 			ProviderType:      key.providerType,
 			Model:             key.backendModelID,
 			HourUnix:          key.hourUnix,
+			Source:            sourceName(key.source),
 			Requests:          b.Requests,
 			InputTokens:       b.InputTokens,
 			CacheReadTokens:   b.CacheReadTokens,

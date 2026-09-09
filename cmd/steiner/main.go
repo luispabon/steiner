@@ -9,6 +9,11 @@ import (
 
 var version = "dev"
 var commit = "none"
+
+// dirty is set by the build (-X main.dirty) to "true" when the working tree
+// had uncommitted changes. It is a string because -X can only set strings;
+// buildDirty() converts it.
+var dirty = ""
 var buildDate = "unknown"
 var goVersion = runtime.Version()
 

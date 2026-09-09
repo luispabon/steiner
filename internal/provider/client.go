@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -44,21 +43,44 @@ func (c *Client) SupportsUsageStats() bool {
 }
 
 // ChatCompletion executes a non-streaming chat completion request.
-func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatResponse, error) {
+func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (response ChatResponse, err error) {
 	if c == nil {
 		return ChatResponse{}, fmt.Errorf("provider is not initialized")
 	}
-	if err := c.pace(ctx); err != nil {
+
+	call := providerCallInput{
+		log:        c.streamErrorLog,
+		provider:   c.providerType,
+		model:      c.model,
+		transport:  "http",
+		start:      time.Now(),
+		ctx:        ctx,
+		requestURL: c.baseURLString(),
+	}
+	defer func() {
+		call.err = err
+		emitProviderCall(call)
+	}()
+
+	if err = c.pace(ctx); err != nil {
 		return ChatResponse{}, err
 	}
-	body, err := c.wire.Payload(request, false)
+	var body []byte
+	body, err = c.wire.Payload(request, false)
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	call.requestBody = body
+	call.requestHeaders = diagnosticRequestHeaders(c)
 
+	var (
+		attempts        int
+		ttft            time.Duration
+		responseHeaders http.Header
+	)
 	dropCacheAffinity := false
-	var response ChatResponse
-	err = c.withRetry(ctx, func(_ int) (bool, error) {
+	err = c.withRetry(ctx, func(attempt int) (bool, error) {
+		attempts = attempt
 		attemptRequest := request
 		if dropCacheAffinity {
 			attemptRequest.PromptCacheKey = ""
@@ -67,6 +89,8 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 		if err != nil {
 			return false, err
 		}
+		ttft = time.Since(call.start)
+		responseHeaders = resp.Header
 		defer func() {
 			_ = resp.Body.Close()
 		}()
@@ -77,6 +101,10 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 		}
 		return false, err
 	}, c.classifyRetryErrorAndDropCacheAffinity(&dropCacheAffinity), nil)
+
+	call.ttft = ttft
+	call.attempts = attempts
+	call.responseHeaders = responseHeaders
 	if err != nil {
 		return ChatResponse{}, err
 	}
@@ -88,7 +116,19 @@ func (c *Client) StreamChatCompletion(ctx context.Context, request ChatRequest) 
 	if c == nil {
 		return nil, fmt.Errorf("provider is not initialized")
 	}
+
+	call := providerCallInput{
+		log:        c.streamErrorLog,
+		provider:   c.providerType,
+		model:      c.model,
+		transport:  "sse",
+		start:      time.Now(),
+		ctx:        ctx,
+		requestURL: c.baseURLString(),
+	}
 	if err := c.pace(ctx); err != nil {
+		call.err = err
+		emitProviderCall(call)
 		out := make(chan ChatChunk)
 		close(out)
 		return out, err
@@ -96,9 +136,15 @@ func (c *Client) StreamChatCompletion(ctx context.Context, request ChatRequest) 
 
 	out := make(chan ChatChunk)
 	go func() {
-		defer close(out)
+		var err error
+		defer func() {
+			call.err = err
+			emitProviderCall(call)
+			close(out)
+		}()
 
-		if err := c.streamWithRetry(ctx, request, out); err != nil {
+		err = c.streamWithRetry(ctx, request, out, &call)
+		if err != nil {
 			select {
 			case out <- ChatChunk{Done: true, Error: err.Error(), OriginalError: err}:
 			case <-ctx.Done():
@@ -111,21 +157,25 @@ func (c *Client) StreamChatCompletion(ctx context.Context, request ChatRequest) 
 
 // streamWithRetry runs the retry loop for a streaming request, forwarding chunks
 // to out and tracking how much of the stream each attempt already delivered.
-func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out chan<- ChatChunk) error {
+func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out chan<- ChatChunk, call *providerCallInput) error {
 	body, err := c.wire.Payload(request, true)
 	if err != nil {
 		return err
 	}
+	call.requestBody = body
+	call.requestHeaders = diagnosticRequestHeaders(c)
 
 	var (
-		streamStart       time.Time
+		attempts          int
 		chunksReceived    int
-		contentBytes      int
+		partialStream     bool
+		firstChunkAt      time.Time
 		lastRespHeaders   http.Header
 		dropCacheAffinity bool
 	)
 
-	return c.withRetry(ctx, func(_ int) (bool, error) {
+	err = c.withRetry(ctx, func(attempt int) (bool, error) {
+		attempts = attempt
 		attemptRequest := request
 		if dropCacheAffinity {
 			attemptRequest.PromptCacheKey = ""
@@ -138,13 +188,15 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 			_ = resp.Body.Close()
 		}()
 
-		streamStart = time.Now()
 		chunksReceived = 0
-		contentBytes = 0
+		partialStream = false
+		firstChunkAt = time.Time{}
 		lastRespHeaders = resp.Header
 
-		partialStream := false
 		err = c.wire.DecodeStream(ctx, resp.Body, func(chunk ChatChunk) error {
+			if chunksReceived == 0 {
+				firstChunkAt = time.Now()
+			}
 			if chunk.Done {
 				observePromptTokenUsage(ctx, request, chunk.Usage)
 			}
@@ -153,9 +205,6 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 			}
 			select {
 			case out <- chunk:
-				if chunk.Delta.Content != "" {
-					contentBytes += len(chunk.Delta.Content)
-				}
 				chunksReceived++
 				return nil
 			case <-ctx.Done():
@@ -164,22 +213,6 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		})
 		return partialStream, err
 	}, c.classifyRetryErrorAndDropCacheAffinity(&dropCacheAffinity), func(info retryAttemptInfo) {
-		c.streamErrorLog.Log(streamErrorRecord{
-			Timestamp:       time.Now(),
-			Event:           "stream_retry",
-			Attempt:         info.Attempt,
-			Max:             info.MaxAttempts,
-			Error:           info.Reason,
-			StreamAlive:     time.Since(streamStart).String(),
-			ChunksReceived:  chunksReceived,
-			ContentBytes:    contentBytes,
-			PartialStream:   info.PartialStream,
-			RetryDelay:      info.Delay.String(),
-			RequestURL:      c.baseURLString(),
-			RequestHeaders:  providerConfigHeaders(c),
-			ResponseHeaders: sanitizeHeaders(lastRespHeaders),
-			RequestBody:     json.RawMessage(append([]byte(nil), body...)),
-		})
 		if !info.PartialStream {
 			return
 		}
@@ -192,6 +225,19 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		case <-ctx.Done():
 		}
 	})
+
+	if !firstChunkAt.IsZero() {
+		call.ttft = firstChunkAt.Sub(call.start)
+	}
+	call.attempts = attempts
+	call.chunks = chunksReceived
+	// partial_stream means visible content arrived but the call did not
+	// complete: true on every successful stream would carry no
+	// information. err != nil here always means the final attempt failed.
+	call.partialStream = partialStream && err != nil
+	call.responseHeaders = lastRespHeaders
+
+	return err
 }
 
 func (c *Client) executeRequest(ctx context.Context, request ChatRequest, body []byte, stream bool) (*http.Response, error) {
@@ -370,13 +416,34 @@ func sanitizeHeaders(h http.Header) map[string]string {
 	return out
 }
 
-// providerConfigHeaders returns the client's configured headers with the API key stripped.
+// providerConfigHeaders returns the client's configured headers with the API
+// key stripped. Only worth computing when the diagnostics stream may
+// actually capture them; call sites should gate on c.streamErrorLog's
+// captureBodies() rather than calling this unconditionally on every request.
 func providerConfigHeaders(c *Client) map[string]string {
 	if c == nil {
 		return nil
 	}
-	out := make(map[string]string, len(c.headers))
-	for k, v := range c.headers {
+	return sanitizeHeaderMap(c.headers)
+}
+
+// diagnosticRequestHeaders returns providerConfigHeaders(c) only when the
+// stream-error log may capture request bodies/headers, avoiding the map copy
+// on every model call when it would just be discarded by emitProviderCall.
+func diagnosticRequestHeaders(c *Client) map[string]string {
+	if !c.streamErrorLog.captureBodies() {
+		return nil
+	}
+	return providerConfigHeaders(c)
+}
+
+// sanitizeHeaderMap strips the Authorization key and copies the rest.
+func sanitizeHeaderMap(h map[string]string) map[string]string {
+	if h == nil {
+		return nil
+	}
+	out := make(map[string]string, len(h))
+	for k, v := range h {
 		if strings.EqualFold(k, "authorization") {
 			continue
 		}

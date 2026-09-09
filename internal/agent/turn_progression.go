@@ -39,8 +39,16 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 	emitEvent(p.request.Events, output.NewModelCallStartedEvent(turn, p.request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 
+	// Promote this turn's pending prefix hashes to "previous" only now, right
+	// before the request is actually sent. prepareTurn can run again ahead of
+	// a compaction retry without a call going out; shared_prefix_messages must
+	// diff against the last request that was truly issued.
+	sharedPrefixMessages := longestCommonPrefixLen(p.previousMessageHashes, p.pendingMessageHashes)
+	prefixHash := p.pendingPrefixHash
+	p.previousMessageHashes = p.pendingMessageHashes
+
 	startTime := time.Now()
-	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget, &p.skipNonStream)
+	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget, &p.skipNonStream, prefixHash, sharedPrefixMessages)
 	if err != nil {
 		// Check for vision capability discovery error; translate to turn-level retry.
 		if errors.Is(err, errRetryTurnForVision) {
@@ -494,6 +502,17 @@ type turnProgressor struct {
 	// It is updated after each tool result is appended so the context
 	// meter reflects mid-turn prompt growth.
 	lastBudget *prompt.RequestTokenBudget
+
+	// pendingMessageHashes and pendingPrefixHash are computed by prepareTurn
+	// for the chat request it just assembled. They become "previous" only
+	// once executeModelCall actually issues that request — see the comment
+	// there for why prepareTurn's own retries (compaction) must not promote
+	// them early.
+	pendingMessageHashes []string
+	pendingPrefixHash    string
+	// previousMessageHashes holds the per-message hashes of the last chat
+	// request actually sent, for shared_prefix_messages divergence detection.
+	previousMessageHashes []string
 }
 
 func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn compactConversationFn) *turnProgressor {
@@ -633,6 +652,9 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 	if !p.request.ResolvedModel.ReasoningEchoBack {
 		stripReasoningContent(chatRequest.Messages)
 	}
+
+	p.pendingMessageHashes = perMessageHashes(chatRequest.Messages)
+	p.pendingPrefixHash = cumulativePrefixHash(p.pendingMessageHashes)
 
 	fit, err := p.request.ModelBudget.FitRequest(ctx, chatRequest)
 	if err != nil {

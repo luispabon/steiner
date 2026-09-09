@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -12,6 +13,16 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
+
+// requestIDSeq mints per-model-call request ids for pairing an APIRequestEvent
+// with its APIResponseEvent under concurrency. Process-local; uniqueness
+// across processes is unnecessary since concurrent model calls only happen
+// within one process.
+var requestIDSeq atomic.Uint64
+
+func newRequestID() string {
+	return fmt.Sprintf("req-%d", requestIDSeq.Add(1))
+}
 
 // errRetryTurnForVision is a sentinel error returned by completeModelCall when
 // vision capability is discovered to be incapable at runtime and latched.
@@ -129,14 +140,15 @@ func executeChatRequest(
 	} else {
 		estimatedPromptTokens, rawPromptTokens = estimatePromptTokensForEvent(ctx, req)
 	}
-	emitEvent(events, newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, estimatedPromptTokens, rawPromptTokens, isCompaction))
+	requestID := newRequestID()
+	emitEvent(events, output.WithAPICallIdentity(newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, estimatedPromptTokens, rawPromptTokens, isCompaction), turn, requestID))
 
 	// When streaming is not preferred, try ChatCompletion first and only fall
 	// back to streaming if it is unavailable.
 	if !streamingPreferred && (skipNonStream == nil || !*skipNonStream) {
 		response, chatErr := prov.ChatCompletion(ctx, req)
 		if chatErr == nil {
-			emitEvent(events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil))
+			emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil), turn, requestID))
 			return response, time.Time{}, nil
 		}
 		// Detect "stream required" 400 error and mark it for future turns.
@@ -159,15 +171,15 @@ func executeChatRequest(
 		var firstChunkTime time.Time
 		response, streamErr := consumeModelStream(ctx, events, turn, stream, output.ChunkSourceAssistant, &firstChunkTime)
 		if streamErr != nil {
-			emitEvent(events, output.NewAPIResponseEvent(nil, nil, "", streamErr))
+			emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(nil, nil, "", streamErr), turn, requestID))
 			return provider.ChatResponse{}, time.Time{}, streamErr
 		}
-		emitEvent(events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil))
+		emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil), turn, requestID))
 		return response, firstChunkTime, nil
 	}
 
 	response, chatErr := prov.ChatCompletion(ctx, req)
-	emitEvent(events, output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, chatErr))
+	emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, chatErr), turn, requestID))
 	if chatErr != nil {
 		return provider.ChatResponse{}, time.Time{}, chatErr
 	}
@@ -197,11 +209,12 @@ func IsStreamRequiredError(err error) bool {
 		(strings.Contains(strings.ToLower(httpErr.Body), "must") || strings.Contains(strings.ToLower(httpErr.Body), "required"))
 }
 
-func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, skipNonStream *bool) (provider.ChatResponse, time.Time, error) {
+func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, skipNonStream *bool, prefixHash string, sharedPrefixMessages int) (provider.ChatResponse, time.Time, error) {
 	chatRequest.Messages = stripImagesIfVisionDisabled(req.ResolvedModel.Vision, chatRequest.Messages, req.ResolvedModel.Alias, turn, req.Events, req.VisionCapabilities)
 	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream)
 	if err == nil {
 		recordModelUsage(req, response.Usage)
+		emitCacheDiagnostic(req, response.Usage, turn, prefixHash, sharedPrefixMessages)
 		return response, firstChunkTime, nil
 	}
 	if !shouldRetryWithoutImages(err, chatRequest.Messages) {
@@ -246,6 +259,7 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 	retryResp, retryFirst, retryErr := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream)
 	if retryErr == nil {
 		recordModelUsage(req, retryResp.Usage)
+		emitCacheDiagnostic(req, retryResp.Usage, turn, prefixHash, sharedPrefixMessages)
 	}
 	return retryResp, retryFirst, retryErr
 }

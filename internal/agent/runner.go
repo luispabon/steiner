@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -104,6 +105,17 @@ type RunRequest struct {
 	// (e.g. compaction summaries); when set, initializeRunState uses it
 	// instead of reconstructing from Prompt.Conversation.
 	SourceConversation []Message
+
+	// Diagnostics receives cache-stream records for this run; emission is added
+	// by stage 2 of the unified-diagnostics plan (issue #707). A nil writer is
+	// a no-op, so unwired paths and tests need no special handling.
+	Diagnostics *diagnostics.Writer
+
+	// AgentID and AgentType identify this run's delegation scope for
+	// diagnostics records, mirroring output.WithAgentScope/WithAgentTypeScope.
+	// Empty for the top-level parent run.
+	AgentID   string
+	AgentType string
 
 	// TurnBudgetNotice, when non-nil, is called once per run when the turn count
 	// crosses turnBudgetNoticeFraction of Limits.MaxTurns, to produce a message

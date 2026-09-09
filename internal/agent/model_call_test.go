@@ -45,7 +45,7 @@ func TestCompleteModelCallEmitsAssistantChunkSource(t *testing.T) {
 		ModelBudget:        budget,
 		Events:             output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 		StreamingPreferred: true,
-	}, 2, provider.ChatRequest{Model: "test"}, nil, budget, nil)
+	}, 2, provider.ChatRequest{Model: "test"}, nil, budget, nil, "", 0)
 	if err != nil {
 		t.Fatalf("completeModelCall() error = %v", err)
 	}
@@ -127,7 +127,7 @@ func TestCompleteModelCallRetriesHTTP400WithoutImages(t *testing.T) {
 			Content: "analyze",
 			Images:  []provider.ImageBlock{{MediaType: "image/png", Data: "abc"}},
 		}},
-	}, nil, prompt.ModelTokenBudget{}, nil)
+	}, nil, prompt.ModelTokenBudget{}, nil, "", 0)
 	if err != nil {
 		t.Fatalf("completeModelCall() error = %v", err)
 	}
@@ -169,7 +169,7 @@ func TestCompleteModelCallDoesNotRetryWithoutImages(t *testing.T) {
 			Role:    provider.MessageRoleUser,
 			Content: "analyze",
 		}},
-	}, nil, prompt.ModelTokenBudget{}, nil)
+	}, nil, prompt.ModelTokenBudget{}, nil, "", 0)
 	if err == nil {
 		t.Fatal("completeModelCall() error = nil, want HTTPError")
 	}
@@ -197,7 +197,7 @@ func TestCompleteModelCallDoesNotRetryNon400(t *testing.T) {
 			Content: "analyze",
 			Images:  []provider.ImageBlock{{MediaType: "image/png", Data: "abc"}},
 		}},
-	}, nil, prompt.ModelTokenBudget{}, nil)
+	}, nil, prompt.ModelTokenBudget{}, nil, "", 0)
 	if !errors.Is(err, boom) {
 		t.Fatalf("completeModelCall() error = %v, want %v", err, boom)
 	}
@@ -396,7 +396,7 @@ func TestAdaptiveStreamFallback(t *testing.T) {
 		ModelBudget:        prompt.ModelTokenBudget{},
 		Events:             eventSink,
 		StreamingPreferred: false,
-	}, 1, provider.ChatRequest{Model: "test"}, nil, prompt.ModelTokenBudget{}, &skipNonStream)
+	}, 1, provider.ChatRequest{Model: "test"}, nil, prompt.ModelTokenBudget{}, &skipNonStream, "", 0)
 
 	if err != nil {
 		t.Fatalf("completeModelCall() error = %v", err)
@@ -425,7 +425,7 @@ func TestAdaptiveStreamFallback(t *testing.T) {
 		ModelBudget:        prompt.ModelTokenBudget{},
 		Events:             eventSink,
 		StreamingPreferred: false,
-	}, 2, provider.ChatRequest{Model: "test"}, nil, prompt.ModelTokenBudget{}, &skipNonStream)
+	}, 2, provider.ChatRequest{Model: "test"}, nil, prompt.ModelTokenBudget{}, &skipNonStream, "", 0)
 
 	if err != nil {
 		t.Fatalf("completeModelCall() error = %v", err)
@@ -461,7 +461,7 @@ func TestStreamPreservesTypedHTTPError(t *testing.T) {
 			Alias: "test-model",
 		},
 		Events: output.SinkFunc(func(output.Event) {}),
-	}, 1, provider.ChatRequest{Model: "test"}, nil, prompt.ModelTokenBudget{}, nil)
+	}, 1, provider.ChatRequest{Model: "test"}, nil, prompt.ModelTokenBudget{}, nil, "", 0)
 
 	if err == nil {
 		t.Fatal("completeModelCall() error = nil, want HTTPError")
@@ -631,7 +631,7 @@ func TestCompleteModelCallLatchesIncapableOnFirstVisionError(t *testing.T) {
 			Content: "analyze",
 			Images:  []provider.ImageBlock{{MediaType: "image/png", Data: "abc"}},
 		}},
-	}, nil, prompt.ModelTokenBudget{}, nil)
+	}, nil, prompt.ModelTokenBudget{}, nil, "", 0)
 
 	if !errors.Is(err, errRetryTurnForVision) {
 		t.Fatalf("completeModelCall() error = %v, want errRetryTurnForVision", err)

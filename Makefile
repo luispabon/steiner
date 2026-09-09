@@ -2,10 +2,11 @@ BIN_DIR := bin
 GO_FILES := $(shell git ls-files '*.go')
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
 COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "none")
+DIRTY := $(shell git diff --quiet HEAD -- || echo true)
 BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")
 GO_VERSION := $(shell go version | cut -d' ' -f3 2>/dev/null || echo "unknown")
-LDFLAGS := -ldflags="-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE) -X main.goVersion=$(GO_VERSION)"
-RELEASE_LDFLAGS := -ldflags="-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE) -X main.goVersion=$(GO_VERSION)"
+LDFLAGS := -ldflags="-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dirty=$(DIRTY) -X main.buildDate=$(BUILD_DATE) -X main.goVersion=$(GO_VERSION)"
+RELEASE_LDFLAGS := -ldflags="-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dirty=$(DIRTY) -X main.buildDate=$(BUILD_DATE) -X main.goVersion=$(GO_VERSION)"
 UNAME_S := $(shell uname -s)
 CGO_BUILD_PREFIX := $(if $(filter Linux,$(UNAME_S)),CGO_ENABLED=0 ,)
 
@@ -21,7 +22,7 @@ install-check-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 
-.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench bench-tui test-perf check
+.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench bench-tui test-perf check test-scripts
 
 build: build-binaries
 
@@ -45,7 +46,7 @@ build-binaries-slim:
 SHA := $(shell git rev-parse --short HEAD)
 build-binaries-dev:
 	mkdir -p $(BIN_DIR)
-	$(CGO_BUILD_PREFIX)go build -ldflags="-X main.version=dev-$(SHA) -X main.commit=$(SHA) -X main.buildDate=$(BUILD_DATE) -X main.goVersion=$(GO_VERSION)" -o $(BIN_DIR)/steiner ./cmd/steiner
+	$(CGO_BUILD_PREFIX)go build -ldflags="-X main.version=dev-$(SHA) -X main.commit=$(SHA) -X main.dirty=$(DIRTY) -X main.buildDate=$(BUILD_DATE) -X main.goVersion=$(GO_VERSION)" -o $(BIN_DIR)/steiner ./cmd/steiner
 
 test:
 	go test ./...
@@ -105,6 +106,11 @@ vuln:
 
 check: tidy-check
 	$(MAKE) -j6 fmt-check imports-check build-binaries test-race vet lint vuln
+
+# Separate from `check` on purpose: it is Node tooling for scripts/*.mjs, and
+# CI's main Go-only path must not gain a Node dependency.
+test-scripts:
+	node --test scripts/diagnostics_test.mjs
 
 # Run TUI benchmarks. Default: all suites, 1s each, single count.
 # Run a specific suite: `make bench BENCH=BenchmarkKeystroke`

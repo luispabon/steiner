@@ -108,3 +108,22 @@ func sourceName(s Source) string {
 		return "unknown"
 	}
 }
+
+// parseSourceName reverses sourceName for decoding storeEntry.Source written
+// under schema version 2, where every entry carries an explicit source
+// string. Callers decoding a legacySchemaVersion file (which predates the
+// Source field and always decodes ent.Source as "") must not call this —
+// use SourceUnknown directly, since "" here would otherwise misattribute
+// pre-upgrade aggregate history as SourceParent. An unrecognized non-empty
+// string (which should not occur from this package's own writer) also falls
+// back to SourceParent, matching the zero-value "unspecified" convention.
+func parseSourceName(s string) Source {
+	switch s {
+	case "sub_agent":
+		return SourceSubAgent
+	case "advisor":
+		return SourceAdvisor
+	default:
+		return SourceParent
+	}
+}

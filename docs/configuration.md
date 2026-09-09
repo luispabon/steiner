@@ -912,9 +912,10 @@ Controls diagnostic log output.
 | Field                 | Type   | Default                                | Description                                                                                                      |
 | --------------------- | ------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `enabled`             | bool   | `false`                                | Whether file logging is active.                                                                                  |
-| `level`               | string | `"info"`                               | Minimum log level. One of `debug`, `info`, `warn`, `error`.                                                      |
-| `file`                | string | `"~/.local/share/steiner/steiner.log"` | Path to the log file. Tilde expansion is supported. Treat as sensitive — it may capture prompts and tool output. |
+| `level`               | string | `"info"`                               | Minimum log level. One of `debug`, `info`, `warn`, `error`. Takes effect: steiner installs a process-wide `slog` handler at this level, writing to a sibling `*.slog` file next to the session log (or discarding output entirely when no session log is configured). `slog` output never goes to stderr while the interactive TUI is live. |
+| `file`                | string | `"~/.local/share/steiner/steiner.log"` | Path to the log file. Tilde expansion is supported. Treat as sensitive — it may capture prompts and tool output. The session log is JSONL (one JSON object per line), appended across runs, capped in size and rotated (`<file>.1`, `<file>.2`, ...). Its first line each run is a `log_started` record carrying `run_id`, `build_sha`, `dirty` and the steiner version. |
 | `thinking_chunk`      | bool   | `false`                                | When `true`, reasoning/thinking tokens from the model are included in the log.                                   |
+| `assistant_chunk`     | bool   | `false`                                | When `true`, streamed assistant content chunks are included in the log. Off by default because each chunk duplicates content already captured in the completed `assistant_message` record. |
 | `compaction_log_file` | string | —                                      | Separate log file for context compaction events. Useful for debugging compaction behaviour.                      |
 
 ```yaml
@@ -923,8 +924,56 @@ logging:
   level: debug
   file: ~/.local/share/steiner/steiner.log
   thinking_chunk: false
+  assistant_chunk: false
   compaction_log_file: ~/.local/share/steiner/compaction.log
 ```
+
+---
+
+## `diagnostics` block
+
+Structured instrumentation capture. Disabled by default, and gated entirely
+independently of `logging` — the diagnostics directory is never derived from
+`logging.file`, so a week-long measurement never also captures prompts.
+
+Records are written as JSONL, one file per stream (`cache.jsonl`,
+`provider.jsonl`, `tool.jsonl`), `0o600` in a `0o700` directory, appended
+across runs, size-capped and rotated (`<file>.1`, `<file>.2`, ...). Every
+record carries `run_id`, `build_sha` and `dirty`, so a before/after comparison
+can be scoped to a build rather than to a time window.
+
+| Field             | Type   | Default                                    | Description                                                                                                                                    |
+| ----------------- | ------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`         | bool   | `false`                                    | Master switch. When `false` nothing is constructed and no directory is created.                                                                |
+| `dir`             | string | `$XDG_STATE_HOME/steiner/diagnostics`, else `~/.local/state/steiner/diagnostics` | Directory holding the per-stream files. Tilde expansion is supported. Must not resolve inside the project root — diagnostics are user state, not repo content. |
+| `retention_days`  | int    | `30`                                       | Records older than this are dropped when the writer opens. Must be greater than zero when enabled.                                             |
+| `streams.cache`   | bool   | `false`                                    | Prompt-cache observations.                                                                                                                     |
+| `streams.provider`| bool   | `false`                                    | One record per model call, whatever the outcome. Subsumes the stream-error log, which otherwise writes next to `logging.file`.                  |
+| `streams.tool`    | bool   | `false`                                    | Tool execution and delegation traces. Subsumes the delegation trace log, which otherwise writes next to `logging.file`.                         |
+| `capture_bodies`  | bool   | `false`                                    | Allow full message, tool and block content instead of bounded scalar fields. Also unbounds the session log's `api_request` records. Expensive, and captures prompts. |
+
+```yaml
+diagnostics:
+  enabled: true
+  dir: ~/.local/state/steiner/diagnostics
+  retention_days: 30
+  streams:
+    cache: true
+    provider: true
+    tool: false
+  capture_bodies: false
+```
+
+### Analyzing diagnostics
+
+`scripts/diagnostics.mjs` aggregates the `cache`/`provider`/`tool` streams (hit
+rates, retry rates, latency percentiles, failure reasons) and never prints
+individual records. `--compare <shaA> <shaB>` is the before/after operation:
+every record carries `build_sha`, so a change can be benchmarked without a
+time-window guess. A `prefix <logfile>` mode reads a session log instead, to
+show whether each turn's prompt was an append-only cache-friendly growth or a
+rewrite (`BREAK-AT-N`). Usage and mode reference is in the script's header
+comment; `make test-scripts` runs its smoke tests.
 
 ---
 
@@ -1273,6 +1322,7 @@ logging:
   level: info
   file: ~/.local/share/steiner/steiner.log
   thinking_chunk: false
+  assistant_chunk: false
   compaction_log_file: ~/.local/share/steiner/compaction.log
 
 context_management:

@@ -102,6 +102,13 @@ func TestDefaultConfigThinkingChunkDefaultsToFalse(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigAssistantChunkDefaultsToFalse(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Logging.AssistantChunk {
+		t.Fatal("default logging.assistant_chunk = true, want false")
+	}
+}
+
 func TestDefaultConfigReadAnnotationsDefaultsToTrue(t *testing.T) {
 	cfg := defaultConfig()
 	if !cfg.ContextManagement.ReadAnnotations {

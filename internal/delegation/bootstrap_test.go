@@ -1295,6 +1295,36 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 	})
 }
 
+// TestBuildChildRunAgentScopePropagation proves AgentID and AgentType reach
+// agent.RunRequest, which is what lets cache diagnostics records attribute
+// sub-agent model calls to a specific delegation.
+func TestBuildChildRunAgentScopePropagation(t *testing.T) {
+	parent := tool.NewRegistry(
+		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
+	)
+	spec := Spec{Task: "task", AgentID: "scope-test", Limits: Limits{MaxTurns: 1}}
+	deps := SubAgentHandlerDeps{
+		ParentReg:   parent,
+		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+		Provider:    stubProvider{},
+	}
+	override := testChildOverride(deps)
+	override.AgentType = AgentTypeExplore
+
+	req, _, err := BuildChildRun(context.Background(), deps, override, spec)
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.AgentID != "scope-test" {
+		t.Errorf("AgentID = %q, want %q", req.AgentID, "scope-test")
+	}
+	if req.AgentType != string(AgentTypeExplore) {
+		t.Errorf("AgentType = %q, want %q", req.AgentType, AgentTypeExplore)
+	}
+}
+
 // TestBuildChildRunSandboxDisabled proves the child prompt's sandbox section
 // follows the plain SandboxEnabled value on SubAgentHandlerDeps: when the parent
 // sandbox is disabled (or bypassed), the child preamble renders no sandbox

@@ -7,8 +7,11 @@ import (
 )
 
 // Source identifies which call surface produced an Observation, for
-// session-scoped attribution (e.g. sidebar orchestrator-only reporting).
-// It must not influence the persisted windowed store.
+// session-scoped attribution (e.g. sidebar orchestrator-only reporting) and,
+// since schema version 2, for per-source breakdown in the persisted store's
+// buckets. It does not affect Window's grouping: rows there stay aggregated
+// across sources, so the /cache-stats overlay never sprouts duplicate rows
+// per provider/model.
 type Source int
 
 const (
@@ -19,6 +22,12 @@ const (
 	SourceSubAgent
 	// SourceAdvisor is the advisor tool.
 	SourceAdvisor
+	// SourceUnknown marks a persisted bucket decoded from a pre-schema-v2
+	// store file, which recorded no source at all. Attributing that history
+	// to SourceParent would misrepresent it as current parent-run traffic in
+	// a per-source breakdown; SourceUnknown keeps it visibly separate
+	// instead. Never set on a freshly recorded Observation.
+	SourceUnknown
 )
 
 // Observation is the consumer-shaped input describing one API call's token usage.
@@ -51,6 +60,7 @@ type bucketKey struct {
 	providerType   string
 	backendModelID string
 	hourUnix       int64
+	source         Source
 }
 
 type bucket struct {
@@ -69,6 +79,7 @@ type Recorder struct {
 
 	sessionCacheRead  map[Source]int64
 	sessionTotalInput map[Source]int64
+	sessionRequests   map[Source]int64
 
 	now   func() time.Time
 	store *store
@@ -87,6 +98,7 @@ func New(now func() time.Time) *Recorder {
 		buckets:           st.load(),
 		sessionCacheRead:  make(map[Source]int64),
 		sessionTotalInput: make(map[Source]int64),
+		sessionRequests:   make(map[Source]int64),
 		now:               now,
 		store:             st,
 		telemetry:         newTelemetryFromEnv(),
@@ -111,6 +123,7 @@ func (r *Recorder) Record(obs Observation) {
 		providerType:   obs.ProviderType,
 		backendModelID: obs.BackendModelID,
 		hourUnix:       hour.Unix(),
+		source:         obs.Source,
 	}
 
 	r.mu.Lock()
@@ -127,6 +140,7 @@ func (r *Recorder) Record(obs Observation) {
 
 	r.sessionCacheRead[obs.Source] += int64(obs.CacheReadTokens)
 	r.sessionTotalInput[obs.Source] += int64(nonCached + obs.CacheReadTokens + obs.CacheCreateTokens)
+	r.sessionRequests[obs.Source]++
 	r.mu.Unlock()
 
 	// Persist this observation's delta. Wrap in a bucket for write path.
@@ -208,6 +222,7 @@ func (r *Recorder) SessionReport() SessionReport {
 	for source := range r.sessionCacheRead {
 		sr.CacheReadTokens += r.sessionCacheRead[source]
 		sr.TotalInputTokens += r.sessionTotalInput[source]
+		sr.Requests += r.sessionRequests[source]
 	}
 	return sr
 }
@@ -221,5 +236,6 @@ func (r *Recorder) SessionReportFor(source Source) SessionReport {
 	return SessionReport{
 		CacheReadTokens:  r.sessionCacheRead[source],
 		TotalInputTokens: r.sessionTotalInput[source],
+		Requests:         r.sessionRequests[source],
 	}
 }

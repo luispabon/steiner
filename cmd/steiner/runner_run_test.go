@@ -96,7 +96,7 @@ func codexResolvedModel(alias string) provider.ResolvedModel {
 func newCodexRunner(t *testing.T, cacheKey string) cliRunner {
 	t.Helper()
 	rt := cliRuntime{
-		providerFactory: buildRuntimeProviderFactory(config.Config{}, nil, nil),
+		providerFactory: buildRuntimeProviderFactory(nil, nil),
 		codexWSCache:    &codexWSCache{instances: make(map[string]provider.Provider)},
 	}
 	return cliRunner{
@@ -161,7 +161,7 @@ func TestProviderFactoryBypassesCacheForDirectCalls(t *testing.T) {
 	setupCodexAuthFixture(t)
 	callCount := stubCodexWSConstructors(t, func() provider.Provider { return &fakeProvider{} })
 
-	factory := buildRuntimeProviderFactory(config.Config{}, nil, nil)
+	factory := buildRuntimeProviderFactory(nil, nil)
 	rm := codexResolvedModel("codex")
 
 	for i := 0; i < 3; i++ {

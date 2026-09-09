@@ -8,6 +8,7 @@ import (
 	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -133,6 +134,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		AgentType:          override.AgentType,
 		CacheKeyStore:      deps.CacheKeyStore,
 		SandboxTmpDir:      deps.SandboxTmpDir,
+		Diagnostics:        deps.Diagnostics,
 		Sandbox:            deps.Sandbox,
 		ReadOnlyBash:       readOnlyBash,
 		MaxParallelTools:   deps.MaxParallelTools,
@@ -278,8 +280,11 @@ type childRunRequestParams struct {
 	CacheKeyStore      *CacheKeyStore
 	SandboxTmpDir      string
 	Sandbox            tool.SandboxWrapper
-	ReadOnlyBash       bool
-	MaxParallelTools   int
+	// Diagnostics is threaded onto the child run request and the child
+	// executor; see DelegateDeps.Diagnostics.
+	Diagnostics      *diagnostics.Writer
+	ReadOnlyBash     bool
+	MaxParallelTools int
 	// Limits and Paths configure the child's tool executor (output byte cap
 	// and path policy) the same way the parent's own executor is configured;
 	// previously the child executor was built from a zero-value config.Config
@@ -310,6 +315,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	// No silent fallback here — an omitted Sandbox is a caller bug, not a
 	// default to paper over.
 	exec := tool.NewExecutor(p.ExecReg, childCfg, nil, p.WorkDir, p.SandboxTmpDir, p.Sandbox)
+	exec = exec.WithDiagnostics(p.Diagnostics)
 	if p.ModeGetter != nil {
 		exec = exec.WithModeGetter(p.ModeGetter)
 	}
@@ -338,6 +344,9 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		PromptCacheKey:     childCacheKey,
 		UsageSource:        usagestats.SourceSubAgent,
 		ContextManager:     agent.NewContextStateManager(p.ContextManagement),
+		Diagnostics:        p.Diagnostics,
+		AgentID:            p.AgentID,
+		AgentType:          string(p.AgentType),
 	}
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder

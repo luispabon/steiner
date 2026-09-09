@@ -202,6 +202,7 @@ type Config struct {
 	ProjectContext       ProjectContextConfig       `yaml:"project_context"`
 	Paths                PathsConfig                `yaml:"paths"`
 	Logging              LoggingConfig              `yaml:"logging"`
+	Diagnostics          DiagnosticsConfig          `yaml:"diagnostics"`
 	ContextManagement    ContextManagementConfig    `yaml:"context_management"`
 	CaveHuman            bool                       `yaml:"cave_human"`
 	Search               SearchConfig               `yaml:"search"`
@@ -376,7 +377,25 @@ type LoggingConfig struct {
 	Level             string `yaml:"level"`
 	File              string `yaml:"file"`
 	ThinkingChunk     bool   `yaml:"thinking_chunk"`
+	AssistantChunk    bool   `yaml:"assistant_chunk"`
 	CompactionLogFile string `yaml:"compaction_log_file"`
+}
+
+// DiagnosticsConfig controls structured diagnostics capture. Disabled by default.
+type DiagnosticsConfig struct {
+	Enabled       bool                     `yaml:"enabled"`
+	Dir           string                   `yaml:"dir"`
+	RetentionDays int                      `yaml:"retention_days"`
+	Streams       DiagnosticsStreamsConfig `yaml:"streams"`
+	CaptureBodies bool                     `yaml:"capture_bodies"`
+}
+
+// DiagnosticsStreamsConfig gates each diagnostics stream independently; the
+// cost per stream differs by orders of magnitude.
+type DiagnosticsStreamsConfig struct {
+	Cache    bool `yaml:"cache"`
+	Provider bool `yaml:"provider"`
+	Tool     bool `yaml:"tool"`
 }
 
 // copyStringAnyMap creates a shallow copy of a map[string]any.

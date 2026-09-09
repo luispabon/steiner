@@ -495,7 +495,7 @@ func TestSessionReportFor_perSourceIsolation(t *testing.T) {
 	}
 }
 
-func TestRecord_sourceDoesNotAffectBucketKey(t *testing.T) {
+func TestRecord_sourceSplitsBucketsButNotWindowedRows(t *testing.T) {
 	isolateTest(t)
 	r := New(fixedClock(baseTime))
 	r.Record(Observation{
@@ -507,20 +507,17 @@ func TestRecord_sourceDoesNotAffectBucketKey(t *testing.T) {
 		PromptTokens: 50, Source: SourceSubAgent, At: baseTime,
 	})
 
-	if got := len(r.buckets); got != 1 {
-		t.Fatalf("buckets: got %d, want 1 (source must not split buckets)", got)
+	if got := len(r.buckets); got != 2 {
+		t.Fatalf("buckets: got %d, want 2 (source splits buckets so the store can break results down by call surface)", got)
 	}
 
-	key := bucketKey{providerAlias: "x", providerType: "openai", backendModelID: "m", hourUnix: hourStart.Unix()}
-	b := r.buckets[key]
-	if b == nil {
-		t.Fatal("expected merged bucket regardless of source")
+	parentKey := bucketKey{providerAlias: "x", providerType: "openai", backendModelID: "m", hourUnix: hourStart.Unix(), source: SourceParent}
+	subAgentKey := bucketKey{providerAlias: "x", providerType: "openai", backendModelID: "m", hourUnix: hourStart.Unix(), source: SourceSubAgent}
+	if b := r.buckets[parentKey]; b == nil || b.InputTokens != 100 {
+		t.Fatalf("parent bucket: got %+v, want InputTokens 100", b)
 	}
-	if b.Requests != 2 {
-		t.Errorf("Requests: got %d, want 2", b.Requests)
-	}
-	if b.InputTokens != 150 {
-		t.Errorf("InputTokens: got %d, want 150", b.InputTokens)
+	if b := r.buckets[subAgentKey]; b == nil || b.InputTokens != 50 {
+		t.Fatalf("sub-agent bucket: got %+v, want InputTokens 50", b)
 	}
 
 	report := r.Window(time.Hour)

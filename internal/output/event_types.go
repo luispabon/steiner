@@ -294,6 +294,13 @@ type UserInputEvent struct {
 }
 
 // APIRequestEvent captures the provider request payload sent for a turn.
+// Messages, Tools and Blocks are always populated in memory for in-process
+// consumers (e.g. interactive.snapshotSink for context reporting), but
+// MarshalJSON always strips them, substituting the bounded
+// MessageCount/MessageHashes/*Bytes fields instead, so the exec-mode JSON
+// stream and the session log stay bounded (one prior session produced 25MB
+// from these fields alone). The only unbounded encoder is FileLogSink under
+// diagnostics.capture_bodies; see apiRequestFull.
 type APIRequestEvent struct {
 	Model                 string                  `json:"model,omitempty"`
 	Messages              []provider.Message      `json:"messages,omitempty"`
@@ -304,7 +311,39 @@ type APIRequestEvent struct {
 	EstimatedPromptTokens int                     `json:"estimated_prompt_tokens,omitempty"`
 	RawPromptTokens       int                     `json:"raw_prompt_tokens,omitempty"`
 	Kind                  string                  `json:"kind,omitempty"`
+	Turn                  int                     `json:"turn,omitempty"`
+	RequestID             string                  `json:"request_id,omitempty"`
+	// MessageCount, MessageHashes, PromptBytes, ToolsBytes and BlocksBytes are
+	// fixed-size scalars derived from Messages/Tools/Blocks so a parser can
+	// spot prefix divergence and payload growth without the log carrying
+	// message bodies. MessageHashes are computed over role, content and tool
+	// call name/count (never tool call arguments or image data), so a
+	// tool-call-only message still hashes distinctly from an empty one.
+	// MessageCount/PromptBytes/ToolsBytes/BlocksBytes intentionally lack
+	// omitempty: zero is a meaningful measurement (e.g. an empty request),
+	// not an absent field.
+	MessageCount  int      `json:"message_count"`
+	MessageHashes []string `json:"message_hashes,omitempty"`
+	PromptBytes   int      `json:"prompt_bytes"`
+	ToolsBytes    int      `json:"tools_bytes"`
+	BlocksBytes   int      `json:"blocks_bytes"`
 }
+
+// MarshalJSON bounds the encoded payload by dropping Messages, Tools and
+// Blocks.
+func (e APIRequestEvent) MarshalJSON() ([]byte, error) {
+	out := apiRequestFull(e)
+	out.Messages = nil
+	out.Tools = nil
+	out.Blocks = nil
+	return json.Marshal(out)
+}
+
+// apiRequestFull is APIRequestEvent without its bounding MarshalJSON, so an
+// encoder that has been granted diagnostics.capture_bodies can emit the full
+// message, tool and block content. Conversion is the only way to opt out of
+// the bound; nothing else in the codebase should define one.
+type apiRequestFull APIRequestEvent
 
 // APIResponseEvent captures the provider response payload for a turn.
 type APIResponseEvent struct {
@@ -312,6 +351,8 @@ type APIResponseEvent struct {
 	Usage        any    `json:"usage,omitempty"`
 	FinishReason string `json:"finish_reason,omitempty"`
 	Error        string `json:"error,omitempty"`
+	Turn         int    `json:"turn,omitempty"`
+	RequestID    string `json:"request_id,omitempty"`
 }
 
 // RunStartedEvent marks the start of a top-level run or compaction flow.
@@ -371,15 +412,17 @@ type ThinkingChunkEvent struct {
 
 // ProviderDiagnosticEvent describes provider retry and transport diagnostics.
 type ProviderDiagnosticEvent struct {
-	Turn         int    `json:"turn,omitempty"`
-	Severity     string `json:"severity,omitempty"`
-	Kind         string `json:"kind,omitempty"`
-	Suppressible bool   `json:"suppressible,omitempty"`
-	Message      string `json:"message,omitempty"`
-	Attempt      int    `json:"attempt,omitempty"`
-	MaxAttempts  int    `json:"max_attempts,omitempty"`
-	Delay        string `json:"delay,omitempty"`
-	Partial      bool   `json:"partial,omitempty"`
+	Turn           int    `json:"turn,omitempty"`
+	Severity       string `json:"severity,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+	Suppressible   bool   `json:"suppressible,omitempty"`
+	Message        string `json:"message,omitempty"`
+	Attempt        int    `json:"attempt,omitempty"`
+	MaxAttempts    int    `json:"max_attempts,omitempty"`
+	Delay          string `json:"delay,omitempty"`
+	Partial        bool   `json:"partial,omitempty"`
+	TTFTMillis     int    `json:"ttft_millis,omitempty"`
+	DurationMillis int    `json:"duration_millis,omitempty"`
 }
 
 // DelegationStartedEvent records the start of a delegated child task.
