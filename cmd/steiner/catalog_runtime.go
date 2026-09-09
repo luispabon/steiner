@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -52,43 +53,36 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 		}
 		provider = providerpkg.ResolveProviderConfig(provider)
 		provider.BaseURL = strings.TrimSpace(provider.BaseURL)
+		endpoint := modelcatalog.Endpoint{Alias: alias, Type: string(provider.Type), BaseURL: provider.BaseURL, APIKey: provider.APIKey, Headers: cloneStringMap(provider.Headers)}
 		if provider.Type == config.ProviderTypeCodex {
-			if baseURL := codexModelsBaseURL(); baseURL != "" {
-				provider.BaseURL = baseURL
+			endpoint.Prepare = func(ctx context.Context) (modelcatalog.Endpoint, error) {
+				return prepareCodexCatalogEndpoint(ctx, endpoint)
 			}
 		}
-		endpoints = append(endpoints, modelcatalog.Endpoint{
-			Alias:   alias,
-			Type:    string(provider.Type),
-			BaseURL: provider.BaseURL,
-			APIKey:  provider.APIKey,
-			Headers: cloneStringMap(provider.Headers),
-		})
+		endpoints = append(endpoints, endpoint)
 	}
 	return service, endpoints, popularity
 }
 
-// codexModelsBaseURL returns the model-listing host to use for the Codex
-// provider's enumeration endpoint, mirroring newCodexProvider's transport
-// selection (cmd/steiner/runtime_build.go): a ChatGPT-subscription OAuth
-// session (no distinct OpenAI API key on the stored token) must list models
-// from codexChatGPTBackendURL rather than the OpenAI Platform API host —
-// the Platform host rejects that token with 403. Returns "" when the token
-// carries its own API key or cannot be read, leaving the provider's
-// configured/default base URL untouched.
-func codexModelsBaseURL() string {
+// prepareCodexCatalogEndpoint refreshes OAuth before choosing the listing host.
+func prepareCodexCatalogEndpoint(ctx context.Context, endpoint modelcatalog.Endpoint) (modelcatalog.Endpoint, error) {
 	path, err := oauth.DefaultTokenPath()
 	if err != nil {
-		return ""
+		return endpoint, fmt.Errorf("resolve Codex token path: %w", err)
 	}
-	token, err := oauth.NewTokenStore(path).Load()
+	store := oauth.NewTokenStore(path)
+	token, err := store.Load()
 	if err != nil {
-		return ""
+		return endpoint, err
 	}
-	if oauth.TokenOpenAIAPIKey(token) != "" {
-		return ""
+	token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{ClientID: oauth.CodexClientID, Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL}}, token).Token()
+	if err != nil {
+		return endpoint, err
 	}
-	return codexChatGPTBackendURL
+	if oauth.TokenOpenAIAPIKey(token) == "" {
+		endpoint.BaseURL = codexChatGPTBackendURL
+	}
+	return endpoint, nil
 }
 
 func codexCatalogCredentials(_ context.Context) (string, string, error) {
