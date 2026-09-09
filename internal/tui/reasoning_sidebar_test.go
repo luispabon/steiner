@@ -8,6 +8,25 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestNewModelSeedsStartupModelDisplayFromAlias(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{
+		Model:             "luna",
+		CurrentModelAlias: "luna",
+		ModelNames:        []string{"luna"},
+	}, nil)
+
+	if got, want := m.primaryModel, "luna"; got != want {
+		t.Fatalf("primaryModel = %q, want alias %q", got, want)
+	}
+	if got, want := m.status.model, "luna"; got != want {
+		t.Fatalf("status.model = %q, want alias %q", got, want)
+	}
+	if got, want := m.sidebar.model, "luna"; got != want {
+		t.Fatalf("sidebar.model = %q, want alias %q", got, want)
+	}
+}
+
 func TestNewModelSeedsReasoningSidebarFromConfiguredEffort(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{
