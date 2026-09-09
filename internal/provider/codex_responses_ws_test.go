@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
 	"github.com/luispabon/steiner/internal/diagnostics"
 )
 
