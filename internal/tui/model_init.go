@@ -353,7 +353,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.content.styles = m.styles
 	m.content.skillNames = m.skillNames
 	m.content.mcpToolOrigins = m.mcpToolOrigins
-	m.content.setGlamourStyleSheet(accentHex)
+	m.content.setGlamourStyleSheet(accentHex, m.styles.Palette)
 	m.content.collapseState = make(map[int]bool)
 	m.content.showThinking = m.showThinking
 	m.content.workingDir = m.sidebar.workingDir
