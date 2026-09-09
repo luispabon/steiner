@@ -109,6 +109,7 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `logging.level`|string|`info`|`trace`, `debug`, `info`, `warn`, or `error`. |
 | `logging.file`|string|`~/.local/share/steiner/steiner.log`|Log path; may contain prompts/tool output. |
 | `logging.thinking_chunk`|bool|`false`|Include reasoning tokens in logs. |
+| `logging.assistant_chunk`|bool|`false`|—|
 | `logging.compaction_log_file`|string|—|Separate compaction-event log path. |
 | `context_management.read_annotations`|bool|`true`|Annotate reads with path and line range. |
 | `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |

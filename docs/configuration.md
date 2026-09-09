@@ -912,9 +912,10 @@ Controls diagnostic log output.
 | Field                 | Type   | Default                                | Description                                                                                                      |
 | --------------------- | ------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `enabled`             | bool   | `false`                                | Whether file logging is active.                                                                                  |
-| `level`               | string | `"info"`                               | Minimum log level. One of `debug`, `info`, `warn`, `error`.                                                      |
-| `file`                | string | `"~/.local/share/steiner/steiner.log"` | Path to the log file. Tilde expansion is supported. Treat as sensitive — it may capture prompts and tool output. |
+| `level`               | string | `"info"`                               | Minimum log level. One of `debug`, `info`, `warn`, `error`. Takes effect: steiner installs a process-wide `slog` handler at this level, writing to a sibling `*.slog` file next to the session log (or discarding output entirely when no session log is configured). `slog` output never goes to stderr while the interactive TUI is live. |
+| `file`                | string | `"~/.local/share/steiner/steiner.log"` | Path to the log file. Tilde expansion is supported. Treat as sensitive — it may capture prompts and tool output. The session log is JSONL (one JSON object per line), appended across runs, capped in size and rotated (`<file>.1`, `<file>.2`, ...). Its first line each run is a `log_started` record carrying `run_id`, `build_sha`, `dirty` and the steiner version. |
 | `thinking_chunk`      | bool   | `false`                                | When `true`, reasoning/thinking tokens from the model are included in the log.                                   |
+| `assistant_chunk`     | bool   | `false`                                | When `true`, streamed assistant content chunks are included in the log. Off by default because each chunk duplicates content already captured in the completed `assistant_message` record. |
 | `compaction_log_file` | string | —                                      | Separate log file for context compaction events. Useful for debugging compaction behaviour.                      |
 
 ```yaml
@@ -923,6 +924,7 @@ logging:
   level: debug
   file: ~/.local/share/steiner/steiner.log
   thinking_chunk: false
+  assistant_chunk: false
   compaction_log_file: ~/.local/share/steiner/compaction.log
 ```
 
@@ -1273,6 +1275,7 @@ logging:
   level: info
   file: ~/.local/share/steiner/steiner.log
   thinking_chunk: false
+  assistant_chunk: false
   compaction_log_file: ~/.local/share/steiner/compaction.log
 
 context_management:

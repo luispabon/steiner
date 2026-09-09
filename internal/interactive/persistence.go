@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -148,7 +149,9 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 			Content: msg.Content,
 		})
 		if err != nil {
-			_ = err
+			// Fall back to a flat per-message estimate so the context-window
+			// gauge stays approximate rather than failing the turn.
+			slog.Warn("estimate message tokens", "error", err)
 			promptTokens += 4
 		} else {
 			promptTokens += t

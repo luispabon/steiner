@@ -183,10 +183,11 @@ type pathsPatch struct {
 }
 
 type loggingPatch struct {
-	Enabled       *bool   `yaml:"enabled"`
-	Level         *string `yaml:"level"`
-	File          *string `yaml:"file"`
-	ThinkingChunk *bool   `yaml:"thinking_chunk"`
+	Enabled        *bool   `yaml:"enabled"`
+	Level          *string `yaml:"level"`
+	File           *string `yaml:"file"`
+	ThinkingChunk  *bool   `yaml:"thinking_chunk"`
+	AssistantChunk *bool   `yaml:"assistant_chunk"`
 }
 
 type searchPatch struct {

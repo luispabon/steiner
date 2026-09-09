@@ -1,6 +1,9 @@
 package output
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -41,6 +44,23 @@ func WithAPIRequestKind(event Event, kind string) Event {
 	}
 	payload.Kind = kind
 	event.Payload = payload
+	return event
+}
+
+// WithAPICallIdentity attaches the turn number and per-model-call request id
+// to an API request or response event, so a parser can pair a response with
+// its request under concurrency. No-op for any other event type.
+func WithAPICallIdentity(event Event, turn int, requestID string) Event {
+	switch payload := event.Payload.(type) {
+	case APIRequestEvent:
+		payload.Turn = turn
+		payload.RequestID = requestID
+		event.Payload = payload
+	case APIResponseEvent:
+		payload.Turn = turn
+		payload.RequestID = requestID
+		event.Payload = payload
+	}
 	return event
 }
 
@@ -242,6 +262,24 @@ func NewUserInputEvent(content, mode string, images []ImageBlock) Event {
 
 // NewAPIRequestEvent creates a new API request event.
 func NewAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, estimatedPromptTokens, rawPromptTokens int) Event {
+	messageHashes := make([]string, len(messages))
+	promptBytes := 0
+	for i, msg := range messages {
+		content := string(msg.Role) + msg.Content
+		promptBytes += len(content)
+		messageHashes[i] = shortContentHash(hashInputForMessage(msg))
+	}
+	toolsBytes := 0
+	if len(tools) > 0 {
+		if toolsData, err := json.Marshal(tools); err == nil {
+			toolsBytes = len(toolsData)
+		}
+	}
+	blocksBytes := 0
+	for _, block := range blocks {
+		blocksBytes += block.ByteSize
+	}
+
 	return newEvent(EventTypeAPIRequest, APIRequestEvent{
 		Model:    model,
 		Messages: provider.CloneMessages(messages),
@@ -257,7 +295,35 @@ func NewAPIRequestEvent(model string, messages []provider.Message, tools []provi
 		ModelBudget:           budget,
 		EstimatedPromptTokens: estimatedPromptTokens,
 		RawPromptTokens:       rawPromptTokens,
+		MessageCount:          len(messages),
+		MessageHashes:         messageHashes,
+		PromptBytes:           promptBytes,
+		ToolsBytes:            toolsBytes,
+		BlocksBytes:           blocksBytes,
 	})
+}
+
+// shortContentHash returns an 8 hex char digest of content, stable across
+// calls for identical text so a parser can detect prefix divergence without
+// the log ever carrying message content.
+func shortContentHash(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:4])
+}
+
+// hashInputForMessage builds the text hashed for a message's MessageHashes
+// entry: role, content, and tool call name/count (never arguments, which can
+// be large and repeat file content). This keeps a tool-call-only message
+// (empty Content) distinguishable from any other empty-content message of
+// the same role.
+func hashInputForMessage(msg provider.Message) string {
+	var b strings.Builder
+	b.WriteString(string(msg.Role))
+	b.WriteString(msg.Content)
+	for _, call := range msg.ToolCalls {
+		b.WriteString(call.Name)
+	}
+	return b.String()
 }
 
 // NewAPIResponseEvent creates a new API response event.

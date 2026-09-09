@@ -817,7 +817,7 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 
 	logPath := filepath.Join(t.TempDir(), "session.log")
 	buildRuntime = func(_ context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
-		fileSink, err := output.NewFileLogSink(flags.logFile, true)
+		fileSink, err := output.NewFileLogSink(flags.logFile, output.FileLogOptions{ThinkingChunk: true})
 		if err != nil {
 			return cliRuntime{}, err
 		}
@@ -867,15 +867,22 @@ func TestExecModeWritesFullLogFile(t *testing.T) {
 	}
 	logText := string(data)
 	for _, want := range []string{
+		"log_started",
 		"user_input",
 		"fix the bug",
 		"api_request",
-		`"role": "user"`,
+		`"message_count"`,
+		`"message_hashes"`,
 		"api_response",
-		`"content": "logged answer"`,
+		`"content":"logged answer"`,
 	} {
 		if !strings.Contains(logText, want) {
 			t.Fatalf("log file missing %q\nlog:\n%s", want, logText)
+		}
+	}
+	for _, forbidden := range []string{`"messages"`, `"tools"`, `"blocks"`} {
+		if strings.Contains(logText, forbidden) {
+			t.Fatalf("log file should not contain %q with captureAPIRequestBodies off\nlog:\n%s", forbidden, logText)
 		}
 	}
 }
