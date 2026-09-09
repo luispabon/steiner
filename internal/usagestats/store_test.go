@@ -133,7 +133,7 @@ func TestStoreLoadWithPruning(t *testing.T) {
 		t.Errorf("load with pruning: got %d buckets, want 1", len(buckets))
 	}
 
-	key := bucketKey{providerAlias: "p2", providerType: "t2", backendModelID: "m2", hourUnix: newHour.Unix()}
+	key := bucketKey{providerAlias: "p2", providerType: "t2", backendModelID: "m2", hourUnix: newHour.Unix(), source: SourceUnknown}
 	if _, ok := buckets[key]; !ok {
 		t.Errorf("expected bucket not found: %+v", key)
 	}
@@ -472,10 +472,14 @@ func TestStoreLoadLegacySchemaWithoutSource(t *testing.T) {
 	s := newStore(clock.Now)
 	buckets := s.load()
 
-	key := bucketKey{providerAlias: "p1", providerType: "t1", backendModelID: "m1", hourUnix: hour.Unix(), source: SourceParent}
+	// A legacySchemaVersion file predates storeEntry.Source and carries no
+	// per-source attribution; it must decode as SourceUnknown, not
+	// SourceParent, or pre-upgrade aggregate history would misrepresent
+	// itself as current parent-run traffic in a per-source breakdown.
+	key := bucketKey{providerAlias: "p1", providerType: "t1", backendModelID: "m1", hourUnix: hour.Unix(), source: SourceUnknown}
 	b, ok := buckets[key]
 	if !ok {
-		t.Fatalf("expected legacy entry to decode with default source, buckets = %+v", buckets)
+		t.Fatalf("expected legacy entry to decode as SourceUnknown, buckets = %+v", buckets)
 	}
 	if b.Requests != 3 || b.InputTokens != 30 {
 		t.Errorf("legacy bucket: got %+v, want Requests=3 InputTokens=30", b)

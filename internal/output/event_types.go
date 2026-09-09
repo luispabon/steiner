@@ -412,17 +412,15 @@ type ThinkingChunkEvent struct {
 
 // ProviderDiagnosticEvent describes provider retry and transport diagnostics.
 type ProviderDiagnosticEvent struct {
-	Turn           int    `json:"turn,omitempty"`
-	Severity       string `json:"severity,omitempty"`
-	Kind           string `json:"kind,omitempty"`
-	Suppressible   bool   `json:"suppressible,omitempty"`
-	Message        string `json:"message,omitempty"`
-	Attempt        int    `json:"attempt,omitempty"`
-	MaxAttempts    int    `json:"max_attempts,omitempty"`
-	Delay          string `json:"delay,omitempty"`
-	Partial        bool   `json:"partial,omitempty"`
-	TTFTMillis     int    `json:"ttft_millis,omitempty"`
-	DurationMillis int    `json:"duration_millis,omitempty"`
+	Turn         int    `json:"turn,omitempty"`
+	Severity     string `json:"severity,omitempty"`
+	Kind         string `json:"kind,omitempty"`
+	Suppressible bool   `json:"suppressible,omitempty"`
+	Message      string `json:"message,omitempty"`
+	Attempt      int    `json:"attempt,omitempty"`
+	MaxAttempts  int    `json:"max_attempts,omitempty"`
+	Delay        string `json:"delay,omitempty"`
+	Partial      bool   `json:"partial,omitempty"`
 }
 
 // DelegationStartedEvent records the start of a delegated child task.

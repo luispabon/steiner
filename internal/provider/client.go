@@ -103,7 +103,7 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 		err:             err,
 		ctx:             ctx,
 		requestURL:      c.baseURLString(),
-		requestHeaders:  providerConfigHeaders(c),
+		requestHeaders:  diagnosticRequestHeaders(c),
 		requestBody:     body,
 		responseHeaders: responseHeaders,
 	})
@@ -230,7 +230,7 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		err:             err,
 		ctx:             ctx,
 		requestURL:      c.baseURLString(),
-		requestHeaders:  providerConfigHeaders(c),
+		requestHeaders:  diagnosticRequestHeaders(c),
 		requestBody:     body,
 		responseHeaders: lastRespHeaders,
 	})
@@ -414,12 +414,25 @@ func sanitizeHeaders(h http.Header) map[string]string {
 	return out
 }
 
-// providerConfigHeaders returns the client's configured headers with the API key stripped.
+// providerConfigHeaders returns the client's configured headers with the API
+// key stripped. Only worth computing when the diagnostics stream may
+// actually capture them; call sites should gate on c.streamErrorLog's
+// captureBodies() rather than calling this unconditionally on every request.
 func providerConfigHeaders(c *Client) map[string]string {
 	if c == nil {
 		return nil
 	}
 	return sanitizeHeaderMap(c.headers)
+}
+
+// diagnosticRequestHeaders returns providerConfigHeaders(c) only when the
+// stream-error log may capture request bodies/headers, avoiding the map copy
+// on every model call when it would just be discarded by emitProviderCall.
+func diagnosticRequestHeaders(c *Client) map[string]string {
+	if !c.streamErrorLog.captureBodies() {
+		return nil
+	}
+	return providerConfigHeaders(c)
 }
 
 // sanitizeHeaderMap strips the Authorization key and copies the rest.

@@ -316,6 +316,13 @@ func shortContentHash(content string) string {
 // be large and repeat file content). This keeps a tool-call-only message
 // (empty Content) distinguishable from any other empty-content message of
 // the same role.
+//
+// internal/agent's perMessageHashes (cache_diagnostics.go) computes this same
+// input independently, because internal/output must not import
+// internal/agent. scripts/diagnostics.mjs's prefix mode reads session-log
+// message_hashes and assumes they agree with the cache stream's
+// prefix_hash/cache_key_hash; if either side's hash input changes, update
+// both and scripts/diagnostics.mjs together.
 func hashInputForMessage(msg provider.Message) string {
 	var b strings.Builder
 	b.WriteString(string(msg.Role))

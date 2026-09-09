@@ -22,6 +22,12 @@ const (
 	SourceSubAgent
 	// SourceAdvisor is the advisor tool.
 	SourceAdvisor
+	// SourceUnknown marks a persisted bucket decoded from a pre-schema-v2
+	// store file, which recorded no source at all. Attributing that history
+	// to SourceParent would misrepresent it as current parent-run traffic in
+	// a per-source breakdown; SourceUnknown keeps it visibly separate
+	// instead. Never set on a freshly recorded Observation.
+	SourceUnknown
 )
 
 // Observation is the consumer-shaped input describing one API call's token usage.

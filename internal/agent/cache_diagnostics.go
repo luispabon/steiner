@@ -72,6 +72,13 @@ func emitCacheDiagnostic(req RunRequest, usage *provider.UsageStats, turn int, p
 // over role, content and tool call names (never arguments, which can be
 // large and repeat file content). Order is preserved so the result doubles
 // as the input to both cumulativePrefixHash and longestCommonPrefixLen.
+//
+// internal/output's hashInputForMessage (event_constructors.go) computes the
+// same input independently for MessageHashes on APIRequestEvent, because
+// internal/output must not import internal/agent. Keep the two in sync (and
+// scripts/diagnostics.mjs, which reads both fields and assumes they agree) —
+// a silent divergence would surface as a prefix mismatch nobody could
+// explain rather than a build error.
 func perMessageHashes(messages []provider.Message) []string {
 	hashes := make([]string, len(messages))
 	for i, msg := range messages {
