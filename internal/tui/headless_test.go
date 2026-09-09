@@ -348,10 +348,17 @@ func TestHarnessIdle(t *testing.T) {
 }
 
 func TestHarnessSelfTest(t *testing.T) {
+	const (
+		injectedViewDelay = 10 * time.Millisecond
+		minMeasuredDelta  = 5 * time.Millisecond
+	)
+
 	base := runHeadlessWithInjectedViewDelay(t, 600*time.Millisecond, 2*time.Millisecond, harnessFPS, 0)
-	delayed := runHeadlessWithInjectedViewDelay(t, 600*time.Millisecond, 2*time.Millisecond, harnessFPS, 5*time.Millisecond)
+	delayed := runHeadlessWithInjectedViewDelay(t, 600*time.Millisecond, 2*time.Millisecond, harnessFPS, injectedViewDelay)
 	t.Logf("self-test base avgView=%s delayed avgView=%s", time.Duration(base.avgViewNanos), time.Duration(delayed.avgViewNanos))
-	if delta := delayed.avgViewNanos - base.avgViewNanos; delta < 4*float64(time.Millisecond) {
-		t.Fatalf("self-test: injected 5ms View delay not measured: base avgView=%s, delayed avgView=%s, delta=%s; protects against a harness that does not measure real time", time.Duration(base.avgViewNanos), time.Duration(delayed.avgViewNanos), time.Duration(delta))
+	// Independent runs vary in view count and render state under CI contention,
+	// so require only a conservative fraction of the injected delay.
+	if delta := delayed.avgViewNanos - base.avgViewNanos; delta < float64(minMeasuredDelta) {
+		t.Fatalf("self-test: injected %s View delay not measured: base avgView=%s, delayed avgView=%s, delta=%s; protects against a harness that does not measure real time", injectedViewDelay, time.Duration(base.avgViewNanos), time.Duration(delayed.avgViewNanos), time.Duration(delta))
 	}
 }
