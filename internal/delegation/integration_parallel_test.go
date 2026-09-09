@@ -119,15 +119,14 @@ type parallelHarness struct {
 
 func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 	h := &parallelHarness{
-		allStarted:          make(chan struct{}),
-		providerStarted:     make(chan struct{}),
-		done:                make(chan struct{}),
-		events:              make(chan output.Event, 1024),
-		target:              n,
-		workDir:             "/tmp",
-		preResponse:         make(chan struct{}),
-		preResponseContinue: make(chan struct{}),
-		followerDispatch:    make(chan struct{}, n),
+		allStarted:      make(chan struct{}),
+		providerStarted: make(chan struct{}),
+		done:            make(chan struct{}),
+		events:          make(chan output.Event, 1024),
+		target:          n,
+		workDir:         "/tmp",
+
+		followerDispatch: make(chan struct{}, n),
 	}
 	h.release = func(string) <-chan struct{} { return h.done }
 	h.provider = &parallelProvider{parent: parent}
@@ -256,7 +255,7 @@ func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *t
 			return agent.ParallelClassDelegation
 		}
 		return agent.ParallelClassNone
-	}, MaxParallelDelegations: max, Events: events, StreamingPreferred: true}
+	}, MaxParallelDelegations: max, Events: events, StreamingPreferred: false}
 	return agent.NewRunner().Run(ctx, req)
 }
 
@@ -407,6 +406,8 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 	defer cancel()
 	store := NewCacheKeyStore()
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
+	h.preResponse = make(chan struct{})
+	h.preResponseContinue = make(chan struct{})
 	h.providerOverlap = make(chan struct{})
 	h.providerFollowerHold = make(chan struct{})
 	h.provider.streamResponse = make(chan struct{})
