@@ -96,7 +96,8 @@ type responsesUsage struct {
 	OutputTokens       int `json:"output_tokens"`
 	TotalTokens        int `json:"total_tokens"`
 	InputTokensDetails struct {
-		CachedTokens int `json:"cached_tokens"`
+		CachedTokens     int `json:"cached_tokens"`
+		CacheWriteTokens int `json:"cache_write_tokens"`
 	} `json:"input_tokens_details"`
 }
 
@@ -105,10 +106,11 @@ func (u *responsesUsage) toUsageStats() *UsageStats {
 		return nil
 	}
 	return &UsageStats{
-		PromptTokens:         u.InputTokens,
-		CompletionTokens:     u.OutputTokens,
-		TotalTokens:          u.TotalTokens,
-		CacheReadInputTokens: u.InputTokensDetails.CachedTokens,
+		PromptTokens:             u.InputTokens,
+		CompletionTokens:         u.OutputTokens,
+		TotalTokens:              u.TotalTokens,
+		CacheCreationInputTokens: u.InputTokensDetails.CacheWriteTokens,
+		CacheReadInputTokens:     u.InputTokensDetails.CachedTokens,
 	}
 }
 
