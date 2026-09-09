@@ -54,6 +54,65 @@ func callAdvisorHandler(t *testing.T, reg *tool.Registry) {
 	}
 }
 
+func TestBuildDelegateRegistryChildFactoryKeepsParentSessionSeparateFromCacheKey(t *testing.T) {
+	const parentSessionID = "parent-session-id"
+	childProvider := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Content: "child result"}, FinishReason: "stop"},
+	}}
+	var factorySessionID string
+	providerFactory := func(_ provider.ResolvedModel, sessionID string) (provider.Provider, error) {
+		factorySessionID = sessionID
+		return childProvider, nil
+	}
+
+	cfg := advisorTestConfig()
+	cfg.Models.Effective.DefaultModel = "advisor"
+	deps := DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: true, MaxFollowUps: 1},
+		Provider:     childProvider,
+		Events:       output.NoopSink{},
+		WorkDir:      t.TempDir(),
+		HomeDir:      t.TempDir(),
+		SessionID:    parentSessionID,
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens:       1024,
+		Config:          cfg,
+		ProviderFactory: providerFactory,
+		CacheKeyStore:   NewCacheKeyStore(),
+		Sandbox:         tool.Unsandboxed{},
+	}
+
+	registry, err := BuildDelegateRegistry(deps)
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+	def, ok := registry.Get(SubAgentToolName)
+	if !ok {
+		t.Fatal("sub_agent tool not registered")
+	}
+	if _, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "inspect the codebase")); err != nil {
+		t.Fatalf("sub_agent handler() error = %v", err)
+	}
+
+	if factorySessionID != parentSessionID {
+		t.Errorf("ProviderFactory session ID = %q, want parent %q", factorySessionID, parentSessionID)
+	}
+	if len(childProvider.requests) != 1 {
+		t.Fatalf("captured %d child provider requests, want 1", len(childProvider.requests))
+	}
+	childCacheKey := childProvider.requests[0].PromptCacheKey
+	if childCacheKey == "" {
+		t.Fatal("child PromptCacheKey is empty, want separately allocated key")
+	}
+	if childCacheKey == parentSessionID {
+		t.Fatalf("child PromptCacheKey = parent SessionID %q, want separate scope", childCacheKey)
+	}
+}
+
 func TestBuildDelegateRegistryDisablesChildLSPGuidanceWithoutServers(t *testing.T) {
 	for _, servers := range []map[string]config.LSPServerConfig{nil, {}} {
 		t.Run("enabled LSP without configured servers", func(t *testing.T) {
