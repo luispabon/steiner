@@ -267,7 +267,7 @@ func NewAPIRequestEvent(model string, messages []provider.Message, tools []provi
 	for i, msg := range messages {
 		content := string(msg.Role) + msg.Content
 		promptBytes += len(content)
-		messageHashes[i] = shortContentHash(hashInputForMessage(msg))
+		messageHashes[i] = shortContentHash(provider.MessageHashInput(msg))
 	}
 	toolsBytes := 0
 	if len(tools) > 0 {
@@ -309,31 +309,6 @@ func NewAPIRequestEvent(model string, messages []provider.Message, tools []provi
 func shortContentHash(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(sum[:4])
-}
-
-// hashInputForMessage builds the text hashed for a message's MessageHashes
-// entry: role, content, and tool call names and arguments (never image data).
-// This keeps a tool-call-only message (empty Content) distinguishable from any
-// other empty-content message of the same role, and detects argument changes.
-//
-// internal/agent's perMessageHashes (cache_diagnostics.go) computes this same
-// input independently, because internal/output must not import
-// internal/agent. scripts/diagnostics.mjs's prefix mode reads session-log
-// message_hashes and assumes they agree with the cache stream's
-// prefix_hash/cache_key_hash; if either side's hash input changes, update
-// both and scripts/diagnostics.mjs together.
-func hashInputForMessage(msg provider.Message) string {
-	var b strings.Builder
-	b.WriteString(string(msg.Role))
-	b.WriteString(msg.Content)
-	for _, call := range msg.ToolCalls {
-		b.WriteString(call.Name)
-		if arguments, err := json.Marshal(call.Arguments); err == nil {
-			b.Write(arguments)
-		}
-		b.WriteString(call.RawArguments)
-	}
-	return b.String()
 }
 
 // NewAPIResponseEvent creates a new API response event.
