@@ -146,8 +146,15 @@ func (p *codexWSProvider) emitProviderCall(ctx context.Context, start time.Time,
 		err:            err,
 		ctx:            ctx,
 		requestURL:     p.wsURL,
-		requestHeaders: sanitizeHeaderMap(p.headers),
+		requestHeaders: diagnosticWSRequestHeaders(p),
 	})
+}
+
+func diagnosticWSRequestHeaders(p *codexWSProvider) map[string]string {
+	if p == nil || !p.streamErrorLog.captureBodies() {
+		return nil
+	}
+	return sanitizeHeaderMap(p.headers)
 }
 
 // sendChunk delivers a terminal chunk, giving up if the consumer has gone away

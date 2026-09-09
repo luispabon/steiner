@@ -306,7 +306,6 @@ func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.Provid
 		HTTPClient:         httpClient,
 		StreamErrorLog:     streamErrorLog,
 		MinRequestInterval: time.Duration(rm.ProviderConfig.Codex.MinRequestInterval.Duration()),
-		Diagnostics:        diag,
 	}
 }
 
