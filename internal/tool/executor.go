@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/diagnostics"
@@ -42,9 +43,9 @@ type Executor struct {
 	workDir     string
 	pathPolicy  PathPolicy
 	outputLimit int
-	// diagnostics receives tool-stream records; emission per tool call is
-	// added by stage 4 of the unified-diagnostics plan (issue #707). A nil
-	// writer is a no-op, so unwired paths and tests need no special handling.
+	// diagnostics receives one tool-stream record per Execute call, on every
+	// outcome (issue #707 stage 4). A nil writer is a no-op, so unwired paths
+	// and tests need no special handling.
 	diagnostics *diagnostics.Writer
 }
 
@@ -96,7 +97,10 @@ func (e *Executor) WorkDir() string {
 // identifies the originating tool call for approval correlation and may be
 // empty when no call ID is available.
 func (e *Executor) Execute(ctx context.Context, toolName, callID string, input map[string]any) (any, error) {
-	return e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
+	start := time.Now()
+	result, err := e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
+	e.recordDiagnostics(toolName, input, result, err, time.Since(start))
+	return result, err
 }
 
 func normalizeExecutionRoot(workDir string) string {

@@ -1,6 +1,10 @@
 package builtin
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/luispabon/steiner/internal/tool"
+)
 
 // Result is a generic tool result.
 type Result struct {
@@ -101,6 +105,40 @@ type MutateResult struct {
 	OperationsRolledBack int                     `json:"operations_rolled_back,omitempty"`
 	OperationsSkipped    int                     `json:"operations_skipped,omitempty"`
 	Output               string                  `json:"output,omitempty"`
+
+	// failures records diagnostics detail (op type, classified reason, path)
+	// for operations that failed this call, surfaced via FailedOps for the
+	// tool diagnostics stream. Unexported: it never reaches the JSON
+	// envelope shown to the model.
+	failures []mutateOpFailure
+}
+
+// Pinned at compile time: if MutateResult ever stops satisfying
+// tool.DiagnosticsDetail (e.g. a signature drift on FailedOps, or a caller
+// returning MutateResult by value instead of *MutateResult), a failed mutate
+// would silently record as outcome "ok" with ops_failed 0 in the tool
+// diagnostics stream instead of failing to compile.
+var _ tool.DiagnosticsDetail = (*MutateResult)(nil)
+
+// mutateOpFailure is one failed operation's diagnostics detail.
+type mutateOpFailure struct {
+	op     string
+	reason string
+	path   string
+}
+
+// FailedOps implements tool.DiagnosticsDetail, so Executor can build the
+// tool diagnostics stream's per-operation failures without importing this
+// package — which already imports tool, so the reverse would cycle.
+func (r *MutateResult) FailedOps() []tool.OpFailure {
+	if r == nil || len(r.failures) == 0 {
+		return nil
+	}
+	out := make([]tool.OpFailure, len(r.failures))
+	for i, f := range r.failures {
+		out[i] = tool.OpFailure{Op: f.op, Reason: f.reason, Path: f.path}
+	}
+	return out
 }
 
 // MutatedPaths returns the union of all mutated paths (created, modified, deleted, moved).
