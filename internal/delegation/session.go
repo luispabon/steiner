@@ -5,6 +5,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
@@ -31,8 +32,13 @@ type SubAgentHandlerDeps struct {
 	StreamingPreferred bool
 	CaveHuman          bool
 	TraceLogger        *TraceLogger
-	SessionStore       *SessionStore
-	ActiveController   *ActiveController
+	// Diagnostics is the process diagnostics writer, threaded to child runs and
+	// child executors so delegated work lands in the same streams as the
+	// parent. Emission is added by stages 2-4 of the unified-diagnostics plan
+	// (issue #707); a nil writer is a no-op.
+	Diagnostics      *diagnostics.Writer
+	SessionStore     *SessionStore
+	ActiveController *ActiveController
 	// ExtraAllowedTools provides per-agent-type extra tool names included in
 	// child registries beyond the built-in allowlists. Nil or empty map grants
 	// no extra tools.

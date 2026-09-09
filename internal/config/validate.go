@@ -6,7 +6,9 @@ import (
 	"strings"
 )
 
-func validate(cfg Config) error {
+// validate checks cfg for problems. projectRoot is the resolved working
+// directory; it may be empty, which skips checks that need it.
+func validate(cfg Config, projectRoot string) error {
 	var problems []string
 
 	validateProfilesConfig(&problems, cfg)
@@ -16,6 +18,7 @@ func validate(cfg Config) error {
 	validateLimitsConfig(&problems, cfg.Limits)
 	validateProjectContextConfig(&problems, cfg.ProjectContext)
 	validateLoggingConfig(&problems, cfg.Logging)
+	validateDiagnosticsConfig(&problems, cfg.Diagnostics, projectRoot)
 	validateToolsConfig(&problems, cfg.Tools)
 	validateSandboxConfig(&problems, cfg.Sandbox)
 	validateSearchConfig(&problems, cfg.Search)

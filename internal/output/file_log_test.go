@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func TestNewFileLogSinkEmptyPath(t *testing.T) {
@@ -204,8 +205,32 @@ func TestFileLogSinkAPIRequestBoundsPayload(t *testing.T) {
 	got := string(raw)
 	for _, forbidden := range []string{`"messages"`, `"tools"`, `"blocks"`} {
 		if strings.Contains(got, forbidden) {
-			t.Fatalf("log output should not contain %q with captureAPIRequestBodies off\n%s", forbidden, got)
+			t.Fatalf("log output should not contain %q with CaptureAPIRequestBodies off\n%s", forbidden, got)
 		}
+	}
+}
+
+func TestFileLogSinkAPIRequestCaptureBodies(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.log")
+	sink, err := NewFileLogSink(path, FileLogOptions{CaptureAPIRequestBodies: true})
+	if err != nil {
+		t.Fatalf("NewFileLogSink() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sink.Close() })
+
+	messages := []provider.Message{{Role: provider.MessageRoleUser, Content: "remember this sentence"}}
+	sink.Emit(NewAPIRequestEvent("test-model", messages, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0))
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, `"messages"`) || !strings.Contains(got, "remember this sentence") {
+		t.Fatalf("log output should contain full messages with CaptureAPIRequestBodies on\n%s", got)
+	}
+	if !strings.Contains(got, `"message_count":1`) {
+		t.Fatalf("log output should keep the bounded scalars alongside the bodies\n%s", got)
 	}
 }
 

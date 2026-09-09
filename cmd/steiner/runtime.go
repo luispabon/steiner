@@ -16,6 +16,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
@@ -87,6 +88,7 @@ type cliRuntime struct {
 	advisorState                 *advisor.SharedState
 	delegationLogger             *delegation.TraceLogger
 	streamErrorLog               *provider.StreamErrorLogger
+	diagnostics                  *diagnostics.Writer
 	compactionLogFile            string
 	usageRecorder                *usagestats.Recorder
 	imageStore                   *agent.ImageStore
@@ -139,6 +141,10 @@ func closeRuntime(rt *cliRuntime) {
 	if rt.streamErrorLog != nil {
 		emitCloseWarning(rt.events, "close stream error log", rt.streamErrorLog.Close())
 	}
+	// Closed after the two sinks that write through it, and via the runtime
+	// rather than closeFn so it is released on the same path as the other
+	// loggers. Nil-safe.
+	emitCloseWarning(rt.events, "close diagnostics writer", rt.diagnostics.Close())
 	if rt.historyWriter != nil {
 		emitCloseWarning(rt.events, "failed to close history writer", rt.historyWriter.Close())
 	}

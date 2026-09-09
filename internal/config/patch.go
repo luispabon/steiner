@@ -18,6 +18,7 @@ type configPatch struct {
 	ProjectContext       *projectContextPatch       `yaml:"project_context"`
 	Paths                *pathsPatch                `yaml:"paths"`
 	Logging              *loggingPatch              `yaml:"logging"`
+	Diagnostics          *diagnosticsPatch          `yaml:"diagnostics"`
 	ContextManagement    *contextManagementPatch    `yaml:"context_management"`
 	Search               *searchPatch               `yaml:"search"`
 	MCP                  *mcpPatch                  `yaml:"mcp"`
@@ -188,6 +189,20 @@ type loggingPatch struct {
 	File           *string `yaml:"file"`
 	ThinkingChunk  *bool   `yaml:"thinking_chunk"`
 	AssistantChunk *bool   `yaml:"assistant_chunk"`
+}
+
+type diagnosticsPatch struct {
+	Enabled       *bool                    `yaml:"enabled"`
+	Dir           *string                  `yaml:"dir"`
+	RetentionDays *int                     `yaml:"retention_days"`
+	Streams       *diagnosticsStreamsPatch `yaml:"streams"`
+	CaptureBodies *bool                    `yaml:"capture_bodies"`
+}
+
+type diagnosticsStreamsPatch struct {
+	Cache    *bool `yaml:"cache"`
+	Provider *bool `yaml:"provider"`
+	Tool     *bool `yaml:"tool"`
 }
 
 type searchPatch struct {

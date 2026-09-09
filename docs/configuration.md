@@ -930,6 +930,42 @@ logging:
 
 ---
 
+## `diagnostics` block
+
+Structured instrumentation capture. Disabled by default, and gated entirely
+independently of `logging` — the diagnostics directory is never derived from
+`logging.file`, so a week-long measurement never also captures prompts.
+
+Records are written as JSONL, one file per stream (`cache.jsonl`,
+`provider.jsonl`, `tool.jsonl`), `0o600` in a `0o700` directory, appended
+across runs, size-capped and rotated (`<file>.1`, `<file>.2`, ...). Every
+record carries `run_id`, `build_sha` and `dirty`, so a before/after comparison
+can be scoped to a build rather than to a time window.
+
+| Field             | Type   | Default                                    | Description                                                                                                                                    |
+| ----------------- | ------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`         | bool   | `false`                                    | Master switch. When `false` nothing is constructed and no directory is created.                                                                |
+| `dir`             | string | `$XDG_STATE_HOME/steiner/diagnostics`, else `~/.local/state/steiner/diagnostics` | Directory holding the per-stream files. Tilde expansion is supported. Must not resolve inside the project root — diagnostics are user state, not repo content. |
+| `retention_days`  | int    | `30`                                       | Records older than this are dropped when the writer opens. Must be greater than zero when enabled.                                             |
+| `streams.cache`   | bool   | `false`                                    | Prompt-cache observations.                                                                                                                     |
+| `streams.provider`| bool   | `false`                                    | One record per model call, whatever the outcome. Subsumes the stream-error log, which otherwise writes next to `logging.file`.                  |
+| `streams.tool`    | bool   | `false`                                    | Tool execution and delegation traces. Subsumes the delegation trace log, which otherwise writes next to `logging.file`.                         |
+| `capture_bodies`  | bool   | `false`                                    | Allow full message, tool and block content instead of bounded scalar fields. Also unbounds the session log's `api_request` records. Expensive, and captures prompts. |
+
+```yaml
+diagnostics:
+  enabled: true
+  dir: ~/.local/state/steiner/diagnostics
+  retention_days: 30
+  streams:
+    cache: true
+    provider: true
+    tool: false
+  capture_bodies: false
+```
+
+---
+
 ## `context_management` block
 
 Baseline context management settings.

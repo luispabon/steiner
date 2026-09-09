@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/diagnostics"
 )
 
 // TraceLogger writes delegation trace records as JSON lines to a dedicated file.
@@ -16,6 +18,7 @@ type TraceLogger struct {
 	mu   sync.Mutex
 	file *os.File
 	enc  *json.Encoder
+	diag *diagnostics.Writer
 }
 
 // TraceEntry records a single lifecycle event during delegation execution.
@@ -58,6 +61,20 @@ func (t *traceCollector) result() []TraceEntry {
 	return out
 }
 
+// delegationTraceEvent discriminates delegation traces from the tool-call
+// records that also live in the tool stream: tool.jsonl is not homogeneous.
+const delegationTraceEvent = "delegation_trace"
+
+// delegationTracePayload is the diagnostics payload for a delegation trace.
+// Unlike the fixed-size scalar payloads the streams normally carry, it holds
+// the reparented trace entries verbatim so the existing sink keeps its shape.
+type delegationTracePayload struct {
+	Event   string       `json:"event"`
+	AgentID string       `json:"agent_id"`
+	Task    string       `json:"task"`
+	Entries []TraceEntry `json:"entries"`
+}
+
 // traceRecord is the top-level structure written to the delegation log file.
 type traceRecord struct {
 	AgentID string       `json:"agent_id"`
@@ -68,6 +85,19 @@ type traceRecord struct {
 // NewTraceLogger creates a TraceLogger writing to path. Parent directories are
 // created if needed. Returns nil without error when path is empty.
 func NewTraceLogger(path string) (*TraceLogger, error) {
+	return NewTraceLoggerWithDiagnostics(path, nil)
+}
+
+// NewTraceLoggerWithDiagnostics creates a TraceLogger that writes through diag
+// when one is supplied, and falls back to its own file at path when it is not.
+// The diagnostics writer subsumes the file: no file is opened when diag is
+// non-nil, so traces land in the tool stream instead of a log path derived
+// from the sensitive --log-file. Returns nil without error when there is
+// neither a writer nor a path.
+func NewTraceLoggerWithDiagnostics(path string, diag *diagnostics.Writer) (*TraceLogger, error) {
+	if diag != nil {
+		return &TraceLogger{diag: diag}, nil
+	}
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
 	}
@@ -98,6 +128,20 @@ func (l *TraceLogger) WriteTrace(tc *traceCollector) {
 		Task:    truncateTaskPreview(tc.task, 200),
 		Entries: entries,
 	}
+	if l.diag != nil {
+		l.diag.Write(diagnostics.Record{
+			Kind:    diagnostics.KindTool,
+			Source:  diagnostics.SourceSubAgent,
+			AgentID: record.AgentID,
+			Payload: delegationTracePayload{
+				Event:   delegationTraceEvent,
+				AgentID: record.AgentID,
+				Task:    record.Task,
+				Entries: record.Entries,
+			},
+		})
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	// Best-effort; delegation logging must not break execution.
@@ -106,7 +150,7 @@ func (l *TraceLogger) WriteTrace(tc *traceCollector) {
 
 // Close flushes and closes the underlying file. No-op on nil receiver.
 func (l *TraceLogger) Close() error {
-	if l == nil {
+	if l == nil || l.file == nil {
 		return nil
 	}
 	l.mu.Lock()
