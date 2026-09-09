@@ -49,9 +49,14 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 	if accentHex == "" {
 		accentHex = theme.AccentPresets["amber"]
 	}
-	s := theme.BuildStyles(accentHex)
+	palette, err := theme.ResolvePalette(cfg.SidebarBG, cfg.ContentBG)
+	if err != nil {
+		palette = theme.DefaultPalette()
+	}
+	s := theme.BuildStyles(accentHex, palette)
 
 	m := Model{
+		palette:  palette,
 		width:    80,
 		height:   24,
 		viewport: newScrollModel(80, 22),

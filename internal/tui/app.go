@@ -110,6 +110,8 @@ type Config struct {
 	AccentPreset         string
 	ShowThinking         bool
 	SidebarPosition      string
+	SidebarBG            string
+	ContentBG            string
 	Version              string
 	Controller           interactive.Controller
 	SessionStore         SessionLister
@@ -176,6 +178,12 @@ func NewApp(cfg Config) *App {
 	}
 	if cfg.SidebarPosition == "" {
 		cfg.SidebarPosition = p.SidebarPosition
+	}
+	if cfg.SidebarBG == "" {
+		cfg.SidebarBG = p.SidebarBG
+	}
+	if cfg.ContentBG == "" {
+		cfg.ContentBG = p.ContentBG
 	}
 	return &App{
 		cfg:    cfg,

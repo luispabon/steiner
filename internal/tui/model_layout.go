@@ -97,8 +97,8 @@ func (m *Model) syncViewport() {
 	if rendered != m.fmtBgCacheInput || widthChanged {
 		m.fmtBgCacheInput = rendered
 		m.fmtBgCacheWidth = m.viewport.Width()
-		formatted := theme.WithBg(rendered, theme.BgElev)
-		m.fmtBgCacheOutput = theme.PadLines(formatted, m.viewport.Width(), theme.BgElev)
+		formatted := theme.WithBg(rendered, m.resolvedPalette().ContentBG)
+		m.fmtBgCacheOutput = theme.PadLines(formatted, m.viewport.Width(), m.resolvedPalette().ContentBG)
 
 		// A width reflow invalidates row/col anchors (wrapping changes the
 		// rendered rows), so the selection clears; same-width content changes
