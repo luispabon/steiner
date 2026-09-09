@@ -14,7 +14,6 @@ import (
 // pruneStale drops records older than cutoff from the stream file at path.
 // Records are appended in time order, so only the first line has to be read to
 // decide: when it is still within the retention window nothing is rewritten.
-// Rotated generations are left alone; they are already bounded by count.
 func pruneStale(path string, cutoff time.Time) error {
 	stale, err := oldestIsStale(path, cutoff)
 	if err != nil || !stale {
