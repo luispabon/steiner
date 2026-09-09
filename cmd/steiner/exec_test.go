@@ -65,6 +65,59 @@ func TestExecModeReadsPromptFromStdin(t *testing.T) {
 	}
 }
 
+func TestExecModeWiresSessionIDToPromptCacheKey(t *testing.T) {
+	oldBuildRuntime := buildRuntime
+	t.Cleanup(func() { buildRuntime = oldBuildRuntime })
+
+	var capturedSessionID string
+	var capturedProvider *fakeProvider
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
+		capturedProvider = &fakeProvider{
+			responses: []provider.ChatResponse{
+				{
+					Message: provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: "factory answer",
+					},
+					FinishReason: "stop",
+				},
+			},
+		}
+		cfg := testRuntimeConfig("test-model")
+		return cliRuntime{
+			cfg: cfg,
+			providerFactory: func(_ provider.ResolvedModel, sessionID string) (provider.Provider, error) {
+				capturedSessionID = sessionID
+				return capturedProvider, nil
+			},
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			human:    output.NewStream(io.Discard),
+			status:   output.NewStream(io.Discard),
+			events:   output.NoopSink{},
+		}, nil
+	}
+
+	cmd := newRootCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--exec", "factory prompt"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if capturedSessionID == "" {
+		t.Fatal("provider factory session ID is empty, want prompt cache key")
+	}
+	if len(capturedProvider.requests) != 1 {
+		t.Fatalf("captured %d provider requests, want 1", len(capturedProvider.requests))
+	}
+	if got := capturedProvider.requests[0].PromptCacheKey; got != capturedSessionID {
+		t.Fatalf("request PromptCacheKey = %q, want provider factory session ID %q", got, capturedSessionID)
+	}
+}
+
 func TestExecModeEmptyPromptReturnsError(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	t.Cleanup(func() { buildRuntime = oldBuildRuntime })

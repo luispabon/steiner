@@ -53,6 +53,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		runMode:            "exec",
 		streamingPreferred: flags.enableStreaming,
 		promptCacheKeyFn:   func() string { return promptCacheKey },
+		sessionIDFn:        func() string { return promptCacheKey },
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil, nil)
 	if err != nil {
 		return err
