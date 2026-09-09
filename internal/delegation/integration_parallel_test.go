@@ -23,9 +23,10 @@ import (
 )
 
 type parallelProvider struct {
-	parent provider.ChatResponse
-	child  func(context.Context, string) (provider.ChatResponse, error)
-	calls  atomic.Int32
+	parent         provider.ChatResponse
+	child          func(context.Context, string) (provider.ChatResponse, error)
+	calls          atomic.Int32
+	streamResponse chan struct{}
 }
 
 func (p *parallelProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
@@ -40,9 +41,15 @@ func (p *parallelProvider) StreamChatCompletion(ctx context.Context, req provide
 	if err != nil {
 		return nil, err
 	}
-	ch := make(chan provider.ChatChunk, 1)
-	ch <- provider.ChatChunk{Done: true, FinishReason: "stop", Delta: resp.Message}
-	close(ch)
+	ch := make(chan provider.ChatChunk, 2)
+	go func() {
+		if p.streamResponse != nil && childTask(req) != "start" {
+			ch <- provider.ChatChunk{Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "early"}}
+			<-p.streamResponse
+		}
+		ch <- provider.ChatChunk{Done: true, FinishReason: "stop", Delta: resp.Message}
+		close(ch)
+	}()
 	return ch, nil
 }
 
@@ -57,33 +64,57 @@ func childTask(req provider.ChatRequest) string {
 	return ""
 }
 
-type eventChSink struct{ ch chan output.Event }
+type eventChSink struct {
+	ch                    chan output.Event
+	preResponse           chan struct{}
+	preResponseOnce       *sync.Once
+	preResponseContinue   <-chan struct{}
+	preResponseReturned   chan struct{}
+	preResponseReturnOnce *sync.Once
+}
 
-func (s eventChSink) Emit(e output.Event) { s.ch <- e }
+func (s eventChSink) Emit(e output.Event) {
+	s.ch <- e
+	if s.preResponse != nil && (e.Type == output.EventTypeThinkingChunk || e.Type == output.EventTypeAssistantChunk) {
+		s.preResponseOnce.Do(func() { close(s.preResponse) })
+		if s.preResponseContinue != nil {
+			<-s.preResponseContinue
+		}
+		if s.preResponseReturnOnce != nil && s.preResponseReturned != nil {
+			s.preResponseReturnOnce.Do(func() { close(s.preResponseReturned) })
+		}
+	}
+}
 
 type parallelHarness struct {
-	provider             *parallelProvider
-	active               atomic.Int32
-	max                  atomic.Int32
-	started              atomic.Int32
-	completed            atomic.Int32
-	completedTasks       sync.Map
-	taskCalls            sync.Map
-	allStarted           chan struct{}
-	providerStarted      chan struct{}
-	providerStartedOnce  sync.Once
-	done                 chan struct{}
-	providerGate         <-chan struct{}
-	leaderTask           atomic.Value
-	providerFollowerHold chan struct{}
-	providerOverlap      chan struct{}
-	providerOverlapOnce  sync.Once
-	events               chan output.Event
-	target               int
-	release              func(string) <-chan struct{}
-	failTask             string
-	blockOnCtx           bool
-	workDir              string
+	provider              *parallelProvider
+	active                atomic.Int32
+	max                   atomic.Int32
+	started               atomic.Int32
+	completed             atomic.Int32
+	completedTasks        sync.Map
+	taskCalls             sync.Map
+	allStarted            chan struct{}
+	providerStarted       chan struct{}
+	providerStartedOnce   sync.Once
+	done                  chan struct{}
+	providerGate          <-chan struct{}
+	leaderTask            atomic.Value
+	providerFollowerHold  chan struct{}
+	providerOverlap       chan struct{}
+	providerOverlapOnce   sync.Once
+	followerDispatch      chan struct{}
+	events                chan output.Event
+	target                int
+	release               func(string) <-chan struct{}
+	failTask              string
+	blockOnCtx            bool
+	workDir               string
+	preResponse           chan struct{}
+	preResponseContinue   chan struct{}
+	preResponseReturned   chan struct{}
+	preResponseOnce       sync.Once
+	preResponseReturnOnce sync.Once
 }
 
 func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
@@ -94,6 +125,8 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 		events:          make(chan output.Event, 1024),
 		target:          n,
 		workDir:         "/tmp",
+
+		followerDispatch: make(chan struct{}, n),
 	}
 	h.release = func(string) <-chan struct{} { return h.done }
 	h.provider = &parallelProvider{parent: parent}
@@ -127,6 +160,9 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 			}
 		}
 		if h.providerFollowerHold != nil && task != h.leaderTask.Load().(string) {
+			if h.followerDispatch != nil {
+				h.followerDispatch <- struct{}{}
+			}
 			if h.active.Load() >= 2 {
 				h.providerOverlapOnce.Do(func() { close(h.providerOverlap) })
 			}
@@ -209,8 +245,8 @@ func delegationParentResponse(names ...string) provider.ChatResponse {
 }
 
 func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *tool.Registry) (agent.RunState, error) {
-	events := output.EventSink(eventChSink{ch: h.events})
-	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxFollowUps: 100}, Provider: h.provider, Config: config.Config{}, WorkDir: h.workDir, Events: events})
+	events := output.EventSink(eventChSink{ch: h.events, preResponse: h.preResponse, preResponseOnce: &h.preResponseOnce, preResponseContinue: h.preResponseContinue, preResponseReturned: h.preResponseReturned, preResponseReturnOnce: &h.preResponseReturnOnce})
+	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxFollowUps: 100}, Provider: h.provider, Config: config.Config{}, WorkDir: h.workDir, Events: events, StreamingPreferred: true})
 	if err != nil {
 		return agent.RunState{}, err
 	}
@@ -219,13 +255,13 @@ func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *t
 			return agent.ParallelClassDelegation
 		}
 		return agent.ParallelClassNone
-	}, MaxParallelDelegations: max, Events: events}
+	}, MaxParallelDelegations: max, Events: events, StreamingPreferred: false}
 	return agent.NewRunner().Run(ctx, req)
 }
 
 func runParallelParentGated(ctx context.Context, h *parallelHarness, max int, base *tool.Registry, store *CacheKeyStore) (agent.RunState, error) {
-	events := output.EventSink(eventChSink{ch: h.events})
-	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxFollowUps: 100}, Provider: h.provider, Config: config.Config{}, WorkDir: h.workDir, Events: events, CacheKeyStore: store})
+	events := output.EventSink(eventChSink{ch: h.events, preResponse: h.preResponse, preResponseOnce: &h.preResponseOnce, preResponseContinue: h.preResponseContinue, preResponseReturned: h.preResponseReturned, preResponseReturnOnce: &h.preResponseReturnOnce})
+	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxFollowUps: 100}, Provider: h.provider, Config: config.Config{}, WorkDir: h.workDir, Events: events, CacheKeyStore: store, StreamingPreferred: true})
 	if err != nil {
 		return agent.RunState{}, err
 	}
@@ -234,7 +270,7 @@ func runParallelParentGated(ctx context.Context, h *parallelHarness, max int, ba
 			return agent.ParallelClassDelegation
 		}
 		return agent.ParallelClassNone
-	}, MaxParallelDelegations: max, Events: events}
+	}, MaxParallelDelegations: max, Events: events, StreamingPreferred: true}
 	return agent.NewRunner().Run(ctx, req)
 }
 
@@ -370,10 +406,13 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 	defer cancel()
 	store := NewCacheKeyStore()
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
+	h.preResponse = make(chan struct{})
+	h.preResponseContinue = make(chan struct{})
 	h.providerOverlap = make(chan struct{})
 	h.providerFollowerHold = make(chan struct{})
-	// Keep every child provider call behind the test signal. The leader's first
-	// chunk releases the two followers only after this signal is closed.
+	h.provider.streamResponse = make(chan struct{})
+	// Keep every child provider call behind the test signal. The leader's
+	// pre-response stream chunk must not release the two followers.
 	h.providerGate = h.done
 	result := startParallelParentGated(ctx, h, 3, tool.NewRegistry(), store)
 	select {
@@ -398,9 +437,30 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 	}
 	close(h.done)
 	select {
+	case <-h.preResponse:
+	case <-time.After(10 * time.Second):
+		t.Fatal("leader did not emit its pre-response stream chunk")
+	}
+	// The inner sink is still blocked here. This proves followers remain gated
+	// through completion of the leader's non-final chunk forwarding path.
+	select {
+	case <-h.followerDispatch:
+		t.Fatal("follower provider dispatch occurred while leader chunk sink was blocked")
+	default:
+	}
+	close(h.preResponseContinue)
+	close(h.provider.streamResponse)
+	select {
 	case <-h.providerOverlap:
 	case <-time.After(10 * time.Second):
-		t.Fatal("follower provider calls did not overlap after gate release")
+		t.Fatal("follower provider calls did not overlap after API response")
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-h.followerDispatch:
+		case <-time.After(10 * time.Second):
+			t.Fatal("follower provider dispatch did not follow API response")
+		}
 	}
 	if got := h.max.Load(); got < 2 {
 		t.Fatalf("max simultaneous provider calls after release = %d, want at least 2", got)

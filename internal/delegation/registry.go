@@ -321,6 +321,9 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 }
 
 // buildModelResolver returns a function that resolves a model alias to its provider and model metadata.
+// The parent SessionID passed to ProviderFactory is transport affinity for the
+// parent run (including OpenCode's X-Opencode-Session); child and advisor
+// PromptCacheKeys remain separately scoped by their agent type.
 func buildModelResolver(deps DelegateDeps) func(string) (provider.Provider, provider.ResolvedModel, error) {
 	return func(alias string) (provider.Provider, provider.ResolvedModel, error) {
 		resolved, err := provider.ResolveWithDiscovery(deps.Config, alias, deps.HTTPClient)
@@ -340,6 +343,8 @@ func buildModelResolver(deps DelegateDeps) func(string) (provider.Provider, prov
 
 func resolveToolProvider(current provider.Provider, currentModel provider.ResolvedModel, target provider.ResolvedModel, providerFactory func(provider.ResolvedModel, string) (provider.Provider, error), sessionID string) (provider.Provider, error) {
 	if providerFactory != nil {
+		// Keep parent SessionID as transport affinity; advisor's PromptCacheKey
+		// is allocated separately and is not a replacement for this ID.
 		return providerFactory(target, sessionID)
 	}
 	if current != nil && currentModel.ProviderAlias == target.ProviderAlias && currentModel.EffectiveProviderType == target.EffectiveProviderType {

@@ -1,7 +1,6 @@
 package usagestats
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -14,10 +13,7 @@ var (
 )
 
 func isolateTest(t *testing.T) {
-	dir := t.TempDir()
-	oldPath := storePath
-	t.Cleanup(func() { storePath = oldPath })
-	storePath = func() string { return filepath.Join(dir, "cache-stats.json") }
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 }
 
 func fixedClock(t time.Time) func() time.Time {
