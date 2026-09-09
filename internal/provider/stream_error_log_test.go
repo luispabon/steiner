@@ -154,7 +154,7 @@ func TestNewStreamErrorLogger(t *testing.T) {
 func TestStreamErrorLogger_Log(t *testing.T) {
 	t.Run("nil receiver no-op", func(_ *testing.T) {
 		var l *StreamErrorLogger
-		l.Log(streamErrorRecord{Event: "stream_retry"})
+		l.Log(streamErrorRecord{Outcome: "retried"})
 	})
 
 	t.Run("write and read back valid JSON", func(t *testing.T) {
@@ -167,15 +167,17 @@ func TestStreamErrorLogger_Log(t *testing.T) {
 
 		want := streamErrorRecord{
 			Timestamp:       time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-			Event:           "stream_retry",
-			Attempt:         2,
-			Max:             5,
+			Provider:        "openai_compat",
+			Model:           "gpt-4",
+			Transport:       "sse",
+			Outcome:         "retried",
+			Attempts:        2,
+			TTFTMillis:      120,
+			DurationMillis:  1500,
+			ErrorClass:      "http_5xx",
 			Error:           "EOF",
-			StreamAlive:     "1.5s",
-			ChunksReceived:  10,
-			ContentBytes:    512,
+			Chunks:          10,
 			PartialStream:   true,
-			RetryDelay:      "500ms",
 			RequestURL:      "https://api.example.com/v1/chat",
 			RequestHeaders:  map[string]string{"Content-Type": "application/json"},
 			RequestBody:     json.RawMessage(`{"model":"gpt-4"}`),
@@ -198,17 +200,17 @@ func TestStreamErrorLogger_Log(t *testing.T) {
 			t.Fatalf("unmarshal error: %v", err)
 		}
 
-		if got.Event != want.Event {
-			t.Errorf("Event: got %q, want %q", got.Event, want.Event)
+		if got.Outcome != want.Outcome {
+			t.Errorf("Outcome: got %q, want %q", got.Outcome, want.Outcome)
 		}
-		if got.Attempt != want.Attempt {
-			t.Errorf("Attempt: got %d, want %d", got.Attempt, want.Attempt)
+		if got.Attempts != want.Attempts {
+			t.Errorf("Attempts: got %d, want %d", got.Attempts, want.Attempts)
 		}
 		if got.Error != want.Error {
 			t.Errorf("Error: got %q, want %q", got.Error, want.Error)
 		}
-		if got.ChunksReceived != want.ChunksReceived {
-			t.Errorf("ChunksReceived: got %d, want %d", got.ChunksReceived, want.ChunksReceived)
+		if got.Chunks != want.Chunks {
+			t.Errorf("Chunks: got %d, want %d", got.Chunks, want.Chunks)
 		}
 		if got.PartialStream != want.PartialStream {
 			t.Errorf("PartialStream: got %v, want %v", got.PartialStream, want.PartialStream)
@@ -226,8 +228,8 @@ func TestStreamErrorLogger_Log(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		l.Log(streamErrorRecord{Event: "stream_retry", Attempt: 1})
-		l.Log(streamErrorRecord{Event: "stream_exhausted", Attempt: 3})
+		l.Log(streamErrorRecord{Outcome: "retried", Attempts: 1})
+		l.Log(streamErrorRecord{Outcome: "exhausted", Attempts: 3})
 
 		if err := l.Close(); err != nil {
 			t.Fatalf("close error: %v", err)
@@ -251,11 +253,11 @@ func TestStreamErrorLogger_Log(t *testing.T) {
 		if len(records) != 2 {
 			t.Fatalf("expected 2 records, got %d", len(records))
 		}
-		if records[0].Event != "stream_retry" {
-			t.Errorf("records[0].Event = %q, want %q", records[0].Event, "stream_retry")
+		if records[0].Outcome != "retried" {
+			t.Errorf("records[0].Outcome = %q, want %q", records[0].Outcome, "retried")
 		}
-		if records[1].Event != "stream_exhausted" {
-			t.Errorf("records[1].Event = %q, want %q", records[1].Event, "stream_exhausted")
+		if records[1].Outcome != "exhausted" {
+			t.Errorf("records[1].Outcome = %q, want %q", records[1].Outcome, "exhausted")
 		}
 	})
 }

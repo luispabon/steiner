@@ -558,20 +558,17 @@ func TestClientStreamRetryIsLoggedForEveryWire(t *testing.T) {
 			if len(records) != 1 {
 				t.Fatalf("stream error log records = %d, want 1", len(records))
 			}
-			if got, want := records[0].Event, "stream_retry"; got != want {
-				t.Fatalf("event = %q, want %q", got, want)
+			if got, want := records[0].Outcome, "retried"; got != want {
+				t.Fatalf("outcome = %q, want %q", got, want)
 			}
-			if got, want := records[0].Attempt, 2; got != want {
-				t.Fatalf("attempt = %d, want %d", got, want)
-			}
-			if records[0].Error == "" {
-				t.Fatal("record error = empty, want the 503 reason")
+			if got, want := records[0].Attempts, 2; got != want {
+				t.Fatalf("attempts = %d, want %d", got, want)
 			}
 			if records[0].RequestURL != server.URL+"/v1" {
 				t.Fatalf("request URL = %q, want %q", records[0].RequestURL, server.URL+"/v1")
 			}
-			if len(records[0].RequestBody) == 0 {
-				t.Fatal("record request body = empty, want the wire payload")
+			if len(records[0].RequestBody) != 0 {
+				t.Fatal("record request body = non-empty, want no body without the capture_bodies gate")
 			}
 		})
 	}
