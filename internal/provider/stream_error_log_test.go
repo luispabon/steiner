@@ -151,6 +151,34 @@ func TestNewStreamErrorLogger(t *testing.T) {
 	})
 }
 
+func TestStreamErrorLoggerUpgradesExistingFileWithoutChangingParent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stream-errors.log")
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod dir: %v", err)
+	}
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("create log file: %v", err)
+	}
+
+	logger, err := NewStreamErrorLogger(path)
+	if err != nil {
+		t.Fatalf("NewStreamErrorLogger() error = %v", err)
+	}
+	t.Cleanup(func() { _ = logger.Close() })
+
+	if info, err := os.Stat(path); err != nil {
+		t.Fatalf("stat log file: %v", err)
+	} else if info.Mode().Perm() != 0o600 {
+		t.Errorf("file mode = %o, want 600", info.Mode().Perm())
+	}
+	if info, err := os.Stat(dir); err != nil {
+		t.Fatalf("stat parent: %v", err)
+	} else if info.Mode().Perm() != 0o755 {
+		t.Errorf("parent mode = %o, want unchanged 755", info.Mode().Perm())
+	}
+}
+
 func TestStreamErrorLogger_Log(t *testing.T) {
 	t.Run("nil receiver no-op", func(_ *testing.T) {
 		var l *StreamErrorLogger

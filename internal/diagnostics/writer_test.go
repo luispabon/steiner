@@ -177,6 +177,44 @@ func TestWriterPermissions(t *testing.T) {
 	}
 }
 
+func TestWriterUpgradesExistingPermissions(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "diagnostics")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("create dir: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod dir: %v", err)
+	}
+	for _, kind := range Kinds() {
+		path := filepath.Join(dir, kind.fileName())
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatalf("create %s: %v", kind.fileName(), err)
+		}
+	}
+
+	w, err := New(Options{Dir: dir, Streams: allStreams()})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	if info, err := os.Stat(dir); err != nil {
+		t.Fatalf("stat dir: %v", err)
+	} else if info.Mode().Perm() != 0o700 {
+		t.Errorf("dir mode = %o, want 700", info.Mode().Perm())
+	}
+	for _, kind := range Kinds() {
+		path := filepath.Join(dir, kind.fileName())
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat %s: %v", kind.fileName(), err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode = %o, want 600", kind.fileName(), info.Mode().Perm())
+		}
+	}
+}
+
 func TestWriterAppendsAcrossOpens(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 2; i++ {

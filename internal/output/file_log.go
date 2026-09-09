@@ -81,12 +81,28 @@ func NewFileLogSink(path string, opts FileLogOptions) (*FileLogSink, error) {
 	if path == "" {
 		return nil, fmt.Errorf("log file path is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	dirExisted := false
+	if _, statErr := os.Stat(dir); statErr == nil {
+		dirExisted = true
+	} else if !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("stat log file directory: %w", statErr)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create log file directory: %w", err)
+	}
+	if !dirExisted {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("secure log file directory: %w", err)
+		}
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create log file: %w", err)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("secure log file: %w", err)
 	}
 	var written int64
 	if info, statErr := file.Stat(); statErr == nil {
@@ -228,6 +244,10 @@ func (s *FileLogSink) rotate() error {
 	file, err := os.OpenFile(s.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return fmt.Errorf("open rotated log file: %w", err)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("secure rotated log file: %w", err)
 	}
 	s.file = file
 	s.written = 0
