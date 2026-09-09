@@ -122,7 +122,6 @@ type handlerState struct {
 	cacheKey       string
 	cacheMu        sync.Mutex
 	previousPrefix []string
-	fingerprint    provider.WireCacheDiagnostics
 }
 
 func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[string]any) (any, error) {

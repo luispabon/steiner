@@ -50,7 +50,7 @@ func (p *fakeProvider) StreamChatCompletion(_ context.Context, req provider.Chat
 
 func (p *fakeProvider) SupportsUsageStats() bool { return true }
 
-func (p *fakeProvider) CacheFingerprint(_ context.Context, _ provider.ChatRequest, stream bool, _, shared int) (provider.WireCacheDiagnostics, error) {
+func (p *fakeProvider) CacheFingerprint(_ context.Context, _ provider.ChatRequest, stream bool, _, _ int) (provider.WireCacheDiagnostics, error) {
 	p.fingerprints++
 	return provider.WireCacheDiagnostics{CacheablePrefixHash: "cache-prefix", SharedPrefixHash: "shared-prefix", Stream: stream}, nil
 }
