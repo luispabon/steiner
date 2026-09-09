@@ -121,14 +121,15 @@ type DelegateDeps struct {
 
 // advisorRuntime holds the resolved advisor provider, model, and configuration.
 type advisorRuntime struct {
-	provider   provider.Provider
-	model      provider.ResolvedModel
-	events     output.EventSink
-	recorder   *usagestats.Recorder
-	workDir    string
-	pathPolicy tool.PathPolicy
-	cacheKey   string
-	maxTokens  *int
+	provider    provider.Provider
+	model       provider.ResolvedModel
+	events      output.EventSink
+	recorder    *usagestats.Recorder
+	diagnostics *diagnostics.Writer
+	workDir     string
+	pathPolicy  tool.PathPolicy
+	cacheKey    string
+	maxTokens   *int
 }
 
 // newAdvisorRuntime resolves the advisor model and provider, returning the runtime
@@ -153,14 +154,15 @@ func newAdvisorRuntime(deps DelegateDeps) (advisorRuntime, error) {
 	advisorPolicy := tool.NewPathPolicy(deps.WorkDir, deps.Config.Paths)
 
 	return advisorRuntime{
-		provider:   advisorProvider,
-		model:      advisorResolved,
-		events:     deps.Events,
-		recorder:   deps.UsageRecorder,
-		workDir:    deps.WorkDir,
-		pathPolicy: advisorPolicy,
-		cacheKey:   resolveAdvisorCacheKey(deps.CacheKeyStore),
-		maxTokens:  deps.AdvisorCfg.MaxTokens,
+		provider:    advisorProvider,
+		model:       advisorResolved,
+		events:      deps.Events,
+		recorder:    deps.UsageRecorder,
+		diagnostics: deps.Diagnostics,
+		workDir:     deps.WorkDir,
+		pathPolicy:  advisorPolicy,
+		cacheKey:    resolveAdvisorCacheKey(deps.CacheKeyStore),
+		maxTokens:   deps.AdvisorCfg.MaxTokens,
 	}, nil
 }
 
@@ -175,6 +177,7 @@ func (r advisorRuntime) toolDef(maxUses int, state *advisor.SharedState) tool.To
 			MaxTokens:     r.maxTokens,
 		},
 		UsageRecorder: r.recorder,
+		Diagnostics:   r.diagnostics,
 		WorkDir:       r.workDir,
 		PathPolicy:    &r.pathPolicy,
 		CacheKey:      r.cacheKey,
@@ -211,14 +214,15 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 		state := deps.AdvisorBudgetStore.StateFor(agentID)
 		scopedEvents := withAgentScope(agentID, "", deps.Events)
 		scopedRuntime := advisorRuntime{
-			provider:   advRuntime.provider,
-			model:      advRuntime.model,
-			events:     scopedEvents,
-			recorder:   advRuntime.recorder,
-			workDir:    advRuntime.workDir,
-			pathPolicy: advRuntime.pathPolicy,
-			cacheKey:   advRuntime.cacheKey,
-			maxTokens:  advRuntime.maxTokens,
+			provider:    advRuntime.provider,
+			model:       advRuntime.model,
+			events:      scopedEvents,
+			recorder:    advRuntime.recorder,
+			diagnostics: advRuntime.diagnostics,
+			workDir:     advRuntime.workDir,
+			pathPolicy:  advRuntime.pathPolicy,
+			cacheKey:    advRuntime.cacheKey,
+			maxTokens:   advRuntime.maxTokens,
 		}
 		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
 	}
