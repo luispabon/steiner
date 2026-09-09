@@ -84,7 +84,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	if err != nil {
 		return cliRuntime{}, fmt.Errorf("build stream error logger: %w", err)
 	}
-	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog, diagnosticsWriter)
+	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog)
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
 	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
@@ -193,10 +193,10 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}, nil
 }
 
-func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, diag *diagnostics.Writer) func(provider.ResolvedModel, string) (provider.Provider, error) {
+func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) func(provider.ResolvedModel, string) (provider.Provider, error) {
 	return func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
 		if rm.ProviderConfig.Type == config.ProviderTypeOpencodeGo || rm.ProviderConfig.Type == config.ProviderTypeOpencodeZen {
-			return newOpencodeProvider(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, diag, sessionID)
+			return newOpencodeProvider(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, sessionID)
 		}
 
 		providerType := rm.EffectiveProviderType
@@ -210,11 +210,11 @@ func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provid
 		switch providerType {
 		case config.ProviderTypeOpenAICompat, config.ProviderTypeOllama, config.ProviderTypeLMStudio,
 			config.ProviderTypeOpenRouter, config.ProviderTypeOpenAI, config.ProviderTypeLiteLLM:
-			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, diag))
+			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog))
 		case config.ProviderTypeAnthropic:
-			return newAnthropic(runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog, diag))
+			return newAnthropic(runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog))
 		case config.ProviderTypeCodex:
-			return newCodexProvider(rm, providerType, httpClient, streamErrorLog, diag)
+			return newCodexProvider(rm, providerType, httpClient, streamErrorLog)
 		default:
 			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
 		}
@@ -224,8 +224,8 @@ func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provid
 // newOpencodeProvider builds a provider for opencode_go/opencode_zen, injecting
 // the X-Opencode-Session header and dispatching to either the Anthropic-native
 // or OpenAI-compatible transport based on the model's resolved effective transport.
-func newOpencodeProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, diag *diagnostics.Writer, sessionID string) (provider.Provider, error) {
-	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog, diag)
+func newOpencodeProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, sessionID string) (provider.Provider, error) {
+	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog)
 	cfg.Headers = cloneStringMap(cfg.Headers)
 	cfg.Headers["X-Opencode-Session"] = sessionID
 	if rm.EffectiveProviderType == config.ProviderTypeAnthropic {
@@ -234,7 +234,7 @@ func newOpencodeProvider(rm provider.ResolvedModel, providerType config.Provider
 	return newOpenAICompat(cfg)
 }
 
-func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, diag *diagnostics.Writer) (provider.Provider, error) {
+func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (provider.Provider, error) {
 	path, err := oauth.DefaultTokenPath()
 	if err != nil {
 		return nil, fmt.Errorf("resolve token path: %w", err)
@@ -253,7 +253,7 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 	if err != nil {
 		return nil, fmt.Errorf("refresh codex token: %w", err)
 	}
-	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog, diag)
+	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog)
 	if apiKey := oauth.TokenOpenAIAPIKey(token); apiKey != "" {
 		cfg.APIKey = apiKey
 	} else {
@@ -288,7 +288,7 @@ func isCodexWSDispatch(rm provider.ResolvedModel) bool {
 	return rm.ProviderConfig.Codex.Transport == config.CodexTransportWebSocket
 }
 
-func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, diag *diagnostics.Writer) provider.ClientConfig {
+func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.ClientConfig {
 	return provider.ClientConfig{
 		BaseURL: rm.ProviderConfig.BaseURL,
 		APIKey:  rm.ProviderConfig.APIKey,
