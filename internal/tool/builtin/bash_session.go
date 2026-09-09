@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
@@ -146,8 +147,7 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	for pending > 0 {
 		select {
 		case <-ctx.Done():
-			// Best-effort: restart so the session stays usable.
-			_ = s.restartLocked(ctx)
+			s.restartAfterCancel(ctx)
 			return "", "", -1, fmt.Errorf("bash session: %w", ctx.Err())
 		case r := <-stdoutCh:
 			stdoutRes = r
@@ -213,6 +213,16 @@ func (s *BashSession) Restart(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.restartLocked(ctx)
+}
+
+// restartAfterCancel restarts the session with the lock already held after
+// ctx was cancelled mid-command, so a dead session doesn't linger unusable.
+// Best-effort: logs a warning rather than surfacing the restart failure,
+// since the caller already has a cancellation error to return.
+func (s *BashSession) restartAfterCancel(ctx context.Context) {
+	if err := s.restartLocked(ctx); err != nil {
+		slog.Warn("restart bash session", "error", err)
+	}
 }
 
 // restartLocked performs the restart with the lock already held.

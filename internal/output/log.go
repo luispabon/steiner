@@ -2,8 +2,9 @@ package output
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
-	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -16,11 +17,28 @@ func CompactJSON(value any) string {
 	return string(data)
 }
 
-func setupLogger(level string) *slog.Logger {
-	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+// ConfigureLogger installs the process-wide slog handler. Output goes to w at
+// the given level. Passing an io.Discard writer silences logging entirely.
+// Callers must never pass os.Stderr while the TUI is live; the composition
+// root is responsible for picking a destination that keeps stderr free.
+func ConfigureLogger(w io.Writer, level string) {
+	handler := slog.NewTextHandler(w, &slog.HandlerOptions{
 		Level: parseLevel(level),
 	})
-	return slog.New(handler)
+	slog.SetDefault(slog.New(handler))
+}
+
+// SlogPath derives the sibling slog output path from the main session log
+// path, mirroring how mcp.ServerLogPath and provider.StreamErrorLogPath
+// derive theirs. Returns empty string when sessionLogPath is empty.
+func SlogPath(sessionLogPath string) string {
+	sessionLogPath = strings.TrimSpace(sessionLogPath)
+	if sessionLogPath == "" {
+		return ""
+	}
+	ext := filepath.Ext(sessionLogPath)
+	base := strings.TrimSuffix(sessionLogPath, ext)
+	return base + ".slog"
 }
 
 func parseLevel(level string) slog.Leveler {

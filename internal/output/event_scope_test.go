@@ -237,6 +237,81 @@ func TestNewAPIRequestEventDeepClonesProviderOwnedFields(t *testing.T) {
 	}
 }
 
+func TestNewAPIRequestEventDerivedFields(t *testing.T) {
+	messages := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "hello"},
+		{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{ID: "call-1", Name: "read"}}},
+	}
+	tools := []provider.ToolSpec{
+		{Type: "function", Function: provider.ToolFunctionSpec{Name: "read", Parameters: map[string]any{"type": "object"}}},
+	}
+	blocks := []prompt.ContextBlock{{Source: prompt.ContextSourcePreamble, ByteSize: 100}}
+
+	event := NewAPIRequestEvent("model", messages, tools, nil, blocks, prompt.ModelTokenBudget{}, 0, 0)
+	payload := event.Payload.(APIRequestEvent)
+
+	if payload.MessageCount != 2 {
+		t.Fatalf("MessageCount = %d, want 2", payload.MessageCount)
+	}
+	if len(payload.MessageHashes) != 2 {
+		t.Fatalf("len(MessageHashes) = %d, want 2", len(payload.MessageHashes))
+	}
+	if payload.MessageHashes[0] == payload.MessageHashes[1] {
+		t.Fatalf("MessageHashes should differ for distinct messages, got %v", payload.MessageHashes)
+	}
+	// The tool-call-only message must not hash the same as an empty-content
+	// message of the same role would, so tool call identity survives the hash.
+	emptyAssistant := NewAPIRequestEvent("model", []provider.Message{{Role: provider.MessageRoleAssistant}}, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)
+	emptyPayload := emptyAssistant.Payload.(APIRequestEvent)
+	if payload.MessageHashes[1] == emptyPayload.MessageHashes[0] {
+		t.Fatalf("tool-call-only message hashed identically to an empty message")
+	}
+	if payload.PromptBytes != len(string(provider.MessageRoleUser)+"hello")+len(string(provider.MessageRoleAssistant)) {
+		t.Fatalf("PromptBytes = %d, unexpected", payload.PromptBytes)
+	}
+	if payload.ToolsBytes == 0 {
+		t.Fatal("ToolsBytes = 0, want non-zero for a non-empty tool spec")
+	}
+	if payload.BlocksBytes != 100 {
+		t.Fatalf("BlocksBytes = %d, want 100", payload.BlocksBytes)
+	}
+}
+
+func TestNewAPIRequestEventZeroMessagesFieldsNotOmitted(t *testing.T) {
+	event := NewAPIRequestEvent("model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	got := string(data)
+	for _, want := range []string{`"message_count":0`, `"prompt_bytes":0`, `"tools_bytes":0`, `"blocks_bytes":0`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("marshaled event missing %q (zero must not be omitted): %s", want, got)
+		}
+	}
+}
+
+func TestWithAPICallIdentity(t *testing.T) {
+	request := NewAPIRequestEvent("model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)
+	got := WithAPICallIdentity(request, 3, "req-1")
+	payload := got.Payload.(APIRequestEvent)
+	if payload.Turn != 3 || payload.RequestID != "req-1" {
+		t.Fatalf("APIRequestEvent Turn/RequestID = %d/%q, want 3/%q", payload.Turn, payload.RequestID, "req-1")
+	}
+
+	response := NewAPIResponseEvent(nil, nil, "stop", nil)
+	got = WithAPICallIdentity(response, 3, "req-1")
+	respPayload := got.Payload.(APIResponseEvent)
+	if respPayload.Turn != 3 || respPayload.RequestID != "req-1" {
+		t.Fatalf("APIResponseEvent Turn/RequestID = %d/%q, want 3/%q", respPayload.Turn, respPayload.RequestID, "req-1")
+	}
+
+	other := Event{Type: "test_event", Payload: map[string]any{"x": 1}}
+	if got := WithAPICallIdentity(other, 3, "req-1"); !reflect.DeepEqual(got, other) {
+		t.Fatalf("non-API event changed: %#v", got)
+	}
+}
+
 func TestAdvisorEventsRender(t *testing.T) {
 	start := renderEvent(NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
 	if got := start.Text; !strings.Contains(got, "advisor started") || !strings.Contains(got, "use=1/2") {
