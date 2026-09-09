@@ -1257,6 +1257,7 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 	spec := Spec{Task: "task", AgentID: "rec-test", Limits: Limits{MaxTurns: 1}}
 
 	t.Run("recorder set when non-nil", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
 		rec := usagestats.New(nil)
 		deps := SubAgentHandlerDeps{
 			ParentReg:     parent,

@@ -603,7 +603,7 @@ func TestHandlerWithNilUsageRecorderDoesNotPanic(t *testing.T) {
 }
 
 func TestHandlerDoesNotRecordFabricatedUsageWhenProviderReportsNone(t *testing.T) {
-	t.Parallel()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	prov := &fakeProvider{
 		response: provider.ChatResponse{
