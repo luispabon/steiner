@@ -63,6 +63,30 @@ func TestNewOneshotRunnerFactoryBuilderRetainsLiveEffectiveCallback(t *testing.T
 	}
 }
 
+func TestStartupTUIModelConfigUsesAliasForDisplayModel(t *testing.T) {
+	t.Parallel()
+	cfg := config.Config{Models: config.ModelsConfig{
+		Definitions: map[string]config.ModelConfig{
+			"luna": {Provider: "codex", ID: "gpt-5.6-luna"},
+		},
+		Effective: config.EffectiveModelAssignments{
+			DefaultModel:            "luna",
+			ActiveOrchestratorModel: "luna",
+		},
+	}}
+
+	tuiCfg, selected := startupTUIModelConfig(cfg)
+	if got, want := tuiCfg.Model, "luna"; got != want {
+		t.Fatalf("startup TUI model = %q, want alias %q", got, want)
+	}
+	if got, want := tuiCfg.CurrentModelAlias, "luna"; got != want {
+		t.Fatalf("startup TUI current model alias = %q, want %q", got, want)
+	}
+	if selected.ID != "gpt-5.6-luna" {
+		t.Fatalf("selected backend model ID = %q, want gpt-5.6-luna", selected.ID)
+	}
+}
+
 func TestBuildInteractiveSessionUsesSharedDelegationController(t *testing.T) {
 	controller := delegation.NewActiveController()
 	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
