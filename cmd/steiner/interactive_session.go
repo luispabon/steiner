@@ -154,12 +154,16 @@ func startModelCatalogRefresh(ctx context.Context, rt cliRuntime, sess *interact
 	}()
 }
 
-func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, sess *interactive.Session) *tui.App {
-	activeModel := rt.cfg.Models.Effective.ActiveOrchestratorModel
+func startupTUIModelConfig(cfg config.Config) (tui.Config, config.ModelConfig) {
+	activeModel := cfg.Models.Effective.ActiveOrchestratorModel
 	if activeModel == "" {
-		activeModel = rt.cfg.Models.Effective.DefaultModel
+		activeModel = cfg.Models.Effective.DefaultModel
 	}
-	selected := selectedModelConfig(rt.cfg)
+	return tui.Config{Model: activeModel, CurrentModelAlias: activeModel}, selectedModelConfig(cfg)
+}
+
+func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, sess *interactive.Session) *tui.App {
+	startupCfg, selected := startupTUIModelConfig(rt.cfg)
 	entries := []tui.ModelEntry(nil)
 	updates := rt.modelEntriesUpdates
 	if updates == nil {
@@ -175,7 +179,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		selectedProviderName = selected.Provider
 	}
 	tuiCfg := tui.Config{
-		Model:               selected.ID,
+		Model:               startupCfg.Model,
 		Entries:             entries,
 		ModelEntriesUpdates: updates,
 		ModelNames:          modelAliasNames(rt.cfg),
@@ -183,7 +187,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		ModelContexts:       modelContextSizes(rt.cfg),
 		ModelBaseURLs:       modelBaseURLs(rt.cfg),
 		ModelProviderNames:  modelProviderNames(rt.cfg),
-		CurrentModelAlias:   activeModel,
+		CurrentModelAlias:   startupCfg.CurrentModelAlias,
 		ProfileName:         rt.cfg.Models.Effective.ProfileName,
 		ProfileNames:        sortedProfileNames(rt.cfg.Models.Profiles),
 		InitialMode:         string(sess.Mode()),
