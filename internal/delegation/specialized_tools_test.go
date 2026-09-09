@@ -421,6 +421,84 @@ func TestSpecializedHandler_CancelledBeforeDispatchCleansToolCallTrace(t *testin
 	}
 }
 
+func TestSpecializedHandler_DeferredGateReleaseUnblocksFollower(t *testing.T) {
+	store := NewCacheKeyStore()
+	leaderStarted := make(chan struct{})
+	followerWaiting := make(chan struct{})
+	followerCalled := make(chan struct{})
+	leaderExit := make(chan struct{})
+	var leaderExitOnce sync.Once
+	var runCount atomic.Int32
+	var waitingOnce sync.Once
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		if runCount.Add(1) == 1 {
+			close(leaderStarted)
+			<-leaderExit
+			return agent.RunState{}, nil
+		}
+		close(followerCalled)
+		return agent.RunState{}, nil
+	}})
+	deps.CacheKeyStore = store
+	deps.Events = output.SinkFunc(func(event output.Event) {
+		if event.Type == output.EventTypeDelegationCacheWaiting {
+			waitingOnce.Do(func() { close(followerWaiting) })
+		}
+	})
+	defer leaderExitOnce.Do(func() { close(leaderExit) })
+
+	handler := newSpecializedHandler(AgentTypeExplore, deps)
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := handler(context.Background(), validStructuredTask("leader"))
+		leaderDone <- err
+	}()
+	select {
+	case <-leaderStarted:
+	case <-time.After(time.Second):
+		t.Fatal("leader did not reach runner")
+	}
+
+	followerDone := make(chan error, 1)
+	go func() {
+		_, err := handler(context.Background(), validStructuredTask("follower"))
+		followerDone <- err
+	}()
+	select {
+	case <-followerWaiting:
+	case <-time.After(time.Second):
+		t.Fatal("follower did not enter dispatch gate")
+	}
+	select {
+	case <-followerCalled:
+		t.Fatal("follower ran before leader exit")
+	default:
+	}
+
+	leaderExitOnce.Do(func() { close(leaderExit) })
+	select {
+	case <-followerCalled:
+	case <-time.After(time.Second):
+		t.Fatal("deferred leader release did not unblock follower")
+	}
+	select {
+	case err := <-leaderDone:
+		if err != nil {
+			t.Fatalf("leader returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("leader did not exit")
+	}
+	select {
+	case err := <-followerDone:
+		if err != nil {
+			t.Fatalf("follower returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("follower did not exit")
+	}
+}
+
 func TestSpecializedHandler_DispatchGateFollowerWaits(t *testing.T) {
 	store := NewCacheKeyStore()
 	key, err := store.KeyFor(AgentTypeExplore, provider.NewPromptCacheKey)
