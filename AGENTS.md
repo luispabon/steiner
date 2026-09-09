@@ -35,7 +35,9 @@ internal/tui/            Interactive TUI
 internal/update/         Self-update / binary update checking
 internal/usagestats/     Cache hit-rate / usage stats recording
 skills/                  Bundled skills
+scripts/                 Standalone Node tooling for mining session logs and diagnostics (no build step, stdlib-only)
 testdata/stage3/         Integration test fixtures
+testdata/diagnostics/    Diagnostics stream fixtures for scripts/diagnostics.mjs (internal/diagnostics tests still use their own synthetic fixtures; reconciling the two is a follow-up)
 docs/                    Product/design docs and implementation notes
 ```
 
