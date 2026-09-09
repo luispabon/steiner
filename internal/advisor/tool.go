@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
@@ -57,6 +58,7 @@ type HandlerDeps struct {
 	Events        output.EventSink
 	Config        Config
 	UsageRecorder *usagestats.Recorder
+	Diagnostics   *diagnostics.Writer
 	// WorkDir is the working directory used to render workspace-relative
 	// display paths for caller-supplied files.
 	WorkDir string
@@ -116,8 +118,10 @@ func NewHandler(deps HandlerDeps) func(context.Context, map[string]any) (any, er
 }
 
 type handlerState struct {
-	shared   *SharedState
-	cacheKey string
+	shared         *SharedState
+	cacheKey       string
+	cacheMu        sync.Mutex
+	previousPrefix []string
 }
 
 func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[string]any) (any, error) {
@@ -154,7 +158,8 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	// state on purpose, even though Anthropic guidance often suggests removing
 	// spent tools.
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses, in.Question, advisorDisplayPaths(files)))
-	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, in.Question, files, deps.Config.MaxTokens, deps.Events, s.cacheKey)
+	messages := buildMessages(snapshot, in.Question, files)
+	response, err := adviseWithMessages(ctx, deps.Provider, deps.Model, messages, deps.Config.MaxTokens, deps.Events, s.cacheKey)
 	if err != nil {
 		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{
 			Model:     deps.Model.BackendModelID,
@@ -166,6 +171,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	}
 
 	recordAdvisorUsage(deps.UsageRecorder, deps.Model, response.Usage)
+	s.emitCacheDiagnostic(deps.Diagnostics, deps.Model, response.Usage, messages)
 
 	note := strings.TrimSpace(response.Message.Content)
 	truncated := response.FinishReason == "length"
@@ -225,7 +231,12 @@ func emitEvent(sink output.EventSink, event output.Event) {
 	}
 }
 
+//nolint:unparam // wrapper preserves the focused advisor test seam.
 func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, conversation []provider.Message, question string, files []advisorFile, maxTokens *int, events output.EventSink, cacheKey string) (provider.ChatResponse, error) {
+	return adviseWithMessages(ctx, prov, rm, buildMessages(conversation, question, files), maxTokens, events, cacheKey)
+}
+
+func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, messages []provider.Message, maxTokens *int, events output.EventSink, cacheKey string) (provider.ChatResponse, error) {
 	if prov == nil {
 		return provider.ChatResponse{}, fmt.Errorf("advisor: provider is required")
 	}
@@ -235,7 +246,7 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 
 	req := provider.ChatRequest{
 		Model:               rm.BackendModelID,
-		Messages:            buildMessages(conversation, question, files),
+		Messages:            messages,
 		MaxTokens:           maxTokens,
 		Params:              rm.Params,
 		ExtraParams:         rm.ExtraParams,
