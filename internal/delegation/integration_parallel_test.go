@@ -77,8 +77,12 @@ func (s eventChSink) Emit(e output.Event) {
 	s.ch <- e
 	if s.preResponse != nil && (e.Type == output.EventTypeThinkingChunk || e.Type == output.EventTypeAssistantChunk) {
 		s.preResponseOnce.Do(func() { close(s.preResponse) })
-		<-s.preResponseContinue
-		s.preResponseReturnOnce.Do(func() { close(s.preResponseReturned) })
+		if s.preResponseContinue != nil {
+			<-s.preResponseContinue
+		}
+		if s.preResponseReturnOnce != nil && s.preResponseReturned != nil {
+			s.preResponseReturnOnce.Do(func() { close(s.preResponseReturned) })
+		}
 	}
 }
 
@@ -123,7 +127,6 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 		workDir:             "/tmp",
 		preResponse:         make(chan struct{}),
 		preResponseContinue: make(chan struct{}),
-		preResponseReturned: make(chan struct{}),
 		followerDispatch:    make(chan struct{}, n),
 	}
 	h.release = func(string) <-chan struct{} { return h.done }
@@ -437,20 +440,14 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("leader did not emit its pre-response stream chunk")
 	}
-	// Hold the inner sink until the test has checked the pre-response state.
-	close(h.preResponseContinue)
-	select {
-	case <-h.preResponseReturned:
-	case <-time.After(10 * time.Second):
-		t.Fatal("pre-response sink did not return")
-	}
-	// If the pre-response chunk released the gate, a follower reaches this
-	// provider-dispatch marker after the sink returned and before API response.
+	// The inner sink is still blocked here. This proves followers remain gated
+	// through completion of the leader's non-final chunk forwarding path.
 	select {
 	case <-h.followerDispatch:
-		t.Fatal("follower provider dispatch occurred before leader API response")
+		t.Fatal("follower provider dispatch occurred while leader chunk sink was blocked")
 	default:
 	}
+	close(h.preResponseContinue)
 	close(h.provider.streamResponse)
 	select {
 	case <-h.providerOverlap:
