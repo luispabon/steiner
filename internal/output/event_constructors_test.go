@@ -13,8 +13,8 @@ import (
 func TestNewAPIRequestEventToolArgumentHashChanges(t *testing.T) {
 	first := provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "one"}}}}
 	second := provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "two"}}}}
-	firstHash := hashInputForMessage(first)
-	secondHash := hashInputForMessage(second)
+	firstHash := provider.MessageHashInput(first)
+	secondHash := provider.MessageHashInput(second)
 	if firstHash == secondHash {
 		t.Fatalf("hash inputs = %q, want different inputs for different tool arguments", firstHash)
 	}
