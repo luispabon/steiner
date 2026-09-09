@@ -7,12 +7,12 @@ description: Analyze branch changes for code quality improvements across reuse, 
 
 ## Overview
 
-Use this skill on a feature branch to analyze changes for structural and quality improvements. The workflow analyzes changed files against four quality categories (Reuse, Simplification, Efficiency, Altitude) using parallel explore sub-agents, aggregates findings through an advisor sanity check, and presents a report to the user. If fixes are approved, the skill enters a fix/review loop with optional verification reruns. This skill does NOT hunt for bugs — that is `/review`'s domain. All proposed changes must preserve existing behavior.
+Use this skill on a feature branch to analyze changes for structural and quality improvements. The workflow analyzes changed files against four quality categories (Reuse, Simplification, Efficiency, Altitude) using parallel explore sub-agents, aggregates findings through an advisor review, and presents a report to the user. If fixes are approved, the skill enters a fix/review loop with optional verification reruns. This skill does NOT hunt for bugs — that is `/review`'s domain. All proposed changes must preserve existing behavior.
 
 ## Input Contract
 
 - Accept an optional argument for the base branch (default: `main`).
-- Require the current branch to differ from the base branch — error if already on main.
+- Require the current branch to differ from the selected base branch — error only if the current branch equals that base branch.
 - No planning artifacts required — this skill operates directly on the branch diff.
 
 ## Analysis Flow
@@ -20,12 +20,13 @@ Use this skill on a feature branch to analyze changes for structural and quality
 Follow this sequence:
 
 1. Determine base branch (argument or `main`).
-2. Compute changed files: `git diff <base>..HEAD --name-only` plus `git diff --name-only` for uncommitted changes. Deduplicate the combined list.
+2. Compute changed files from every relevant state: committed changes from the merge-base to `HEAD` (`git diff --name-status --find-renames "$(git merge-base <base> HEAD)" HEAD`), staged changes (`git diff --cached --name-status --find-renames`), unstaged changes (`git diff --name-status --find-renames`), and untracked files (`git ls-files --others --exclude-standard`). Preserve status, rename, and delete information, including both paths for renames where available. Deduplicate paths without discarding status. Read existing files directly; inspect deleted paths through diffs.
 3. If no changed files, report "nothing to analyze" and stop.
-4. Dispatch four parallel `explore` sub-agents, one per category. Each receives: the list of changed files, the base branch name, and the category-specific analysis prompt from ## Category Prompts. Each agent must return findings as a structured list with: finding ID (category prefix + number, e.g. R1, S2, E3, A1), severity (blocking/non_blocking/informational), file path and line range, description, and suggested fix.
-5. Aggregate all four reports into a unified findings list.
-6. Call the advisor with the aggregated findings for a sanity check, passing the findings (and changed-file paths where useful) via `files` and a `question` framing the sanity check. Incorporate feedback: drop findings the advisor flags as weak or incorrect, adjust severity per advisor guidance, add concerns the advisor raises that sub-agents missed.
-7. Present the refined report to the user, organized by category (Reuse, Simplification, Efficiency, Altitude), with finding counts and severity breakdown.
+4. Present a summary of changes to the user: a title, and a brief high-level description
+5. Dispatch all four category analyses together, using one parallel `explore` sub-agent per category. Runtime concurrency is bounded by configured `sub_agent.max_parallel`. Each receives: the list of changed files, the base branch name, and the category-specific analysis prompt from ## Category Prompts. Each agent must return findings as a structured list with: finding ID (category prefix + number, e.g. R1, S2, E3, A1), severity (blocking/non_blocking/informational), file path and line range, description, and suggested fix.
+6. Aggregate all four reports into a unified findings list.
+7. Call the advisor with the full aggregated findings in `question`, framing the requested review. Pass only real repository paths via `files` where useful. Incorporate feedback: drop findings the advisor flags as weak or incorrect, adjust severity per advisor guidance, add concerns the advisor raises that sub-agents missed.
+8. Present the refined report to the user, organized by category (Reuse, Simplification, Efficiency, Altitude), with finding counts and severity breakdown.
 
 ## Category Prompts
 
@@ -138,16 +139,16 @@ If blocking or non_blocking findings exist:
 
 ## Fix/Review Loop
 
-Mirror the review skill's fix loop exactly:
+Run the approved fix/review loop:
 
-- Delegated fix pass (a `code` sub-agent in its own runtime-provisioned worktree) preferred over inline fixes; inline is last resort — deliberate exception to the routing threshold in your system prompt: fix/review must have a guaranteed way to close out even when delegation tooling itself is down
+- Delegated fix pass (a `code` sub-agent in its own runtime-provisioned worktree) is preferred over inline fixes. Worktree provisioning failure is a blocker to report, not a cue for inline fixes. Use inline fixes only when delegation tools themselves are unavailable.
 - Fix work is sequential, not parallel
-- After fixes, run verification (scoped checks or `make check`)
+- After fixes, run the narrowest scoped checks covering the fixes or `make check`. Before `make check` or `golangci-lint run`, run `golangci-lint cache clean`.
 - Lightweight re-review: check whether fixes introduced new quality issues in the same four categories. Repeat only if new blocking findings emerge. Cap at 2 fix iterations.
 
 ### Warm Follow-Up Policy
 
-Resume a suitable warm agent before cold dispatch only when it remains available for the same bounded deliverable in the same still-live workspace and scope. Follow-ups are sequential. Retain the responsible fix agent through related correction loops until it is closed or its worktree is merged and deleted, even if the session reports resumable. A resumable session alone does not prove that an isolated worktree still exists. Use the responsible implementation agent for related corrections and the original reviewer only for a narrow re-check. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees. Workflow handoffs are not safe continuation boundaries.
+Resume a suitable warm agent before cold dispatch only when it remains available for the same bounded deliverable in the same still-live workspace and scope. Follow-ups are sequential. Keep the responsible code agent and its worktree alive through warm `follow_up` calls for related corrections. Do not merge or clean up its branch or worktree until the correction loop completes; then merge the returned branch and remove the worktree and branch. A resumable session alone does not prove that an isolated worktree still exists. Use the responsible implementation agent for related corrections and the original reviewer only for a narrow re-check. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees. Workflow handoffs are not safe continuation boundaries.
 
 ### Worktree Handling
 
@@ -180,16 +181,12 @@ If any check fails, the sub-agent must not commit. It must report the mismatch a
 
 ## Advisor Sanity Check
 
-Called twice, each time passing the findings file (and changed-file paths where useful) via `files` and a `question` framing the sanity check:
+Called twice, each time putting the aggregated findings in `question` and passing only real repository paths via `files` where useful:
 
-1. After initial analysis (step 6 in Analysis Flow) — internal quality gate before user sees findings
+1. After initial analysis (step 7 in Analysis Flow) — internal quality gate before user sees findings
 2. After the fix/review loop completes — before marking final status
 
-Skip only if advisor budget is exhausted or `AdvisorEnabled` is off. Include the advisor's note in the final status summary.
-
-## Steiner Delegation
-
-Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the pre-commit checklist from the Fix/Review Loop section.
+Skip only if the advisor is disabled or unavailable. Include the advisor's note in the final status summary.
 
 ## Completion
 
