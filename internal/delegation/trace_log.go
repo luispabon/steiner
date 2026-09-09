@@ -65,14 +65,20 @@ func (t *traceCollector) result() []TraceEntry {
 // records that also live in the tool stream: tool.jsonl is not homogeneous.
 const delegationTraceEvent = "delegation_trace"
 
-// delegationTracePayload is the diagnostics payload for a delegation trace.
-// Unlike the fixed-size scalar payloads the streams normally carry, it holds
-// the reparented trace entries verbatim so the existing sink keeps its shape.
+// delegationTracePayload is the diagnostics payload for a delegation trace
+// when body capture is enabled.
 type delegationTracePayload struct {
 	Event   string       `json:"event"`
 	AgentID string       `json:"agent_id"`
 	Task    string       `json:"task"`
 	Entries []TraceEntry `json:"entries"`
+}
+
+// delegationTraceSummaryPayload keeps the default diagnostics payload bounded
+// and free of delegation content.
+type delegationTraceSummaryPayload struct {
+	Event      string `json:"event"`
+	EntryCount int    `json:"entry_count"`
 }
 
 // traceRecord is the top-level structure written to the delegation log file.
@@ -129,16 +135,23 @@ func (l *TraceLogger) WriteTrace(tc *traceCollector) {
 		Entries: entries,
 	}
 	if l.diag != nil {
-		l.diag.Write(diagnostics.Record{
-			Kind:    diagnostics.KindTool,
-			Source:  diagnostics.SourceSubAgent,
-			AgentID: record.AgentID,
-			Payload: delegationTracePayload{
+		payload := any(delegationTraceSummaryPayload{
+			Event:      delegationTraceEvent,
+			EntryCount: len(record.Entries),
+		})
+		if l.diag.CaptureBodies() {
+			payload = delegationTracePayload{
 				Event:   delegationTraceEvent,
 				AgentID: record.AgentID,
 				Task:    record.Task,
 				Entries: record.Entries,
-			},
+			}
+		}
+		l.diag.Write(diagnostics.Record{
+			Kind:    diagnostics.KindTool,
+			Source:  diagnostics.SourceSubAgent,
+			AgentID: record.AgentID,
+			Payload: payload,
 		})
 		return
 	}
