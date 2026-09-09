@@ -143,6 +143,8 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		}
 	}
 	var promptTokens int
+	var estimateFailures int
+	var lastEstimateErr error
 	for _, msg := range msgs {
 		t, err := provider.EstimateMessageTokens(ctx, currentModel.ID, provider.Message{
 			Role:    provider.MessageRole(msg.Role),
@@ -151,11 +153,18 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		if err != nil {
 			// Fall back to a flat per-message estimate so the context-window
 			// gauge stays approximate rather than failing the turn.
-			slog.Warn("estimate message tokens", "error", err)
+			estimateFailures++
+			lastEstimateErr = err
 			promptTokens += 4
 		} else {
 			promptTokens += t
 		}
+	}
+	if estimateFailures > 0 {
+		// A systematic tokenizer failure (e.g. an unsupported model ID) would
+		// otherwise warn once per message on every session load; report the
+		// count once instead.
+		slog.Warn("estimate message tokens", "failures", estimateFailures, "total", len(msgs), "last_error", lastEstimateErr)
 	}
 	turnCount := promptTokens / 2
 	if turnCount < 1 {

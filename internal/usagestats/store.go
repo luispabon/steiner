@@ -118,17 +118,28 @@ func (s *store) decodeBuckets(data []byte) map[bucketKey]*bucket {
 		return buckets
 	}
 
+	// Entries from a legacySchemaVersion file predate storeEntry.Source: they
+	// carry no per-source attribution at all, so decode them as SourceUnknown
+	// rather than parseSourceName's default of SourceParent, which would
+	// misrepresent pre-upgrade aggregate history as current parent-run
+	// traffic in a per-source breakdown.
+	legacy := sf.SchemaVersion == legacySchemaVersion
+
 	cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
 	for _, ent := range sf.Entries {
 		if ent.HourUnix <= cutoff {
 			continue
+		}
+		source := SourceUnknown
+		if !legacy {
+			source = parseSourceName(ent.Source)
 		}
 		key := bucketKey{
 			providerAlias:  ent.Provider,
 			providerType:   ent.ProviderType,
 			backendModelID: ent.Model,
 			hourUnix:       ent.HourUnix,
-			source:         parseSourceName(ent.Source),
+			source:         source,
 		}
 		buckets[key] = &bucket{
 			Requests:          ent.Requests,

@@ -44,8 +44,8 @@ type FileLogOptions struct {
 	// duplicate the AssistantMessageEvent that follows them.
 	AssistantChunk bool
 	// BuildSHA and Dirty identify the running binary; recorded on the
-	// log_started line. Dirty is not yet threaded from the build (stage 1 of
-	// the unified-diagnostics plan adds -X main.dirty); pass false until then.
+	// log_started line. Sourced from -X main.commit/-X main.dirty via
+	// runtime_build.go.
 	BuildSHA string
 	Dirty    bool
 	Version  string
