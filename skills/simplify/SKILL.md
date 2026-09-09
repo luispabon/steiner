@@ -22,10 +22,11 @@ Follow this sequence:
 1. Determine base branch (argument or `main`).
 2. Compute changed files: `git diff <base>..HEAD --name-only` plus `git diff --name-only` for uncommitted changes. Deduplicate the combined list.
 3. If no changed files, report "nothing to analyze" and stop.
-4. Dispatch four parallel `explore` sub-agents, one per category. Each receives: the list of changed files, the base branch name, and the category-specific analysis prompt from ## Category Prompts. Each agent must return findings as a structured list with: finding ID (category prefix + number, e.g. R1, S2, E3, A1), severity (blocking/non_blocking/informational), file path and line range, description, and suggested fix.
-5. Aggregate all four reports into a unified findings list.
-6. Call the advisor with the aggregated findings for a sanity check, passing the findings (and changed-file paths where useful) via `files` and a `question` framing the sanity check. Incorporate feedback: drop findings the advisor flags as weak or incorrect, adjust severity per advisor guidance, add concerns the advisor raises that sub-agents missed.
-7. Present the refined report to the user, organized by category (Reuse, Simplification, Efficiency, Altitude), with finding counts and severity breakdown.
+4. Present a summary of changes to the user: a title, and a brief high-level description
+5. Dispatch four parallel `explore` sub-agents, one per category. Each receives: the list of changed files, the base branch name, and the category-specific analysis prompt from ## Category Prompts. Each agent must return findings as a structured list with: finding ID (category prefix + number, e.g. R1, S2, E3, A1), severity (blocking/non_blocking/informational), file path and line range, description, and suggested fix.
+6. Aggregate all four reports into a unified findings list.
+7. Call the advisor with the aggregated findings for a sanity check, passing the findings (and changed-file paths where useful) via `files` and a `question` framing the sanity check. Incorporate feedback: drop findings the advisor flags as weak or incorrect, adjust severity per advisor guidance, add concerns the advisor raises that sub-agents missed.
+8. Present the refined report to the user, organized by category (Reuse, Simplification, Efficiency, Altitude), with finding counts and severity breakdown.
 
 ## Category Prompts
 
@@ -186,10 +187,6 @@ Called twice, each time passing the findings file (and changed-file paths where 
 2. After the fix/review loop completes — before marking final status
 
 Skip only if advisor budget is exhausted or `AdvisorEnabled` is off. Include the advisor's note in the final status summary.
-
-## Steiner Delegation
-
-Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the pre-commit checklist from the Fix/Review Loop section.
 
 ## Completion
 
