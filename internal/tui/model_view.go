@@ -342,14 +342,18 @@ func (m *Model) renderInputView(contentWidth int) string {
 }
 
 func (m *Model) renderInputViewUncached(contentWidth int) string {
-	bar := m.styles.UserBar.Render("┃")
+	userBg := theme.ColorHex(m.styles.UserBg.GetBackground())
+	bar := m.styles.UserBar.Background(m.styles.UserBg.GetBackground()).Render("┃")
 	bodyWidth := max(1, contentWidth-inputRailWidth)
 	innerWidth := m.inputInnerWidth(contentWidth)
 	lines, isPlaceholder, cursorRow, cursorCol := m.renderInputLines(innerWidth)
+	var rendered string
 	if isPlaceholder {
-		return m.renderPlaceholderInputView(bar, bodyWidth, innerWidth, lines)
+		rendered = m.renderPlaceholderInputView(bar, bodyWidth, innerWidth, lines)
+	} else {
+		rendered = m.renderNormalInputView(contentWidth, bar, bodyWidth, innerWidth, lines, cursorRow, cursorCol)
 	}
-	return m.renderNormalInputView(contentWidth, bar, bodyWidth, innerWidth, lines, cursorRow, cursorCol)
+	return theme.WithBg(rendered, userBg)
 }
 
 func (m *Model) renderPlaceholderInputView(bar string, bodyWidth int, innerWidth int, lines []string) string {
