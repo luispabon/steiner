@@ -168,6 +168,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		MaxTokens:             setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
 		StreamingPreferred:    r.streamingPreferred,
 		TraceLogger:           r.runtime.delegationLogger,
+		Diagnostics:           r.runtime.diagnostics,
 		Config:                cfg,
 		ProviderFactory:       r.runtime.providerFactory,
 		HTTPClient:            r.runtime.httpClient,

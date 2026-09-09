@@ -14,6 +14,7 @@ internal/advisor/        Advisor tool: prompt building, streaming, file review
 internal/agent/          Loop orchestration, state, limits
 internal/config/         Config loading, merging, validation, defaults
 internal/delegation/     Delegation contracts and scaffolding
+internal/diagnostics/    Structured diagnostics streams: envelope, writer, rotation, retention
 internal/history/        Conversation history persistence
 internal/interactive/    Interactive session orchestration: run flow, replay, session/snapshot reports, dispatch (drives internal/agent)
 internal/lsp/            Language server connections (LSP protocol, tool definitions, server lifecycle)
@@ -136,8 +137,9 @@ A code change must update its matching docs in the same commit:
 | 11 | Execution mode change (plan/build enforcement, mode-switching UX, `modes.default`) | docs/execution-modes.md; README "Execution modes" section if the high-level description changed; docs/sub-agent-delegation.md Safety section if the `code`/`follow_up` denial scope changed |
 | 12 | `internal/mcp`: manager, transport, naming, approval, or tooldef behaviour | docs/mcp.md if user-facing; docs/configuration.md for config field changes; README MCP section if the high-level description changed |
 | 13 | `internal/lsp`: new server type, new config field, new tool, or server-lifecycle behaviour | docs/lsp.md for user-facing behaviour and server setup examples; docs/configuration.md for config field changes; README LSP feature section if the high-level description changed; sub-agent allowlist tables in docs/sub-agent-delegation.md if tool availability changed |
+| 14 | `internal/diagnostics`: envelope fields, streams, writer/rotation/retention behaviour | docs/configuration.md `diagnostics` block; compact reference in `skills/configure/SKILL.md`; README if the high-level description changed |
 
-**14.** `delegationInstructions`/consumer-file changes (`internal/prompt/system.go`'s `delegationInstructions`, `internal/prompt/specialists.go`'s `specialists` slice, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
+**15.** `delegationInstructions`/consumer-file changes (`internal/prompt/system.go`'s `delegationInstructions`, `internal/prompt/specialists.go`'s `specialists` slice, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
 
 * Update docs/canon-drift-checks.md if the change affects what counts as canon or the consumer file list.
 * The `## Your sub-agents` table renders from the `specialists` slice in `internal/prompt/specialists.go` — edit the slice, never the markdown.

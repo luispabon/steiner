@@ -131,7 +131,7 @@ func TestModelReferenceValidationAndOverrides(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := validBase()
 			tt.setup(&cfg)
-			if err := validate(cfg); err != nil {
+			if err := validate(cfg, ""); err != nil {
 				t.Fatalf("validate() error = %v, want nil", err)
 			}
 		})

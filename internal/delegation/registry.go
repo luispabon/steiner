@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
@@ -49,6 +50,11 @@ type DelegateDeps struct {
 	StreamingPreferred bool
 	// TraceLogger receives delegation trace output.
 	TraceLogger *TraceLogger
+	// Diagnostics is the process diagnostics writer, threaded to child runs and
+	// child executors so delegated work lands in the same streams as the
+	// parent. Emission is added by stages 2-4 of the unified-diagnostics plan
+	// (issue #707); a nil writer is a no-op.
+	Diagnostics *diagnostics.Writer
 	// Config is the full runtime configuration used for child prompt and model resolution.
 	Config config.Config
 	// ProviderFactory builds providers for resolved child models when one is required.
@@ -268,6 +274,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		StreamingPreferred:    deps.StreamingPreferred,
 		CaveHuman:             deps.Config.CaveHuman,
 		TraceLogger:           deps.TraceLogger,
+		Diagnostics:           deps.Diagnostics,
 		SessionStore:          store,
 		ActiveController:      deps.ActiveController,
 		ExtraAllowedTools:     deps.ExtraAllowedTools,

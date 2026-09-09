@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/diagnostics"
 )
 
 // SandboxWrapper wraps commands for sandboxed or unsandboxed execution. Every
@@ -41,6 +42,10 @@ type Executor struct {
 	workDir     string
 	pathPolicy  PathPolicy
 	outputLimit int
+	// diagnostics receives tool-stream records; emission per tool call is
+	// added by stage 4 of the unified-diagnostics plan (issue #707). A nil
+	// writer is a no-op, so unwired paths and tests need no special handling.
+	diagnostics *diagnostics.Writer
 }
 
 // NewExecutor creates a new tool executor with the given registry, config, approver,
@@ -62,6 +67,14 @@ func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalRespond
 		pathPolicy:  NewPathPolicyWithSandbox(root, cfg.Paths, sandboxTmpDir),
 		outputLimit: outputLimit,
 	}
+}
+
+// WithDiagnostics sets the diagnostics writer on the executor and returns it
+// for chaining, mirroring WithModeGetter. The composition root supplies a
+// writer only when the tool stream is enabled.
+func (e *Executor) WithDiagnostics(w *diagnostics.Writer) *Executor {
+	e.diagnostics = w
+	return e
 }
 
 // WithModeGetter sets the execution mode getter on the executor and returns it
