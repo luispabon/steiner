@@ -126,7 +126,7 @@ func (m *Model) syncViewport() {
 		if m.padLineCacheWidth != m.viewport.Width() || m.padLineCacheRendered == "" {
 			m.padLineCacheWidth = m.viewport.Width()
 			m.padLineCacheRendered = lipgloss.NewStyle().
-				Background(lipgloss.Color(theme.BgElev)).
+				Background(lipgloss.Color(m.resolvedPalette().ContentBG)).
 				Render(strings.Repeat(" ", m.viewport.Width()))
 		}
 		rendered = strings.Repeat(m.padLineCacheRendered+"\n", pad) + rendered

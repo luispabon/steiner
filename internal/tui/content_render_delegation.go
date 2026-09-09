@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-
-	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 const maxDelegationTranscriptRows = 40
@@ -25,7 +23,7 @@ func (b *contentBuffer) renderDelegationSegment(segment contentSegment, width in
 	lines := b.renderDelegationBoxRows(dd, width)
 
 	_, borderStyle := b.delegationStyles(dd.effectiveTypeLabel())
-	box := renderStyledBox(strings.Join(lines, "\n"), borderStyle.GetForeground(), lipgloss.Color(theme.BgElev), width) + "\n"
+	box := renderStyledBox(strings.Join(lines, "\n"), borderStyle.GetForeground(), lipgloss.Color(b.styles.Palette.ContentBG), width) + "\n"
 	return box
 }
 
@@ -69,7 +67,7 @@ func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, wid
 
 	borderLabel := delegationGroupBorderLabel(group)
 	_, borderStyle := b.delegationStyles(borderLabel)
-	box := renderStyledBox(strings.Join(parts, "\n"), borderStyle.GetForeground(), lipgloss.Color(theme.BgElev), width) + "\n"
+	box := renderStyledBox(strings.Join(parts, "\n"), borderStyle.GetForeground(), lipgloss.Color(b.styles.Palette.ContentBG), width) + "\n"
 	return box
 }
 

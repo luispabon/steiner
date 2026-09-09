@@ -163,11 +163,10 @@ type App struct {
 }
 
 // NewApp creates a new TUI application with the given configuration.
-func NewApp(cfg Config) *App {
-	// Load prefs; non-fatal on error
+func NewApp(cfg Config) (*App, error) {
 	p, err := prefs.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "steiner: failed to load prefs: %v\n", err)
+		return nil, fmt.Errorf("load TUI preferences: %w", err)
 	}
 	if cfg.AccentPreset == "" {
 		cfg.AccentPreset = p.Accent
@@ -188,7 +187,7 @@ func NewApp(cfg Config) *App {
 	return &App{
 		cfg:    cfg,
 		bridge: newEventBridge(256),
-	}
+	}, nil
 }
 
 // SetInitialMode overrides the execution mode used to seed the TUI model when

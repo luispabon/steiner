@@ -182,7 +182,7 @@ func (b *contentBuffer) renderToolCallBox(content, tool string, width int) strin
 		}
 	}
 	boxStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BgElev)).
+		Background(lipgloss.Color(b.styles.Palette.ContentBG)).
 		Padding(0, 1).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(borderStyle.GetForeground())

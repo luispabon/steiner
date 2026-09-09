@@ -6,7 +6,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/luispabon/steiner/internal/tui/theme"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
@@ -24,7 +23,7 @@ func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width i
 
 	lines := b.compactionBoxRows(cd, width)
 
-	return renderStyledBox(strings.Join(lines, "\n"), b.styles.Warn.GetForeground(), lipgloss.Color(theme.BgElev), width) + "\n"
+	return renderStyledBox(strings.Join(lines, "\n"), b.styles.Warn.GetForeground(), lipgloss.Color(b.styles.Palette.ContentBG), width) + "\n"
 }
 
 // compactionBoxRows builds the inner lines of the compaction box.

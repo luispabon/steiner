@@ -75,18 +75,22 @@ func (t steinerTheme) LipGlossStyles() Styles {
 }
 
 func (t steinerTheme) GlamourStyleSheet() glamour.TermRendererOption {
-	return BuildGlamourStyleSheet(AccentAmber)
+	return BuildGlamourStyleSheet(AccentAmber, DefaultPalette())
 }
 
 // BuildGlamourStyleSheet creates a glamour stylesheet using the given accent hex.
 // This allows the accent colour to be changed at runtime without a full theme rebuild.
-func BuildGlamourStyleSheet(accentHex string) glamour.TermRendererOption {
+func BuildGlamourStyleSheet(accentHex string, palettes ...Palette) glamour.TermRendererOption {
+	contentBG := BgElev
+	if len(palettes) > 0 && palettes[0].ContentBG != "" {
+		contentBG = palettes[0].ContentBG
+	}
 	// Start from dark style and customize
 	cfg := glamourstyles.DarkStyleConfig
 	cfg.Document.Color = ptrStr(Fg)
-	cfg.CodeBlock.BackgroundColor = ptrStr(BgElev) // code fences: bg-elev background
-	cfg.Code.BackgroundColor = ptrStr(BgElev2)     // inline code: dim bg
-	cfg.Code.Color = ptrStr(accentHex)             // inline code: accent text
+	cfg.CodeBlock.BackgroundColor = ptrStr(contentBG) // code fences: bg-elev background
+	cfg.Code.BackgroundColor = ptrStr(BgElev2)        // inline code: dim bg
+	cfg.Code.Color = ptrStr(accentHex)                // inline code: accent text
 	cfg.Heading.Color = ptrStr(accentHex)
 	cfg.Heading.Bold = ptrBool(true)
 	cfg.Link.Color = ptrStr(accentHex)

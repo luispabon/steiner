@@ -80,12 +80,12 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 	}
 
 	question := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BgElev)).
+		Background(lipgloss.Color(b.styles.Palette.ContentBG)).
 		Foreground(lipgloss.Color(theme.Fg)).
 		Width(qW).Render(label)
 
 	bgContent := " " + question + " " + buttons
-	bgRow := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Width(bgW).Render(bgContent)
+	bgRow := lipgloss.NewStyle().Background(lipgloss.Color(b.styles.Palette.ContentBG)).Width(bgW).Render(bgContent)
 
 	// MCP approvals render the handler-formatted ArgumentsPreview below the bar
 	// as key:value lines.

@@ -102,12 +102,12 @@ func (s sidebarState) View(width, height int) string {
 	// transparent terminals without the explicit per-cell background pass.
 	return theme.WithBg(
 		s.styles.Sidebar.Width(sidebarWidth).Height(height).Padding(sidebarPadV, sidebarPadH).Render(body),
-		theme.Black,
+		s.styles.Palette.SidebarBG,
 	)
 }
 
 func (s sidebarState) styledWithBg(baseStyle lipgloss.Style, text string) string {
-	return baseStyle.Background(lipgloss.Color(theme.Black)).Render(text)
+	return baseStyle.Background(lipgloss.Color(s.styles.Palette.SidebarBG)).Render(text)
 }
 
 func (s sidebarState) workdirSummary() string {
