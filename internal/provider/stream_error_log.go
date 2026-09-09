@@ -212,9 +212,9 @@ func emitProviderCall(in providerCallInput) {
 		Error:          errText,
 		PartialStream:  in.partialStream,
 		Chunks:         in.chunks,
-		RequestURL:     in.requestURL,
 	}
 	if in.log.captureBodies() {
+		rec.RequestURL = in.requestURL
 		rec.RequestHeaders = in.requestHeaders
 		rec.RequestBody = json.RawMessage(append([]byte(nil), in.requestBody...))
 		rec.ResponseHeaders = sanitizeHeaders(in.responseHeaders)

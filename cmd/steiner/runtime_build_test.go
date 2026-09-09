@@ -18,6 +18,44 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestRuntimeSlogWriterExistingFilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "session.log")
+	path := output.SlogPath(logFile)
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod parent: %v", err)
+	}
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("create slog file: %v", err)
+	}
+
+	writer, closeWriter, err := runtimeSlogWriter(logFile)
+	if err != nil {
+		t.Fatalf("runtimeSlogWriter() error = %v", err)
+	}
+	if writer == nil || closeWriter == nil {
+		t.Fatal("runtimeSlogWriter() returned nil writer or closer")
+	}
+	if err := closeWriter(); err != nil {
+		t.Fatalf("close slog writer: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat slog file: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("file mode = %o, want 0o600", info.Mode().Perm())
+	}
+	parentInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat parent: %v", err)
+	}
+	if parentInfo.Mode().Perm() != 0o755 {
+		t.Errorf("parent mode = %o, want 0o755", parentInfo.Mode().Perm())
+	}
+}
+
 func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.T) {
 	oldNewOpenAICompat := newOpenAICompat
 	oldNewAnthropic := newAnthropic
