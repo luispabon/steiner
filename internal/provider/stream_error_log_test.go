@@ -2,6 +2,7 @@ package provider
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -288,6 +289,38 @@ func TestStreamErrorLogger_Log(t *testing.T) {
 			t.Errorf("records[1].Outcome = %q, want %q", records[1].Outcome, "exhausted")
 		}
 	})
+}
+
+func TestEmitProviderCallOmitsRequestURLWithoutBodyCapture(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stream-errors.log")
+	logger, err := NewStreamErrorLogger(path)
+	if err != nil {
+		t.Fatalf("NewStreamErrorLogger() error = %v", err)
+	}
+
+	emitProviderCall(providerCallInput{
+		log:        logger,
+		start:      time.Now(),
+		attempts:   1,
+		ctx:        context.Background(),
+		requestURL: "https://api.example.com/v1/chat",
+	})
+	if err := logger.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if _, ok := record["request_url"]; ok {
+		t.Fatalf("record contains request_url with capture_bodies disabled: %s", data)
+	}
 }
 
 func TestStreamErrorLogger_Close(t *testing.T) {

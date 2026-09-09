@@ -564,8 +564,8 @@ func TestClientStreamRetryIsLoggedForEveryWire(t *testing.T) {
 			if got, want := records[0].Attempts, 2; got != want {
 				t.Fatalf("attempts = %d, want %d", got, want)
 			}
-			if records[0].RequestURL != server.URL+"/v1" {
-				t.Fatalf("request URL = %q, want %q", records[0].RequestURL, server.URL+"/v1")
+			if records[0].RequestURL != "" {
+				t.Fatalf("request URL = %q, want omitted without the capture_bodies gate", records[0].RequestURL)
 			}
 			if len(records[0].RequestBody) != 0 {
 				t.Fatal("record request body = non-empty, want no body without the capture_bodies gate")

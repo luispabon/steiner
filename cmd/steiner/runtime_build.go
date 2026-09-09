@@ -395,6 +395,10 @@ func runtimeSlogWriter(logFile string) (io.Writer, func() error, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("open slog file: %w", err)
 	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return nil, nil, fmt.Errorf("secure slog file: %w", err)
+	}
 	return f, f.Close, nil
 }
 

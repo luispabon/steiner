@@ -114,6 +114,10 @@ func NewTraceLoggerWithDiagnostics(path string, diag *diagnostics.Writer) (*Trac
 	if err != nil {
 		return nil, fmt.Errorf("open delegation log: %w", err)
 	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("secure delegation log: %w", err)
+	}
 	return &TraceLogger{
 		file: f,
 		enc:  json.NewEncoder(f),
