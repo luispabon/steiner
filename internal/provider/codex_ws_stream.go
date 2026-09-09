@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -11,13 +12,22 @@ import (
 // wsEmitter forwards stream chunks to the caller and records whether anything
 // has actually reached it. The unary path passes no sink: it buffers the whole
 // response, so nothing is visible until the call returns and a mid-stream
-// reconnect stays safe there.
+// reconnect stays safe there. count and firstEmitAt feed the provider
+// diagnostics record's chunks and ttft_ms fields (issue #707).
 type wsEmitter struct {
 	emit    func(ChatChunk) error
 	emitted bool
+	count   int
+	// firstEmitAt is the time of the first chunk handed to send, whether or
+	// not emit forwards it anywhere; it marks when the backend first responded.
+	firstEmitAt time.Time
 }
 
 func (e *wsEmitter) send(chunk ChatChunk) error {
+	if e.firstEmitAt.IsZero() {
+		e.firstEmitAt = time.Now()
+	}
+	e.count++
 	if e.emit == nil {
 		return nil
 	}

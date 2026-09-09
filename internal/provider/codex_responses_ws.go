@@ -11,10 +11,16 @@ import (
 )
 
 type codexWSProvider struct {
-	apiKey  string
-	headers map[string]string
-	model   string
-	wsURL   string
+	apiKey       string
+	headers      map[string]string
+	model        string
+	providerType string
+	wsURL        string
+
+	// streamErrorLog receives one provider-stream diagnostics record per
+	// model call, regardless of outcome (issue #707). Nil is a valid no-op
+	// logger, same convention as the HTTP Client.
+	streamErrorLog *StreamErrorLogger
 
 	// Liveness timings, defaulted from the wsPingInterval family so tests can
 	// drive them in milliseconds.
@@ -45,6 +51,8 @@ func NewCodexResponsesWS(cfg ClientConfig) (Provider, error) {
 		apiKey:            cfg.APIKey,
 		headers:           copyHeaders(cfg.Headers),
 		model:             cfg.Model,
+		providerType:      cfg.ProviderType,
+		streamErrorLog:    cfg.StreamErrorLog,
 		wsURL:             WSEndpointURL,
 		pingInterval:      wsPingInterval,
 		interFrameTimeout: wsInterFrameTimeout,
@@ -59,11 +67,15 @@ func (p *codexWSProvider) SupportsUsageStats() bool {
 }
 
 func (p *codexWSProvider) ChatCompletion(ctx context.Context, request ChatRequest) (ChatResponse, error) {
-	p.mu.Lock()
+	start := time.Now()
 	// No sink: the unary path buffers the whole response, so a mid-stream
 	// reconnect cannot duplicate anything the caller has seen.
-	result, err := p.executeRequest(ctx, request, &wsEmitter{})
+	emitter := &wsEmitter{}
+	p.mu.Lock()
+	result, attempts, err := p.executeRequest(ctx, request, emitter)
 	p.mu.Unlock()
+
+	p.emitProviderCall(ctx, start, emitter, attempts, err)
 
 	if err != nil {
 		return ChatResponse{}, err
@@ -82,6 +94,7 @@ func (p *codexWSProvider) StreamChatCompletion(ctx context.Context, request Chat
 }
 
 func (p *codexWSProvider) streamOnce(ctx context.Context, request ChatRequest, out chan<- ChatChunk) {
+	start := time.Now()
 	emitter := &wsEmitter{emit: func(chunk ChatChunk) error {
 		select {
 		case out <- chunk:
@@ -92,8 +105,10 @@ func (p *codexWSProvider) streamOnce(ctx context.Context, request ChatRequest, o
 	}}
 
 	p.mu.Lock()
-	result, err := p.executeRequest(ctx, request, emitter)
+	result, attempts, err := p.executeRequest(ctx, request, emitter)
 	p.mu.Unlock()
+
+	p.emitProviderCall(ctx, start, emitter, attempts, err)
 
 	if err == nil {
 		sendChunk(ctx, out, ChatChunk{
@@ -108,6 +123,33 @@ func (p *codexWSProvider) streamOnce(ctx context.Context, request ChatRequest, o
 	sendChunk(ctx, out, ChatChunk{Done: true, Error: err.Error(), OriginalError: err})
 }
 
+// emitProviderCall writes one provider-stream diagnostics record for this
+// call, whatever the outcome, mirroring Client.emitProviderCall for the
+// WebSocket transport (issue #707).
+func (p *codexWSProvider) emitProviderCall(ctx context.Context, start time.Time, emitter *wsEmitter, attempts int, err error) {
+	var ttft time.Duration
+	if !emitter.firstEmitAt.IsZero() {
+		ttft = emitter.firstEmitAt.Sub(start)
+	}
+	emitProviderCall(providerCallInput{
+		log:       p.streamErrorLog,
+		provider:  p.providerType,
+		model:     p.model,
+		transport: "ws",
+		start:     start,
+		ttft:      ttft,
+		attempts:  attempts,
+		chunks:    emitter.count,
+		// partial_stream means visible content arrived but the call did not
+		// complete: true on every successful stream would carry no information.
+		partialStream:  emitter.emitted && err != nil,
+		err:            err,
+		ctx:            ctx,
+		requestURL:     p.wsURL,
+		requestHeaders: sanitizeHeaderMap(p.headers),
+	})
+}
+
 // sendChunk delivers a terminal chunk, giving up if the consumer has gone away
 // so an abandoned stream cannot wedge the provider.
 func sendChunk(ctx context.Context, out chan<- ChatChunk, chunk ChatChunk) {
@@ -118,17 +160,20 @@ func sendChunk(ctx context.Context, out chan<- ChatChunk, chunk ChatChunk) {
 }
 
 // executeRequest sends one request, reconnecting once if the connection turns
-// out to be dead. Callers must hold p.mu.
-func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatRequest, emitter *wsEmitter) (ChatResponse, error) {
+// out to be dead. Callers must hold p.mu. The returned int is the number of
+// times sendRequest was actually invoked, for the provider diagnostics
+// record's attempts field.
+func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatRequest, emitter *wsEmitter) (ChatResponse, int, error) {
 	var reconnectAttempt bool
+	sendAttempts := 0
 
-	for attempts := 0; attempts < 2; attempts++ {
+	for i := 0; i < 2; i++ {
 		if err := p.ensureConnection(ctx, request); err != nil {
 			if reconnectAttempt {
-				return ChatResponse{}, fmt.Errorf("reconnect failed: %w", err)
+				return ChatResponse{}, sendAttempts, fmt.Errorf("reconnect failed: %w", err)
 			}
 			if ctx.Err() != nil {
-				return ChatResponse{}, err
+				return ChatResponse{}, sendAttempts, err
 			}
 			recordWSTelemetry(wsTelemetryEventReconnect, "dial: "+err.Error(), p.dialCacheKey)
 			reconnectAttempt = true
@@ -136,9 +181,10 @@ func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatReques
 			continue
 		}
 
+		sendAttempts++
 		result, err := p.sendRequest(ctx, request, emitter)
 		if err == nil {
-			return result, nil
+			return result, sendAttempts, nil
 		}
 
 		// Retrying resends the whole request on a fresh connection, so the
@@ -149,7 +195,7 @@ func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatReques
 		// reconnect that never happened.
 		if reconnectAttempt || emitter.emitted || ctx.Err() != nil {
 			p.closeConn()
-			return ChatResponse{}, err
+			return ChatResponse{}, sendAttempts, err
 		}
 
 		recordWSTelemetry(wsTelemetryEventReconnect, "request: "+err.Error(), p.dialCacheKey)
@@ -157,5 +203,5 @@ func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatReques
 		p.closeConn()
 	}
 
-	return ChatResponse{}, fmt.Errorf("failed after reconnect attempt")
+	return ChatResponse{}, sendAttempts, fmt.Errorf("failed after reconnect attempt")
 }

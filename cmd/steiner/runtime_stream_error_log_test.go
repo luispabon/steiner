@@ -105,20 +105,16 @@ func TestRuntimeStreamErrorLoggerReachesProvider(t *testing.T) {
 	}
 
 	var record struct {
-		Event   string
-		Attempt int
-		Error   string
+		Outcome  string `json:"outcome"`
+		Attempts int    `json:"attempts"`
 	}
 	if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
 		t.Fatalf("decode stream error record %q: %v", lines[0], err)
 	}
-	if got, want := record.Event, "stream_retry"; got != want {
-		t.Fatalf("event = %q, want %q", got, want)
+	if got, want := record.Outcome, "retried"; got != want {
+		t.Fatalf("outcome = %q, want %q", got, want)
 	}
-	if got, want := record.Attempt, 2; got != want {
-		t.Fatalf("attempt = %d, want %d", got, want)
-	}
-	if record.Error == "" {
-		t.Fatal("record error = empty, want the 503 reason")
+	if got, want := record.Attempts, 2; got != want {
+		t.Fatalf("attempts = %d, want %d", got, want)
 	}
 }
