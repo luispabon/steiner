@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -28,8 +27,9 @@ type Client struct {
 	httpClient     *http.Client
 	providerType   string
 	streamErrorLog *StreamErrorLogger
-	// diagnostics receives provider-stream records; emission per model call is
-	// added by stage 3 of the unified-diagnostics plan (issue #707).
+	// diagnostics is not read directly: streamErrorLog is already
+	// constructed with it wired in, so provider-stream emission goes through
+	// streamErrorLog.Log. Retained on Client for TestClientCarriesDiagnosticsWriter.
 	diagnostics *diagnostics.Writer
 	wire        Wire
 
@@ -61,9 +61,16 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 		return ChatResponse{}, err
 	}
 
+	start := time.Now()
+	var (
+		attempts        int
+		ttft            time.Duration
+		responseHeaders http.Header
+	)
 	dropCacheAffinity := false
 	var response ChatResponse
-	err = c.withRetry(ctx, func(_ int) (bool, error) {
+	err = c.withRetry(ctx, func(attempt int) (bool, error) {
+		attempts = attempt
 		attemptRequest := request
 		if dropCacheAffinity {
 			attemptRequest.PromptCacheKey = ""
@@ -72,6 +79,8 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 		if err != nil {
 			return false, err
 		}
+		ttft = time.Since(start)
+		responseHeaders = resp.Header
 		defer func() {
 			_ = resp.Body.Close()
 		}()
@@ -82,6 +91,23 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (ChatR
 		}
 		return false, err
 	}, c.classifyRetryErrorAndDropCacheAffinity(&dropCacheAffinity), nil)
+
+	emitProviderCall(providerCallInput{
+		log:             c.streamErrorLog,
+		provider:        c.providerType,
+		model:           c.model,
+		transport:       "http",
+		start:           start,
+		ttft:            ttft,
+		attempts:        attempts,
+		err:             err,
+		ctx:             ctx,
+		requestURL:      c.baseURLString(),
+		requestHeaders:  providerConfigHeaders(c),
+		requestBody:     body,
+		responseHeaders: responseHeaders,
+	})
+
 	if err != nil {
 		return ChatResponse{}, err
 	}
@@ -123,14 +149,17 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 	}
 
 	var (
-		streamStart       time.Time
+		overallStart      = time.Now()
+		attempts          int
 		chunksReceived    int
-		contentBytes      int
+		partialStream     bool
+		firstChunkAt      time.Time
 		lastRespHeaders   http.Header
 		dropCacheAffinity bool
 	)
 
-	return c.withRetry(ctx, func(_ int) (bool, error) {
+	err = c.withRetry(ctx, func(attempt int) (bool, error) {
+		attempts = attempt
 		attemptRequest := request
 		if dropCacheAffinity {
 			attemptRequest.PromptCacheKey = ""
@@ -143,13 +172,15 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 			_ = resp.Body.Close()
 		}()
 
-		streamStart = time.Now()
 		chunksReceived = 0
-		contentBytes = 0
+		partialStream = false
+		firstChunkAt = time.Time{}
 		lastRespHeaders = resp.Header
 
-		partialStream := false
 		err = c.wire.DecodeStream(ctx, resp.Body, func(chunk ChatChunk) error {
+			if chunksReceived == 0 {
+				firstChunkAt = time.Now()
+			}
 			if chunk.Done {
 				observePromptTokenUsage(ctx, request, chunk.Usage)
 			}
@@ -158,9 +189,6 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 			}
 			select {
 			case out <- chunk:
-				if chunk.Delta.Content != "" {
-					contentBytes += len(chunk.Delta.Content)
-				}
 				chunksReceived++
 				return nil
 			case <-ctx.Done():
@@ -169,22 +197,6 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		})
 		return partialStream, err
 	}, c.classifyRetryErrorAndDropCacheAffinity(&dropCacheAffinity), func(info retryAttemptInfo) {
-		c.streamErrorLog.Log(streamErrorRecord{
-			Timestamp:       time.Now(),
-			Event:           "stream_retry",
-			Attempt:         info.Attempt,
-			Max:             info.MaxAttempts,
-			Error:           info.Reason,
-			StreamAlive:     time.Since(streamStart).String(),
-			ChunksReceived:  chunksReceived,
-			ContentBytes:    contentBytes,
-			PartialStream:   info.PartialStream,
-			RetryDelay:      info.Delay.String(),
-			RequestURL:      c.baseURLString(),
-			RequestHeaders:  providerConfigHeaders(c),
-			ResponseHeaders: sanitizeHeaders(lastRespHeaders),
-			RequestBody:     json.RawMessage(append([]byte(nil), body...)),
-		})
 		if !info.PartialStream {
 			return
 		}
@@ -197,6 +209,33 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		case <-ctx.Done():
 		}
 	})
+
+	var ttft time.Duration
+	if !firstChunkAt.IsZero() {
+		ttft = firstChunkAt.Sub(overallStart)
+	}
+	emitProviderCall(providerCallInput{
+		log:       c.streamErrorLog,
+		provider:  c.providerType,
+		model:     c.model,
+		transport: "sse",
+		start:     overallStart,
+		ttft:      ttft,
+		attempts:  attempts,
+		chunks:    chunksReceived,
+		// partial_stream means visible content arrived but the call did not
+		// complete: true on every successful stream would carry no
+		// information. err != nil here always means the final attempt failed.
+		partialStream:   partialStream && err != nil,
+		err:             err,
+		ctx:             ctx,
+		requestURL:      c.baseURLString(),
+		requestHeaders:  providerConfigHeaders(c),
+		requestBody:     body,
+		responseHeaders: lastRespHeaders,
+	})
+
+	return err
 }
 
 func (c *Client) executeRequest(ctx context.Context, request ChatRequest, body []byte, stream bool) (*http.Response, error) {
@@ -380,8 +419,16 @@ func providerConfigHeaders(c *Client) map[string]string {
 	if c == nil {
 		return nil
 	}
-	out := make(map[string]string, len(c.headers))
-	for k, v := range c.headers {
+	return sanitizeHeaderMap(c.headers)
+}
+
+// sanitizeHeaderMap strips the Authorization key and copies the rest.
+func sanitizeHeaderMap(h map[string]string) map[string]string {
+	if h == nil {
+		return nil
+	}
+	out := make(map[string]string, len(h))
+	for k, v := range h {
 		if strings.EqualFold(k, "authorization") {
 			continue
 		}

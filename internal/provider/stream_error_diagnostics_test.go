@@ -30,7 +30,7 @@ func TestStreamErrorLoggerWritesThroughDiagnostics(t *testing.T) {
 	if logger == nil {
 		t.Fatal("logger = nil, want a logger")
 	}
-	logger.Log(streamErrorRecord{Event: "stream_retry", Attempt: 2})
+	logger.Log(streamErrorRecord{Outcome: "retried", Attempts: 2})
 	if err := logger.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
@@ -45,8 +45,8 @@ func TestStreamErrorLoggerWritesThroughDiagnostics(t *testing.T) {
 	var rec struct {
 		Kind    string `json:"kind"`
 		Payload struct {
-			Event   string `json:"Event"`
-			Attempt int    `json:"Attempt"`
+			Outcome  string `json:"outcome"`
+			Attempts int    `json:"attempts"`
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(data, &rec); err != nil {
@@ -55,7 +55,7 @@ func TestStreamErrorLoggerWritesThroughDiagnostics(t *testing.T) {
 	if rec.Kind != string(diagnostics.KindProvider) {
 		t.Errorf("kind = %q, want provider", rec.Kind)
 	}
-	if rec.Payload.Event != "stream_retry" || rec.Payload.Attempt != 2 {
+	if rec.Payload.Outcome != "retried" || rec.Payload.Attempts != 2 {
 		t.Errorf("payload = %+v, want the stream error record", rec.Payload)
 	}
 }
@@ -66,7 +66,7 @@ func TestStreamErrorLoggerFallsBackToFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamErrorLoggerWithDiagnostics() error = %v", err)
 	}
-	logger.Log(streamErrorRecord{Event: "stream_exhausted"})
+	logger.Log(streamErrorRecord{Outcome: "exhausted"})
 	if err := logger.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
