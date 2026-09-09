@@ -15,8 +15,8 @@ func (s sidebarState) brandLines(width int) []string {
 		"▚ ▜▘█▌▌▛▌█▌▛▘",
 		"▄▌▐▖▙▖▌▌▌▙▖▌",
 	}
-	bg := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
-	accentFg := s.styles.Accent.Background(lipgloss.Color(theme.Black))
+	bg := lipgloss.NewStyle().Background(lipgloss.Color(s.styles.Palette.SidebarBG))
+	accentFg := s.styles.Accent.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 	out := make([]string, 0, len(logo))
 	for i, line := range logo {
 		if i < 2 {
@@ -26,7 +26,7 @@ func (s sidebarState) brandLines(width int) []string {
 		out = append(out, bg.Render(line))
 	}
 
-	ver := s.styles.FgMute.Background(lipgloss.Color(theme.Black)).Render(s.version)
+	ver := s.styles.FgMute.Background(lipgloss.Color(s.styles.Palette.SidebarBG)).Render(s.version)
 	third := out[2] + bg.Render(" ") + ver
 	if pad := width - lipgloss.Width(third); pad > 0 {
 		third += bg.Render(strings.Repeat(" ", pad))
@@ -39,7 +39,7 @@ func (s sidebarState) brandLines(width int) []string {
 		// sidebar's 32-column inner width without fitText truncating the
 		// call-to-action.
 		text := fitText(fmt.Sprintf("↑ %s · upgrade", s.latestVersion), width)
-		msg := s.styles.Accent.Background(lipgloss.Color(theme.Black)).Render(text)
+		msg := s.styles.Accent.Background(lipgloss.Color(s.styles.Palette.SidebarBG)).Render(text)
 		if pad := width - lipgloss.Width(msg); pad > 0 {
 			msg += bg.Render(strings.Repeat(" ", pad))
 		}
@@ -49,7 +49,7 @@ func (s sidebarState) brandLines(width int) []string {
 }
 
 func cardLabel(label string, styles *theme.Styles) string {
-	return styles.CardLabel.Background(lipgloss.Color(theme.Black)).Render(strings.ToUpper(label))
+	return styles.CardLabel.Background(lipgloss.Color(styles.Palette.SidebarBG)).Render(strings.ToUpper(label))
 }
 
 func cardField(key string, valStyle lipgloss.Style, value string, styles *theme.Styles) string {
@@ -57,8 +57,8 @@ func cardField(key string, valStyle lipgloss.Style, value string, styles *theme.
 }
 
 func cardFieldN(key string, keyWidth int, valStyle lipgloss.Style, value string, styles *theme.Styles) string {
-	keyStyle := styles.FgFaint.Background(lipgloss.Color(theme.Black))
-	valStyleWithBg := valStyle.Background(lipgloss.Color(theme.Black))
+	keyStyle := styles.FgFaint.Background(lipgloss.Color(styles.Palette.SidebarBG))
+	valStyleWithBg := valStyle.Background(lipgloss.Color(styles.Palette.SidebarBG))
 	keyStr := keyStyle.Render(fmt.Sprintf("%-*s", keyWidth, key))
 	return keyStr + valStyleWithBg.Render(value)
 }
@@ -69,8 +69,8 @@ func cardFieldN(key string, keyWidth int, valStyle lipgloss.Style, value string,
 // fixed 8-column width (SANDBOX/SKILL/MCP).
 func cardFieldAccent(key string, valStyle lipgloss.Style, value string, styles *theme.Styles) string {
 	const keyWidth = 8
-	keyStyle := styles.CardLabel.Background(lipgloss.Color(theme.Black))
-	valStyleWithBg := valStyle.Background(lipgloss.Color(theme.Black))
+	keyStyle := styles.CardLabel.Background(lipgloss.Color(styles.Palette.SidebarBG))
+	valStyleWithBg := valStyle.Background(lipgloss.Color(styles.Palette.SidebarBG))
 	keyStr := keyStyle.Render(fmt.Sprintf("%-*s", keyWidth, key))
 	return keyStr + valStyleWithBg.Render(value)
 }

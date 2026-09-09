@@ -49,9 +49,14 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 	if accentHex == "" {
 		accentHex = theme.AccentPresets["amber"]
 	}
-	s := theme.BuildStyles(accentHex)
+	palette, err := theme.ResolvePalette(cfg.SidebarBG, cfg.ContentBG)
+	if err != nil {
+		palette = theme.DefaultPalette()
+	}
+	s := theme.BuildStyles(accentHex, palette)
 
 	m := Model{
+		palette:  palette,
 		width:    80,
 		height:   24,
 		viewport: newScrollModel(80, 22),
@@ -348,7 +353,7 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.content.styles = m.styles
 	m.content.skillNames = m.skillNames
 	m.content.mcpToolOrigins = m.mcpToolOrigins
-	m.content.setGlamourStyleSheet(accentHex)
+	m.content.setGlamourStyleSheet(accentHex, m.styles.Palette)
 	m.content.collapseState = make(map[int]bool)
 	m.content.showThinking = m.showThinking
 	m.content.workingDir = m.sidebar.workingDir

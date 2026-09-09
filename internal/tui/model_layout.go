@@ -97,8 +97,8 @@ func (m *Model) syncViewport() {
 	if rendered != m.fmtBgCacheInput || widthChanged {
 		m.fmtBgCacheInput = rendered
 		m.fmtBgCacheWidth = m.viewport.Width()
-		formatted := theme.WithBg(rendered, theme.BgElev)
-		m.fmtBgCacheOutput = theme.PadLines(formatted, m.viewport.Width(), theme.BgElev)
+		formatted := theme.WithBg(rendered, m.resolvedPalette().ContentBG)
+		m.fmtBgCacheOutput = theme.PadLines(formatted, m.viewport.Width(), m.resolvedPalette().ContentBG)
 
 		// A width reflow invalidates row/col anchors (wrapping changes the
 		// rendered rows), so the selection clears; same-width content changes
@@ -126,7 +126,7 @@ func (m *Model) syncViewport() {
 		if m.padLineCacheWidth != m.viewport.Width() || m.padLineCacheRendered == "" {
 			m.padLineCacheWidth = m.viewport.Width()
 			m.padLineCacheRendered = lipgloss.NewStyle().
-				Background(lipgloss.Color(theme.BgElev)).
+				Background(lipgloss.Color(m.resolvedPalette().ContentBG)).
 				Render(strings.Repeat(" ", m.viewport.Width()))
 		}
 		rendered = strings.Repeat(m.padLineCacheRendered+"\n", pad) + rendered

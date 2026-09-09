@@ -98,7 +98,7 @@ func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width 
 
 	// Build the box style.
 	boxStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BgElev)).
+		Background(lipgloss.Color(b.styles.Palette.ContentBG)).
 		Padding(1, 1).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(b.styles.FgDim.GetForeground()).
@@ -122,7 +122,7 @@ func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width 
 		}
 		titleLine := "╭" + titleInterior + strings.Repeat("─", fillCount) + "╮"
 		titleStyle := lipgloss.NewStyle().
-			Background(lipgloss.Color(theme.BgElev)).
+			Background(lipgloss.Color(b.styles.Palette.ContentBG)).
 			Foreground(b.styles.FgDim.GetForeground())
 		lines[0] = titleStyle.Render(titleLine)
 	}

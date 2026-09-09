@@ -1,7 +1,9 @@
 package theme
 
 import (
+	"fmt"
 	"image/color"
+	"strings"
 
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
@@ -28,8 +30,55 @@ type Theme interface {
 	GlamourStyleSheet() glamour.TermRendererOption
 }
 
+// Palette contains the resolved seamless TUI surface colors.
+type Palette struct {
+	SidebarBG string
+	ContentBG string
+}
+
+// DefaultPalette returns the historical TUI surface colors.
+func DefaultPalette() Palette {
+	return Palette{SidebarBG: Black, ContentBG: BgElev}
+}
+
+func canonicalHex(value string) (string, error) {
+	if len(value) != 7 || value[0] != '#' {
+		return "", fmt.Errorf("color must be #RRGGBB, got %q", value)
+	}
+	for _, c := range value[1:] {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return "", fmt.Errorf("color must be #RRGGBB, got %q", value)
+		}
+	}
+	return strings.ToLower(value), nil
+}
+
+// ResolvePalette validates and canonicalizes configured surface colors. Empty
+// values resolve to the historical defaults.
+func ResolvePalette(sidebarBG, contentBG string) (Palette, error) {
+	defaults := DefaultPalette()
+	var err error
+	if sidebarBG == "" {
+		sidebarBG = defaults.SidebarBG
+	}
+	if contentBG == "" {
+		contentBG = defaults.ContentBG
+	}
+	palette := Palette{}
+	palette.SidebarBG, err = canonicalHex(sidebarBG)
+	if err != nil {
+		return Palette{}, fmt.Errorf("invalid sidebar background: %w", err)
+	}
+	palette.ContentBG, err = canonicalHex(contentBG)
+	if err != nil {
+		return Palette{}, fmt.Errorf("invalid content background: %w", err)
+	}
+	return palette, nil
+}
+
 // Styles groups all rendered styles for the TUI.
 type Styles struct {
+	Palette           Palette
 	ContentPane       lipgloss.Style
 	Sidebar           lipgloss.Style
 	SidebarSection    lipgloss.Style
@@ -148,29 +197,33 @@ type Styles struct {
 
 // BuildStyles builds a full Styles from an accent hex color string.
 // Used when the accent preset changes at runtime.
-func BuildStyles(accentHex string) Styles {
-	// recompute AccentSoft and AccentLine from the given accentHex
+func BuildStyles(accentHex string, palettes ...Palette) Styles {
+	palette := DefaultPalette()
+	if len(palettes) > 0 {
+		palette = palettes[0]
+	}
 	accentSoft := blendHex(accentHex, Bg, 0.09)
 	accentLine := blendHex(accentHex, Bg, 0.35)
-	return buildStylesInternal(accentHex, accentSoft, accentLine)
+	return buildStylesInternal(accentHex, accentSoft, accentLine, palette)
 }
 
 // buildStylesInternal builds all Styles fields from an accent hex and pre-computed soft variants.
 // Used by both steiner theme and BuildStyles.
-func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
+func buildStylesInternal(accentHex, accentSoft, accentLine string, palette Palette) Styles {
 	return Styles{
-		ContentPane:       lipgloss.NewStyle().Background(lipgloss.Color(BgElev)).PaddingTop(1).PaddingLeft(3).PaddingRight(3),
-		Sidebar:           lipgloss.NewStyle().Background(lipgloss.Color(Black)),
+		Palette:           palette,
+		ContentPane:       lipgloss.NewStyle().Background(lipgloss.Color(palette.ContentBG)).PaddingTop(1).PaddingLeft(3).PaddingRight(3),
+		Sidebar:           lipgloss.NewStyle().Background(lipgloss.Color(palette.SidebarBG)),
 		SidebarSection:    lipgloss.NewStyle().Foreground(lipgloss.Color(FgDim)),
 		SidebarLabel:      lipgloss.NewStyle().Foreground(lipgloss.Color(FgFaint)),
 		SidebarValue:      lipgloss.NewStyle().Foreground(lipgloss.Color(Fg)),
 		CardLabel:         lipgloss.NewStyle().Foreground(lipgloss.Color(accentHex)).Bold(true),
-		ToolBlock:         lipgloss.NewStyle().Background(lipgloss.Color(BgElev)).BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Tool)).Padding(1),
-		ThinkingBlock:     lipgloss.NewStyle().Background(lipgloss.Color(BgElev)).BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Thinking)).Padding(1),
-		AssistantProse:    lipgloss.NewStyle().Background(lipgloss.Color(BgElev)).Foreground(lipgloss.Color(Fg)),
+		ToolBlock:         lipgloss.NewStyle().Background(lipgloss.Color(palette.ContentBG)).BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Tool)).Padding(1),
+		ThinkingBlock:     lipgloss.NewStyle().Background(lipgloss.Color(palette.ContentBG)).BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(Thinking)).Padding(1),
+		AssistantProse:    lipgloss.NewStyle().Background(lipgloss.Color(palette.ContentBG)).Foreground(lipgloss.Color(Fg)),
 		ApprovalHighlight: lipgloss.NewStyle().Background(lipgloss.Color(accentSoft)).Foreground(lipgloss.Color(accentHex)),
 		InputArea:         lipgloss.NewStyle().Background(lipgloss.Color(BgInput)).Foreground(lipgloss.Color(Fg)),
-		StatusBar:         lipgloss.NewStyle().Background(lipgloss.Color(BgElev)).Foreground(lipgloss.Color(FgDim)).Padding(0, 2),
+		StatusBar:         lipgloss.NewStyle().Background(lipgloss.Color(palette.ContentBG)).Foreground(lipgloss.Color(FgDim)).Padding(0, 2),
 		Border:            lipgloss.NewStyle().Foreground(lipgloss.Color(Border)),
 		ErrorStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color(Removed)),
 		WarningStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color(Warn)),
@@ -261,7 +314,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 			Width(1),
 
 		ContentPaneWithScrollbar: lipgloss.NewStyle().
-			Background(lipgloss.Color(BgElev)).
+			Background(lipgloss.Color(palette.ContentBG)).
 			PaddingLeft(3).
 			PaddingRight(2),
 
@@ -276,9 +329,9 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string) Styles {
 			Background(lipgloss.Color(UserSoft)),
 
 		Scrollbar: lipgloss.NewStyle().
-			Background(lipgloss.Color(BgElev)).
+			Background(lipgloss.Color(palette.ContentBG)).
 			Foreground(lipgloss.Color(BorderSoft)),
-		ScrollbarTrack: lipgloss.NewStyle().Background(lipgloss.Color(BgElev)),
+		ScrollbarTrack: lipgloss.NewStyle().Background(lipgloss.Color(palette.ContentBG)),
 
 		SelectionStyle: lipgloss.NewStyle().Background(lipgloss.Color("#3a4a5a")),
 

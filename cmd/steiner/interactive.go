@@ -63,7 +63,10 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			return delegation.PruneProcessCodeWorktrees(ctx, rt.projectRoot)
 		},
 	)
-	tuiApp := buildInteractiveApp(cmd, flags, rt, sess)
+	tuiApp, err := buildInteractiveApp(cmd, flags, rt, sess)
+	if err != nil {
+		return err
+	}
 	defer tuiApp.Cleanup()
 	wireInteractiveRunner(rt, sess)
 	sess.DisplaySink().Set(tuiApp.EventSink())

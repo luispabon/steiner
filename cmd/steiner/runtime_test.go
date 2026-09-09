@@ -189,7 +189,10 @@ func TestBuildInteractiveAppSeedsConfigWarnings(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 
-	app := buildInteractiveApp(cmd, &cliFlags{}, rt, sess)
+	app, err := buildInteractiveApp(cmd, &cliFlags{}, rt, sess)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	prog := app.NewProgram(
 		tea.WithInput(strings.NewReader("")),

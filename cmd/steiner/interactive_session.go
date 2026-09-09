@@ -162,7 +162,7 @@ func startupTUIModelConfig(cfg config.Config) (tui.Config, config.ModelConfig) {
 	return tui.Config{Model: activeModel, CurrentModelAlias: activeModel}, selectedModelConfig(cfg)
 }
 
-func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, sess *interactive.Session) *tui.App {
+func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, sess *interactive.Session) (*tui.App, error) {
 	startupCfg, selected := startupTUIModelConfig(rt.cfg)
 	entries := []tui.ModelEntry(nil)
 	updates := rt.modelEntriesUpdates
@@ -252,7 +252,11 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 			return latest, needs
 		}
 	}
-	return tui.NewApp(tuiCfg)
+	app, err := tui.NewApp(tuiCfg)
+	if err != nil {
+		return nil, err
+	}
+	return app, nil
 }
 
 // mcpTUIState converts MCP manager state and registry tool provenance into

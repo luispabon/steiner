@@ -2,9 +2,11 @@
 package prefs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/luispabon/steiner/internal/tui/theme"
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,6 +15,8 @@ type Prefs struct {
 	Accent          string `yaml:"accent"`
 	ShowThinking    bool   `yaml:"show_thinking"`
 	SidebarPosition string `yaml:"sidebar_position"`
+	SidebarBG       string `yaml:"sidebar_bg"`
+	ContentBG       string `yaml:"content_bg"`
 }
 
 // DefaultPrefs returns the default TUI preferences.
@@ -60,6 +64,11 @@ func Load() (Prefs, error) {
 	if err := yaml.Unmarshal(data, &p); err != nil {
 		return DefaultPrefs(), err
 	}
+	palette, err := theme.ResolvePalette(p.SidebarBG, p.ContentBG)
+	if err != nil {
+		return DefaultPrefs(), fmt.Errorf("validate TUI preferences: %w", err)
+	}
+	p.SidebarBG, p.ContentBG = palette.SidebarBG, palette.ContentBG
 	return p, nil
 }
 
@@ -67,6 +76,9 @@ func Load() (Prefs, error) {
 // Creates the config dir if absent. Uses a temp file + rename to
 // prevent concurrent Load calls from reading a partial or empty file.
 func Save(p Prefs) error {
+	if _, err := theme.ResolvePalette(p.SidebarBG, p.ContentBG); err != nil {
+		return fmt.Errorf("validate TUI preferences: %w", err)
+	}
 	dir, err := configDir()
 	if err != nil {
 		return err

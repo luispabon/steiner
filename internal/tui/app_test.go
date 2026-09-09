@@ -22,7 +22,10 @@ func TestSetInitialModeSeedsModel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app := NewApp(Config{InitialMode: tt.initialConfig})
+			app, err := NewApp(Config{InitialMode: tt.initialConfig})
+			if err != nil {
+				t.Fatal(err)
+			}
 			app.SetInitialMode(tt.want)
 
 			m := newModel(app.cfg, nil)
@@ -74,10 +77,13 @@ func TestSetInitialEnabledSkillsSeedsModel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app := NewApp(Config{
+			app, err := NewApp(Config{
 				SkillNames:           tt.config,
 				InitialEnabledSkills: tt.initial,
 			})
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			m := newModel(app.cfg, nil)
 			if len(m.enabledSkills) != len(tt.want) {
@@ -107,7 +113,10 @@ func TestResumeSeedsInitialModeBeforeToggle(t *testing.T) {
 		t.Fatalf("NewSession() error = %v", err)
 	}
 
-	app := NewApp(Config{Controller: sess, InitialMode: "build"})
+	app, err := NewApp(Config{Controller: sess, InitialMode: "build"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	sess.DisplaySink().Set(app.EventSink())
 	if err := sess.LoadSessionByID(context.Background(), "id"); err != nil {
 		t.Fatalf("LoadSessionByID() error = %v", err)

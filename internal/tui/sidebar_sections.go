@@ -35,7 +35,7 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 
 func (s sidebarState) staticLines(width int) []string {
 	lines := append([]string{}, s.brandLines(width)...)
-	lines = append(lines, lipgloss.NewStyle().Background(lipgloss.Color(theme.Black)).Render(""))
+	lines = append(lines, lipgloss.NewStyle().Background(lipgloss.Color(s.styles.Palette.SidebarBG)).Render(""))
 	lines = append(lines, s.separatorLine(width))
 	lines = append(lines, s.modelSection(width)...)
 	lines = append(lines, s.contextSection(width)...)
@@ -50,8 +50,8 @@ func (s sidebarState) staticLines(width int) []string {
 }
 
 func (s sidebarState) modelSection(width int) []string {
-	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Background(lipgloss.Color(theme.Black))
-	fgDim := s.styles.FgDim.Background(lipgloss.Color(theme.Black))
+	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Background(lipgloss.Color(s.styles.Palette.SidebarBG))
+	fgDim := s.styles.FgDim.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 
 	reasoning := strings.TrimSpace(s.reasoning)
 	model := fitText(formatModelEffort(safeText(s.model), reasoning), width)
@@ -163,8 +163,8 @@ func (s sidebarState) separatorLine(width int) string {
 		right := dashCount - left
 		dashStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.DelegateThinkingLine)).
-			Background(lipgloss.Color(theme.Black))
-		labelStyle := s.styles.ModePlanStyle.Background(lipgloss.Color(theme.Black))
+			Background(lipgloss.Color(s.styles.Palette.SidebarBG))
+		labelStyle := s.styles.ModePlanStyle.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 		return dashStyle.Render(strings.Repeat("─", left)) +
 			labelStyle.Render(label) +
 			dashStyle.Render(strings.Repeat("─", right))
@@ -175,8 +175,8 @@ func (s sidebarState) separatorLine(width int) string {
 		right := dashCount - left
 		dashStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.ToolGrnLine)).
-			Background(lipgloss.Color(theme.Black))
-		labelStyle := s.styles.ModeBuildStyle.Background(lipgloss.Color(theme.Black))
+			Background(lipgloss.Color(s.styles.Palette.SidebarBG))
+		labelStyle := s.styles.ModeBuildStyle.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 		return dashStyle.Render(strings.Repeat("─", left)) +
 			labelStyle.Render(label) +
 			dashStyle.Render(strings.Repeat("─", right))
@@ -245,8 +245,8 @@ func (s sidebarState) sessionRow(width int) string {
 	full := formatSessionElapsed(true, sec)
 	splitAt := strings.LastIndex(full, ":")
 	hhmm, ss := full[:splitAt], full[splitAt:]
-	keyStyle := s.styles.FgFaint.Background(lipgloss.Color(theme.Black))
-	valStyle := s.styles.FgDim.Background(lipgloss.Color(theme.Black))
+	keyStyle := s.styles.FgFaint.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
+	valStyle := s.styles.FgDim.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 	return keyStyle.Render(fmt.Sprintf("%-*s", keyW, "session")) + valStyle.Render(fitText(hhmm, width-keyW+7-len(ss))) + keyStyle.Render(ss)
 }
 

@@ -36,8 +36,8 @@ func (s sidebarState) contextGaugeLine(width int) string {
 	default:
 		thresholdStyle = s.styles.Accent
 	}
-	emptyWithBg := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
-	barWithBg := thresholdStyle.Background(lipgloss.Color(theme.Black))
+	emptyWithBg := lipgloss.NewStyle().Background(lipgloss.Color(s.styles.Palette.SidebarBG))
+	barWithBg := thresholdStyle.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 
 	barWidth := min(10, max(4, width-16))
 	totalEighths := barWidth * 8
@@ -92,6 +92,6 @@ func (s sidebarState) compactDotLine() string {
 	if s.tickCount%2 == 0 {
 		dot = "○"
 	}
-	dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Background(lipgloss.Color(theme.Black))
+	dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 	return dotStyle.Render(dot) + s.styledWithBg(s.styles.FgDim, " compacting…")
 }

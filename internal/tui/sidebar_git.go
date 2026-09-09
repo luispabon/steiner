@@ -23,8 +23,8 @@ func (s sidebarState) branchLine(width int) string {
 	branchText := fitText(branch, maxBranch)
 	line := cardField("branch", lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)), branchText, s.styles)
 	if s.dirty {
-		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Background(lipgloss.Color(theme.Black))
-		spaceBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn)).Background(lipgloss.Color(s.styles.Palette.SidebarBG))
+		spaceBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 		line += spaceBgStyle.Render(" ") + warnStyle.Render("●")
 	}
 	return line
@@ -47,7 +47,7 @@ func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
 		glyphStyle = s.styles.Warn
 	}
 
-	spaceBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.Black))
+	spaceBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 
 	var addedText, deletedText string
 	if file.Added > 0 {
@@ -74,7 +74,7 @@ func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
 
 	pathWidth := max(1, width-3-statsLen-1)
 	path := fitTextMiddle(file.Path, pathWidth)
-	glyphWithBg := glyphStyle.Background(lipgloss.Color(theme.Black))
+	glyphWithBg := glyphStyle.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 	line := glyphWithBg.Render(glyph) + spaceBgStyle.Render(" ") + s.styledWithBg(s.styles.FgDim, path)
 	if statsText != "" {
 		padding := max(1, width-2-lipgloss.Width(path)-statsLen)

@@ -14,6 +14,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui/prefs"
+	"github.com/luispabon/steiner/internal/tui/theme"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
@@ -110,6 +111,8 @@ type Config struct {
 	AccentPreset         string
 	ShowThinking         bool
 	SidebarPosition      string
+	SidebarBG            string
+	ContentBG            string
 	Version              string
 	Controller           interactive.Controller
 	SessionStore         SessionLister
@@ -161,11 +164,10 @@ type App struct {
 }
 
 // NewApp creates a new TUI application with the given configuration.
-func NewApp(cfg Config) *App {
-	// Load prefs; non-fatal on error
+func NewApp(cfg Config) (*App, error) {
 	p, err := prefs.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "steiner: failed to load prefs: %v\n", err)
+		return nil, fmt.Errorf("load TUI preferences: %w", err)
 	}
 	if cfg.AccentPreset == "" {
 		cfg.AccentPreset = p.Accent
@@ -177,10 +179,19 @@ func NewApp(cfg Config) *App {
 	if cfg.SidebarPosition == "" {
 		cfg.SidebarPosition = p.SidebarPosition
 	}
+	if cfg.SidebarBG == "" {
+		cfg.SidebarBG = p.SidebarBG
+	}
+	if cfg.ContentBG == "" {
+		cfg.ContentBG = p.ContentBG
+	}
+	if _, err := theme.ResolvePalette(cfg.SidebarBG, cfg.ContentBG); err != nil {
+		return nil, fmt.Errorf("validate TUI configuration: %w", err)
+	}
 	return &App{
 		cfg:    cfg,
 		bridge: newEventBridge(256),
-	}
+	}, nil
 }
 
 // SetInitialMode overrides the execution mode used to seed the TUI model when

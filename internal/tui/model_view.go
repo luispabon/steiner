@@ -33,7 +33,7 @@ func (m *Model) View() tea.View {
 		Content:         result,
 		AltScreen:       true,
 		MouseMode:       tea.MouseModeCellMotion,
-		BackgroundColor: lipgloss.Color(theme.BgElev),
+		BackgroundColor: lipgloss.Color(m.resolvedPalette().ContentBG),
 	}
 	// Attach v2 mouse handler via View.OnMouse callback without capturing the model.
 	v.OnMouse = classifyMouse
@@ -69,7 +69,7 @@ func (m *Model) renderMainColumn(contentWidth int) string {
 		hDivider = m.hDividerCacheRendered
 	} else {
 		hDivider = lipgloss.NewStyle().
-			Background(lipgloss.Color(theme.BgElev)).
+			Background(lipgloss.Color(m.resolvedPalette().ContentBG)).
 			Foreground(lipgloss.Color(theme.BorderSoft)).
 			Render(strings.Repeat("─", contentWidth))
 		m.hDividerCacheWidth = contentWidth
@@ -84,7 +84,7 @@ func (m *Model) renderMainColumn(contentWidth int) string {
 	)
 
 	mainColumn := strings.Join(mainComponents, "\n")
-	return theme.TruncateAndPadVertical(mainColumn, contentWidth, m.height, theme.BgElev)
+	return theme.TruncateAndPadVertical(mainColumn, contentWidth, m.height, m.resolvedPalette().ContentBG)
 }
 
 func (m *Model) renderViewportView(contentWidth int) string {
@@ -106,7 +106,7 @@ func (m *Model) renderViewportView(contentWidth int) string {
 		viewportContent = m.renderViewportWithScrollbar(viewportInner, scrollbar)
 	}
 
-	viewportView := theme.ApplyPanePadding(viewportContent, contentWidth, hasScrollbar, theme.BgElev)
+	viewportView := theme.ApplyPanePadding(viewportContent, contentWidth, hasScrollbar, m.resolvedPalette().ContentBG)
 	if m.helpVisible {
 		help := renderHelp(m.styles, max(20, contentWidth-4))
 		return composeCenteredOverlay(viewportView, help, contentWidth, lipgloss.Height(viewportView))
@@ -147,7 +147,7 @@ func (m *Model) renderViewportWithScrollbar(viewportInner, scrollbar string) str
 	// Emit a background-filled leading line so transparent terminals don't show
 	// a gap. The viewport content is m.viewport.Width() wide; the scrollbar
 	// occupies one additional column.
-	leadBg := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).
+	leadBg := lipgloss.NewStyle().Background(lipgloss.Color(m.resolvedPalette().ContentBG)).
 		Render(strings.Repeat(" ", m.viewport.Width()))
 	leadSc := m.styles.ScrollbarTrack.Render(" ")
 	b.WriteString(leadBg + leadSc + "\n")

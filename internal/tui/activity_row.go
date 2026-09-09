@@ -66,7 +66,7 @@ func (a activityState) view(width int, styles *theme.Styles) string {
 	}
 	// WithBg is required: lipgloss resets inside spinner/label renders would
 	// clear cell backgrounds in transparent terminals without it.
-	return theme.WithBg(styles.StatusBar.Width(width).Render(text), theme.BgElev)
+	return theme.WithBg(styles.StatusBar.Width(width).Render(text), styles.Palette.ContentBG)
 }
 
 // activityCacheKey is the render cache key for activityState.view: every

@@ -127,6 +127,7 @@ type Model struct {
 	controller          interactive.Controller
 	recorder            *usagestats.Recorder
 	activeTheme         theme.Theme
+	palette             theme.Palette
 	// styles is shared by pointer across Model and every sub-component that
 	// embeds a styles field; theme.Styles must be treated as immutable after
 	// construction, and the accent-change path must allocate a fresh Styles
@@ -255,6 +256,16 @@ type Model struct {
 
 	lastCursorLine int
 	lastCursorCol  int
+}
+
+func (m *Model) resolvedPalette() theme.Palette {
+	if m.palette.SidebarBG != "" && m.palette.ContentBG != "" {
+		return m.palette
+	}
+	if m.styles != nil && m.styles.Palette.SidebarBG != "" {
+		return m.styles.Palette
+	}
+	return theme.DefaultPalette()
 }
 
 type scrollbarCacheKey struct {

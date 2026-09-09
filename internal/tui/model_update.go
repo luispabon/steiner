@@ -290,10 +290,10 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 		accentHex = theme.AccentPresets["amber"]
 	}
 	m.accentPreset = msg.preset
-	s := theme.BuildStyles(accentHex)
+	s := theme.BuildStyles(accentHex, m.resolvedPalette())
 	m.styles = &s
 	m.content.styles = m.styles
-	m.content.setGlamourStyleSheet(accentHex)
+	m.content.setGlamourStyleSheet(accentHex, m.resolvedPalette())
 	m.sidebar.styles = m.styles
 	m.status.styles = m.styles
 	m.activity = m.activity.withStyles(m.styles)
