@@ -111,6 +111,12 @@ type RunRequest struct {
 	// a no-op, so unwired paths and tests need no special handling.
 	Diagnostics *diagnostics.Writer
 
+	// AgentID and AgentType identify this run's delegation scope for
+	// diagnostics records, mirroring output.WithAgentScope/WithAgentTypeScope.
+	// Empty for the top-level parent run.
+	AgentID   string
+	AgentType string
+
 	// TurnBudgetNotice, when non-nil, is called once per run when the turn count
 	// crosses turnBudgetNoticeFraction of Limits.MaxTurns, to produce a message
 	// injected into the conversation. Nil disables the checkpoint entirely — the
