@@ -29,7 +29,7 @@ func TestVisionHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
 			if _, ok := req.Events.(*dispatchReleaseSink); !ok {
 				t.Errorf("req.Events=%T, want *dispatchReleaseSink", req.Events)
 			}
-			req.Events.Emit(output.NewThinkingChunkEventWithSource(1, "thinking", output.ChunkSourceAssistant))
+			req.Events.Emit(output.NewAPIResponseEvent(nil, nil, "stop", nil))
 		}
 		return agent.RunState{}, nil
 	}})

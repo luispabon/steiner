@@ -14,6 +14,8 @@ func TestDispatchReleaseSinkForwardsAndReleasesOnce(t *testing.T) {
 		{Type: output.EventTypeThinkingChunk, Payload: "thinking"},
 		{Type: output.EventTypeAssistantChunk, Payload: "assistant"},
 		{Type: output.EventTypeAssistantMessage, Payload: "message"},
+		{Type: output.EventTypeAPIResponse, Payload: "response"},
+		{Type: output.EventTypeAPIResponse, Payload: "response again"},
 	}
 	var gotEvents []output.Event
 	releaseCalls := 0
@@ -41,7 +43,7 @@ func TestDispatchReleaseSinkNilInnerStillReleases(t *testing.T) {
 		releaseCalls++
 	})
 
-	sink.Emit(output.Event{Type: output.EventTypeAssistantChunk})
+	sink.Emit(output.Event{Type: output.EventTypeAPIResponse})
 	if releaseCalls != 1 {
 		t.Errorf("release called %d times, want 1", releaseCalls)
 	}
@@ -55,7 +57,7 @@ func TestDispatchReleaseSinkReleaseRunsAfterForward(t *testing.T) {
 		order = append(order, "release")
 	})
 
-	sink.Emit(output.Event{Type: output.EventTypeThinkingChunk})
+	sink.Emit(output.Event{Type: output.EventTypeAPIResponse})
 	want := []string{"forward", "release"}
 	if !reflect.DeepEqual(order, want) {
 		t.Errorf("call order = %v, want %v", order, want)
@@ -69,20 +71,22 @@ func TestDispatchReleaseSinkNonMatchingEventsDoNotRelease(t *testing.T) {
 	})
 
 	sink.Emit(output.Event{Type: output.EventTypeModelCallStarted})
+	sink.Emit(output.Event{Type: output.EventTypeThinkingChunk})
+	sink.Emit(output.Event{Type: output.EventTypeAssistantChunk})
 	sink.Emit(output.Event{Type: output.EventTypeAssistantMessage})
 	if releaseCalls != 0 {
 		t.Errorf("release called %d times, want 0", releaseCalls)
 	}
 
-	// Ensure matching-event release remains immediate after non-matching events.
+	// Ensure API response release remains immediate after non-matching events.
 	done := make(chan struct{})
 	sink = newDispatchReleaseSink(nil, func() {
 		close(done)
 	})
-	sink.Emit(output.Event{Type: output.EventTypeAssistantChunk})
+	sink.Emit(output.Event{Type: output.EventTypeAPIResponse})
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("release did not run for matching event")
+		t.Fatal("release did not run for API response event")
 	}
 }

@@ -20,7 +20,7 @@ func (s *dispatchReleaseSink) Emit(event output.Event) {
 	if s.inner != nil {
 		s.inner.Emit(event)
 	}
-	if event.Type == output.EventTypeThinkingChunk || event.Type == output.EventTypeAssistantChunk {
+	if event.Type == output.EventTypeAPIResponse {
 		s.once.Do(s.release)
 	}
 }
