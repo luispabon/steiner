@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(__dirname, "diagnostics.mjs");
@@ -134,7 +136,27 @@ test("cache mode --compare --json prints one aggregated document with a/b/delta,
 	assert.ok(Math.abs(parent["hit_rate"].delta - (parent["hit_rate"].b - parent["hit_rate"].a)) < 1e-9);
 });
 
-test("--top bounds unbounded listings", () => {
-	const out = run(["tools", "--dir", FIXTURES, "--top", "1", "--json"]);
-	assert.ok(out.by_tool.length <= 1);
+test("--top bounds every unbounded listing", () => {
+	const provider = run(["provider", "--dir", FIXTURES, "--top", "1", "--json"]);
+	assert.ok(provider.outcome_mix.length <= 1);
+	assert.ok(provider.error_class.length <= 1);
+
+	const tools = run(["tools", "--dir", FIXTURES, "--top", "1", "--json"]);
+	assert.ok(tools.by_tool.length <= 1);
+	assert.ok(tools.reason_histogram.length <= 1);
+	assert.ok(tools.mutate_by_op.length <= 1);
+});
+
+test("loads rotated generations oldest first and active last", () => {
+	const dir = mkdtempSync(join(tmpdir(), "steiner-diagnostics-"));
+	try {
+		const record = (outcome) => JSON.stringify({ ts: "2025-01-01T00:00:00Z", payload: { outcome } });
+		writeFileSync(join(dir, "provider.jsonl.2"), record("oldest") + String.fromCharCode(10));
+		writeFileSync(join(dir, "provider.jsonl.1"), record("middle") + String.fromCharCode(10));
+		writeFileSync(join(dir, "provider.jsonl"), record("active") + String.fromCharCode(10));
+		const out = run(["provider", "--dir", dir, "--json"]);
+		assert.deepEqual(out.outcome_mix.map((row) => row.key), ["oldest", "middle", "active"]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

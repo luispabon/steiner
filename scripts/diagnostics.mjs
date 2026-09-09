@@ -51,7 +51,7 @@
 //                    BREAK-AT-N means the common prefix is only N messages
 //                    long, so something before the tail changed.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -97,7 +97,15 @@ function readJsonl(path) {
 }
 
 function loadStream(kind) {
-	return readJsonl(join(DIR, `${kind}.jsonl`));
+	const stem = `${kind}.jsonl`;
+	if (!existsSync(DIR)) return [];
+	const files = readdirSync(DIR)
+		.filter((name) => name === stem || (name.startsWith(`${stem}.`) && /^\d+$/.test(name.slice(stem.length + 1))))
+		.sort((a, b) => {
+			const generation = (name) => name === stem ? 0 : Number(name.slice(stem.length + 1));
+			return generation(b) - generation(a);
+		});
+	return files.flatMap((name) => readJsonl(join(DIR, name)));
 }
 
 function withinWindow(ts) {
@@ -344,11 +352,11 @@ function providerGroupRows(records, keyFn) {
 
 function outcomeMixRows(records) {
 	const n = records.length;
-	return sortedByCount(groupBy(records, (r) => r.payload?.outcome ?? "unknown")).map(([key, xs]) => ({
+	return capTop(sortedByCount(groupBy(records, (r) => r.payload?.outcome ?? "unknown")).map(([key, xs]) => ({
 		key,
 		n: xs.length,
 		metrics: { pct: n ? (100 * xs.length) / n : 0 },
-	}));
+	})));
 }
 
 const OUTCOME_COLUMN = [{ name: "pct", value: (r) => r.metrics.pct, fmt: (v) => v.toFixed(1) + "%", fmtDelta: (d) => d.toFixed(1) + "pp" }];
@@ -356,11 +364,11 @@ const OUTCOME_COLUMN = [{ name: "pct", value: (r) => r.metrics.pct, fmt: (v) => 
 function errorClassRows(records) {
 	const withClass = records.filter((r) => r.payload?.error_class);
 	const n = withClass.length;
-	return sortedByCount(groupBy(withClass, (r) => r.payload.error_class)).map(([key, xs]) => ({
+	return capTop(sortedByCount(groupBy(withClass, (r) => r.payload.error_class)).map(([key, xs]) => ({
 		key,
 		n: xs.length,
 		metrics: { pct: n ? (100 * xs.length) / n : 0 },
-	}));
+	})));
 }
 
 function runProvider(records) {
@@ -425,22 +433,22 @@ function toolGroupRows(records, keyFn) {
 function reasonHistogramRows(records) {
 	const failures = records.flatMap((r) => (r.payload?.failures ?? []).map((f) => ({ tool: r.payload?.tool ?? "unknown", reason: f.reason ?? "unknown" })));
 	const n = failures.length;
-	return sortedByCount(groupBy(failures, (f) => `${f.tool}/${f.reason}`)).map(([key, xs]) => ({
+	return capTop(sortedByCount(groupBy(failures, (f) => `${f.tool}/${f.reason}`)).map(([key, xs]) => ({
 		key,
 		n: xs.length,
 		metrics: { pct: n ? (100 * xs.length) / n : 0 },
-	}));
+	})));
 }
 
 function mutateOpRows(records) {
 	const mutate = records.filter((r) => r.payload?.tool === "mutate");
 	const failures = mutate.flatMap((r) => r.payload?.failures ?? []);
 	const n = failures.length;
-	return sortedByCount(groupBy(failures, (f) => f.op || "unknown")).map(([key, xs]) => ({
+	return capTop(sortedByCount(groupBy(failures, (f) => f.op || "unknown")).map(([key, xs]) => ({
 		key,
 		n: xs.length,
 		metrics: { pct: n ? (100 * xs.length) / n : 0 },
-	}));
+	})));
 }
 
 function runTools(records) {
