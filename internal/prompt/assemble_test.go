@@ -1,7 +1,9 @@
 package prompt
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -78,7 +80,10 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		t.Fatalf("system message missing project rules: %q", sysMsg)
 	}
 
-	readme := messageIndexByNameContains(t, assembly.Messages, "README.md")
+	readme := messageIndexContaining(assembly.Messages, "project readme")
+	if got := assembly.Messages[readme].Name; got != "" {
+		t.Fatalf("project context message name = %q, want empty", got)
+	}
 	conversation := messageIndexByContent(t, assembly.Messages, "how do I fix this?")
 	toolSummary := messageIndexContaining(assembly.Messages, "\"kind\":\"tool_summary\"")
 
@@ -134,8 +139,31 @@ func TestAssembleLoadsExplicitSkills(t *testing.T) {
 	if got := assembly.Messages[gotIndex].Role; got != provider.MessageRoleUser {
 		t.Fatalf("skill message role = %q, want user", got)
 	}
+	if got := assembly.Messages[gotIndex].Name; got != "" {
+		t.Fatalf("skill message name = %q, want empty", got)
+	}
 	if got := assembly.Messages[gotIndex].Content; !strings.Contains(got, "## Active Skills") {
 		t.Fatalf("skill message content missing framing block: %q", got)
+	}
+}
+
+func TestAssembleProjectRootDoesNotAffectProviderMessages(t *testing.T) {
+	roots := []string{t.TempDir(), t.TempDir()}
+	messages := make([][]byte, 0, len(roots))
+	for _, root := range roots {
+		mustWrite(t, root, "README.md", "same project context")
+		assembly, err := Assemble(context.Background(), AssemblyOptions{ProjectRoot: root, ProjectContextExtraFiles: []string{"README.md"}})
+		if err != nil {
+			t.Fatalf("Assemble() error = %v", err)
+		}
+		encoded, err := json.Marshal(assembly.Messages)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+		messages = append(messages, encoded)
+	}
+	if !bytes.Equal(messages[0], messages[1]) {
+		t.Fatalf("provider messages differ by project root")
 	}
 }
 

@@ -2,7 +2,6 @@ package prompt
 
 import (
 	"context"
-	"path/filepath"
 
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -115,10 +114,9 @@ func blockMessage(block ContextBlock) provider.Message {
 	}
 
 	if block.Path != "" {
-		message.Name = block.Path
-	}
-	if block.Source == ContextSourceSkill && block.Path != "" {
-		message.Name = filepath.Base(block.Path)
+		if block.Source != ContextSourceProjectContext && block.Source != ContextSourceSkill {
+			message.Name = block.Path
+		}
 	}
 
 	return message
