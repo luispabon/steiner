@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -29,6 +30,71 @@ func renderViewportWithScrollbarOriginal(viewportInner, scrollbar string, viewpo
 		merged = append(merged, vpLines[i]+scLines[i])
 	}
 	return strings.Join(merged, "\n")
+}
+
+func inputBackgroundEscape(t *testing.T, m *Model) string {
+	t.Helper()
+	hex := strings.TrimPrefix(theme.ColorHex(m.styles.UserBg.GetBackground()), "#")
+	if len(hex) != 6 {
+		t.Fatalf("unexpected user background %q", hex)
+	}
+	values := make([]uint64, 3)
+	for i, part := range []string{hex[0:2], hex[2:4], hex[4:6]} {
+		value, err := strconv.ParseUint(part, 16, 8)
+		if err != nil {
+			t.Fatalf("parse user background %q: %v", hex, err)
+		}
+		values[i] = value
+	}
+	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", values[0], values[1], values[2])
+}
+
+func TestRenderInputViewReappliesUserBackground(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "placeholder"},
+		{name: "multiline", value: "first line\nsecond line"},
+		{name: "wrapped", value: strings.Repeat("wrapped ", 80)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newInputViewTestModel(t)
+			m.input.SetValue(tt.value)
+			if tt.value == "" {
+				m.input.Placeholder = "placeholder text"
+			}
+
+			rendered := m.renderInputViewUncached(m.contentWidth())
+			lines := strings.Split(rendered, "\n")
+			if len(lines) < 3 {
+				t.Fatalf("rendered input has %d rows, want prompt padding and content", len(lines))
+			}
+
+			background := inputBackgroundEscape(t, m)
+			rail := m.styles.UserBar.Background(m.styles.UserBg.GetBackground()).Render("┃")
+			rail = strings.TrimSuffix(rail, "\x1b[0m")
+			for row, line := range lines {
+				if !strings.Contains(line, "┃") {
+					t.Fatalf("row %d has no input rail", row)
+				}
+				if !strings.Contains(line, background) {
+					t.Fatalf("row %d has no explicit user background", row)
+				}
+				if !strings.Contains(line, rail) {
+					t.Fatalf("row %d rail does not use UserBar with user background", row)
+				}
+			}
+			if !strings.Contains(rendered, "\x1b[0m"+background) {
+				if !strings.Contains(rendered, "\x1b[m"+background) && !strings.Contains(rendered, "\x1b[0m"+background) {
+					t.Fatalf("rendered input does not reapply user background after an ANSI reset: %q", rendered)
+				}
+			}
+		})
+	}
 }
 
 func TestRenderViewportWithScrollbar(t *testing.T) {
