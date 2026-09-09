@@ -72,6 +72,26 @@ func TestFormatCacheStatsReportWithObservations(t *testing.T) {
 	if !strings.Contains(got, "### Last hour") {
 		t.Fatalf("report = %q, want to contain '### Last hour'", got)
 	}
+
+	// Should contain the per-request columns: 1 request, 50 uncached tokens,
+	// 50 cached tokens (cache read only, no cache create).
+	if !strings.Contains(got, "Uncached/req") || !strings.Contains(got, "Cached/req") {
+		t.Fatalf("report = %q, want per-request column headers", got)
+	}
+	if !strings.Contains(got, "| 50 | 50 |") {
+		t.Fatalf("report = %q, want a row with uncached/req=50 and cached/req=50", got)
+	}
+}
+
+func TestFormatCacheStatsReportNoRequestsRendersDash(t *testing.T) {
+	got := formatPerRequest(0, false)
+	if got != "—" {
+		t.Fatalf("formatPerRequest(0, false) = %q, want %q", got, "—")
+	}
+	got = formatPerRequest(13.2, true)
+	if got != "13" {
+		t.Fatalf("formatPerRequest(13.2, true) = %q, want %q", got, "13")
+	}
 }
 
 func TestFormatCacheStatsReportZeroHitRate(t *testing.T) {

@@ -29,18 +29,22 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 	if sessionReport.TotalInputTokens == 0 {
 		sb.WriteString("_No cache-capable calls in this session._\n")
 	} else {
-		sb.WriteString("| Provider | Model | Hit rate | Cached / Total |\n")
-		sb.WriteString("|----------|-------|----------|----------------|\n")
+		sb.WriteString("| Provider | Model | Hit rate | Cached / Total | Uncached/req | Cached/req |\n")
+		sb.WriteString("|----------|-------|----------|----------------|--------------|------------|\n")
 
 		hitRateStr := "—"
 		if rate, ok := sessionReport.HitRate(); ok {
 			hitRateStr = fmt.Sprintf("%.1f%%", rate*100)
 		}
+		uncachedPerReqStr := formatPerRequest(sessionReport.UncachedPerRequest())
+		cachedPerReqStr := formatPerRequest(sessionReport.CachedPerRequest())
 
-		fmt.Fprintf(&sb, "| — | — | %s | %d / %d |\n",
+		fmt.Fprintf(&sb, "| — | — | %s | %d / %d | %s | %s |\n",
 			hitRateStr,
 			sessionReport.CacheReadTokens,
 			sessionReport.TotalInputTokens,
+			uncachedPerReqStr,
+			cachedPerReqStr,
 		)
 	}
 
@@ -75,8 +79,8 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 				return strings.Compare(a.BackendModelID, b.BackendModelID)
 			})
 
-			sb.WriteString("| Provider | Model | Hit rate | Cached / Total |\n")
-			sb.WriteString("|----------|-------|----------|----------------|\n")
+			sb.WriteString("| Provider | Model | Hit rate | Cached / Total | Uncached/req | Cached/req |\n")
+			sb.WriteString("|----------|-------|----------|----------------|--------------|------------|\n")
 
 			for _, row := range report.Rows {
 				hitRateStr := "—"
@@ -85,12 +89,14 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 				}
 
 				cachedTotal := row.CacheReadTokens + row.InputTokens + row.CacheCreateTokens
-				fmt.Fprintf(&sb, "| %s | %s | %s | %d / %d |\n",
+				fmt.Fprintf(&sb, "| %s | %s | %s | %d / %d | %s | %s |\n",
 					row.ProviderAlias,
 					row.BackendModelID,
 					hitRateStr,
 					row.CacheReadTokens,
 					cachedTotal,
+					formatPerRequest(row.UncachedPerRequest()),
+					formatPerRequest(row.CachedPerRequest()),
 				)
 			}
 		}
@@ -103,6 +109,15 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 	}
 
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// formatPerRequest renders a per-request token average, or "—" when there
+// were no requests to average over.
+func formatPerRequest(avg float64, ok bool) string {
+	if !ok {
+		return "—"
+	}
+	return fmt.Sprintf("%.0f", avg)
 }
 
 func (m *Model) executeOpenCacheStatsAction() (tea.Model, tea.Cmd) {

@@ -209,11 +209,12 @@ func IsStreamRequiredError(err error) bool {
 		(strings.Contains(strings.ToLower(httpErr.Body), "must") || strings.Contains(strings.ToLower(httpErr.Body), "required"))
 }
 
-func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, skipNonStream *bool) (provider.ChatResponse, time.Time, error) {
+func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, skipNonStream *bool, prefixHash string, sharedPrefixMessages int) (provider.ChatResponse, time.Time, error) {
 	chatRequest.Messages = stripImagesIfVisionDisabled(req.ResolvedModel.Vision, chatRequest.Messages, req.ResolvedModel.Alias, turn, req.Events, req.VisionCapabilities)
 	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream)
 	if err == nil {
 		recordModelUsage(req, response.Usage)
+		emitCacheDiagnostic(req, response.Usage, turn, prefixHash, sharedPrefixMessages)
 		return response, firstChunkTime, nil
 	}
 	if !shouldRetryWithoutImages(err, chatRequest.Messages) {
@@ -258,6 +259,7 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 	retryResp, retryFirst, retryErr := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream)
 	if retryErr == nil {
 		recordModelUsage(req, retryResp.Usage)
+		emitCacheDiagnostic(req, retryResp.Usage, turn, prefixHash, sharedPrefixMessages)
 	}
 	return retryResp, retryFirst, retryErr
 }
