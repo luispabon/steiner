@@ -314,7 +314,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string, palette Palet
 			Width(1),
 
 		ContentPaneWithScrollbar: lipgloss.NewStyle().
-			Background(lipgloss.Color(BgElev)).
+			Background(lipgloss.Color(palette.ContentBG)).
 			PaddingLeft(3).
 			PaddingRight(2),
 
@@ -329,9 +329,9 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string, palette Palet
 			Background(lipgloss.Color(UserSoft)),
 
 		Scrollbar: lipgloss.NewStyle().
-			Background(lipgloss.Color(BgElev)).
+			Background(lipgloss.Color(palette.ContentBG)).
 			Foreground(lipgloss.Color(BorderSoft)),
-		ScrollbarTrack: lipgloss.NewStyle().Background(lipgloss.Color(BgElev)),
+		ScrollbarTrack: lipgloss.NewStyle().Background(lipgloss.Color(palette.ContentBG)),
 
 		SelectionStyle: lipgloss.NewStyle().Background(lipgloss.Color("#3a4a5a")),
 

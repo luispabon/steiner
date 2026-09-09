@@ -996,15 +996,17 @@ This block also applies to each child sub-agent's own context manager, not just 
 
 ## TUI preferences
 
-TUI preferences are stored separately from the main config in `~/.config/steiner/prefs.yaml`. They are updated by slash commands in the interactive TUI, not by editing the config YAML.
+TUI preferences are stored separately from the main config in `~/.config/steiner/prefs.yaml`. Accent, thinking, and sidebar position are updated by slash commands in the interactive TUI. Edit background fields directly in this preferences file.
 
 | Field              | Type   | Default | Description                                                                                                                                                                                                                                                                                                      |
 | ------------------ | ------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `accent`           | string | `amber` | Accent colour preset for the TUI. Valid values: `amber`, `coral`, `rose`, `magenta`, `gold`, `violet`, `indigo`, `blue`, `cyan`, `teal`, `green`, `mint`, `lime`, `red`, `pink`, `sky`, `lavender`, `terracotta`, `yellow`, `purple`, or `random`. `random` selects a different concrete preset on each startup. |
 | `show_thinking`    | bool   | `true`  | When `true`, model reasoning/thinking tokens are rendered in the TUI transcript.                                                                                                                                                                                                                                 |
-| `sidebar_position` | string | `left`  | Position of the sidebar panel: `left` or `right`.                                                                                                                                                                                                                                                                |
+| `sidebar_position` | string | `left`  | Position of the sidebar panel: `left` or `right`. |
+| `sidebar_bg`      | string | `#000000` | Sidebar seamless background. Quote YAML `#RRGGBB`; empty or missing uses default. |
+| `content_bg`      | string | `#0a0a0a` | Main content seamless background. Quote YAML `#RRGGBB`; empty or missing uses default. |
 
-Use `/accent` in the TUI to open a colour picker (all 20 presets with colour swatches, listed in chromatic order), or `/accent <preset>` to set directly. Use `/thinking` to toggle thinking display. Use `/sidebar` to move the sidebar.
+Use `/accent` in the TUI to open a colour picker (all 20 presets with colour swatches, listed in chromatic order), or `/accent <preset>` to set directly. Use `/thinking` to toggle thinking display. Use `/sidebar` to move the sidebar. Invalid non-empty background colors are rejected.
 
 ---
 

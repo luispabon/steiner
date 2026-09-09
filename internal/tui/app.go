@@ -14,6 +14,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui/prefs"
+	"github.com/luispabon/steiner/internal/tui/theme"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
@@ -183,6 +184,9 @@ func NewApp(cfg Config) (*App, error) {
 	}
 	if cfg.ContentBG == "" {
 		cfg.ContentBG = p.ContentBG
+	}
+	if _, err := theme.ResolvePalette(cfg.SidebarBG, cfg.ContentBG); err != nil {
+		return nil, fmt.Errorf("validate TUI configuration: %w", err)
 	}
 	return &App{
 		cfg:    cfg,

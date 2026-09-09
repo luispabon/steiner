@@ -398,8 +398,8 @@ func (b *contentBuffer) baseTextStyle() lipgloss.Style {
 
 // setGlamourStyleSheet rebuilds the glamour stylesheet and invalidates the cached
 // renderer so the next markdown render picks up the new accent colour.
-func (b *contentBuffer) setGlamourStyleSheet(accentHex string) {
-	b.glamourStyleSheet = theme.BuildGlamourStyleSheet(accentHex)
+func (b *contentBuffer) setGlamourStyleSheet(accentHex string, palettes ...theme.Palette) {
+	b.glamourStyleSheet = theme.BuildGlamourStyleSheet(accentHex, palettes...)
 	b.renderer = nil
 	b.renderWidth = 0
 }

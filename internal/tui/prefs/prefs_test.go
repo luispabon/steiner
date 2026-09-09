@@ -18,6 +18,9 @@ func TestDefaultPrefs(t *testing.T) {
 	if p.SidebarPosition != "left" {
 		t.Errorf("DefaultPrefs().SidebarPosition = %q, want %q", p.SidebarPosition, "left")
 	}
+	if p.SidebarBG != "" || p.ContentBG != "" {
+		t.Fatalf("DefaultPrefs() background fields = %q, %q, want empty unresolved values", p.SidebarBG, p.ContentBG)
+	}
 }
 
 func TestLoadDefaultsWhenFileMissing(t *testing.T) {
@@ -53,7 +56,7 @@ func TestLoadReturnsDefaultsOnBadYAML(t *testing.T) {
 func TestSaveLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
-	p := Prefs{Accent: "mint", ShowThinking: false, SidebarPosition: "right"}
+	p := Prefs{Accent: "mint", ShowThinking: false, SidebarPosition: "right", SidebarBG: "#112233", ContentBG: "#445566"}
 	if err := Save(p); err != nil {
 		t.Fatalf("Save() = %v", err)
 	}
@@ -89,6 +92,46 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Name() != "prefs.yaml" {
 		t.Errorf("config dir contents: got %v, want [prefs.yaml]", entries)
+	}
+}
+
+func TestLoadRejectsInvalidBackground(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	cfgDir := filepath.Join(dir, ".config", "steiner")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "prefs.yaml"), []byte("sidebar_bg: \"red\"\\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() accepted invalid sidebar_bg")
+	}
+}
+
+func TestSaveRejectsInvalidBackground(t *testing.T) {
+	if err := Save(Prefs{SidebarBG: "#12345"}); err == nil {
+		t.Fatal("Save() accepted invalid sidebar_bg")
+	}
+}
+
+func TestLoadCanonicalizesBackground(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	cfgDir := filepath.Join(dir, ".config", "steiner")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "prefs.yaml"), []byte("sidebar_bg: \"#AABBCC\"\ncontent_bg: \"#DDeeFF\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.SidebarBG != "#aabbcc" || p.ContentBG != "#ddeeff" {
+		t.Fatalf("canonical backgrounds = %q, %q", p.SidebarBG, p.ContentBG)
 	}
 }
 

@@ -244,6 +244,48 @@ func TestWithBg_differentBg(t *testing.T) {
 	}
 }
 
+func TestResolvePalette(t *testing.T) {
+	tests := []struct {
+		name             string
+		sidebar, content string
+		want             Palette
+		wantErr          bool
+	}{
+		{name: "defaults", want: DefaultPalette()},
+		{name: "canonical", sidebar: "#AABBCC", content: "#DDeeFF", want: Palette{SidebarBG: "#aabbcc", ContentBG: "#ddeeff"}},
+		{name: "bad sidebar", sidebar: "red", content: "#112233", wantErr: true},
+		{name: "bad content", sidebar: "#112233", content: "#12345", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ResolvePalette(tt.sidebar, tt.content)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ResolvePalette() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Fatalf("ResolvePalette() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildStylesUsesPaletteForContentSurfaces(t *testing.T) {
+	palette := Palette{SidebarBG: "#112233", ContentBG: "#445566"}
+	styles := BuildStyles(AccentAmber, palette)
+	if styles.Palette != palette {
+		t.Fatalf("styles palette = %#v, want %#v", styles.Palette, palette)
+	}
+	if got := styles.Scrollbar.GetBackground(); got == nil || got != lipgloss.Color(palette.ContentBG) {
+		t.Fatalf("scrollbar background = %v, want %s", got, palette.ContentBG)
+	}
+	if got := styles.ScrollbarTrack.GetBackground(); got == nil || got != lipgloss.Color(palette.ContentBG) {
+		t.Fatalf("scrollbar track background = %v, want %s", got, palette.ContentBG)
+	}
+	if got := styles.ContentPaneWithScrollbar.GetBackground(); got == nil || got != lipgloss.Color(palette.ContentBG) {
+		t.Fatalf("content pane background = %v, want %s", got, palette.ContentBG)
+	}
+}
+
 func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 	styles := BuildStyles(AccentAmber)
 

@@ -64,9 +64,11 @@ func Load() (Prefs, error) {
 	if err := yaml.Unmarshal(data, &p); err != nil {
 		return DefaultPrefs(), err
 	}
-	if _, err := theme.ResolvePalette(p.SidebarBG, p.ContentBG); err != nil {
+	palette, err := theme.ResolvePalette(p.SidebarBG, p.ContentBG)
+	if err != nil {
 		return DefaultPrefs(), fmt.Errorf("validate TUI preferences: %w", err)
 	}
+	p.SidebarBG, p.ContentBG = palette.SidebarBG, palette.ContentBG
 	return p, nil
 }
 
