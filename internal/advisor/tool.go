@@ -122,6 +122,7 @@ type handlerState struct {
 	cacheKey       string
 	cacheMu        sync.Mutex
 	previousPrefix []string
+	fingerprint    provider.WireCacheDiagnostics
 }
 
 func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[string]any) (any, error) {
@@ -159,7 +160,8 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	// spent tools.
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses, in.Question, advisorDisplayPaths(files)))
 	messages := buildMessages(snapshot, in.Question, files)
-	response, err := adviseWithMessages(ctx, deps.Provider, deps.Model, messages, deps.Config.MaxTokens, deps.Events, s.cacheKey)
+	diagnostic := &advisorDiagnosticContext{state: s, writer: deps.Diagnostics}
+	response, err := adviseWithMessages(ctx, deps.Provider, deps.Model, messages, deps.Config.MaxTokens, deps.Events, s.cacheKey, diagnostic)
 	if err != nil {
 		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{
 			Model:     deps.Model.BackendModelID,
@@ -171,7 +173,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	}
 
 	recordAdvisorUsage(deps.UsageRecorder, deps.Model, response.Usage)
-	s.emitCacheDiagnostic(deps.Diagnostics, deps.Model, response.Usage, messages)
+	s.emitCacheDiagnostic(deps.Diagnostics, deps.Model, response.Usage, messages, diagnostic.fingerprint)
 
 	note := strings.TrimSpace(response.Message.Content)
 	truncated := response.FinishReason == "length"
@@ -233,10 +235,16 @@ func emitEvent(sink output.EventSink, event output.Event) {
 
 //nolint:unparam // wrapper preserves the focused advisor test seam.
 func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, conversation []provider.Message, question string, files []advisorFile, maxTokens *int, events output.EventSink, cacheKey string) (provider.ChatResponse, error) {
-	return adviseWithMessages(ctx, prov, rm, buildMessages(conversation, question, files), maxTokens, events, cacheKey)
+	return adviseWithMessages(ctx, prov, rm, buildMessages(conversation, question, files), maxTokens, events, cacheKey, nil)
 }
 
-func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, messages []provider.Message, maxTokens *int, events output.EventSink, cacheKey string) (provider.ChatResponse, error) {
+type advisorDiagnosticContext struct {
+	state       *handlerState
+	writer      *diagnostics.Writer
+	fingerprint provider.WireCacheDiagnostics
+}
+
+func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, messages []provider.Message, maxTokens *int, events output.EventSink, cacheKey string, diagnostic *advisorDiagnosticContext) (provider.ChatResponse, error) {
 	if prov == nil {
 		return provider.ChatResponse{}, fmt.Errorf("advisor: provider is required")
 	}
@@ -268,6 +276,7 @@ func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider
 		if drainErr != nil {
 			return provider.ChatResponse{}, fmt.Errorf("advisor: %w", drainErr)
 		}
+		emitWireCacheDiagnostic(ctx, prov, req, true, diagnostic)
 		return resp, nil
 	}
 
@@ -283,9 +292,11 @@ func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider
 			if drainErr != nil {
 				return provider.ChatResponse{}, fmt.Errorf("advisor: %w", drainErr)
 			}
+			emitWireCacheDiagnostic(ctx, prov, req, true, diagnostic)
 			return resp, nil
 		}
 		return provider.ChatResponse{}, fmt.Errorf("advisor: %w", err)
 	}
+	emitWireCacheDiagnostic(ctx, prov, req, false, diagnostic)
 	return response, nil
 }

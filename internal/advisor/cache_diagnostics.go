@@ -1,6 +1,7 @@
 package advisor
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,9 +24,25 @@ type cachePayload struct {
 	PrefixHash           string `json:"prefix_hash,omitempty"`
 	PrefixMessageCount   int    `json:"prefix_message_count,omitempty"`
 	SharedPrefixMessages int    `json:"shared_prefix_messages,omitempty"`
+	CacheablePrefixHash  string `json:"cacheable_prefix_hash,omitempty"`
+	SharedPrefixHash     string `json:"shared_prefix_hash,omitempty"`
+	BodyKeyHash          string `json:"body_key_hash,omitempty"`
+	SessionIDHash        string `json:"session_id_hash,omitempty"`
+	ThreadIDHash         string `json:"thread_id_hash,omitempty"`
+	OriginatorHash       string `json:"originator_hash,omitempty"`
+	AffinityKeysMatch    bool   `json:"affinity_keys_match"`
+	Stream               bool   `json:"stream"`
+	HasTools             bool   `json:"has_tools"`
+	ToolCount            int    `json:"tool_count"`
+	HasReasoning         bool   `json:"has_reasoning"`
+	Store                bool   `json:"store"`
 }
 
-func (s *handlerState) emitCacheDiagnostic(writer *diagnostics.Writer, model provider.ResolvedModel, usage *provider.UsageStats, messages []provider.Message) {
+func (s *handlerState) emitCacheDiagnostic(writer *diagnostics.Writer, model provider.ResolvedModel, usage *provider.UsageStats, messages []provider.Message, fingerprints ...provider.WireCacheDiagnostics) {
+	var fingerprint provider.WireCacheDiagnostics
+	if len(fingerprints) > 0 {
+		fingerprint = fingerprints[0]
+	}
 	if writer == nil || !writer.Enabled(diagnostics.KindCache) {
 		return
 	}
@@ -46,7 +63,33 @@ func (s *handlerState) emitCacheDiagnostic(writer *diagnostics.Writer, model pro
 		ProviderAlias: model.ProviderAlias, BackendModelID: model.BackendModelID, ProviderType: string(model.EffectiveProviderType),
 		PromptTokens: prompt, CacheReadTokens: read, CacheCreateTokens: create, CompletionTokens: completion,
 		CacheKeyHash: shortHash(s.cacheKey), PrefixHash: hashMessages(prefix), PrefixMessageCount: len(prefix), SharedPrefixMessages: shared,
+		CacheablePrefixHash: fingerprint.CacheablePrefixHash, SharedPrefixHash: fingerprint.SharedPrefixHash,
+		BodyKeyHash: fingerprint.BodyKeyHash, SessionIDHash: fingerprint.SessionIDHash, ThreadIDHash: fingerprint.ThreadIDHash,
+		OriginatorHash: fingerprint.OriginatorHash, AffinityKeysMatch: fingerprint.AffinityKeysMatch, Stream: fingerprint.Stream,
+		HasTools: fingerprint.HasTools, ToolCount: fingerprint.ToolCount, HasReasoning: fingerprint.HasReasoning, Store: fingerprint.Store,
 	}})
+}
+
+func emitWireCacheDiagnostic(ctx context.Context, prov provider.Provider, request provider.ChatRequest, stream bool, diagnostic *advisorDiagnosticContext) {
+	if diagnostic == nil || diagnostic.writer == nil || !diagnostic.writer.Enabled(diagnostics.KindCache) || diagnostic.state == nil {
+		return
+	}
+	fingerprinter, ok := prov.(provider.CacheFingerprinter)
+	if !ok {
+		return
+	}
+	prefix := request.Messages
+	if len(prefix) > 0 {
+		prefix = prefix[:len(prefix)-1]
+	}
+	current := perMessageHashes(prefix)
+	diagnostic.state.cacheMu.Lock()
+	shared := longestCommonPrefixLen(diagnostic.state.previousPrefix, current)
+	diagnostic.state.cacheMu.Unlock()
+	fingerprint, err := fingerprinter.CacheFingerprint(ctx, request, stream, len(prefix), shared)
+	if err == nil {
+		diagnostic.fingerprint = fingerprint
+	}
 }
 
 func perMessageHashes(messages []provider.Message) []string {

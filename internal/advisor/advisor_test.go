@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/usagestats"
@@ -20,6 +21,7 @@ type fakeProvider struct {
 	err            error
 	streamChunks   []provider.ChatChunk
 	streamErr      error
+	fingerprints   int
 }
 
 func (p *fakeProvider) ChatCompletion(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
@@ -47,6 +49,29 @@ func (p *fakeProvider) StreamChatCompletion(_ context.Context, req provider.Chat
 }
 
 func (p *fakeProvider) SupportsUsageStats() bool { return true }
+
+func (p *fakeProvider) CacheFingerprint(_ context.Context, _ provider.ChatRequest, stream bool, _, shared int) (provider.WireCacheDiagnostics, error) {
+	p.fingerprints++
+	return provider.WireCacheDiagnostics{CacheablePrefixHash: "cache-prefix", SharedPrefixHash: "shared-prefix", Stream: stream}, nil
+}
+
+func TestWireCacheDiagnosticIsGatedAndTracksSharedState(t *testing.T) {
+	prov := &fakeProvider{}
+	req := provider.ChatRequest{Messages: []provider.Message{{Role: provider.MessageRoleSystem, Content: "stable"}, {Role: provider.MessageRoleUser, Content: "suffix"}}}
+	state := &handlerState{}
+	emitWireCacheDiagnostic(context.Background(), prov, req, false, &advisorDiagnosticContext{state: state})
+	if prov.fingerprints != 0 {
+		t.Fatalf("fingerprints with nil diagnostics = %d, want 0", prov.fingerprints)
+	}
+	writer, err := diagnostics.New(diagnostics.Options{Dir: t.TempDir(), Streams: diagnostics.Streams{Cache: true}})
+	if err != nil {
+		t.Fatalf("diagnostics.New() error = %v", err)
+	}
+	emitWireCacheDiagnostic(context.Background(), prov, req, false, &advisorDiagnosticContext{state: state, writer: writer})
+	if prov.fingerprints != 1 {
+		t.Fatalf("fingerprints with enabled diagnostics = %d, want 1", prov.fingerprints)
+	}
+}
 
 func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 	snapshot := []provider.Message{
