@@ -2,7 +2,7 @@ BIN_DIR := bin
 GO_FILES := $(shell git ls-files '*.go')
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
 COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "none")
-DIRTY := $(shell git diff --quiet || echo true)
+DIRTY := $(shell git diff --quiet HEAD -- || echo true)
 BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")
 GO_VERSION := $(shell go version | cut -d' ' -f3 2>/dev/null || echo "unknown")
 LDFLAGS := -ldflags="-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dirty=$(DIRTY) -X main.buildDate=$(BUILD_DATE) -X main.goVersion=$(GO_VERSION)"

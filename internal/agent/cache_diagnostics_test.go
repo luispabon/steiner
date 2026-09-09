@@ -186,6 +186,16 @@ func TestPerMessageHashes_DistinctContentDiffers(t *testing.T) {
 	}
 }
 
+func TestPerMessageHashes_DifferentToolArgumentsDiffer(t *testing.T) {
+	first := provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "one"}}}}
+	second := provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "two"}}}}
+	firstHash := perMessageHashes([]provider.Message{first})[0]
+	secondHash := perMessageHashes([]provider.Message{second})[0]
+	if firstHash == secondHash {
+		t.Fatalf("tool-call hashes = %q, want different hashes for different arguments", firstHash)
+	}
+}
+
 func TestLongestCommonPrefixLen_AppendOnlyKeepsFullPrefix(t *testing.T) {
 	prev := perMessageHashes([]provider.Message{
 		{Role: provider.MessageRoleUser, Content: "one"},

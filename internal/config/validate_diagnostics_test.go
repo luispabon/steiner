@@ -1,10 +1,29 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestInsideProjectRootResolvesDiagnosticsSymlink(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "state")
+	if err := os.Mkdir(inside, 0o700); err != nil {
+		t.Fatalf("mkdir inside: %v", err)
+	}
+	link := filepath.Join(t.TempDir(), "diagnostics")
+	if err := os.Symlink(inside, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if !insideProjectRoot(link, root) {
+		t.Fatalf("insideProjectRoot(%q, %q) = false, want true for symlink target inside root", link, root)
+	}
+	if insideProjectRoot(filepath.Join(t.TempDir(), "external"), root) {
+		t.Fatal("insideProjectRoot() = true for external path")
+	}
+}
 
 func TestValidateDiagnosticsConfig(t *testing.T) {
 	root := "/home/dev/project"
