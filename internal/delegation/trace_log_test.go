@@ -147,6 +147,33 @@ func TestTraceLogger_CreatesParentDirs(t *testing.T) {
 	}
 }
 
+func TestTraceLogger_ExactPermissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "delegation.log")
+
+	logger, err := NewTraceLogger(path)
+	if err != nil {
+		t.Fatalf("NewTraceLogger: %v", err)
+	}
+	defer logger.Close() //nolint:errcheck
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat file: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("file mode = %o, want 0o600", info.Mode().Perm())
+	}
+
+	dirInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat dir: %v", err)
+	}
+	if dirInfo.Mode().Perm() != 0o700 {
+		t.Errorf("dir mode = %o, want 0o700", dirInfo.Mode().Perm())
+	}
+}
+
 func TestLogPath(t *testing.T) {
 	tests := []struct {
 		input string

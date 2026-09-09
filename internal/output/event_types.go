@@ -293,7 +293,19 @@ type UserInputEvent struct {
 	Images  []ImageBlock `json:"images,omitempty"`
 }
 
+// captureAPIRequestBodies gates whether APIRequestEvent's JSON encoding
+// includes full message/tool/block content. Off by default so the session
+// log stays bounded (one prior session produced 25MB from these fields
+// alone). In-memory consumers (e.g. interactive.snapshotSink for context
+// reporting) still see the full fields regardless of this gate; only the
+// JSON encoding is affected. Replaced by diagnostics.capture_bodies once
+// stage 1 of the unified-diagnostics plan lands.
+const captureAPIRequestBodies = false
+
 // APIRequestEvent captures the provider request payload sent for a turn.
+// Messages, Tools and Blocks are always populated in memory for in-process
+// consumers; MarshalJSON strips them unless captureAPIRequestBodies is set,
+// substituting the bounded MessageCount/MessageHashes/*Bytes fields instead.
 type APIRequestEvent struct {
 	Model                 string                  `json:"model,omitempty"`
 	Messages              []provider.Message      `json:"messages,omitempty"`
@@ -304,6 +316,35 @@ type APIRequestEvent struct {
 	EstimatedPromptTokens int                     `json:"estimated_prompt_tokens,omitempty"`
 	RawPromptTokens       int                     `json:"raw_prompt_tokens,omitempty"`
 	Kind                  string                  `json:"kind,omitempty"`
+	Turn                  int                     `json:"turn,omitempty"`
+	RequestID             string                  `json:"request_id,omitempty"`
+	// MessageCount, MessageHashes, PromptBytes, ToolsBytes and BlocksBytes are
+	// fixed-size scalars derived from Messages/Tools/Blocks so a parser can
+	// spot prefix divergence and payload growth without the log carrying
+	// message bodies. MessageHashes are computed over role, content and tool
+	// call name/count (never tool call arguments or image data), so a
+	// tool-call-only message still hashes distinctly from an empty one.
+	// MessageCount/PromptBytes/ToolsBytes/BlocksBytes intentionally lack
+	// omitempty: zero is a meaningful measurement (e.g. an empty request),
+	// not an absent field.
+	MessageCount  int      `json:"message_count"`
+	MessageHashes []string `json:"message_hashes,omitempty"`
+	PromptBytes   int      `json:"prompt_bytes"`
+	ToolsBytes    int      `json:"tools_bytes"`
+	BlocksBytes   int      `json:"blocks_bytes"`
+}
+
+// MarshalJSON bounds the encoded payload: full Messages/Tools/Blocks content
+// is included only when captureAPIRequestBodies is set.
+func (e APIRequestEvent) MarshalJSON() ([]byte, error) {
+	type alias APIRequestEvent
+	out := alias(e)
+	if !captureAPIRequestBodies {
+		out.Messages = nil
+		out.Tools = nil
+		out.Blocks = nil
+	}
+	return json.Marshal(out)
 }
 
 // APIResponseEvent captures the provider response payload for a turn.
@@ -312,6 +353,8 @@ type APIResponseEvent struct {
 	Usage        any    `json:"usage,omitempty"`
 	FinishReason string `json:"finish_reason,omitempty"`
 	Error        string `json:"error,omitempty"`
+	Turn         int    `json:"turn,omitempty"`
+	RequestID    string `json:"request_id,omitempty"`
 }
 
 // RunStartedEvent marks the start of a top-level run or compaction flow.

@@ -1,9 +1,11 @@
 package output
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"testing"
 )
 
@@ -274,25 +276,78 @@ func TestParseLevel(t *testing.T) {
 	}
 }
 
-func TestSetupLogger(t *testing.T) {
+func TestSlogPath(t *testing.T) {
 	tests := []struct {
-		level    string
-		enabled  slog.Level
-		disabled slog.Level
+		name  string
+		input string
+		want  string
 	}{
-		{"trace", slog.Level(-8), slog.LevelError},
-		{"debug", slog.LevelDebug, slog.LevelError},
-		{"info", slog.LevelInfo, slog.LevelError},
-		{"warn", slog.LevelWarn, slog.LevelError},
-		{"error", slog.LevelError, slog.LevelError},
+		{name: "empty input", input: "", want: ""},
+		{name: "whitespace only", input: "   ", want: ""},
+		{name: "with .log extension", input: "foo.log", want: "foo.slog"},
+		{name: "absolute path with .log extension", input: "/tmp/session.log", want: "/tmp/session.slog"},
+		{name: "no extension", input: "myfile", want: "myfile.slog"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.level, func(t *testing.T) {
-			logger := setupLogger(tt.level)
-			ctx := context.Background()
-			if !logger.Enabled(ctx, tt.enabled) {
-				t.Errorf("setupLogger(%q).Enabled(%v) = false, want true", tt.level, tt.enabled)
+		t.Run(tt.name, func(t *testing.T) {
+			got := SlogPath(tt.input)
+			if got != tt.want {
+				t.Errorf("SlogPath(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestConfigureLogger(t *testing.T) {
+	tests := []struct {
+		name      string
+		level     string
+		wantDebug bool
+		wantInfo  bool
+	}{
+		{name: "debug level emits debug", level: "debug", wantDebug: true},
+		{name: "info level drops debug", level: "info", wantInfo: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			ConfigureLogger(&buf, tt.level)
+
+			slog.Debug("debug message")
+			slog.Info("info message")
+
+			got := buf.String()
+			if tt.wantDebug && !strings.Contains(got, "debug message") {
+				t.Fatalf("expected debug message in output, got %q", got)
+			}
+			if tt.wantInfo {
+				if strings.Contains(got, "debug message") {
+					t.Fatalf("expected debug message to be dropped at info level, got %q", got)
+				}
+				if !strings.Contains(got, "info message") {
+					t.Fatalf("expected info message in output, got %q", got)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigureLoggerDiscard(t *testing.T) {
+	var first bytes.Buffer
+	ConfigureLogger(&first, "debug")
+	slog.Debug("goes to first")
+	if !strings.Contains(first.String(), "goes to first") {
+		t.Fatalf("expected message in first buffer, got %q", first.String())
+	}
+
+	var second bytes.Buffer
+	ConfigureLogger(&second, "debug")
+	slog.Log(context.Background(), slog.LevelDebug, "goes to second")
+	if strings.Contains(first.String(), "goes to second") {
+		t.Fatalf("logger was not reconfigured away from first")
+	}
+	if !strings.Contains(second.String(), "goes to second") {
+		t.Fatalf("expected message in second buffer, got %q", second.String())
 	}
 }
