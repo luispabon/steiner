@@ -94,6 +94,7 @@ type parallelHarness struct {
 	providerFollowerHold chan struct{}
 	providerOverlap      chan struct{}
 	providerOverlapOnce  sync.Once
+	followerDispatch     chan struct{}
 	events               chan output.Event
 	target               int
 	release              func(string) <-chan struct{}
@@ -106,13 +107,14 @@ type parallelHarness struct {
 
 func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 	h := &parallelHarness{
-		allStarted:      make(chan struct{}),
-		providerStarted: make(chan struct{}),
-		done:            make(chan struct{}),
-		events:          make(chan output.Event, 1024),
-		target:          n,
-		workDir:         "/tmp",
-		preResponse:     make(chan struct{}),
+		allStarted:       make(chan struct{}),
+		providerStarted:  make(chan struct{}),
+		done:             make(chan struct{}),
+		events:           make(chan output.Event, 1024),
+		target:           n,
+		workDir:          "/tmp",
+		preResponse:      make(chan struct{}),
+		followerDispatch: make(chan struct{}, n),
 	}
 	h.release = func(string) <-chan struct{} { return h.done }
 	h.provider = &parallelProvider{parent: parent}
@@ -146,6 +148,9 @@ func newParallelHarness(parent provider.ChatResponse, n int) *parallelHarness {
 			}
 		}
 		if h.providerFollowerHold != nil && task != h.leaderTask.Load().(string) {
+			if h.followerDispatch != nil {
+				h.followerDispatch <- struct{}{}
+			}
 			if h.active.Load() >= 2 {
 				h.providerOverlapOnce.Do(func() { close(h.providerOverlap) })
 			}
@@ -422,11 +427,11 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("leader did not emit its pre-response stream chunk")
 	}
-	// Let emitted chunk finish sink path. It must not release followers.
-	time.Sleep(25 * time.Millisecond)
+	// If the pre-response chunk released the gate, a follower reaches this
+	// provider-dispatch marker before the leader API response.
 	select {
-	case <-h.providerOverlap:
-		t.Fatal("follower provider calls overlapped before leader API response")
+	case <-h.followerDispatch:
+		t.Fatal("follower provider dispatch occurred before leader API response")
 	default:
 	}
 	close(h.provider.streamResponse)
@@ -434,6 +439,13 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 	case <-h.providerOverlap:
 	case <-time.After(10 * time.Second):
 		t.Fatal("follower provider calls did not overlap after API response")
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-h.followerDispatch:
+		case <-time.After(10 * time.Second):
+			t.Fatal("follower provider dispatch did not follow API response")
+		}
 	}
 	if got := h.max.Load(); got < 2 {
 		t.Fatalf("max simultaneous provider calls after release = %d, want at least 2", got)
