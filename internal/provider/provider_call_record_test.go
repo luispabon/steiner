@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -124,6 +125,80 @@ func TestClientChatCompletionEmitsOnePerOutcome(t *testing.T) {
 			}
 			if got := records[0].Attempts; got != tt.wantAttempts {
 				t.Errorf("attempts = %d, want %d", got, tt.wantAttempts)
+			}
+		})
+	}
+}
+
+func TestClientEarlyProviderFailuresEmitOneRecord(t *testing.T) {
+	tests := []struct {
+		name       string
+		stream     bool
+		payloadErr bool
+		paceErr    bool
+	}{
+		{name: "chat payload", payloadErr: true},
+		{name: "stream payload", stream: true, payloadErr: true},
+		{name: "chat pacing", paceErr: true},
+		{name: "stream pacing", stream: true, paceErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logPath := filepath.Join(t.TempDir(), "stream-errors.log")
+			streamErrorLog, err := NewStreamErrorLogger(logPath)
+			if err != nil {
+				t.Fatalf("NewStreamErrorLogger() error = %v", err)
+			}
+			defer func() { _ = streamErrorLog.Close() }()
+
+			wire := &fakeWire{}
+			if tt.payloadErr {
+				wire.payloadErr = errors.New("payload construction failed")
+			}
+			client, _ := newFakeWireClient(t, wire, RetryConfig{})
+			client.streamErrorLog = streamErrorLog
+
+			ctx := context.Background()
+			if tt.paceErr {
+				client.minInterval = time.Hour
+				if err := client.pace(ctx); err != nil {
+					t.Fatalf("prime pace() error = %v", err)
+				}
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+
+			request := ChatRequest{Messages: []Message{{Role: MessageRoleUser, Content: "hi"}}}
+			if tt.stream {
+				ch, err := client.StreamChatCompletion(ctx, request)
+				if tt.paceErr {
+					if !errors.Is(err, context.Canceled) {
+						t.Fatalf("StreamChatCompletion() error = %v, want context.Canceled", err)
+					}
+				} else {
+					if err != nil {
+						t.Fatalf("StreamChatCompletion() error = %v", err)
+					}
+					for range ch {
+					}
+				}
+			} else {
+				if _, err := client.ChatCompletion(ctx, request); err == nil {
+					t.Fatal("ChatCompletion() error = nil, want failure")
+				}
+			}
+
+			records := readStreamErrorRecords(t, logPath)
+			if len(records) != 1 {
+				t.Fatalf("stream error log records = %d, want 1", len(records))
+			}
+			if got, want := records[0].Attempts, 0; got != want {
+				t.Errorf("attempts = %d, want %d before the first attempt", got, want)
+			}
+			if records[0].Error == "" {
+				t.Error("error is empty, want the bounded early failure")
 			}
 		})
 	}
