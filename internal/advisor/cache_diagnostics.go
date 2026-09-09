@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"strconv"
 
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/provider"
@@ -50,17 +52,29 @@ func (s *handlerState) emitCacheDiagnostic(writer *diagnostics.Writer, model pro
 func perMessageHashes(messages []provider.Message) []string {
 	hashes := make([]string, len(messages))
 	for i, message := range messages {
-		data, _ := json.Marshal(message)
-		hashes[i] = shortHash(string(data))
+		hashes[i] = shortHash(canonicalMessage(message))
 	}
 	return hashes
 }
+
+func canonicalMessage(message provider.Message) string {
+	data, err := json.Marshal(message)
+	if err == nil {
+		return string(data)
+	}
+	return fmt.Sprintf("json-marshal-error:%v;message:%T:%#v", err, message, message)
+}
+
 func hashMessages(messages []provider.Message) string {
-	data, err := json.Marshal(messages)
-	if err != nil || len(data) == 0 {
+	var data string
+	for _, message := range messages {
+		canonical := canonicalMessage(message)
+		data += strconv.Itoa(len(canonical)) + ":" + canonical
+	}
+	if data == "" {
 		return ""
 	}
-	return shortHash(string(data))
+	return shortHash(data)
 }
 func longestCommonPrefixLen(previous, current []string) int {
 	n := len(previous)

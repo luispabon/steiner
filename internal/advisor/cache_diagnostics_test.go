@@ -57,6 +57,9 @@ func TestAdvisorCacheDiagnosticsFieldsAndSharedPrefix(t *testing.T) {
 		records = append(records, record)
 	}
 	first, second := records[0].Payload, records[1].Payload
+	if first.SharedPrefixMessages != 0 {
+		t.Fatalf("first shared prefix = %d, want 0", first.SharedPrefixMessages)
+	}
 	if records[0].Kind != diagnostics.KindCache || records[0].Source != diagnostics.SourceAdvisor {
 		t.Fatalf("record identity = %#v, want cache/advisor", records[0])
 	}
@@ -77,12 +80,17 @@ func TestAdvisorCacheDiagnosticsFieldsAndSharedPrefix(t *testing.T) {
 func TestAdvisorCacheDiagnosticsGatingAndNilWriter(t *testing.T) {
 	state := &handlerState{cacheKey: "key"}
 	state.emitCacheDiagnostic(nil, provider.ResolvedModel{}, nil, []provider.Message{{Role: provider.MessageRoleUser, Content: "x"}})
-	writer, err := diagnostics.New(diagnostics.Options{Dir: filepath.Join(t.TempDir(), "diagnostics"), Streams: diagnostics.Streams{Cache: false}})
+	dir := filepath.Join(t.TempDir(), "diagnostics")
+	writer, err := diagnostics.New(diagnostics.Options{Dir: dir, Streams: diagnostics.Streams{Provider: true}})
 	if err != nil {
 		t.Fatalf("diagnostics.New() error = %v", err)
 	}
-	if writer != nil {
-		t.Fatalf("disabled writer = %#v, want nil", writer)
+	state.emitCacheDiagnostic(writer, provider.ResolvedModel{}, nil, []provider.Message{{Role: provider.MessageRoleUser, Content: "x"}})
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cache.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("cache stream exists or stat failed: %v", err)
 	}
 }
 
@@ -114,5 +122,17 @@ func TestAdvisorCacheDiagnosticsDistinctHandlersDoNotSharePrefix(t *testing.T) {
 	}
 	if second.Payload.SharedPrefixMessages != 0 {
 		t.Fatalf("distinct handler shared prefix = %d, want 0", second.Payload.SharedPrefixMessages)
+	}
+}
+
+func TestAdvisorCachePrefixHashHandlesMarshalFailure(t *testing.T) {
+	first := []provider.Message{{Role: provider.MessageRoleUser, ToolCalls: []provider.ToolCall{{Arguments: map[string]any{"bad": func() {}}}}}}
+	second := []provider.Message{{Role: provider.MessageRoleUser, ToolCalls: []provider.ToolCall{{Arguments: map[string]any{"bad": func(int) {}}}}}}
+	firstHash, secondHash := hashMessages(first), hashMessages(second)
+	if firstHash == "" || secondHash == "" {
+		t.Fatal("marshal-failure prefix hash is empty")
+	}
+	if firstHash == secondHash {
+		t.Fatalf("marshal-failure prefix hashes match: %q", firstHash)
 	}
 }
