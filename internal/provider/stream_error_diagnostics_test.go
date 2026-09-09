@@ -1,7 +1,10 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -89,17 +92,42 @@ func TestStreamErrorLoggerNoPathNoDiagnostics(t *testing.T) {
 	}
 }
 
-func TestClientCarriesDiagnosticsWriter(t *testing.T) {
-	writer := newProviderDiagnostics(t, t.TempDir())
-	client, err := NewOpenAICompat(ClientConfig{
-		BaseURL:     "http://localhost:11434/v1",
-		Model:       "test-model",
-		Diagnostics: writer,
-	})
+func TestClientEmitsObservableProviderDiagnostics(t *testing.T) {
+	diagDir := t.TempDir()
+	writer := newProviderDiagnostics(t, diagDir)
+	logger, err := NewStreamErrorLoggerWithDiagnostics("", writer)
+	if err != nil {
+		t.Fatalf("NewStreamErrorLoggerWithDiagnostics() error = %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompat(ClientConfig{BaseURL: server.URL, Model: "test-model", StreamErrorLog: logger})
 	if err != nil {
 		t.Fatalf("NewOpenAICompat() error = %v", err)
 	}
-	if client.diagnostics != writer {
-		t.Errorf("client.diagnostics = %v, want the configured writer", client.diagnostics)
+	if _, err := client.ChatCompletion(context.Background(), ChatRequest{}); err != nil {
+		t.Fatalf("ChatCompletion() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(diagDir, "provider.jsonl"))
+	if err != nil {
+		t.Fatalf("read provider diagnostics: %v", err)
+	}
+	var record struct {
+		Kind    string `json:"kind"`
+		Payload struct {
+			Model   string `json:"model"`
+			Outcome string `json:"outcome"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("unmarshal provider diagnostic: %v", err)
+	}
+	if record.Kind != string(diagnostics.KindProvider) || record.Payload.Model != "test-model" || record.Payload.Outcome != "ok" {
+		t.Errorf("record = %+v, want provider test-model ok record", record)
 	}
 }

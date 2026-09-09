@@ -6,13 +6,49 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/luispabon/steiner/internal/diagnostics"
 )
+
+func TestDiagnosticWSRequestHeadersCaptureGate(t *testing.T) {
+	tests := []struct {
+		name       string
+		capture    bool
+		wantHeader map[string]string
+	}{
+		{name: "disabled", wantHeader: nil},
+		{name: "enabled", capture: true, wantHeader: map[string]string{"X-Test": "value"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var log *StreamErrorLogger
+			if tt.capture {
+				writer, err := diagnostics.New(diagnostics.Options{Dir: t.TempDir(), Streams: diagnostics.Streams{Provider: true}, CaptureBodies: true})
+				if err != nil {
+					t.Fatalf("diagnostics.New() error = %v", err)
+				}
+				t.Cleanup(func() { _ = writer.Close() })
+				log, err = NewStreamErrorLoggerWithDiagnostics("", writer)
+				if err != nil {
+					t.Fatalf("NewStreamErrorLoggerWithDiagnostics() error = %v", err)
+				}
+			}
+			got := diagnosticWSRequestHeaders(&codexWSProvider{
+				streamErrorLog: log,
+				headers:        map[string]string{"Authorization": "secret", "X-Test": "value"},
+			})
+			if !reflect.DeepEqual(got, tt.wantHeader) {
+				t.Errorf("headers = %#v, want %#v", got, tt.wantHeader)
+			}
+		})
+	}
+}
 
 func TestCodexWSFrameStructure(t *testing.T) {
 	request := ChatRequest{
