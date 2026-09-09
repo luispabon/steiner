@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/diagnostics"
 )
 
 // Client is the Provider Request Execution engine: one shared request flow for
@@ -26,7 +28,10 @@ type Client struct {
 	httpClient     *http.Client
 	providerType   string
 	streamErrorLog *StreamErrorLogger
-	wire           Wire
+	// diagnostics receives provider-stream records; emission per model call is
+	// added by stage 3 of the unified-diagnostics plan (issue #707).
+	diagnostics *diagnostics.Writer
+	wire        Wire
 
 	minInterval time.Duration
 	mu          sync.Mutex

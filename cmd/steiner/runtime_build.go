@@ -23,6 +23,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
@@ -71,15 +72,19 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	delegationLogger, err := buildDelegationLogger(cfg, flags)
+	diagnosticsWriter, err := buildRuntimeDiagnostics(cfg)
 	if err != nil {
 		return cliRuntime{}, err
 	}
-	streamErrorLog, err := buildStreamErrorLogger(cfg, flags)
+	delegationLogger, err := buildDelegationLogger(cfg, flags, diagnosticsWriter)
+	if err != nil {
+		return cliRuntime{}, err
+	}
+	streamErrorLog, err := buildStreamErrorLogger(cfg, flags, diagnosticsWriter)
 	if err != nil {
 		return cliRuntime{}, fmt.Errorf("build stream error logger: %w", err)
 	}
-	providerFactory := buildRuntimeProviderFactory(cfg, httpClient, streamErrorLog)
+	providerFactory := buildRuntimeProviderFactory(cfg, httpClient, streamErrorLog, diagnosticsWriter)
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
 	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
@@ -170,6 +175,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		sessionStore:                 sessionStore,
 		delegationLogger:             delegationLogger,
 		streamErrorLog:               streamErrorLog,
+		diagnostics:                  diagnosticsWriter,
 		delegationSessionStore:       delegation.NewSessionStore(),
 		delegationCacheKeyStore:      delegation.NewCacheKeyStore(),
 		delegationActiveController:   delegation.NewActiveController(),
@@ -187,10 +193,10 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}, nil
 }
 
-func buildRuntimeProviderFactory(_ config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) func(provider.ResolvedModel, string) (provider.Provider, error) {
+func buildRuntimeProviderFactory(_ config.Config, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, diag *diagnostics.Writer) func(provider.ResolvedModel, string) (provider.Provider, error) {
 	return func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
 		if rm.ProviderConfig.Type == config.ProviderTypeOpencodeGo || rm.ProviderConfig.Type == config.ProviderTypeOpencodeZen {
-			return newOpencodeProvider(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, sessionID)
+			return newOpencodeProvider(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, diag, sessionID)
 		}
 
 		providerType := rm.EffectiveProviderType
@@ -204,11 +210,11 @@ func buildRuntimeProviderFactory(_ config.Config, httpClient *http.Client, strea
 		switch providerType {
 		case config.ProviderTypeOpenAICompat, config.ProviderTypeOllama, config.ProviderTypeLMStudio,
 			config.ProviderTypeOpenRouter, config.ProviderTypeOpenAI, config.ProviderTypeLiteLLM:
-			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog))
+			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, diag))
 		case config.ProviderTypeAnthropic:
-			return newAnthropic(runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog))
+			return newAnthropic(runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog, diag))
 		case config.ProviderTypeCodex:
-			return newCodexProvider(rm, providerType, httpClient, streamErrorLog)
+			return newCodexProvider(rm, providerType, httpClient, streamErrorLog, diag)
 		default:
 			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
 		}
@@ -218,8 +224,8 @@ func buildRuntimeProviderFactory(_ config.Config, httpClient *http.Client, strea
 // newOpencodeProvider builds a provider for opencode_go/opencode_zen, injecting
 // the X-Opencode-Session header and dispatching to either the Anthropic-native
 // or OpenAI-compatible transport based on the model's resolved effective transport.
-func newOpencodeProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, sessionID string) (provider.Provider, error) {
-	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog)
+func newOpencodeProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, diag *diagnostics.Writer, sessionID string) (provider.Provider, error) {
+	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog, diag)
 	cfg.Headers = cloneStringMap(cfg.Headers)
 	cfg.Headers["X-Opencode-Session"] = sessionID
 	if rm.EffectiveProviderType == config.ProviderTypeAnthropic {
@@ -228,7 +234,7 @@ func newOpencodeProvider(rm provider.ResolvedModel, providerType config.Provider
 	return newOpenAICompat(cfg)
 }
 
-func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (provider.Provider, error) {
+func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, diag *diagnostics.Writer) (provider.Provider, error) {
 	path, err := oauth.DefaultTokenPath()
 	if err != nil {
 		return nil, fmt.Errorf("resolve token path: %w", err)
@@ -247,7 +253,7 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 	if err != nil {
 		return nil, fmt.Errorf("refresh codex token: %w", err)
 	}
-	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog)
+	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog, diag)
 	if apiKey := oauth.TokenOpenAIAPIKey(token); apiKey != "" {
 		cfg.APIKey = apiKey
 	} else {
@@ -282,7 +288,7 @@ func isCodexWSDispatch(rm provider.ResolvedModel) bool {
 	return rm.ProviderConfig.Codex.Transport == config.CodexTransportWebSocket
 }
 
-func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) provider.ClientConfig {
+func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, diag *diagnostics.Writer) provider.ClientConfig {
 	return provider.ClientConfig{
 		BaseURL: rm.ProviderConfig.BaseURL,
 		APIKey:  rm.ProviderConfig.APIKey,
@@ -300,6 +306,7 @@ func runtimeProviderConfig(rm provider.ResolvedModel, providerType config.Provid
 		HTTPClient:         httpClient,
 		StreamErrorLog:     streamErrorLog,
 		MinRequestInterval: time.Duration(rm.ProviderConfig.Codex.MinRequestInterval.Duration()),
+		Diagnostics:        diag,
 	}
 }
 
@@ -358,13 +365,12 @@ func buildRuntimeEventSink(cfg config.Config, cmd *cobra.Command, flags *cliFlag
 		return events, slogCloser, nil
 	}
 	fileSink, err := output.NewFileLogSink(logFile, output.FileLogOptions{
-		ThinkingChunk:  cfg.Logging.ThinkingChunk,
-		AssistantChunk: cfg.Logging.AssistantChunk,
-		BuildSHA:       commit,
-		// Dirty is not yet threaded from the build; stage 1 of the
-		// unified-diagnostics plan adds -X main.dirty to the Makefile.
-		Dirty:   false,
-		Version: version,
+		ThinkingChunk:           cfg.Logging.ThinkingChunk,
+		AssistantChunk:          cfg.Logging.AssistantChunk,
+		BuildSHA:                commit,
+		Dirty:                   buildDirty(),
+		Version:                 version,
+		CaptureAPIRequestBodies: cfg.Diagnostics.CaptureBodies,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -541,18 +547,59 @@ func buildRuntimeSessionStores(homeDir string) (*history.Writer, *session.Store,
 	return historyWriter, sessionStore, nil
 }
 
-func buildDelegationLogger(cfg config.Config, flags *cliFlags) (*delegation.TraceLogger, error) {
+func buildDelegationLogger(cfg config.Config, flags *cliFlags, diag *diagnostics.Writer) (*delegation.TraceLogger, error) {
 	logPath := delegation.LogPath(runtimeLogFile(cfg, flags))
-	return delegation.NewTraceLogger(logPath)
+	return delegation.NewTraceLoggerWithDiagnostics(logPath, streamWriter(diag, diagnostics.KindTool))
 }
 
-func buildStreamErrorLogger(cfg config.Config, flags *cliFlags) (*provider.StreamErrorLogger, error) {
+func buildStreamErrorLogger(cfg config.Config, flags *cliFlags, diag *diagnostics.Writer) (*provider.StreamErrorLogger, error) {
 	path := provider.StreamErrorLogPath(runtimeLogFile(cfg, flags))
-	l, err := provider.NewStreamErrorLogger(path)
+	l, err := provider.NewStreamErrorLoggerWithDiagnostics(path, streamWriter(diag, diagnostics.KindProvider))
 	if err != nil {
 		return nil, fmt.Errorf("stream error logger: %w", err)
 	}
 	return l, nil
+}
+
+// buildRuntimeDiagnostics constructs the process diagnostics writer. Nothing
+// is constructed when diagnostics are disabled: a nil *diagnostics.Writer is a
+// no-op for every caller.
+func buildRuntimeDiagnostics(cfg config.Config) (*diagnostics.Writer, error) {
+	if !cfg.Diagnostics.Enabled {
+		return nil, nil
+	}
+	w, err := diagnostics.New(diagnostics.Options{
+		Dir:           cfg.Diagnostics.Dir,
+		RetentionDays: cfg.Diagnostics.RetentionDays,
+		Streams: diagnostics.Streams{
+			Cache:    cfg.Diagnostics.Streams.Cache,
+			Provider: cfg.Diagnostics.Streams.Provider,
+			Tool:     cfg.Diagnostics.Streams.Tool,
+		},
+		CaptureBodies: cfg.Diagnostics.CaptureBodies,
+		BuildSHA:      commit,
+		Dirty:         buildDirty(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build diagnostics writer: %w", err)
+	}
+	return w, nil
+}
+
+// streamWriter returns diag only when kind's stream is enabled, so a sink
+// reparented onto diagnostics (stream error log, delegation trace log) keeps
+// writing to its own file when the stream it would feed is off.
+func streamWriter(diag *diagnostics.Writer, kind diagnostics.Kind) *diagnostics.Writer {
+	if !diag.Enabled(kind) {
+		return nil
+	}
+	return diag
+}
+
+// buildDirty reports whether the running binary was built from a dirty working
+// tree. The linker can only set strings, so main.dirty is a string.
+func buildDirty() bool {
+	return dirty == "true"
 }
 
 func buildMCPServerLogWriter(path string) (io.WriteCloser, error) {

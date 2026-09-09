@@ -1,5 +1,22 @@
 package config
 
+import (
+	"os"
+	"path/filepath"
+)
+
+// defaultDiagnosticsDir is the diagnostics directory used when
+// diagnostics.dir is unset. Diagnostics are user state, not repo content and
+// not derived from logging.file, so they live under XDG_STATE_HOME (the same
+// base internal/usagestats uses for its store). The "~" form is expanded by
+// normalizePaths once the home directory is resolved.
+func defaultDiagnosticsDir() string {
+	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
+		return filepath.Join(xdg, "steiner", "diagnostics")
+	}
+	return filepath.Join("~", ".local", "state", "steiner", "diagnostics")
+}
+
 var (
 	// DefaultCodexMinRequestInterval is the minimum gap enforced between
 	// consecutive Codex requests when a provider omits
@@ -115,6 +132,11 @@ func defaultConfig() Config {
 		Logging: LoggingConfig{
 			Level: "info",
 			File:  "~/.local/share/steiner/steiner.log",
+		},
+		Diagnostics: DiagnosticsConfig{
+			Enabled:       false,
+			Dir:           defaultDiagnosticsDir(),
+			RetentionDays: 30,
 		},
 		ContextManagement: ContextManagementConfig{
 			ReadAnnotations: true,

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/diagnostics"
 )
 
 // StreamErrorLogger writes stream error records as JSON lines to a dedicated file.
@@ -16,6 +18,7 @@ type StreamErrorLogger struct {
 	mu   sync.Mutex
 	file *os.File
 	enc  *json.Encoder
+	diag *diagnostics.Writer
 }
 
 type streamErrorRecord struct {
@@ -38,6 +41,19 @@ type streamErrorRecord struct {
 // NewStreamErrorLogger creates a StreamErrorLogger writing to path. Parent directories
 // are created if needed. Returns nil without error when path is empty.
 func NewStreamErrorLogger(path string) (*StreamErrorLogger, error) {
+	return NewStreamErrorLoggerWithDiagnostics(path, nil)
+}
+
+// NewStreamErrorLoggerWithDiagnostics creates a StreamErrorLogger that writes
+// through diag when one is supplied, and falls back to its own file at path
+// when it is not. The diagnostics writer subsumes the file: no file is opened
+// when diag is non-nil, so the records land in the provider stream instead of
+// a log path derived from the sensitive --log-file. Returns nil without error
+// when there is neither a writer nor a path.
+func NewStreamErrorLoggerWithDiagnostics(path string, diag *diagnostics.Writer) (*StreamErrorLogger, error) {
+	if diag != nil {
+		return &StreamErrorLogger{diag: diag}, nil
+	}
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
 	}
@@ -59,6 +75,10 @@ func (l *StreamErrorLogger) Log(r streamErrorRecord) {
 	if l == nil {
 		return
 	}
+	if l.diag != nil {
+		l.diag.Write(diagnostics.Record{Kind: diagnostics.KindProvider, Payload: r})
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	// Best-effort; stream error logging must not break execution.
@@ -67,7 +87,7 @@ func (l *StreamErrorLogger) Log(r streamErrorRecord) {
 
 // Close closes the underlying file. No-op on nil receiver.
 func (l *StreamErrorLogger) Close() error {
-	if l == nil {
+	if l == nil || l.file == nil {
 		return nil
 	}
 	l.mu.Lock()

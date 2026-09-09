@@ -911,7 +911,7 @@ func TestValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validate(tt.cfg)
+			err := validate(tt.cfg, "")
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("validate() error = %v, want nil", err)
@@ -1024,7 +1024,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := validBase()
 			tt.mutate(&cfg)
-			err := validate(cfg)
+			err := validate(cfg, "")
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("validate() error = %v, want nil", err)
@@ -1172,7 +1172,7 @@ func TestSearchConfigValidation(t *testing.T) {
 				},
 			}
 
-			err := validate(cfg)
+			err := validate(cfg, "")
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("validate() error = %v, want nil", err)
@@ -1510,7 +1510,7 @@ func TestMCPConfigValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := validBase()
 			cfg.MCP = tt.cfg
-			err := validate(cfg)
+			err := validate(cfg, "")
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("validate() error = %v, want nil", err)
@@ -1576,7 +1576,7 @@ func TestSandboxConfigValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := validBase()
 			cfg.Sandbox = tt.cfg
-			err := validate(cfg)
+			err := validate(cfg, "")
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("validate() error = %v, want nil", err)
@@ -1637,7 +1637,7 @@ func TestDesktopNotificationsValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := validBase()
 			cfg.DesktopNotifications = tt.cfg
-			err := validate(cfg)
+			err := validate(cfg, "")
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("validate() error = %v, want nil", err)
@@ -1677,7 +1677,7 @@ func TestValidateCodexTransport(t *testing.T) {
 					Transport: tt.transport,
 				},
 			}
-			err := validate(cfg)
+			err := validate(cfg, "")
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("validate() error = nil, want error")
@@ -1701,7 +1701,7 @@ func TestValidateProfilesErrorOrder(t *testing.T) {
 
 	want := `invalid config: resolve profile "alpha": models.profiles["alpha"].default_model "missing-alpha" is not defined in models.definitions or providers; resolve profile "beta": models.profiles["beta"].default_model "missing-beta" is not defined in models.definitions or providers; resolve profile "delta": models.profiles["delta"].default_model "missing-delta" is not defined in models.definitions or providers; resolve profile "gamma": models.profiles["gamma"].default_model "missing-gamma" is not defined in models.definitions or providers`
 	for i := 0; i < 20; i++ {
-		if err := validate(cfg); err == nil || err.Error() != want {
+		if err := validate(cfg, ""); err == nil || err.Error() != want {
 			if err == nil {
 				t.Fatalf("validate() error = nil, want %q", want)
 			}

@@ -49,6 +49,11 @@ type FileLogOptions struct {
 	BuildSHA string
 	Dirty    bool
 	Version  string
+	// CaptureAPIRequestBodies, when true, writes full Messages/Tools/Blocks
+	// content for APIRequestEvent instead of the bounded scalar fields. Set
+	// from diagnostics.capture_bodies by the composition root; internal/output
+	// must not import internal/config.
+	CaptureAPIRequestBodies bool
 }
 
 // FileLogSink writes events as one JSON object per line (JSONL) to an
@@ -61,6 +66,7 @@ type FileLogSink struct {
 	written        int64
 	thinkingChunk  bool
 	assistantChunk bool
+	captureBodies  bool
 	runID          string
 	buildSHA       string
 	dirty          bool
@@ -92,6 +98,7 @@ func NewFileLogSink(path string, opts FileLogOptions) (*FileLogSink, error) {
 		written:        written,
 		thinkingChunk:  opts.ThinkingChunk,
 		assistantChunk: opts.AssistantChunk,
+		captureBodies:  opts.CaptureAPIRequestBodies,
 		runID:          newRunID(),
 		buildSHA:       opts.BuildSHA,
 		dirty:          opts.Dirty,
@@ -155,6 +162,12 @@ func (s *FileLogSink) Emit(event Event) {
 	case EventTypeAssistantChunk:
 		if !s.assistantChunk {
 			return
+		}
+	}
+
+	if s.captureBodies {
+		if payload, ok := event.Payload.(APIRequestEvent); ok {
+			event.Payload = apiRequestFull(payload)
 		}
 	}
 

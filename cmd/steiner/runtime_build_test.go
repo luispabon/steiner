@@ -82,7 +82,7 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 			return &fakeProvider{}, nil
 		}
 
-		factory := buildRuntimeProviderFactory(config.Config{}, httpClient, streamErrorLog)
+		factory := buildRuntimeProviderFactory(config.Config{}, httpClient, streamErrorLog, nil)
 
 		gotProvider, err := factory(rm, "test-session")
 		if wantErr != "" {
@@ -319,7 +319,7 @@ func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKe
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -352,7 +352,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -373,7 +373,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -401,7 +401,7 @@ func TestBuildRuntimeProviderFactoryOpencodeInjectsSessionHeader(t *testing.T) {
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
 
 	rm := provider.ResolvedModel{
 		Alias:                 "opencode-go-model",
@@ -433,7 +433,7 @@ func TestBuildRuntimeProviderFactoryOpencodeZenAnthropicSurvivesEffectiveTranspo
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
 
 	rm := provider.ResolvedModel{
 		Alias:                 "claude-on-opencode-zen",
@@ -502,7 +502,7 @@ func TestCodexTransportSwitch(t *testing.T) {
 				return &fakeProvider{}, nil
 			}
 
-			factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil)
+			factory := buildRuntimeProviderFactory(config.Config{}, &http.Client{}, nil, nil)
 
 			codexRM := provider.ResolvedModel{
 				Alias:                 "codex",

@@ -140,6 +140,9 @@ func applyToolingConfigPatch(cfg *Config, patch configPatch) {
 	if patch.Logging != nil {
 		applyLoggingPatch(&cfg.Logging, patch.Logging)
 	}
+	if patch.Diagnostics != nil {
+		applyDiagnosticsPatch(&cfg.Diagnostics, patch.Diagnostics)
+	}
 	if patch.ContextManagement != nil {
 		applyContextManagementPatch(&cfg.ContextManagement, patch.ContextManagement)
 	}

@@ -293,19 +293,14 @@ type UserInputEvent struct {
 	Images  []ImageBlock `json:"images,omitempty"`
 }
 
-// captureAPIRequestBodies gates whether APIRequestEvent's JSON encoding
-// includes full message/tool/block content. Off by default so the session
-// log stays bounded (one prior session produced 25MB from these fields
-// alone). In-memory consumers (e.g. interactive.snapshotSink for context
-// reporting) still see the full fields regardless of this gate; only the
-// JSON encoding is affected. Replaced by diagnostics.capture_bodies once
-// stage 1 of the unified-diagnostics plan lands.
-const captureAPIRequestBodies = false
-
 // APIRequestEvent captures the provider request payload sent for a turn.
 // Messages, Tools and Blocks are always populated in memory for in-process
-// consumers; MarshalJSON strips them unless captureAPIRequestBodies is set,
-// substituting the bounded MessageCount/MessageHashes/*Bytes fields instead.
+// consumers (e.g. interactive.snapshotSink for context reporting), but
+// MarshalJSON always strips them, substituting the bounded
+// MessageCount/MessageHashes/*Bytes fields instead, so the exec-mode JSON
+// stream and the session log stay bounded (one prior session produced 25MB
+// from these fields alone). The only unbounded encoder is FileLogSink under
+// diagnostics.capture_bodies; see apiRequestFull.
 type APIRequestEvent struct {
 	Model                 string                  `json:"model,omitempty"`
 	Messages              []provider.Message      `json:"messages,omitempty"`
@@ -334,18 +329,21 @@ type APIRequestEvent struct {
 	BlocksBytes   int      `json:"blocks_bytes"`
 }
 
-// MarshalJSON bounds the encoded payload: full Messages/Tools/Blocks content
-// is included only when captureAPIRequestBodies is set.
+// MarshalJSON bounds the encoded payload by dropping Messages, Tools and
+// Blocks.
 func (e APIRequestEvent) MarshalJSON() ([]byte, error) {
-	type alias APIRequestEvent
-	out := alias(e)
-	if !captureAPIRequestBodies {
-		out.Messages = nil
-		out.Tools = nil
-		out.Blocks = nil
-	}
+	out := apiRequestFull(e)
+	out.Messages = nil
+	out.Tools = nil
+	out.Blocks = nil
 	return json.Marshal(out)
 }
+
+// apiRequestFull is APIRequestEvent without its bounding MarshalJSON, so an
+// encoder that has been granted diagnostics.capture_bodies can emit the full
+// message, tool and block content. Conversion is the only way to opt out of
+// the bound; nothing else in the codebase should define one.
+type apiRequestFull APIRequestEvent
 
 // APIResponseEvent captures the provider response payload for a turn.
 type APIResponseEvent struct {

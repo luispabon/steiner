@@ -15,7 +15,11 @@ import (
 
 const configureReferenceHeading = "## Configure Skill Reference"
 
-const maxConfigureReferenceBytes = 12_288
+// maxConfigureReferenceBytes bounds the compact reference table the configure
+// skill loads into context. It is a budget, not a hard limit of the format:
+// raise it deliberately when a new config section lands (the drift check below
+// requires every canonical path to appear), never to paper over prose creep.
+const maxConfigureReferenceBytes = 13_312
 
 func TestConfigureSkillIsEmbeddedAndCoversCanonicalConfig(t *testing.T) {
 	loader := skill.Loader{BundledFS: skills.FS}
