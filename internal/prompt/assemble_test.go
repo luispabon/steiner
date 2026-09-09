@@ -776,18 +776,6 @@ func messageIndexByContent(t *testing.T, messages []provider.Message, want strin
 	return -1
 }
 
-func messageIndexByNameContains(t *testing.T, messages []provider.Message, want string) int {
-	t.Helper()
-
-	for i, message := range messages {
-		if strings.Contains(message.Name, want) {
-			return i
-		}
-	}
-	t.Fatalf("message with name containing %q not found", want)
-	return -1
-}
-
 // TestAssembleOrchestratorRoleReachesOrchestratorsOnly drives full prompt assembly with the
 // three option combinations that occur in production and asserts the orchestrator role prose
 // reaches exactly the callers that orchestrate.
