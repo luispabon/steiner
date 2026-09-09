@@ -135,6 +135,38 @@ func newRunID() string {
 	return hex.EncodeToString(b)
 }
 
+// marshalSessionEvent adds sink-specific attribution without changing the
+// general Event JSON shape used by other output consumers.
+func marshalSessionEvent(event Event, runID string) ([]byte, error) {
+	if event.Scope.AgentID == "" && event.Scope.AgentType == "" {
+		return json.Marshal(struct {
+			Type      string    `json:"type"`
+			Timestamp time.Time `json:"timestamp"`
+			Payload   any       `json:"payload,omitempty"`
+			RunID     string    `json:"run_id"`
+		}{
+			Type:      event.Type,
+			Timestamp: event.Timestamp,
+			Payload:   event.Payload,
+			RunID:     runID,
+		})
+	}
+
+	return json.Marshal(struct {
+		Type      string     `json:"type"`
+		Timestamp time.Time  `json:"timestamp"`
+		Payload   any        `json:"payload,omitempty"`
+		Scope     EventScope `json:"scope,omitempty"`
+		RunID     string     `json:"run_id"`
+	}{
+		Type:      event.Type,
+		Timestamp: event.Timestamp,
+		Payload:   event.Payload,
+		Scope:     event.Scope,
+		RunID:     runID,
+	})
+}
+
 // writeRunIdentity writes the log_started record for this sink's run. The
 // caller must hold mu, except during construction where no other goroutine
 // can yet observe the sink.
@@ -151,7 +183,7 @@ func (s *FileLogSink) writeRunIdentity() error {
 			StartTime: now,
 		},
 	}
-	data, err := json.Marshal(event)
+	data, err := marshalSessionEvent(event, s.runID)
 	if err != nil {
 		return fmt.Errorf("marshal log_started record: %w", err)
 	}
@@ -187,7 +219,7 @@ func (s *FileLogSink) Emit(event Event) {
 		}
 	}
 
-	data, err := json.Marshal(event)
+	data, err := marshalSessionEvent(event, s.runID)
 	if err != nil {
 		return
 	}
@@ -256,11 +288,14 @@ func (s *FileLogSink) rotate() error {
 
 // Close releases the underlying log file handle.
 func (s *FileLogSink) Close() error {
-	if s == nil || s.file == nil {
+	if s == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.file == nil {
+		return nil
+	}
 	err := s.file.Close()
 	s.file = nil
 	return err

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -93,6 +94,35 @@ func TestFileLogSinkEmitAfterClose(t *testing.T) {
 	sink.Emit(Event{Type: EventTypeRunStarted})
 }
 
+func TestFileLogSinkCloseConcurrent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.log")
+	sink, err := NewFileLogSink(path, FileLogOptions{})
+	if err != nil {
+		t.Fatalf("NewFileLogSink() error = %v", err)
+	}
+
+	const closers = 16
+	errs := make(chan error, closers)
+	var wg sync.WaitGroup
+	wg.Add(closers)
+	for range closers {
+		go func() {
+			defer wg.Done()
+			errs <- sink.Close()
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	}
+	if err := sink.Close(); err != nil {
+		t.Errorf("repeated Close() error = %v", err)
+	}
+}
+
 // readLines reads path and returns each non-empty line unmarshaled into an
 // Event, failing the test if any line is not valid JSON.
 func readLines(t *testing.T, path string) []Event {
@@ -119,6 +149,47 @@ func readLines(t *testing.T, path string) []Event {
 		t.Fatalf("scan error: %v", err)
 	}
 	return events
+}
+
+func TestFileLogSinkSessionRunAttribution(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.log")
+	sink, err := NewFileLogSink(path, FileLogOptions{})
+	if err != nil {
+		t.Fatalf("NewFileLogSink() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sink.Close() })
+
+	event := NewRunStartedEvent("exec", "test-model", "run attribution", 1, 1)
+	generalJSON, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal general event: %v", err)
+	}
+	if strings.Contains(string(generalJSON), `"run_id"`) {
+		t.Fatalf("general Event JSON unexpectedly contains run_id: %s", generalJSON)
+	}
+	sink.Emit(event)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		var record map[string]any
+		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
+			t.Fatalf("session record is not valid JSON: %v", err)
+		}
+		runID, ok := record["run_id"].(string)
+		if !ok || runID == "" {
+			t.Fatalf("session record missing run_id: %s", scanner.Text())
+		}
+		if runID != sink.runID {
+			t.Fatalf("session record run_id = %q, want %q", runID, sink.runID)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
 }
 
 func TestFileLogSinkWritesJSONLWithLogStartedFirst(t *testing.T) {
