@@ -10,6 +10,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -54,6 +55,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		streamingPreferred: flags.enableStreaming,
 		promptCacheKeyFn:   func() string { return promptCacheKey },
 		sessionIDFn:        func() string { return promptCacheKey },
+		staticContext:      &prompt.StaticContextCache{},
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil, nil)
 	if err != nil {
 		return err

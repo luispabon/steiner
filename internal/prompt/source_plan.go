@@ -4,8 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
-
-	"github.com/luispabon/steiner/internal/skill"
 )
 
 type plannedSourceKind string
@@ -132,13 +130,11 @@ func agentsStep(opts AssemblyOptions) sourcePlanStep {
 			if opts.SkipAgents {
 				return nil
 			}
-			globalAgentsPath, projectAgentsPath := agentPaths(opts)
-
-			agentBlocks, err := loadAgents(globalAgentsPath, projectAgentsPath)
+			blocks, err := opts.CachedStaticContext.agents(opts)
 			if err != nil {
 				return err
 			}
-			appendBlocks(state, agentBlocks)
+			appendBlocks(state, blocks)
 			return nil
 		},
 	}
@@ -153,16 +149,11 @@ func projectContextStep(opts AssemblyOptions, policy AssemblyPolicy) sourcePlanS
 			if opts.SkipProjectContext {
 				return nil
 			}
-			projectContext, err := gatherProjectContext(ProjectContextOptions{
-				Root:        opts.ProjectRoot,
-				BudgetBytes: policy.Budgets.ProjectContextBytes,
-				ExtraFiles:  opts.ProjectContextExtraFiles,
-				IgnoreFiles: opts.ProjectContextIgnoreFiles,
-			})
+			blocks, err := opts.CachedStaticContext.projectContext(opts, policy)
 			if err != nil {
 				return err
 			}
-			appendBlocks(state, projectContext)
+			appendBlocks(state, blocks)
 			return nil
 		},
 	}
@@ -174,15 +165,11 @@ func skillsStep(opts AssemblyOptions) sourcePlanStep {
 		Kind:      plannedSourceSkills,
 		Placement: plannedSourcePlacementCore,
 		Apply: func(ctx context.Context, state *assemblyState) error {
-			skillRoots := skillRoots(opts)
-			skillBlocks, err := loadSkillBlocks(ctx, skill.Loader{RootDirs: skillRoots, BundledFS: opts.SkillsBundledFS}, opts.SkillNames)
+			blocks, err := opts.CachedStaticContext.skills(ctx, opts)
 			if err != nil {
 				return err
 			}
-			if len(skillBlocks) > 0 {
-				skillBlocks = append([]ContextBlock{skillFramingBlock(opts.SkillNames)}, skillBlocks...)
-			}
-			appendBlocks(state, skillBlocks)
+			appendBlocks(state, blocks)
 			return nil
 		},
 	}

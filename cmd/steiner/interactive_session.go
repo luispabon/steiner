@@ -23,6 +23,7 @@ import (
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
@@ -603,6 +604,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		promptCacheKeyFn:         sess.PromptCacheKey,
 		sessionIDFn:              sess.SessionID,
 		modeGetterFunc:           sess.Mode,
+		staticContext:            &prompt.StaticContextCache{},
 	}
 	runner.approver = sess.Approver(rt.events)
 	if rt.mcpState != nil {
