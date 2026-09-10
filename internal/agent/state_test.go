@@ -340,7 +340,6 @@ func TestConversationLineageClonePreservesRetentionMetadata(t *testing.T) {
 					Content: "visible output",
 					Retention: &MessageRetention{
 						Kind:    "delegate_summary",
-						Summary: "retained summary",
 						AgentID: "child-1",
 					},
 				},
@@ -353,11 +352,11 @@ func TestConversationLineageClonePreservesRetentionMetadata(t *testing.T) {
 	if cloned.Generations[0].Messages[0].Retention == nil {
 		t.Fatal("cloned retention = nil, want copied metadata")
 	}
-	if cloned.Generations[0].Messages[0].Retention.Summary != "retained summary" {
-		t.Fatalf("cloned retention summary = %q, want retained summary", cloned.Generations[0].Messages[0].Retention.Summary)
+	if cloned.Generations[0].Messages[0].Retention.AgentID != "child-1" {
+		t.Fatalf("cloned retention agent = %q, want child-1", cloned.Generations[0].Messages[0].Retention.AgentID)
 	}
-	cloned.Generations[0].Messages[0].Retention.Summary = "changed"
-	if original.Generations[0].Messages[0].Retention.Summary != "retained summary" {
+	cloned.Generations[0].Messages[0].Retention.AgentID = "changed"
+	if original.Generations[0].Messages[0].Retention.AgentID != "child-1" {
 		t.Fatal("original retention mutated through clone")
 	}
 }
@@ -371,7 +370,6 @@ func TestConversationLineageJSONRoundTripPreservesRetentionMetadata(t *testing.T
 					Content: "visible output",
 					Retention: &MessageRetention{
 						Kind:       "delegate_summary",
-						Summary:    "hidden summary",
 						AgentID:    "child-1",
 						Status:     "complete",
 						TurnCount:  4,
@@ -398,8 +396,8 @@ func TestConversationLineageJSONRoundTripPreservesRetentionMetadata(t *testing.T
 	if restored.Generations[0].Messages[0].Retention == nil {
 		t.Fatal("restored retention = nil, want persisted metadata")
 	}
-	if got, want := restored.Generations[0].Messages[0].Retention.Summary, "hidden summary"; got != want {
-		t.Fatalf("restored retention summary = %q, want %q", got, want)
+	if got, want := restored.Generations[0].Messages[0].Retention.AgentID, "child-1"; got != want {
+		t.Fatalf("restored retention agent = %q, want %q", got, want)
 	}
 	if got, want := restored.Generations[0].Messages[0].Retention.Status, "complete"; got != want {
 		t.Fatalf("restored retention status = %q, want %q", got, want)

@@ -45,7 +45,6 @@ func TestCloneMessagesFidelity(t *testing.T) {
 				Turn:     3,
 				Retention: &MessageRetention{
 					Kind:       "summary",
-					Summary:    "sum",
 					AgentID:    "agent",
 					Status:     "ok",
 					TurnCount:  2,
@@ -230,7 +229,6 @@ func TestCloneMessageRetentionDeepEqual(t *testing.T) {
 		Role: MessageRoleSummary,
 		Retention: &MessageRetention{
 			Kind:       "summary",
-			Summary:    "sum",
 			AgentID:    "agent",
 			Status:     "ok",
 			TurnCount:  2,

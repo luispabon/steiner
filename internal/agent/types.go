@@ -24,10 +24,9 @@ type ToolCall struct {
 	RawArguments string         `json:"raw_arguments,omitempty"`
 }
 
-// MessageRetention describes summary metadata retained across compaction.
+// MessageRetention describes retention metadata preserved across compaction.
 type MessageRetention struct {
 	Kind       string `json:"kind,omitempty"`
-	Summary    string `json:"summary,omitempty"`
 	AgentID    string `json:"agent_id,omitempty"`
 	Status     string `json:"status,omitempty"`
 	TurnCount  int    `json:"turn_count,omitempty"`

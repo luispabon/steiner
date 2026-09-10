@@ -38,7 +38,6 @@ const RetentionKindDelegateSummary = "delegate_summary"
 //nolint:revive // package API keeps tool-prefixed names for compatibility.
 type ToolRetention struct {
 	Kind       string `json:"kind,omitempty"`
-	Summary    string `json:"summary,omitempty"`
 	AgentID    string `json:"agent_id,omitempty"`
 	Status     string `json:"status,omitempty"`
 	TurnCount  int    `json:"turn_count,omitempty"`

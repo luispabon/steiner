@@ -152,10 +152,16 @@ func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
 		envelope.Reason = projectionReason(r)
 	case StatusCancelled:
 		envelope.Status = "cancelled"
-		envelope.Reason = cancellationProjectionReason(r)
+		envelope.Reason = r.Reason
+		if envelope.Reason == "" {
+			envelope.Reason = cancellationProjectionReason(r)
+		}
 	case StatusFailed:
 		envelope.Status = "failed"
-		envelope.Reason = "unknown failure"
+		envelope.Reason = r.Reason
+		if envelope.Reason == "" {
+			envelope.Reason = "unknown failure"
+		}
 	}
 	return envelope
 }

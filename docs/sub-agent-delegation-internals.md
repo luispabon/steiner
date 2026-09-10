@@ -32,7 +32,7 @@ Delegated tools retain full host `Result` records and retention metadata, while 
 │  │  - emit DelegationStarted        │       │
 │  │  - runner.Run(childCtx, req)     │       │
 │  │  - auto-extension loop (≤3x)     │       │
-│  │  - derive local retention summary│       │
+│  │  - emit DelegationFailed          │       │
 │  │  - emit DelegationComplete       │       │
 │  └──────────────┬───────────────────┘       │
 │                 │                           │
@@ -165,7 +165,7 @@ Beyond key reuse, `CacheKeyStore` also **staggers concurrent same-key dispatches
 3. **Run** the child agent loop via the `AgentRunner` interface.
 4. **Auto-extension loop** (up to 3 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
 5. **Build result** from final state (maps `StopReason` → `Status`). Token counters (input, cache, and output) are accumulated across extension re-runs and prior follow-ups (`Spec.PriorTokenUsage`) rather than taken from the final state alone.
-6. **Derive retention summary locally**: use the final output, or derive cancellation/activity details when cancelled or when tool activity produced no output; cap the result at 4000 runes. No extra provider call is made.
+6. **Record the failure or cancellation reason**: on failure, the child's real error goes on the result's `reason` (with the tool-activity count and the preserved-session notice for cancellation); on cancellation, a deterministic sentence naming the tool count and the resume notice goes there instead. The reason is uncapped and needs no extra provider call.
 7. **Emit** `DelegationCompleteEvent` or `DelegationFailedEvent`. `DelegationCompleteEvent` carries `InputTokens`/`CacheReadTokens`/`CacheCreateTokens` alongside the existing turn/tool/token counts; it is constructed via `NewDelegationCompleteEvent`, which takes a `DelegationCompleteParams` struct rather than positional arguments, so the TUI can render the child agent's cumulative cache hit rate in the tool box.
 8. **Return** `tool.ExecutionResult` with `ToolRetention` metadata attached.
 
@@ -192,7 +192,6 @@ A parallel batch receives one shared pre-batch conversation snapshot. Siblings t
 | `AgentID`           | Matches the request                                   |
 | `Status`            | `complete`, `partial`, `failed`, or `cancelled`       |
 | `Output`            | Last assistant message content                        |
-| `Summary`           | Locally derived retained summary (≤4000 runes)        |
 | `TurnCount`         | Turns consumed by the child                           |
 | `TokenCount`        | Tokens consumed by the child                          |
 | `InputTokens`       | Cumulative uncached prompt tokens consumed by the child across extensions and follow-ups   |
@@ -208,7 +207,7 @@ The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSessi
 |-------|-------------|
 | `output` | Exact child output, without trimming or host diagnostics |
 | `status` | Omitted on normal success; otherwise `partial`, `cancelled`, or `failed` |
-| `reason` | Optional recovery reason: `limit reached`, `cancelled`, `unknown failure`, or `child setup failed` |
+| `reason` | Optional recovery reason. `partial` results carry the projection token (`cancelled` for a cancelled child, otherwise `limit reached`); `cancelled` results carry the deterministic cancellation sentence, falling back to `limit reached`; `failed` results carry the real error, falling back to `unknown failure` when the error is empty; setup failures carry `child setup failed` or the matching setup guidance |
 | `continuation.agent_id` | Optional saved-session agent ID; present only when the child session was persisted |
 | `worktree_path` | Optional project-relative worktree locator (`.steiner/worktrees/...`); present only for `AgentTypeCode` results with a provisioned worktree, on any status including `failed` |
 
@@ -219,15 +218,14 @@ Normal success omits `status` and `reason`. The full host `Result`, retention me
 | Field        | Description          |
 |--------------|----------------------|
 | `Kind`       | `"delegate_summary"` |
-| `Summary`    | Locally derived condensed findings (≤4000 runes) |
 | `AgentID`    | Child agent ID       |
 | `Status`     | Result status        |
 | `TurnCount`  | Turns consumed       |
 | `TokenCount` | Tokens consumed      |
 
-**Local retention summary.** After the child completes, retention is derived without another provider call. Successful output uses a capped preview; cancellation or empty output with tool activity uses a local cancellation/activity summary, with a 4000-rune cap.
+**Result reason.** A failed child records the real error text as its reason; a cancelled child records a deterministic sentence naming the tool count and the preserved-session resume notice. Complete results carry no reason. Reasons are uncapped and need no extra provider call.
 
-**Retention path.** The child agent's full transcript is not copied into the parent session. The parent keeps the delegate result plus a bounded summary. Compaction may later summarise older parent conversation state, including delegated work, through the normal baseline path.
+**Retention path.** The child agent's full transcript is not copied into the parent session. The parent keeps the delegate result and its retention metadata. Compaction may later summarise older parent conversation state, including delegated work, through the normal baseline path.
 
 ### Host-side diagnostics vs. the model-facing result
 
@@ -249,7 +247,7 @@ The cancellation path waits for the child runner, including a cache-gated child,
 
 1. **Invalidate the session.** `SessionStore.Invalidate` deletes the stored session and creates an agent-ID tombstone. `Get`, `Save`, and `Update` are blocked for that ID until `Reset`, including late persistence from the cancelled child, so an invalidated session cannot be resurrected.
 2. **Mark the result non-resumable.** `SessionResumable` becomes false.
-3. **Correct the retention summary.** The retention output and summary no longer claim that the session is preserved for `follow_up`.
+3. **Correct the reason.** The retention output and the reason no longer claim that the session is preserved for `follow_up`.
 4. **Derive the relative worktree ID from controller metadata.** The finalizer reads the controller-held `CodeWorktree`, then derives its path relative to the project's `.steiner/worktrees` directory rather than trusting a result field.
 5. **Prune with ownership checks.** It calls the existing `PruneCodeWorktree` under a 30-second cleanup context rooted in `context.Background()`, independent of the cancelled child context. The prune accepts only a git-known worktree with a `delegate/` branch and an in-bounds relative ID.
 
@@ -320,9 +318,8 @@ Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate �
 6. **Synchronous execution**: each delegate runs to completion before control returns to the parent.
 7. **Filesystem shared**: children operate in the same workdir as the parent.
 8. **Extension cap**: maximum 3 auto-extensions to prevent runaway children.
-9. **Summary cap**: retention summaries capped at 4000 runes.
-10. **No conversation leakage**: child conversation is not appended to parent; only the structured result and retention summary persist.
-11. **Enforced allowlist**: `ChildBootstrapOverrides.AllowedTools` is enforced during child registry construction; only listed tools (minus `follow_up` and `workflow_handoff`) are visible and executable.
-12. **Per-type allowlists**: each specialised agent type has its own tool allowlist, resolved via `AgentAllowedTools(agentType)` and passed as `ChildBootstrapOverrides.AllowedTools` — there is no user-configurable global allowlist.
-13. **Extra tool projection**: `DelegateDeps.ExtraAllowedTools` adds per-agent-type registered tool names to child registries. Nil or empty projections grant nothing; unknown names are ignored by `Registry.Subset`; merged lists are sorted and deduplicated without mutating the built-in allowlists; original ToolDef handlers and MCP provenance are retained.
-14. **Parallel fan-out**: parent tool calls of the same class execute concurrently within their class-specific limit (`MaxParallelTools` for `ParallelClassTool`, `MaxParallelDelegations` for `ParallelClassDelegation`); child runs have only `ParallelClassTool` in their classifier (no `ParallelClassDelegation` since children cannot nest), so children respect only `MaxParallelTools`. Results are applied in call order against a shared pre-batch snapshot. A batch only groups adjacent calls of the same class; mixing classes breaks the run into separate batches under separate semaphores.
+9. **No conversation leakage**: child conversation is not appended to parent; only the structured result and its retention metadata persist.
+10. **Enforced allowlist**: `ChildBootstrapOverrides.AllowedTools` is enforced during child registry construction; only listed tools (minus `follow_up` and `workflow_handoff`) are visible and executable.
+11. **Per-type allowlists**: each specialised agent type has its own tool allowlist, resolved via `AgentAllowedTools(agentType)` and passed as `ChildBootstrapOverrides.AllowedTools` — there is no user-configurable global allowlist.
+12. **Extra tool projection**: `DelegateDeps.ExtraAllowedTools` adds per-agent-type registered tool names to child registries. Nil or empty projections grant nothing; unknown names are ignored by `Registry.Subset`; merged lists are sorted and deduplicated without mutating the built-in allowlists; original ToolDef handlers and MCP provenance are retained.
+13. **Parallel fan-out**: parent tool calls of the same class execute concurrently within their class-specific limit (`MaxParallelTools` for `ParallelClassTool`, `MaxParallelDelegations` for `ParallelClassDelegation`); child runs have only `ParallelClassTool` in their classifier (no `ParallelClassDelegation` since children cannot nest), so children respect only `MaxParallelTools`. Results are applied in call order against a shared pre-batch snapshot. A batch only groups adjacent calls of the same class; mixing classes breaks the run into separate batches under separate semaphores.

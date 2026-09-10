@@ -62,6 +62,23 @@ func TestDecodeReplayedDelegateResult(t *testing.T) {
 			want:    replayedDelegateResult{Status: "cancelled", Output: "cancelled output", compact: true},
 		},
 		{
+			name:    "compact envelope with worktree path and reason",
+			content: `{"output":"code output","status":"failed","reason":"child crashed","worktree_path":".steiner/worktrees/x"}`,
+			wantOK:  true,
+			want:    replayedDelegateResult{Output: "code output", Status: "failed", Reason: "child crashed", compact: true},
+		},
+		{
+			name:    "legacy full payload with summary and error",
+			content: `{"agent_id":"agent-legacy","status":"failed","output":"","summary":"condensed findings","error":"legacy boom"}`,
+			wantOK:  true,
+			want: replayedDelegateResult{
+				AgentID: "agent-legacy",
+				Status:  "failed",
+				Summary: "condensed findings",
+				Error:   "legacy boom",
+			},
+		},
+		{
 			name:    "non-delegation JSON shape",
 			content: `{"output":"generic","other":"field"}`,
 			wantOK:  false,
@@ -218,9 +235,9 @@ func TestBuildReplayedDelegationState(t *testing.T) {
 		}
 	})
 
-	t.Run("failed status surfaces decoded error", func(t *testing.T) {
+	t.Run("legacy full payload with summary surfaces decoded error", func(t *testing.T) {
 		t.Parallel()
-		content := `{"agent_id":"agent-2","status":"failed","error":"delegate crashed"}`
+		content := `{"agent_id":"agent-2","status":"failed","output":"","summary":"condensed findings","error":"delegate crashed"}`
 		state := buildReplayedDelegationState("call-2", nil, content)
 
 		if state.status != "failed" {
@@ -228,6 +245,32 @@ func TestBuildReplayedDelegationState(t *testing.T) {
 		}
 		if state.error != "delegate crashed" {
 			t.Errorf("error = %q, want %q", state.error, "delegate crashed")
+		}
+	})
+
+	t.Run("failed compact envelope surfaces reason as error", func(t *testing.T) {
+		t.Parallel()
+		content := `{"output":"","status":"failed","reason":"delegation failed: child crashed"}`
+		state := buildReplayedDelegationState("call-compact-failed", nil, content)
+
+		if state.status != "failed" {
+			t.Fatalf("status = %q, want failed", state.status)
+		}
+		if state.error != "delegation failed: child crashed" {
+			t.Errorf("error = %q, want the envelope reason", state.error)
+		}
+	})
+
+	t.Run("code envelope with worktree path decodes as compact", func(t *testing.T) {
+		t.Parallel()
+		content := `{"output":"partial work","status":"cancelled","worktree_path":".steiner/worktrees/x"}`
+		state := buildReplayedDelegationState("call-compact-code", nil, content)
+
+		if state.status != "cancelled" {
+			t.Fatalf("status = %q, want cancelled", state.status)
+		}
+		if state.output != "partial work" {
+			t.Errorf("output = %q, want decoded compact output", state.output)
 		}
 	})
 

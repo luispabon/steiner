@@ -491,8 +491,7 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 			Role:    MessageRoleTool,
 			Content: "tool output",
 			Retention: &MessageRetention{
-				Kind:    "delegate_summary",
-				Summary: "retained",
+				Kind: "delegate_summary",
 			},
 		}
 		result := toProviderMessage(msg)
@@ -509,8 +508,7 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 			Name:       "delegate",
 			ToolCallID: "call_1",
 			Retention: &MessageRetention{
-				Kind:    "delegate_summary",
-				Summary: marker,
+				Kind: "delegate_summary",
 			},
 		}
 
@@ -532,8 +530,7 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 			Name:       "delegate",
 			ToolCallID: "call_1",
 			Retention: &MessageRetention{
-				Kind:    "delegate_summary",
-				Summary: marker,
+				Kind: "delegate_summary",
 			},
 		}
 

@@ -27,9 +27,18 @@ func TestFailedDelegateExecutionContextStatusMapping(t *testing.T) {
 			if result.Status != tt.status || result.StopReason != tt.reason || result.SessionResumable != tt.resumable {
 				t.Fatalf("result = %#v, want status=%q reason=%q resumable=%v", result, tt.status, tt.reason, tt.resumable)
 			}
+			// A cancelled result carries its own explanation; a partial result
+			// keeps the short projection token.
+			wantReason := tt.reason
+			if tt.status == StatusCancelled {
+				if result.Reason == "" {
+					t.Fatalf("cancelled result has no reason: %#v", result)
+				}
+				wantReason = result.Reason
+			}
 			envelope := result.ProjectToolResult()
-			if envelope.Status != string(tt.status) || envelope.Reason != tt.reason {
-				t.Fatalf("envelope = %#v, want status=%q reason=%q", envelope, tt.status, tt.reason)
+			if envelope.Status != string(tt.status) || envelope.Reason != wantReason {
+				t.Fatalf("envelope = %#v, want status=%q reason=%q", envelope, tt.status, wantReason)
 			}
 		})
 	}
