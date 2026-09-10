@@ -975,6 +975,12 @@ show whether each turn's prompt was an append-only cache-friendly growth or a
 rewrite (`BREAK-AT-N`). Usage and mode reference is in the script's header
 comment; `make test-scripts` runs its smoke tests.
 
+A `coldturns` mode joins the `cache` and `tool` streams on time to ask what
+causes turns that read nothing from cache — long delegated calls, prefix
+rewrites, or plain idle. It requires both `streams.cache` and `streams.tool`.
+See [cache-stats.md](cache-stats.md#attributing-cold-turns-coldturns-mode) for
+what it reports and how to read it.
+
 ---
 
 ## `context_management` block

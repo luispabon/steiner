@@ -6,15 +6,17 @@
 //   node scripts/diagnostics.mjs <mode> [flags]
 //   node scripts/diagnostics.mjs prefix <logfile> [flags]
 //
-// Modes: cache | provider | tools | prefix <logfile>
+// Modes: cache | provider | tools | coldturns | prefix <logfile>
 //
 // cache/provider/tools read the diagnostics directory (one JSONL file per
 // stream: cache.jsonl, provider.jsonl, tool.jsonl; see
-// internal/diagnostics/envelope.go for the record shape). prefix instead
-// reads a session log (JSONL, one runtime event per line) and looks at
-// type: "api_request" events, because prefix divergence needs the
-// message_hashes sequence, which only exists there -- it never moves to the
-// diagnostics envelope.
+// internal/diagnostics/envelope.go for the record shape). coldturns reads
+// two of those streams at once and joins them on time, because attributing a
+// cold turn needs both what the cache did (cache.jsonl) and what occupied the
+// gap before it (tool.jsonl). prefix instead reads a session log (JSONL, one
+// runtime event per line) and looks at type: "api_request" events, because
+// prefix divergence needs the message_hashes sequence, which only exists
+// there -- it never moves to the diagnostics envelope.
 //
 // Flags:
 //   --dir <path>          diagnostics directory (default: $XDG_STATE_HOME/steiner/diagnostics,
@@ -27,15 +29,33 @@
 //                          delta, for every row of the running mode. This is
 //                          the before/after operation: every record carries
 //                          build_sha for exactly this reason. Not valid with
-//                          prefix mode, which is single-file.
+//                          prefix or coldturns mode, which read more or less
+//                          than one stream.
 //   --json                 print aggregates as JSON instead of tables
 //   --top N                cap unbounded per-key listings (default 20)
+//   --min-n N              coldturns only: below this many long-delegation
+//                          observations, a model's row prints "insufficient"
+//                          instead of a rate (default 10). A soft guard, not a
+//                          filter -- n prints on every row regardless, so
+//                          adequacy stays a human judgement.
 //
 // VOCABULARY
 //   cold start   -- a run's first usage-bearing cache record (cold_start: true
 //                    on the record). Its warmth (cache_read/prompt) is how much
 //                    of a fresh run's very first request was still served from
 //                    a prompt cache seeded by an earlier process.
+//   cold turn    -- NOT a cold start. Any turn that read nothing from cache
+//                    (cache_read_tokens == 0). cold_start latches once per
+//                    process (internal/agent/cache_diagnostics.go's
+//                    coldStartRecorded), so a run has at most one cold start
+//                    but may have many cold turns. coldturns mode counts the
+//                    latter; the cold_starts column of cache mode counts the
+//                    former. Mixing them up silently measures the wrong thing.
+//   no cache reporting -- a model whose records never once show
+//                    cache_read_tokens > 0. That is indistinguishable from
+//                    "every turn missed" unless handled, so coldturns drops
+//                    such a model from every denominator and lists it
+//                    separately rather than reporting it as 100% cold.
 //   cached/req, uncached/req -- decompose the hit-rate ratio the same way
 //                    internal/usagestats/report.go's Row.CachedPerRequest /
 //                    Row.UncachedPerRequest do, so this script and the Go
@@ -76,6 +96,7 @@ const UNTIL = argOf(flagArgs, "--until", null);
 const SHA = argOf(flagArgs, "--sha", null);
 const AS_JSON = flagArgs.includes("--json");
 const TOP = Number.parseInt(argOf(flagArgs, "--top", "20"), 10);
+const MIN_N = Number.parseInt(argOf(flagArgs, "--min-n", "10"), 10);
 const compareIdx = flagArgs.indexOf("--compare");
 const COMPARE = compareIdx >= 0 ? [flagArgs[compareIdx + 1], flagArgs[compareIdx + 2]] : null;
 
@@ -486,6 +507,256 @@ function runToolsCompare(all) {
 	]);
 }
 
+// ---------------------------------------------------------- coldturns mode
+
+// DELEGATION_TOOLS are the tools whose execution blocks the parent's turn.
+// A delegated call is a tool call inside the parent's turn
+// (internal/agent/turn_progression.go, advance -> executeToolCalls), so while
+// one runs the parent issues no model call and its prompt cache entry sits
+// idle. internal/delegation/agent_type.go's IsDelegationTool covers sub_agent
+// and follow_up; advisor is included here because it blocks the parent turn
+// identically, even though it is not a delegation tool.
+const DELEGATION_TOOLS = new Set(["sub_agent", "follow_up", "advisor"]);
+
+// JOIN_SLACK_MS widens a tool call's window when testing whether it fits in
+// the gap between two parent turns. Both records are stamped by
+// diagnostics.Writer at write time (internal/diagnostics/writer.go), the tool
+// one after execution returns and the cache one after the next response is
+// parsed, so the two differ by however long the surrounding bookkeeping took.
+const JOIN_SLACK_MS = 2000;
+
+// LONG_DELEGATION_MS is the duration above which a delegated call is expected
+// to outlive Codex's measured ~5 minute idle cache TTL (docs/cache-stats.md).
+// Four minutes, not five: the ladder that found the TTL survived a 4 minute
+// gap and was gone by 5, so 4 is the last duration known to be safe.
+const LONG_DELEGATION_MS = 240_000;
+
+// Bin edges in seconds, upper bound exclusive. Reported as ladders rather
+// than averages because the claim under test is a transition ("cache dies
+// past N minutes"), and an average smears the transition away.
+const DELEGATION_BINS = [[0, 60], [60, 240], [240, 300], [300, 600], [600, Infinity]];
+const IDLE_BINS = [[0, 120], [120, 300], [300, 600], [600, Infinity]];
+
+const binLabel = ([lo, hi]) => (hi === Infinity ? `${lo}s+` : `${lo}-${hi}s`);
+const binOf = (bins, seconds) => bins.find(([lo, hi]) => seconds >= lo && seconds < hi) ?? null;
+
+const isColdTurn = (record) => (record.payload?.cache_read_tokens ?? 0) === 0;
+
+// uncachedTokens mirrors internal/provider/request_payload.go's
+// NonCachedPromptTokens: what this request paid full price for.
+const uncachedTokens = (record) => {
+	const p = record.payload ?? {};
+	return Math.max((p.prompt_tokens ?? 0) - (p.cache_read_tokens ?? 0) - (p.cache_create_tokens ?? 0), 0);
+};
+
+// modelsWithoutCacheReporting returns the backend_model_ids that never once
+// reported a nonzero cache_read_tokens. Every record is considered, not just
+// parent turns: one sub-agent read is enough to prove the field is wired up.
+// Such a model is dropped from the cold-turn denominators entirely -- a
+// backend that omits prompt_tokens_details.cached_tokens (the openai_compat
+// path, internal/provider/openai_wire.go) looks exactly like a backend whose
+// cache never hits, and reporting it as 100% cold would be a fabricated
+// finding rather than a measured one.
+function modelsWithoutCacheReporting(cacheRecords) {
+	const reported = new Set();
+	const seen = new Set();
+	for (const r of cacheRecords) {
+		const model = r.payload?.backend_model_id;
+		if (!model) continue;
+		seen.add(model);
+		if ((r.payload.cache_read_tokens ?? 0) > 0) reported.add(model);
+	}
+	return new Set([...seen].filter((m) => !reported.has(m)));
+}
+
+// delegationWindows converts delegation-class tool records into absolute
+// [start, end] windows. The record's ts is the completion time and
+// duration_ms the elapsed time (internal/tool/executor.go's recordDiagnostics
+// is called with time.Since(start)), so the call began duration_ms earlier.
+function delegationWindows(toolRecords) {
+	return toolRecords
+		.filter((r) => DELEGATION_TOOLS.has(r.payload?.tool))
+		.map((r) => {
+			const end = Date.parse(r.ts);
+			const ms = r.payload.duration_ms ?? 0;
+			return { runID: r.run_id ?? "", tool: r.payload.tool, start: end - ms, end, ms };
+		})
+		.filter((d) => Number.isFinite(d.start));
+}
+
+// parentTurnPairs walks consecutive parent turns within a run and describes
+// the gap between them: how long it was, and the longest delegation-class
+// call that fits inside it. The first turn of each run is deliberately
+// dropped -- it has no predecessor, so it is a cold start rather than a cold
+// turn, and counting it would attribute every session launch to whatever
+// happened to run next.
+function parentTurnPairs(cacheRecords, toolRecords) {
+	const delegations = delegationWindows(toolRecords);
+	const parents = cacheRecords.filter((r) => r.source === "parent" && Number.isFinite(Date.parse(r.ts)));
+	const pairs = [];
+	for (const [runID, records] of groupBy(parents, (r) => r.run_id ?? "")) {
+		const sorted = [...records].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
+		for (let i = 1; i < sorted.length; i++) {
+			const prevTs = Date.parse(sorted[i - 1].ts);
+			const curTs = Date.parse(sorted[i].ts);
+			let longest = null;
+			for (const d of delegations) {
+				if (d.runID !== runID) continue;
+				if (d.start < prevTs - JOIN_SLACK_MS || d.end > curTs + JOIN_SLACK_MS) continue;
+				if (!longest || d.ms > longest.ms) longest = d;
+			}
+			pairs.push({
+				record: sorted[i],
+				model: sorted[i].payload?.backend_model_id ?? "(unknown)",
+				cold: isColdTurn(sorted[i]),
+				gapSeconds: (curTs - prevTs) / 1000,
+				delegationSeconds: longest ? longest.ms / 1000 : 0,
+				delegationTool: longest?.tool ?? null,
+				sharedPrefixMessages: sorted[i].payload?.shared_prefix_messages ?? 0,
+				uncached: uncachedTokens(sorted[i]),
+			});
+		}
+	}
+	return pairs;
+}
+
+// classifyColdTurn attributes one cold turn to a cause.
+//
+// prefix_rewrite is tested first and wins over delegation: when the prefix
+// diverges at message 0 the request cannot hit any cached entry no matter how
+// recently it was touched, so timing explains nothing extra. #569 asks for
+// compaction to be counted separately rather than folded into delegation, and
+// this is that separation.
+//
+// The prefix signal is deliberately narrow. cache.jsonl carries
+// shared_prefix_messages but no message count to compare it against, so only
+// a total divergence (0, or the field absent) is detectable here. A partial
+// rewrite -- the common case for compaction, which keeps a summarised head --
+// falls through to idle or unexplained. Use prefix mode on a session log for
+// the full picture; it has the message_hashes sequence this stream lacks.
+function classifyColdTurn(pair) {
+	if (pair.sharedPrefixMessages === 0) return "prefix_rewrite";
+	if (pair.delegationSeconds * 1000 >= LONG_DELEGATION_MS) return "delegation";
+	if (pair.gapSeconds * 1000 >= LONG_DELEGATION_MS) return "idle";
+	return "unexplained";
+}
+
+function coldTurnMetrics(pairs, minN) {
+	const cold = pairs.filter((p) => p.cold);
+	const longDelegation = pairs.filter((p) => p.delegationSeconds * 1000 >= LONG_DELEGATION_MS);
+	return {
+		n: pairs.length,
+		coldTurns: cold.length,
+		coldRate: pairs.length ? cold.length / pairs.length : 0,
+		uncachedOnCold: sum(cold.map((p) => p.uncached)),
+		longDelegationN: longDelegation.length,
+		longDelegationCold: longDelegation.filter((p) => p.cold).length,
+		adequate: longDelegation.length >= minN,
+	};
+}
+
+const COLDTURN_COLUMNS = [
+	{ name: "cold_turns", value: (r) => r.metrics.coldTurns, fmt: (v) => String(v), fmtDelta: (d) => d.toFixed(0) },
+	{ name: "cold_rate", value: (r) => r.metrics.coldRate, fmt: (v) => (v * 100).toFixed(1) + "%", fmtDelta: (d) => (d * 100).toFixed(1) + "pp" },
+	{ name: "uncached_on_cold", value: (r) => r.metrics.uncachedOnCold, fmt: (v) => String(v), fmtDelta: (d) => d.toFixed(0) },
+	{ name: "long_deleg_n", value: (r) => r.metrics.longDelegationN, fmt: (v) => String(v), fmtDelta: (d) => d.toFixed(0) },
+	// Printed as "insufficient" rather than 0/N when the sample is too thin:
+	// a bare "0%" from three observations reads like a result and is not one.
+	{
+		name: "long_deleg_cold",
+		value: (r) => (r.metrics.adequate ? r.metrics.longDelegationCold : null),
+		fmt: (v) => (v === null ? "insufficient" : String(v)),
+		fmtDelta: (d) => d.toFixed(0),
+	},
+];
+
+// coldTurnModelRows groups by backend_model_id and never by provider_type.
+// Several models can share one provider_type while being served by entirely
+// different upstreams -- every non-codex model in a typical config routes
+// through one reseller provider and surfaces as "openai_compat" -- so
+// grouping by provider would average unrelated cache implementations
+// together and hide the variation this mode exists to expose.
+function coldTurnModelRows(pairs, minN) {
+	const grouped = sortedByCount(groupBy(pairs, (p) => p.model));
+	return capTop(grouped).map(([key, xs]) => ({ key, n: xs.length, metrics: coldTurnMetrics(xs, minN) }));
+}
+
+function attributionRows(pairs) {
+	const cold = pairs.filter((p) => p.cold);
+	const grouped = groupBy(cold, classifyColdTurn);
+	return [...grouped.entries()]
+		.sort((a, b) => b[1].length - a[1].length)
+		.map(([key, xs]) => ({
+			key,
+			n: xs.length,
+			metrics: { pct: cold.length ? (100 * xs.length) / cold.length : 0, uncached: sum(xs.map((p) => p.uncached)) },
+		}));
+}
+
+const ATTRIBUTION_COLUMNS = [
+	{ name: "pct", value: (r) => r.metrics.pct, fmt: (v) => v.toFixed(1) + "%", fmtDelta: (d) => d.toFixed(1) + "pp" },
+	{ name: "uncached", value: (r) => r.metrics.uncached, fmt: (v) => String(v), fmtDelta: (d) => d.toFixed(0) },
+];
+
+// ladderRows keys rows as "model | bin" so per-model detail survives, and
+// emits bins in edge order rather than by count: a ladder read out of order
+// cannot show a transition.
+function ladderRows(pairs, bins, secondsOf) {
+	const rows = [];
+	for (const [model, xs] of groupBy(pairs, (p) => p.model)) {
+		for (const bin of bins) {
+			const inBin = xs.filter((p) => binOf(bins, secondsOf(p)) === bin);
+			if (inBin.length === 0) continue;
+			const cold = inBin.filter((p) => p.cold).length;
+			rows.push({
+				key: `${model} | ${binLabel(bin)}`,
+				n: inBin.length,
+				metrics: { cold, coldRate: cold / inBin.length },
+			});
+		}
+	}
+	return capTop(rows);
+}
+
+const LADDER_COLUMNS = [
+	{ name: "cold", value: (r) => r.metrics.cold, fmt: (v) => String(v), fmtDelta: (d) => d.toFixed(0) },
+	{ name: "cold_rate", value: (r) => r.metrics.coldRate, fmt: (v) => (v * 100).toFixed(1) + "%", fmtDelta: (d) => (d * 100).toFixed(1) + "pp" },
+];
+
+function excludedModelRows(cacheRecords, excluded) {
+	return [...excluded]
+		.map((model) => ({
+			key: model,
+			n: cacheRecords.filter((r) => r.payload?.backend_model_id === model).length,
+			metrics: {},
+		}))
+		.sort((a, b) => b.n - a.n);
+}
+
+function runColdTurns(cacheRecords, toolRecords) {
+	const excluded = modelsWithoutCacheReporting(cacheRecords);
+	const included = cacheRecords.filter((r) => !excluded.has(r.payload?.backend_model_id));
+	const pairs = parentTurnPairs(included, toolRecords);
+
+	const sections = {
+		by_model: coldTurnModelRows(pairs, MIN_N),
+		cold_turn_attribution: attributionRows(pairs),
+		delegation_ladder: ladderRows(pairs, DELEGATION_BINS, (p) => p.delegationSeconds),
+		idle_ladder: ladderRows(pairs, IDLE_BINS, (p) => p.gapSeconds),
+		excluded_no_cache_reporting: excludedModelRows(cacheRecords, excluded),
+	};
+
+	if (AS_JSON) {
+		console.log(JSON.stringify(sections, null, 1));
+		return;
+	}
+	printTable("coldturns by model", sections.by_model, COLDTURN_COLUMNS);
+	printTable("coldturns cold-turn attribution", sections.cold_turn_attribution, ATTRIBUTION_COLUMNS);
+	printTable("coldturns delegation-duration ladder", sections.delegation_ladder, LADDER_COLUMNS);
+	printTable("coldturns idle-gap ladder", sections.idle_ladder, LADDER_COLUMNS);
+	printTable("coldturns excluded (no cache reporting)", sections.excluded_no_cache_reporting, []);
+}
+
 // ------------------------------------------------------------- prefix mode
 
 // longestCommonPrefixLen mirrors internal/agent/cache_diagnostics.go's
@@ -572,8 +843,17 @@ function main() {
 		return;
 	}
 
+	if (MODE === "coldturns") {
+		if (COMPARE) {
+			console.error("--compare does not apply to coldturns mode, which joins two streams");
+			process.exit(1);
+		}
+		runColdTurns(filterRecords(loadEnvelope("cache")), filterRecords(loadEnvelope("tool")));
+		return;
+	}
+
 	if (!["cache", "provider", "tools"].includes(MODE)) {
-		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools> [flags]");
+		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns> [flags]");
 		console.error("       node scripts/diagnostics.mjs prefix <logfile> [flags]");
 		process.exit(1);
 	}
