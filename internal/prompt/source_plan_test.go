@@ -22,7 +22,6 @@ func TestPlanSourceAssemblyOrdersSources(t *testing.T) {
 		{Kind: plannedSourceSkills, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourcePhasePrompt, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceConversation, Placement: plannedSourcePlacementConversation, PassThrough: true},
-		{Kind: plannedSourceToolSummaries, Placement: plannedSourcePlacementToolSummaries, PassThrough: false},
 	}
 
 	if got, wantLen := len(plan.Steps), len(want); got != wantLen {
@@ -89,9 +88,6 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 		Conversation: []provider.Message{
 			{Role: provider.MessageRoleUser, Content: "conversation turn"},
 		},
-		ToolResults: []provider.Message{
-			{Role: provider.MessageRoleTool, Content: "tool output"},
-		},
 		ProjectContextBudgetBytes: 1024,
 		ProjectContextExtraFiles:  []string{"README.md"},
 	})
@@ -103,13 +99,12 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 		ContextSourceProjectContext,
 		ContextSourceSkill,
 		ContextSourceSkill,
-		ContextSourceToolSummary,
 	}; !sourcesEqual(got, want) {
 		t.Fatalf("block sources = %v, want %v", got, want)
 	}
 
-	if got, want := messageIndexContaining(assembly.Messages, "conversation turn"), messageIndexContaining(assembly.Messages, "\"kind\":\"tool_summary\""); got < 0 || want < 0 || got >= want {
-		t.Fatalf("conversation should appear before tool summary: conversation=%d tool_summary=%d", got, want)
+	if got := messageIndexContaining(assembly.Messages, "conversation turn"); got < 0 {
+		t.Fatalf("conversation message not found")
 	}
 
 	if got := messageIndexContaining(assembly.Messages, "skill instructions"); got < 0 {
@@ -127,11 +122,8 @@ func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 		opts: AssemblyOptions{
 			Policy: AssemblyPolicy{
 				Budgets: SourceBudgetModel{
-					PreambleBytes:       1,
 					ProjectContextBytes: 1,
 					SkillBytes:          1,
-					ToolResultBytes:     1,
-					ToolSummaryBytes:    1,
 				},
 			},
 		},
@@ -140,11 +132,8 @@ func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 		opts: AssemblyOptions{
 			Policy: AssemblyPolicy{
 				Budgets: SourceBudgetModel{
-					PreambleBytes:       1024,
 					ProjectContextBytes: 4096,
 					SkillBytes:          2048,
-					ToolResultBytes:     2048,
-					ToolSummaryBytes:    1024,
 				},
 			},
 		},
@@ -168,8 +157,8 @@ func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 
 // TestAssembleKeepsStaticSourcesBeforeDynamicSources pins the prompt cache
 // invariant: Assemble must emit static sources (preamble, agents, project
-// context, skills, phase prompt) ahead of dynamic ones (conversation, tool
-// summaries), and must do so deterministically across calls.
+// context, skills, phase prompt) ahead of dynamic ones (conversation), and
+// must do so deterministically across calls.
 func TestAssembleKeepsStaticSourcesBeforeDynamicSources(t *testing.T) {
 	t.Parallel()
 
@@ -191,7 +180,6 @@ func TestAssembleKeepsStaticSourcesBeforeDynamicSources(t *testing.T) {
 		ProjectContextBudgetBytes: 1024,
 		ProjectContextExtraFiles:  []string{"README.md"},
 		Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "conversation turn"}},
-		ToolResults:               []provider.Message{{Role: provider.MessageRoleTool, Content: "tool output"}},
 	})
 	if err != nil {
 		t.Fatalf("newAssembler() error = %v", err)
@@ -210,7 +198,6 @@ func TestAssembleKeepsStaticSourcesBeforeDynamicSources(t *testing.T) {
 		ContextSourceSkill,
 		ContextSourceSkill,
 		ContextSourcePhasePrompt,
-		ContextSourceToolSummary,
 	}
 	if gotSources := blockSources(got.Blocks); !sourcesEqual(gotSources, wantSources) {
 		t.Fatalf("block sources = %v, want %v", gotSources, wantSources)
@@ -218,12 +205,11 @@ func TestAssembleKeepsStaticSourcesBeforeDynamicSources(t *testing.T) {
 
 	phaseIdx := messageIndexContaining(got.Messages, "phase instructions")
 	conversationIdx := messageIndexContaining(got.Messages, "conversation turn")
-	toolSummaryIdx := messageIndexContaining(got.Messages, "\"kind\":\"tool_summary\"")
-	if phaseIdx < 0 || conversationIdx < 0 || toolSummaryIdx < 0 {
-		t.Fatalf("missing messages: phase=%d conversation=%d tool_summary=%d", phaseIdx, conversationIdx, toolSummaryIdx)
+	if phaseIdx < 0 || conversationIdx < 0 {
+		t.Fatalf("missing messages: phase=%d conversation=%d", phaseIdx, conversationIdx)
 	}
-	if phaseIdx >= conversationIdx || conversationIdx >= toolSummaryIdx {
-		t.Fatalf("message order phase=%d conversation=%d tool_summary=%d, want static sources first", phaseIdx, conversationIdx, toolSummaryIdx)
+	if phaseIdx >= conversationIdx {
+		t.Fatalf("message order phase=%d conversation=%d, want static sources first", phaseIdx, conversationIdx)
 	}
 
 	again, err := assembler.Assemble(context.Background())

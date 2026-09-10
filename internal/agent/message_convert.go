@@ -161,7 +161,6 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 	providerMsgs := ToReplaySafeProviderMessages(conversation)
 
 	base.Conversation = providerMsgs
-	base.ToolResults = nil
 	base.ContextState = toPromptContext(state.Context)
 	return base
 }

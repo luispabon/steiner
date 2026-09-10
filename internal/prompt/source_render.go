@@ -18,7 +18,7 @@ func newAssemblyState(policy AssemblyPolicy, opts AssemblyOptions) assemblyState
 	return assemblyState{
 		pendingBlocks: make([]ContextBlock, 0, 8),
 		blocks:        make([]ContextBlock, 0, 8),
-		messages:      make([]provider.Message, 0, 8+len(opts.Conversation)+len(opts.ToolResults)),
+		messages:      make([]provider.Message, 0, 8+len(opts.Conversation)),
 		budgets:       newBudgetTracker(policy.Budgets),
 	}
 }
@@ -77,9 +77,10 @@ func (plan sourcePlan) render(ctx context.Context, policy AssemblyPolicy, opts A
 }
 
 func applyBudget(tracker *budgetTracker, source ContextSource, content string) (string, bool, bool) {
-	// AGENTS.md is exempt from byte budgeting: full content is always delivered.
+	// The system preamble, phase prompt, and AGENTS.md are never budgeted:
+	// full content is always delivered.
 	switch source {
-	case ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
+	case ContextSourcePreamble, ContextSourcePhasePrompt, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
 		return content, false, true
 	}
 	if content == "" {
@@ -105,8 +106,6 @@ func blockMessage(block ContextBlock) provider.Message {
 		message.Role = provider.MessageRoleSystem
 	case ContextSourceConversationSummary:
 		message.Role = provider.MessageRoleSystem
-	case ContextSourceToolSummary, ContextSourceToolResult, ContextSourceDelegationResult:
-		message.Role = provider.MessageRoleTool
 	default:
 		// Durable context intentionally stays user-scoped here; the interactive
 		// context report uses a different role mapping for block matching.

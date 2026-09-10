@@ -1,18 +1,9 @@
 package prompt
 
 import (
-	"encoding/json"
 	"strings"
 	"unicode/utf8"
 )
-
-func marshalEnvelope(value any) string {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return "{}"
-	}
-	return string(data)
-}
 
 func truncateText(content string, limit int) string {
 	if limit <= 0 || len(content) <= limit {

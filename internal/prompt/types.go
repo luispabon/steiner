@@ -27,14 +27,8 @@ const (
 	ContextSourceDurableContext ContextSource = "durable_context"
 	// ContextSourceConversationSummary identifies summarized conversation blocks.
 	ContextSourceConversationSummary ContextSource = "conversation_summary"
-	// ContextSourceToolSummary identifies summarized tool output blocks.
-	ContextSourceToolSummary ContextSource = "tool_summary"
 	// ContextSourceConversation identifies raw conversation message blocks.
 	ContextSourceConversation ContextSource = "conversation"
-	// ContextSourceToolResult identifies raw tool result blocks.
-	ContextSourceToolResult ContextSource = "tool_result"
-	// ContextSourceDelegationResult identifies delegated sub-agent result blocks.
-	ContextSourceDelegationResult ContextSource = "delegation_result"
 )
 
 // IsSystemZone reports whether the source belongs to the system prompt zone.
@@ -58,21 +52,8 @@ type ContextBlock struct {
 
 // SourceBudgetModel partitions byte budgets across prompt input sources.
 type SourceBudgetModel struct {
-	PreambleBytes       int
 	ProjectContextBytes int
 	SkillBytes          int
-	ToolResultBytes     int
-	ToolSummaryBytes    int
-}
-
-// CompactionPolicy configures conversation summary budgets.
-type CompactionPolicy struct {
-	SummaryBytes int
-}
-
-// ToolSummaryPolicy configures tool-output summary budgets.
-type ToolSummaryPolicy struct {
-	MaxBytes int
 }
 
 // ModelTokenBudget describes model-specific token limits and reserves.
@@ -100,11 +81,9 @@ type RequestTokenBudget struct {
 	Fits                     bool
 }
 
-// AssemblyPolicy configures prompt assembly budgets and summarization policies.
+// AssemblyPolicy configures prompt assembly budgets.
 type AssemblyPolicy struct {
-	Budgets     SourceBudgetModel
-	Compaction  CompactionPolicy
-	ToolSummary ToolSummaryPolicy
+	Budgets SourceBudgetModel
 }
 
 // DurableSummaryEntry stores a retained summary carried across compactions.
@@ -152,7 +131,6 @@ type AssemblyOptions struct {
 	// PhasePrompt carries the oneshot phase orchestration prompt. Empty outside oneshot runs.
 	PhasePrompt  string
 	Conversation []provider.Message
-	ToolResults  []provider.Message
 	// CachedPreamble is the pre-built system preamble string. When non-empty it
 	// is used directly, bypassing SystemPreamble. All inputs to SystemPreamble
 	// are session-constants, so caching once per session is safe.
