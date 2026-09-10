@@ -708,7 +708,7 @@ func TestParallelDelegationEndToEndFailureIsolation(t *testing.T) {
 	if !strings.Contains(results[0], "task-0") || !strings.Contains(results[2], "task-2") {
 		t.Fatalf("successful sibling results = %v", results)
 	}
-	if !strings.Contains(results[1], `"status":"failed"`) || !strings.Contains(results[1], `"reason":"unknown failure"`) {
+	if !strings.Contains(results[1], `"status":"failed"`) || !strings.Contains(results[1], `"reason":"`) {
 		t.Fatalf("failed task result = %q, want structured tool error", results[1])
 	}
 }

@@ -12,6 +12,7 @@ type replayedDelegateResult struct {
 	Status            string `json:"status"`
 	Output            string `json:"output"`
 	Summary           string `json:"summary"`
+	Reason            string `json:"reason"`
 	TurnCount         int    `json:"turn_count"`
 	TokenCount        int    `json:"token_count"`
 	ToolCallCount     int    `json:"tool_call_count"`
@@ -49,12 +50,13 @@ func decodeReplayedDelegateResult(content string) (replayedDelegateResult, bool)
 		var compact struct {
 			Output       string                        `json:"output"`
 			Status       string                        `json:"status"`
+			Reason       string                        `json:"reason"`
 			Continuation *agent.DelegationContinuation `json:"continuation"`
 		}
 		if err := json.Unmarshal([]byte(content), &compact); err != nil {
 			return replayedDelegateResult{}, false
 		}
-		result := replayedDelegateResult{Output: compact.Output, Status: compact.Status, compact: true}
+		result := replayedDelegateResult{Output: compact.Output, Status: compact.Status, Reason: compact.Reason, compact: true}
 		if compact.Continuation != nil {
 			result.AgentID = compact.Continuation.AgentID
 		}
@@ -71,7 +73,7 @@ func decodeReplayedDelegateResult(content string) (replayedDelegateResult, bool)
 func compactEnvelopeFields(fields map[string]json.RawMessage) bool {
 	for key := range fields {
 		switch key {
-		case "output", "status", "reason", "continuation":
+		case "output", "status", "reason", "continuation", "worktree_path":
 		default:
 			return false
 		}
@@ -101,15 +103,19 @@ func buildReplayedDelegationState(toolCallID string, retention *agent.MessageRet
 
 	decoded, ok := decodeReplayedDelegateResult(content)
 	if ok {
-		if !decoded.compact && decoded.AgentID == "" && decoded.Status == "" && decoded.Summary == "" && decoded.Error == "" {
+		if !decoded.compact && decoded.AgentID == "" && decoded.Status == "" && decoded.Summary == "" && decoded.Reason == "" && decoded.Error == "" {
 			state.output = content
 		} else {
 			applyDecodedDelegationState(&state, decoded)
 		}
 	}
 	applyRetainedDelegationState(&state, retention)
-	if state.status == "failed" && ok && decoded.Error != "" {
-		state.error = decoded.Error
+	if state.status == "failed" && ok {
+		if decoded.Reason != "" {
+			state.error = decoded.Reason
+		} else if decoded.Error != "" {
+			state.error = decoded.Error
+		}
 	}
 	return state
 }

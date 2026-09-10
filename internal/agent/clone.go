@@ -72,7 +72,6 @@ func messageRetentionFromToolRetention(retention *tool.ToolRetention) *MessageRe
 	}
 	return &MessageRetention{
 		Kind:       retention.Kind,
-		Summary:    retention.Summary,
 		AgentID:    retention.AgentID,
 		Status:     retention.Status,
 		TurnCount:  retention.TurnCount,

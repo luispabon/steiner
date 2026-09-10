@@ -193,8 +193,8 @@ func TestBasicResult(t *testing.T) {
 	if typedResult.Output != "done" {
 		t.Errorf("Output: got %q, want %q", typedResult.Output, "done")
 	}
-	if typedResult.Summary == "" {
-		t.Fatal("Summary = empty, want populated delegate summary")
+	if typedResult.Reason != "" {
+		t.Errorf("Reason = %q, want empty for a complete delegate", typedResult.Reason)
 	}
 	if typedResult.TurnCount != 1 {
 		t.Errorf("TurnCount: got %d, want 1", typedResult.TurnCount)
@@ -204,9 +204,6 @@ func TestBasicResult(t *testing.T) {
 	}
 	if result.Retention.Kind != tool.RetentionKindDelegateSummary {
 		t.Fatalf("result.Retention.Kind = %q, want %q", result.Retention.Kind, tool.RetentionKindDelegateSummary)
-	}
-	if result.Retention.Summary == "" {
-		t.Fatal("result.Retention.Summary = empty, want summary text")
 	}
 }
 
@@ -311,8 +308,8 @@ func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 	if typedResult.Status != StatusFailed {
 		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusFailed)
 	}
-	if typedResult.Summary != "delegation failed: initial child run failed" {
-		t.Fatalf("Summary = %q, want failure summary", typedResult.Summary)
+	if typedResult.Reason != "delegation failed: initial child run failed" {
+		t.Fatalf("Reason = %q, want failure reason", typedResult.Reason)
 	}
 	if result.Retention == nil {
 		t.Fatal("result.Retention = nil, want failure retention")
@@ -322,9 +319,6 @@ func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 	}
 	if result.Retention.Status != string(StatusFailed) {
 		t.Fatalf("Retention.Status = %q, want %q", result.Retention.Status, StatusFailed)
-	}
-	if result.Retention.Summary != typedResult.Summary {
-		t.Fatalf("Retention.Summary = %q, want %q", result.Retention.Summary, typedResult.Summary)
 	}
 	var sawFailedEvent bool
 	for _, ev := range sink.events {
@@ -341,7 +335,7 @@ func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 	}
 }
 
-func TestLocalRetentionCapsPreviewAndKeepsFullOutput(t *testing.T) {
+func TestLocalRetentionKeepsFullOutput(t *testing.T) {
 	longContent := strings.Repeat("x", 5000)
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{{Message: provider.Message{Content: longContent}, FinishReason: "stop"}},
@@ -375,17 +369,14 @@ func TestLocalRetentionCapsPreviewAndKeepsFullOutput(t *testing.T) {
 		t.Fatalf("Output was overwritten: got %q, want full output", typedResult.Output)
 	}
 	if result.Retention == nil {
-		t.Fatal("result.Retention = nil, want retained summary")
+		t.Fatal("result.Retention = nil, want retained metadata")
 	}
-	if len(result.Retention.Summary) > 4000 {
-		t.Fatalf("Summary length %d exceeds retention cap", len(result.Retention.Summary))
-	}
-	if typedResult.Summary == "" {
-		t.Fatal("Summary = empty, want populated delegate summary")
+	if result.Retention.Kind != tool.RetentionKindDelegateSummary {
+		t.Fatalf("result.Retention.Kind = %q, want %q", result.Retention.Kind, tool.RetentionKindDelegateSummary)
 	}
 }
 
-func TestLocalRetentionAlwaysUsesCappedPreview(t *testing.T) {
+func TestLocalRetentionKeepsLongOutput(t *testing.T) {
 	outputText := strings.Repeat("full-output ", 200)
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: outputText}, FinishReason: "stop"}}}
 
@@ -423,8 +414,8 @@ func TestLocalRetentionAlwaysUsesCappedPreview(t *testing.T) {
 	if result.Retention == nil {
 		t.Fatal("result.Retention = nil, want fallback summary")
 	}
-	if result.Retention.Summary != cappedRetentionPreview(outputText) {
-		t.Fatalf("result.Retention.Summary = %q, want capped preview", result.Retention.Summary)
+	if result.Retention.Kind != tool.RetentionKindDelegateSummary {
+		t.Fatalf("result.Retention.Kind = %q, want %q", result.Retention.Kind, tool.RetentionKindDelegateSummary)
 	}
 }
 
@@ -899,17 +890,14 @@ func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
 	if typedResult.Output != "" {
 		t.Fatalf("Output = %q, want preserved pre-error output", typedResult.Output)
 	}
-	if !strings.Contains(typedResult.Summary, "delegation failed: extension run failed") {
-		t.Fatalf("Summary = %q, want failure summary", typedResult.Summary)
+	if !strings.Contains(typedResult.Reason, "delegation failed: extension run failed") {
+		t.Fatalf("Reason = %q, want failure reason", typedResult.Reason)
 	}
 	if result.Retention == nil {
 		t.Fatal("result.Retention = nil, want failure retention")
 	}
 	if result.Retention.Status != string(StatusFailed) {
 		t.Fatalf("Retention.Status = %q, want %q", result.Retention.Status, StatusFailed)
-	}
-	if !strings.Contains(result.Retention.Summary, "delegation failed: extension run failed") {
-		t.Fatalf("Retention.Summary = %q, want failure summary", result.Retention.Summary)
 	}
 
 	var sawFailedEvent, sawCompleteEvent bool
@@ -968,11 +956,11 @@ func TestExtensionCancellationReturnsPartialStatus(t *testing.T) {
 	if result.Retention.Status != string(StatusPartial) {
 		t.Fatalf("Retention.Status = %q, want %q", result.Retention.Status, StatusPartial)
 	}
-	if !strings.Contains(result.Retention.Summary, "delegation failed:") {
-		t.Fatalf("Retention.Summary = %q, want cancellation summary", result.Retention.Summary)
+	if !strings.Contains(typedResult.Reason, "delegation failed:") {
+		t.Fatalf("Reason = %q, want cancellation reason", typedResult.Reason)
 	}
-	if !strings.Contains(result.Retention.Summary, "session is preserved") {
-		t.Fatalf("Retention.Summary = %q, want session-preserved note so parent does not conclude session is gone", result.Retention.Summary)
+	if !strings.Contains(typedResult.Reason, "session is preserved") {
+		t.Fatalf("Reason = %q, want session-preserved note so parent does not conclude session is gone", typedResult.Reason)
 	}
 	if !typedResult.SessionResumable {
 		t.Fatalf("SessionResumable = false, want true so parent knows it can follow_up again")
@@ -1018,17 +1006,17 @@ func TestZeroTurnCancellationTellsParentSessionPreserved(t *testing.T) {
 	if result.Retention == nil {
 		t.Fatal("result.Retention = nil, want retention with session-preserved hint")
 	}
-	if !strings.Contains(result.Retention.Summary, "session is preserved") {
-		t.Fatalf("Retention.Summary = %q, want session-preserved note", result.Retention.Summary)
+	if !strings.Contains(typedResult.Reason, "session is preserved") {
+		t.Fatalf("Reason = %q, want session-preserved note", typedResult.Reason)
 	}
-	if !strings.Contains(result.Retention.Summary, "follow_up") {
-		t.Fatalf("Retention.Summary = %q, want follow_up hint", result.Retention.Summary)
+	if !strings.Contains(typedResult.Reason, "follow_up") {
+		t.Fatalf("Reason = %q, want follow_up hint", typedResult.Reason)
 	}
 }
 
-// TestResultSummaryPopulated verifies that Result.Summary is
-// populated after a successful SpawnDelegate call.
-func TestResultSummaryPopulated(t *testing.T) {
+// TestResultReasonEmptyOnComplete verifies that a complete delegate result
+// carries no failure/cancellation reason.
+func TestResultReasonEmptyOnComplete(t *testing.T) {
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{{Message: provider.Message{Content: "task output"}, FinishReason: "stop"}},
 	}
@@ -1049,8 +1037,8 @@ func TestResultSummaryPopulated(t *testing.T) {
 	if !ok {
 		t.Fatalf("result.Value type = %T, want Result", result.Value)
 	}
-	if typedResult.Summary == "" {
-		t.Fatal("Result.Summary = empty, want populated summary text")
+	if typedResult.Reason != "" {
+		t.Fatalf("Result.Reason = %q, want empty for a complete delegate", typedResult.Reason)
 	}
 }
 
@@ -1082,7 +1070,7 @@ func TestTruncateTaskPreviewRuneSafe(t *testing.T) {
 	}
 }
 
-func TestDelegationCompleteEventEmittedAfterLocalSummary(t *testing.T) {
+func TestDelegationCompleteEventEmittedWithResult(t *testing.T) {
 	spec := makeSpec("event-order-agent", 10000)
 	sink := &collectingSink{}
 	runner := &presetRunner{states: []agent.RunState{{
@@ -1112,8 +1100,12 @@ func TestDelegationCompleteEventEmittedAfterLocalSummary(t *testing.T) {
 	if complete.TokenCount != 10 || complete.InputTokens != 20 || complete.CacheReadTokens != 30 || complete.CacheCreateTokens != 40 {
 		t.Fatalf("complete event usage = (output=%d, input=%d, read=%d, create=%d), want (10, 20, 30, 40)", complete.TokenCount, complete.InputTokens, complete.CacheReadTokens, complete.CacheCreateTokens)
 	}
-	if got := result.Value.(Result).Summary; got != "task done" {
-		t.Fatalf("summary = %q, want local output", got)
+	typedResult := result.Value.(Result)
+	if typedResult.Output != "task done" {
+		t.Fatalf("output = %q, want local output", typedResult.Output)
+	}
+	if typedResult.Reason != "" {
+		t.Fatalf("reason = %q, want empty for a complete delegate", typedResult.Reason)
 	}
 }
 

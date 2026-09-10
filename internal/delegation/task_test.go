@@ -12,52 +12,51 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func TestFailedDelegateSummaryText_NoPreviousOutput(t *testing.T) {
+func TestFailedDelegateReason_IncludesError(t *testing.T) {
 	err := errors.New("deadline exceeded")
-	state := agent.RunState{}
-	summary := failedDelegateSummaryText(err, state)
-	if !strings.Contains(summary, "delegation failed: deadline exceeded") {
-		t.Fatalf("expected failure summary, got: %s", summary)
+	reason := failedDelegateReason(err, agent.RunState{})
+	if !strings.Contains(reason, "delegation failed: deadline exceeded") {
+		t.Fatalf("expected failure reason, got: %s", reason)
 	}
 }
 
-func TestFailedDelegateSummaryText_OutputWins(t *testing.T) {
+func TestFailedDelegateReason_CountsToolActivity(t *testing.T) {
 	err := errors.New("deadline exceeded")
 	state := agent.RunState{
 		Conversation: []agent.Message{
-			{Role: agent.MessageRoleAssistant, Content: "found 3 issues in pkg A"},
+			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "read"}}},
 		},
 	}
-	summary := failedDelegateSummaryText(err, state)
-	if !strings.Contains(summary, "previous output:") {
-		t.Errorf("expected previous output in summary, got: %s", summary)
+	reason := failedDelegateReason(err, state)
+	if !strings.Contains(reason, "activity before failure: 1 tool call(s)") {
+		t.Errorf("expected tool activity count in reason, got: %s", reason)
 	}
 }
 
-func TestFailedDelegateSummaryText_CancellationSaysSessionPreserved(t *testing.T) {
+func TestFailedDelegateReason_CancellationSaysSessionPreserved(t *testing.T) {
 	err := context.Canceled
-	summary := failedDelegateSummaryText(err, agent.RunState{})
-	if !strings.Contains(summary, "session is preserved") {
-		t.Fatalf("expected session-preserved note on cancellation, got: %s", summary)
+	reason := failedDelegateReason(err, agent.RunState{})
+	if !strings.Contains(reason, "session is preserved") {
+		t.Fatalf("expected session-preserved note on cancellation, got: %s", reason)
 	}
-	if !strings.Contains(summary, "follow_up") {
-		t.Fatalf("expected follow_up hint on cancellation, got: %s", summary)
+	if !strings.Contains(reason, "follow_up") {
+		t.Fatalf("expected follow_up hint on cancellation, got: %s", reason)
 	}
 }
 
-func TestCancelledActivitySummary_ZeroTurnsTellsParentSessionIsPreserved(t *testing.T) {
-	summary := cancelledActivitySummary(agent.RunState{
+func TestCancelledDelegateReason_ZeroTurnsTellsParentSessionIsPreserved(t *testing.T) {
+	reason := cancelledDelegateReason(agent.RunState{
 		StopReason: agent.StopReasonCancelled,
 	})
-	if !strings.Contains(summary, "session is preserved") {
-		t.Fatalf("expected session-preserved note for zero-turn cancellation, got: %s", summary)
+	if !strings.Contains(reason, "session is preserved") {
+		t.Fatalf("expected session-preserved note for zero-turn cancellation, got: %s", reason)
 	}
-	if !strings.Contains(summary, "follow_up") {
-		t.Fatalf("expected follow_up hint for zero-turn cancellation, got: %s", summary)
+	if !strings.Contains(reason, "follow_up") {
+		t.Fatalf("expected follow_up hint for zero-turn cancellation, got: %s", reason)
 	}
 }
 
-func TestCancelledActivitySummary_WithToolCallsIncludesLastActivity(t *testing.T) {
+func TestCancelledDelegateReason_NamesLastToolWithoutArguments(t *testing.T) {
 	state := agent.RunState{
 		TurnCount:  3,
 		TokenCount: 1500,
@@ -66,12 +65,15 @@ func TestCancelledActivitySummary_WithToolCallsIncludesLastActivity(t *testing.T
 			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "glob", Arguments: map[string]any{"pattern": "**/*_test.go"}}}},
 		},
 	}
-	summary := cancelledActivitySummary(state)
-	if !strings.Contains(summary, "last activity: glob(pattern=**/*_test.go)") {
-		t.Errorf("expected last activity in summary, got: %s", summary)
+	reason := cancelledDelegateReason(state)
+	if !strings.Contains(reason, "last activity: glob;") {
+		t.Errorf("expected last tool name in reason, got: %s", reason)
 	}
-	if !strings.Contains(summary, "session is preserved") {
-		t.Errorf("expected session-preserved note, got: %s", summary)
+	if strings.Contains(reason, "**/*_test.go") {
+		t.Errorf("reason must not preview tool arguments, got: %s", reason)
+	}
+	if !strings.Contains(reason, "session is preserved") {
+		t.Errorf("expected session-preserved note, got: %s", reason)
 	}
 }
 
@@ -510,46 +512,5 @@ func TestSpawnDelegate_DoesNotEmitStartedEvent(t *testing.T) {
 		if event.Type == output.EventTypeDelegationStarted {
 			t.Error("SpawnDelegate emitted a DelegationStarted event")
 		}
-	}
-}
-
-func TestTruncateUTF8_TruncatesAt4000Chars(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		maxRunes int
-		want     string
-	}{
-		{
-			name:     "string shorter than limit passes through",
-			input:    "short text",
-			maxRunes: delegateRetentionSummaryMaxRunes,
-			want:     "short text",
-		},
-		{
-			name:     "string exactly at limit passes through",
-			input:    strings.Repeat("x", delegateRetentionSummaryMaxRunes),
-			maxRunes: delegateRetentionSummaryMaxRunes,
-			want:     strings.Repeat("x", delegateRetentionSummaryMaxRunes),
-		},
-		{
-			name:     "string exceeding limit is truncated with ellipsis",
-			input:    strings.Repeat("x", delegateRetentionSummaryMaxRunes+100),
-			maxRunes: delegateRetentionSummaryMaxRunes,
-			want:     strings.Repeat("x", delegateRetentionSummaryMaxRunes-3) + "...",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := truncateUTF8(tt.input)
-			if got != tt.want {
-				t.Errorf("truncateUTF8() = %d chars, want %d chars", len(got), len(tt.want))
-				if len(got) > 100 {
-					t.Logf("got truncated to: %s...", got[:100])
-					t.Logf("want: %s...", tt.want[:min(100, len(tt.want))])
-				}
-			}
-		})
 	}
 }

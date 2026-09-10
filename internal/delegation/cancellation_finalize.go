@@ -36,9 +36,6 @@ func applyFinalizeCancellation(events output.EventSink, store *SessionStore, con
 	}
 	finalizeDelegateCancellation(events, store, controller, projectRoot, agentID, &dr)
 	result.Value = dr
-	if result.Retention != nil {
-		result.Retention.Summary = dr.Summary
-	}
 }
 
 // finalizeDelegateCancellation invalidates and optionally prunes a child
@@ -56,7 +53,7 @@ func finalizeDelegateCancellation(events output.EventSink, store *SessionStore, 
 	result.SessionResumable = false
 	result.clearPersistence()
 	result.Output = strings.ReplaceAll(result.Output, cancelledSessionRetentionPhrase, cancelledSessionDiscardNotice)
-	result.Summary = strings.ReplaceAll(result.Summary, cancelledSessionRetentionPhrase, cancelledSessionDiscardNotice)
+	result.Reason = strings.ReplaceAll(result.Reason, cancelledSessionRetentionPhrase, cancelledSessionDiscardNotice)
 
 	emitDisposal := func(removed bool, errMsg string) {
 		if events == nil {

@@ -202,7 +202,7 @@ func remediationConfigWithHeadError(err error) *RemediationConfig {
 	}
 }
 
-func TestSpawnDelegate_RemediationSurvivesSummary(t *testing.T) {
+func TestSpawnDelegate_RemediationKeepsOutput(t *testing.T) {
 	calls := 0
 	remediationCalls := 0
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -253,8 +253,8 @@ func TestSpawnDelegate_RemediationSurvivesSummary(t *testing.T) {
 	if state.TurnCount != 2 || remediationCalls != 1 || calls != 2 {
 		t.Errorf("state turn=%d, remediation calls=%d, total calls=%d; want 2, 1, 2", state.TurnCount, remediationCalls, calls)
 	}
-	if delegationResult.Summary != "task result\n\n<remediation note: committed remaining changes; worktree left clean>" {
-		t.Errorf("summary = %q, want remediation output", delegationResult.Summary)
+	if delegationResult.Reason != "" {
+		t.Errorf("reason = %q, want empty for a complete delegate", delegationResult.Reason)
 	}
 }
 

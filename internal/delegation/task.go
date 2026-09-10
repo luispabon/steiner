@@ -17,8 +17,6 @@ type AgentRunner interface {
 	Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error)
 }
 
-const delegateRetentionSummaryMaxRunes = 4000
-
 const maxDelegateExtensions = 3
 
 // turnBudgetNoticeFunc builds an agent.RunRequest.TurnBudgetNotice closure
@@ -106,13 +104,12 @@ func cancelledBeforeDispatchResult(agentID string) tool.ExecutionResult {
 		AgentID:          agentID,
 		Status:           StatusCancelled,
 		SessionResumable: false,
-		Summary:          "delegation cancelled before dispatch",
+		Reason:           "delegation cancelled before dispatch",
 	}
 	return tool.ExecutionResult{
 		Value: result,
 		Retention: &tool.ToolRetention{
 			Kind:    tool.RetentionKindDelegateSummary,
-			Summary: result.Summary,
 			AgentID: result.AgentID,
 			Status:  string(result.Status),
 		},
@@ -204,24 +201,12 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 	})
 
 	tc.add("result_final", "final result", map[string]any{"tokens_used": result.TokenCount, "status": string(result.Status)})
-	needsSynthetic := result.Status == StatusCancelled ||
-		(strings.TrimSpace(result.Output) == "" && countToolCalls(state.Conversation) > 0)
-	summaryText := ""
-	if needsSynthetic {
-		// Cancellation or empty output with tool activity: derive a summary
-		// that tells the parent the session can be resumed.
-		summaryText = cancelledActivitySummary(state)
-		if summaryText == "" {
-			summaryText = cappedRetentionPreview(result.Output)
-		}
-		if result.Status == StatusCancelled {
-			result.SessionResumable = true
-		}
-	} else {
-		summaryText = cappedRetentionPreview(result.Output)
+	if result.Status == StatusCancelled {
+		// Cancellation: a reason that tells the parent the session can be
+		// resumed with follow_up.
+		result.Reason = cancelledDelegateReason(state)
+		result.SessionResumable = true
 	}
-	tc.add("summary", "summary derived locally", map[string]any{"length": len(summaryText)})
-	result.Summary = summaryText
 	result.Output = appendAdvisorSummaryLine(result.Output, result.AdvisorUses, result.AdvisorDenied)
 	if events != nil {
 		events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
@@ -249,7 +234,6 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		Value: result,
 		Retention: &tool.ToolRetention{
 			Kind:       tool.RetentionKindDelegateSummary,
-			Summary:    summaryText,
 			AgentID:    result.AgentID,
 			Status:     string(result.Status),
 			TurnCount:  result.TurnCount,
@@ -391,8 +375,7 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 		result.Output = msg.Content
 	}
 
-	summaryText := failedDelegateSummaryText(err, state)
-	result.Summary = summaryText
+	result.Reason = failedDelegateReason(err, state)
 
 	if fields := toolCallTraceFields(spec.AgentID); fields != nil {
 		tc.add("tool_calls", "per-tool-call trace recorded", fields)
@@ -404,7 +387,6 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 		Value: result,
 		Retention: &tool.ToolRetention{
 			Kind:       tool.RetentionKindDelegateSummary,
-			Summary:    summaryText,
 			AgentID:    result.AgentID,
 			Status:     string(result.Status),
 			TurnCount:  result.TurnCount,
@@ -420,13 +402,11 @@ func delegateHasUsefulActivity(state agent.RunState) bool {
 	return countToolCalls(state.Conversation) > 0
 }
 
-func failedDelegateSummaryText(err error, state agent.RunState) string {
+// failedDelegateReason builds the failure explanation surfaced to the parent
+// model, including the tool activity recorded before the failure and the
+// preserved-session resume notice for context cancellation.
+func failedDelegateReason(err error, state agent.RunState) string {
 	parts := []string{fmt.Sprintf("delegation failed: %s", err.Error())}
-	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
-		if prev := strings.TrimSpace(msg.Content); prev != "" {
-			parts = append(parts, "previous output: "+cappedRetentionPreview(prev))
-		}
-	}
 	if toolCount := countToolCalls(state.Conversation); toolCount > 0 {
 		parts = append(parts, fmt.Sprintf("activity before failure: %d tool call(s)", toolCount))
 	}
@@ -435,56 +415,27 @@ func failedDelegateSummaryText(err error, state agent.RunState) string {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		parts = append(parts, "the child session is preserved and can be resumed with follow_up using the same agent_id")
 	}
-	return truncateUTF8(strings.Join(parts, "\n"))
+	return strings.Join(parts, "\n")
 }
 
-func cancelledActivitySummary(state agent.RunState) string {
+// cancelledDelegateReason builds the deterministic cancellation explanation
+// surfaced to the parent model. It names the tool call count and the last tool
+// without previewing arguments, and always carries the resume notice.
+func cancelledDelegateReason(state agent.RunState) string {
 	toolCount := countToolCalls(state.Conversation)
 	if toolCount == 0 {
 		// No tool activity before the cancellation. The child session is still
 		// preserved by SpawnDelegate, so the parent can resume it with follow_up.
 		// Spell that out so the parent does not conclude the session is gone.
-		return truncateUTF8("cancelled before any work; the child session is preserved and can be resumed with follow_up using the same agent_id")
+		return "cancelled before any work; the child session is preserved and can be resumed with follow_up using the same agent_id"
 	}
 	msg, ok := agent.LastAssistantMessage(state.Conversation)
 	if !ok || len(msg.ToolCalls) == 0 {
-		return truncateUTF8(fmt.Sprintf("cancelled after %d turns, %d tool call(s); the child session is preserved and can be resumed with follow_up", state.TurnCount, toolCount))
+		return fmt.Sprintf("cancelled after %d turns, %d tool call(s); the child session is preserved and can be resumed with follow_up", state.TurnCount, toolCount)
 	}
 	last := msg.ToolCalls[len(msg.ToolCalls)-1]
-	argsPreview := ""
-	if len(last.Arguments) > 0 {
-		pairs := make([]string, 0, len(last.Arguments))
-		for k, v := range last.Arguments {
-			pairs = append(pairs, fmt.Sprintf("%s=%v", k, v))
-		}
-		argsPreview = strings.Join(pairs, ", ")
-	}
-	summary := fmt.Sprintf("cancelled after %d turns, %d tool call(s); last activity: %s(%s); the child session is preserved and can be resumed with follow_up",
-		state.TurnCount, toolCount, last.Name, argsPreview)
-	return truncateUTF8(summary)
-}
-
-func cappedRetentionPreview(text string) string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return "(empty output)"
-	}
-	return truncateUTF8(text)
-}
-
-func truncateUTF8(text string) string {
-	const maxRunes = delegateRetentionSummaryMaxRunes
-	if maxRunes <= 0 {
-		return text
-	}
-	runes := []rune(text)
-	if len(runes) <= maxRunes {
-		return text
-	}
-	if maxRunes < 3 {
-		return string(runes[:maxRunes])
-	}
-	return string(runes[:maxRunes-3]) + "..."
+	return fmt.Sprintf("cancelled after %d turns, %d tool call(s); last activity: %s; the child session is preserved and can be resumed with follow_up",
+		state.TurnCount, toolCount, last.Name)
 }
 
 // runStateFields builds trace fields from a child run's outcome.
