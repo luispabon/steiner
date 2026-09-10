@@ -38,7 +38,6 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		SkillsRoots:               []string{skillsRoot},
 		ContextState:              DurableContextState{RetainedSummaries: []DurableSummaryEntry{{Title: "summary", Text: "retained compaction summary", Source: "compactor", Turn: 4}}},
 		Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "how do I fix this?"}, {Role: provider.MessageRoleAssistant, Content: "use the tools"}},
-		ToolResults:               []provider.Message{{Role: provider.MessageRoleTool, Content: "tool result"}},
 		ProjectContextBudgetBytes: 1024,
 		ProjectContextExtraFiles:  []string{"README.md", "go.mod"},
 	})
@@ -46,7 +45,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		t.Fatalf("Assemble() error = %v", err)
 	}
 
-	if got, want := len(assembly.Blocks), 6; got != want {
+	if got, want := len(assembly.Blocks), 5; got != want {
 		t.Fatalf("len(blocks) = %d, want %d", got, want)
 	}
 
@@ -56,7 +55,6 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		ContextSourceProjectAgentsMD,
 		ContextSourceProjectContext,
 		ContextSourceProjectContext,
-		ContextSourceToolSummary,
 	}
 	for i, want := range wantSources {
 		if got := assembly.Blocks[i].Source; got != want {
@@ -64,7 +62,7 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		}
 	}
 
-	if got, want := len(assembly.Messages), 5; got != want {
+	if got, want := len(assembly.Messages), 4; got != want {
 		t.Fatalf("len(messages) = %d, want %d", got, want)
 	}
 
@@ -85,10 +83,9 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		t.Fatalf("project context message name = %q, want empty", got)
 	}
 	conversation := messageIndexByContent(t, assembly.Messages, "how do I fix this?")
-	toolSummary := messageIndexContaining(assembly.Messages, "\"kind\":\"tool_summary\"")
 
-	if readme <= 0 || readme >= conversation || conversation >= toolSummary {
-		t.Fatalf("message order = readme:%d conversation:%d tool_summary:%d", readme, conversation, toolSummary)
+	if readme <= 0 || readme >= conversation {
+		t.Fatalf("message order = readme:%d conversation:%d", readme, conversation)
 	}
 	if got := strings.Contains(assembly.Messages[0].Content, "retained compaction summary"); got {
 		t.Fatalf("system message unexpectedly includes retained compaction summary: %q", assembly.Messages[0].Content)
@@ -396,9 +393,6 @@ func TestAssembleRetainedSummariesAreNotInjectedIntoSystemPrompt(t *testing.T) {
 	t.Parallel()
 
 	assembly, err := Assemble(context.Background(), AssemblyOptions{
-		Policy: AssemblyPolicy{
-			Compaction: CompactionPolicy{SummaryBytes: 512},
-		},
 		ContextState: DurableContextState{
 			RetainedSummaries: []DurableSummaryEntry{
 				{Title: "compacted conversation history", Text: "earlier request and tool output", Source: "loop_compaction", Turn: 2},

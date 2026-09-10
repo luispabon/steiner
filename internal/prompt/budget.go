@@ -3,11 +3,8 @@ package prompt
 import "fmt"
 
 const (
-	defaultPreambleBudgetBytes    = 4096
-	defaultSkillBudgetBytes       = 98304
-	defaultToolResultBudgetBytes  = 2048
-	defaultToolSummaryBudgetBytes = 1024
-	defaultCompactionSummaryBytes = 1024
+	defaultPreambleBudgetBytes = 4096
+	defaultSkillBudgetBytes    = 98304
 )
 
 // DefaultAssemblyPolicy returns the default prompt assembly policy.
@@ -17,11 +14,7 @@ func DefaultAssemblyPolicy() AssemblyPolicy {
 			PreambleBytes:       defaultPreambleBudgetBytes,
 			ProjectContextBytes: fallbackProjectContextBudgetBytes,
 			SkillBytes:          defaultSkillBudgetBytes,
-			ToolResultBytes:     defaultToolResultBudgetBytes,
-			ToolSummaryBytes:    defaultToolSummaryBudgetBytes,
 		},
-		Compaction:  CompactionPolicy{SummaryBytes: defaultCompactionSummaryBytes},
-		ToolSummary: ToolSummaryPolicy{MaxBytes: defaultToolSummaryBudgetBytes},
 	}
 }
 
@@ -31,24 +24,14 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 		return AssemblyPolicy{}, err
 	}
 	policy.Budgets = normalizeSourceBudgets(policy.Budgets, defaults.Budgets)
-	policy.Compaction = normalizeCompactionPolicy(policy.Compaction, defaults.Compaction)
-	policy.ToolSummary = normalizeToolSummaryPolicy(policy.ToolSummary, defaults.ToolSummary)
 	return policy, nil
 }
 
 func validateAssemblyPolicy(policy AssemblyPolicy) error {
 	if policy.Budgets.PreambleBytes < 0 ||
 		policy.Budgets.ProjectContextBytes < 0 ||
-		policy.Budgets.SkillBytes < 0 ||
-		policy.Budgets.ToolResultBytes < 0 ||
-		policy.Budgets.ToolSummaryBytes < 0 {
+		policy.Budgets.SkillBytes < 0 {
 		return fmt.Errorf("assembly budgets must not be negative")
-	}
-	if policy.Compaction.SummaryBytes < 0 {
-		return fmt.Errorf("summary bytes must not be negative")
-	}
-	if policy.ToolSummary.MaxBytes < 0 {
-		return fmt.Errorf("tool summary max bytes must not be negative")
 	}
 	return nil
 }
@@ -63,27 +46,7 @@ func normalizeSourceBudgets(budgets, defaults SourceBudgetModel) SourceBudgetMod
 	if budgets.SkillBytes == 0 {
 		budgets.SkillBytes = defaults.SkillBytes
 	}
-	if budgets.ToolResultBytes == 0 {
-		budgets.ToolResultBytes = defaults.ToolResultBytes
-	}
-	if budgets.ToolSummaryBytes == 0 {
-		budgets.ToolSummaryBytes = defaults.ToolSummaryBytes
-	}
 	return budgets
-}
-
-func normalizeCompactionPolicy(compaction, defaults CompactionPolicy) CompactionPolicy {
-	if compaction.SummaryBytes == 0 {
-		compaction.SummaryBytes = defaults.SummaryBytes
-	}
-	return compaction
-}
-
-func normalizeToolSummaryPolicy(toolSummary, defaults ToolSummaryPolicy) ToolSummaryPolicy {
-	if toolSummary.MaxBytes == 0 {
-		toolSummary.MaxBytes = defaults.MaxBytes
-	}
-	return toolSummary
 }
 
 func validateAssemblyOptions(opts AssemblyOptions) error {
@@ -107,12 +70,9 @@ type budgetTracker struct {
 func newBudgetTracker(model SourceBudgetModel) *budgetTracker {
 	return &budgetTracker{
 		remaining: map[ContextSource]int{
-			ContextSourcePreamble:         model.PreambleBytes,
-			ContextSourceProjectContext:   model.ProjectContextBytes,
-			ContextSourceSkill:            model.SkillBytes,
-			ContextSourceToolResult:       model.ToolResultBytes,
-			ContextSourceToolSummary:      model.ToolSummaryBytes,
-			ContextSourceDelegationResult: model.ToolSummaryBytes,
+			ContextSourcePreamble:       model.PreambleBytes,
+			ContextSourceProjectContext: model.ProjectContextBytes,
+			ContextSourceSkill:          model.SkillBytes,
 		},
 	}
 }

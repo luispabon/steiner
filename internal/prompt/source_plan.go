@@ -15,15 +15,13 @@ const (
 	plannedSourceProjectContext plannedSourceKind = "project_context"
 	plannedSourceSkills         plannedSourceKind = "skills"
 	plannedSourceConversation   plannedSourceKind = "conversation"
-	plannedSourceToolSummaries  plannedSourceKind = "tool_summaries"
 )
 
 type plannedSourcePlacement string
 
 const (
-	plannedSourcePlacementCore          plannedSourcePlacement = "core"
-	plannedSourcePlacementConversation  plannedSourcePlacement = "conversation"
-	plannedSourcePlacementToolSummaries plannedSourcePlacement = "tool_summaries"
+	plannedSourcePlacementCore         plannedSourcePlacement = "core"
+	plannedSourcePlacementConversation plannedSourcePlacement = "conversation"
 )
 
 type sourcePlan struct {
@@ -49,7 +47,6 @@ func (a assembler) planSourceAssembly() sourcePlan {
 			skillsStep(opts),
 			phasePromptStep(opts),
 			conversationStep(opts),
-			toolSummariesStep(opts, policy),
 		},
 	}
 }
@@ -184,21 +181,6 @@ func conversationStep(opts AssemblyOptions) sourcePlanStep {
 		Apply: func(_ context.Context, state *assemblyState) error {
 			for _, message := range opts.Conversation {
 				state.appendMessage(message)
-			}
-			return nil
-		},
-	}
-}
-
-// toolSummariesStep returns the step that summarizes tool results.
-func toolSummariesStep(opts AssemblyOptions, policy AssemblyPolicy) sourcePlanStep {
-	return sourcePlanStep{
-		Kind:      plannedSourceToolSummaries,
-		Placement: plannedSourcePlacementToolSummaries,
-		Apply: func(_ context.Context, state *assemblyState) error {
-			for _, toolResult := range opts.ToolResults {
-				block := summarizeToolMessage(toolResult, policy.ToolSummary)
-				state.appendBlock(block)
 			}
 			return nil
 		},

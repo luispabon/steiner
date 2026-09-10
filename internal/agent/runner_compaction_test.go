@@ -69,10 +69,6 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 					{Title: "prior work", Text: "keep prompt assembly policy-driven", Source: "assistant", Turn: 1},
 				},
 			},
-			Policy: prompt.AssemblyPolicy{
-				Compaction:  prompt.CompactionPolicy{SummaryBytes: 256},
-				ToolSummary: prompt.ToolSummaryPolicy{MaxBytes: 32},
-			},
 		},
 		Limits: Limits{MaxTurns: 8, MaxTokens: 2000},
 	})
@@ -195,11 +191,6 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 					{Title: "prior", Text: strings.Repeat("summary ", 8), Source: "user", Turn: 1},
 				},
 			},
-			Policy: prompt.AssemblyPolicy{
-				Compaction: prompt.CompactionPolicy{
-					SummaryBytes: 64,
-				},
-			},
 		},
 		Limits: Limits{MaxTurns: 6, MaxTokens: 100},
 		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
@@ -288,12 +279,6 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("third answer ", 80)},
 				{Role: provider.MessageRoleUser, Content: strings.Repeat("follow up request ", 88)},
 				{Role: provider.MessageRoleAssistant, Content: strings.Repeat("follow up answer ", 72)},
-			},
-			ToolResults: []provider.Message{
-				{Role: provider.MessageRoleTool, Content: strings.Repeat("tool output ", 90)},
-			},
-			Policy: prompt.AssemblyPolicy{
-				Compaction: prompt.CompactionPolicy{SummaryBytes: 128},
 			},
 		},
 		Limits: Limits{MaxTurns: 3},
