@@ -87,10 +87,10 @@ type Result struct {
 	// Output is the child's final answer or result.
 	Output string `json:"output"`
 
-	// Summary holds the retained delegate summary. When the delegate's Output is
-	// an intermediate fragment (e.g. from a tool-calling turn), this provides a
-	// useful condensed view of the delegate's findings.
-	Summary string `json:"summary,omitempty"`
+	// Reason holds the failure or cancellation explanation surfaced to the
+	// parent model in the compact envelope's reason field. Empty for a complete
+	// delegate.
+	Reason string `json:"reason,omitempty"`
 
 	// TurnCount is the number of turns the child executed.
 	TurnCount int `json:"turn_count"`

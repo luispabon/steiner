@@ -87,7 +87,7 @@ func TestFinalizeDelegateCancellationDiscardsSelectedWorktree(t *testing.T) {
 		StopReason:       "cancelled",
 		SessionResumable: true,
 		Output:           "work; " + cancelledSessionRetentionPhrase,
-		Summary:          "summary; " + cancelledSessionRetentionPhrase,
+		Reason:           "reason; " + cancelledSessionRetentionPhrase,
 	}
 
 	finalizeDelegateCancellation(events, store, controller, repo, "discard-child", &result)
@@ -103,7 +103,7 @@ func TestFinalizeDelegateCancellationDiscardsSelectedWorktree(t *testing.T) {
 	if result.SessionResumable {
 		t.Fatal("discarded result is resumable")
 	}
-	if strings.Contains(result.Output, cancelledSessionRetentionPhrase) || strings.Contains(result.Summary, cancelledSessionRetentionPhrase) {
+	if strings.Contains(result.Output, cancelledSessionRetentionPhrase) || strings.Contains(result.Reason, cancelledSessionRetentionPhrase) {
 		t.Fatalf("discard retention phrase remains in result: %+v", result)
 	}
 	if _, err := os.Stat(selected.Path); !os.IsNotExist(err) {
@@ -188,14 +188,14 @@ func TestFinalizeDelegateCancellationReportsPruneFailure(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(&ChildSession{Spec: Spec{AgentID: "failed-child"}})
 	events := &recordingEventSink{}
-	result := Result{AgentID: "failed-child", Status: StatusCancelled, SessionResumable: true, Summary: cancelledSessionRetentionPhrase}
+	result := Result{AgentID: "failed-child", Status: StatusCancelled, SessionResumable: true, Reason: cancelledSessionRetentionPhrase}
 
 	finalizeDelegateCancellation(events, store, controller, repo, "failed-child", &result)
 
 	if _, ok := store.Get("failed-child"); ok {
 		t.Fatal("failed discard session is still available")
 	}
-	if result.SessionResumable || strings.Contains(result.Summary, cancelledSessionRetentionPhrase) {
+	if result.SessionResumable || strings.Contains(result.Reason, cancelledSessionRetentionPhrase) {
 		t.Fatalf("failed discard result = %+v", result)
 	}
 	if _, err := os.Stat(path); err != nil {

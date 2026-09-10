@@ -430,7 +430,6 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 				},
 				Retention: &tool.ToolRetention{
 					Kind:       tool.RetentionKindDelegateSummary,
-					Summary:    "child summary",
 					AgentID:    "child-1",
 					Status:     "complete",
 					TurnCount:  1,
@@ -469,8 +468,8 @@ func TestRunnerUsesExecutionResultWithoutLeakingMetadata(t *testing.T) {
 	}
 	if got := state.Conversation[2].Retention; got == nil {
 		t.Fatal("tool message retention = nil, want durable retained summary")
-	} else if got.Summary != "child summary" {
-		t.Fatalf("tool message retention summary = %q, want child summary", got.Summary)
+	} else if got.Kind != tool.RetentionKindDelegateSummary {
+		t.Fatalf("tool message retention kind = %q, want %q", got.Kind, tool.RetentionKindDelegateSummary)
 	}
 }
 
@@ -507,7 +506,6 @@ func TestRunnerKeepsRecentDelegateRetentionVisibleWithoutLeakingSummary(t *testi
 				},
 				Retention: &tool.ToolRetention{
 					Kind:       tool.RetentionKindDelegateSummary,
-					Summary:    hiddenSummary,
 					AgentID:    "child-1",
 					Status:     "complete",
 					TurnCount:  1,
@@ -543,8 +541,8 @@ func TestRunnerKeepsRecentDelegateRetentionVisibleWithoutLeakingSummary(t *testi
 	}
 	if got := state.Conversation[2].Retention; got == nil {
 		t.Fatal("tool message retention = nil, want durable retained summary")
-	} else if got.Summary != hiddenSummary {
-		t.Fatalf("tool message retention summary = %q, want %q", got.Summary, hiddenSummary)
+	} else if got.Kind != tool.RetentionKindDelegateSummary {
+		t.Fatalf("tool message retention kind = %q, want %q (marker %q)", got.Kind, tool.RetentionKindDelegateSummary, hiddenSummary)
 	}
 
 	second := providerStub.requests[1]

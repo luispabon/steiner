@@ -155,7 +155,7 @@ func TestFollowUpCompleteEventCarriesAdvisorBudget(t *testing.T) {
 // TestSpawnDelegateOutputCarriesAdvisorSummaryLine is the I2 test: the
 // emitted DelegationCompleteEvent.Output must contain the advisor summary
 // line when usage is non-zero, and must not contain it when both counters
-// are zero. result.Summary must never contain the summary line.
+// are zero. result.Reason must never contain the summary line.
 func TestSpawnDelegateOutputCarriesAdvisorSummaryLine(t *testing.T) {
 	conversationWithAdvisorUse := []agent.Message{
 		{
@@ -200,8 +200,8 @@ func TestSpawnDelegateOutputCarriesAdvisorSummaryLine(t *testing.T) {
 		if !strings.Contains(result.Output, wantLine) {
 			t.Errorf("result.Output %q does not contain %q", result.Output, wantLine)
 		}
-		if strings.Contains(result.Summary, wantLine) {
-			t.Errorf("result.Summary %q must not contain the advisor summary line", result.Summary)
+		if strings.Contains(result.Reason, wantLine) {
+			t.Errorf("result.Reason %q must not contain the advisor summary line", result.Reason)
 		}
 	})
 

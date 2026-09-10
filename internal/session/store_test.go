@@ -264,7 +264,6 @@ func TestLoadLegacyConversationFallbackPreservesToolAndDelegationMessages(t *tes
 				Content:    "visible delegate output",
 				Retention: &agent.MessageRetention{
 					Kind:       "delegate_summary",
-					Summary:    "retained delegate summary",
 					AgentID:    "child-1",
 					Status:     "complete",
 					TurnCount:  3,
@@ -304,8 +303,8 @@ func TestLoadLegacyConversationFallbackPreservesToolAndDelegationMessages(t *tes
 	if got[2].Retention == nil {
 		t.Fatal("loaded tool retention = nil, want preserved delegate retention")
 	}
-	if got, want := got[2].Retention.Summary, "retained delegate summary"; got != want {
-		t.Fatalf("loaded retention summary = %q, want %q", got, want)
+	if got, want := got[2].Retention.AgentID, "child-1"; got != want {
+		t.Fatalf("loaded retention agent = %q, want %q", got, want)
 	}
 	if got, want := loaded.Lineage.NextGenerationID, 2; got != want {
 		t.Fatalf("loaded next generation id = %d, want %d", got, want)
