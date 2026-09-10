@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
@@ -57,6 +58,7 @@ type HandlerDeps struct {
 	Events        output.EventSink
 	Config        Config
 	UsageRecorder *usagestats.Recorder
+	Diagnostics   *diagnostics.Writer
 	// WorkDir is the working directory used to render workspace-relative
 	// display paths for caller-supplied files.
 	WorkDir string
@@ -89,8 +91,10 @@ type Config struct {
 // NewHandler calls (e.g. one per conversation turn) must pass the same
 // *SharedState to HandlerDeps.SharedState each time. Safe for concurrent use.
 type SharedState struct {
-	mu   sync.Mutex
-	uses int
+	mu             sync.Mutex
+	uses           int
+	cacheMu        sync.Mutex
+	previousPrefix []string
 }
 
 // NewSharedState returns a fresh, empty SharedState.
@@ -154,7 +158,9 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	// state on purpose, even though Anthropic guidance often suggests removing
 	// spent tools.
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses, in.Question, advisorDisplayPaths(files)))
-	response, err := advise(ctx, deps.Provider, deps.Model, snapshot, in.Question, files, deps.Config.MaxTokens, deps.Events, s.cacheKey)
+	messages := buildMessages(snapshot, in.Question, files)
+	diagnostic := &advisorDiagnosticContext{state: s, writer: deps.Diagnostics}
+	response, err := adviseWithMessages(ctx, deps.Provider, deps.Model, messages, deps.Config.MaxTokens, deps.Events, s.cacheKey, diagnostic)
 	if err != nil {
 		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{
 			Model:     deps.Model.BackendModelID,
@@ -166,6 +172,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	}
 
 	recordAdvisorUsage(deps.UsageRecorder, deps.Model, response.Usage)
+	s.emitCacheDiagnosticWithContext(deps.Diagnostics, deps.Model, response.Usage, messages, diagnostic.fingerprint, diagnostic)
 
 	note := strings.TrimSpace(response.Message.Content)
 	truncated := response.FinishReason == "length"
@@ -225,7 +232,21 @@ func emitEvent(sink output.EventSink, event output.Event) {
 	}
 }
 
+//nolint:unparam // wrapper preserves the focused advisor test seam.
 func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, conversation []provider.Message, question string, files []advisorFile, maxTokens *int, events output.EventSink, cacheKey string) (provider.ChatResponse, error) {
+	return adviseWithMessages(ctx, prov, rm, buildMessages(conversation, question, files), maxTokens, events, cacheKey, nil)
+}
+
+type advisorDiagnosticContext struct {
+	state                *handlerState
+	writer               *diagnostics.Writer
+	fingerprint          provider.WireCacheDiagnostics
+	prefixHashes         []string
+	sharedPrefixMessages int
+	prepared             bool
+}
+
+func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, messages []provider.Message, maxTokens *int, events output.EventSink, cacheKey string, diagnostic *advisorDiagnosticContext) (provider.ChatResponse, error) {
 	if prov == nil {
 		return provider.ChatResponse{}, fmt.Errorf("advisor: provider is required")
 	}
@@ -235,7 +256,7 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 
 	req := provider.ChatRequest{
 		Model:               rm.BackendModelID,
-		Messages:            buildMessages(conversation, question, files),
+		Messages:            messages,
 		MaxTokens:           maxTokens,
 		Params:              rm.Params,
 		ExtraParams:         rm.ExtraParams,
@@ -245,6 +266,7 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 	if rm.ReasoningEffectiveEffort != "" {
 		req.Reasoning = &provider.ReasoningRequest{Effort: rm.ReasoningEffectiveEffort}
 	}
+	prepareCacheDiagnostic(diagnostic, messages)
 
 	if req.Reasoning != nil {
 		// Streaming is required for reasoning models. Go directly to streaming
@@ -257,6 +279,7 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 		if drainErr != nil {
 			return provider.ChatResponse{}, fmt.Errorf("advisor: %w", drainErr)
 		}
+		emitWireCacheDiagnostic(ctx, prov, req, true, diagnostic)
 		return resp, nil
 	}
 
@@ -272,9 +295,11 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 			if drainErr != nil {
 				return provider.ChatResponse{}, fmt.Errorf("advisor: %w", drainErr)
 			}
+			emitWireCacheDiagnostic(ctx, prov, req, true, diagnostic)
 			return resp, nil
 		}
 		return provider.ChatResponse{}, fmt.Errorf("advisor: %w", err)
 	}
+	emitWireCacheDiagnostic(ctx, prov, req, false, diagnostic)
 	return response, nil
 }

@@ -8,18 +8,26 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 type fakeProvider struct {
-	requests       []provider.ChatRequest
-	streamRequests []provider.ChatRequest
-	response       provider.ChatResponse
-	err            error
-	streamChunks   []provider.ChatChunk
-	streamErr      error
+	requests         []provider.ChatRequest
+	streamRequests   []provider.ChatRequest
+	response         provider.ChatResponse
+	err              error
+	streamChunks     []provider.ChatChunk
+	streamErr        error
+	fingerprints     int
+	fingerprintCalls []fakeFingerprintCall
+}
+
+type fakeFingerprintCall struct {
+	cacheable int
+	shared    int
 }
 
 func (p *fakeProvider) ChatCompletion(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
@@ -47,6 +55,34 @@ func (p *fakeProvider) StreamChatCompletion(_ context.Context, req provider.Chat
 }
 
 func (p *fakeProvider) SupportsUsageStats() bool { return true }
+
+func (p *fakeProvider) CacheFingerprint(_ context.Context, request provider.ChatRequest, stream bool, cacheable, shared int) (provider.WireCacheDiagnostics, error) {
+	p.fingerprints++
+	p.fingerprintCalls = append(p.fingerprintCalls, fakeFingerprintCall{cacheable: cacheable, shared: shared})
+	return provider.WireCacheDiagnostics{
+		CacheablePrefixHash: hashMessages(request.Messages[:cacheable]),
+		SharedPrefixHash:    hashMessages(request.Messages[:shared]),
+		Stream:              stream,
+	}, nil
+}
+
+func TestWireCacheDiagnosticIsGatedAndTracksSharedState(t *testing.T) {
+	prov := &fakeProvider{}
+	req := provider.ChatRequest{Messages: []provider.Message{{Role: provider.MessageRoleSystem, Content: "stable"}, {Role: provider.MessageRoleUser, Content: "suffix"}}}
+	state := &handlerState{}
+	emitWireCacheDiagnostic(context.Background(), prov, req, false, &advisorDiagnosticContext{state: state})
+	if prov.fingerprints != 0 {
+		t.Fatalf("fingerprints with nil diagnostics = %d, want 0", prov.fingerprints)
+	}
+	writer, err := diagnostics.New(diagnostics.Options{Dir: t.TempDir(), Streams: diagnostics.Streams{Cache: true}})
+	if err != nil {
+		t.Fatalf("diagnostics.New() error = %v", err)
+	}
+	emitWireCacheDiagnostic(context.Background(), prov, req, false, &advisorDiagnosticContext{state: state, writer: writer})
+	if prov.fingerprints != 1 {
+		t.Fatalf("fingerprints with enabled diagnostics = %d, want 1", prov.fingerprints)
+	}
+}
 
 func TestAdviseUsesConversationSnapshotUnmodified(t *testing.T) {
 	snapshot := []provider.Message{

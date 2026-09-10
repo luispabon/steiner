@@ -137,7 +137,7 @@ func TestResponsesWireDecodeResponse(t *testing.T) {
 	resp := &http.Response{Body: io.NopCloser(strings.NewReader(`{
 		"status":"completed",
 		"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"final answer"}]}],
-		"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18}
+		"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18,"input_tokens_details":{"cached_tokens":5,"cache_write_tokens":3}}
 	}`))}
 
 	response, err := w.DecodeResponse(resp)
@@ -149,6 +149,36 @@ func TestResponsesWireDecodeResponse(t *testing.T) {
 	}
 	if response.Usage == nil || response.Usage.TotalTokens != 18 {
 		t.Fatalf("usage = %#v, want total tokens 18", response.Usage)
+	}
+	if got, want := response.Usage.CacheReadInputTokens, 5; got != want {
+		t.Errorf("cache read input tokens = %d, want %d", got, want)
+	}
+	if got, want := response.Usage.CacheCreationInputTokens, 3; got != want {
+		t.Errorf("cache creation input tokens = %d, want %d", got, want)
+	}
+}
+
+func TestResponsesWireDecodeResponseMissingInputTokenDetails(t *testing.T) {
+	w := testResponsesWire(t, "https://chatgpt.com/backend-api/codex")
+
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(`{
+		"status":"completed",
+		"output":[],
+		"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18}
+	}`))}
+
+	response, err := w.DecodeResponse(resp)
+	if err != nil {
+		t.Fatalf("DecodeResponse() error = %v", err)
+	}
+	if response.Usage == nil {
+		t.Fatal("usage = nil, want usage")
+	}
+	if got := response.Usage.CacheReadInputTokens; got != 0 {
+		t.Errorf("cache read input tokens = %d, want 0", got)
+	}
+	if got := response.Usage.CacheCreationInputTokens; got != 0 {
+		t.Errorf("cache creation input tokens = %d, want 0", got)
 	}
 }
 

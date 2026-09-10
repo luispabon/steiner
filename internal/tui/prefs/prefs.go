@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/luispabon/steiner/internal/tui/theme"
 	"gopkg.in/yaml.v3"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // Prefs stores persisted TUI preferences.

@@ -177,3 +177,7 @@ Steiner owns the schemas and result formats. Dive implements the behavior.
 ## Docs
 
 Do not broadly load `docs/` or `.steiner/plans/`; read only the specific file or section needed. Prefer README plus nearby code for orientation.
+
+Code exploration
+
+If lsp_* tools are available, prefer them over bash, grep, and similar tools for exploring and examining Go code.
