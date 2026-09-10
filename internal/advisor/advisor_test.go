@@ -15,13 +15,19 @@ import (
 )
 
 type fakeProvider struct {
-	requests       []provider.ChatRequest
-	streamRequests []provider.ChatRequest
-	response       provider.ChatResponse
-	err            error
-	streamChunks   []provider.ChatChunk
-	streamErr      error
-	fingerprints   int
+	requests         []provider.ChatRequest
+	streamRequests   []provider.ChatRequest
+	response         provider.ChatResponse
+	err              error
+	streamChunks     []provider.ChatChunk
+	streamErr        error
+	fingerprints     int
+	fingerprintCalls []fakeFingerprintCall
+}
+
+type fakeFingerprintCall struct {
+	cacheable int
+	shared    int
 }
 
 func (p *fakeProvider) ChatCompletion(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
@@ -50,9 +56,14 @@ func (p *fakeProvider) StreamChatCompletion(_ context.Context, req provider.Chat
 
 func (p *fakeProvider) SupportsUsageStats() bool { return true }
 
-func (p *fakeProvider) CacheFingerprint(_ context.Context, _ provider.ChatRequest, stream bool, _, _ int) (provider.WireCacheDiagnostics, error) {
+func (p *fakeProvider) CacheFingerprint(_ context.Context, request provider.ChatRequest, stream bool, cacheable, shared int) (provider.WireCacheDiagnostics, error) {
 	p.fingerprints++
-	return provider.WireCacheDiagnostics{CacheablePrefixHash: "cache-prefix", SharedPrefixHash: "shared-prefix", Stream: stream}, nil
+	p.fingerprintCalls = append(p.fingerprintCalls, fakeFingerprintCall{cacheable: cacheable, shared: shared})
+	return provider.WireCacheDiagnostics{
+		CacheablePrefixHash: hashMessages(request.Messages[:cacheable]),
+		SharedPrefixHash:    hashMessages(request.Messages[:shared]),
+		Stream:              stream,
+	}, nil
 }
 
 func TestWireCacheDiagnosticIsGatedAndTracksSharedState(t *testing.T) {

@@ -30,9 +30,10 @@ func TestAdvisorCacheDiagnosticsFieldsAndSharedPrefix(t *testing.T) {
 		Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice"},
 		Usage:   &provider.UsageStats{PromptTokens: 100, CacheReadInputTokens: 70, CacheCreationInputTokens: 10, CompletionTokens: 8},
 	}}
-	handler := NewHandler(HandlerDeps{Provider: providerStub, Model: provider.ResolvedModel{ProviderAlias: "alias", BackendModelID: "model"}, Config: Config{MaxUsesPerRun: 2}, CacheKey: "opaque-cache-key", Diagnostics: writer})
+	sharedState := NewSharedState()
 	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{{Role: provider.MessageRoleUser, Content: "context"}})
 	for _, question := range []string{"first", "second"} {
+		handler := NewHandler(HandlerDeps{Provider: providerStub, Model: provider.ResolvedModel{ProviderAlias: "alias", BackendModelID: "model"}, Config: Config{MaxUsesPerRun: 2}, CacheKey: "opaque-cache-key", Diagnostics: writer, SharedState: sharedState})
 		if _, err := handler(ctx, map[string]any{"question": question}); err != nil {
 			t.Fatalf("handler() error = %v", err)
 		}
@@ -75,11 +76,26 @@ func TestAdvisorCacheDiagnosticsFieldsAndSharedPrefix(t *testing.T) {
 	if second.SharedPrefixMessages != first.PrefixMessageCount {
 		t.Fatalf("second shared prefix = %d, want %d", second.SharedPrefixMessages, first.PrefixMessageCount)
 	}
+	if len(providerStub.fingerprintCalls) != 2 {
+		t.Fatalf("fingerprint calls = %d, want 2", len(providerStub.fingerprintCalls))
+	}
+	if providerStub.fingerprintCalls[0].shared != 0 {
+		t.Fatalf("first shared wire message count = %d, want 0", providerStub.fingerprintCalls[0].shared)
+	}
+	if providerStub.fingerprintCalls[0].cacheable != providerStub.fingerprintCalls[1].shared {
+		t.Fatalf("first cacheable count = %d, second shared count = %d", providerStub.fingerprintCalls[0].cacheable, providerStub.fingerprintCalls[1].shared)
+	}
+	if first.CacheablePrefixHash != second.SharedPrefixHash {
+		t.Fatalf("first cacheable wire hash = %q, second shared wire hash = %q", first.CacheablePrefixHash, second.SharedPrefixHash)
+	}
 }
 
 func TestAdvisorCacheDiagnosticsGatingAndNilWriter(t *testing.T) {
 	state := &handlerState{cacheKey: "key"}
 	state.emitCacheDiagnostic(nil, provider.ResolvedModel{}, nil, []provider.Message{{Role: provider.MessageRoleUser, Content: "x"}})
+	if state.shared != nil {
+		t.Fatal("nil diagnostics initialized shared cache baseline")
+	}
 	dir := filepath.Join(t.TempDir(), "diagnostics")
 	writer, err := diagnostics.New(diagnostics.Options{Dir: dir, Streams: diagnostics.Streams{Provider: true}})
 	if err != nil {

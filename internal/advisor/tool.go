@@ -91,8 +91,10 @@ type Config struct {
 // NewHandler calls (e.g. one per conversation turn) must pass the same
 // *SharedState to HandlerDeps.SharedState each time. Safe for concurrent use.
 type SharedState struct {
-	mu   sync.Mutex
-	uses int
+	mu             sync.Mutex
+	uses           int
+	cacheMu        sync.Mutex
+	previousPrefix []string
 }
 
 // NewSharedState returns a fresh, empty SharedState.
@@ -118,10 +120,8 @@ func NewHandler(deps HandlerDeps) func(context.Context, map[string]any) (any, er
 }
 
 type handlerState struct {
-	shared         *SharedState
-	cacheKey       string
-	cacheMu        sync.Mutex
-	previousPrefix []string
+	shared   *SharedState
+	cacheKey string
 }
 
 func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[string]any) (any, error) {
@@ -172,7 +172,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	}
 
 	recordAdvisorUsage(deps.UsageRecorder, deps.Model, response.Usage)
-	s.emitCacheDiagnostic(deps.Diagnostics, deps.Model, response.Usage, messages, diagnostic.fingerprint)
+	s.emitCacheDiagnosticWithContext(deps.Diagnostics, deps.Model, response.Usage, messages, diagnostic.fingerprint, diagnostic)
 
 	note := strings.TrimSpace(response.Message.Content)
 	truncated := response.FinishReason == "length"
@@ -238,9 +238,12 @@ func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedMod
 }
 
 type advisorDiagnosticContext struct {
-	state       *handlerState
-	writer      *diagnostics.Writer
-	fingerprint provider.WireCacheDiagnostics
+	state                *handlerState
+	writer               *diagnostics.Writer
+	fingerprint          provider.WireCacheDiagnostics
+	prefixHashes         []string
+	sharedPrefixMessages int
+	prepared             bool
 }
 
 func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, messages []provider.Message, maxTokens *int, events output.EventSink, cacheKey string, diagnostic *advisorDiagnosticContext) (provider.ChatResponse, error) {
@@ -263,6 +266,7 @@ func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider
 	if rm.ReasoningEffectiveEffort != "" {
 		req.Reasoning = &provider.ReasoningRequest{Effort: rm.ReasoningEffectiveEffort}
 	}
+	prepareCacheDiagnostic(diagnostic, messages)
 
 	if req.Reasoning != nil {
 		// Streaming is required for reasoning models. Go directly to streaming
