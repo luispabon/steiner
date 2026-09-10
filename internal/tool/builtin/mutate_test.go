@@ -1365,8 +1365,15 @@ func TestMutateHashBatchSemantics(t *testing.T) {
 		if got.OperationsFailed != 1 {
 			t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
 		}
-		if got.OperationsSkipped != 2 {
-			t.Fatalf("OperationsSkipped = %d, want 2", got.OperationsSkipped)
+		// The plan loop keeps going past the failing operation, so the
+		// other four operations still plan cleanly — nothing is skipped
+		// any more, it's either applied-at-plan-time (rolled back) or
+		// failed.
+		if got.OperationsRolledBack != 4 {
+			t.Fatalf("OperationsRolledBack = %d, want 4", got.OperationsRolledBack)
+		}
+		if got.OperationsSkipped != 0 {
+			t.Fatalf("OperationsSkipped = %d, want 0", got.OperationsSkipped)
 		}
 		// File should remain unchanged (atomic)
 		assertFile(t, path, "aaa\n")
@@ -1417,8 +1424,13 @@ func TestMutateHashBatchSemantics(t *testing.T) {
 		if got.OperationsFailed != 1 {
 			t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
 		}
-		if got.OperationsSkipped != 2 {
-			t.Fatalf("OperationsSkipped = %d, want 2", got.OperationsSkipped)
+		// Operations 2 and 3 don't depend on operation 1's edit, so they
+		// still plan cleanly even though it failed first.
+		if got.OperationsRolledBack != 2 {
+			t.Fatalf("OperationsRolledBack = %d, want 2", got.OperationsRolledBack)
+		}
+		if got.OperationsSkipped != 0 {
+			t.Fatalf("OperationsSkipped = %d, want 0", got.OperationsSkipped)
 		}
 		// File should remain unchanged
 		assertFile(t, path, "aaa\n")
@@ -1626,17 +1638,20 @@ func TestMutatePlanPhaseFailureAccounting(t *testing.T) {
 	if got.OperationsFailed != 1 {
 		t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
 	}
-	if got.OperationsRolledBack != 4 {
-		t.Fatalf("OperationsRolledBack = %d, want 4", got.OperationsRolledBack)
+	// Operation 6 (f -> F) doesn't depend on the failing operation 5, so it
+	// still plans cleanly — only operation 5 itself fails, nothing is
+	// skipped.
+	if got.OperationsRolledBack != 5 {
+		t.Fatalf("OperationsRolledBack = %d, want 5", got.OperationsRolledBack)
 	}
-	if got.OperationsSkipped != 1 {
-		t.Fatalf("OperationsSkipped = %d, want 1", got.OperationsSkipped)
+	if got.OperationsSkipped != 0 {
+		t.Fatalf("OperationsSkipped = %d, want 0", got.OperationsSkipped)
 	}
 	if got.OperationsApplied != 0 {
 		t.Fatalf("OperationsApplied = %d, want 0", got.OperationsApplied)
 	}
-	if len(got.OperationResults) != 4 {
-		t.Fatalf("OperationResults count = %d, want 4", len(got.OperationResults))
+	if len(got.OperationResults) != 5 {
+		t.Fatalf("OperationResults count = %d, want 5", len(got.OperationResults))
 	}
 	for i, opResult := range got.OperationResults {
 		if opResult.Applied != false {
