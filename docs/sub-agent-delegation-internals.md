@@ -207,7 +207,7 @@ The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSessi
 |-------|-------------|
 | `output` | Exact child output, without trimming or host diagnostics |
 | `status` | Omitted on normal success; otherwise `partial`, `cancelled`, or `failed` |
-| `reason` | Optional recovery reason: `limit reached`, `child setup failed`, or the failure/cancellation explanation (the real error on failure, the cancellation sentence on a cancelled child) |
+| `reason` | Optional recovery reason. `partial` results carry the projection token (`cancelled` for a cancelled child, otherwise `limit reached`); `cancelled` results carry the deterministic cancellation sentence, falling back to `limit reached`; `failed` results carry the real error, falling back to `unknown failure` when the error is empty; setup failures carry `child setup failed` or the matching setup guidance |
 | `continuation.agent_id` | Optional saved-session agent ID; present only when the child session was persisted |
 | `worktree_path` | Optional project-relative worktree locator (`.steiner/worktrees/...`); present only for `AgentTypeCode` results with a provisioned worktree, on any status including `failed` |
 
