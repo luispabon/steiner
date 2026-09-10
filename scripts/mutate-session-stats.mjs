@@ -152,6 +152,12 @@ const stats = {
 	optional_fields: { file_hash: 0, assert_present: 0, assert_absent: 0, dry_run: 0, allow_empty: 0, replace_all: 0 },
 	batching: { single_op: 0, multi_op: 0, multi_file: 0 },
 	retry_chains: {},
+	calls_per_message: {
+		messages_with_mutate: 0,
+		messages_with_multiple: 0,
+		histogram: {},
+		per_model: {},
+	},
 };
 
 for (const file of readdirSync(DIR)) {
@@ -173,6 +179,16 @@ for (const file of readdirSync(DIR)) {
 
 		for (const message of generation.messages || []) {
 			if (message.role === "assistant" && message.tool_calls) {
+				const mutateCallCount = message.tool_calls.filter((c) => c.name === "mutate").length;
+				if (mutateCallCount > 0) {
+					stats.calls_per_message.messages_with_mutate++;
+					if (mutateCallCount > 1) stats.calls_per_message.messages_with_multiple++;
+					bump(stats.calls_per_message.histogram, mutateCallCount);
+					stats.calls_per_message.per_model[model] ??= { messages_with_mutate: 0, messages_with_multiple: 0 };
+					stats.calls_per_message.per_model[model].messages_with_mutate++;
+					if (mutateCallCount > 1) stats.calls_per_message.per_model[model].messages_with_multiple++;
+				}
+
 				for (const call of message.tool_calls) {
 					if (call.name !== "mutate") continue;
 					sessionUsedMutate = true;
@@ -315,4 +331,11 @@ if (AS_JSON) {
 	console.log(`  single-op ${stats.batching.single_op}  multi-op ${stats.batching.multi_op}  multi-file ${stats.batching.multi_file} (${pct(stats.batching.multi_file, stats.calls)} of all calls)`);
 	console.log("\n== consecutive-failure chains (length: count) ==");
 	for (const [k, v] of sorted(stats.retry_chains)) console.log(`  ${k}: ${v}`);
+	console.log("\n== calls per assistant message ==");
+	console.log(`  messages with mutate call(s) ${stats.calls_per_message.messages_with_mutate}  with more than one ${stats.calls_per_message.messages_with_multiple} (${pct(stats.calls_per_message.messages_with_multiple, stats.calls_per_message.messages_with_mutate)})`);
+	console.log("  histogram (calls per message: count):");
+	for (const [k, v] of sorted(stats.calls_per_message.histogram)) console.log(`    ${k}: ${v}`);
+	console.log("  per model (>=8 messages):");
+	for (const [k, v] of sorted(stats.calls_per_message.per_model).filter(([, v]) => v.messages_with_mutate >= 8))
+		console.log(`    ${k.padEnd(22)} ${String(v.messages_with_mutate).padEnd(5)} multiple ${String(v.messages_with_multiple).padEnd(4)} ${pct(v.messages_with_multiple, v.messages_with_mutate)}`);
 }
