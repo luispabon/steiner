@@ -2603,8 +2603,9 @@ func TestExecuteSingleToolCall_EmitsUpdatedBudgetEvent(t *testing.T) {
 	if toolBudget.PromptTokens-basePromptTokens >= toolBudget.RawPromptTokens-baseRawPromptTokens {
 		t.Fatalf("tool budget calibrated delta = %d, want less than raw delta = %d", toolBudget.PromptTokens-basePromptTokens, toolBudget.RawPromptTokens-baseRawPromptTokens)
 	}
-	if toolBudget.ContextUsagePercent <= initialBudget.ContextUsagePercent {
-		t.Fatalf("tool budget ContextUsagePercent = %f, want > initial %f", toolBudget.ContextUsagePercent, initialBudget.ContextUsagePercent)
+	basePercent := 100 * float64(basePromptTokens) / float64(p.lastBudget.ContextSize)
+	if toolBudget.ContextUsagePercent <= basePercent {
+		t.Fatalf("tool budget ContextUsagePercent = %f, want > base %f", toolBudget.ContextUsagePercent, basePercent)
 	}
 }
 

@@ -6,5 +6,7 @@
 - Do not guess silently. If ambiguity materially changes impl, ask. Else state assumption, continue.
 - Push back on overcomplicated, risky, or unnecessary requests.
 - Surface important tradeoffs briefly.
-- Use at most one `mutate` call per turn; batch all intended edits into it.
+- Keep each `mutate` call to a small, coherent unit of edits — single digits.
+- Larger tasks: issue several `mutate` calls in the same message; they run in order within one turn.
+- Each `mutate` call is its own transaction with no joint rollback across calls, so a failure part-way through a turn leaves earlier calls applied — keep edits that must land together in one call.
 - Use at most one `bash` call per turn; shell calls share persistent session state.
