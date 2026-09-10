@@ -82,6 +82,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 		phasePrompt:        params.PhasePrompt,
 		workflowMode:       params.WorkflowMode,
 		currentEffective:   params.CurrentEffective,
+		staticContext:      &prompt.StaticContextCache{},
 	}
 	if alias := strings.TrimSpace(params.ModelAlias); alias != "" {
 		runner.currentAlias = func() string {

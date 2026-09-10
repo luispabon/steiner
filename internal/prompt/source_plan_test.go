@@ -449,10 +449,9 @@ func mustRenderPlannedAssembly(t *testing.T, opts AssemblyOptions) Assembly {
 		t.Fatalf("newAssembler() error = %v", err)
 	}
 
-	plan := assembler.planSourceAssembly()
-	assembly, err := plan.render(context.Background(), assembler.policy, assembler.opts)
+	assembly, err := assembler.Assemble(context.Background())
 	if err != nil {
-		t.Fatalf("plan.render() error = %v", err)
+		t.Fatalf("Assemble() error = %v", err)
 	}
 	return assembly
 }

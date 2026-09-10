@@ -609,6 +609,16 @@ func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildChildPromptCarriesStaticContextCache(t *testing.T) {
+	opts := buildChildPrompt(childPromptParams{spec: Spec{Task: "do the thing"}})
+	if opts.CachedStaticContext == nil {
+		t.Error("AssemblyOptions.CachedStaticContext = nil, want non-nil per-run cache")
+	}
+	if opts.StaticContextScope != "" {
+		t.Errorf("AssemblyOptions.StaticContextScope = %q, want empty (cache is per-run)", opts.StaticContextScope)
+	}
+}
+
 func TestBuildChildPromptSkipProjectContext(t *testing.T) {
 	tests := []struct {
 		name               string

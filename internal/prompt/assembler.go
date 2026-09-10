@@ -20,6 +20,10 @@ func newAssembler(opts AssemblyOptions) (assembler, error) {
 }
 
 func (a assembler) Assemble(ctx context.Context) (Assembly, error) {
+	if a.opts.CachedStaticContext == nil {
+		a.opts.CachedStaticContext = &StaticContextCache{}
+	}
+	a.opts.CachedStaticContext.beginScope(a.opts.StaticContextScope)
 	plan := a.planSourceAssembly()
 	return plan.render(ctx, a.policy, a.opts)
 }

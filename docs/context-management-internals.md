@@ -44,6 +44,8 @@ Each turn, steiner assembles the full context through a 7-step ordered plan. The
 
 Each step with a budget is tracked by a `budgetTracker`. When a source exceeds its allocation, content is truncated and a `Truncated` flag is set on the resulting `ContextBlock`. The system preamble, phase prompt, and AGENTS.md are never truncated.
 
+The three file-backed static sources (steps 2 to 4: AGENTS.md, project context files, skills) are read from disk once and reused. `internal/prompt` memoizes them in a `StaticContextCache` that the interactive, oneshot, and exec runners inject via `AssemblyOptions.CachedStaticContext` (the interactive runner keeps one for the session, oneshot uses a fresh cache per phase, and exec a fresh cache per run). Editing one of those files mid-session therefore does not change the assembled prefix. Each partition reloads on its own: the AGENTS.md and project-context partitions when their file-selecting inputs change, the skills partition when the enabled skill set changes, and every partition when `AssemblyOptions.StaticContextScope` (the session identity) changes. The system preamble (step 1) is memoized separately by `CachedSystemPreamble` and is not part of this cache.
+
 Step 7's budget is defined in code but not currently exercised by the live agent — the `tool_summary`/`tool_result`/`delegation_result` budget machinery exists in `internal/prompt` but is not wired into the live prompt-assembly path today (see "How delegate summaries persist" above for the actual mechanism).
 
 `ContextSource` constants distinguish where each block originated: `preamble`, `phase_prompt`, `global_agents_md`, `project_agents_md`, `project_context`, `skill`, `tool_result`, `tool_summary`, and `delegation_result`.

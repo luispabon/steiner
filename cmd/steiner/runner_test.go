@@ -774,6 +774,23 @@ func TestPromptAssemblyCarriesSandboxState(t *testing.T) {
 	}
 }
 
+func TestPromptAssemblyCarriesStaticContextCache(t *testing.T) {
+	cache := &prompt.StaticContextCache{}
+	runner := cliRunner{
+		staticContext: cache,
+		sessionIDFn:   func() string { return "sess-42" },
+	}
+
+	opts := runner.promptAssembly(nil, nil, prompt.ModelTokenBudget{}, config.ModelPrompts{})
+
+	if opts.CachedStaticContext != cache {
+		t.Errorf("AssemblyOptions.CachedStaticContext = %p, want %p", opts.CachedStaticContext, cache)
+	}
+	if got, want := opts.StaticContextScope, "sess-42"; got != want {
+		t.Errorf("AssemblyOptions.StaticContextScope = %q, want %q", got, want)
+	}
+}
+
 // TestRunnerDelegateDepsCarryRuntimeSandboxState proves the production
 // delegation-deps construction inside cliRunner.run threads the runtime sandbox
 // state into delegated children. It drives a real cliRunner run that spawns an

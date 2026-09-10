@@ -36,6 +36,11 @@ type cliRunner struct {
 	phasePrompt              string
 	projectAgentsPath        string
 	workflowMode             prompt.WorkflowMode
+	// staticContext memoizes the file-backed static prompt sources (AGENTS.md,
+	// project context, skills) for this runner's lifetime. Production runners are
+	// session-scoped, so every turn of one session shares it; the scope key is
+	// the session ID, so a rotated or loaded session reloads the sources.
+	staticContext *prompt.StaticContextCache
 }
 
 type runResult = oneshot.RunResult

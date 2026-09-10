@@ -187,6 +187,7 @@ func buildChildPrompt(p childPromptParams) prompt.AssemblyOptions {
 		Conversation: []provider.Message{
 			msg,
 		},
+		CachedStaticContext: &prompt.StaticContextCache{},
 	}
 	if p.spec.SystemPrompt != "" {
 		opts.PromptOverrides.System = p.spec.SystemPrompt

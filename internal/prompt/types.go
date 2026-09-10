@@ -158,6 +158,18 @@ type AssemblyOptions struct {
 	// are session-constants, so caching once per session is safe.
 	CachedPreamble string
 
+	// CachedStaticContext, when non-nil, memoizes the file-backed static sources
+	// (AGENTS.md, project context files, skills) across assembles. Callers that
+	// assemble repeatedly for one session should hold a single
+	// *StaticContextCache and pass it on every AssemblyOptions; leaving it nil
+	// makes Assemble use a throwaway cache that loads the sources every call.
+	CachedStaticContext *StaticContextCache
+
+	// StaticContextScope identifies the session that owns CachedStaticContext.
+	// When it changes, the cache drops all file-backed partitions so a new
+	// session reloads them. Leave empty when the cache itself is per-run.
+	StaticContextScope string
+
 	// CaveHuman makes the model speak tersely and avoid AI-writing tells.
 	CaveHuman bool
 
