@@ -52,7 +52,6 @@ type ContextBlock struct {
 
 // SourceBudgetModel partitions byte budgets across prompt input sources.
 type SourceBudgetModel struct {
-	PreambleBytes       int
 	ProjectContextBytes int
 	SkillBytes          int
 }

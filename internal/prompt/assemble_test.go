@@ -206,7 +206,6 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 		ProjectContextExtraFiles: []string{"README.md"},
 		Policy: AssemblyPolicy{
 			Budgets: SourceBudgetModel{
-				PreambleBytes:       5,
 				ProjectContextBytes: 4,
 			},
 		},
@@ -678,7 +677,6 @@ func TestPhasePromptBypassesBudget(t *testing.T) {
 		Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 		Policy: AssemblyPolicy{
 			Budgets: SourceBudgetModel{
-				PreambleBytes:       100000,
 				ProjectContextBytes: 100,
 				SkillBytes:          100,
 			},

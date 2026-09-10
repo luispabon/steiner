@@ -3,15 +3,13 @@ package prompt
 import "fmt"
 
 const (
-	defaultPreambleBudgetBytes = 4096
-	defaultSkillBudgetBytes    = 98304
+	defaultSkillBudgetBytes = 98304
 )
 
 // DefaultAssemblyPolicy returns the default prompt assembly policy.
 func DefaultAssemblyPolicy() AssemblyPolicy {
 	return AssemblyPolicy{
 		Budgets: SourceBudgetModel{
-			PreambleBytes:       defaultPreambleBudgetBytes,
 			ProjectContextBytes: fallbackProjectContextBudgetBytes,
 			SkillBytes:          defaultSkillBudgetBytes,
 		},
@@ -28,8 +26,7 @@ func normalizeAssemblyPolicy(policy AssemblyPolicy) (AssemblyPolicy, error) {
 }
 
 func validateAssemblyPolicy(policy AssemblyPolicy) error {
-	if policy.Budgets.PreambleBytes < 0 ||
-		policy.Budgets.ProjectContextBytes < 0 ||
+	if policy.Budgets.ProjectContextBytes < 0 ||
 		policy.Budgets.SkillBytes < 0 {
 		return fmt.Errorf("assembly budgets must not be negative")
 	}
@@ -37,9 +34,6 @@ func validateAssemblyPolicy(policy AssemblyPolicy) error {
 }
 
 func normalizeSourceBudgets(budgets, defaults SourceBudgetModel) SourceBudgetModel {
-	if budgets.PreambleBytes == 0 {
-		budgets.PreambleBytes = defaults.PreambleBytes
-	}
 	if budgets.ProjectContextBytes == 0 {
 		budgets.ProjectContextBytes = defaults.ProjectContextBytes
 	}
@@ -70,7 +64,6 @@ type budgetTracker struct {
 func newBudgetTracker(model SourceBudgetModel) *budgetTracker {
 	return &budgetTracker{
 		remaining: map[ContextSource]int{
-			ContextSourcePreamble:       model.PreambleBytes,
 			ContextSourceProjectContext: model.ProjectContextBytes,
 			ContextSourceSkill:          model.SkillBytes,
 		},
