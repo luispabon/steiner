@@ -84,7 +84,7 @@ func (m *Model) renderDelegateCancelModal() string {
 	s := m.delegateCancelModal
 	s.OverlayShell = s.WithDimensions(m.width, m.height)
 	if s.screen == delegateCancelScreenConfirmTargetCode {
-		s.OverlayShell = s.OverlayShell.WithPreferredWidth(m.delegateCancelButtonsPreferredWidth())
+		s.OverlayShell = s.WithPreferredWidth(m.delegateCancelButtonsPreferredWidth())
 	}
 	contentWidth := s.InnerWidth()
 
