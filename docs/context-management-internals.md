@@ -30,7 +30,7 @@ Child agents use the same prompt assembly and compaction path as the parent for 
 
 ## Prompt assembly
 
-Each turn, steiner assembles the full context through a 7-step ordered plan. The order is intentional — static sources come first to maximize KV-cache reuse in local inference servers:
+Each turn, steiner assembles the full context through a 6-step ordered plan. The order is intentional — static sources come first to maximize KV-cache reuse in local inference servers:
 
 | Step | Source | Budget | Bypasses budget? |
 |------|--------|--------|-------------------|
@@ -40,15 +40,14 @@ Each turn, steiner assembles the full context through a 7-step ordered plan. The
 | 4 | Skills | 98304 bytes | No |
 | 5 | Oneshot phase prompt (if applicable) | — | Yes |
 | 6 | Conversation history | — | No (pass-through) |
-| 7 | Tool summaries (including delegate summaries) | 1024 bytes | No |
 
 Each step with a budget is tracked by a `budgetTracker`. When a source exceeds its allocation, content is truncated and a `Truncated` flag is set on the resulting `ContextBlock`. The system preamble, phase prompt, and AGENTS.md are never truncated.
 
 The three file-backed static sources (steps 2 to 4: AGENTS.md, project context files, skills) are read from disk once and reused. `internal/prompt` memoizes them in a `StaticContextCache` that the interactive, oneshot, and exec runners inject via `AssemblyOptions.CachedStaticContext` (the interactive runner keeps one for the session, oneshot uses a fresh cache per phase, and exec a fresh cache per run). Editing one of those files mid-session therefore does not change the assembled prefix. Each partition reloads on its own: the AGENTS.md and project-context partitions when their file-selecting inputs change, the skills partition when the enabled skill set changes, and every partition when `AssemblyOptions.StaticContextScope` (the session identity) changes. The system preamble (step 1) is memoized separately by `CachedSystemPreamble` and is not part of this cache.
 
-Step 7's budget is defined in code but not currently exercised by the live agent — the `tool_summary`/`tool_result`/`delegation_result` budget machinery exists in `internal/prompt` but is not wired into the live prompt-assembly path today (see "How delegate summaries persist" above for the actual mechanism).
+The tool/delegation summary budget machinery was removed from `internal/prompt`. Tool output is bounded at its source by `internal/tool`, delegate summaries by `internal/delegation`'s `delegateRetentionSummaryMaxRunes`, and compaction summaries by `internal/provider`'s `deriveSummaryMaxTokens`.
 
-`ContextSource` constants distinguish where each block originated: `preamble`, `phase_prompt`, `global_agents_md`, `project_agents_md`, `project_context`, `skill`, `tool_result`, `tool_summary`, and `delegation_result`.
+`ContextSource` constants distinguish where each block originated: `preamble`, `phase_prompt`, `global_agents_md`, `project_agents_md`, `project_context`, `skill`, `durable_context`, and `conversation_summary`.
 
 ---
 
@@ -115,12 +114,8 @@ Context diagnostics for these states are emitted as typed sub-events: budget, co
 
 | Budget | Default |
 |--------|---------|
-| System preamble | 4096 (never truncated) |
 | Project context | 8000 |
 | Skills | 98304 |
-| Tool results | 2048 |
-| Tool summaries (incl. delegate) | 1024 |
-| Compaction summary | 1024 |
 
 Budgets are configurable via `AssemblyPolicy` in the prompt package. Zero values fall back to these defaults.
 

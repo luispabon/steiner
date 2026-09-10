@@ -16,7 +16,6 @@ func TestContextSourceIsSystemZone(t *testing.T) {
 		{name: "conversation summary", src: ContextSourceConversationSummary, want: true},
 		{name: "project context", src: ContextSourceProjectContext, want: false},
 		{name: "durable context", src: ContextSourceDurableContext, want: false},
-		{name: "tool result", src: ContextSourceToolResult, want: false},
 	}
 
 	for _, tc := range cases {

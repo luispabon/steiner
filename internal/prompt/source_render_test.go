@@ -71,3 +71,50 @@ func TestApplyBudgetTruncatesOversizedContent(t *testing.T) {
 		}
 	})
 }
+
+func TestApplyBudgetExemptsPreambleAndPhasePrompt(t *testing.T) {
+	t.Parallel()
+
+	policy := DefaultAssemblyPolicy()
+	policy.Budgets.SkillBytes = 8
+	tracker := newBudgetTracker(policy.Budgets)
+	oversized := strings.Repeat("x", 1000)
+
+	tests := []struct {
+		name   string
+		source ContextSource
+	}{
+		{name: "preamble", source: ContextSourcePreamble},
+		{name: "phase prompt", source: ContextSourcePhasePrompt},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			clipped, truncated, ok := applyBudget(tracker, tt.source, oversized)
+
+			if !ok {
+				t.Fatalf("applyBudget(%q) ok = false, want true (source is exempt)", tt.source)
+			}
+			if truncated {
+				t.Fatalf("truncated = true, want false for exempt source %q", tt.source)
+			}
+			if got, want := clipped, oversized; got != want {
+				t.Fatalf("clipped = %q, want %q (unchanged)", got, want)
+			}
+		})
+	}
+
+	// Contrast: a budgeted source with oversized content must still be clipped,
+	// so the exempt-source assertions above cannot pass vacuously.
+	clipped, truncated, ok := applyBudget(tracker, ContextSourceSkill, oversized)
+	if !ok {
+		t.Fatal("applyBudget(ContextSourceSkill) ok = false, want true")
+	}
+	if !truncated {
+		t.Fatal("truncated = false for budgeted source, want true")
+	}
+	if len(clipped) >= len(oversized) {
+		t.Fatalf("clipped length = %d, want < %d", len(clipped), len(oversized))
+	}
+}

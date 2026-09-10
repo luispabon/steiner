@@ -176,8 +176,6 @@ func assemblyRoleForSource(source prompt.ContextSource) provider.MessageRole {
 	switch source {
 	case prompt.ContextSourcePreamble, prompt.ContextSourcePhasePrompt, prompt.ContextSourceGlobalAgentsMD, prompt.ContextSourceProjectAgentsMD, prompt.ContextSourceConversationSummary:
 		return provider.MessageRoleSystem
-	case prompt.ContextSourceToolSummary, prompt.ContextSourceToolResult, prompt.ContextSourceDelegationResult:
-		return provider.MessageRoleTool
 	default:
 		// ProjectContext, Skill, DurableContext, Conversation
 		return provider.MessageRoleUser
@@ -295,8 +293,6 @@ func classifyBlock(block prompt.ContextBlock) (string, string) {
 		return "durable context", fallbackLabel(block.Path, "durable context")
 	case prompt.ContextSourceConversationSummary:
 		return "conversation summary blocks", fallbackLabel(block.Path, "conversation summary")
-	case prompt.ContextSourceToolSummary, prompt.ContextSourceToolResult, prompt.ContextSourceDelegationResult:
-		return "tool result / tool summary blocks", fallbackLabel(block.Path, "tool summary")
 	default:
 		return "conversation messages", fallbackLabel(block.Path, string(block.Source))
 	}

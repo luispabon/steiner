@@ -722,20 +722,6 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 		}
 	})
 
-	t.Run("sets tool results to nil", func(t *testing.T) {
-		state := RunState{
-			Lineage: newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}}),
-			Context: ContextState{},
-		}
-		base := prompt.AssemblyOptions{
-			ToolResults: []provider.Message{{Role: provider.MessageRoleTool, Content: "old"}},
-		}
-		result := assemblyOptions(base, state)
-		if result.ToolResults != nil {
-			t.Error("expected ToolResults to be nil")
-		}
-	})
-
 	t.Run("preserves valid assistant/tool transcript from resumed lineage", func(t *testing.T) {
 		state := RunState{
 			Lineage: ConversationLineage{

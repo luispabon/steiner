@@ -1,10 +1,6 @@
 package prompt
 
-import (
-	"strings"
-
-	"github.com/luispabon/steiner/internal/provider"
-)
+import "strings"
 
 const (
 	templateCompactionSystem      = "compaction_system.md.tmpl"
@@ -56,42 +52,6 @@ func RenderConversationCompactionInstruction(override string, mode CompactionMod
 	}
 	return content
 }
-
-// ToolSummaryEnvelope stores a summarized tool message in a bounded serialized form.
-type ToolSummaryEnvelope struct {
-	Kind      string               `json:"kind"`
-	Name      string               `json:"name,omitempty"`
-	Role      provider.MessageRole `json:"role,omitempty"`
-	ByteSize  int                  `json:"byte_size"`
-	Truncated bool                 `json:"truncated,omitempty"`
-	Content   string               `json:"content"`
-}
-
-func summarizeToolMessage(message provider.Message, policy ToolSummaryPolicy) ContextBlock {
-	limit := policy.MaxBytes
-	if limit <= 0 {
-		limit = defaultToolSummaryBudgetBytes
-	}
-	content := truncateText(message.Content, limit)
-	envelope := ToolSummaryEnvelope{
-		Kind:      "tool_summary",
-		Name:      message.Name,
-		Role:      provider.MessageRoleTool,
-		ByteSize:  len(message.Content),
-		Truncated: len(message.Content) > len(content),
-		Content:   content,
-	}
-	encoded := marshalEnvelope(envelope)
-	block := ContextBlock{
-		Source:    ContextSourceToolSummary,
-		Path:      message.Name,
-		Content:   encoded,
-		ByteSize:  len(encoded),
-		Truncated: envelope.Truncated,
-	}
-	return block
-}
-
 func compactionPromptSystem() string {
 	return compactionPromptSystemInstruction() + "\n\n" + compactionPromptInstructionBody()
 }

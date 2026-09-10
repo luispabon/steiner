@@ -29,5 +29,5 @@ func (a assembler) Assemble(ctx context.Context) (Assembly, error) {
 }
 
 func (a assembler) String() string {
-	return fmt.Sprintf("assembler{conversation=%d tool_results=%d}", len(a.opts.Conversation), len(a.opts.ToolResults))
+	return fmt.Sprintf("assembler{conversation=%d}", len(a.opts.Conversation))
 }
