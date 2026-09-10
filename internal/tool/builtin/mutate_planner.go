@@ -29,17 +29,54 @@ type mutateFileState struct {
 	needsParent    bool
 }
 
+// errMutateFatal marks a stateFor I/O failure (stat or read) that must abort
+// the whole call immediately rather than accumulate alongside per-operation
+// mistakes — continuing to plan against an unknown filesystem state is not
+// meaningful, unlike a bad anchor or a stale hash on one operation.
+var errMutateFatal = errors.New("mutate: fatal I/O error")
+
 func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	if len(in.Operations) == 0 {
 		p.recordFailureDetail("", "", ReasonOther)
 		return p.fail("mutate: operations is required", 0)
 	}
+
+	var failures []mutateFailure
+	firstFailureIndex := make(map[string]int)
+
 	for i, op := range in.Operations {
-		if err := p.planOperation(i+1, op); err != nil {
-			p.recordFailure(op, err)
-			return p.fail(err.Error(), len(in.Operations))
+		snapshot := snapshotMutateStates(p.states)
+		err := p.planOperation(i+1, op)
+		if err == nil {
+			p.applied++
+			continue
 		}
-		p.applied++
+		if errors.Is(err, errMutateFatal) {
+			p.recordFailure(op, err)
+			result := p.fail(err.Error(), len(in.Operations))
+			if len(failures) > 0 {
+				result.OperationsFailed = len(failures) + 1
+				result.OperationsSkipped = 0
+			}
+			return result
+		}
+
+		// Discard any state mutated by the failed operation before it hit
+		// its failing check (planCreate/planWrite/planReplace mutate
+		// state.content ahead of the assertion check in
+		// recordTextOperation) — otherwise a later operation could plan
+		// against a phantom edit that was never committed.
+		p.states = snapshot
+		failures = append(failures, p.recordPlanFailure(i+1, op, err, firstFailureIndex))
+	}
+
+	if len(failures) > 0 {
+		p.result.clearCommittedMetadata()
+		p.result.OperationsFailed = len(failures)
+		p.result.OperationsRolledBack = p.applied
+		p.result.OperationsSkipped = 0
+		p.result.Output = buildMultiFailureOutput(failures, len(in.Operations))
+		return &p.result
 	}
 
 	p.finalizeResult()
@@ -87,6 +124,36 @@ func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	}
 	p.result.Output = ""
 	return &p.result
+}
+
+// recordPlanFailure builds the mutateFailure record for one non-fatal
+// plan-phase error: it resolves a display path and marks the failure as
+// cascading if firstFailureIndex already saw a failure on the same absolute
+// path, then also feeds the tool diagnostics failures slice via
+// recordFailure.
+func (p *mutatePlanner) recordPlanFailure(index int, op MutateOperation, err error, firstFailureIndex map[string]int) mutateFailure {
+	rawPath := op.Path
+	if rawPath == "" {
+		rawPath = op.From
+	}
+	displayPath := rawPath
+	var cascadeOp int
+	if absPath, resolveErr := p.resolvePath(rawPath); resolveErr == nil {
+		displayPath = p.displayPathFor(absPath)
+		if idx, ok := firstFailureIndex[absPath]; ok {
+			cascadeOp = idx
+		} else {
+			firstFailureIndex[absPath] = index
+		}
+	}
+	p.recordFailure(op, err)
+	return mutateFailure{
+		index:     index,
+		opType:    strings.TrimSpace(op.Type),
+		path:      displayPath,
+		err:       err,
+		cascadeOp: cascadeOp,
+	}
 }
 
 // recordFailure classifies a plan-phase error against the operation that
@@ -195,14 +262,7 @@ func (p *mutatePlanner) stateFor(rawPath string) (*mutateFileState, error) {
 	if state, ok := p.states[absPath]; ok {
 		return state, nil
 	}
-	displayPath := relDisplayPath(p.env.WorkDir, absPath)
-	if p.env.PathPolicy != nil {
-		dp := p.env.PathPolicy.DisplayPath(absPath)
-		if dp != absPath {
-			displayPath = dp
-		}
-	}
-	state := &mutateFileState{path: absPath, displayPath: displayPath}
+	state := &mutateFileState{path: absPath, displayPath: p.displayPathFor(absPath)}
 	info, err := os.Stat(absPath)
 	switch {
 	case err == nil:
@@ -214,7 +274,7 @@ func (p *mutatePlanner) stateFor(rawPath string) (*mutateFileState, error) {
 		if !info.IsDir() {
 			content, readErr := os.ReadFile(absPath)
 			if readErr != nil {
-				return nil, fmt.Errorf("read %q: %w", state.displayPath, readErr)
+				return nil, fmt.Errorf("read %q: %w: %w", state.displayPath, errMutateFatal, readErr)
 			}
 			state.original = append([]byte(nil), content...)
 			state.content = append([]byte(nil), content...)
@@ -222,10 +282,38 @@ func (p *mutatePlanner) stateFor(rawPath string) (*mutateFileState, error) {
 	case errors.Is(err, os.ErrNotExist):
 		state.originalMode = 0o644
 	default:
-		return nil, fmt.Errorf("stat %q: %w", state.displayPath, err)
+		return nil, fmt.Errorf("stat %q: %w: %w", state.displayPath, errMutateFatal, err)
 	}
 	p.states[absPath] = state
 	return state, nil
+}
+
+// displayPathFor mirrors the display-path resolution stateFor applies when
+// creating a new mutateFileState, for use where a failure needs a display
+// path without a state (the plan loop's cascading-failure bookkeeping).
+func (p *mutatePlanner) displayPathFor(absPath string) string {
+	displayPath := relDisplayPath(p.env.WorkDir, absPath)
+	if p.env.PathPolicy != nil {
+		dp := p.env.PathPolicy.DisplayPath(absPath)
+		if dp != absPath {
+			displayPath = dp
+		}
+	}
+	return displayPath
+}
+
+// snapshotMutateStates deep-copies states so a failed operation's in-memory
+// edits can be discarded without disturbing state committed by operations
+// that planned cleanly earlier in the same call.
+func snapshotMutateStates(states map[string]*mutateFileState) map[string]*mutateFileState {
+	out := make(map[string]*mutateFileState, len(states))
+	for path, state := range states {
+		copyState := *state
+		copyState.content = append([]byte(nil), state.content...)
+		copyState.original = append([]byte(nil), state.original...)
+		out[path] = &copyState
+	}
+	return out
 }
 
 func (p *mutatePlanner) resolvePath(rawPath string) (string, error) {
