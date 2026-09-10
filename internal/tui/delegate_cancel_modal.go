@@ -83,6 +83,9 @@ func (m *Model) openDelegateCancelModal() *Model {
 func (m *Model) renderDelegateCancelModal() string {
 	s := m.delegateCancelModal
 	s.OverlayShell = s.WithDimensions(m.width, m.height)
+	if s.screen == delegateCancelScreenConfirmTargetCode {
+		s.OverlayShell = s.OverlayShell.WithPreferredWidth(m.delegateCancelButtonsPreferredWidth())
+	}
 	contentWidth := s.InnerWidth()
 
 	var sections []string
@@ -165,12 +168,35 @@ func (m *Model) delegateCancelTargetBody(contentWidth int) string {
 }
 
 func (m *Model) renderDelegateCancelButtons(contentWidth int) string {
+	row := m.buildDelegateCancelButtonRow()
+	return lipgloss.NewStyle().Width(contentWidth).Render(row)
+}
+
+// delegateCancelButtonsPreferredWidth returns an overlay preferred width wide
+// enough to fit the current screen's button row on a single line, so screens
+// with longer labels (e.g. the worktree keep/discard/cancel choice) don't
+// wrap mid-button.
+func (m *Model) delegateCancelButtonsPreferredWidth() int {
+	const base = 72
+	const boxChrome = 8 // OverlayShell border+padding (4) plus a little breathing room
+	row := m.buildDelegateCancelButtonRow()
+	return max(base, lipgloss.Width(row)+boxChrome)
+}
+
+func (m *Model) buildDelegateCancelButtonRow() string {
 	labels := m.delegateCancelButtonLabels()
 	buttons := make([]string, len(labels))
 	for i, label := range labels {
 		buttons[i] = m.renderExitModalButton(label, m.delegateCancelModal.selected == i)
 	}
-	return lipgloss.NewStyle().Width(contentWidth).Render(lipgloss.JoinVertical(lipgloss.Left, buttons...))
+	parts := make([]string, 0, max(0, len(buttons)*2-1))
+	for i, b := range buttons {
+		if i > 0 {
+			parts = append(parts, "  ")
+		}
+		parts = append(parts, b)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
 }
 
 func (m *Model) delegateCancelButtonLabels() []string {
