@@ -294,6 +294,38 @@ No message content, tool arguments, or the prompt cache key itself ever appear i
 
 **Compaction/escalation caveat**: as with the per-run cache-rate figures in sub-agent and advisor tool boxes above, compaction and context-escalation model calls do not emit a `cache.jsonl` record — they still feed the aggregate `/cache-stats` store, but not this stream. An aggregate built from `cache.jsonl` will therefore undercount total requests relative to `/cache-stats` on a run with heavy compaction.
 
+### Attributing cold turns (`coldturns` mode)
+
+A **cold turn** is any turn that read nothing from cache (`cache_read_tokens == 0`). It is not the same thing as a **cold start**, which latches once per process (`internal/agent/cache_diagnostics.go`'s `coldStartRecorded`) and so occurs at most once per `run_id`. Since a warm turn reads ~95.2% and a cold turn reads 0%, the aggregate hit rate is a weighted mix of the two and the only lever on it is the *number* of cold turns.
+
+`node scripts/diagnostics.mjs coldturns` attributes them. It joins `cache.jsonl` and `tool.jsonl` — the only mode that reads two streams — because the question needs both what the cache did and what occupied the gap beforehand. It walks consecutive `source: "parent"` records within a run, and for each gap finds the longest delegation-class tool call (`sub_agent`, `follow_up`, `advisor`) that fits inside it, deriving the call's window from `ts − duration_ms`.
+
+Each cold turn is attributed to one of four classes:
+
+- `prefix_rewrite` — `shared_prefix_messages` is 0, so the prompt diverged at its first message and could not have hit any entry.
+- `delegation` — a delegation-class call of ≥4 minutes sat in the gap.
+- `idle` — the gap itself was ≥4 minutes, with the prefix intact and no long delegation.
+- `unexplained` — none of the above.
+
+`prefix_rewrite` deliberately outranks `delegation`: a prefix that diverges at message 0 cannot match a cached entry however recently it was touched, so timing adds nothing. This also keeps compaction counted separately rather than folded into delegation.
+
+Two rules protect the numbers from reading as more than they are:
+
+- **Models that never report cache reads are excluded** from every denominator and listed separately. A backend that omits `prompt_tokens_details.cached_tokens` (`internal/provider/openai_wire.go`) is indistinguishable from one whose cache never hits, and reporting it as 100% cold would be fabricated rather than measured.
+- **`--min-n N`** (default 10) prints `insufficient` instead of a rate when a model has too few long-delegation observations. `n` prints on every row regardless, so adequacy stays a human judgement.
+
+Rows group by `backend_model_id`, never `provider_type`. Several models can share one `provider_type` while being served by entirely different upstreams — a reseller provider surfaces all of its models as `openai_compat` — so grouping by provider would average unrelated cache implementations together.
+
+Two limits worth knowing before quoting a number from it. The prefix signal is narrow: `cache.jsonl` carries `shared_prefix_messages` but no message count to compare it against, so only a *total* divergence is detectable, and a partial rewrite (the common shape for compaction, which keeps a summarised head) falls through to `idle` or `unexplained`. Use `prefix` mode on a session log for the full picture. And as noted above, compaction and context-escalation calls emit no `cache.jsonl` record at all, so compaction is always inferred here, never observed.
+
+### Cold turns after long delegations: measured, provisional (2026-09-10)
+
+Issue #569 proposed that delegated calls outlasting the ~5 minute idle TTL make the parent's next turn cold, since a delegated call is a tool call inside the parent's turn (`internal/agent/turn_progression.go`) and the parent issues no model call for its duration.
+
+Measured against ~15h of real sessions: **22 parent turns followed a delegation of 261s–1132s, and none was cold.** Over the same data, idle gap was a weak predictor in general — a 1354s gap stayed warm, a 32s gap went cold, and the 300–600s band where the TTL predicts the transition was clean. Cold turns instead tracked prefix rewrites: cold rate ran 11% at `shared_prefix_messages == 0` and 0% at ≥30.
+
+**This is provisional and scoped to Codex.** 9 of 11 runs used a codex orchestrator, so 21 of the 22 long-delegation observations are codex and 1 is not. The window is short because the diagnostics streams themselves landed 30 minutes before its first record. It is recorded here rather than in the "Superseded claims" section above for that reason — it has not yet earned the same standing as a re-measured refutation, and #569 stays open pending a wider spread of orchestrator models.
+
 ## Privacy and data security
 
 Only the following data is stored:
