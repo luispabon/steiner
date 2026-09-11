@@ -89,9 +89,10 @@ func TestQueuedSteerBoxTitleShowsCountWhenPlural(t *testing.T) {
 }
 
 func TestWrapQueuedSteerLinesOverflow(t *testing.T) {
-	// Three one-line messages: only the first two fit inside the 3-row
-	// budget (A, blank separator, B); C gets zero rows, so the overflow row
-	// names exactly the one message hidden entirely.
+	// Three one-line messages wrap to 5 rows (A, blank separator, B, blank
+	// separator, C); only 3 fit (A, blank, B), leaving one blank separator and
+	// C hidden. The blank separator carries no content, so the overflow row
+	// names only the 1 hidden text row.
 	msgs := []agent.SteerMessage{
 		{Text: "A"}, {Text: "B"}, {Text: "C"},
 	}
@@ -107,19 +108,24 @@ func TestWrapQueuedSteerLinesOverflow(t *testing.T) {
 	}
 }
 
-func TestWrapQueuedSteerLinesSingleMessageOverflowUsesEllipsis(t *testing.T) {
-	// A single message whose own wrapped text exceeds the 3-row budget: no
-	// other message is hidden, so the overflow row is "…" rather than
-	// "+0 more".
+func TestWrapQueuedSteerLinesOverflowIsInvariantUnderMerge(t *testing.T) {
+	// ctrl+g take-back merges N queued messages into one via MergeSteers,
+	// erasing their boundaries. The overflow row must report the same
+	// hidden-row count before and after that merge, since the actual
+	// rendered content is identical either way.
 	msgs := []agent.SteerMessage{
-		{Text: "one\ntwo\nthree\nfour\nfive"},
+		{Text: "A"}, {Text: "B"}, {Text: "C"},
 	}
-	lines := wrapQueuedSteerLines(msgs, 40)
-	if len(lines) != 4 {
-		t.Fatalf("lines = %v, want 4 rows (3 text + 1 overflow)", lines)
+	before := wrapQueuedSteerLines(msgs, 40)
+
+	merged := agent.MergeSteers(msgs)
+	after := wrapQueuedSteerLines([]agent.SteerMessage{{Text: merged.Content}}, 40)
+
+	if before[len(before)-1] != after[len(after)-1] {
+		t.Fatalf("overflow row changed after merge: before %q, after %q", before[len(before)-1], after[len(after)-1])
 	}
-	if lines[3] != "…" {
-		t.Fatalf("overflow row = %q, want %q", lines[3], "…")
+	if after[len(after)-1] != "+1 more" {
+		t.Fatalf("overflow row after merge = %q, want %q", after[len(after)-1], "+1 more")
 	}
 }
 

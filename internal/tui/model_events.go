@@ -182,6 +182,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.SteerReceivedEvent:
 		m.content.AppendUser(payload.Text)
 		m.syncInputChrome()
+		m.relayoutInput()
 	case output.PhaseTransitionEvent:
 		return m.handlePhaseTransition(payload)
 	case output.PhaseIndicatorEvent:
@@ -330,6 +331,7 @@ func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
 	}
 	m.input.Focus()
 	m.syncInputChrome()
+	m.relayoutInput()
 	m.syncSidebar()
 	m.syncViewport()
 }

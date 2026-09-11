@@ -100,22 +100,25 @@ func queuedSteerTitle(count int) string {
 // wrapQueuedSteerLines wraps every queued message to textWidth and joins them
 // with a blank separator row, capping the result at queuedSteerMaxLines rows
 // of text. When wrapping overflows that budget, it keeps the first
-// queuedSteerMaxLines rows and appends one overflow row: "+N more" where N is
-// the number of messages with no row at all among those kept, or "…" when
-// every message has at least one row visible (i.e. the overflow only trims
-// the tail of the last visible message rather than hiding a whole message).
+// queuedSteerMaxLines rows and appends one overflow row: "+N more", where N
+// is the number of hidden rows that carry actual text — blank rows (the
+// separator between messages, or a blank line embedded in merged text) don't
+// count, since they're not content the user is missing. Counting text rows
+// rather than messages keeps this correct after ctrl+g take-back: MergeSteers
+// can fold several queued messages into one, and a row-based count still
+// reports the hidden content accurately once that boundary is gone.
 func wrapQueuedSteerLines(msgs []agent.SteerMessage, textWidth int) []string {
 	var all []string
-	var owners []int
+	var raw []string
 	for i, msg := range msgs {
 		if i > 0 {
 			all = append(all, "")
-			owners = append(owners, -1)
+			raw = append(raw, "")
 		}
 		text := strings.TrimRight(msg.Text, "\n")
 		for _, line := range strings.Split(text, "\n") {
 			all = append(all, lipgloss.NewStyle().Width(textWidth).Render(line))
-			owners = append(owners, i)
+			raw = append(raw, line)
 		}
 	}
 
@@ -124,16 +127,15 @@ func wrapQueuedSteerLines(msgs []agent.SteerMessage, textWidth int) []string {
 	}
 
 	lines := append([]string(nil), all[:queuedSteerMaxLines]...)
-	shown := make(map[int]bool)
-	for _, owner := range owners[:queuedSteerMaxLines] {
-		if owner >= 0 {
-			shown[owner] = true
+	hidden := 0
+	for _, r := range raw[queuedSteerMaxLines:] {
+		if strings.TrimSpace(r) != "" {
+			hidden++
 		}
 	}
-	notShown := len(msgs) - len(shown)
 	overflow := "…"
-	if notShown > 0 {
-		overflow = fmt.Sprintf("+%d more", notShown)
+	if hidden > 0 {
+		overflow = fmt.Sprintf("+%d more", hidden)
 	}
 	return append(lines, overflow)
 }
