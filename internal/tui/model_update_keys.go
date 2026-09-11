@@ -427,8 +427,6 @@ func (m *Model) executeSteerAction() tea.Model {
 	}
 	m.input.Reset()
 	m.imageMarkers = nil
-	m.content.AppendPendingSteer(text)
-	m.steerQueued = true
 	m.syncInputChrome()
 	m.syncViewport()
 	m.relayoutInput()

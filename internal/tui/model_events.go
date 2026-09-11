@@ -181,7 +181,6 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
 	case output.SteerReceivedEvent:
 		m.content.AppendUser(payload.Text)
-		m.steerQueued = false
 		m.syncInputChrome()
 	case output.PhaseTransitionEvent:
 		return m.handlePhaseTransition(payload)

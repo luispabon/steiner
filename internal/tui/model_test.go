@@ -2763,29 +2763,21 @@ func TestModelStreamingEnterQueuesSteerPrompt(t *testing.T) {
 	if m.input.Value() != "" {
 		t.Fatalf("input value = %q, want empty after steer", m.input.Value())
 	}
-	// steerQueued flag must be set.
-	if !m.steerQueued {
-		t.Fatal("steerQueued = false, want true after steer sent")
-	}
-	// A pending steer segment must appear in the content buffer.
-	found := false
-	for _, seg := range m.content.segments {
-		if seg.kind == segmentPendingSteer && seg.text == "steer message" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("no segmentPendingSteer found in content buffer after steer")
+	// The queued-message box must reflect the newly queued steer.
+	box := m.renderQueuedSteerBox(m.contentWidth())
+	if !strings.Contains(box, "steer message") {
+		t.Fatalf("queued box = %q, want it to contain %q", box, "steer message")
 	}
 }
 
 func TestModelStreamingEnterRendersSteerImmediately(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}
+	q := agent.NewSteerQueue()
 
 	m := newModel(Config{
 		Controller: ctrl,
+		SteerQueue: q,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -2794,10 +2786,10 @@ func TestModelStreamingEnterRendersSteerImmediately(t *testing.T) {
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	// The viewport content must immediately show the queued steer box.
-	viewportContent := m.visibleViewportContent()
-	if !strings.Contains(viewportContent, "queued steer text") {
-		t.Fatalf("viewport content does not contain queued steer text immediately after Enter.\nViewport:\n%s", viewportContent)
+	// The queued-message box must immediately show the queued steer text.
+	box := m.renderQueuedSteerBox(m.contentWidth())
+	if !strings.Contains(box, "queued steer text") {
+		t.Fatalf("queued box does not contain queued steer text immediately after Enter.\nBox:\n%s", box)
 	}
 }
 
@@ -2815,7 +2807,7 @@ func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 	// Leave input empty.
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0 for empty enter while streaming", ctrl.countSubmitPrompt())
@@ -2823,57 +2815,53 @@ func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
 	if q.Len() != 0 {
 		t.Fatalf("steer queue len = %d, want 0 for empty enter while streaming", q.Len())
 	}
-	if m.steerQueued {
-		t.Fatal("steerQueued = true, want false for empty enter")
-	}
 }
 
-func TestModelSteerReceivedEventAppendUserMessage(t *testing.T) {
+// TestModelSteerReceivedEventPartialConsumption verifies that a
+// SteerReceivedEvent only clears the queued-message box of the messages the
+// runner actually drained: messages queued after the drain must remain
+// visible in the box even though the event arrives after they were added.
+func TestModelSteerReceivedEventPartialConsumption(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}
+	q := agent.NewSteerQueue()
 
 	m := newModel(Config{
 		Controller: ctrl,
+		SteerQueue: q,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
-	m.input.SetValue("my steer")
-	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	if !m.steerQueued {
-		t.Fatal("steerQueued = false before SteerReceivedEvent")
-	}
+	q.Add(agent.SteerMessage{Text: "A"})
+	q.Add(agent.SteerMessage{Text: "B"})
+	drained := q.Drain()
+	merged := agent.MergeSteers(drained)
+	q.Add(agent.SteerMessage{Text: "C"})
 
-	// Simulate the agent loop consuming the steer.
 	steerReceivedEvent := output.Event{
 		Type:    output.EventTypeSteerReceived,
-		Payload: output.SteerReceivedEvent{Text: "my steer"},
+		Payload: output.SteerReceivedEvent{Text: merged.Content},
 	}
 	m = updateModel(t, m, runtimeEventMsg{Event: steerReceivedEvent})
 
-	if m.steerQueued {
-		t.Fatal("steerQueued = true after SteerReceivedEvent, want false")
+	box := m.renderQueuedSteerBox(m.contentWidth())
+	if !strings.Contains(box, "C") {
+		t.Fatalf("queued box = %q, want it to still contain C", box)
+	}
+	if strings.Contains(box, "A") || strings.Contains(box, "B") {
+		t.Fatalf("queued box = %q, want drained A/B no longer present", box)
 	}
 
-	var pendingCount, userCount int
+	var userCount int
 	for _, seg := range m.content.segments {
-		if seg.text == "my steer" {
-			switch seg.kind {
-			case segmentPendingSteer:
-				pendingCount++
-			case segmentUserMarkdown:
-				userCount++
-			}
+		if seg.kind == segmentUserMarkdown && seg.text == merged.Content {
+			userCount++
 		}
 	}
-	// Pending box must remain unchanged.
-	if pendingCount != 1 {
-		t.Fatalf("segmentPendingSteer count = %d, want 1 (original queued box must stay)", pendingCount)
-	}
-	// A new normal user message must appear at the delivery point.
 	if userCount != 1 {
-		t.Fatalf("segmentUserMarkdown count = %d, want 1 (delivery message must be appended)", userCount)
+		t.Fatalf("segmentUserMarkdown count with merged text = %d, want 1", userCount)
 	}
 }
 
@@ -5795,7 +5783,6 @@ func TestClearConversationStateResetsSessionChrome(t *testing.T) {
 	m.sidebar.currentTurn = 2
 	m.sidebar.maxTurns = 5
 	m.setCompaction(compactionState{summary: "compacting"})
-	m.steerQueued = true
 	m.interruptPending = true
 
 	m.clearConversationState()
@@ -5820,8 +5807,8 @@ func TestClearConversationStateResetsSessionChrome(t *testing.T) {
 	if m.compaction.Active() || m.sidebar.compaction.Active() || m.content.compaction.Active() {
 		t.Error("compaction state survived clearConversationState")
 	}
-	if m.steerQueued || m.interruptPending {
-		t.Errorf("pending input state survived clearConversationState: steer=%v interrupt=%v", m.steerQueued, m.interruptPending)
+	if m.interruptPending {
+		t.Errorf("pending input state survived clearConversationState: interrupt=%v", m.interruptPending)
 	}
 	if got, want := m.input.Placeholder, "ask steiner — / for commands, @ for files"; got != want {
 		t.Errorf("input placeholder = %q, want %q", got, want)
@@ -5833,7 +5820,6 @@ func TestClearConversationStateRefusesActiveWork(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m.content.activeDelegations = map[string]delegationLocator{"child-1": {}}
 	m.activity = m.activity.static("stopped", "end_turn")
-	m.steerQueued = true
 	m.interruptPending = true
 
 	m.executeClearAction()
@@ -5841,7 +5827,7 @@ func TestClearConversationStateRefusesActiveWork(t *testing.T) {
 	if !m.content.HasActiveDelegations() {
 		t.Error("active delegation was cleared instead of refusing clear")
 	}
-	if m.activity.label != "stopped" || !m.steerQueued || !m.interruptPending {
+	if m.activity.label != "stopped" || !m.interruptPending {
 		t.Error("clearConversationState modified state while active work was present")
 	}
 	if got := m.content.segments[len(m.content.segments)-1].text; got != "cannot clear while a run is in progress" {

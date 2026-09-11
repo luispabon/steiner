@@ -234,7 +234,6 @@ func (m *Model) performClearConversationState() error {
 	m.status.approvalActive = false
 	m.status.streaming = false
 	m.approval = approvalState{}
-	m.steerQueued = false
 	m.interruptPending = false
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0

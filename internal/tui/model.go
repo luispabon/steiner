@@ -184,7 +184,6 @@ type Model struct {
 	workflowHandoff              workflowHandoffModalState
 	delegateCancelModal          delegateCancelModalState
 	sessionStore                 SessionLister
-	steerQueued                  bool // true when a steer message has been queued but not yet consumed
 	interruptPending             bool
 	suppressWorkflowHandoffRun   bool
 	pendingWorkflowHandoffLaunch *workflowHandoffLaunch
@@ -642,8 +641,8 @@ func (m *Model) syncInputChrome() {
 		m.input.Placeholder = "steering — esc to interrupt (or /exit, /thinking, /accent)"
 	case m.approval.active:
 		m.input.Placeholder = "approval pending above — use arrows, tab, enter, or esc"
-	case m.steerQueued && m.activity.busy():
-		m.input.Placeholder = "message queued — esc to interrupt"
+	case m.steers != nil && m.steers.Len() > 0 && m.activity.busy():
+		m.input.Placeholder = queuedSteerPlaceholder(m.steers.Len())
 	case m.activity.busy():
 		m.input.Placeholder = "working… esc to interrupt, or type to steer"
 	default:

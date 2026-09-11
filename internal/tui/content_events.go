@@ -31,7 +31,6 @@ const (
 	segmentInterrupted
 	segmentDelegation
 	segmentDelegationGroup
-	segmentPendingSteer
 	segmentStatus
 	segmentImagesAttached
 )
@@ -392,8 +391,8 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeConfigWarning: func(*contentBuffer, output.Event) {},
 	output.EventTypeAPIRequest:    func(*contentBuffer, output.Event) {},
 	output.EventTypeAPIResponse:   func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
-	// SteerReceived is handled by model_events.go (PromoteLastPendingSteer); no
-	// content line is emitted here.
+	// SteerReceived is handled by model_events.go (AppendUser); no content
+	// line is emitted here.
 	output.EventTypeSteerReceived: func(*contentBuffer, output.Event) {},
 	// MCPStatus is display-only state handled by model_events.go; no transcript
 	// line is emitted here.

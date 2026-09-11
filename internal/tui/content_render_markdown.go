@@ -72,64 +72,6 @@ func (b *contentBuffer) renderUserSegment(segment contentSegment, width int) str
 	return sb.String()
 }
 
-// renderPendingSteerSegment renders a queued steering message in a boxed
-// "pill" with a titled top border and italic dim text. Falls back to a
-// simple dim line when the viewport is narrower than 14 columns.
-func (b *contentBuffer) renderPendingSteerSegment(segment contentSegment, width int) string {
-	// Narrow viewport fallback: simple dim line.
-	if width < 14 {
-		return b.styles.FgDim.Render("queued: "+segment.text) + "\n"
-	}
-
-	// Build the boxed pill.
-	textWidth := width - 4
-	if textWidth < 1 {
-		textWidth = 1
-	}
-
-	// Wrap segment text and style it italic+dim.
-	textStyle := lipgloss.NewStyle().Italic(true).Foreground(b.styles.FgDim.GetForeground())
-	var wrappedParts []string
-	for _, line := range strings.Split(strings.TrimRight(segment.text, "\n"), "\n") {
-		wrapped := lipgloss.NewStyle().Width(textWidth).Render(line)
-		wrappedParts = append(wrappedParts, wrapped)
-	}
-	styledContent := textStyle.Render(strings.Join(wrappedParts, "\n"))
-
-	// Build the box style.
-	boxStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(b.styles.Palette.ContentBG)).
-		Padding(1, 1).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(b.styles.FgDim.GetForeground()).
-		Width(width)
-
-	// Render the box.
-	boxed := boxStyle.Render(styledContent)
-
-	// Split into lines and replace the auto-generated top border with the titled version.
-	lines := strings.Split(boxed, "\n")
-	if len(lines) > 0 {
-		interiorWidth := lipgloss.Width(lines[0]) - 2
-		if interiorWidth < 0 {
-			interiorWidth = 0
-		}
-		titleInterior := "─ queued ─"
-		titleWidth := lipgloss.Width(titleInterior)
-		fillCount := interiorWidth - titleWidth
-		if fillCount < 0 {
-			fillCount = 0
-		}
-		titleLine := "╭" + titleInterior + strings.Repeat("─", fillCount) + "╮"
-		titleStyle := lipgloss.NewStyle().
-			Background(lipgloss.Color(b.styles.Palette.ContentBG)).
-			Foreground(b.styles.FgDim.GetForeground())
-		lines[0] = titleStyle.Render(titleLine)
-	}
-
-	return strings.Join(lines, "\n") + "\n"
-}
-
 // renderUserMarkdownSegment renders a markdown-like user prompt with glamour
 // while keeping the left-bar framing so user messages remain visually distinct
 // from assistant output.

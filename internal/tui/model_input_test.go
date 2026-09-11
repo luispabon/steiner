@@ -62,13 +62,9 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 		styles: styles,
 	}
 
-	updated, cmd := m.handleEnter()
-	m = updated.(*Model)
+	_, cmd := m.handleEnter()
 	if cmd != nil {
 		t.Fatalf("handleEnter() returned a non-nil cmd, want nil (steer returns nil)")
-	}
-	if !m.steerQueued {
-		t.Fatal("steerQueued = false, want true")
 	}
 	queued := q.Snapshot()
 	if len(queued) != 1 {

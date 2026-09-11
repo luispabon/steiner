@@ -24,10 +24,11 @@ func (m *Model) layout() {
 	// Total rows: top_pad(1) + viewport + hDivider(1) + input + activity + status(1).
 	// The composer renders as a padded message-style card, so derive its height.
 	inputRows, activityRows := m.computeInputRows(contentWidth)
-	maxInputRows := max(1, m.height-4-activityRows)
+	queuedRows := m.queuedSteerHeight(contentWidth)
+	maxInputRows := max(1, m.height-4-activityRows-queuedRows)
 	inputRows = min(inputRows, maxInputRows)
 	m.viewport.SetWidth(max(1, contentWidth-6))
-	m.viewport.SetHeight(max(1, m.height-3-inputRows-activityRows))
+	m.viewport.SetHeight(max(1, m.height-3-inputRows-activityRows-queuedRows))
 	// Set max delegation body lines: viewport height minus overhead for border/header/stats/hint.
 	// Overhead: lipgloss border (2) + blank after box (1) + hint+newline (2) + header (1) + separator (1) + stats (1) = 8.
 	// Using delegationBodyOverhead leaves one spare row so the box never grazes the viewport edge.
@@ -41,9 +42,10 @@ func (m *Model) layout() {
 func (m *Model) relayoutInput() {
 	contentWidth := m.contentWidth()
 	inputRows, activityRows := m.computeInputRows(contentWidth)
-	maxInputRows := max(1, m.height-4-activityRows)
+	queuedRows := m.queuedSteerHeight(contentWidth)
+	maxInputRows := max(1, m.height-4-activityRows-queuedRows)
 	inputRows = min(inputRows, maxInputRows)
-	newHeight := max(1, m.height-3-inputRows-activityRows)
+	newHeight := max(1, m.height-3-inputRows-activityRows-queuedRows)
 	if newHeight == m.viewport.Height() {
 		return
 	}
