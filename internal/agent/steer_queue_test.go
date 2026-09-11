@@ -36,20 +36,6 @@ func TestSteerQueueZeroValue(t *testing.T) {
 	}
 }
 
-func TestSteerQueueTake(t *testing.T) {
-	q := NewSteerQueue()
-	q.Add(SteerMessage{Text: "one"})
-	q.Add(SteerMessage{Text: "two"})
-
-	got := q.Take()
-	if len(got) != 2 || got[0].Text != "one" || got[1].Text != "two" {
-		t.Fatalf("Take() = %+v, want [one two]", got)
-	}
-	if got := q.Take(); got != nil {
-		t.Fatalf("Take() after take = %+v, want nil", got)
-	}
-}
-
 func TestSteerQueueSnapshot(t *testing.T) {
 	q := NewSteerQueue()
 	if got := q.Snapshot(); got != nil {
@@ -104,9 +90,6 @@ func TestSteerQueueNilReceiver(t *testing.T) {
 
 	if got := q.Drain(); got != nil {
 		t.Fatalf("nil.Drain() = %+v, want nil", got)
-	}
-	if got := q.Take(); got != nil {
-		t.Fatalf("nil.Take() = %+v, want nil", got)
 	}
 	if got := q.Snapshot(); got != nil {
 		t.Fatalf("nil.Snapshot() = %+v, want nil", got)

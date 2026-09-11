@@ -255,13 +255,13 @@ func TestTakeBackEmptyQueueIsNoOpLeavesDraft(t *testing.T) {
 	}
 }
 
-// drainedStubQueue simulates a queue whose Take() lost the race with a
-// concurrent drain: Len() still reports a stale non-zero count, but Take()
+// drainedStubQueue simulates a queue whose Drain() lost the race with a
+// concurrent drain: Len() still reports a stale non-zero count, but Drain()
 // returns nothing.
 type drainedStubQueue struct{}
 
 func (drainedStubQueue) Add(agent.SteerMessage)         {}
-func (drainedStubQueue) Take() []agent.SteerMessage     { return nil }
+func (drainedStubQueue) Drain() []agent.SteerMessage    { return nil }
 func (drainedStubQueue) Snapshot() []agent.SteerMessage { return nil }
 func (drainedStubQueue) Len() int                       { return 1 }
 

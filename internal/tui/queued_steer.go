@@ -113,6 +113,7 @@ func queuedSteerTitle(count int) string {
 // count still reports the hidden content accurately once that boundary is
 // gone.
 func wrapQueuedSteerLines(msgs []agent.SteerMessage, textWidth int) []string {
+	lineStyle := lipgloss.NewStyle().Width(textWidth)
 	var rows []string
 	for i, msg := range msgs {
 		if i > 0 {
@@ -120,7 +121,7 @@ func wrapQueuedSteerLines(msgs []agent.SteerMessage, textWidth int) []string {
 		}
 		text := strings.TrimRight(msg.Text, "\n")
 		for _, line := range strings.Split(text, "\n") {
-			rendered := lipgloss.NewStyle().Width(textWidth).Render(line)
+			rendered := lineStyle.Render(line)
 			rows = append(rows, strings.Split(rendered, "\n")...)
 		}
 	}

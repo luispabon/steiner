@@ -436,15 +436,15 @@ func (m *Model) executeSteerAction() tea.Model {
 }
 
 func (m *Model) executeTakeBackSteersAction() tea.Model {
-	if m.steers == nil || m.steers.Len() == 0 {
+	if m.steers == nil {
 		return m
 	}
-	taken := m.steers.Take()
-	if len(taken) == 0 {
+	drained := m.steers.Drain()
+	if len(drained) == 0 {
 		return m
 	}
 	draft := m.input.Value()
-	all := taken
+	all := drained
 	if strings.TrimSpace(draft) != "" {
 		all = append(all, agent.SteerMessage{Text: draft, Images: m.pendingImageBlocks()})
 	}

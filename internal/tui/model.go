@@ -29,7 +29,7 @@ type SessionLister interface {
 // *agent.SteerQueue satisfies it.
 type steerQueue interface {
 	Add(agent.SteerMessage)
-	Take() []agent.SteerMessage
+	Drain() []agent.SteerMessage
 	Snapshot() []agent.SteerMessage
 	Len() int
 }
@@ -641,10 +641,16 @@ func (m *Model) syncInputChrome() {
 		m.input.Placeholder = "steering — esc to interrupt (or /exit, /thinking, /accent)"
 	case m.approval.active:
 		m.input.Placeholder = "approval pending above — use arrows, tab, enter, or esc"
-	case m.steers != nil && m.steers.Len() > 0 && m.activity.busy():
-		m.input.Placeholder = queuedSteerPlaceholder(m.steers.Len())
 	case m.activity.busy():
-		m.input.Placeholder = "working… esc to interrupt, or type to steer"
+		pending := 0
+		if m.steers != nil {
+			pending = m.steers.Len()
+		}
+		if pending > 0 {
+			m.input.Placeholder = queuedSteerPlaceholder(pending)
+		} else {
+			m.input.Placeholder = "working… esc to interrupt, or type to steer"
+		}
 	default:
 		m.input.Placeholder = "ask steiner — / for commands, @ for files"
 	}

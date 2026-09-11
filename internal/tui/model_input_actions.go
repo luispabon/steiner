@@ -483,10 +483,6 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		runOrchestratorAndReport(sess.EventSink(), runIdentity.ID, "oneshot run failed", func() (oneshot.Manifest, error) {
 			return orchestrator.Run(context.Background())
 		})
-
-		// Do not close the steer channel — sending to a closed channel panics.
-		// The buffered channel becomes inert once the orchestrator goroutine exits;
-		// sends hit the select/default branch and the channel is GC'd when replaced.
 	}()
 
 	m.content.AppendLine(fmt.Sprintf("status: launching oneshot run for: %s", task))

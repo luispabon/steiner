@@ -40,14 +40,6 @@ func (q *SteerQueue) Drain() []SteerMessage {
 	return msgs
 }
 
-// Take returns all pending messages and empties the queue, for returning
-// them to the user's composer. It is identical to Drain and exists to name
-// the caller's intent; both share the mutex, so a message is either drained
-// into the conversation or taken back, never both.
-func (q *SteerQueue) Take() []SteerMessage {
-	return q.Drain()
-}
-
 // Snapshot returns a copy of the pending messages without removing them.
 // Callers must not retain the returned slice across mutations.
 func (q *SteerQueue) Snapshot() []SteerMessage {
