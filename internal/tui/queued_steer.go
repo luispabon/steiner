@@ -37,7 +37,9 @@ func (m *Model) renderQueuedSteerBox(width int) string {
 	}
 
 	if width < 14 {
-		return m.styles.FgDim.Render("queued: " + msgs[0].Text)
+		text := strings.ReplaceAll(msgs[0].Text, "\n", " ")
+		row := lipgloss.NewStyle().MaxWidth(max(1, width)).Render("queued: " + text)
+		return m.styles.FgDim.Render(row)
 	}
 
 	textWidth := width - 4
@@ -51,7 +53,7 @@ func (m *Model) renderQueuedSteerBox(width int) string {
 
 	boxStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color(m.styles.Palette.ContentBG)).
-		Padding(1, 1).
+		Padding(0, 1).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(m.styles.FgDim.GetForeground()).
 		Width(width)
@@ -98,37 +100,38 @@ func queuedSteerTitle(count int) string {
 }
 
 // wrapQueuedSteerLines wraps every queued message to textWidth and joins them
-// with a blank separator row, capping the result at queuedSteerMaxLines rows
-// of text. When wrapping overflows that budget, it keeps the first
-// queuedSteerMaxLines rows and appends one overflow row: "+N more", where N
-// is the number of hidden rows that carry actual text — blank rows (the
-// separator between messages, or a blank line embedded in merged text) don't
-// count, since they're not content the user is missing. Counting text rows
-// rather than messages keeps this correct after ctrl+g take-back: MergeSteers
-// can fold several queued messages into one, and a row-based count still
-// reports the hidden content accurately once that boundary is gone.
+// with a blank separator row, capping the result at queuedSteerMaxLines
+// terminal rows of text. Each source line can itself wrap to several
+// terminal rows at textWidth, so the cap is applied to the flattened rows,
+// not to the source lines. When wrapping overflows that budget, it keeps the
+// first queuedSteerMaxLines rows and appends one overflow row: "+N more",
+// where N is the number of hidden rows that carry actual text — blank rows
+// (the separator between messages, or a blank line embedded in merged text)
+// don't count, since they're not content the user is missing. Counting text
+// rows rather than messages keeps this correct after ctrl+g take-back:
+// MergeSteers can fold several queued messages into one, and a row-based
+// count still reports the hidden content accurately once that boundary is
+// gone.
 func wrapQueuedSteerLines(msgs []agent.SteerMessage, textWidth int) []string {
-	var all []string
-	var raw []string
+	var rows []string
 	for i, msg := range msgs {
 		if i > 0 {
-			all = append(all, "")
-			raw = append(raw, "")
+			rows = append(rows, "")
 		}
 		text := strings.TrimRight(msg.Text, "\n")
 		for _, line := range strings.Split(text, "\n") {
-			all = append(all, lipgloss.NewStyle().Width(textWidth).Render(line))
-			raw = append(raw, line)
+			rendered := lipgloss.NewStyle().Width(textWidth).Render(line)
+			rows = append(rows, strings.Split(rendered, "\n")...)
 		}
 	}
 
-	if len(all) <= queuedSteerMaxLines {
-		return all
+	if len(rows) <= queuedSteerMaxLines {
+		return rows
 	}
 
-	lines := append([]string(nil), all[:queuedSteerMaxLines]...)
+	lines := append([]string(nil), rows[:queuedSteerMaxLines]...)
 	hidden := 0
-	for _, r := range raw[queuedSteerMaxLines:] {
+	for _, r := range rows[queuedSteerMaxLines:] {
 		if strings.TrimSpace(r) != "" {
 			hidden++
 		}

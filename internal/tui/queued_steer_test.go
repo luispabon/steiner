@@ -59,15 +59,26 @@ func TestQueuedSteerBoxNilQueueIsSafe(t *testing.T) {
 
 func TestQueuedSteerBoxNarrowFallback(t *testing.T) {
 	m := newQueuedSteerTestModel(t, agent.SteerMessage{Text: "hello"})
-	rendered := m.renderQueuedSteerBox(12)
+	rendered := m.renderQueuedSteerBox(13)
 	if !strings.Contains(rendered, "queued: hello") {
 		t.Errorf("narrow render = %q, want it to contain 'queued: hello'", rendered)
 	}
 	if strings.Contains(rendered, "╭") {
 		t.Errorf("narrow render = %q, want no box corners", rendered)
 	}
-	if got := m.queuedSteerHeight(12); got != 1 {
+	if got := m.queuedSteerHeight(13); got != 1 {
 		t.Errorf("queuedSteerHeight(narrow) = %d, want 1", got)
+	}
+}
+
+func TestQueuedSteerBoxNarrowFallbackBoundsMultilineMessage(t *testing.T) {
+	m := newQueuedSteerTestModel(t, agent.SteerMessage{Text: "line one\nline two\n" + strings.Repeat("x", 100)})
+	rendered := m.renderQueuedSteerBox(12)
+	if strings.Contains(rendered, "\n") {
+		t.Errorf("narrow render = %q, want a single row with no embedded newlines", rendered)
+	}
+	if got := m.queuedSteerHeight(12); got != 1 {
+		t.Errorf("queuedSteerHeight(narrow, multiline) = %d, want 1", got)
 	}
 }
 
@@ -285,22 +296,37 @@ func TestCtrlGRoutesToTakeBackDuringActiveRun(t *testing.T) {
 // pushes the status bar off the bottom of the frame: layout must subtract
 // the queued box height from every call site that positions the composer.
 func TestLayoutAccountsForQueuedBoxAndTallComposer(t *testing.T) {
-	q := agent.NewSteerQueue()
-	q.Add(agent.SteerMessage{Text: strings.Repeat("word ", 40)})
-	q.Add(agent.SteerMessage{Text: strings.Repeat("more ", 40)})
-	q.Add(agent.SteerMessage{Text: strings.Repeat("even more ", 40)})
+	shortQueue := agent.NewSteerQueue()
+	shortQueue.Add(agent.SteerMessage{Text: "A"})
+	shortQueue.Add(agent.SteerMessage{Text: "B"})
+	shortQueue.Add(agent.SteerMessage{Text: "C"})
 
-	m := newModel(Config{SteerQueue: q}, nil)
-	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 16})
-	m.input.SetValue(strings.Repeat("line\n", 20))
-	m.relayoutInput()
+	longQueue := agent.NewSteerQueue()
+	longQueue.Add(agent.SteerMessage{Text: strings.Repeat("x", 1000)})
 
-	view := m.View().Content
-	lines := strings.Split(view, "\n")
-	if len(lines) != m.height {
-		t.Fatalf("frame has %d lines, want exactly m.height = %d", len(lines), m.height)
+	shortModel := newModel(Config{SteerQueue: shortQueue}, nil)
+	shortModel = updateModel(t, shortModel, tea.WindowSizeMsg{Width: 80, Height: 16})
+	longModel := newModel(Config{SteerQueue: longQueue}, nil)
+	longModel = updateModel(t, longModel, tea.WindowSizeMsg{Width: 80, Height: 16})
+
+	shortHeight := shortModel.queuedSteerHeight(shortModel.contentWidth())
+	longHeight := longModel.queuedSteerHeight(longModel.contentWidth())
+	if shortHeight != longHeight {
+		t.Errorf("queuedSteerHeight = %d for 3 short messages, %d for one ~1000-char message; both saturate the cap and must match", shortHeight, longHeight)
 	}
-	if !strings.Contains(view, "queued") {
-		t.Fatalf("frame does not contain the queued box:\n%s", view)
+
+	emptyModel := newModel(Config{SteerQueue: agent.NewSteerQueue()}, nil)
+	emptyModel = updateModel(t, emptyModel, tea.WindowSizeMsg{Width: 80, Height: 16})
+
+	for name, m := range map[string]*Model{"empty": emptyModel, "short": shortModel, "long": longModel} {
+		m.input.SetValue(strings.Repeat("line\n", 20))
+		m.relayoutInput()
+
+		view := stripANSI(m.View().Content)
+		lines := strings.Split(view, "\n")
+		wantStatus := stripANSI(m.renderStatus(m.contentWidth()))
+		if got := lines[len(lines)-1]; got != wantStatus {
+			t.Errorf("%s queue: last frame line = %q, want status bar %q", name, got, wantStatus)
+		}
 	}
 }
