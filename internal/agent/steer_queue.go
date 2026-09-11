@@ -4,7 +4,8 @@ import "sync"
 
 // SteerQueue is the single queue of pending steering messages for an
 // interactive session. It is safe for concurrent use: the TUI goroutine
-// adds and takes, and the agent run goroutine drains.
+// adds, snapshots, and drains for take-back, and the agent run goroutine
+// drains at turn boundaries.
 type SteerQueue struct {
 	mu   sync.Mutex
 	msgs []SteerMessage
@@ -28,7 +29,7 @@ func (q *SteerQueue) Add(msg SteerMessage) {
 }
 
 // Drain returns all pending messages and empties the queue. The agent run
-// loop calls this at a turn boundary.
+// loop calls this at a turn boundary, and the TUI calls it for take-back.
 func (q *SteerQueue) Drain() []SteerMessage {
 	if q == nil {
 		return nil

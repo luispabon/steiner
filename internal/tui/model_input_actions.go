@@ -406,7 +406,7 @@ func runOrchestratorAndReport(sink output.EventSink, runID, failureLabel string,
 	sink.Emit(output.NewOneshotFinishedEvent(runID, err))
 }
 
-// prepareOneshotRun applies the guard checks and steer-channel setup shared
+// prepareOneshotRun applies the guard checks and run-state setup shared
 // by launch and resume. ok is false when a guard failed and m already
 // carries the corresponding status message and reset input.
 func (m *Model) prepareOneshotRun() (*Model, bool) {
