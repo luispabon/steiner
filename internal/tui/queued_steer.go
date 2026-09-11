@@ -81,8 +81,7 @@ func (m *Model) renderQueuedSteerBox(width int) string {
 }
 
 // queuedSteerPlaceholder builds the composer placeholder shown while a run is
-// busy and one or more steer messages are queued. ctrl+g isn't implemented
-// until a later step; the text mentions it as an upcoming binding.
+// busy and one or more steer messages are queued.
 func queuedSteerPlaceholder(count int) string {
 	noun := "message"
 	if count != 1 {

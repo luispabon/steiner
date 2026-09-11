@@ -58,6 +58,7 @@ func renderHelp(styles *theme.Styles, width int) string {
 					binding{"ctrl+b", "toggle sidebar"},
 					binding{"ctrl+t", "inspect context"},
 					binding{"ctrl+x", "toggle delegation output"},
+					binding{"ctrl+g", "edit queued messages"},
 				)
 				for _, hb := range projectHelpLines() {
 					bb = append(bb, binding(hb))

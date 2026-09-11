@@ -135,6 +135,145 @@ func TestQueuedSteerPlaceholderPluralization(t *testing.T) {
 	}
 }
 
+func newTakeBackTestModel(t *testing.T, msgs ...agent.SteerMessage) *Model {
+	t.Helper()
+	q := agent.NewSteerQueue()
+	for _, msg := range msgs {
+		q.Add(msg)
+	}
+	m := newModel(Config{SteerQueue: q}, nil)
+	return updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+}
+
+func TestTakeBackSingleMessageEmptyComposer(t *testing.T) {
+	m := newTakeBackTestModel(t, agent.SteerMessage{Text: "hello there"})
+	m = m.executeTakeBackSteersAction().(*Model)
+
+	if got := m.input.Value(); got != "hello there" {
+		t.Errorf("input.Value() = %q, want %q", got, "hello there")
+	}
+	if m.steers.Len() != 0 {
+		t.Errorf("steers.Len() = %d, want 0", m.steers.Len())
+	}
+}
+
+func TestTakeBackMultipleMessagesJoinedInOrder(t *testing.T) {
+	m := newTakeBackTestModel(t,
+		agent.SteerMessage{Text: "first"},
+		agent.SteerMessage{Text: "second"},
+		agent.SteerMessage{Text: "third"},
+	)
+	m = m.executeTakeBackSteersAction().(*Model)
+
+	want := "first\n\nsecond\n\nthird"
+	if got := m.input.Value(); got != want {
+		t.Errorf("input.Value() = %q, want %q", got, want)
+	}
+}
+
+func TestTakeBackWithDraftAppendsDraftLastAndPlacesCursorAtEnd(t *testing.T) {
+	m := newTakeBackTestModel(t, agent.SteerMessage{Text: "queued one"})
+	m.input.SetValue("my draft")
+
+	m = m.executeTakeBackSteersAction().(*Model)
+
+	want := "queued one\n\nmy draft"
+	if got := m.input.Value(); got != want {
+		t.Errorf("input.Value() = %q, want %q", got, want)
+	}
+	if m.input.Line() != 2 {
+		t.Errorf("input.Line() = %d, want cursor on last line (2)", m.input.Line())
+	}
+}
+
+func TestTakeBackRestoresImageMarkersInOrder(t *testing.T) {
+	imgA := agent.ImageBlock{ID: "a", MediaType: "image/png", Data: "AAAA"}
+	imgB := agent.ImageBlock{ID: "b", MediaType: "image/png", Data: "BBBB"}
+	m := newTakeBackTestModel(t,
+		agent.SteerMessage{Text: "look at [Image 1]", Images: []agent.ImageBlock{imgA}},
+		agent.SteerMessage{Text: "and [Image 1]", Images: []agent.ImageBlock{imgB}},
+	)
+
+	m = m.executeTakeBackSteersAction().(*Model)
+
+	want := "look at [Image 1]\n\nand [Image 2]"
+	if got := m.input.Value(); got != want {
+		t.Errorf("input.Value() = %q, want %q", got, want)
+	}
+	if len(m.imageMarkers) != 2 {
+		t.Fatalf("len(imageMarkers) = %d, want 2", len(m.imageMarkers))
+	}
+	if m.imageMarkers[0].label != "[Image 1]" || m.imageMarkers[0].image != imgA {
+		t.Errorf("imageMarkers[0] = %+v, want label [Image 1] and image %+v", m.imageMarkers[0], imgA)
+	}
+	if m.imageMarkers[1].label != "[Image 2]" || m.imageMarkers[1].image != imgB {
+		t.Errorf("imageMarkers[1] = %+v, want label [Image 2] and image %+v", m.imageMarkers[1], imgB)
+	}
+}
+
+func TestTakeBackClearsQueuedBoxAndLayout(t *testing.T) {
+	m := newTakeBackTestModel(t, agent.SteerMessage{Text: "hello"})
+	if m.queuedSteerHeight(m.width) == 0 {
+		t.Fatal("expected queued box to occupy rows before take-back")
+	}
+
+	m = m.executeTakeBackSteersAction().(*Model)
+
+	if got := m.renderQueuedSteerBox(m.width); got != "" {
+		t.Errorf("renderQueuedSteerBox after take-back = %q, want empty", got)
+	}
+	if got := m.queuedSteerHeight(m.width); got != 0 {
+		t.Errorf("queuedSteerHeight after take-back = %d, want 0", got)
+	}
+}
+
+func TestTakeBackEmptyQueueIsNoOpLeavesDraft(t *testing.T) {
+	m := newTakeBackTestModel(t)
+	m.input.SetValue("untouched draft")
+
+	m = m.executeTakeBackSteersAction().(*Model)
+
+	if got := m.input.Value(); got != "untouched draft" {
+		t.Errorf("input.Value() = %q, want %q (unchanged)", got, "untouched draft")
+	}
+}
+
+// drainedStubQueue simulates a queue whose Take() lost the race with a
+// concurrent drain: Len() still reports a stale non-zero count, but Take()
+// returns nothing.
+type drainedStubQueue struct{}
+
+func (drainedStubQueue) Add(agent.SteerMessage)         {}
+func (drainedStubQueue) Take() []agent.SteerMessage     { return nil }
+func (drainedStubQueue) Snapshot() []agent.SteerMessage { return nil }
+func (drainedStubQueue) Len() int                       { return 1 }
+
+func TestTakeBackRaceWithDrainLeavesComposerUntouched(t *testing.T) {
+	m := newTakeBackTestModel(t, agent.SteerMessage{Text: "queued"})
+	m.steers = drainedStubQueue{}
+	m.input.SetValue("my draft")
+
+	m = m.executeTakeBackSteersAction().(*Model)
+
+	if got := m.input.Value(); got != "my draft" {
+		t.Errorf("input.Value() = %q, want %q (unchanged)", got, "my draft")
+	}
+}
+
+func TestCtrlGRoutesToTakeBackDuringActiveRun(t *testing.T) {
+	m := newTakeBackTestModel(t, agent.SteerMessage{Text: "queued during run"})
+	m.status.mode = "running"
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+
+	if got := m.input.Value(); got != "queued during run" {
+		t.Errorf("input.Value() = %q, want %q", got, "queued during run")
+	}
+	if m.steers.Len() != 0 {
+		t.Errorf("steers.Len() = %d, want 0", m.steers.Len())
+	}
+}
+
 // TestLayoutAccountsForQueuedBoxAndTallComposer verifies that a full queued
 // box together with a multi-line composer, at a small terminal height, never
 // pushes the status bar off the bottom of the frame: layout must subtract
