@@ -49,9 +49,10 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 	input.SetValue("hello")
 
 	styles := testStyles(theme.AccentAmber)
+	q := agent.NewSteerQueue()
 	m := &Model{
 		oneshotRunning: true,
-		oneshotSteerCh: make(chan agent.SteerMessage, 4),
+		steers:         q,
 		input:          input,
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
@@ -61,21 +62,16 @@ func TestHandleEnterRoutesToSteerDuringOneshot(t *testing.T) {
 		styles: styles,
 	}
 
-	updated, cmd := m.handleEnter()
-	m = updated.(*Model)
+	_, cmd := m.handleEnter()
 	if cmd != nil {
 		t.Fatalf("handleEnter() returned a non-nil cmd, want nil (steer returns nil)")
 	}
-	if !m.steerQueued {
-		t.Fatal("steerQueued = false, want true")
+	queued := q.Snapshot()
+	if len(queued) != 1 {
+		t.Fatalf("steer queue len = %d, want 1", len(queued))
 	}
-	select {
-	case msg := <-m.oneshotSteerCh:
-		if msg.Text != "hello" {
-			t.Fatalf("steer channel got %+v, want {hello}", msg)
-		}
-	default:
-		t.Fatal("steer channel empty, expected hello")
+	if queued[0].Text != "hello" {
+		t.Fatalf("steer queue got %+v, want {hello}", queued[0])
 	}
 }
 
@@ -85,11 +81,11 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 	input.SetValue("describe this")
 	input.InsertString(" [Image 1]")
 
-	steerCh := make(chan agent.SteerMessage, 4)
+	q := agent.NewSteerQueue()
 	styles := testStyles(theme.AccentAmber)
 	m := &Model{
 		oneshotRunning: true,
-		oneshotSteerCh: steerCh,
+		steers:         q,
 		input:          input,
 		imageMarkers: []imageMarker{
 			{label: "[Image 1]", image: agent.ImageBlock{MediaType: "image/png", Data: "queued-image-data"}},
@@ -109,27 +105,29 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 		t.Fatalf("imageMarkers = %d, want 0 after steer", len(m.imageMarkers))
 	}
 
-	select {
-	case msg := <-steerCh:
-		if msg.Text != "describe this [Image 1]" {
-			t.Errorf("steer text = %q, want %q", msg.Text, "describe this [Image 1]")
-		}
-		if len(msg.Images) != 1 {
-			t.Fatalf("steer images = %d, want 1", len(msg.Images))
-		}
-		if msg.Images[0].Data != "queued-image-data" {
-			t.Errorf("steer image data = %q, want %q", msg.Images[0].Data, "queued-image-data")
-		}
-	default:
-		t.Fatal("steer channel empty, expected message with image")
+	queued := q.Snapshot()
+	if len(queued) != 1 {
+		t.Fatalf("steer queue len = %d, want 1", len(queued))
+	}
+	msg := queued[0]
+	if msg.Text != "describe this [Image 1]" {
+		t.Errorf("steer text = %q, want %q", msg.Text, "describe this [Image 1]")
+	}
+	if len(msg.Images) != 1 {
+		t.Fatalf("steer images = %d, want 1", len(msg.Images))
+	}
+	if msg.Images[0].Data != "queued-image-data" {
+		t.Errorf("steer image data = %q, want %q", msg.Images[0].Data, "queued-image-data")
 	}
 }
 
 func TestHandleEnterRoutesToSteerDuringBusyRegularRun(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}
+	q := agent.NewSteerQueue()
 	m := newModel(Config{
 		Controller: ctrl,
+		SteerQueue: q,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -137,11 +135,40 @@ func TestHandleEnterRoutesToSteerDuringBusyRegularRun(t *testing.T) {
 
 	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	if ctrl.countSteerPrompt() != 1 {
-		t.Fatalf("SteerPrompt count = %d, want 1 (busy regular run must queue steer)", ctrl.countSteerPrompt())
+	if got := q.Len(); got != 1 {
+		t.Fatalf("steer queue len = %d, want 1 (busy regular run must queue steer)", got)
 	}
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("SubmitPrompt count = %d, want 0 (busy regular run must not submit)", ctrl.countSubmitPrompt())
+	}
+}
+
+func TestSteerQueueSharedBetweenComposerAndOneshotRun(t *testing.T) {
+	t.Parallel()
+	sess, err := interactive.NewSession(interactive.Dependencies{BaseEvents: output.NoopSink{}})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	queue := sess.ActiveRunController().SteerQueue()
+
+	m := newModel(Config{Controller: sess, SteerQueue: queue}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	// Queue during a regular busy run.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m.input.SetValue("steer during regular run")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	// Queue again while simulating an active oneshot run.
+	m.oneshotRunning = true
+	m.input.SetValue("steer during oneshot")
+	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	// Both messages must land in the exact queue instance the oneshot run
+	// drains from — proving the composer never uses a second instance.
+	got := sess.ActiveRunController().SteerQueue().Drain()
+	if len(got) != 2 || got[0].Text != "steer during regular run" || got[1].Text != "steer during oneshot" {
+		t.Fatalf("Drain() = %+v, want [{steer during regular run} {steer during oneshot}]", got)
 	}
 }
 

@@ -77,8 +77,11 @@ func (m *Model) renderMainColumn(contentWidth int) string {
 	}
 
 	mainComponents := []string{viewportView, hDivider}
+	mainComponents = append(mainComponents, m.renderActivityRow(contentWidth))
+	if queuedBox := m.renderQueuedSteerBox(contentWidth); queuedBox != "" {
+		mainComponents = append(mainComponents, queuedBox)
+	}
 	mainComponents = append(mainComponents,
-		m.renderActivityRow(contentWidth),
 		m.renderInputView(contentWidth),
 		m.renderStatus(contentWidth),
 	)
@@ -449,7 +452,7 @@ func (m *Model) inputChromeHeight(contentWidth int) int {
 // the overlay — it's fine for the overlay to sit over them, since they carry
 // no content worth preserving while a picker is open.
 func (m *Model) overlayAnchorOffset(contentWidth int) int {
-	return m.inputChromeHeight(contentWidth) + 1 // status bar
+	return m.inputChromeHeight(contentWidth) + 1 + m.queuedSteerHeight(contentWidth) // status bar + queued box
 }
 
 func (m *Model) activityRowHeight(_ int) int {
@@ -457,7 +460,7 @@ func (m *Model) activityRowHeight(_ int) int {
 }
 
 func (m *Model) maxVisibleInputLines(contentWidth int) int {
-	return max(1, m.height-4-m.activityRowHeight(contentWidth)-2*inputPadY)
+	return max(1, m.height-4-m.activityRowHeight(contentWidth)-2*inputPadY-m.queuedSteerHeight(contentWidth))
 }
 
 func (m *Model) inputInnerWidth(contentWidth int) int {

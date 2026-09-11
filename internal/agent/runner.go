@@ -178,7 +178,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			steers := req.DrainSteers()
 			if len(steers) > 0 {
 				hadSteers = true
-				merged := mergeSteers(steers)
+				merged := MergeSteers(steers)
 				state.Conversation = append(state.Conversation, merged)
 				state.Lineage = state.Lineage.WithAppendedMessages([]Message{merged})
 				emitEvent(req.Events, output.NewSteerReceivedEvent(merged.Content))
@@ -394,9 +394,11 @@ func runnerRetrySleepDefault(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-// mergeSteers combines multiple steer messages into a single user Message.
-// Image markers in later steers are renumbered to follow prior steer images.
-func mergeSteers(steers []SteerMessage) Message {
+// MergeSteers merges queued steering messages into the single user message
+// the runner appends to the conversation, joining texts with a blank line
+// and renumbering [Image N] markers so they stay aligned with the
+// concatenated image blocks.
+func MergeSteers(steers []SteerMessage) Message {
 	if len(steers) == 1 {
 		return Message{Role: MessageRoleUser, Content: steers[0].Text, Images: steers[0].Images}
 	}

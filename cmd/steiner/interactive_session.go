@@ -202,6 +202,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		SkillDescriptions:   rt.skillDescriptions,
 		SkillSources:        rt.skillSources,
 		Controller:          sess,
+		SteerQueue:          sess.ActiveRunController().SteerQueue(),
 		SandboxStatus:       rt.sandboxStatus,
 		ConfigWarnings:      rt.configWarnings,
 		WorktreeCleanup:     rt.worktreeCleanup,

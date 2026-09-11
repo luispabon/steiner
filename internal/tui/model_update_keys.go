@@ -129,6 +129,8 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 	case isCtrl(msg, 'v'):
 		next, cmd := m.handlePasteKey()
 		return true, next, cmd
+	case isCtrl(msg, 'g'):
+		return true, m.executeTakeBackSteersAction(), nil
 	}
 	switch msg.Code {
 	case tea.KeyTab:
@@ -422,23 +424,44 @@ func (m *Model) executeSteerAction() tea.Model {
 		return m
 	}
 	images := m.pendingImageBlocks()
-	if !m.oneshotRunning && m.controller != nil {
-		_ = m.controller.Handle(context.Background(), interactive.SteerPrompt{Text: text, Images: images})
-	}
-	// Send to oneshot steer channel if active (non-blocking)
-	if m.oneshotSteerCh != nil {
-		select {
-		case m.oneshotSteerCh <- agent.SteerMessage{Text: text, Images: images}:
-		default:
-			// Channel full or closed, skip
-		}
+	if m.steers != nil {
+		m.steers.Add(agent.SteerMessage{Text: text, Images: images})
 	}
 	m.input.Reset()
 	m.imageMarkers = nil
-	m.content.AppendPendingSteer(text)
-	m.steerQueued = true
 	m.syncInputChrome()
 	m.syncViewport()
 	m.relayoutInput()
+	return m
+}
+
+func (m *Model) executeTakeBackSteersAction() tea.Model {
+	if m.steers == nil {
+		return m
+	}
+	drained := m.steers.Drain()
+	if len(drained) == 0 {
+		return m
+	}
+	draft := m.input.Value()
+	all := drained
+	if strings.TrimSpace(draft) != "" {
+		all = append(all, agent.SteerMessage{Text: draft, Images: m.pendingImageBlocks()})
+	}
+	merged := agent.MergeSteers(all)
+
+	markers := make([]imageMarker, len(merged.Images))
+	for i, img := range merged.Images {
+		markers[i] = imageMarker{label: fmt.Sprintf("[Image %d]", i+1), image: img}
+	}
+	value, markers := renumberMarkers(merged.Content, markers)
+
+	m.input.SetValue(value)
+	m.imageMarkers = markers
+	m.input.CursorEnd()
+
+	m.syncInputChrome()
+	m.relayoutInput()
+	m.syncViewport()
 	return m
 }

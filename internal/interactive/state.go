@@ -16,12 +16,12 @@ import (
 type ActiveRunController struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
-	steers []agent.SteerMessage
+	steers *agent.SteerQueue
 }
 
 // NewActiveRunController creates a new ActiveRunController.
 func NewActiveRunController() *ActiveRunController {
-	return &ActiveRunController{}
+	return &ActiveRunController{steers: agent.NewSteerQueue()}
 }
 
 // Set records a new cancel function, replacing any existing one.
@@ -36,8 +36,8 @@ func (c *ActiveRunController) Set(cancel context.CancelFunc) {
 func (c *ActiveRunController) Clear() {
 	c.mu.Lock()
 	c.cancel = nil
-	c.steers = nil
 	c.mu.Unlock()
+	c.steers.Clear()
 }
 
 // Interrupt calls the current cancel function, if any.
@@ -57,20 +57,11 @@ func (c *ActiveRunController) HasCancel() bool {
 	return c.cancel != nil
 }
 
-// Steer queues a steering message with its attached images.
-func (c *ActiveRunController) Steer(text string, images []agent.ImageBlock) {
-	c.mu.Lock()
-	c.steers = append(c.steers, agent.SteerMessage{Text: text, Images: images})
-	c.mu.Unlock()
-}
-
-// DrainSteers returns all pending steer messages and clears the queue.
-func (c *ActiveRunController) DrainSteers() []agent.SteerMessage {
-	c.mu.Lock()
-	steers := c.steers
-	c.steers = nil
-	c.mu.Unlock()
-	return steers
+// SteerQueue returns the session's pending steering-message queue. The TUI
+// enqueues into it, the run loop drains it, and the queued-message box
+// renders from it.
+func (c *ActiveRunController) SteerQueue() *agent.SteerQueue {
+	return c.steers
 }
 
 // Skills tracks which skills are enabled during an interactive session and

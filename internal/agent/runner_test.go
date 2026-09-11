@@ -493,7 +493,7 @@ func TestMergeSteers(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := mergeSteers(tc.steers)
+			got := MergeSteers(tc.steers)
 			if got.Content != tc.wantText {
 				t.Errorf("Content = %q, want %q", got.Content, tc.wantText)
 			}

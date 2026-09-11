@@ -181,8 +181,8 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
 	case output.SteerReceivedEvent:
 		m.content.AppendUser(payload.Text)
-		m.steerQueued = false
 		m.syncInputChrome()
+		m.relayoutInput()
 	case output.PhaseTransitionEvent:
 		return m.handlePhaseTransition(payload)
 	case output.PhaseIndicatorEvent:
@@ -205,7 +205,6 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.OneshotFinishedEvent:
 		m.oneshotRunning = false
 		m.oneshotPhase = ""
-		m.oneshotSteerCh = nil
 		m.status.oneshotPhase = ""
 		m.sidebar.oneshotPhase = ""
 		m.syncSidebar()
@@ -332,6 +331,7 @@ func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
 	}
 	m.input.Focus()
 	m.syncInputChrome()
+	m.relayoutInput()
 	m.syncSidebar()
 	m.syncViewport()
 }

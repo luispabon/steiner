@@ -80,13 +80,13 @@ func TestApplyEventScopedWorktreeDisposalAfterDelegateFinished(t *testing.T) {
 
 func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 	t.Parallel()
-	ch := make(chan agent.SteerMessage, 4)
-	ch <- agent.SteerMessage{Text: "test"}
+	q := agent.NewSteerQueue()
+	q.Add(agent.SteerMessage{Text: "test"})
 
 	m := &Model{
 		oneshotRunning: true,
 		oneshotPhase:   "plan",
-		oneshotSteerCh: ch,
+		steers:         q,
 	}
 	m.status.oneshotPhase = "plan"
 	m.sidebar.oneshotPhase = "plan"
@@ -100,8 +100,8 @@ func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 	if m.oneshotPhase != "" {
 		t.Errorf("oneshotPhase = %q, want empty", m.oneshotPhase)
 	}
-	if m.oneshotSteerCh != nil {
-		t.Error("oneshotSteerCh = non-nil, want nil")
+	if got := q.Len(); got != 1 {
+		t.Errorf("steer queue len = %d, want 1 (OneshotFinished must not touch the queue)", got)
 	}
 	if m.status.oneshotPhase != "" {
 		t.Errorf("status.oneshotPhase = %q, want empty", m.status.oneshotPhase)

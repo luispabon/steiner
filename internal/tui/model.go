@@ -24,6 +24,16 @@ type SessionLister interface {
 	Load(id string) (session.Session, error)
 }
 
+// steerQueue is the pending steering-message queue the composer enqueues
+// into, the queued-message box renders from, and ctrl+g takes back from.
+// *agent.SteerQueue satisfies it.
+type steerQueue interface {
+	Add(agent.SteerMessage)
+	Drain() []agent.SteerMessage
+	Snapshot() []agent.SteerMessage
+	Len() int
+}
+
 type approvalState struct {
 	active         bool
 	tool           string
@@ -174,7 +184,6 @@ type Model struct {
 	workflowHandoff              workflowHandoffModalState
 	delegateCancelModal          delegateCancelModalState
 	sessionStore                 SessionLister
-	steerQueued                  bool // true when a steer message has been queued but not yet consumed
 	interruptPending             bool
 	suppressWorkflowHandoffRun   bool
 	pendingWorkflowHandoffLaunch *workflowHandoffLaunch
@@ -199,7 +208,7 @@ type Model struct {
 	imageMarkers                 []imageMarker
 	oneshotRunning               bool
 	oneshotPhase                 string
-	oneshotSteerCh               chan agent.SteerMessage
+	steers                       steerQueue
 	oneshotRunnerFactory         OneshotRunnerFactoryBuilder
 	notifier                     notifier
 	mode                         string // current execution mode: "plan" or "build"
@@ -632,10 +641,16 @@ func (m *Model) syncInputChrome() {
 		m.input.Placeholder = "steering — esc to interrupt (or /exit, /thinking, /accent)"
 	case m.approval.active:
 		m.input.Placeholder = "approval pending above — use arrows, tab, enter, or esc"
-	case m.steerQueued && m.activity.busy():
-		m.input.Placeholder = "message queued — esc to interrupt"
 	case m.activity.busy():
-		m.input.Placeholder = "working… esc to interrupt, or type to steer"
+		pending := 0
+		if m.steers != nil {
+			pending = m.steers.Len()
+		}
+		if pending > 0 {
+			m.input.Placeholder = queuedSteerPlaceholder(pending)
+		} else {
+			m.input.Placeholder = "working… esc to interrupt, or type to steer"
+		}
 	default:
 		m.input.Placeholder = "ask steiner — / for commands, @ for files"
 	}
