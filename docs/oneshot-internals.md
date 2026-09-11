@@ -178,13 +178,13 @@ run as a steering message:
 
 - Allowlist: `/exit`, `/thinking`, `/accent`.
 - All other input (including `/oneshot <task>`, which would otherwise
-  launch a second concurrent run) is routed to the run's steer channel.
+  launch a second concurrent run) is added to the session's steering
+  queue, which the oneshot run drains at each turn boundary.
 
 The composer returns to the normal command surface on completion. The TUI
 emits an `OneshotFinishedEvent` from the run goroutine when the run ends
 (both success and error paths) and the `applyEvent` handler clears
-`oneshotRunning`, `oneshotPhase`, the steer channel, and the chrome
-fields.
+`oneshotRunning`, `oneshotPhase`, and the chrome fields.
 
 ### Concurrent Runs
 

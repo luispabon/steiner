@@ -115,6 +115,7 @@ type Config struct {
 	ContentBG            string
 	Version              string
 	Controller           interactive.Controller
+	SteerQueue           *agent.SteerQueue
 	SessionStore         SessionLister
 	OneshotRunnerFactory OneshotRunnerFactoryBuilder
 	// Recorder is the process-wide usage stats recorder; nil when not wired.

@@ -205,7 +205,6 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.OneshotFinishedEvent:
 		m.oneshotRunning = false
 		m.oneshotPhase = ""
-		m.oneshotSteerCh = nil
 		m.status.oneshotPhase = ""
 		m.sidebar.oneshotPhase = ""
 		m.syncSidebar()

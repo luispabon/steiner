@@ -422,16 +422,8 @@ func (m *Model) executeSteerAction() tea.Model {
 		return m
 	}
 	images := m.pendingImageBlocks()
-	if !m.oneshotRunning && m.controller != nil {
-		_ = m.controller.Handle(context.Background(), interactive.SteerPrompt{Text: text, Images: images})
-	}
-	// Send to oneshot steer channel if active (non-blocking)
-	if m.oneshotSteerCh != nil {
-		select {
-		case m.oneshotSteerCh <- agent.SteerMessage{Text: text, Images: images}:
-		default:
-			// Channel full or closed, skip
-		}
+	if m.steers != nil {
+		m.steers.Add(agent.SteerMessage{Text: text, Images: images})
 	}
 	m.input.Reset()
 	m.imageMarkers = nil

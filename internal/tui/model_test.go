@@ -157,29 +157,6 @@ func (c *testController) skillEnabledActions() []interactive.SetSkillEnabled {
 	return result
 }
 
-func (c *testController) countSteerPrompt() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	count := 0
-	for _, a := range c.actions {
-		if _, ok := a.(interactive.SteerPrompt); ok {
-			count++
-		}
-	}
-	return count
-}
-
-func (c *testController) steerPrompts() []interactive.SteerPrompt {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var result []interactive.SteerPrompt
-	for _, a := range c.actions {
-		if v, ok := a.(interactive.SteerPrompt); ok {
-			result = append(result, v)
-		}
-	}
-	return result
-}
 func (c *testController) countByType(target interactive.Action) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -2757,9 +2734,11 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 func TestModelStreamingEnterQueuesSteerPrompt(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}
+	q := agent.NewSteerQueue()
 
 	m := newModel(Config{
 		Controller: ctrl,
+		SteerQueue: q,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -2772,11 +2751,12 @@ func TestModelStreamingEnterQueuesSteerPrompt(t *testing.T) {
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0 while streaming", ctrl.countSubmitPrompt())
 	}
-	// Enter during streaming must send a SteerPrompt action.
-	if ctrl.countSteerPrompt() != 1 {
-		t.Fatalf("steer count = %d, want 1", ctrl.countSteerPrompt())
+	// Enter during streaming must queue a steer message.
+	queued := q.Snapshot()
+	if len(queued) != 1 {
+		t.Fatalf("steer queue len = %d, want 1", len(queued))
 	}
-	if got := ctrl.steerPrompts()[0].Text; got != "steer message" {
+	if got := queued[0].Text; got != "steer message" {
 		t.Fatalf("steer text = %q, want %q", got, "steer message")
 	}
 	// Input must be cleared after steer.
@@ -2824,9 +2804,11 @@ func TestModelStreamingEnterRendersSteerImmediately(t *testing.T) {
 func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}
+	q := agent.NewSteerQueue()
 
 	m := newModel(Config{
 		Controller: ctrl,
+		SteerQueue: q,
 	}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
@@ -2838,8 +2820,8 @@ func TestModelStreamingEmptyEnterIsNoop(t *testing.T) {
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0 for empty enter while streaming", ctrl.countSubmitPrompt())
 	}
-	if ctrl.countSteerPrompt() != 0 {
-		t.Fatalf("steer count = %d, want 0 for empty enter while streaming", ctrl.countSteerPrompt())
+	if q.Len() != 0 {
+		t.Fatalf("steer queue len = %d, want 0 for empty enter while streaming", q.Len())
 	}
 	if m.steerQueued {
 		t.Fatal("steerQueued = true, want false for empty enter")

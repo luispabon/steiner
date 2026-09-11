@@ -9,7 +9,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/oneshot"
@@ -381,22 +380,6 @@ func (m *Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea
 	return m.executeSubmitAction(displayText, displayText, displayText)
 }
 
-// oneshotDrainSteers builds a DrainSteers closure over ch, collecting any
-// buffered steer messages without blocking.
-func oneshotDrainSteers(ch chan agent.SteerMessage) func() []agent.SteerMessage {
-	return func() []agent.SteerMessage {
-		var msgs []agent.SteerMessage
-		for {
-			select {
-			case msg := <-ch:
-				msgs = append(msgs, msg)
-			default:
-				return msgs
-			}
-		}
-	}
-}
-
 // oneshotSessionStoreOrEmit casts sessionStore to oneshot.SessionStore,
 // emitting the standard "not configured" failure events on the sink when it
 // does not implement the interface.
@@ -445,7 +428,6 @@ func (m *Model) prepareOneshotRun() (*Model, bool) {
 		return m, false
 	}
 
-	m.oneshotSteerCh = make(chan agent.SteerMessage, 4)
 	m.oneshotRunning = true
 	m.oneshotPhase = ""
 	return m, true
@@ -462,7 +444,6 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	if err != nil {
 		m.content.AppendLine(fmt.Sprintf("status: launch oneshot failed: %v", err))
 		m.oneshotRunning = false
-		m.oneshotSteerCh = nil
 		m.syncViewport()
 		return m, nil
 	}
@@ -488,7 +469,7 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 			SessionStore:     oneshotSessionStore,
 			RunnerFactory:    m.oneshotRunnerFactory(runIdentity),
 			Events:           sess.EventSink(),
-			DrainSteers:      oneshotDrainSteers(m.oneshotSteerCh),
+			DrainSteers:      sess.ActiveRunController().SteerQueue().Drain,
 			InterruptFactory: context.WithCancel,
 		}
 
@@ -572,7 +553,7 @@ func (m *Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 			SessionStore:     oneshotSessionStore,
 			RunnerFactory:    m.oneshotRunnerFactory(identity),
 			Events:           sess.EventSink(),
-			DrainSteers:      oneshotDrainSteers(m.oneshotSteerCh),
+			DrainSteers:      sess.ActiveRunController().SteerQueue().Drain,
 			InterruptFactory: context.WithCancel,
 		}
 

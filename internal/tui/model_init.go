@@ -84,6 +84,7 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		modelReasoningEfforts:        cloneStringMap(cfg.ModelReasoningEfforts),
 		reasoningLabels:              newReasoningLabels(cfg.ModelReasoningEfforts, cfg.ModelReasoningCapabilities),
 		controller:                   cfg.Controller,
+		steers:                       cfg.SteerQueue,
 		recorder:                     cfg.Recorder,
 		activeTheme:                  resolveTheme(cfg.Theme),
 		styles:                       &s,

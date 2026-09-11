@@ -20,9 +20,7 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 	s.mu.Unlock()
 
 	err := s.runWithInterruptOwnership(ctx, func(runCtx context.Context) error {
-		drainSteers := func() []agent.SteerMessage {
-			return s.runController.DrainSteers()
-		}
+		drainSteers := s.runController.SteerQueue().Drain
 		conversation := s.Conversation()
 		notice := s.modeNotice()
 		if notice != "" && len(conversation) > 0 && conversation[len(conversation)-1].Role == agent.MessageRoleUser {

@@ -10,7 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-// Handle processes an interactive action. Handles SubmitPrompt, SteerPrompt,
+// Handle processes an interactive action. Handles SubmitPrompt,
 // InterruptActiveRun, CancelDelegate, CancelAllDelegates, ClearConversation,
 // RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
@@ -34,9 +34,6 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 			defer s.runs.Done()
 			s.submitPrompt(ctx, a.Text, a.Images)
 		}()
-		return true, nil
-	case SteerPrompt:
-		s.runController.Steer(a.Text, a.Images)
 		return true, nil
 	case InterruptActiveRun:
 		s.runController.Interrupt()

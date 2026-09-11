@@ -24,6 +24,16 @@ type SessionLister interface {
 	Load(id string) (session.Session, error)
 }
 
+// steerQueue is the pending steering-message queue the composer enqueues
+// into, the queued-message box renders from, and ctrl+g takes back from.
+// *agent.SteerQueue satisfies it.
+type steerQueue interface {
+	Add(agent.SteerMessage)
+	Take() []agent.SteerMessage
+	Snapshot() []agent.SteerMessage
+	Len() int
+}
+
 type approvalState struct {
 	active         bool
 	tool           string
@@ -199,7 +209,7 @@ type Model struct {
 	imageMarkers                 []imageMarker
 	oneshotRunning               bool
 	oneshotPhase                 string
-	oneshotSteerCh               chan agent.SteerMessage
+	steers                       steerQueue
 	oneshotRunnerFactory         OneshotRunnerFactoryBuilder
 	notifier                     notifier
 	mode                         string // current execution mode: "plan" or "build"
