@@ -11,8 +11,8 @@ import (
 )
 
 // Handle processes an interactive action. Handles SubmitPrompt,
-// InterruptActiveRun, CancelDelegate, CancelAllDelegates, ClearConversation,
-// RequestContextReport,
+// RecordPromptHistory, InterruptActiveRun, CancelDelegate, CancelAllDelegates,
+// ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
 // SwitchMode, SwitchOrchestrationLevel, SwitchModel, SwitchProfile,
 // SubmitApproval, SubmitWorkflowHandoff, LoadSession, and requestSessionPicker.
@@ -33,6 +33,13 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 		go func() {
 			defer s.runs.Done()
 			s.submitPrompt(ctx, a.Text, a.Images)
+		}()
+		return true, nil
+	case RecordPromptHistory:
+		s.runs.Add(1)
+		go func() {
+			defer s.runs.Done()
+			s.recordHistory(a.Text)
 		}()
 		return true, nil
 	case InterruptActiveRun:
