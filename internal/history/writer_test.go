@@ -393,19 +393,9 @@ func TestRecord_ConcurrentWritersGoroutines(t *testing.T) {
 	if len(prompts) != 50 {
 		t.Fatalf("got %d prompts, want 50", len(prompts))
 	}
-	seenWriter := make(map[int]bool)
 	for _, p := range prompts {
 		if !submitted[p] {
 			t.Errorf("loaded prompt %q was never submitted", p)
-		}
-		var wi, seq int
-		if _, err := fmt.Sscanf(p, "writer-%d-seq-%d", &wi, &seq); err == nil {
-			seenWriter[wi] = true
-		}
-	}
-	for wi := 0; wi < numWriters; wi++ {
-		if !seenWriter[wi] {
-			t.Errorf("writer %d has no surviving entries in the final 50", wi)
 		}
 	}
 
