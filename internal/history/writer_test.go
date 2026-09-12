@@ -319,6 +319,12 @@ func TestRecord_TwoWritersSamePathLoseNothing(t *testing.T) {
 	}
 
 	var want []string
+	// After the 60 seeds the file retains the newest 50 (seed-10..seed-59).
+	// Appending the 10 alternating entries trims the oldest 10 again, so the
+	// final 50 are seed-20..seed-59 followed by the alternating entries.
+	for i := 20; i < 60; i++ {
+		want = append(want, fmt.Sprintf("seed-%d", i))
+	}
 	for i := 0; i < 5; i++ {
 		promptA := fmt.Sprintf("A%d", i)
 		if err := a.Record(promptA); err != nil {
@@ -344,8 +350,8 @@ func TestRecord_TwoWritersSamePathLoseNothing(t *testing.T) {
 	if len(got) != 50 {
 		t.Fatalf("got %d prompts, want 50", len(got))
 	}
-	if !slices.Equal(got[len(got)-10:], want) {
-		t.Errorf("last 10 prompts = %v, want %v", got[len(got)-10:], want)
+	if !slices.Equal(got, want) {
+		t.Errorf("prompts = %v, want %v", got, want)
 	}
 }
 
