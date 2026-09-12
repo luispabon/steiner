@@ -6,6 +6,7 @@ func applySubAgentPatch(dst *SubAgentConfig, patch *subAgentPatch) {
 	setIfPresent(&dst.MaxTokens, patch.MaxTokens)
 	setIfPresent(&dst.MaxParallel, patch.MaxParallel)
 	setIfPresent(&dst.MaxFollowUps, patch.MaxFollowUps)
+	setIfPresent(&dst.OrchestrationLevel, patch.OrchestrationLevel)
 }
 
 func applyAdvisorPatch(dst *AdvisorConfig, patch *advisorPatch) {

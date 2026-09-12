@@ -30,6 +30,9 @@ func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, _ map[string
 	} else if cfg.MaxParallel < 0 {
 		*problems = append(*problems, "sub_agent.max_parallel must be at least 1")
 	}
+	if !cfg.OrchestrationLevel.Valid() {
+		*problems = append(*problems, fmt.Sprintf("sub_agent.orchestration_level must be one of: low, standard (got %q)", cfg.OrchestrationLevel))
+	}
 	if !cfg.Enabled {
 		return
 	}

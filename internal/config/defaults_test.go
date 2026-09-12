@@ -16,6 +16,13 @@ func TestDefaultSubAgentMaxTurns(t *testing.T) {
 	}
 }
 
+func TestDefaultSubAgentOrchestrationLevel(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.SubAgent.OrchestrationLevel != OrchestrationLevelStandard {
+		t.Errorf("SubAgent.OrchestrationLevel = %q, want %q", cfg.SubAgent.OrchestrationLevel, OrchestrationLevelStandard)
+	}
+}
+
 func TestDefaultModesExecutionMode(t *testing.T) {
 	cfg := defaultConfig()
 	if cfg.Modes.Default != ExecutionModeBuild {

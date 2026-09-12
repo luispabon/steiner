@@ -611,8 +611,9 @@ do and tool allowlists for each specialised agent type, see
 [docs/sub-agent-delegation.md](sub-agent-delegation.md).
 
 | Field          | Type | Default  | Description                                                                                                                                                                                                                                                                                                                                                                     |
-| -------------- | ---- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| -------------- | ---- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `enabled`      | bool | `true`   | Master switch. Set to `false` to remove all delegation tools from the model.                                                                                                                                                                                                                                                                                                    |
+| `orchestration_level` | string | `standard` | How strongly the system preamble steers the orchestrator to delegate. `standard` sends the full delegation guidance; `low` omits the "Your role" and "Delegation vs direct work" sections and leaves delegation to the model's judgement. Ignored when `enabled` is `false`. Switchable at runtime with `/orchestration` (not persisted). |
 | `max_turns`    | int  | `30`     | Maximum turns allowed for each child agent run. A floor of 15 turns is enforced internally.                                                                                                                                                                                                                                                                                     |
 | `max_tokens`   | int  | `100000` | Maximum tokens a child agent may consume.                                                                                                                                                                                                                                                                                                                                       |
 | `max_parallel` | int  | `3`      | Maximum number of delegation-tool calls (specialized sub-agent spawns, `follow_up`) executed concurrently within a single parent turn. Must be at least `1`; `1` forces serial execution for delegation calls. Independent of `limits.max_parallel_tools`, which bounds ordinary tool-call concurrency — a mixed batch never lets the two compete for the same semaphore slots. |
@@ -630,6 +631,7 @@ sub-agent uses the profile's default assignment.
 ```yaml
 sub_agent:
   enabled: true
+  orchestration_level: standard
   max_parallel: 3
   max_turns: 30
   max_tokens: 100000

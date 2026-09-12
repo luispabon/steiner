@@ -10,6 +10,17 @@ const (
 	ExecutionModeBuild ExecutionMode = "build"
 )
 
+// OrchestrationLevel controls how strongly the system preamble steers the
+// orchestrator towards sub-agent delegation.
+type OrchestrationLevel string
+
+const (
+	// OrchestrationLevelStandard renders the full delegation canon.
+	OrchestrationLevelStandard OrchestrationLevel = "standard"
+	// OrchestrationLevelLow omits the delegation exhortation sections.
+	OrchestrationLevelLow OrchestrationLevel = "low"
+)
+
 // ModesConfig holds execution mode configuration.
 type ModesConfig struct {
 	Default ExecutionMode `yaml:"default"`
@@ -316,6 +327,18 @@ type SubAgentConfig struct {
 	// (see delegation.buildContinuationRequest), so this bounds the worst-case
 	// accumulated per-child turn allowance as well as resume count itself.
 	MaxFollowUps int `yaml:"max_follow_ups"`
+	// OrchestrationLevel is the startup orchestration level; ignored when Enabled is false.
+	OrchestrationLevel OrchestrationLevel `yaml:"orchestration_level"`
+}
+
+// Valid reports whether l is one of the recognised orchestration levels.
+func (l OrchestrationLevel) Valid() bool {
+	switch l {
+	case OrchestrationLevelStandard, OrchestrationLevelLow:
+		return true
+	default:
+		return false
+	}
 }
 
 // AdvisorConfig controls the optional advisor reasoning pass.

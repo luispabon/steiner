@@ -105,11 +105,12 @@ func defaultConfig() Config {
 			WarningOnUnsupportedPlatform: true,
 		},
 		SubAgent: SubAgentConfig{
-			Enabled:      true,
-			MaxTurns:     30,
-			MaxTokens:    100000,
-			MaxParallel:  3,
-			MaxFollowUps: 5,
+			Enabled:            true,
+			MaxTurns:           30,
+			MaxTokens:          100000,
+			MaxParallel:        3,
+			MaxFollowUps:       5,
+			OrchestrationLevel: OrchestrationLevelStandard,
 		},
 		Advisor: AdvisorConfig{
 			Enabled:            false,
