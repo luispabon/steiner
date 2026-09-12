@@ -33,6 +33,7 @@ type cliRunner struct {
 	promptCacheKeyFn         func() string
 	sessionIDFn              func() string
 	modeGetterFunc           func() config.ExecutionMode
+	orchestrationLevelFn     func() config.OrchestrationLevel
 	phasePrompt              string
 	projectAgentsPath        string
 	workflowMode             prompt.WorkflowMode
@@ -61,6 +62,15 @@ func (r cliRunner) sessionID() string {
 		return ""
 	}
 	return r.sessionIDFn()
+}
+
+// orchestrationLevel returns the current orchestration level from the wired
+// getter, falling back to the static runtime config when no getter is set.
+func (r cliRunner) orchestrationLevel() config.OrchestrationLevel {
+	if r.orchestrationLevelFn != nil {
+		return r.orchestrationLevelFn()
+	}
+	return r.runtime.cfg.SubAgent.OrchestrationLevel
 }
 
 func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {

@@ -583,6 +583,13 @@ func NewModeChangedEvent(mode string) Event {
 	})
 }
 
+// NewOrchestrationLevelChangedEvent creates an orchestration_level_changed event.
+func NewOrchestrationLevelChangedEvent(level string) Event {
+	return newEvent(EventTypeOrchestrationLevelChanged, OrchestrationLevelChangedEvent{
+		Level: strings.TrimSpace(level),
+	})
+}
+
 // NewSandboxStatusEvent creates a sandbox_status event.
 func NewSandboxStatusEvent(status, message string) Event {
 	return newEvent(EventTypeSandboxStatus, SandboxStatusEvent{

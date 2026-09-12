@@ -180,3 +180,11 @@ type SwitchMode struct {
 }
 
 func (SwitchMode) isInteractiveAction() {}
+
+// SwitchOrchestrationLevel represents a user request to switch the
+// orchestration level during an interactive session.
+type SwitchOrchestrationLevel struct {
+	Level config.OrchestrationLevel
+}
+
+func (SwitchOrchestrationLevel) isInteractiveAction() {}

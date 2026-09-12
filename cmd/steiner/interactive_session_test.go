@@ -40,7 +40,7 @@ func TestNewOneshotRunnerFactoryBuilderRetainsLiveEffectiveCallback(t *testing.T
 	}
 	builder := newOneshotRunnerFactoryBuilder(cmd, flags, t.TempDir(), output.NoopSink{}, func() config.EffectiveModelAssignments {
 		return live
-	})
+	}, nil)
 
 	factory, ok := builder(identity).(phaseRunnerFactory)
 	if !ok {
