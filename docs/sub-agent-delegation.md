@@ -179,6 +179,13 @@ setting. Switch it at runtime with `/orchestration`; the change lasts until
 the session exits, and switching mid-conversation shows a confirmation
 because it invalidates the cached system prompt prefix.
 
+In the interactive TUI, `/orchestration` with no argument opens a picker
+listing both levels with a radio marker on the active one; `/orchestration
+low` or `/orchestration standard` sets the level directly. Either path
+switches immediately when the conversation is empty and no oneshot run is in
+progress; otherwise it asks for confirmation first. The sidebar shows an
+ORCHESTRATION row whenever sub-agents are enabled.
+
 ### Turn budget and extensions
 
 If a child hits `max_turns` mid-work (its last message still has pending tool

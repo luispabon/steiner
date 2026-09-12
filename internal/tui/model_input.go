@@ -73,6 +73,15 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.invalidMode != "" {
 		return m.executeInvalidModeAction(action.invalidMode)
 	}
+	if action.openOrchestrationPicker {
+		return m.executeOpenOrchestrationPickerAction()
+	}
+	if action.setOrchestrationLevel != "" {
+		return m.executeSetOrchestrationLevelAction(action.setOrchestrationLevel)
+	}
+	if action.invalidOrchestrationLevel != "" {
+		return m.executeInvalidOrchestrationLevelAction(action.invalidOrchestrationLevel)
+	}
 	if action.listFiles {
 		return m.executeListFilesAction(action.listFilesPath)
 	}

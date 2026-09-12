@@ -153,6 +153,23 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		ID:          "/orchestration",
+		Name:        "Orchestration level",
+		Desc:        "set sub-agent orchestration: standard (steered to delegate) or low (delegation at model's discretion)",
+		ArgVariants: []string{"low", "standard"},
+		HelpKey:     "/orchestration [low|standard]",
+		Build: func(arg string) inputAction {
+			switch arg {
+			case "":
+				return inputAction{openOrchestrationPicker: true}
+			case "low", "standard":
+				return inputAction{setOrchestrationLevel: arg}
+			default:
+				return inputAction{invalidOrchestrationLevel: arg}
+			}
+		},
+	},
+	{
 		ID:   "/oneshot",
 		Name: "Oneshot mode",
 		Desc: "run a headless task",
@@ -372,6 +389,7 @@ var helpOrder = []string{
 	"/accent",
 	"/thinking",
 	"/mode",
+	"/orchestration",
 	"/exit",
 }
 

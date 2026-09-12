@@ -182,6 +182,9 @@ type Model struct {
 	planPicker                   planPickerOverlay
 	accentPicker                 accentPickerOverlay
 	profilePicker                profilePickerOverlay
+	orchestrationPicker          orchestrationPickerOverlay
+	orchestrationConfirm         confirmModalState
+	pendingOrchestrationLevel    config.OrchestrationLevel
 	contextOverlay               contextOverlayState
 	exitModal                    exitModalState
 	workflowHandoff              workflowHandoffModalState
