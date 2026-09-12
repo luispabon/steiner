@@ -188,6 +188,12 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.orchestrationConfirm.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			return m.handleOrchestrationConfirmModalKey(msg)
+		},
+	},
+	overlayKeyHandlerFunc{
 		match: func(m *Model) bool { return m.slashOverlay.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			_, cmd := m.handleSlashOverlayKey(msg)
@@ -279,6 +285,12 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			_, cmd := m.handleProfilePickerKey(msg)
 			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.orchestrationPicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			return m.handleOrchestrationPickerKey(msg)
 		},
 	},
 }

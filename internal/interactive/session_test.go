@@ -3823,31 +3823,6 @@ func TestSessionSetOrchestrationLevel(t *testing.T) {
 	})
 }
 
-func TestSessionSubAgentsEnabled(t *testing.T) {
-	t.Parallel()
-	testCases := []struct {
-		name    string
-		enabled bool
-	}{
-		{name: "enabled", enabled: true},
-		{name: "disabled", enabled: false},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			deps := Dependencies{
-				Config: config.Config{
-					SubAgent: config.SubAgentConfig{Enabled: tc.enabled},
-				},
-			}
-			s := testNewSession(t, deps)
-			if got := s.SubAgentsEnabled(); got != tc.enabled {
-				t.Fatalf("SubAgentsEnabled() = %v, want %v", got, tc.enabled)
-			}
-		})
-	}
-}
-
 func TestSessionSwitchOrchestrationLevelAction(t *testing.T) {
 	t.Parallel()
 	deps := Dependencies{

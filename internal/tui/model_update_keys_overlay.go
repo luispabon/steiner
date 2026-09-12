@@ -229,28 +229,6 @@ func (m *Model) handleProfilePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
-// init registers key routing for the orchestration picker and confirmation
-// modal by appending to overlayKeyHandlers (declared in model_init.go) rather
-// than editing that literal directly, so this step's routing stays entirely
-// within this file. Package-level vars are initialized before any init()
-// runs, so overlayKeyHandlers is already populated when this append executes.
-func init() {
-	overlayKeyHandlers = append(overlayKeyHandlers,
-		overlayKeyHandlerFunc{
-			match: func(m *Model) bool { return m.orchestrationConfirm.IsOpen() },
-			apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-				return m.handleOrchestrationConfirmModalKey(msg)
-			},
-		},
-		overlayKeyHandlerFunc{
-			match: func(m *Model) bool { return m.orchestrationPicker.IsOpen() },
-			apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-				return m.handleOrchestrationPickerKey(msg)
-			},
-		},
-	)
-}
-
 func (m *Model) handleOrchestrationPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.Code {
 	case tea.KeyUp:

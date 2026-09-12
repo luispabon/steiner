@@ -316,14 +316,6 @@ func (s *Session) OrchestrationLevel() config.OrchestrationLevel {
 	return s.orchestrationLevel
 }
 
-// SubAgentsEnabled reports whether sub-agents are enabled in the session's
-// configuration.
-func (s *Session) SubAgentsEnabled() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.deps.Config.SubAgent.Enabled
-}
-
 // SetOrchestrationLevel updates the orchestration level. It returns an error
 // if l is not a valid level. If l is the same as the current level, this is a
 // no-op. Otherwise, it stores l and emits an orchestration-level-changed
