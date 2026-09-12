@@ -669,10 +669,10 @@ func awaitSessionRuns(cmd *cobra.Command, sess *interactive.Session, rt *cliRunt
 	}
 	warning := errors.New("skipped because tracked session work was still finishing")
 	if rt != nil && rt.events != nil {
-		emitCloseWarning(rt.events, "prompt history flush", warning)
+		emitCloseWarning(rt.events, "session shutdown", warning)
 		return
 	}
-	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: prompt history flush: %v.\n", warning)
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: session shutdown: %v.\n", warning)
 }
 
 var worktreeCleanupJoinTimeout = 5 * time.Second

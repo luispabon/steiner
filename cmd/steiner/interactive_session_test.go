@@ -8,9 +8,11 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -866,8 +868,85 @@ func TestAwaitSessionRunsReportsTimeoutOnStuckWrite(t *testing.T) {
 	if !ok {
 		t.Fatalf("payload type = %T, want output.ContextSessionHealthEvent", got.Payload)
 	}
-	if len(payload.Notes) != 1 || !strings.Contains(payload.Notes[0], "prompt history flush") {
-		t.Fatalf("warning notes = %v, want prompt history flush warning", payload.Notes)
+	if len(payload.Notes) != 1 || !strings.Contains(payload.Notes[0], "session shutdown") {
+		t.Fatalf("warning notes = %v, want session shutdown warning", payload.Notes)
+	}
+}
+
+func TestRunInteractiveSessionDrainsTrackedWorkBeforeClose(t *testing.T) {
+	oldTimeout := sessionRunDrainTimeout
+	sessionRunDrainTimeout = 5 * time.Second
+	defer func() { sessionRunDrainTimeout = oldTimeout }()
+
+	oldRun := runTeaProgram
+	oldQuit := quitTeaProgram
+	t.Cleanup(func() {
+		runTeaProgram = oldRun
+		quitTeaProgram = oldQuit
+	})
+	// The stub returns immediately, so its goroutine cancels the session context
+	// and shutdown proceeds to the tracked-work drain.
+	runTeaProgram = func(*tea.Program) (tea.Model, error) { return nil, tea.ErrProgramKilled }
+	quitTeaProgram = func(*tea.Program) {}
+
+	writer := &blockingHistoryWriter{
+		recordStarted: make(chan struct{}),
+		release:       make(chan struct{}),
+		recordDone:    make(chan struct{}),
+	}
+	sess, err := interactive.NewSession(interactive.Dependencies{HistoryWriter: writer})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	var releaseOnce sync.Once
+	releaseWrite := func() { releaseOnce.Do(func() { close(writer.release) }) }
+	defer releaseWrite()
+
+	if err := sess.Handle(context.Background(), interactive.RecordPromptHistory{Text: "tracked"}); err != nil {
+		t.Fatalf("Handle(RecordPromptHistory): %v", err)
+	}
+	select {
+	case <-writer.recordStarted:
+	case <-time.After(time.Second):
+		t.Fatal("RecordPromptHistory did not reach HistoryWriter.Record")
+	}
+
+	var closed atomic.Bool
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	rt := &cliRuntime{
+		events:  output.NoopSink{},
+		closeFn: func() error { closed.Store(true); return nil },
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- runInteractiveSession(cmd, sess, nil, rt) }()
+
+	// While the tracked write is blocked the runtime must stay open: the drain is
+	// still waiting. If shutdown omitted or reordered the drain, closeRuntime
+	// would already have run here.
+	select {
+	case err := <-done:
+		t.Fatalf("runInteractiveSession returned (%v) before the tracked write finished", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if closed.Load() {
+		t.Fatal("closeRuntime ran before the tracked write finished; drain is not wired before close")
+	}
+
+	releaseWrite()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runInteractiveSession error = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runInteractiveSession did not return after the tracked write was released")
+	}
+	if !closed.Load() {
+		t.Fatal("closeRuntime did not run after the tracked write finished")
 	}
 }
 
