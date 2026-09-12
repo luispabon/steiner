@@ -124,7 +124,6 @@ func (m *Model) executeOpenCacheStatsAction() (tea.Model, tea.Cmd) {
 	content := formatCacheStatsReport(m.recorder)
 	m.contextOverlay = openContextOverlay("Cache hit rate", content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
 	return m, nil

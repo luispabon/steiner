@@ -70,7 +70,6 @@ func (m *Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, t
 	m.activity = m.activity.static("approval submitted", string(decision))
 	m.input.Reset()
 	m.input.Focus()
-	m.historyIdx = 0
 	m.syncInputChrome()
 	m.syncViewport()
 	return m, nil

@@ -110,7 +110,7 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.executeResumeOneshotAction(action.resumeOneshotID)
 	}
 	if action.submit != "" {
-		return m.executeSubmitAction(value, action.submit, value)
+		return m.executeSubmitAction(action.submit, value)
 	}
 	return m, nil
 }
