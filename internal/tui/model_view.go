@@ -222,6 +222,8 @@ func (m *Model) renderOverlayView(base string, contentWidth int) string {
 		return composeCenteredOverlay(base, m.renderWorktreeCleanupModal(), m.width, m.height)
 	case m.exitModal.IsOpen():
 		return composeCenteredOverlay(base, m.renderExitModal(), m.width, m.height)
+	case m.orchestrationConfirm.IsOpen():
+		return composeCenteredOverlay(base, m.orchestrationConfirm.render(m.styles), m.width, m.height)
 	default:
 		return base
 	}
@@ -232,7 +234,8 @@ func (m *Model) hasOpenBottomOverlay() bool {
 		m.sessionPicker.IsOpen() || m.oneshotResumePicker.IsOpen() ||
 		(m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff()) ||
 		m.reasoningPicker.IsOpen() ||
-		m.planPicker.IsOpen() || m.accentPicker.IsOpen() || m.profilePicker.IsOpen()
+		m.planPicker.IsOpen() || m.accentPicker.IsOpen() || m.profilePicker.IsOpen() ||
+		m.orchestrationPicker.IsOpen()
 }
 
 func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
@@ -275,6 +278,9 @@ func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) stri
 	}
 	if m.profilePicker.IsOpen() {
 		base = m.profilePicker.PlaceBottomAnchoredAt(base, m.profilePicker.View(), offset, xOffset)
+	}
+	if m.orchestrationPicker.IsOpen() {
+		base = m.orchestrationPicker.PlaceBottomAnchoredAt(base, m.orchestrationPicker.View(), offset, xOffset)
 	}
 	return base
 }

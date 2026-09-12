@@ -137,6 +137,10 @@ type Config struct {
 	WorktreeCleanup *WorktreeCleanupPlan
 	// SandboxStatus seeds the initial sandbox status at startup.
 	SandboxStatus string
+	// SubAgentsEnabled seeds whether sub-agents are enabled at startup.
+	SubAgentsEnabled bool
+	// OrchestrationLevel seeds the initial orchestration level at startup.
+	OrchestrationLevel string
 	// ConfigWarnings are user-facing configuration warnings shown once at
 	// startup in the content view (for example, deprecated config keys).
 	ConfigWarnings []string

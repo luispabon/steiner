@@ -37,6 +37,7 @@ type Session struct {
 	reasoningOverrides  map[string]provider.ReasoningOverride
 	mode                config.ExecutionMode
 	modeListener        func(config.ExecutionMode)
+	orchestrationLevel  config.OrchestrationLevel
 	done                chan struct{}
 	runs                sync.WaitGroup
 	exitOnce            sync.Once
@@ -62,6 +63,10 @@ func NewSession(deps Dependencies) (*Session, error) {
 	)
 
 	mode := deps.Config.Modes.Default
+	orchestrationLevel := deps.Config.SubAgent.OrchestrationLevel
+	if !orchestrationLevel.Valid() {
+		orchestrationLevel = config.OrchestrationLevelStandard
+	}
 	return &Session{
 		deps:                deps,
 		events:              events,
@@ -77,6 +82,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 		lineage:             agent.ConversationLineage{},
 		reasoningOverrides:  make(map[string]provider.ReasoningOverride),
 		mode:                mode,
+		orchestrationLevel:  orchestrationLevel,
 		done:                make(chan struct{}),
 	}, nil
 }
@@ -301,6 +307,31 @@ func (s *Session) SetModeListener(listener func(config.ExecutionMode)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.modeListener = listener
+}
+
+// OrchestrationLevel returns the current orchestration level.
+func (s *Session) OrchestrationLevel() config.OrchestrationLevel {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.orchestrationLevel
+}
+
+// SetOrchestrationLevel updates the orchestration level. It returns an error
+// if l is not a valid level. If l is the same as the current level, this is a
+// no-op. Otherwise, it stores l and emits an orchestration-level-changed
+// event.
+func (s *Session) SetOrchestrationLevel(l config.OrchestrationLevel) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !l.Valid() {
+		return fmt.Errorf("set orchestration level: invalid level %q", l)
+	}
+	if l == s.orchestrationLevel {
+		return nil
+	}
+	s.orchestrationLevel = l
+	s.events.Emit(output.NewOrchestrationLevelChangedEvent(string(l)))
+	return nil
 }
 
 // WaitRuns blocks until all run goroutines launched by this session have exited,

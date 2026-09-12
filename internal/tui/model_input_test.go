@@ -177,8 +177,9 @@ func newMinimalModel(inputValue string) *Model {
 	inp.SetValue(inputValue)
 	styles := testStyles(theme.AccentAmber)
 	return &Model{
-		input:  inp,
-		styles: styles,
+		input:            inp,
+		styles:           styles,
+		subAgentsEnabled: true,
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
 			collapseState: make(map[int]bool),
@@ -228,6 +229,69 @@ func TestResumeOneshotActionClearsComposer(t *testing.T) {
 				t.Errorf("input after resume dispatch = %q, want empty", got)
 			}
 		})
+	}
+}
+
+func TestPrepareOneshotRunRefusesWhenSubAgentsDisabled(t *testing.T) {
+	t.Parallel()
+	m := newMinimalModel("/oneshot build the thing")
+	m.subAgentsEnabled = false
+
+	updated, ok := m.prepareOneshotRun()
+	if ok {
+		t.Fatalf("prepareOneshotRun() ok = true, want false when sub-agents are disabled")
+	}
+	if updated.oneshotRunning {
+		t.Errorf("oneshotRunning = true, want false")
+	}
+	if len(updated.content.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(updated.content.segments))
+	}
+	want := "oneshot unavailable: sub-agents are disabled in config"
+	if got := updated.content.segments[0].text; got != want {
+		t.Errorf("content = %q, want %q", got, want)
+	}
+	if got := updated.input.Value(); got != "" {
+		t.Errorf("input after refusal = %q, want empty", got)
+	}
+}
+
+func TestPrepareOneshotRunProceedsPastGuardWhenSubAgentsEnabled(t *testing.T) {
+	t.Parallel()
+	m := newMinimalModel("/oneshot build the thing")
+
+	updated, ok := m.prepareOneshotRun()
+	if ok {
+		t.Fatalf("prepareOneshotRun() ok = true, want false (no runner factory wired in this test)")
+	}
+	if len(updated.content.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(updated.content.segments))
+	}
+	got := updated.content.segments[0].text
+	if got == "oneshot unavailable: sub-agents are disabled in config" {
+		t.Errorf("content = %q, guard fired even though sub-agents are enabled", got)
+	}
+	want := "oneshot runner factory not configured"
+	if got != want {
+		t.Errorf("content = %q, want %q", got, want)
+	}
+}
+
+func TestOpenOneshotResumePickerRefusesWhenSubAgentsDisabled(t *testing.T) {
+	t.Parallel()
+	m := newMinimalModel("")
+	m.subAgentsEnabled = false
+
+	opened := m.openOneshotResumePicker()
+	if opened {
+		t.Fatalf("openOneshotResumePicker() = true, want false when sub-agents are disabled")
+	}
+	if len(m.content.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(m.content.segments))
+	}
+	want := "oneshot unavailable: sub-agents are disabled in config"
+	if got := m.content.segments[0].text; got != want {
+		t.Errorf("content = %q, want %q", got, want)
 	}
 }
 

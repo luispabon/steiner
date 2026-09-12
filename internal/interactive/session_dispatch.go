@@ -14,8 +14,8 @@ import (
 // InterruptActiveRun, CancelDelegate, CancelAllDelegates, ClearConversation,
 // RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
-// SwitchMode, SwitchModel, SwitchProfile, SubmitApproval, SubmitWorkflowHandoff,
-// LoadSession, and requestSessionPicker.
+// SwitchMode, SwitchOrchestrationLevel, SwitchModel, SwitchProfile,
+// SubmitApproval, SubmitWorkflowHandoff, LoadSession, and requestSessionPicker.
 func (s *Session) Handle(ctx context.Context, action Action) error {
 	if handled, err := s.handleImmediateAction(ctx, action); handled {
 		return err
@@ -92,6 +92,8 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 	case SwitchMode:
 		s.SetMode(a.Mode)
 		return true, nil
+	case SwitchOrchestrationLevel:
+		return true, s.SetOrchestrationLevel(a.Level)
 	case LoadSession:
 		return true, s.loadSession(ctx, a.SessionID)
 

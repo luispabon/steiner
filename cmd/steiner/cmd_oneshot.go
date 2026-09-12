@@ -49,6 +49,7 @@ type phaseRunnerParams struct {
 	ProjectAgentsPath  string
 	WorkflowMode       prompt.WorkflowMode
 	CurrentEffective   func() config.EffectiveModelAssignments
+	OrchestrationLevel func() config.OrchestrationLevel
 }
 
 func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, params phaseRunnerParams) (oneshot.PhaseRunner, error) {
@@ -71,18 +72,19 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 	runtime.cfg.Advisor = phaseAdvisor
 
 	runner := cliRunner{
-		runtime:            runtime,
-		approver:           params.Approver,
-		maxTurns:           params.MaxTurns,
-		runMode:            params.RunMode,
-		streamingPreferred: params.StreamingPreferred,
-		projectAgentsPath:  params.ProjectAgentsPath,
-		promptCacheKeyFn:   func() string { return params.PromptCacheKey },
-		sessionIDFn:        func() string { return params.SessionID },
-		phasePrompt:        params.PhasePrompt,
-		workflowMode:       params.WorkflowMode,
-		currentEffective:   params.CurrentEffective,
-		staticContext:      &prompt.StaticContextCache{},
+		runtime:              runtime,
+		approver:             params.Approver,
+		maxTurns:             params.MaxTurns,
+		runMode:              params.RunMode,
+		streamingPreferred:   params.StreamingPreferred,
+		projectAgentsPath:    params.ProjectAgentsPath,
+		promptCacheKeyFn:     func() string { return params.PromptCacheKey },
+		sessionIDFn:          func() string { return params.SessionID },
+		phasePrompt:          params.PhasePrompt,
+		workflowMode:         params.WorkflowMode,
+		currentEffective:     params.CurrentEffective,
+		orchestrationLevelFn: params.OrchestrationLevel,
+		staticContext:        &prompt.StaticContextCache{},
 	}
 	if alias := strings.TrimSpace(params.ModelAlias); alias != "" {
 		runner.currentAlias = func() string {
@@ -97,12 +99,24 @@ func (r phaseRunner) RunPhase(ctx context.Context, conversation []agent.Message,
 	return r.runner.RunPhase(ctx, conversation, skillNames, drainSteers)
 }
 
+// requireSubAgentsForOneshot returns an error if sub-agents are disabled in
+// cfg, since oneshot runs depend on sub-agent delegation.
+func requireSubAgentsForOneshot(cfg config.Config) error {
+	if !cfg.SubAgent.Enabled {
+		return fmt.Errorf("oneshot unavailable: sub-agents are disabled in config")
+	}
+	return nil
+}
+
 func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
 		return err
 	}
 	defer closeRuntime(&rt)
+	if err := requireSubAgentsForOneshot(rt.cfg); err != nil {
+		return err
+	}
 
 	identity, err := oneshot.NewRunIdentity(task)
 	if err != nil {
@@ -145,6 +159,9 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 		return err
 	}
 	defer closeRuntime(&rt)
+	if err := requireSubAgentsForOneshot(rt.cfg); err != nil {
+		return err
+	}
 
 	store := oneshot.NewManifestStore(oneshot.RunIdentity{ID: strings.TrimSpace(resumeID)}.ManifestPath(rt.projectRoot))
 	manifest, err := store.Read()
@@ -210,12 +227,13 @@ func printOneshotManifest(w interface{ Write([]byte) (int, error) }, manifest on
 }
 
 type phaseRunnerFactory struct {
-	cmd              *cobra.Command
-	flags            *cliFlags
-	rootDir          string
-	identity         oneshot.RunIdentity
-	events           output.EventSink
-	currentEffective func() config.EffectiveModelAssignments
+	cmd                *cobra.Command
+	flags              *cliFlags
+	rootDir            string
+	identity           oneshot.RunIdentity
+	events             output.EventSink
+	currentEffective   func() config.EffectiveModelAssignments
+	orchestrationLevel func() config.OrchestrationLevel
 }
 
 // phaseParams builds the runner parameters for a phase, including the phase
@@ -241,6 +259,7 @@ func (f phaseRunnerFactory) phaseParams(phase oneshot.Phase, modelAlias string, 
 		PhasePrompt:        phasePrompt,
 		WorkflowMode:       prompt.DelegatedChildWorkflowMode(),
 		CurrentEffective:   f.currentEffective,
+		OrchestrationLevel: f.orchestrationLevel,
 	}, nil
 }
 

@@ -206,6 +206,8 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		SandboxStatus:       rt.sandboxStatus,
 		ConfigWarnings:      rt.configWarnings,
 		WorktreeCleanup:     rt.worktreeCleanup,
+		SubAgentsEnabled:    rt.cfg.SubAgent.Enabled,
+		OrchestrationLevel:  string(sess.OrchestrationLevel()),
 	}
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
@@ -218,7 +220,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	tuiCfg.Recorder = rt.usageRecorder
 	tuiCfg.ImageStore = rt.imageStore
 	tuiCfg.VisionCapabilities = rt.visionCapabilities
-	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink(), sess.CurrentEffective)
+	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink(), sess.CurrentEffective, sess.OrchestrationLevel)
 	tuiCfg.Notifier = notify.New(notify.Options{
 		Enabled:  rt.cfg.DesktopNotifications.Enabled,
 		Duration: time.Duration(rt.cfg.DesktopNotifications.Duration) * time.Second,
@@ -577,19 +579,16 @@ func sortedProfileNames(profiles map[string]config.ModelProfile) []string {
 // newOneshotRunnerFactoryBuilder returns a builder that binds a oneshot phase
 // runner factory to a specific run identity. The interactive TUI mints a fresh
 // identity per launch or resume, so the factory must be constructed per run.
-func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string, events output.EventSink, currentEffective ...func() config.EffectiveModelAssignments) tui.OneshotRunnerFactoryBuilder {
-	var effective func() config.EffectiveModelAssignments
-	if len(currentEffective) > 0 {
-		effective = currentEffective[0]
-	}
+func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string, events output.EventSink, currentEffective func() config.EffectiveModelAssignments, orchestrationLevel func() config.OrchestrationLevel) tui.OneshotRunnerFactoryBuilder {
 	return func(identity oneshot.RunIdentity) oneshot.PhaseRunnerFactory {
 		return phaseRunnerFactory{
-			cmd:              cmd,
-			flags:            flags,
-			rootDir:          projectRoot,
-			identity:         identity,
-			events:           events,
-			currentEffective: effective,
+			cmd:                cmd,
+			flags:              flags,
+			rootDir:            projectRoot,
+			identity:           identity,
+			events:             events,
+			currentEffective:   currentEffective,
+			orchestrationLevel: orchestrationLevel,
 		}
 	}
 }
@@ -605,6 +604,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		promptCacheKeyFn:         sess.PromptCacheKey,
 		sessionIDFn:              sess.SessionID,
 		modeGetterFunc:           sess.Mode,
+		orchestrationLevelFn:     sess.OrchestrationLevel,
 		staticContext:            &prompt.StaticContextCache{},
 	}
 	runner.approver = sess.Approver(rt.events)

@@ -51,6 +51,7 @@ type sidebarStateComparable struct {
 	sessionElapsedSec     int64
 	oneshotPhase          string
 	sandboxStatus         string
+	orchestrationLevel    string
 	execMode              string
 	mcpConnected          int
 	mcpTotal              int
@@ -99,6 +100,7 @@ func (s sidebarState) comparable() sidebarStateComparable {
 		sessionElapsedSec:     s.sessionElapsedSec,
 		oneshotPhase:          s.oneshotPhase,
 		sandboxStatus:         s.sandboxStatus,
+		orchestrationLevel:    s.orchestrationLevel,
 		execMode:              s.execMode,
 		mcpConnected:          s.mcpConnected,
 		mcpTotal:              s.mcpTotal,

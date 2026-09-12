@@ -27,7 +27,7 @@ func TestNewOneshotRunnerFactoryBuilderBindsIdentity(t *testing.T) {
 	const projectRoot = "/tmp/steiner-project"
 	var sink output.EventSink = output.SinkFunc(func(output.Event) {})
 
-	builder := newOneshotRunnerFactoryBuilder(cmd, flags, projectRoot, sink)
+	builder := newOneshotRunnerFactoryBuilder(cmd, flags, projectRoot, sink, nil, nil)
 	if builder == nil {
 		t.Fatal("newOneshotRunnerFactoryBuilder() returned nil; oneshot would report runner factory not configured")
 	}

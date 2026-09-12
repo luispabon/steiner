@@ -2,6 +2,8 @@
 
 Oneshot is a headless autonomous orchestration mode that runs steiner's agent loop as three distinct phases — plan, implement, review — without user interaction. Each phase is a fresh agent run with empty model context against a dedicated git worktree that starts from `origin/main` when that ref exists and falls back to the repository's local `HEAD` when it does not, such as in a local-only repository. Results are committed to a feature branch, and optionally pushed as a pull request.
 
+Oneshot requires `sub_agent.enabled: true`: the plan/implement/review phase prompts mandate delegation, so both the CLI (`steiner oneshot`, `--resume`) and the TUI (`/oneshot`, `/oneshot-resume`) refuse to start when sub-agents are disabled in config.
+
 ## Invocation
 
 **Headless CLI**:

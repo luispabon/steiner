@@ -308,6 +308,7 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.planPicker.styles = m.styles
 	m.accentPicker.styles = m.styles
 	m.profilePicker.styles = m.styles
+	m.orchestrationPicker.styles = m.styles
 	m.oneshotResumePicker.styles = m.styles
 	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
 		m.content.AppendLine(m.styles.WarningStyle.Render(fmt.Sprintf("prefs save failed: %v", err)))
@@ -393,6 +394,7 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	m.exitModal.OverlayShell = m.exitModal.WithDimensions(msg.Width, msg.Height)
 	m.worktreeCleanupModal.OverlayShell = m.worktreeCleanupModal.WithDimensions(msg.Width, msg.Height)
 	m.workflowHandoff.OverlayShell = m.workflowHandoff.WithDimensions(msg.Width, msg.Height)
+	m.orchestrationConfirm.OverlayShell = m.orchestrationConfirm.WithDimensions(msg.Width, msg.Height)
 
 	// Use content area width for bottom-anchored overlays so they don't
 	// overflow into the sidebar area.
@@ -402,6 +404,7 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	}
 	m.filePicker.OverlayShell = m.filePicker.WithDimensions(contentW, msg.Height)
 	m.slashOverlay.OverlayShell = m.slashOverlay.WithDimensions(contentW, msg.Height)
+	m.orchestrationPicker.OverlayShell = m.orchestrationPicker.WithDimensions(contentW, msg.Height)
 	m.sessionPicker = m.sessionPicker.withDimensions(contentW, msg.Height)
 	m.oneshotResumePicker = m.oneshotResumePicker.withDimensions(contentW, msg.Height)
 	m.layout()

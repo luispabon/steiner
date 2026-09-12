@@ -2,6 +2,8 @@ package prompt
 
 import (
 	"strings"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 const identity = "You are steiner, a lean coding agent."
@@ -49,6 +51,7 @@ const (
 
 type sectionContext struct {
 	delegationEnabled     bool
+	orchestrationLevel    config.OrchestrationLevel
 	sandboxEnabled        bool
 	sandboxWritableMounts []string
 	advisorEnabled        bool
@@ -87,7 +90,7 @@ var systemSections = map[sectionID]sectionRenderer{
 		if !ctx.delegationEnabled {
 			return ""
 		}
-		return delegationInstructions()
+		return delegationInstructions(ctx.orchestrationLevel)
 	},
 	sectionAdvisor: func(ctx sectionContext) string {
 		if !ctx.advisorEnabled {
@@ -146,12 +149,17 @@ var overrideSectionOrder = []sectionID{
 
 // delegationInstructions renders delegation mechanics and the specialist roster
 // from templates/delegation.md.tmpl. Advisor guidance is rendered separately by
-// the advisor section and is discretionary.
-func delegationInstructions() string {
+// the advisor section and is discretionary. The "## Your role" and
+// "## Delegation vs direct work" sections are omitted when level is
+// config.OrchestrationLevelLow; any other value, including the zero value,
+// renders the standard (full) canon.
+func delegationInstructions(level config.OrchestrationLevel) string {
 	return renderTemplate(templateDelegation, struct {
 		Specialists []specialistView
+		Orchestrate bool
 	}{
 		Specialists: specialistViews(),
+		Orchestrate: level != config.OrchestrationLevelLow,
 	})
 }
 
@@ -176,6 +184,7 @@ func SystemPreamble(override string, delegationEnabled bool, caveHuman bool, sys
 type SystemPreambleParams struct {
 	Override              string
 	DelegationEnabled     bool
+	OrchestrationLevel    config.OrchestrationLevel
 	SandboxEnabled        bool
 	SandboxWritableMounts []string
 	AdvisorEnabled        bool
@@ -193,6 +202,7 @@ func SystemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
 func systemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
 	ctx := sectionContext{
 		delegationEnabled:     params.DelegationEnabled,
+		orchestrationLevel:    params.OrchestrationLevel,
 		sandboxEnabled:        params.SandboxEnabled,
 		sandboxWritableMounts: params.SandboxWritableMounts,
 		advisorEnabled:        params.AdvisorEnabled,

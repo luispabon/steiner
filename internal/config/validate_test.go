@@ -50,7 +50,7 @@ func validBase() Config {
 			ToolOutputMaxBytes: 65536,
 			MaxParallelTools:   4,
 		},
-		SubAgent: SubAgentConfig{Enabled: false, MaxParallel: 3},
+		SubAgent: SubAgentConfig{Enabled: false, MaxParallel: 3, OrchestrationLevel: OrchestrationLevelStandard},
 		Tools:    map[string]ToolConfig{},
 		ProjectContext: ProjectContextConfig{
 			MaxBytes: 8000,
@@ -1147,7 +1147,7 @@ func TestSearchConfigValidation(t *testing.T) {
 					ToolOutputMaxBytes: 65536,
 					MaxParallelTools:   4,
 				},
-				SubAgent: SubAgentConfig{Enabled: false, MaxParallel: 3},
+				SubAgent: SubAgentConfig{Enabled: false, MaxParallel: 3, OrchestrationLevel: OrchestrationLevelStandard},
 				Tools:    map[string]ToolConfig{},
 				ProjectContext: ProjectContextConfig{
 					MaxBytes: 8000,

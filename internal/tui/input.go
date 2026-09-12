@@ -42,6 +42,9 @@ type inputAction struct {
 	toggleMode                 bool   // true for /mode with no argument
 	setMode                    string // "plan" or "build" for /mode <mode>
 	invalidMode                string // unrecognized /mode argument
+	openOrchestrationPicker    bool   // true for /orchestration with no argument
+	setOrchestrationLevel      string // "low" or "standard" for /orchestration <level>
+	invalidOrchestrationLevel  string // unrecognized /orchestration argument
 }
 
 func parseInput(value string) inputAction {

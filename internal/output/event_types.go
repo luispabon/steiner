@@ -96,6 +96,9 @@ const (
 	EventTypeSteerReceived = "steer_received"
 	// EventTypeModeChanged is emitted when the execution mode changes.
 	EventTypeModeChanged = "mode_changed"
+	// EventTypeOrchestrationLevelChanged is emitted when the orchestration
+	// level changes.
+	EventTypeOrchestrationLevelChanged = "orchestration_level_changed"
 	// EventTypeSandboxStatus is emitted when the sandbox status is determined at startup.
 	EventTypeSandboxStatus = "sandbox_status"
 	// EventTypeConfigWarning is emitted when configuration carries a deprecated
@@ -556,6 +559,11 @@ type DisplayFilePayload struct {
 // ModeChangedEvent is emitted when the execution mode changes.
 type ModeChangedEvent struct {
 	Mode string `json:"mode"`
+}
+
+// OrchestrationLevelChangedEvent is emitted when the orchestration level changes.
+type OrchestrationLevelChangedEvent struct {
+	Level string `json:"level"`
 }
 
 // SandboxStatusEvent is emitted when the sandbox status is determined at startup.

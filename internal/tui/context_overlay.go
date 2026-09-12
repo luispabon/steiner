@@ -175,7 +175,8 @@ func (m *Model) contextOverlayBounds() (x, y, w, h int) {
 
 func (m *Model) contextOverlayCapturesMouse(x, y int) bool {
 	if !m.contextOverlay.IsOpen() || m.fileList.IsOpen() || m.mcpOverlay.IsOpen() || m.lspOverlay.IsOpen() ||
-		m.workflowHandoff.IsOpen() || m.worktreeCleanupModal.IsOpen() || m.exitModal.IsOpen() {
+		m.workflowHandoff.IsOpen() || m.worktreeCleanupModal.IsOpen() || m.exitModal.IsOpen() ||
+		m.orchestrationPicker.IsOpen() || m.orchestrationConfirm.IsOpen() {
 		return false
 	}
 	boundsX, boundsY, boundsW, boundsH := m.contextOverlayBounds()

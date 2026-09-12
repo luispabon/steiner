@@ -168,6 +168,24 @@ Each entry under the selected profile's `sub_agents` map, keyed by agent type
 name, can set a model alias to any key defined in `models.definitions`. If no
 override is set, the sub-agent uses the selected profile's `default_model`.
 
+`sub_agent.orchestration_level` controls how strongly the system preamble
+steers the orchestrator toward delegating. `standard` (the default) renders
+the full delegation canon, including the "you are the orchestrator" framing
+and the "delegate by default" guidance. `low` omits those two sections while
+keeping the sub-agent roster, `follow_up` guidance, and briefing template —
+the orchestrator still knows how to delegate, it just isn't pushed to prefer
+it. Available tools, skills, and oneshot prompts are unaffected by this
+setting. Switch it at runtime with `/orchestration`; the change lasts until
+the session exits, and switching mid-conversation shows a confirmation
+because it invalidates the cached system prompt prefix.
+
+In the interactive TUI, `/orchestration` with no argument opens a picker
+listing both levels with a radio marker on the active one; `/orchestration
+low` or `/orchestration standard` sets the level directly. Either path
+switches immediately when the conversation is empty and no oneshot run is in
+progress; otherwise it asks for confirmation first. The sidebar shows an
+ORCHESTRATION row whenever sub-agents are enabled.
+
 ### Turn budget and extensions
 
 If a child hits `max_turns` mid-work (its last message still has pending tool

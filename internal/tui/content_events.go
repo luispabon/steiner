@@ -386,6 +386,9 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// ModeChanged transcript lines are appended explicitly by model_events.go
 	// so the "mode → x" wording matches other status-line conventions.
 	output.EventTypeModeChanged: func(*contentBuffer, output.Event) {},
+	// OrchestrationLevelChanged transcript lines are appended elsewhere; this
+	// registers the event type so it doesn't fall through as unhandled.
+	output.EventTypeOrchestrationLevelChanged: func(*contentBuffer, output.Event) {},
 	// ConfigWarning transcript lines are appended explicitly by model_events.go
 	// (warning styling) so the event never mutates sandbox state.
 	output.EventTypeConfigWarning: func(*contentBuffer, output.Event) {},

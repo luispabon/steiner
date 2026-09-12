@@ -229,6 +229,49 @@ func (m *Model) handleProfilePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
+func (m *Model) handleOrchestrationPickerKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.Code {
+	case tea.KeyUp:
+		m.orchestrationPicker = m.orchestrationPicker.moveSelection(-1)
+	case tea.KeyDown:
+		m.orchestrationPicker = m.orchestrationPicker.moveSelection(1)
+	case tea.KeyEsc:
+		m.orchestrationPicker = m.orchestrationPicker.Close()
+		m.input.Reset()
+		m.historyIdx = 0
+	case tea.KeyEnter:
+		level := m.orchestrationPicker.Selected()
+		m.orchestrationPicker = m.orchestrationPicker.Close()
+		m.input.Reset()
+		m.historyIdx = 0
+		return m.requestOrchestrationLevel(level)
+	}
+	return nil
+}
+
+func (m *Model) handleOrchestrationConfirmModalKey(msg tea.KeyPressMsg) tea.Cmd {
+	var result confirmModalResult
+	m.orchestrationConfirm, result = m.orchestrationConfirm.handleKey(msg)
+	switch result {
+	case confirmModalResultConfirmed:
+		level := m.pendingOrchestrationLevel
+		m.pendingOrchestrationLevel = ""
+		return m.applyOrchestrationLevel(level)
+	case confirmModalResultCancelled:
+		m.pendingOrchestrationLevel = ""
+	}
+	return nil
+}
+
+// openOrchestrationPickerFromSlashCommand opens the orchestration picker from
+// the completion path (typing "/orchestration " out in full or selecting it
+// from the slash overlay), which has already populated the composer text.
+func (m *Model) openOrchestrationPickerFromSlashCommand() *Model {
+	m.openOrchestrationPicker()
+	m.historyIdx = 0
+	return m
+}
+
 //nolint:unparam // tea.Model result is unused: handlers mutate the receiver in place and the overlay dispatcher keeps its own *Model.
 func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
@@ -420,6 +463,7 @@ var pickerCompletionOpeners = map[string]func(*Model) *Model{
 	"openModelPicker":            (*Model).openModelPickerFromSlashCommand,
 	"openAccentPicker":           (*Model).openAccentPickerFromSlashCommand,
 	"openProfilePicker":          (*Model).openProfilePickerFromSlashCommand,
+	"openOrchestrationPicker":    (*Model).openOrchestrationPickerFromSlashCommand,
 	"requestSessionPicker":       (*Model).openSessionPickerFromSlashCommand,
 	"requestOneshotResumePicker": (*Model).openOneshotResumePickerFromSlashCommand,
 }

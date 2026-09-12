@@ -120,9 +120,12 @@ type AssemblyOptions struct {
 	Policy                    AssemblyPolicy
 	ContextState              DurableContextState
 	DelegationEnabled         bool
-	AdvisorEnabled            bool
-	LSPEnabled                bool
-	SandboxEnabled            bool
+	// OrchestrationLevel controls how strongly the delegation canon steers
+	// the orchestrator toward delegating; see config.OrchestrationLevel.
+	OrchestrationLevel config.OrchestrationLevel
+	AdvisorEnabled     bool
+	LSPEnabled         bool
+	SandboxEnabled     bool
 	// SandboxWritableMounts lists host paths mounted writable in the sandbox,
 	// rendered into the sandbox system preamble section when SandboxEnabled.
 	SandboxWritableMounts []string

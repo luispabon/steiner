@@ -29,6 +29,10 @@ func stringSlicePtr(v []string) *[]string {
 	return &v
 }
 
+func orchestrationLevelPtr(v OrchestrationLevel) *OrchestrationLevel {
+	return &v
+}
+
 func TestApplySubAgentPatchMaxParallel(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1199,6 +1203,65 @@ func TestApplyLSPPatch(t *testing.T) {
 			applyLSPPatch(&dst, &tt.patch)
 			if !reflect.DeepEqual(dst, tt.want) {
 				t.Fatalf("applyLSPPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplySubAgentPatchOrchestrationLevel(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial SubAgentConfig
+		patch   subAgentPatch
+		want    SubAgentConfig
+	}{
+		{
+			name:    "unset orchestration_level leaves default",
+			initial: SubAgentConfig{OrchestrationLevel: OrchestrationLevelStandard},
+			patch:   subAgentPatch{},
+			want:    SubAgentConfig{OrchestrationLevel: OrchestrationLevelStandard},
+		},
+		{
+			name:    "sets orchestration_level to low",
+			initial: SubAgentConfig{OrchestrationLevel: OrchestrationLevelStandard},
+			patch:   subAgentPatch{OrchestrationLevel: orchestrationLevelPtr(OrchestrationLevelLow)},
+			want:    SubAgentConfig{OrchestrationLevel: OrchestrationLevelLow},
+		},
+		{
+			name:    "sets orchestration_level to standard",
+			initial: SubAgentConfig{OrchestrationLevel: OrchestrationLevelLow},
+			patch:   subAgentPatch{OrchestrationLevel: orchestrationLevelPtr(OrchestrationLevelStandard)},
+			want:    SubAgentConfig{OrchestrationLevel: OrchestrationLevelStandard},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.initial
+			applySubAgentPatch(&dst, &tt.patch)
+			if !reflect.DeepEqual(dst, tt.want) {
+				t.Fatalf("applySubAgentPatch() = %#v, want %#v", dst, tt.want)
+			}
+		})
+	}
+}
+
+func TestOrchestrationLevelValid(t *testing.T) {
+	tests := []struct {
+		name  string
+		level OrchestrationLevel
+		want  bool
+	}{
+		{name: "standard is valid", level: OrchestrationLevelStandard, want: true},
+		{name: "low is valid", level: OrchestrationLevelLow, want: true},
+		{name: "empty string is invalid", level: "", want: false},
+		{name: "off is invalid", level: "off", want: false},
+		{name: "unknown is invalid", level: "unknown", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.level.Valid()
+			if got != tt.want {
+				t.Fatalf("OrchestrationLevel.Valid() = %v, want %v", got, tt.want)
 			}
 		})
 	}

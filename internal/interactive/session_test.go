@@ -3700,6 +3700,176 @@ func TestSessionSwitchModeAction(t *testing.T) {
 	}
 }
 
+func TestSessionOrchestrationLevelDefault(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name       string
+		configured config.OrchestrationLevel
+		want       config.OrchestrationLevel
+	}{
+		{name: "valid standard", configured: config.OrchestrationLevelStandard, want: config.OrchestrationLevelStandard},
+		{name: "valid low", configured: config.OrchestrationLevelLow, want: config.OrchestrationLevelLow},
+		{name: "empty falls back to standard", configured: "", want: config.OrchestrationLevelStandard},
+		{name: "invalid falls back to standard", configured: config.OrchestrationLevel("bogus"), want: config.OrchestrationLevelStandard},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			deps := Dependencies{
+				Config: config.Config{
+					SubAgent: config.SubAgentConfig{
+						OrchestrationLevel: tc.configured,
+					},
+				},
+			}
+			s := testNewSession(t, deps)
+			if got := s.OrchestrationLevel(); got != tc.want {
+				t.Fatalf("OrchestrationLevel() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSessionSetOrchestrationLevel(t *testing.T) {
+	t.Parallel()
+
+	t.Run("new valid level emits exactly one event", func(t *testing.T) {
+		t.Parallel()
+		var events []output.OrchestrationLevelChangedEvent
+		deps := Dependencies{
+			Config: config.Config{
+				SubAgent: config.SubAgentConfig{OrchestrationLevel: config.OrchestrationLevelStandard},
+			},
+			BaseEvents: output.SinkFunc(func(e output.Event) {
+				if e.Type == output.EventTypeOrchestrationLevelChanged {
+					if payload, ok := e.Payload.(output.OrchestrationLevelChangedEvent); ok {
+						events = append(events, payload)
+					}
+				}
+			}),
+		}
+		s, err := NewSession(deps)
+		if err != nil {
+			t.Fatalf("NewSession failed: %v", err)
+		}
+
+		if err := s.SetOrchestrationLevel(config.OrchestrationLevelLow); err != nil {
+			t.Fatalf("SetOrchestrationLevel() error = %v, want nil", err)
+		}
+		if got, want := s.OrchestrationLevel(), config.OrchestrationLevelLow; got != want {
+			t.Fatalf("OrchestrationLevel() = %q, want %q", got, want)
+		}
+		if len(events) != 1 {
+			t.Fatalf("orchestration-level-changed events = %d, want 1", len(events))
+		}
+		if got, want := events[0].Level, string(config.OrchestrationLevelLow); got != want {
+			t.Fatalf("event level = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("same level emits no event", func(t *testing.T) {
+		t.Parallel()
+		var eventCount int
+		deps := Dependencies{
+			Config: config.Config{
+				SubAgent: config.SubAgentConfig{OrchestrationLevel: config.OrchestrationLevelStandard},
+			},
+			BaseEvents: output.SinkFunc(func(e output.Event) {
+				if e.Type == output.EventTypeOrchestrationLevelChanged {
+					eventCount++
+				}
+			}),
+		}
+		s, err := NewSession(deps)
+		if err != nil {
+			t.Fatalf("NewSession failed: %v", err)
+		}
+
+		if err := s.SetOrchestrationLevel(config.OrchestrationLevelStandard); err != nil {
+			t.Fatalf("SetOrchestrationLevel() error = %v, want nil", err)
+		}
+		if eventCount != 0 {
+			t.Fatalf("orchestration-level-changed events = %d, want 0", eventCount)
+		}
+	})
+
+	t.Run("invalid level returns error and emits no event", func(t *testing.T) {
+		t.Parallel()
+		var eventCount int
+		deps := Dependencies{
+			Config: config.Config{
+				SubAgent: config.SubAgentConfig{OrchestrationLevel: config.OrchestrationLevelStandard},
+			},
+			BaseEvents: output.SinkFunc(func(e output.Event) {
+				if e.Type == output.EventTypeOrchestrationLevelChanged {
+					eventCount++
+				}
+			}),
+		}
+		s, err := NewSession(deps)
+		if err != nil {
+			t.Fatalf("NewSession failed: %v", err)
+		}
+
+		if err := s.SetOrchestrationLevel(config.OrchestrationLevel("bogus")); err == nil {
+			t.Fatal("SetOrchestrationLevel() error = nil, want error for invalid level")
+		}
+		if got, want := s.OrchestrationLevel(), config.OrchestrationLevelStandard; got != want {
+			t.Fatalf("OrchestrationLevel() after failed set = %q, want %q", got, want)
+		}
+		if eventCount != 0 {
+			t.Fatalf("orchestration-level-changed events = %d, want 0", eventCount)
+		}
+	})
+}
+
+func TestSessionSwitchOrchestrationLevelAction(t *testing.T) {
+	t.Parallel()
+	deps := Dependencies{
+		Config: config.Config{
+			SubAgent: config.SubAgentConfig{OrchestrationLevel: config.OrchestrationLevelStandard},
+		},
+	}
+	s := testNewSession(t, deps)
+
+	if err := s.Handle(context.Background(), SwitchOrchestrationLevel{Level: config.OrchestrationLevelLow}); err != nil {
+		t.Fatalf("Handle(SwitchOrchestrationLevel) = %v, want nil", err)
+	}
+	if got, want := s.OrchestrationLevel(), config.OrchestrationLevelLow; got != want {
+		t.Fatalf("OrchestrationLevel() after SwitchOrchestrationLevel action = %q, want %q", got, want)
+	}
+
+	if err := s.Handle(context.Background(), SwitchOrchestrationLevel{Level: config.OrchestrationLevel("bogus")}); err == nil {
+		t.Fatal("Handle(SwitchOrchestrationLevel) with invalid level = nil error, want error")
+	}
+}
+
+func TestSessionOrchestrationLevelSurvivesRotateSession(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{
+		SessionStore: newMockSessionStore(),
+		Config: config.Config{
+			SubAgent: config.SubAgentConfig{OrchestrationLevel: config.OrchestrationLevelStandard},
+			Models: config.ModelsConfig{
+				Effective:   config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
+				Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
+			},
+		},
+	})
+
+	if err := s.SetOrchestrationLevel(config.OrchestrationLevelLow); err != nil {
+		t.Fatalf("SetOrchestrationLevel() error = %v", err)
+	}
+
+	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+		t.Fatalf("RotateSession: %v", err)
+	}
+
+	if got, want := s.OrchestrationLevel(), config.OrchestrationLevelLow; got != want {
+		t.Fatalf("OrchestrationLevel() after RotateSession = %q, want %q", got, want)
+	}
+}
+
 func TestModeNoticeStickinessPlanMode(t *testing.T) {
 	t.Parallel()
 	// Test #2 & #3: Plan mode notice is sticky (appears every turn) and retained in storage.

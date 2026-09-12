@@ -94,8 +94,10 @@ func TestOneshotCommandRun(t *testing.T) {
 		}, nil
 	}
 	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
+		cfg := testRuntimeConfig("test-model")
+		cfg.SubAgent.Enabled = true
 		return cliRuntime{
-			cfg:          testRuntimeConfig("test-model"),
+			cfg:          cfg,
 			projectRoot:  projectRoot,
 			sessionStore: nil,
 			events:       output.NoopSink{},
@@ -168,8 +170,10 @@ func TestOneshotCommandResume(t *testing.T) {
 		}, nil
 	}
 	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
+		cfg := testRuntimeConfig("test-model")
+		cfg.SubAgent.Enabled = true
 		return cliRuntime{
-			cfg:          testRuntimeConfig("test-model"),
+			cfg:          cfg,
 			projectRoot:  projectRoot,
 			sessionStore: nil,
 			events:       output.NoopSink{},
@@ -238,6 +242,49 @@ func TestPhaseParamsCarryPhasePrompt(t *testing.T) {
 
 			if !params.StreamingPreferred {
 				t.Errorf("phaseParams(%s).StreamingPreferred = false, want true", tt.phase)
+			}
+		})
+	}
+}
+
+func TestPhaseParamsCarriesOrchestrationLevel(t *testing.T) {
+	factory := phaseRunnerFactory{
+		orchestrationLevel: func() config.OrchestrationLevel { return config.OrchestrationLevelLow },
+	}
+
+	params, err := factory.phaseParams(oneshot.PhasePlan, "", nil, config.AdvisorConfig{})
+	if err != nil {
+		t.Fatalf("phaseParams failed: %v", err)
+	}
+	if params.OrchestrationLevel == nil {
+		t.Fatal("phaseParams().OrchestrationLevel is nil, want getter carried through")
+	}
+	if got, want := params.OrchestrationLevel(), config.OrchestrationLevelLow; got != want {
+		t.Errorf("phaseParams().OrchestrationLevel() = %q, want %q", got, want)
+	}
+}
+
+func TestRequireSubAgentsForOneshot(t *testing.T) {
+	testCases := []struct {
+		name    string
+		enabled bool
+		wantErr string
+	}{
+		{name: "enabled", enabled: true, wantErr: ""},
+		{name: "disabled", enabled: false, wantErr: "oneshot unavailable: sub-agents are disabled in config"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Config{SubAgent: config.SubAgentConfig{Enabled: tc.enabled}}
+			err := requireSubAgentsForOneshot(cfg)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("requireSubAgentsForOneshot() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("requireSubAgentsForOneshot() error = %v, want %q", err, tc.wantErr)
 			}
 		})
 	}

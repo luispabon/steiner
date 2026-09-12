@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/output"
@@ -192,6 +193,13 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.sidebar.execMode = m.mode
 		m.status.execMode = m.mode
 		m.content.AppendLine(fmt.Sprintf("status: mode → %s", m.mode))
+	case output.OrchestrationLevelChangedEvent:
+		level := strings.TrimSpace(payload.Level)
+		m.orchestrationLevel = config.OrchestrationLevel(level)
+		if m.subAgentsEnabled {
+			m.sidebar.orchestrationLevel = level
+		}
+		m.content.AppendLine(fmt.Sprintf("status: orchestration → %s", level))
 	case output.SandboxStatusEvent:
 		m.sidebar.sandboxStatus = strings.TrimSpace(payload.Status)
 		m.status.sandboxStatus = strings.TrimSpace(payload.Status)

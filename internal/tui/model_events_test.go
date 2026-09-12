@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -214,6 +215,64 @@ func TestApplyEventModeChangedUpdatesStateAndTranscript(t *testing.T) {
 	}
 	if seg.text != "mode → plan" {
 		t.Errorf("segment text = %q, want %q", seg.text, "mode → plan")
+	}
+}
+
+func TestApplyEventOrchestrationLevelChangedUpdatesStateAndTranscript(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name             string
+		subAgentsEnabled bool
+		initialSidebar   string
+		wantSidebar      string
+	}{
+		{
+			name:             "sub-agents enabled updates sidebar",
+			subAgentsEnabled: true,
+			initialSidebar:   "standard",
+			wantSidebar:      "low",
+		},
+		{
+			name:             "sub-agents disabled leaves sidebar unchanged",
+			subAgentsEnabled: false,
+			initialSidebar:   "",
+			wantSidebar:      "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := &Model{
+				subAgentsEnabled: tt.subAgentsEnabled,
+				content: contentBuffer{
+					segments:      make([]contentSegment, 0),
+					collapseState: make(map[int]bool),
+				},
+			}
+			m.sidebar.orchestrationLevel = tt.initialSidebar
+
+			event := output.NewOrchestrationLevelChangedEvent("low")
+			_ = m.applyEvent(event)
+
+			if m.orchestrationLevel != config.OrchestrationLevelLow {
+				t.Errorf("orchestrationLevel = %q, want %q", m.orchestrationLevel, config.OrchestrationLevelLow)
+			}
+			if m.sidebar.orchestrationLevel != tt.wantSidebar {
+				t.Errorf("sidebar.orchestrationLevel = %q, want %q", m.sidebar.orchestrationLevel, tt.wantSidebar)
+			}
+
+			if len(m.content.segments) != 1 {
+				t.Fatalf("segments count = %d, want 1", len(m.content.segments))
+			}
+			seg := m.content.segments[0]
+			if seg.kind != segmentStatus {
+				t.Fatalf("segment kind = %v, want segmentStatus", seg.kind)
+			}
+			if seg.text != "orchestration → low" {
+				t.Errorf("segment text = %q, want %q", seg.text, "orchestration → low")
+			}
+		})
 	}
 }
 

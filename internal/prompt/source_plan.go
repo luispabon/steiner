@@ -77,6 +77,7 @@ func preambleStep(opts AssemblyOptions) sourcePlanStep {
 				block = systemPreambleWithAdvisor(SystemPreambleParams{
 					Override:              opts.PromptOverrides.System,
 					DelegationEnabled:     opts.DelegationEnabled,
+					OrchestrationLevel:    opts.OrchestrationLevel,
 					SandboxEnabled:        opts.SandboxEnabled,
 					SandboxWritableMounts: opts.SandboxWritableMounts,
 					AdvisorEnabled:        opts.AdvisorEnabled,

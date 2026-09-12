@@ -248,6 +248,11 @@ func (m *Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
 // Reports whether it opened, appending a status line and leaving the picker
 // closed if the controller isn't wired, listing fails, or there are no runs.
 func (m *Model) openOneshotResumePicker() bool {
+	if !m.subAgentsEnabled {
+		m.content.AppendLine("status: oneshot unavailable: sub-agents are disabled in config")
+		return false
+	}
+
 	if m.controller == nil {
 		m.content.AppendLine("status: controller not available")
 		return false
@@ -410,6 +415,15 @@ func runOrchestratorAndReport(sink output.EventSink, runID, failureLabel string,
 // by launch and resume. ok is false when a guard failed and m already
 // carries the corresponding status message and reset input.
 func (m *Model) prepareOneshotRun() (*Model, bool) {
+	if !m.subAgentsEnabled {
+		m.content.AppendLine("status: oneshot unavailable: sub-agents are disabled in config")
+		m.input.Reset()
+		m.historyIdx = 0
+		m.relayoutInput()
+		m.syncViewport()
+		return m, false
+	}
+
 	if m.oneshotRunnerFactory == nil {
 		m.content.AppendLine("status: oneshot runner factory not configured")
 		m.input.Reset()

@@ -6,6 +6,49 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+func TestConfigureModelStateSeedsOrchestrationLevel(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name             string
+		subAgentsEnabled bool
+		level            string
+		wantSidebar      string
+	}{
+		{
+			name:             "sub-agents enabled seeds sidebar with level",
+			subAgentsEnabled: true,
+			level:            "low",
+			wantSidebar:      "low",
+		},
+		{
+			name:             "sub-agents disabled seeds sidebar empty regardless of level",
+			subAgentsEnabled: false,
+			level:            "low",
+			wantSidebar:      "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{
+				SubAgentsEnabled:   tt.subAgentsEnabled,
+				OrchestrationLevel: tt.level,
+			}, nil)
+
+			if m.subAgentsEnabled != tt.subAgentsEnabled {
+				t.Errorf("subAgentsEnabled = %v, want %v", m.subAgentsEnabled, tt.subAgentsEnabled)
+			}
+			if string(m.orchestrationLevel) != tt.level {
+				t.Errorf("orchestrationLevel = %q, want %q", m.orchestrationLevel, tt.level)
+			}
+			if m.sidebar.orchestrationLevel != tt.wantSidebar {
+				t.Errorf("sidebar.orchestrationLevel = %q, want %q", m.sidebar.orchestrationLevel, tt.wantSidebar)
+			}
+		})
+	}
+}
+
 func TestResolveAccentPreset(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

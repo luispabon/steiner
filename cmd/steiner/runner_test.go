@@ -774,6 +774,54 @@ func TestPromptAssemblyCarriesSandboxState(t *testing.T) {
 	}
 }
 
+func TestCliRunnerOrchestrationLevel(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		orchestrationLevelFn func() config.OrchestrationLevel
+		configLevel          config.OrchestrationLevel
+		want                 config.OrchestrationLevel
+	}{
+		{
+			name:                 "prefers getter when set",
+			orchestrationLevelFn: func() config.OrchestrationLevel { return config.OrchestrationLevelLow },
+			configLevel:          config.OrchestrationLevelStandard,
+			want:                 config.OrchestrationLevelLow,
+		},
+		{
+			name:                 "falls back to config when getter nil",
+			orchestrationLevelFn: nil,
+			configLevel:          config.OrchestrationLevelLow,
+			want:                 config.OrchestrationLevelLow,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := cliRunner{
+				runtime: cliRuntime{cfg: config.Config{
+					SubAgent: config.SubAgentConfig{OrchestrationLevel: tc.configLevel},
+				}},
+				orchestrationLevelFn: tc.orchestrationLevelFn,
+			}
+			if got := runner.orchestrationLevel(); got != tc.want {
+				t.Errorf("orchestrationLevel() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPromptAssemblySetsOrchestrationLevelFromGetter(t *testing.T) {
+	runner := cliRunner{
+		runtime:              cliRuntime{cfg: config.Config{SubAgent: config.SubAgentConfig{OrchestrationLevel: config.OrchestrationLevelStandard}}},
+		orchestrationLevelFn: func() config.OrchestrationLevel { return config.OrchestrationLevelLow },
+	}
+
+	opts := runner.promptAssembly(nil, nil, prompt.ModelTokenBudget{}, config.ModelPrompts{})
+
+	if got, want := opts.OrchestrationLevel, config.OrchestrationLevelLow; got != want {
+		t.Errorf("AssemblyOptions.OrchestrationLevel = %q, want %q", got, want)
+	}
+}
+
 func TestPromptAssemblyCarriesStaticContextCache(t *testing.T) {
 	cache := &prompt.StaticContextCache{}
 	runner := cliRunner{
