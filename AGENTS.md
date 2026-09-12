@@ -15,7 +15,7 @@ internal/agent/          Loop orchestration, state, limits
 internal/config/         Config loading, merging, validation, defaults
 internal/delegation/     Delegation contracts and scaffolding
 internal/diagnostics/    Structured diagnostics streams: envelope, writer, rotation, retention
-internal/history/        Conversation history persistence
+internal/history/        Prompt (input) history persistence
 internal/interactive/    Interactive session orchestration: run flow, replay, session/snapshot reports, dispatch (drives internal/agent)
 internal/lsp/            Language server connections (LSP protocol, tool definitions, server lifecycle)
 internal/mcp/            MCP server connections (stdio transport, tool registration)

@@ -259,7 +259,7 @@ func (m *Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {
 
 func (m *Model) launchWorkflowHandoff(next, target, submission string) (tea.Model, tea.Cmd) {
 	if submission != "" {
-		return m.executeSubmitAction(submission, submission, submission)
+		return m.executeSubmitAction(submission, submission)
 	}
 	return m.executeInvokeSkillAction(next, target)
 }

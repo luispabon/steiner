@@ -121,6 +121,114 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 	}
 }
 
+func TestSteerActionRecordsPromptHistory(t *testing.T) {
+	t.Parallel()
+	input := newModelInput()
+	input.SetValue("  steer this  ")
+
+	q := agent.NewSteerQueue()
+	ctrl := &testController{}
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{
+		steers:     q,
+		controller: ctrl,
+		input:      input,
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        styles,
+		},
+		styles: styles,
+	}
+
+	m.executeSteerAction()
+
+	queued := q.Snapshot()
+	if len(queued) != 1 {
+		t.Fatalf("steer queue len = %d, want 1", len(queued))
+	}
+
+	ctrl.mu.Lock()
+	actions := ctrl.actions
+	ctrl.mu.Unlock()
+	if len(actions) != 1 {
+		t.Fatalf("controller actions = %d, want 1", len(actions))
+	}
+	recorded, ok := actions[0].(interactive.RecordPromptHistory)
+	if !ok {
+		t.Fatalf("action = %T, want interactive.RecordPromptHistory", actions[0])
+	}
+	if recorded.Text != "steer this" {
+		t.Errorf("recorded text = %q, want %q", recorded.Text, "steer this")
+	}
+}
+
+func TestSteerActionWhitespaceOnlyInputDoesNothing(t *testing.T) {
+	t.Parallel()
+	input := newModelInput()
+	input.SetValue("   ")
+
+	q := agent.NewSteerQueue()
+	ctrl := &testController{}
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{
+		steers:     q,
+		controller: ctrl,
+		input:      input,
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        styles,
+		},
+		styles: styles,
+	}
+
+	m.executeSteerAction()
+
+	if got := q.Len(); got != 0 {
+		t.Fatalf("steer queue len = %d, want 0", got)
+	}
+	ctrl.mu.Lock()
+	actionCount := len(ctrl.actions)
+	ctrl.mu.Unlock()
+	if actionCount != 0 {
+		t.Fatalf("controller actions = %d, want 0", actionCount)
+	}
+}
+
+func TestSteerActionControllerErrorStillQueuesSteer(t *testing.T) {
+	t.Parallel()
+	input := newModelInput()
+	input.SetValue("steer with failure")
+
+	q := agent.NewSteerQueue()
+	steerErr := fmt.Errorf("record failed")
+	ctrl := &testController{err: steerErr}
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{
+		steers:     q,
+		controller: ctrl,
+		input:      input,
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        styles,
+		},
+		styles: styles,
+	}
+
+	updated := m.executeSteerAction()
+	m = updated.(*Model)
+
+	queued := q.Snapshot()
+	if len(queued) != 1 {
+		t.Fatalf("steer queue len = %d, want 1", len(queued))
+	}
+	if got := m.content.String(80); !strings.Contains(got, steerErr.Error()) {
+		t.Errorf("content = %q, want controller error", got)
+	}
+}
+
 func TestHandleEnterRoutesToSteerDuringBusyRegularRun(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}

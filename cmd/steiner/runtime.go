@@ -145,9 +145,6 @@ func closeRuntime(rt *cliRuntime) {
 	// rather than closeFn so it is released on the same path as the other
 	// loggers. Nil-safe.
 	emitCloseWarning(rt.events, "close diagnostics writer", rt.diagnostics.Close())
-	if rt.historyWriter != nil {
-		emitCloseWarning(rt.events, "failed to close history writer", rt.historyWriter.Close())
-	}
 	if rt.closeFn != nil {
 		emitCloseWarning(rt.events, "failed to close runtime", rt.closeFn())
 	}

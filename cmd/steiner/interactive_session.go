@@ -637,6 +637,7 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	stop()
 	stopInteractiveProgram(p)
 	wait()
+	awaitSessionRuns(cmd, sess, rt)
 	pruneWorktreesOnExit(cmd, sess, rt)
 	clearTerminalScreen(cmd.OutOrStdout())
 	if err == nil && sess.SessionTitle() != "" {
@@ -644,6 +645,34 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	}
 	closeRuntime(rt)
 	return err
+}
+
+// sessionRunDrainTimeout bounds how long ordinary interactive shutdown waits for
+// tracked session work (submitted prompts, steers, and prompt-history writes)
+// before the runtime is closed. Prompt history is recorded on a tracked
+// goroutine, so without this bounded wait the final write can be dropped on exit.
+var sessionRunDrainTimeout = 5 * time.Second
+
+// awaitSessionRuns gives tracked session work a bounded window to finish before
+// the runtime is torn down. It always returns; on timeout it reports through the
+// same session-health warning channel the rest of shutdown uses. A nil session is
+// a no-op.
+func awaitSessionRuns(cmd *cobra.Command, sess *interactive.Session, rt *cliRuntime) {
+	if sess == nil {
+		return
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), sessionRunDrainTimeout)
+	finished := sess.WaitRuns(waitCtx)
+	cancel()
+	if finished {
+		return
+	}
+	warning := errors.New("skipped because tracked session work was still finishing")
+	if rt != nil && rt.events != nil {
+		emitCloseWarning(rt.events, "session shutdown", warning)
+		return
+	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: session shutdown: %v.\n", warning)
 }
 
 var worktreeCleanupJoinTimeout = 5 * time.Second

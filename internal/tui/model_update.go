@@ -207,7 +207,6 @@ func (m *Model) clearConversationStateWithError() (tea.Model, bool, error) {
 	if m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning {
 		m.content.AppendLine("status: cannot clear while a run is in progress")
 		m.input.Reset()
-		m.historyIdx = 0
 		m.syncInputChrome()
 		m.relayoutInput()
 		m.syncViewport()
@@ -261,7 +260,6 @@ func (m *Model) performClearConversationState() error {
 		}
 	}
 	m.input.Reset()
-	m.historyIdx = 0
 	m.syncInputChrome()
 	m.syncViewport()
 	return clearErr

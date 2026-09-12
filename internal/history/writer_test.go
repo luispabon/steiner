@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -20,13 +21,6 @@ func mustOpenWriter(t *testing.T, dir string) *Writer {
 	return w
 }
 
-func closeWriter(t *testing.T, w *Writer) {
-	t.Helper()
-	if err := w.Close(); err != nil {
-		t.Errorf("Close() error = %v", err)
-	}
-}
-
 func TestNewWriter_CreatesDirAndFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "nested", "history.log")
@@ -35,11 +29,6 @@ func TestNewWriter_CreatesDirAndFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	defer func() {
-		if err := w.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	}()
 
 	if w.Path() != path {
 		t.Errorf("Path() = %q, want %q", w.Path(), path)
@@ -64,11 +53,6 @@ func TestNewWriter_CreatesDirAndFile(t *testing.T) {
 
 func TestRecord_EmptyPrompt(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer func() {
-		if err := w.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	}()
 
 	if err := w.Record(""); err != nil {
 		t.Fatalf("Record empty: %v", err)
@@ -91,11 +75,6 @@ func TestRecord_WritesProperLineFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	defer func() {
-		if err := w.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	}()
 
 	prompt := "user query"
 	if err := w.Record(prompt); err != nil {
@@ -126,11 +105,6 @@ func TestRecord_WritesProperLineFormat(t *testing.T) {
 
 func TestRecord_EscapesSpecialChars(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer func() {
-		if err := w.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	}()
 
 	prompt := "col1\tcol2\nline2"
 	if err := w.Record(prompt); err != nil {
@@ -159,11 +133,6 @@ func TestRecord_EscapesSpecialChars(t *testing.T) {
 
 func TestRecord_TrimsAfterWrite(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer func() {
-		if err := w.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	}()
 
 	for i := 0; i < 55; i++ {
 		if err := w.Record(fmt.Sprintf("prompt-%d", i)); err != nil {
@@ -188,91 +157,8 @@ func TestRecord_TrimsAfterWrite(t *testing.T) {
 	}
 }
 
-func TestTrimAfterAppend_NoOp(t *testing.T) {
-	w := mustOpenWriter(t, t.TempDir())
-	defer func() {
-		if err := w.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	}()
-
-	if err := w.Record("hello"); err != nil {
-		t.Fatalf("Record: %v", err)
-	}
-
-	if err := w.TrimAfterAppend(0); err != nil {
-		t.Errorf("TrimAfterAppend(0): %v", err)
-	}
-	if err := w.TrimAfterAppend(-1); err != nil {
-		t.Errorf("TrimAfterAppend(-1): %v", err)
-	}
-
-	prompts, err := w.Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(prompts) != 1 {
-		t.Errorf("got %d prompts, want 1", len(prompts))
-	}
-}
-
-func TestTrimAfterAppend_Truncates(t *testing.T) {
-	w := mustOpenWriter(t, t.TempDir())
-	defer closeWriter(t, w)
-
-	for i := 0; i < 10; i++ {
-		if err := w.Record(fmt.Sprintf("line-%d", i)); err != nil {
-			t.Fatalf("Record(%d): %v", i, err)
-		}
-	}
-
-	if err := w.TrimAfterAppend(3); err != nil {
-		t.Fatalf("TrimAfterAppend(3): %v", err)
-	}
-
-	prompts, err := w.Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(prompts) != 3 {
-		t.Errorf("got %d prompts, want 3", len(prompts))
-	}
-	want := []string{"line-7", "line-8", "line-9"}
-	if !slices.Equal(prompts, want) {
-		t.Errorf("retained prompts = %v, want the newest 3 in original order %v", prompts, want)
-	}
-}
-
-func TestTrimAfterAppend_NoTruncateWhenUnderMax(t *testing.T) {
-	w := mustOpenWriter(t, t.TempDir())
-	defer closeWriter(t, w)
-
-	for i := 0; i < 3; i++ {
-		if err := w.Record(fmt.Sprintf("line-%d", i)); err != nil {
-			t.Fatalf("Record(%d): %v", i, err)
-		}
-	}
-
-	if err := w.TrimAfterAppend(10); err != nil {
-		t.Fatalf("TrimAfterAppend(10): %v", err)
-	}
-
-	prompts, err := w.Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(prompts) != 3 {
-		t.Errorf("got %d prompts, want 3", len(prompts))
-	}
-	want := []string{"line-0", "line-1", "line-2"}
-	if !slices.Equal(prompts, want) {
-		t.Errorf("retained prompts = %v, want all entries unchanged %v", prompts, want)
-	}
-}
-
 func TestLoad_ReturnsPrompts(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer closeWriter(t, w)
 
 	prompts := []string{"first query", "second query", "third query"}
 	for _, p := range prompts {
@@ -308,7 +194,6 @@ func TestLoad_UnescapesSpecialChars(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	defer closeWriter(t, w)
 
 	prompts, err := w.Load()
 	if err != nil {
@@ -337,7 +222,6 @@ func TestLoad_SkipsMalformedLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	defer closeWriter(t, w)
 
 	prompts, err := w.Load()
 	if err != nil {
@@ -356,7 +240,6 @@ func TestLoad_SkipsMalformedLines(t *testing.T) {
 
 func TestLoad_EmptyFile(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	defer closeWriter(t, w)
 
 	prompts, err := w.Load()
 	if err != nil {
@@ -367,82 +250,210 @@ func TestLoad_EmptyFile(t *testing.T) {
 	}
 }
 
-func TestClose_Idempotent(t *testing.T) {
-	w := mustOpenWriter(t, t.TempDir())
+func TestLoad_CapsAtMaxEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.log")
 
-	if err := w.Close(); err != nil {
-		t.Fatalf("first Close: %v", err)
+	var sb strings.Builder
+	for i := 0; i < 70; i++ {
+		fmt.Fprintf(&sb, "2024-01-01T00:00:00Z\tprompt-%d\n", i)
 	}
-	if err := w.Close(); err != nil {
-		t.Errorf("second Close: %v", err)
-	}
-}
-
-func TestTrimAfterAppend_FileHandleValidAndPersistsAfterTrim(t *testing.T) {
-	w := mustOpenWriter(t, t.TempDir())
-	defer closeWriter(t, w)
-
-	for i := 0; i < 10; i++ {
-		if err := w.Record("line"); err != nil {
-			t.Fatalf("Record(%d): %v", i, err)
-		}
+	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	// Force the actual truncate/rename/reopen path: Record() always calls
-	// TrimAfterAppend(50), which no-ops while under 50 lines, so it alone
-	// never exercises the rename+reopen logic this test targets.
-	if err := w.TrimAfterAppend(3); err != nil {
-		t.Fatalf("TrimAfterAppend(3): %v", err)
-	}
-
-	if w.file == nil {
-		t.Fatal("w.file is nil after successful trim, want valid handle")
-	}
-
-	// Confirm the handle left behind by trim is the live file backing
-	// w.path, not a stale handle to the pre-rename (now unlinked) file.
-	if err := w.Record("post-trim"); err != nil {
-		t.Fatalf("Record after trim: %v", err)
+	w, err := NewWriter(path)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
 	}
 
 	prompts, err := w.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(prompts) == 0 || prompts[len(prompts)-1] != "post-trim" {
-		t.Fatalf("post-trim write did not land on disk, got %v", prompts)
+	if len(prompts) != 50 {
+		t.Fatalf("got %d prompts, want 50", len(prompts))
 	}
-
-	raw, err := os.ReadFile(w.Path())
-	if err != nil {
-		t.Fatalf("ReadFile(%q): %v", w.Path(), err)
+	want := make([]string, 0, 50)
+	for i := 20; i < 70; i++ {
+		want = append(want, fmt.Sprintf("prompt-%d", i))
 	}
-	if !strings.Contains(string(raw), "post-trim") {
-		t.Errorf("history file on disk does not contain post-trim write: %q", raw)
-	}
-}
-
-func TestRecord_NilFileHandleReturnsError(t *testing.T) {
-	w := &Writer{path: filepath.Join(t.TempDir(), "history.log")}
-
-	err := w.Record("anything")
-	if err == nil {
-		t.Fatal("Record() with nil file handle: got nil error, want error")
-	}
-	if !strings.Contains(err.Error(), "file handle unavailable") {
-		t.Errorf("Record() error = %q, want mention of unavailable file handle", err.Error())
+	if !slices.Equal(prompts, want) {
+		t.Errorf("retained prompts = %v, want %v", prompts, want)
 	}
 }
 
-func TestClose_ClosesFile(t *testing.T) {
+func TestLoad_MissingFile(t *testing.T) {
 	w := mustOpenWriter(t, t.TempDir())
-	path := w.Path()
 
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	if err := os.Remove(w.Path()); err != nil {
+		t.Fatalf("Remove: %v", err)
 	}
 
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		t.Errorf("file was deleted on Close")
+	prompts, err := w.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(prompts) != 0 {
+		t.Errorf("got %d prompts, want 0", len(prompts))
+	}
+}
+
+func TestRecord_TwoWritersSamePathLoseNothing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.log")
+
+	a, err := NewWriter(path)
+	if err != nil {
+		t.Fatalf("NewWriter a: %v", err)
+	}
+	b, err := NewWriter(path)
+	if err != nil {
+		t.Fatalf("NewWriter b: %v", err)
+	}
+
+	for i := 0; i < 60; i++ {
+		if err := a.Record(fmt.Sprintf("seed-%d", i)); err != nil {
+			t.Fatalf("Record seed(%d): %v", i, err)
+		}
+	}
+
+	var want []string
+	// After the 60 seeds the file retains the newest 50 (seed-10..seed-59).
+	// Appending the 10 alternating entries trims the oldest 10 again, so the
+	// final 50 are seed-20..seed-59 followed by the alternating entries.
+	for i := 20; i < 60; i++ {
+		want = append(want, fmt.Sprintf("seed-%d", i))
+	}
+	for i := 0; i < 5; i++ {
+		promptA := fmt.Sprintf("A%d", i)
+		if err := a.Record(promptA); err != nil {
+			t.Fatalf("Record A%d: %v", i, err)
+		}
+		want = append(want, promptA)
+
+		promptB := fmt.Sprintf("B%d", i)
+		if err := b.Record(promptB); err != nil {
+			t.Fatalf("Record B%d: %v", i, err)
+		}
+		want = append(want, promptB)
+	}
+
+	c, err := NewWriter(path)
+	if err != nil {
+		t.Fatalf("NewWriter c: %v", err)
+	}
+	got, err := c.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got) != 50 {
+		t.Fatalf("got %d prompts, want 50", len(got))
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("prompts = %v, want %v", got, want)
+	}
+}
+
+func TestRecord_ConcurrentWritersGoroutines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.log")
+
+	const numWriters = 4
+	const numPrompts = 40
+
+	submitted := make(map[string]bool)
+	var mu sync.Mutex
+
+	var wg sync.WaitGroup
+	for wi := 0; wi < numWriters; wi++ {
+		w, err := NewWriter(path)
+		if err != nil {
+			t.Fatalf("NewWriter(%d): %v", wi, err)
+		}
+		wg.Add(1)
+		go func(wi int, w *Writer) {
+			defer wg.Done()
+			for i := 0; i < numPrompts; i++ {
+				prompt := fmt.Sprintf("writer-%d-seq-%d", wi, i)
+				if err := w.Record(prompt); err != nil {
+					t.Errorf("Record(writer=%d, seq=%d): %v", wi, i, err)
+					return
+				}
+				mu.Lock()
+				submitted[prompt] = true
+				mu.Unlock()
+			}
+		}(wi, w)
+	}
+	wg.Wait()
+
+	fresh, err := NewWriter(path)
+	if err != nil {
+		t.Fatalf("NewWriter fresh: %v", err)
+	}
+	prompts, err := fresh.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(prompts) != 50 {
+		t.Fatalf("got %d prompts, want 50", len(prompts))
+	}
+	for _, p := range prompts {
+		if !submitted[p] {
+			t.Errorf("loaded prompt %q was never submitted", p)
+		}
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	if len(lines) != 50 {
+		t.Errorf("file has %d lines, want 50", len(lines))
+	}
+}
+
+func TestRecord_NoTmpFilesLeftBehind(t *testing.T) {
+	dir := t.TempDir()
+	w := mustOpenWriter(t, dir)
+
+	for i := 0; i < 120; i++ {
+		if err := w.Record(fmt.Sprintf("prompt-%d", i)); err != nil {
+			t.Fatalf("Record(%d): %v", i, err)
+		}
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	slices.Sort(names)
+	want := []string{"history.log", "history.log.lock"}
+	if !slices.Equal(names, want) {
+		t.Errorf("directory entries = %v, want %v", names, want)
+	}
+}
+
+func TestRecord_PreservesFileMode(t *testing.T) {
+	w := mustOpenWriter(t, t.TempDir())
+
+	for i := 0; i < 60; i++ {
+		if err := w.Record(fmt.Sprintf("prompt-%d", i)); err != nil {
+			t.Fatalf("Record(%d): %v", i, err)
+		}
+	}
+
+	info, err := os.Stat(w.Path())
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if mode := info.Mode(); mode.Perm() != 0o644 {
+		t.Errorf("file mode = %v, want 0644", mode.Perm())
 	}
 }

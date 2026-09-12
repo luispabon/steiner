@@ -333,7 +333,7 @@ func TestExecuteSubmitActionAppendsImagesAttached(t *testing.T) {
 		},
 	}
 
-	updated, _ := m.executeSubmitAction("describe this", "describe this", "describe this")
+	updated, _ := m.executeSubmitAction("describe this", "describe this")
 	got := updated.(*Model)
 
 	// Check that imageMarkers were cleared
