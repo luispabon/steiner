@@ -89,8 +89,6 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		recorder:                     cfg.Recorder,
 		activeTheme:                  resolveTheme(cfg.Theme),
 		styles:                       &s,
-		inputHistory:                 []string{},
-		historyIdx:                   0,
 		historyDraft:                 "",
 		fileHistory:                  []string{},
 		fileHistoryIdx:               -1,

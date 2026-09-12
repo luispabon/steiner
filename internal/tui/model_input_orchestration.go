@@ -54,14 +54,12 @@ func (m *Model) openOrchestrationPicker() bool {
 func (m *Model) executeOpenOrchestrationPickerAction() (tea.Model, tea.Cmd) {
 	if !m.openOrchestrationPicker() {
 		m.input.Reset()
-		m.historyIdx = 0
 		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
 	m.input.SetValue("/orchestration ")
 	m.input.CursorEnd()
-	m.historyIdx = 0
 	return m, nil
 }
 
@@ -71,7 +69,6 @@ func (m *Model) executeOpenOrchestrationPickerAction() (tea.Model, tea.Cmd) {
 func (m *Model) executeSetOrchestrationLevelAction(level string) (tea.Model, tea.Cmd) {
 	cmd := m.requestOrchestrationLevel(config.OrchestrationLevel(level))
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
 	return m, cmd
@@ -82,7 +79,6 @@ func (m *Model) executeSetOrchestrationLevelAction(level string) (tea.Model, tea
 func (m *Model) executeInvalidOrchestrationLevelAction(arg string) (tea.Model, tea.Cmd) {
 	m.content.AppendLine(fmt.Sprintf("status: invalid orchestration level %q (use low or standard)", arg))
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
 	return m, nil

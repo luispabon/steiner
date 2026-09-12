@@ -5920,16 +5920,12 @@ func TestClearConversationRefusalResetsInput(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.input.SetValue("/clear")
-	m.historyIdx = 2
 	m.activity = m.activity.waiting("running", "model")
 
 	m.executeClearAction()
 
 	if got := m.input.Value(); got != "" {
 		t.Errorf("input value = %q, want empty", got)
-	}
-	if m.historyIdx != 0 {
-		t.Errorf("history index = %d, want 0", m.historyIdx)
 	}
 	if got := m.content.String(m.viewport.Width()); !strings.Contains(got, "cannot clear while a run is in progress") {
 		t.Errorf("content = %q, want clear refusal", got)

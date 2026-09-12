@@ -30,7 +30,6 @@ func (m *Model) executeInterruptAction() *Model {
 	m.status.mode = ""
 	m.input.Reset()
 	m.input.Focus()
-	m.historyIdx = 0
 	m.syncInputChrome()
 	m.syncSidebar()
 	m.relayoutInput()
@@ -53,7 +52,6 @@ func (m *Model) executeCompactAction(action inputAction) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
@@ -66,7 +64,6 @@ func (m *Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
@@ -81,7 +78,6 @@ func (m *Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
 		m.content.AppendLine("status: skills " + strings.Join(names, ", "))
 	}
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
@@ -90,7 +86,6 @@ func (m *Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
 func (m *Model) executeToggleSkillAction(skill string, enable bool) (tea.Model, tea.Cmd) {
 	m = m.updateSkillState(skill, enable)
 	m.input.Reset()
-	m.historyIdx = 0
 	m.syncSidebar()
 	m.relayoutInput()
 	m.syncViewport()
@@ -103,7 +98,6 @@ func (m *Model) executeOpenModelPickerAction() (tea.Model, tea.Cmd) {
 	m.modelPicker.height = m.height
 	m.input.SetValue("/model ")
 	m.input.CursorEnd()
-	m.historyIdx = 0
 	return m, nil
 }
 
@@ -115,7 +109,6 @@ func (m *Model) executeListFilesAction(path string) (tea.Model, tea.Cmd) {
 	m.fileList = m.fileList.Open(root)
 	m.fileList.OverlayShell = m.fileList.WithDimensions(m.width, m.height)
 	m.input.Reset()
-	m.historyIdx = 0
 	return m, nil
 }
 
@@ -123,7 +116,6 @@ func (m *Model) executeShowMCPAction() (tea.Model, tea.Cmd) {
 	m.mcpOverlay = m.mcpOverlay.Open(m.mcpServers, m.mcpEnabled)
 	m.mcpOverlay.OverlayShell = m.mcpOverlay.WithDimensions(m.width, m.height)
 	m.input.Reset()
-	m.historyIdx = 0
 	return m, nil
 }
 
@@ -131,13 +123,11 @@ func (m *Model) executeShowLSPAction() (tea.Model, tea.Cmd) {
 	m.lspOverlay = m.lspOverlay.Open(m.lspServers, m.lspEnabled)
 	m.lspOverlay.OverlayShell = m.lspOverlay.WithDimensions(m.width, m.height)
 	m.input.Reset()
-	m.historyIdx = 0
 	return m, nil
 }
 
 func (m *Model) executeToggleThinkingAction() (tea.Model, tea.Cmd) {
 	m.input.Reset()
-	m.historyIdx = 0
 	return m, func() tea.Msg { return toggleThinkingMsg{} }
 }
 
@@ -147,13 +137,11 @@ func (m *Model) executeOpenAccentPickerAction() (tea.Model, tea.Cmd) {
 	m.accentPicker.height = m.height
 	m.input.SetValue("/accent ")
 	m.input.CursorEnd()
-	m.historyIdx = 0
 	return m, nil
 }
 
 func (m *Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
-	m.historyIdx = 0
 	return m, func() tea.Msg { return setAccentMsg{preset: preset} }
 }
 
@@ -167,7 +155,6 @@ func (m *Model) executeModelAction(modelName string, reasoning *provider.Reasoni
 		if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName, Reasoning: reasoning}); err != nil {
 			m.content.AppendLine(fmt.Sprintf("status: model %s is not configured", modelName))
 			m.input.Reset()
-			m.historyIdx = 0
 			m.relayoutInput()
 			m.syncViewport()
 			return m, nil
@@ -182,7 +169,6 @@ func (m *Model) executeModelAction(modelName string, reasoning *provider.Reasoni
 	m.applyModelSelection(modelName, providerBaseURL)
 	m.content.AppendLine(fmt.Sprintf("status: model switched to %s", modelName))
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
@@ -194,7 +180,6 @@ func (m *Model) executeOpenProfilePickerAction() (tea.Model, tea.Cmd) {
 	m.profilePicker.height = m.height
 	m.input.SetValue("/profile ")
 	m.input.CursorEnd()
-	m.historyIdx = 0
 	return m, nil
 }
 
@@ -209,7 +194,6 @@ func (m *Model) executeSwitchProfileAction(name string) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
@@ -281,7 +265,6 @@ func (m *Model) openOneshotResumePicker() bool {
 func (m *Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
 	if !m.openOneshotResumePicker() {
 		m.input.Reset()
-		m.historyIdx = 0
 		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
@@ -296,14 +279,12 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	if len(m.content.segments) == 0 {
 		m.content.AppendLine("status: no conversation to fork")
 		m.input.Reset()
-		m.historyIdx = 0
 		m.relayoutInput()
 		m.syncViewport()
 		return m, nil
 	}
 
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
 	if m.sessionResetCleanup != nil {
@@ -320,17 +301,13 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-func (m *Model) executeSubmitAction(value string, submitText string, displayText string) (tea.Model, tea.Cmd) {
+func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.Model, tea.Cmd) {
 	var sessionCmd tea.Cmd
 	if m.sessionStartedAt == nil {
 		now := time.Now()
 		m.sessionStartedAt = &now
 		m.syncSidebar()
 		sessionCmd = sessionTickCmd()
-	}
-	if value != "" {
-		m.inputHistory = append([]string{value}, m.inputHistory...)
-		m.historyIdx = 0
 	}
 	// Capture images before clearing
 	images := m.pendingImageBlocks()
@@ -347,7 +324,6 @@ func (m *Model) executeSubmitAction(value string, submitText string, displayText
 		m.content.AppendImagesAttached(images, m.sidebar.workingDir, m.sidebar.homeDir)
 	}
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	m.syncViewport()
 	return m, sessionCmd
@@ -382,7 +358,7 @@ func (m *Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea
 	if args != "" {
 		displayText += " " + args
 	}
-	return m.executeSubmitAction(displayText, displayText, displayText)
+	return m.executeSubmitAction(displayText, displayText)
 }
 
 // oneshotSessionStoreOrEmit casts sessionStore to oneshot.SessionStore,
@@ -418,7 +394,6 @@ func (m *Model) prepareOneshotRun() (*Model, bool) {
 	if !m.subAgentsEnabled {
 		m.content.AppendLine("status: oneshot unavailable: sub-agents are disabled in config")
 		m.input.Reset()
-		m.historyIdx = 0
 		m.relayoutInput()
 		m.syncViewport()
 		return m, false
@@ -427,7 +402,6 @@ func (m *Model) prepareOneshotRun() (*Model, bool) {
 	if m.oneshotRunnerFactory == nil {
 		m.content.AppendLine("status: oneshot runner factory not configured")
 		m.input.Reset()
-		m.historyIdx = 0
 		m.relayoutInput()
 		m.syncViewport()
 		return m, false
@@ -436,7 +410,6 @@ func (m *Model) prepareOneshotRun() (*Model, bool) {
 	if m.controller == nil {
 		m.content.AppendLine("status: controller not available")
 		m.input.Reset()
-		m.historyIdx = 0
 		m.relayoutInput()
 		m.syncViewport()
 		return m, false
@@ -501,7 +474,6 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 
 	m.content.AppendLine(fmt.Sprintf("status: launching oneshot run for: %s", task))
 	m.input.Reset()
-	m.historyIdx = 0
 	m.syncInputChrome()
 	m.relayoutInput()
 	m.syncViewport()
@@ -581,7 +553,6 @@ func (m *Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 
 	m.content.AppendLine(fmt.Sprintf("status: resuming oneshot run: %s", runID))
 	m.input.Reset()
-	m.historyIdx = 0
 	m.syncInputChrome()
 	m.syncViewport()
 	return m, nil

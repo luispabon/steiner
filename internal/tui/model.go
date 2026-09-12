@@ -146,8 +146,6 @@ type Model struct {
 	// construction, and the accent-change path must allocate a fresh Styles
 	// rather than mutating this one in place.
 	styles                       *theme.Styles
-	inputHistory                 []string
-	historyIdx                   int
 	historyDraft                 string
 	fileHistory                  []string
 	fileHistoryIdx               int

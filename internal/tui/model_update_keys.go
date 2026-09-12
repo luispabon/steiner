@@ -394,7 +394,6 @@ func (m *Model) handleKeyUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.fileHistoryIdx = -1
-	m.historyIdx = -1
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
@@ -412,7 +411,6 @@ func (m *Model) handleKeyDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.fileHistoryIdx = -1
-	m.historyIdx = -1
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
@@ -426,6 +424,11 @@ func (m *Model) executeSteerAction() tea.Model {
 	images := m.pendingImageBlocks()
 	if m.steers != nil {
 		m.steers.Add(agent.SteerMessage{Text: text, Images: images})
+	}
+	if m.controller != nil {
+		if err := m.controller.Handle(context.Background(), interactive.RecordPromptHistory{Text: text}); err != nil {
+			m.appendError(err)
+		}
 	}
 	m.input.Reset()
 	m.imageMarkers = nil

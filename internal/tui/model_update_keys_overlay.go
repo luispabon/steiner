@@ -136,7 +136,6 @@ func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) 
 	selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 	m.sessionPicker = m.sessionPicker.Close()
 	m.input.Reset()
-	m.historyIdx = 0
 	m.relayoutInput()
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
@@ -192,12 +191,10 @@ func (m *Model) handleAccentPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 	case tea.KeyEsc:
 		m.accentPicker = m.accentPicker.Close()
 		m.input.Reset()
-		m.historyIdx = 0
 	case tea.KeyEnter:
 		if name := m.accentPicker.SelectedName(); name != "" {
 			m.accentPicker = m.accentPicker.Close()
 			m.input.Reset()
-			m.historyIdx = 0
 			return m.executeSetAccentAction(name)
 		}
 	default:
@@ -213,12 +210,10 @@ func (m *Model) handleProfilePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	case tea.KeyEsc:
 		m.profilePicker = m.profilePicker.Close()
 		m.input.Reset()
-		m.historyIdx = 0
 	case tea.KeyEnter:
 		if name, ok := m.profilePicker.SelectedName(); ok {
 			m.profilePicker = m.profilePicker.Close()
 			m.input.Reset()
-			m.historyIdx = 0
 			return m.executeSwitchProfileAction(name)
 		}
 	default:
@@ -238,12 +233,10 @@ func (m *Model) handleOrchestrationPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	case tea.KeyEsc:
 		m.orchestrationPicker = m.orchestrationPicker.Close()
 		m.input.Reset()
-		m.historyIdx = 0
 	case tea.KeyEnter:
 		level := m.orchestrationPicker.Selected()
 		m.orchestrationPicker = m.orchestrationPicker.Close()
 		m.input.Reset()
-		m.historyIdx = 0
 		return m.requestOrchestrationLevel(level)
 	}
 	return nil
@@ -268,7 +261,6 @@ func (m *Model) handleOrchestrationConfirmModalKey(msg tea.KeyPressMsg) tea.Cmd 
 // from the slash overlay), which has already populated the composer text.
 func (m *Model) openOrchestrationPickerFromSlashCommand() *Model {
 	m.openOrchestrationPicker()
-	m.historyIdx = 0
 	return m
 }
 
@@ -279,7 +271,6 @@ func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.modelPicker = m.modelPicker.Close()
 		if !m.modelPicker.IsWorkflowHandoff() {
 			m.input.Reset()
-			m.historyIdx = 0
 		}
 	case tea.KeyEnter:
 		if entry, ok := m.modelPicker.SelectedEntry(); ok {
@@ -298,7 +289,6 @@ func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			if len(caps.SupportedEfforts) == 0 {
 				m.input.Reset()
-				m.historyIdx = 0
 				return m.executeModelAction(name, nil)
 			}
 			m.reasoningPicker = m.reasoningPicker.Open(name, caps, m.currentReasoningOverrideFor(name), m.modelReasoningEfforts[name])
@@ -327,7 +317,6 @@ func (m *Model) handleReasoningPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cm
 			modelName := m.reasoningPicker.modelName
 			m.reasoningPicker = m.reasoningPicker.Close()
 			m.input.Reset()
-			m.historyIdx = 0
 			override := reasoningOverrideFromOption(opt)
 			return m.executeModelAction(modelName, &override)
 		}
@@ -472,7 +461,6 @@ func (m *Model) openModelPickerFromSlashCommand() *Model {
 	m.modelPicker = m.modelPicker.OpenEntries(m.modelPickerEntries(), m.primaryModel)
 	m.modelPicker.width = m.width
 	m.modelPicker.height = m.height
-	m.historyIdx = 0
 	return m
 }
 
@@ -480,7 +468,6 @@ func (m *Model) openAccentPickerFromSlashCommand() *Model {
 	m.accentPicker = m.accentPicker.Open(m.accentPreset)
 	m.accentPicker.width = m.width
 	m.accentPicker.height = m.height
-	m.historyIdx = 0
 	return m
 }
 
@@ -488,19 +475,16 @@ func (m *Model) openProfilePickerFromSlashCommand() *Model {
 	m.profilePicker = m.profilePicker.Open(m.profileNames, m.sidebar.profile)
 	m.profilePicker.width = m.width
 	m.profilePicker.height = m.height
-	m.historyIdx = 0
 	return m
 }
 
 func (m *Model) openSessionPickerFromSlashCommand() *Model {
 	m.openSessionPicker()
-	m.historyIdx = 0
 	return m
 }
 
 func (m *Model) openOneshotResumePickerFromSlashCommand() *Model {
 	m.openOneshotResumePicker()
-	m.historyIdx = 0
 	return m
 }
 
