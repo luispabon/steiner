@@ -29,6 +29,14 @@ type SubmitPrompt struct {
 
 func (SubmitPrompt) isInteractiveAction() {}
 
+// RecordPromptHistory records a prompt that bypassed SubmitPrompt (for example
+// a steer message queued during an active run) in prompt history.
+type RecordPromptHistory struct {
+	Text string
+}
+
+func (RecordPromptHistory) isInteractiveAction() {}
+
 // RequestContextReport represents a user request to view the current context
 // report during an interactive session.
 type RequestContextReport struct{}

@@ -10,10 +10,12 @@ import (
 )
 
 // submitPrompt handles a user-submitted prompt during an interactive session.
-// It appends the user message, starts a cancellable model run, records history
-// on success, updates session lineage and title, and saves the session.
-// Emits stop/error and history events consistently.
+// It records history on submit, appends the user message, starts a
+// cancellable model run, updates session lineage and title, and saves the
+// session. Emits stop/error and history events consistently.
 func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.ImageBlock) {
+	s.recordHistory(text)
+
 	s.mu.Lock()
 	isFirstPrompt := len(s.conversation) == 0
 	s.conversation = append(s.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text, Images: images})
@@ -68,26 +70,31 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
 		return
 	}
+}
 
-	if s.deps.HistoryWriter != nil {
-		if err := s.deps.HistoryWriter.Record(text); err != nil {
-			s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Notes:    []string{fmt.Sprintf("history record: %v", err)},
-			}))
-		}
-		prompts, err := s.deps.HistoryWriter.Load()
-		if err != nil {
-			s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:     "session_health",
-				Severity: "warning",
-				Notes:    []string{fmt.Sprintf("history load: %v", err)},
-			}))
-			prompts = nil
-		}
-		s.events.Emit(output.NewHistoryLoadedEvent(prompts))
+// recordHistory persists text to prompt history and publishes the refreshed
+// list so the TUI can recall it immediately.
+func (s *Session) recordHistory(text string) {
+	if s.deps.HistoryWriter == nil {
+		return
 	}
+	if err := s.deps.HistoryWriter.Record(text); err != nil {
+		s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Severity: "warning",
+			Notes:    []string{fmt.Sprintf("history record: %v", err)},
+		}))
+	}
+	prompts, err := s.deps.HistoryWriter.Load()
+	if err != nil {
+		s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Severity: "warning",
+			Notes:    []string{fmt.Sprintf("history load: %v", err)},
+		}))
+		prompts = nil
+	}
+	s.events.Emit(output.NewHistoryLoadedEvent(prompts))
 }
 
 // cloneMessages returns a deep copy of a message slice.

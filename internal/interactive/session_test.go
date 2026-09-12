@@ -2,10 +2,12 @@ package interactive
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -419,6 +421,7 @@ func TestSessionHandleNoop(t *testing.T) {
 		{"SubmitApproval", SubmitApproval{Tool: "write", Mode: "auto", Decision: "allow"}},
 		{"SubmitWorkflowHandoff", SubmitWorkflowHandoff{Decision: "dismiss"}},
 		{"RequestExit", RequestExit{}},
+		{"RecordPromptHistory", RecordPromptHistory{Text: "x"}},
 		{"SetSkillEnabled", SetSkillEnabled{Name: "go-code-audit", Enabled: true}},
 		{"RotateSession", RotateSession{}},
 		{"ClearConversation", ClearConversation{}},
@@ -442,6 +445,7 @@ func TestSessionWaitRunsWaitsForSubmittedPrompt(t *testing.T) {
 	s := testNewSession(t, Dependencies{
 		Runner: newRunExecutorFunc(func(ctx context.Context, _ []agent.Message, _ []string) (RunResult, error) {
 			close(started)
+			defer close(finished)
 			select {
 			case <-release:
 				return RunResult{}, nil
@@ -449,12 +453,6 @@ func TestSessionWaitRunsWaitsForSubmittedPrompt(t *testing.T) {
 				return RunResult{}, ctx.Err()
 			}
 		}),
-		HistoryWriter: &recordingHistoryWriter{
-			recordFn: func(string) error {
-				close(finished)
-				return nil
-			},
-		},
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -494,11 +492,6 @@ func TestSessionWaitRunsWaitsForSubmittedPrompt(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("WaitRuns did not return after the run finished")
-	}
-	select {
-	case <-finished:
-	default:
-		t.Fatal("WaitRuns returned before the run completion side effect")
 	}
 }
 
@@ -882,7 +875,7 @@ func TestSubmitPromptSavesSessionOnRunError(t *testing.T) {
 	}
 }
 
-func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
+func TestSubmitPromptRecordsHistory(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
 	recorded := ""
@@ -924,6 +917,152 @@ func TestSubmitPromptEmitsHistoryOnSuccess(t *testing.T) {
 	}
 	if !foundHistory {
 		t.Fatalf("events = %#v, want HistoryLoaded event", events)
+	}
+}
+
+func TestSubmitPromptRecordsHistoryBeforeRun(t *testing.T) {
+	t.Parallel()
+	var recordedBeforeRun atomic.Bool
+	var recordCalled atomic.Bool
+	s := testNewSession(t, Dependencies{
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+			recordedBeforeRun.Store(recordCalled.Load())
+			return RunResult{Conversation: conversation}, nil
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			recordFn: func(string) error {
+				recordCalled.Store(true)
+				return nil
+			},
+		},
+	})
+
+	s.submitPrompt(context.Background(), "hello", nil)
+
+	if !recordedBeforeRun.Load() {
+		t.Fatal("expected HistoryWriter.Record to be called before Runner.Run started")
+	}
+}
+
+func TestSubmitPromptRecordsHistoryWhenRunFails(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{"generic error", errors.New("boom")},
+		{"context cancelled", context.Canceled},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var events []output.Event
+			var recorded []string
+			s := testNewSession(t, Dependencies{
+				BaseEvents: output.SinkFunc(func(event output.Event) {
+					events = append(events, event)
+				}),
+				Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+					return RunResult{}, tt.err
+				}),
+				HistoryWriter: &recordingHistoryWriter{
+					recordFn: func(prompt string) error {
+						recorded = append(recorded, prompt)
+						return nil
+					},
+				},
+			})
+
+			s.submitPrompt(context.Background(), "hello", nil)
+
+			if len(recorded) != 1 || recorded[0] != "hello" {
+				t.Fatalf("recorded = %v, want [hello]", recorded)
+			}
+
+			var foundHistory bool
+			for _, event := range events {
+				if event.Type == output.EventTypeHistoryLoaded {
+					foundHistory = true
+					break
+				}
+			}
+			if !foundHistory {
+				t.Fatalf("events = %#v, want HistoryLoaded event", events)
+			}
+		})
+	}
+}
+
+func TestHandleRecordPromptHistory(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	var recorded []string
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			recordFn: func(prompt string) error {
+				recorded = append(recorded, prompt)
+				return nil
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), RecordPromptHistory{Text: "steer"}); err != nil {
+		t.Fatalf("Handle(RecordPromptHistory) = %v, want nil", err)
+	}
+	if !s.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns returned false")
+	}
+
+	if len(recorded) != 1 || recorded[0] != "steer" {
+		t.Fatalf("recorded = %v, want [steer]", recorded)
+	}
+
+	var foundHistory bool
+	for _, event := range events {
+		if event.Type == output.EventTypeHistoryLoaded {
+			foundHistory = true
+			break
+		}
+	}
+	if !foundHistory {
+		t.Fatalf("events = %#v, want HistoryLoaded event", events)
+	}
+}
+
+func TestHandleRecordPromptHistoryEmitsWarningOnRecordError(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+		HistoryWriter: &recordingHistoryWriter{
+			recordFn: func(string) error {
+				return errors.New("disk full")
+			},
+		},
+	})
+
+	if err := s.Handle(context.Background(), RecordPromptHistory{Text: "steer"}); err != nil {
+		t.Fatalf("Handle(RecordPromptHistory) = %v, want nil", err)
+	}
+	if !s.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns returned false")
+	}
+
+	var foundWarning bool
+	for _, event := range events {
+		if output.ContextDiagnosticKind(event.Payload) == "session_health" && output.ContextDiagnosticSeverity(event.Payload) == "warning" {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("events = %#v, want session_health warning diagnostics event", events)
 	}
 }
 
