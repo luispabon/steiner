@@ -239,36 +239,40 @@ func TestStatusSection(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
 	cases := []struct {
-		name          string
-		sandboxStatus string
-		activeSkill   string
-		mcpTotal      int
-		mcpConnected  int
-		wantRows      []string
-		wantNil       bool
+		name               string
+		sandboxStatus      string
+		orchestrationLevel string
+		activeSkill        string
+		mcpTotal           int
+		mcpConnected       int
+		wantRows           []string
+		wantNil            bool
 	}{
 		{name: "all absent", wantNil: true},
 		{name: "sandbox only", sandboxStatus: "active", wantRows: []string{"SANDBOX"}},
+		{name: "orchestration only", orchestrationLevel: "standard", wantRows: []string{"ORCHESTRATION"}},
 		{name: "skill only", activeSkill: "review", wantRows: []string{"SKILL"}},
 		{name: "mcp only", mcpTotal: 1, mcpConnected: 1, wantRows: []string{"MCP"}},
 		{
-			name:          "all present",
-			sandboxStatus: "active",
-			activeSkill:   "review",
-			mcpTotal:      1,
-			mcpConnected:  1,
-			wantRows:      []string{"SANDBOX", "SKILL", "MCP"},
+			name:               "all present",
+			sandboxStatus:      "active",
+			orchestrationLevel: "low",
+			activeSkill:        "review",
+			mcpTotal:           1,
+			mcpConnected:       1,
+			wantRows:           []string{"SANDBOX", "ORCHESTRATION", "SKILL", "MCP"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			s := sidebarState{
-				sandboxStatus: tc.sandboxStatus,
-				activeSkill:   tc.activeSkill,
-				mcpTotal:      tc.mcpTotal,
-				mcpConnected:  tc.mcpConnected,
-				styles:        styles,
+				sandboxStatus:      tc.sandboxStatus,
+				orchestrationLevel: tc.orchestrationLevel,
+				activeSkill:        tc.activeSkill,
+				mcpTotal:           tc.mcpTotal,
+				mcpConnected:       tc.mcpConnected,
+				styles:             styles,
 			}
 			got := s.statusSection(32)
 			if tc.wantNil {
@@ -302,9 +306,9 @@ func TestStatusSectionAccentKeys(t *testing.T) {
 		t.Fatalf("statusSection() len = %d, want 4 (blank + 3 rows)", len(got))
 	}
 	bg := lipgloss.Color(theme.Black)
-	wantSandboxKey := styles.CardLabel.Background(bg).Render("SANDBOX ")
-	wantSkillKey := styles.CardLabel.Background(bg).Render("SKILL   ")
-	wantMCPKey := styles.CardLabel.Background(bg).Render("MCP     ")
+	wantSandboxKey := styles.CardLabel.Background(bg).Render("SANDBOX       ")
+	wantSkillKey := styles.CardLabel.Background(bg).Render("SKILL         ")
+	wantMCPKey := styles.CardLabel.Background(bg).Render("MCP           ")
 	rows := []struct {
 		name string
 		line string
@@ -318,6 +322,89 @@ func TestStatusSectionAccentKeys(t *testing.T) {
 		if !strings.HasPrefix(tc.line, tc.want) {
 			t.Errorf("%s row = %q, want key prefix %q", tc.name, tc.line, tc.want)
 		}
+	}
+}
+
+func TestStatusSectionOrchestrationRow(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+
+	t.Run("appears directly after SANDBOX and shares its key column", func(t *testing.T) {
+		t.Parallel()
+		s := sidebarState{
+			sandboxStatus:      "active",
+			orchestrationLevel: "low",
+			activeSkill:        "review",
+			styles:             styles,
+		}
+		got := s.statusSection(40)
+		if len(got) != 4 {
+			t.Fatalf("statusSection() len = %d, want 4 (blank + SANDBOX + ORCHESTRATION + SKILL)", len(got))
+		}
+		sandboxLine := stripANSI(got[1])
+		orchLine := stripANSI(got[2])
+		skillLine := stripANSI(got[3])
+		if !strings.HasPrefix(sandboxLine, "SANDBOX") {
+			t.Errorf("row[1] = %q, want SANDBOX first", sandboxLine)
+		}
+		if !strings.HasPrefix(orchLine, "ORCHESTRATION") {
+			t.Errorf("row[2] = %q, want ORCHESTRATION directly after SANDBOX", orchLine)
+		}
+		if !strings.HasPrefix(skillLine, "SKILL") {
+			t.Errorf("row[3] = %q, want SKILL after ORCHESTRATION", skillLine)
+		}
+		const keyW = 14
+		if len(sandboxLine) < keyW || len(orchLine) < keyW || len(skillLine) < keyW {
+			t.Fatalf("rows shorter than key width %d: %q %q %q", keyW, sandboxLine, orchLine, skillLine)
+		}
+		// All three values should start at the same display column.
+		for _, tc := range []struct{ name, line, wantValue string }{
+			{"SANDBOX", sandboxLine, "active"},
+			{"ORCHESTRATION", orchLine, "low"},
+			{"SKILL", skillLine, "review"},
+		} {
+			if !strings.HasPrefix(tc.line[keyW:], tc.wantValue) {
+				t.Errorf("%s value column: line=%q, want %q starting at col %d", tc.name, tc.line, tc.wantValue, keyW)
+			}
+		}
+	})
+
+	t.Run("absent when level is empty", func(t *testing.T) {
+		t.Parallel()
+		s := sidebarState{
+			sandboxStatus: "active",
+			styles:        styles,
+		}
+		got := s.statusSection(40)
+		joined := strings.Join(got, "\n")
+		if strings.Contains(joined, "ORCHESTRATION") {
+			t.Errorf("statusSection() = %q, want no ORCHESTRATION row when level is empty", joined)
+		}
+	})
+}
+
+func TestOrchestrationLevelStyle(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	tests := []struct {
+		name  string
+		level string
+		want  lipgloss.Style
+	}{
+		{"standard is green", "standard", lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Added))},
+		{"low is amber", "low", lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn))},
+		{"unknown is dim", "weird", styles.FgDim},
+		{"empty is dim", "", styles.FgDim},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := orchestrationLevelStyle(tt.level, styles)
+			const probe = "x"
+			if got.Render(probe) != tt.want.Render(probe) {
+				t.Errorf("orchestrationLevelStyle(%q).Render(%q) = %q, want %q", tt.level, probe, got.Render(probe), tt.want.Render(probe))
+			}
+		})
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
@@ -122,6 +123,8 @@ type Model struct {
 	skillDescriptions   map[string]string
 	mcpEnabled          bool
 	lspEnabled          bool
+	subAgentsEnabled    bool
+	orchestrationLevel  config.OrchestrationLevel
 	mcpServers          []MCPServerStatus
 	lspServers          []LSPServerStatus
 	mcpToolOrigins      map[string]MCPToolOrigin

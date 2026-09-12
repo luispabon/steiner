@@ -65,10 +65,9 @@ func cardFieldN(key string, keyWidth int, valStyle lipgloss.Style, value string,
 
 // cardFieldAccent renders a field row whose key uses the accent card-label
 // style (same as the REPOSITORY/PERFORMANCE headers) instead of the faint key
-// style, keeping the value inline. The key is padded to the status trio's
-// fixed 8-column width (SANDBOX/SKILL/MCP).
-func cardFieldAccent(key string, valStyle lipgloss.Style, value string, styles *theme.Styles) string {
-	const keyWidth = 8
+// style, keeping the value inline. The key is padded to the status block's
+// shared key width (SANDBOX/ORCHESTRATION/SKILL/MCP/LSP).
+func cardFieldAccent(key string, keyWidth int, valStyle lipgloss.Style, value string, styles *theme.Styles) string {
 	keyStyle := styles.CardLabel.Background(lipgloss.Color(styles.Palette.SidebarBG))
 	valStyleWithBg := valStyle.Background(lipgloss.Color(styles.Palette.SidebarBG))
 	keyStr := keyStyle.Render(fmt.Sprintf("%-*s", keyWidth, key))

@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -317,6 +318,13 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.status.execMode = m.mode
 	m.sidebar.sandboxStatus = cfg.SandboxStatus
 	m.status.sandboxStatus = cfg.SandboxStatus
+	m.subAgentsEnabled = cfg.SubAgentsEnabled
+	m.orchestrationLevel = config.OrchestrationLevel(cfg.OrchestrationLevel)
+	if cfg.SubAgentsEnabled {
+		m.sidebar.orchestrationLevel = cfg.OrchestrationLevel
+	} else {
+		m.sidebar.orchestrationLevel = ""
+	}
 	if cfg.SandboxStatus != "" && cfg.SandboxStatus != "active" {
 		var msg string
 		switch cfg.SandboxStatus {

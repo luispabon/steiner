@@ -100,18 +100,35 @@ func sandboxStatusStyle(status string, styles *theme.Styles) lipgloss.Style {
 	}
 }
 
-// statusSection renders the compact sandbox/skill/MCP status trio. Returns
-// nil when all three are absent, so no stray blank line is emitted.
+// orchestrationLevelStyle returns the colour for an orchestration level
+// value: green for standard, amber for low, dim otherwise.
+func orchestrationLevelStyle(level string, styles *theme.Styles) lipgloss.Style {
+	switch level {
+	case "standard":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Added))
+	case "low":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Warn))
+	default:
+		return styles.FgDim
+	}
+}
+
+// statusSection renders the compact sandbox/orchestration/skill/MCP/LSP
+// status block. Returns nil when all rows are absent, so no stray blank line
+// is emitted.
 func (s sidebarState) statusSection(width int) []string {
-	const keyW = 8
+	const keyW = 14
 	fgBright := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 
 	var rows []string
 	if status := strings.TrimSpace(s.sandboxStatus); status != "" {
-		rows = append(rows, cardFieldAccent("SANDBOX", sandboxStatusStyle(status, s.styles), fitText(status, width-keyW), s.styles))
+		rows = append(rows, cardFieldAccent("SANDBOX", keyW, sandboxStatusStyle(status, s.styles), fitText(status, width-keyW), s.styles))
+	}
+	if level := strings.TrimSpace(s.orchestrationLevel); level != "" {
+		rows = append(rows, cardFieldAccent("ORCHESTRATION", keyW, orchestrationLevelStyle(level, s.styles), fitText(level, width-keyW), s.styles))
 	}
 	if skill := strings.TrimSpace(s.activeSkill); skill != "" {
-		rows = append(rows, cardFieldAccent("SKILL", fgBright, fitText(skill, width-keyW), s.styles))
+		rows = append(rows, cardFieldAccent("SKILL", keyW, fgBright, fitText(skill, width-keyW), s.styles))
 	}
 	if spinner, count := s.mcpRow(); count != "" {
 		mcpStyle := fgBright
@@ -119,11 +136,11 @@ func (s sidebarState) statusSection(width int) []string {
 			mcpStyle = s.styles.ErrorStyle
 		}
 		if spinner != "" {
-			row := cardFieldAccent("MCP", s.styles.FgMute, spinner+" ", s.styles) +
+			row := cardFieldAccent("MCP", keyW, s.styles.FgMute, spinner+" ", s.styles) +
 				s.styledWithBg(mcpStyle, count)
 			rows = append(rows, row)
 		} else {
-			rows = append(rows, cardFieldAccent("MCP", mcpStyle, count, s.styles))
+			rows = append(rows, cardFieldAccent("MCP", keyW, mcpStyle, count, s.styles))
 		}
 	}
 	if spinner, text := s.lspRow(width - keyW); text != "" {
@@ -135,11 +152,11 @@ func (s sidebarState) statusSection(width int) []string {
 			lspStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Added))
 		}
 		if spinner != "" {
-			row := cardFieldAccent("LSP", s.styles.FgMute, spinner+" ", s.styles) +
+			row := cardFieldAccent("LSP", keyW, s.styles.FgMute, spinner+" ", s.styles) +
 				s.styledWithBg(lspStyle, text)
 			rows = append(rows, row)
 		} else {
-			rows = append(rows, cardFieldAccent("LSP", lspStyle, text, s.styles))
+			rows = append(rows, cardFieldAccent("LSP", keyW, lspStyle, text, s.styles))
 		}
 	}
 	if len(rows) == 0 {

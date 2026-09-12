@@ -51,6 +51,7 @@ type sidebarState struct {
 	sessionElapsedSec     int64
 	oneshotPhase          string
 	sandboxStatus         string
+	orchestrationLevel    string
 	execMode              string // execution mode: "plan" or "build"
 	mcpConnected          int
 	mcpTotal              int

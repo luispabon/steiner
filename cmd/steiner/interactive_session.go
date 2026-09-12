@@ -206,6 +206,8 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		SandboxStatus:       rt.sandboxStatus,
 		ConfigWarnings:      rt.configWarnings,
 		WorktreeCleanup:     rt.worktreeCleanup,
+		SubAgentsEnabled:    rt.cfg.SubAgent.Enabled,
+		OrchestrationLevel:  string(sess.OrchestrationLevel()),
 	}
 	if rt.sessionStore != nil {
 		tuiCfg.SessionStore = rt.sessionStore
