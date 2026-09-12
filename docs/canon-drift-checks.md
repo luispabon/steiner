@@ -38,6 +38,8 @@ The substantive overlap is pinned by the oneshot/skill shared block check above.
 
 Only `delegationInstructions` in `internal/prompt/system.go`, and the template it renders, `internal/prompt/templates/delegation.md.tmpl`, are delegation canon. Parent and delegated-child methodology in `workflow_approval.md.tmpl` is shared execution guidance, not delegation canon. Custom system-prompt overrides retain this workflow methodology around the override text while replacing the other shared preamble sections. The other preamble templates — `core_rules.md.tmpl`, `advisor.md.tmpl`, `execution_modes.md.tmpl`, `sandbox.md.tmpl` — and the agent-type prompt templates in `internal/delegation/templates/` are out of scope. The boundary is drawn at `delegationInstructions` because that's where the observed drift in #445 occurred, and because it has the most distinctive vocabulary (specialist names, routing rules, tool names) to check against.
 
+`delegation.md.tmpl` contains two level-guarded sections, `## Your role` and `## Delegation vs direct work`, that are omitted when `sub_agent.orchestration_level: low`; the remaining sections (roster, continuing sub-agents, briefing) render at every level.
+
 The compact configuration reference lives only in `skills/configure/SKILL.md`, which owns the bundled skill's self-contained copy. `skills/configure_test.go` verifies real embedded discovery, exactly one reference heading, the 12,288-byte limit, and coverage of reflected `config.Config` schema paths. The bundled skill budget check above ensures every bundled skill fits the shared assembly budget without truncation.
 
 ## Consumer files

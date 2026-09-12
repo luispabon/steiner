@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tool"
@@ -17,6 +18,7 @@ type baseContextManager struct {
 		content               string
 		override              string
 		delegationEnabled     bool
+		orchestrationLevel    config.OrchestrationLevel
 		advisorEnabled        bool
 		lspEnabled            bool
 		workflowMode          prompt.WorkflowMode
@@ -29,10 +31,17 @@ type baseContextManager struct {
 	events         output.EventSink
 }
 
-func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, advisorEnabled bool, lspEnabled bool, workflowMode prompt.WorkflowMode, caveHuman bool, systemSuffix string, sandboxEnabled bool, sandboxWritableMounts []string) string {
+// CachedSystemPreamble returns the memoized system preamble for the given
+// inputs, rebuilding it only when one of them changes since the last call.
+// This keeps the preamble byte-identical across turns within a session,
+// which is required for prompt-cache reuse; orchestrationLevel changing
+// (e.g. via a mid-session /orchestration switch) is one of the inputs that
+// invalidates the cache like any other.
+func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, orchestrationLevel config.OrchestrationLevel, advisorEnabled bool, lspEnabled bool, workflowMode prompt.WorkflowMode, caveHuman bool, systemSuffix string, sandboxEnabled bool, sandboxWritableMounts []string) string {
 	if b.cachedPreamble.content == "" ||
 		b.cachedPreamble.override != override ||
 		b.cachedPreamble.delegationEnabled != delegationEnabled ||
+		b.cachedPreamble.orchestrationLevel != orchestrationLevel ||
 		b.cachedPreamble.advisorEnabled != advisorEnabled ||
 		b.cachedPreamble.lspEnabled != lspEnabled ||
 		b.cachedPreamble.workflowMode != workflowMode ||
@@ -43,6 +52,7 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		b.cachedPreamble.content = prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{
 			Override:              override,
 			DelegationEnabled:     delegationEnabled,
+			OrchestrationLevel:    orchestrationLevel,
 			AdvisorEnabled:        advisorEnabled,
 			LSPEnabled:            lspEnabled,
 			Mode:                  workflowMode,
@@ -53,6 +63,7 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		}).Content
 		b.cachedPreamble.override = override
 		b.cachedPreamble.delegationEnabled = delegationEnabled
+		b.cachedPreamble.orchestrationLevel = orchestrationLevel
 		b.cachedPreamble.advisorEnabled = advisorEnabled
 		b.cachedPreamble.lspEnabled = lspEnabled
 		b.cachedPreamble.workflowMode = workflowMode

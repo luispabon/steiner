@@ -3,6 +3,8 @@ package prompt
 import (
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 const (
@@ -437,7 +439,7 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 func TestDelegationCanonIndependentOfAdvisor(t *testing.T) {
 	t.Parallel()
 
-	canon := strings.TrimSpace(delegationInstructions())
+	canon := strings.TrimSpace(delegationInstructions(config.OrchestrationLevelStandard))
 	for _, advisor := range []bool{false, true} {
 		content := systemPreambleWithAdvisor(SystemPreambleParams{DelegationEnabled: true, AdvisorEnabled: advisor, Mode: workflowModeParent}).Content
 		if !strings.Contains(content, canon) {
