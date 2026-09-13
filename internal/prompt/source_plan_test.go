@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -21,6 +22,7 @@ func TestPlanSourceAssemblyOrdersSources(t *testing.T) {
 		{Kind: plannedSourceProjectContext, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceSkills, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourcePhasePrompt, Placement: plannedSourcePlacementCore, PassThrough: false},
+		{Kind: plannedSourceSessionDate, Placement: plannedSourcePlacementCore, PassThrough: false},
 		{Kind: plannedSourceConversation, Placement: plannedSourcePlacementConversation, PassThrough: true},
 	}
 
@@ -157,7 +159,7 @@ func TestPlanSourceAssemblyIsBudgetIndependent(t *testing.T) {
 
 // TestAssembleKeepsStaticSourcesBeforeDynamicSources pins the prompt cache
 // invariant: Assemble must emit static sources (preamble, agents, project
-// context, skills, phase prompt) ahead of dynamic ones (conversation), and
+// context, skills, phase prompt, session date) ahead of dynamic ones (conversation), and
 // must do so deterministically across calls.
 func TestAssembleKeepsStaticSourcesBeforeDynamicSources(t *testing.T) {
 	t.Parallel()
@@ -424,6 +426,236 @@ func TestPlanSourceAssemblyProjectAgentsPathOverridesProjectRoot(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("project agents block count = %d, want 1", count)
+	}
+}
+
+func TestSessionDateIncludedBeforeConversation(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	skillsRoot := t.TempDir()
+	mustWrite(t, filepath.Join(skillsRoot, "test"), "SKILL.md", "skill content")
+
+	sessionDate := NewSessionDate(time.Date(2026, 9, 13, 12, 30, 0, 0, time.FixedZone("BST", 3600)))
+
+	assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
+		HomeDir:     homeDir,
+		SkillsRoots: []string{skillsRoot},
+		SkillNames:  []string{"test"},
+		SessionDate: sessionDate,
+		Conversation: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: "conversation turn"},
+		},
+	})
+
+	var dateBlock *ContextBlock
+	for i := range assembly.Blocks {
+		if assembly.Blocks[i].Source == ContextSourceSessionDate {
+			dateBlock = &assembly.Blocks[i]
+			break
+		}
+	}
+	if dateBlock == nil {
+		t.Fatal("session date block not found")
+	}
+	if want := "Current date: 2026-09-13 (BST, UTC+01:00), recorded when this session started."; dateBlock.Content != want {
+		t.Fatalf("session date content = %q, want %q", dateBlock.Content, want)
+	}
+
+	conversationIdx := messageIndexContaining(assembly.Messages, "conversation turn")
+	if conversationIdx < 0 {
+		t.Fatal("conversation message not found")
+	}
+	if conversationIdx < 1 {
+		t.Fatalf("conversation message at position %d, want position >= 1", conversationIdx)
+	}
+}
+
+func TestSessionDateWithPhasePromptCreatesOwnMessage(t *testing.T) {
+	t.Parallel()
+
+	sessionDate := NewSessionDate(time.Date(2026, 9, 13, 12, 30, 0, 0, time.FixedZone("BST", 3600)))
+
+	assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
+		PhasePrompt: "phase instructions",
+		SessionDate: sessionDate,
+		Conversation: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: "conversation turn"},
+		},
+	})
+
+	blocks := blockSources(assembly.Blocks)
+	wantBlocks := []ContextSource{
+		ContextSourcePreamble,
+		ContextSourcePhasePrompt,
+		ContextSourceSessionDate,
+	}
+	if !sourcesEqual(blocks, wantBlocks) {
+		t.Fatalf("block sources = %v, want %v", blocks, wantBlocks)
+	}
+
+	phaseIdx := messageIndexContaining(assembly.Messages, "phase instructions")
+	dateIdx := messageIndexContaining(assembly.Messages, "Current date")
+	conversationIdx := messageIndexContaining(assembly.Messages, "conversation turn")
+
+	if phaseIdx < 0 || dateIdx < 0 || conversationIdx < 0 {
+		t.Fatalf("missing messages: phase=%d date=%d conversation=%d", phaseIdx, dateIdx, conversationIdx)
+	}
+	if phaseIdx >= dateIdx || dateIdx >= conversationIdx {
+		t.Fatalf("message order phase=%d date=%d conversation=%d, want phase < date < conversation", phaseIdx, dateIdx, conversationIdx)
+	}
+}
+
+func TestSessionDateZeroValueOmitsBlock(t *testing.T) {
+	t.Parallel()
+
+	optionsWithoutDate := AssemblyOptions{
+		Conversation: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: "user message"},
+		},
+	}
+
+	optionsWithZeroDate := AssemblyOptions{
+		SessionDate: SessionDate{},
+		Conversation: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: "user message"},
+		},
+	}
+
+	assemblyWithout, err := newAssembler(optionsWithoutDate)
+	if err != nil {
+		t.Fatalf("newAssembler(without) error = %v", err)
+	}
+	resultWithout, err := assemblyWithout.Assemble(context.Background())
+	if err != nil {
+		t.Fatalf("Assemble(without) error = %v", err)
+	}
+
+	assemblyWithZero, err := newAssembler(optionsWithZeroDate)
+	if err != nil {
+		t.Fatalf("newAssembler(withZero) error = %v", err)
+	}
+	resultWithZero, err := assemblyWithZero.Assemble(context.Background())
+	if err != nil {
+		t.Fatalf("Assemble(withZero) error = %v", err)
+	}
+
+	if !reflect.DeepEqual(resultWithout.Messages, resultWithZero.Messages) {
+		t.Fatal("Assemble() differs for zero SessionDate: zero-value must be omitted")
+	}
+	if !reflect.DeepEqual(resultWithout.Blocks, resultWithZero.Blocks) {
+		t.Fatal("Assemble() blocks differ for zero SessionDate: zero-value must be omitted")
+	}
+}
+
+func TestSessionDateBypassesBudget(t *testing.T) {
+	t.Parallel()
+
+	skillsRoot := t.TempDir()
+	largeSkillContent := strings.Repeat("x", 2000)
+	mustWrite(t, filepath.Join(skillsRoot, "large"), "SKILL.md", largeSkillContent)
+
+	sessionDate := NewSessionDate(time.Date(2026, 9, 13, 12, 30, 0, 0, time.UTC))
+
+	assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
+		SkillsRoots: []string{skillsRoot},
+		SkillNames:  []string{"large"},
+		SessionDate: sessionDate,
+		Policy: AssemblyPolicy{
+			Budgets: SourceBudgetModel{
+				SkillBytes: 1,
+			},
+		},
+	})
+
+	var dateBlock *ContextBlock
+	var skillBlock *ContextBlock
+	for i := range assembly.Blocks {
+		if assembly.Blocks[i].Source == ContextSourceSessionDate {
+			dateBlock = &assembly.Blocks[i]
+		}
+		if assembly.Blocks[i].Source == ContextSourceSkill {
+			skillBlock = &assembly.Blocks[i]
+		}
+	}
+
+	if dateBlock == nil {
+		t.Fatal("session date block not found")
+	}
+	wantDateContent := "Current date: 2026-09-13 (UTC, UTC+00:00), recorded when this session started."
+	if dateBlock.Content != wantDateContent {
+		t.Fatalf("session date content = %q, want %q", dateBlock.Content, wantDateContent)
+	}
+	if dateBlock.Truncated {
+		t.Fatal("session date block unexpectedly truncated despite bypass budget")
+	}
+
+	if skillBlock == nil {
+		t.Fatal("skill block not found")
+	}
+	if !skillBlock.Truncated || skillBlock.ByteSize >= len(largeSkillContent) {
+		t.Fatalf("skill block not truncated as expected; content_size=%d full_size=%d truncated=%t", skillBlock.ByteSize, len(largeSkillContent), skillBlock.Truncated)
+	}
+}
+
+func TestSessionDateStabilityAcrossConversationLengths(t *testing.T) {
+	t.Parallel()
+
+	skillsRoot := t.TempDir()
+	mustWrite(t, filepath.Join(skillsRoot, "test"), "SKILL.md", "skill content")
+
+	sessionDate := NewSessionDate(time.Date(2026, 9, 13, 12, 30, 0, 0, time.UTC))
+
+	baseOpts := AssemblyOptions{
+		SkillsRoots: []string{skillsRoot},
+		SkillNames:  []string{"test"},
+		SessionDate: sessionDate,
+	}
+
+	opts1 := baseOpts
+	opts1.Conversation = []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "short message"},
+	}
+
+	opts2 := baseOpts
+	opts2.Conversation = []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "short message"},
+		{Role: provider.MessageRoleAssistant, Content: strings.Repeat("long response content ", 50)},
+		{Role: provider.MessageRoleUser, Content: "follow-up question"},
+	}
+
+	assembly1, err := newAssembler(opts1)
+	if err != nil {
+		t.Fatalf("newAssembler(1) error = %v", err)
+	}
+	result1, err := assembly1.Assemble(context.Background())
+	if err != nil {
+		t.Fatalf("Assemble(1) error = %v", err)
+	}
+
+	assembly2, err := newAssembler(opts2)
+	if err != nil {
+		t.Fatalf("newAssembler(2) error = %v", err)
+	}
+	result2, err := assembly2.Assemble(context.Background())
+	if err != nil {
+		t.Fatalf("Assemble(2) error = %v", err)
+	}
+
+	conversationStartIdx1 := messageIndexContaining(result1.Messages, "short message")
+	conversationStartIdx2 := messageIndexContaining(result2.Messages, "short message")
+
+	if conversationStartIdx1 < 0 || conversationStartIdx2 < 0 {
+		t.Fatalf("conversation not found: idx1=%d idx2=%d", conversationStartIdx1, conversationStartIdx2)
+	}
+
+	for i := 0; i < conversationStartIdx1; i++ {
+		if result1.Messages[i].Content != result2.Messages[i].Content {
+			t.Fatalf("static prefix differs at message %d: %q vs %q", i, result1.Messages[i].Content, result2.Messages[i].Content)
+		}
+		if result1.Messages[i].Role != result2.Messages[i].Role {
+			t.Fatalf("static prefix role differs at message %d: %q vs %q", i, result1.Messages[i].Role, result2.Messages[i].Role)
+		}
 	}
 }
 

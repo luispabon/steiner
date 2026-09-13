@@ -77,10 +77,10 @@ func (plan sourcePlan) render(ctx context.Context, policy AssemblyPolicy, opts A
 }
 
 func applyBudget(tracker *budgetTracker, source ContextSource, content string) (string, bool, bool) {
-	// The system preamble, phase prompt, and AGENTS.md are never budgeted:
-	// full content is always delivered.
+	// The system preamble, phase prompt, AGENTS.md, and session date are never
+	// budgeted: full content is always delivered.
 	switch source {
-	case ContextSourcePreamble, ContextSourcePhasePrompt, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
+	case ContextSourcePreamble, ContextSourcePhasePrompt, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD, ContextSourceSessionDate:
 		return content, false, true
 	}
 	if content == "" {
@@ -107,8 +107,8 @@ func blockMessage(block ContextBlock) provider.Message {
 	case ContextSourceConversationSummary:
 		message.Role = provider.MessageRoleSystem
 	default:
-		// Durable context intentionally stays user-scoped here; the interactive
-		// context report uses a different role mapping for block matching.
+		// Durable context and session date intentionally stay user-scoped here;
+		// the interactive context report uses a different role mapping for block matching.
 		message.Role = provider.MessageRoleUser
 	}
 
