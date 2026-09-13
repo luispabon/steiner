@@ -106,6 +106,47 @@ func TestNewSessionWithSkillNames(t *testing.T) {
 	}
 }
 
+func TestNewSessionCapturesSessionDate(t *testing.T) {
+	t.Parallel()
+	s, err := NewSession(Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	sessionDate := s.SessionDate()
+	if sessionDate.IsZero() {
+		t.Fatal("SessionDate is zero, expected non-zero value")
+	}
+}
+
+func TestSessionDateIsCached(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2026, 9, 13, 15, 30, 45, 0, time.UTC)
+	advancedTime := baseTime.Add(time.Hour)
+
+	s, err := NewSession(Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	s.mu.Lock()
+	s.now = func() time.Time { return baseTime }
+	s.sessionDate = prompt.NewSessionDate(s.now())
+	s.mu.Unlock()
+
+	date1 := s.SessionDate()
+
+	s.mu.Lock()
+	s.now = func() time.Time { return advancedTime }
+	s.mu.Unlock()
+
+	date2 := s.SessionDate()
+
+	if date1 != date2 {
+		t.Fatal("expected SessionDate() to return cached value, not re-read from now()")
+	}
+}
+
 func TestActiveRunControllerInterrupt(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -632,6 +673,41 @@ func TestRotateSession(t *testing.T) {
 			t.Fatalf("session ID changed from %q to %q with nil store", oldID, s.SessionID())
 		}
 	})
+}
+
+func TestRotateSessionReCapturesSessionDate(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2026, 9, 13, 15, 30, 45, 0, time.UTC)
+	advancedTime := baseTime.Add(time.Hour)
+
+	s := testNewSession(t, Dependencies{
+		SessionStore: newMockSessionStore(),
+		Config: config.Config{
+			Models: config.ModelsConfig{
+				Effective:   config.EffectiveModelAssignments{DefaultModel: "test", ActiveOrchestratorModel: "test"},
+				Definitions: map[string]config.ModelConfig{"test": {ID: "test-model"}},
+			},
+		},
+	})
+
+	s.mu.Lock()
+	s.now = func() time.Time { return baseTime }
+	s.sessionDate = prompt.NewSessionDate(s.now())
+	s.mu.Unlock()
+
+	s.mu.Lock()
+	s.now = func() time.Time { return advancedTime }
+	s.mu.Unlock()
+
+	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+		t.Fatalf("RotateSession: %v", err)
+	}
+
+	newDate := s.SessionDate()
+	expectedDate := prompt.NewSessionDate(advancedTime)
+	if !reflect.DeepEqual(newDate, expectedDate) {
+		t.Fatalf("SessionDate = %v, want %v", newDate, expectedDate)
+	}
 }
 
 func TestSubmitPromptAppendsUserMessage(t *testing.T) {
@@ -2152,6 +2228,53 @@ func TestLoadSessionReplacesConversation(t *testing.T) {
 	}
 	if !foundUserInputEvent {
 		t.Fatalf("events = %#v, want UserInput event", events)
+	}
+}
+
+func TestLoadSessionReCapturesSessionDate(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2026, 9, 13, 15, 30, 45, 0, time.UTC)
+	advancedTime := baseTime.Add(2 * time.Hour)
+
+	mockStore := newMockSessionStore()
+	mockSession := session.Session{
+		ID:    "load-date-session",
+		Title: "Date Load Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID:       1,
+					Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "test"}},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+	mockStore.loadedSessions["load-date-session"] = mockSession
+
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+	})
+
+	s.mu.Lock()
+	s.now = func() time.Time { return baseTime }
+	s.sessionDate = prompt.NewSessionDate(s.now())
+	s.mu.Unlock()
+
+	s.mu.Lock()
+	s.now = func() time.Time { return advancedTime }
+	s.mu.Unlock()
+
+	err := s.Handle(context.Background(), LoadSession{SessionID: "load-date-session"})
+	if err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	newDate := s.SessionDate()
+	expectedDate := prompt.NewSessionDate(advancedTime)
+	if !reflect.DeepEqual(newDate, expectedDate) {
+		t.Fatalf("SessionDate = %v, want %v", newDate, expectedDate)
 	}
 }
 

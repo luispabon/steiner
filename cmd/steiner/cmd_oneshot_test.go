@@ -264,6 +264,27 @@ func TestPhaseParamsCarriesOrchestrationLevel(t *testing.T) {
 	}
 }
 
+func TestPhaseRunnerFactoryCarriesSessionDate(t *testing.T) {
+	fixture, _ := time.Parse("2006-01-02", "2024-01-15")
+	sessionDate := prompt.NewSessionDate(fixture)
+
+	factory := phaseRunnerFactory{
+		sessionDate: sessionDate,
+	}
+
+	for _, phase := range []oneshot.Phase{oneshot.PhasePlan, oneshot.PhaseImplement, oneshot.PhaseReview} {
+		t.Run(string(phase), func(t *testing.T) {
+			params, err := factory.phaseParams(phase, "", nil, config.AdvisorConfig{})
+			if err != nil {
+				t.Fatalf("phaseParams failed: %v", err)
+			}
+			if params.SessionDate != sessionDate {
+				t.Errorf("phaseParams(%s).SessionDate = %v, want %v", phase, params.SessionDate, sessionDate)
+			}
+		})
+	}
+}
+
 func TestRequireSubAgentsForOneshot(t *testing.T) {
 	testCases := []struct {
 		name    string

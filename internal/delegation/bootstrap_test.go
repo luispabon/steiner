@@ -1735,3 +1735,35 @@ func TestBuildChildRunSandboxTmpDir(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildChildPromptCarriesSessionDate(t *testing.T) {
+	t.Parallel()
+
+	testTime := time.Date(2026, 9, 13, 10, 30, 0, 0, time.UTC)
+	sessionDate := prompt.NewSessionDate(testTime)
+
+	promptOpts := buildChildPrompt(childPromptParams{
+		spec:        Spec{Task: "test task"},
+		workDir:     "/tmp/work",
+		homeDir:     "/home/user",
+		sessionDate: sessionDate,
+	})
+
+	if !reflect.DeepEqual(promptOpts.SessionDate, sessionDate) {
+		t.Errorf("SessionDate = %v, want %v", promptOpts.SessionDate, sessionDate)
+	}
+}
+
+func TestBuildChildPromptSessionDateZero(t *testing.T) {
+	t.Parallel()
+
+	promptOpts := buildChildPrompt(childPromptParams{
+		spec:    Spec{Task: "test task"},
+		workDir: "/tmp/work",
+		homeDir: "/home/user",
+	})
+
+	if !promptOpts.SessionDate.IsZero() {
+		t.Errorf("SessionDate = %v, want zero value", promptOpts.SessionDate)
+	}
+}

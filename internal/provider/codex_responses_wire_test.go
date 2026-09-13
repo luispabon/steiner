@@ -331,3 +331,58 @@ func TestReasoningWirePayload(t *testing.T) {
 		t.Fatalf("payload[\"summary\"] = %v, want %v", got, want)
 	}
 }
+
+func TestResponsesRequestWire_UserMessageFollowsSystemMessage(t *testing.T) {
+	req := ChatRequest{
+		Model: "gpt-4",
+		Messages: []Message{
+			{
+				Role:    MessageRoleSystem,
+				Content: "You are a helpful assistant",
+			},
+			{
+				Role:    MessageRoleUser,
+				Content: "Session date: 2026-09-13",
+			},
+			{
+				Role:    MessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	wire, err := responsesRequestWire(req, "gpt-4", false)
+	if err != nil {
+		t.Fatalf("responsesRequestWire() error = %v", err)
+	}
+
+	if got, want := wire.Instructions, "You are a helpful assistant"; got != want {
+		t.Fatalf("instructions = %q, want %q", got, want)
+	}
+
+	if len(wire.Input) != 2 {
+		t.Fatalf("input items = %d, want 2", len(wire.Input))
+	}
+
+	firstItem := wire.Input[0]
+	if got, want := firstItem.Role, "user"; got != want {
+		t.Fatalf("input[0].role = %q, want %q", got, want)
+	}
+	if len(firstItem.Content) == 0 {
+		t.Fatal("input[0] has no content")
+	}
+	if got, want := firstItem.Content[0].Text, "Session date: 2026-09-13"; got != want {
+		t.Fatalf("input[0].content text = %q, want %q", got, want)
+	}
+
+	secondItem := wire.Input[1]
+	if got, want := secondItem.Role, "user"; got != want {
+		t.Fatalf("input[1].role = %q, want %q", got, want)
+	}
+	if len(secondItem.Content) == 0 {
+		t.Fatal("input[1] has no content")
+	}
+	if got, want := secondItem.Content[0].Text, "Hello"; got != want {
+		t.Fatalf("input[1].content text = %q, want %q", got, want)
+	}
+}

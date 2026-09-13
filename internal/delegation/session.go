@@ -7,6 +7,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/usagestats"
@@ -55,6 +56,9 @@ type SubAgentHandlerDeps struct {
 	// forwarded to child prompts so their system preamble renders the same
 	// sandbox section as the parent.
 	SandboxWritableMounts []string
+	// SessionDate is the parent's session date, forwarded to child prompts so
+	// they inherit the same session start time as the parent.
+	SessionDate prompt.SessionDate
 	// Sandbox is the parent's sandbox wrapper, threaded to child executors so
 	// they sandbox commands identically to the parent. Must not be nil
 	// (tool.Unsandboxed{} when sandboxing is off).

@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 )
@@ -79,6 +80,7 @@ func (s *Session) rotateSession(group string, updateGroup bool) error {
 	}
 	s.sessionID = id
 	s.promptCacheKey = id
+	s.sessionDate = prompt.NewSessionDate(s.now())
 	s.sessionTitle = ""
 	if updateGroup {
 		s.sessionGroup = strings.TrimSpace(group)
@@ -118,6 +120,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.conversation = sess.Lineage.FullMessages()
 	s.sessionID = sess.ID
 	s.promptCacheKey = sess.CacheKey()
+	s.sessionDate = prompt.NewSessionDate(s.now())
 	s.sessionTitle = sess.Title
 	s.sessionGroup = strings.TrimSpace(sess.Group)
 	s.mode = mode

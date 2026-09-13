@@ -97,6 +97,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		skipAgents:         skipAgents,
 		sandboxEnabled:     deps.SandboxEnabled,
 		writableMounts:     deps.SandboxWritableMounts,
+		sessionDate:        deps.SessionDate,
 		workflowMode:       childWorkflowMode(override.AgentType),
 	})
 
@@ -183,6 +184,7 @@ func buildChildPrompt(p childPromptParams) prompt.AssemblyOptions {
 		CaveHuman:                 p.caveHuman,
 		SandboxEnabled:            p.sandboxEnabled,
 		SandboxWritableMounts:     append([]string(nil), p.writableMounts...),
+		SessionDate:               p.sessionDate,
 		WorkflowMode:              p.workflowMode,
 		Conversation: []provider.Message{
 			msg,
@@ -213,6 +215,7 @@ type childPromptParams struct {
 	skipAgents         bool
 	sandboxEnabled     bool
 	writableMounts     []string
+	sessionDate        prompt.SessionDate
 }
 
 // buildChildToolRegistry creates a new tool registry from the parent registry,

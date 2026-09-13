@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -44,6 +45,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	if err != nil {
 		return err
 	}
+	sessionDate := prompt.NewSessionDate(time.Now())
 	_, err = cliRunner{
 		runtime: rt,
 		approver: agent.NewEventingApprover(
@@ -55,6 +57,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		streamingPreferred: flags.enableStreaming,
 		promptCacheKeyFn:   func() string { return promptCacheKey },
 		sessionIDFn:        func() string { return promptCacheKey },
+		sessionDateFn:      func() prompt.SessionDate { return sessionDate },
 		staticContext:      &prompt.StaticContextCache{},
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil, nil)
 	if err != nil {

@@ -294,6 +294,7 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		CaveHuman:                 r.runtime.cfg.CaveHuman,
 		CachedStaticContext:       r.staticContext,
 		StaticContextScope:        r.sessionID(),
+		SessionDate:               r.sessionDate(),
 	}
 }
 

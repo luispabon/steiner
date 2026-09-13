@@ -587,6 +587,7 @@ func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, project
 			rootDir:            projectRoot,
 			identity:           identity,
 			events:             events,
+			sessionDate:        prompt.NewSessionDate(time.Now()),
 			currentEffective:   currentEffective,
 			orchestrationLevel: orchestrationLevel,
 		}
@@ -603,6 +604,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		currentReasoningOverride: sess.CurrentReasoningOverride,
 		promptCacheKeyFn:         sess.PromptCacheKey,
 		sessionIDFn:              sess.SessionID,
+		sessionDateFn:            sess.SessionDate,
 		modeGetterFunc:           sess.Mode,
 		orchestrationLevelFn:     sess.OrchestrationLevel,
 		staticContext:            &prompt.StaticContextCache{},

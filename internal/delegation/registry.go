@@ -12,6 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tool/builtin"
@@ -78,6 +79,9 @@ type DelegateDeps struct {
 	// sandbox section as the parent. Derived from the parent's config at the
 	// composition root in cmd/steiner.
 	SandboxWritableMounts []string
+	// SessionDate is the parent's session date, forwarded to child prompts so
+	// they inherit the same session start time as the parent.
+	SessionDate prompt.SessionDate
 	// Sandbox is the parent's sandbox wrapper, threaded to child executors so
 	// they sandbox commands identically to the parent. Derived from the
 	// parent's runtime sandbox at the composition root in cmd/steiner; must
@@ -286,6 +290,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		SandboxTmpDir:         deps.SandboxTmpDir,
 		SandboxEnabled:        deps.SandboxEnabled,
 		SandboxWritableMounts: deps.SandboxWritableMounts,
+		SessionDate:           deps.SessionDate,
 		Sandbox:               deps.Sandbox,
 		ModeGetter:            deps.ModeGetter,
 		CacheKeyStore:         deps.CacheKeyStore,
