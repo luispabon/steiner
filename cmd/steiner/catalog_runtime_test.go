@@ -324,6 +324,12 @@ func TestModelCatalogCodexChoicesReadChatGPTBackendCache(t *testing.T) {
 		if got := req.Header.Get("Authorization"); got != "Bearer oauth-token" {
 			t.Errorf("Codex discovery authorization = %q, want OAuth access token", got)
 		}
+		if got := req.Header.Get("ChatGPT-Account-ID"); got != "acct-123" {
+			t.Errorf("Codex discovery account header = %q, want acct-123", got)
+		}
+		if got := req.URL.Query().Get("client_version"); got != codexCatalogClientVersion {
+			t.Errorf("Codex discovery client_version = %q, want %q", got, codexCatalogClientVersion)
+		}
 		body := `{"models":[{"slug":"gpt-6-astra","display_name":"GPT-6 Astra","visibility":"list"},{"slug":"gpt-6-hidden","visibility":"hidden"}]}`
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}

@@ -21,6 +21,12 @@ import (
 // Platform API host used when the Codex token carries its own API key.
 const codexChatGPTBackendURL = "https://chatgpt.com/backend-api/codex"
 
+// codexCatalogClientVersion is the Codex client version reported during catalog
+// discovery. Codex gates catalog models on a compatible client version, so
+// discovery sends this fixed value instead of Steiner's build version ("dev"
+// for local builds).
+const codexCatalogClientVersion = "0.153.0"
+
 // buildModelCatalogService creates the shared model catalog service and its
 // provider endpoints. Discovery-disabled configurations retain a usable service
 // and popularity store, but do not expose endpoints or perform discovery work.
@@ -31,7 +37,7 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 
 	dispatcher := func(providerType string, client *http.Client) (modelcatalog.Enumerator, error) {
 		if providerType == string(config.ProviderTypeCodex) {
-			return modelcatalog.NewCodexEnumerator(client, version, codexCatalogCredentials), nil
+			return modelcatalog.NewCodexEnumerator(client, codexCatalogClientVersion, codexCatalogCredentials), nil
 		}
 		return modelcatalog.DefaultDispatcher(providerType, client)
 	}
