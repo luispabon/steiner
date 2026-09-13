@@ -29,6 +29,9 @@ const (
 	ContextSourceConversationSummary ContextSource = "conversation_summary"
 	// ContextSourceConversation identifies raw conversation message blocks.
 	ContextSourceConversation ContextSource = "conversation"
+	// ContextSourceSessionDate identifies the date and time context block inserted
+	// before the conversation.
+	ContextSourceSessionDate ContextSource = "session_date"
 )
 
 // IsSystemZone reports whether the source belongs to the system prompt zone.
@@ -153,6 +156,11 @@ type AssemblyOptions struct {
 
 	// CaveHuman makes the model speak tersely and avoid AI-writing tells.
 	CaveHuman bool
+
+	// SessionDate is the local date the session started, rendered as a
+	// user-role block after the static sources and before the conversation.
+	// The zero value omits the block.
+	SessionDate SessionDate
 
 	// SkipAgents skips the agentsStep during prompt assembly, omitting global and
 	// project AGENTS.md. Used for agents that cannot read the repo.

@@ -14,6 +14,7 @@ const (
 	plannedSourceAgents         plannedSourceKind = "agents"
 	plannedSourceProjectContext plannedSourceKind = "project_context"
 	plannedSourceSkills         plannedSourceKind = "skills"
+	plannedSourceSessionDate    plannedSourceKind = "session_date"
 	plannedSourceConversation   plannedSourceKind = "conversation"
 )
 
@@ -46,6 +47,7 @@ func (a assembler) planSourceAssembly() sourcePlan {
 			projectContextStep(opts, policy),
 			skillsStep(opts),
 			phasePromptStep(opts),
+			sessionDateStep(opts),
 			conversationStep(opts),
 		},
 	}
@@ -114,6 +116,27 @@ func phasePromptStep(opts AssemblyOptions) sourcePlanStep {
 			}
 			state.blocks = append(state.blocks, block)
 			state.messages = append(state.messages, blockMessage(block))
+			return nil
+		},
+	}
+}
+
+// sessionDateStep returns the step that appends the session date context.
+// Bypasses budget to ensure the date is always delivered.
+func sessionDateStep(opts AssemblyOptions) sourcePlanStep {
+	return sourcePlanStep{
+		Kind:      plannedSourceSessionDate,
+		Placement: plannedSourcePlacementCore,
+		Apply: func(_ context.Context, state *assemblyState) error {
+			if opts.SessionDate.IsZero() {
+				return nil
+			}
+			block := ContextBlock{
+				Source:   ContextSourceSessionDate,
+				Content:  opts.SessionDate.render(),
+				ByteSize: len(opts.SessionDate.render()),
+			}
+			state.appendBlock(block)
 			return nil
 		},
 	}
