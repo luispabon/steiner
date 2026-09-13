@@ -54,7 +54,7 @@ The tool/delegation summary budget machinery was removed from `internal/prompt`.
 
 The session date block is captured once when a session or standalone run begins, and is reused identically across every turn and phase within that identity. A new session (interactive rotation), load/resume, or fork causes a fresh capture; each oneshot run independently captures a fresh date once, then reuses it across all phases.
 
-The assembly step appends the date as a user-role message immediately after the phase prompt and before the conversation. It is never budgeted — the full block is always delivered (line 83 in `source_render.go::applyBudget`), even under context pressure.
+The assembly step appends the date as a user-role message immediately after the phase prompt and before the conversation. It is never budgeted — `applyBudget` in `source_render.go` exempts it, so the full block is always delivered even under context pressure.
 
 The block is user-role rather than system-role to avoid being hoisted into provider-specific system/instructions fields by Anthropic and Codex-compatible wire builders. This preserves prompt-cache reuse: the system preamble and tools remain cacheable even as the date line changes.
 
