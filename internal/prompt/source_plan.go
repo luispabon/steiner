@@ -131,10 +131,11 @@ func sessionDateStep(opts AssemblyOptions) sourcePlanStep {
 			if opts.SessionDate.IsZero() {
 				return nil
 			}
+			content := opts.SessionDate.render()
 			block := ContextBlock{
 				Source:   ContextSourceSessionDate,
-				Content:  opts.SessionDate.render(),
-				ByteSize: len(opts.SessionDate.render()),
+				Content:  content,
+				ByteSize: len(content),
 			}
 			state.appendBlock(block)
 			return nil

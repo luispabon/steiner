@@ -108,7 +108,6 @@ func TestNewSessionWithSkillNames(t *testing.T) {
 
 func TestNewSessionCapturesSessionDate(t *testing.T) {
 	t.Parallel()
-	baseTime := time.Date(2026, 9, 13, 15, 30, 45, 0, time.UTC)
 	s, err := NewSession(Dependencies{})
 	if err != nil {
 		t.Fatalf("NewSession failed: %v", err)
@@ -117,27 +116,6 @@ func TestNewSessionCapturesSessionDate(t *testing.T) {
 	sessionDate := s.SessionDate()
 	if sessionDate.IsZero() {
 		t.Fatal("SessionDate is zero, expected non-zero value")
-	}
-	_ = baseTime // used
-}
-
-func TestSessionDateWithInjectedClock(t *testing.T) {
-	t.Parallel()
-	baseTime := time.Date(2026, 9, 13, 15, 30, 45, 0, time.UTC)
-
-	s, err := NewSession(Dependencies{})
-	if err != nil {
-		t.Fatalf("NewSession failed: %v", err)
-	}
-
-	s.mu.Lock()
-	s.now = func() time.Time { return baseTime }
-	s.sessionDate = prompt.NewSessionDate(s.now())
-	s.mu.Unlock()
-
-	sessionDate := s.SessionDate()
-	if sessionDate.IsZero() {
-		t.Fatal("expected non-zero session date after capturing with injected clock")
 	}
 }
 
@@ -717,8 +695,6 @@ func TestRotateSessionReCapturesSessionDate(t *testing.T) {
 	s.sessionDate = prompt.NewSessionDate(s.now())
 	s.mu.Unlock()
 
-	origDate := s.SessionDate()
-
 	s.mu.Lock()
 	s.now = func() time.Time { return advancedTime }
 	s.mu.Unlock()
@@ -728,8 +704,9 @@ func TestRotateSessionReCapturesSessionDate(t *testing.T) {
 	}
 
 	newDate := s.SessionDate()
-	if newDate == origDate {
-		t.Fatal("expected SessionDate to be re-captured with advanced time after rotation")
+	expectedDate := prompt.NewSessionDate(advancedTime)
+	if !reflect.DeepEqual(newDate, expectedDate) {
+		t.Fatalf("SessionDate = %v, want %v", newDate, expectedDate)
 	}
 }
 
@@ -2285,8 +2262,6 @@ func TestLoadSessionReCapturesSessionDate(t *testing.T) {
 	s.sessionDate = prompt.NewSessionDate(s.now())
 	s.mu.Unlock()
 
-	origDate := s.SessionDate()
-
 	s.mu.Lock()
 	s.now = func() time.Time { return advancedTime }
 	s.mu.Unlock()
@@ -2297,8 +2272,9 @@ func TestLoadSessionReCapturesSessionDate(t *testing.T) {
 	}
 
 	newDate := s.SessionDate()
-	if newDate == origDate {
-		t.Fatal("expected SessionDate to be re-captured with advanced time after loading session")
+	expectedDate := prompt.NewSessionDate(advancedTime)
+	if !reflect.DeepEqual(newDate, expectedDate) {
+		t.Fatalf("SessionDate = %v, want %v", newDate, expectedDate)
 	}
 }
 

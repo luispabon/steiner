@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -673,16 +674,14 @@ func TestBuildDelegateRegistryAdvisorUsesConfigMaxUsesPerRun(t *testing.T) {
 	}
 }
 
-func TestBuildDelegateRegistryCopiesSessionDate(t *testing.T) {
+func TestBuildChildRunCarriesSessionDate(t *testing.T) {
 	t.Parallel()
 
 	testTime := time.Date(2026, 9, 13, 10, 30, 0, 0, time.UTC)
 	sessionDate := prompt.NewSessionDate(testTime)
 
-	// Verify that the SessionDate was passed through to SubAgentHandlerDeps
-	// by checking that a child run would receive it.
 	maxTokens := 1000
-	_, _, err := BuildChildRun(context.Background(), SubAgentHandlerDeps{
+	req, _, err := BuildChildRun(context.Background(), SubAgentHandlerDeps{
 		Provider:       stubProvider{},
 		ParentReg:      tool.NewRegistry(),
 		WorkDir:        "/tmp/work",
@@ -706,5 +705,9 @@ func TestBuildDelegateRegistryCopiesSessionDate(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("BuildChildRun error = %v", err)
+	}
+
+	if !reflect.DeepEqual(req.Prompt.SessionDate, sessionDate) {
+		t.Errorf("req.Prompt.SessionDate = %v, want %v", req.Prompt.SessionDate, sessionDate)
 	}
 }

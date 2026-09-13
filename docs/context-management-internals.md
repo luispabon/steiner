@@ -42,7 +42,7 @@ Each turn, steiner assembles the full context through a 7-step ordered plan. The
 | 6 | Session date | — | Yes |
 | 7 | Conversation history | — | No (pass-through) |
 
-Each step with a budget is tracked by a `budgetTracker`. When a source exceeds its allocation, content is truncated and a `Truncated` flag is set on the resulting `ContextBlock`. The system preamble, phase prompt, and AGENTS.md are never truncated.
+Each step with a budget is tracked by a `budgetTracker`. When a source exceeds its allocation, content is truncated and a `Truncated` flag is set on the resulting `ContextBlock`. The system preamble, phase prompt, AGENTS.md, and session date are never truncated.
 
 The three file-backed static sources (steps 2 to 4: AGENTS.md, project context files, skills) are read from disk once and reused. `internal/prompt` memoizes them in a `StaticContextCache` that the interactive, oneshot, and exec runners inject via `AssemblyOptions.CachedStaticContext` (the interactive runner keeps one for the session, oneshot uses a fresh cache per phase, and exec a fresh cache per run). Editing one of those files mid-session therefore does not change the assembled prefix. Each partition reloads on its own: the AGENTS.md and project-context partitions when their file-selecting inputs change, the skills partition when the enabled skill set changes, and every partition when `AssemblyOptions.StaticContextScope` (the session identity) changes. The system preamble (step 1) is memoized separately by `CachedSystemPreamble` and is not part of this cache.
 
@@ -54,7 +54,7 @@ The tool/delegation summary budget machinery was removed from `internal/prompt`.
 
 The session date block is captured once when a session or standalone run begins, and is reused identically across every turn and phase within that identity. A new session (interactive rotation), load/resume, or fork causes a fresh capture; each oneshot run independently captures a fresh date once, then reuses it across all phases.
 
-The assembly step appends the date as a user-role message immediately after the phase prompt and before the conversation. It is never budgeted — `applyBudget` in `source_render.go` exempts it, so the full block is always delivered even under context pressure.
+The assembly step appends the date as a user-role block after static sources and before the conversation. When a phase prompt precedes it (a system-role block), the date becomes its own separate user-role message following the phase prompt. When no phase prompt precedes but static user-role blocks (skills, project context) exist, the date is appended to the same message via the role-based merge logic in `renderBlocks`. It is never budgeted — `applyBudget` in `source_render.go` exempts it, so the full block is always delivered even under context pressure.
 
 The block is user-role rather than system-role to avoid being hoisted into provider-specific system/instructions fields by Anthropic and Codex-compatible wire builders. This preserves prompt-cache reuse: the system preamble and tools remain cacheable even as the date line changes.
 
