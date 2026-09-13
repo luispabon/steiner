@@ -20,6 +20,7 @@ func buildContextCategories(ctx context.Context, snapshot RequestContextSnapshot
 		{Title: "project AGENTS.md"},
 		{Title: "project context files"},
 		{Title: "enabled skills"},
+		{Title: "session date"},
 		{Title: "durable context"},
 		{Title: "conversation summary blocks"},
 		{Title: "conversation messages"},
@@ -177,7 +178,7 @@ func assemblyRoleForSource(source prompt.ContextSource) provider.MessageRole {
 	case prompt.ContextSourcePreamble, prompt.ContextSourcePhasePrompt, prompt.ContextSourceGlobalAgentsMD, prompt.ContextSourceProjectAgentsMD, prompt.ContextSourceConversationSummary:
 		return provider.MessageRoleSystem
 	default:
-		// ProjectContext, Skill, DurableContext, Conversation
+		// ProjectContext, SessionDate, Skill, DurableContext, Conversation
 		return provider.MessageRoleUser
 	}
 }
@@ -289,6 +290,8 @@ func classifyBlock(block prompt.ContextBlock) (string, string) {
 		return "project context files", blockPathLabel(block.Path, "project context file")
 	case prompt.ContextSourceSkill:
 		return "enabled skills", skillLabel(block.Path)
+	case prompt.ContextSourceSessionDate:
+		return "session date", "session date"
 	case prompt.ContextSourceDurableContext:
 		return "durable context", fallbackLabel(block.Path, "durable context")
 	case prompt.ContextSourceConversationSummary:
