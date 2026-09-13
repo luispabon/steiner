@@ -256,6 +256,9 @@ func TestOrchestrationConfirmModalCancelDoesNotDispatch(t *testing.T) {
 	if len(ctrl.switchOrchestrationLevelActions()) != 0 {
 		t.Fatal("dispatched SwitchOrchestrationLevel after cancel")
 	}
+	if m.orchestrationConfirm.IsOpen() {
+		t.Fatal("orchestrationConfirm.IsOpen() = true after cancel, want closed")
+	}
 	if m.pendingOrchestrationLevel != "" {
 		t.Fatalf("pendingOrchestrationLevel = %q, want cleared", m.pendingOrchestrationLevel)
 	}

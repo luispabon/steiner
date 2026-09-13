@@ -22,7 +22,7 @@ type confirmModalResult int
 
 const (
 	confirmModalResultPending   confirmModalResult = iota // modal still open
-	confirmModalResultChosen                              // enter: modal closed, read selectedAction()
+	confirmModalResultChosen                              // enter: modal still open, read selectedAction(); caller closes
 	confirmModalResultDismissed                           // esc: modal closed, nothing chosen
 )
 
