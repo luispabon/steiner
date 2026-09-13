@@ -321,8 +321,8 @@ func TestPromptAssemblyIncludesSessionDate(t *testing.T) {
 
 	r := cliRunner{
 		runtime: cliRuntime{
-			homeDir:      "/home/user",
-			projectRoot:  "/home/user/project",
+			homeDir:        "/home/user",
+			projectRoot:    "/home/user/project",
 			skillBundledFS: nil,
 			cfg: config.Config{
 				ProjectContext: config.ProjectContextConfig{MaxBytes: 1000},
