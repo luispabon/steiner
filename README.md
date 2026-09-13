@@ -253,7 +253,7 @@ Local LLMs have limited context windows — often measured in tens of thousands 
 
 **Delegation** is the primary strategy. Sub-agents isolate work from the parent conversation. The full turn-by-turn transcript of exploration, code changes, or research never enters the parent context at all — only the result comes back. This is the most effective mechanism because it prevents context growth rather than managing it after the fact.
 
-**Per-source byte budgets** cap project-context files and loaded skills during assembly; truncation is surfaced in the Context Report. Tool output is bounded at its source instead. **Compaction** kicks in when estimated prompt tokens reach 70% of the context window: older turns are summarised by the model into a compact durable prefix, then dropped from the live history.
+**Per-source byte budgets** cap project-context files and loaded skills during assembly; truncation is surfaced in the Context Report. Tool output is bounded at its source instead. **Compaction** kicks in when estimated prompt tokens reach 70% of the context window: older turns are summarised by the model into a compact durable prefix, then dropped from the live history. **Session date** — the calendar date when a session or run began — is captured once and reused identically across every turn without counting against context budgets, maximizing cache reuse as it changes.
 
 See [docs/context-management.md](docs/context-management.md) for the full reference.
 
