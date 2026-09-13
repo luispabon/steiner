@@ -174,7 +174,7 @@ type Model struct {
 	pollLSPStatesFunc            func() []LSPServerStatus
 	worktreePlan                 *WorktreeCleanupPlan
 	exitFlowPhase                int
-	worktreeCleanupModal         worktreeCleanupModalState
+	worktreeCleanupModal         confirmModalState
 	resolveReasoningForAliasFunc func(alias string) (provider.ReasoningCapabilities, string)
 	reasoningBatchResolved       bool
 	planPicker                   planPickerOverlay
@@ -184,7 +184,7 @@ type Model struct {
 	orchestrationConfirm         confirmModalState
 	pendingOrchestrationLevel    config.OrchestrationLevel
 	contextOverlay               contextOverlayState
-	exitModal                    exitModalState
+	exitModal                    confirmModalState
 	workflowHandoff              workflowHandoffModalState
 	delegateCancelModal          delegateCancelModalState
 	sessionStore                 SessionLister

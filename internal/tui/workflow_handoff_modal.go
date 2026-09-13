@@ -109,9 +109,9 @@ func (m *Model) renderWorkflowHandoffModal() string {
 		)
 	}
 
-	acceptButton := m.renderExitModalButton(s.acceptLabel(), s.selectedAction == workflowHandoffActionAccept)
-	changeModelButton := m.renderExitModalButton("Change Model", s.selectedAction == workflowHandoffActionChangeModel)
-	dismissButton := m.renderExitModalButton("Dismiss", s.selectedAction == workflowHandoffActionDismiss)
+	acceptButton := renderConfirmModalButton(m.styles, s.acceptLabel(), s.selectedAction == workflowHandoffActionAccept)
+	changeModelButton := renderConfirmModalButton(m.styles, "Change Model", s.selectedAction == workflowHandoffActionChangeModel)
+	dismissButton := renderConfirmModalButton(m.styles, "Dismiss", s.selectedAction == workflowHandoffActionDismiss)
 	buttonRow := m.renderWorkflowHandoffActionRow(contentWidth, acceptButton, changeModelButton, dismissButton)
 
 	sections := []string{

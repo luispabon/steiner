@@ -1607,7 +1607,7 @@ func TestModelOverlayKeyRoutingPreservesPriorityAndCmdBehavior(t *testing.T) {
 			setup: func(t *testing.T) *Model {
 				m := newModel(Config{}, nil)
 				m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
-				m.exitModal = openExitModal(100, 30)
+				m.exitModal = openConfirmModal(100, 30, exitModalSpec())
 				return m
 			},
 			key: tea.KeyPressMsg{Code: tea.KeyEnter},
