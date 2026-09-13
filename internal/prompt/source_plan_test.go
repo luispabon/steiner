@@ -482,6 +482,9 @@ func TestSessionDateIncludedBeforeConversation(t *testing.T) {
 	if !strings.HasSuffix(precedingMsg.Content, expectedDateContent) {
 		t.Fatalf("message[%d].Content does not end with session date line %q;\nContent: %q", precedingIdx, expectedDateContent, precedingMsg.Content)
 	}
+	if !strings.Contains(precedingMsg.Content, "skill content") {
+		t.Fatalf("message[%d].Content does not contain skill content, so the date was not joined onto the skills message;\nContent: %q", precedingIdx, precedingMsg.Content)
+	}
 }
 
 func TestSessionDateWithPhasePromptCreatesOwnMessage(t *testing.T) {
