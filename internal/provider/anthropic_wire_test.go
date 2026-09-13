@@ -973,3 +973,58 @@ func TestAnthropicCacheControl_MaxBreakpointsNotExceeded(t *testing.T) {
 		t.Fatalf("breakpoint count = %d, want <= 4", countBreakpoints)
 	}
 }
+
+func TestAnthropicRequestWire_UserMessageFollowsSystemMessage(t *testing.T) {
+	request := ChatRequest{
+		Model: "claude-3-5-sonnet",
+		Messages: []Message{
+			{
+				Role:    MessageRoleSystem,
+				Content: "You are a helpful assistant",
+			},
+			{
+				Role:    MessageRoleUser,
+				Content: "Session date: 2026-09-13",
+			},
+			{
+				Role:    MessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	wire := anthropicRequestWire(request, "default-model", false)
+
+	if len(wire.System) != 1 {
+		t.Fatalf("system blocks = %d, want 1", len(wire.System))
+	}
+	if got, want := wire.System[0].Text, "You are a helpful assistant"; got != want {
+		t.Fatalf("system content = %q, want %q", got, want)
+	}
+
+	if len(wire.Messages) != 2 {
+		t.Fatalf("user messages = %d, want 2", len(wire.Messages))
+	}
+
+	firstUserMsg := wire.Messages[0]
+	if got, want := firstUserMsg.Role, "user"; got != want {
+		t.Fatalf("message[0].role = %q, want %q", got, want)
+	}
+	if len(firstUserMsg.Content) == 0 {
+		t.Fatal("message[0] has no content blocks")
+	}
+	if got, want := firstUserMsg.Content[0].Text, "Session date: 2026-09-13"; got != want {
+		t.Fatalf("message[0].content = %q, want %q", got, want)
+	}
+
+	secondUserMsg := wire.Messages[1]
+	if got, want := secondUserMsg.Role, "user"; got != want {
+		t.Fatalf("message[1].role = %q, want %q", got, want)
+	}
+	if len(secondUserMsg.Content) == 0 {
+		t.Fatal("message[1] has no content blocks")
+	}
+	if got, want := secondUserMsg.Content[0].Text, "Hello"; got != want {
+		t.Fatalf("message[1].content = %q, want %q", got, want)
+	}
+}
