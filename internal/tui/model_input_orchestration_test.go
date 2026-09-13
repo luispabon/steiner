@@ -190,8 +190,8 @@ func TestRequestOrchestrationLevelNonEmptyConversationOpensModal(t *testing.T) {
 	if !m.orchestrationConfirm.IsOpen() {
 		t.Fatal("confirm modal did not open with a non-empty conversation")
 	}
-	if got := m.orchestrationConfirm.selectedAction(); got != confirmModalCancel {
-		t.Fatalf("default selection = %v, want confirmModalCancel", got)
+	if got := m.orchestrationConfirm.selectedAction(); got != confirmModalLeft {
+		t.Fatalf("default selection = %v, want confirmModalLeft", got)
 	}
 	if got, want := m.orchestrationConfirm.spec.Heading, "Switch orchestration to low?"; got != want {
 		t.Fatalf("heading = %q, want %q", got, want)

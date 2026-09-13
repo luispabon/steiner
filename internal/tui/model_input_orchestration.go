@@ -109,9 +109,9 @@ func (m *Model) requestOrchestrationLevel(level config.OrchestrationLevel) tea.C
 		Title:         "orchestration",
 		Heading:       fmt.Sprintf("Switch orchestration to %s?", level),
 		Body:          body,
-		CancelLabel:   "Cancel",
-		ConfirmLabel:  fmt.Sprintf("Switch to %s", level),
-		DefaultAction: confirmModalCancel,
+		LeftLabel:     "Cancel",
+		RightLabel:    fmt.Sprintf("Switch to %s", level),
+		DefaultAction: confirmModalLeft,
 	})
 	return nil
 }

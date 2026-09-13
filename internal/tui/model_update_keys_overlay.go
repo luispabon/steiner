@@ -246,11 +246,15 @@ func (m *Model) handleOrchestrationConfirmModalKey(msg tea.KeyPressMsg) tea.Cmd 
 	var result confirmModalResult
 	m.orchestrationConfirm, result = m.orchestrationConfirm.handleKey(msg)
 	switch result {
-	case confirmModalResultConfirmed:
-		level := m.pendingOrchestrationLevel
+	case confirmModalResultChosen:
+		m.orchestrationConfirm = m.orchestrationConfirm.close()
+		if m.orchestrationConfirm.selectedAction() == confirmModalRight {
+			level := m.pendingOrchestrationLevel
+			m.pendingOrchestrationLevel = ""
+			return m.applyOrchestrationLevel(level)
+		}
 		m.pendingOrchestrationLevel = ""
-		return m.applyOrchestrationLevel(level)
-	case confirmModalResultCancelled:
+	case confirmModalResultDismissed:
 		m.pendingOrchestrationLevel = ""
 	}
 	return nil
