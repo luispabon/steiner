@@ -118,6 +118,26 @@ func renderConfirmModalButton(styles *theme.Styles, label string, selected bool)
 		Render(label)
 }
 
+// confirmModals lists every confirm modal on the Model in view priority order.
+// Register new confirm modals here.
+func (m *Model) confirmModals() []*confirmModalState {
+	return []*confirmModalState{&m.worktreeCleanupModal, &m.exitModal, &m.orchestrationConfirm}
+}
+
+// openConfirmModalView returns the highest-priority open confirm modal, or nil.
+func (m *Model) openConfirmModalView() *confirmModalState {
+	for _, s := range m.confirmModals() {
+		if s.IsOpen() {
+			return s
+		}
+	}
+	return nil
+}
+
+func (m *Model) anyConfirmModalOpen() bool {
+	return m.openConfirmModalView() != nil
+}
+
 // handleKey processes input. On Chosen the modal stays open; the caller must close it.
 func (s confirmModalState) handleKey(msg tea.KeyPressMsg) (confirmModalState, confirmModalResult) {
 	switch msg.Code {

@@ -5,6 +5,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 )
 
 func TestConfirmModalDefaultSelectionIsHonoured(t *testing.T) {
@@ -367,6 +371,83 @@ func TestConfirmModalUnrelatedKeyReturnsPending(t *testing.T) {
 	}
 	if !s.IsOpen() {
 		t.Errorf("after unrelated key, modal is closed, want open")
+	}
+}
+
+func TestConfirmModalsFollowResize(t *testing.T) {
+	tests := []struct {
+		name string
+		open func(m *Model)
+	}{
+		{
+			name: "worktree cleanup",
+			open: func(m *Model) {
+				m.openWorktreeCleanupModal(m.width, m.height, 1)
+			},
+		},
+		{
+			name: "exit",
+			open: func(m *Model) {
+				m.openExitModal()
+			},
+		},
+		{
+			name: "orchestration",
+			open: func(m *Model) {
+				m.requestOrchestrationLevel(config.OrchestrationLevelLow)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			useTrueColor(t)
+			ctrl := &conversationTestController{conversation: []agent.Message{{Role: "user"}}}
+			m := newModel(Config{Controller: ctrl, SubAgentsEnabled: true, OrchestrationLevel: "standard"}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+			tt.open(m)
+
+			before := m.openConfirmModalView()
+			if before == nil {
+				t.Fatal("no confirm modal open after opener")
+			}
+			widthBefore := before.overlayWidth()
+
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 50, Height: 24})
+
+			after := m.openConfirmModalView()
+			if after == nil {
+				t.Fatal("no confirm modal open after resize")
+			}
+			widthAfter := after.overlayWidth()
+			if widthAfter == widthBefore {
+				t.Fatalf("overlay width unchanged after resize: %d", widthAfter)
+			}
+
+			rendered := stripANSI(after.render(m.styles))
+			for _, line := range strings.Split(rendered, "\n") {
+				if got := lipgloss.Width(line); got != widthAfter {
+					t.Errorf("line width = %d, want %d (line %q)", got, widthAfter, line)
+				}
+			}
+		})
+	}
+}
+
+func TestConfirmModalViewPriority(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.openWorktreeCleanupModal(m.width, m.height, 1)
+	m.openExitModal()
+
+	s := m.openConfirmModalView()
+	if s == nil {
+		t.Fatal("no confirm modal open")
+	}
+	if s != &m.worktreeCleanupModal {
+		t.Fatal("view priority did not select worktreeCleanupModal over exitModal")
 	}
 }
 

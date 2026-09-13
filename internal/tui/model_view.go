@@ -218,13 +218,10 @@ func (m *Model) renderOverlayView(base string, contentWidth int) string {
 		return composeCenteredOverlay(base, m.renderDelegateCancelModal(), m.width, m.height)
 	case m.contextOverlay.IsOpen():
 		return composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height)
-	case m.worktreeCleanupModal.IsOpen():
-		return composeCenteredOverlay(base, m.worktreeCleanupModal.render(m.styles), m.width, m.height)
-	case m.exitModal.IsOpen():
-		return composeCenteredOverlay(base, m.exitModal.render(m.styles), m.width, m.height)
-	case m.orchestrationConfirm.IsOpen():
-		return composeCenteredOverlay(base, m.orchestrationConfirm.render(m.styles), m.width, m.height)
 	default:
+		if s := m.openConfirmModalView(); s != nil {
+			return composeCenteredOverlay(base, s.render(m.styles), m.width, m.height)
+		}
 		return base
 	}
 }
