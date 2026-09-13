@@ -472,14 +472,15 @@ func TestSessionDateIncludedBeforeConversation(t *testing.T) {
 	}
 
 	// Verify that the message immediately before the conversation is user-role
-	// and contains the session date line (either as sole content or at end if merged).
+	// and ends with the session date line, proving it was joined onto the end
+	// of the skills message rather than merely appearing somewhere in it.
 	precedingIdx := conversationIdx - 1
 	precedingMsg := assembly.Messages[precedingIdx]
 	if precedingMsg.Role != provider.MessageRoleUser {
 		t.Fatalf("message[%d].Role = %q, want %q (should be user-role before conversation)", precedingIdx, precedingMsg.Role, provider.MessageRoleUser)
 	}
-	if !strings.Contains(precedingMsg.Content, expectedDateContent) {
-		t.Fatalf("message[%d].Content does not contain session date line %q;\nContent: %q", precedingIdx, expectedDateContent, precedingMsg.Content)
+	if !strings.HasSuffix(precedingMsg.Content, expectedDateContent) {
+		t.Fatalf("message[%d].Content does not end with session date line %q;\nContent: %q", precedingIdx, expectedDateContent, precedingMsg.Content)
 	}
 }
 
