@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -310,5 +312,31 @@ func TestRuntimeProviderCodexHTTPNeverCached(t *testing.T) {
 	}
 	if httpCallCount != 3 {
 		t.Fatalf("HTTP constructor calls = %d, want 3 (no caching for HTTP transport)", httpCallCount)
+	}
+}
+
+func TestPromptAssemblyIncludesSessionDate(t *testing.T) {
+	fixture, _ := time.Parse("2006-01-02", "2024-01-15")
+	sessionDate := prompt.NewSessionDate(fixture)
+
+	r := cliRunner{
+		runtime: cliRuntime{
+			homeDir:      "/home/user",
+			projectRoot:  "/home/user/project",
+			skillBundledFS: nil,
+			cfg: config.Config{
+				ProjectContext: config.ProjectContextConfig{MaxBytes: 1000},
+				SubAgent:       config.SubAgentConfig{Enabled: false},
+				Advisor:        config.AdvisorConfig{Enabled: false},
+				LSP:            config.LSPConfig{Enabled: false},
+				CaveHuman:      false,
+			},
+		},
+		sessionDateFn: func() prompt.SessionDate { return sessionDate },
+	}
+
+	assembly := r.promptAssembly(nil, nil, prompt.ModelTokenBudget{}, config.ModelPrompts{})
+	if assembly.SessionDate != sessionDate {
+		t.Fatalf("SessionDate = %v, want %v", assembly.SessionDate, sessionDate)
 	}
 }
