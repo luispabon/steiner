@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -45,6 +46,7 @@ type phaseRunnerParams struct {
 	Events             output.EventSink
 	PromptCacheKey     string
 	SessionID          string
+	SessionDate        prompt.SessionDate
 	PhasePrompt        string
 	ProjectAgentsPath  string
 	WorkflowMode       prompt.WorkflowMode
@@ -80,6 +82,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 		projectAgentsPath:    params.ProjectAgentsPath,
 		promptCacheKeyFn:     func() string { return params.PromptCacheKey },
 		sessionIDFn:          func() string { return params.SessionID },
+		sessionDateFn:        func() prompt.SessionDate { return params.SessionDate },
 		phasePrompt:          params.PhasePrompt,
 		workflowMode:         params.WorkflowMode,
 		currentEffective:     params.CurrentEffective,
@@ -123,6 +126,7 @@ func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 		return err
 	}
 
+	sessionDate := prompt.NewSessionDate(time.Now())
 	orch, err := newOneshotOrchestrator(oneshot.Dependencies{
 		ProjectRoot:  rt.projectRoot,
 		Identity:     identity,
@@ -130,10 +134,11 @@ func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 		Config:       rt.cfg,
 		SessionStore: rt.sessionStore,
 		RunnerFactory: phaseRunnerFactory{
-			cmd:      cmd,
-			flags:    flags,
-			rootDir:  rt.projectRoot,
-			identity: identity,
+			cmd:         cmd,
+			flags:       flags,
+			rootDir:     rt.projectRoot,
+			identity:    identity,
+			sessionDate: sessionDate,
 		},
 		Events: rt.events,
 	})
@@ -173,6 +178,7 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 	}
 
 	identity := oneshot.RunIdentity{ID: manifest.RunID, Slug: manifest.Slug}
+	sessionDate := prompt.NewSessionDate(time.Now())
 	orch, err := newOneshotOrchestrator(oneshot.Dependencies{
 		ProjectRoot:   rt.projectRoot,
 		Identity:      identity,
@@ -181,10 +187,11 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 		ManifestStore: store,
 		SessionStore:  rt.sessionStore,
 		RunnerFactory: phaseRunnerFactory{
-			cmd:      cmd,
-			flags:    flags,
-			rootDir:  rt.projectRoot,
-			identity: identity,
+			cmd:         cmd,
+			flags:       flags,
+			rootDir:     rt.projectRoot,
+			identity:    identity,
+			sessionDate: sessionDate,
 		},
 		Events: rt.events,
 	})
@@ -232,6 +239,7 @@ type phaseRunnerFactory struct {
 	rootDir            string
 	identity           oneshot.RunIdentity
 	events             output.EventSink
+	sessionDate        prompt.SessionDate
 	currentEffective   func() config.EffectiveModelAssignments
 	orchestrationLevel func() config.OrchestrationLevel
 }
@@ -256,6 +264,7 @@ func (f phaseRunnerFactory) phaseParams(phase oneshot.Phase, modelAlias string, 
 		Events:             f.events,
 		PromptCacheKey:     f.identity.ID,
 		SessionID:          f.identity.ID,
+		SessionDate:        f.sessionDate,
 		PhasePrompt:        phasePrompt,
 		WorkflowMode:       prompt.DelegatedChildWorkflowMode(),
 		CurrentEffective:   f.currentEffective,

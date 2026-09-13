@@ -32,6 +32,7 @@ type cliRunner struct {
 	currentReasoningOverride func() provider.ReasoningOverride
 	promptCacheKeyFn         func() string
 	sessionIDFn              func() string
+	sessionDateFn            func() prompt.SessionDate
 	modeGetterFunc           func() config.ExecutionMode
 	orchestrationLevelFn     func() config.OrchestrationLevel
 	phasePrompt              string
@@ -62,6 +63,15 @@ func (r cliRunner) sessionID() string {
 		return ""
 	}
 	return r.sessionIDFn()
+}
+
+// sessionDate returns the current session date, or zero value when no source
+// function was wired.
+func (r cliRunner) sessionDate() prompt.SessionDate {
+	if r.sessionDateFn == nil {
+		return prompt.SessionDate{}
+	}
+	return r.sessionDateFn()
 }
 
 // orchestrationLevel returns the current orchestration level from the wired
@@ -179,6 +189,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		WorkDir:               r.runtime.workDir,
 		HomeDir:               r.runtime.homeDir,
 		SessionID:             r.sessionID(),
+		SessionDate:           r.sessionDate(),
 		ResolvedModel:         setup.baseResolvedModel,
 		MaxTokens:             setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
 		StreamingPreferred:    r.streamingPreferred,
