@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -205,6 +209,153 @@ func TestModelCatalogRefreshPublishesAndCloses(t *testing.T) {
 	if batches != 2 {
 		t.Fatalf("refresh batches = %d, want two", batches)
 	}
+}
+
+const codexCatalogOAuthToken = `{"access_token":"oauth-token","refresh_token":"refresh-token","token_type":"Bearer","account_id":"acct-123"}`
+
+func writeCodexCatalogToken(t *testing.T, contents string) {
+	t.Helper()
+	tokenPath := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "steiner", "codex_auth.json")
+	if err := os.MkdirAll(filepath.Dir(tokenPath), 0o700); err != nil {
+		t.Fatalf("mkdir token dir: %v", err)
+	}
+	if err := os.WriteFile(tokenPath, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+}
+
+func TestCatalogConfigCopyPinsCodexProviderToChatGPTBackend(t *testing.T) {
+	cfg := config.Config{Providers: map[string]config.ProviderConfig{
+		"codex":  {Type: config.ProviderTypeCodex, BaseURL: "https://api.openai.com/v1", APIKey: "sk-exchanged"},
+		"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
+	}}
+	copied := catalogConfigCopy(&cfg)
+	if got := copied.Providers["codex"].BaseURL; got != codexChatGPTBackendURL {
+		t.Fatalf("catalog Codex base URL = %q, want %q", got, codexChatGPTBackendURL)
+	}
+	if got := copied.Providers["openai"].BaseURL; got != "https://api.openai.com/v1" {
+		t.Fatalf("catalog openai base URL = %q, want configured value", got)
+	}
+	if got := cfg.Providers["codex"].BaseURL; got != "https://api.openai.com/v1" {
+		t.Fatalf("runtime Codex base URL = %q, want untouched", got)
+	}
+	if catalogConfigCopy(nil) != nil {
+		t.Fatal("catalogConfigCopy(nil) = non-nil, want nil")
+	}
+}
+
+func TestBuildModelCatalogServicePinsCodexEndpointToChatGPTBackend(t *testing.T) {
+	cfg := config.Config{
+		Models: config.ModelsConfig{DiscoveryEnabled: true},
+		Providers: map[string]config.ProviderConfig{
+			"codex": {Type: config.ProviderTypeCodex, BaseURL: "https://api.openai.com/v1", APIKey: "sk-exchanged"},
+		},
+	}
+	service, endpoints, _ := buildModelCatalogService(&cfg, &http.Client{})
+	if service == nil || len(endpoints) != 1 {
+		t.Fatalf("buildModelCatalogService() endpoints = %#v, want one Codex endpoint", endpoints)
+	}
+	if endpoints[0].BaseURL != codexChatGPTBackendURL {
+		t.Fatalf("Codex endpoint base URL = %q, want %q", endpoints[0].BaseURL, codexChatGPTBackendURL)
+	}
+	if endpoints[0].Prepare == nil {
+		t.Fatal("Codex endpoint Prepare = nil, want OAuth refresh callback")
+	}
+	if got := cfg.Providers["codex"].BaseURL; got != "https://api.openai.com/v1" {
+		t.Fatalf("config Codex base URL = %q, want untouched", got)
+	}
+}
+
+func TestPrepareCodexCatalogEndpointKeepsChatGPTBackendWithExchangedAPIKey(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	writeCodexCatalogToken(t, `{"access_token":"oauth-token","refresh_token":"refresh-token","token_type":"Bearer","account_id":"acct-123","openai_api_key":"sk-exchanged"}`)
+
+	endpoint := modelcatalog.Endpoint{Alias: "codex", Type: string(config.ProviderTypeCodex), BaseURL: "https://api.openai.com/v1", APIKey: "sk-exchanged"}
+	prepared, err := prepareCodexCatalogEndpoint(context.Background(), endpoint)
+	if err != nil {
+		t.Fatalf("prepareCodexCatalogEndpoint() error = %v", err)
+	}
+	if prepared.BaseURL != codexChatGPTBackendURL {
+		t.Fatalf("prepared base URL = %q, want %q", prepared.BaseURL, codexChatGPTBackendURL)
+	}
+}
+
+func TestPrepareCodexCatalogEndpointSurfacesTokenErrors(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if _, err := prepareCodexCatalogEndpoint(context.Background(), modelcatalog.Endpoint{Alias: "codex", Type: string(config.ProviderTypeCodex)}); err == nil {
+		t.Fatal("prepareCodexCatalogEndpoint() error = nil, want missing token error")
+	}
+}
+
+func TestCodexCatalogCredentialsUseOAuthTokenNotExchangedAPIKey(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	writeCodexCatalogToken(t, `{"access_token":"oauth-token","refresh_token":"refresh-token","token_type":"Bearer","account_id":"acct-123","openai_api_key":"sk-exchanged"}`)
+
+	accessToken, accountID, err := codexCatalogCredentials(context.Background())
+	if err != nil {
+		t.Fatalf("codexCatalogCredentials() error = %v", err)
+	}
+	if accessToken != "oauth-token" {
+		t.Fatalf("access token = %q, want OAuth access token", accessToken)
+	}
+	if accountID != "acct-123" {
+		t.Fatalf("account ID = %q, want acct-123", accountID)
+	}
+}
+
+// TestModelCatalogCodexChoicesReadChatGPTBackendCache drives real Codex discovery
+// over a fake transport, then checks that a fresh catalog service finds the
+// cached models when its catalog-only config carries the ChatGPT backend URL.
+func TestModelCatalogCodexChoicesReadChatGPTBackendCache(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	writeCodexCatalogToken(t, codexCatalogOAuthToken)
+
+	cfg := config.Config{
+		Models: config.ModelsConfig{DiscoveryEnabled: true},
+		Providers: map[string]config.ProviderConfig{
+			"codex": {Type: config.ProviderTypeCodex, BaseURL: "https://api.openai.com/v1", APIKey: "sk-exchanged"},
+		},
+	}
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "chatgpt.com" || req.URL.Path != "/backend-api/codex/models" {
+			t.Errorf("Codex discovery request = %s, want ChatGPT backend models URL", req.URL)
+		}
+		if got := req.Header.Get("Authorization"); got != "Bearer oauth-token" {
+			t.Errorf("Codex discovery authorization = %q, want OAuth access token", got)
+		}
+		body := `{"models":[{"slug":"gpt-6-astra","display_name":"GPT-6 Astra","visibility":"list"},{"slug":"gpt-6-hidden","visibility":"hidden"}]}`
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+
+	service, endpoints, _ := buildModelCatalogService(&cfg, client)
+	report := service.RefreshAll(context.Background(), endpoints, modelcatalog.RefreshOptions{Force: true})
+	if len(report.Results) != 1 || report.Results[0].Err != nil {
+		t.Fatalf("refresh results = %#v, want one successful Codex refresh", report.Results)
+	}
+
+	fresh := modelcatalog.NewService(nil, modelcatalog.NewCache(""), modelcatalog.NewStore(t.TempDir()+"/popularity.json"), client, true)
+	catalogRefs := choiceRefs(fresh.Choices(catalogConfigCopy(&cfg), ""))
+	if !catalogRefs["codex/gpt-6-astra"] {
+		t.Fatalf("catalog choices = %v, want cached Codex model gpt-6-astra", catalogRefs)
+	}
+	if catalogRefs["codex/gpt-6-hidden"] {
+		t.Fatalf("catalog choices = %v, want hidden Codex model filtered out", catalogRefs)
+	}
+	if runtimeRefs := choiceRefs(fresh.Choices(&cfg, "")); len(runtimeRefs) != 0 {
+		t.Fatalf("runtime config choices = %v, want no ChatGPT cache models", runtimeRefs)
+	}
+	if got := cfg.Providers["codex"].BaseURL; got != "https://api.openai.com/v1" {
+		t.Fatalf("runtime Codex base URL = %q, want untouched", got)
+	}
+}
+
+func choiceRefs(choices []modelcatalog.ModelChoice) map[string]bool {
+	refs := make(map[string]bool, len(choices))
+	for _, choice := range choices {
+		refs[choice.Ref] = true
+	}
+	return refs
 }
 
 func TestModelCatalogRefreshCancelDoesNotBlock(t *testing.T) {

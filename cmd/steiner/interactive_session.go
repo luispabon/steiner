@@ -145,7 +145,7 @@ func startModelCatalogRefresh(ctx context.Context, rt cliRuntime, sess *interact
 						Notes: []string{fmt.Sprintf("model catalog refresh failed for %s: %v", alias, err)},
 					}))
 				}
-				entries := modelEntriesFromChoices(rt.modelCatalog.Choices(&rt.cfg, sess.CurrentModelAlias()))
+				entries := modelEntriesFromChoices(rt.modelCatalog.Choices(catalogConfigCopy(&rt.cfg), sess.CurrentModelAlias()))
 				select {
 				case updates <- entries:
 				case <-ctx.Done():
@@ -171,7 +171,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		updates = make(chan []tui.ModelEntry, max(1, len(rt.modelCatalogEndpoints)))
 	}
 	if rt.modelCatalog != nil {
-		entries = modelEntriesFromChoices(rt.modelCatalog.Choices(&rt.cfg, sess.CurrentModelAlias()))
+		entries = modelEntriesFromChoices(rt.modelCatalog.Choices(catalogConfigCopy(&rt.cfg), sess.CurrentModelAlias()))
 	}
 	selectedProviderBaseURL := ""
 	selectedProviderName := ""
