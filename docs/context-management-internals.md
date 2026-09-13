@@ -30,7 +30,7 @@ Child agents use the same prompt assembly and compaction path as the parent for 
 
 ## Prompt assembly
 
-Each turn, steiner assembles the full context through a 6-step ordered plan. The order is intentional — static sources come first to maximize KV-cache reuse in local inference servers:
+Each turn, steiner assembles the full context through a 7-step ordered plan. The order is intentional — static sources come first to maximize KV-cache reuse in local inference servers:
 
 | Step | Source | Budget | Bypasses budget? |
 |------|--------|--------|-------------------|
@@ -39,7 +39,8 @@ Each turn, steiner assembles the full context through a 6-step ordered plan. The
 | 3 | Project context files | 8000 bytes | No |
 | 4 | Skills | 98304 bytes | No |
 | 5 | Oneshot phase prompt (if applicable) | — | Yes |
-| 6 | Conversation history | — | No (pass-through) |
+| 6 | Session date | — | Yes |
+| 7 | Conversation history | — | No (pass-through) |
 
 Each step with a budget is tracked by a `budgetTracker`. When a source exceeds its allocation, content is truncated and a `Truncated` flag is set on the resulting `ContextBlock`. The system preamble, phase prompt, and AGENTS.md are never truncated.
 
@@ -47,7 +48,19 @@ The three file-backed static sources (steps 2 to 4: AGENTS.md, project context f
 
 The tool/delegation summary budget machinery was removed from `internal/prompt`. Tool output is bounded at its source by `internal/tool`, delegate reasons carry no cap, and compaction summaries by `internal/provider`'s `deriveSummaryMaxTokens`.
 
-`ContextSource` constants distinguish where each block originated: `preamble`, `phase_prompt`, `global_agents_md`, `project_agents_md`, `project_context`, `skill`, `durable_context`, and `conversation_summary`.
+`ContextSource` constants distinguish where each block originated: `preamble`, `phase_prompt`, `global_agents_md`, `project_agents_md`, `project_context`, `skill`, `session_date`, `durable_context`, and `conversation_summary`.
+
+### Session date assembly
+
+The session date block is captured once when a session or standalone run begins, and is reused identically across every turn and phase within that identity. A new session (interactive rotation), load/resume, or fork causes a fresh capture; each oneshot run independently captures a fresh date once, then reuses it across all phases.
+
+The assembly step appends the date as a user-role message immediately after the phase prompt and before the conversation. It is never budgeted — the full block is always delivered (line 83 in `source_render.go::applyBudget`), even under context pressure.
+
+The block is user-role rather than system-role to avoid being hoisted into provider-specific system/instructions fields by Anthropic and Codex-compatible wire builders. This preserves prompt-cache reuse: the system preamble and tools remain cacheable even as the date line changes.
+
+Sub-agents inherit the parent's already-captured session date without re-measuring. The date flows through `SubAgentHandlerDeps.SessionDate` → `BuildChildRun` → `childPromptParams.sessionDate`, and the child uses the same `sessionDateStep` assembly logic as the parent, so the inherited value appears in the child's requests with the same position and role.
+
+Compaction deliberately includes the session date block in the summary request — the compaction step assembles the context through the normal `prompt.Assemble` path so the cached prefix (system preamble + tools) stays cached, and the date block appears positioned identically, before the conversation being summarized.
 
 ---
 
