@@ -104,185 +104,51 @@ func TestConfirmModalSelectedActionReturnsCurrentSelection(t *testing.T) {
 	}
 }
 
-func TestConfirmModalEnterOnLeftSelection(t *testing.T) {
-	spec := confirmModalSpec{
-		Title:         "test",
-		Heading:       "Proceed?",
-		Body:          "This is a test",
-		LeftLabel:     "No",
-		RightLabel:    "Yes",
-		DefaultAction: confirmModalLeft,
+func TestConfirmModalHandleKey(t *testing.T) {
+	tests := []struct {
+		name          string
+		defaultAction confirmModalAction
+		key           tea.KeyPressMsg
+		wantResult    confirmModalResult
+		wantSelected  confirmModalAction
+		wantOpen      bool
+	}{
+		{name: "left moves from right", defaultAction: confirmModalRight, key: tea.KeyPressMsg{Code: tea.KeyLeft}, wantResult: confirmModalResultPending, wantSelected: confirmModalLeft, wantOpen: true},
+		{name: "up moves from right", defaultAction: confirmModalRight, key: tea.KeyPressMsg{Code: tea.KeyUp}, wantResult: confirmModalResultPending, wantSelected: confirmModalLeft, wantOpen: true},
+		{name: "left wraps from left", defaultAction: confirmModalLeft, key: tea.KeyPressMsg{Code: tea.KeyLeft}, wantResult: confirmModalResultPending, wantSelected: confirmModalRight, wantOpen: true},
+		{name: "right moves from left", defaultAction: confirmModalLeft, key: tea.KeyPressMsg{Code: tea.KeyRight}, wantResult: confirmModalResultPending, wantSelected: confirmModalRight, wantOpen: true},
+		{name: "down moves from left", defaultAction: confirmModalLeft, key: tea.KeyPressMsg{Code: tea.KeyDown}, wantResult: confirmModalResultPending, wantSelected: confirmModalRight, wantOpen: true},
+		{name: "tab moves from left", defaultAction: confirmModalLeft, key: tea.KeyPressMsg{Code: tea.KeyTab}, wantResult: confirmModalResultPending, wantSelected: confirmModalRight, wantOpen: true},
+		{name: "tab wraps from right", defaultAction: confirmModalRight, key: tea.KeyPressMsg{Code: tea.KeyTab}, wantResult: confirmModalResultPending, wantSelected: confirmModalLeft, wantOpen: true},
+		{name: "enter on left chooses and stays open", defaultAction: confirmModalLeft, key: tea.KeyPressMsg{Code: tea.KeyEnter}, wantResult: confirmModalResultChosen, wantSelected: confirmModalLeft, wantOpen: true},
+		{name: "enter on right chooses and stays open", defaultAction: confirmModalRight, key: tea.KeyPressMsg{Code: tea.KeyEnter}, wantResult: confirmModalResultChosen, wantSelected: confirmModalRight, wantOpen: true},
+		{name: "esc dismisses and closes", defaultAction: confirmModalRight, key: tea.KeyPressMsg{Code: tea.KeyEsc}, wantResult: confirmModalResultDismissed, wantSelected: confirmModalRight, wantOpen: false},
+		{name: "unrelated key is ignored", defaultAction: confirmModalLeft, key: tea.KeyPressMsg{Text: "a"}, wantResult: confirmModalResultPending, wantSelected: confirmModalLeft, wantOpen: true},
+		{name: "ctrl+c is not special", defaultAction: confirmModalLeft, key: tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}, wantResult: confirmModalResultPending, wantSelected: confirmModalLeft, wantOpen: true},
 	}
-	s := openConfirmModal(80, 24, spec)
 
-	s, result := s.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if result != confirmModalResultChosen {
-		t.Errorf("result = %d, want %d (confirmModalResultChosen)", result, confirmModalResultChosen)
-	}
-	if !s.IsOpen() {
-		t.Errorf("after enter, modal is closed, want open")
-	}
-	if s.selectedAction() != confirmModalLeft {
-		t.Errorf("selectedAction() = %d, want %d (confirmModalLeft)", s.selectedAction(), confirmModalLeft)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := openConfirmModal(80, 24, confirmModalSpec{
+				Title:         "test",
+				Heading:       "Proceed?",
+				Body:          "This is a test",
+				LeftLabel:     "No",
+				RightLabel:    "Yes",
+				DefaultAction: tt.defaultAction,
+			})
 
-func TestConfirmModalEnterOnRightSelection(t *testing.T) {
-	spec := confirmModalSpec{
-		Title:         "test",
-		Heading:       "Proceed?",
-		Body:          "This is a test",
-		LeftLabel:     "No",
-		RightLabel:    "Yes",
-		DefaultAction: confirmModalRight,
-	}
-	s := openConfirmModal(80, 24, spec)
-
-	s, result := s.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if result != confirmModalResultChosen {
-		t.Errorf("result = %d, want %d (confirmModalResultChosen)", result, confirmModalResultChosen)
-	}
-	if !s.IsOpen() {
-		t.Errorf("after enter, modal is closed, want open")
-	}
-	if s.selectedAction() != confirmModalRight {
-		t.Errorf("selectedAction() = %d, want %d (confirmModalRight)", s.selectedAction(), confirmModalRight)
-	}
-}
-
-func TestConfirmModalEscClosesAndDismisses(t *testing.T) {
-	spec := confirmModalSpec{
-		Title:         "test",
-		Heading:       "Proceed?",
-		Body:          "This is a test",
-		LeftLabel:     "No",
-		RightLabel:    "Yes",
-		DefaultAction: confirmModalRight,
-	}
-	s := openConfirmModal(80, 24, spec)
-
-	// Even with right selected, Esc should dismiss
-	s, result := s.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if result != confirmModalResultDismissed {
-		t.Errorf("result = %d, want %d (confirmModalResultDismissed)", result, confirmModalResultDismissed)
-	}
-	if s.IsOpen() {
-		t.Errorf("after esc, modal is still open, want closed")
-	}
-}
-
-func TestConfirmModalKeyNavigationLeft(t *testing.T) {
-	spec := confirmModalSpec{
-		Title:         "test",
-		Heading:       "Proceed?",
-		Body:          "This is a test",
-		LeftLabel:     "No",
-		RightLabel:    "Yes",
-		DefaultAction: confirmModalRight,
-	}
-	s := openConfirmModal(80, 24, spec)
-	s, result := s.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
-
-	if s.selected != confirmModalLeft {
-		t.Errorf("selected = %d, want %d", s.selected, confirmModalLeft)
-	}
-	if result != confirmModalResultPending {
-		t.Errorf("result = %d, want %d (confirmModalResultPending)", result, confirmModalResultPending)
-	}
-	if !s.IsOpen() {
-		t.Errorf("after navigation key, modal is closed, want open")
-	}
-}
-
-func TestConfirmModalKeyNavigationUp(t *testing.T) {
-	spec := confirmModalSpec{
-		Title:         "test",
-		Heading:       "Proceed?",
-		Body:          "This is a test",
-		LeftLabel:     "No",
-		RightLabel:    "Yes",
-		DefaultAction: confirmModalRight,
-	}
-	s := openConfirmModal(80, 24, spec)
-	s, result := s.handleKey(tea.KeyPressMsg{Code: tea.KeyUp})
-
-	if s.selected != confirmModalLeft {
-		t.Errorf("selected = %d, want %d", s.selected, confirmModalLeft)
-	}
-	if result != confirmModalResultPending {
-		t.Errorf("result = %d, want %d (confirmModalResultPending)", result, confirmModalResultPending)
-	}
-	if !s.IsOpen() {
-		t.Errorf("after navigation key, modal is closed, want open")
-	}
-}
-
-func TestConfirmModalKeyNavigationRight(t *testing.T) {
-	spec := confirmModalSpec{
-		Title:         "test",
-		Heading:       "Proceed?",
-		Body:          "This is a test",
-		LeftLabel:     "No",
-		RightLabel:    "Yes",
-		DefaultAction: confirmModalLeft,
-	}
-	s := openConfirmModal(80, 24, spec)
-	s, result := s.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
-
-	if s.selected != confirmModalRight {
-		t.Errorf("selected = %d, want %d", s.selected, confirmModalRight)
-	}
-	if result != confirmModalResultPending {
-		t.Errorf("result = %d, want %d (confirmModalResultPending)", result, confirmModalResultPending)
-	}
-	if !s.IsOpen() {
-		t.Errorf("after navigation key, modal is closed, want open")
-	}
-}
-
-func TestConfirmModalKeyNavigationDown(t *testing.T) {
-	spec := confirmModalSpec{
-		Title:         "test",
-		Heading:       "Proceed?",
-		Body:          "This is a test",
-		LeftLabel:     "No",
-		RightLabel:    "Yes",
-		DefaultAction: confirmModalLeft,
-	}
-	s := openConfirmModal(80, 24, spec)
-	s, result := s.handleKey(tea.KeyPressMsg{Code: tea.KeyDown})
-
-	if s.selected != confirmModalRight {
-		t.Errorf("selected = %d, want %d", s.selected, confirmModalRight)
-	}
-	if result != confirmModalResultPending {
-		t.Errorf("result = %d, want %d (confirmModalResultPending)", result, confirmModalResultPending)
-	}
-	if !s.IsOpen() {
-		t.Errorf("after navigation key, modal is closed, want open")
-	}
-}
-
-func TestConfirmModalKeyNavigationTab(t *testing.T) {
-	spec := confirmModalSpec{
-		Title:         "test",
-		Heading:       "Proceed?",
-		Body:          "This is a test",
-		LeftLabel:     "No",
-		RightLabel:    "Yes",
-		DefaultAction: confirmModalLeft,
-	}
-	s := openConfirmModal(80, 24, spec)
-	s, result := s.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
-
-	if s.selected != confirmModalRight {
-		t.Errorf("selected = %d, want %d", s.selected, confirmModalRight)
-	}
-	if result != confirmModalResultPending {
-		t.Errorf("result = %d, want %d (confirmModalResultPending)", result, confirmModalResultPending)
-	}
-	if !s.IsOpen() {
-		t.Errorf("after navigation key, modal is closed, want open")
+			s, result := s.handleKey(tt.key)
+			if result != tt.wantResult {
+				t.Errorf("result = %d, want %d", result, tt.wantResult)
+			}
+			if got := s.selectedAction(); got != tt.wantSelected {
+				t.Errorf("selectedAction() = %d, want %d", got, tt.wantSelected)
+			}
+			if got := s.IsOpen(); got != tt.wantOpen {
+				t.Errorf("IsOpen() = %v, want %v", got, tt.wantOpen)
+			}
+		})
 	}
 }
 
@@ -351,26 +217,6 @@ func TestConfirmModalCloseMarksAsClosed(t *testing.T) {
 	s = s.close()
 	if s.IsOpen() {
 		t.Errorf("closed modal is still open")
-	}
-}
-
-func TestConfirmModalUnrelatedKeyReturnsPending(t *testing.T) {
-	spec := confirmModalSpec{
-		Title:         "test",
-		Heading:       "Proceed?",
-		Body:          "This is a test",
-		LeftLabel:     "No",
-		RightLabel:    "Yes",
-		DefaultAction: confirmModalLeft,
-	}
-	s := openConfirmModal(80, 24, spec)
-
-	s, result := s.handleKey(tea.KeyPressMsg{Text: "a"})
-	if result != confirmModalResultPending {
-		t.Errorf("result = %d, want %d (confirmModalResultPending)", result, confirmModalResultPending)
-	}
-	if !s.IsOpen() {
-		t.Errorf("after unrelated key, modal is closed, want open")
 	}
 }
 
@@ -448,25 +294,5 @@ func TestConfirmModalViewPriority(t *testing.T) {
 	}
 	if s != &m.worktreeCleanupModal {
 		t.Fatal("view priority did not select worktreeCleanupModal over exitModal")
-	}
-}
-
-func TestConfirmModalCtrlCNotSpecial(t *testing.T) {
-	spec := confirmModalSpec{
-		Title:         "test",
-		Heading:       "Proceed?",
-		Body:          "This is a test",
-		LeftLabel:     "No",
-		RightLabel:    "Yes",
-		DefaultAction: confirmModalLeft,
-	}
-	s := openConfirmModal(80, 24, spec)
-
-	s, result := s.handleKey(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-	if result != confirmModalResultPending {
-		t.Errorf("result = %d, want %d (confirmModalResultPending)", result, confirmModalResultPending)
-	}
-	if !s.IsOpen() {
-		t.Errorf("after ctrl+c, modal is closed, want open")
 	}
 }
