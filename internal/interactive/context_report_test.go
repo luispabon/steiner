@@ -376,6 +376,66 @@ func TestBuildContextReportWithMergedMessages(t *testing.T) {
 	}
 }
 
+func TestBuildContextReportIncludesSessionDateMergedWithSkills(t *testing.T) {
+	t.Parallel()
+
+	preambleBlock := prompt.SystemPreamble("", false, false, "")
+	preambleContent := preambleBlock.Content
+	sessionDateContent := "Current date: 2026-09-13 (UTC, UTC+00:00), recorded when this session started."
+	skillContent := "skill instructions"
+
+	// Blocks and messages simulate real assembly where session date is merged
+	// onto the end of the user-role skills message (when no phase prompt precedes).
+	snapshot := RequestContextSnapshot{
+		Model: "gpt-4o",
+		Messages: []provider.Message{
+			{Role: provider.MessageRoleSystem, Content: preambleContent},
+			{Role: provider.MessageRoleUser, Content: skillContent + "\n" + sessionDateContent},
+			{Role: provider.MessageRoleUser, Content: "current user message"},
+		},
+		Blocks: []prompt.ContextBlock{
+			{Source: prompt.ContextSourcePreamble, Content: preambleContent, ByteSize: len(preambleContent)},
+			{Source: prompt.ContextSourceSkill, Path: "/skills/review/SKILL.md", Content: skillContent, ByteSize: len(skillContent)},
+			{Source: prompt.ContextSourceSessionDate, Content: sessionDateContent, ByteSize: len(sessionDateContent)},
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         4096,
+			MaxCompletionTokens: 128,
+			SafetyMarginTokens:  32,
+		},
+	}
+
+	report, err := BuildContextReport(context.Background(), snapshot)
+	if err != nil {
+		t.Fatalf("BuildContextReport() error = %v", err)
+	}
+
+	// Verify session date category appears in report.
+	if !strings.Contains(report, "| session date |") {
+		t.Fatalf("report missing session date category:\n%s", report)
+	}
+
+	// Verify session date block is mapped to the correct message even when merged.
+	// The session date block should share message index with the skill block.
+	blockMsgIdx, err := reconstructBlockMessageIndex(snapshot.Blocks, len(snapshot.Messages))
+	if err != nil {
+		t.Fatalf("reconstructBlockMessageIndex() error = %v", err)
+	}
+
+	skillBlockIdx := 1
+	dateBlockIdx := 2
+	if len(blockMsgIdx) <= dateBlockIdx {
+		t.Fatalf("blockMsgIdx length = %d, expected at least %d entries", len(blockMsgIdx), dateBlockIdx+1)
+	}
+	if blockMsgIdx[skillBlockIdx] != blockMsgIdx[dateBlockIdx] {
+		t.Fatalf("skill block message index %d != session date block message index %d; blocks should share a merged message", blockMsgIdx[skillBlockIdx], blockMsgIdx[dateBlockIdx])
+	}
+	// Verify the message index is reasonable (should point to message 1, the merged user message).
+	if blockMsgIdx[dateBlockIdx] != 1 {
+		t.Fatalf("session date block message index = %d, want 1 (the merged user message)", blockMsgIdx[dateBlockIdx])
+	}
+}
+
 func TestBuildContextReportOmitsToolDefinitionsWhenNoTools(t *testing.T) {
 	snapshot := RequestContextSnapshot{
 		Model: "gpt-4o",

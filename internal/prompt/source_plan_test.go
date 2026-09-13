@@ -437,6 +437,7 @@ func TestSessionDateIncludedBeforeConversation(t *testing.T) {
 	mustWrite(t, filepath.Join(skillsRoot, "test"), "SKILL.md", "skill content")
 
 	sessionDate := NewSessionDate(time.Date(2026, 9, 13, 12, 30, 0, 0, time.FixedZone("BST", 3600)))
+	expectedDateContent := "Current date: 2026-09-13 (BST, UTC+01:00), recorded when this session started."
 
 	assembly := mustRenderPlannedAssembly(t, AssemblyOptions{
 		HomeDir:     homeDir,
@@ -458,8 +459,8 @@ func TestSessionDateIncludedBeforeConversation(t *testing.T) {
 	if dateBlock == nil {
 		t.Fatal("session date block not found")
 	}
-	if want := "Current date: 2026-09-13 (BST, UTC+01:00), recorded when this session started."; dateBlock.Content != want {
-		t.Fatalf("session date content = %q, want %q", dateBlock.Content, want)
+	if dateBlock.Content != expectedDateContent {
+		t.Fatalf("session date content = %q, want %q", dateBlock.Content, expectedDateContent)
 	}
 
 	conversationIdx := messageIndexContaining(assembly.Messages, "conversation turn")
@@ -468,6 +469,17 @@ func TestSessionDateIncludedBeforeConversation(t *testing.T) {
 	}
 	if conversationIdx < 1 {
 		t.Fatalf("conversation message at position %d, want position >= 1", conversationIdx)
+	}
+
+	// Verify that the message immediately before the conversation is user-role
+	// and contains the session date line (either as sole content or at end if merged).
+	precedingIdx := conversationIdx - 1
+	precedingMsg := assembly.Messages[precedingIdx]
+	if precedingMsg.Role != provider.MessageRoleUser {
+		t.Fatalf("message[%d].Role = %q, want %q (should be user-role before conversation)", precedingIdx, precedingMsg.Role, provider.MessageRoleUser)
+	}
+	if !strings.Contains(precedingMsg.Content, expectedDateContent) {
+		t.Fatalf("message[%d].Content does not contain session date line %q;\nContent: %q", precedingIdx, expectedDateContent, precedingMsg.Content)
 	}
 }
 

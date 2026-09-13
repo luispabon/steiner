@@ -29,7 +29,7 @@ const (
 	ContextSourceConversationSummary ContextSource = "conversation_summary"
 	// ContextSourceConversation identifies raw conversation message blocks.
 	ContextSourceConversation ContextSource = "conversation"
-	// ContextSourceSessionDate identifies the date and time context block inserted
+	// ContextSourceSessionDate identifies the date context block inserted
 	// before the conversation.
 	ContextSourceSessionDate ContextSource = "session_date"
 )
