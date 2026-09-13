@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -38,6 +39,8 @@ type Session struct {
 	mode                config.ExecutionMode
 	modeListener        func(config.ExecutionMode)
 	orchestrationLevel  config.OrchestrationLevel
+	now                 func() time.Time
+	sessionDate         prompt.SessionDate
 	done                chan struct{}
 	runs                sync.WaitGroup
 	exitOnce            sync.Once
@@ -67,6 +70,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 	if !orchestrationLevel.Valid() {
 		orchestrationLevel = config.OrchestrationLevelStandard
 	}
+	now := time.Now
 	return &Session{
 		deps:                deps,
 		events:              events,
@@ -83,6 +87,8 @@ func NewSession(deps Dependencies) (*Session, error) {
 		reasoningOverrides:  make(map[string]provider.ReasoningOverride),
 		mode:                mode,
 		orchestrationLevel:  orchestrationLevel,
+		now:                 now,
+		sessionDate:         prompt.NewSessionDate(now()),
 		done:                make(chan struct{}),
 	}, nil
 }
@@ -262,6 +268,13 @@ func (s *Session) PromptCacheKey() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.promptCacheKey
+}
+
+// SessionDate returns the date captured for the current session identity.
+func (s *Session) SessionDate() prompt.SessionDate {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sessionDate
 }
 
 // SessionTitle returns the current session's title, which is empty until
