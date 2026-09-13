@@ -21,6 +21,12 @@ import (
 // Platform API host used when the Codex token carries its own API key.
 const codexChatGPTBackendURL = "https://chatgpt.com/backend-api/codex"
 
+// codexCatalogClientVersion is the Codex client version reported during catalog
+// discovery. Codex gates catalog models on a compatible client version, so
+// discovery sends this fixed value instead of Steiner's build version ("dev"
+// for local builds).
+const codexCatalogClientVersion = "0.153.0"
+
 // buildModelCatalogService creates the shared model catalog service and its
 // provider endpoints. Discovery-disabled configurations retain a usable service
 // and popularity store, but do not expose endpoints or perform discovery work.
@@ -31,7 +37,7 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 
 	dispatcher := func(providerType string, client *http.Client) (modelcatalog.Enumerator, error) {
 		if providerType == string(config.ProviderTypeCodex) {
-			return modelcatalog.NewCodexEnumerator(client, version, codexCatalogCredentials), nil
+			return modelcatalog.NewCodexEnumerator(client, codexCatalogClientVersion, codexCatalogCredentials), nil
 		}
 		return modelcatalog.DefaultDispatcher(providerType, client)
 	}
@@ -55,6 +61,10 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 		provider.BaseURL = strings.TrimSpace(provider.BaseURL)
 		endpoint := modelcatalog.Endpoint{Alias: alias, Type: string(provider.Type), BaseURL: provider.BaseURL, APIKey: provider.APIKey, Headers: cloneStringMap(provider.Headers)}
 		if provider.Type == config.ProviderTypeCodex {
+			// Codex discovery always lists against the ChatGPT backend: the cached
+			// fingerprint must not follow the configured host or the token's
+			// exchanged API key.
+			endpoint.BaseURL = codexChatGPTBackendURL
 			endpoint.Prepare = func(ctx context.Context) (modelcatalog.Endpoint, error) {
 				return prepareCodexCatalogEndpoint(ctx, endpoint)
 			}
@@ -64,7 +74,27 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 	return service, endpoints, popularity
 }
 
-// prepareCodexCatalogEndpoint refreshes OAuth before choosing the listing host.
+// catalogConfigCopy returns a copy of cfg whose Codex providers point at the
+// ChatGPT backend, matching the base URL catalog discovery stores in its cache.
+// The runtime config is left untouched.
+func catalogConfigCopy(cfg *config.Config) *config.Config {
+	if cfg == nil {
+		return nil
+	}
+	copied := *cfg
+	copied.Providers = make(map[string]config.ProviderConfig, len(cfg.Providers))
+	for alias, provider := range cfg.Providers {
+		if provider.Type == config.ProviderTypeCodex {
+			provider.BaseURL = codexChatGPTBackendURL
+		}
+		copied.Providers[alias] = provider
+	}
+	return &copied
+}
+
+// prepareCodexCatalogEndpoint refreshes persisted OAuth and keeps the listing
+// host on the ChatGPT backend. Token load, refresh, and auth failures abort the
+// refresh rather than listing with stale credentials.
 func prepareCodexCatalogEndpoint(ctx context.Context, endpoint modelcatalog.Endpoint) (modelcatalog.Endpoint, error) {
 	path, err := oauth.DefaultTokenPath()
 	if err != nil {
@@ -79,9 +109,7 @@ func prepareCodexCatalogEndpoint(ctx context.Context, endpoint modelcatalog.Endp
 	if err != nil {
 		return endpoint, err
 	}
-	if oauth.TokenOpenAIAPIKey(token) == "" {
-		endpoint.BaseURL = codexChatGPTBackendURL
-	}
+	endpoint.BaseURL = codexChatGPTBackendURL
 	return endpoint, nil
 }
 
