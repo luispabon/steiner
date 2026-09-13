@@ -12,43 +12,6 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func (m *Model) handleExitModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.Code {
-	case tea.KeyLeft, tea.KeyUp:
-		m.exitModal = m.exitModal.moveSelection(-1)
-	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
-		m.exitModal = m.exitModal.moveSelection(1)
-	case tea.KeyEnter:
-		return m.confirmExitModal()
-	case tea.KeyEsc:
-		m.exitModal = m.exitModal.closeExitModal()
-	}
-	if isCtrl(msg, 'c') || isCtrl(msg, 'd') {
-		return m.confirmExitModal()
-	}
-	return m, nil
-}
-
-//nolint:unparam // handler returns tea.Model to match overlay dispatch conventions
-func (m *Model) handleWorktreeCleanupModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.Code {
-	case tea.KeyLeft, tea.KeyUp:
-		m.worktreeCleanupModal = m.worktreeCleanupModal.moveSelection(-1)
-	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
-		m.worktreeCleanupModal = m.worktreeCleanupModal.moveSelection(1)
-	case tea.KeyEnter:
-		return m.confirmWorktreeCleanupModal()
-	case tea.KeyEsc:
-		m.worktreeCleanupModal = m.worktreeCleanupModal.closeWorktreeCleanupModal()
-		m.exitFlowPhase = exitFlowPhaseNone
-		return m, nil
-	}
-	if isCtrl(msg, 'c') || isCtrl(msg, 'd') {
-		return m.confirmWorktreeCleanupModal()
-	}
-	return m, nil
-}
-
 func (m *Model) handleContextOverlayKey(msg tea.KeyPressMsg) tea.Model {
 	switch msg.Code {
 	case tea.KeyEsc:
@@ -246,11 +209,15 @@ func (m *Model) handleOrchestrationConfirmModalKey(msg tea.KeyPressMsg) tea.Cmd 
 	var result confirmModalResult
 	m.orchestrationConfirm, result = m.orchestrationConfirm.handleKey(msg)
 	switch result {
-	case confirmModalResultConfirmed:
-		level := m.pendingOrchestrationLevel
+	case confirmModalResultChosen:
+		m.orchestrationConfirm = m.orchestrationConfirm.close()
+		if m.orchestrationConfirm.selectedAction() == confirmModalRight {
+			level := m.pendingOrchestrationLevel
+			m.pendingOrchestrationLevel = ""
+			return m.applyOrchestrationLevel(level)
+		}
 		m.pendingOrchestrationLevel = ""
-		return m.applyOrchestrationLevel(level)
-	case confirmModalResultCancelled:
+	case confirmModalResultDismissed:
 		m.pendingOrchestrationLevel = ""
 	}
 	return nil

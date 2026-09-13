@@ -187,7 +187,7 @@ func (m *Model) buildDelegateCancelButtonRow() string {
 	labels := m.delegateCancelButtonLabels()
 	buttons := make([]string, len(labels))
 	for i, label := range labels {
-		buttons[i] = m.renderExitModalButton(label, m.delegateCancelModal.selected == i)
+		buttons[i] = renderConfirmModalButton(m.styles, label, m.delegateCancelModal.selected == i)
 	}
 	parts := make([]string, 0, max(0, len(buttons)*2-1))
 	for i, b := range buttons {

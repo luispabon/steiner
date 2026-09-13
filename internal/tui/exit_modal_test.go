@@ -14,7 +14,7 @@ func TestExitModalRenderIsCompactWithSingleFooterDivider(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = m.openExitModal()
 
-	rendered := stripANSI(m.renderExitModal())
+	rendered := stripANSI(m.exitModal.render(m.styles))
 	for _, want := range []string{"Exit steiner?", "Leave the interactive session", "Exit", "Cancel", "confirm"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered modal = %q, want %q", rendered, want)
@@ -51,7 +51,7 @@ func TestExitModalRenderKeepsButtonsOnSingleLine(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = m.openExitModal()
 
-	rendered := m.renderExitModal()
+	rendered := m.exitModal.render(m.styles)
 	lines := strings.Split(rendered, "\n")
 	wantWidth := m.exitModal.overlayWidth()
 	foundButtons := false
@@ -67,4 +67,111 @@ func TestExitModalRenderKeepsButtonsOnSingleLine(t *testing.T) {
 	if !foundButtons {
 		t.Fatalf("rendered modal = %q, want a button row", stripANSI(rendered))
 	}
+}
+
+func TestExitModalKeys(t *testing.T) {
+	t.Run("default selection is exit", func(t *testing.T) {
+		m := newModel(Config{}, nil)
+		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+		m = m.openExitModal()
+		if got := m.exitModal.selectedAction(); got != confirmModalRight {
+			t.Fatalf("default selection = %v, want confirmModalRight", got)
+		}
+	})
+
+	t.Run("movement toggles selection", func(t *testing.T) {
+		m := newModel(Config{}, nil)
+		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+		m = m.openExitModal()
+
+		m.handleExitModalKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+		if got := m.exitModal.selectedAction(); got != confirmModalLeft {
+			t.Fatalf("after left, selection = %v, want confirmModalLeft", got)
+		}
+		m.handleExitModalKey(tea.KeyPressMsg{Code: tea.KeyRight})
+		if got := m.exitModal.selectedAction(); got != confirmModalRight {
+			t.Fatalf("after right, selection = %v, want confirmModalRight", got)
+		}
+		m.handleExitModalKey(tea.KeyPressMsg{Code: tea.KeyTab})
+		if got := m.exitModal.selectedAction(); got != confirmModalLeft {
+			t.Fatalf("after tab, selection = %v, want confirmModalLeft", got)
+		}
+	})
+
+	t.Run("enter on exit dispatches exit path without closing", func(t *testing.T) {
+		ctrl := &testController{}
+		m := newModel(Config{Controller: ctrl}, nil)
+		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+		m = m.openExitModal()
+
+		m.handleExitModalKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+		if !m.exitModal.IsOpen() {
+			t.Fatal("exitModal.IsOpen() = false, want modal to remain open until runtime quits")
+		}
+		if ctrl.countRequestExit() != 1 {
+			t.Fatalf("exit request count = %d, want 1", ctrl.countRequestExit())
+		}
+	})
+
+	t.Run("enter on cancel closes without exiting", func(t *testing.T) {
+		ctrl := &testController{}
+		m := newModel(Config{Controller: ctrl}, nil)
+		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+		m = m.openExitModal()
+
+		m.handleExitModalKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+		m.handleExitModalKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+		if m.exitModal.IsOpen() {
+			t.Fatal("exitModal.IsOpen() = true, want modal closed")
+		}
+		if ctrl.countRequestExit() != 0 {
+			t.Fatalf("exit request count = %d, want 0", ctrl.countRequestExit())
+		}
+	})
+
+	t.Run("esc closes without exiting", func(t *testing.T) {
+		ctrl := &testController{}
+		m := newModel(Config{Controller: ctrl}, nil)
+		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+		m = m.openExitModal()
+
+		m.handleExitModalKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+		if m.exitModal.IsOpen() {
+			t.Fatal("exitModal.IsOpen() = true, want modal closed")
+		}
+		if ctrl.countRequestExit() != 0 {
+			t.Fatalf("exit request count = %d, want 0", ctrl.countRequestExit())
+		}
+	})
+
+	t.Run("ctrl+c on cancel closes without exiting", func(t *testing.T) {
+		ctrl := &testController{}
+		m := newModel(Config{Controller: ctrl}, nil)
+		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+		m = m.openExitModal()
+
+		m.handleExitModalKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+		m.handleExitModalKey(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+		if m.exitModal.IsOpen() {
+			t.Fatal("exitModal.IsOpen() = true, want modal closed")
+		}
+		if ctrl.countRequestExit() != 0 {
+			t.Fatalf("exit request count = %d, want 0", ctrl.countRequestExit())
+		}
+	})
+
+	t.Run("ctrl+c on exit exits", func(t *testing.T) {
+		ctrl := &testController{}
+		m := newModel(Config{Controller: ctrl}, nil)
+		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+		m = m.openExitModal()
+
+		m.handleExitModalKey(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+		if !m.exitModal.IsOpen() {
+			t.Fatal("exitModal.IsOpen() = false, want modal to remain open until runtime quits")
+		}
+		if ctrl.countRequestExit() != 1 {
+			t.Fatalf("exit request count = %d, want 1", ctrl.countRequestExit())
+		}
+	})
 }

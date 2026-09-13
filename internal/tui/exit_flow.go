@@ -31,7 +31,7 @@ func (m *Model) beginExitFlow() (tea.Model, tea.Cmd) {
 	if m.worktreePlan == nil || m.status.mode == "running" {
 		return m.doExit()
 	}
-	m.exitModal = m.exitModal.closeExitModal()
+	m.exitModal = m.exitModal.close()
 	m.exitFlowPhase = exitFlowPhaseCounting
 	return m, func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

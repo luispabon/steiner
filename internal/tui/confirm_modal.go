@@ -9,19 +9,21 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+// confirmModalAction identifies a button position. The component knows only layout;
+// callers assign meaning.
 type confirmModalAction int
 
 const (
-	confirmModalCancel confirmModalAction = iota
-	confirmModalConfirm
+	confirmModalLeft  confirmModalAction = iota // left button, pinned at column 0
+	confirmModalRight                           // right button, right-aligned
 )
 
 type confirmModalResult int
 
 const (
-	confirmModalResultPending confirmModalResult = iota
-	confirmModalResultConfirmed
-	confirmModalResultCancelled
+	confirmModalResultPending   confirmModalResult = iota // modal still open
+	confirmModalResultChosen                              // enter: modal still open, read selectedAction(); caller closes
+	confirmModalResultDismissed                           // esc: modal closed, nothing chosen
 )
 
 // confirmModalSpec configures a confirmModalState.
@@ -29,8 +31,8 @@ type confirmModalSpec struct {
 	Title         string // overlay shell title, e.g. "confirm"
 	Heading       string // accent bold line, e.g. "Proceed?"
 	Body          string // muted body text
-	CancelLabel   string // left button
-	ConfirmLabel  string // right button
+	LeftLabel     string // left button
+	RightLabel    string // right button
 	DefaultAction confirmModalAction
 }
 
@@ -78,11 +80,11 @@ func (s confirmModalState) render(styles *theme.Styles) string {
 		Width(contentWidth).
 		Render(s.spec.Body)
 
-	cancelButton := renderConfirmModalButton(styles, s.spec.CancelLabel, s.selected == confirmModalCancel)
-	confirmButton := renderConfirmModalButton(styles, s.spec.ConfirmLabel, s.selected == confirmModalConfirm)
+	leftButton := renderConfirmModalButton(styles, s.spec.LeftLabel, s.selected == confirmModalLeft)
+	rightButton := renderConfirmModalButton(styles, s.spec.RightLabel, s.selected == confirmModalRight)
 	buttonRow := strings.Repeat(" ", contentWidth)
-	buttonRow = composeOverlayLine(buttonRow, cancelButton, contentWidth, 0, lipgloss.Width(cancelButton))
-	buttonRow = composeOverlayLine(buttonRow, confirmButton, contentWidth, contentWidth-lipgloss.Width(confirmButton), lipgloss.Width(confirmButton))
+	buttonRow = composeOverlayLine(buttonRow, leftButton, contentWidth, 0, lipgloss.Width(leftButton))
+	buttonRow = composeOverlayLine(buttonRow, rightButton, contentWidth, contentWidth-lipgloss.Width(rightButton), lipgloss.Width(rightButton))
 
 	divider := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.BorderSoft)).
@@ -116,6 +118,27 @@ func renderConfirmModalButton(styles *theme.Styles, label string, selected bool)
 		Render(label)
 }
 
+// confirmModals lists every confirm modal on the Model in view priority order.
+// Register new confirm modals here.
+func (m *Model) confirmModals() []*confirmModalState {
+	return []*confirmModalState{&m.worktreeCleanupModal, &m.exitModal, &m.orchestrationConfirm}
+}
+
+// openConfirmModalView returns the highest-priority open confirm modal, or nil.
+func (m *Model) openConfirmModalView() *confirmModalState {
+	for _, s := range m.confirmModals() {
+		if s.IsOpen() {
+			return s
+		}
+	}
+	return nil
+}
+
+func (m *Model) anyConfirmModalOpen() bool {
+	return m.openConfirmModalView() != nil
+}
+
+// handleKey processes input. On Chosen the modal stays open; the caller must close it.
 func (s confirmModalState) handleKey(msg tea.KeyPressMsg) (confirmModalState, confirmModalResult) {
 	switch msg.Code {
 	case tea.KeyLeft, tea.KeyUp:
@@ -123,13 +146,9 @@ func (s confirmModalState) handleKey(msg tea.KeyPressMsg) (confirmModalState, co
 	case tea.KeyRight, tea.KeyDown, tea.KeyTab:
 		return s.moveSelection(1), confirmModalResultPending
 	case tea.KeyEnter:
-		s = s.close()
-		if s.selected == confirmModalConfirm {
-			return s, confirmModalResultConfirmed
-		}
-		return s, confirmModalResultCancelled
+		return s, confirmModalResultChosen
 	case tea.KeyEsc:
-		return s.close(), confirmModalResultCancelled
+		return s.close(), confirmModalResultDismissed
 	}
 	return s, confirmModalResultPending
 }

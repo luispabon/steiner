@@ -1,108 +1,41 @@
 package tui
 
 import (
-	"strings"
-
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-
-	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-const (
-	exitModalActionExit = iota
-	exitModalActionCancel
-)
-
-type exitModalState struct {
-	OverlayShell
-	selectedAction int
-}
-
-func openExitModal(width, height int) exitModalState {
-	shell := OverlayShell{}.WithPreferredWidth(60)
-	shell = shell.WithDimensions(width, height).WithTitle("exit").openShell()
-	return exitModalState{
-		OverlayShell:   shell,
-		selectedAction: exitModalActionExit,
+func exitModalSpec() confirmModalSpec {
+	return confirmModalSpec{
+		Title:         "exit",
+		Heading:       "Exit steiner?",
+		Body:          "Leave the interactive session and return to the shell.",
+		LeftLabel:     "Cancel",
+		RightLabel:    "Exit",
+		DefaultAction: confirmModalRight,
 	}
-}
-
-func (s exitModalState) closeExitModal() exitModalState {
-	s.OverlayShell = s.closeShell()
-	return s
-}
-
-func (s exitModalState) moveSelection(delta int) exitModalState {
-	const actions = 2
-	s.selectedAction = ((s.selectedAction+delta)%actions + actions) % actions
-	return s
-}
-
-func (m *Model) renderExitModal() string {
-	s := m.exitModal
-	s.OverlayShell = s.WithDimensions(m.width, m.height)
-
-	contentWidth := s.InnerWidth()
-
-	title := lipgloss.NewStyle().
-		Foreground(m.styles.AccentColor).
-		Bold(true).
-		Width(contentWidth).
-		Render("Exit steiner?")
-	body := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.FgMute)).
-		Width(contentWidth).
-		Render("Leave the interactive session and return to the shell.")
-
-	cancelButton := m.renderExitModalButton("Cancel", s.selectedAction == exitModalActionCancel)
-	exitButton := m.renderExitModalButton("Exit", s.selectedAction == exitModalActionExit)
-	buttonRow := strings.Repeat(" ", contentWidth)
-	buttonRow = composeOverlayLine(buttonRow, cancelButton, contentWidth, 0, lipgloss.Width(cancelButton))
-	buttonRow = composeOverlayLine(buttonRow, exitButton, contentWidth, contentWidth-lipgloss.Width(exitButton), lipgloss.Width(exitButton))
-	divider := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.BorderSoft)).
-		Render(strings.Repeat("─", contentWidth))
-	footerText := FooterChip("tab/←→") + " move   " + FooterChip("enter") + " confirm   " + FooterChip("esc") + " cancel"
-	footer := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.FgMute)).
-		Width(contentWidth).
-		Render(footerText)
-
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		"",
-		body,
-		"",
-		buttonRow,
-		divider,
-		footer,
-	)
-	return s.RenderWithBg(m.styles.PaletteOverlay, content, theme.BgElev)
-}
-
-func (m *Model) renderExitModalButton(label string, selected bool) string {
-	if selected {
-		return m.styles.AccentBg.Padding(0, 2).Render(label)
-	}
-	return lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BgElev2)).
-		Foreground(lipgloss.Color(theme.Fg)).
-		Padding(0, 2).
-		Render(label)
 }
 
 func (m *Model) openExitModal() *Model {
-	m.exitModal = openExitModal(m.width, m.height)
+	m.exitModal = openConfirmModal(m.width, m.height, exitModalSpec())
 	return m
 }
 
-func (m *Model) confirmExitModal() (tea.Model, tea.Cmd) {
-	switch m.exitModal.selectedAction {
-	case exitModalActionCancel:
-		m.exitModal = m.exitModal.closeExitModal()
+//nolint:unparam // handler returns tea.Model to match overlay dispatch conventions
+func (m *Model) handleExitModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if isCtrl(msg, 'c') || isCtrl(msg, 'd') {
+		msg = tea.KeyPressMsg{Code: tea.KeyEnter}
+	}
+	var result confirmModalResult
+	m.exitModal, result = m.exitModal.handleKey(msg)
+	if result != confirmModalResultChosen {
 		return m, nil
-	default:
+	}
+	if m.exitModal.selectedAction() == confirmModalRight {
+		// Modal intentionally stays open: beginExitFlow closes it when it enters the
+		// worktree counting phase; on the direct doExit path it remains open until
+		// the runtime quits (asserted by model_test.go).
 		return m.beginExitFlow()
 	}
+	m.exitModal = m.exitModal.close()
+	return m, nil
 }

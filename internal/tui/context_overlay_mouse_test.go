@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -125,6 +127,54 @@ func TestContextOverlayDoesNotCaptureWhenBlockingOverlayIsOpen(t *testing.T) {
 			tc.open(m)
 			if m.contextOverlayCapturesMouse(centerX, centerY) {
 				t.Fatal("context overlay captured mouse while blocking overlay was open")
+			}
+		})
+	}
+}
+
+func TestContextOverlayMouseIgnoredWhenConfirmModalOpen(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		open func(*Model)
+	}{
+		{
+			name: "worktree cleanup",
+			open: func(m *Model) {
+				m.openWorktreeCleanupModal(m.width, m.height, 1)
+			},
+		},
+		{
+			name: "exit",
+			open: func(m *Model) {
+				m.openExitModal()
+			},
+		},
+		{
+			name: "orchestration",
+			open: func(m *Model) {
+				m.requestOrchestrationLevel(config.OrchestrationLevelLow)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := &conversationTestController{conversation: []agent.Message{{Role: "user"}}}
+			m := newModel(Config{Controller: ctrl, SubAgentsEnabled: true, OrchestrationLevel: "standard"}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 160, Height: 50})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", longContextOverlayMouseReport())})
+			boundsX, boundsY, boundsW, boundsH := m.contextOverlayBounds()
+			centerX := boundsX + boundsW/2
+			centerY := boundsY + boundsH/2
+
+			tc.open(m)
+			if !m.anyConfirmModalOpen() {
+				t.Fatalf("expected a confirm modal to be open after opener")
+			}
+			if m.contextOverlayCapturesMouse(centerX, centerY) {
+				t.Fatal("context overlay captured mouse while confirm modal was open")
 			}
 		})
 	}

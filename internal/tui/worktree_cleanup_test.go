@@ -57,21 +57,24 @@ func TestWorktreeCleanupPlanNilReceiver(t *testing.T) {
 }
 
 func TestWorktreeCleanupModalState(t *testing.T) {
-	state := openWorktreeCleanupModal(80, 24, 4)
-	if state.selectedAction != worktreeCleanupActionSkip {
-		t.Fatalf("default action = %d, want skip", state.selectedAction)
+	state := openConfirmModal(80, 24, worktreeCleanupModalSpec(2))
+	if state.selectedAction() != confirmModalLeft {
+		t.Fatalf("default action = %v, want confirmModalLeft", state.selectedAction())
 	}
 	if !state.IsOpen() {
 		t.Fatal("modal is closed after open")
 	}
-	if got := state.moveSelection(-1).selectedAction; got != worktreeCleanupActionPrune {
-		t.Fatalf("moveSelection(-1) = %d, want prune", got)
+	if got := state.moveSelection(-1).selectedAction(); got != confirmModalRight {
+		t.Fatalf("moveSelection(-1) = %v, want confirmModalRight", got)
 	}
-	if got := state.moveSelection(1).moveSelection(1).selectedAction; got != worktreeCleanupActionSkip {
-		t.Fatalf("moveSelection wrap = %d, want skip", got)
+	if got := state.moveSelection(1).moveSelection(1).selectedAction(); got != confirmModalLeft {
+		t.Fatalf("moveSelection wrap = %v, want confirmModalLeft", got)
 	}
-	if state.closeWorktreeCleanupModal().IsOpen() {
+	if state.close().IsOpen() {
 		t.Fatal("modal is open after close")
+	}
+	if state.spec.Heading != "Clean up 2 worktrees?" {
+		t.Fatalf("heading = %q, want %q", state.spec.Heading, "Clean up 2 worktrees?")
 	}
 }
 
@@ -245,11 +248,11 @@ func TestWorktreeCleanupModalKeys(t *testing.T) {
 
 	for _, tc := range []struct {
 		name      string
-		selection int
+		selection confirmModalAction
 		wantPrune bool
 	}{
-		{name: "skip", selection: worktreeCleanupActionSkip, wantPrune: false},
-		{name: "prune", selection: worktreeCleanupActionPrune, wantPrune: true},
+		{name: "skip", selection: confirmModalLeft, wantPrune: false},
+		{name: "prune", selection: confirmModalRight, wantPrune: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			controller := &testController{}
@@ -257,7 +260,7 @@ func TestWorktreeCleanupModalKeys(t *testing.T) {
 			m := newModel(Config{Controller: controller, WorktreeCleanup: plan}, nil)
 			m.exitFlowPhase = exitFlowPhaseCleanup
 			m.openWorktreeCleanupModal(80, 24, 2)
-			m.worktreeCleanupModal.selectedAction = tc.selection
+			m.worktreeCleanupModal.selected = tc.selection
 			m.handleWorktreeCleanupModalKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 			if plan.ShouldPrune() != tc.wantPrune {
 				t.Fatalf("ShouldPrune() = %v, want %v", plan.ShouldPrune(), tc.wantPrune)
@@ -267,6 +270,32 @@ func TestWorktreeCleanupModalKeys(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("tab moves selection", func(t *testing.T) {
+		m := newModel(Config{Controller: &testController{}}, nil)
+		m.exitFlowPhase = exitFlowPhaseCleanup
+		m.openWorktreeCleanupModal(80, 24, 2)
+		m.handleWorktreeCleanupModalKey(tea.KeyPressMsg{Code: tea.KeyTab})
+		if got := m.worktreeCleanupModal.selectedAction(); got != confirmModalRight {
+			t.Fatalf("after tab, selection = %v, want confirmModalRight", got)
+		}
+	})
+
+	t.Run("ctrl+c confirms current selection", func(t *testing.T) {
+		controller := &testController{}
+		plan := NewWorktreeCleanupPlan(nil, nil)
+		m := newModel(Config{Controller: controller, WorktreeCleanup: plan}, nil)
+		m.exitFlowPhase = exitFlowPhaseCleanup
+		m.openWorktreeCleanupModal(80, 24, 2)
+		m.worktreeCleanupModal.selected = confirmModalRight
+		m.handleWorktreeCleanupModalKey(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+		if !plan.ShouldPrune() {
+			t.Fatal("ctrl+c on prune selection did not request prune")
+		}
+		if controller.countRequestExit() != 1 {
+			t.Fatal("ctrl+c did not dispatch one exit request")
+		}
+	})
 }
 
 func TestDoExitWithoutControllerReturnsQuit(t *testing.T) {
