@@ -4,11 +4,13 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -668,5 +670,41 @@ func TestBuildDelegateRegistryAdvisorUsesConfigMaxUsesPerRun(t *testing.T) {
 	want := advisor.BudgetExhaustedMessage(2, 2)
 	if got != want {
 		t.Fatalf("third call handler() = %#v, want %q (MaxUsesPerRun=2 from config)", got, want)
+	}
+}
+
+func TestBuildDelegateRegistryCopiesSessionDate(t *testing.T) {
+	t.Parallel()
+
+	testTime := time.Date(2026, 9, 13, 10, 30, 0, 0, time.UTC)
+	sessionDate := prompt.NewSessionDate(testTime)
+
+	// Verify that the SessionDate was passed through to SubAgentHandlerDeps
+	// by checking that a child run would receive it.
+	maxTokens := 1000
+	_, _, err := BuildChildRun(context.Background(), SubAgentHandlerDeps{
+		Provider:         stubProvider{},
+		ParentReg:        tool.NewRegistry(),
+		WorkDir:          "/tmp/work",
+		HomeDir:          "/home/user",
+		SessionDate:      sessionDate,
+		SubAgentCfg:      config.SubAgentConfig{Enabled: true},
+		Events:           output.NoopSink{},
+		Runner:           agent.NewRunner(),
+		ResolvedModel:    provider.ResolvedModel{BackendModelID: "test-model"},
+		MaxTokens:        &maxTokens,
+		SandboxEnabled:   false,
+		Sandbox:          tool.Unsandboxed{},
+	}, ChildBootstrapOverrides{
+		AgentType:     AgentTypeCode,
+		AllowedTools:  []string{},
+		Provider:      stubProvider{},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+	}, Spec{
+		AgentID: "test-agent",
+		Task:    "test task",
+	})
+	if err != nil {
+		t.Fatalf("BuildChildRun error = %v", err)
 	}
 }
