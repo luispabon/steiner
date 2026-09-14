@@ -135,7 +135,10 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, err))
 	}
 	sanitizedBranch := sanitizeBranchName(parentBranch)
-	processHash := getProcessHash()
+	processHash, err := getProcessHash()
+	if err != nil {
+		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, fmt.Errorf("get process hash: %w", err)))
+	}
 
 	// Construct the nested worktree path and branch name.
 	relID := filepath.Join(processHash, sanitizedBranch, agentID)
@@ -242,18 +245,22 @@ func ListProcessCodeWorktrees(_ context.Context, projectRoot string) ([]CodeWork
 		return nil, err
 	}
 
-	return filterProcessCodeWorktrees(worktrees), nil
+	return filterProcessCodeWorktrees(worktrees)
 }
 
-func filterProcessCodeWorktrees(worktrees []CodeWorktree) []CodeWorktree {
-	processPrefix := "delegate/" + getProcessHash() + "/"
+func filterProcessCodeWorktrees(worktrees []CodeWorktree) ([]CodeWorktree, error) {
+	processHash, err := getProcessHash()
+	if err != nil {
+		return nil, fmt.Errorf("get process hash: %w", err)
+	}
+	processPrefix := "delegate/" + processHash + "/"
 	filtered := make([]CodeWorktree, 0, len(worktrees))
 	for _, worktree := range worktrees {
 		if strings.HasPrefix(worktree.Branch, processPrefix) {
 			filtered = append(filtered, worktree)
 		}
 	}
-	return filtered
+	return filtered, nil
 }
 
 // listWorktreeEntries parses git worktree list --porcelain and returns all entries.
@@ -455,10 +462,15 @@ func PruneProcessCodeWorktrees(ctx context.Context, projectRoot string) (int, er
 		return 0, err
 	}
 
+	processWorktrees, err := filterProcessCodeWorktrees(worktrees)
+	if err != nil {
+		return 0, fmt.Errorf("get process hash: %w", err)
+	}
+
 	delegationBase := filepath.Join(projectRoot, ".steiner", "worktrees")
 	var errs []error
 	removedCount := 0
-	for _, worktree := range filterProcessCodeWorktrees(worktrees) {
+	for _, worktree := range processWorktrees {
 		relID, err := filepath.Rel(delegationBase, worktree.Path)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("extract relative worktree ID: %w", err))

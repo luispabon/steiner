@@ -16,33 +16,40 @@ var idGen = func() string {
 	return fmt.Sprintf("child-%d", agentCounter.Add(1))
 }
 
-// processHashOnce ensures processHash is generated exactly once per process.
-var processHashOnce sync.Once
+// processHashMu guards processHashValue generation and reads.
+var processHashMu sync.Mutex
 
-// processHashValue stores the generated process hash.
+// processHashValue stores the generated process hash, once successfully generated.
 var processHashValue string
 
-// initProcessHash generates a random 8-byte hex string for this process.
-func initProcessHash() {
-	processHashOnce.Do(func() {
-		b := make([]byte, 4)
-		if _, err := rand.Read(b); err != nil {
-			panic(fmt.Sprintf("failed to generate process hash: %v", err))
-		}
-		processHashValue = hex.EncodeToString(b)
-	})
-}
+// randRead is the entropy source used to generate the process hash; tests
+// may override it to simulate entropy-source failures.
+var randRead = rand.Read
 
-// getProcessHash returns the process-level identity hash, generating it on first call.
-func getProcessHash() string {
-	initProcessHash()
-	return processHashValue
+// getProcessHash returns the process-level identity hash, generating it on
+// first successful call. A transient entropy-source failure is not cached,
+// so a later call may succeed.
+func getProcessHash() (string, error) {
+	processHashMu.Lock()
+	defer processHashMu.Unlock()
+
+	if processHashValue != "" {
+		return processHashValue, nil
+	}
+
+	b := make([]byte, 4)
+	if _, err := randRead(b); err != nil {
+		return "", fmt.Errorf("generate process hash: %w", err)
+	}
+	processHashValue = hex.EncodeToString(b)
+	return processHashValue, nil
 }
 
 // resetProcessHashForTesting resets the process hash, allowing tests to simulate
 // a new process. This is unexported and only for testing.
 func resetProcessHashForTesting() {
-	processHashOnce = sync.Once{}
+	processHashMu.Lock()
+	defer processHashMu.Unlock()
 	processHashValue = ""
 }
 
