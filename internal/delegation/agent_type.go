@@ -91,6 +91,7 @@ func init() {
 		validAgentTypeSet[string(agentType)] = struct{}{}
 	}
 
+	// panics only on a build defect: embed.FS content is baked into the binary and cannot fail at runtime.
 	mustLoadTemplate := func(filename string) string {
 		data, err := fs.ReadFile(agentTemplates, "templates/"+filename)
 		if err != nil {
