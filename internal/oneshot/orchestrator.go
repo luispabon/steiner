@@ -26,6 +26,12 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 	worktreePath := worktree.Path
 	planningPath := o.deps.Identity.PlanningPath(worktreePath)
 
+	defer func() {
+		if err != nil && manifest.RunID != "" {
+			o.tryFailureReport(ctx, &manifest, planningPath)
+		}
+	}()
+
 	store := o.deps.ManifestStore
 	if store == nil {
 		store = NewManifestStore(o.deps.Identity.ManifestPath(o.deps.ProjectRoot))
@@ -93,8 +99,9 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 		previousPhase = phase
 	}
 
-	err = o.finalizeManifest(ctx, &manifest, planningPath, err)
-	return manifest, err
+	o.finalizeRun(ctx, &manifest, planningPath)
+
+	return manifest, nil
 }
 
 // runPhaseParams bundles the arguments to runPhase. worktreePath/planningPath
@@ -255,18 +262,6 @@ func (o *Orchestrator) tryFailureReport(ctx context.Context, manifest *Manifest,
 		return
 	}
 	manifest.ReportPath = report.ReportPath
-}
-
-// finalizeManifest handles manifest finalization on both error and success paths.
-// On error, it calls tryFailureReport; on success, it calls finalizeRun.
-// It returns the original error, if any.
-func (o *Orchestrator) finalizeManifest(ctx context.Context, manifest *Manifest, planningPath string, err error) error {
-	if err != nil && manifest.RunID != "" {
-		o.tryFailureReport(ctx, manifest, planningPath)
-	} else if manifest.RunID != "" {
-		o.finalizeRun(ctx, manifest, planningPath)
-	}
-	return err
 }
 
 // finalizeRun generates the final report and runs closeout for a successful run.
