@@ -98,8 +98,8 @@ func codexResolvedModel(alias string) provider.ResolvedModel {
 func newCodexRunner(t *testing.T, cacheKey string) cliRunner {
 	t.Helper()
 	rt := cliRuntime{
-		providerFactory: buildRuntimeProviderFactory(nil, nil),
-		codexWSCache:    &codexWSCache{instances: make(map[string]provider.Provider)},
+		providerFactory:      buildRuntimeProviderFactory(nil, nil),
+		codexWSProviderCache: provider.NewCodexWSCache(),
 	}
 	return cliRunner{
 		runtime:          rt,
@@ -150,7 +150,7 @@ func TestRuntimeProviderCacheMissOnAliasOrKeyChange(t *testing.T) {
 	}
 
 	r2 := newCodexRunner(t, "cache-key-2")
-	r2.runtime.codexWSCache = r.runtime.codexWSCache
+	r2.runtime.codexWSProviderCache = r.runtime.codexWSProviderCache
 	if _, err := r2.runtimeProvider(rmA); err != nil {
 		t.Fatalf("runtimeProvider() error = %v", err)
 	}

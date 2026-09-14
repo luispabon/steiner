@@ -189,7 +189,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		modelCatalogEndpoints:        modelCatalogEndpoints,
 		modelPopularity:              modelPopularity,
 		modelEntriesUpdates:          make(chan []tui.ModelEntry, max(1, len(modelCatalogEndpoints))),
-		codexWSCache:                 &codexWSCache{instances: make(map[string]provider.Provider)},
+		codexWSProviderCache:         provider.NewCodexWSCache(),
 	}, nil
 }
 
