@@ -14,27 +14,6 @@ import (
 	"go.lsp.dev/uri"
 )
 
-// session is one live connection to a language server process.
-type session interface {
-	Definition(ctx context.Context, file string, line, col int) ([]Location, error)
-	Implementation(ctx context.Context, file string, line, col int) ([]Location, error)
-	TypeDefinition(ctx context.Context, file string, line, col int) ([]Location, error)
-	References(ctx context.Context, file string, line, col int, includeDecl bool) ([]Location, error)
-	Hover(ctx context.Context, file string, line, col int) (HoverContent, error)
-	WorkspaceSymbol(ctx context.Context, query string) ([]SymbolInfo, error)
-	DocumentSymbol(ctx context.Context, file string) ([]SymbolInfo, error)
-	DidOpen(ctx context.Context, file, languageID, text string, version int32) error
-	DidClose(ctx context.Context, file string) error
-	// Diagnostics streams publishDiagnostics notifications. The channel is never
-	// closed; select on Exited to observe termination.
-	Diagnostics() <-chan PublishedDiagnostics
-	// Progress streams $/progress notifications. The channel is never closed;
-	// select on Exited to observe termination.
-	Progress() <-chan ProgressEvent
-	Exited() <-chan struct{}
-	Close(ctx context.Context) error
-}
-
 // errServerExited is returned when the server exits mid-request.
 var errServerExited = errors.New("language server exited")
 
