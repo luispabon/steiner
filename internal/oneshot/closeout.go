@@ -3,11 +3,9 @@ package oneshot
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -299,121 +297,6 @@ func remoteHost(remoteURL string) string {
 	}
 
 	return strings.ToLower(remoteURL)
-}
-
-func runGitHubCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) (string, string, error) {
-	if _, err := exec.LookPath("gh"); err != nil {
-		return "", "", fmt.Errorf("closeout: gh cli is required for github closeout: %w", err)
-	}
-	if err := runGit(ctx, worktreePath, "push", remoteName, branch); err != nil {
-		return "", "", fmt.Errorf("closeout: push branch for github: %w", err)
-	}
-	if err := runGitHubAuth(ctx); err != nil {
-		return "", "", err
-	}
-	out, err := commandOutput(ctx, worktreePath, "gh", "pr", "create", "--title", title, "--body", body, "--base", targetBranch, "--head", branch)
-	if err != nil {
-		var cmdErr *commandError
-		if errors.As(err, &cmdErr) && strings.Contains(strings.ToLower(cmdErr.stderr), "already exists") {
-			viewOut, viewErr := commandOutput(ctx, worktreePath, "gh", "pr", "view", branch, "--json", "url", "--jq", ".url")
-			if viewErr == nil {
-				return extractURL(viewOut), "pull request already existed", nil
-			}
-		}
-		return "", "", fmt.Errorf("closeout: create github pr: %w", err)
-	}
-	return extractURL(out), "", nil
-}
-
-// extractURL returns the last line of out that begins with http:// or
-// https://, trimmed. If no such line exists, out is returned trimmed as-is so
-// behaviour degrades rather than silently emptying.
-func extractURL(out string) string {
-	lines := strings.Split(out, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
-			return line
-		}
-	}
-	return strings.TrimSpace(out)
-}
-
-func runGitHubAuth(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, "gh", "auth", "status")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("closeout: github auth check failed: %w", err)
-	}
-	return nil
-}
-
-func runGitLabCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) (string, string, error) {
-	pushArgs := []string{
-		"push",
-		"-o", "merge_request.create",
-		"-o", "merge_request.title=" + title,
-		"-o", "merge_request.description=" + body,
-		"-o", "merge_request.target=" + targetBranch,
-		remoteName,
-		branch,
-	}
-	if err := runGit(ctx, worktreePath, pushArgs...); err != nil {
-		return "", "", fmt.Errorf("closeout: create gitlab merge request via push options: %w", err)
-	}
-	return "", "merge request created via git push options", nil
-}
-
-func runAzureCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) (string, string, error) {
-	if _, err := exec.LookPath("az"); err != nil {
-		return "", "", fmt.Errorf("closeout: az cli is required for azure closeout: %w", err)
-	}
-	if err := runGit(ctx, worktreePath, "push", remoteName, branch); err != nil {
-		return "", "", fmt.Errorf("closeout: push branch for azure devops: %w", err)
-	}
-	repository := repositoryNameFromRemote(ctx, worktreePath, remoteName)
-	out, err := commandOutput(ctx, worktreePath, "az", "repos", "pr", "create", "--title", title, "--description", body, "--source-branch", branch, "--target-branch", targetBranch, "--repository", repository, "--output", "tsv", "--query", "url")
-	if err != nil {
-		return "", "", fmt.Errorf("closeout: create azure pr: %w", err)
-	}
-	return strings.TrimSpace(out), "", nil
-}
-
-func repositoryNameFromRemote(ctx context.Context, worktreePath, remoteName string) string {
-	remoteURL, err := gitOutput(ctx, worktreePath, "remote", "get-url", remoteName)
-	if err != nil {
-		return remoteName
-	}
-	remoteURL = strings.TrimSpace(remoteURL)
-	if remoteURL == "" {
-		return remoteName
-	}
-
-	if parsed, err := url.Parse(remoteURL); err == nil {
-		if name := pathBaseCandidate(parsed.Path); name != "" {
-			return name
-		}
-	}
-	if name := pathBaseCandidate(remoteURL); name != "" {
-		return name
-	}
-	return remoteName
-}
-
-func pathBaseCandidate(path string) string {
-	path = strings.TrimSpace(path)
-	path = strings.TrimSuffix(path, ".git")
-	path = strings.TrimSuffix(path, "/")
-	if path == "" {
-		return ""
-	}
-	if strings.Contains(path, ":") {
-		path = strings.Split(path, ":")[len(strings.Split(path, ":"))-1]
-	}
-	base := filepath.Base(path)
-	if base == "." || base == string(filepath.Separator) || base == "" {
-		return ""
-	}
-	return base
 }
 
 // commandError carries a command's real stderr alongside the formatted error
