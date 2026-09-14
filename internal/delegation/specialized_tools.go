@@ -356,6 +356,7 @@ func cleanupRegistrationWorktree(agentType AgentType, workDir string, worktree C
 	if agentType != AgentTypeCode || workDir == "" || worktree.Path == "" {
 		return
 	}
+	// best-effort: worktree left for manual cleanup if prune fails
 	_, _ = pruneCodeWorktree(workDir, worktree)
 }
 
