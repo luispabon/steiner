@@ -32,6 +32,7 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	pruneWorktreesOnExit(cmd, sess, rt)
 	clearTerminalScreen(cmd.OutOrStdout())
 	if err == nil && sess.SessionTitle() != "" {
+		// best-effort: terminal write
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nResume this session:\n  steiner --resume %s\n\n", sess.SessionID())
 	}
 	closeRuntime(rt)
@@ -63,6 +64,7 @@ func awaitSessionRuns(cmd *cobra.Command, sess *interactive.Session, rt *cliRunt
 		emitCloseWarning(rt.events, "session shutdown", warning)
 		return
 	}
+	// best-effort: terminal write
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: session shutdown: %v.\n", warning)
 }
 
@@ -82,6 +84,7 @@ func pruneWorktreesOnExit(cmd *cobra.Command, sess *interactive.Session, rt *cli
 			if rt.events != nil {
 				emitCloseWarning(rt.events, "worktree cleanup", warning)
 			} else {
+				// best-effort: terminal write
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: worktree cleanup: %v.\n", warning)
 			}
 			return
@@ -97,6 +100,7 @@ func pruneWorktreesOnExit(cmd *cobra.Command, sess *interactive.Session, rt *cli
 		return
 	}
 	if n > 0 {
+		// best-effort: terminal write
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nCleaned up %d worktree(s).\n\n", n)
 	}
 }

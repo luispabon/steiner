@@ -40,6 +40,7 @@ func CleanupOrphans(baseDir string, maxAge time.Duration) int {
 // 0o700 first so read-only trees (e.g. Go module caches with 0o444 files)
 // can still be unlinked. Best-effort: chmod and walk errors are ignored.
 func forceRemoveAll(path string) error {
+	// best-effort cleanup; a partial walk still removes what it reached
 	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil

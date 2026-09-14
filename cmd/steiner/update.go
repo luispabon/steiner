@@ -99,6 +99,7 @@ func newUpdateCommand() *cobra.Command {
 			sp.Clear()
 
 			if err != nil {
+				// best-effort: terminal write
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s %s\n", crossMark(), err.Error())
 				return err
 			}
