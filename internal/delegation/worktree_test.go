@@ -311,6 +311,28 @@ func TestListProcessCodeWorktrees_FiltersForeignProcess(t *testing.T) {
 	}
 }
 
+func TestProvisionCodeWorktree_ProcessHashEntropyFailure(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+	t.Cleanup(resetProcessHashForTesting)
+
+	resetProcessHashForTesting()
+	origRandRead := randRead
+	randRead = func([]byte) (int, error) {
+		return 0, errors.New("entropy source unavailable")
+	}
+	t.Cleanup(func() { randRead = origRandRead })
+
+	_, err := ProvisionCodeWorktree(ctx, repo, "agent")
+	if err == nil {
+		t.Fatal("ProvisionCodeWorktree returned nil error, want entropy failure surfaced")
+	}
+	if !strings.Contains(err.Error(), "get process hash") {
+		t.Errorf("ProvisionCodeWorktree error = %v, want get process hash context", err)
+	}
+}
+
 func TestPruneProcessCodeWorktrees_LeavesForeignProcess(t *testing.T) {
 	ctx := context.Background()
 	repo, cleanup := setupTestRepo(t)
@@ -386,7 +408,11 @@ func TestPruneProcessCodeWorktrees_ContinuesAfterPruneError(t *testing.T) {
 
 	// Put a second worktree on the first worktree's branch. Pruning the first
 	// removes it, but branch deletion fails while the second worktree uses it.
-	secondPath := filepath.Join(repo, ".steiner", "worktrees", getProcessHash(), "main", "second")
+	processHash, err := getProcessHash()
+	if err != nil {
+		t.Fatalf("getProcessHash failed: %v", err)
+	}
+	secondPath := filepath.Join(repo, ".steiner", "worktrees", processHash, "main", "second")
 	if err := os.MkdirAll(filepath.Dir(secondPath), 0o755); err != nil {
 		t.Fatalf("create second worktree parent: %v", err)
 	}
