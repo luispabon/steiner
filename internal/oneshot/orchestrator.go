@@ -27,9 +27,7 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 	planningPath := o.deps.Identity.PlanningPath(worktreePath)
 
 	defer func() {
-		if err != nil && manifest.RunID != "" {
-			o.tryFailureReport(ctx, &manifest, planningPath)
-		}
+		o.reportFailureIfNeeded(ctx, &manifest, planningPath, err)
 	}()
 
 	store := o.deps.ManifestStore
@@ -102,6 +100,14 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 	o.finalizeRun(ctx, &manifest, planningPath)
 
 	return manifest, nil
+}
+
+// reportFailureIfNeeded generates a failure report if Run is returning with
+// a non-nil error on a manifest that has already been assigned a RunID.
+func (o *Orchestrator) reportFailureIfNeeded(ctx context.Context, manifest *Manifest, planningPath string, err error) {
+	if err != nil && manifest.RunID != "" {
+		o.tryFailureReport(ctx, manifest, planningPath)
+	}
 }
 
 // runPhaseParams bundles the arguments to runPhase. worktreePath/planningPath
