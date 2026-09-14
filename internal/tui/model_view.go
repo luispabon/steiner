@@ -404,23 +404,7 @@ func (m *Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, i
 	for i, line := range lines {
 		renderedLine := line
 		if i+start == cursorRow {
-			if cmdPrefix, ok := matchCommandPrefix(m.input.Value(), m.skillNames, m.oneshotRunning); ok {
-				if strings.HasPrefix(line, cmdPrefix) {
-					if cursorCol >= len(cmdPrefix) {
-						prefix := m.styles.CommandPrefixStyle.Render(cmdPrefix)
-
-						restText := line[len(cmdPrefix):]
-						restVisibleWidth := ansi.StringWidth(restText)
-						expectedRestWidth := innerWidth - len([]rune(cmdPrefix))
-						if restVisibleWidth < expectedRestWidth {
-							restText += strings.Repeat(" ", expectedRestWidth-restVisibleWidth)
-						}
-						rest := m.styles.UserBg.Render(restText)
-
-						renderedLine = prefix + rest
-					}
-				}
-			}
+			renderedLine = highlightCommandPrefixLine(line, cursorCol, m.input.Value(), m.skillNames, m.oneshotRunning, innerWidth, m.styles.CommandPrefixStyle, m.styles.UserBg)
 		}
 
 		if renderedLine == line {
@@ -437,6 +421,29 @@ func (m *Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, i
 		sb.WriteString(paddingLine + "\n")
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// highlightCommandPrefixLine renders the cursor line with its matched
+// command prefix (e.g. a slash command or skill invocation) styled
+// separately from the rest of the line. It returns line unchanged if no
+// command prefix matches or the cursor sits within the prefix itself.
+func highlightCommandPrefixLine(line string, cursorCol int, value string, skillNames []string, oneshotRunning bool, innerWidth int, prefixStyle, restStyle lipgloss.Style) string {
+	cmdPrefix, ok := matchCommandPrefix(value, skillNames, oneshotRunning)
+	if !ok || !strings.HasPrefix(line, cmdPrefix) || cursorCol < len(cmdPrefix) {
+		return line
+	}
+
+	prefix := prefixStyle.Render(cmdPrefix)
+
+	restText := line[len(cmdPrefix):]
+	restVisibleWidth := ansi.StringWidth(restText)
+	expectedRestWidth := innerWidth - len([]rune(cmdPrefix))
+	if restVisibleWidth < expectedRestWidth {
+		restText += strings.Repeat(" ", expectedRestWidth-restVisibleWidth)
+	}
+	rest := restStyle.Render(restText)
+
+	return prefix + rest
 }
 
 func (m *Model) inputChromeHeight(contentWidth int) int {
