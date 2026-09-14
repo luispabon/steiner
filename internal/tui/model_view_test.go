@@ -97,6 +97,64 @@ func TestRenderInputViewReappliesUserBackground(t *testing.T) {
 	}
 }
 
+func TestHighlightCommandPrefixLine(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+
+	tests := []struct {
+		name           string
+		line           string
+		cursorCol      int
+		value          string
+		skillNames     []string
+		oneshotRunning bool
+		innerWidth     int
+		wantHighlight  bool
+	}{
+		{
+			name:      "plain line no command prefix",
+			line:      "just some text",
+			cursorCol: 5,
+			value:     "just some text",
+		},
+		{
+			name:          "skill prefix match",
+			line:          "/deploy rest of the line",
+			cursorCol:     8,
+			value:         "/deploy rest of the line",
+			skillNames:    []string{"deploy"},
+			innerWidth:    30,
+			wantHighlight: true,
+		},
+		{
+			name:           "oneshot running blocks command prefix match",
+			line:           "/deploy rest of the line",
+			cursorCol:      8,
+			value:          "/deploy rest of the line",
+			skillNames:     []string{"deploy"},
+			oneshotRunning: true,
+			innerWidth:     30,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := highlightCommandPrefixLine(tt.line, tt.cursorCol, tt.value, tt.skillNames, tt.oneshotRunning, tt.innerWidth, styles.CommandPrefixStyle, styles.UserBg)
+			if tt.wantHighlight {
+				if got == tt.line {
+					t.Fatalf("highlightCommandPrefixLine(%q) = %q, want a styled line distinct from input", tt.line, got)
+				}
+				if !strings.Contains(got, "deploy") {
+					t.Fatalf("highlightCommandPrefixLine(%q) = %q, want prefix text preserved", tt.line, got)
+				}
+			} else if got != tt.line {
+				t.Fatalf("highlightCommandPrefixLine(%q) = %q, want unchanged line", tt.line, got)
+			}
+		})
+	}
+}
+
 func TestRenderViewportWithScrollbar(t *testing.T) {
 	t.Parallel()
 	m := Model{
