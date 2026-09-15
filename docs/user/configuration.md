@@ -1052,9 +1052,8 @@ models:
       default_model: local/qwen3:14b
 ```
 
-Use `http://127.0.0.1:1234/v1` as `base_url` for LM Studio. Use `type: ollama`
-with `base_url: http://localhost:11434` (no `/v1`) when targeting the Ollama
-native endpoint.
+Use `http://127.0.0.1:1234/v1` as `base_url` for LM Studio. For Ollama, use
+`type: ollama` with `base_url: http://localhost:11434/v1`.
 
 ---
 

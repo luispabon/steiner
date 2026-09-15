@@ -36,7 +36,7 @@ models:
       default_model: ollama/qwen2.5-coder:14b
 ```
 
-`type: ollama` uses Ollama's native endpoint conventions. Replace the model ID with one available in your Ollama installation.
+The Ollama provider uses the OpenAI-compatible API at the configured `/v1` base URL. Replace the model ID with one available in your Ollama installation.
 
 ### LM Studio
 

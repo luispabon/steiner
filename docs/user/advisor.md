@@ -26,15 +26,16 @@ advisor:
   max_tokens: 256
   timeout: 5m
 
+providers:
+  local:
+    type: ollama
+    base_url: http://localhost:11434/v1
+
 models:
-  definitions:
-    advisor-model:
-      provider: local
-      id: advisor-model
   profiles:
     default:
-      default_model: advisor-model
-      advisor: advisor-model
+      default_model: local/<default-model-id>
+      advisor: local/advisor-model
 ```
 
 Fields:

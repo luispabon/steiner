@@ -26,7 +26,7 @@ See [Updates](updates.md) for the built-in release updater and [Getting started]
 
 Build from source only when contributing or when no release asset supports your platform. The repository requires Go `1.26.6`.
 
-Check out the repository, then either build release binaries with `make build-binaries` or run the program directly:
+Check out the repository, then build the local source binary `bin/steiner` with `make build-binaries`, or run the program directly:
 
 ```bash
 make build-binaries
