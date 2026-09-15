@@ -106,10 +106,12 @@ Go version: `1.26`.
 * Return errors instead of panicking except at process boundaries.
 * Wrap errors as `fmt.Errorf("<lowercase action>: %w", err)`.
 * Do not silently discard production errors; comment intentional ignores.
+* When two or more literals must stay in sync (e.g. an enum's allowlist and its validity set), derive one from the other instead of hand-duplicating both.
 * Define interfaces at the consumer, keep them small, avoid header interfaces.
 * Add nearby tests for new or changed behavior under `internal/`, using `testdata/` for fixtures over large inline literals.
 * Use `0o` octal literals; don't shadow builtins like `close`, `max`, `min`.
 * Keep symbols unexported unless cross-package use requires export; exported `internal/` symbols need Godoc starting with the symbol name.
+* A type or function referenced only by its own `_test.go` file is dead code, not a cross-package use — delete it or wire it up.
 * TODO comments must name the follow-up action or owner, not leave open-ended debt markers.
 * Do not commit no-op/stub functions that silently do nothing (e.g. a validator whose body is only `_ = arg`) — implement it, remove it, or comment the concrete follow-up. Same standard applies to tests: every test needs an observable failing path (`t.Error`/`t.Fatal`); a `t.Logf` comparison asserts nothing.
 * When asserting file/directory permissions in tests, compare exactly (`mode.Perm() != 0o600`) or assert absence of unwanted bits (`mode&0o077 != 0`). A subset mask like `mode&0o644 != 0o644` also passes for `0o666`/`0o777` — don't use it.
