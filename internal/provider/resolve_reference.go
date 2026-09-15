@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -54,6 +55,17 @@ func resolveReference(cfg *config.Config, reference string, useDiscovery bool, h
 	}
 
 	if !useDiscovery {
+		ref := modelRef{
+			Alias:          reference,
+			IsAlias:        isAlias,
+			ProviderAlias:  modelCfg.Provider,
+			Provider:       provCfg,
+			Profile:        profileFor(provCfg.Type),
+			BackendModelID: modelCfg.ID,
+			ModelConfig:    modelCfg,
+		}
+		facts, _ := resolveFacts(context.Background(), ref, []factSource{configSource{}, providerFixedSource{}, builtinSource{}})
+		applyFacts(&rm, facts)
 		return rm, nil
 	}
 

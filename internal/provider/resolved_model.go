@@ -61,6 +61,7 @@ type ResolvedModel struct {
 	ReasoningConfiguredEffort string
 	ReasoningEffectiveEffort  string
 	Warnings                  []string
+	Facts                     ModelFacts
 	metadataLookupReason      string
 }
 
