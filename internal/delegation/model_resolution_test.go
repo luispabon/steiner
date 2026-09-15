@@ -3,134 +3,77 @@ package delegation
 import (
 	"errors"
 	"reflect"
-	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func TestMemoizedModelResolverConcurrentAliasSharesModelAndCreatesProvidersPerCaller(t *testing.T) {
-	var resolveCalls atomic.Int32
-	resolveStarted := make(chan struct{})
-	releaseResolve := make(chan struct{})
+// TestBuildModelResolverWithResolveWiresProviderFactory proves the thin
+// remaining logic at this layer: buildModelResolverWithResolve trims the
+// alias, propagates resolve's result/error, and passes the resolved model
+// through to ProviderFactory. Memoization and single-flight coalescing now
+// live in provider.Resolver (see internal/provider/model_resolver_test.go);
+// resolve here is a plain fake with no caching of its own.
+func TestBuildModelResolverWithResolveWiresProviderFactory(t *testing.T) {
 	model := provider.ResolvedModel{Alias: "luna", BackendModelID: "luna-v1"}
+	var gotAlias string
 	resolve := func(alias string) (provider.ResolvedModel, error) {
-		if resolveCalls.Add(1) == 1 {
-			close(resolveStarted)
-			<-releaseResolve
-		}
-		if alias != "luna" {
-			t.Errorf("resolve alias = %q, want luna", alias)
-		}
+		gotAlias = alias
 		return model, nil
 	}
 
-	var factoryCalls atomic.Int32
+	var factoryModel provider.ResolvedModel
 	resolver := buildModelResolverWithResolve(DelegateDeps{
 		ProviderFactory: func(got provider.ResolvedModel, _ string) (provider.Provider, error) {
-			if !reflect.DeepEqual(got, model) {
-				t.Errorf("factory model = %#v, want %#v", got, model)
-			}
-			factoryCalls.Add(1)
+			factoryModel = got
 			return &stubProvider{}, nil
 		},
 	}, resolve)
 
-	const callers = 16
-	results := make([]provider.ResolvedModel, callers)
-	providers := make([]provider.Provider, callers)
-	errs := make([]error, callers)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		providers[0], results[0], errs[0] = resolver(" luna ")
-	}()
-	<-resolveStarted
-
-	wg.Add(callers - 1)
-	for i := 1; i < callers; i++ {
-		i := i
-		go func() {
-			defer wg.Done()
-			providers[i], results[i], errs[i] = resolver("luna")
-		}()
+	p, rm, err := resolver(" luna ")
+	if err != nil {
+		t.Fatalf("resolver() error = %v", err)
 	}
-	close(releaseResolve)
-	wg.Wait()
-
-	if got := resolveCalls.Load(); got != 1 {
-		t.Fatalf("underlying resolver calls = %d, want 1", got)
+	if gotAlias != "luna" {
+		t.Fatalf("resolve alias = %q, want trimmed %q", gotAlias, "luna")
 	}
-	if got := factoryCalls.Load(); got != callers {
-		t.Fatalf("ProviderFactory calls = %d, want %d", got, callers)
+	if !reflect.DeepEqual(rm, model) {
+		t.Fatalf("resolver() model = %#v, want %#v", rm, model)
 	}
-	for i := range results {
-		if errs[i] != nil {
-			t.Fatalf("resolver call %d error = %v", i, errs[i])
-		}
-		if !reflect.DeepEqual(results[i], model) {
-			t.Errorf("resolver call %d model = %#v, want %#v", i, results[i], model)
-		}
-		for j := 0; j < i; j++ {
-			if providers[i] == providers[j] {
-				t.Fatalf("resolver calls %d and %d returned the same provider instance", i, j)
-			}
-		}
+	if !reflect.DeepEqual(factoryModel, model) {
+		t.Fatalf("ProviderFactory model = %#v, want %#v", factoryModel, model)
+	}
+	if p == nil {
+		t.Fatal("resolver() provider = nil, want factory-built provider")
 	}
 }
 
-func TestMemoizedModelResolverDoesNotCacheFailures(t *testing.T) {
-	var resolveCalls atomic.Int32
-	wantErr := errors.New("temporary resolution failure")
-	model := provider.ResolvedModel{Alias: "luna", BackendModelID: "luna-v1"}
-	resolver := newMemoizedModelResolver(func(string) (provider.ResolvedModel, error) {
-		if resolveCalls.Add(1) == 1 {
-			return provider.ResolvedModel{}, wantErr
-		}
+func TestBuildModelResolverWithResolvePropagatesError(t *testing.T) {
+	wantErr := errors.New("resolution failure")
+	resolver := buildModelResolverWithResolve(DelegateDeps{}, func(string) (provider.ResolvedModel, error) {
+		return provider.ResolvedModel{}, wantErr
+	})
+
+	if _, _, err := resolver("luna"); !errors.Is(err, wantErr) {
+		t.Fatalf("resolver() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestBuildModelResolverWithResolveFallsBackToParentProviderWithoutFactory(t *testing.T) {
+	parentProvider := &stubProvider{}
+	model := provider.ResolvedModel{Alias: "luna"}
+	resolver := buildModelResolverWithResolve(DelegateDeps{Provider: parentProvider}, func(string) (provider.ResolvedModel, error) {
 		return model, nil
 	})
 
-	if _, err := resolver("luna"); !errors.Is(err, wantErr) {
-		t.Fatalf("first resolution error = %v, want %v", err, wantErr)
-	}
-	got, err := resolver("luna")
+	p, rm, err := resolver("luna")
 	if err != nil {
-		t.Fatalf("second resolution error = %v", err)
+		t.Fatalf("resolver() error = %v", err)
 	}
-	if !reflect.DeepEqual(got, model) {
-		t.Fatalf("second resolution model = %#v, want %#v", got, model)
+	if p != provider.Provider(parentProvider) {
+		t.Fatalf("resolver() provider = %#v, want parent provider", p)
 	}
-	if got := resolveCalls.Load(); got != 2 {
-		t.Fatalf("underlying resolver calls = %d, want 2", got)
-	}
-}
-
-func TestMemoizedModelResolverKeepsAliasesIndependent(t *testing.T) {
-	var mu sync.Mutex
-	calls := make(map[string]int)
-	resolver := newMemoizedModelResolver(func(alias string) (provider.ResolvedModel, error) {
-		mu.Lock()
-		calls[alias]++
-		mu.Unlock()
-		return provider.ResolvedModel{Alias: alias}, nil
-	})
-
-	first, err := resolver("luna")
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := resolver("nova")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.Alias != "luna" || second.Alias != "nova" {
-		t.Fatalf("resolved aliases = %q, %q", first.Alias, second.Alias)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if calls["luna"] != 1 || calls["nova"] != 1 {
-		t.Fatalf("resolution calls = %#v, want one per alias", calls)
+	if !reflect.DeepEqual(rm, model) {
+		t.Fatalf("resolver() model = %#v, want %#v", rm, model)
 	}
 }

@@ -28,11 +28,11 @@ func TestResolveReferenceParity(t *testing.T) {
 		}},
 	}
 
-	alias, err := Resolve(cfg, "configured")
+	alias, err := resolveReference(&cfg, "configured", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve(alias) error = %v", err)
 	}
-	raw, err := Resolve(cfg, "local/gpt-4")
+	raw, err := resolveReference(&cfg, "local/gpt-4", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve(reference) error = %v", err)
 	}
@@ -65,9 +65,9 @@ func TestResolveReferenceWarningIsNeutral(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "local/custom-model", nil)
+	rm, err := resolveReference(&cfg, "local/custom-model", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 
 	if len(rm.Warnings) != 1 {
@@ -86,7 +86,7 @@ func TestResolveReferenceUsesLongestProviderPrefix(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "openrouter/openai/gpt-4")
+	rm, err := resolveReference(&cfg, "openrouter/openai/gpt-4", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -106,7 +106,7 @@ func TestResolveReferenceAliasWins(t *testing.T) {
 		}},
 	}
 
-	rm, err := Resolve(cfg, "local/model")
+	rm, err := resolveReference(&cfg, "local/model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -116,7 +116,8 @@ func TestResolveReferenceAliasWins(t *testing.T) {
 }
 
 func TestResolveReferenceInvalid(t *testing.T) {
-	_, err := Resolve(config.Config{}, "missing/model")
+	cfg := config.Config{}
+	_, err := resolveReference(&cfg, "missing/model", false, nil)
 	if err == nil {
 		t.Fatal("Resolve() error = nil, want error")
 	}
@@ -145,9 +146,9 @@ func TestResolveWithDiscoveryReferenceConsumerShapes(t *testing.T) {
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			rm, err := ResolveWithDiscovery(cfg, tt.ref, nil)
+			rm, err := resolveReference(&cfg, tt.ref, true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			if got, want := rm.ProviderAlias, "local"; got != want {
 				t.Fatalf("ProviderAlias = %q, want %q", got, want)

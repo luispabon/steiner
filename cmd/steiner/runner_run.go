@@ -35,7 +35,7 @@ type runnerSetup struct {
 
 func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string) (runnerSetup, error) {
 	alias := r.selectedAlias()
-	rm, err := provider.ResolveWithDiscovery(r.runtime.cfg, alias, r.runtime.httpClient)
+	rm, err := r.runtime.resolveModel(alias)
 	if err != nil {
 		return runnerSetup{}, err
 	}

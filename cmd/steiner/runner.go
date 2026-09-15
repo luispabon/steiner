@@ -181,21 +181,26 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		cfg.Models.Effective = r.currentEffective()
 	}
 	return delegation.DelegateDeps{
-		BaseRegistry:          r.runtime.registry,
-		SubAgentCfg:           r.runtime.cfg.SubAgent,
-		AdvisorCfg:            r.runtime.cfg.Advisor,
-		Provider:              setup.provider,
-		Events:                events,
-		WorkDir:               r.runtime.workDir,
-		HomeDir:               r.runtime.homeDir,
-		SessionID:             r.sessionID(),
-		SessionDate:           r.sessionDate(),
-		ResolvedModel:         setup.baseResolvedModel,
-		MaxTokens:             setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
-		StreamingPreferred:    r.streamingPreferred,
-		TraceLogger:           r.runtime.delegationLogger,
-		Diagnostics:           r.runtime.diagnostics,
-		Config:                cfg,
+		BaseRegistry:       r.runtime.registry,
+		SubAgentCfg:        r.runtime.cfg.SubAgent,
+		AdvisorCfg:         r.runtime.cfg.Advisor,
+		Provider:           setup.provider,
+		Events:             events,
+		WorkDir:            r.runtime.workDir,
+		HomeDir:            r.runtime.homeDir,
+		SessionID:          r.sessionID(),
+		SessionDate:        r.sessionDate(),
+		ResolvedModel:      setup.baseResolvedModel,
+		MaxTokens:          setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
+		StreamingPreferred: r.streamingPreferred,
+		TraceLogger:        r.runtime.delegationLogger,
+		Diagnostics:        r.runtime.diagnostics,
+		Config:             cfg,
+		ResolveModel: func(alias string) (provider.ResolvedModel, error) {
+			resolverRuntime := r.runtime
+			resolverRuntime.cfg = cfg
+			return resolverRuntime.resolveModel(alias)
+		},
 		ProviderFactory:       r.runtime.providerFactory,
 		HTTPClient:            r.runtime.httpClient,
 		Searcher:              searcher,

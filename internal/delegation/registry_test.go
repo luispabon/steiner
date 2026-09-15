@@ -16,6 +16,17 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// resolveModelFunc returns a DelegateDeps.ResolveModel backed by a real,
+// throwaway provider.Resolver against cfg, for tests that need
+// BuildDelegateRegistry's advisor/sub-agent model resolution paths to work
+// end-to-end rather than nil-panic.
+func resolveModelFunc(cfg config.Config) func(string) (provider.ResolvedModel, error) {
+	resolver := provider.NewResolver(provider.ResolverOptions{})
+	return func(alias string) (provider.ResolvedModel, error) {
+		return resolver.Resolve(context.Background(), cfg, alias)
+	}
+}
+
 func advisorTestConfig() config.Config {
 	return config.Config{
 		Providers: map[string]config.ProviderConfig{
@@ -84,6 +95,7 @@ func TestBuildDelegateRegistryChildFactoryKeepsParentSessionSeparateFromCacheKey
 		},
 		MaxTokens:       1024,
 		Config:          cfg,
+		ResolveModel:    resolveModelFunc(cfg),
 		ProviderFactory: providerFactory,
 		CacheKeyStore:   NewCacheKeyStore(),
 		Sandbox:         tool.Unsandboxed{},
@@ -182,6 +194,7 @@ func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
 		},
 		MaxTokens:       256,
 		Config:          advisorTestConfig(),
+		ResolveModel:    resolveModelFunc(advisorTestConfig()),
 		ProviderFactory: providerFactory,
 		CacheKeyStore:   store,
 	}
@@ -232,8 +245,9 @@ func TestBuildDelegateRegistryAdvisorFallsBackToProfileDefault(t *testing.T) {
 			ProviderAlias:         "testprov",
 			EffectiveProviderType: config.ProviderTypeOpenAICompat,
 		},
-		MaxTokens: 256,
-		Config:    cfg,
+		MaxTokens:    256,
+		Config:       cfg,
+		ResolveModel: resolveModelFunc(cfg),
 		ProviderFactory: func(model provider.ResolvedModel, _ string) (provider.Provider, error) {
 			captured = model
 			return &fakeProvider{}, nil
@@ -270,8 +284,9 @@ func TestBuildDelegateRegistryAdvisorNamedProfileFallsBackToProfileDefault(t *te
 			ProviderAlias:         "testprov",
 			EffectiveProviderType: config.ProviderTypeOpenAICompat,
 		},
-		MaxTokens: 256,
-		Config:    cfg,
+		MaxTokens:    256,
+		Config:       cfg,
+		ResolveModel: resolveModelFunc(cfg),
 		ProviderFactory: func(model provider.ResolvedModel, _ string) (provider.Provider, error) {
 			captured = model
 			return &fakeProvider{}, nil
@@ -298,6 +313,7 @@ func TestBuildDelegateRegistryAdvisorProfileDefaultResolverError(t *testing.T) {
 		WorkDir:      "/tmp/work",
 		MaxTokens:    256,
 		Config:       cfg,
+		ResolveModel: resolveModelFunc(cfg),
 	})
 	if err == nil {
 		t.Fatal("expected profile default resolution error")
@@ -348,6 +364,7 @@ func TestBuildDelegateRegistryAdvisorBudgetPersistsAcrossCallsViaAdvisorState(t 
 		},
 		MaxTokens:       256,
 		Config:          advisorTestConfig(),
+		ResolveModel:    resolveModelFunc(advisorTestConfig()),
 		ProviderFactory: providerFactory,
 		AdvisorState:    state,
 	}
@@ -403,8 +420,9 @@ func TestBuildDelegateRegistryAdvisorCacheKeyFallsBackWhenStoreNil(t *testing.T)
 			ProviderAlias:         "testprov",
 			EffectiveProviderType: config.ProviderTypeOpenAICompat,
 		},
-		MaxTokens: 256,
-		Config:    advisorTestConfig(),
+		MaxTokens:    256,
+		Config:       advisorTestConfig(),
+		ResolveModel: resolveModelFunc(advisorTestConfig()),
 	})
 	if err != nil {
 		t.Fatalf("BuildDelegateRegistry() error = %v", err)
@@ -421,8 +439,8 @@ func TestBuildDelegateRegistryAdvisorCacheKeyFallsBackWhenStoreNil(t *testing.T)
 }
 
 func TestBuildDelegateRegistryAppliesAdvisorTimeout(t *testing.T) {
-	// Build a minimal config that allows ResolveWithDiscovery to succeed
-	// without making any real HTTP calls (limits are fully configured).
+	// Build a minimal config that allows model resolution to succeed without
+	// making any real HTTP calls (limits are fully configured).
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
 			"testprov": {
@@ -516,6 +534,7 @@ func TestBuildDelegateRegistryAppliesAdvisorTimeout(t *testing.T) {
 				ResolvedModel:   parentResolved,
 				MaxTokens:       256,
 				Config:          cfg,
+				ResolveModel:    resolveModelFunc(cfg),
 				ProviderFactory: providerFactory,
 			})
 			if err != nil {
@@ -571,8 +590,9 @@ func TestBuildDelegateRegistryRegistersAdvisorSchemaWithQuestionAndFiles(t *test
 			ProviderAlias:         "testprov",
 			EffectiveProviderType: config.ProviderTypeOpenAICompat,
 		},
-		MaxTokens: 256,
-		Config:    cfg,
+		MaxTokens:    256,
+		Config:       cfg,
+		ResolveModel: resolveModelFunc(cfg),
 	})
 	if err != nil {
 		t.Fatalf("BuildDelegateRegistry() error = %v", err)
@@ -637,6 +657,7 @@ func TestBuildDelegateRegistryAdvisorUsesConfigMaxUsesPerRun(t *testing.T) {
 		},
 		MaxTokens:       256,
 		Config:          advisorTestConfig(),
+		ResolveModel:    resolveModelFunc(advisorTestConfig()),
 		ProviderFactory: providerFactory,
 		AdvisorState:    state,
 	}

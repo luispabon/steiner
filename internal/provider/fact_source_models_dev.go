@@ -10,14 +10,15 @@ import (
 
 // modelsDevLoader lazily loads and parses the models.dev cache at most once,
 // shared across every modelsDevSource instance constructed from it (so a
-// single resolution — or a whole ResolveReasoningBatch pass over many
+// single resolution — or a whole session sharing one Resolver across many
 // aliases — touches the cache file/network at most once, and never at all
 // when no consulted source needs models.dev data).
 type modelsDevLoader struct {
-	cache *metadata.Cache
-	once  sync.Once
-	index *metadata.Index
-	err   string // LoadStatus.Reason if the load degraded; "" if clean
+	cache    *metadata.Cache
+	loadFunc func(context.Context) metadata.LoadResult // optional override; nil uses cache.LoadBestEffortWithStatus
+	once     sync.Once
+	index    *metadata.Index
+	err      string // LoadStatus.Reason if the load degraded; "" if clean
 }
 
 // newModelsDevLoader returns a modelsDevLoader that loads from cache on
@@ -26,11 +27,23 @@ func newModelsDevLoader(cache *metadata.Cache) *modelsDevLoader {
 	return &modelsDevLoader{cache: cache}
 }
 
-func (l *modelsDevLoader) load(_ context.Context) (*metadata.Index, string) {
+// newModelsDevLoaderWithFunc returns a modelsDevLoader that loads via fn
+// instead of a metadata.Cache, for tests that need to observe or control
+// exactly when/how many times the underlying load happens.
+func newModelsDevLoaderWithFunc(fn func(context.Context) metadata.LoadResult) *modelsDevLoader {
+	return &modelsDevLoader{loadFunc: fn}
+}
+
+func (l *modelsDevLoader) load(ctx context.Context) (*metadata.Index, string) {
 	l.once.Do(func() {
-		loadCtx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
-		defer cancel()
-		result := l.cache.LoadBestEffortWithStatus(loadCtx)
+		var result metadata.LoadResult
+		if l.loadFunc != nil {
+			result = l.loadFunc(ctx)
+		} else {
+			loadCtx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
+			defer cancel()
+			result = l.cache.LoadBestEffortWithStatus(loadCtx)
+		}
 		if result.Data != nil {
 			l.index = metadata.ParseIndex(result.Data)
 		}

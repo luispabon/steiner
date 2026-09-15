@@ -139,7 +139,7 @@ func TestResolve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rm, err := Resolve(tt.cfg, tt.alias)
+			rm, err := resolveReference(&tt.cfg, tt.alias, false, nil)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("Resolve() error = nil, want error containing %q", tt.wantErrText)
@@ -174,7 +174,7 @@ func TestResolveMinimalConfig(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "default")
+	rm, err := resolveReference(&cfg, "default", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -218,7 +218,7 @@ func TestResolveProviderConfigAppliesOpenRouterDefaults(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "sonnet")
+	rm, err := resolveReference(&cfg, "sonnet", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -242,7 +242,7 @@ func TestResolveProviderConfigAppliesCodexDefaults(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "codex-model")
+	rm, err := resolveReference(&cfg, "codex-model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -272,7 +272,7 @@ func TestResolveProviderConfigPreservesExplicitZeroCodexInterval(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "codex-model")
+	rm, err := resolveReference(&cfg, "codex-model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -299,7 +299,7 @@ func TestResolveProviderConfigPreservesExplicitNonZeroCodexInterval(t *testing.T
 		},
 	}
 
-	rm, err := Resolve(cfg, "codex-model")
+	rm, err := resolveReference(&cfg, "codex-model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -320,7 +320,7 @@ func TestResolveProviderConfigAppliesOpencodeGoDefaults(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "opencode-model")
+	rm, err := resolveReference(&cfg, "opencode-model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -341,7 +341,7 @@ func TestResolveProviderConfigAppliesOpencodeZenDefaults(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "opencode-model")
+	rm, err := resolveReference(&cfg, "opencode-model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -513,9 +513,9 @@ func TestResolveWithDiscoveryFallbackWarning(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "unknown", nil)
+	rm, err := resolveReference(&cfg, "unknown", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "fallback"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -599,9 +599,9 @@ func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "gpt4o", nil)
+	rm, err := resolveReference(&cfg, "gpt4o", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "models.dev"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -653,9 +653,9 @@ func TestResolveWithDiscoveryUsesProviderSpecificModelsDevLimits(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "opencode-go/deepseek-v4-flash", nil)
+	rm, err := resolveReference(&cfg, "opencode-go/deepseek-v4-flash", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "models.dev"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -704,9 +704,9 @@ func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
 	}
 
 	client := &http.Client{Transport: &redirectTransport{target: srv.URL}}
-	rm, err := ResolveWithDiscovery(cfg, "gpt4o", client)
+	rm, err := resolveReference(&cfg, "gpt4o", true, client)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "models.dev"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -746,9 +746,9 @@ func TestResolveWithDiscoveryOfflineUsesStaleModelsDevCache(t *testing.T) {
 	}
 
 	client := &http.Client{Transport: &alwaysFailTransport{}}
-	rm, err := ResolveWithDiscovery(cfg, "gpt4o", client)
+	rm, err := resolveReference(&cfg, "gpt4o", true, client)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "models.dev"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -800,9 +800,9 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "gpt4o", srv.Client())
+	rm, err := resolveReference(&cfg, "gpt4o", true, srv.Client())
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "discovery"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -863,9 +863,9 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "gpt4o", srv.Client())
+	rm, err := resolveReference(&cfg, "gpt4o", true, srv.Client())
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "config"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -933,9 +933,9 @@ func TestResolveWithDiscoveryReasoningEchoBack(t *testing.T) {
 					},
 				},
 			}
-			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			rm, err := resolveReference(&cfg, "test", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			if rm.ReasoningEchoBack != tt.wantEchoBack {
 				t.Errorf("ReasoningEchoBack=%v, want %v", rm.ReasoningEchoBack, tt.wantEchoBack)
@@ -998,7 +998,7 @@ func TestResolveReasoningEchoBackConfigOverride(t *testing.T) {
 				},
 			}
 
-			rm, err := Resolve(cfg, "mymodel")
+			rm, err := resolveReference(&cfg, "mymodel", false, nil)
 			if err != nil {
 				t.Fatalf("Resolve() error = %v", err)
 			}
@@ -1067,9 +1067,9 @@ func TestResolveWithDiscoveryConfigOverrideWinsOverModelsDevReasoningEchoBack(t 
 				},
 			}
 
-			rm, err := ResolveWithDiscovery(cfg, "kimi", nil)
+			rm, err := resolveReference(&cfg, "kimi", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			if rm.ReasoningEchoBack != tt.want {
 				t.Errorf("ReasoningEchoBack = %v, want %v", rm.ReasoningEchoBack, tt.want)
@@ -1182,9 +1182,9 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 				},
 			}
 
-			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			rm, err := resolveReference(&cfg, "test", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			if got := rm.EffectiveProviderType; got != tt.wantProviderType {
 				t.Fatalf("EffectiveProviderType = %q, want %q", got, tt.wantProviderType)
@@ -1281,9 +1281,9 @@ func TestResolveWithDiscoveryOpencodeProvidersUseGenericFallbackTransport(t *tes
 				},
 			}
 
-			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			rm, err := resolveReference(&cfg, "test", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			if got := rm.EffectiveProviderType; got != tt.wantProviderType {
 				t.Fatalf("EffectiveProviderType = %q, want %q", got, tt.wantProviderType)
@@ -1369,9 +1369,9 @@ func TestResolveWithDiscoveryVisionCapability(t *testing.T) {
 				},
 			}
 
-			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			rm, err := resolveReference(&cfg, "test", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 
 			if tt.wantVision == nil {
@@ -1419,9 +1419,9 @@ func TestResolveWithDiscoveryUsesModelsDevReasoningEfforts(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "gpt54mini", nil)
+	rm, err := resolveReference(&cfg, "gpt54mini", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.Reasoning.Source, "models.dev"; got != want {
 		t.Fatalf("Reasoning.Source = %q, want %q", got, want)
@@ -1469,243 +1469,15 @@ func TestResolveWithDiscoveryModelsDevReasoningEffortsRespectsConfig(t *testing.
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "gpt54mini", nil)
+	rm, err := resolveReference(&cfg, "gpt54mini", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.Reasoning.Source, "config"; got != want {
 		t.Fatalf("Reasoning.Source = %q, want %q", got, want)
 	}
 	if !equalStrings(rm.Reasoning.SupportedEfforts, []string{"low", "high"}) {
 		t.Fatalf("Reasoning.SupportedEfforts = %v, want [low high]", rm.Reasoning.SupportedEfforts)
-	}
-}
-
-func TestResolveReasoningBatchEmptyConfig(t *testing.T) {
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{},
-		Models:    config.ModelsConfig{Definitions: map[string]config.ModelConfig{}},
-	}
-
-	caps, efforts := ResolveReasoningBatch(cfg, nil)
-	if caps != nil {
-		t.Errorf("caps = %v, want nil", caps)
-	}
-	if efforts != nil {
-		t.Errorf("efforts = %v, want nil", efforts)
-	}
-}
-
-func TestResolveReasoningBatchMultipleAliases(t *testing.T) {
-	cacheRoot := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheRoot)
-
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
-	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	cacheJSON := `{
-		"openai":{"models":{
-			"gpt-5.4-mini":{"reasoning_options":[{"type":"effort","values":["none","low","medium","high"]}]},
-			"gpt-4o":{"reasoning_options":[{"type":"effort","values":["low","high"]}]}
-		}},
-		"local":{"models":{
-			"llama3":{"reasoning_options":[{"type":"effort","values":["standard","extended"]}]}
-		}}
-	}`
-	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
-		t.Fatalf("WriteFile(cache) error = %v", err)
-	}
-	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
-		t.Fatalf("WriteFile(meta) error = %v", err)
-	}
-
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{
-			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
-			"local":  {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
-		},
-		Models: config.ModelsConfig{
-			Definitions: map[string]config.ModelConfig{
-				"gpt54mini": {Provider: "openai", ID: "gpt-5.4-mini"},
-				"gpt4o":     {Provider: "openai", ID: "gpt-4o"},
-				"llama":     {Provider: "local", ID: "llama3"},
-			},
-		},
-	}
-
-	caps, efforts := ResolveReasoningBatch(cfg, nil)
-	if len(caps) != 3 {
-		t.Fatalf("caps len = %d, want 3", len(caps))
-	}
-	if len(efforts) != 3 {
-		t.Fatalf("efforts len = %d, want 3", len(efforts))
-	}
-
-	if !equalStrings(caps["gpt54mini"].SupportedEfforts, []string{"none", "low", "medium", "high"}) {
-		t.Errorf("gpt54mini efforts = %v, want [none low medium high]", caps["gpt54mini"].SupportedEfforts)
-	}
-	if caps["gpt54mini"].Source != "models.dev" {
-		t.Errorf("gpt54mini source = %q, want models.dev", caps["gpt54mini"].Source)
-	}
-
-	if !equalStrings(caps["gpt4o"].SupportedEfforts, []string{"low", "high"}) {
-		t.Errorf("gpt4o efforts = %v, want [low high]", caps["gpt4o"].SupportedEfforts)
-	}
-	if caps["gpt4o"].Source != "models.dev" {
-		t.Errorf("gpt4o source = %q, want models.dev", caps["gpt4o"].Source)
-	}
-
-	if !equalStrings(caps["llama"].SupportedEfforts, []string{"standard", "extended"}) {
-		t.Errorf("llama efforts = %v, want [standard extended]", caps["llama"].SupportedEfforts)
-	}
-	if caps["llama"].Source != "models.dev" {
-		t.Errorf("llama source = %q, want models.dev", caps["llama"].Source)
-	}
-}
-
-func TestResolveReasoningBatchSkipsUnknownAlias(t *testing.T) {
-	cacheRoot := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheRoot)
-
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
-	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	cacheJSON := `{"openai":{"models":{"gpt-4o":{"reasoning_options":[{"type":"effort","values":["low","high"]}]}}}}`
-	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
-		t.Fatalf("WriteFile(cache) error = %v", err)
-	}
-	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
-		t.Fatalf("WriteFile(meta) error = %v", err)
-	}
-
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{
-			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
-		},
-		Models: config.ModelsConfig{
-			Definitions: map[string]config.ModelConfig{
-				"gpt4o":        {Provider: "openai", ID: "gpt-4o"},
-				"broken-alias": {Provider: "unknown-provider", ID: "some-model"},
-			},
-		},
-	}
-
-	caps, efforts := ResolveReasoningBatch(cfg, nil)
-	if len(caps) != 1 {
-		t.Fatalf("caps len = %d, want 1 (broken alias skipped)", len(caps))
-	}
-	if len(efforts) != 1 {
-		t.Fatalf("efforts len = %d, want 1 (broken alias skipped)", len(efforts))
-	}
-
-	if _, ok := caps["gpt4o"]; !ok {
-		t.Error("gpt4o not found in caps")
-	}
-	if _, ok := efforts["gpt4o"]; !ok {
-		t.Error("gpt4o not found in efforts")
-	}
-	if _, ok := caps["broken-alias"]; ok {
-		t.Error("broken-alias should not be in caps")
-	}
-	if _, ok := efforts["broken-alias"]; ok {
-		t.Error("broken-alias should not be in efforts")
-	}
-}
-
-func TestResolveReasoningBatchConfigOverridesModelsDevReasoning(t *testing.T) {
-	cacheRoot := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheRoot)
-
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
-	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	cacheJSON := `{"openai":{"models":{"gpt-5.4-mini":{"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}`
-	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
-		t.Fatalf("WriteFile(cache) error = %v", err)
-	}
-	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
-		t.Fatalf("WriteFile(meta) error = %v", err)
-	}
-
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{
-			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
-		},
-		Models: config.ModelsConfig{
-			Definitions: map[string]config.ModelConfig{
-				"configured": {
-					Provider: "openai",
-					ID:       "gpt-5.4-mini",
-					Advanced: config.AdvancedConfig{
-						Reasoning: config.ReasoningConfig{
-							SupportedEfforts: []string{"medium", "high"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	caps, _ := ResolveReasoningBatch(cfg, nil)
-	if caps["configured"].Source != "config" {
-		t.Errorf("Source = %q, want config", caps["configured"].Source)
-	}
-	if !equalStrings(caps["configured"].SupportedEfforts, []string{"medium", "high"}) {
-		t.Errorf("SupportedEfforts = %v, want [medium high]", caps["configured"].SupportedEfforts)
-	}
-}
-
-func TestResolveReasoningBatchEffectsLoadedMetadataOnce(t *testing.T) {
-	cacheRoot := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheRoot)
-
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
-	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	cacheJSON := `{
-		"openai":{"models":{
-			"model-a":{"reasoning_options":[{"type":"effort","values":["low"]}]},
-			"model-b":{"reasoning_options":[{"type":"effort","values":["high"]}]},
-			"model-c":{"reasoning_options":[{"type":"effort","values":["medium"]}]}
-		}}
-	}`
-	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
-		t.Fatalf("WriteFile(cache) error = %v", err)
-	}
-	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
-		t.Fatalf("WriteFile(meta) error = %v", err)
-	}
-
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{
-			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
-		},
-		Models: config.ModelsConfig{
-			Definitions: map[string]config.ModelConfig{
-				"a": {Provider: "openai", ID: "model-a"},
-				"b": {Provider: "openai", ID: "model-b"},
-				"c": {Provider: "openai", ID: "model-c"},
-			},
-		},
-	}
-
-	caps, efforts := ResolveReasoningBatch(cfg, nil)
-	if len(caps) != 3 || len(efforts) != 3 {
-		t.Fatalf("expected 3 entries, got caps=%d efforts=%d", len(caps), len(efforts))
-	}
-
-	if !equalStrings(caps["a"].SupportedEfforts, []string{"low"}) {
-		t.Errorf("a efforts = %v, want [low]", caps["a"].SupportedEfforts)
-	}
-	if !equalStrings(caps["b"].SupportedEfforts, []string{"high"}) {
-		t.Errorf("b efforts = %v, want [high]", caps["b"].SupportedEfforts)
-	}
-	if !equalStrings(caps["c"].SupportedEfforts, []string{"medium"}) {
-		t.Errorf("c efforts = %v, want [medium]", caps["c"].SupportedEfforts)
 	}
 }
 
@@ -1737,7 +1509,7 @@ func TestResolveFacts(t *testing.T) {
 	}
 
 	t.Run("fully configured model reports config for all limits", func(t *testing.T) {
-		rm, err := Resolve(cfg, "fully-configured")
+		rm, err := resolveReference(&cfg, "fully-configured", false, nil)
 		if err != nil {
 			t.Fatalf("Resolve() error = %v", err)
 		}
@@ -1750,7 +1522,7 @@ func TestResolveFacts(t *testing.T) {
 	})
 
 	t.Run("minimal model defaults to conservative fallback", func(t *testing.T) {
-		rm, err := Resolve(cfg, "minimal")
+		rm, err := resolveReference(&cfg, "minimal", false, nil)
 		if err != nil {
 			t.Fatalf("Resolve() error = %v", err)
 		}
@@ -1766,7 +1538,7 @@ func TestResolveFacts(t *testing.T) {
 	})
 
 	t.Run("codex model with reasoning family gets builtin efforts", func(t *testing.T) {
-		rm, err := Resolve(cfg, "codex-reasoning")
+		rm, err := resolveReference(&cfg, "codex-reasoning", false, nil)
 		if err != nil {
 			t.Fatalf("Resolve() error = %v", err)
 		}
