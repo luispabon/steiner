@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/deepnoodle-ai/wonton/web"
@@ -14,6 +15,7 @@ import (
 
 //nolint:unparam // prov is always stubProvider{} in test call sites.
 func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig, advisorCfg config.AdvisorConfig, prov provider.Provider, events output.EventSink, workDir, homeDir string, rm provider.ResolvedModel, maxTokens int, streamingPreferred bool, traceLogger *delegation.TraceLogger, cfg config.Config, providerFactory func(provider.ResolvedModel, string) (provider.Provider, error), httpClient *http.Client, searcher web.Searcher) (*tool.Registry, error) {
+	resolver := provider.NewResolver(provider.ResolverOptions{HTTPClient: httpClient})
 	return delegation.BuildDelegateRegistry(delegation.DelegateDeps{
 		BaseRegistry:       base,
 		SubAgentCfg:        subAgentCfg,
@@ -27,8 +29,11 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 		StreamingPreferred: streamingPreferred,
 		TraceLogger:        traceLogger,
 		Config:             cfg,
-		ProviderFactory:    providerFactory,
-		HTTPClient:         httpClient,
-		Searcher:           searcher,
+		ResolveModel: func(alias string) (provider.ResolvedModel, error) {
+			return resolver.Resolve(context.Background(), cfg, alias)
+		},
+		ProviderFactory: providerFactory,
+		HTTPClient:      httpClient,
+		Searcher:        searcher,
 	})
 }

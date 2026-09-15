@@ -13,7 +13,16 @@ import (
 
 // resolveReference resolves a configured model alias or a raw provider/model-id
 // reference and optionally fills missing runtime metadata through discovery.
+// It constructs its own models.dev loader; callers that share a loader across
+// many resolutions (e.g. Resolver) should use resolveReferenceWithLoader.
 func resolveReference(cfg *config.Config, reference string, useDiscovery bool, httpClient *http.Client) (ResolvedModel, error) {
+	return resolveReferenceWithLoader(context.Background(), cfg, reference, useDiscovery, httpClient, nil)
+}
+
+// resolveReferenceWithLoader is resolveReference with an externally supplied
+// models.dev loader. A nil loader falls back to constructing a fresh,
+// call-scoped one (resolveReference's behavior).
+func resolveReferenceWithLoader(ctx context.Context, cfg *config.Config, reference string, useDiscovery bool, httpClient *http.Client, loader *modelsDevLoader) (ResolvedModel, error) {
 	modelCfg, isAlias := config.ResolveModelConfig(cfg, reference)
 	if !isAlias && (modelCfg.Provider == "" || modelCfg.ID == "") {
 		return ResolvedModel{}, fmt.Errorf("model alias %q not found", reference)
@@ -66,18 +75,22 @@ func resolveReference(cfg *config.Config, reference string, useDiscovery bool, h
 	}
 
 	if !useDiscovery {
-		facts, _, _ := resolveFacts(context.Background(), ref, []factSource{configSource{}, providerFixedSource{}, builtinSource{}})
+		facts, _, _ := resolveFacts(ctx, ref, []factSource{configSource{}, providerFixedSource{}, builtinSource{}})
 		applyFacts(&rm, facts, false)
 		return rm, nil
 	}
 
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
+	mdLoader := loader
+	if mdLoader == nil {
+		cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
+		mdLoader = newModelsDevLoader(cache)
+	}
 	sources := []factSource{
 		configSource{}, providerFixedSource{}, probeSource{httpClient: httpClient},
-		modelsDevSource{loader: newModelsDevLoader(cache)},
+		modelsDevSource{loader: mdLoader},
 		builtinSource{},
 	}
-	facts, notes, sourceErrs := resolveFacts(context.Background(), ref, sources)
+	facts, notes, sourceErrs := resolveFacts(ctx, ref, sources)
 	applyFacts(&rm, facts, true)
 	rm.Warnings = append(rm.Warnings, deriveWarnings(ref, facts, notes, sourceErrs)...)
 	return rm, nil

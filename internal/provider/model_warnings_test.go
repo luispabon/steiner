@@ -42,9 +42,9 @@ func TestDeriveWarningsScenarios(t *testing.T) {
 			}},
 		}
 
-		rm, err := ResolveWithDiscovery(cfg, "unknown", nil)
+		rm, err := resolveReference(&cfg, "unknown", true, nil)
 		if err != nil {
-			t.Fatalf("ResolveWithDiscovery() error = %v", err)
+			t.Fatalf("resolveReference(&) error = %v", err)
 		}
 		if len(rm.Warnings) != 1 {
 			t.Fatalf("Warnings = %v, want exactly 1", rm.Warnings)
@@ -76,9 +76,9 @@ func TestDeriveWarningsScenarios(t *testing.T) {
 			}},
 		}
 
-		rm, err := ResolveWithDiscovery(cfg, "unknown", nil)
+		rm, err := resolveReference(&cfg, "unknown", true, nil)
 		if err != nil {
-			t.Fatalf("ResolveWithDiscovery() error = %v", err)
+			t.Fatalf("resolveReference(&) error = %v", err)
 		}
 		if len(rm.Warnings) != 1 {
 			t.Fatalf("Warnings = %v, want exactly 1", rm.Warnings)
@@ -115,9 +115,9 @@ func TestDeriveWarningsScenarios(t *testing.T) {
 			}},
 		}
 
-		rm, err := ResolveWithDiscovery(cfg, "full", nil)
+		rm, err := resolveReference(&cfg, "full", true, nil)
 		if err != nil {
-			t.Fatalf("ResolveWithDiscovery() error = %v", err)
+			t.Fatalf("resolveReference(&) error = %v", err)
 		}
 		if len(rm.Warnings) != 0 {
 			t.Fatalf("Warnings = %v, want none (models.dev never consulted)", rm.Warnings)
@@ -149,9 +149,9 @@ func TestDeriveWarningsScenarios(t *testing.T) {
 			}},
 		}
 
-		rm, err := ResolveWithDiscovery(cfg, "partial", nil)
+		rm, err := resolveReference(&cfg, "partial", true, nil)
 		if err != nil {
-			t.Fatalf("ResolveWithDiscovery() error = %v", err)
+			t.Fatalf("resolveReference(&) error = %v", err)
 		}
 		if rm.EffectiveLimits.ContextWindow != 32768 {
 			t.Fatalf("EffectiveLimits.ContextWindow = %d, want 32768 (fallback default)", rm.EffectiveLimits.ContextWindow)

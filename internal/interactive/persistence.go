@@ -88,6 +88,20 @@ func (s *Session) rotateSession(group string, updateGroup bool) error {
 	return nil
 }
 
+// resolveFallbackContextWindow resolves the current model's context window
+// through s.deps.ResolveModel when it isn't statically configured, returning
+// 0 when ResolveModel is unset or resolution fails.
+func (s *Session) resolveFallbackContextWindow() int {
+	if s.deps.ResolveModel == nil {
+		return 0
+	}
+	rm, err := s.deps.ResolveModel(s.CurrentModelAlias())
+	if err != nil {
+		return 0
+	}
+	return rm.EffectiveLimits.ContextWindow
+}
+
 // loadSession replaces the current conversation and lineage with a previously
 // saved session, following the ClearConversation pattern but seeding from stored lineage.
 func (s *Session) loadSession(ctx context.Context, sessionID string) error {
@@ -141,9 +155,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	currentModel := currentModelConfig(s.deps.Config)
 	contextWindow := currentModel.Advanced.Limits.ContextWindow
 	if contextWindow <= 0 {
-		if rm, err := provider.ResolveWithDiscovery(s.deps.Config, s.CurrentModelAlias(), s.deps.HTTPClient); err == nil {
-			contextWindow = rm.EffectiveLimits.ContextWindow
-		}
+		contextWindow = s.resolveFallbackContextWindow()
 	}
 	var promptTokens int
 	var estimateFailures int

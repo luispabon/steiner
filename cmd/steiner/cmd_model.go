@@ -39,7 +39,8 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rm, err := provider.ResolveWithDiscovery(cfg, alias, runtimeHTTPClient())
+			resolver := provider.NewResolver(provider.ResolverOptions{HTTPClient: runtimeHTTPClient()})
+			rm, err := resolver.Resolve(cmd.Context(), cfg, alias)
 			if err != nil {
 				return err
 			}

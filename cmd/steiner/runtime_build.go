@@ -60,6 +60,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}
 	httpClient := runtimeHTTPClient()
 	modelCatalog, modelCatalogEndpoints, modelPopularity := buildModelCatalogService(&cfg, httpClient)
+	modelResolver := provider.NewResolver(provider.ResolverOptions{HTTPClient: httpClient})
 	events, closeFn, err := buildRuntimeEventSink(cfg, cmd, flags)
 	if err != nil {
 		return cliRuntime{}, err
@@ -180,6 +181,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		modelCatalog:                 modelCatalog,
 		modelCatalogEndpoints:        modelCatalogEndpoints,
 		modelPopularity:              modelPopularity,
+		modelResolver:                modelResolver,
 		modelEntriesUpdates:          make(chan []tui.ModelEntry, max(1, len(modelCatalogEndpoints))),
 		codexWSProviderCache:         provider.NewCodexWSCache(),
 	}, nil

@@ -589,10 +589,11 @@ func (failProvider) SupportsUsageStats() bool { return false }
 
 // TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack guards the fix for
 // the sub-agent reasoning-echo regression: the modelResolver closure inside
-// buildActiveRegistry must call ResolveWithDiscovery (not Resolve) so that
-// ReasoningEchoBack is read from the models.dev cache. Without it,
-// stripReasoningContent removes the field that interleaved-reasoning models
-// (deepseek, kimi) require echoed back on every turn, causing a 400 on turn 2.
+// buildActiveRegistry must resolve with full discovery (not bare config
+// resolution) so that ReasoningEchoBack is read from the models.dev cache.
+// Without it, stripReasoningContent removes the field that
+// interleaved-reasoning models (deepseek, kimi) require echoed back on every
+// turn, causing a 400 on turn 2.
 func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 	// Write a minimal models.dev cache marking the test model as interleaved
 	// reasoning (interleaved.field = "reasoning_content" → ReasoningEchoBack=true).
@@ -652,7 +653,7 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 	toolDef.Handler(context.Background(), subAgentTask("explore", "test", "test context", "result")) //nolint:errcheck
 
 	if !capturedModel.ReasoningEchoBack {
-		t.Error("modelResolver did not set ReasoningEchoBack: Resolve was used instead of ResolveWithDiscovery")
+		t.Error("modelResolver did not set ReasoningEchoBack: bare config resolution was used instead of full discovery")
 	}
 }
 

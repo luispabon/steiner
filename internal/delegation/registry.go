@@ -59,6 +59,9 @@ type DelegateDeps struct {
 	Diagnostics *diagnostics.Writer
 	// Config is the full runtime configuration used for child prompt and model resolution.
 	Config config.Config
+	// ResolveModel resolves a model alias to its provider and model metadata,
+	// backed by the session's shared Resolver (memoized, single-flight). Required.
+	ResolveModel func(string) (provider.ResolvedModel, error)
 	// ProviderFactory builds providers for resolved child models when one is required.
 	ProviderFactory func(provider.ResolvedModel, string) (provider.Provider, error)
 	// HTTPClient is used for model discovery when resolving child models.
@@ -145,7 +148,7 @@ func newAdvisorRuntime(deps DelegateDeps) (advisorRuntime, error) {
 	if advisorAlias == "" {
 		advisorAlias = strings.TrimSpace(deps.Config.Models.Effective.DefaultModel)
 	}
-	advisorResolved, err := provider.ResolveWithDiscovery(deps.Config, advisorAlias, deps.HTTPClient)
+	advisorResolved, err := deps.ResolveModel(advisorAlias)
 	if err != nil {
 		return advisorRuntime{}, fmt.Errorf("resolve advisor model %q: %w", advisorAlias, err)
 	}
@@ -337,74 +340,29 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	return cloned, nil
 }
 
-// modelResolution is one in-flight or completed model resolution. The model
-// value is shared after success; providers are created outside this cache.
-type modelResolution struct {
-	done  chan struct{}
-	model provider.ResolvedModel
-	err   error
-}
-
-// modelResolutionCache memoizes successful model resolutions and coalesces
-// concurrent resolutions for the same normalized alias.
-type modelResolutionCache struct {
-	mu      sync.Mutex
-	entries map[string]*modelResolution
-}
-
-func newMemoizedModelResolver(resolve func(string) (provider.ResolvedModel, error)) func(string) (provider.ResolvedModel, error) {
-	cache := modelResolutionCache{entries: make(map[string]*modelResolution)}
-	return func(alias string) (provider.ResolvedModel, error) {
-		alias = strings.TrimSpace(alias)
-
-		cache.mu.Lock()
-		if resolution, ok := cache.entries[alias]; ok {
-			cache.mu.Unlock()
-			<-resolution.done
-			return resolution.model, resolution.err
-		}
-		resolution := &modelResolution{done: make(chan struct{})}
-		cache.entries[alias] = resolution
-		cache.mu.Unlock()
-
-		model, err := resolve(alias)
-
-		cache.mu.Lock()
-		if err == nil {
-			resolution.model = model
-		} else {
-			// Failed resolutions must not prevent a later retry.
-			delete(cache.entries, alias)
-		}
-		resolution.err = err
-		close(resolution.done)
-		cache.mu.Unlock()
-		return model, err
-	}
-}
-
 // buildModelResolver returns a function that resolves a model alias to its provider and model metadata.
 // The parent SessionID passed to ProviderFactory is transport affinity for the
 // parent run (including OpenCode's X-Opencode-Session); child and advisor
 // PromptCacheKeys remain separately scoped by their agent type.
 func buildModelResolver(deps DelegateDeps) func(string) (provider.Provider, provider.ResolvedModel, error) {
-	return buildModelResolverWithResolve(deps, func(alias string) (provider.ResolvedModel, error) {
-		return provider.ResolveWithDiscovery(deps.Config, alias, deps.HTTPClient)
-	})
+	return buildModelResolverWithResolve(deps, deps.ResolveModel)
 }
 
+// buildModelResolverWithResolve wraps resolve (backed by the session's
+// memoized, single-flight provider.Resolver) with warning-emission dedup:
+// each alias's warnings are emitted at most once per call to this function
+// (i.e. once per registry build), even though the underlying resolve may be
+// called again on cache miss.
 func buildModelResolverWithResolve(deps DelegateDeps, resolve func(string) (provider.ResolvedModel, error)) func(string) (provider.Provider, provider.ResolvedModel, error) {
-	memoizedResolve := newMemoizedModelResolver(func(alias string) (provider.ResolvedModel, error) {
-		resolved, err := resolve(alias)
-		if err == nil {
-			emitModelWarnings(deps.Events, resolved)
-		}
-		return resolved, err
-	})
+	var warned sync.Map
 	return func(alias string) (provider.Provider, provider.ResolvedModel, error) {
-		resolved, err := memoizedResolve(alias)
+		alias = strings.TrimSpace(alias)
+		resolved, err := resolve(alias)
 		if err != nil {
 			return nil, provider.ResolvedModel{}, err
+		}
+		if _, loaded := warned.LoadOrStore(alias, struct{}{}); !loaded {
+			emitModelWarnings(deps.Events, resolved)
 		}
 		if deps.ProviderFactory == nil {
 			return deps.Provider, resolved, nil

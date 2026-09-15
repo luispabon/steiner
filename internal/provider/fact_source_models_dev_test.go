@@ -62,27 +62,3 @@ func TestResolveReferenceNeverLoadsModelsDevWhenFullyConfigured(t *testing.T) {
 		t.Fatalf("transport.calls = %d, want 0 (models.dev must never be loaded)", got)
 	}
 }
-
-// TestResolveReasoningBatchLoadsModelsDevAtMostOnce proves the shared
-// modelsDevLoader loads the cache at most once across a whole batch, even
-// when multiple aliases need models.dev facts.
-func TestResolveReasoningBatchLoadsModelsDevAtMostOnce(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	transport := &countingFailTransport{}
-
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{
-			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
-		},
-		Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
-			"one": {Provider: "local", ID: "model-one"},
-			"two": {Provider: "local", ID: "model-two"},
-		}},
-	}
-
-	ResolveReasoningBatch(cfg, &http.Client{Transport: transport})
-
-	if got := transport.calls.Load(); got != 1 {
-		t.Fatalf("transport.calls = %d, want exactly 1 (loaded once, shared across aliases)", got)
-	}
-}

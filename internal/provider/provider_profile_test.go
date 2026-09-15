@@ -236,9 +236,9 @@ func TestLoadAndApplyMetadataMapsCodexAliasToOpenAI(t *testing.T) {
 				}},
 			}
 
-			rm, err := ResolveWithDiscovery(cfg, "luna", nil)
+			rm, err := resolveReference(&cfg, "luna", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			// Regardless of the provider config alias, Codex's models.dev ID
 			// is always "openai", so the 302ai/abacus entries never apply.

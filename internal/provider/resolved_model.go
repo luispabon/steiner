@@ -1,8 +1,6 @@
 package provider
 
 import (
-	"context"
-	"net/http"
 	"os"
 	"strings"
 
@@ -61,67 +59,6 @@ type ResolvedModel struct {
 	ReasoningEffectiveEffort  string
 	Warnings                  []string
 	Facts                     ModelFacts
-}
-
-// Resolve builds a ResolvedModel from cfg for the given model alias or raw
-// provider/model-id reference.
-func Resolve(cfg config.Config, alias string) (ResolvedModel, error) {
-	return resolveReference(&cfg, alias, false, nil)
-}
-
-// ResolveWithDiscovery resolves a model like Resolve but also attempts provider
-// metadata discovery to fill in missing limits. Discovery is best-effort: any
-// HTTP failure or unsupported provider type is silently ignored.
-func ResolveWithDiscovery(cfg config.Config, alias string, httpClient *http.Client) (ResolvedModel, error) {
-	return resolveReference(&cfg, alias, true, httpClient)
-}
-
-// ResolveReasoningBatch resolves reasoning capabilities and effective efforts for
-// every configured model alias in a single pass, loading models.dev metadata once
-// instead of once per alias. Resolution failures for a given alias are skipped
-// rather than surfaced, so one misconfigured model does not block the rest.
-func ResolveReasoningBatch(cfg config.Config, httpClient *http.Client) (
-	map[string]ReasoningCapabilities, map[string]string,
-) {
-	if len(cfg.Models.Definitions) == 0 {
-		return nil, nil
-	}
-
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
-	loader := newModelsDevLoader(cache) // shared across all aliases below — loads at most once
-
-	caps := make(map[string]ReasoningCapabilities)
-	efforts := make(map[string]string)
-
-	for alias, modelCfg := range cfg.Models.Definitions {
-		provCfg, ok := cfg.Providers[modelCfg.Provider]
-		if !ok {
-			continue
-		}
-		provCfg = ResolveProviderConfig(provCfg)
-		ref := modelRef{
-			Alias: alias, IsAlias: true, ProviderAlias: modelCfg.Provider,
-			Provider: provCfg, Profile: profileFor(provCfg.Type),
-			BackendModelID: modelCfg.ID, ModelConfig: modelCfg,
-		}
-		facts, _, _ := resolveFacts(context.Background(), ref, []factSource{
-			configSource{},
-			modelsDevSource{loader: loader},
-			builtinSource{},
-		})
-		reasoningCap := ReasoningCapabilities{
-			SupportedEfforts: facts.ReasoningEfforts.Value,
-			Source:           string(facts.ReasoningEfforts.Source),
-			Confidence:       facts.ReasoningEfforts.Confidence,
-		}
-		if !facts.ReasoningEfforts.Known {
-			reasoningCap.Source, reasoningCap.Confidence = "unknown", "unknown"
-		}
-		caps[alias] = reasoningCap
-		efforts[alias] = strings.TrimSpace(modelCfg.Advanced.Reasoning.Effort)
-	}
-
-	return caps, efforts
 }
 
 func metadataProviderTransport(info metadata.ModelInfo) TransportType {

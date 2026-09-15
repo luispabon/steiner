@@ -327,6 +327,11 @@ func TestBuildActiveRegistryMatchesDelegateRegistry(t *testing.T) {
 		EffectiveProviderType: config.ProviderTypeOpenAICompat,
 	}
 
+	resolver := provider.NewResolver(provider.ResolverOptions{})
+	resolveModel := func(alias string) (provider.ResolvedModel, error) {
+		return resolver.Resolve(context.Background(), cfg, alias)
+	}
+
 	want, err := delegation.BuildDelegateRegistry(delegation.DelegateDeps{
 		BaseRegistry:  base,
 		SubAgentCfg:   subAgentCfg,
@@ -337,6 +342,7 @@ func TestBuildActiveRegistryMatchesDelegateRegistry(t *testing.T) {
 		ResolvedModel: resolvedModel,
 		MaxTokens:     256,
 		Config:        cfg,
+		ResolveModel:  resolveModel,
 	})
 	if err != nil {
 		t.Fatalf("BuildDelegateRegistry() error = %v", err)
@@ -481,9 +487,14 @@ models:
 	if err != nil {
 		t.Fatalf("defaultBuildRuntime() error = %v", err)
 	}
-	rm, err := provider.Resolve(rt.cfg, rt.cfg.Models.Effective.ActiveOrchestratorModel)
-	if err != nil {
-		t.Fatalf("provider.Resolve() error = %v", err)
+	orchestratorAlias := rt.cfg.Models.Effective.ActiveOrchestratorModel
+	modelCfg, _ := config.ResolveModelConfig(&rt.cfg, orchestratorAlias)
+	rm := provider.ResolvedModel{
+		Alias:          orchestratorAlias,
+		ProviderAlias:  modelCfg.Provider,
+		ProviderConfig: provider.ResolveProviderConfig(rt.cfg.Providers[modelCfg.Provider]),
+		BackendModelID: modelCfg.ID,
+		Retry:          modelCfg.Retry,
 	}
 	builtProvider, err := rt.providerFactory(rm, "test-session")
 	if err != nil {
