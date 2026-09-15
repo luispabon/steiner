@@ -28,6 +28,8 @@ Prompt-cache identity is kept separate from the active model override. Profile c
 
 Steiner resolves each model fact (context window, max output tokens, vision, reasoning efforts, reasoning echo-back, transport) independently, in `internal/provider`'s fact resolver (`fact_resolver.go`, `fact_source_*.go`). Each fact is answered by the first source, in precedence order, that can answer it; lower-precedence sources are never consulted once a higher-precedence source has answered a given field (lazy per-field resolution — a fully-configured model never triggers a models.dev cache load for its limits, though it may still trigger one for unconfigured facts like vision or reasoning efforts).
 
+models.dev cache data (`internal/metadata`) is parsed once into an `Index` (`ParseIndex`), not re-parsed per lookup; `Index.LookupProvider` walks the already-parsed maps. Loading is also lazy at the resolution level: `internal/provider`'s `modelsDevSource` holds a shared `modelsDevLoader` that reads and parses the cache file (and refreshes it over the network if stale) on first use only, via `sync.Once`. A single `resolveReference` call and a whole `ResolveReasoningBatch` pass over every configured alias each construct one loader, so the cache is touched at most once per call, and not at all when no consulted fact source needs models.dev data (e.g. every field is already config-answered).
+
 Per-field precedence, as of this stage:
 
 | Fact | Order |
@@ -42,7 +44,7 @@ Provider model catalog participation (`internal/modelcatalog`) is planned for a 
 
 Every resolved fact carries its own provenance (`provider.ModelFacts`, exposed as `ResolvedModel.Facts` and printed by `steiner model inspect`'s `facts:` block): a value, whether it's known, its source, a confidence level, and an optional note (e.g. a models.dev lookup degradation reason). The legacy `MetadataSource`/`Confidence` fields on `ResolvedModel` continue to describe limits provenance only, for backward compatibility with existing consumers.
 
-Warnings are derived once, from the final resolved facts, not from individual lookups that lost precedence to a higher-priority source. Only two situations produce a warning: a source that was actually consulted failed outright (e.g. the models.dev cache could not be loaded at all), or the context window ended up on the conservative fallback default. A models.dev lookup that returns `provider_mismatch`/`conflict`/`not_found` for a fact that another source already answered (e.g. limits fully configured) produces no warning — it remains visible only as a `note` in `model inspect`'s `facts:` block. This reverses the pre-stage-B behavior of warning on every degraded models.dev lookup regardless of whether it mattered.
+Warnings are derived once, from the final resolved facts, not from individual lookups that lost precedence to a higher-priority source. Only two situations produce a warning: a source that was actually consulted failed outright (e.g. the models.dev cache could not be loaded at all), or the context window ended up on the conservative fallback default. A models.dev lookup that returns `provider_mismatch`/`not_found` for a fact that another source already answered (e.g. limits fully configured) produces no warning — it remains visible only as a `note` in `model inspect`'s `facts:` block. This reverses the pre-stage-B behavior of warning on every degraded models.dev lookup regardless of whether it mattered.
 
 ## Logging handler
 

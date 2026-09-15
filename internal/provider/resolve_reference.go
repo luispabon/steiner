@@ -72,13 +72,9 @@ func resolveReference(cfg *config.Config, reference string, useDiscovery bool, h
 	}
 
 	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
-	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
-	loadResult := cache.LoadBestEffortWithStatus(cacheCtx)
-	cacheCancel()
-
 	sources := []factSource{
 		configSource{}, providerFixedSource{}, probeSource{httpClient: httpClient},
-		modelsDevSource{data: loadResult.Data, loadReason: loadResult.Status.Reason},
+		modelsDevSource{loader: newModelsDevLoader(cache)},
 		builtinSource{},
 	}
 	facts, notes, sourceErrs := resolveFacts(context.Background(), ref, sources)
