@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -44,16 +45,33 @@ func TestResolveReferenceParity(t *testing.T) {
 }
 
 func TestResolveReferenceWarningIsNeutral(t *testing.T) {
-	rm := ResolvedModel{
-		Alias:           "local/custom-model",
-		BackendModelID:  "custom-model",
-		EffectiveLimits: resolveEffectiveLimits(config.AdvancedLimitsConfig{}),
-		ProviderConfig:  config.ProviderConfig{Type: config.ProviderTypeOpenAICompat},
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	resolveLimitsFromDiscovery(&rm, config.AdvancedLimitsConfig{}, metadata.ModelInfo{}, nil, false, "local/custom-model")
+	if err := os.WriteFile(cache.CachePath(), []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+	}
+
+	rm, err := ResolveWithDiscovery(cfg, "local/custom-model", nil)
+	if err != nil {
+		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+	}
 
 	if len(rm.Warnings) != 1 {
-		t.Fatalf("Warnings len = %d, want 1", len(rm.Warnings))
+		t.Fatalf("Warnings len = %d, want 1: %v", len(rm.Warnings), rm.Warnings)
 	}
 	if strings.Contains(rm.Warnings[0], "models.") {
 		t.Fatalf("raw reference warning suggests editing a definition: %q", rm.Warnings[0])

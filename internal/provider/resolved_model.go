@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -62,7 +61,6 @@ type ResolvedModel struct {
 	ReasoningEffectiveEffort  string
 	Warnings                  []string
 	Facts                     ModelFacts
-	metadataLookupReason      string
 }
 
 // Resolve builds a ResolvedModel from cfg for the given model alias or raw
@@ -91,150 +89,41 @@ func ResolveReasoningBatch(cfg config.Config, httpClient *http.Client) (
 
 	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
 	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
-	defer cacheCancel()
 	loadResult := cache.LoadBestEffortWithStatus(cacheCtx)
-	data := loadResult.Data
+	cacheCancel()
 
 	caps := make(map[string]ReasoningCapabilities)
 	efforts := make(map[string]string)
 
 	for alias, modelCfg := range cfg.Models.Definitions {
-		rm, err := Resolve(cfg, alias)
-		if err != nil {
+		provCfg, ok := cfg.Providers[modelCfg.Provider]
+		if !ok {
 			continue
 		}
-
-		loadAndApplyModelsDevMetadataFromData(&rm, modelCfg, data)
-		caps[alias] = rm.Reasoning
-		efforts[alias] = rm.ReasoningEffectiveEffort
+		provCfg = ResolveProviderConfig(provCfg)
+		ref := modelRef{
+			Alias: alias, IsAlias: true, ProviderAlias: modelCfg.Provider,
+			Provider: provCfg, Profile: profileFor(provCfg.Type),
+			BackendModelID: modelCfg.ID, ModelConfig: modelCfg,
+		}
+		facts, _, _ := resolveFacts(context.Background(), ref, []factSource{
+			configSource{},
+			modelsDevSource{data: loadResult.Data, loadReason: loadResult.Status.Reason},
+			builtinSource{},
+		})
+		reasoningCap := ReasoningCapabilities{
+			SupportedEfforts: facts.ReasoningEfforts.Value,
+			Source:           string(facts.ReasoningEfforts.Source),
+			Confidence:       facts.ReasoningEfforts.Confidence,
+		}
+		if !facts.ReasoningEfforts.Known {
+			reasoningCap.Source, reasoningCap.Confidence = "unknown", "unknown"
+		}
+		caps[alias] = reasoningCap
+		efforts[alias] = strings.TrimSpace(modelCfg.Advanced.Reasoning.Effort)
 	}
 
 	return caps, efforts
-}
-
-// loadAndApplyModelsDevMetadataFromData applies transport, echo back, vision,
-// and reasoning effort overrides from already-loaded models.dev data. Returns
-// the looked-up metadata for downstream limit resolution.
-func loadAndApplyModelsDevMetadataFromData(rm *ResolvedModel, modelCfg config.ModelConfig, data []byte) metadata.ModelInfo {
-	var info metadata.ModelInfo
-	if data != nil {
-		profile := profileFor(rm.ProviderConfig.Type)
-		providerID := profile.ModelsDevID
-		if providerID == "" {
-			providerID = rm.ProviderAlias
-		}
-		lookup := metadata.LookupWithProviderResult(data, providerID, rm.BackendModelID)
-		info = lookup.Info
-		if lookup.Reason == metadata.LookupReasonMalformed || lookup.Reason == metadata.LookupReasonProviderMismatch || lookup.Reason == metadata.LookupReasonConflict {
-			rm.metadataLookupReason = lookup.Reason
-			rm.Warnings = append(rm.Warnings, fmt.Sprintf(
-				"Model metadata warning: models.dev lookup for %s/%s degraded: %s.",
-				providerID, rm.BackendModelID, lookup.Reason,
-			))
-		}
-	}
-	rm.EffectiveProviderType, rm.EffectiveTransport, rm.TransportOverrideReason = resolveEffectiveTransport(
-		modelCfg.Advanced.Transport, rm.ProviderConfig.Type, info, rm.BackendModelID,
-	)
-	if modelCfg.Advanced.ReasoningEchoBack == nil {
-		rm.ReasoningEchoBack = info.ReasoningEchoBack
-	}
-	if modelCfg.Vision == nil && info.Found {
-		v := info.VisionInput
-		rm.Vision = &v
-	}
-	if rm.Reasoning.Source != "config" && len(info.ReasoningSupportedEfforts) > 0 {
-		rm.Reasoning = ReasoningCapabilities{
-			SupportedEfforts: info.ReasoningSupportedEfforts,
-			Source:           "models.dev",
-			Confidence:       "medium",
-		}
-	}
-	return info
-}
-
-// loadAndApplyModelsDevMetadata loads models.dev metadata and applies transport,
-// echo back, vision, and reasoning effort overrides to rm. Returns the loaded
-// metadata for downstream limit resolution.
-func loadAndApplyModelsDevMetadata(rm *ResolvedModel, modelCfg config.ModelConfig, httpClient *http.Client) metadata.ModelInfo {
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
-	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
-	defer cacheCancel()
-	loadResult := cache.LoadBestEffortWithStatus(cacheCtx)
-	if loadResult.Status.Reason != "" {
-		rm.Warnings = append(rm.Warnings, fmt.Sprintf(
-			"Model metadata warning: models.dev cache degradation: %s.", loadResult.Status.Reason,
-		))
-	}
-	return loadAndApplyModelsDevMetadataFromData(rm, modelCfg, loadResult.Data)
-}
-
-// resolveLimitsFromDiscovery attempts to fill in missing token limits via
-// provider discovery, models.dev metadata, or conservative fallback defaults.
-func resolveLimitsFromDiscovery(rm *ResolvedModel, adv config.AdvancedLimitsConfig, modelsDevInfo metadata.ModelInfo, httpClient *http.Client, isAlias bool, reference string) {
-	discoverer := NewDiscoverer(rm.ProviderConfig, httpClient)
-	if discoverer != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
-		defer cancel()
-		if meta, err := discoverer.DiscoverModelMetadata(ctx, rm.BackendModelID); err == nil {
-			if meta.ContextWindow > 0 || meta.MaxOutputTokens > 0 {
-				rm.EffectiveLimits = resolveEffectiveLimitsWithMeta(adv, meta)
-				rm.MetadataSource = "discovery"
-				rm.Confidence = "medium"
-				return
-			}
-		}
-	}
-
-	if modelsDevInfo.ContextWindow > 0 || modelsDevInfo.MaxOutputTokens > 0 {
-		meta := ModelMetadata{ContextWindow: modelsDevInfo.ContextWindow, MaxOutputTokens: modelsDevInfo.MaxOutputTokens}
-		rm.EffectiveLimits = resolveEffectiveLimitsWithMeta(adv, meta)
-		rm.MetadataSource = "models.dev"
-		rm.Confidence = "medium"
-		return
-	}
-
-	if isFallbackLimits(adv) {
-		rm.MetadataSource = "fallback"
-		rm.Confidence = "low"
-		lookupReason := ""
-		if rm.metadataLookupReason != "" {
-			lookupReason = " models.dev lookup degraded: " + rm.metadataLookupReason + "."
-		}
-		if isAlias {
-			rm.Warnings = append(rm.Warnings, fmt.Sprintf(
-				"Model metadata warning: %s/%s has unknown context limits.%s Using conservative fallback: context_window=%d, max_output_tokens=%d. Set models.%s.advanced.limits.context_window to remove this warning.",
-				rm.Alias, rm.BackendModelID, lookupReason, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens, rm.Alias,
-			))
-		} else {
-			rm.Warnings = append(rm.Warnings, fmt.Sprintf(
-				"Model metadata warning: %s has unknown context limits.%s Using conservative fallback: context_window=%d, max_output_tokens=%d.",
-				reference, lookupReason, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens,
-			))
-		}
-	}
-}
-
-func resolveEffectiveTransport(override config.ModelTransportType, configuredType config.ProviderType, info metadata.ModelInfo, backendID string) (config.ProviderType, TransportType, string) {
-	switch override {
-	case config.ModelTransportOpenAICompat:
-		return config.ProviderTypeOpenAICompat, TransportOpenAICompat, "explicit config override"
-	case config.ModelTransportAnthropic:
-		return config.ProviderTypeAnthropic, TransportAnthropic, "explicit config override"
-	}
-
-	if configuredType == config.ProviderTypeCodex {
-		return configuredType, TransportConfigured, "codex provider uses OAuth Responses transport"
-	}
-
-	switch metadataProviderTransport(info) {
-	case TransportAnthropic:
-		return config.ProviderTypeAnthropic, TransportAnthropic, "models.dev provider override for " + backendID
-	case TransportOpenAICompat:
-		return config.ProviderTypeOpenAICompat, TransportOpenAICompat, "models.dev provider override for " + backendID
-	default:
-		return configuredType, TransportConfigured, "none"
-	}
 }
 
 func metadataProviderTransport(info metadata.ModelInfo) TransportType {
@@ -269,31 +158,6 @@ func ResolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
 		resolved.Codex.MinRequestInterval = config.DefaultCodexMinRequestInterval
 	}
 	return resolved
-}
-
-// limitsFullyConfigured reports whether both context window and max output
-// tokens are explicitly configured, making discovery unnecessary.
-func limitsFullyConfigured(adv config.AdvancedLimitsConfig) bool {
-	return adv.ContextWindow > 0 && adv.MaxOutputTokens > 0
-}
-
-// isFallbackLimits reports whether the advanced limits are all zero, indicating
-// that fallback defaults will be used.
-func isFallbackLimits(adv config.AdvancedLimitsConfig) bool {
-	return adv.ContextWindow == 0 && adv.MaxOutputTokens == 0
-}
-
-// resolveEffectiveLimitsWithMeta merges discovered metadata with user-configured
-// limits. User-configured values always take precedence; discovered values fill
-// gaps where the user has not set a value.
-func resolveEffectiveLimitsWithMeta(adv config.AdvancedLimitsConfig, meta ModelMetadata) EffectiveLimits {
-	if adv.ContextWindow == 0 && meta.ContextWindow > 0 {
-		adv.ContextWindow = meta.ContextWindow
-	}
-	if adv.MaxOutputTokens == 0 && meta.MaxOutputTokens > 0 {
-		adv.MaxOutputTokens = meta.MaxOutputTokens
-	}
-	return resolveEffectiveLimits(adv)
 }
 
 // resolveEffectiveLimits derives runtime effective limits from the user-configured

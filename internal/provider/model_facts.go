@@ -44,10 +44,48 @@ type ModelFacts struct {
 // applyFacts populates rm's legacy exported fields from rm.Facts. It is the
 // single place ModelFacts gets projected onto ResolvedModel's stable API.
 //
-// TODO(stage B2): project remaining legacy fields (MetadataSource,
-// Confidence, EffectiveLimits, EffectiveTransport, TransportOverrideReason,
-// Vision, Reasoning, ReasoningEchoBack) from facts here for the discovery
-// path too, once the discovery path is migrated to the fact resolver.
-func applyFacts(rm *ResolvedModel, facts ModelFacts) {
+// For the non-discovery path (useDiscovery=false), rm's legacy fields are
+// left exactly as resolveReference's base construction set them; only
+// rm.Facts is populated, preserving Resolve's pinned behavior.
+func applyFacts(rm *ResolvedModel, facts ModelFacts, useDiscovery bool) {
 	rm.Facts = facts
+	if !useDiscovery {
+		return
+	}
+
+	rm.EffectiveLimits = deriveEffectiveLimits(facts.ContextWindow.Value, facts.MaxOutputTokens.Value)
+	rm.MetadataSource, rm.Confidence = deriveMetadataSourceAndConfidence(facts)
+
+	if facts.Vision.Known {
+		v := facts.Vision.Value
+		rm.Vision = &v
+	}
+	rm.Reasoning = ReasoningCapabilities{
+		SupportedEfforts:      facts.ReasoningEfforts.Value,
+		ProviderDefaultEffort: rm.Reasoning.ProviderDefaultEffort,
+		Source:                string(facts.ReasoningEfforts.Source),
+		Confidence:            facts.ReasoningEfforts.Confidence,
+	}
+	if !facts.ReasoningEfforts.Known {
+		rm.Reasoning.Source = "unknown"
+		rm.Reasoning.Confidence = "unknown"
+	}
+	rm.ReasoningEchoBack = facts.ReasoningEchoBack.Known && facts.ReasoningEchoBack.Value
+
+	rm.EffectiveProviderType = facts.Transport.Value.ProviderType
+	rm.EffectiveTransport = facts.Transport.Value.Transport
+	rm.TransportOverrideReason = facts.Transport.Value.Reason
+}
+
+// deriveMetadataSourceAndConfidence derives the legacy MetadataSource and
+// Confidence fields (which historically describe limits provenance only)
+// from the resolved ContextWindow and MaxOutputTokens facts.
+func deriveMetadataSourceAndConfidence(facts ModelFacts) (source, confidence string) {
+	if facts.ContextWindow.Source == FactSourceConfig && facts.MaxOutputTokens.Source == FactSourceConfig {
+		return string(FactSourceConfig), "high"
+	}
+	if facts.ContextWindow.Source != FactSourceConfig {
+		return string(facts.ContextWindow.Source), facts.ContextWindow.Confidence
+	}
+	return string(facts.MaxOutputTokens.Source), facts.MaxOutputTokens.Confidence
 }

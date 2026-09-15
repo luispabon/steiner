@@ -1114,41 +1114,46 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		modelID          string
-		override         config.ModelTransportType
-		wantProviderType config.ProviderType
-		wantTransport    TransportType
-		wantBaseURL      string
+		name                string
+		modelID             string
+		override            config.ModelTransportType
+		wantProviderType    config.ProviderType
+		wantTransport       TransportType
+		wantBaseURL         string
+		wantTransportSource FactSource
 	}{
 		{
-			name:             "model metadata switches minimax to anthropic",
-			modelID:          "minimax-m3",
-			wantProviderType: config.ProviderTypeAnthropic,
-			wantTransport:    TransportAnthropic,
-			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
+			name:                "model metadata switches minimax to anthropic",
+			modelID:             "minimax-m3",
+			wantProviderType:    config.ProviderTypeAnthropic,
+			wantTransport:       TransportAnthropic,
+			wantBaseURL:         "https://opencode.ai/zen/go/v1/",
+			wantTransportSource: FactSourceModelsDev,
 		},
 		{
-			name:             "model metadata keeps kimi on openai compatible",
-			modelID:          "kimi-k2.6",
-			wantProviderType: config.ProviderTypeOpenAICompat,
-			wantTransport:    TransportOpenAICompat,
-			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
+			name:                "model metadata keeps kimi on openai compatible",
+			modelID:             "kimi-k2.6",
+			wantProviderType:    config.ProviderTypeOpenAICompat,
+			wantTransport:       TransportOpenAICompat,
+			wantBaseURL:         "https://opencode.ai/zen/go/v1/",
+			wantTransportSource: FactSourceModelsDev,
 		},
 		{
-			name:             "config override wins over metadata",
-			modelID:          "minimax-m3",
-			override:         config.ModelTransportOpenAICompat,
-			wantProviderType: config.ProviderTypeOpenAICompat,
-			wantTransport:    TransportOpenAICompat,
-			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
+			name:                "config override wins over metadata",
+			modelID:             "minimax-m3",
+			override:            config.ModelTransportOpenAICompat,
+			wantProviderType:    config.ProviderTypeOpenAICompat,
+			wantTransport:       TransportOpenAICompat,
+			wantBaseURL:         "https://opencode.ai/zen/go/v1/",
+			wantTransportSource: FactSourceConfig,
 		},
 		{
-			name:             "codex provider ignores models.dev openai-compatible transport",
-			modelID:          "gpt-5.4-mini",
-			wantProviderType: config.ProviderTypeCodex,
-			wantTransport:    TransportConfigured,
-			wantBaseURL:      "https://api.openai.com/v1",
+			name:                "codex provider ignores models.dev openai-compatible transport",
+			modelID:             "gpt-5.4-mini",
+			wantProviderType:    config.ProviderTypeCodex,
+			wantTransport:       TransportConfigured,
+			wantBaseURL:         "https://api.openai.com/v1",
+			wantTransportSource: FactSourceConfig,
 		},
 	}
 
@@ -1189,6 +1194,9 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 			}
 			if got := rm.ProviderConfig.BaseURL; got != tt.wantBaseURL {
 				t.Fatalf("ProviderConfig.BaseURL = %q, want %q", got, tt.wantBaseURL)
+			}
+			if got := rm.Facts.Transport.Source; got != tt.wantTransportSource {
+				t.Fatalf("Facts.Transport.Source = %q, want %q", got, tt.wantTransportSource)
 			}
 		})
 	}

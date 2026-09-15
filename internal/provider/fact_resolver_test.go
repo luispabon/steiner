@@ -106,7 +106,7 @@ func TestResolveFactsPrecedence(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			facts, _ := resolveFacts(context.Background(), modelRef{}, tt.sources)
+			facts, _, _ := resolveFacts(context.Background(), modelRef{}, tt.sources)
 			tt.checkFacts(t, facts)
 		})
 	}
@@ -128,7 +128,7 @@ func TestResolveFactsLaziness(t *testing.T) {
 	}
 	lowPrecedence := &fakeFactSource{source: FactSourceFallback}
 
-	_, _ = resolveFacts(context.Background(), modelRef{}, []factSource{highPrecedence, lowPrecedence})
+	_, _, _ = resolveFacts(context.Background(), modelRef{}, []factSource{highPrecedence, lowPrecedence})
 
 	if lowPrecedence.calls != 0 {
 		t.Errorf("lowPrecedence.calls = %d, want 0 (should be skipped once all its fields are resolved)", lowPrecedence.calls)
@@ -149,7 +149,7 @@ func TestResolveFactsSourceErrDedup(t *testing.T) {
 		},
 	}
 
-	_, errs := resolveFacts(context.Background(), modelRef{}, []factSource{source1, source2})
+	_, _, errs := resolveFacts(context.Background(), modelRef{}, []factSource{source1, source2})
 	if len(errs) != 1 || errs[0] != "boom" {
 		t.Errorf("errs = %v, want [\"boom\"] deduped", errs)
 	}

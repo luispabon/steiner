@@ -147,6 +147,10 @@ func TestPrintModelInspect(t *testing.T) {
 				PromptSuffix:        "",
 				TokenizerStrategy:   provider.TokenizerStrategyTiktoken,
 				TokenizerConfidence: "high",
+				Facts: provider.ModelFacts{
+					ContextWindow: provider.Fact[int]{Value: 128000, Known: true, Source: provider.FactSourceConfig, Confidence: "high"},
+					Vision:        provider.Fact[bool]{Value: true, Known: true, Source: provider.FactSourceConfig, Confidence: "high", Note: "user override"},
+				},
 				Reasoning: provider.ReasoningCapabilities{
 					SupportedEfforts:      []string{"minimal", "low", "medium", "high"},
 					ProviderDefaultEffort: "medium",
@@ -167,6 +171,10 @@ func TestPrintModelInspect(t *testing.T) {
 				"  configured_effort: high",
 				"  effective_effort: high",
 				"  source: config",
+				"facts:",
+				"  context_window: value=128000 source=config confidence=high",
+				"  vision: value=true source=config confidence=high note=user override",
+				"  max_output_tokens: value=unknown source=unknown confidence=unknown",
 				"  confidence: high",
 			},
 		},
