@@ -49,16 +49,41 @@ func mcpToolDef(session *Session, t *mcpsdk.Tool, getApprover func() tool.Approv
 	if approvalMode == "" {
 		approvalMode = "ask"
 	}
-	def.Handler = mcpHandler(session, t.Name, session.Name(), def, getApprover, planMode, approvalMode, srv.TrustAnnotations, t.Annotations, limits)
+	def.Handler = mcpHandler(mcpHandlerConfig{
+		session:          session,
+		toolName:         t.Name,
+		serverName:       session.Name(),
+		def:              def,
+		getApprover:      getApprover,
+		planMode:         planMode,
+		approvalMode:     approvalMode,
+		trustAnnotations: srv.TrustAnnotations,
+		annotations:      t.Annotations,
+		limits:           limits,
+	})
 	return def
 }
 
+// mcpHandlerConfig groups mcpHandler's parameters.
+type mcpHandlerConfig struct {
+	session          *Session
+	toolName         string
+	serverName       string
+	def              tool.ToolDef
+	getApprover      func() tool.ApprovalResponder
+	planMode         func() bool
+	approvalMode     string
+	trustAnnotations bool
+	annotations      *mcpsdk.ToolAnnotations
+	limits           config.LimitsConfig
+}
+
 // mcpHandler returns a Handler closure that gates on approval and invokes the MCP server.
-func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef, getApprover func() tool.ApprovalResponder, planMode func() bool, approvalMode string, trustAnnotations bool, annotations *mcpsdk.ToolAnnotations, limits config.LimitsConfig) func(ctx context.Context, input map[string]any) (any, error) {
+func mcpHandler(cfg mcpHandlerConfig) func(ctx context.Context, input map[string]any) (any, error) {
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		// Deny mode: deny servers register no tools, but the handler defends
 		// anyway so a stale definition can never bypass the mode.
-		if approvalMode == "deny" {
+		if cfg.approvalMode == "deny" {
 			return tool.JSONEnvelope{
 				OK: false,
 				Error: &tool.JSONEnvelopeError{
@@ -71,8 +96,8 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 		// Allow mode in build mode calls the tool directly. In plan mode it is
 		// downgraded to ask (D7) and falls through to approval below. planMode
 		// is read live so a mode switch applies without rebuilding the registry.
-		if approvalMode == "allow" && !planMode() {
-			return callMCPTool(ctx, session, toolName, serverName, limits, input)
+		if cfg.approvalMode == "allow" && !cfg.planMode() {
+			return callMCPTool(ctx, cfg.session, cfg.toolName, cfg.serverName, cfg.limits, input)
 		}
 
 		// Trusted annotations can skip approval for clearly safe tools (D6:
@@ -81,33 +106,33 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 		// spec when unset, so an empty annotation set still prompts. This runs
 		// before the nil-approver check: a trusted read-only tool needs no
 		// approver at all.
-		if trustAnnotations && annotations != nil {
-			if annotations.ReadOnlyHint {
-				return callMCPTool(ctx, session, toolName, serverName, limits, input)
+		if cfg.trustAnnotations && cfg.annotations != nil {
+			if cfg.annotations.ReadOnlyHint {
+				return callMCPTool(ctx, cfg.session, cfg.toolName, cfg.serverName, cfg.limits, input)
 			}
-			isDestructive := annotations.DestructiveHint == nil || *annotations.DestructiveHint
-			isOpenWorld := annotations.OpenWorldHint == nil || *annotations.OpenWorldHint
+			isDestructive := cfg.annotations.DestructiveHint == nil || *cfg.annotations.DestructiveHint
+			isOpenWorld := cfg.annotations.OpenWorldHint == nil || *cfg.annotations.OpenWorldHint
 			if !isDestructive && !isOpenWorld {
-				return callMCPTool(ctx, session, toolName, serverName, limits, input)
+				return callMCPTool(ctx, cfg.session, cfg.toolName, cfg.serverName, cfg.limits, input)
 			}
 			// Destructive or open-world: fall through to approval.
 		}
 
 		// Fail closed: a nil approver denies.
-		approver := getApprover()
+		approver := cfg.getApprover()
 		if approver == nil {
 			return tool.JSONEnvelope{
 				OK: false,
 				Error: &tool.JSONEnvelopeError{
 					Kind:    "approval_denied",
-					Message: fmt.Sprintf("MCP tool %q on server %q cannot be called without an approver", toolName, serverName),
+					Message: fmt.Sprintf("MCP tool %q on server %q cannot be called without an approver", cfg.toolName, cfg.serverName),
 				},
 			}, nil
 		}
 
 		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
 		req := tool.ApprovalRequest{
-			Tool:              def,
+			Tool:              cfg.def,
 			CallID:            callID,
 			Input:             input,
 			Kind:              tool.ApprovalKindMCP,
@@ -115,8 +140,8 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 			GrantInstructions: "Use approval mode in MCP server config to control this",
 			Response:          make(chan tool.ApprovalResponse, 1),
 			MCP: &tool.MCPApprovalDetails{
-				Server:           serverName,
-				ToolName:         toolName,
+				Server:           cfg.serverName,
+				ToolName:         cfg.toolName,
 				ArgumentsPreview: formatArgumentsPreview(input),
 			},
 		}
@@ -125,7 +150,7 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 				OK: false,
 				Error: &tool.JSONEnvelopeError{
 					Kind:    "approval_denied",
-					Message: fmt.Sprintf("MCP tool %q on server %q: approval error: %v", toolName, serverName, err),
+					Message: fmt.Sprintf("MCP tool %q on server %q: approval error: %v", cfg.toolName, cfg.serverName, err),
 				},
 			}, nil
 		}
@@ -141,7 +166,7 @@ func mcpHandler(session *Session, toolName, serverName string, def tool.ToolDef,
 			}, nil
 		}
 
-		return callMCPTool(ctx, session, toolName, serverName, limits, input)
+		return callMCPTool(ctx, cfg.session, cfg.toolName, cfg.serverName, cfg.limits, input)
 	}
 }
 
