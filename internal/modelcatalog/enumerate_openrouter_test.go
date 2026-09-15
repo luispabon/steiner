@@ -37,6 +37,9 @@ func TestOpenRouterEnumeratorPaginationAndFiltering(t *testing.T) {
 	if len(result.Models) != 3 || result.Models[0].ID != "openai/gpt-4" || result.Models[1].ID != "anthropic/claude-3" || result.Models[2].DisplayName != "fallback-model" {
 		t.Fatalf("models: %+v", result.Models)
 	}
+	if result.Models[0].MaxOutputTokens != 4096 {
+		t.Fatalf("MaxOutputTokens: got %d, want 4096", result.Models[0].MaxOutputTokens)
+	}
 }
 
 func TestOpenRouterEnumeratorStopsAtCrossHostNext(t *testing.T) {

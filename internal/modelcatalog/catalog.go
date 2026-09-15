@@ -68,6 +68,16 @@ func (s *Service) Choices(cfg *config.Config, activeRef string) []ModelChoice {
 	return rankChoices(choices)
 }
 
+// Model returns the discovered model for providerAlias/modelID from in-memory
+// refresh results or the on-disk cache (stale entries allowed). No network I/O.
+func (s *Service) Model(cfg *config.Config, providerAlias, modelID string) (DiscoveredModel, bool) {
+	if cfg == nil {
+		return DiscoveredModel{}, false
+	}
+	model, ok := s.discoveredModels(cfg)[Key{ProviderAlias: providerAlias, ModelID: modelID}]
+	return model, ok
+}
+
 func (s *Service) discoveredModels(cfg *config.Config) map[Key]DiscoveredModel {
 	discovered := make(map[Key]DiscoveredModel)
 	if !s.DiscoveryEnabled {
