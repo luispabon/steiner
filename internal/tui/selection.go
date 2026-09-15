@@ -444,7 +444,7 @@ func (m *Model) selectionHighlightBounds() (left, right int) {
 // deliberately narrower than "anything with a slash", to avoid swallowing
 // prose: a bare relative path qualifies only when it has two or more path
 // separators (internal/tui/selection.go) or its final segment carries a file
-// extension (docs/oneshot.md). This rejects and/or, TCP/IP, 24/7, and 12/25
+// extension (docs/user/oneshot.md). This rejects and/or, TCP/IP, 24/7, and 12/25
 // while accepting steiner's own path output. A single-separator bare path is
 // admitted when one side is long enough to be a branch or namespace ref: a
 // final segment of five or more characters (cl/2026-08-05_mcp_approval_model)

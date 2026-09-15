@@ -16,7 +16,7 @@ import (
 //
 // This is the whole of the measured overlap, not a sample. If a block here
 // should legitimately differ between the two documents, delete it from this
-// table and record the divergence in docs/canon-drift-checks.md.
+// table and record the divergence in docs/maintenance/canon-drift-checks.md.
 
 const researchTriggersBlock = "- external APIs, SDKs, providers, model behavior, or product behavior\n" +
 	"- third-party dependencies, framework behavior, or CLI/tool behavior\n" +

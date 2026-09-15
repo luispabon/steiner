@@ -6,43 +6,73 @@ trap 'rm -rf "$wiki_dir"' EXIT
 
 git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" "$wiki_dir"
 
-# Clear all generated content (preserve .git)
-find "$wiki_dir" \
-  -mindepth 1 \
-  -maxdepth 1 \
-  ! -name ".git" \
-  -exec rm -rf {} +
+find "$wiki_dir" -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
 
-# README becomes Home — strip docs/ prefix from markdown link targets
-sed -E 's/]\(docs\/([^)]+)\)/](\1)/g' README.md > "$wiki_dir/Home.md"
+WIKI_DIR="$wiki_dir" python3 - <<'PY'
+import os
+import pathlib
+import re
 
-# Copy all docs/*.md (top-level only, not docs/wiki/)
-find docs \
-  -maxdepth 1 \
-  -type f \
-  -name "*.md" \
-  -exec cp {} "$wiki_dir/" \;
+root = pathlib.Path.cwd()
+out = pathlib.Path(os.environ["WIKI_DIR"])
+docs = root / "docs"
 
-# Copy wiki-specific files if present
-if [ -f docs/wiki/_Sidebar.md ]; then
-  cp docs/wiki/_Sidebar.md "$wiki_dir/_Sidebar.md"
-fi
+sources = sorted(p for p in docs.rglob("*.md") if "wiki" not in p.relative_to(docs).parts)
 
-if [ -f docs/wiki/_Footer.md ]; then
-  cp docs/wiki/_Footer.md "$wiki_dir/_Footer.md"
-fi
+def page_name(source):
+    relative = source.relative_to(docs).with_suffix("").as_posix()
+    if relative == "index":
+        return "docs-index"
+    if relative.startswith(("user/", "internals/", "maintenance/", "research/")):
+        return relative.replace("/", "-")
+    return "docs-" + relative.replace("/", "-")
+
+pages = {p: page_name(p) for p in sources}
+by_relative = {p.relative_to(root).as_posix(): name for p, name in pages.items()}
+
+link_re = re.compile(r"(?P<prefix>\]\()(?P<target>[^)#][^)]*)(?P<close>\))")
+
+def rewrite(text, source):
+    def replace(match):
+        target = match.group("target")
+        if re.match(r"(?:[A-Za-z][A-Za-z0-9+.-]*:|//|/)", target):
+            return match.group(0)
+        path, sep, anchor = target.partition("#")
+        if path == "AGENTS.md":
+            replacement = "https://github.com/" + os.environ["GITHUB_REPOSITORY"] + "/blob/main/AGENTS.md"
+            return match.group("prefix") + replacement + ("#" + anchor if sep else "") + match.group("close")
+        if not path:
+            return match.group(0)
+        if path == "docs/screenshot.png":
+            return match.group("prefix") + "screenshot.png" + ("#" + anchor if sep else "") + match.group("close")
+        resolved = (source.parent / path).resolve()
+        try:
+            key = resolved.relative_to(root).as_posix()
+        except ValueError:
+            return match.group(0)
+        name = by_relative.get(key)
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name + ("#" + anchor if sep else "") + match.group("close")
+    return link_re.sub(replace, text)
+
+readme = root / "README.md"
+(out / "Home.md").write_text(rewrite(readme.read_text(), readme))
+for source, name in pages.items():
+    (out / (name + ".md")).write_text(rewrite(source.read_text(), source))
+PY
+
+cp docs/screenshot.png "$wiki_dir/screenshot.png"
+cp docs/wiki/_Sidebar.md "$wiki_dir/_Sidebar.md"
+if [ -f docs/wiki/_Footer.md ]; then cp docs/wiki/_Footer.md "$wiki_dir/_Footer.md"; fi
 
 cd "$wiki_dir"
-
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
 git add -A
-
 if git diff --cached --quiet; then
   echo "No wiki changes to publish"
   exit 0
 fi
-
 git commit -m "Publish wiki from ${GITHUB_SHA::7}"
 git push

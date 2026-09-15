@@ -80,7 +80,7 @@ func loadConsumers(t *testing.T) []consumerParagraph {
 // because os.ReadFile needs the package-relative form to actually open the
 // file from a test binary's working directory, while consumerParagraph.Path
 // is documented and matched in the repo-relative form
-// (docs/canon-drift-checks.md), which is stable regardless of which
+// (docs/maintenance/canon-drift-checks.md), which is stable regardless of which
 // package's tests produced the finding.
 func repoRelativePath(pkgRelPath string) string {
 	return filepath.Clean(filepath.Join("internal/prompt", pkgRelPath))

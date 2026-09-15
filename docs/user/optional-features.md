@@ -54,9 +54,7 @@ When enabled, `web_search` is also added to the `research` sub-agent's tool allo
 
 ## Image paste
 
-Paste images directly in the interactive TUI with **Ctrl+V**. Images are read from the clipboard or referenced by file path, resized to a max of 2048px on the longest side, and token-accounted automatically. After the model responds, image data is stripped from the conversation and replaced with a text placeholder, keeping context lean. Models without vision capability have images stripped before sending.
-
-Supported formats: PNG, JPG, JPEG, GIF, WebP. Max size: 5MB.
+Paste images in the interactive TUI. See [Images](images.md) for usage and handling details.
 
 ## Conversation forking
 
@@ -92,31 +90,4 @@ Analyze branch changes for structural and code quality improvements before revie
 
 ## Codex OAuth
 
-Use your OpenAI Codex subscription (GPT-5.5, GPT-5.4, etc.) with Steiner without a separate API key. Codex providers use the Responses wire format. When login can exchange the ChatGPT ID token for an API-key style credential, Steiner sends requests to `https://api.openai.com/v1/responses`; otherwise it uses the ChatGPT Codex backend at `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and account metadata.
-
-**Setup:**
-
-1. Authenticate with your OpenAI account:
-   ```bash
-   steiner login codex
-   ```
-   This opens a browser for OAuth consent and saves a token to `~/.config/steiner/codex_auth.json`.
-
-2. Check authentication status:
-   ```bash
-   steiner login codex status
-   ```
-
-3. Configure a provider and model:
-   ```yaml
-   providers:
-     codex:
-       type: codex
-
-   models:
-     gpt-5:
-       provider: codex
-       id: gpt-5.5
-   ```
-
-Token storage at `~/.config/steiner/codex_auth.json` is created with `0600` permissions and should be treated as sensitive — the same as API keys and `--log-file` output. Existing token files continue to load, but re-running `steiner login codex` refreshes stored `id_token`, ChatGPT account metadata, and the optional exchanged API credential used for direct OpenAI Responses API calls.
+Use an OpenAI Codex subscription with Steiner without a separate API key. For the login, status, provider, and raw model reference setup, see [Codex OAuth in Provider and model setup](provider-and-model-setup.md#codex-oauth).

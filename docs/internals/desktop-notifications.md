@@ -1,6 +1,6 @@
 # Desktop Notifications — Internals
 
-User-facing documentation: [Desktop Notifications](desktop-notifications.md).
+User-facing documentation: [Desktop Notifications](../user/desktop-notifications.md).
 
 ## Adding a new platform driver
 

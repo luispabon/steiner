@@ -147,7 +147,7 @@ func defaultConfig() Config {
 			Enabled: true,
 		},
 		// The four timeouts below are calibrated against gopls v0.23.0; see
-		// docs/lsp.md "Timeout calibration" for the measurements and
+		// docs/user/lsp.md "Timeout calibration" for the measurements and
 		// internal/lsp/calibrate_manual_test.go for the harness that produced
 		// them. IdleTimeout is a policy choice, not a measurement.
 		LSP: LSPConfig{

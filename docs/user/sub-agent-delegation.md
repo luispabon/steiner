@@ -1,10 +1,11 @@
 # Sub-agent delegation
 
-`steiner` exposes a unified `sub_agent` tool that dispatches bounded tasks to isolated child agents, with a `type` parameter selecting the specialist type. When delegation is enabled, the parent's system prompt casts it as the orchestrator: its job is to orchestrate sub-agents — it plans the work, chooses the right specialist for each piece, dispatches it with a complete brief, and verifies and integrates its output, preserving its context for orchestration rather than doing the implementation itself.
+`steiner` exposes a unified `sub_agent` tool that dispatches bounded tasks to isolated child agents, with a `type` parameter selecting the specialist type. When delegation is enabled, the parent orchestrates sub-agents and verifies and integrates their output.
 
-The parent's preamble spells out a numbered workflow: an initial code-local investigation via `explore`, clarifying questions one at a time, any further research via `research` or `explore`, a Goal/Assumptions/Scope/Unknowns summary for user confirmation, a high-level implementation plan (with `evaluate` for harder, scoped sub-problems), breaking the plan into single-logical-unit implementation steps, then one cold `code` sub-agent per new step. Eligible continuation uses `follow_up` first; related corrections can return to the implementing agent, and narrow re-review can return to the original reviewer, while widened or high-risk review is fresh. Follow-ups require a resumable session, the same bounded deliverable and scope, and the original live workspace; otherwise dispatch cold, and use follow-ups sequentially rather than concurrently. The workflow then ends with `sanity_check`. When the advisor is enabled, the workflow includes an inline step to consult `advisor` and incorporate its feedback (step 7, with the later steps renumbered); the detailed advisor guidance lives in its own `## Advisor` preamble section. Local work is reserved for genuinely self-contained actions — a single bounded lookup, a self-contained formatting action such as running `gofmt`, or a tiny user-directed correction whose exact replacement text or source lines are supplied in the request; everything else is delegated by default.
+The detailed orchestration prompt, workflow, and direct-work exception are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#canon-and-workflow).
 
-`advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. The advisor lives alongside the delegation tools in the main loop, but it is not a child agent. When enabled, the delegation workflow renders an inline step to consult it; the step is omitted when the advisor is disabled.
+
+`advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. It is not a child agent.
 
 ---
 
@@ -73,7 +74,7 @@ Key behaviours:
 
 ### Parallel fan-out
 
-Multiple delegation calls made in one turn execute concurrently. The fan-out width is bounded independently by `sub_agent.max_parallel` (default `3`, minimum `1`), separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_implementations/lsp_type_definitions/lsp_references/lsp_diagnostics/lsp_hover/lsp_symbols), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [docs/configuration.md](configuration.md#limits-block). A value of `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
+Multiple delegation calls made in one turn execute concurrently. The fan-out width is bounded independently by `sub_agent.max_parallel` (default `3`, minimum `1`), separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_implementations/lsp_type_definitions/lsp_references/lsp_diagnostics/lsp_hover/lsp_symbols), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [Configuration](configuration.md#limits-block). A value of `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
 
 ### Stopping active delegates
 
@@ -104,9 +105,9 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 - MCP tools are registered from third-party servers and are only exposed to sub-agents when the server's `sub_agents` list explicitly includes the agent type. Approval is per-server and controlled by the parent's configuration.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
 - The child's full conversation transcript is not copied into the parent session; only the structured result and its retention metadata persist.
-- The result the parent model sees excludes absolute worktree paths, `worktree_branch`, traces, tool-call counts, session metadata, and diagnostic counters. Per-tool-call traces, counters, warnings, and advisor usage are recorded host-side only (debug log and `.steiner/traces/`, see [docs/sub-agent-delegation-internals.md](sub-agent-delegation-internals.md)) for diagnostics, never sent to the provider. The project-relative `worktree_path` (`.steiner/worktrees/...`) is included for code agents with valid provisioned worktrees, allowing parent agents to inspect worktrees via `read`/`bash`/`grep`/`glob`/`ls` without needing a `follow_up` call.
-- While the parent interactive session is in `plan` execution mode, the `code` sub-agent tool is denied outright, and `follow_up` is denied when it targets a session spawned by `code` — both can mutate files, which plan mode disallows. See [docs/execution-modes.md](execution-modes.md) for the full enforcement matrix.
-- Two workflows deliberately diverge from the system prompt's `Delegation vs direct work` section, and are labelled as such at their source: `skills/review/SKILL.md` and `skills/simplify/SKILL.md` permit a last-resort inline-fixes tier — looser than the section — for when delegation tooling itself is unavailable; `skills/implement/SKILL.md` and `internal/oneshot/prompts/implement.md` forbid any direct file-mutation tool use on implementation-scoped files — stricter than the section's allowance to apply `mutate` directly to a tiny correction whose exact replacement text or source lines are supplied in the current request, because the executor owns the feature branch and delegation is that workflow's whole point. The oneshot review phase (`internal/oneshot/prompts/review.md`) goes further still and has no inline-fix tier at all.
+- The result the parent model sees excludes absolute worktree paths, `worktree_branch`, traces, tool-call counts, session metadata, and diagnostic counters. Host-side trace fields and locations are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#host-side-diagnostics-vs-the-model-facing-result), never sent to the provider. The project-relative `worktree_path` (`.steiner/worktrees/...`) is included for code agents with valid provisioned worktrees, allowing parent agents to inspect worktrees via `read`/`bash`/`grep`/`glob`/`ls` without needing a `follow_up` call.
+- While the parent interactive session is in `plan` execution mode, the `code` sub-agent tool is denied outright, and `follow_up` is denied when it targets a session spawned by `code` — both can mutate files, which plan mode disallows. See [Execution modes](execution-modes.md) for the full enforcement matrix.
+- The system-prompt canon and deliberate skill/oneshot workflow differences are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#canon-and-workflow).
 
 ### Default tool allowlists
 
@@ -128,7 +129,7 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 
 Delegation accepts a generic per-agent-type projection of extra allowed tool names, `ExtraAllowedTools`, supplied when the delegate registry is assembled. It is a narrow seam: the delegation package only receives registered tool names, never their origin. Nil or empty projections grant no extra tools, so the built-in allowlists above remain the effective default. Extras merge with the built-in allowlist into a sorted, deduplicated set before child registry construction.
 
-The MCP integration consumes this seam. An MCP server entry's `sub_agents` list names the agent types that may use that server's tools; those tool names are projected into `ExtraAllowedTools` for the listed types. MCP access for children defaults to closed — a server without a matching `sub_agents` entry grants no tools to any sub-agent. When a server is granted to an agent type, the server's tools appear in the child's registry with their `mcp__<server>__<tool>` names. Per-server tool filtering (`allowed_tools` and `blocked_tools`) applies to sub-agents exactly as it does to the parent: a tool excluded by filtering is not exposed to child agents. See [configuration.md](configuration.md) for the MCP config block and [docs/mcp.md](mcp.md) for the full MCP reference.
+The MCP integration consumes this seam. An MCP server entry's `sub_agents` list names the agent types that may use that server's tools; those tool names are projected into `ExtraAllowedTools` for the listed types. MCP access for children defaults to closed — a server without a matching `sub_agents` entry grants no tools to any sub-agent. When a server is granted to an agent type, the server's tools appear in the child's registry with their `mcp__<server>__<tool>` names. Per-server tool filtering (`allowed_tools` and `blocked_tools`) applies to sub-agents exactly as it does to the parent: a tool excluded by filtering is not exposed to child agents. See [configuration.md](configuration.md) for the MCP config block and [MCP](mcp.md) for the full MCP reference.
 
 ### Configuration
 
@@ -145,28 +146,19 @@ sub_agent:
   max_tokens: 100000
 
 models:
-  definitions:
-    gpt-4o:
-      provider: openai
-      id: gpt-4o
-    claude-sonnet-4:
-      provider: anthropic
-      id: claude-sonnet-4
-    gpt-4o-mini:
-      provider: openai
-      id: gpt-4o-mini
   profiles:
     default:
-      default_model: gpt-4o
+      default_model: openai/<orchestrator-model-id>
       sub_agents:
-        code: gpt-4o
-        evaluate: claude-sonnet-4
-        sanity_check: gpt-4o-mini
+        code: openai/<code-model-id>
+        evaluate: anthropic/<evaluate-model-id>
+        sanity_check: openai/<sanity-check-model-id>
 ```
 
 Each entry under the selected profile's `sub_agents` map, keyed by agent type
-name, can set a model alias to any key defined in `models.definitions`. If no
-override is set, the sub-agent uses the selected profile's `default_model`.
+name, can set a raw `provider/model-id` reference. An alias is an optional
+alternate when it provides a stable name or persistent `ModelConfig` settings. If
+no override is set, the sub-agent uses the selected profile's `default_model`.
 
 `sub_agent.orchestration_level` controls how strongly the system preamble
 steers the orchestrator toward delegating. `standard` (the default) renders
@@ -232,17 +224,13 @@ is configured. It requires a vision-capable model:
 
 ```yaml
 models:
-  definitions:
-    claude-sonnet-4:
-      provider: anthropic
-      id: claude-sonnet-4
   profiles:
     default:
-      default_model: claude-sonnet-4
+      default_model: anthropic/<vision-model-id>
       sub_agents:
-        vision: claude-sonnet-4
+        vision: anthropic/<vision-model-id>
 ```
 
 ---
 
-For architecture and implementation details, see [Sub-agent Delegation Internals](sub-agent-delegation-internals.md).
+For architecture and implementation details, see [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md).

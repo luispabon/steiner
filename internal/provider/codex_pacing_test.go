@@ -11,7 +11,7 @@ import (
 
 // TestCodexPacingCacheEffect tests whether the 4-second minimum request
 // interval (config.DefaultCodexMinRequestInterval) actually improves cache hit
-// rates, as docs/configuration.md claims: "Codex limits cache reuse when too
+// rates, as docs/user/configuration.md claims: "Codex limits cache reuse when too
 // many requests from the same key land on cold cache shards. This interval
 // paces rapid bursts to reduce cold-shard cache misses."
 //

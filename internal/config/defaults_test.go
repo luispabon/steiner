@@ -150,7 +150,7 @@ func TestDefaultConfigLSPIdleTimeout(t *testing.T) {
 }
 
 // TestDefaultConfigLSPCalibratedTimeouts pins the timeouts derived from the
-// gopls measurements recorded in docs/lsp.md "Timeout calibration". Changing
+// gopls measurements recorded in docs/user/lsp.md "Timeout calibration". Changing
 // one of these values means re-running internal/lsp/calibrate_manual_test.go
 // and updating that section.
 func TestDefaultConfigLSPCalibratedTimeouts(t *testing.T) {

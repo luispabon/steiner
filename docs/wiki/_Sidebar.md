@@ -1,23 +1,38 @@
 **Getting Started**
 - [Home](Home)
-- [Configuration](configuration)
+- [Documentation](docs-index)
+- [Installation](user-installation)
+- [Getting started](user-getting-started)
+- [Updates](user-updates)
+- [CLI reference](user-cli)
+- [Configuration](user-configuration)
 
 **Core Concepts**
-- [Context Management](context-management)
-- [Tool Sandboxing](tool-sandboxing)
-- [Sub-agent Delegation](sub-agent-delegation)
+- [Context management](user-context-management)
+- [Execution modes](user-execution-modes)
+- [Sandboxing](user-sandboxing)
+- [Sub-agent delegation](user-sub-agent-delegation)
+- [Built-in tools](user-tools)
 
 **Features**
-- [Oneshot Mode](oneshot)
-- [Advisor](advisor)
-- [Cache Stats](cache-stats)
-- [Desktop Notifications](desktop-notifications)
-- [Image Prompts](image-prompts)
-- [MCP servers](mcp)
-- [Optional Features](optional-features)
+- [Oneshot](user-oneshot)
+- [Model enumeration](user-model-enumeration)
+- [MCP](user-mcp)
+- [LSP](user-lsp)
+- [Advisor](user-advisor)
+- [Cache stats](user-cache-stats)
+- [Desktop notifications](user-desktop-notifications)
+- [Images](user-images)
+- [Optional features](user-optional-features)
 
 **Internals**
-- [Sub-agent Delegation](sub-agent-delegation-internals)
-- [Oneshot Mode](oneshot-internals)
-- [Context Management](context-management-internals)
-- [Desktop Notifications](desktop-notifications-internals)
+- [Internals index](internals-index)
+- [Context management](internals-context-management)
+- [Sub-agent delegation](internals-sub-agent-delegation)
+- [Oneshot](internals-oneshot)
+- [Desktop notifications](internals-desktop-notifications)
+
+**Maintenance and research**
+- [Canon drift checks](maintenance-canon-drift-checks)
+- [Gap report and research milestones](research-gap-report-research-milestones)
+- [Image handling research](research-image-handling)

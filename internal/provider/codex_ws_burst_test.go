@@ -31,7 +31,7 @@ import (
 //     before the burst starts).
 //
 // N=18 is chosen to match the "roughly 15 requests/minute" overflow threshold
-// mentioned in docs/cache-stats.md#request-pacing for HTTP affinity headers,
+// mentioned in docs/user/cache-stats.md#request-pacing for HTTP affinity headers,
 // since D3's hypothesis is that WS transport avoids that same overflow by having
 // deterministic per-connection shard stickiness.
 func TestCodexWSBurstLoad1008Watch(t *testing.T) {

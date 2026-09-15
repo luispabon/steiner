@@ -951,10 +951,10 @@ func TestPathBoundsAt(t *testing.T) {
 		},
 		{
 			name:         "bare relative path, single separator with extension",
-			line:         "See docs/oneshot.md here",
+			line:         "See docs/user/oneshot.md here",
 			col:          6,
 			wantStartCol: 4,
-			wantEndCol:   19,
+			wantEndCol:   24,
 			wantOk:       true,
 		},
 		{
@@ -1071,10 +1071,10 @@ func TestPathBoundsAt(t *testing.T) {
 		},
 		{
 			name:         "trailing period trimmed",
-			line:         "see docs/oneshot.md.",
+			line:         "see docs/user/oneshot.md.",
 			col:          6,
 			wantStartCol: 4,
-			wantEndCol:   19,
+			wantEndCol:   24,
 			wantOk:       true,
 		},
 		{
