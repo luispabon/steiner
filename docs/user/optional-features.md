@@ -54,9 +54,7 @@ When enabled, `web_search` is also added to the `research` sub-agent's tool allo
 
 ## Image paste
 
-Paste images directly in the interactive TUI with **Ctrl+V**. Images are read from the clipboard or referenced by file path, resized to a max of 2048px on the longest side, and token-accounted automatically. After the model responds, image data is stripped from the conversation and replaced with a text placeholder, keeping context lean. Models without vision capability have images stripped before sending.
-
-Supported formats: PNG, JPG, JPEG, GIF, WebP. Max size: 5MB.
+Paste images in the interactive TUI. See [Images](images.md) for usage and handling details.
 
 ## Conversation forking
 
