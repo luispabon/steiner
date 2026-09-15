@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
 	"sort"
@@ -70,22 +71,34 @@ func LookupWithProviderResult(data []byte, providerID, modelID string) LookupRes
 }
 
 func lookupForProvider(root map[string]json.RawMessage, providerID, modelID string) LookupResult {
+	providerMalformed := false
 	if providerRaw, ok := root[providerID]; ok {
 		if info, found, malformed := lookupProviderModel(providerRaw, modelID); found {
 			return LookupResult{Info: info}
-		} else if malformed {
-			return LookupResult{Reason: LookupReasonMalformed}
+		} else {
+			providerMalformed = malformed
 		}
 	}
-	for otherProvider, providerRaw := range root {
-		if otherProvider == providerID {
-			continue
+
+	providers := make([]string, 0, len(root))
+	for provider := range root {
+		if provider != providerID {
+			providers = append(providers, provider)
 		}
-		if _, found, malformed := lookupProviderModel(providerRaw, modelID); found {
+	}
+	sort.Strings(providers)
+	otherMalformed := false
+	for _, otherProvider := range providers {
+		if _, found, malformed := lookupProviderModel(root[otherProvider], modelID); found {
+			// A valid match under another provider takes precedence over malformed
+			// entries when classifying a provider mismatch.
 			return LookupResult{Reason: LookupReasonProviderMismatch}
 		} else if malformed {
-			return LookupResult{Reason: LookupReasonMalformed}
+			otherMalformed = true
 		}
+	}
+	if providerMalformed || otherMalformed {
+		return LookupResult{Reason: LookupReasonMalformed}
 	}
 	return LookupResult{Reason: LookupReasonNotFound}
 }
@@ -131,6 +144,9 @@ func lookupProviderModel(providerRaw json.RawMessage, modelID string) (ModelInfo
 	modelRaw, ok := provider.Models[modelID]
 	if !ok {
 		return ModelInfo{}, false, false
+	}
+	if bytes.Equal(bytes.TrimSpace(modelRaw), []byte("null")) {
+		return ModelInfo{}, false, true
 	}
 	info, err := parseModelEntry(provider.NPM, provider.API, modelRaw)
 	if err != nil {

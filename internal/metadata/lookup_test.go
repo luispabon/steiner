@@ -35,6 +35,24 @@ func TestLookupWithProviderResult_MalformedModelEntry(t *testing.T) {
 	}
 }
 
+func TestLookupWithProviderResult_NullModelEntryIsMalformed(t *testing.T) {
+	result := LookupWithProviderResult([]byte(`{"openai":{"models":{"gpt-4o":null}}}`), "openai", "gpt-4o")
+	if result.Reason != LookupReasonMalformed {
+		t.Fatalf("Reason = %q, want %q", result.Reason, LookupReasonMalformed)
+	}
+}
+
+func TestLookupWithProviderResult_ValidMatchTakesPrecedenceOverMalformedOtherProvider(t *testing.T) {
+	data := []byte(`{
+		"bad":{"models":{"gpt-4o":null}},
+		"openai":{"models":{"gpt-4o":{"limit":{"context":128000}}}}
+	}`)
+	result := LookupWithProviderResult(data, "local", "gpt-4o")
+	if result.Reason != LookupReasonProviderMismatch {
+		t.Fatalf("Reason = %q, want %q", result.Reason, LookupReasonProviderMismatch)
+	}
+}
+
 func TestLookup_MissingModelsKey(t *testing.T) {
 	data := []byte(`{"openai":{"id":"openai"}}`)
 	info := Lookup(data, "gpt-4o")
