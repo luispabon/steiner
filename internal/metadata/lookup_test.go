@@ -28,6 +28,13 @@ func TestLookup_MalformedJSON(t *testing.T) {
 	}
 }
 
+func TestLookupWithProviderResult_MalformedModelEntry(t *testing.T) {
+	result := LookupWithProviderResult([]byte(`{"openai":{"models":{"gpt-4o":[]}}}`), "openai", "gpt-4o")
+	if result.Reason != LookupReasonMalformed {
+		t.Fatalf("Reason = %q, want %q", result.Reason, LookupReasonMalformed)
+	}
+}
+
 func TestLookup_MissingModelsKey(t *testing.T) {
 	data := []byte(`{"openai":{"id":"openai"}}`)
 	info := Lookup(data, "gpt-4o")

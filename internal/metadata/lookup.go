@@ -64,23 +64,33 @@ func LookupWithProviderResult(data []byte, providerID, modelID string) LookupRes
 	}
 	providerID = strings.TrimSpace(providerID)
 	if providerID != "" {
-		providerRaw, ok := root[providerID]
-		if ok {
-			if info, ok := lookupProviderModel(providerRaw, modelID); ok {
-				return LookupResult{Info: info}
-			}
-		}
-		for otherProvider, providerRaw := range root {
-			if otherProvider == providerID {
-				continue
-			}
-			if _, ok := lookupProviderModel(providerRaw, modelID); ok {
-				return LookupResult{Reason: LookupReasonProviderMismatch}
-			}
-		}
-		return LookupResult{Reason: LookupReasonNotFound}
+		return lookupForProvider(root, providerID, modelID)
 	}
+	return lookupAcrossProviders(root, modelID)
+}
 
+func lookupForProvider(root map[string]json.RawMessage, providerID, modelID string) LookupResult {
+	if providerRaw, ok := root[providerID]; ok {
+		if info, found, malformed := lookupProviderModel(providerRaw, modelID); found {
+			return LookupResult{Info: info}
+		} else if malformed {
+			return LookupResult{Reason: LookupReasonMalformed}
+		}
+	}
+	for otherProvider, providerRaw := range root {
+		if otherProvider == providerID {
+			continue
+		}
+		if _, found, malformed := lookupProviderModel(providerRaw, modelID); found {
+			return LookupResult{Reason: LookupReasonProviderMismatch}
+		} else if malformed {
+			return LookupResult{Reason: LookupReasonMalformed}
+		}
+	}
+	return LookupResult{Reason: LookupReasonNotFound}
+}
+
+func lookupAcrossProviders(root map[string]json.RawMessage, modelID string) LookupResult {
 	type candidate struct {
 		provider string
 		info     ModelInfo
@@ -92,8 +102,10 @@ func LookupWithProviderResult(data []byte, providerID, modelID string) LookupRes
 	sort.Strings(providers)
 	candidates := make([]candidate, 0, len(providers))
 	for _, provider := range providers {
-		if info, ok := lookupProviderModel(root[provider], modelID); ok {
+		if info, found, malformed := lookupProviderModel(root[provider], modelID); found {
 			candidates = append(candidates, candidate{provider: provider, info: info})
+		} else if malformed {
+			return LookupResult{Reason: LookupReasonMalformed}
 		}
 	}
 	if len(candidates) == 0 {
@@ -107,23 +119,27 @@ func LookupWithProviderResult(data []byte, providerID, modelID string) LookupRes
 	return LookupResult{Info: candidates[0].info}
 }
 
-func lookupProviderModel(providerRaw json.RawMessage, modelID string) (ModelInfo, bool) {
+func lookupProviderModel(providerRaw json.RawMessage, modelID string) (ModelInfo, bool, bool) {
 	var provider struct {
 		NPM    string                     `json:"npm"`
 		API    string                     `json:"api"`
 		Models map[string]json.RawMessage `json:"models"`
 	}
 	if err := json.Unmarshal(providerRaw, &provider); err != nil || provider.Models == nil {
-		return ModelInfo{}, false
+		return ModelInfo{}, false, false
 	}
 	modelRaw, ok := provider.Models[modelID]
 	if !ok {
-		return ModelInfo{}, false
+		return ModelInfo{}, false, false
 	}
-	return parseModelEntry(provider.NPM, provider.API, modelRaw), true
+	info, err := parseModelEntry(provider.NPM, provider.API, modelRaw)
+	if err != nil {
+		return ModelInfo{}, false, true
+	}
+	return info, true, false
 }
 
-func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) ModelInfo {
+func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) (ModelInfo, error) {
 	var entry struct {
 		Limit struct {
 			Context int `json:"context"`
@@ -145,7 +161,7 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) Model
 		} `json:"reasoning_options"`
 	}
 	if err := json.Unmarshal(raw, &entry); err != nil {
-		return ModelInfo{}
+		return ModelInfo{}, err
 	}
 	var supportedEfforts []string
 	for _, ro := range entry.ReasoningOptions {
@@ -166,7 +182,7 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) Model
 		InterleavedField:          entry.Interleaved.Field,
 		VisionInput:               containsFold(entry.Modalities.Input, "image"),
 		Found:                     true,
-	}
+	}, nil
 }
 
 // CountModels returns the number of unique model entries across all providers
