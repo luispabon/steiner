@@ -9,7 +9,7 @@ Codex Responses requests send three affinity headers to route requests to the sa
 - `thread-id`: steiner's per-conversation session ID (also set to the same value)
 - `originator`: set to `codex_cli_rs` to identify steiner clients
 
-These headers, derived from a stable session key (`prompt_cache_key`), enable server-side session affinity: traffic from the same conversation stays on one cache shard instead of being load-balanced across different cache servers. This allows later requests to reuse prior prompt prefixes within a session. **Measured improvement: ~68% → ~89% hit rate on gpt-5.4-mini.** This improvement is still valid — see [Superseded claims](#superseded-claims-that-did-not-reproduce) below for distinction from later claims that did not reproduce.
+These headers, derived from a stable session key (`prompt_cache_key`), enable server-side session affinity: traffic from the same conversation stays on one cache shard instead of being load-balanced across different cache servers. This allows later requests to reuse prior prompt prefixes within a session. **Measured improvement: ~68% → ~89% hit rate on gpt-5.4-mini.** This improvement is still valid — see [Superseded claims](#superseded-claims-that-did-not-reproduce-2026-08-25) below for distinction from later claims that did not reproduce.
 
 The `prompt_cache_key` field alone (without the affinity headers) was not sufficient to achieve the improvement; the headers are required for the Codex backend to route correctly. The headers are set in `buildResponsesHTTPRequest` (`internal/provider/codex_responses.go`), keyed from the same stable per-conversation ID carried on `ChatRequest.PromptCacheKey`.
 
@@ -25,13 +25,13 @@ The failure is intermittent and per-replica, not per-request-shape: a fresh atte
 
 The `codex.min_request_interval` field allows optional rate limiting between consecutive Codex requests and defaults to `0` (disabled). When set to a positive duration (e.g. `4s`), it enforces a minimum gap between requests and serialises them — on a 60-turn run, a 4s interval adds roughly 4 minutes of wall-clock time. It only affects bursts; it is a no-op for interactive use where think-time between turns already far exceeds any sensible interval.
 
-Earlier documentation claimed that pacing reduced cold-shard overflow, improving hit rate from ~0.78 → ~0.89. This was disproven on 2026-08-25 (see [Superseded claims](#superseded-claims-that-did-not-reproduce) below). Set this field based on your own preferences, not on cache-hit assumptions.
+Earlier documentation claimed that pacing reduced cold-shard overflow, improving hit rate from ~0.78 → ~0.89. This was disproven on 2026-08-25 (see [Superseded claims](#superseded-claims-that-did-not-reproduce-2026-08-25) below). Set this field based on your own preferences, not on cache-hit assumptions.
 
 ### Transport selection
 
 Codex supports two transports: HTTP (default, `codex.transport: http`) and WebSocket (`codex.transport: websocket`). HTTP is now the default.
 
-The WebSocket transport was originally designed to provide cache-shard stickiness by pinning a connection for its lifetime, but measured testing on 2026-08-25 disproved this benefit (see [Superseded claims](#superseded-claims-that-did-not-reproduce) below). WebSocket remains available as an explicit opt-in for users who prefer it for other reasons, but it has no measurable cache advantage over HTTP with affinity headers. It has no HTTP fallback: because the transport is chosen explicitly, a WebSocket failure surfaces as an error rather than silently degrading to a transport the user did not ask for. Whether to remove it entirely is tracked for v3.0.0 in [issue #567](https://github.com/luispabon/steiner/issues/567), which carries the full measurements.
+The WebSocket transport was originally designed to provide cache-shard stickiness by pinning a connection for its lifetime, but measured testing on 2026-08-25 disproved this benefit (see [Superseded claims](#superseded-claims-that-did-not-reproduce-2026-08-25) below). WebSocket remains available as an explicit opt-in for users who prefer it for other reasons, but it has no measurable cache advantage over HTTP with affinity headers. It has no HTTP fallback: because the transport is chosen explicitly, a WebSocket failure surfaces as an error rather than silently degrading to a transport the user did not ask for. Whether to remove it entirely is tracked for v3.0.0 in [issue #567](https://github.com/luispabon/steiner/issues/567), which carries the full measurements.
 
 `/cache-stats` remains the tool to verify actual hit rate per session regardless of which transport is in effect.
 

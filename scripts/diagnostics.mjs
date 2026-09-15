@@ -526,7 +526,7 @@ const DELEGATION_TOOLS = new Set(["sub_agent", "follow_up", "advisor"]);
 const JOIN_SLACK_MS = 2000;
 
 // LONG_DELEGATION_MS is the duration above which a delegated call is expected
-// to outlive Codex's measured ~5 minute idle cache TTL (docs/cache-stats.md).
+// to outlive Codex's measured ~5 minute idle cache TTL (docs/user/cache-stats.md).
 // Four minutes, not five: the ladder that found the TTL survived a 4 minute
 // gap and was gone by 5, so 4 is the last duration known to be safe.
 const LONG_DELEGATION_MS = 240_000;

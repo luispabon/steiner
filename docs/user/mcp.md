@@ -87,7 +87,7 @@ Sub-agent exposure: `sub_agents` lists the agent types that may call this server
 
 MCP tool output is bounded by `limits.tool_output_max_bytes` (default `65536`, `internal/config/defaults.go:68`): flattened text is truncated with a `<truncated output shown=… total=…>` marker reporting the pre-truncation total (`internal/mcp/tooldef.go:189-196`). Only text content is rendered; other content types are named but not decoded (`internal/mcp/tooldef.go:173-183`).
 
-Each call is bounded by `limits.tool_timeout_default` (default `30s`), with per-tool overrides in `limits.tool_timeouts` keyed by the tool's full registered name — `mcp__<server>__<tool>`, or the hashed form (`internal/mcp/tooldef.go:157-166`). The global MCP tool timeouts and output limits live in the [limits block](configuration.md#limits-block) of docs/configuration.md, shared with the built-in tools. A timed-out call is a context error, not a transport error, so it never triggers reconnect (`internal/mcp/client.go:465-470`).
+Each call is bounded by `limits.tool_timeout_default` (default `30s`), with per-tool overrides in `limits.tool_timeouts` keyed by the tool's full registered name — `mcp__<server>__<tool>`, or the hashed form (`internal/mcp/tooldef.go:157-166`). The global MCP tool timeouts and output limits live in the [limits block](configuration.md#limits-block) of the configuration reference, shared with the built-in tools. A timed-out call is a context error, not a transport error, so it never triggers reconnect (`internal/mcp/client.go:465-470`).
 
 ## TUI surfaces
 

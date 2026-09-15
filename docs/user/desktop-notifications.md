@@ -35,7 +35,7 @@ desktop_notifications:
   duration: 5
 ```
 
-For the complete configuration reference, see [docs/configuration.md](configuration.md).
+For the complete configuration reference, see [Configuration](configuration.md).
 
 ## Platform support matrix
 
@@ -65,4 +65,4 @@ When `desktop_notifications.enabled` is `true` but the notification system is un
 
 This ensures that enabled-but-undeliverable notifications never stall the agent or disrupt the user experience.
 
-For driver interface and platform extension points, see [Desktop Notifications Internals](desktop-notifications-internals.md).
+For driver interface and platform extension points, see [Desktop Notifications Internals](../internals/desktop-notifications.md).

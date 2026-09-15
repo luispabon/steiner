@@ -2,7 +2,7 @@
 
 Steiner can connect to language servers to answer navigation and diagnostics
 queries. Servers are configured under `lsp.servers` and are off by default
-(`lsp.enabled: false`). See docs/configuration.md for the field reference.
+(`lsp.enabled: false`). See [Configuration](configuration.md) for the field reference.
 
 ## The seven tools
 

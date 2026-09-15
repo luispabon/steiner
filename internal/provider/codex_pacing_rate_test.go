@@ -15,7 +15,7 @@ import (
 // documentation claims, which an earlier test (TestCodexPacingCacheEffect)
 // failed to load.
 //
-// docs/cache-stats.md states: "OpenAI still load-balances a key away from its
+// docs/user/cache-stats.md states: "OpenAI still load-balances a key away from its
 // warm shard when a single key bursts past roughly 15 requests/minute […]
 // steiner naturally sends turns only ~1.5s apart, which is enough to trip that
 // overflow and scatter later turns onto cold shards."
@@ -222,7 +222,7 @@ func TestCodexPacingRateSweep(t *testing.T) {
 
 // parsePacingGaps parses a comma-separated list of inter-request gaps in
 // seconds. The default sweep is 1.5s (~40 req/min, what steiner actually
-// produces in exec mode per docs/cache-stats.md) and 4s (~15 req/min, the
+// produces in exec mode per docs/user/cache-stats.md) and 4s (~15 req/min, the
 // current default, sitting exactly on the claimed threshold).
 func parsePacingGaps(t *testing.T, raw string) []time.Duration {
 	t.Helper()

@@ -388,4 +388,4 @@ The following features are deferred to V2:
 
 For configuration details, see [Configuration](configuration.md).
 
-For context management and approval policy, see [docs/sub-agent-delegation.md](sub-agent-delegation.md).
+For context management and approval policy, see [Sub-agent delegation](sub-agent-delegation.md).

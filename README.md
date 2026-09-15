@@ -1,5 +1,7 @@
 # steiner
 
+![Steiner screenshot](docs/screenshot.png)
+
 A minimal, local-first Go coding agent with bounded context and sandboxed execution.
 
 ## Quick start
