@@ -84,4 +84,4 @@ If a phase fails:
 
 If a resume attempt fails (e.g., the worktree path is corrupted), the user receives a clear error message with the run ID and branch name, allowing manual recovery via `git checkout <branch>` and cleanup of the worktree.
 
-For architecture, manifest schema, and phase contracts, see [Oneshot Internals](oneshot-internals.md).
+For architecture, manifest schema, and phase contracts, see [Oneshot Internals](../internals/oneshot.md).

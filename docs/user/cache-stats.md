@@ -279,7 +279,7 @@ Each line is self-contained and appended atomically. The telemetry file is never
 
 ### Structured diagnostics cache stream
 
-Separately from `STEINER_USAGE_TELEMETRY` (which keeps working exactly as described above, unaffected by this feature), enabling `diagnostics.enabled: true` and `diagnostics.streams.cache: true` (see `docs/configuration.md`) writes one JSONL record per usage-bearing model response to `<diagnostics.dir>/cache.jsonl` — covering the top-level run and every delegated sub-agent, not just the parent. This is the richer, `build_sha`-carrying counterpart to the telemetry file above, intended for before/after comparisons across builds rather than live headless monitoring.
+Separately from `STEINER_USAGE_TELEMETRY` (which keeps working exactly as described above, unaffected by this feature), enabling `diagnostics.enabled: true` and `diagnostics.streams.cache: true` (see the configuration reference) writes one JSONL record per usage-bearing model response to `<diagnostics.dir>/cache.jsonl` — covering the top-level run and every delegated sub-agent, not just the parent. This is the richer, `build_sha`-carrying counterpart to the telemetry file above, intended for before/after comparisons across builds rather than live headless monitoring.
 
 Each record's envelope carries `source`, `agent_type`, `agent_id` (empty for the parent run), `turn` and `build_sha`; the `kind: "cache"` payload adds:
 
@@ -290,7 +290,7 @@ Each record's envelope carries `source`, `agent_type`, `agent_id` (empty for the
 - `prefix_hash` — an 8 hex char hash folded cumulatively over the sent request's messages (role, content, tool call names — never tool arguments or images). A rewrite anywhere in the prefix changes this value from that point on; a pure append only changes it because the sequence grew.
 - `shared_prefix_messages` — how many leading messages of this request are identical (by per-message hash) to the last request actually sent for this same conversation. Combined with `prefix_hash`, this is what tells "pure append" (`shared_prefix_messages` covers the entire previous request) apart from "prefix rewrite" (it stops short) — the ratio alone cannot.
 
-No message content, tool arguments, or the prompt cache key itself ever appear in this stream; see `docs/configuration.md`'s `diagnostics.capture_bodies` for the separate, explicit opt-in that allows fuller capture on other streams.
+No message content, tool arguments, or the prompt cache key itself ever appear in this stream; see the configuration reference's `diagnostics.capture_bodies` for the separate, explicit opt-in that allows fuller capture on other streams.
 
 **Compaction/escalation caveat**: as with the per-run cache-rate figures in sub-agent and advisor tool boxes above, compaction and context-escalation model calls do not emit a `cache.jsonl` record — they still feed the aggregate `/cache-stats` store, but not this stream. An aggregate built from `cache.jsonl` will therefore undercount total requests relative to `/cache-stats` on a run with heavy compaction.
 

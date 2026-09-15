@@ -8,7 +8,7 @@ The Model Context Protocol is an open standard for connecting AI clients to exte
 
 ## Configuration
 
-MCP is configured under the `mcp` block; the full field reference lives in the [mcp config block](configuration.md#mcp-block) in docs/configuration.md. The global switch `mcp.enabled` defaults to `true` (flipped in D22; `internal/config/defaults.go:104-106`), so the client is on unless you disable it. Each server, however, defaults to `enabled: false` (`internal/config/config.go:114-127`) — a server only connects when you explicitly enable it.
+MCP is configured under the `mcp` block; the full field reference lives in the [mcp config block](configuration.md#mcp-block) in the configuration reference. The global switch `mcp.enabled` defaults to `true` (flipped in D22; `internal/config/defaults.go:104-106`), so the client is on unless you disable it. Each server, however, defaults to `enabled: false` (`internal/config/config.go:114-127`) — a server only connects when you explicitly enable it.
 
 Two worked examples — one stdio server launched with `npx`, one remote HTTP server:
 

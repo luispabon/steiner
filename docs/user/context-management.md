@@ -38,4 +38,4 @@ The session date does not count against context budgets and is always delivered 
 
 Nothing is required — context management is fully automatic. Persist important state to disk or git when it needs to survive the current session.
 
-For the full assembly pipeline, budget tables, and escalation policy, see [Context Management Internals](context-management-internals.md).
+For the full assembly pipeline, budget tables, and escalation policy, see [Context Management Internals](../internals/context-management.md).
