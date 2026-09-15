@@ -29,6 +29,7 @@ Put this in `.steiner/config.yaml`:
 providers:
   ollama:
     type: ollama
+    base_url: http://localhost:11434/v1
 
 models:
   definitions:
@@ -40,7 +41,7 @@ models:
       default_model: local
 ```
 
-The `ollama` provider uses its default local endpoint. If your Ollama server uses another endpoint, set `base_url` under `providers.ollama`.
+If your Ollama server uses another endpoint, replace `base_url` under `providers.ollama`.
 
 ### LM Studio
 
@@ -78,6 +79,7 @@ export ANTHROPIC_API_KEY='your-key'
 providers:
   anthropic:
     type: anthropic
+    base_url: https://api.anthropic.com/v1
     api_key_env: ANTHROPIC_API_KEY
 
 models:
@@ -144,8 +146,10 @@ A provider name and model alias are separate. That lets one profile use local in
 providers:
   ollama:
     type: ollama
+    base_url: http://localhost:11434/v1
   anthropic:
     type: anthropic
+    base_url: https://api.anthropic.com/v1
     api_key_env: ANTHROPIC_API_KEY
 
 models:
@@ -163,6 +167,8 @@ models:
         code: sonnet
     local-only:
       default_model: local
+      sub_agents:
+        code: ""
 ```
 
 With `ANTHROPIC_API_KEY` exported, the default profile uses Ollama for the main model and Anthropic for `code` sub-agents. Select the alternate profile for a local-only run:
