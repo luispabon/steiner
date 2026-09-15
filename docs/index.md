@@ -34,4 +34,4 @@ Steiner is a local-first Go coding agent with bounded context and sandboxed exec
 - [Gap report and research milestones](research/gap-report-research-milestones.md)
 - [Image handling research](research/image-handling.md)
 
-The [GitHub Wiki](wiki/_Sidebar.md) publishes the user and internals pages for browsing outside the repository.
+The GitHub Wiki publishes the user and internals pages for browsing outside the repository.

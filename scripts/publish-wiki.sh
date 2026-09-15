@@ -38,6 +38,9 @@ def rewrite(text, source):
         if re.match(r"(?:[A-Za-z][A-Za-z0-9+.-]*:|//|/)", target):
             return match.group(0)
         path, sep, anchor = target.partition("#")
+        if path == "AGENTS.md" and source != root / "README.md":
+            replacement = "https://github.com/" + os.environ["GITHUB_REPOSITORY"] + "/blob/main/AGENTS.md"
+            return match.group("prefix") + replacement + ("#" + anchor if sep else "") + match.group("close")
         if not path:
             return match.group(0)
         resolved = (source.parent / path).resolve()
