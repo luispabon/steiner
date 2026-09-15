@@ -36,7 +36,7 @@ Diagnostics are independent of `logging`. When disabled, no writer or directory 
 
 `scripts/diagnostics.mjs` aggregates the `cache`, `provider`, and `tool` streams for hit rates, retry rates, latency percentiles, and failure reasons without printing individual records. `--compare <shaA> <shaB>` compares builds because each record carries `build_sha`. `prefix <logfile>` reads a session log and reports whether each turn grew append-only or rewrote the prefix (`BREAK-AT-N`). The script header contains its usage and mode reference; `make test-scripts` runs its smoke tests.
 
-`coldturns` joins the `cache` and `tool` streams by time to identify turns that read nothing from cache, such as long delegated calls, prefix rewrites, or idle time. It requires both streams. See [cache stats](../user/cache-stats.md#attributing-cold-turns-coldturns-mode) for how to interpret the report.
+`coldturns` joins the `cache` and `tool` streams by time to identify turns that read nothing from cache, such as long delegated calls, prefix rewrites, or idle time. It requires both streams. See [cache statistics internals](cache-stats.md#diagnostics-and-analysis-machinery) for how to interpret the report.
 
 ## MCP test boundary
 

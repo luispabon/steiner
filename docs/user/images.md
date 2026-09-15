@@ -12,7 +12,7 @@ In the interactive TUI, use **Ctrl+V** to paste an image. Steiner reads the imag
 
 You can paste multiple images before submitting — they accumulate and are all sent with your message. Use `/clear` in the TUI to dismiss pending images without sending them.
 
-**Supported formats:** PNG, JPG, JPEG, GIF, WebP  
+**Supported formats:** PNG, JPG, JPEG, GIF, WebP
 **Max size:** 5MB per image
 
 ### What Happens After the Model Responds

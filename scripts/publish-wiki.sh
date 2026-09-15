@@ -43,6 +43,8 @@ def rewrite(text, source):
             return match.group("prefix") + replacement + ("#" + anchor if sep else "") + match.group("close")
         if not path:
             return match.group(0)
+        if path == "docs/screenshot.png":
+            return match.group("prefix") + "screenshot.png" + ("#" + anchor if sep else "") + match.group("close")
         resolved = (source.parent / path).resolve()
         try:
             key = resolved.relative_to(root).as_posix()
@@ -60,6 +62,7 @@ for source, name in pages.items():
     (out / (name + ".md")).write_text(rewrite(source.read_text(), source))
 PY
 
+cp docs/screenshot.png "$wiki_dir/screenshot.png"
 cp docs/wiki/_Sidebar.md "$wiki_dir/_Sidebar.md"
 if [ -f docs/wiki/_Footer.md ]; then cp docs/wiki/_Footer.md "$wiki_dir/_Footer.md"; fi
 

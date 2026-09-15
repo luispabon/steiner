@@ -1,6 +1,6 @@
 # Oneshot Mode — Internals
 
-User-facing documentation: [Oneshot Mode](oneshot.md).
+User-facing documentation: [Oneshot Mode](../user/oneshot.md).
 
 ## Model selection
 
