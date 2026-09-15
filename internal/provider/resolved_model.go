@@ -117,13 +117,14 @@ func ResolveReasoningBatch(cfg config.Config, httpClient *http.Client) (
 func loadAndApplyModelsDevMetadataFromData(rm *ResolvedModel, modelCfg config.ModelConfig, data []byte) metadata.ModelInfo {
 	var info metadata.ModelInfo
 	if data != nil {
-		lookup := metadata.LookupWithProviderResult(data, rm.ProviderAlias, rm.BackendModelID)
+		providerID := modelsDevProviderID(rm.ProviderConfig.Type, rm.ProviderAlias)
+		lookup := metadata.LookupWithProviderResult(data, providerID, rm.BackendModelID)
 		info = lookup.Info
 		if lookup.Reason == metadata.LookupReasonMalformed || lookup.Reason == metadata.LookupReasonProviderMismatch || lookup.Reason == metadata.LookupReasonConflict {
 			rm.metadataLookupReason = lookup.Reason
 			rm.Warnings = append(rm.Warnings, fmt.Sprintf(
 				"Model metadata warning: models.dev lookup for %s/%s degraded: %s.",
-				rm.ProviderAlias, rm.BackendModelID, lookup.Reason,
+				providerID, rm.BackendModelID, lookup.Reason,
 			))
 		}
 	}

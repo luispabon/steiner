@@ -769,7 +769,7 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"router":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"openrouter":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -826,7 +826,7 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"router":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"openrouter":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -1213,7 +1213,7 @@ func TestResolveWithDiscoveryOpencodeProvidersUseGenericFallbackTransport(t *tes
 				}
 			}
 		},
-		"opencode-zen":{
+		"opencode":{
 			"npm":"@ai-sdk/openai-compatible",
 			"api":"https://opencode.ai/zen/v1/",
 			"models":{
