@@ -50,7 +50,7 @@ Codex authenticates through your OpenAI account, so log in first:
 steiner login codex
 ```
 
-OpenCode Go is a gateway from [OpenCode](https://opencode.ai/docs), a separate coding agent; you obtain that key from OpenCode, not Steiner. Both providers fit in one config, and API keys stay out of the file:
+OpenCode Go is a gateway from [OpenCode](https://opencode.ai). You generate the key in your OpenCode account, not in Steiner, and no OpenCode tooling is required. Both providers fit in one config, and API keys stay out of the file:
 
 ```bash
 export OPENCODE_API_KEY='your-opencode-key'

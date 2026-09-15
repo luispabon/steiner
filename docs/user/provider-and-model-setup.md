@@ -152,13 +152,12 @@ models:
 
 ## OpenCode
 
-[OpenCode](https://opencode.ai/docs) is a separate coding agent. Steiner does not
-authenticate with OpenCode; it connects to OpenCode's Go and Zen gateways using a
-key you obtain from OpenCode:
+Steiner connects to OpenCode's Go and Zen gateways using an API key from your
+OpenCode account. You do not need OpenCode's own tooling; generate the key on the
+OpenCode website:
 
-1. Install and start OpenCode, then run `/connect` inside OpenCode's own TUI (not
-   Steiner) and sign in at https://opencode.ai/auth.
-2. Copy the API key OpenCode shows you.
+1. Sign in to your account at https://opencode.ai.
+2. Generate an API key for Go (or Zen).
 3. Export it in your shell and reference that variable from Steiner:
 
 ```bash
