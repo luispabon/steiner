@@ -8,7 +8,7 @@ in the `Config` struct, their types, defaults, and valid values.
 Configuration is loaded and merged in the following precedence order (later
 entries win):
 
-1. Compiled defaults (`internal/config/defaults.go`)
+1. Compiled defaults
 2. `~/.config/steiner/config.yaml` — user-level config
 3. `.steiner/config.yaml` — project-level config (checked in or gitignored)
 4. Environment variables with the `STEINER_` prefix
@@ -97,7 +97,7 @@ or mutating the tool mid-conversation.
 | `max_tokens`             | *int      | `nil`   | Optional output-token ceiling for advisor calls. When set, the value is forwarded to the provider request.                                                                                                                                                                                                                                                   |
 | `timeout`                | *Duration | `180s`  | Optional HTTP timeout override applied only to advisor calls. When set, it overrides `providers.<name>.timeout` for the advisor model only; the main chat model and other models using the same provider are unaffected. Useful because advisor calls send a large parent-conversation prompt and frequently hit the provider's default header-read timeout. |
 
-The model alias used for advisor calls is configured in the selected profile's `advisor` field (see the [`models` block](#models-block)), not under `advisor` itself.
+The model alias used for advisor calls is configured in the selected profile's `advisor` field (see the [`models` block](#models-block)), not under `advisor` itself. See [Configuration internals](../internals/configuration.md) for handler and prompt-cache mechanics.
 
 ```yaml
 advisor:
@@ -381,6 +381,8 @@ prompt-cache identity. `/profile` requires a name; it does not open a picker.
 An unknown or invalid profile reports an error and leaves the current selection
 unchanged.
 
+Implementation details about role resolution, cache identity, and provider transport selection are in [Configuration internals](../internals/configuration.md).
+
 An exact configured alias takes precedence over provider-prefix parsing. Otherwise,
 steiner uses the longest matching configured provider prefix, so provider and model
 IDs may contain additional slashes.
@@ -445,13 +447,7 @@ models:
 
 #### Automatic transport resolution
 
-When `transport` is set to `auto` (the default), Steiner resolves the request transport per model using this precedence:
-
-1. **Explicit config override** — If `models.<alias>.advanced.transport` is set to `openai_compat` or `anthropic`, that value wins unconditionally.
-2. **models.dev metadata** — If the models.dev cache lists a provider NPM (e.g. `@ai-sdk/anthropic`) for the model, Steiner switches the effective provider type to match the metadata transport.
-3. **Configured provider type** — If neither override nor metadata is available, the transport from the model's configured `provider` entry is used.
-
-This means a single `openai_compat` provider can serve both OpenAI-compatible and Anthropic-native models as long as the metadata is available. Use `steiner model inspect <alias>` to see the resolved `effective_provider_type`, `effective_transport`, and `transport_override_reason` for any model.
+When `transport` is `auto` (the default), request formatting uses the configured provider unless a supported model transport is available. An explicit `openai_compat` or `anthropic` override takes precedence. See [Configuration internals](../internals/configuration.md) for models.dev metadata and provider-selection mechanics.
 
 ### `ReasoningConfig` fields
 
@@ -791,7 +787,7 @@ mcp:
 
 When using `http` transport with an `Authorization` header, use the strict env expansion syntax (e.g. `${VAR}`) to inject environment variables. See the [environment variable expansion](#environment-variable-expansion-in-config-values) section for details.
 
-MCP behaviour is covered by hermetic, CI-safe integration tests under `internal/mcp/` for both transports (stdio and HTTP) through the manager path; live validation against third-party MCP servers remains manual work tracked in #438. See [MCP](mcp.md).
+See [MCP](mcp.md) for user-facing behavior and approval rules.
 
 ---
 
@@ -914,7 +910,7 @@ Controls diagnostic log output.
 | Field                 | Type   | Default                                | Description                                                                                                      |
 | --------------------- | ------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `enabled`             | bool   | `false`                                | Whether file logging is active.                                                                                  |
-| `level`               | string | `"info"`                               | Minimum log level. One of `debug`, `info`, `warn`, `error`. Takes effect: steiner installs a process-wide `slog` handler at this level, writing to a sibling `*.slog` file next to the session log (or discarding output entirely when no session log is configured). `slog` output never goes to stderr while the interactive TUI is live. |
+| `level`               | string | `"info"`                               | Minimum log level. One of `debug`, `info`, `warn`, `error`. |
 | `file`                | string | `"~/.local/share/steiner/steiner.log"` | Path to the log file. Tilde expansion is supported. Treat as sensitive — it may capture prompts and tool output. The session log is JSONL (one JSON object per line), appended across runs, capped in size and rotated (`<file>.1`, `<file>.2`, ...). Its first line each run is a `log_started` record carrying `run_id`, `build_sha`, `dirty` and the steiner version. |
 | `thinking_chunk`      | bool   | `false`                                | When `true`, reasoning/thinking tokens from the model are included in the log.                                   |
 | `assistant_chunk`     | bool   | `false`                                | When `true`, streamed assistant content chunks are included in the log. Off by default because each chunk duplicates content already captured in the completed `assistant_message` record. |
@@ -939,10 +935,10 @@ independently of `logging` — the diagnostics directory is never derived from
 `logging.file`, so a week-long measurement never also captures prompts.
 
 Records are written as JSONL, one file per stream (`cache.jsonl`,
-`provider.jsonl`, `tool.jsonl`), `0o600` in a `0o700` directory, appended
-across runs, size-capped and rotated (`<file>.1`, `<file>.2`, ...). Every
-record carries `run_id`, `build_sha` and `dirty`, so a before/after comparison
-can be scoped to a build rather than to a time window.
+`provider.jsonl`, `tool.jsonl`). Every record carries `run_id`, `build_sha`,
+and `dirty`, so a before/after comparison can be scoped to a build rather than
+to a time window. See [Configuration internals](../internals/configuration.md)
+for file permissions, rotation, retention, and writer details.
 
 | Field             | Type   | Default                                    | Description                                                                                                                                    |
 | ----------------- | ------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -968,20 +964,8 @@ diagnostics:
 
 ### Analyzing diagnostics
 
-`scripts/diagnostics.mjs` aggregates the `cache`/`provider`/`tool` streams (hit
-rates, retry rates, latency percentiles, failure reasons) and never prints
-individual records. `--compare <shaA> <shaB>` is the before/after operation:
-every record carries `build_sha`, so a change can be benchmarked without a
-time-window guess. A `prefix <logfile>` mode reads a session log instead, to
-show whether each turn's prompt was an append-only cache-friendly growth or a
-rewrite (`BREAK-AT-N`). Usage and mode reference is in the script's header
-comment; `make test-scripts` runs its smoke tests.
-
-A `coldturns` mode joins the `cache` and `tool` streams on time to ask what
-causes turns that read nothing from cache — long delegated calls, prefix
-rewrites, or plain idle. It requires both `streams.cache` and `streams.tool`.
-See [cache-stats.md](cache-stats.md#attributing-cold-turns-coldturns-mode) for
-what it reports and how to read it.
+See [Configuration internals](../internals/configuration.md#analyzing-diagnostics)
+for analysis modes and script checks.
 
 ---
 

@@ -32,7 +32,7 @@ Auto-compaction is never steered; it always uses an empty steering value.
 
 Steiner captures the local calendar date when a session or standalone run begins — for example, `Current date: 2026-09-13 (BST, UTC+01:00), recorded when this session started.` — and includes it in every request. The date is captured only once per session identity (new session, resume, or fork uses a fresh capture), and per standalone exec or oneshot run; within a session it remains fixed even as wall-clock time advances.
 
-The session date does not count against context budgets and is always delivered in full. Because it sits after all static cached sources (preamble, tools, project context, skills) and before the conversation, a date change only invalidates the date line and conversation replay — the system preamble and static prefix remain cached.
+The session date does not count against context budgets and is always delivered in full. See [Context Management Internals](../internals/context-management.md#session-date-assembly) for prompt-cache placement mechanics.
 
 ## What you can do
 
