@@ -47,8 +47,7 @@ type factSource interface {
 type sourceResult struct {
 	facts ModelFacts
 	// notes carries provenance/degradation notes keyed by field, for fields
-	// the source was asked about. Unused until stage B2 wires models.dev
-	// degradation warnings.
+	// the source was asked about but could not answer.
 	notes     map[factField]string
 	sourceErr string
 }

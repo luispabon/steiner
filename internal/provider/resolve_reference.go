@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/metadata"
 )
 
 // resolveReference resolves a configured model alias or a raw provider/model-id
@@ -26,7 +27,7 @@ func resolveReference(cfg *config.Config, reference string, useDiscovery bool, h
 
 	limits := resolveEffectiveLimits(modelCfg.Advanced.Limits)
 	tokenizerStrategy, tokenizerConfidence := resolveTokenizerMetadata(modelCfg.ID)
-	reasoningCaps, reasoningEffectiveEffort := resolveReasoningCapabilities(modelCfg.Advanced.Reasoning, provCfg.Type, modelCfg.ID)
+	reasoningCaps, reasoningEffectiveEffort := resolveReasoningCapabilities(modelCfg.Advanced.Reasoning)
 
 	rm := ResolvedModel{
 		Alias:                     reference,
@@ -54,26 +55,34 @@ func resolveReference(cfg *config.Config, reference string, useDiscovery bool, h
 		rm.ReasoningEchoBack = *modelCfg.Advanced.ReasoningEchoBack
 	}
 
+	ref := modelRef{
+		Alias:          reference,
+		IsAlias:        isAlias,
+		ProviderAlias:  modelCfg.Provider,
+		Provider:       provCfg,
+		Profile:        profileFor(provCfg.Type),
+		BackendModelID: modelCfg.ID,
+		ModelConfig:    modelCfg,
+	}
+
 	if !useDiscovery {
-		ref := modelRef{
-			Alias:          reference,
-			IsAlias:        isAlias,
-			ProviderAlias:  modelCfg.Provider,
-			Provider:       provCfg,
-			Profile:        profileFor(provCfg.Type),
-			BackendModelID: modelCfg.ID,
-			ModelConfig:    modelCfg,
-		}
-		facts, _ := resolveFacts(context.Background(), ref, []factSource{configSource{}, providerFixedSource{}, builtinSource{}})
-		applyFacts(&rm, facts)
+		facts, _, _ := resolveFacts(context.Background(), ref, []factSource{configSource{}, providerFixedSource{}, builtinSource{}})
+		applyFacts(&rm, facts, false)
 		return rm, nil
 	}
 
-	adv := modelCfg.Advanced.Limits
-	modelsDevInfo := loadAndApplyModelsDevMetadata(&rm, modelCfg, httpClient)
-	if limitsFullyConfigured(adv) {
-		return rm, nil
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
+	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
+	loadResult := cache.LoadBestEffortWithStatus(cacheCtx)
+	cacheCancel()
+
+	sources := []factSource{
+		configSource{}, providerFixedSource{}, probeSource{httpClient: httpClient},
+		modelsDevSource{data: loadResult.Data, loadReason: loadResult.Status.Reason},
+		builtinSource{},
 	}
-	resolveLimitsFromDiscovery(&rm, adv, modelsDevInfo, httpClient, isAlias, reference)
+	facts, notes, sourceErrs := resolveFacts(context.Background(), ref, sources)
+	applyFacts(&rm, facts, true)
+	rm.Warnings = append(rm.Warnings, deriveWarnings(ref, facts, notes, sourceErrs)...)
 	return rm, nil
 }

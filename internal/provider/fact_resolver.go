@@ -5,19 +5,19 @@ import "context"
 // factPrecedence lists, for each field, the sources allowed to answer it, in
 // winning order (first source to answer wins).
 //
-// TODO(stage B2): fieldTransport gains the full config-override ->
-// provider-fixed -> models.dev npm -> configured provider type precedence
-// once models.dev is wired as a fact source. For now, both configSource's
-// explicit transport override and providerFixedSource's Codex override
-// report FactSourceConfig (see providerFixedSource.name doc), so a single
-// entry covers both.
+// fieldTransport's explicit sources are configSource's override and
+// providerFixedSource's Codex override (both report FactSourceConfig, see
+// providerFixedSource.name doc) followed by modelsDevSource's npm-based
+// override. A separate, unconditional default step in resolveFacts (not
+// listed here) falls back to the configured provider type when neither
+// explicit source answers.
 var factPrecedence = map[factField][]FactSource{
 	fieldContextWindow: {FactSourceConfig, FactSourceCatalog, FactSourceDiscovery, FactSourceModelsDev, FactSourceFallback},
 	fieldMaxOutput:     {FactSourceConfig, FactSourceCatalog, FactSourceDiscovery, FactSourceModelsDev, FactSourceFallback},
 	fieldVision:        {FactSourceConfig, FactSourceModelsDev},
 	fieldEfforts:       {FactSourceConfig, FactSourceCatalog, FactSourceModelsDev, FactSourceFallback},
 	fieldEchoBack:      {FactSourceConfig, FactSourceModelsDev},
-	fieldTransport:     {FactSourceConfig},
+	fieldTransport:     {FactSourceConfig, FactSourceModelsDev},
 }
 
 // allFields is the full set of resolvable fields.
@@ -92,10 +92,10 @@ func fieldsThisSourceMayAnswer(source FactSource) fieldSet {
 
 // resolveFacts resolves ModelFacts for ref by consulting sources in order,
 // then applying hardcoded conservative defaults for any fields still
-// unresolved. It returns the resolved facts, a deduped list of source-level
-// errors, and any degradation notes reported by sources for fields they
-// could not answer (unused until stage B2 wires models.dev warnings).
-func resolveFacts(ctx context.Context, ref modelRef, sources []factSource) (ModelFacts, []string) {
+// unresolved. It returns the resolved facts, any degradation notes reported
+// by sources for fields they could not answer, and a deduped list of
+// source-level errors.
+func resolveFacts(ctx context.Context, ref modelRef, sources []factSource) (ModelFacts, map[factField][]string, []string) {
 	var facts ModelFacts
 	pending := allFields
 	var sourceErrs []string
@@ -113,9 +113,9 @@ func resolveFacts(ctx context.Context, ref modelRef, sources []factSource) (Mode
 		mergeFactResult(&facts, &pending, want, res, notes)
 	}
 
-	applyFactDefaults(&facts, pending)
+	applyFactDefaults(&facts, pending, ref)
 
-	return facts, sourceErrs
+	return facts, notes, sourceErrs
 }
 
 func recordSourceErr(sourceErrs *[]string, seen map[string]bool, sourceErr string) {
@@ -142,7 +142,7 @@ func mergeFactResult(facts *ModelFacts, pending *fieldSet, want fieldSet, res so
 	}
 }
 
-func applyFactDefaults(facts *ModelFacts, pending fieldSet) {
+func applyFactDefaults(facts *ModelFacts, pending fieldSet, ref modelRef) {
 	contextWasPending := pending&fieldSet(fieldContextWindow) != 0
 	if contextWasPending {
 		facts.ContextWindow = Fact[int]{
@@ -158,5 +158,13 @@ func applyFactDefaults(facts *ModelFacts, pending fieldSet) {
 	}
 	if pending&fieldSet(fieldEfforts) != 0 {
 		facts.ReasoningEfforts = Fact[[]string]{Source: FactSourceUnknown, Confidence: "unknown"}
+	}
+	if pending&fieldSet(fieldTransport) != 0 {
+		facts.Transport = Fact[transportChoice]{
+			Value:      transportChoice{ProviderType: ref.Provider.Type, Transport: TransportConfigured, Reason: "none"},
+			Known:      true,
+			Source:     FactSourceFallback,
+			Confidence: "high",
+		}
 	}
 }

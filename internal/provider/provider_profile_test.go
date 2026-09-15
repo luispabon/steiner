@@ -1,9 +1,11 @@
 package provider
 
 import (
+	"os"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/metadata"
 )
 
 func TestProviderProfilesExhaustive(t *testing.T) {
@@ -205,25 +207,46 @@ func TestProfileForUnknownType(t *testing.T) {
 }
 
 func TestLoadAndApplyMetadataMapsCodexAliasToOpenAI(t *testing.T) {
-	data := []byte(`{
+	cacheJSON := `{
 		"302ai":{"models":{"gpt-5.6-luna":{"limit":{"context":1050000,"output":128000}}}},
 		"abacus":{"models":{"gpt-5.6-luna":{"limit":{"context":1000000,"output":128000}}}},
 		"openai":{"models":{"gpt-5.6-luna":{"limit":{"context":1050000,"output":128000}}}}
-	}`)
+	}`
 	for _, alias := range []string{"codex", "luna", "openai"} {
 		t.Run(alias, func(t *testing.T) {
-			rm := ResolvedModel{
-				ProviderAlias:  alias,
-				ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeCodex},
-				BackendModelID: "gpt-5.6-luna",
+			cacheRoot := t.TempDir()
+			t.Setenv("XDG_CACHE_HOME", cacheRoot)
+			cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+			if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+				t.Fatalf("MkdirAll() error = %v", err)
 			}
-			info := loadAndApplyModelsDevMetadataFromData(&rm, config.ModelConfig{}, data)
-			if !info.Found || info.ContextWindow != 1050000 || info.MaxOutputTokens != 128000 {
-				t.Fatalf("info = %+v, want openai gpt-5.6-luna limits", info)
+			if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+				t.Fatalf("WriteFile(cache) error = %v", err)
 			}
-			resolveLimitsFromDiscovery(&rm, config.AdvancedLimitsConfig{}, info, nil, true, "luna")
+			if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+				t.Fatalf("WriteFile(meta) error = %v", err)
+			}
+
+			cfg := config.Config{
+				Providers: map[string]config.ProviderConfig{
+					alias: {Type: config.ProviderTypeCodex},
+				},
+				Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+					"luna": {Provider: alias, ID: "gpt-5.6-luna"},
+				}},
+			}
+
+			rm, err := ResolveWithDiscovery(cfg, "luna", nil)
+			if err != nil {
+				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+			}
+			// Regardless of the provider config alias, Codex's models.dev ID
+			// is always "openai", so the 302ai/abacus entries never apply.
 			if rm.EffectiveLimits.ContextWindow != 1050000 {
 				t.Fatalf("EffectiveLimits.ContextWindow = %d, want 1050000", rm.EffectiveLimits.ContextWindow)
+			}
+			if rm.EffectiveLimits.MaxOutputTokens != 128000 {
+				t.Fatalf("EffectiveLimits.MaxOutputTokens = %d, want 128000", rm.EffectiveLimits.MaxOutputTokens)
 			}
 			if len(rm.Warnings) != 0 {
 				t.Fatalf("Warnings = %v, want none", rm.Warnings)
