@@ -484,14 +484,14 @@ the limitations clearly.
 | `README.md` | Feature list, quickstart, tools table, configuration overview, optional features |
 | `AGENTS.md` | Architecture constraints, work loop, Go conventions, documentation maintenance rules |
 | `CLAUDE.md` | Duplicate of AGENTS.md (Claude-compatible project instructions) |
-| `docs/configuration.md` | Full config field reference, provider types, model definitions |
-| `docs/execution-modes.md` | Plan/build mode enforcement matrix |
-| `docs/sub-agent-delegation.md` | Sub-agent tool descriptions, allowlists, safety rules |
-| `docs/sub-agent-delegation-internals.md` | Conditional registration, child bootstrapping architecture |
-| `docs/tool-sandboxing.md` | Sandbox mount layout, env var allowlist, platform support |
-| `docs/context-management.md` | Delegation, budgets, compaction description |
-| `docs/oneshot.md` | Oneshot invocation, configuration, resume behaviour |
-| `docs/optional-features.md` | Web search, image paste, forking, Codex OAuth, cave_human |
+| `docs/user/configuration.md` | Full config field reference, provider types, model definitions |
+| `docs/user/execution-modes.md` | Plan/build mode enforcement matrix |
+| `docs/user/sub-agent-delegation.md` | Sub-agent tool descriptions, allowlists, safety rules |
+| `docs/internals/sub-agent-delegation.md` | Conditional registration, child bootstrapping architecture |
+| `docs/user/sandboxing.md` | Sandbox mount layout, env var allowlist, platform support |
+| `docs/user/context-management.md` | Delegation, budgets, compaction description |
+| `docs/user/oneshot.md` | Oneshot invocation, configuration, resume behaviour |
+| `docs/user/optional-features.md` | Web search, image paste, forking, Codex OAuth, cave_human |
 | `internal/tool/registry.go` | Tool registry structure, definition fields |
 | `internal/delegation/` | Sub-agent implementation, registration and handler deps |
 

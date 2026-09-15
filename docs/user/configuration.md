@@ -549,7 +549,7 @@ Opt-in permissions for additional capabilities.
 
 | Field    | Type | Default | Description                                                                                                                                                                                                                                                                         |
 | -------- | ---- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docker` | bool | `false` | Gates Docker socket access inside the sandbox. `false` (default) masks any reachable Docker socket and unsets `DOCKER_HOST`, denying sandboxed tools access to the host daemon. `true` leaves the socket reachable. See [tool-sandboxing.md](tool-sandboxing.md#docker-permission). |
+| `docker` | bool | `false` | Gates Docker socket access inside the sandbox. `false` (default) masks any reachable Docker socket and unsets `DOCKER_HOST`, denying sandboxed tools access to the host daemon. `true` leaves the socket reachable. See [sandboxing.md](sandboxing.md#docker-permission). |
 
 ```yaml
 permissions:
@@ -608,7 +608,7 @@ sanitisation or exceeded the length limit.
 
 Controls delegated child-agent execution. For details on what sub-agents can
 do and tool allowlists for each specialised agent type, see
-[docs/sub-agent-delegation.md](sub-agent-delegation.md).
+[Sub-agent Delegation](sub-agent-delegation.md).
 
 | Field                 | Type   | Default    | Description                                                                                                                                                                                                                                                                                                                                                                     |
 | --------------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -745,7 +745,7 @@ envelope to stdout:
 
 Configures Model Context Protocol (MCP) servers. MCP is enabled by default.
 Individual servers must still be enabled explicitly via `servers.<name>.enabled`. See
-[docs/mcp.md](mcp.md) for the TUI surfaces and approval behavior.
+[MCP](mcp.md) for the TUI surfaces and approval behavior.
 
 | Field     | Type | Default | Description                                          |
 | --------- | ---- | ------- | ---------------------------------------------------- |
@@ -791,13 +791,13 @@ mcp:
 
 When using `http` transport with an `Authorization` header, use the strict env expansion syntax (e.g. `${VAR}`) to inject environment variables. See the [environment variable expansion](#environment-variable-expansion-in-config-values) section for details.
 
-MCP behaviour is covered by hermetic, CI-safe integration tests under `internal/mcp/` for both transports (stdio and HTTP) through the manager path; live validation against third-party MCP servers remains manual work tracked in #438. See [docs/mcp.md](mcp.md).
+MCP behaviour is covered by hermetic, CI-safe integration tests under `internal/mcp/` for both transports (stdio and HTTP) through the manager path; live validation against third-party MCP servers remains manual work tracked in #438. See [MCP](mcp.md).
 
 ---
 
 ## `lsp` block
 
-Configures optional language server connections for code intelligence (definitions, references, diagnostics). LSP is disabled by default. When enabled, servers must be configured explicitly under `servers.<name>`. See [docs/lsp.md](lsp.md) for lifecycle, caching, and graceful degradation details.
+Configures optional language server connections for code intelligence (definitions, references, diagnostics). LSP is disabled by default. When enabled, servers must be configured explicitly under `servers.<name>`. See [LSP](lsp.md) for lifecycle, caching, and graceful degradation details.
 
 | Field                  | Type                           | Default | Description                                                                                                                                                                             |
 | ---------------------- | ------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -808,7 +808,7 @@ Configures optional language server connections for code intelligence (definitio
 | `ready_grace_period`   | duration                       | `2s`    | Grace period for servers that never send progress events; without this, silent servers look failed.                                                                                   |
 | `diagnostics_window`   | duration                       | `2s`    | Time window to collect published diagnostics after file open; unconditional latency on every diagnostics query.                                                                       |
 | `max_results`          | int                            | `200`   | Maximum results returned per navigation query (definitions, references).                                                                                                               |
-| `cache_dir`            | string                         | —       | Optional persistent cache directory for server state. When unset, defaults to system user cache dir. See [docs/lsp.md](lsp.md) for cache layout and cleanup.                          |
+| `cache_dir`            | string                         | —       | Optional persistent cache directory for server state. When unset, defaults to system user cache dir. See [LSP](lsp.md) for cache layout and cleanup.                          |
 | `servers`              | map[string]LSPServerConfig     | —       | Per-server configuration under `lsp.servers.<name>`.                                                                                                                                  |
 
 Each server entry (`LSPServerConfig`) supports:
@@ -844,7 +844,7 @@ lsp:
       root_markers: ["package.json", "tsconfig.json"]
 ```
 
-A language server is never installed by steiner — users must install servers separately (e.g. `go install github.com/golang/tools/gopls@latest`). See [docs/lsp.md](lsp.md) for copy-paste examples for gopls, typescript-language-server, pyright, and rust-analyzer.
+A language server is never installed by steiner — users must install servers separately (e.g. `go install github.com/golang/tools/gopls@latest`). See [LSP](lsp.md) for copy-paste examples for gopls, typescript-language-server, pyright, and rust-analyzer.
 
 ---
 

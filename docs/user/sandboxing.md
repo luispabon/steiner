@@ -200,7 +200,7 @@ sandbox:
   env_passthrough_all: false
 ```
 
-See [docs/configuration.md](configuration.md) for the full field reference.
+See [Configuration](configuration.md) for the full field reference.
 
 Credential config files on disk (e.g., `~/.aws/config`) are readable inside the sandbox through the root bind. The env var allowlist blocks only the environment variable path — it does not prevent the model from reading credential files directly.
 
@@ -386,6 +386,6 @@ The following features are deferred to V2:
 
 ---
 
-For configuration details, see [docs/configuration.md](configuration.md).
+For configuration details, see [Configuration](configuration.md).
 
 For context management and approval policy, see [docs/sub-agent-delegation.md](sub-agent-delegation.md).
