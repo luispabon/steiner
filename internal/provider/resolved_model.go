@@ -117,7 +117,11 @@ func ResolveReasoningBatch(cfg config.Config, httpClient *http.Client) (
 func loadAndApplyModelsDevMetadataFromData(rm *ResolvedModel, modelCfg config.ModelConfig, data []byte) metadata.ModelInfo {
 	var info metadata.ModelInfo
 	if data != nil {
-		providerID := modelsDevProviderID(rm.ProviderConfig.Type, rm.ProviderAlias)
+		profile := profileFor(rm.ProviderConfig.Type)
+		providerID := profile.ModelsDevID
+		if providerID == "" {
+			providerID = rm.ProviderAlias
+		}
 		lookup := metadata.LookupWithProviderResult(data, providerID, rm.BackendModelID)
 		info = lookup.Info
 		if lookup.Reason == metadata.LookupReasonMalformed || lookup.Reason == metadata.LookupReasonProviderMismatch || lookup.Reason == metadata.LookupReasonConflict {
@@ -248,7 +252,7 @@ func metadataProviderTransport(info metadata.ModelInfo) TransportType {
 func ResolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
 	resolved := cfg
 	if strings.TrimSpace(resolved.BaseURL) == "" {
-		resolved.BaseURL = defaultProviderBaseURL(resolved.Type)
+		resolved.BaseURL = profileFor(resolved.Type).DefaultBaseURL
 	}
 	if strings.TrimSpace(resolved.APIKey) == "" && strings.TrimSpace(resolved.APIKeyEnv) != "" {
 		resolved.APIKey = os.Getenv(strings.TrimSpace(resolved.APIKeyEnv))
@@ -264,23 +268,6 @@ func ResolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
 		resolved.Codex.MinRequestInterval = config.DefaultCodexMinRequestInterval
 	}
 	return resolved
-}
-
-func defaultProviderBaseURL(providerType config.ProviderType) string {
-	switch providerType {
-	case config.ProviderTypeOpenRouter:
-		return "https://openrouter.ai/api/v1"
-	case config.ProviderTypeOpenAI:
-		return "https://api.openai.com/v1"
-	case config.ProviderTypeCodex:
-		return "https://api.openai.com/v1"
-	case config.ProviderTypeOpencodeGo:
-		return "https://opencode.ai/zen/go/v1"
-	case config.ProviderTypeOpencodeZen:
-		return "https://opencode.ai/zen/v1"
-	default:
-		return ""
-	}
 }
 
 // limitsFullyConfigured reports whether both context window and max output
