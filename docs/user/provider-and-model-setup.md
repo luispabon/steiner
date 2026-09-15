@@ -152,12 +152,10 @@ models:
 
 ## OpenCode
 
-Steiner connects to OpenCode's Go and Zen gateways using an API key from your
-OpenCode account. You do not need OpenCode's own tooling; generate the key on the
-OpenCode website:
+Steiner connects to OpenCode's Go and Zen gateways using an API key from your OpenCode account.
 
 1. Sign in to your account at https://opencode.ai.
-2. Generate an API key for Go (or Zen).
+2. Generate an API key
 3. Export it in your shell and reference that variable from Steiner:
 
 ```bash
@@ -169,6 +167,9 @@ providers:
   opencode-go:
     type: opencode_go
     api_key_env: OPENCODE_API_KEY
+
+    # Alternatively
+    # api_key: ${OPENCODE_API_KEY}
 
 models:
   profiles:
