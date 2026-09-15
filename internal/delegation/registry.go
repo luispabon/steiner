@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/deepnoodle-ai/wonton/web"
 
@@ -336,13 +337,66 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	return cloned, nil
 }
 
+// modelResolution is one in-flight or completed model resolution. The model
+// value is shared after success; providers are created outside this cache.
+type modelResolution struct {
+	done  chan struct{}
+	model provider.ResolvedModel
+	err   error
+}
+
+// modelResolutionCache memoizes successful model resolutions and coalesces
+// concurrent resolutions for the same normalized alias.
+type modelResolutionCache struct {
+	mu      sync.Mutex
+	entries map[string]*modelResolution
+}
+
+func newMemoizedModelResolver(resolve func(string) (provider.ResolvedModel, error)) func(string) (provider.ResolvedModel, error) {
+	cache := modelResolutionCache{entries: make(map[string]*modelResolution)}
+	return func(alias string) (provider.ResolvedModel, error) {
+		alias = strings.TrimSpace(alias)
+
+		cache.mu.Lock()
+		if resolution, ok := cache.entries[alias]; ok {
+			cache.mu.Unlock()
+			<-resolution.done
+			return resolution.model, resolution.err
+		}
+		resolution := &modelResolution{done: make(chan struct{})}
+		cache.entries[alias] = resolution
+		cache.mu.Unlock()
+
+		model, err := resolve(alias)
+
+		cache.mu.Lock()
+		if err == nil {
+			resolution.model = model
+		} else {
+			// Failed resolutions must not prevent a later retry.
+			delete(cache.entries, alias)
+		}
+		resolution.err = err
+		close(resolution.done)
+		cache.mu.Unlock()
+		return model, err
+	}
+}
+
 // buildModelResolver returns a function that resolves a model alias to its provider and model metadata.
 // The parent SessionID passed to ProviderFactory is transport affinity for the
 // parent run (including OpenCode's X-Opencode-Session); child and advisor
 // PromptCacheKeys remain separately scoped by their agent type.
 func buildModelResolver(deps DelegateDeps) func(string) (provider.Provider, provider.ResolvedModel, error) {
+	return buildModelResolverWithResolve(deps, func(alias string) (provider.ResolvedModel, error) {
+		return provider.ResolveWithDiscovery(deps.Config, alias, deps.HTTPClient)
+	})
+}
+
+func buildModelResolverWithResolve(deps DelegateDeps, resolve func(string) (provider.ResolvedModel, error)) func(string) (provider.Provider, provider.ResolvedModel, error) {
+	memoizedResolve := newMemoizedModelResolver(resolve)
 	return func(alias string) (provider.Provider, provider.ResolvedModel, error) {
-		resolved, err := provider.ResolveWithDiscovery(deps.Config, alias, deps.HTTPClient)
+		resolved, err := memoizedResolve(alias)
 		if err != nil {
 			return nil, provider.ResolvedModel{}, err
 		}
