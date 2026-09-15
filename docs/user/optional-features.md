@@ -90,4 +90,4 @@ Analyze branch changes for structural and code quality improvements before revie
 
 ## Codex OAuth
 
-Use an OpenAI Codex subscription with Steiner without a separate API key. For the complete login, status, browser, token, provider, and model setup, see the [Codex OAuth guide in Provider and model setup](provider-and-model-setup.md#codex-oauth).
+Use an OpenAI Codex subscription with Steiner without a separate API key. For the login, status, provider, and raw model reference setup, see [Codex OAuth in Provider and model setup](provider-and-model-setup.md#codex-oauth).

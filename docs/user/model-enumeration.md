@@ -8,27 +8,31 @@ refresh has a roughly five-second timeout.
 
 ## Provider discovery
 
-Enumeration uses the provider's model-list API. Provider aliases below are the
-names used under `providers` in configuration.
+Enumeration uses the provider's model-list API. Provider names below are the keys
+used under `providers`; they are not model aliases.
 
 | Provider type | Endpoint used | Auth | Filtering signal |
 |---------------|---------------|------|------------------|
-| `openai`, `openai_compat`, `litellm` | `GET /v1/models` | Bearer API key | Embedding-like IDs are excluded. LiteLLM also excludes `mode: embedding`; missing mode uses the ID heuristic. |
+| `openai`, `openai_compat`, `litellm`, `opencode_go`, `opencode_zen` | `GET /v1/models` | Bearer API key when configured | Embedding-like IDs are excluded. LiteLLM also excludes `mode: embedding`; missing mode uses the ID heuristic. |
 | `ollama` | `GET /api/tags` | None required | Models with `capabilities` containing `embedding` are excluded. When capabilities are absent, the ID heuristic is used. |
 | `lmstudio` | `GET /api/v1/models` | Bearer API key when configured | Entries with `type: embedding` are excluded. `max_context_length` is used as the context length. |
 | `openrouter` | `GET /api/v1/models` | Bearer API key when configured | Text-only models are kept by default. `links.next` pagination is followed only when it stays on the same host. |
 | `anthropic` | `GET /v1/models` | `x-api-key` or Bearer; sends `anthropic-version: 2023-06-01` | Model capabilities provide supported reasoning efforts. Pagination starts with `limit=1000` and falls back to `limit=20` when the larger limit is rejected. |
 | `codex` | `GET {codex-base}/models?client_version=<steiner version>` | OAuth Bearer token and `ChatGPT-Account-ID` | Only models with `visibility: list` are included. Reasoning levels provide supported reasoning efforts. |
 
+Native `gemini` is not a runtime-supported provider type and is not shown as a
+supported discovery type. A user-provided compatible endpoint can use generic
+`openai_compat` discovery only when it exposes the supported API shape.
+
 Configured provider headers are sent with enumeration requests. Credentials are
 used for requests and are never written to the model cache.
 
 ## Cache
 
-Steiner stores one versioned JSON cache envelope per provider alias under:
+Steiner stores one versioned JSON cache envelope per provider name under:
 
 ```text
-$XDG_CACHE_HOME/steiner/provider-models/<sha256(providerAlias)[:16]>.json
+$XDG_CACHE_HOME/steiner/provider-models/<sha256(providerName)[:16]>.json
 ```
 
 When `XDG_CACHE_HOME` is not set, the cache uses
@@ -52,38 +56,32 @@ descending, then puts aliased definitions before raw entries, then sorts by disp
 name alphabetically. Supported reasoning efforts from a configured definition take
 precedence over discovered efforts.
 
-The chooser displays `provider-alias/model-alias` for a configured model definition,
-or `provider-alias/model-id` for a raw discovered entry with no configured alias —
-never the provider's pretty display name.
+The chooser displays `provider-name/model-alias` for a configured model definition,
+or `provider-name/model-id` for a raw discovered entry with no configured alias.
+It does not use the provider's pretty display name. Raw references are the normal
+selection form: `provider-name/model-id`. Use an alias when it supplies a shorter or
+stable name or persistent `ModelConfig` settings.
 
-Every model selection accepts either a config alias or a raw `provider/model-id`
-reference. This applies to profile assignments, the `--model` flag,
-`STEINER_MODEL`, and the `/model` command. Use `--profile <name>` at startup to
-select a profile for interactive, `--exec`, or oneshot runs. Startup model
-precedence is the selected profile, then `STEINER_MODEL`, then `--model`; the
-last two affect only the active orchestrator, not profile role fallback.
-
-In the interactive TUI, `/model` changes only the active orchestrator. Use
-`/profile <name>` to change future advisor, sub-agent, oneshot, and
-workflow-handoff assignments and the profile's `default_model` fallback. It
-preserves the current orchestrator model, current `/model` override,
-conversation, and prompt-cache identity. The command requires a name, has no
-picker, and reports an error without changing state for an unknown or invalid
-profile.
+Every model selection accepts a config alias or a raw reference. This applies to
+profile assignments, `--model`, `STEINER_MODEL`, and `/model`. Startup precedence
+is the selected profile, then `STEINER_MODEL`, then `--model`; the last two affect
+only the active orchestrator, not profile role fallback. In the interactive TUI,
+`/model` changes only the active orchestrator. `/profile <name>` changes future
+role assignments and the profile's fallback.
 
 ```text
-alias | provider/model-id
+provider-name/model-id
 
 openrouter/openai/gpt-4o
 ```
 
-An exact alias wins before prefix parsing. Otherwise, the longest configured
-provider prefix is used, so model IDs containing slashes are supported.
+An exact configured alias wins before prefix parsing. Otherwise, the longest
+configured provider prefix is used, so model IDs containing slashes are supported.
 
 ## Popularity
 
 Successful `/model` switches increment a count keyed by the canonical pair
-(provider alias, backend model ID). Popularity is stored at
+(provider name, backend model ID). Popularity is stored at
 `$XDG_STATE_HOME/steiner/model-popularity.json` (or
 `~/.local/state/steiner/model-popularity.json` when `XDG_STATE_HOME` is unset).
 
@@ -127,6 +125,6 @@ prints `disabled` when discovery is off.
 
 - Discovery does not write model definitions back to configuration.
 - Discovery does not provide a Gemini transport. Use a supported provider type or
-  a compatible endpoint as described in the configuration reference.
+  a compatible endpoint as described above.
 - Steiner does not automatically re-refresh providers during a session beyond the
   startup refresh of missing or stale caches and explicit `steiner models refresh`.

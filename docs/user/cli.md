@@ -1,19 +1,31 @@
 # CLI reference
 
+This reference assumes `steiner` is installed. See [Installation](installation.md) for release binaries.
+
 ## Modes
 
 Interactive mode launches the TUI:
 
 ```bash
-go run ./cmd/steiner
-# or
-./bin/steiner
+steiner
 ```
 
 Single-shot mode runs one request and exits:
 
 ```bash
-go run ./cmd/steiner --exec "explain the auth package"
+steiner --exec "explain the auth package"
+```
+
+Select a raw provider/model reference for a one-shot request:
+
+```bash
+steiner --model ollama/qwen2.5-coder:14b --exec "explain the auth package"
+```
+
+The same selection can be set for the active orchestrator with `STEINER_MODEL`:
+
+```bash
+STEINER_MODEL=ollama/qwen2.5-coder:14b steiner --exec "explain the auth package"
 ```
 
 ## Commands
@@ -38,6 +50,8 @@ go run ./cmd/steiner --exec "explain the auth package"
 
 ## Interactive commands
 
-Use `/compact` or `/compact <focus text>` to compact the conversation. Use `/model` to change the active orchestrator model and `/profile <name>` to select a profile for future role assignments. Use `/mode [plan|build]` to switch execution mode. See [Execution modes](execution-modes.md).
+Use `/compact` or `/compact <focus text>` to compact the conversation. Use `/model` to change the active orchestrator model. For example, enter `/model ollama/qwen2.5-coder:14b` to select a raw reference. Use `/profile <name>` to select a profile for future role assignments. Use `/mode [plan|build]` to switch execution mode. See [Execution modes](execution-modes.md).
 
-For the full configuration and flag reference, see [Configuration](configuration.md).
+A configured alias is an optional alternate for a model with persistent customization, such as `--model careful` when `careful` is defined under `models.definitions` with reasoning or retry settings. Raw references are the normal path when no such customization is needed.
+
+For the full configuration and flag reference, see [Configuration](configuration.md). For provider setup, see [Provider and model setup](provider-and-model-setup.md).

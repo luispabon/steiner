@@ -3,7 +3,7 @@
 `steiner` is configured through a YAML file. This document covers every field
 in the `Config` struct, their types, defaults, and valid values.
 
-For copy-paste provider, alias, profile, and runtime selection recipes, see the [Provider and model setup guide](provider-and-model-setup.md).
+For copy-paste provider, raw model reference, profile, and runtime selection recipes, see the [Provider and model setup guide](provider-and-model-setup.md). Aliases are optional and are useful when they persist model settings.
 
 ## File locations and loading order
 
@@ -99,7 +99,7 @@ or mutating the tool mid-conversation.
 | `max_tokens`             | *int      | `nil`   | Optional output-token ceiling for advisor calls. When set, the value is forwarded to the provider request.                                                                                                                                                                                                                                                   |
 | `timeout`                | *Duration | `180s`  | Optional HTTP timeout override applied only to advisor calls. When set, it overrides `providers.<name>.timeout` for the advisor model only; the main chat model and other models using the same provider are unaffected. Useful because advisor calls send a large parent-conversation prompt and frequently hit the provider's default header-read timeout. |
 
-The model alias used for advisor calls is configured in the selected profile's `advisor` field (see the [`models` block](#models-block)), not under `advisor` itself. See [Configuration internals](../internals/configuration.md) for handler and prompt-cache mechanics.
+The model reference used for advisor calls is configured in the selected profile's `advisor` field (see the [`models` block](#models-block)), not under `advisor` itself. Use a raw `provider/model-id` reference unless the advisor needs a configured alias for persistent `ModelConfig` settings. See [Configuration internals](../internals/configuration.md) for handler and prompt-cache mechanics.
 
 ```yaml
 advisor:
@@ -108,15 +108,16 @@ advisor:
   max_tokens: 256
   timeout: 5m
 
+providers:
+  local:
+    type: ollama
+    base_url: http://localhost:11434/v1
+
 models:
-  definitions:
-    advisor-model:
-      provider: local
-      id: advisor-model
   profiles:
     default:
-      default_model: default
-      advisor: advisor-model
+      default_model: local/qwen2.5-coder:14b
+      advisor: local/<advisor-model-id>
 ```
 
 ---
@@ -136,24 +137,19 @@ that profile's `default_model` when the phase is resolved.
 oneshot:
   auto_pr: false
 
+providers:
+  local:
+    type: ollama
+    base_url: http://localhost:11434/v1
+
 models:
-  definitions:
-    planner-model:
-      provider: local
-      id: planner-model
-    coder-model:
-      provider: local
-      id: coder-model
-    reviewer-model:
-      provider: local
-      id: reviewer-model
   profiles:
     default:
-      default_model: coder-model
+      default_model: local/<coder-model-id>
       oneshot:
-        plan: planner-model
-        implement: coder-model
-        review: reviewer-model
+        plan: local/<planner-model-id>
+        implement: local/<coder-model-id>
+        review: local/<reviewer-model-id>
 ```
 
 ---
@@ -263,7 +259,7 @@ providers:
 | `openrouter`    | OpenRouter cloud gateway. Requires `api_key` or `api_key_env`. No `base_url` needed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `openai`        | Native OpenAI API. Requires `api_key` or `api_key_env`. No `base_url` needed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `anthropic`     | Native Anthropic API. Requires `api_key` or `api_key_env`. No `base_url` needed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `gemini`        | **Not implemented by the runtime provider factory** — configuring `type: gemini` passes config validation but fails at startup with `provider type "gemini" is not implemented by the runtime provider factory`. As a workaround, use `type: openai_compat` against a Gemini-compatible OpenAI endpoint and set `models.<alias>.advanced.transport: openai_compat` as an explicit override.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `gemini`        | **Not implemented by the runtime provider factory.** Native Gemini is not a runtime-supported provider type. If a user has a Gemini-compatible endpoint that exposes the supported OpenAI-compatible shape, configure that endpoint with `type: openai_compat` instead.                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `litellm`       | LiteLLM gateway endpoint. Works like `openai_compat` but with LiteLLM-specific retry handling: when a 429 response lacks a `Retry-After` header, steiner parses the delay from the response body (e.g. "Try again in N seconds"). Budget-exhaustion 429s are detected and treated as non-retryable. Set `base_url` to your LiteLLM server.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `codex`         | OpenAI Codex subscription via OAuth. Authenticates using your OpenAI account instead of an API key and uses the Responses wire format. Run `steiner login codex` before use. When login can exchange the ChatGPT ID token for an API-key style credential, Steiner sends requests to `https://api.openai.com/v1/responses`; otherwise it uses `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and `ChatGPT-Account-ID`. `api_key` and `api_key_env` are not used - authentication is managed by the OAuth token stored at `~/.config/steiner/codex_auth.json`. Older token files still load, but re-running `steiner login codex` refreshes stored ChatGPT account metadata and the optional exchanged API credential used for direct OpenAI Responses API calls. |
 | `opencode_go`   | opencode.ai's OpenCode Go gateway. `base_url` defaults to `https://opencode.ai/zen/go/v1`. Requires `api_key` or `api_key_env` (obtained via `/connect` in opencode's own TUI — no OAuth/login flow in steiner). Every request automatically carries an `X-Opencode-Session` header set to steiner's stable per-session ID.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -280,7 +276,7 @@ providers:
 | `timeout`     |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |
 | `codex`       |       —       |    —     |    —     |     —      |   —    |     —     |    —    |    —     |    ✓     |      —      |      —       |
 
-¹ `gemini` passes config validation but is not implemented by the runtime provider factory; see the [Provider types](#provider-types) table above for the workaround.
+¹ Native `gemini` is not a runtime-supported provider type. A user-provided endpoint may use `openai_compat` only when it exposes the supported OpenAI-compatible shape.
 
 ### `codex` sub-block
 
@@ -310,41 +306,42 @@ Each profile supports these fields:
 
 | Field              | Type              | Description                                                                                                                                                              |
 | ------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `default_model`    | string            | Model alias or `provider/model-id` reference used as the profile's default and as fallback for roles without a more specific assignment. Required in `profiles.default`. |
+| `default_model`    | string            | Raw `provider/model-id` reference used by default, or an optional configured alias. It is also the fallback for roles without a more specific assignment. Required in `profiles.default`. |
 | `advisor`          | string            | Model reference used for advisor calls when `advisor.enabled` is `true`.                                                                                                 |
 | `sub_agents`       | map[string]string | Per-agent-type model references, keyed by agent type.                                                                                                                    |
 | `oneshot`          | map[string]string | Per-phase model references, keyed by `plan`, `implement`, and `review`. Missing phases fall back to the selected profile's `default_model`.                              |
 | `workflow_handoff` | map[string]string | Persistent handoff model references, keyed by `implement`, `review`, and `build`. Missing destinations use the selected profile's `default_model` (`profile default`).   |
 
 ```yaml
+providers:
+  local:
+    type: ollama
+    base_url: http://localhost:11434/v1
+  cloud:
+    type: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+
 models:
   discovery_enabled: true
-  definitions:
-    local:
-      provider: local
-      id: qwen2.5-coder:14b
-    sonnet:
-      provider: anthropic
-      id: claude-sonnet-4-5
   profiles:
     default:
-      default_model: local
-      advisor: sonnet
+      default_model: local/qwen2.5-coder:14b
+      advisor: cloud/<advisor-model-id>
       sub_agents:
-        code: sonnet
-        evaluate: sonnet
-        sanity_check: local
+        code: cloud/<code-model-id>
+        evaluate: cloud/<evaluate-model-id>
+        sanity_check: local/<sanity-check-model-id>
       oneshot:
-        plan: local
-        implement: sonnet
-        review: sonnet
+        plan: local/<planner-model-id>
+        implement: cloud/<implementer-model-id>
+        review: cloud/<reviewer-model-id>
       workflow_handoff:
-        implement: sonnet
-        review: sonnet
+        implement: cloud/<implementer-model-id>
+        review: cloud/<reviewer-model-id>
     fast:
-      default_model: local
+      default_model: local/qwen2.5-coder:14b
       sub_agents:
-        code: local
+        code: local/<code-model-id>
 ```
 
 `workflow_handoff` supports destination keys `implement`, `review`, and `build`. If a
@@ -354,7 +351,7 @@ handoff without changing configuration.
 
 ### Model references and selection
 
-Every model selection accepts either a configured alias or a raw `provider/model-id` reference:
+Every model selection accepts a raw `provider/model-id` reference. A configured alias is an optional alternate when it provides a shorter or stable name or persists `ModelConfig` settings:
 
 ```text
 alias | provider/model-id
@@ -463,11 +460,15 @@ Wire shape differs by transport: Codex (OpenAI Responses API) sends the resolved
 Example (OpenAI/Codex-style values — other providers may use a different vocabulary, or may not support configurable reasoning effort at all):
 
 ```yaml
+providers:
+  codex:
+    type: codex
+
 models:
   definitions:
     codex-high:
       provider: codex
-      id: gpt-5-codex
+      id: <codex-model-id>
       advanced:
         reasoning:
           effort: high
@@ -476,6 +477,8 @@ models:
     default:
       default_model: codex-high
 ```
+
+`codex-high` is retained as an alias because it persists the reasoning configuration; a raw `codex/<codex-model-id>` reference cannot do that.
 
 Reasoning effort can also be changed at runtime for the current session via the `/model` command in the interactive TUI (select a model, then a reasoning effort from `supported_efforts`, or "provider default" to omit the field). Runtime `/model` reasoning selections are session-only and never write back to the config file. Use `steiner model inspect <alias>` to see the resolved `supported_efforts`, `provider_default_effort`, `configured_effort`, and `effective_effort` for a model.
 
@@ -635,21 +638,20 @@ sub_agent:
   max_tokens: 100000
   max_follow_ups: 5
 
+providers:
+  openai:
+    type: openai
+  anthropic:
+    type: anthropic
+
 models:
-  definitions:
-    gpt-4o:
-      provider: openai
-      id: gpt-4o
-    claude-sonnet-4:
-      provider: anthropic
-      id: claude-sonnet-4
   profiles:
     default:
-      default_model: gpt-4o
+      default_model: openai/<orchestrator-model-id>
       sub_agents:
-        code: gpt-4o
-        research: claude-sonnet-4
-        vision: claude-sonnet-4   # required to enable the vision tool
+        code: openai/<code-model-id>
+        research: anthropic/<research-model-id>
+        vision: anthropic/<vision-model-id>   # required to enable the vision tool
 ```
 
 The `vision` agent type requires a vision-capable model. When the selected profile's
@@ -1045,13 +1047,9 @@ providers:
     base_url: http://localhost:11434/v1
 
 models:
-  definitions:
-    local:
-      provider: local
-      id: qwen3:14b
   profiles:
     default:
-      default_model: local
+      default_model: local/qwen3:14b
 ```
 
 Use `http://127.0.0.1:1234/v1` as `base_url` for LM Studio. Use `type: ollama`
@@ -1069,16 +1067,9 @@ providers:
     api_key_env: ANTHROPIC_API_KEY
 
 models:
-  definitions:
-    sonnet:
-      provider: anthropic
-      id: claude-sonnet-4-5
-    opus:
-      provider: anthropic
-      id: claude-opus-4-5
   profiles:
     default:
-      default_model: sonnet
+      default_model: anthropic/<model-id>
 ```
 
 For OpenAI, replace `type: anthropic` with `type: openai` and set
@@ -1098,25 +1089,12 @@ providers:
     api_key_env: OPENROUTER_API_KEY
 
 models:
-  definitions:
-    local-fast:
-      provider: local
-      id: qwen3:14b
-    local-deep:
-      provider: local
-      id: deepseek-r1:32b
-    sonnet:
-      provider: router
-      id: anthropic/claude-3.7-sonnet
-    gpt-4o:
-      provider: router
-      id: openai/gpt-4o
   profiles:
     default:
-      default_model: local-fast
+      default_model: local/qwen3:14b
 ```
 
-Switch models at runtime with `--model sonnet` without changing config.
+Switch models at runtime with `--model router/openai/gpt-4o` without changing config. Raw references are enough for ordinary model selection; define an alias only when you need a stable name or persistent model settings.
 
 ---
 
@@ -1159,9 +1137,13 @@ limits:
   tool_output_max_bytes: 131072
 ```
 
+`local` is retained as an alias here because the example demonstrates custom context, output, and retry settings; ordinary selection should use `local/<model-id>`.
+
 ---
 
 ### Example 5: kitchen-sink — every block populated
+
+The aliases in this example are intentional: each definition demonstrates persistent request, prompt, retry, limit, or other `ModelConfig` settings. Use raw references when those settings are not needed.
 
 ```yaml
 tui:
@@ -1220,20 +1202,20 @@ models:
         system_suffix: "Always respond in structured JSON when possible."
   profiles:
     default:
-      default_model: local-fast
-      advisor: sonnet
+      default_model: local/<fast-model-id>
+      advisor: cloud/<advisor-model-id>
       sub_agents:
-        code: sonnet
-        evaluate: sonnet
-        sanity_check: mini
-        review: sonnet
+        code: cloud/<code-model-id>
+        evaluate: cloud/<evaluate-model-id>
+        sanity_check: router/<sanity-check-model-id>
+        review: cloud/<review-model-id>
       oneshot:
-        plan: local-fast
-        implement: sonnet
-        review: sonnet
+        plan: local/<planner-model-id>
+        implement: cloud/<implementer-model-id>
+        review: cloud/<reviewer-model-id>
       workflow_handoff:
-        implement: sonnet
-        review: sonnet
+        implement: cloud/<implementer-model-id>
+        review: cloud/<reviewer-model-id>
 
 limits:
   max_turns: 60

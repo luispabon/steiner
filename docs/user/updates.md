@@ -1,6 +1,6 @@
 # Updates
 
-Steiner can self-update with `update` or its `upgrade` alias. It fetches the latest GitHub release, verifies the binary checksum, and atomically replaces the running executable.
+An installed release binary can self-update with `update` or its `upgrade` alias. It selects the runtime asset, verifies its checksum, and atomically replaces the running executable. The executable's location must be writable by the user running the update. A source checkout is not a release-binary install: rebuild it instead with the source instructions in [Installation](installation.md#build-from-source).
 
 ```bash
 steiner update

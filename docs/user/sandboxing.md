@@ -17,8 +17,7 @@ Built-in Go tools (`read`, `mutate`, `glob`, `grep`, `ls`) are not sandboxed; th
 Standard mode is the default:
 
 ```bash
-go run ./cmd/steiner
-./bin/steiner
+steiner
 ```
 
 Bash and subprocess tools run in the sandbox. A boundary violation prompts:
@@ -30,8 +29,7 @@ Bash and subprocess tools run in the sandbox. A boundary violation prompts:
 Unsafe mode disables the sandbox for the session:
 
 ```bash
-go run ./cmd/steiner --unsafe
-./bin/steiner --unsafe
+steiner --unsafe
 ```
 
 Use it when a tool needs paths outside the workspace or to isolate a sandbox issue. It removes the primary protection and runs commands directly on the host. There are no boundary prompts in unsafe mode.

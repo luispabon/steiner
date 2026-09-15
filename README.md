@@ -6,14 +6,7 @@ A minimal, local-first Go coding agent with bounded context and sandboxed execut
 
 ## Quick start
 
-Install Go `1.25+`, start a local model such as Ollama, then run:
-
-```bash
-ollama run qwen2.5-coder:14b
-go run ./cmd/steiner
-```
-
-See [Getting started](docs/user/getting-started.md) for the shortest local run. The [provider and model setup guide](docs/user/provider-and-model-setup.md) covers aliases, profiles, and local or cloud providers. [CLI reference](docs/user/cli.md) covers one-shot requests, commands, and interactive controls.
+[Install a release binary](docs/user/installation.md), then see [Getting started](docs/user/getting-started.md) for the shortest local-model path. [Provider and model setup](docs/user/provider-and-model-setup.md) covers provider connections and model references. [CLI reference](docs/user/cli.md) covers one-shot requests, commands, and interactive controls.
 
 ## Features
 

@@ -1,37 +1,45 @@
 # Getting started
 
-## Prerequisites
+This guide assumes `steiner` is installed. If it is not, follow [Installation](installation.md).
 
-You need Go `1.25+`. For local models, install [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai).
+## First run with a local model
 
-## Run Steiner
-
-Start a local model, then run a one-shot request:
+Start a local model with [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai). For Ollama, for example:
 
 ```bash
 ollama run qwen2.5-coder:14b
-go run ./cmd/steiner --exec "summarize this repository in one sentence"
+```
+
+Configure the local provider and select its raw model reference in `.steiner/config.yaml`:
+
+```yaml
+providers:
+  ollama:
+    type: ollama
+    base_url: http://localhost:11434/v1
+
+models:
+  profiles:
+    default:
+      default_model: ollama/qwen2.5-coder:14b
+```
+
+Run a one-shot request:
+
+```bash
+steiner --exec "summarize this repository in one sentence"
 ```
 
 Start interactive mode instead:
 
 ```bash
-go run ./cmd/steiner
+steiner
 ```
 
 Inspect resolved configuration before doing real work:
 
 ```bash
-go run ./cmd/steiner config
+steiner config
 ```
 
-To build a local binary:
-
-```bash
-make build-binaries
-./bin/steiner
-```
-
-## Provider and model setup
-
-For provider-specific configuration, reusable model aliases, profiles, and runtime model selection, see [Provider and model setup](provider-and-model-setup.md). See [Configuration](configuration.md) for all fields and providers, and [CLI reference](cli.md) for commands and flags.
+For provider-specific connections, raw model references, optional aliases, profiles, and runtime selection, see [Provider and model setup](provider-and-model-setup.md). See [Configuration](configuration.md) for every field. Contributors and unsupported platforms can use the [source-build fallback](installation.md#build-from-source).

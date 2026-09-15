@@ -1,17 +1,16 @@
 # Provider and model setup
 
-This guide shows how to connect Steiner to local or cloud providers, give model IDs reusable aliases, and choose a default model. It is a task-oriented companion to the [configuration reference](configuration.md), which documents every field.
+## The model reference contract
 
-## How the pieces fit
+`providers.<name>` configures a connection. A model reference selects a model through that configured provider:
 
-A Steiner setup has four layers:
+- `providers.<name>` must exist. The provider name is the key you chose under `providers`, not a display name.
+- `<name>/<model-id>` is the normal model reference. Model IDs may contain slashes, for example `openrouter/openai/gpt-4o`.
+- `models.definitions` is optional. Its keys are aliases for model definitions that need a shorter or stable name, or persistent `ModelConfig` settings.
 
-- A **provider name** is the key under `providers`. It describes how Steiner reaches an API. Names such as `local`, `anthropic`, or `gateway` are yours to choose.
-- A **model alias** is a key under `models.definitions`. Its `provider` points to a provider name and its `id` is the model ID expected by that provider.
-- `models.profiles.default.default_model` selects the alias used by default. Other profiles can select a different alias.
-- Runtime selection can override the active orchestrator model. `--model` is a command-line override, `STEINER_MODEL` is its environment equivalent, and `/model` changes the active model in an interactive session.
+Raw references work in `models.profiles` role assignments (`default_model`, `advisor`, `sub_agents`, `oneshot`, and `workflow_handoff`), `--model`, `STEINER_MODEL`, and `/model`. Raw references carry only provider and model ID. They cannot persist settings such as reasoning, request parameters, retry policy, prompts, transport, or limits. Use an alias when one of those settings belongs to a model.
 
-Aliases keep provider and model IDs out of commands. Every model selection also accepts a raw `provider/model-id` reference, but aliases are easier to reuse in profiles and scripts.
+An exact configured alias takes precedence over raw parsing. Otherwise Steiner chooses the longest configured provider prefix, so model IDs can contain slashes.
 
 ## Local providers
 
@@ -23,7 +22,7 @@ Start a model in Ollama:
 ollama run qwen2.5-coder:14b
 ```
 
-Put this in `.steiner/config.yaml`:
+Configure the provider and raw model reference in `.steiner/config.yaml`:
 
 ```yaml
 providers:
@@ -32,20 +31,16 @@ providers:
     base_url: http://localhost:11434/v1
 
 models:
-  definitions:
-    local:
-      provider: ollama
-      id: qwen2.5-coder:14b
   profiles:
     default:
-      default_model: local
+      default_model: ollama/qwen2.5-coder:14b
 ```
 
-If your Ollama server uses another endpoint, replace `base_url` under `providers.ollama`.
+`type: ollama` uses Ollama's native endpoint conventions. Replace the model ID with one available in your Ollama installation.
 
 ### LM Studio
 
-Start LM Studio's local server and load a model. Use the model ID reported by that server in the `id` field. For a model using the ID from the example below, use:
+Start LM Studio's local server, load a model, and use the model ID reported by that server:
 
 ```yaml
 providers:
@@ -54,43 +49,14 @@ providers:
     base_url: http://127.0.0.1:1234/v1
 
 models:
-  definitions:
-    local:
-      provider: lmstudio
-      id: qwen2.5-coder:14b
   profiles:
     default:
-      default_model: local
+      default_model: lmstudio/<model-id>
 ```
-
-If LM Studio reports a different ID for the loaded model, replace only `qwen2.5-coder:14b`. The provider type and URL stay the same unless you changed LM Studio's server settings.
 
 ## Cloud providers
 
-Keep API keys out of the config file. `api_key_env` is the **name** of an environment variable. Export that variable before running Steiner.
-
-### Anthropic
-
-```bash
-export ANTHROPIC_API_KEY='your-key'
-```
-
-```yaml
-providers:
-  anthropic:
-    type: anthropic
-    base_url: https://api.anthropic.com/v1
-    api_key_env: ANTHROPIC_API_KEY
-
-models:
-  definitions:
-    sonnet:
-      provider: anthropic
-      id: claude-sonnet-4-5
-  profiles:
-    default:
-      default_model: sonnet
-```
+Keep API keys out of the config file. `api_key_env` is the name of an environment variable. Export that variable before running Steiner.
 
 ### OpenAI
 
@@ -105,13 +71,27 @@ providers:
     api_key_env: OPENAI_API_KEY
 
 models:
-  definitions:
-    openai-default:
-      provider: openai
-      id: gpt-4o
   profiles:
     default:
-      default_model: openai-default
+      default_model: openai/<model-id>
+```
+
+### Anthropic
+
+```bash
+export ANTHROPIC_API_KEY='your-key'
+```
+
+```yaml
+providers:
+  anthropic:
+    type: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+
+models:
+  profiles:
+    default:
+      default_model: anthropic/<model-id>
 ```
 
 ### OpenRouter
@@ -127,65 +107,16 @@ providers:
     api_key_env: OPENROUTER_API_KEY
 
 models:
-  definitions:
-    openrouter-default:
-      provider: openrouter
-      id: openai/gpt-4o
   profiles:
     default:
-      default_model: openrouter-default
+      default_model: openrouter/<provider-model-id>
 ```
 
-Model IDs for OpenRouter include the upstream model path, such as `openai/gpt-4o`.
+OpenRouter model IDs commonly contain a slash, such as `openai/gpt-4o`, so the complete reference can be `openrouter/openai/gpt-4o`.
 
-## Local and cloud together
+## OpenAI-compatible gateways
 
-A provider name and model alias are separate. That lets one profile use local inference by default while keeping a cloud alias available for selected tasks:
-
-```yaml
-providers:
-  ollama:
-    type: ollama
-    base_url: http://localhost:11434/v1
-  anthropic:
-    type: anthropic
-    base_url: https://api.anthropic.com/v1
-    api_key_env: ANTHROPIC_API_KEY
-
-models:
-  definitions:
-    local:
-      provider: ollama
-      id: qwen2.5-coder:14b
-    sonnet:
-      provider: anthropic
-      id: claude-sonnet-4-5
-  profiles:
-    default:
-      default_model: local
-      sub_agents:
-        code: sonnet
-    local-only:
-      default_model: local
-      sub_agents:
-        code: ""
-```
-
-With `ANTHROPIC_API_KEY` exported, the default profile uses Ollama for the main model and Anthropic for `code` sub-agents. Select the alternate profile for a local-only run:
-
-```bash
-steiner --profile local-only
-```
-
-Use the cloud alias for one run without changing the file:
-
-```bash
-steiner --model sonnet --exec "review this repository"
-```
-
-## Gateways and OpenAI-compatible APIs
-
-For a generic OpenAI-compatible server, configure `openai_compat` with its API URL. The provider name and model ID depend on that server:
+Use `openai_compat` for a server that exposes the OpenAI-compatible chat-completions shape. Set the URL and key requirements for that server:
 
 ```yaml
 providers:
@@ -195,83 +126,63 @@ providers:
     api_key_env: GATEWAY_API_KEY
 
 models:
-  definitions:
-    gateway-model:
-      provider: gateway
-      id: <gateway-model-id>
   profiles:
     default:
-      default_model: gateway-model
+      default_model: gateway/<model-id>
 ```
 
-Set `GATEWAY_API_KEY` only if the gateway requires it. LiteLLM has a dedicated provider type, so use `type: litellm` with the same `base_url`, `api_key_env`, and model-definition pattern. OpenCode gateways use `type: opencode_go` or `type: opencode_zen` instead; those types have their own default URLs and require `api_key` or `api_key_env`. See the [provider types](configuration.md#provider-types) table for the supported details.
+Omit `api_key_env` when the endpoint needs no key. A user-provided Gemini-compatible endpoint, if it exposes the supported OpenAI-compatible shape, is configured the same way with `type: openai_compat`; this does not make every Gemini endpoint compatible. Native `type: gemini` is not runtime-supported.
 
-## Profiles and runtime overrides
+### LiteLLM
 
-The `default` profile must define `default_model`. A named profile can change the default and role assignments. Select one at startup with `--profile`:
+LiteLLM has its own provider type:
 
-```bash
-steiner --profile local-only
+```yaml
+providers:
+  litellm:
+    type: litellm
+    base_url: <litellm-base-url>
+    api_key_env: LITELLM_API_KEY
+
+models:
+  profiles:
+    default:
+      default_model: litellm/<model-id>
 ```
 
-Model selection precedence for the active orchestrator is:
+## OpenCode
 
-1. The selected profile's `default_model`.
-2. `STEINER_MODEL`, when set to an alias or valid `provider/model-id` reference.
-3. `--model`, which takes precedence over `STEINER_MODEL`.
+OpenCode provides two runtime-supported provider types:
 
-These overrides affect the active orchestrator only. Profile role assignments, such as `sub_agents`, continue to come from the selected profile. In interactive mode, start Steiner and enter `/model sonnet` to change the active orchestrator for that session. Use `/profile local-only` to select a profile for future role assignments.
+```yaml
+providers:
+  go:
+    type: opencode_go
+    api_key_env: OPENCODE_API_KEY
+  zen:
+    type: opencode_zen
+    api_key_env: OPENCODE_API_KEY
 
-## Verify a setup
-
-Run these commands from the project containing `.steiner/config.yaml`:
-
-```bash
-# Print the merged configuration.
-steiner config
-
-# Resolve an alias and inspect its provider, backend ID, and transport.
-steiner model inspect local
-
-# Run a one-shot request with a selected alias.
-steiner --model local --exec "summarize this repository in one sentence"
+models:
+  profiles:
+    default:
+      default_model: go/<model-id>
 ```
 
-For an interactive check, run `steiner`, then enter `/model local`. If the alias or provider cannot be resolved, `config` or `model inspect` reports the configuration error before a model request is made. The same commands work with `go run ./cmd/steiner` when running from a source checkout.
+For OpenCode Zen, set the default to `zen/<model-id>` instead. Both are raw references; use the provider key chosen in your config. OpenCode's own TUI provides `/connect`; that command belongs to OpenCode, not Steiner. Use the key or environment variable required by the OpenCode service.
 
 ## Codex OAuth
 
-Use an OpenAI Codex subscription with Steiner without a separate API key. Codex authentication uses your OpenAI account through OAuth, and the `codex` provider uses the saved OAuth credentials.
+Codex uses your OpenAI account through OAuth and does not use an API key.
 
-### Authenticate
-
-Run:
+Log in and check the login status:
 
 ```bash
 steiner login codex
-```
-
-Steiner starts a local callback server on `http://localhost:1455/auth/callback`, opens your default browser to the OpenAI OAuth consent page, and waits for the callback after you authenticate. The OAuth authorization-code flow uses PKCE. On success, Steiner saves the access and refresh tokens, ID token, ChatGPT account metadata, and an optional exchanged API-key-style credential in its Codex token store. On Linux, the default path is `~/.config/steiner/codex_auth.json`; Steiner prints the path after saving. Treat this file as sensitive.
-
-To print the full authorization URL before the normal browser launch, pass `--debug-url`:
-
-```bash
-steiner login codex --debug-url
-```
-
-The command prints the URL as `Auth URL: ...` before attempting to open the browser.
-
-Check the saved authentication state with:
-
-```bash
 steiner login codex status
 ```
 
-The status command reports `Not authenticated` when no token is saved. Otherwise it reports the token expiry and `Status: valid` or `Status: needs refresh`. It does not print token contents.
-
-### Configure the provider and model
-
-Add a `codex` provider, define a model alias that points to it, and set that alias as the default profile's model:
+Configure the provider with `type: codex` and select the model with its raw reference. Replace `<codex-model-id>` with a model ID available to your account:
 
 ```yaml
 providers:
@@ -279,15 +190,73 @@ providers:
     type: codex
 
 models:
-  definitions:
-    gpt-5:
-      provider: codex
-      id: gpt-5.5
   profiles:
     default:
-      default_model: gpt-5
+      default_model: codex/<codex-model-id>
 ```
 
-The model alias (`gpt-5` above) is a Steiner name. The `id` (`gpt-5.5` above) is the model ID sent to Codex. Do not add `api_key` or `api_key_env`: Codex authentication is managed by `steiner login codex` and the saved OAuth token.
+Do not add `api_key` or `api_key_env` for Codex. See [Optional features](optional-features.md#codex-oauth) for the short feature pointer.
 
-With the default HTTP transport, when login can exchange the ChatGPT ID token for an API-key-style credential, Steiner sends requests to `https://api.openai.com/v1/responses`. Otherwise it uses `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and ChatGPT account metadata. To use the WebSocket transport, set `providers.<name>.codex.transport: websocket`; it uses `wss://chatgpt.com/backend-api/codex/responses` even when an API-key-style credential was exchanged. Re-running `steiner login codex` refreshes the saved login data and any successfully exchanged credential; if exchange fails, an existing exchanged credential can remain.
+## Optional aliases
+
+Use an alias when it gives a model a shorter or stable name, or when it stores settings that a raw reference cannot carry. This is a valid reasoning configuration example:
+
+```yaml
+providers:
+  openai:
+    type: openai
+    api_key_env: OPENAI_API_KEY
+
+models:
+  definitions:
+    careful:
+      provider: openai
+      id: <model-id>
+      advanced:
+        reasoning:
+          effort: high
+          supported_efforts: [low, medium, high]
+  profiles:
+    default:
+      default_model: careful
+```
+
+Here `careful` is useful because it persists the reasoning setting. Without that customization, use `openai/<model-id>` directly. Aliases are optional, not required for ordinary provider setup.
+
+## Profiles and selection precedence
+
+The `default` profile must define `default_model`. Named profiles are overlays on that profile. A local-only profile should clear inherited role assignments explicitly when needed:
+
+```yaml
+models:
+  profiles:
+    default:
+      default_model: ollama/qwen2.5-coder:14b
+      sub_agents:
+        code: openrouter/openai/gpt-4o
+    local-only:
+      default_model: ollama/qwen2.5-coder:14b
+      sub_agents:
+        code: ""
+```
+
+Select a profile at startup with `--profile local-only`.
+
+For the active orchestrator at startup, selection precedence is:
+
+1. The selected profile's `default_model`.
+2. `STEINER_MODEL`, when set to a valid raw reference or configured alias.
+3. `--model`, which overrides `STEINER_MODEL`.
+
+The environment and CLI overrides affect the active orchestrator only. Advisor, sub-agent, oneshot, and workflow-handoff assignments still come from the selected profile. In interactive mode, `/model <provider>/<model-id>` changes the active orchestrator for the session. `/profile <name>` changes the profile used for future role assignments and fallback; it does not replace the current active orchestrator selection.
+
+## Verify a setup
+
+From the project containing `.steiner/config.yaml`:
+
+```bash
+steiner config
+steiner --model ollama/qwen2.5-coder:14b --exec "summarize this repository in one sentence"
+```
+
+Start `steiner` for interactive mode, then use `/model ollama/qwen2.5-coder:14b` to switch the active orchestrator. Use `steiner model inspect <alias>` only for a configured alias.

@@ -1,7 +1,9 @@
 **Getting Started**
 - [Home](Home)
 - [Documentation](docs-index)
+- [Installation](user-installation)
 - [Getting started](user-getting-started)
+- [Updates](user-updates)
 - [CLI reference](user-cli)
 - [Configuration](user-configuration)
 

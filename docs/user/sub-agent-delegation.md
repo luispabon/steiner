@@ -146,28 +146,19 @@ sub_agent:
   max_tokens: 100000
 
 models:
-  definitions:
-    gpt-4o:
-      provider: openai
-      id: gpt-4o
-    claude-sonnet-4:
-      provider: anthropic
-      id: claude-sonnet-4
-    gpt-4o-mini:
-      provider: openai
-      id: gpt-4o-mini
   profiles:
     default:
-      default_model: gpt-4o
+      default_model: openai/<orchestrator-model-id>
       sub_agents:
-        code: gpt-4o
-        evaluate: claude-sonnet-4
-        sanity_check: gpt-4o-mini
+        code: openai/<code-model-id>
+        evaluate: anthropic/<evaluate-model-id>
+        sanity_check: openai/<sanity-check-model-id>
 ```
 
 Each entry under the selected profile's `sub_agents` map, keyed by agent type
-name, can set a model alias to any key defined in `models.definitions`. If no
-override is set, the sub-agent uses the selected profile's `default_model`.
+name, can set a raw `provider/model-id` reference. An alias is an optional
+alternate when it provides a stable name or persistent `ModelConfig` settings. If
+no override is set, the sub-agent uses the selected profile's `default_model`.
 
 `sub_agent.orchestration_level` controls how strongly the system preamble
 steers the orchestrator toward delegating. `standard` (the default) renders
@@ -233,15 +224,11 @@ is configured. It requires a vision-capable model:
 
 ```yaml
 models:
-  definitions:
-    claude-sonnet-4:
-      provider: anthropic
-      id: claude-sonnet-4
   profiles:
     default:
-      default_model: claude-sonnet-4
+      default_model: anthropic/<vision-model-id>
       sub_agents:
-        vision: claude-sonnet-4
+        vision: anthropic/<vision-model-id>
 ```
 
 ---
