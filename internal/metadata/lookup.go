@@ -45,10 +45,14 @@ type LookupResult struct {
 }
 
 const (
-	LookupReasonMalformed        = "malformed"
-	LookupReasonNotFound         = "not_found"
+	// LookupReasonMalformed reports invalid models.dev JSON.
+	LookupReasonMalformed = "malformed"
+	// LookupReasonNotFound reports no matching model metadata.
+	LookupReasonNotFound = "not_found"
+	// LookupReasonProviderMismatch reports a model found only under another provider.
 	LookupReasonProviderMismatch = "provider_mismatch"
-	LookupReasonConflict         = "conflict"
+	// LookupReasonConflict reports conflicting provider-specific matches.
+	LookupReasonConflict = "conflict"
 )
 
 // LookupWithProviderResult is LookupWithProvider with an observable reason for

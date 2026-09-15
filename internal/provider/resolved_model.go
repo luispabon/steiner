@@ -121,6 +121,10 @@ func loadAndApplyModelsDevMetadataFromData(rm *ResolvedModel, modelCfg config.Mo
 		info = lookup.Info
 		if lookup.Reason == metadata.LookupReasonMalformed || lookup.Reason == metadata.LookupReasonProviderMismatch || lookup.Reason == metadata.LookupReasonConflict {
 			rm.metadataLookupReason = lookup.Reason
+			rm.Warnings = append(rm.Warnings, fmt.Sprintf(
+				"Model metadata warning: models.dev lookup for %s/%s degraded: %s.",
+				rm.ProviderAlias, rm.BackendModelID, lookup.Reason,
+			))
 		}
 	}
 	rm.EffectiveProviderType, rm.EffectiveTransport, rm.TransportOverrideReason = resolveEffectiveTransport(

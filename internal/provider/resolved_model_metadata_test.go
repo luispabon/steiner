@@ -8,6 +8,15 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+func TestLoadAndApplyMetadataWarnsOnProviderMismatchWithConfiguredLimits(t *testing.T) {
+	rm := ResolvedModel{ProviderAlias: "codex", BackendModelID: "gpt-5.6-luna"}
+	modelCfg := config.ModelConfig{Advanced: config.AdvancedConfig{Limits: config.AdvancedLimitsConfig{ContextWindow: 100000, MaxOutputTokens: 10000}}}
+	loadAndApplyModelsDevMetadataFromData(&rm, modelCfg, []byte(`{"openai":{"models":{"gpt-5.6-luna":{"limit":{"context":200000,"output":100000}}}}}`))
+	if len(rm.Warnings) != 1 || !strings.Contains(rm.Warnings[0], "provider_mismatch") {
+		t.Fatalf("Warnings = %v, want provider mismatch warning", rm.Warnings)
+	}
+}
+
 func TestResolveWithDiscoveryWarnsOnMetadataCacheDegradation(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	cfg := config.Config{
