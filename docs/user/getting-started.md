@@ -32,23 +32,6 @@ make build-binaries
 ./bin/steiner
 ```
 
-## Minimal local configuration
+## Provider and model setup
 
-The default local endpoint is Ollama's OpenAI-compatible API. A minimal project configuration is:
-
-```yaml
-providers:
-  local:
-    type: openai_compat
-    base_url: http://localhost:11434/v1
-models:
-  definitions:
-    local:
-      provider: local
-      id: qwen2.5-coder:14b
-  profiles:
-    default:
-      default_model: local
-```
-
-See [Configuration](configuration.md) for all fields and providers. See [CLI reference](cli.md) for commands and flags.
+For provider-specific configuration, reusable model aliases, profiles, and runtime model selection, see [Provider and model setup](provider-and-model-setup.md). See [Configuration](configuration.md) for all fields and providers, and [CLI reference](cli.md) for commands and flags.

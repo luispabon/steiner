@@ -105,16 +105,22 @@ Use your OpenAI Codex subscription (GPT-5.5, GPT-5.4, etc.) with Steiner without
    steiner login codex status
    ```
 
-3. Configure a provider and model:
+3. Configure a provider and model. The model alias belongs under `models.definitions`, and the selected profile points to it:
    ```yaml
    providers:
      codex:
        type: codex
 
    models:
-     gpt-5:
-       provider: codex
-       id: gpt-5.5
+     definitions:
+       gpt-5:
+         provider: codex
+         id: gpt-5.5
+     profiles:
+       default:
+         default_model: gpt-5
    ```
+
+   For provider and model alias recipes, see the [Provider and model setup guide](provider-and-model-setup.md).
 
 Token storage at `~/.config/steiner/codex_auth.json` is created with `0600` permissions and should be treated as sensitive — the same as API keys and `--log-file` output. Existing token files continue to load, but re-running `steiner login codex` refreshes stored `id_token`, ChatGPT account metadata, and the optional exchanged API credential used for direct OpenAI Responses API calls.

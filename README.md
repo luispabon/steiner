@@ -13,7 +13,7 @@ ollama run qwen2.5-coder:14b
 go run ./cmd/steiner
 ```
 
-See [Getting started](docs/user/getting-started.md) for setup and a minimal configuration. [CLI reference](docs/user/cli.md) covers one-shot requests, commands, and interactive controls.
+See [Getting started](docs/user/getting-started.md) for the shortest local run. The [provider and model setup guide](docs/user/provider-and-model-setup.md) covers aliases, profiles, and local or cloud providers. [CLI reference](docs/user/cli.md) covers one-shot requests, commands, and interactive controls.
 
 ## Features
 

@@ -3,6 +3,8 @@
 `steiner` is configured through a YAML file. This document covers every field
 in the `Config` struct, their types, defaults, and valid values.
 
+For copy-paste provider, alias, profile, and runtime selection recipes, see the [Provider and model setup guide](provider-and-model-setup.md).
+
 ## File locations and loading order
 
 Configuration is loaded and merged in the following precedence order (later

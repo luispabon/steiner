@@ -2,9 +2,13 @@
 
 Steiner is a local-first Go coding agent with bounded context and sandboxed execution.
 
-## User documentation
+## Get started
 
 - [Getting started](user/getting-started.md)
+- [Provider and model setup](user/provider-and-model-setup.md)
+
+## User documentation
+
 - [CLI reference](user/cli.md)
 - [Configuration reference](user/configuration.md)
 - [Built-in tools](user/tools.md)
