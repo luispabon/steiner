@@ -253,13 +253,13 @@ steiner login codex
 
 Steiner starts a local callback server on `http://localhost:1455/auth/callback`, opens your default browser to the OpenAI OAuth consent page, and waits for the callback after you authenticate. The OAuth authorization-code flow uses PKCE. On success, Steiner saves the access and refresh tokens, ID token, ChatGPT account metadata, and an optional exchanged API-key-style credential in its Codex token store. On Linux, the default path is `~/.config/steiner/codex_auth.json`; Steiner prints the path after saving. Treat this file as sensitive.
 
-If Steiner cannot open a browser, or you want to launch it yourself, pass `--debug-url`:
+To print the full authorization URL before the normal browser launch, pass `--debug-url`:
 
 ```bash
 steiner login codex --debug-url
 ```
 
-The command prints the full authorization URL as `Auth URL: ...` before attempting to open the browser. Copy that URL into a browser, complete consent, and leave the command running so it can receive the local callback.
+The command prints the URL as `Auth URL: ...` before attempting to open the browser.
 
 Check the saved authentication state with:
 
@@ -290,4 +290,4 @@ models:
 
 The model alias (`gpt-5` above) is a Steiner name. The `id` (`gpt-5.5` above) is the model ID sent to Codex. Do not add `api_key` or `api_key_env`: Codex authentication is managed by `steiner login codex` and the saved OAuth token.
 
-When login can exchange the ChatGPT ID token for an API-key-style credential, Steiner sends requests to `https://api.openai.com/v1/responses`. Otherwise it uses `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and ChatGPT account metadata. Re-running `steiner login codex` refreshes the saved login data and optional exchanged credential.
+With the default HTTP transport, when login can exchange the ChatGPT ID token for an API-key-style credential, Steiner sends requests to `https://api.openai.com/v1/responses`. Otherwise it uses `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and ChatGPT account metadata. To use the WebSocket transport, set `providers.<name>.codex.transport: websocket`; it uses `wss://chatgpt.com/backend-api/codex/responses` even when an API-key-style credential was exchanged. Re-running `steiner login codex` refreshes the saved login data and any successfully exchanged credential; if exchange fails, an existing exchanged credential can remain.
