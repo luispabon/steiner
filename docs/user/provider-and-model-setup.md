@@ -152,24 +152,44 @@ models:
 
 ## OpenCode
 
-OpenCode provides two runtime-supported provider types:
+[OpenCode](https://opencode.ai/docs) is a separate coding agent. Steiner does not
+authenticate with OpenCode; it connects to OpenCode's Go and Zen gateways using a
+key you obtain from OpenCode:
+
+1. Install and start OpenCode, then run `/connect` inside OpenCode's own TUI (not
+   Steiner) and sign in at https://opencode.ai/auth.
+2. Copy the API key OpenCode shows you.
+3. Export it in your shell and reference that variable from Steiner:
+
+```bash
+export OPENCODE_API_KEY='your-opencode-key'
+```
 
 ```yaml
 providers:
-  go:
+  opencode-go:
     type: opencode_go
-    api_key_env: OPENCODE_API_KEY
-  zen:
-    type: opencode_zen
     api_key_env: OPENCODE_API_KEY
 
 models:
   profiles:
     default:
-      default_model: go/<model-id>
+      default_model: opencode-go/<model-id>
 ```
 
-For OpenCode Zen, set the default to `zen/<model-id>` instead. Both are raw references; use the provider key chosen in your config. OpenCode's own TUI provides `/connect`; that command belongs to OpenCode, not Steiner. Use the key or environment variable required by the OpenCode service.
+The variable name is yours to choose; it only has to match `api_key_env`. `export`
+lasts for the current shell only, so use your shell's normal secret management
+for persistence, and prefer `api_key_env` over putting the key in `api_key`.
+
+OpenCode Zen is the same shape with `type: opencode_zen`; use whatever provider
+key you configure (for example `opencode-zen`), giving a reference like
+`opencode-zen/<model-id>`.
+
+### Finding model IDs
+
+Model IDs come from OpenCode, not Steiner. Run `steiner models refresh` to
+enumerate OpenCode's models, then start `steiner` and pick one with `/model`; the
+chooser lists entries as `opencode-go/<model-id>`.
 
 ## Codex OAuth
 
@@ -182,7 +202,14 @@ steiner login codex
 steiner login codex status
 ```
 
-Configure the provider with `type: codex` and select the model with its raw reference. Replace `<codex-model-id>` with a model ID available to your account:
+`steiner login codex` opens your browser to authenticate and saves the resulting
+token to `~/.config/steiner/codex_auth.json`. It waits `--timeout` (default
+`120s`) for you to finish, and `--debug-url` prints the authorization URL before
+the browser is opened. `steiner login codex status` reports the stored token's
+expiry as `valid` or `needs refresh`, or tells you to run `steiner login codex`.
+
+Configure the provider with `type: codex` and select the model with its raw
+reference:
 
 ```yaml
 providers:
@@ -195,7 +222,11 @@ models:
       default_model: codex/<codex-model-id>
 ```
 
-Do not add `api_key` or `api_key_env` for Codex. See [Optional features](optional-features.md#codex-oauth) for the short feature pointer.
+`<codex-model-id>` is account-dependent; Steiner does not ship a fixed list. Run
+`steiner models refresh`, then start `steiner` and use `/model` to see the IDs your
+account can access (for example `codex/gpt-5-codex`). Do not add `api_key` or
+`api_key_env` for Codex. See [Optional features](optional-features.md#codex-oauth)
+for the short feature pointer.
 
 ## Optional aliases
 

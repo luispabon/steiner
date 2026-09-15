@@ -19,6 +19,14 @@ entries win):
 `--unsafe` is applied as a config override that forces `sandbox.enabled=false`
 after config files and environment variables have been merged.
 
+Neither config file is created for you, and there is no `init` command; create
+`.steiner/config.yaml` yourself. The project file is relative to the project
+root: `<project>/.steiner/config.yaml`. With no config at all, steiner uses a
+built-in default: a `local` provider of type `openai_compat` at
+`http://localhost:11434/v1` serving the model `local/qwen3-35b-a3b`. A model call
+then fails unless something is listening there. See
+[Getting started](getting-started.md) for a worked first run.
+
 Key environment variables:
 
 | Variable                          | Maps to                            |

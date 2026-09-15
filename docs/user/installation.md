@@ -1,5 +1,12 @@
 # Installation
 
+## Prerequisites
+
+- Linux sandboxing needs `bubblewrap` (`bwrap`) on `PATH`. Without it, steiner runs tools unsandboxed and reports the sandbox as `unavailable`. See [Sandboxing](sandboxing.md).
+- `git` is needed for sub-agent delegation worktrees and oneshot runs.
+
+macOS and Windows run the binary but do not support the sandbox; tools run without it. The release binary has no other required dependencies.
+
 ## Download a release binary
 
 The supported user path is a binary from [GitHub Releases](https://github.com/luispabon/steiner/releases). Download the asset matching your operating system and CPU architecture:
