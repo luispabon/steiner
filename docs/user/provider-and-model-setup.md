@@ -239,6 +239,55 @@ steiner --model local --exec "summarize this repository in one sentence"
 
 For an interactive check, run `steiner`, then enter `/model local`. If the alias or provider cannot be resolved, `config` or `model inspect` reports the configuration error before a model request is made. The same commands work with `go run ./cmd/steiner` when running from a source checkout.
 
-## Codex
+## Codex OAuth
 
-Codex uses OAuth rather than an API key. Follow the [Codex OAuth setup](optional-features.md#codex-oauth) instead of adding a second Codex recipe here.
+Use an OpenAI Codex subscription with Steiner without a separate API key. Codex authentication uses your OpenAI account through OAuth, and the `codex` provider uses the saved OAuth credentials.
+
+### Authenticate
+
+Run:
+
+```bash
+steiner login codex
+```
+
+Steiner starts a local callback server on `http://localhost:1455/auth/callback`, opens your default browser to the OpenAI OAuth consent page, and waits for the callback after you authenticate. The OAuth authorization-code flow uses PKCE. On success, Steiner saves the access and refresh tokens, ID token, ChatGPT account metadata, and an optional exchanged API-key-style credential in its Codex token store. On Linux, the default path is `~/.config/steiner/codex_auth.json`; Steiner prints the path after saving. Treat this file as sensitive.
+
+If Steiner cannot open a browser, or you want to launch it yourself, pass `--debug-url`:
+
+```bash
+steiner login codex --debug-url
+```
+
+The command prints the full authorization URL as `Auth URL: ...` before attempting to open the browser. Copy that URL into a browser, complete consent, and leave the command running so it can receive the local callback.
+
+Check the saved authentication state with:
+
+```bash
+steiner login codex status
+```
+
+The status command reports `Not authenticated` when no token is saved. Otherwise it reports the token expiry and `Status: valid` or `Status: needs refresh`. It does not print token contents.
+
+### Configure the provider and model
+
+Add a `codex` provider, define a model alias that points to it, and set that alias as the default profile's model:
+
+```yaml
+providers:
+  codex:
+    type: codex
+
+models:
+  definitions:
+    gpt-5:
+      provider: codex
+      id: gpt-5.5
+  profiles:
+    default:
+      default_model: gpt-5
+```
+
+The model alias (`gpt-5` above) is a Steiner name. The `id` (`gpt-5.5` above) is the model ID sent to Codex. Do not add `api_key` or `api_key_env`: Codex authentication is managed by `steiner login codex` and the saved OAuth token.
+
+When login can exchange the ChatGPT ID token for an API-key-style credential, Steiner sends requests to `https://api.openai.com/v1/responses`. Otherwise it uses `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and ChatGPT account metadata. Re-running `steiner login codex` refreshes the saved login data and optional exchanged credential.
