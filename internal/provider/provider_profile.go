@@ -2,10 +2,11 @@ package provider
 
 import "github.com/luispabon/steiner/internal/config"
 
-// transportChoice is a placeholder for a provider's fixed transport outcome.
-// TODO(stage B): will be replaced/extended when the fact-based resolver lands.
+// transportChoice describes a resolved transport decision.
 type transportChoice struct {
-	Reason string
+	ProviderType config.ProviderType
+	Transport    TransportType
+	Reason       string
 }
 
 // providerProfile describes provider-type-specific metadata resolution behaviour.
@@ -29,8 +30,12 @@ var providerProfiles = map[config.ProviderType]providerProfile{
 		ModelsDevID:    "openai",
 		DefaultBaseURL: "https://api.openai.com/v1",
 		Generic:        false,
-		FixedTransport: &transportChoice{Reason: "codex provider uses OAuth Responses transport"},
-		LiveProbe:      false,
+		FixedTransport: &transportChoice{
+			ProviderType: config.ProviderTypeCodex,
+			Transport:    TransportConfigured,
+			Reason:       "codex provider uses OAuth Responses transport",
+		},
+		LiveProbe: false,
 	},
 	config.ProviderTypeAnthropic: {
 		ModelsDevID:    "anthropic",

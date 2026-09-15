@@ -1700,3 +1700,73 @@ func TestResolveReasoningBatchEffectsLoadedMetadataOnce(t *testing.T) {
 		t.Errorf("c efforts = %v, want [medium]", caps["c"].SupportedEfforts)
 	}
 }
+
+func TestResolveFacts(t *testing.T) {
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+			"codex": {Type: config.ProviderTypeCodex},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"fully-configured": {
+					Provider: "local",
+					ID:       "llama3",
+					Advanced: config.AdvancedConfig{
+						Limits: config.AdvancedLimitsConfig{ContextWindow: 128000, MaxOutputTokens: 8192},
+					},
+				},
+				"minimal": {
+					Provider: "local",
+					ID:       "qwen3",
+				},
+				"codex-reasoning": {
+					Provider: "codex",
+					ID:       "o3-mini",
+				},
+			},
+		},
+	}
+
+	t.Run("fully configured model reports config for all limits", func(t *testing.T) {
+		rm, err := Resolve(cfg, "fully-configured")
+		if err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+		if !rm.Facts.ContextWindow.Known || rm.Facts.ContextWindow.Value != 128000 || rm.Facts.ContextWindow.Source != FactSourceConfig {
+			t.Errorf("ContextWindow = %+v", rm.Facts.ContextWindow)
+		}
+		if !rm.Facts.MaxOutputTokens.Known || rm.Facts.MaxOutputTokens.Value != 8192 || rm.Facts.MaxOutputTokens.Source != FactSourceConfig {
+			t.Errorf("MaxOutputTokens = %+v", rm.Facts.MaxOutputTokens)
+		}
+	})
+
+	t.Run("minimal model defaults to conservative fallback", func(t *testing.T) {
+		rm, err := Resolve(cfg, "minimal")
+		if err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+		if rm.Facts.ContextWindow.Value != 32768 || rm.Facts.ContextWindow.Source != FactSourceFallback {
+			t.Errorf("ContextWindow = %+v, want default 32768/fallback", rm.Facts.ContextWindow)
+		}
+		if rm.Facts.MaxOutputTokens.Value != 4096 || rm.Facts.MaxOutputTokens.Source != FactSourceFallback {
+			t.Errorf("MaxOutputTokens = %+v, want default 4096/fallback", rm.Facts.MaxOutputTokens)
+		}
+		if rm.Facts.ReasoningEfforts.Known {
+			t.Errorf("ReasoningEfforts.Known = true, want false")
+		}
+	})
+
+	t.Run("codex model with reasoning family gets builtin efforts", func(t *testing.T) {
+		rm, err := Resolve(cfg, "codex-reasoning")
+		if err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+		if !rm.Facts.ReasoningEfforts.Known || rm.Facts.ReasoningEfforts.Source != FactSourceFallback || rm.Facts.ReasoningEfforts.Confidence != "low" {
+			t.Errorf("ReasoningEfforts = %+v, want fallback/low", rm.Facts.ReasoningEfforts)
+		}
+		if !equalStrings(rm.Facts.ReasoningEfforts.Value, []string{"minimal", "low", "medium", "high"}) {
+			t.Errorf("ReasoningEfforts.Value = %v", rm.Facts.ReasoningEfforts.Value)
+		}
+	})
+}

@@ -58,13 +58,17 @@ func TestProviderProfileTable(t *testing.T) {
 			wantLiveProbe:      false,
 		},
 		{
-			name:               "codex",
-			typ:                config.ProviderTypeCodex,
-			wantModelsDevID:    "openai",
-			wantBaseURL:        "https://api.openai.com/v1",
-			wantGeneric:        false,
-			wantFixedTransport: &transportChoice{Reason: "codex provider uses OAuth Responses transport"},
-			wantLiveProbe:      false,
+			name:            "codex",
+			typ:             config.ProviderTypeCodex,
+			wantModelsDevID: "openai",
+			wantBaseURL:     "https://api.openai.com/v1",
+			wantGeneric:     false,
+			wantFixedTransport: &transportChoice{
+				ProviderType: config.ProviderTypeCodex,
+				Transport:    TransportConfigured,
+				Reason:       "codex provider uses OAuth Responses transport",
+			},
+			wantLiveProbe: false,
 		},
 		{
 			name:               "anthropic",
@@ -173,8 +177,8 @@ func TestProviderProfileTable(t *testing.T) {
 			} else {
 				if p.FixedTransport == nil {
 					t.Errorf("FixedTransport = nil, want non-nil")
-				} else if p.FixedTransport.Reason != tt.wantFixedTransport.Reason {
-					t.Errorf("FixedTransport.Reason = %q, want %q", p.FixedTransport.Reason, tt.wantFixedTransport.Reason)
+				} else if *p.FixedTransport != *tt.wantFixedTransport {
+					t.Errorf("FixedTransport = %+v, want %+v", p.FixedTransport, tt.wantFixedTransport)
 				}
 			}
 		})
