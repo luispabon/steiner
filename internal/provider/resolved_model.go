@@ -61,6 +61,7 @@ type ResolvedModel struct {
 	ReasoningConfiguredEffort string
 	ReasoningEffectiveEffort  string
 	Warnings                  []string
+	metadataLookupReason      string
 }
 
 // Resolve builds a ResolvedModel from cfg for the given model alias or raw
@@ -90,10 +91,8 @@ func ResolveReasoningBatch(cfg config.Config, httpClient *http.Client) (
 	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
 	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
 	defer cacheCancel()
-	var data []byte
-	if d, err := cache.LoadBestEffort(cacheCtx); err == nil {
-		data = d
-	}
+	loadResult := cache.LoadBestEffortWithStatus(cacheCtx)
+	data := loadResult.Data
 
 	caps := make(map[string]ReasoningCapabilities)
 	efforts := make(map[string]string)
@@ -118,7 +117,11 @@ func ResolveReasoningBatch(cfg config.Config, httpClient *http.Client) (
 func loadAndApplyModelsDevMetadataFromData(rm *ResolvedModel, modelCfg config.ModelConfig, data []byte) metadata.ModelInfo {
 	var info metadata.ModelInfo
 	if data != nil {
-		info = metadata.LookupWithProvider(data, rm.ProviderAlias, rm.BackendModelID)
+		lookup := metadata.LookupWithProviderResult(data, rm.ProviderAlias, rm.BackendModelID)
+		info = lookup.Info
+		if lookup.Reason == metadata.LookupReasonMalformed || lookup.Reason == metadata.LookupReasonProviderMismatch || lookup.Reason == metadata.LookupReasonConflict {
+			rm.metadataLookupReason = lookup.Reason
+		}
 	}
 	rm.EffectiveProviderType, rm.EffectiveTransport, rm.TransportOverrideReason = resolveEffectiveTransport(
 		modelCfg.Advanced.Transport, rm.ProviderConfig.Type, info, rm.BackendModelID,
@@ -147,11 +150,13 @@ func loadAndApplyModelsDevMetadata(rm *ResolvedModel, modelCfg config.ModelConfi
 	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
 	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
 	defer cacheCancel()
-	var data []byte
-	if d, err := cache.LoadBestEffort(cacheCtx); err == nil {
-		data = d
+	loadResult := cache.LoadBestEffortWithStatus(cacheCtx)
+	if loadResult.Status.Reason != "" {
+		rm.Warnings = append(rm.Warnings, fmt.Sprintf(
+			"Model metadata warning: models.dev cache degradation: %s.", loadResult.Status.Reason,
+		))
 	}
-	return loadAndApplyModelsDevMetadataFromData(rm, modelCfg, data)
+	return loadAndApplyModelsDevMetadataFromData(rm, modelCfg, loadResult.Data)
 }
 
 // resolveLimitsFromDiscovery attempts to fill in missing token limits via
@@ -182,15 +187,19 @@ func resolveLimitsFromDiscovery(rm *ResolvedModel, adv config.AdvancedLimitsConf
 	if isFallbackLimits(adv) {
 		rm.MetadataSource = "fallback"
 		rm.Confidence = "low"
+		lookupReason := ""
+		if rm.metadataLookupReason != "" {
+			lookupReason = " models.dev lookup degraded: " + rm.metadataLookupReason + "."
+		}
 		if isAlias {
 			rm.Warnings = append(rm.Warnings, fmt.Sprintf(
-				"Model metadata warning: %s/%s has unknown context limits. Using conservative fallback: context_window=%d, max_output_tokens=%d. Set models.%s.advanced.limits.context_window to remove this warning.",
-				rm.Alias, rm.BackendModelID, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens, rm.Alias,
+				"Model metadata warning: %s/%s has unknown context limits.%s Using conservative fallback: context_window=%d, max_output_tokens=%d. Set models.%s.advanced.limits.context_window to remove this warning.",
+				rm.Alias, rm.BackendModelID, lookupReason, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens, rm.Alias,
 			))
 		} else {
 			rm.Warnings = append(rm.Warnings, fmt.Sprintf(
-				"Model metadata warning: %s has unknown context limits. Using conservative fallback: context_window=%d, max_output_tokens=%d.",
-				reference, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens,
+				"Model metadata warning: %s has unknown context limits.%s Using conservative fallback: context_window=%d, max_output_tokens=%d.",
+				reference, lookupReason, rm.EffectiveLimits.ContextWindow, rm.EffectiveLimits.MaxOutputTokens,
 			))
 		}
 	}

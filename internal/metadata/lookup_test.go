@@ -82,16 +82,30 @@ func TestLookupWithProviderPrefersProviderSpecificLimits(t *testing.T) {
 	}
 }
 
-func TestLookupWithProviderFallsBackAcrossProviders(t *testing.T) {
+func TestLookupWithProviderRejectsProviderMismatch(t *testing.T) {
 	data := []byte(`{
 		"opencode-go":{"models":{"deepseek-v4-flash":{"limit":{"context":1000000,"output":384000}}}}
 	}`)
-	info := LookupWithProvider(data, "local", "deepseek-v4-flash")
-	if info.ContextWindow != 1000000 {
-		t.Errorf("ContextWindow: got %d, want 1000000", info.ContextWindow)
+	result := LookupWithProviderResult(data, "local", "deepseek-v4-flash")
+	if result.Info.Found {
+		t.Fatalf("expected no metadata, got %+v", result.Info)
 	}
-	if info.MaxOutputTokens != 384000 {
-		t.Errorf("MaxOutputTokens: got %d, want 384000", info.MaxOutputTokens)
+	if result.Reason != LookupReasonProviderMismatch {
+		t.Fatalf("Reason = %q, want %q", result.Reason, LookupReasonProviderMismatch)
+	}
+}
+
+func TestLookupRejectsConflictingProviderMatches(t *testing.T) {
+	data := []byte(`{
+		"provider-a":{"models":{"model-x":{"limit":{"context":1000}}}},
+		"provider-b":{"models":{"model-x":{"limit":{"context":2000}}}}
+	}`)
+	result := LookupWithProviderResult(data, "", "model-x")
+	if result.Info.Found {
+		t.Fatalf("expected no metadata, got %+v", result.Info)
+	}
+	if result.Reason != LookupReasonConflict {
+		t.Fatalf("Reason = %q, want %q", result.Reason, LookupReasonConflict)
 	}
 }
 

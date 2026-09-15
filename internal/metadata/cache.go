@@ -81,18 +81,46 @@ func (c *Cache) Load() ([]byte, error) {
 	return data, nil
 }
 
+// LoadStatus describes degradation encountered while loading models.dev data.
+type LoadStatus struct {
+	Reason string
+}
+
 // LoadBestEffort refreshes stale metadata before loading cached JSON.
 // Refresh is opportunistic and offline-safe: any refresh failure falls back to
 // whatever cache data is already available on disk.
 func (c *Cache) LoadBestEffort(ctx context.Context) ([]byte, error) {
-	if !c.IsFresh() {
+	result := c.LoadBestEffortWithStatus(ctx)
+	return result.Data, result.Err
+}
+
+// LoadResult contains cached data and any degradation encountered while loading
+// it. Data remains available when a stale cache can be used.
+type LoadResult struct {
+	Data   []byte
+	Err    error
+	Status LoadStatus
+}
+
+// LoadBestEffortWithStatus is LoadBestEffort with observable refresh and load
+// degradation. It preserves stale-cache fallback behavior.
+func (c *Cache) LoadBestEffortWithStatus(ctx context.Context) LoadResult {
+	result := LoadResult{}
+	wasFresh := c.IsFresh()
+	if !wasFresh {
 		if err := c.Refresh(ctx); err != nil {
-			// Fall back to stale cache — the data file may exist even if
-			// metadata save failed during a previous refresh.
-			return c.Load()
+			result.Status.Reason = "refresh failed: " + err.Error()
+		} else if !c.IsFresh() {
+			result.Status.Reason = "cache refresh unavailable"
 		}
 	}
-	return c.Load()
+	result.Data, result.Err = c.Load()
+	if result.Err != nil {
+		result.Status.Reason = "cache load failed: " + result.Err.Error()
+	} else if result.Data == nil && result.Status.Reason == "" {
+		result.Status.Reason = "cache unavailable"
+	}
+	return result
 }
 
 // LoadMetadata loads the cache metadata. Returns zero CacheMetadata if missing.

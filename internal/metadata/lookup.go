@@ -2,6 +2,8 @@ package metadata
 
 import (
 	"encoding/json"
+	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -22,36 +24,83 @@ type ModelInfo struct {
 
 // Lookup finds model metadata for the given backend model ID in the cached JSON.
 // The models.dev format is {provider: {models: {model_id: {...}}}}.
-// Lookup searches across all providers for the first matching model ID.
+// Providerless lookup is deterministic and rejects conflicting matches.
 // Returns zero ModelInfo if not found or if data is malformed.
 func Lookup(data []byte, modelID string) ModelInfo {
-	return LookupWithProvider(data, "", modelID)
+	return LookupWithProviderResult(data, "", modelID).Info
 }
 
-// LookupWithProvider finds model metadata for modelID, preferring providerID
-// when it is present in the models.dev cache before falling back across all
-// providers. Provider preference matters because models.dev may list the same
-// model ID with different limits for different providers.
+// LookupWithProvider finds model metadata for modelID. A supplied providerID
+// limits lookup to that provider. It never selects metadata from an unrelated
+// provider when the requested provider has no match.
 func LookupWithProvider(data []byte, providerID, modelID string) ModelInfo {
+	return LookupWithProviderResult(data, providerID, modelID).Info
+}
+
+// LookupResult contains metadata and a degradation reason when lookup could not
+// safely return a match.
+type LookupResult struct {
+	Info   ModelInfo
+	Reason string
+}
+
+const (
+	LookupReasonMalformed        = "malformed"
+	LookupReasonNotFound         = "not_found"
+	LookupReasonProviderMismatch = "provider_mismatch"
+	LookupReasonConflict         = "conflict"
+)
+
+// LookupWithProviderResult is LookupWithProvider with an observable reason for
+// malformed, missing, mismatched, or conflicting metadata.
+func LookupWithProviderResult(data []byte, providerID, modelID string) LookupResult {
 	var root map[string]json.RawMessage
-	if err := json.Unmarshal(data, &root); err != nil {
-		return ModelInfo{}
+	if err := json.Unmarshal(data, &root); err != nil || root == nil {
+		return LookupResult{Reason: LookupReasonMalformed}
 	}
-	if providerID = strings.TrimSpace(providerID); providerID != "" {
-		if providerRaw, ok := root[providerID]; ok {
-			info, ok := lookupProviderModel(providerRaw, modelID)
-			if ok {
-				return info
+	providerID = strings.TrimSpace(providerID)
+	if providerID != "" {
+		providerRaw, ok := root[providerID]
+		if ok {
+			if info, ok := lookupProviderModel(providerRaw, modelID); ok {
+				return LookupResult{Info: info}
 			}
 		}
+		for otherProvider, providerRaw := range root {
+			if otherProvider == providerID {
+				continue
+			}
+			if _, ok := lookupProviderModel(providerRaw, modelID); ok {
+				return LookupResult{Reason: LookupReasonProviderMismatch}
+			}
+		}
+		return LookupResult{Reason: LookupReasonNotFound}
 	}
-	for _, providerRaw := range root {
-		info, ok := lookupProviderModel(providerRaw, modelID)
-		if ok {
-			return info
+
+	type candidate struct {
+		provider string
+		info     ModelInfo
+	}
+	providers := make([]string, 0, len(root))
+	for provider := range root {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+	candidates := make([]candidate, 0, len(providers))
+	for _, provider := range providers {
+		if info, ok := lookupProviderModel(root[provider], modelID); ok {
+			candidates = append(candidates, candidate{provider: provider, info: info})
 		}
 	}
-	return ModelInfo{}
+	if len(candidates) == 0 {
+		return LookupResult{Reason: LookupReasonNotFound}
+	}
+	for _, candidate := range candidates[1:] {
+		if !reflect.DeepEqual(candidate.info, candidates[0].info) {
+			return LookupResult{Reason: LookupReasonConflict}
+		}
+	}
+	return LookupResult{Info: candidates[0].info}
 }
 
 func lookupProviderModel(providerRaw json.RawMessage, modelID string) (ModelInfo, bool) {
