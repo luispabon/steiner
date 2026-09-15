@@ -28,6 +28,31 @@ func TestLookup_MalformedJSON(t *testing.T) {
 	}
 }
 
+func TestLookupWithProviderResult_MalformedModelEntry(t *testing.T) {
+	result := LookupWithProviderResult([]byte(`{"openai":{"models":{"gpt-4o":[]}}}`), "openai", "gpt-4o")
+	if result.Reason != LookupReasonMalformed {
+		t.Fatalf("Reason = %q, want %q", result.Reason, LookupReasonMalformed)
+	}
+}
+
+func TestLookupWithProviderResult_NullModelEntryIsMalformed(t *testing.T) {
+	result := LookupWithProviderResult([]byte(`{"openai":{"models":{"gpt-4o":null}}}`), "openai", "gpt-4o")
+	if result.Reason != LookupReasonMalformed {
+		t.Fatalf("Reason = %q, want %q", result.Reason, LookupReasonMalformed)
+	}
+}
+
+func TestLookupWithProviderResult_ValidMatchTakesPrecedenceOverMalformedOtherProvider(t *testing.T) {
+	data := []byte(`{
+		"bad":{"models":{"gpt-4o":null}},
+		"openai":{"models":{"gpt-4o":{"limit":{"context":128000}}}}
+	}`)
+	result := LookupWithProviderResult(data, "local", "gpt-4o")
+	if result.Reason != LookupReasonProviderMismatch {
+		t.Fatalf("Reason = %q, want %q", result.Reason, LookupReasonProviderMismatch)
+	}
+}
+
 func TestLookup_MissingModelsKey(t *testing.T) {
 	data := []byte(`{"openai":{"id":"openai"}}`)
 	info := Lookup(data, "gpt-4o")
@@ -82,16 +107,30 @@ func TestLookupWithProviderPrefersProviderSpecificLimits(t *testing.T) {
 	}
 }
 
-func TestLookupWithProviderFallsBackAcrossProviders(t *testing.T) {
+func TestLookupWithProviderRejectsProviderMismatch(t *testing.T) {
 	data := []byte(`{
 		"opencode-go":{"models":{"deepseek-v4-flash":{"limit":{"context":1000000,"output":384000}}}}
 	}`)
-	info := LookupWithProvider(data, "local", "deepseek-v4-flash")
-	if info.ContextWindow != 1000000 {
-		t.Errorf("ContextWindow: got %d, want 1000000", info.ContextWindow)
+	result := LookupWithProviderResult(data, "local", "deepseek-v4-flash")
+	if result.Info.Found {
+		t.Fatalf("expected no metadata, got %+v", result.Info)
 	}
-	if info.MaxOutputTokens != 384000 {
-		t.Errorf("MaxOutputTokens: got %d, want 384000", info.MaxOutputTokens)
+	if result.Reason != LookupReasonProviderMismatch {
+		t.Fatalf("Reason = %q, want %q", result.Reason, LookupReasonProviderMismatch)
+	}
+}
+
+func TestLookupRejectsConflictingProviderMatches(t *testing.T) {
+	data := []byte(`{
+		"provider-a":{"models":{"model-x":{"limit":{"context":1000}}}},
+		"provider-b":{"models":{"model-x":{"limit":{"context":2000}}}}
+	}`)
+	result := LookupWithProviderResult(data, "", "model-x")
+	if result.Info.Found {
+		t.Fatalf("expected no metadata, got %+v", result.Info)
+	}
+	if result.Reason != LookupReasonConflict {
+		t.Fatalf("Reason = %q, want %q", result.Reason, LookupReasonConflict)
 	}
 }
 

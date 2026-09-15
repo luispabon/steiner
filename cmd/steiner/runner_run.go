@@ -85,7 +85,7 @@ func emitTransportDiagnostic(events output.EventSink, rm provider.ResolvedModel)
 }
 
 func emitFallbackWarnings(events output.EventSink, rm provider.ResolvedModel) {
-	if rm.MetadataSource != "fallback" || len(rm.Warnings) == 0 {
+	if len(rm.Warnings) == 0 || (rm.MetadataSource != "fallback" && !hasMetadataDegradationWarning(rm.Warnings)) {
 		return
 	}
 	key := rm.Alias + "\x00" + rm.BackendModelID
@@ -98,6 +98,15 @@ func emitFallbackWarnings(events output.EventSink, rm provider.ResolvedModel) {
 	for _, warn := range rm.Warnings {
 		events.Emit(output.NewConfigWarningEvent(warn))
 	}
+}
+
+func hasMetadataDegradationWarning(warnings []string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning, "models.dev") {
+			return true
+		}
+	}
+	return false
 }
 
 func resetFallbackModelWarnings() {

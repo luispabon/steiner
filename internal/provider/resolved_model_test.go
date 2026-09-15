@@ -578,7 +578,7 @@ func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"openai":{"models":{"gpt-4o":{"limit":{"context":128000,"output":16384}}}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"local":{"models":{"gpt-4o":{"limit":{"context":128000,"output":16384}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -688,7 +688,7 @@ func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"openai":{"models":{"gpt-4o":{"limit":{"context":128000,"output":16384}}}}}`))
+		_, _ = w.Write([]byte(`{"local":{"models":{"gpt-4o":{"limit":{"context":128000,"output":16384}}}}}`))
 	}))
 	defer srv.Close()
 
@@ -727,7 +727,7 @@ func TestResolveWithDiscoveryOfflineUsesStaleModelsDevCache(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"openai":{"models":{"gpt-4o":{"limit":{"context":128000,"output":16384}}}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"local":{"models":{"gpt-4o":{"limit":{"context":128000,"output":16384}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2026-05-02T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -769,7 +769,7 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"openrouter":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"router":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -826,7 +826,7 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"openrouter":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"router":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
@@ -889,7 +889,7 @@ func TestResolveWithDiscoveryReasoningEchoBack(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	cacheJSON := `{"prov":{"models":{` +
+	cacheJSON := `{"local":{"models":{` +
 		`"deepseek-r1":{"limit":{"context":128000,"output":8192},"interleaved":{"field":"reasoning_content"}},` +
 		`"gpt-4o":{"limit":{"context":128000,"output":16384}}` +
 		`}}}`
@@ -1234,20 +1234,23 @@ func TestResolveWithDiscoveryOpencodeProvidersUseGenericFallbackTransport(t *tes
 	tests := []struct {
 		name             string
 		providerType     config.ProviderType
+		providerAlias    string
 		modelID          string
 		wantProviderType config.ProviderType
 		wantTransport    TransportType
 	}{
 		{
-			name:             "opencode_go with anthropic model resolves to anthropic",
+			name:             "opencode_go with provider metadata",
 			providerType:     config.ProviderTypeOpencodeGo,
+			providerAlias:    "opencode-go",
 			modelID:          "deepseek-r1",
 			wantProviderType: config.ProviderTypeAnthropic,
 			wantTransport:    TransportAnthropic,
 		},
 		{
-			name:             "opencode_zen with anthropic model resolves to anthropic",
+			name:             "opencode_zen with provider metadata",
 			providerType:     config.ProviderTypeOpencodeZen,
+			providerAlias:    "opencode-zen",
 			modelID:          "kimi-k2",
 			wantProviderType: config.ProviderTypeAnthropic,
 			wantTransport:    TransportAnthropic,
@@ -1258,12 +1261,12 @@ func TestResolveWithDiscoveryOpencodeProvidersUseGenericFallbackTransport(t *tes
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Config{
 				Providers: map[string]config.ProviderConfig{
-					"opencode": {Type: tt.providerType},
+					tt.providerAlias: {Type: tt.providerType},
 				},
 				Models: config.ModelsConfig{
 					Definitions: map[string]config.ModelConfig{
 						"test": {
-							Provider: "opencode",
+							Provider: tt.providerAlias,
 							ID:       tt.modelID,
 						},
 					},
@@ -1386,7 +1389,7 @@ func TestResolveWithDiscoveryUsesModelsDevReasoningEfforts(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	cacheJSON := `{"openai":{"models":{"gpt-5.4-mini":{"limit":{"context":200000,"output":128000},"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}`
+	cacheJSON := `{"local":{"models":{"gpt-5.4-mini":{"limit":{"context":200000,"output":128000},"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}`
 	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
@@ -1431,7 +1434,7 @@ func TestResolveWithDiscoveryModelsDevReasoningEffortsRespectsConfig(t *testing.
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	cacheJSON := `{"openai":{"models":{"gpt-5.4-mini":{"limit":{"context":200000,"output":128000},"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}`
+	cacheJSON := `{"local":{"models":{"gpt-5.4-mini":{"limit":{"context":200000,"output":128000},"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}`
 	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}

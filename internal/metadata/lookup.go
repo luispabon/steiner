@@ -1,7 +1,10 @@
 package metadata
 
 import (
+	"bytes"
 	"encoding/json"
+	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -22,55 +25,137 @@ type ModelInfo struct {
 
 // Lookup finds model metadata for the given backend model ID in the cached JSON.
 // The models.dev format is {provider: {models: {model_id: {...}}}}.
-// Lookup searches across all providers for the first matching model ID.
+// Providerless lookup is deterministic and rejects conflicting matches.
 // Returns zero ModelInfo if not found or if data is malformed.
 func Lookup(data []byte, modelID string) ModelInfo {
-	return LookupWithProvider(data, "", modelID)
+	return LookupWithProviderResult(data, "", modelID).Info
 }
 
-// LookupWithProvider finds model metadata for modelID, preferring providerID
-// when it is present in the models.dev cache before falling back across all
-// providers. Provider preference matters because models.dev may list the same
-// model ID with different limits for different providers.
+// LookupWithProvider finds model metadata for modelID. A supplied providerID
+// limits lookup to that provider. It never selects metadata from an unrelated
+// provider when the requested provider has no match.
 func LookupWithProvider(data []byte, providerID, modelID string) ModelInfo {
-	var root map[string]json.RawMessage
-	if err := json.Unmarshal(data, &root); err != nil {
-		return ModelInfo{}
-	}
-	if providerID = strings.TrimSpace(providerID); providerID != "" {
-		if providerRaw, ok := root[providerID]; ok {
-			info, ok := lookupProviderModel(providerRaw, modelID)
-			if ok {
-				return info
-			}
-		}
-	}
-	for _, providerRaw := range root {
-		info, ok := lookupProviderModel(providerRaw, modelID)
-		if ok {
-			return info
-		}
-	}
-	return ModelInfo{}
+	return LookupWithProviderResult(data, providerID, modelID).Info
 }
 
-func lookupProviderModel(providerRaw json.RawMessage, modelID string) (ModelInfo, bool) {
+// LookupResult contains metadata and a degradation reason when lookup could not
+// safely return a match.
+type LookupResult struct {
+	Info   ModelInfo
+	Reason string
+}
+
+const (
+	// LookupReasonMalformed reports invalid models.dev JSON.
+	LookupReasonMalformed = "malformed"
+	// LookupReasonNotFound reports no matching model metadata.
+	LookupReasonNotFound = "not_found"
+	// LookupReasonProviderMismatch reports a model found only under another provider.
+	LookupReasonProviderMismatch = "provider_mismatch"
+	// LookupReasonConflict reports conflicting provider-specific matches.
+	LookupReasonConflict = "conflict"
+)
+
+// LookupWithProviderResult is LookupWithProvider with an observable reason for
+// malformed, missing, mismatched, or conflicting metadata.
+func LookupWithProviderResult(data []byte, providerID, modelID string) LookupResult {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil || root == nil {
+		return LookupResult{Reason: LookupReasonMalformed}
+	}
+	providerID = strings.TrimSpace(providerID)
+	if providerID != "" {
+		return lookupForProvider(root, providerID, modelID)
+	}
+	return lookupAcrossProviders(root, modelID)
+}
+
+func lookupForProvider(root map[string]json.RawMessage, providerID, modelID string) LookupResult {
+	providerMalformed := false
+	if providerRaw, ok := root[providerID]; ok {
+		if info, found, malformed := lookupProviderModel(providerRaw, modelID); found {
+			return LookupResult{Info: info}
+		} else {
+			providerMalformed = malformed
+		}
+	}
+
+	providers := make([]string, 0, len(root))
+	for provider := range root {
+		if provider != providerID {
+			providers = append(providers, provider)
+		}
+	}
+	sort.Strings(providers)
+	otherMalformed := false
+	for _, otherProvider := range providers {
+		if _, found, malformed := lookupProviderModel(root[otherProvider], modelID); found {
+			// A valid match under another provider takes precedence over malformed
+			// entries when classifying a provider mismatch.
+			return LookupResult{Reason: LookupReasonProviderMismatch}
+		} else if malformed {
+			otherMalformed = true
+		}
+	}
+	if providerMalformed || otherMalformed {
+		return LookupResult{Reason: LookupReasonMalformed}
+	}
+	return LookupResult{Reason: LookupReasonNotFound}
+}
+
+func lookupAcrossProviders(root map[string]json.RawMessage, modelID string) LookupResult {
+	type candidate struct {
+		provider string
+		info     ModelInfo
+	}
+	providers := make([]string, 0, len(root))
+	for provider := range root {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+	candidates := make([]candidate, 0, len(providers))
+	for _, provider := range providers {
+		if info, found, malformed := lookupProviderModel(root[provider], modelID); found {
+			candidates = append(candidates, candidate{provider: provider, info: info})
+		} else if malformed {
+			return LookupResult{Reason: LookupReasonMalformed}
+		}
+	}
+	if len(candidates) == 0 {
+		return LookupResult{Reason: LookupReasonNotFound}
+	}
+	for _, candidate := range candidates[1:] {
+		if !reflect.DeepEqual(candidate.info, candidates[0].info) {
+			return LookupResult{Reason: LookupReasonConflict}
+		}
+	}
+	return LookupResult{Info: candidates[0].info}
+}
+
+func lookupProviderModel(providerRaw json.RawMessage, modelID string) (ModelInfo, bool, bool) {
 	var provider struct {
 		NPM    string                     `json:"npm"`
 		API    string                     `json:"api"`
 		Models map[string]json.RawMessage `json:"models"`
 	}
 	if err := json.Unmarshal(providerRaw, &provider); err != nil || provider.Models == nil {
-		return ModelInfo{}, false
+		return ModelInfo{}, false, false
 	}
 	modelRaw, ok := provider.Models[modelID]
 	if !ok {
-		return ModelInfo{}, false
+		return ModelInfo{}, false, false
 	}
-	return parseModelEntry(provider.NPM, provider.API, modelRaw), true
+	if bytes.Equal(bytes.TrimSpace(modelRaw), []byte("null")) {
+		return ModelInfo{}, false, true
+	}
+	info, err := parseModelEntry(provider.NPM, provider.API, modelRaw)
+	if err != nil {
+		return ModelInfo{}, false, true
+	}
+	return info, true, false
 }
 
-func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) ModelInfo {
+func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) (ModelInfo, error) {
 	var entry struct {
 		Limit struct {
 			Context int `json:"context"`
@@ -92,7 +177,7 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) Model
 		} `json:"reasoning_options"`
 	}
 	if err := json.Unmarshal(raw, &entry); err != nil {
-		return ModelInfo{}
+		return ModelInfo{}, err
 	}
 	var supportedEfforts []string
 	for _, ro := range entry.ReasoningOptions {
@@ -113,7 +198,7 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) Model
 		InterleavedField:          entry.Interleaved.Field,
 		VisionInput:               containsFold(entry.Modalities.Input, "image"),
 		Found:                     true,
-	}
+	}, nil
 }
 
 // CountModels returns the number of unique model entries across all providers
