@@ -12,7 +12,6 @@ WIKI_DIR="$wiki_dir" python3 - <<'PY'
 import os
 import pathlib
 import re
-import shutil
 
 root = pathlib.Path.cwd()
 out = pathlib.Path(os.environ["WIKI_DIR"])
@@ -31,7 +30,7 @@ def page_name(source):
 pages = {p: page_name(p) for p in sources}
 by_relative = {p.relative_to(root).as_posix(): name for p, name in pages.items()}
 
-link_re = re.compile(r"(?P<prefix>\\]\()(?P<target>[^)#][^)]*)(?P<close>\\))")
+link_re = re.compile(r"(?P<prefix>\]\()(?P<target>[^)#][^)]*)(?P<close>\))")
 
 def rewrite(text, source):
     def replace(match):
