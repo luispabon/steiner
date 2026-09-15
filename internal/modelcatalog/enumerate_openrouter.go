@@ -35,12 +35,17 @@ type openRouterModel struct {
 	Description  string                 `json:"description"`
 	Context      int                    `json:"context_length"`
 	Architecture openRouterArchitecture `json:"architecture"`
+	TopProvider  openRouterTopProvider  `json:"top_provider"`
 }
 
 type openRouterArchitecture struct {
 	InputModalities  []string `json:"input_modalities"`
 	OutputModalities []string `json:"output_modalities"`
 	Modality         string   `json:"modality"`
+}
+
+type openRouterTopProvider struct {
+	MaxCompletionTokens int `json:"max_completion_tokens"`
 }
 
 // Enumerate discovers text-capable models from OpenRouter.
@@ -85,12 +90,13 @@ func (e *OpenRouterEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ Enu
 				displayName = item.ID
 			}
 			models = append(models, DiscoveredModel{
-				ProviderAlias: ep.Alias,
-				ProviderType:  ep.Type,
-				ID:            item.ID,
-				DisplayName:   displayName,
-				Description:   item.Description,
-				ContextLength: item.Context,
+				ProviderAlias:   ep.Alias,
+				ProviderType:    ep.Type,
+				ID:              item.ID,
+				DisplayName:     displayName,
+				Description:     item.Description,
+				ContextLength:   item.Context,
+				MaxOutputTokens: item.TopProvider.MaxCompletionTokens,
 			})
 		}
 		if response.Links.Next == nil || *response.Links.Next == "" {
