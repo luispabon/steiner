@@ -394,7 +394,13 @@ func buildModelResolver(deps DelegateDeps) func(string) (provider.Provider, prov
 }
 
 func buildModelResolverWithResolve(deps DelegateDeps, resolve func(string) (provider.ResolvedModel, error)) func(string) (provider.Provider, provider.ResolvedModel, error) {
-	memoizedResolve := newMemoizedModelResolver(resolve)
+	memoizedResolve := newMemoizedModelResolver(func(alias string) (provider.ResolvedModel, error) {
+		resolved, err := resolve(alias)
+		if err == nil {
+			emitModelWarnings(deps.Events, resolved)
+		}
+		return resolved, err
+	})
 	return func(alias string) (provider.Provider, provider.ResolvedModel, error) {
 		resolved, err := memoizedResolve(alias)
 		if err != nil {
@@ -408,6 +414,15 @@ func buildModelResolverWithResolve(deps DelegateDeps, resolve func(string) (prov
 			return nil, provider.ResolvedModel{}, err
 		}
 		return p, resolved, nil
+	}
+}
+
+func emitModelWarnings(events output.EventSink, model provider.ResolvedModel) {
+	if events == nil {
+		return
+	}
+	for _, warning := range model.Warnings {
+		events.Emit(output.NewConfigWarningEvent(warning))
 	}
 }
 
