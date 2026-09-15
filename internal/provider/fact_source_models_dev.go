@@ -2,38 +2,74 @@ package provider
 
 import (
 	"context"
+	"sync"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/metadata"
 )
 
-// modelsDevSource answers facts from already-loaded models.dev cache data.
-// The caller is responsible for loading the cache once (via
-// metadata.Cache.LoadBestEffortWithStatus) and passing the result in.
+// modelsDevLoader lazily loads and parses the models.dev cache at most once,
+// shared across every modelsDevSource instance constructed from it (so a
+// single resolution — or a whole ResolveReasoningBatch pass over many
+// aliases — touches the cache file/network at most once, and never at all
+// when no consulted source needs models.dev data).
+type modelsDevLoader struct {
+	cache *metadata.Cache
+	once  sync.Once
+	index *metadata.Index
+	err   string // LoadStatus.Reason if the load degraded; "" if clean
+}
+
+// newModelsDevLoader returns a modelsDevLoader that loads from cache on
+// first use.
+func newModelsDevLoader(cache *metadata.Cache) *modelsDevLoader {
+	return &modelsDevLoader{cache: cache}
+}
+
+func (l *modelsDevLoader) load(_ context.Context) (*metadata.Index, string) {
+	l.once.Do(func() {
+		loadCtx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
+		defer cancel()
+		result := l.cache.LoadBestEffortWithStatus(loadCtx)
+		if result.Data != nil {
+			l.index = metadata.ParseIndex(result.Data)
+		}
+		l.err = result.Status.Reason
+	})
+	return l.index, l.err
+}
+
+// modelsDevSource answers facts from a lazily-loaded models.dev index. The
+// loader is shared with sibling modelsDevSource instances built from the
+// same newModelsDevLoader call, so the cache is loaded at most once no
+// matter how many resolutions consult it.
 type modelsDevSource struct {
-	data       []byte // nil if load failed
-	loadReason string // non-empty describes why data is nil or degraded
+	loader *modelsDevLoader
 }
 
 func (modelsDevSource) name() FactSource { return FactSourceModelsDev }
 
-func (s modelsDevSource) resolve(_ context.Context, ref modelRef, want fieldSet) sourceResult {
-	if s.data == nil {
-		if s.loadReason != "" {
-			return sourceResult{sourceErr: "models.dev unavailable: " + s.loadReason}
+func (s modelsDevSource) resolve(ctx context.Context, ref modelRef, want fieldSet) sourceResult {
+	if want == 0 {
+		return sourceResult{}
+	}
+
+	idx, loadErr := s.loader.load(ctx)
+	if idx == nil {
+		if loadErr != "" {
+			return sourceResult{sourceErr: "models.dev unavailable: " + loadErr}
 		}
 		return sourceResult{}
 	}
-	// A non-empty loadReason alongside non-nil data means a refresh attempt
-	// degraded (e.g. offline) but a stale cache is still usable: consult it
-	// rather than reporting a source error, matching the pre-fact-resolver
-	// stale-cache-fallback behavior.
+	// idx may be non-nil with loadErr also non-empty (stale-cache-but-usable,
+	// matching stage B2's documented behavior) — consult it regardless, exactly
+	// as before.
 
 	providerID := ref.Profile.ModelsDevID
 	if providerID == "" {
 		providerID = ref.ProviderAlias
 	}
-	lookup := metadata.LookupWithProviderResult(s.data, providerID, ref.BackendModelID)
+	lookup := idx.LookupProvider(providerID, ref.BackendModelID)
 	info := lookup.Info
 
 	notes := modelsDevDegradationNotes(lookup.Reason, want)
@@ -53,7 +89,7 @@ func (s modelsDevSource) resolve(_ context.Context, ref modelRef, want fieldSet)
 // lookup could not safely return a match.
 func modelsDevDegradationNotes(reason string, want fieldSet) map[factField]string {
 	notes := map[factField]string{}
-	if reason != metadata.LookupReasonMalformed && reason != metadata.LookupReasonProviderMismatch && reason != metadata.LookupReasonConflict {
+	if reason != metadata.LookupReasonMalformed && reason != metadata.LookupReasonProviderMismatch {
 		return notes
 	}
 	for _, f := range []factField{fieldContextWindow, fieldMaxOutput, fieldVision, fieldEfforts, fieldEchoBack, fieldTransport} {

@@ -88,9 +88,7 @@ func ResolveReasoningBatch(cfg config.Config, httpClient *http.Client) (
 	}
 
 	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir(), HTTPClient: httpClient}
-	cacheCtx, cacheCancel := context.WithTimeout(context.Background(), discoveryTimeout)
-	loadResult := cache.LoadBestEffortWithStatus(cacheCtx)
-	cacheCancel()
+	loader := newModelsDevLoader(cache) // shared across all aliases below — loads at most once
 
 	caps := make(map[string]ReasoningCapabilities)
 	efforts := make(map[string]string)
@@ -108,7 +106,7 @@ func ResolveReasoningBatch(cfg config.Config, httpClient *http.Client) (
 		}
 		facts, _, _ := resolveFacts(context.Background(), ref, []factSource{
 			configSource{},
-			modelsDevSource{data: loadResult.Data, loadReason: loadResult.Status.Reason},
+			modelsDevSource{loader: loader},
 			builtinSource{},
 		})
 		reasoningCap := ReasoningCapabilities{
