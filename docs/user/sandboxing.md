@@ -1,180 +1,97 @@
 # Tool Sandboxing
 
-Steiner uses Linux container technology (`bubblewrap`) to sandbox tool execution and protect the host from uncontrolled writes by model-driven code.
+Steiner uses Linux `bubblewrap` to sandbox tool execution and limit model-driven writes.
 
-## Overview
+## Overview and limits
 
-By default, `bash` and subprocess tools run inside a **sandbox** — a restricted execution environment with a read-only view of the host filesystem, a fresh process tree, and writable access limited to the workspace.
+By default, `bash` and subprocess tools run in a sandbox with a read-only view of the host filesystem and writable access limited to the workspace and sandbox state. The host filesystem remains readable, including credential files. Network access is shared with the host, so sandboxing is not a barrier against deliberate exfiltration or malicious code. The environment allowlist blocks inherited credential variables, but it does not block credential files on disk.
 
-The sandbox isolates model-driven code from:
-- Writing to any path outside the workspace
-- Leaking credentials via environment variables (env var allowlist)
-- Polluting the host process tree
-- OpenSSH rejecting sandbox-visible system config when client-only commands run inside the sandbox
+Sandboxed `/tmp` is a session-scoped directory under `.steiner/tmp/sandbox-tmp/<id>/`. It persists across tool calls and is cleared on `/clear`, `/resume`, `/fork`, or process exit.
 
-The entire host filesystem is visible inside the sandbox as read-only. This means all installed toolchains (Go, Rust, Python, Node, etc.), system libraries, and user config files are accessible without per-path mount configuration. Only the workspace and the sandbox state directory are writable.
+For SSH client-only commands, Steiner can create an ephemeral system-config overlay. Dynamic includes may be skipped. If OpenSSH still rejects the config, Steiner can ask to rerun outside the sandbox.
 
-For `ssh` commands, Steiner can create an ephemeral in-memory OpenSSH client-config overlay for the system config and static drop-ins. Nothing is copied into the workspace, and the overlay only covers the system SSH client config, not private keys or other user SSH state. Dynamic include paths may be skipped when they cannot be resolved safely ahead of time. If OpenSSH still rejects the config inside the sandbox, Steiner can ask for approval to rerun the command outside the sandbox.
+Built-in Go tools (`read`, `mutate`, `glob`, `grep`, `ls`) are not sandboxed; they enforce path policy in-process. Locally launched MCP stdio servers are sandbox-wrapped. Remote HTTP servers run on their operator's infrastructure and are not affected.
 
-## Goals and non-goals
+## Standard and unsafe mode
 
-### What sandboxing protects
-
-- **Write isolation**: Code run by the model cannot write to any path outside the workspace root
-- **Env var filtering**: Credential-bearing environment variables are blocked by an allowlist
-- **Process isolation**: Fresh PID namespace prevents interference with host processes
-- **Temp file isolation**: `/tmp` inside the sandbox is bind-mounted from a session-scoped directory under `.steiner/tmp/sandbox-tmp/<id>/`. Sandbox writes cannot affect the host's `/tmp`, and files persist across tool invocations within a single session (cleared on `/clear`, `/resume`, `/fork`, or process exit).
-
-### What sandboxing does NOT protect against
-
-- **Reading host files**: The entire host filesystem is visible read-only — credentials on disk (SSH keys, cloud configs) are readable inside the sandbox
-- **Network exfiltration**: The sandbox shares the host network (`--share-net`); sandboxed code can make outbound connections
-- **Deliberate attacks**: Sandboxing is not a security boundary against intentional malicious code
-- **Exploits in sandboxing itself**: Bugs in `bubblewrap` or kernel namespace isolation could allow escape
-
-In short: **sandboxing prevents accidental writes and env var leakage, not deliberate exfiltration.** The host filesystem is readable; only writes are constrained.
-
-## Standard vs unsafe mode
-
-### Standard mode (default)
+Standard mode is the default:
 
 ```bash
 go run ./cmd/steiner
-# or
 ./bin/steiner
 ```
 
-- All `bash` commands run inside the sandbox
-- Subprocess tools run inside the sandbox
-- Sandbox boundary violations (attempting to access files outside workspace) prompt the user to decide:
-  - **Allow for this session**: add a host mount for the path and continue
-  - **Use --unsafe**: re-run without sandboxing
-- Built-in Go tools (`read`, `mutate`, `glob`, `grep`, `ls`) are NOT sandboxed; they enforce `PathPolicy` in-process
+Bash and subprocess tools run in the sandbox. A boundary violation prompts:
 
-### Unsafe mode
+- **Allow for this session**: add a writable host mount and retry.
+- **Use --unsafe**: rerun without sandboxing.
+- **Cancel**: abort the command.
+
+Unsafe mode disables the sandbox for the session:
 
 ```bash
 go run ./cmd/steiner --unsafe
-# or
 ./bin/steiner --unsafe
 ```
 
-- All sandboxing is disabled
-- `bash` commands run directly on the host
-- No boundary violation prompts
-- Use when:
-  - You need access to paths outside the workspace
-  - You're running tools that require full filesystem access
-  - You're debugging sandbox issues
-  - You trust the current model input completely
-
-**Warning**: Unsafe mode disables the primary protection mechanism. Use it sparingly and only when you understand the consequences.
-
-Internally, "unsafe mode" is not the absence of a sandbox wrapper — it is the explicit `Unsandboxed` wrapper (`internal/tool.Unsandboxed{}`), which every `tool.Executor` (parent and child alike) carries in place of a nil value. There is no code path where the sandbox wrapper is unset.
-
-### Sandbox wrapper resolution
-
-Every tool call — `bash` and subprocess-backed tools alike — is sandboxed or not through exactly one decision point: `internal/tool.Executor.runPipeline` resolves a `ResolvedSandbox` (the active `SandboxWrapper` plus whether the project must be mounted read-only) once per call and carries it through the execution context. Handlers and subprocess execution both consume that same resolved decision instead of computing sandbox mode independently, which is what keeps `bash` and config-defined subprocess tools consistent (e.g. in plan mode, both get a read-only project mount, not just `bash`). A tool handler invoked without a resolved sandbox decision in context (i.e. outside the pipeline) fails closed rather than assuming unsandboxed execution.
-
-### MCP stdio servers
-
-MCP servers using the `stdio` transport are always sandbox-wrapped, in both standard and unsafe modes. Each server process runs under a sandbox that pins the project directory read-only, preventing the server from modifying workspace files. Network access is preserved via `--share-net`.
-
-The sandbox wrapping applies only to locally launched stdio processes. Remote HTTP MCP servers run on infrastructure controlled by their operator and are not subject to steiner's sandbox.
-
-Server environment variables configured under `servers.<name>.env` are appended to the server process environment after the sandbox wrap, bypassing the host environment variable allowlist. This is intentional: server env is declared config, not inherited host state, and is the correct place for server credentials or API keys.
+Use it when a tool needs paths outside the workspace or to isolate a sandbox issue. It removes the primary protection and runs commands directly on the host. There are no boundary prompts in unsafe mode.
 
 ## Platform requirements
 
-### Linux (supported)
+Linux with bubblewrap (`bwrap`) in `$PATH` is supported. Install it with `sudo apt-get install bubblewrap`, `sudo dnf install bubblewrap`, or `apk add bubblewrap` as appropriate.
 
-- **OS**: Linux kernel 3.8+ (supports user namespaces)
-- **Tool**: `bubblewrap` (`bwrap`) must be installed and in `$PATH`
-- **Installation**:
-  ```bash
-  # Ubuntu/Debian
-  sudo apt-get install bubblewrap
+macOS and Windows do not support sandboxing. Steiner disables it automatically and reports sandbox status `unavailable`; tools use a graceful unsandboxed fallback. Use WSL2 or a Linux VM on Windows. The unsupported-platform warning can be disabled with `sandbox.warning_on_unsupported_platform`.
 
-  # Fedora/RHEL
-  sudo dnf install bubblewrap
+## Configuration
 
-  # Alpine
-  apk add bubblewrap
+The entire host filesystem is visible read-only. `sandbox.host_mounts` grants extra paths, with `ro` as the default and `rw` for writes:
 
-  # macOS (via Homebrew) — not supported, see below
-  brew install bubblewrap  # installs but not functional on macOS
-  ```
+```yaml
+sandbox:
+  host_mounts:
+    - path: /var/log
+      mode: rw
+    - path: /opt/tools
+      mode: rw
+```
 
-### macOS, Windows (not supported)
+Mounts keep their host paths and are present at startup. All paths are already readable; use mounts for writable access outside the workspace.
 
-- Sandboxing is **not available** on macOS or Windows
-- Steiner detects the platform at startup and disables sandboxing automatically
-- `--unsafe` flag is ignored (sandboxing is already disabled)
-- **Workaround**: Use WSL2 on Windows or a Linux VM
-- **Status reporting**: When sandboxing is unavailable, the runtime sandbox status is `unavailable` and the UI shows a warning banner (unless `sandbox.warning_on_unsupported_platform` is disabled). Bash and subprocess tools run unsandboxed with a graceful fallback — no hard failure.
+The sandbox home is `.steiner/home/`, used for isolated tool caches and state. It persists across sessions and is ignored by git. Remove it with `rm -rf .steiner/home/` when a reset is needed.
 
 ## Mount layout
 
-The sandbox uses a simplified mount strategy:
+The host root is read-only. The workspace and sandbox home are writable according to policy, `/dev` is minimal, `/proc` is fresh, and session temporary files are mounted at `/tmp`. Host paths keep their original locations. `sandbox.host_mounts` adds paths at their existing locations.
 
-1. **Root filesystem**: The entire host filesystem is mounted read-only at `/` using `--ro-bind / /`
-2. **Writable overlay**: Only the workspace and sandbox home are bind-mounted at their original host paths as read-write
-3. **Working directory**: The initial process working directory is set to the workspace root
+## Environment variables
 
-This strategy ensures:
-- Host paths are preserved inside the sandbox (no path remapping like `/workspace` or `/home/steiner`)
-- All system binaries, libraries, and standard utilities are accessible by default
-- Only explicitly-mounted paths are writable (workspace, sandbox home)
+Only variables on the built-in allowlist pass from the host. It includes common path, locale, proxy, TLS, Go, Rust, Node, Python, Java, XDG, and terminal variables. Credential-shaped variables are not included. `HOME` is passed through, but the sandbox home is available for tool state.
 
-| Mount | Sandbox path | Mode | Purpose |
-|-------|--------------|------|---------|
-| `--ro-bind / /` | `/` | ro | Entire host filesystem as read-only base |
-| `--bind <workspace>` | same as host | rw | Project files and artifacts |
-| `--bind <sandbox-home>` | same as host | rw | `.steiner/home/` — sandbox state directory |
-| `--dev /dev` | `/dev` | minimal | Device nodes (devtmpfs) |
-| `--proc /proc` | `/proc` | fresh | Process information (ProcFS) |
-| `--bind .steiner/tmp/sandbox-tmp/<id>` | `/tmp` | rw | Session-scoped temporary files (persists across tool invocations) |
-| `--chdir <workspace>` | — | — | Sets initial working directory |
-| `sandbox.host_mounts` (config) | same as host | ro/rw | Additional paths from `sandbox: host_mounts:` config |
+Extend the list with `env_passthrough`; a trailing `*` is a prefix match. Or set `env_passthrough_all: true` to pass the entire host environment, including credentials. This removes the credential barrier and emits a warning when sandboxing is enabled.
 
-All host paths (toolchains, credentials, system libraries) are accessible inside the sandbox at their original locations through the read-only root bind. No per-path auto-mounting is needed — `~/.ssh`, `~/.gitconfig`, `~/.aws`, `~/go`, `~/.rustup`, `~/.nvm`, etc. are all visible by default.
-
-To grant **writable** access to a path outside the workspace, use `sandbox.host_mounts` config with `mode: rw`.
-
-## Sandbox home
-
-The sandbox workspace includes a `.steiner/home/` directory that serves as an isolated working directory for tool caches and session state within the project. The host `$HOME` remains accessible inside the sandbox at its original path (e.g., `/home/username`) as read-only through the root bind.
-
-**Why a separate sandbox home?**
-- Standard tools like `git`, `ssh`, and package managers store config and cache in `$HOME`
-- Using a workspace-scoped home directory isolates sandbox-generated config (caches, session files) from the host home
-- The sandbox home persists across sessions, allowing the model to maintain tool state within the project
-
-**Gitignore**:
-`.steiner/home/` is covered by `.steiner/.gitignore`, which ignores all files under `.steiner/` so they don't pollute version control.
-
-**What goes in `.steiner/home/`**:
-- `.git/` — Git metadata if the model runs `git init`
-- `.npm/` — npm cache and config if the model installs packages
-- `.ssh/` — sandbox-local SSH session state and generated client files, not copied host SSH config
-- `.bash_history`, `.zsh_history` — Shell history
-- Tool caches (`pip`, `cargo`, etc.)
-
-**Clearing the sandbox home**:
-If you want to reset the sandbox environment:
-```bash
-rm -rf .steiner/home/
+```yaml
+sandbox:
+  env_passthrough: ["MYAPP_*", "SOME_TOOL_TOKEN"]
+  env_passthrough_all: false
 ```
 
-## Environment variable allowlist
+Server variables under `mcp.servers.<name>.env` are declared configuration and bypass inherited-host filtering.
 
-Inside the sandbox, only environment variables on a built-in allowlist are passed through from the host; everything else is dropped. This is an allowlist, not a denylist — there is no pattern matching against credential-shaped names. Names like `ANTHROPIC_API_KEY`, `GH_TOKEN`, `GITLAB_PRIVATE_TOKEN`, and `KUBECONFIG` are blocked simply because they are not on the list, the same as any other unrecognised variable.
+## Sandbox boundary prompts
+
+When a sandboxed tool attempts to write outside the workspace, Steiner prompts for a decision. Reading outside the workspace succeeds through the read-only root.
+
+- **Allow for this session** adds a writable mount for the current session and retries inside the sandbox. It is not persisted.
+- **Use --unsafe** disables sandboxing for the rest of the session, runs the command on the host, and shows a session banner.
+- **Cancel** aborts the current execution.
+
+Configured host mounts avoid these prompts. Unsafe mode never shows them.
 
 ### Allowed variables
 
 | Group | Variables |
 |-------|-----------|
-| Core | `PATH`, `HOME` (passed through unchanged), `TERM`, `LANG`, `LC_*`, `TZ`, `SSH_AUTH_SOCK`, `EDITOR`, `VISUAL`, `SHELL`, `USER`, `LOGNAME`, `XDG_RUNTIME_DIR` |
+| Core | `PATH`, `HOME`, `TERM`, `LANG`, `LC_*`, `TZ`, `SSH_AUTH_SOCK`, `EDITOR`, `VISUAL`, `SHELL`, `USER`, `LOGNAME`, `XDG_RUNTIME_DIR` |
 | Proxy | `HTTP_PROXY`, `HTTPS_PROXY`, `FTP_PROXY`, `NO_PROXY`, and lowercase `http_proxy`, `https_proxy`, `ftp_proxy`, `no_proxy` |
 | TLS trust | `SSL_CERT_FILE`, `SSL_CERT_DIR`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO` |
 | Go | `GOFLAGS`, `GOPROXY`, `GOPRIVATE`, `GOSUMDB`, `GONOSUMDB`, `GOTOOLCHAIN`, `GOPATH`, `GOCACHE`, `GOMODCACHE` |
@@ -185,207 +102,25 @@ Inside the sandbox, only environment variables on a built-in allowlist are passe
 | XDG | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME` |
 | Terminal | `COLORTERM`, `NO_COLOR`, `TERM_PROGRAM` |
 
-Nothing credential-shaped (`*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_KEY`, `*_CREDENTIALS`) is on the built-in list. Examples of variables blocked simply for not being on it: `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `GITLAB_PRIVATE_TOKEN`, `DOCKER_CONFIG`, `KUBECONFIG`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`.
-
-### Extending the allowlist
-
-Two `sandbox` config fields adjust this behaviour:
-
-- `env_passthrough` (`[]string`, default `[]`) — additional variable names allowed through, on top of the built-in list. An entry ending in `*` matches by prefix (e.g. `MYAPP_*` matches `MYAPP_FOO`); no other wildcard forms are supported.
-- `env_passthrough_all` (`bool`, default `false`) — disables filtering entirely and passes the full host environment through verbatim, credentials included. **This removes the credential barrier described above.** When enabled alongside `sandbox.enabled: true`, Steiner emits a startup warning making that explicit.
-
-```yaml
-sandbox:
-  env_passthrough: ["MYAPP_*", "SOME_TOOL_TOKEN"]
-  env_passthrough_all: false
-```
-
-See [Configuration](configuration.md) for the full field reference.
-
-Credential config files on disk (e.g., `~/.aws/config`) are readable inside the sandbox through the root bind. The env var allowlist blocks only the environment variable path — it does not prevent the model from reading credential files directly.
-
-## Sandbox boundary prompts
-
-When a sandboxed tool attempts to write to a path outside the workspace, the user is prompted to decide how to proceed. (Reading outside the workspace always succeeds through the read-only root bind.)
-
-### Violation scenario
-
-```
-Sandbox boundary violation:
-  Tool: bash
-  Attempted write: /var/log/app.log
-  
-Options:
-  [A] Allow for this session: add /var/log to sandbox.host_mounts (rw) and continue
-  [U] Use --unsafe: disable sandboxing and re-run the command
-  [C] Cancel: abort the command
-```
-
-### User decisions
-
-**[A] Allow for this session**:
-- Adds the path as a writable mount for the current session
-- The command retries inside the sandbox with write access to the path
-- The decision is **not** persisted; next session requires a new prompt
-
-**[U] Use --unsafe**:
-- Disables sandboxing for the remainder of the session
-- The command runs directly on the host without containment
-- Future tools also run unsandboxed
-- Shown as a banner at the top of the TUI for the session
-
-**[C] Cancel**:
-- Aborts the current tool execution
-- Returns to the model for a new request
-
-### No prompts in --unsafe mode
-
-If steiner is started with `--unsafe`, boundary violation prompts never appear. All tools run directly on the host.
-
-## Host mounts configuration
-
-All host paths are already readable inside the sandbox through the root bind. Use `sandbox.host_mounts` to grant **writable** access to paths outside the workspace:
-
-```yaml
-# .steiner/config.yaml
-sandbox:
-  host_mounts:
-    - path: /var/log
-      mode: rw
-    - path: /opt/tools
-      mode: rw
-```
-
-Mounted paths are:
-- Available at the same path (e.g., `/var/log` → `/var/log`)
-- Mounted at startup (no runtime prompts for configured paths)
-- Default mode is `ro` (read-only), which is redundant with the root bind but harmless
-
-**Use cases**:
-- CI/CD logs (writable): `sandbox.host_mounts: [{path: /var/log/ci, mode: rw}]`
-- Build output dir: `sandbox.host_mounts: [{path: /opt/build, mode: rw}]`
+Nothing credential-shaped is on the built-in list. For example, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `GITLAB_PRIVATE_TOKEN`, `DOCKER_CONFIG`, `KUBECONFIG`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are blocked because they are not listed.
 
 ## Docker permission
 
+Docker access is denied by default:
+
 ```yaml
-# .steiner/config.yaml
 permissions:
   docker: true
 ```
 
-Default is `false`, which **denies** sandboxed access to the Docker daemon. The sandbox binds the host root filesystem read-only (`--ro-bind / /`), but bubblewrap's read-only enforcement does not cover unix sockets, so a plain read-only bind cannot deny Docker access on its own. Instead, when `permissions.docker` is `false`, the sandbox masks every reachable Docker socket (`/run/docker.sock` and, when set, `$XDG_RUNTIME_DIR/docker.sock`) with a bind over `/dev/null`, so `connect()` against the socket fails, and unsets `DOCKER_HOST` so a TCP-endpoint daemon can't be reached either. A socket that doesn't exist on the host is skipped rather than masked — masking a nonexistent destination would abort sandbox startup for every tool, not just Docker ones.
+With `false`, reachable Docker sockets are masked and `DOCKER_HOST` is unset. Set `true` only when host-root-equivalent Docker daemon access is intended. A `docker context` using `ssh://` is not covered by this control.
 
-Set `permissions.docker: true` to leave the socket reachable and let sandboxed tools run `docker` against the host daemon.
+## Troubleshooting
 
-**Security note**: Docker daemon access is host-root-equivalent — a container can bind-mount `/` and read or write anywhere on the host. Setting `permissions.docker: true` is an explicit opt-in to giving the model that level of access via the `docker` CLI; do not enable it unless you intend the model to have host-root-equivalent control.
+A write outside the workspace fails unless a configured or session-approved writable mount covers it. Reading outside the workspace succeeds through the read-only root. To isolate a problem, check the target and permissions, inspect mounts from inside the sandbox, try `--unsafe`, and verify from the host that `which bwrap` and `bwrap --version` work.
 
-**Not covered**: a `docker context` pointing at `ssh://` bypasses this control, since `SSH_AUTH_SOCK` is allowlisted through to the sandbox independently of this setting.
+Running `bwrap` inside a sandbox is a nested namespace attempt and can fail even when the host supports sandboxing. Verify with `bwrap --ro-bind / / true` in a host terminal. Inside a session, `cat /proc/1/comm` should print `bwrap`, and `cat /proc/self/uid_map` shows a user-namespace mapping. If startup reports `unavailable`, bwrap is missing or its namespace probe failed.
 
-## Error reporting
+If `ssh -G` reports `Bad owner or permissions on /etc/ssh/ssh_config.d/...`, OpenSSH rejected an included config visible in the sandbox. Steiner treats this as a compatibility failure and can prompt to rerun outside.
 
-When a sandbox error occurs, the output includes the denial reason and remediation steps.
-
-### Example: Permission denied
-
-```
-$ bash: /opt/tools/script.sh: Permission denied (sandbox boundary)
-
-This tool attempted to access a path outside the workspace:
-  Path: /opt/tools/script.sh
-  
-To allow this access:
-  1. Add to sandbox.host_mounts in .steiner/config.yaml:
-     sandbox:
-       host_mounts:
-         - /opt/tools
-  2. Re-run the command
-  
-Or disable sandboxing:
-  steiner --unsafe
-```
-
-### Debugging sandbox issues
-
-If tools are failing unexpectedly in the sandbox:
-
-1. **Check write target**: Write failures mean the target path is outside the workspace and not in `sandbox.host_mounts` with `mode: rw`
-2. **Check permissions**: The sandbox runs as the same user; file permissions still apply
-3. **Check mount layout**: Run `mount` or `ls` inside the sandbox to verify the root bind is active
-4. **Use --unsafe**: Temporarily disable sandboxing to isolate whether the issue is sandbox-related
-5. **Check bwrap**: Verify `bwrap` is installed and functional (from a host terminal — see below):
-   ```bash
-   which bwrap
-   bwrap --version
-   ```
-
-### bwrap inside the sandbox (nested sandboxing)
-
-Bash and subprocess tools run **inside** the sandbox, so running `bwrap` from a tool command is a nested sandbox attempt. It fails with:
-
-```text
-bwrap: No permissions to create a new namespace, likely because the kernel does not allow non-privileged user namespaces. See <https://deb.li/bubblewrap> or <file:///usr/share/doc/bubblewrap/README.Debian.gz>.
-```
-
-This message is misleading: the host may support unprivileged user namespaces fine. The failure is that creating a user namespace combined with other namespace flags (bwrap uses a single `clone(CLONE_NEWNS|CLONE_NEWUSER)`), and creating a mount namespace at all, requires `CAP_SYS_ADMIN` in the current user namespace — and sandboxed processes have no capabilities. The usual `kernel.unprivileged_userns_clone` sysctl only relaxes that check for creation from the initial user namespace.
-
-To verify the host supports sandboxing, run `bwrap --ro-bind / / true` in a **host terminal**, not inside a steiner session. Inside a session you can confirm you are in the sandbox with `cat /proc/1/comm` (prints `bwrap`) and `cat /proc/self/uid_map` (shows a user-namespace mapping).
-
-At session startup, `PrereqCheck` now proactively probes bwrap's namespace
-capability by running `bwrap --ro-bind / / true`. If the probe fails (nested
-sandbox or unprivileged user namespaces disabled), `PrereqCheck` returns an
-error and `buildRuntimeSandbox` reports sandbox status as `"unavailable"` —
-the same degrade path triggered when bwrap is not installed. This prevents
-steiner from reporting an active sandbox that cannot actually run tool
-commands.
-
-### Troubleshooting SSH config ownership failures
-
-If `ssh -G` or another client-only SSH command fails with:
-
-```text
-Bad owner or permissions on /etc/ssh/ssh_config.d/...
-```
-
-OpenSSH rejected a sandbox-visible include before it could load the overlay safely. Steiner now treats that as a sandbox compatibility failure and can prompt to rerun the command outside the sandbox when needed.
-
-## V2 roadmap
-
-The following features are deferred to V2:
-
-### Session-scoped path grants
-
-**What**: Allow runtime prompts to grant temporary path access for the current session without modifying config.
-
-**Why deferred**: Adds complexity to decision tracking; V1 focuses on static configuration. Runtime session state is orthogonal to the core sandboxing MVP.
-
-**Expected in**: V2 or later
-
-### Audit logging
-
-**What**: Log all tool executions with details about which paths were accessed, what files were read/written, and which operations were denied.
-
-**Why deferred**: Audit logging adds overhead and complexity to error handling. V1 focuses on enforcing boundaries; logging is a follow-on improvement for security teams.
-
-**Expected in**: V2 or later
-
-### macOS seatbelt support
-
-**What**: Bring sandboxing to macOS using Apple's Seatbelt (Security Framework).
-
-**Why deferred**: Seatbelt has a different syntax and capability model than bubblewrap. Supporting both requires duplicated logic. V1 focuses on Linux; macOS support is a platform expansion.
-
-**Expected in**: V2 or later, requires platform-specific implementation
-
-### Windows / WSL2 support
-
-**What**: Enable sandboxing on Windows via WSL2's built-in namespace isolation.
-
-**Why deferred**: Windows/WSL2 has its own container/namespace model. Requires tooling and testing on Windows. V1 is Linux-first.
-
-**Expected in**: V2 or later, requires platform-specific implementation
-
----
-
-For configuration details, see [Configuration](configuration.md).
-
-For context management and approval policy, see [Sub-agent delegation](sub-agent-delegation.md).
+For executor and mount resolution, nested namespace diagnosis, and deferred V2 work, see [Sandboxing internals](../internals/sandboxing.md).
