@@ -28,6 +28,20 @@ func (t *blockingFailTransport) RoundTrip(*http.Request) (*http.Response, error)
 	return nil, fmt.Errorf("offline")
 }
 
+type uncanceledObservationContext struct {
+	context.Context
+	observed chan struct{}
+	once     sync.Once
+}
+
+func (c *uncanceledObservationContext) Err() error {
+	err := c.Context.Err()
+	if err == nil {
+		c.once.Do(func() { close(c.observed) })
+	}
+	return err
+}
+
 type countingCatalog struct{ calls *atomic.Int32 }
 
 func (c countingCatalog) CatalogModel(string, string) (CatalogModel, bool) {
@@ -62,9 +76,15 @@ func TestResolverCanceledCoalescedWaiterReturnsContextError(t *testing.T) {
 	go func() { _, _ = resolver.Resolve(context.Background(), cfg, "model"); close(leaderDone) }()
 	<-transport.firstStarted
 	ctx, cancel := context.WithCancel(context.Background())
+	observed := make(chan struct{})
+	waiterCtx := &uncanceledObservationContext{Context: ctx, observed: observed}
 	waiterDone := make(chan error, 1)
-	go func() { _, err := resolver.Resolve(ctx, cfg, "model"); waiterDone <- err }()
-	time.Sleep(10 * time.Millisecond)
+	go func() { _, err := resolver.Resolve(waiterCtx, cfg, "model"); waiterDone <- err }()
+	select {
+	case <-observed:
+	case <-time.After(time.Second):
+		t.Fatal("waiter did not observe an uncanceled context")
+	}
 	cancel()
 	select {
 	case err := <-waiterDone:
