@@ -2,7 +2,6 @@ package interactive
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -67,7 +66,6 @@ type Dependencies struct {
 	SessionStore      sessionStore
 	SkillNames        []string
 	Config            config.Config
-	HTTPClient        *http.Client
 	HomeDir           string
 	WorkDir           string
 	CompactionLogPath string
@@ -77,4 +75,9 @@ type Dependencies struct {
 	// with the new effective assignments.
 	OnEffectiveAssignmentsChanged func(config.EffectiveModelAssignments)
 	DelegateCanceller             DelegateCanceller
+	// ResolveModel resolves a model alias to its provider and model metadata,
+	// backed by the session's shared Resolver (memoized, single-flight).
+	// Required wherever a resolved model's metadata (e.g. context window) is
+	// needed outside the main run loop.
+	ResolveModel func(alias string) (provider.ResolvedModel, error)
 }

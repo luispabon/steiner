@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -27,11 +28,11 @@ func TestResolveReferenceParity(t *testing.T) {
 		}},
 	}
 
-	alias, err := Resolve(cfg, "configured")
+	alias, err := resolveReference(&cfg, "configured", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve(alias) error = %v", err)
 	}
-	raw, err := Resolve(cfg, "local/gpt-4")
+	raw, err := resolveReference(&cfg, "local/gpt-4", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve(reference) error = %v", err)
 	}
@@ -44,16 +45,33 @@ func TestResolveReferenceParity(t *testing.T) {
 }
 
 func TestResolveReferenceWarningIsNeutral(t *testing.T) {
-	rm := ResolvedModel{
-		Alias:           "local/custom-model",
-		BackendModelID:  "custom-model",
-		EffectiveLimits: resolveEffectiveLimits(config.AdvancedLimitsConfig{}),
-		ProviderConfig:  config.ProviderConfig{Type: config.ProviderTypeOpenAICompat},
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+
+	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	resolveLimitsFromDiscovery(&rm, config.AdvancedLimitsConfig{}, metadata.ModelInfo{}, nil, false, "local/custom-model")
+	if err := os.WriteFile(cache.CachePath(), []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+	}
+
+	rm, err := resolveReference(&cfg, "local/custom-model", true, nil)
+	if err != nil {
+		t.Fatalf("resolveReference(&) error = %v", err)
+	}
 
 	if len(rm.Warnings) != 1 {
-		t.Fatalf("Warnings len = %d, want 1", len(rm.Warnings))
+		t.Fatalf("Warnings len = %d, want 1: %v", len(rm.Warnings), rm.Warnings)
 	}
 	if strings.Contains(rm.Warnings[0], "models.") {
 		t.Fatalf("raw reference warning suggests editing a definition: %q", rm.Warnings[0])
@@ -68,7 +86,7 @@ func TestResolveReferenceUsesLongestProviderPrefix(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "openrouter/openai/gpt-4")
+	rm, err := resolveReference(&cfg, "openrouter/openai/gpt-4", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -88,7 +106,7 @@ func TestResolveReferenceAliasWins(t *testing.T) {
 		}},
 	}
 
-	rm, err := Resolve(cfg, "local/model")
+	rm, err := resolveReference(&cfg, "local/model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -98,7 +116,8 @@ func TestResolveReferenceAliasWins(t *testing.T) {
 }
 
 func TestResolveReferenceInvalid(t *testing.T) {
-	_, err := Resolve(config.Config{}, "missing/model")
+	cfg := config.Config{}
+	_, err := resolveReference(&cfg, "missing/model", false, nil)
 	if err == nil {
 		t.Fatal("Resolve() error = nil, want error")
 	}
@@ -107,7 +126,7 @@ func TestResolveReferenceInvalid(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryReferenceConsumerShapes(t *testing.T) {
+func TestResolveModelMetadataReferenceConsumerShapes(t *testing.T) {
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
@@ -127,9 +146,9 @@ func TestResolveWithDiscoveryReferenceConsumerShapes(t *testing.T) {
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			rm, err := ResolveWithDiscovery(cfg, tt.ref, nil)
+			rm, err := resolveReference(&cfg, tt.ref, true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			if got, want := rm.ProviderAlias, "local"; got != want {
 				t.Fatalf("ProviderAlias = %q, want %q", got, want)

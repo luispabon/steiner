@@ -84,9 +84,11 @@ func catalogConfigCopy(cfg *config.Config) *config.Config {
 	copied := *cfg
 	copied.Providers = make(map[string]config.ProviderConfig, len(cfg.Providers))
 	for alias, provider := range cfg.Providers {
+		provider = providerpkg.ResolveProviderConfig(provider)
 		if provider.Type == config.ProviderTypeCodex {
 			provider.BaseURL = codexChatGPTBackendURL
 		}
+		provider.BaseURL = strings.TrimSpace(provider.BaseURL)
 		copied.Providers[alias] = provider
 	}
 	return &copied

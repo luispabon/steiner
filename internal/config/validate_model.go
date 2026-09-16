@@ -32,6 +32,9 @@ func appendModelProblems(problems *[]string, prefix string, model ModelConfig, p
 	if strings.TrimSpace(model.ID) == "" {
 		*problems = append(*problems, fmt.Sprintf("%s.id is required", prefix))
 	}
+	if provider, ok := providers[model.Provider]; ok && model.Advanced.Codex.UseMaxContextWindow && provider.Type != ProviderTypeCodex {
+		*problems = append(*problems, fmt.Sprintf("%s.advanced.codex.use_max_context_window is only supported for codex providers", prefix))
+	}
 	switch model.Advanced.Transport {
 	case "", ModelTransportAuto, ModelTransportOpenAICompat, ModelTransportAnthropic:
 		// valid

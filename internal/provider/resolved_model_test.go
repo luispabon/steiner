@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -139,7 +140,7 @@ func TestResolve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rm, err := Resolve(tt.cfg, tt.alias)
+			rm, err := resolveReference(&tt.cfg, tt.alias, false, nil)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("Resolve() error = nil, want error containing %q", tt.wantErrText)
@@ -174,7 +175,7 @@ func TestResolveMinimalConfig(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "default")
+	rm, err := resolveReference(&cfg, "default", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -218,7 +219,7 @@ func TestResolveProviderConfigAppliesOpenRouterDefaults(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "sonnet")
+	rm, err := resolveReference(&cfg, "sonnet", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -242,7 +243,7 @@ func TestResolveProviderConfigAppliesCodexDefaults(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "codex-model")
+	rm, err := resolveReference(&cfg, "codex-model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -272,7 +273,7 @@ func TestResolveProviderConfigPreservesExplicitZeroCodexInterval(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "codex-model")
+	rm, err := resolveReference(&cfg, "codex-model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -299,7 +300,7 @@ func TestResolveProviderConfigPreservesExplicitNonZeroCodexInterval(t *testing.T
 		},
 	}
 
-	rm, err := Resolve(cfg, "codex-model")
+	rm, err := resolveReference(&cfg, "codex-model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -320,7 +321,7 @@ func TestResolveProviderConfigAppliesOpencodeGoDefaults(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "opencode-model")
+	rm, err := resolveReference(&cfg, "opencode-model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -341,7 +342,7 @@ func TestResolveProviderConfigAppliesOpencodeZenDefaults(t *testing.T) {
 		},
 	}
 
-	rm, err := Resolve(cfg, "opencode-model")
+	rm, err := resolveReference(&cfg, "opencode-model", false, nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -496,7 +497,7 @@ func TestResolveEffectiveLimits(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryFallbackWarning(t *testing.T) {
+func TestResolveModelMetadataFallbackWarning(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
 	cfg := config.Config{
@@ -513,9 +514,9 @@ func TestResolveWithDiscoveryFallbackWarning(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "unknown", nil)
+	rm, err := resolveReference(&cfg, "unknown", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "fallback"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -570,7 +571,7 @@ func TestResolveTokenizerMetadataGPT5AliasHasHighConfidence(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
+func TestResolveModelMetadataUsesModelsDevWithoutWarning(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -599,9 +600,9 @@ func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "gpt4o", nil)
+	rm, err := resolveReference(&cfg, "gpt4o", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "models.dev"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -620,7 +621,7 @@ func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryUsesProviderSpecificModelsDevLimits(t *testing.T) {
+func TestResolveModelMetadataUsesProviderSpecificModelsDevLimits(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -653,9 +654,9 @@ func TestResolveWithDiscoveryUsesProviderSpecificModelsDevLimits(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "opencode-go/deepseek-v4-flash", nil)
+	rm, err := resolveReference(&cfg, "opencode-go/deepseek-v4-flash", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "models.dev"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -671,7 +672,7 @@ func TestResolveWithDiscoveryUsesProviderSpecificModelsDevLimits(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
+func TestResolveModelMetadataRefreshesStaleModelsDevCache(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -704,9 +705,9 @@ func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
 	}
 
 	client := &http.Client{Transport: &redirectTransport{target: srv.URL}}
-	rm, err := ResolveWithDiscovery(cfg, "gpt4o", client)
+	rm, err := resolveReference(&cfg, "gpt4o", true, client)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "models.dev"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -719,7 +720,7 @@ func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryOfflineUsesStaleModelsDevCache(t *testing.T) {
+func TestResolveModelMetadataOfflineUsesStaleModelsDevCache(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -746,9 +747,9 @@ func TestResolveWithDiscoveryOfflineUsesStaleModelsDevCache(t *testing.T) {
 	}
 
 	client := &http.Client{Transport: &alwaysFailTransport{}}
-	rm, err := ResolveWithDiscovery(cfg, "gpt4o", client)
+	rm, err := resolveReference(&cfg, "gpt4o", true, client)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "models.dev"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -761,7 +762,7 @@ func TestResolveWithDiscoveryOfflineUsesStaleModelsDevCache(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
+func TestResolveModelMetadataProviderMetadataBeatsModelsDev(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -769,26 +770,16 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"router":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"openrouter":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(meta) error = %v", err)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/models" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"openai/gpt-4o","context_length":128000,"top_provider":{"max_completion_tokens":16384}}]}`))
-	}))
-	defer srv.Close()
-
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
-			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
+			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: "http://localhost:1"},
 		},
 		Models: config.ModelsConfig{
 			Definitions: map[string]config.ModelConfig{
@@ -800,11 +791,12 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "gpt4o", srv.Client())
+	catalog := fakeModelCatalog{"router\x00openai/gpt-4o": CatalogModel{ContextWindow: 128000, MaxOutputTokens: 16384}}
+	rm, err := resolveReferenceWithLoader(context.Background(), &cfg, "gpt4o", true, http.DefaultClient, nil, catalog)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReferenceWithLoader() error = %v", err)
 	}
-	if got, want := rm.MetadataSource, "discovery"; got != want {
+	if got, want := rm.MetadataSource, "catalog"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
 	}
 	if got, want := rm.EffectiveLimits.ContextWindow, 128000; got != want {
@@ -818,7 +810,7 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
+func TestResolveModelMetadataManualOverrideWinsAll(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -826,26 +818,16 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(cache.CachePath(), []byte(`{"router":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
+	if err := os.WriteFile(cache.CachePath(), []byte(`{"openrouter":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(cache) error = %v", err)
 	}
 	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(meta) error = %v", err)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/models" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"openai/gpt-4o","context_length":128000,"top_provider":{"max_completion_tokens":16384}}]}`))
-	}))
-	defer srv.Close()
-
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
-			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
+			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: "http://localhost:1"},
 		},
 		Models: config.ModelsConfig{
 			Definitions: map[string]config.ModelConfig{
@@ -863,9 +845,10 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "gpt4o", srv.Client())
+	catalog := fakeModelCatalog{"router\x00openai/gpt-4o": CatalogModel{ContextWindow: 128000, MaxOutputTokens: 16384}}
+	rm, err := resolveReferenceWithLoader(context.Background(), &cfg, "gpt4o", true, http.DefaultClient, nil, catalog)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReferenceWithLoader() error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "config"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
@@ -881,7 +864,7 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryReasoningEchoBack(t *testing.T) {
+func TestResolveModelMetadataReasoningEchoBack(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -933,9 +916,9 @@ func TestResolveWithDiscoveryReasoningEchoBack(t *testing.T) {
 					},
 				},
 			}
-			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			rm, err := resolveReference(&cfg, "test", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			if rm.ReasoningEchoBack != tt.wantEchoBack {
 				t.Errorf("ReasoningEchoBack=%v, want %v", rm.ReasoningEchoBack, tt.wantEchoBack)
@@ -998,7 +981,7 @@ func TestResolveReasoningEchoBackConfigOverride(t *testing.T) {
 				},
 			}
 
-			rm, err := Resolve(cfg, "mymodel")
+			rm, err := resolveReference(&cfg, "mymodel", false, nil)
 			if err != nil {
 				t.Fatalf("Resolve() error = %v", err)
 			}
@@ -1009,7 +992,7 @@ func TestResolveReasoningEchoBackConfigOverride(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryConfigOverrideWinsOverModelsDevReasoningEchoBack(t *testing.T) {
+func TestResolveModelMetadataConfigOverrideWinsOverModelsDevReasoningEchoBack(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1067,9 +1050,9 @@ func TestResolveWithDiscoveryConfigOverrideWinsOverModelsDevReasoningEchoBack(t 
 				},
 			}
 
-			rm, err := ResolveWithDiscovery(cfg, "kimi", nil)
+			rm, err := resolveReference(&cfg, "kimi", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			if rm.ReasoningEchoBack != tt.want {
 				t.Errorf("ReasoningEchoBack = %v, want %v", rm.ReasoningEchoBack, tt.want)
@@ -1078,7 +1061,7 @@ func TestResolveWithDiscoveryConfigOverrideWinsOverModelsDevReasoningEchoBack(t 
 	}
 }
 
-func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
+func TestResolveModelMetadataMetadataTransportResolution(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1114,41 +1097,46 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		modelID          string
-		override         config.ModelTransportType
-		wantProviderType config.ProviderType
-		wantTransport    TransportType
-		wantBaseURL      string
+		name                string
+		modelID             string
+		override            config.ModelTransportType
+		wantProviderType    config.ProviderType
+		wantTransport       TransportType
+		wantBaseURL         string
+		wantTransportSource FactSource
 	}{
 		{
-			name:             "model metadata switches minimax to anthropic",
-			modelID:          "minimax-m3",
-			wantProviderType: config.ProviderTypeAnthropic,
-			wantTransport:    TransportAnthropic,
-			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
+			name:                "model metadata switches minimax to anthropic",
+			modelID:             "minimax-m3",
+			wantProviderType:    config.ProviderTypeAnthropic,
+			wantTransport:       TransportAnthropic,
+			wantBaseURL:         "https://opencode.ai/zen/go/v1/",
+			wantTransportSource: FactSourceModelsDev,
 		},
 		{
-			name:             "model metadata keeps kimi on openai compatible",
-			modelID:          "kimi-k2.6",
-			wantProviderType: config.ProviderTypeOpenAICompat,
-			wantTransport:    TransportOpenAICompat,
-			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
+			name:                "model metadata keeps kimi on openai compatible",
+			modelID:             "kimi-k2.6",
+			wantProviderType:    config.ProviderTypeOpenAICompat,
+			wantTransport:       TransportOpenAICompat,
+			wantBaseURL:         "https://opencode.ai/zen/go/v1/",
+			wantTransportSource: FactSourceModelsDev,
 		},
 		{
-			name:             "config override wins over metadata",
-			modelID:          "minimax-m3",
-			override:         config.ModelTransportOpenAICompat,
-			wantProviderType: config.ProviderTypeOpenAICompat,
-			wantTransport:    TransportOpenAICompat,
-			wantBaseURL:      "https://opencode.ai/zen/go/v1/",
+			name:                "config override wins over metadata",
+			modelID:             "minimax-m3",
+			override:            config.ModelTransportOpenAICompat,
+			wantProviderType:    config.ProviderTypeOpenAICompat,
+			wantTransport:       TransportOpenAICompat,
+			wantBaseURL:         "https://opencode.ai/zen/go/v1/",
+			wantTransportSource: FactSourceConfig,
 		},
 		{
-			name:             "codex provider ignores models.dev openai-compatible transport",
-			modelID:          "gpt-5.4-mini",
-			wantProviderType: config.ProviderTypeCodex,
-			wantTransport:    TransportConfigured,
-			wantBaseURL:      "https://api.openai.com/v1",
+			name:                "codex provider ignores models.dev openai-compatible transport",
+			modelID:             "gpt-5.4-mini",
+			wantProviderType:    config.ProviderTypeCodex,
+			wantTransport:       TransportConfigured,
+			wantBaseURL:         "https://api.openai.com/v1",
+			wantTransportSource: FactSourceConfig,
 		},
 	}
 
@@ -1177,9 +1165,9 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 				},
 			}
 
-			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			rm, err := resolveReference(&cfg, "test", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			if got := rm.EffectiveProviderType; got != tt.wantProviderType {
 				t.Fatalf("EffectiveProviderType = %q, want %q", got, tt.wantProviderType)
@@ -1190,11 +1178,14 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 			if got := rm.ProviderConfig.BaseURL; got != tt.wantBaseURL {
 				t.Fatalf("ProviderConfig.BaseURL = %q, want %q", got, tt.wantBaseURL)
 			}
+			if got := rm.Facts.Transport.Source; got != tt.wantTransportSource {
+				t.Fatalf("Facts.Transport.Source = %q, want %q", got, tt.wantTransportSource)
+			}
 		})
 	}
 }
 
-func TestResolveWithDiscoveryOpencodeProvidersUseGenericFallbackTransport(t *testing.T) {
+func TestResolveModelMetadataOpencodeProvidersUseGenericFallbackTransport(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1213,7 +1204,7 @@ func TestResolveWithDiscoveryOpencodeProvidersUseGenericFallbackTransport(t *tes
 				}
 			}
 		},
-		"opencode-zen":{
+		"opencode":{
 			"npm":"@ai-sdk/openai-compatible",
 			"api":"https://opencode.ai/zen/v1/",
 			"models":{
@@ -1273,9 +1264,9 @@ func TestResolveWithDiscoveryOpencodeProvidersUseGenericFallbackTransport(t *tes
 				},
 			}
 
-			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			rm, err := resolveReference(&cfg, "test", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 			if got := rm.EffectiveProviderType; got != tt.wantProviderType {
 				t.Fatalf("EffectiveProviderType = %q, want %q", got, tt.wantProviderType)
@@ -1287,7 +1278,7 @@ func TestResolveWithDiscoveryOpencodeProvidersUseGenericFallbackTransport(t *tes
 	}
 }
 
-func TestResolveWithDiscoveryVisionCapability(t *testing.T) {
+func TestResolveModelMetadataVisionCapability(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1361,9 +1352,9 @@ func TestResolveWithDiscoveryVisionCapability(t *testing.T) {
 				},
 			}
 
-			rm, err := ResolveWithDiscovery(cfg, "test", nil)
+			rm, err := resolveReference(&cfg, "test", true, nil)
 			if err != nil {
-				t.Fatalf("ResolveWithDiscovery() error = %v", err)
+				t.Fatalf("resolveReference(&) error = %v", err)
 			}
 
 			if tt.wantVision == nil {
@@ -1381,7 +1372,7 @@ func TestResolveWithDiscoveryVisionCapability(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryUsesModelsDevReasoningEfforts(t *testing.T) {
+func TestResolveModelMetadataUsesModelsDevReasoningEfforts(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1411,9 +1402,9 @@ func TestResolveWithDiscoveryUsesModelsDevReasoningEfforts(t *testing.T) {
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "gpt54mini", nil)
+	rm, err := resolveReference(&cfg, "gpt54mini", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.Reasoning.Source, "models.dev"; got != want {
 		t.Fatalf("Reasoning.Source = %q, want %q", got, want)
@@ -1426,7 +1417,7 @@ func TestResolveWithDiscoveryUsesModelsDevReasoningEfforts(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryModelsDevReasoningEffortsRespectsConfig(t *testing.T) {
+func TestResolveModelMetadataModelsDevReasoningEffortsRespectsConfig(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1461,9 +1452,9 @@ func TestResolveWithDiscoveryModelsDevReasoningEffortsRespectsConfig(t *testing.
 		},
 	}
 
-	rm, err := ResolveWithDiscovery(cfg, "gpt54mini", nil)
+	rm, err := resolveReference(&cfg, "gpt54mini", true, nil)
 	if err != nil {
-		t.Fatalf("ResolveWithDiscovery() error = %v", err)
+		t.Fatalf("resolveReference(&) error = %v", err)
 	}
 	if got, want := rm.Reasoning.Source, "config"; got != want {
 		t.Fatalf("Reasoning.Source = %q, want %q", got, want)
@@ -1473,230 +1464,72 @@ func TestResolveWithDiscoveryModelsDevReasoningEffortsRespectsConfig(t *testing.
 	}
 }
 
-func TestResolveReasoningBatchEmptyConfig(t *testing.T) {
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{},
-		Models:    config.ModelsConfig{Definitions: map[string]config.ModelConfig{}},
-	}
-
-	caps, efforts := ResolveReasoningBatch(cfg, nil)
-	if caps != nil {
-		t.Errorf("caps = %v, want nil", caps)
-	}
-	if efforts != nil {
-		t.Errorf("efforts = %v, want nil", efforts)
-	}
-}
-
-func TestResolveReasoningBatchMultipleAliases(t *testing.T) {
-	cacheRoot := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheRoot)
-
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
-	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	cacheJSON := `{
-		"openai":{"models":{
-			"gpt-5.4-mini":{"reasoning_options":[{"type":"effort","values":["none","low","medium","high"]}]},
-			"gpt-4o":{"reasoning_options":[{"type":"effort","values":["low","high"]}]}
-		}},
-		"local":{"models":{
-			"llama3":{"reasoning_options":[{"type":"effort","values":["standard","extended"]}]}
-		}}
-	}`
-	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
-		t.Fatalf("WriteFile(cache) error = %v", err)
-	}
-	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
-		t.Fatalf("WriteFile(meta) error = %v", err)
-	}
-
+func TestResolveFacts(t *testing.T) {
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
-			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
-			"local":  {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+			"codex": {Type: config.ProviderTypeCodex},
 		},
 		Models: config.ModelsConfig{
 			Definitions: map[string]config.ModelConfig{
-				"gpt54mini": {Provider: "openai", ID: "gpt-5.4-mini"},
-				"gpt4o":     {Provider: "openai", ID: "gpt-4o"},
-				"llama":     {Provider: "local", ID: "llama3"},
-			},
-		},
-	}
-
-	caps, efforts := ResolveReasoningBatch(cfg, nil)
-	if len(caps) != 3 {
-		t.Fatalf("caps len = %d, want 3", len(caps))
-	}
-	if len(efforts) != 3 {
-		t.Fatalf("efforts len = %d, want 3", len(efforts))
-	}
-
-	if !equalStrings(caps["gpt54mini"].SupportedEfforts, []string{"none", "low", "medium", "high"}) {
-		t.Errorf("gpt54mini efforts = %v, want [none low medium high]", caps["gpt54mini"].SupportedEfforts)
-	}
-	if caps["gpt54mini"].Source != "models.dev" {
-		t.Errorf("gpt54mini source = %q, want models.dev", caps["gpt54mini"].Source)
-	}
-
-	if !equalStrings(caps["gpt4o"].SupportedEfforts, []string{"low", "high"}) {
-		t.Errorf("gpt4o efforts = %v, want [low high]", caps["gpt4o"].SupportedEfforts)
-	}
-	if caps["gpt4o"].Source != "models.dev" {
-		t.Errorf("gpt4o source = %q, want models.dev", caps["gpt4o"].Source)
-	}
-
-	if !equalStrings(caps["llama"].SupportedEfforts, []string{"standard", "extended"}) {
-		t.Errorf("llama efforts = %v, want [standard extended]", caps["llama"].SupportedEfforts)
-	}
-	if caps["llama"].Source != "models.dev" {
-		t.Errorf("llama source = %q, want models.dev", caps["llama"].Source)
-	}
-}
-
-func TestResolveReasoningBatchSkipsUnknownAlias(t *testing.T) {
-	cacheRoot := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheRoot)
-
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
-	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	cacheJSON := `{"openai":{"models":{"gpt-4o":{"reasoning_options":[{"type":"effort","values":["low","high"]}]}}}}`
-	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
-		t.Fatalf("WriteFile(cache) error = %v", err)
-	}
-	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
-		t.Fatalf("WriteFile(meta) error = %v", err)
-	}
-
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{
-			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
-		},
-		Models: config.ModelsConfig{
-			Definitions: map[string]config.ModelConfig{
-				"gpt4o":        {Provider: "openai", ID: "gpt-4o"},
-				"broken-alias": {Provider: "unknown-provider", ID: "some-model"},
-			},
-		},
-	}
-
-	caps, efforts := ResolveReasoningBatch(cfg, nil)
-	if len(caps) != 1 {
-		t.Fatalf("caps len = %d, want 1 (broken alias skipped)", len(caps))
-	}
-	if len(efforts) != 1 {
-		t.Fatalf("efforts len = %d, want 1 (broken alias skipped)", len(efforts))
-	}
-
-	if _, ok := caps["gpt4o"]; !ok {
-		t.Error("gpt4o not found in caps")
-	}
-	if _, ok := efforts["gpt4o"]; !ok {
-		t.Error("gpt4o not found in efforts")
-	}
-	if _, ok := caps["broken-alias"]; ok {
-		t.Error("broken-alias should not be in caps")
-	}
-	if _, ok := efforts["broken-alias"]; ok {
-		t.Error("broken-alias should not be in efforts")
-	}
-}
-
-func TestResolveReasoningBatchConfigOverridesModelsDevReasoning(t *testing.T) {
-	cacheRoot := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheRoot)
-
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
-	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	cacheJSON := `{"openai":{"models":{"gpt-5.4-mini":{"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}`
-	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
-		t.Fatalf("WriteFile(cache) error = %v", err)
-	}
-	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
-		t.Fatalf("WriteFile(meta) error = %v", err)
-	}
-
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{
-			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
-		},
-		Models: config.ModelsConfig{
-			Definitions: map[string]config.ModelConfig{
-				"configured": {
-					Provider: "openai",
-					ID:       "gpt-5.4-mini",
+				"fully-configured": {
+					Provider: "local",
+					ID:       "llama3",
 					Advanced: config.AdvancedConfig{
-						Reasoning: config.ReasoningConfig{
-							SupportedEfforts: []string{"medium", "high"},
-						},
+						Limits: config.AdvancedLimitsConfig{ContextWindow: 128000, MaxOutputTokens: 8192},
 					},
+				},
+				"minimal": {
+					Provider: "local",
+					ID:       "qwen3",
+				},
+				"codex-reasoning": {
+					Provider: "codex",
+					ID:       "o3-mini",
 				},
 			},
 		},
 	}
 
-	caps, _ := ResolveReasoningBatch(cfg, nil)
-	if caps["configured"].Source != "config" {
-		t.Errorf("Source = %q, want config", caps["configured"].Source)
-	}
-	if !equalStrings(caps["configured"].SupportedEfforts, []string{"medium", "high"}) {
-		t.Errorf("SupportedEfforts = %v, want [medium high]", caps["configured"].SupportedEfforts)
-	}
-}
+	t.Run("fully configured model reports config for all limits", func(t *testing.T) {
+		rm, err := resolveReference(&cfg, "fully-configured", false, nil)
+		if err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+		if !rm.Facts.ContextWindow.Known || rm.Facts.ContextWindow.Value != 128000 || rm.Facts.ContextWindow.Source != FactSourceConfig {
+			t.Errorf("ContextWindow = %+v", rm.Facts.ContextWindow)
+		}
+		if !rm.Facts.MaxOutputTokens.Known || rm.Facts.MaxOutputTokens.Value != 8192 || rm.Facts.MaxOutputTokens.Source != FactSourceConfig {
+			t.Errorf("MaxOutputTokens = %+v", rm.Facts.MaxOutputTokens)
+		}
+	})
 
-func TestResolveReasoningBatchEffectsLoadedMetadataOnce(t *testing.T) {
-	cacheRoot := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+	t.Run("minimal model defaults to conservative fallback", func(t *testing.T) {
+		rm, err := resolveReference(&cfg, "minimal", false, nil)
+		if err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+		if rm.Facts.ContextWindow.Value != 32768 || rm.Facts.ContextWindow.Source != FactSourceFallback {
+			t.Errorf("ContextWindow = %+v, want default 32768/fallback", rm.Facts.ContextWindow)
+		}
+		if rm.Facts.MaxOutputTokens.Value != 4096 || rm.Facts.MaxOutputTokens.Source != FactSourceFallback {
+			t.Errorf("MaxOutputTokens = %+v, want default 4096/fallback", rm.Facts.MaxOutputTokens)
+		}
+		if rm.Facts.ReasoningEfforts.Known {
+			t.Errorf("ReasoningEfforts.Known = true, want false")
+		}
+	})
 
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
-	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	cacheJSON := `{
-		"openai":{"models":{
-			"model-a":{"reasoning_options":[{"type":"effort","values":["low"]}]},
-			"model-b":{"reasoning_options":[{"type":"effort","values":["high"]}]},
-			"model-c":{"reasoning_options":[{"type":"effort","values":["medium"]}]}
-		}}
-	}`
-	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
-		t.Fatalf("WriteFile(cache) error = %v", err)
-	}
-	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
-		t.Fatalf("WriteFile(meta) error = %v", err)
-	}
-
-	cfg := config.Config{
-		Providers: map[string]config.ProviderConfig{
-			"openai": {Type: config.ProviderTypeOpenAI, BaseURL: "https://api.openai.com/v1"},
-		},
-		Models: config.ModelsConfig{
-			Definitions: map[string]config.ModelConfig{
-				"a": {Provider: "openai", ID: "model-a"},
-				"b": {Provider: "openai", ID: "model-b"},
-				"c": {Provider: "openai", ID: "model-c"},
-			},
-		},
-	}
-
-	caps, efforts := ResolveReasoningBatch(cfg, nil)
-	if len(caps) != 3 || len(efforts) != 3 {
-		t.Fatalf("expected 3 entries, got caps=%d efforts=%d", len(caps), len(efforts))
-	}
-
-	if !equalStrings(caps["a"].SupportedEfforts, []string{"low"}) {
-		t.Errorf("a efforts = %v, want [low]", caps["a"].SupportedEfforts)
-	}
-	if !equalStrings(caps["b"].SupportedEfforts, []string{"high"}) {
-		t.Errorf("b efforts = %v, want [high]", caps["b"].SupportedEfforts)
-	}
-	if !equalStrings(caps["c"].SupportedEfforts, []string{"medium"}) {
-		t.Errorf("c efforts = %v, want [medium]", caps["c"].SupportedEfforts)
-	}
+	t.Run("codex model with reasoning family gets builtin efforts", func(t *testing.T) {
+		rm, err := resolveReference(&cfg, "codex-reasoning", false, nil)
+		if err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+		if !rm.Facts.ReasoningEfforts.Known || rm.Facts.ReasoningEfforts.Source != FactSourceFallback || rm.Facts.ReasoningEfforts.Confidence != "low" {
+			t.Errorf("ReasoningEfforts = %+v, want fallback/low", rm.Facts.ReasoningEfforts)
+		}
+		if !equalStrings(rm.Facts.ReasoningEfforts.Value, []string{"minimal", "low", "medium", "high"}) {
+			t.Errorf("ReasoningEfforts.Value = %v", rm.Facts.ReasoningEfforts.Value)
+		}
+	})
 }

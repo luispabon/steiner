@@ -39,6 +39,7 @@ type codexModel struct {
 	Description              string                `json:"description"`
 	Visibility               string                `json:"visibility"`
 	ContextWindow            int                   `json:"context_window"`
+	MaxContextWindow         int                   `json:"max_context_window"`
 	SupportedReasoningLevels []codexReasoningLevel `json:"supported_reasoning_levels"`
 	Priority                 int                   `json:"priority"`
 }
@@ -154,6 +155,7 @@ func codexModels(ep Endpoint, items []codexModel) []DiscoveredModel {
 			DisplayName:      displayName,
 			Description:      item.Description,
 			ContextLength:    item.ContextWindow,
+			MaxContextLength: item.MaxContextWindow,
 			SupportedEfforts: efforts,
 			Priority:         item.Priority,
 		})

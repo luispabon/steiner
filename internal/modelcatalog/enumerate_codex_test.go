@@ -31,6 +31,9 @@ func TestCodexEnumerator(t *testing.T) {
 	if result.ETag != "new" || len(result.Models) != 1 || result.Models[0].ID != "gpt-5-codex" || result.Models[0].Priority != 7 {
 		t.Fatalf("result: %+v", result)
 	}
+	if result.Models[0].ContextLength != 128000 || result.Models[0].MaxContextLength != 256000 {
+		t.Fatalf("context lengths: normal=%d max=%d", result.Models[0].ContextLength, result.Models[0].MaxContextLength)
+	}
 }
 
 func TestCodexEnumeratorNotModified(t *testing.T) {

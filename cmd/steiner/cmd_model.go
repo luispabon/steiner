@@ -39,7 +39,13 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rm, err := provider.ResolveWithDiscovery(cfg, alias, runtimeHTTPClient())
+			httpClient := runtimeHTTPClient()
+			modelCatalog, _, _ := buildModelCatalogService(&cfg, httpClient)
+			resolver := provider.NewResolver(provider.ResolverOptions{
+				HTTPClient: httpClient,
+				Catalog:    newCatalogMetadataAdapter(modelCatalog, &cfg),
+			})
+			rm, err := resolver.Resolve(cmd.Context(), cfg, alias)
 			if err != nil {
 				return err
 			}
@@ -94,6 +100,9 @@ func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 	if err := printModelInspectReasoning(out, rm); err != nil {
 		return err
 	}
+	if err := printModelInspectFacts(out, rm); err != nil {
+		return err
+	}
 	if len(rm.Warnings) > 0 {
 		if _, err := fmt.Fprint(out, "warnings:\n"); err != nil {
 			return err
@@ -120,6 +129,44 @@ func printModelInspectReasoning(out io.Writer, rm provider.ResolvedModel) error 
 		formatOptionalEffort(rm.Reasoning.Confidence, "unknown"),
 	)
 	return err
+}
+
+// printModelInspectFacts prints a facts: diagnostic block describing each
+// per-fact resolution result and its provenance from rm.Facts.
+func printModelInspectFacts(out io.Writer, rm provider.ResolvedModel) error {
+	if _, err := fmt.Fprint(out, "facts:\n"); err != nil {
+		return err
+	}
+	lines := []string{
+		formatFactLine("context_window", rm.Facts.ContextWindow.Known, rm.Facts.ContextWindow.Value, rm.Facts.ContextWindow.Source, rm.Facts.ContextWindow.Confidence, rm.Facts.ContextWindow.Note),
+		formatFactLine("max_output_tokens", rm.Facts.MaxOutputTokens.Known, rm.Facts.MaxOutputTokens.Value, rm.Facts.MaxOutputTokens.Source, rm.Facts.MaxOutputTokens.Confidence, rm.Facts.MaxOutputTokens.Note),
+		formatFactLine("vision", rm.Facts.Vision.Known, rm.Facts.Vision.Value, rm.Facts.Vision.Source, rm.Facts.Vision.Confidence, rm.Facts.Vision.Note),
+		formatFactLine("reasoning_efforts", rm.Facts.ReasoningEfforts.Known, formatEffortList(rm.Facts.ReasoningEfforts.Value), rm.Facts.ReasoningEfforts.Source, rm.Facts.ReasoningEfforts.Confidence, rm.Facts.ReasoningEfforts.Note),
+		formatFactLine("reasoning_echo_back", rm.Facts.ReasoningEchoBack.Known, rm.Facts.ReasoningEchoBack.Value, rm.Facts.ReasoningEchoBack.Source, rm.Facts.ReasoningEchoBack.Confidence, rm.Facts.ReasoningEchoBack.Note),
+		formatFactLine("transport", rm.Facts.Transport.Known, rm.Facts.Transport.Value, rm.Facts.Transport.Source, rm.Facts.Transport.Confidence, rm.Facts.Transport.Note),
+	}
+	for _, line := range lines {
+		if _, err := fmt.Fprintf(out, "  %s\n", line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// formatFactLine renders a single line of the facts: block for one resolved
+// fact. value is rendered with fmt.Sprint; known=false renders "unknown"
+// regardless of value to avoid confusing an unset value with a real zero.
+func formatFactLine[T any](name string, known bool, value T, source provider.FactSource, confidence, note string) string {
+	valueStr := "unknown"
+	if known {
+		valueStr = fmt.Sprint(value)
+	}
+	line := fmt.Sprintf("%s: value=%s source=%s confidence=%s",
+		name, valueStr, formatOptionalEffort(string(source), "unknown"), formatOptionalEffort(confidence, "unknown"))
+	if note != "" {
+		line += " note=" + note
+	}
+	return line
 }
 
 func formatEffortList(efforts []string) string {

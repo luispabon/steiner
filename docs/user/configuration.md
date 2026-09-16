@@ -411,6 +411,15 @@ models:
       ...
 ```
 
+### Metadata precedence
+
+For each model fact, explicit model configuration wins. Otherwise the catalog is
+checked before models.dev. For generic providers, models.dev uses the provider's
+model alias when available and then merges matching provider entries; Ollama
+probes the live server for context before using merged models.dev data. Codex
+always uses its fixed OAuth Responses transport, regardless of configured URL.
+Unresolved limits use the conservative fallback values.
+
 ### `ModelConfig` fields
 
 | Field           | Type           | Default                | Description                                                                                                                                                                                                                         |
@@ -451,6 +460,7 @@ models:
 | `reasoning_echo_back` | *bool                | —         | When set, controls whether reasoning tokens are echoed back in the response. Provider-dependent.                                                                                                    |
 | `transport`           | string               | `"auto"`  | Transport override for request formatting. Supported values: `auto`, `openai_compat`, `anthropic`. `auto` uses models.dev metadata when available and otherwise keeps the configured provider type. |
 | `reasoning`           | ReasoningConfig      | see below | Reasoning effort configuration for this model. Only meaningful for providers that support configurable reasoning effort (currently OpenAI and Codex); unsupported providers ignore it.              |
+| `codex`               | ModelCodexConfig     | see below | Codex-only model metadata selection. `use_max_context_window: true` selects catalog `max_context_window` when positive; otherwise catalog `context_window` is used. |
 
 #### Automatic transport resolution
 
@@ -488,7 +498,15 @@ models:
 
 `codex-high` is retained as an alias because it persists the reasoning configuration; a raw `codex/<codex-model-id>` reference cannot do that.
 
-Reasoning effort can also be changed at runtime for the current session via the `/model` command in the interactive TUI (select a model, then a reasoning effort from `supported_efforts`, or "provider default" to omit the field). Runtime `/model` reasoning selections are session-only and never write back to the config file. Use `steiner model inspect <alias>` to see the resolved `supported_efforts`, `provider_default_effort`, `configured_effort`, and `effective_effort` for a model.
+Reasoning effort can also be changed at runtime for the current session via the `/model` command in the interactive TUI (select a model, then a reasoning effort from `supported_efforts`, or "provider default" to omit the field). Runtime `/model` reasoning selections are session-only and never write back to the config file. Use `steiner model inspect <alias>` to see the resolved `supported_efforts`, `provider_default_effort`, `configured_effort`, and `effective_effort` for a model, and its `facts:` block for the per-fact source and confidence behind each resolved value.
+
+### `ModelCodexConfig` fields
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `use_max_context_window` | bool | `false` | For Codex models, opt into the catalog's positive `max_context_window`; without this flag, or when max is unavailable, use catalog `context_window`. |
+
+Context limit precedence is explicit numeric `advanced.limits.context_window`, selected Codex catalog context, existing discovery/models.dev metadata, then the built-in fallback. The flag is valid only for Codex model definitions.
 
 ### `AdvancedLimitsConfig` fields
 

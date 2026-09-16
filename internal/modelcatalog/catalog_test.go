@@ -15,6 +15,18 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+func TestServiceModelFingerprintMismatchIsMiss(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	if err := cache.SaveAtomic("alias", CacheEnvelope{Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://one.example"}, Models: []DiscoveredModel{{ID: "model"}}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Providers: map[string]config.ProviderConfig{"alias": {Type: config.ProviderTypeOpenAI, BaseURL: "https://two.example"}}}
+	service := NewService(nil, cache, nil, nil)
+	if _, ok := service.Model(cfg, "alias", "model"); ok {
+		t.Fatal("Model found with mismatched fingerprint")
+	}
+}
+
 func TestServiceChoicesMergeRankAndCurrent(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	if err := cache.SaveAtomic("local", CacheEnvelope{
@@ -161,6 +173,111 @@ func TestServiceRefreshCodexNotModifiedExtendsFreshness(t *testing.T) {
 	}
 	if !sawETag.Load() || !cache.IsFresh("codex", "codex", server.URL) {
 		t.Fatalf("etag was not passed or freshness was not extended")
+	}
+}
+
+func TestServiceModelInMemoryRefreshPrecedence(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	if err := cache.SaveAtomic("local", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://local.example"},
+		Models: []DiscoveredModel{
+			{ID: "gpt-4", MaxOutputTokens: 1000},
+		},
+	}); err != nil {
+		t.Fatalf("save cache: %v", err)
+	}
+	popularity := NewStore(filepath.Join(t.TempDir(), "popularity.json"))
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAI, BaseURL: "https://local.example"},
+		},
+	}
+	service := NewService(nil, cache, popularity, nil)
+
+	model, found := service.Model(cfg, "local", "gpt-4")
+	if !found || model.MaxOutputTokens != 1000 {
+		t.Fatalf("from disk cache: found=%v model=%+v", found, model)
+	}
+
+	service.setDiscovered("local", []DiscoveredModel{
+		{ID: "gpt-4", MaxOutputTokens: 4096},
+	})
+	model, found = service.Model(cfg, "local", "gpt-4")
+	if !found || model.MaxOutputTokens != 4096 {
+		t.Fatalf("from in-memory: found=%v model=%+v", found, model)
+	}
+}
+
+func TestServiceModelStaleCache(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	cache.now = func() time.Time { return now }
+	if err := cache.SaveAtomic("local", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://local.example"},
+		Models: []DiscoveredModel{
+			{ID: "gpt-4", ContextLength: 128000, MaxOutputTokens: 2000},
+		},
+	}); err != nil {
+		t.Fatalf("save cache: %v", err)
+	}
+
+	now = now.Add(CacheTTL)
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAI, BaseURL: "https://local.example"},
+		},
+	}
+	service := NewService(nil, cache, NewStore(filepath.Join(t.TempDir(), "popularity.json")), nil)
+
+	model, found := service.Model(cfg, "local", "gpt-4")
+	if !found || model.MaxOutputTokens != 2000 {
+		t.Fatalf("stale cache: found=%v model=%+v", found, model)
+	}
+}
+
+func TestServiceModelNotFound(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	if err := cache.SaveAtomic("local", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://local.example"},
+		Models: []DiscoveredModel{
+			{ID: "gpt-4", MaxOutputTokens: 4096},
+		},
+	}); err != nil {
+		t.Fatalf("save cache: %v", err)
+	}
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAI, BaseURL: "https://local.example"},
+		},
+	}
+	service := NewService(nil, cache, NewStore(filepath.Join(t.TempDir(), "popularity.json")), nil)
+
+	model, found := service.Model(cfg, "local", "missing-model")
+	if found {
+		t.Fatalf("missing model: found=%v model=%+v", found, model)
+	}
+}
+
+func TestServiceModelDiscoveryDisabled(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	if err := cache.SaveAtomic("local", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://local.example"},
+		Models: []DiscoveredModel{
+			{ID: "gpt-4", MaxOutputTokens: 4096},
+		},
+	}); err != nil {
+		t.Fatalf("save cache: %v", err)
+	}
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAI, BaseURL: "https://local.example"},
+		},
+	}
+	service := NewService(nil, cache, NewStore(filepath.Join(t.TempDir(), "popularity.json")), nil, false)
+
+	model, found := service.Model(cfg, "local", "gpt-4")
+	if found {
+		t.Fatalf("discovery disabled: found=%v model=%+v", found, model)
 	}
 }
 

@@ -10,78 +10,38 @@ func TestResolveReasoningCapabilities(t *testing.T) {
 	tests := []struct {
 		name           string
 		reasoningCfg   config.ReasoningConfig
-		providerType   config.ProviderType
-		backendModelID string
 		wantEfforts    []string
 		wantSource     string
 		wantConfidence string
 		wantEffective  string
 	}{
 		{
-			name:           "config supported_efforts wins over fallback",
+			name:           "config supported_efforts wins",
 			reasoningCfg:   config.ReasoningConfig{SupportedEfforts: []string{"low", "high"}},
-			providerType:   config.ProviderTypeOpenAI,
-			backendModelID: "gpt-5",
 			wantEfforts:    []string{"low", "high"},
 			wantSource:     "config",
 			wantConfidence: "high",
 		},
 		{
-			name:           "openai gpt-5 family gets fallback efforts",
-			providerType:   config.ProviderTypeOpenAI,
-			backendModelID: "gpt-5-turbo",
-			wantEfforts:    []string{"minimal", "low", "medium", "high"},
-			wantSource:     "fallback",
-			wantConfidence: "low",
-		},
-		{
-			name:           "codex o3 family gets fallback efforts",
-			providerType:   config.ProviderTypeCodex,
-			backendModelID: "o3-mini",
-			wantEfforts:    []string{"minimal", "low", "medium", "high"},
-			wantSource:     "fallback",
-			wantConfidence: "low",
-		},
-		{
-			name:           "non-openai provider gets no fallback",
-			providerType:   config.ProviderTypeAnthropic,
-			backendModelID: "claude-3",
+			name:           "no configured effort leaves effective effort empty",
 			wantEfforts:    nil,
 			wantSource:     "unknown",
 			wantConfidence: "unknown",
-		},
-		{
-			name:           "openai unrecognized family gets no fallback",
-			providerType:   config.ProviderTypeOpenAI,
-			backendModelID: "gpt-3.5-turbo",
-			wantEfforts:    nil,
-			wantSource:     "unknown",
-			wantConfidence: "unknown",
+			wantEffective:  "",
 		},
 		{
 			name:           "configured effort becomes effective effort",
 			reasoningCfg:   config.ReasoningConfig{Effort: "high"},
-			providerType:   config.ProviderTypeOpenAI,
-			backendModelID: "gpt-5",
-			wantEfforts:    []string{"minimal", "low", "medium", "high"},
-			wantSource:     "fallback",
-			wantConfidence: "low",
+			wantEfforts:    nil,
+			wantSource:     "unknown",
+			wantConfidence: "unknown",
 			wantEffective:  "high",
-		},
-		{
-			name:           "no configured effort leaves effective effort empty",
-			providerType:   config.ProviderTypeOpenAI,
-			backendModelID: "gpt-5",
-			wantEfforts:    []string{"minimal", "low", "medium", "high"},
-			wantSource:     "fallback",
-			wantConfidence: "low",
-			wantEffective:  "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			caps, effective := resolveReasoningCapabilities(tt.reasoningCfg, tt.providerType, tt.backendModelID)
+			caps, effective := resolveReasoningCapabilities(tt.reasoningCfg)
 			if !equalStrings(caps.SupportedEfforts, tt.wantEfforts) {
 				t.Errorf("SupportedEfforts=%v, want %v", caps.SupportedEfforts, tt.wantEfforts)
 			}

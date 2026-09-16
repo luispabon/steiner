@@ -94,6 +94,9 @@ func applyAdvancedPatch(dst *AdvancedConfig, patch *advancedPatch) {
 	if patch.Reasoning != nil {
 		applyReasoningPatch(&dst.Reasoning, patch.Reasoning)
 	}
+	if patch.Codex != nil {
+		setIfPresent(&dst.Codex.UseMaxContextWindow, patch.Codex.UseMaxContextWindow)
+	}
 }
 
 func applyAdvancedLimitsPatch(dst *AdvancedLimitsConfig, patch *advancedLimitsPatch) {

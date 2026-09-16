@@ -103,6 +103,24 @@ type cliRuntime struct {
 	modelPopularity              *modelcatalog.Store
 	modelEntriesUpdates          chan []tui.ModelEntry
 	worktreeCleanup              *tui.WorktreeCleanupPlan
+	// modelResolver is the session-scoped, memoized, single-flight model
+	// resolver. Set by defaultBuildRuntime; resolveModel falls back to a
+	// throwaway Resolver when nil (e.g. a cliRuntime built directly in tests).
+	modelResolver *provider.Resolver
+}
+
+// resolveModel resolves alias against rt's config through rt.modelResolver,
+// falling back to a throwaway, unmemoized Resolver when rt.modelResolver is
+// nil.
+func (rt cliRuntime) resolveModel(alias string) (provider.ResolvedModel, error) {
+	resolver := rt.modelResolver
+	if resolver == nil {
+		resolver = provider.NewResolver(provider.ResolverOptions{
+			HTTPClient: rt.httpClient,
+			Catalog:    newCatalogMetadataAdapter(rt.modelCatalog, &rt.cfg),
+		})
+	}
+	return resolver.Resolve(context.Background(), rt.cfg, alias)
 }
 
 var buildRuntime = defaultBuildRuntime

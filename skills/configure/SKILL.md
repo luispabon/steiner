@@ -49,7 +49,8 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `models.definitions.<alias>.prompts.system`|string|—|Replaces default system prompt. |
 | `models.definitions.<alias>.prompts.system_suffix`|string|—|Appends after default system prompt. |
 | `models.definitions.<alias>.prompts.compaction`|string|—|Replaces compaction prompt. |
-| `models.definitions.<alias>.advanced.limits.context_window`|int|`32768`|Context window in tokens. |
+| `models.definitions.<alias>.advanced.limits.context_window`|int|`32768`|Context window in tokens; explicit value wins over metadata. |
+| `models.definitions.<alias>.advanced.codex.use_max_context_window`|bool|`false`|Codex only; select positive catalog `max_context_window`, else normal `context_window`. |
 | `models.definitions.<alias>.advanced.limits.max_output_tokens`|int|`8192`|Per-response output-token ceiling. |
 | `models.definitions.<alias>.advanced.reasoning_echo_back`|bool or null|—|Provider reasoning echo control. |
 | `models.definitions.<alias>.advanced.transport`|string|`auto`|`auto`, `openai_compat`, or `anthropic`; explicit values override metadata. |

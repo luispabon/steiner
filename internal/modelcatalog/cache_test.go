@@ -17,11 +17,12 @@ func TestCacheRoundTripAndFilename(t *testing.T) {
 	now := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 	cache.now = func() time.Time { return now }
 	models := []DiscoveredModel{{
-		ProviderAlias: "openai",
-		ProviderType:  "openai",
-		ID:            "gpt-4.1",
-		DisplayName:   "GPT-4.1",
-		ContextLength: 128000,
+		ProviderAlias:    "openai",
+		ProviderType:     "openai",
+		ID:               "gpt-4.1",
+		DisplayName:      "GPT-4.1",
+		ContextLength:    128000,
+		MaxContextLength: 256000,
 	}}
 
 	if err := cache.SaveAtomic("fixed-alias", CacheEnvelope{
@@ -64,6 +65,19 @@ func TestCacheRoundTripAndFilename(t *testing.T) {
 	}
 	if !foundName {
 		t.Fatalf("cache directory lacks %q", wantName)
+	}
+}
+
+func TestCacheLoadsLegacySchemaWithoutMaxContext(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	alias := "legacy"
+	data := `{"schema_version":1,"fingerprint":{"provider_type":"codex","base_url":"https://example.com"},"fetched_at":"2026-01-02T03:04:05Z","expires_at":"2026-01-09T03:04:05Z","models":[{"id":"gpt-5-codex","context_length":128000}]}`
+	if err := os.WriteFile(cache.path(alias), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	models, found, err := cache.Load(alias, "codex", "https://example.com")
+	if err != nil || !found || len(models) != 1 || models[0].ContextLength != 128000 || models[0].MaxContextLength != 0 {
+		t.Fatalf("legacy load: models=%+v found=%v err=%v", models, found, err)
 	}
 }
 

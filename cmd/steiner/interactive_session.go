@@ -62,13 +62,13 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		BaseEvents:        rt.events,
 		SkillNames:        rt.skillNames,
 		Config:            sessionCfg,
-		HTTPClient:        rt.httpClient,
 		HomeDir:           rt.homeDir,
 		WorkDir:           rt.workDir,
 		SessionStore:      rt.sessionStore,
 		DelegateCanceller: delegationCanceller{c: rt.delegationActiveController},
 		CompactionLogPath: rt.compactionLogFile,
 		RecordModelSwitch: modelPopularityRecorder(rt.modelPopularity),
+		ResolveModel:      rt.resolveModel,
 		OnEffectiveAssignmentsChanged: func(effective config.EffectiveModelAssignments) {
 			if rt.visionCapabilities != nil {
 				rt.visionCapabilities.SetSubAgentConfigured(effective.SubAgents["vision"] != "")
@@ -150,6 +150,9 @@ func startModelCatalogRefresh(ctx context.Context, rt cliRuntime, sess *interact
 				}
 			},
 		})
+		if rt.modelResolver != nil {
+			rt.modelResolver.Invalidate()
+		}
 	}()
 }
 
@@ -233,10 +236,28 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		delegation.ResetForNewConversation(rt.delegationSessionStore, rt.delegationAdvisorBudgetStore)
 	}
 	tuiCfg.ResolveReasoningFunc = func() (map[string]provider.ReasoningCapabilities, map[string]string) {
-		return provider.ResolveReasoningBatch(rt.cfg, rt.httpClient)
+		if len(rt.cfg.Models.Definitions) == 0 {
+			return nil, nil
+		}
+		aliases := make([]string, 0, len(rt.cfg.Models.Definitions))
+		for alias := range rt.cfg.Models.Definitions {
+			aliases = append(aliases, alias)
+		}
+		sort.Strings(aliases)
+		caps := make(map[string]provider.ReasoningCapabilities)
+		efforts := make(map[string]string)
+		for _, alias := range aliases {
+			rm, err := rt.resolveModel(alias)
+			if err != nil {
+				continue
+			}
+			caps[alias] = rm.Reasoning
+			efforts[alias] = rm.ReasoningConfiguredEffort
+		}
+		return caps, efforts
 	}
 	tuiCfg.ResolveReasoningForAliasFunc = func(alias string) (provider.ReasoningCapabilities, string) {
-		rm, err := provider.ResolveWithDiscovery(rt.cfg, alias, rt.httpClient)
+		rm, err := rt.resolveModel(alias)
 		if err != nil {
 			return provider.ReasoningCapabilities{}, ""
 		}

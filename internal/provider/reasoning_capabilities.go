@@ -21,25 +21,18 @@ var openAIReasoningFallbackEfforts = []string{"minimal", "low", "medium", "high"
 var openAIReasoningFallbackFamilies = []string{"gpt-5", "o1", "o3", "o4", "codex"}
 
 // resolveReasoningCapabilities derives reasoning capabilities and the
-// effective reasoning effort for a model from config and, for
-// OpenAI/Codex-compatible providers, a curated fallback table. Config
-// values always take precedence over fallback data.
-func resolveReasoningCapabilities(reasoningCfg config.ReasoningConfig, providerType config.ProviderType, backendModelID string) (ReasoningCapabilities, string) {
+// effective reasoning effort for a model from config. Fallback-table
+// resolution (for providers/models config does not declare efforts for) is
+// handled separately by builtinSource through the fact resolver.
+func resolveReasoningCapabilities(reasoningCfg config.ReasoningConfig) (ReasoningCapabilities, string) {
 	caps := ReasoningCapabilities{
 		SupportedEfforts: copyStrings(reasoningCfg.SupportedEfforts),
 		Source:           "config",
 		Confidence:       "high",
 	}
-
 	if len(caps.SupportedEfforts) == 0 {
-		if fallback, ok := openAIReasoningFallback(providerType, backendModelID); ok {
-			caps.SupportedEfforts = fallback
-			caps.Source = "fallback"
-			caps.Confidence = "low"
-		} else {
-			caps.Source = "unknown"
-			caps.Confidence = "unknown"
-		}
+		caps.Source = "unknown"
+		caps.Confidence = "unknown"
 	}
 
 	effectiveEffort := strings.TrimSpace(reasoningCfg.Effort)
@@ -47,8 +40,9 @@ func resolveReasoningCapabilities(reasoningCfg config.ReasoningConfig, providerT
 }
 
 // openAIReasoningFallback returns the conservative fallback reasoning
-// efforts for known OpenAI/Codex reasoning-capable model families. It
-// returns ok=false for other providers or unrecognized model families.
+// efforts for known OpenAI/Codex reasoning-capable model families, used by
+// builtinSource. It returns ok=false for other providers or unrecognized
+// model families.
 func openAIReasoningFallback(providerType config.ProviderType, backendModelID string) (efforts []string, ok bool) {
 	if providerType != config.ProviderTypeOpenAI && providerType != config.ProviderTypeCodex {
 		return nil, false
