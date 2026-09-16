@@ -102,12 +102,10 @@ func (r *Resolver) Resolve(ctx context.Context, cfg config.Config, reference str
 		// (this return and the cache-hit branch above) goes through
 		// cloneResolvedModel first, so storing the raw value here is safe.
 		entry.model = model
-	} else {
+	} else if r.entries[key] == entry {
 		// Failed resolutions must not prevent a later retry. Keep a newer
 		// entry installed after Invalidate intact.
-		if r.entries[key] == entry {
-			delete(r.entries, key)
-		}
+		delete(r.entries, key)
 	}
 	entry.err = err
 	close(entry.done)
