@@ -103,8 +103,11 @@ func (r *Resolver) Resolve(ctx context.Context, cfg config.Config, reference str
 		// cloneResolvedModel first, so storing the raw value here is safe.
 		entry.model = model
 	} else {
-		// Failed resolutions must not prevent a later retry.
-		delete(r.entries, key)
+		// Failed resolutions must not prevent a later retry. Keep a newer
+		// entry installed after Invalidate intact.
+		if r.entries[key] == entry {
+			delete(r.entries, key)
+		}
 	}
 	entry.err = err
 	close(entry.done)
