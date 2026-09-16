@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -63,6 +64,30 @@ func (c *recoveringCatalog) CatalogModel(string, string) (CatalogModel, bool) {
 		close(c.firstStarted)
 		<-c.release
 		return CatalogModel{}, false
+	}
+	return CatalogModel{ContextWindow: 9000}, true
+}
+
+type invalidateRaceCatalog struct {
+	calls         atomic.Int32
+	firstStarted  chan struct{}
+	releaseFirst  chan struct{}
+	secondStarted chan struct{}
+	releaseSecond chan struct{}
+	thirdStarted  chan struct{}
+}
+
+func (c *invalidateRaceCatalog) CatalogModel(string, string) (CatalogModel, bool) {
+	switch c.calls.Add(1) {
+	case 1:
+		close(c.firstStarted)
+		<-c.releaseFirst
+		return CatalogModel{}, false
+	case 2:
+		close(c.secondStarted)
+		<-c.releaseSecond
+	case 3:
+		close(c.thirdStarted)
 	}
 	return CatalogModel{ContextWindow: 9000}, true
 }
@@ -160,6 +185,84 @@ func TestResolverRetriesSameValidKeyAfterCanceledCall(t *testing.T) {
 	}
 	if _, err := resolver.Resolve(context.Background(), cfg, "model"); err != nil {
 		t.Fatalf("retry after source recovery error = %v", err)
+	}
+}
+
+func TestResolverInvalidateDoesNotDeleteNewSameKeyEntry(t *testing.T) {
+	catalog := &invalidateRaceCatalog{
+		firstStarted:  make(chan struct{}),
+		releaseFirst:  make(chan struct{}),
+		secondStarted: make(chan struct{}),
+		releaseSecond: make(chan struct{}),
+		thirdStarted:  make(chan struct{}),
+	}
+	resolver := NewResolver(ResolverOptions{Catalog: catalog})
+	cfg := resolverTestConfig("model", "model-v1")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := resolver.Resolve(ctx, cfg, "model")
+		firstDone <- err
+	}()
+	<-catalog.firstStarted
+
+	resolver.Invalidate()
+
+	secondDone := make(chan struct {
+		model ResolvedModel
+		err   error
+	}, 1)
+	go func() {
+		model, err := resolver.Resolve(context.Background(), cfg, "model")
+		secondDone <- struct {
+			model ResolvedModel
+			err   error
+		}{model: model, err: err}
+	}()
+	<-catalog.secondStarted
+
+	cancel()
+	close(catalog.releaseFirst)
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("first resolution error = %v, want context.Canceled", err)
+	}
+
+	thirdWaiting := make(chan struct{})
+	thirdCtx := &doneObservationContext{Context: context.Background(), observed: thirdWaiting}
+	thirdDone := make(chan struct {
+		model ResolvedModel
+		err   error
+	}, 1)
+	go func() {
+		model, err := resolver.Resolve(thirdCtx, cfg, "model")
+		thirdDone <- struct {
+			model ResolvedModel
+			err   error
+		}{model: model, err: err}
+	}()
+	thirdLaunched := false
+	select {
+	case <-thirdWaiting:
+	case <-catalog.thirdStarted:
+		thirdLaunched = true
+	}
+
+	close(catalog.releaseSecond)
+	second := <-secondDone
+	third := <-thirdDone
+	if thirdLaunched {
+		t.Fatal("third same-key resolution launched another source call")
+	}
+	if second.err != nil || third.err != nil {
+		t.Fatalf("same-key resolutions returned errors: second=%v third=%v", second.err, third.err)
+	}
+	if !reflect.DeepEqual(second.model, third.model) {
+		t.Fatalf("same-key results differ: second=%+v third=%+v", second.model, third.model)
+	}
+	if got := catalog.calls.Load(); got != 2 {
+		t.Fatalf("catalog calls = %d, want 2 after Invalidate race", got)
 	}
 }
 
