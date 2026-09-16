@@ -2,7 +2,6 @@ package delegation
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 	"sync"
 
@@ -64,8 +63,6 @@ type DelegateDeps struct {
 	ResolveModel func(string) (provider.ResolvedModel, error)
 	// ProviderFactory builds providers for resolved child models when one is required.
 	ProviderFactory func(provider.ResolvedModel, string) (provider.Provider, error)
-	// HTTPClient is used for model discovery when resolving child models.
-	HTTPClient *http.Client
 	// Searcher provides the web search backend when available.
 	Searcher web.Searcher
 	// SandboxTmpDir is the path to the sandbox temporary directory inside the

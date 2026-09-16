@@ -10,11 +10,11 @@ import (
 	"github.com/luispabon/steiner/internal/metadata"
 )
 
-// TestResolveWithDiscoveryNoWarningOnProviderMismatchWithConfiguredLimits
+// TestResolveModelMetadataNoWarningOnProviderMismatchWithConfiguredLimits
 // reverses #737's TestLoadAndApplyMetadataWarnsOnProviderMismatchWithConfiguredLimits:
 // warnings are now derived from final facts, not individual lookups, per the
 // model-metadata-fix plan §1.3(2)/§2.5.
-func TestResolveWithDiscoveryNoWarningOnProviderMismatchWithConfiguredLimits(t *testing.T) {
+func TestResolveModelMetadataNoWarningOnProviderMismatchWithConfiguredLimits(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -53,7 +53,7 @@ func TestResolveWithDiscoveryNoWarningOnProviderMismatchWithConfiguredLimits(t *
 	}
 }
 
-func TestResolveWithDiscoveryWarnsOnMetadataCacheDegradation(t *testing.T) {
+func TestResolveModelMetadataWarnsOnMetadataCacheDegradation(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{

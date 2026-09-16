@@ -133,7 +133,7 @@ models:
 
 Omit `api_key_env` when the endpoint needs no key. A user-provided Gemini-compatible endpoint, if it exposes the supported OpenAI-compatible shape, is configured the same way with `type: openai_compat`; this does not make every Gemini endpoint compatible. Native `type: gemini` is not runtime-supported.
 
-Generic gateway types (`openai_compat`, `ollama`, `litellm`) have no fixed models.dev provider identity, so unless `advanced.limits` is set explicitly, steiner takes the most conservative context window and max output tokens found for the model across every models.dev provider that lists it.
+Generic gateway types (`openai_compat`, `ollama`, `litellm`) have no fixed models.dev provider identity. Explicit model limits win, then the live catalog is checked, then models.dev. Unless `advanced.limits` is set explicitly, steiner takes the most conservative context window and max output tokens found for the model across every models.dev provider that lists it. Ollama probes the live server for context before using merged models.dev data.
 
 ### LiteLLM
 
@@ -195,7 +195,7 @@ chooser lists entries as `opencode-go/<model-id>`.
 
 ## Codex OAuth
 
-Codex uses your OpenAI account through OAuth and does not use an API key.
+Codex uses your OpenAI account through OAuth and does not use an API key. It always uses the fixed OAuth Responses transport; configured base URLs do not change that transport or its catalog fingerprint.
 
 Log in and check the login status:
 

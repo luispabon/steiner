@@ -146,13 +146,13 @@ func applyFactDefaults(facts *ModelFacts, pending fieldSet, ref modelRef) {
 	contextWasPending := pending&fieldSet(fieldContextWindow) != 0
 	if contextWasPending {
 		facts.ContextWindow = Fact[int]{
-			Value: 32768, Known: true, Source: FactSourceFallback, Confidence: "low",
+			Value: defaultContextWindow, Known: true, Source: FactSourceFallback, Confidence: "low",
 			Note: "conservative default",
 		}
 	}
 	if pending&fieldSet(fieldMaxOutput) != 0 && contextWasPending {
 		facts.MaxOutputTokens = Fact[int]{
-			Value: 4096, Known: true, Source: FactSourceFallback, Confidence: "low",
+			Value: defaultMaxOutputTokens, Known: true, Source: FactSourceFallback, Confidence: "low",
 			Note: "conservative default",
 		}
 	}

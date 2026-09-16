@@ -50,6 +50,31 @@ func TestCatalogMetadataAdapter_CodexUsesChatGPTBackendFingerprint(t *testing.T)
 	}
 }
 
+func TestCatalogMetadataAdapter_DefaultProviderBasesFindPersistedCache(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		typ  config.ProviderType
+		base string
+	}{
+		{"openai", config.ProviderTypeOpenAI, "https://api.openai.com/v1"},
+		{"openrouter", config.ProviderTypeOpenRouter, "https://openrouter.ai/api/v1"},
+		{"opencode_go", config.ProviderTypeOpencodeGo, "https://opencode.ai/zen/go/v1"},
+		{"opencode_zen", config.ProviderTypeOpencodeZen, "https://opencode.ai/zen/v1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := modelcatalog.NewCache(t.TempDir())
+			if err := cache.SaveAtomic(tc.name, modelcatalog.CacheEnvelope{Fingerprint: modelcatalog.CacheFingerprint{ProviderType: string(tc.typ), BaseURL: tc.base}, Models: []modelcatalog.DiscoveredModel{{ID: "model"}}}); err != nil {
+				t.Fatal(err)
+			}
+			cfg := &config.Config{Providers: map[string]config.ProviderConfig{tc.name: {Type: tc.typ}}}
+			adapter := newCatalogMetadataAdapter(modelcatalog.NewService(nil, cache, nil, nil), cfg)
+			if _, ok := adapter.CatalogModel(tc.name, "model"); !ok {
+				t.Fatal("CatalogModel() missed cache with omitted base_url")
+			}
+		})
+	}
+}
+
 func TestCatalogMetadataAdapter_NilService(t *testing.T) {
 	adapter := newCatalogMetadataAdapter(nil, &config.Config{})
 	if _, ok := adapter.CatalogModel("any", "any"); ok {

@@ -46,9 +46,7 @@ func (s probeSource) resolve(_ context.Context, ref modelRef, want fieldSet) sou
 	}
 
 	var facts ModelFacts
-	if want&fieldSet(fieldContextWindow) != 0 {
-		facts.ContextWindow = Fact[int]{Value: contextWindow, Known: true, Source: FactSourceDiscovery, Confidence: "medium"}
-	}
+	facts.ContextWindow = Fact[int]{Value: contextWindow, Known: true, Source: FactSourceDiscovery, Confidence: "medium"}
 	return sourceResult{facts: facts}
 }
 

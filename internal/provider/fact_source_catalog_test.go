@@ -2,14 +2,21 @@ package provider
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/metadata"
 )
 
 // fakeModelCatalog is a test double for ModelCatalog keyed by
 // "providerAlias\x00modelID".
+type roundTripFuncCatalog func(*http.Request) (*http.Response, error)
+
+func (f roundTripFuncCatalog) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 type fakeModelCatalog map[string]CatalogModel
 
 func (f fakeModelCatalog) CatalogModel(providerAlias, modelID string) (CatalogModel, bool) {
@@ -67,7 +74,26 @@ func TestCatalogSource_Resolve(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryCatalogBeatsModelsDevPerField(t *testing.T) {
+func TestResolveReferenceCatalogMissThenOllamaProbeSuppliesContext(t *testing.T) {
+	cfg := config.Config{Providers: map[string]config.ProviderConfig{"ollama": {Type: config.ProviderTypeOllama, BaseURL: "http://ollama"}}, Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{"model": {Provider: "ollama", ID: "llama"}}}}
+	catalog := fakeModelCatalog{"ollama\x00llama": {MaxOutputTokens: 2048}}
+	client := &http.Client{Transport: roundTripFuncCatalog(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"model_info":{"general.context_length":65536}}`)), Header: http.Header{}, Request: req}, nil
+	})}
+	loader := newModelsDevLoaderWithFunc(func(context.Context) metadata.LoadResult { return metadata.LoadResult{} })
+	rm, err := resolveReferenceWithLoader(context.Background(), &cfg, "model", true, client, loader, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rm.Facts.ContextWindow.Value != 65536 || rm.Facts.ContextWindow.Source != FactSourceDiscovery {
+		t.Fatalf("context = %+v, want Ollama discovery 65536", rm.Facts.ContextWindow)
+	}
+	if rm.Facts.MaxOutputTokens.Value != 2048 || rm.Facts.MaxOutputTokens.Source != FactSourceCatalog {
+		t.Fatalf("output = %+v, want catalog 2048", rm.Facts.MaxOutputTokens)
+	}
+}
+
+func TestResolveModelMetadataCatalogBeatsModelsDevPerField(t *testing.T) {
 	writeModelsDevCache(t, `{"openai":{"models":{"gpt-5-codex":{"limit":{"context":1050000,"output":128000}}}}}`)
 
 	cfg := config.Config{
@@ -103,7 +129,7 @@ func TestResolveWithDiscoveryCatalogBeatsModelsDevPerField(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryCatalogWinsOverModelsDevAllFields(t *testing.T) {
+func TestResolveModelMetadataCatalogWinsOverModelsDevAllFields(t *testing.T) {
 	writeModelsDevCache(t, `{"openrouter":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`)
 
 	cfg := config.Config{
@@ -138,7 +164,7 @@ func TestResolveWithDiscoveryCatalogWinsOverModelsDevAllFields(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryCatalogMissFallsThroughToModelsDev(t *testing.T) {
+func TestResolveModelMetadataCatalogMissFallsThroughToModelsDev(t *testing.T) {
 	writeModelsDevCache(t, `{"openrouter":{"models":{"openai/gpt-4o":{"limit":{"context":64000,"output":4096}}}}}`)
 
 	cfg := config.Config{

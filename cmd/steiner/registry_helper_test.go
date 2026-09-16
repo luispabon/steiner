@@ -33,7 +33,6 @@ func buildActiveRegistry(base *tool.Registry, subAgentCfg config.SubAgentConfig,
 			return resolver.Resolve(context.Background(), cfg, alias)
 		},
 		ProviderFactory: providerFactory,
-		HTTPClient:      httpClient,
 		Searcher:        searcher,
 	})
 }

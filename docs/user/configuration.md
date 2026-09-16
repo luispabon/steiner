@@ -411,6 +411,15 @@ models:
       ...
 ```
 
+### Metadata precedence
+
+For each model fact, explicit model configuration wins. Otherwise the catalog is
+checked before models.dev. For generic providers, models.dev uses the provider's
+model alias when available and then merges matching provider entries; Ollama
+probes the live server for context before using merged models.dev data. Codex
+always uses its fixed OAuth Responses transport, regardless of configured URL.
+Unresolved limits use the conservative fallback values.
+
 ### `ModelConfig` fields
 
 | Field           | Type           | Default                | Description                                                                                                                                                                                                                         |

@@ -2,7 +2,6 @@ package interactive
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -67,7 +66,6 @@ type Dependencies struct {
 	SessionStore      sessionStore
 	SkillNames        []string
 	Config            config.Config
-	HTTPClient        *http.Client
 	HomeDir           string
 	WorkDir           string
 	CompactionLogPath string

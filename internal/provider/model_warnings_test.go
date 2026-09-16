@@ -115,14 +115,9 @@ func TestDeriveWarningsScenarios(t *testing.T) {
 		}
 	})
 
-	// Malformed on-disk cache data with a fresh meta file is discovered inside
-	// LookupWithProviderResult (LookupReasonMalformed), not at cache-load time
-	// (Cache.Load is a bare os.ReadFile; it does not validate JSON). So this
-	// path never produces a sourceErr: it surfaces only as a note on
-	// ContextWindow, folded into the single fallback warning's suffix. A
-	// cache-load-level failure (see TestResolveWithDiscoveryWarnsOnMetadataCacheDegradation)
-	// is the two-warning case; malformed-but-loadable data is one.
-	t.Run("malformed cache data with unconfigured limits warns once, folding the reason into the fallback warning", func(t *testing.T) {
+	// Malformed metadata is unavailable at source level, so it produces the
+	// source-unavailable warning as well as the fallback warning.
+	t.Run("malformed cache data with unconfigured limits warns for source and fallback", func(t *testing.T) {
 		writeModelsDevCache(t, `not valid json`)
 
 		cfg := config.Config{
@@ -138,14 +133,14 @@ func TestDeriveWarningsScenarios(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveReference(&) error = %v", err)
 		}
-		if len(rm.Warnings) != 1 {
-			t.Fatalf("Warnings = %v, want exactly 1", rm.Warnings)
+		if len(rm.Warnings) != 2 {
+			t.Fatalf("Warnings = %v, want source and fallback warnings", rm.Warnings)
 		}
-		if !strings.Contains(rm.Warnings[0], "has unknown context limits") {
-			t.Errorf("warning = %q, want it to mention unknown context limits", rm.Warnings[0])
+		if !strings.Contains(rm.Warnings[0], "models.dev unavailable") || !strings.Contains(rm.Warnings[0], "malformed") {
+			t.Errorf("source warning = %q, want malformed models.dev unavailability", rm.Warnings[0])
 		}
-		if !strings.Contains(rm.Warnings[0], "malformed") {
-			t.Errorf("warning = %q, want it to mention malformed", rm.Warnings[0])
+		if !strings.Contains(rm.Warnings[1], "has unknown context limits") {
+			t.Errorf("fallback warning = %q, want it to mention unknown context limits", rm.Warnings[1])
 		}
 	})
 

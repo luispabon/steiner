@@ -69,6 +69,9 @@ func (s modelsDevSource) resolve(ctx context.Context, ref modelRef, want fieldSe
 	}
 
 	idx, loadErr := s.loader.load(ctx)
+	if idx != nil && idx.Malformed() {
+		return sourceResult{sourceErr: "models.dev unavailable: malformed metadata"}
+	}
 	if idx == nil {
 		if loadErr != "" {
 			return sourceResult{sourceErr: "models.dev unavailable: " + loadErr}
@@ -115,7 +118,7 @@ func (s modelsDevSource) resolve(ctx context.Context, ref modelRef, want fieldSe
 // never overridden by a merge — malformed stays malformed. merged reports
 // whether the returned LookupResult came from the merge fallback.
 func modelsDevLookup(idx *metadata.Index, ref modelRef) (result metadata.LookupResult, merged bool) {
-	if ref.Profile.ModelsDevID != "" {
+	if !ref.Profile.Generic {
 		return idx.LookupProvider(ref.Profile.ModelsDevID, ref.BackendModelID), false
 	}
 	strict := idx.LookupProvider(ref.ProviderAlias, ref.BackendModelID)
