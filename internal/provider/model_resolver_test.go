@@ -28,18 +28,15 @@ func (t *blockingFailTransport) RoundTrip(*http.Request) (*http.Response, error)
 	return nil, fmt.Errorf("offline")
 }
 
-type uncanceledObservationContext struct {
+type doneObservationContext struct {
 	context.Context
 	observed chan struct{}
 	once     sync.Once
 }
 
-func (c *uncanceledObservationContext) Err() error {
-	err := c.Context.Err()
-	if err == nil {
-		c.once.Do(func() { close(c.observed) })
-	}
-	return err
+func (c *doneObservationContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.observed) })
+	return c.Context.Done()
 }
 
 type countingCatalog struct{ calls *atomic.Int32 }
@@ -74,16 +71,25 @@ func TestResolverCanceledCoalescedWaiterReturnsContextError(t *testing.T) {
 	cfg := config.Config{Providers: map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOllama, BaseURL: "http://localhost:11434"}}, Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{"model": {Provider: "local", ID: "model-v1"}}}}
 	leaderDone := make(chan struct{})
 	go func() { _, _ = resolver.Resolve(context.Background(), cfg, "model"); close(leaderDone) }()
-	<-transport.firstStarted
+	defer func() {
+		close(transport.release)
+		<-leaderDone
+	}()
+	select {
+	case <-transport.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("leader did not start")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	observed := make(chan struct{})
-	waiterCtx := &uncanceledObservationContext{Context: ctx, observed: observed}
+	waiterCtx := &doneObservationContext{Context: ctx, observed: observed}
 	waiterDone := make(chan error, 1)
 	go func() { _, err := resolver.Resolve(waiterCtx, cfg, "model"); waiterDone <- err }()
 	select {
 	case <-observed:
 	case <-time.After(time.Second):
-		t.Fatal("waiter did not observe an uncanceled context")
+		t.Fatal("waiter did not observe Done")
 	}
 	cancel()
 	select {
@@ -94,8 +100,6 @@ func TestResolverCanceledCoalescedWaiterReturnsContextError(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("canceled waiter did not return while leader was blocked")
 	}
-	close(transport.release)
-	<-leaderDone
 }
 
 func TestResolverResolveCoalescesConcurrentCallsForSameKey(t *testing.T) {
