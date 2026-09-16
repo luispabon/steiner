@@ -140,9 +140,10 @@ func resolverCacheKey(cfg config.Config, reference string) (string, error) {
 	h := fnv.New64a()
 	enc := json.NewEncoder(h)
 	if err := enc.Encode(struct {
-		Model    config.ModelConfig
-		Provider config.ProviderConfig
-	}{modelCfg, provCfg}); err != nil {
+		Model                   config.ModelConfig
+		Provider                config.ProviderConfig
+		ContextWindowProvenance string
+	}{modelCfg, provCfg, modelCfg.Advanced.Limits.ContextWindowProvenance()}); err != nil {
 		return "", fmt.Errorf("fingerprint model config: %w", err)
 	}
 	return fmt.Sprintf("%s\x00%x", reference, h.Sum64()), nil

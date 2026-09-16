@@ -127,6 +127,14 @@ func TestApplyProviderPatch(t *testing.T) {
 	}
 }
 
+func TestApplyModelPatchCodexContextWindow(t *testing.T) {
+	model := ModelConfig{Advanced: AdvancedConfig{Codex: ModelCodexConfig{UseMaxContextWindow: true}}}
+	applyModelPatch(&model, &modelPatch{Advanced: &advancedPatch{Codex: &modelCodexPatch{UseMaxContextWindow: boolPtr(false)}}})
+	if model.Advanced.Codex.UseMaxContextWindow {
+		t.Fatal("UseMaxContextWindow = true, want explicit false")
+	}
+}
+
 func TestApplyModelPatch(t *testing.T) {
 	retry250ms := MustDuration("250ms")
 	retry1s := MustDuration("1s")

@@ -8,6 +8,7 @@ type DiscoveredModel struct {
 	DisplayName      string   `json:"display_name" yaml:"display_name"`
 	Description      string   `json:"description" yaml:"description"`
 	ContextLength    int      `json:"context_length" yaml:"context_length"`
+	MaxContextLength int      `json:"max_context_length,omitempty" yaml:"max_context_length,omitempty"`
 	MaxOutputTokens  int      `json:"max_output_tokens,omitempty" yaml:"max_output_tokens,omitempty"`
 	SupportedEfforts []string `json:"supported_efforts" yaml:"supported_efforts"`
 	Priority         int      `json:"priority" yaml:"priority"`

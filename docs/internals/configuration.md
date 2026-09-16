@@ -36,7 +36,7 @@ Per-field precedence, as of this stage:
 
 | Fact | Order |
 |---|---|
-| Context window / max output tokens | config → provider model catalog → live provider probe (Ollama only) → models.dev → conservative fallback (32768/4096) |
+| Context window / max output tokens | explicit config → provider model catalog → live provider probe (Ollama only) → models.dev → conservative fallback (32768/4096); Codex catalog context selects `max_context_window` only for `advanced.codex.use_max_context_window: true` and positive max, otherwise `context_window` |
 | Vision | config → models.dev → unknown |
 | Reasoning efforts | config → provider model catalog → models.dev → built-in OpenAI/Codex family table → unknown |
 | Reasoning echo-back | config → models.dev → unknown (false) |

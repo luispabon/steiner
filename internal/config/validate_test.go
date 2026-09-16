@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+func TestModelCodexContextWindowValidation(t *testing.T) {
+	codex := validBase()
+	model := codex.Models.Definitions["default"]
+	model.Advanced.Codex.UseMaxContextWindow = true
+	codex.Models.Definitions["default"] = model
+	codex.Providers["local"] = ProviderConfig{Type: ProviderTypeCodex}
+	if err := validate(codex, ""); err != nil {
+		t.Fatalf("Codex opt-in validation: %v", err)
+	}
+	nonCodex := validBase()
+	model = nonCodex.Models.Definitions["default"]
+	model.Advanced.Codex.UseMaxContextWindow = true
+	nonCodex.Models.Definitions["default"] = model
+	if err := validate(nonCodex, ""); err == nil || !strings.Contains(err.Error(), "use_max_context_window is only supported for codex providers") {
+		t.Fatalf("non-Codex opt-in validation: %v", err)
+	}
+}
+
 func validBase() Config {
 	retry := RetryConfig{
 		Enabled:        true,

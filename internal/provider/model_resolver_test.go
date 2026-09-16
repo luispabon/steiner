@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -371,6 +373,51 @@ func TestResolverKeepsReferencesIndependent(t *testing.T) {
 	}
 	if luna.BackendModelID == nova.BackendModelID || luna.Alias == nova.Alias {
 		t.Fatalf("resolved results are not distinct: luna=%+v nova=%+v", luna, nova)
+	}
+}
+
+func TestResolverCacheDifferentiatesExplicitInheritedCodexContext(t *testing.T) {
+	resolver := NewResolver(ResolverOptions{Catalog: fakeModelCatalog{"codex\x00gpt-5-codex": {ContextWindow: 128000}}})
+	load := func(t *testing.T, contextLine string) config.Config {
+		t.Helper()
+		dir := t.TempDir()
+		project := filepath.Join(dir, "project")
+		if err := os.MkdirAll(filepath.Join(project, ".steiner"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		data := "providers:\n  codex:\n    type: codex\nmodels:\n  definitions:\n    model:\n      provider: codex\n      id: gpt-5-codex\n      advanced:\n        limits:\n" + contextLine
+		if err := os.WriteFile(filepath.Join(project, ".steiner", "config.yaml"), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := config.Load(config.LoadOptions{WorkingDir: project, HomeDir: filepath.Join(dir, "home"), Env: map[string]string{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+	inherited := load(t, "")
+	explicit := load(t, "          context_window: 32768\n")
+	inheritedKey, err := resolverCacheKey(inherited, "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicitKey, err := resolverCacheKey(explicit, "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inheritedKey == explicitKey {
+		t.Fatal("resolver keys equal for inherited and explicit context")
+	}
+	inheritedModel, err := resolver.Resolve(context.Background(), inherited, "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicitModel, err := resolver.Resolve(context.Background(), explicit, "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inheritedModel.EffectiveLimits.ContextWindow != 128000 || explicitModel.EffectiveLimits.ContextWindow != 32768 {
+		t.Fatalf("context windows = %d, %d; want 128000, 32768", inheritedModel.EffectiveLimits.ContextWindow, explicitModel.EffectiveLimits.ContextWindow)
 	}
 }
 

@@ -94,6 +94,11 @@ type advancedPatch struct {
 	ReasoningEchoBack *bool                `yaml:"reasoning_echo_back"`
 	Transport         *ModelTransportType  `yaml:"transport"`
 	Reasoning         *reasoningPatch      `yaml:"reasoning"`
+	Codex             *modelCodexPatch     `yaml:"codex"`
+}
+
+type modelCodexPatch struct {
+	UseMaxContextWindow *bool `yaml:"use_max_context_window"`
 }
 
 type advancedLimitsPatch struct {

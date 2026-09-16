@@ -88,8 +88,22 @@ type ProviderConfig struct {
 
 // AdvancedLimitsConfig defines token limits for model inference.
 type AdvancedLimitsConfig struct {
-	ContextWindow   int `yaml:"context_window"`
-	MaxOutputTokens int `yaml:"max_output_tokens"`
+	ContextWindow    int `yaml:"context_window"`
+	MaxOutputTokens  int `yaml:"max_output_tokens"`
+	contextWindowSet bool
+}
+
+// ContextWindowExplicit reports whether context_window should override metadata.
+func (l AdvancedLimitsConfig) ContextWindowExplicit() bool {
+	return l.contextWindowSet || l.ContextWindow > 0 && l.ContextWindow != 32768
+}
+
+// ContextWindowProvenance returns stable input for resolver fingerprints.
+func (l AdvancedLimitsConfig) ContextWindowProvenance() string {
+	if l.contextWindowSet {
+		return "explicit"
+	}
+	return "inherited"
 }
 
 // ModelTransportType controls how Steiner chooses the request transport for a model.
@@ -110,6 +124,12 @@ type AdvancedConfig struct {
 	ReasoningEchoBack *bool                `yaml:"reasoning_echo_back"`
 	Transport         ModelTransportType   `yaml:"transport"`
 	Reasoning         ReasoningConfig      `yaml:"reasoning"`
+	Codex             ModelCodexConfig     `yaml:"codex"`
+}
+
+// ModelCodexConfig configures Codex-specific model behavior.
+type ModelCodexConfig struct {
+	UseMaxContextWindow bool `yaml:"use_max_context_window"`
 }
 
 // ReasoningConfig configures model reasoning effort. Values are

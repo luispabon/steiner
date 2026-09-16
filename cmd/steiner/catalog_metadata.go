@@ -35,6 +35,7 @@ func (a *catalogMetadataAdapter) CatalogModel(providerAlias, modelID string) (pr
 	}
 	return provider.CatalogModel{
 		ContextWindow:    model.ContextLength,
+		MaxContextWindow: model.MaxContextLength,
 		MaxOutputTokens:  model.MaxOutputTokens,
 		SupportedEfforts: model.SupportedEfforts,
 	}, true

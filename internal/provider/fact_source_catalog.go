@@ -1,11 +1,16 @@
 package provider
 
-import "context"
+import (
+	"context"
+
+	"github.com/luispabon/steiner/internal/config"
+)
 
 // CatalogModel is the subset of enumerated provider-catalog data a catalog
 // lookup can contribute to fact resolution.
 type CatalogModel struct {
 	ContextWindow    int
+	MaxContextWindow int
 	MaxOutputTokens  int
 	SupportedEfforts []string
 }
@@ -38,8 +43,14 @@ func (s catalogSource) resolve(_ context.Context, ref modelRef, want fieldSet) s
 	}
 
 	var facts ModelFacts
-	if want&fieldSet(fieldContextWindow) != 0 && model.ContextWindow > 0 {
-		facts.ContextWindow = Fact[int]{Value: model.ContextWindow, Known: true, Source: FactSourceCatalog, Confidence: "high"}
+	if want&fieldSet(fieldContextWindow) != 0 {
+		contextWindow := model.ContextWindow
+		if ref.Provider.Type == config.ProviderTypeCodex && ref.ModelConfig.Advanced.Codex.UseMaxContextWindow && model.MaxContextWindow > 0 {
+			contextWindow = model.MaxContextWindow
+		}
+		if contextWindow > 0 {
+			facts.ContextWindow = Fact[int]{Value: contextWindow, Known: true, Source: FactSourceCatalog, Confidence: "high"}
+		}
 	}
 	if want&fieldSet(fieldMaxOutput) != 0 && model.MaxOutputTokens > 0 {
 		facts.MaxOutputTokens = Fact[int]{Value: model.MaxOutputTokens, Known: true, Source: FactSourceCatalog, Confidence: "high"}

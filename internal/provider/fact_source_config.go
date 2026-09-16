@@ -15,7 +15,7 @@ func (configSource) resolve(_ context.Context, ref modelRef, want fieldSet) sour
 	var facts ModelFacts
 	adv := ref.ModelConfig.Advanced
 
-	if want&fieldSet(fieldContextWindow) != 0 && adv.Limits.ContextWindow > 0 {
+	if want&fieldSet(fieldContextWindow) != 0 && adv.Limits.ContextWindow > 0 && (ref.Provider.Type != config.ProviderTypeCodex || adv.Limits.ContextWindowExplicit()) {
 		facts.ContextWindow = Fact[int]{Value: adv.Limits.ContextWindow, Known: true, Source: FactSourceConfig, Confidence: "high"}
 	}
 	if want&fieldSet(fieldMaxOutput) != 0 && adv.Limits.MaxOutputTokens > 0 {

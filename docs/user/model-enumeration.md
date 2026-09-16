@@ -18,7 +18,7 @@ used under `providers`; they are not model aliases.
 | `lmstudio` | `GET /api/v1/models` | Bearer API key when configured | Entries with `type: embedding` are excluded. `max_context_length` is used as the context length. |
 | `openrouter` | `GET /api/v1/models` | Bearer API key when configured | Text-only models are kept by default. `links.next` pagination is followed only when it stays on the same host. |
 | `anthropic` | `GET /v1/models` | `x-api-key` or Bearer; sends `anthropic-version: 2023-06-01` | Model capabilities provide supported reasoning efforts. Pagination starts with `limit=1000` and falls back to `limit=20` when the larger limit is rejected. |
-| `codex` | `GET {codex-base}/models?client_version=<steiner version>` | OAuth Bearer token and `ChatGPT-Account-ID` | Only models with `visibility: list` are included. Reasoning levels provide supported reasoning efforts. |
+| `codex` | `GET {codex-base}/models?client_version=<steiner version>` | OAuth Bearer token and `ChatGPT-Account-ID` | Only models with `visibility: list` are included. `context_window` and optional `max_context_window` are retained. Reasoning levels provide supported reasoning efforts. |
 
 Native `gemini` is not a runtime-supported provider type and is not shown as a
 supported discovery type. A user-provided compatible endpoint can use generic
@@ -83,7 +83,10 @@ configured provider prefix is used, so model IDs containing slashes are supporte
 Beyond the `/model` chooser, the same catalog cache feeds per-model metadata
 resolution: context window, max output tokens, and supported reasoning efforts
 for a configured model prefer catalog data (when present) over models.dev and
-built-in fallbacks. This uses whatever is cached — a stale-but-present entry is
+built-in fallbacks. Codex definitions use catalog `context_window` by default and
+may opt into positive `max_context_window` with
+`advanced.codex.use_max_context_window: true`; explicit numeric
+`advanced.limits.context_window` always wins. This uses whatever is cached — a stale-but-present entry is
 still consulted, the same as the chooser. Disabling discovery
 (`models.discovery_enabled: false`) removes catalog data from metadata
 resolution as well as from the chooser; resolution then falls through to

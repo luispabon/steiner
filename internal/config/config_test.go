@@ -324,6 +324,32 @@ func TestLoadRejectsRemovedConcurrencyConfig(t *testing.T) {
 	}
 }
 
+func TestLoadCodexOptInPreservesInheritedContextForSourceResolution(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	projectDir := filepath.Join(tempDir, "project")
+	mustMkdirAll(t, filepath.Join(projectDir, ".steiner"))
+	writeFile(t, filepath.Join(projectDir, ".steiner", "config.yaml"), `providers:
+  local:
+    type: codex
+models:
+  definitions:
+    default:
+      provider: local
+      id: gpt-5-codex
+      advanced:
+        codex:
+          use_max_context_window: true
+`)
+	cfg, err := Load(LoadOptions{HomeDir: homeDir, WorkingDir: projectDir, Env: map[string]string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Models.Definitions["default"].Advanced.Limits.ContextWindow; got != 32768 {
+		t.Fatalf("inherited ContextWindow = %d, want 32768 retained for source-time handling", got)
+	}
+}
+
 func TestLoadPrecedence(t *testing.T) {
 	tempDir := t.TempDir()
 
