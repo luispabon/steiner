@@ -64,6 +64,9 @@ func NewResolver(opts ResolverOptions) *Resolver {
 // changes are picked up correctly. Concurrent calls for the same key are
 // coalesced (single-flight). Failed resolutions are never memoized.
 func (r *Resolver) Resolve(ctx context.Context, cfg config.Config, reference string) (ResolvedModel, error) {
+	if err := ctx.Err(); err != nil {
+		return ResolvedModel{}, err
+	}
 	key, keyErr := resolverCacheKey(cfg, reference)
 	if keyErr != nil {
 		// Reference doesn't resolve to a model/provider at all (e.g. unknown
@@ -75,14 +78,23 @@ func (r *Resolver) Resolve(ctx context.Context, cfg config.Config, reference str
 	r.mu.Lock()
 	if entry, ok := r.entries[key]; ok {
 		r.mu.Unlock()
-		<-entry.done
-		return cloneResolvedModel(entry.model), entry.err
+		select {
+		case <-entry.done:
+			return cloneResolvedModel(entry.model), entry.err
+		case <-ctx.Done():
+			return ResolvedModel{}, ctx.Err()
+		}
 	}
 	entry := &resolverEntry{done: make(chan struct{})}
 	r.entries[key] = entry
 	r.mu.Unlock()
 
 	model, err := resolveReferenceWithLoader(ctx, &cfg, reference, true, r.httpClient, r.mdLoader, r.catalog)
+	if err == nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = ctxErr
+		}
+	}
 
 	r.mu.Lock()
 	if err == nil {
@@ -155,9 +167,28 @@ func cloneAnyMap(m map[string]any) map[string]any {
 	}
 	cloned := make(map[string]any, len(m))
 	for k, v := range m {
-		cloned[k] = v
+		cloned[k] = cloneAny(v)
 	}
 	return cloned
+}
+
+func cloneAny(v any) any {
+	switch value := v.(type) {
+	case map[string]any:
+		return cloneAnyMap(value)
+	case []any:
+		cloned := make([]any, len(value))
+		for i, item := range value {
+			cloned[i] = cloneAny(item)
+		}
+		return cloned
+	case []string:
+		return append([]string(nil), value...)
+	case map[string]string:
+		return cloneStringMap(value)
+	default:
+		return v
+	}
 }
 
 func cloneStringMap(m map[string]string) map[string]string {

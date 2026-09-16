@@ -19,7 +19,7 @@ type catalogMetadataAdapter struct {
 // newCatalogMetadataAdapter returns a catalogMetadataAdapter wrapping service
 // and a snapshot of cfg.
 func newCatalogMetadataAdapter(service *modelcatalog.Service, cfg *config.Config) *catalogMetadataAdapter {
-	return &catalogMetadataAdapter{service: service, cfg: cfg}
+	return &catalogMetadataAdapter{service: service, cfg: catalogConfigCopy(cfg)}
 }
 
 // CatalogModel implements provider.ModelCatalog. It routes the lookup through
@@ -29,7 +29,7 @@ func (a *catalogMetadataAdapter) CatalogModel(providerAlias, modelID string) (pr
 	if a == nil || a.service == nil {
 		return provider.CatalogModel{}, false
 	}
-	model, ok := a.service.Model(catalogConfigCopy(a.cfg), providerAlias, modelID)
+	model, ok := a.service.Model(a.cfg, providerAlias, modelID)
 	if !ok {
 		return provider.CatalogModel{}, false
 	}

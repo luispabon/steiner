@@ -12,8 +12,9 @@ import (
 // happens once, in ParseIndex; LookupProvider then walks the already-parsed
 // maps instead of re-parsing JSON on every call.
 type Index struct {
-	providers map[string]indexProvider
-	malformed bool // top-level JSON invalid or unparseable
+	providers   map[string]indexProvider
+	providerIDs []string
+	malformed   bool // top-level JSON invalid or unparseable
 }
 
 type indexProvider struct {
@@ -26,6 +27,11 @@ type indexModel struct {
 	malformed bool // this specific entry failed to parse (or was JSON null)
 }
 
+// Malformed reports whether the source document was not valid models.dev JSON.
+func (i *Index) Malformed() bool {
+	return i != nil && i.malformed
+}
+
 // ParseIndex parses models.dev cache data into an Index. A nil or invalid
 // top-level document produces a malformed Index (LookupProvider always
 // returns LookupReasonMalformed for it); this never panics.
@@ -35,7 +41,7 @@ func ParseIndex(data []byte) *Index {
 		return &Index{malformed: true}
 	}
 
-	idx := &Index{providers: make(map[string]indexProvider, len(root))}
+	idx := &Index{providers: make(map[string]indexProvider, len(root)), providerIDs: make([]string, 0, len(root))}
 	for providerID, providerRaw := range root {
 		var provider struct {
 			NPM    string                     `json:"npm"`
@@ -50,7 +56,9 @@ func ParseIndex(data []byte) *Index {
 			models[modelID] = parseIndexModel(provider.NPM, provider.API, modelRaw)
 		}
 		idx.providers[providerID] = indexProvider{npm: provider.NPM, api: provider.API, models: models}
+		idx.providerIDs = append(idx.providerIDs, providerID)
 	}
+	sort.Strings(idx.providerIDs)
 	return idx
 }
 
@@ -85,16 +93,11 @@ func (idx *Index) LookupProvider(providerID, modelID string) LookupResult {
 		}
 	}
 
-	otherProviders := make([]string, 0, len(idx.providers))
-	for provider := range idx.providers {
-		if provider != providerID {
-			otherProviders = append(otherProviders, provider)
-		}
-	}
-	sort.Strings(otherProviders)
-
 	otherMalformed := false
-	for _, otherProvider := range otherProviders {
+	for _, otherProvider := range idx.providerIDs {
+		if otherProvider == providerID {
+			continue
+		}
 		model, ok := idx.providers[otherProvider].models[modelID]
 		if !ok {
 			continue
@@ -114,36 +117,17 @@ func (idx *Index) LookupProvider(providerID, modelID string) LookupResult {
 }
 
 // LookupMerged looks up modelID across every provider in the index and
-// merges every non-malformed entry found. It is used for "generic" provider
-// profiles (openai_compat, ollama, litellm) whose configured alias doesn't
-// correspond to a models.dev provider key, so no single provider's entry is
-// authoritative for the model.
-//
-// Providers are visited in sorted key order for determinism. With zero valid
-// entries and zero malformed entries, it reports LookupReasonNotFound; with
-// zero valid entries and at least one malformed entry, LookupReasonMalformed.
-// With exactly one valid entry, that entry's ModelInfo is returned unchanged
-// (Reason "", ProviderCount 1). With two or more valid entries, the merged
-// ModelInfo takes the minimum of each provider's positive ContextWindow and
-// MaxOutputTokens, ANDs VisionInput and ReasoningEchoBack, keeps
-// InterleavedField only if every entry agrees, intersects
-// ReasoningSupportedEfforts preserving the first entry's order, clears the
-// npm/api provenance fields, and reports LookupReasonMerged with
-// ProviderCount set to the number of valid entries merged.
+// merges every non-malformed entry found. It is used for generic provider
+// profiles whose configured alias does not correspond to a models.dev provider
+// key, so no single provider entry is authoritative for the model.
 func (idx *Index) LookupMerged(modelID string) LookupResult {
 	if idx.malformed {
 		return LookupResult{Reason: LookupReasonMalformed}
 	}
 
-	providerIDs := make([]string, 0, len(idx.providers))
-	for providerID := range idx.providers {
-		providerIDs = append(providerIDs, providerID)
-	}
-	sort.Strings(providerIDs)
-
 	var valid []ModelInfo
 	sawMalformed := false
-	for _, providerID := range providerIDs {
+	for _, providerID := range idx.providerIDs {
 		model, ok := idx.providers[providerID].models[modelID]
 		if !ok {
 			continue
@@ -167,8 +151,7 @@ func (idx *Index) LookupMerged(modelID string) LookupResult {
 	}
 }
 
-// mergeModelInfos combines two or more valid ModelInfo entries for the same
-// model across providers. See LookupMerged for the exact merge rules.
+// mergeModelInfos combines valid ModelInfo entries for the same model.
 func mergeModelInfos(entries []ModelInfo) ModelInfo {
 	merged := ModelInfo{
 		VisionInput:       true,
@@ -199,9 +182,7 @@ func mergeModelInfos(entries []ModelInfo) ModelInfo {
 	return merged
 }
 
-// intersectEfforts intersects every entry's ReasoningSupportedEfforts,
-// preserving the first entry's element order. Returns nil if any entry
-// contributes an empty/nil slice.
+// intersectEfforts intersects efforts preserving first-entry order.
 func intersectEfforts(entries []ModelInfo) []string {
 	for _, entry := range entries {
 		if len(entry.ReasoningSupportedEfforts) == 0 {

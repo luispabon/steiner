@@ -15,6 +15,18 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+func TestServiceModelFingerprintMismatchIsMiss(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	if err := cache.SaveAtomic("alias", CacheEnvelope{Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://one.example"}, Models: []DiscoveredModel{{ID: "model"}}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Providers: map[string]config.ProviderConfig{"alias": {Type: config.ProviderTypeOpenAI, BaseURL: "https://two.example"}}}
+	service := NewService(nil, cache, nil, nil)
+	if _, ok := service.Model(cfg, "alias", "model"); ok {
+		t.Fatal("Model found with mismatched fingerprint")
+	}
+}
+
 func TestServiceChoicesMergeRankAndCurrent(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	if err := cache.SaveAtomic("local", CacheEnvelope{

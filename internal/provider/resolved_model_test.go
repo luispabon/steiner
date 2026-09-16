@@ -497,7 +497,7 @@ func TestResolveEffectiveLimits(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryFallbackWarning(t *testing.T) {
+func TestResolveModelMetadataFallbackWarning(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
 	cfg := config.Config{
@@ -571,7 +571,7 @@ func TestResolveTokenizerMetadataGPT5AliasHasHighConfidence(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
+func TestResolveModelMetadataUsesModelsDevWithoutWarning(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -621,7 +621,7 @@ func TestResolveWithDiscoveryUsesModelsDevWithoutWarning(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryUsesProviderSpecificModelsDevLimits(t *testing.T) {
+func TestResolveModelMetadataUsesProviderSpecificModelsDevLimits(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -672,7 +672,7 @@ func TestResolveWithDiscoveryUsesProviderSpecificModelsDevLimits(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
+func TestResolveModelMetadataRefreshesStaleModelsDevCache(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -720,7 +720,7 @@ func TestResolveWithDiscoveryRefreshesStaleModelsDevCache(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryOfflineUsesStaleModelsDevCache(t *testing.T) {
+func TestResolveModelMetadataOfflineUsesStaleModelsDevCache(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -762,7 +762,7 @@ func TestResolveWithDiscoveryOfflineUsesStaleModelsDevCache(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
+func TestResolveModelMetadataProviderMetadataBeatsModelsDev(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -810,7 +810,7 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
+func TestResolveModelMetadataManualOverrideWinsAll(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -864,7 +864,7 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryReasoningEchoBack(t *testing.T) {
+func TestResolveModelMetadataReasoningEchoBack(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -992,7 +992,7 @@ func TestResolveReasoningEchoBackConfigOverride(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryConfigOverrideWinsOverModelsDevReasoningEchoBack(t *testing.T) {
+func TestResolveModelMetadataConfigOverrideWinsOverModelsDevReasoningEchoBack(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1061,7 +1061,7 @@ func TestResolveWithDiscoveryConfigOverrideWinsOverModelsDevReasoningEchoBack(t 
 	}
 }
 
-func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
+func TestResolveModelMetadataMetadataTransportResolution(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1185,7 +1185,7 @@ func TestResolveWithDiscoveryMetadataTransportResolution(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryOpencodeProvidersUseGenericFallbackTransport(t *testing.T) {
+func TestResolveModelMetadataOpencodeProvidersUseGenericFallbackTransport(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1278,7 +1278,7 @@ func TestResolveWithDiscoveryOpencodeProvidersUseGenericFallbackTransport(t *tes
 	}
 }
 
-func TestResolveWithDiscoveryVisionCapability(t *testing.T) {
+func TestResolveModelMetadataVisionCapability(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1372,7 +1372,7 @@ func TestResolveWithDiscoveryVisionCapability(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryUsesModelsDevReasoningEfforts(t *testing.T) {
+func TestResolveModelMetadataUsesModelsDevReasoningEfforts(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 
@@ -1417,7 +1417,7 @@ func TestResolveWithDiscoveryUsesModelsDevReasoningEfforts(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryModelsDevReasoningEffortsRespectsConfig(t *testing.T) {
+func TestResolveModelMetadataModelsDevReasoningEffortsRespectsConfig(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 

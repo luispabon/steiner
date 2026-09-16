@@ -126,7 +126,7 @@ func TestResolveReferenceInvalid(t *testing.T) {
 	}
 }
 
-func TestResolveWithDiscoveryReferenceConsumerShapes(t *testing.T) {
+func TestResolveModelMetadataReferenceConsumerShapes(t *testing.T) {
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
 			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},

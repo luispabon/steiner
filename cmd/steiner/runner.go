@@ -202,7 +202,6 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 			return resolverRuntime.resolveModel(alias)
 		},
 		ProviderFactory:       r.runtime.providerFactory,
-		HTTPClient:            r.runtime.httpClient,
 		Searcher:              searcher,
 		UsageRecorder:         r.runtime.usageRecorder,
 		SessionStore:          r.runtime.delegationSessionStore,

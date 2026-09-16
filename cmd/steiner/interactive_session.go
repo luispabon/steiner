@@ -62,7 +62,6 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		BaseEvents:        rt.events,
 		SkillNames:        rt.skillNames,
 		Config:            sessionCfg,
-		HTTPClient:        rt.httpClient,
 		HomeDir:           rt.homeDir,
 		WorkDir:           rt.workDir,
 		SessionStore:      rt.sessionStore,

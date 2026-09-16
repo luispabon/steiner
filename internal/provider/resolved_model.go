@@ -95,6 +95,11 @@ func ResolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
 	return resolved
 }
 
+const (
+	defaultContextWindow   = 32768
+	defaultMaxOutputTokens = 4096
+)
+
 // resolveEffectiveLimits derives runtime effective limits from the user-configured
 // advanced limits, filling in missing values with sensible defaults based on
 // known fields. When nothing is configured, uses fallback defaults.
@@ -102,8 +107,8 @@ func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
 	cw := adv.ContextWindow
 	maxOut := adv.MaxOutputTokens
 	if cw == 0 && maxOut == 0 {
-		cw = 32768
-		maxOut = 4096
+		cw = defaultContextWindow
+		maxOut = defaultMaxOutputTokens
 	}
 	return deriveEffectiveLimits(cw, maxOut)
 }
