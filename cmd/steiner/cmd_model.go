@@ -39,7 +39,12 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			resolver := provider.NewResolver(provider.ResolverOptions{HTTPClient: runtimeHTTPClient()})
+			httpClient := runtimeHTTPClient()
+			modelCatalog, _, _ := buildModelCatalogService(&cfg, httpClient)
+			resolver := provider.NewResolver(provider.ResolverOptions{
+				HTTPClient: httpClient,
+				Catalog:    newCatalogMetadataAdapter(modelCatalog, &cfg),
+			})
 			rm, err := resolver.Resolve(cmd.Context(), cfg, alias)
 			if err != nil {
 				return err

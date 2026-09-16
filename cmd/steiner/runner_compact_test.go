@@ -2,14 +2,15 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/metadata"
+	"github.com/luispabon/steiner/internal/modelcatalog"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -17,19 +18,38 @@ func TestCLIRunnerCompactUsesResolvedLimitsAndAssembly(t *testing.T) {
 	const modelID = "openrouter/test-model"
 	const discoveredContextWindow = 262144
 	const discoveredMaxTokens = 8192
+	const providerBaseURL = "https://openrouter.example/api/v1"
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/models" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{
-			"id": modelID, "context_length": discoveredContextWindow,
-			"top_provider": map[string]any{"max_completion_tokens": discoveredMaxTokens},
-		}}})
-	}))
-	defer srv.Close()
+	// Isolate the models.dev cache so this test never touches the real
+	// on-disk cache or network: catalog answers context/max output, but
+	// modelsDevSource still runs for the remaining unconfigured facts
+	// (vision, reasoning efforts, echo-back).
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	mdCache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
+	if err := os.MkdirAll(mdCache.Dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(mdCache.CachePath(), []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.WriteFile(mdCache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cacheDir := t.TempDir()
+	cache := modelcatalog.NewCache(cacheDir)
+	envelope := modelcatalog.CacheEnvelope{
+		Fingerprint: modelcatalog.CacheFingerprint{ProviderType: string(config.ProviderTypeOpenRouter), BaseURL: providerBaseURL},
+		FetchedAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(time.Hour),
+		Models: []modelcatalog.DiscoveredModel{
+			{ID: modelID, ContextLength: discoveredContextWindow, MaxOutputTokens: discoveredMaxTokens},
+		},
+	}
+	if err := cache.SaveAtomic("openrouter", envelope); err != nil {
+		t.Fatalf("SaveAtomic() error = %v", err)
+	}
+	modelCatalog := modelcatalog.NewService(nil, cache, modelcatalog.NewStore(cacheDir+"/popularity.json"), nil, true)
 
 	projectRoot := t.TempDir()
 	prov := &fakeProvider{responses: []provider.ChatResponse{{
@@ -39,7 +59,7 @@ func TestCLIRunnerCompactUsesResolvedLimitsAndAssembly(t *testing.T) {
 	r := cliRunner{
 		runtime: cliRuntime{
 			cfg: config.Config{
-				Providers: map[string]config.ProviderConfig{"openrouter": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL}},
+				Providers: map[string]config.ProviderConfig{"openrouter": {Type: config.ProviderTypeOpenRouter, BaseURL: providerBaseURL}},
 				Models: config.ModelsConfig{
 					Effective: config.EffectiveModelAssignments{
 						DefaultModel:            "test",
@@ -50,7 +70,7 @@ func TestCLIRunnerCompactUsesResolvedLimitsAndAssembly(t *testing.T) {
 				SubAgent: config.SubAgentConfig{Enabled: true}, Advisor: config.AdvisorConfig{Enabled: true},
 			},
 			providerFactory: func(rm provider.ResolvedModel, _ string) (provider.Provider, error) { captured = rm; return prov, nil },
-			httpClient:      srv.Client(), projectRoot: projectRoot, workDir: projectRoot, homeDir: projectRoot,
+			modelCatalog:    modelCatalog, projectRoot: projectRoot, workDir: projectRoot, homeDir: projectRoot,
 		},
 		currentAlias: func() string { return "test" },
 	}

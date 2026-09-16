@@ -60,7 +60,10 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}
 	httpClient := runtimeHTTPClient()
 	modelCatalog, modelCatalogEndpoints, modelPopularity := buildModelCatalogService(&cfg, httpClient)
-	modelResolver := provider.NewResolver(provider.ResolverOptions{HTTPClient: httpClient})
+	modelResolver := provider.NewResolver(provider.ResolverOptions{
+		HTTPClient: httpClient,
+		Catalog:    newCatalogMetadataAdapter(modelCatalog, &cfg),
+	})
 	events, closeFn, err := buildRuntimeEventSink(cfg, cmd, flags)
 	if err != nil {
 		return cliRuntime{}, err

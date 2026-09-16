@@ -19,6 +19,9 @@ type ResolverOptions struct {
 	// ModelsDev overrides how models.dev cache data is loaded, for tests.
 	// nil uses the default metadata.Cache-backed loader.
 	ModelsDev func(context.Context) metadata.LoadResult
+	// Catalog looks up enumerated provider catalog data. nil leaves
+	// catalog-sourced facts unknown.
+	Catalog ModelCatalog
 }
 
 // Resolver resolves model references with shared, lazily loaded metadata
@@ -28,6 +31,7 @@ type ResolverOptions struct {
 type Resolver struct {
 	httpClient *http.Client
 	mdLoader   *modelsDevLoader
+	catalog    ModelCatalog
 
 	mu      sync.Mutex
 	entries map[string]*resolverEntry
@@ -50,6 +54,7 @@ func NewResolver(opts ResolverOptions) *Resolver {
 	return &Resolver{
 		httpClient: opts.HTTPClient,
 		mdLoader:   loader,
+		catalog:    opts.Catalog,
 		entries:    make(map[string]*resolverEntry),
 	}
 }
@@ -64,7 +69,7 @@ func (r *Resolver) Resolve(ctx context.Context, cfg config.Config, reference str
 		// Reference doesn't resolve to a model/provider at all (e.g. unknown
 		// alias) — fall through directly so the caller gets the same error
 		// resolveReference would produce; nothing to memoize.
-		return resolveReferenceWithLoader(ctx, &cfg, reference, true, r.httpClient, r.mdLoader)
+		return resolveReferenceWithLoader(ctx, &cfg, reference, true, r.httpClient, r.mdLoader, r.catalog)
 	}
 
 	r.mu.Lock()
@@ -77,7 +82,7 @@ func (r *Resolver) Resolve(ctx context.Context, cfg config.Config, reference str
 	r.entries[key] = entry
 	r.mu.Unlock()
 
-	model, err := resolveReferenceWithLoader(ctx, &cfg, reference, true, r.httpClient, r.mdLoader)
+	model, err := resolveReferenceWithLoader(ctx, &cfg, reference, true, r.httpClient, r.mdLoader, r.catalog)
 
 	r.mu.Lock()
 	if err == nil {

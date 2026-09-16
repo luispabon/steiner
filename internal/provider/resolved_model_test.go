@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -776,19 +777,9 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 		t.Fatalf("WriteFile(meta) error = %v", err)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/models" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"openai/gpt-4o","context_length":128000,"top_provider":{"max_completion_tokens":16384}}]}`))
-	}))
-	defer srv.Close()
-
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
-			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
+			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: "http://localhost:1"},
 		},
 		Models: config.ModelsConfig{
 			Definitions: map[string]config.ModelConfig{
@@ -800,11 +791,12 @@ func TestResolveWithDiscoveryProviderMetadataBeatsModelsDev(t *testing.T) {
 		},
 	}
 
-	rm, err := resolveReference(&cfg, "gpt4o", true, srv.Client())
+	catalog := fakeModelCatalog{"router\x00openai/gpt-4o": CatalogModel{ContextWindow: 128000, MaxOutputTokens: 16384}}
+	rm, err := resolveReferenceWithLoader(context.Background(), &cfg, "gpt4o", true, http.DefaultClient, nil, catalog)
 	if err != nil {
-		t.Fatalf("resolveReference(&) error = %v", err)
+		t.Fatalf("resolveReferenceWithLoader() error = %v", err)
 	}
-	if got, want := rm.MetadataSource, "discovery"; got != want {
+	if got, want := rm.MetadataSource, "catalog"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)
 	}
 	if got, want := rm.EffectiveLimits.ContextWindow, 128000; got != want {
@@ -833,19 +825,9 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 		t.Fatalf("WriteFile(meta) error = %v", err)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/models" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"openai/gpt-4o","context_length":128000,"top_provider":{"max_completion_tokens":16384}}]}`))
-	}))
-	defer srv.Close()
-
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
-			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
+			"router": {Type: config.ProviderTypeOpenRouter, BaseURL: "http://localhost:1"},
 		},
 		Models: config.ModelsConfig{
 			Definitions: map[string]config.ModelConfig{
@@ -863,9 +845,10 @@ func TestResolveWithDiscoveryManualOverrideWinsAll(t *testing.T) {
 		},
 	}
 
-	rm, err := resolveReference(&cfg, "gpt4o", true, srv.Client())
+	catalog := fakeModelCatalog{"router\x00openai/gpt-4o": CatalogModel{ContextWindow: 128000, MaxOutputTokens: 16384}}
+	rm, err := resolveReferenceWithLoader(context.Background(), &cfg, "gpt4o", true, http.DefaultClient, nil, catalog)
 	if err != nil {
-		t.Fatalf("resolveReference(&) error = %v", err)
+		t.Fatalf("resolveReferenceWithLoader() error = %v", err)
 	}
 	if got, want := rm.MetadataSource, "config"; got != want {
 		t.Fatalf("MetadataSource = %q, want %q", got, want)

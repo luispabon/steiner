@@ -16,13 +16,14 @@ import (
 // It constructs its own models.dev loader; callers that share a loader across
 // many resolutions (e.g. Resolver) should use resolveReferenceWithLoader.
 func resolveReference(cfg *config.Config, reference string, useDiscovery bool, httpClient *http.Client) (ResolvedModel, error) {
-	return resolveReferenceWithLoader(context.Background(), cfg, reference, useDiscovery, httpClient, nil)
+	return resolveReferenceWithLoader(context.Background(), cfg, reference, useDiscovery, httpClient, nil, nil)
 }
 
 // resolveReferenceWithLoader is resolveReference with an externally supplied
-// models.dev loader. A nil loader falls back to constructing a fresh,
-// call-scoped one (resolveReference's behavior).
-func resolveReferenceWithLoader(ctx context.Context, cfg *config.Config, reference string, useDiscovery bool, httpClient *http.Client, loader *modelsDevLoader) (ResolvedModel, error) {
+// models.dev loader and provider model catalog. A nil loader falls back to
+// constructing a fresh, call-scoped one (resolveReference's behavior); a nil
+// catalog leaves catalog-sourced facts unknown.
+func resolveReferenceWithLoader(ctx context.Context, cfg *config.Config, reference string, useDiscovery bool, httpClient *http.Client, loader *modelsDevLoader, catalog ModelCatalog) (ResolvedModel, error) {
 	modelCfg, isAlias := config.ResolveModelConfig(cfg, reference)
 	if !isAlias && (modelCfg.Provider == "" || modelCfg.ID == "") {
 		return ResolvedModel{}, fmt.Errorf("model alias %q not found", reference)
@@ -86,7 +87,7 @@ func resolveReferenceWithLoader(ctx context.Context, cfg *config.Config, referen
 		mdLoader = newModelsDevLoader(cache)
 	}
 	sources := []factSource{
-		configSource{}, providerFixedSource{}, probeSource{httpClient: httpClient},
+		configSource{}, providerFixedSource{}, catalogSource{catalog: catalog}, probeSource{httpClient: httpClient},
 		modelsDevSource{loader: mdLoader},
 		builtinSource{},
 	}

@@ -151,6 +151,9 @@ func startModelCatalogRefresh(ctx context.Context, rt cliRuntime, sess *interact
 				}
 			},
 		})
+		if rt.modelResolver != nil {
+			rt.modelResolver.Invalidate()
+		}
 	}()
 }
 
