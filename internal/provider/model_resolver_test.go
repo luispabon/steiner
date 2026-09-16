@@ -39,11 +39,17 @@ func (c *doneObservationContext) Done() <-chan struct{} {
 	return c.Context.Done()
 }
 
-type countingCatalog struct{ calls *atomic.Int32 }
+type countingCatalog struct {
+	calls         *atomic.Int32
+	contextWindow int
+}
 
 func (c countingCatalog) CatalogModel(string, string) (CatalogModel, bool) {
 	c.calls.Add(1)
-	return CatalogModel{}, false
+	if c.contextWindow == 0 {
+		return CatalogModel{}, false
+	}
+	return CatalogModel{ContextWindow: c.contextWindow}, true
 }
 
 type recoveringCatalog struct {
@@ -186,9 +192,15 @@ func TestResolverFailedValidKeyIsNotMemoizedAndRetriesAfterRecovery(t *testing.T
 }
 
 func TestResolverNestedParamsAreIsolatedAcrossCacheHits(t *testing.T) {
-	resolver := NewResolver(ResolverOptions{})
+	resolver := NewResolver(ResolverOptions{
+		ModelsDev: func(context.Context) metadata.LoadResult {
+			return metadata.LoadResult{Data: []byte("not json")}
+		},
+	})
 	cfg := resolverTestConfig("model", "model-v1")
 	mc := cfg.Models.Definitions["model"]
+	mc.Advanced.Limits = config.AdvancedLimitsConfig{}
+	mc.Advanced.Reasoning.SupportedEfforts = []string{"low", "high"}
 	mc.Params = map[string]any{"nested": map[string]any{"items": []any{"before"}}}
 	mc.ExtraParams = map[string]any{"nested": map[string]any{"items": []any{"extra"}}}
 	cfg.Models.Definitions["model"] = mc
@@ -196,11 +208,20 @@ func TestResolverNestedParamsAreIsolatedAcrossCacheHits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(first.Warnings) == 0 || len(first.Reasoning.SupportedEfforts) != 2 {
+		t.Fatalf("first resolution = %+v, want warnings and supported efforts", first)
+	}
+	wantWarning := first.Warnings[0]
+	first.Warnings[0] = "changed warning"
 	first.Params["nested"].(map[string]any)["items"].([]any)[0] = "changed"
 	first.ExtraParams["nested"].(map[string]any)["items"].([]any)[0] = "changed"
+	first.Reasoning.SupportedEfforts[0] = "changed effort"
 	second, err := resolver.Resolve(context.Background(), cfg, "model")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if second.Warnings[0] != wantWarning {
+		t.Fatalf("cached Warnings changed to %q", second.Warnings[0])
 	}
 	if got := second.Params["nested"].(map[string]any)["items"].([]any)[0]; got != "before" {
 		t.Fatalf("cached Params changed to %v", got)
@@ -208,16 +229,142 @@ func TestResolverNestedParamsAreIsolatedAcrossCacheHits(t *testing.T) {
 	if got := second.ExtraParams["nested"].(map[string]any)["items"].([]any)[0]; got != "extra" {
 		t.Fatalf("cached ExtraParams changed to %v", got)
 	}
+	if got := second.Reasoning.SupportedEfforts[0]; got != "low" {
+		t.Fatalf("cached Reasoning.SupportedEfforts changed to %q", got)
+	}
 }
 
 func TestResolverKeepsReferencesIndependent(t *testing.T) {
 	resolver := NewResolver(ResolverOptions{})
 	cfg := resolverTestConfig("luna", "luna-v1")
+	cfg.Models.Definitions["nova"] = config.ModelConfig{
+		Provider: "local",
+		ID:       "nova-v1",
+		Advanced: config.AdvancedConfig{Limits: config.AdvancedLimitsConfig{ContextWindow: 32768, MaxOutputTokens: 4096}},
+	}
+
+	lunaKey, err := resolverCacheKey(cfg, "luna")
+	if err != nil {
+		t.Fatal(err)
+	}
+	novaKey, err := resolverCacheKey(cfg, "nova")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lunaKey == novaKey {
+		t.Fatalf("cache keys are equal: %q", lunaKey)
+	}
+
 	luna, err := resolver.Resolve(context.Background(), cfg, "luna")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if luna.BackendModelID != "luna-v1" {
-		t.Fatal(luna.BackendModelID)
+	nova, err := resolver.Resolve(context.Background(), cfg, "nova")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if luna.BackendModelID != "luna-v1" || nova.BackendModelID != "nova-v1" {
+		t.Fatalf("resolved backends = %q, %q, want luna-v1, nova-v1", luna.BackendModelID, nova.BackendModelID)
+	}
+	if luna.BackendModelID == nova.BackendModelID || luna.Alias == nova.Alias {
+		t.Fatalf("resolved results are not distinct: luna=%+v nova=%+v", luna, nova)
+	}
+}
+
+func TestResolverReResolvesWhenConfigChangesMidSession(t *testing.T) {
+	var catalogCalls atomic.Int32
+	resolver := NewResolver(ResolverOptions{
+		Catalog: countingCatalog{calls: &catalogCalls, contextWindow: 9000},
+		ModelsDev: func(context.Context) metadata.LoadResult {
+			return metadata.LoadResult{}
+		},
+	})
+	cfg := resolverTestConfig("luna", "luna-v1")
+	modelCfg := cfg.Models.Definitions["luna"]
+	modelCfg.Advanced.Limits = config.AdvancedLimitsConfig{}
+	cfg.Models.Definitions["luna"] = modelCfg
+
+	first, err := resolver.Resolve(context.Background(), cfg, "luna")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.EffectiveLimits.ContextWindow != 9000 {
+		t.Fatalf("first ContextWindow = %d, want 9000", first.EffectiveLimits.ContextWindow)
+	}
+
+	modelCfg.Params = map[string]any{"revision": 2}
+	cfg.Models.Definitions["luna"] = modelCfg
+	second, err := resolver.Resolve(context.Background(), cfg, "luna")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.EffectiveLimits.ContextWindow != 9000 {
+		t.Fatalf("second ContextWindow = %d, want 9000", second.EffectiveLimits.ContextWindow)
+	}
+	if got := catalogCalls.Load(); got != 2 {
+		t.Fatalf("catalog calls = %d, want 2 after config fingerprint change", got)
+	}
+}
+
+func TestResolverInvalidateClearsMemoizedEntries(t *testing.T) {
+	var catalogCalls atomic.Int32
+	resolver := NewResolver(ResolverOptions{
+		Catalog: countingCatalog{calls: &catalogCalls, contextWindow: 9000},
+		ModelsDev: func(context.Context) metadata.LoadResult {
+			return metadata.LoadResult{}
+		},
+	})
+	cfg := resolverTestConfig("luna", "luna-v1")
+	modelCfg := cfg.Models.Definitions["luna"]
+	modelCfg.Advanced.Limits = config.AdvancedLimitsConfig{}
+	cfg.Models.Definitions["luna"] = modelCfg
+
+	if _, err := resolver.Resolve(context.Background(), cfg, "luna"); err != nil {
+		t.Fatal(err)
+	}
+	resolver.Invalidate()
+	if _, err := resolver.Resolve(context.Background(), cfg, "luna"); err != nil {
+		t.Fatal(err)
+	}
+	if got := catalogCalls.Load(); got != 2 {
+		t.Fatalf("catalog calls = %d, want 2 after Invalidate", got)
+	}
+}
+
+func TestResolverLoadsModelsDevOnceAcrossAliasesWithDistinctResults(t *testing.T) {
+	var loadCalls atomic.Int32
+	resolver := NewResolver(ResolverOptions{
+		ModelsDev: func(context.Context) metadata.LoadResult {
+			loadCalls.Add(1)
+			return metadata.LoadResult{Data: []byte(`{"openai":{"models":{"model-one":{"limit":{"context":10000,"output":2000}},"model-two":{"limit":{"context":20000,"output":3000}}}}}`)}
+		},
+	})
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"}},
+		Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+			"one": {Provider: "local", ID: "model-one"},
+			"two": {Provider: "local", ID: "model-two"},
+		}},
+	}
+
+	one, err := resolver.Resolve(context.Background(), cfg, "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := resolver.Resolve(context.Background(), cfg, "two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loadCalls.Load(); got != 1 {
+		t.Fatalf("models.dev load calls = %d, want 1 across aliases", got)
+	}
+	if one.BackendModelID != "model-one" || two.BackendModelID != "model-two" {
+		t.Fatalf("backend IDs = %q, %q, want model-one, model-two", one.BackendModelID, two.BackendModelID)
+	}
+	if one.EffectiveLimits.ContextWindow != 10000 || two.EffectiveLimits.ContextWindow != 20000 {
+		t.Fatalf("context windows = %d, %d, want 10000, 20000", one.EffectiveLimits.ContextWindow, two.EffectiveLimits.ContextWindow)
+	}
+	if one.EffectiveLimits.ContextWindow == two.EffectiveLimits.ContextWindow {
+		t.Fatal("resolved model results are not distinct")
 	}
 }
