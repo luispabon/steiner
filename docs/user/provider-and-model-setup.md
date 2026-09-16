@@ -133,7 +133,7 @@ models:
 
 Omit `api_key_env` when the endpoint needs no key. A user-provided Gemini-compatible endpoint, if it exposes the supported OpenAI-compatible shape, is configured the same way with `type: openai_compat`; this does not make every Gemini endpoint compatible. Native `type: gemini` is not runtime-supported.
 
-Generic gateway types (`openai_compat`, `ollama`, `litellm`) have no fixed models.dev provider identity. Explicit model limits win, then the live catalog is checked, then models.dev. Unless `advanced.limits` is set explicitly, steiner takes the most conservative context window and max output tokens found for the model across every models.dev provider that lists it. Ollama probes the live server for context before using merged models.dev data.
+Generic gateway types (`openai_compat`, `ollama`, `litellm`) have no fixed models.dev provider identity. Explicit model limits win first, then the cached provider catalog where applicable, then a live Ollama probe supplies context when unresolved, then merged models.dev data, then a conservative fallback. Unless `advanced.limits` is set explicitly, steiner takes the most conservative context window and max output tokens found for the model across every models.dev provider that lists it.
 
 ### LiteLLM
 
