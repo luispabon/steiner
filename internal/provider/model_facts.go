@@ -7,7 +7,7 @@ const (
 	// FactSourceConfig means the fact came directly from user config.
 	FactSourceConfig FactSource = "config"
 	// FactSourceCatalog means the fact came from the provider model catalog
-	// cache. Wired in a later stage.
+	// cache.
 	FactSourceCatalog FactSource = "catalog"
 	// FactSourceDiscovery means the fact came from a live provider probe.
 	// Wired in a later stage.

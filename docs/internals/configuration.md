@@ -36,13 +36,13 @@ Per-field precedence, as of this stage:
 
 | Fact | Order |
 |---|---|
-| Context window / max output tokens | config → live provider probe (Ollama only) → models.dev → conservative fallback (32768/4096) |
+| Context window / max output tokens | config → provider model catalog → live provider probe (Ollama only) → models.dev → conservative fallback (32768/4096) |
 | Vision | config → models.dev → unknown |
-| Reasoning efforts | config → models.dev → built-in OpenAI/Codex family table → unknown |
+| Reasoning efforts | config → provider model catalog → models.dev → built-in OpenAI/Codex family table → unknown |
 | Reasoning echo-back | config → models.dev → unknown (false) |
 | Transport | config override → provider-fixed (Codex) → models.dev npm-based override → configured provider type |
 
-Provider model catalog participation (`internal/modelcatalog`) is planned for a later stage and is not yet wired into this precedence table.
+Provider model catalog participation (`catalogSource` in `fact_source_catalog.go`) answers context window, max output tokens, and reasoning efforts from `internal/modelcatalog`'s cache, ahead of the Ollama live probe and models.dev. `internal/provider` cannot import `internal/modelcatalog` (package boundary), so the lookup is defined as the `provider.ModelCatalog` interface and injected via `ResolverOptions.Catalog`; the concrete adapter (`cmd/steiner/catalog_metadata.go`) wraps `modelcatalog.Service` and snapshots `*config.Config` at construction time (mirroring how `modelCatalogEndpoints` is derived once in `buildModelCatalogService`), not a live config getter. A cache miss or a nil catalog leaves the fields unknown, falling through the rest of the precedence order exactly as before catalogSource existed. Ollama's live HTTP probe (`fact_source_probe.go`) is unaffected; OpenRouter's former live probe was retired in favor of catalog data, since the catalog already carries the same numbers without a live network round trip.
 
 Every resolved fact carries its own provenance (`provider.ModelFacts`, exposed as `ResolvedModel.Facts` and printed by `steiner model inspect`'s `facts:` block): a value, whether it's known, its source, a confidence level, and an optional note (e.g. a models.dev lookup degradation reason). The legacy `MetadataSource`/`Confidence` fields on `ResolvedModel` continue to describe limits provenance only, for backward compatibility with existing consumers.
 

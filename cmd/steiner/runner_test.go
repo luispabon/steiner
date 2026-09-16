@@ -659,32 +659,24 @@ func TestBuildActiveRegistry_ModelResolverSetsReasoningEchoBack(t *testing.T) {
 
 func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/models" {
+		if r.URL.Path != "/api/show" || r.Method != http.MethodPost {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{
-					"id":             "openrouter/reasoning-model",
-					"context_length": 262144,
-					"top_provider": map[string]any{
-						"max_completion_tokens": 16384,
-					},
-				},
-			},
+			"model_info": map[string]any{"general.context_length": 262144},
 		})
 	}))
 	defer srv.Close()
 
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
-			"openrouter": {Type: config.ProviderTypeOpenRouter, BaseURL: srv.URL},
+			"ollama": {Type: config.ProviderTypeOllama, BaseURL: srv.URL},
 		},
 		Models: config.ModelsConfig{
 			Definitions: map[string]config.ModelConfig{
-				"reasoning-alias": {Provider: "openrouter", ID: "openrouter/reasoning-model"},
+				"reasoning-alias": {Provider: "ollama", ID: "reasoning-model"},
 			},
 			Effective: config.EffectiveModelAssignments{SubAgents: map[string]string{
 				string(delegation.AgentTypeExplore): "reasoning-alias",
@@ -716,8 +708,8 @@ func TestBuildActiveRegistry_ModelResolverUsesRuntimeHTTPClient(t *testing.T) {
 	if got, want := capturedModel.EffectiveLimits.ContextWindow, 262144; got != want {
 		t.Fatalf("captured context window = %d, want %d", got, want)
 	}
-	if got, want := capturedModel.EffectiveLimits.MaxOutputTokens, 16384; got != want {
-		t.Fatalf("captured max output tokens = %d, want %d", got, want)
+	if got, want := capturedModel.Facts.ContextWindow.Source, provider.FactSourceDiscovery; got != want {
+		t.Fatalf("captured context window source = %q, want %q", got, want)
 	}
 }
 

@@ -78,6 +78,17 @@ openrouter/openai/gpt-4o
 An exact configured alias wins before prefix parsing. Otherwise, the longest
 configured provider prefix is used, so model IDs containing slashes are supported.
 
+## Feeding metadata resolution
+
+Beyond the `/model` chooser, the same catalog cache feeds per-model metadata
+resolution: context window, max output tokens, and supported reasoning efforts
+for a configured model prefer catalog data (when present) over models.dev and
+built-in fallbacks. This uses whatever is cached — a stale-but-present entry is
+still consulted, the same as the chooser. Disabling discovery
+(`models.discovery_enabled: false`) removes catalog data from metadata
+resolution as well as from the chooser; resolution then falls through to
+models.dev and built-in defaults.
+
 ## Popularity
 
 Successful `/model` switches increment a count keyed by the canonical pair

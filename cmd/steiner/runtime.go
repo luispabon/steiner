@@ -115,7 +115,10 @@ type cliRuntime struct {
 func (rt cliRuntime) resolveModel(alias string) (provider.ResolvedModel, error) {
 	resolver := rt.modelResolver
 	if resolver == nil {
-		resolver = provider.NewResolver(provider.ResolverOptions{HTTPClient: rt.httpClient})
+		resolver = provider.NewResolver(provider.ResolverOptions{
+			HTTPClient: rt.httpClient,
+			Catalog:    newCatalogMetadataAdapter(rt.modelCatalog, &rt.cfg),
+		})
 	}
 	return resolver.Resolve(context.Background(), rt.cfg, alias)
 }
