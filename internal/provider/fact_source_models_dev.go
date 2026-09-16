@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -78,24 +79,50 @@ func (s modelsDevSource) resolve(ctx context.Context, ref modelRef, want fieldSe
 	// matching stage B2's documented behavior) — consult it regardless, exactly
 	// as before.
 
-	providerID := ref.Profile.ModelsDevID
-	if providerID == "" {
-		providerID = ref.ProviderAlias
-	}
-	lookup := idx.LookupProvider(providerID, ref.BackendModelID)
+	lookup, merged := modelsDevLookup(idx, ref)
 	info := lookup.Info
+
+	confidence := "medium"
+	note := ""
+	if merged {
+		confidence = "low"
+		note = fmt.Sprintf("models.dev: merged %d providers", info.ProviderCount)
+	}
 
 	notes := modelsDevDegradationNotes(lookup.Reason, want)
 	facts := ModelFacts{
-		ContextWindow:     modelsDevContextWindowFact(want, info),
-		MaxOutputTokens:   modelsDevMaxOutputFact(want, info),
-		Vision:            modelsDevVisionFact(want, info),
-		ReasoningEfforts:  modelsDevEffortsFact(want, info),
-		ReasoningEchoBack: modelsDevEchoBackFact(want, info),
-		Transport:         modelsDevTransportFact(want, ref, info),
+		ContextWindow:     modelsDevContextWindowFact(want, info, confidence, note),
+		MaxOutputTokens:   modelsDevMaxOutputFact(want, info, confidence, note),
+		Vision:            modelsDevVisionFact(want, info, confidence, note),
+		ReasoningEfforts:  modelsDevEffortsFact(want, info, confidence, note),
+		ReasoningEchoBack: modelsDevEchoBackFact(want, info, confidence, note),
+	}
+	if !merged {
+		facts.Transport = modelsDevTransportFact(want, ref, info)
 	}
 
 	return sourceResult{facts: facts, notes: notes}
+}
+
+// modelsDevLookup resolves modelID for ref, choosing between a strict
+// provider lookup and a cross-provider merge. Named (non-generic) profiles
+// always use a strict lookup against their fixed ModelsDevID. Generic
+// profiles (openai_compat, ollama, litellm) first try a strict lookup using
+// their configured alias as the models.dev provider ID, for users who name
+// aliases after real models.dev provider keys; if that lookup finds nothing
+// under that key (not_found or provider_mismatch), it falls back to a merge
+// across every provider that lists the model. A malformed strict result is
+// never overridden by a merge — malformed stays malformed. merged reports
+// whether the returned LookupResult came from the merge fallback.
+func modelsDevLookup(idx *metadata.Index, ref modelRef) (result metadata.LookupResult, merged bool) {
+	if ref.Profile.ModelsDevID != "" {
+		return idx.LookupProvider(ref.Profile.ModelsDevID, ref.BackendModelID), false
+	}
+	strict := idx.LookupProvider(ref.ProviderAlias, ref.BackendModelID)
+	if strict.Reason != metadata.LookupReasonNotFound && strict.Reason != metadata.LookupReasonProviderMismatch {
+		return strict, false
+	}
+	return idx.LookupMerged(ref.BackendModelID), true
 }
 
 // modelsDevDegradationNotes attaches reason to every wanted field when the
@@ -113,39 +140,39 @@ func modelsDevDegradationNotes(reason string, want fieldSet) map[factField]strin
 	return notes
 }
 
-func modelsDevContextWindowFact(want fieldSet, info metadata.ModelInfo) Fact[int] {
+func modelsDevContextWindowFact(want fieldSet, info metadata.ModelInfo, confidence, note string) Fact[int] {
 	if want&fieldSet(fieldContextWindow) == 0 || info.ContextWindow <= 0 {
 		return Fact[int]{}
 	}
-	return Fact[int]{Value: info.ContextWindow, Known: true, Source: FactSourceModelsDev, Confidence: "medium"}
+	return Fact[int]{Value: info.ContextWindow, Known: true, Source: FactSourceModelsDev, Confidence: confidence, Note: note}
 }
 
-func modelsDevMaxOutputFact(want fieldSet, info metadata.ModelInfo) Fact[int] {
+func modelsDevMaxOutputFact(want fieldSet, info metadata.ModelInfo, confidence, note string) Fact[int] {
 	if want&fieldSet(fieldMaxOutput) == 0 || info.MaxOutputTokens <= 0 {
 		return Fact[int]{}
 	}
-	return Fact[int]{Value: info.MaxOutputTokens, Known: true, Source: FactSourceModelsDev, Confidence: "medium"}
+	return Fact[int]{Value: info.MaxOutputTokens, Known: true, Source: FactSourceModelsDev, Confidence: confidence, Note: note}
 }
 
-func modelsDevVisionFact(want fieldSet, info metadata.ModelInfo) Fact[bool] {
+func modelsDevVisionFact(want fieldSet, info metadata.ModelInfo, confidence, note string) Fact[bool] {
 	if want&fieldSet(fieldVision) == 0 || !info.Found {
 		return Fact[bool]{}
 	}
-	return Fact[bool]{Value: info.VisionInput, Known: true, Source: FactSourceModelsDev, Confidence: "medium"}
+	return Fact[bool]{Value: info.VisionInput, Known: true, Source: FactSourceModelsDev, Confidence: confidence, Note: note}
 }
 
-func modelsDevEffortsFact(want fieldSet, info metadata.ModelInfo) Fact[[]string] {
+func modelsDevEffortsFact(want fieldSet, info metadata.ModelInfo, confidence, note string) Fact[[]string] {
 	if want&fieldSet(fieldEfforts) == 0 || len(info.ReasoningSupportedEfforts) == 0 {
 		return Fact[[]string]{}
 	}
-	return Fact[[]string]{Value: info.ReasoningSupportedEfforts, Known: true, Source: FactSourceModelsDev, Confidence: "medium"}
+	return Fact[[]string]{Value: info.ReasoningSupportedEfforts, Known: true, Source: FactSourceModelsDev, Confidence: confidence, Note: note}
 }
 
-func modelsDevEchoBackFact(want fieldSet, info metadata.ModelInfo) Fact[bool] {
+func modelsDevEchoBackFact(want fieldSet, info metadata.ModelInfo, confidence, note string) Fact[bool] {
 	if want&fieldSet(fieldEchoBack) == 0 || !info.Found {
 		return Fact[bool]{}
 	}
-	return Fact[bool]{Value: info.ReasoningEchoBack, Known: true, Source: FactSourceModelsDev, Confidence: "medium"}
+	return Fact[bool]{Value: info.ReasoningEchoBack, Known: true, Source: FactSourceModelsDev, Confidence: confidence, Note: note}
 }
 
 func modelsDevTransportFact(want fieldSet, ref modelRef, info metadata.ModelInfo) Fact[transportChoice] {

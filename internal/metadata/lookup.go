@@ -18,6 +18,11 @@ type ModelInfo struct {
 	InterleavedField          string
 	VisionInput               bool
 	Found                     bool
+	// ProviderCount is the number of providers merged into this result. It is
+	// 1 for every strict LookupProvider result with Found true, and for a
+	// LookupMerged result that matched exactly one provider; it is 2+ for a
+	// LookupMerged result that combined multiple providers' entries.
+	ProviderCount int
 }
 
 // LookupResult contains metadata and a degradation reason when lookup could not
@@ -34,6 +39,9 @@ const (
 	LookupReasonNotFound = "not_found"
 	// LookupReasonProviderMismatch reports a model found only under another provider.
 	LookupReasonProviderMismatch = "provider_mismatch"
+	// LookupReasonMerged reports a LookupMerged result combined from two or
+	// more providers' entries for the same model.
+	LookupReasonMerged = "merged"
 )
 
 // CountModels returns the number of unique model entries across all providers

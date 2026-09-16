@@ -30,7 +30,14 @@ func writeModelsDevCache(t *testing.T, cacheJSON string) {
 // through resolveReference, with a fresh (non-expired) meta file so cache
 // loading never touches the network.
 func TestDeriveWarningsScenarios(t *testing.T) {
-	t.Run("unconfigured limits with provider_mismatch warns once, mentions the reason", func(t *testing.T) {
+	// Since Stage E, a generic provider (openai_compat/ollama/litellm) whose
+	// alias isn't itself a models.dev provider key falls back to a
+	// cross-provider merge on a provider_mismatch strict result, so this
+	// scenario now resolves successfully (at low confidence) instead of
+	// warning; see TestDeriveWarningsScenarios's "generic provider" subtests
+	// below and TestModelsDevSource_GenericProviderMergesAcrossProviders in
+	// fact_source_models_dev_test.go.
+	t.Run("generic provider: provider_mismatch strict lookup falls back to merge, no warning", func(t *testing.T) {
 		writeModelsDevCache(t, `{"other":{"models":{"unknown-model":{"limit":{"context":200000,"output":100000}}}}}`)
 
 		cfg := config.Config{
@@ -39,6 +46,57 @@ func TestDeriveWarningsScenarios(t *testing.T) {
 			},
 			Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
 				"unknown": {Provider: "local", ID: "unknown-model"},
+			}},
+		}
+
+		rm, err := resolveReference(&cfg, "unknown", true, nil)
+		if err != nil {
+			t.Fatalf("resolveReference(&) error = %v", err)
+		}
+		if len(rm.Warnings) != 0 {
+			t.Fatalf("Warnings = %v, want none (merge fallback resolves it)", rm.Warnings)
+		}
+		if rm.EffectiveLimits.ContextWindow != 200000 {
+			t.Fatalf("EffectiveLimits.ContextWindow = %d, want 200000", rm.EffectiveLimits.ContextWindow)
+		}
+		if rm.Confidence != "low" {
+			t.Fatalf("Confidence = %q, want low", rm.Confidence)
+		}
+	})
+
+	t.Run("generic provider: model missing everywhere still warns", func(t *testing.T) {
+		writeModelsDevCache(t, `{"other":{"models":{"some-other-model":{"limit":{"context":200000,"output":100000}}}}}`)
+
+		cfg := config.Config{
+			Providers: map[string]config.ProviderConfig{
+				"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+			},
+			Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+				"unknown": {Provider: "local", ID: "unknown-model"},
+			}},
+		}
+
+		rm, err := resolveReference(&cfg, "unknown", true, nil)
+		if err != nil {
+			t.Fatalf("resolveReference(&) error = %v", err)
+		}
+		if len(rm.Warnings) != 1 {
+			t.Fatalf("Warnings = %v, want exactly 1", rm.Warnings)
+		}
+		if !strings.Contains(rm.Warnings[0], "has unknown context limits") {
+			t.Errorf("warning = %q, want it to mention unknown context limits", rm.Warnings[0])
+		}
+	})
+
+	t.Run("named provider: provider_mismatch still warns (no merge fallback)", func(t *testing.T) {
+		writeModelsDevCache(t, `{"other":{"models":{"unknown-model":{"limit":{"context":200000,"output":100000}}}}}`)
+
+		cfg := config.Config{
+			Providers: map[string]config.ProviderConfig{
+				"claude": {Type: config.ProviderTypeAnthropic},
+			},
+			Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+				"unknown": {Provider: "claude", ID: "unknown-model"},
 			}},
 		}
 
