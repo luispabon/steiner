@@ -39,6 +39,7 @@ STEINER_MODEL=ollama/qwen2.5-coder:14b steiner --exec "explain the auth package"
 | `model inspect <alias>` | Show resolved configuration for a model alias |
 | `models refresh` | Refresh model discovery caches |
 | `models status` | Show model discovery cache status |
+| `cache refresh` | Refresh model metadata and provider model caches |
 | `oneshot [task]` | Run an autonomous oneshot task; `--list`, `--resume <id>` |
 | `update` / `upgrade` | Self-update to the latest release |
 | `tools` | List configured tools and approval status |
