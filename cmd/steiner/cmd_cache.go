@@ -23,8 +23,17 @@ func newCacheRefreshCommand() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var errs []error
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "## Model metadata"); err != nil {
+				errs = append(errs, fmt.Errorf("model metadata refresh: write section header: %w", err))
+			}
 			if err := runModelMetadataRefresh(cmd, nil); err != nil {
 				errs = append(errs, fmt.Errorf("model metadata refresh: %w", err))
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+				errs = append(errs, fmt.Errorf("model metadata refresh: write section separator: %w", err))
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "## Provider models"); err != nil {
+				errs = append(errs, fmt.Errorf("provider model refresh: write section header: %w", err))
 			}
 			if err := runModelsRefresh(cmd, nil); err != nil {
 				errs = append(errs, fmt.Errorf("provider model refresh: %w", err))
