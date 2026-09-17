@@ -42,17 +42,19 @@ func newModelMetadataRefreshCommand() *cobra.Command {
 		Use:   "refresh",
 		Short: "Force refresh of model metadata cache",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			cache := metadataCacheFactory(nil)
-			if err := cache.Refresh(cmd.Context()); err != nil {
-				return fmt.Errorf("refresh cache: %w", err)
-			}
-			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "model metadata cache refreshed"); err != nil {
-				return fmt.Errorf("write refresh status: %w", err)
-			}
-			return nil
-		},
+		RunE:  runModelMetadataRefresh,
 	}
+}
+
+func runModelMetadataRefresh(cmd *cobra.Command, _ []string) error {
+	cache := metadataCacheFactory(nil)
+	if err := cache.Refresh(cmd.Context()); err != nil {
+		return fmt.Errorf("refresh cache: %w", err)
+	}
+	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "model metadata cache refreshed"); err != nil {
+		return fmt.Errorf("write refresh status: %w", err)
+	}
+	return nil
 }
 
 func newModelMetadataClearCommand() *cobra.Command {

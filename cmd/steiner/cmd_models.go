@@ -27,40 +27,42 @@ func newModelsRefreshCommand() *cobra.Command {
 		Use:   "refresh",
 		Short: "Force refresh of discovered provider models",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			service, endpoints, err := buildModelsRuntime(cmd)
-			if err != nil {
-				return err
-			}
-			if !service.DiscoveryEnabled {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), "model discovery disabled")
-				return err
-			}
-			if len(endpoints) == 0 {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), "no model providers configured")
-				return err
-			}
-
-			report := service.RefreshAll(cmd.Context(), endpoints, modelcatalog.RefreshOptions{Force: true})
-			failed := 0
-			for _, result := range report.Results {
-				if result.Err != nil || result.Status == modelcatalog.RefreshStatusFailed {
-					failed++
-					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: failed: %v\n", result.Alias, result.Err); err != nil {
-						return err
-					}
-					continue
-				}
-				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: ok\n", result.Alias); err != nil {
-					return err
-				}
-			}
-			if failed == len(report.Results) {
-				return fmt.Errorf("model refresh failed for all providers")
-			}
-			return nil
-		},
+		RunE:  runModelsRefresh,
 	}
+}
+
+func runModelsRefresh(cmd *cobra.Command, _ []string) error {
+	service, endpoints, err := buildModelsRuntime(cmd)
+	if err != nil {
+		return err
+	}
+	if !service.DiscoveryEnabled {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "model discovery disabled")
+		return err
+	}
+	if len(endpoints) == 0 {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "no model providers configured")
+		return err
+	}
+
+	report := service.RefreshAll(cmd.Context(), endpoints, modelcatalog.RefreshOptions{Force: true})
+	failed := 0
+	for _, result := range report.Results {
+		if result.Err != nil || result.Status == modelcatalog.RefreshStatusFailed {
+			failed++
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: failed: %v\n", result.Alias, result.Err); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: ok\n", result.Alias); err != nil {
+			return err
+		}
+	}
+	if failed == len(report.Results) {
+		return fmt.Errorf("model refresh failed for all providers")
+	}
+	return nil
 }
 
 func newModelsStatusCommand() *cobra.Command {
