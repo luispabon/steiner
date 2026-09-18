@@ -417,6 +417,13 @@ func (b *contentBuffer) AppendEvent(event output.Event) {
 		handler(b, event)
 		return
 	}
+	// Drop scoped child transcript events that are not bound to any delegation.
+	// Delegation lifecycle events (Started, Complete, Failed, etc.) are not in
+	// this set and fall through to the top-level fallback path to reach
+	// appendDelegationEvent via contentEventHandlers, which is correct.
+	if event.Scope.AgentID != "" && isScopedChildTranscriptEvent(event.Type) {
+		return
+	}
 	b.finishStreaming()
 	line := strings.TrimSpace(output.FormatEvent(event))
 	if shouldSuppressLine(line) {

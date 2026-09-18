@@ -22,7 +22,10 @@ func ColorHex(c color.Color) string {
 	if c == nil {
 		return ""
 	}
-	r, g, b, _ := c.RGBA()
+	r, g, b, a := c.RGBA()
+	if a == 0 {
+		return ""
+	}
 	// RGBA returns 16-bit values; shift down to 8-bit.
 	return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
 }

@@ -275,3 +275,50 @@ func TestEmptyToolCallFinishSkipsTrailingDisplayFilePlaceholder(t *testing.T) {
 		t.Fatalf("display_file placeholder state = %#v, want untouched", display)
 	}
 }
+
+func TestAppendUserInputEventImageOnlyWithoutText(t *testing.T) {
+	t.Parallel()
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber), workingDir: "/home/user", homeDir: "/home/user"}
+
+	// UserInputEvent with empty content but with images should still append images
+	event := output.Event{
+		Type: output.EventTypeUserInput,
+		Payload: output.UserInputEvent{
+			Content: "   ", // whitespace-only content
+			Images: []output.UserInputImage{
+				{
+					ID:        "img-1",
+					FilePath:  "/home/user/test.png",
+					MediaType: "image/png",
+					Data:      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", // 1x1 red pixel
+					Width:     1,
+					Height:    1,
+					SizeBytes: 47,
+				},
+			},
+		},
+	}
+
+	b.appendUserInputEvent(event)
+
+	// Should have one segment for images (no text segment since content was whitespace-only)
+	if len(b.segments) == 0 {
+		t.Fatal("appendUserInputEvent with images only should create at least one segment")
+	}
+
+	// Find the images attached segment
+	var foundImages bool
+	for _, seg := range b.segments {
+		if seg.kind == segmentImagesAttached && seg.imagesAttachedData != nil {
+			foundImages = true
+			if len(seg.imagesAttachedData.rows) != 1 {
+				t.Errorf("images attached rows = %d, want 1", len(seg.imagesAttachedData.rows))
+			}
+			break
+		}
+	}
+
+	if !foundImages {
+		t.Error("appendUserInputEvent should create imagesAttached segment for image-only input")
+	}
+}

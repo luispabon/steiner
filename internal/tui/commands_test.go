@@ -368,6 +368,26 @@ func TestProjectOverlayItemsWithSkills(t *testing.T) {
 	}
 }
 
+func TestProjectOverlayItemsOneshotExcludesSkills(t *testing.T) {
+	t.Parallel()
+	skillNames := []string{"some-skill"}
+	skillDescs := map[string]string{"some-skill": "a useful skill"}
+	got := projectOverlayItems(true, skillNames, skillDescs)
+	// oneshot mode should have only 3 items (the allowlisted commands)
+	if len(got) != 3 {
+		t.Fatalf("projectOverlayItems(oneshot=true) length = %d, want 3", len(got))
+	}
+	// Verify no skill items are present
+	for _, item := range got {
+		if item.isSkill {
+			t.Errorf("oneshot mode should not include skill items, but got skill: %q", item.command)
+		}
+		if item.command == "/some-skill" {
+			t.Errorf("oneshot mode should not include skill command /some-skill")
+		}
+	}
+}
+
 func TestProjectHelpLines(t *testing.T) {
 	t.Parallel()
 	got := projectHelpLines()

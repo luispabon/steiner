@@ -355,7 +355,7 @@ func TestColorHex(t *testing.T) {
 		{name: "white opaque", c: lipgloss.Color("#FFFFFF"), want: "#ffffff"},
 		{name: "red opaque", c: lipgloss.Color("#FF0000"), want: "#ff0000"},
 		{name: "custom hex", c: lipgloss.Color("#E8814B"), want: "#e8814b"},
-		{name: "zero rgba", c: &color.RGBA{R: 0, G: 0, B: 0, A: 0}, want: "#000000"},
+		{name: "zero rgba", c: &color.RGBA{R: 0, G: 0, B: 0, A: 0}, want: ""},
 		{name: "opaque rgba", c: &color.RGBA{R: 255, G: 0, B: 0, A: 255}, want: "#ff0000"},
 	}
 

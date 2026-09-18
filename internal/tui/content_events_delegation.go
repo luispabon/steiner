@@ -130,6 +130,30 @@ func (b *contentBuffer) applyScopedDelegationEvent(dd *delegationDisplayState, e
 	}
 }
 
+// isScopedChildTranscriptEvent reports whether an event type belongs to the set
+// that applyScopedDelegationEvent handles (i.e., child transcript events that
+// must not fall through to top-level handlers when the agent is not yet in
+// activeDelegations). Delegation lifecycle events (Started, Complete, Failed,
+// etc.) are excluded because they should fall through to appendDelegationEvent.
+func isScopedChildTranscriptEvent(eventType string) bool {
+	switch eventType {
+	case output.EventTypeAssistantChunk,
+		output.EventTypeThinkingChunk,
+		output.EventTypeAssistantMessage,
+		output.EventTypeToolCallStarted,
+		output.EventTypeToolCallFinished,
+		output.EventTypeStopReason,
+		output.EventTypeModelCallStarted,
+		output.EventTypeContextDiagnostics,
+		output.EventTypeModelCallFinished,
+		output.EventTypeAPIResponse,
+		output.EventTypeAPIRequest:
+		return true
+	default:
+		return false
+	}
+}
+
 func (b *contentBuffer) applyDelegationModelCallStarted(dd *delegationDisplayState, event output.Event) bool {
 	payload, ok := event.Payload.(output.ModelCallStartedEvent)
 	if !ok {
