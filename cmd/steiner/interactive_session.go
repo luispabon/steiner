@@ -23,6 +23,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
 	"github.com/luispabon/steiner/internal/update"
@@ -122,6 +123,15 @@ func modelPopularityRecorder(store *modelcatalog.Store) func(string, string) err
 		return nil
 	}
 	return store.Record
+}
+
+func resetSandboxTmp(events output.EventSink, sb *sandbox.Sandbox) {
+	if sb == nil {
+		return
+	}
+	if err := sb.ResetTmp(); err != nil && events != nil {
+		emitCloseWarning(events, "sandbox tmp reset", err)
+	}
 }
 
 func startModelCatalogRefresh(ctx context.Context, rt cliRuntime, sess *interactive.Session, updates chan<- []tui.ModelEntry) {
@@ -228,9 +238,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		AppName:  "steiner",
 	})
 	tuiCfg.SessionResetCleanup = func() {
-		if rt.sandbox != nil {
-			_ = rt.sandbox.ResetTmp()
-		}
+		resetSandboxTmp(rt.events, rt.sandbox)
 	}
 	tuiCfg.ClearConversationHooks = func() {
 		delegation.ResetForNewConversation(rt.delegationSessionStore, rt.delegationAdvisorBudgetStore)

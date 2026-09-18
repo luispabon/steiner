@@ -612,6 +612,27 @@ func TestModelMetadataStatusCommand(t *testing.T) {
 	}
 }
 
+func TestModelMetadataStatusReportsLoadError(t *testing.T) {
+	cache := &metadata.Cache{Dir: t.TempDir()}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(cache.CachePath(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"url":"https://models.dev/api.json"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(cache.CachePath(), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(cache.CachePath(), 0o600) })
+	var out bytes.Buffer
+	if err := printMetadataStatus(&out, cache); err == nil || !strings.Contains(err.Error(), "load cache data") {
+		t.Fatalf("printMetadataStatus() error = %v, want load cache data error", err)
+	}
+}
+
 func TestModelMetadataClearCommand(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)

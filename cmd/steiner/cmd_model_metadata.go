@@ -100,8 +100,12 @@ func printMetadataStatus(out io.Writer, cache *metadata.Cache) error {
 		freshness = "fresh"
 	}
 
+	data, err := cache.Load()
+	if err != nil {
+		return fmt.Errorf("load cache data: %w", err)
+	}
 	modelCount := 0
-	if data, err := cache.Load(); err == nil && data != nil {
+	if data != nil {
 		modelCount = metadata.CountModels(data)
 	}
 
