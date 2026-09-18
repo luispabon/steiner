@@ -56,6 +56,14 @@ type compactionExecutionPlan struct {
 	fit              prompt.RequestTokenBudget
 }
 
+type summarizeCompactionStageParams struct {
+	sourceMessages   []Message
+	retainedMessages []Message
+	mode             prompt.CompactionMode
+	maxTokens        int
+	steering         string
+}
+
 func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steerings ...string) (CompactionOutcome, error) {
 	steering := ""
 	if len(steerings) > 0 {
@@ -66,14 +74,15 @@ func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state Run
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering string) (CompactionOutcome, error) {
 	return summarizeCompactionStages{
-		stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int) (CompactionOutcome, error) {
-			return summarizeCompactionStage(ctx, req, state, turn, candidate, sourceMessages, retainedMessages, mode, maxTokens, steering)
+		stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+			params.steering = steering
+			return summarizeCompactionStage(ctx, req, state, turn, candidate, params)
 		},
 		fitRunner: fitConversationState,
 	}.run(ctx, req, state, turn, candidate)
 }
 
-type compactionStageRunner func(context.Context, RunRequest, RunState, int, ConversationCandidate, []Message, []Message, prompt.CompactionMode, int) (CompactionOutcome, error)
+type compactionStageRunner func(context.Context, RunRequest, RunState, int, ConversationCandidate, summarizeCompactionStageParams) (CompactionOutcome, error)
 
 type compactionFitRunner func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error)
 
@@ -94,13 +103,23 @@ func (s summarizeCompactionStages) run(
 	normalSource, normalRetained := compactionSourceAndRetention(fullMessages, retentionBase, normalCompactionRetainTurns)
 	emergencySource, emergencyRetained := compactionSourceAndRetention(fullMessages, retentionBase, emergencyCompactionRetainTurns)
 
-	normalOutcome, err := s.stageRunner(ctx, req, state, turn, candidate, normalSource, normalRetained, prompt.CompactionModeNormal, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal))
+	normalOutcome, err := s.stageRunner(ctx, req, state, turn, candidate, summarizeCompactionStageParams{
+		sourceMessages:   normalSource,
+		retainedMessages: normalRetained,
+		mode:             prompt.CompactionModeNormal,
+		maxTokens:        compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal),
+	})
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
 	if !normalOutcome.Applied {
 		emergencyCandidate := makeCompactionCandidate(candidate, emergencySource, emergencyRetained)
-		outcome, err := s.runStageAndFit(ctx, req, state, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+		outcome, err := s.runStageAndFit(ctx, req, state, turn, emergencyCandidate, summarizeCompactionStageParams{
+			sourceMessages:   emergencySource,
+			retainedMessages: emergencyRetained,
+			mode:             prompt.CompactionModeEmergency,
+			maxTokens:        compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency),
+		})
 		if err == nil {
 			outcome.StageCount = 1
 		}
@@ -124,7 +143,12 @@ func (s summarizeCompactionStages) run(
 	}
 	emergencySource, emergencyRetained = compactionSourceAndRetention(emergencySource, emergencyRetentionBase, emergencyCompactionRetainTurns)
 	emergencyCandidate := makeCompactionCandidate(normalOutcome.Candidate, emergencySource, emergencyRetained)
-	outcome, err := s.runStageAndFit(ctx, req, normalOutcome.State, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+	outcome, err := s.runStageAndFit(ctx, req, normalOutcome.State, turn, emergencyCandidate, summarizeCompactionStageParams{
+		sourceMessages:   emergencySource,
+		retainedMessages: emergencyRetained,
+		mode:             prompt.CompactionModeEmergency,
+		maxTokens:        compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency),
+	})
 	if err == nil {
 		outcome.StageCount = 2
 	}
@@ -140,11 +164,9 @@ func (s summarizeCompactionStages) runStageAndFit(
 	state RunState,
 	turn int,
 	candidate ConversationCandidate,
-	sourceMessages, retainedMessages []Message,
-	mode prompt.CompactionMode,
-	maxTokens int,
+	params summarizeCompactionStageParams,
 ) (CompactionOutcome, error) {
-	outcome, err := s.stageRunner(ctx, req, state, turn, candidate, sourceMessages, retainedMessages, mode, maxTokens)
+	outcome, err := s.stageRunner(ctx, req, state, turn, candidate, params)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
@@ -164,24 +186,24 @@ func (s summarizeCompactionStages) runStageAndFit(
 	return outcome, nil
 }
 
-func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int, steering string) (CompactionOutcome, error) {
-	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(retainedMessages))
+func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(params.retainedMessages))
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
 	if !retainedFit.Fits {
-		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode), mode, maxTokens), compactionCannotSolveError(retainedFit)
+		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), params.mode), params.mode, params.maxTokens), compactionCannotSolveError(retainedFit)
 	}
-	if len(sourceMessages) == 0 {
-		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s no_source=true", summarizeCompactionPrompt(candidate), mode), mode, maxTokens), nil
+	if len(params.sourceMessages) == 0 {
+		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s no_source=true", summarizeCompactionPrompt(candidate), params.mode), params.mode, params.maxTokens), nil
 	}
 
-	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, sourceMessages, retainedMessages, mode, maxTokens, steering)
+	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, params)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
 	if !ok {
-		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, mode, maxTokens), nil
+		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
 	}
 
 	response, err := completeCompactionCall(ctx, req, turn, plan.request, req.ModelBudget, plan.blocks)
@@ -191,7 +213,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 
 	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
 	if summaryText == "" {
-		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, mode, maxTokens), nil
+		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
 	}
 
 	retained := cloneMessages(plan.retainedMessages)
@@ -206,8 +228,8 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		Applied:            true,
 		Candidate:          candidate,
 		Fit:                latestFit,
-		Mode:               mode,
-		SummaryTokenBudget: maxTokens,
+		Mode:               params.mode,
+		SummaryTokenBudget: params.maxTokens,
 		RetainedMessages:   retained,
 		SummaryText:        summaryText,
 		PromptText:         plan.promptText,
@@ -290,7 +312,19 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 	*state = outcome.State
 	if compactionCount != nil {
 		*compactionCount += outcome.StageCount
-		emitCompactionDiagnostics(req.Events, turn, *compactionCount, currentFit, outcome.Fit, outcome.Mode, outcome.SummaryTokenBudget, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText, outcome.Usage)
+		emitCompactionDiagnostics(req.Events, compactionDiagnosticsParams{
+			turn:               turn,
+			compactionCount:    *compactionCount,
+			beforeFit:          currentFit,
+			afterFit:           outcome.Fit,
+			mode:               outcome.Mode,
+			summaryTokenBudget: outcome.SummaryTokenBudget,
+			retainedMessages:   outcome.RetainedMessages,
+			candidate:          outcome.Candidate,
+			summaryText:        outcome.SummaryText,
+			promptText:         outcome.PromptText,
+			usage:              outcome.Usage,
+		})
 	}
 	skipped[compactionCandidateKey(candidate)] = true
 	return true, nil
@@ -303,8 +337,8 @@ func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, b
 	return fitConversationState(ctx, req, state)
 }
 
-func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int, steering string) (compactionExecutionPlan, bool, error) {
-	plan, err := newCompactionExecutionPlanWithMode(ctx, req, state, candidate, sourceMessages, retainedMessages, mode, maxTokens, steering)
+func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams) (compactionExecutionPlan, bool, error) {
+	plan, err := newCompactionExecutionPlanWithMode(ctx, req, state, candidate, params)
 	if err != nil {
 		return compactionExecutionPlan{}, false, err
 	}
@@ -314,10 +348,10 @@ func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, s
 	return plan, false, nil
 }
 
-func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, sourceMessages, retainedMessages []Message, mode prompt.CompactionMode, maxTokens int, steering string) (compactionExecutionPlan, error) {
+func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams) (compactionExecutionPlan, error) {
 	workingCandidate := candidate
-	workingCandidate.Messages = stripImages(cloneMessages(sourceMessages))
-	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, req, state, workingCandidate, mode, maxTokens, steering)
+	workingCandidate.Messages = stripImages(cloneMessages(params.sourceMessages))
+	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, req, state, workingCandidate, params.mode, params.maxTokens, params.steering)
 	if err != nil {
 		return compactionExecutionPlan{}, err
 	}
@@ -327,8 +361,8 @@ func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, sta
 	}
 	return compactionExecutionPlan{
 		candidate:        workingCandidate,
-		sourceMessages:   stripImages(cloneMessages(sourceMessages)),
-		retainedMessages: cloneMessages(retainedMessages),
+		sourceMessages:   stripImages(cloneMessages(params.sourceMessages)),
+		retainedMessages: cloneMessages(params.retainedMessages),
 		request:          request,
 		blocks:           blocks,
 		promptText:       promptText,

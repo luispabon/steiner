@@ -673,7 +673,8 @@ func TestTwoStageSummarizeCompactionErrorsWhenEmergencyStageDoesNotApply(t *test
 	}
 
 	outcome, err := summarizeCompactionStages{
-		stageRunner: func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, _ []Message, _ []Message, mode prompt.CompactionMode, _ int) (CompactionOutcome, error) {
+		stageRunner: func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+			mode := params.mode
 			switch mode {
 			case prompt.CompactionModeNormal:
 				return CompactionOutcome{
