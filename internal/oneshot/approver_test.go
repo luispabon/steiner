@@ -54,3 +54,23 @@ func TestWorktreeAutoApproverScopesMutationApprovalToWorktree(t *testing.T) {
 		t.Fatal("mutate approval response with nil Path = allowed, want denied")
 	}
 }
+
+func TestWorktreeAutoApproverTrimsAndCleansScope(t *testing.T) {
+	worktree := t.TempDir()
+	approver := NewWorktreeAutoApprover(worktree)
+
+	resp := make(chan tool.ApprovalResponse, 1)
+	if err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
+		Tool:     tool.ToolDef{Name: "mutate"},
+		Response: resp,
+		Kind:     tool.ApprovalKindPath,
+		Path: &tool.PathApprovalDetails{
+			WorkDir: "  " + worktree + "  ",
+		},
+	}); err != nil {
+		t.Fatalf("approval request failed: %v", err)
+	}
+	if got := <-resp; !got.Allow {
+		t.Fatal("whitespace-padded scope = denied, want allowed")
+	}
+}
