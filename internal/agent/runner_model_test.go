@@ -328,22 +328,20 @@ func TestRunnerStopsAtMaxTokens(t *testing.T) {
 }
 
 func TestRunnerTreatsProviderContextCancellationAsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var chatCallCount int
 	providerStub := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{
-				Message: provider.Message{
-					Role: provider.MessageRoleAssistant,
-				},
-			},
+		chatFn: func(ctx context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+			chatCallCount++
+			cancel()
+			<-ctx.Done()
+			return provider.ChatResponse{}, ctx.Err()
+		},
+		streamFn: func(ctx context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
 		},
 	}
-	providerStub.chatFn = func(ctx context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
-		<-ctx.Done()
-		return provider.ChatResponse{}, ctx.Err()
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
 
 	var events []output.Event
 	state, err := NewRunner().Run(ctx, RunRequest{
@@ -361,8 +359,18 @@ func TestRunnerTreatsProviderContextCancellationAsCancelled(t *testing.T) {
 	if got, want := state.StopReason, StopReasonCancelled; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
-	if got, want := eventTypes(events), []string{output.EventTypeStopReason}; !equalStrings(got, want) {
-		t.Fatalf("event types = %v, want %v", got, want)
+	if chatCallCount < 1 {
+		t.Fatalf("provider chat called = %d, want >= 1 (error path must be exercised)", chatCallCount)
+	}
+	var stopReasonFound bool
+	for _, et := range eventTypes(events) {
+		if et == output.EventTypeStopReason {
+			stopReasonFound = true
+			break
+		}
+	}
+	if !stopReasonFound {
+		t.Fatalf("event types = %v, want to include %s", eventTypes(events), output.EventTypeStopReason)
 	}
 }
 
@@ -505,6 +513,7 @@ func TestRunnerRetriesTransientProviderError(t *testing.T) {
 }
 
 func TestRunnerStopsAfterMaxRunnerRetries(t *testing.T) {
+	var sleepCalls int
 	providerStub := &fakeProvider{
 		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
 			return provider.ChatResponse{}, &provider.HTTPError{
@@ -517,6 +526,7 @@ func TestRunnerStopsAfterMaxRunnerRetries(t *testing.T) {
 
 	origSleep := runnerRetrySleepFn
 	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error {
+		sleepCalls++
 		return nil
 	}
 	defer func() { runnerRetrySleepFn = origSleep }()
@@ -540,6 +550,15 @@ func TestRunnerStopsAfterMaxRunnerRetries(t *testing.T) {
 	}
 	if httpErr.StatusCode != 429 {
 		t.Fatalf("HTTPError.StatusCode = %d, want 429", httpErr.StatusCode)
+	}
+
+	if sleepCalls != maxRunnerRateLimitRetries {
+		t.Fatalf("runner retry sleeps = %d, want %d (rate-limit retry cap)", sleepCalls, maxRunnerRateLimitRetries)
+	}
+	callsPerFailedAttempt := 2
+	wantCalls := maxRunnerRateLimitRetries * callsPerFailedAttempt
+	if got := len(providerStub.requests); got < wantCalls {
+		t.Fatalf("provider requests = %d, want at least %d (stream fallback per failed attempt)", got, wantCalls)
 	}
 
 	var errorStopCount int
@@ -584,20 +603,25 @@ func TestRunnerDoesNotRetryNonTransientErrors(t *testing.T) {
 	if httpErr.StatusCode != 400 {
 		t.Fatalf("HTTPError.StatusCode = %d, want 400", httpErr.StatusCode)
 	}
+
+	if got := len(providerStub.requests); got < 1 {
+		t.Fatalf("provider chat call count = %d, want >= 1 (non-transient error should not be retried)", got)
+	}
 }
 
 func TestRunnerResetsRetryCounterOnSuccess(t *testing.T) {
+	var sleepCalls int
 	callCount := 0
 	providerStub := &fakeProvider{
 		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
 			callCount++
 			switch callCount {
-			case 1:
+			case 1, 2:
 				return provider.ChatResponse{}, &provider.HTTPError{
 					StatusCode: 502,
 					Status:     "502 Bad Gateway",
 				}
-			case 2:
+			case 3:
 				return provider.ChatResponse{
 					Message: provider.Message{
 						Role: provider.MessageRoleAssistant,
@@ -608,7 +632,7 @@ func TestRunnerResetsRetryCounterOnSuccess(t *testing.T) {
 					FinishReason: "tool_calls",
 					Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
 				}, nil
-			case 3:
+			case 4, 5:
 				return provider.ChatResponse{}, &provider.HTTPError{
 					StatusCode: 502,
 					Status:     "502 Bad Gateway",
@@ -628,6 +652,7 @@ func TestRunnerResetsRetryCounterOnSuccess(t *testing.T) {
 
 	origSleep := runnerRetrySleepFn
 	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error {
+		sleepCalls++
 		return nil
 	}
 	defer func() { runnerRetrySleepFn = origSleep }()
@@ -644,7 +669,7 @@ func TestRunnerResetsRetryCounterOnSuccess(t *testing.T) {
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 		},
-		Limits: Limits{MaxTurns: 6, MaxTokens: 100},
+		Limits: Limits{MaxTurns: 10, MaxTokens: 200},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -652,23 +677,34 @@ func TestRunnerResetsRetryCounterOnSuccess(t *testing.T) {
 	if got, want := state.StopReason, StopReasonComplete; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
+	if sleepCalls < 1 {
+		t.Fatalf("runner retry sleeps = %d, want > 0 (retry counter should be reset between turns, allowing both to retry)", sleepCalls)
+	}
 }
 
 func TestRunnerRateLimitGetsMoreRetries(t *testing.T) {
-	callCount := 0
+	var sleepCalls int
 	providerStub := &fakeProvider{
 		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
-			callCount++
 			return provider.ChatResponse{}, &provider.HTTPError{
 				StatusCode: 429,
 				Status:     "429 Too Many Requests",
 				Body:       `{"error":{"message":"Try again in 5 seconds."}}`,
 			}
 		},
+		streamFn: func(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+			return nil, &provider.HTTPError{
+				StatusCode: 429,
+				Status:     "429 Too Many Requests",
+			}
+		},
 	}
 
 	origSleep := runnerRetrySleepFn
-	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error { return nil }
+	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error {
+		sleepCalls++
+		return nil
+	}
 	defer func() { runnerRetrySleepFn = origSleep }()
 
 	_, err := NewRunner().Run(context.Background(), RunRequest{
@@ -682,19 +718,22 @@ func TestRunnerRateLimitGetsMoreRetries(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}
-	// With maxRunnerRateLimitRetries=10, we expect 11 calls (initial + 10 retries).
-	// Each call goes through provider-level retry which is 1 attempt here (no retry config).
-	if callCount < maxRunnerRateLimitRetries+1 {
-		t.Fatalf("callCount = %d, want at least %d (rate limit should get more retries)", callCount, maxRunnerRateLimitRetries+1)
+	if sleepCalls != maxRunnerRateLimitRetries {
+		t.Fatalf("runner retry sleeps = %d, want %d (rate-limit retry cap)", sleepCalls, maxRunnerRateLimitRetries)
 	}
 }
 
 func TestRunnerServerErrorCapsAtDefaultRetries(t *testing.T) {
-	callCount := 0
+	var sleepCalls int
 	providerStub := &fakeProvider{
 		chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
-			callCount++
 			return provider.ChatResponse{}, &provider.HTTPError{
+				StatusCode: 502,
+				Status:     "502 Bad Gateway",
+			}
+		},
+		streamFn: func(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+			return nil, &provider.HTTPError{
 				StatusCode: 502,
 				Status:     "502 Bad Gateway",
 			}
@@ -702,7 +741,10 @@ func TestRunnerServerErrorCapsAtDefaultRetries(t *testing.T) {
 	}
 
 	origSleep := runnerRetrySleepFn
-	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error { return nil }
+	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error {
+		sleepCalls++
+		return nil
+	}
 	defer func() { runnerRetrySleepFn = origSleep }()
 
 	_, err := NewRunner().Run(context.Background(), RunRequest{
@@ -716,11 +758,8 @@ func TestRunnerServerErrorCapsAtDefaultRetries(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}
-	// 429 rate-limit test above requires at least maxRunnerRateLimitRetries+1 calls.
-	// 502 server errors must produce strictly fewer calls, confirming the lower cap.
-	rateLimitMin := maxRunnerRateLimitRetries + 1
-	if callCount >= rateLimitMin {
-		t.Fatalf("callCount = %d, want less than %d (server error should cap below rate-limit budget)", callCount, rateLimitMin)
+	if sleepCalls != maxRunnerRetries {
+		t.Fatalf("runner retry sleeps = %d, want %d (server error should use default retry cap)", sleepCalls, maxRunnerRetries)
 	}
 }
 

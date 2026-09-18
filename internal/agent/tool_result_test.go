@@ -16,6 +16,7 @@ func TestNormalizeToolResultWithImage(t *testing.T) {
 		wantWidth     int
 		wantHeight    int
 		wantSizeBytes int
+		wantImageData string
 	}{
 		{
 			name: "ReadResult with image pointer",
@@ -35,6 +36,7 @@ func TestNormalizeToolResultWithImage(t *testing.T) {
 			wantWidth:     2,
 			wantHeight:    2,
 			wantSizeBytes: 84,
+			wantImageData: "base64encodeddata",
 		},
 		{
 			name: "ReadResult with image value",
@@ -54,6 +56,7 @@ func TestNormalizeToolResultWithImage(t *testing.T) {
 			wantWidth:     100,
 			wantHeight:    100,
 			wantSizeBytes: 5242880,
+			wantImageData: "base64data",
 		},
 		{
 			name: "ReadResult without image",
@@ -90,6 +93,15 @@ func TestNormalizeToolResultWithImage(t *testing.T) {
 				}
 				if envelope.Image.SizeBytes != tt.wantSizeBytes {
 					t.Errorf("Image.SizeBytes = %d, want %d", envelope.Image.SizeBytes, tt.wantSizeBytes)
+				}
+				if envelope.Image.Data != tt.wantImageData {
+					t.Errorf("Image.Data = %q, want %q", envelope.Image.Data, tt.wantImageData)
+				}
+				if envelope.Content == "" {
+					t.Errorf("Content = empty string, want non-empty normalized content")
+				}
+				if strings.Contains(envelope.Content, envelope.Image.Data) {
+					t.Errorf("Content leaked image data: %q", envelope.Content)
 				}
 			} else if envelope.Image != nil {
 				t.Errorf("Image = %v, want nil", envelope.Image)

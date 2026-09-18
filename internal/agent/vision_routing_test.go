@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -565,6 +566,29 @@ func TestHandleImagesForVision_MultipleMessages(t *testing.T) {
 	}
 	if state.Conversation[1].Images != nil {
 		t.Fatalf("assistant message should not have images")
+	}
+
+	// Check that img-1 description is in the correct message (first user message).
+	if !strings.Contains(state.Conversation[0].Content, "description for img-1") {
+		t.Fatalf("first message missing img-1 description: %q", state.Conversation[0].Content)
+	}
+
+	// Check that img-2 description is in the correct message (third message).
+	if !strings.Contains(state.Conversation[2].Content, "description for img-2") {
+		t.Fatalf("third message missing img-2 description: %q", state.Conversation[2].Content)
+	}
+
+	// Verify no cross-contamination: img-1 description should not be in the second user message.
+	if strings.Contains(state.Conversation[2].Content, "description for img-1") {
+		t.Fatalf("third message incorrectly contains img-1 description: %q", state.Conversation[2].Content)
+	}
+
+	// Check that images are stripped from all messages.
+	if state.Conversation[0].Images != nil {
+		t.Fatalf("first message still has images after processing")
+	}
+	if state.Conversation[2].Images != nil {
+		t.Fatalf("third message still has images after processing")
 	}
 }
 
