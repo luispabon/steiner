@@ -288,7 +288,11 @@ func TestBaseContextManagerRecordMutation(t *testing.T) {
 			if err := os.Chdir(dir); err != nil {
 				t.Fatalf("Chdir() error = %v", err)
 			}
-			t.Cleanup(func() { _ = os.Chdir(oldWD) })
+			t.Cleanup(func() {
+				if err := os.Chdir(oldWD); err != nil {
+					t.Errorf("restore working directory: %v", err)
+				}
+			})
 
 			var manager baseContextManager
 			manager.RecordMutation(tc.path)
@@ -358,7 +362,11 @@ func TestBaseContextManagerObserveReadToolResult(t *testing.T) {
 			if err := os.Chdir(dir); err != nil {
 				t.Fatalf("Chdir() error = %v", err)
 			}
-			t.Cleanup(func() { _ = os.Chdir(oldWD) })
+			t.Cleanup(func() {
+				if err := os.Chdir(oldWD); err != nil {
+					t.Errorf("restore working directory: %v", err)
+				}
+			})
 
 			var events []output.Event
 			manager := baseContextManager{

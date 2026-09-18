@@ -2495,6 +2495,7 @@ func TestParallelRunLength_ClassChangeBreaksRun(t *testing.T) {
 func TestExecuteToolCalls_SeparateLimitsForDelegationAndToolClasses(t *testing.T) {
 	var delegationInFlight, toolInFlight, maxDelegationInFlight, maxToolInFlight int32
 	barrier := make(chan struct{})
+	entered := make(chan string, 5)
 	executor := parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) {
 		if name == "code" {
 			atomic.AddInt32(&delegationInFlight, 1)
@@ -2517,6 +2518,7 @@ func TestExecuteToolCalls_SeparateLimitsForDelegationAndToolClasses(t *testing.T
 				}
 			}
 		}
+		entered <- name
 		<-barrier
 		return name, nil
 	}}
@@ -2534,14 +2536,22 @@ func TestExecuteToolCalls_SeparateLimitsForDelegationAndToolClasses(t *testing.T
 	go func() {
 		done <- p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, parallelCalls("grep", "grep", "code", "code", "grep")).State
 	}()
-	runtime.Gosched()
-	time.Sleep(10 * time.Millisecond)
+	for i := 0; i < 2; i++ {
+		select {
+		case name := <-entered:
+			if name != "grep" {
+				t.Fatalf("entered call %q before first grep batch completed", name)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("first grep batch did not enter")
+		}
+	}
 	close(barrier)
 	<-done
-	if atomic.LoadInt32(&maxToolInFlight) > 2 {
-		t.Fatalf("max tool-class in-flight = %d, want <= 2 (two greps in first run)", maxToolInFlight)
+	if got := atomic.LoadInt32(&maxToolInFlight); got != 2 {
+		t.Fatalf("max tool-class in-flight = %d, want 2 (two greps in first run)", got)
 	}
-	if atomic.LoadInt32(&maxDelegationInFlight) > 1 {
-		t.Fatalf("max delegation-class in-flight = %d, want <= 1 (max_parallel_delegations: 1)", maxDelegationInFlight)
+	if got := atomic.LoadInt32(&maxDelegationInFlight); got != 1 {
+		t.Fatalf("max delegation-class in-flight = %d, want 1 (max_parallel_delegations: 1)", got)
 	}
 }

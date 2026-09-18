@@ -38,7 +38,8 @@ func TestCleanupOrphans(t *testing.T) {
 }
 
 func TestCleanupOrphans_BaseDirNotExist(t *testing.T) {
-	count := CleanupOrphans("/tmp/nonexistent-orphan-test-dir-zzz", 1*time.Hour)
+	missingDir := filepath.Join(t.TempDir(), "missing-base-dir")
+	count := CleanupOrphans(missingDir, 1*time.Hour)
 	if count != 0 {
 		t.Fatalf("count = %d, want 0", count)
 	}

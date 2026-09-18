@@ -264,17 +264,24 @@ func TestStoreConcurrentRecords(t *testing.T) {
 
 	n := 10
 	var wg sync.WaitGroup
+	errs := make([]error, n)
 	wg.Add(n)
 
 	for i := 0; i < n; i++ {
-		go func() {
+		go func(i int) {
 			defer wg.Done()
 			delta := &bucket{Requests: 1, InputTokens: 10}
-			_ = s.write(delta, key)
-		}()
+			errs[i] = s.write(delta, key)
+		}(i)
 	}
 
 	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent write %d: %v", i, err)
+		}
+	}
 
 	// Load and verify totals.
 	// The file lock in write must serialize the read-modify-write cycle so
@@ -421,6 +428,7 @@ func TestStorePruningBoundary(t *testing.T) {
 			clock := newMockClock(now)
 
 			oldPath := storePath
+			defer func() { storePath = oldPath }()
 			storePath = func() string { return path }
 
 			s := newStore(clock.Now)
@@ -443,8 +451,6 @@ func TestStorePruningBoundary(t *testing.T) {
 			if found != tt.shouldKeep {
 				t.Errorf("should keep: got %v, want %v", found, tt.shouldKeep)
 			}
-
-			storePath = oldPath
 		})
 	}
 }

@@ -19,7 +19,7 @@ func TestFilePickerOverlay_NewClose(t *testing.T) {
 		t.Fatal("expected picker to start closed")
 	}
 
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	if !f.IsOpen() {
 		t.Fatal("expected picker to be open after Open()")
 	}
@@ -49,7 +49,7 @@ func TestFilePickerOverlay_ViewNonEmpty(t *testing.T) {
 	f := newFilePickerOverlay(s)
 	f.width = 80
 	f.height = 24
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	if !f.IsOpen() {
 		t.Fatal("expected picker to be open")
 	}
@@ -184,7 +184,7 @@ func TestFilePickerOverlay_EscCloses(t *testing.T) {
 	t.Parallel()
 	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	if !f.IsOpen() {
 		t.Fatal("expected picker to be open")
 	}
@@ -199,7 +199,7 @@ func TestFilePickerOverlay_EnterDoesNotClose(t *testing.T) {
 	t.Parallel()
 	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	if !f.IsOpen() {
 		t.Fatal("expected picker to be open")
 	}
@@ -214,7 +214,7 @@ func TestFilePickerOverlay_BackspaceRemovesQueryChar(t *testing.T) {
 	t.Parallel()
 	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	f.query = "abc"
 	f.filter()
 
@@ -228,7 +228,7 @@ func TestFilePickerOverlay_KeyRunesAppendsToQuery(t *testing.T) {
 	t.Parallel()
 	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 
 	f, _ = f.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	if f.query != "s" {
@@ -248,9 +248,12 @@ func TestFilePickerOverlay_KeyRunesAppendsToQuery(t *testing.T) {
 
 func TestFilePickerOverlay_RespectsExclusions(t *testing.T) {
 	t.Parallel()
+	root := t.TempDir()
+	mustMkdir(t, root, ".git")
+	mustWriteFile(t, root, "src/main.go", "package main\n")
+
 	s := testStyles("#ff0000")
-	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f := newFilePickerOverlay(s).Open(root)
 	foundExcluded := false
 	for _, entry := range f.allEntries {
 		if entry == ".git/" || entry == ".git" || strings.HasPrefix(entry, ".git/") {
@@ -267,10 +270,10 @@ func TestFilePickerOverlay_ResetsQueryOnOpen(t *testing.T) {
 	t.Parallel()
 	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	f.query = "test"
 	f = f.Close()
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	if f.query != "" {
 		t.Fatalf("expected empty query after reopen, got %q", f.query)
 	}
@@ -281,7 +284,7 @@ func TestFilePickerOverlay_ResetsQueryOnOpen(t *testing.T) {
 
 func TestModelFilePicker_OpensOnAt(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{WorkingDir: "."}, nil)
+	m := newModel(Config{WorkingDir: filePickerFixtureDir(t)}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
@@ -292,7 +295,7 @@ func TestModelFilePicker_OpensOnAt(t *testing.T) {
 
 func TestModelFilePicker_EscCloses(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{WorkingDir: "."}, nil)
+	m := newModel(Config{WorkingDir: filePickerFixtureDir(t)}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
@@ -334,7 +337,7 @@ func TestModelFilePicker_EnterInsertsPath(t *testing.T) {
 
 func TestModelFilePicker_TypingUpdatesComposerAndPickerQuery(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{WorkingDir: "."}, nil)
+	m := newModel(Config{WorkingDir: filePickerFixtureDir(t)}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
@@ -354,7 +357,7 @@ func TestModelFilePicker_TypingUpdatesComposerAndPickerQuery(t *testing.T) {
 
 func TestModelFilePicker_EscRemovesActiveToken(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{WorkingDir: "."}, nil)
+	m := newModel(Config{WorkingDir: filePickerFixtureDir(t)}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: '@', Text: "@"})
@@ -463,11 +466,11 @@ func TestFilePickerOverlay_OpenResetsScrollOffset(t *testing.T) {
 	t.Parallel()
 	s := testStyles("#ff0000")
 	f := newFilePickerOverlay(s)
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	f.selection = 5
 	f.scrollOffset = 3
 	f = f.Close()
-	f = f.Open(".")
+	f = f.Open(filePickerFixtureDir(t))
 	if f.scrollOffset != 0 {
 		t.Fatalf("expected scrollOffset 0 after reopen, got %d", f.scrollOffset)
 	}
@@ -660,7 +663,7 @@ func TestFilePickerOverlay_ViewOmitsFooterHelpRow(t *testing.T) {
 
 func TestModelFilePicker_DoesNotOpenOnOtherChars(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{WorkingDir: "."}, nil)
+	m := newModel(Config{WorkingDir: filePickerFixtureDir(t)}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: 'a', Text: "a"})
@@ -708,7 +711,7 @@ func TestModelFilePicker_OverlayPreservesSidebarContent(t *testing.T) {
 
 func TestModelFilePicker_OverlayPreservesLeftSidebarContent(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{WorkingDir: ".", Model: "test-model"}, nil)
+	m := newModel(Config{WorkingDir: filePickerFixtureDir(t), Model: "test-model"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
 	m.sidebar.expanded = true
 

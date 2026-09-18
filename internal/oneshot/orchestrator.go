@@ -83,7 +83,6 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 			return manifest, err
 		}
 
-		// In a fresh run, phases are never resuming; they're all first-time runs.
 		if err := o.runPhase(runPhaseParams{
 			InterruptCtx:  interruptCtx,
 			Store:         store,
@@ -93,7 +92,6 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 			PlanningPath:  planningPath,
 			Phase:         phase,
 			PreviousPhase: previousPhase,
-			Resuming:      false,
 		}); err != nil {
 			return manifest, err
 		}
@@ -125,13 +123,11 @@ type runPhaseParams struct {
 	PlanningPath  string
 	Phase         Phase
 	PreviousPhase Phase
-	Resuming      bool
 }
 
 // runPhase executes a single phase: starting events, runner construction, execution, session
 // persistence, boundary checking, and success bookkeeping. It mutates manifest and writes it via
 // store at each state transition, and heartbeats lock at phase start and on successful completion.
-// p.Resuming controls which artifacts are required at the phase boundary check.
 func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	modelAlias := phaseModelAlias(o.deps.Config, p.Phase)
 	advisorCfg := phaseAdvisorConfig(o.deps.Config, p.Phase)
@@ -192,7 +188,7 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 		return runErr
 	}
 
-	requiredArtifacts := requiredArtifactsForPhase(p.Phase, p.PlanningPath, p.Resuming)
+	requiredArtifacts := requiredArtifactsForPhase(p.Phase, p.PlanningPath)
 	if err := CheckBoundary(phaseCtx, p.Phase, p.WorktreePath, requiredArtifacts); err != nil {
 		cancel()
 		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed

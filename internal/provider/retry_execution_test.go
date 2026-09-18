@@ -22,7 +22,9 @@ func TestOpenAICompatChatCompletionRetries429ThenSucceeds(t *testing.T) {
 		case 2:
 			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		default:
-			t.Fatalf("unexpected attempt %d", attempts)
+			t.Errorf("unexpected attempt %d", attempts)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -68,7 +70,9 @@ func TestOpenAICompatChatCompletionRetries503ThenSucceeds(t *testing.T) {
 		case 2:
 			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		default:
-			t.Fatalf("unexpected attempt %d", attempts)
+			t.Errorf("unexpected attempt %d", attempts)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -160,7 +164,9 @@ func TestOpenAICompatChatCompletionCapsRetryAfter(t *testing.T) {
 		case 2:
 			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		default:
-			t.Fatalf("unexpected attempt %d", attempts)
+			t.Errorf("unexpected attempt %d", attempts)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -234,7 +240,9 @@ func TestOpenAICompatChatCompletionCancellationDuringBackoffStopsImmediately(t *
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = fmt.Fprint(w, "busy")
 		default:
-			t.Fatalf("unexpected attempt %d", attempts)
+			t.Errorf("unexpected attempt %d", attempts)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -294,7 +302,9 @@ func TestOpenAICompatStreamChatCompletionRetries503BeforeSSEBody(t *testing.T) {
 		case 2:
 			flusher, ok := w.(http.Flusher)
 			if !ok {
-				t.Fatal("writer does not support flushing")
+				t.Errorf("writer does not support flushing")
+				w.WriteHeader(http.StatusInternalServerError)
+				return
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"role":"assistant"}}]}`)
@@ -306,7 +316,9 @@ func TestOpenAICompatStreamChatCompletionRetries503BeforeSSEBody(t *testing.T) {
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", "[DONE]")
 			flusher.Flush()
 		default:
-			t.Fatalf("unexpected attempt %d", attempts)
+			t.Errorf("unexpected attempt %d", attempts)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -363,7 +375,9 @@ func TestOpenAICompatStreamChatCompletionRetriesUnexpectedEOFBeforeFinalDone(t *
 		case 1:
 			flusher, ok := w.(http.Flusher)
 			if !ok {
-				t.Fatal("writer does not support flushing")
+				t.Errorf("writer does not support flushing")
+				w.WriteHeader(http.StatusInternalServerError)
+				return
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"hello"}}]}`)
@@ -371,7 +385,9 @@ func TestOpenAICompatStreamChatCompletionRetriesUnexpectedEOFBeforeFinalDone(t *
 		case 2:
 			flusher, ok := w.(http.Flusher)
 			if !ok {
-				t.Fatal("writer does not support flushing")
+				t.Errorf("writer does not support flushing")
+				w.WriteHeader(http.StatusInternalServerError)
+				return
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"role":"assistant"}}]}`)
@@ -383,7 +399,9 @@ func TestOpenAICompatStreamChatCompletionRetriesUnexpectedEOFBeforeFinalDone(t *
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", "[DONE]")
 			flusher.Flush()
 		default:
-			t.Fatalf("unexpected attempt %d", attempts)
+			t.Errorf("unexpected attempt %d", attempts)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -434,7 +452,9 @@ func TestOpenAICompatStreamChatCompletionDoesNotRetryCallerCancellation(t *testi
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = fmt.Fprint(w, "busy")
 		default:
-			t.Fatalf("unexpected attempt %d", attempts)
+			t.Errorf("unexpected attempt %d", attempts)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()

@@ -195,13 +195,27 @@ func runHarness(tb testing.TB, d, interval time.Duration, fps int, injectedViewD
 	start := time.Now()
 	ruBefore := processCPUNanos()
 
+	// stop lets the main goroutine tell the sender to exit once the program has
+	// stopped, and senderDone proves the sender goroutine finished before the
+	// harness returns so runs cannot leak into one another.
+	stop := make(chan struct{})
+	senderDone := make(chan struct{})
 	var sends atomic.Int64
 	go func() {
+		defer close(senderDone)
 		if scroll {
 			// Long-period sweep (direction flips every 40 sends), NOT a
 			// 2-position oscillation, so the viewport traverses a wide band
 			// of offsets.
-			for n := 0; time.Since(start) < d; n++ {
+			for n := 0; ; n++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if time.Since(start) >= d {
+					break
+				}
 				if (n/40)%2 == 0 {
 					p.Send(mouseWheelMsg{direction: "up"})
 				} else {
@@ -209,22 +223,32 @@ func runHarness(tb testing.TB, d, interval time.Duration, fps int, injectedViewD
 				}
 				sends.Add(1)
 				if interval > 0 {
-					time.Sleep(interval)
+					select {
+					case <-stop:
+						return
+					case <-time.After(interval):
+					}
 				}
 			}
 		} else {
-			time.Sleep(d)
+			select {
+			case <-stop:
+				return
+			case <-time.After(d):
+			}
 		}
 		p.Quit()
 	}()
 
 	_, err := p.Run()
+	elapsed := time.Since(start)
+	cpuNanos := processCPUNanos() - ruBefore
+	close(stop)
+	<-senderDone
 	if err != nil {
 		tb.Fatalf("tea program run: %v", err)
 	}
 
-	elapsed := time.Since(start)
-	cpuNanos := processCPUNanos() - ruBefore
 	writes, bytes, writeTimes := w.snapshot()
 
 	r := headlessResult{

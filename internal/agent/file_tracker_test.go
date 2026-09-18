@@ -31,7 +31,11 @@ func TestFileTrackerAnnotatesUnchangedReread(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir() error = %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
 	tracker := FileTracker{}
@@ -66,7 +70,11 @@ func TestFileTrackerFallsBackToFullContentWhenFileChanges(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir() error = %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`
 	tracker := FileTracker{}
@@ -98,7 +106,11 @@ func TestFileTrackerFallsBackToFullContentWhenGenerationChangesWithoutMtimeChang
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir() error = %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`
 	tracker := FileTracker{}
@@ -136,7 +148,11 @@ func TestFileTrackerBumpGenerationIsFileWide(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir() error = %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	tracker := FileTracker{}
 	// Hold the byte range (start_line/end_line/total_lines) fixed across both
@@ -187,7 +203,11 @@ func TestFileTrackerPruneBeforeTurn(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir() error = %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	tracker := FileTracker{}
 	contentA := `{"path":"a.txt","start_line":1,"end_line":1,"total_lines":1,"output":"aaa\n"}`
@@ -228,7 +248,11 @@ func TestFileTrackerSurvivesManagerLifecycle(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir() error = %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	manager := &ContextStateManager{}
 	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`
@@ -255,11 +279,18 @@ func TestFileTrackerDetectsBashMutation(t *testing.T) {
 	if err := os.WriteFile(path, []byte("original\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	oldWD, _ := os.Getwd()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"original\n"}`
 	tracker := FileTracker{}
@@ -295,7 +326,11 @@ func TestFileTrackerInvalidatesAfterMutationKinds(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir() error = %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
 
@@ -336,7 +371,11 @@ func TestFileTrackerSkipsFailedMutation(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir() error = %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	content := `{"path":"note.txt","start_line":1,"end_line":3,"total_lines":3,"output":"one\ntwo\nthree\n"}`
 
@@ -372,11 +411,18 @@ func TestFileTrackerRecordMutation(t *testing.T) {
 	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	oldWD, _ := os.Getwd()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	tracker := FileTracker{}
 	if ok := tracker.BumpGeneration("note.txt"); !ok {
@@ -398,11 +444,18 @@ func TestFileTrackerObserveToolResultRead(t *testing.T) {
 	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	oldWD, _ := os.Getwd()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 
 	tests := []struct {
 		name       string

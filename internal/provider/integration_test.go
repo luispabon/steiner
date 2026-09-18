@@ -80,10 +80,14 @@ func TestIntegrationChatCompletionSendsCorrectRequest(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				t.Fatalf("ReadAll() error = %v", err)
+				t.Errorf("ReadAll() error = %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
 			}
 			if err := json.Unmarshal(body, &gotBody); err != nil {
-				t.Fatalf("Unmarshal() error = %v", err)
+				t.Errorf("Unmarshal() error = %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
 			}
 			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 		}))

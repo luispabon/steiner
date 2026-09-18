@@ -147,6 +147,12 @@ func TestHTTPIntegration(t *testing.T) {
 		server := newTestMCPServer(t)
 		defer server.Close()
 
+		// A closed loopback server gives a deterministic refused endpoint
+		// without hardcoding a port another process could occupy.
+		refused := newTestMCPServer(t)
+		refusedURL := refused.URL + "/no-such-server"
+		refused.Close()
+
 		var warns []string
 		cfg := config.MCPConfig{
 			Enabled: true,
@@ -154,7 +160,7 @@ func TestHTTPIntegration(t *testing.T) {
 				"unreachable": {
 					Enabled:   true,
 					Transport: "http",
-					URL:       "http://127.0.0.1:1/no-such-server",
+					URL:       refusedURL,
 				},
 				"reachable": {
 					Enabled:   true,

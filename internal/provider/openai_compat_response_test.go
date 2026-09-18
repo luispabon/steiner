@@ -12,16 +12,24 @@ import (
 func TestOpenAICompatChatCompletionNormalizesResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got, want := r.Method, http.MethodPost; got != want {
-			t.Fatalf("method = %s, want %s", got, want)
+			t.Errorf("method = %s, want %s", got, want)
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 		if got, want := r.URL.Path, "/v1/chat/completions"; got != want {
-			t.Fatalf("path = %s, want %s", got, want)
+			t.Errorf("path = %s, want %s", got, want)
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 		if got, want := r.Header.Get("Content-Type"), "application/json"; got != want {
-			t.Fatalf("content type = %q, want %q", got, want)
+			t.Errorf("content type = %q, want %q", got, want)
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 		if got, want := r.Header.Get("Authorization"), ""; got != want {
-			t.Fatalf("authorization = %q, want empty", got)
+			t.Errorf("authorization = %q, want empty", got)
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 		_, _ = fmt.Fprint(w, `{
 			"choices":[
@@ -82,11 +90,15 @@ func TestOpenAICompatChatCompletionNormalizesResponse(t *testing.T) {
 func TestOpenAICompatStreamChatCompletionNormalizesResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got, want := r.URL.Path, "/v1/chat/completions"; got != want {
-			t.Fatalf("path = %s, want %s", got, want)
+			t.Errorf("path = %s, want %s", got, want)
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			t.Fatal("response writer does not implement Flusher")
+			t.Errorf("response writer does not implement Flusher")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"role":"assistant"}}]}`)

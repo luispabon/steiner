@@ -812,22 +812,32 @@ func TestAwaitSessionRunsWaitsForTrackedHistoryWrite(t *testing.T) {
 		t.Fatal("RecordPromptHistory did not reach HistoryWriter.Record")
 	}
 
-	// Release the blocked write only after the wait has started, so a shutdown
-	// that skipped WaitRuns would return while the tracked write is still pending.
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		releaseWrite()
-	}()
-
 	cmd := &cobra.Command{}
 	cmd.SetErr(&bytes.Buffer{})
 	var got output.Event
 	rt := &cliRuntime{events: output.SinkFunc(func(event output.Event) { got = event })}
 
-	start := time.Now()
-	awaitSessionRuns(cmd, sess, rt)
-	if elapsed := time.Since(start); elapsed < 50*time.Millisecond {
-		t.Fatalf("awaitSessionRuns returned after %v, want it to block until the tracked write finished", elapsed)
+	awaitDone := make(chan struct{})
+	go func() {
+		awaitSessionRuns(cmd, sess, rt)
+		close(awaitDone)
+	}()
+
+	// The tracked write is still blocked, so awaitSessionRuns must not return.
+	// A shutdown that skipped the run drain would close awaitDone immediately,
+	// while a correct one stays blocked until releaseWrite frees the write below.
+	select {
+	case <-awaitDone:
+		t.Fatal("awaitSessionRuns returned while the tracked history write was still pending")
+	case <-time.After(time.Second):
+	}
+
+	releaseWrite()
+
+	select {
+	case <-awaitDone:
+	case <-time.After(time.Second):
+		t.Fatal("awaitSessionRuns did not return after the tracked write was released")
 	}
 	select {
 	case <-writer.recordDone:

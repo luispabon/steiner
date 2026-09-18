@@ -504,8 +504,6 @@ func TestReadinessMultipleTokens(t *testing.T) {
 		t.Fatalf("send end(A): %v", err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
 	incomplete, err := m.awaitReady(ctx, ent)
 	if err != nil {
 		t.Errorf("awaitReady: %v", err)
@@ -563,23 +561,24 @@ func TestReadinessIgnoreOrphanEnd(t *testing.T) {
 		t.Fatalf("send orphan end: %v", err)
 	}
 
-	time.Sleep(10 * time.Millisecond)
-
-	// State should still be notReady
-	ent.mu.Lock()
-	if ent.readiness.isTerminal() {
-		t.Error("readiness is terminal after orphan end, want notReady")
-	}
-	ent.mu.Unlock()
-
 	begin, _ := json.Marshal(protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading"})
-	// Send begin(A)
+	// Send begin(A). Observing it proves the orphan end above was processed
+	// first (progress events are handled in order), so the orphan-end assertion
+	// below needs no fixed delay.
 	progressParams.Token = protocol.String("tokenA")
 	progressParams.Value = protocol.LSPAny(begin)
 	if err := fs.client.Progress(ctx, &progressParams); err != nil {
 		t.Fatalf("send begin(A): %v", err)
 	}
 	waitForReadinessBegin(t, beginAObserved, "tokenA")
+
+	// State should still be notReady: the orphan end was ignored and begin(A)
+	// alone does not complete a begin/end cycle.
+	ent.mu.Lock()
+	if ent.readiness.isTerminal() {
+		t.Error("readiness is terminal after orphan end, want notReady")
+	}
+	ent.mu.Unlock()
 
 	// Send begin(B)
 	progressParams.Token = protocol.String("tokenB")
@@ -594,8 +593,6 @@ func TestReadinessIgnoreOrphanEnd(t *testing.T) {
 	if err := fs.client.Progress(ctx, &progressParams); err != nil {
 		t.Fatalf("send end(A): %v", err)
 	}
-
-	time.Sleep(50 * time.Millisecond)
 
 	incomplete, err := m.awaitReady(ctx, ent)
 	if err != nil {
@@ -719,10 +716,8 @@ func TestReadinessServerExitThenAwaitAfter(t *testing.T) {
 	// Exit the server while notReady.
 	proc.markExited()
 
-	// Give trackReadiness time to exit and handle the exit case.
-	time.Sleep(50 * time.Millisecond)
-
-	// Now call awaitReady after the exit has already happened.
+	// awaitReady selects on the session's exit channel directly, so it reports
+	// errServerExited once the server has exited; no fixed delay is needed.
 	// On the broken code, readyCh would be closed (by the defer) but state
 	// would still be notReady, causing it to falsely return (false, nil).
 	// On the fixed code, it must return errServerExited.

@@ -1,6 +1,10 @@
 package oneshot
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestSlugFromTask(t *testing.T) {
 	tests := []struct {
@@ -11,11 +15,22 @@ func TestSlugFromTask(t *testing.T) {
 		{name: "basic", task: "Build the parser", want: "build-the-parser"},
 		{name: "punctuation", task: "Fix: the /oneshot flow!", want: "fix-the-oneshot-flow"},
 		{name: "empty", task: "   ", want: "run"},
+		{
+			// 49 bytes (one ASCII byte plus 16 three-byte runes) forces the byte
+			// truncation to land mid-rune, so the cut must back off to byte 46.
+			name: "multibyte truncation",
+			task: "a" + strings.Repeat("漢", 16),
+			want: "a" + strings.Repeat("漢", 15),
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := SlugFromTask(tt.task); got != tt.want {
+			got := SlugFromTask(tt.task)
+			if !utf8.ValidString(got) {
+				t.Fatalf("SlugFromTask(%q) = %q, want valid UTF-8", tt.task, got)
+			}
+			if got != tt.want {
 				t.Fatalf("SlugFromTask(%q) = %q, want %q", tt.task, got, tt.want)
 			}
 		})

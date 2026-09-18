@@ -269,10 +269,11 @@ func TestOneshotInterruptThenResumeCompletes(t *testing.T) {
 		_, runErr := firstOrch.Run(context.Background())
 		runDone <- runErr
 	}()
-	<-started      // implement phase has entered RunPhase and is blocking on cancel
+	// The implement phase has entered RunPhase and is blocking on cancel.
+	awaitSignal(t, started, "implement phase to start")
 	signalCancel() // SIGINT equivalent
 
-	if err := <-runDone; !errors.Is(err, context.Canceled) {
+	if err := awaitSignal(t, runDone, "first run to return after cancellation"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("first run error = %v, want context.Canceled", err)
 	}
 	if _, err := os.Stat(identity.LockPath(projectRoot)); !os.IsNotExist(err) {

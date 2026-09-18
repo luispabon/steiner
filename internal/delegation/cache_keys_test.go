@@ -84,6 +84,7 @@ func TestCacheKeyStoreKeyForMintErrorNotCached(t *testing.T) {
 func TestCacheKeyStoreBeginDispatchLeaderAndFollower(t *testing.T) {
 	store := NewCacheKeyStore()
 	isLeader, release, _ := store.BeginDispatch("shared-key")
+	t.Cleanup(release)
 	if !isLeader {
 		t.Fatal("first BeginDispatch() isLeader = false, want true")
 	}
@@ -93,9 +94,14 @@ func TestCacheKeyStoreBeginDispatchLeaderAndFollower(t *testing.T) {
 		t.Fatal("second BeginDispatch() isLeader = true, want false")
 	}
 
+	// A cancellable context plus the registered release cleanup guarantees the
+	// follower goroutine unblocks even if a fatal assertion exits the test
+	// before the explicit release below.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	waitDone := make(chan struct{})
 	go func() {
-		wait(context.Background())
+		wait(ctx)
 		close(waitDone)
 	}()
 	select {
@@ -114,7 +120,8 @@ func TestCacheKeyStoreBeginDispatchLeaderAndFollower(t *testing.T) {
 
 func TestCacheKeyStoreBeginDispatchWaitCancellation(t *testing.T) {
 	store := NewCacheKeyStore()
-	_, _, _ = store.BeginDispatch("cancel-key")
+	_, release, _ := store.BeginDispatch("cancel-key")
+	t.Cleanup(release)
 	_, _, wait := store.BeginDispatch("cancel-key")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -134,12 +141,14 @@ func TestCacheKeyStoreBeginDispatchWaitCancellation(t *testing.T) {
 func TestCacheKeyStoreBeginDispatchReleaseStartsNewWave(t *testing.T) {
 	store := NewCacheKeyStore()
 	firstLeader, firstRelease, _ := store.BeginDispatch("wave-key")
+	t.Cleanup(firstRelease)
 	if !firstLeader {
 		t.Fatal("first BeginDispatch() isLeader = false, want true")
 	}
 	firstRelease()
 
 	secondLeader, secondRelease, _ := store.BeginDispatch("wave-key")
+	t.Cleanup(secondRelease)
 	if !secondLeader {
 		t.Fatal("new wave BeginDispatch() isLeader = false, want true")
 	}
@@ -150,7 +159,7 @@ func TestCacheKeyStoreBeginDispatchReleaseStartsNewWave(t *testing.T) {
 
 	firstRelease()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	t.Cleanup(cancel)
 	waitDone := make(chan struct{})
 	go func() {
 		secondWait(ctx)
@@ -193,6 +202,7 @@ func TestCacheKeyStoreDispatchGateTimeout(t *testing.T) {
 	}
 
 	gate := &dispatchGate{ready: make(chan struct{})}
+	defer gate.release()
 	waitDone := make(chan struct{})
 	go func() {
 		waitForTimeout(gate, 20*time.Millisecond)(context.Background())

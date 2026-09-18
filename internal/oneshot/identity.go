@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -15,6 +16,9 @@ const (
 	worktreeDirName     = "worktrees"
 	plansDirName        = "plans"
 )
+
+// maxSlugBytes caps slug length at a filesystem-safe size.
+const maxSlugBytes = 48
 
 // RunIdentity binds a oneshot run id to a normalized feature slug.
 type RunIdentity struct {
@@ -61,13 +65,26 @@ func SlugFromTask(task string) string {
 	if slug == "" {
 		return "run"
 	}
-	if len(slug) > 48 {
-		slug = strings.Trim(slug[:48], "-")
+	if len(slug) > maxSlugBytes {
+		slug = strings.Trim(truncateAtRuneBoundary(slug, maxSlugBytes), "-")
 	}
 	if slug == "" {
 		return "run"
 	}
 	return slug
+}
+
+// truncateAtRuneBoundary returns the longest prefix of s no longer than maxBytes
+// bytes without splitting a multi-byte UTF-8 rune.
+func truncateAtRuneBoundary(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 // BranchName returns the provisioned git branch for the run.

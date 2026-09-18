@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -16,6 +17,25 @@ import (
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+// testWaitTimeout bounds every cross-goroutine handoff in oneshot tests so a
+// regression that never signals or never returns fails the test instead of
+// hanging the whole suite.
+const testWaitTimeout = 10 * time.Second
+
+// awaitSignal waits up to testWaitTimeout for ch to deliver a value, failing the
+// test with what it was waiting for when the handoff never happens.
+func awaitSignal[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(testWaitTimeout):
+		var zero T
+		t.Fatalf("timed out after %s waiting for %s", testWaitTimeout, what)
+		return zero
+	}
+}
 
 func configWithEffectiveModels(defaultModel string, oneShot map[string]string) config.Config {
 	return config.Config{Models: config.ModelsConfig{
@@ -453,10 +473,10 @@ func TestOrchestratorCancelsAndReleasesLock(t *testing.T) {
 		}{manifest: manifest, err: runErr}
 	}()
 
-	<-started
+	awaitSignal(t, started, "plan phase to start")
 	signalCancel()
 
-	result := <-runDone
+	result := awaitSignal(t, runDone, "run to return after cancellation")
 	if result.err == nil {
 		t.Fatal("Run succeeded, want cancellation error")
 	}
@@ -516,19 +536,24 @@ func TestOrchestratorConcurrentRunsGetDistinctWorktrees(t *testing.T) {
 		return orch
 	}
 
+	// Construct both orchestrators on the test goroutine: makeOrch calls
+	// t.Fatalf, which must not run inside a worker goroutine.
+	orch1 := makeOrch(id1)
+	orch2 := makeOrch(id2)
+
 	ch1 := make(chan result, 1)
 	ch2 := make(chan result, 1)
 	go func() {
-		m, e := makeOrch(id1).Run(context.Background())
+		m, e := orch1.Run(context.Background())
 		ch1 <- result{m, e}
 	}()
 	go func() {
-		m, e := makeOrch(id2).Run(context.Background())
+		m, e := orch2.Run(context.Background())
 		ch2 <- result{m, e}
 	}()
 
-	r1 := <-ch1
-	r2 := <-ch2
+	r1 := awaitSignal(t, ch1, "run 1 result")
+	r2 := awaitSignal(t, ch2, "run 2 result")
 
 	if r1.err != nil {
 		t.Fatalf("run 1 failed: %v", r1.err)

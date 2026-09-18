@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"charm.land/lipgloss/v2"
@@ -4078,13 +4079,19 @@ func TestFollowUpFallsBackGracefullyWhenChildNotFound(t *testing.T) {
 	// This is acceptable per the spec: "fall back gracefully if the child segment is not found"
 }
 
+// tuiProfileMu serializes tests that mutate the process-global lipgloss color
+// profile, which rendering tests running in parallel read concurrently.
+var tuiProfileMu sync.Mutex
+
 func useTrueColor(t *testing.T) {
 	t.Helper()
 
+	tuiProfileMu.Lock()
 	old := lipgloss.Writer.Profile
 	lipgloss.Writer.Profile = colorprofile.TrueColor
 	t.Cleanup(func() {
 		lipgloss.Writer.Profile = old
+		tuiProfileMu.Unlock()
 	})
 }
 func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {

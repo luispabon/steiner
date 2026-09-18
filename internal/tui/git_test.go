@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -237,13 +238,19 @@ func TestDetectGitSnapshotHandlesRenamedFiles(t *testing.T) {
 	}
 }
 
+// gitTestTimeout bounds every git subprocess the tests spawn so a broken git
+// or a stalled filesystem fails the individual step instead of hanging the run.
+const gitTestTimeout = 30 * time.Second
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.CommandContext(context.Background(), "git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTestTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		t.Fatalf("git %v failed within %s: %v\n%s", args, gitTestTimeout, err, out)
 	}
 }
 
