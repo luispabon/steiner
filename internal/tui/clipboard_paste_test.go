@@ -25,6 +25,33 @@ func minimalPNG(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
+func TestReadClipboardImageFile(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		size      int
+		wantError error
+	}{
+		{name: "at limit", size: clipboardMaxImageBytes},
+		{name: "over limit", size: clipboardMaxImageBytes + 1, wantError: ErrImageTooLarge},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "image.png")
+			if err := os.WriteFile(path, make([]byte, tc.size), 0o600); err != nil {
+				t.Fatalf("write test image: %v", err)
+			}
+
+			data, err := readClipboardImageFile(path)
+			if err != tc.wantError {
+				t.Fatalf("readClipboardImageFile() error = %v, want %v", err, tc.wantError)
+			}
+			if tc.wantError == nil && len(data) != tc.size {
+				t.Errorf("readClipboardImageFile() returned %d bytes, want %d", len(data), tc.size)
+			}
+		})
+	}
+}
+
 func TestBuildClipboardImageMsgWithStorePopulatesIDAndFilePath(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

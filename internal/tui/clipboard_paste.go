@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -42,7 +43,7 @@ func pasteImageCmd(store *agent.ImageStore) tea.Cmd {
 		if !builtin.IsImageExtension(filepath.Ext(text)) {
 			return nil
 		}
-		fileData, err := os.ReadFile(text)
+		fileData, err := readClipboardImageFile(text)
 		if err != nil {
 			return nil
 		}
@@ -50,6 +51,23 @@ func pasteImageCmd(store *agent.ImageStore) tea.Cmd {
 		mimeType = http.DetectContentType(fileData)
 		return buildClipboardImageMsg(fileData, mimeType, store)
 	}
+}
+
+func readClipboardImageFile(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, clipboardMaxImageBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > clipboardMaxImageBytes {
+		return nil, ErrImageTooLarge
+	}
+	return data, nil
 }
 
 func buildClipboardImageMsg(data []byte, mimeType string, store *agent.ImageStore) tea.Msg {
