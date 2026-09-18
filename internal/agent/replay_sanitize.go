@@ -48,9 +48,6 @@ func ReplaySafeConversation(conversation []Message) []Message {
 }
 
 func replayPairedToolMessages(conversation []Message, assistantIndex, toolCallCount int) ([]Message, int, bool) {
-	if toolCallCount == 0 {
-		return nil, assistantIndex + 1, true
-	}
 	if assistantIndex < 0 || assistantIndex >= len(conversation) {
 		return nil, assistantIndex, false
 	}

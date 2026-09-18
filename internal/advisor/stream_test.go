@@ -8,7 +8,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func TestDrainStream(t *testing.T) {
+func TestStreamWithEventsWithoutSink(t *testing.T) {
 	tests := []struct {
 		name    string
 		chunks  []provider.ChatChunk
@@ -82,18 +82,18 @@ func TestDrainStream(t *testing.T) {
 			}
 			close(ch)
 
-			got, err := drainStream(ch)
+			got, err := streamWithEvents(ch, nil)
 			if tc.wantErr != "" {
 				if err == nil {
-					t.Fatalf("drainStream() error = nil, want %q", tc.wantErr)
+					t.Fatalf("streamWithEvents() error = nil, want %q", tc.wantErr)
 				}
 				if gotErr := err.Error(); gotErr != tc.wantErr {
-					t.Fatalf("drainStream() error = %q, want %q", gotErr, tc.wantErr)
+					t.Fatalf("streamWithEvents() error = %q, want %q", gotErr, tc.wantErr)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("drainStream() error = %v, want nil", err)
+				t.Fatalf("streamWithEvents() error = %v, want nil", err)
 			}
 			if got.Message.Content != tc.want.Message.Content {
 				t.Fatalf("content = %q, want %q", got.Message.Content, tc.want.Message.Content)
@@ -225,37 +225,6 @@ func TestStreamWithEvents(t *testing.T) {
 				t.Fatalf("unexpected events: %v", ts.events)
 			}
 		})
-	}
-}
-
-func TestStreamWithEventsNilSinkIdenticalToDrainStream(t *testing.T) {
-	// Verify that streamWithEvents with nil sink produces identical results to drainStream.
-	chunks := []provider.ChatChunk{
-		{Delta: provider.Message{Content: "Hello "}},
-		{Delta: provider.Message{Content: "world"}, Thinking: "thinking..."},
-		{Done: true, Delta: provider.Message{Content: "Hello world"}, FinishReason: "stop"},
-	}
-
-	ch1 := make(chan provider.ChatChunk, len(chunks))
-	ch2 := make(chan provider.ChatChunk, len(chunks))
-	for _, c := range chunks {
-		ch1 <- c
-		ch2 <- c
-	}
-	close(ch1)
-	close(ch2)
-
-	got1, err1 := drainStream(ch1)
-	got2, err2 := streamWithEvents(ch2, nil)
-
-	if err1 != nil || err2 != nil {
-		t.Fatalf("errors: drainStream=%v, streamWithEvents=%v", err1, err2)
-	}
-	if got1.Message.Content != got2.Message.Content {
-		t.Fatalf("content mismatch: drainStream=%q, streamWithEvents=%q", got1.Message.Content, got2.Message.Content)
-	}
-	if got1.FinishReason != got2.FinishReason {
-		t.Fatalf("FinishReason mismatch: drainStream=%q, streamWithEvents=%q", got1.FinishReason, got2.FinishReason)
 	}
 }
 

@@ -162,18 +162,18 @@ func (b *baseContextManager) emitFileAnnotationDiagnostics(turn int, result read
 	))
 }
 
-func (b *baseContextManager) normalizeIngestedMessages(turn int, messages []Message, ingestor *ContextStateManager) []Message {
+func (b *baseContextManager) normalizeIngestedMessages(turn int, messages []Message) []Message {
 	if len(messages) == 0 {
 		return nil
 	}
 	out := make([]Message, len(messages))
 	for i, message := range messages {
-		out[i] = b.normalizeIngestedMessage(turn, message, ingestor)
+		out[i] = b.normalizeIngestedMessage(turn, message)
 	}
 	return out
 }
 
-func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message, ingestor *ContextStateManager) Message {
+func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message) Message {
 	if message.Role != MessageRoleTool {
 		return message
 	}
@@ -188,10 +188,6 @@ func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message,
 		messageTurn = turn
 	}
 	if messageTurn <= 0 {
-		return message
-	}
-	if ingestor != nil {
-		message.Content = ingestor.ObserveToolResult(messageTurn, message.Name, nil, message.Content)
 		return message
 	}
 	message.Content = b.observeToolResult(messageTurn, message.Name, nil, message.Content)

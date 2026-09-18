@@ -415,7 +415,7 @@ func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource
 	}
 }
 
-func tokenCount(_ context.Context, _ provider.ChatRequest, usage *provider.UsageStats) int {
+func tokenCount(usage *provider.UsageStats) int {
 	if count := provider.UsageCompletionTokenCount(usage); count > 0 {
 		return count
 	}

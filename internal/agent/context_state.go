@@ -8,11 +8,10 @@ import (
 
 // ContextState holds durable agent state that must survive compaction.
 type ContextState struct {
-	RetainedSummaries  []RetainedSummary
-	FileTrackerSummary []string
-	RecentToolCalls    []string
-	TurnCount          int
-	CompactionCount    int
+	RetainedSummaries []RetainedSummary
+	RecentToolCalls   []string
+	TurnCount         int
+	CompactionCount   int
 }
 
 // RetainedSummary represents a compacted summary that should remain available
@@ -27,11 +26,10 @@ type RetainedSummary struct {
 // Clone returns a deep copy of the context state.
 func (s ContextState) Clone() ContextState {
 	next := ContextState{
-		RetainedSummaries:  cloneRetainedSummaries(s.RetainedSummaries),
-		FileTrackerSummary: cloneStrings(s.FileTrackerSummary),
-		RecentToolCalls:    cloneStrings(s.RecentToolCalls),
-		TurnCount:          s.TurnCount,
-		CompactionCount:    s.CompactionCount,
+		RetainedSummaries: cloneRetainedSummaries(s.RetainedSummaries),
+		RecentToolCalls:   cloneStrings(s.RecentToolCalls),
+		TurnCount:         s.TurnCount,
+		CompactionCount:   s.CompactionCount,
 	}
 	return next
 }
