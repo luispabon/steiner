@@ -61,7 +61,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	durationMs := endTime.Sub(startTime).Milliseconds()
 
 	response = p.normalizeModelResponse(state, turn, response)
-	state, turnTokens := p.finalizeModelCallState(state, turn, chatRequest, response)
+	state, turnTokens := p.finalizeModelCallState(state, turn, response)
 	visionState, subAgentConfigured := p.getVisionCapabilityContext()
 	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
 	state.Conversation = state.Lineage.FullMessages()
@@ -140,7 +140,7 @@ func (p *turnProgressor) normalizeModelResponse(_ RunState, turn int, response p
 	return response
 }
 
-func (p *turnProgressor) finalizeModelCallState(state RunState, turn int, chatRequest provider.ChatRequest, response provider.ChatResponse) (RunState, int) {
+func (p *turnProgressor) finalizeModelCallState(state RunState, turn int, response provider.ChatResponse) (RunState, int) {
 	state.TurnCount = turn
 	turnTokens := tokenCount(response.Usage)
 	state.TokenCount += turnTokens
