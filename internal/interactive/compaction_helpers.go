@@ -12,7 +12,8 @@ import (
 
 func (s *Session) compactRunner(conversation []agent.Message, steering string) func(context.Context) ([]agent.Message, error) {
 	return func(ctx context.Context) ([]agent.Message, error) {
-		return s.deps.Runner.Compact(ctx, conversation, s.skills.Snapshot(), snapshotTools(s.snapshots), steering)
+		runner := s.currentRunner()
+		return runner.Compact(ctx, conversation, s.skills.Snapshot(), snapshotTools(s.snapshots), steering)
 	}
 }
 

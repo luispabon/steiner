@@ -163,6 +163,7 @@ func (m *Manager) entryFor(ctx context.Context, file string) (*entry, session, e
 func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config.LSPServerConfig, key sessionKey) (*entry, session, error) {
 	m.mu.Lock()
 	ent := m.sessions[key]
+	existing := ent != nil
 	if ent == nil {
 		ent = &entry{
 			state: ServerState{
@@ -174,10 +175,17 @@ func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config
 			},
 		}
 		m.sessions[key] = ent
-	} else {
-		ent.state.LastUsed = time.Now()
 	}
 	m.mu.Unlock()
+
+	if existing {
+		// LastUsed is entry state, so it is written under ent.mu like every
+		// other entry.state field below. m.mu is released first (rather than
+		// nesting m.mu -> ent.mu) so this path holds only one lock at a time.
+		ent.mu.Lock()
+		ent.state.LastUsed = time.Now()
+		ent.mu.Unlock()
+	}
 
 	// Loop until we have a session or a definite error.
 	for {

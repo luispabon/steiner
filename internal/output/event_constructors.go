@@ -609,7 +609,37 @@ func NewConfigWarningEvent(message string) Event {
 func NewMCPStatusEvent(enabled bool, servers map[string]MCPServerState, origins map[string]MCPToolOrigin) Event {
 	return newEvent(EventTypeMCPStatus, MCPStatusEvent{
 		Enabled: enabled,
-		Servers: servers,
-		Origins: origins,
+		Servers: cloneMCPServerStates(servers),
+		Origins: cloneMCPToolOrigins(origins),
 	})
+}
+
+// cloneMCPServerStates copies the server map and each server's advertised-tool
+// slice so the emitted event owns its payload: callers build the snapshot from
+// live manager state and may mutate their own maps or slices afterwards.
+func cloneMCPServerStates(servers map[string]MCPServerState) map[string]MCPServerState {
+	if servers == nil {
+		return nil
+	}
+	cloned := make(map[string]MCPServerState, len(servers))
+	for name, state := range servers {
+		if state.Tools != nil {
+			state.Tools = append([]MCPAdvertisedTool(nil), state.Tools...)
+		}
+		cloned[name] = state
+	}
+	return cloned
+}
+
+// cloneMCPToolOrigins copies the tool-origin map so the emitted event does not
+// alias the caller's map.
+func cloneMCPToolOrigins(origins map[string]MCPToolOrigin) map[string]MCPToolOrigin {
+	if origins == nil {
+		return nil
+	}
+	cloned := make(map[string]MCPToolOrigin, len(origins))
+	for name, origin := range origins {
+		cloned[name] = origin
+	}
+	return cloned
 }

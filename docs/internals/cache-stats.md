@@ -66,7 +66,7 @@ Schema version 2 stores hourly entries keyed by provider alias, provider type, m
 
 Schema version 2 adds `source` (`parent`, `sub_agent`, or `advisor`). Version 1 files load with an unspecified/parent source and are rewritten as version 2. Entries are summed within an hour and retained for eight days. Missing, corrupt, or unknown-version files start empty with a warning where appropriate. Persistence failures drop only the observation, never the model turn.
 
-On Unix, an exclusive `flock` is acquired on the stable sibling lock file before read-modify-write. Locking the data file would be unsafe because temp-file replacement changes its inode. Each observation is merged as an additive delta after rereading the file. Platforms without `flock` guarantee only in-process serialization. A short lock timeout drops persistence but not in-session counts.
+On Unix, an exclusive `flock` is acquired on the stable sibling lock file before read-modify-write. Locking the data file would be unsafe because temp-file replacement changes its inode. Each observation is merged as an additive delta after rereading the file. Platforms without `flock` cannot lock across processes, so they refuse to persist rather than write unlocked: the delta is dropped and logged, while in-session counts are unaffected. A short lock timeout drops persistence but not in-session counts.
 
 ## Diagnostics and analysis machinery
 

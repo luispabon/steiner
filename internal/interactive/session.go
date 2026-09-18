@@ -251,9 +251,21 @@ func (s *Session) SetConversation(conversation []agent.Message) {
 // SetRunner replaces the session's run executor. This allows the CLI adapter
 // to create the session without a runner, build the interactive registry using
 // the session's display sink, and then wire the runner in with the correct
-// registry and approver.
+// registry and approver. It takes the session lock so the swap cannot race an
+// in-flight run that is reading the executor.
 func (s *Session) SetRunner(runner runExecutor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.deps.Runner = runner
+}
+
+// currentRunner returns the session's configured run executor under the session
+// lock, so callers can invoke it after releasing the lock without racing
+// SetRunner.
+func (s *Session) currentRunner() runExecutor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deps.Runner
 }
 
 // SessionID returns the current session's unique identifier.
@@ -299,17 +311,21 @@ func (s *Session) Skills() []string {
 
 // SetMode updates the execution mode. If m is the same as the current mode,
 // this is a no-op. Otherwise, it stores m, emits a mode-changed event, and
-// notifies the mode listener if one is set.
+// notifies the mode listener if one is set. The event and the listener run
+// after the session lock is released, so either may re-enter the session.
 func (s *Session) SetMode(m config.ExecutionMode) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if m == s.mode {
+		s.mu.Unlock()
 		return
 	}
 	s.mode = m
+	listener := s.modeListener
+	s.mu.Unlock()
+
 	s.events.Emit(output.NewModeChangedEvent(string(m)))
-	if s.modeListener != nil {
-		s.modeListener(m)
+	if listener != nil {
+		listener(m)
 	}
 }
 

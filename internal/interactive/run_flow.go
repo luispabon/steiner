@@ -28,7 +28,8 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 		if notice != "" && len(conversation) > 0 && conversation[len(conversation)-1].Role == agent.MessageRoleUser {
 			conversation[len(conversation)-1].Content = notice + conversation[len(conversation)-1].Content
 		}
-		result, err := s.deps.Runner.Run(runCtx, conversation, s.skills.Snapshot(), drainSteers)
+		runner := s.currentRunner()
+		result, err := runner.Run(runCtx, conversation, s.skills.Snapshot(), drainSteers)
 
 		s.mu.Lock()
 		if len(result.Conversation) > 0 {

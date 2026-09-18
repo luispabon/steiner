@@ -480,25 +480,29 @@ func (s *impl) notifyWithExitCheck(ctx context.Context, fn func() error) error {
 type clientHandler struct {
 	protocol.UnimplementedClient
 
-	diagnostics chan<- PublishedDiagnostics
-	progress    chan<- ProgressEvent
+	// diagnostics is bidirectional so a full channel can evict its oldest
+	// publication in favour of the newest one.
+	diagnostics chan PublishedDiagnostics
+	progress    chan ProgressEvent
 }
 
 var _ protocol.Client = (*clientHandler)(nil)
 
-func (ch *clientHandler) Progress(ctx context.Context, params *protocol.ProgressParams) error {
+func (ch *clientHandler) Progress(_ context.Context, params *protocol.ProgressParams) error {
 	event, ok := decodeProgress(params)
 	if !ok {
 		return nil
 	}
 	select {
 	case ch.progress <- event:
-	case <-ctx.Done():
+	default:
+		// Backpressure: the consumer is behind, so the newest event is dropped
+		// rather than parking this notification handler on a full channel.
 	}
 	return nil
 }
 
-func (ch *clientHandler) PublishDiagnostics(ctx context.Context, params *protocol.PublishDiagnosticsParams) error {
+func (ch *clientHandler) PublishDiagnostics(_ context.Context, params *protocol.PublishDiagnosticsParams) error {
 	file := params.URI.FsPath()
 
 	published := PublishedDiagnostics{
@@ -523,7 +527,18 @@ func (ch *clientHandler) PublishDiagnostics(ctx context.Context, params *protoco
 
 	select {
 	case ch.diagnostics <- published:
-	case <-ctx.Done():
+	default:
+		// Backpressure: evict the oldest queued publication so the newest state
+		// survives. Consuming a stale publication later would report diagnostics
+		// the server has already replaced.
+		select {
+		case <-ch.diagnostics:
+		default:
+		}
+		select {
+		case ch.diagnostics <- published:
+		default:
+		}
 	}
 	return nil
 }

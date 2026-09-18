@@ -237,11 +237,17 @@ func (r cliRunner) normalizedRunMode() string {
 
 func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.Event) {
 	diagnostics := make([]output.Event, 0, 4)
+	// Parallel tool execution emits diagnostic events from multiple goroutines,
+	// so append must be serialized. Readers only run after the producing run has
+	// joined, which the run loop guarantees, so no lock is needed to read.
+	var mu sync.Mutex
 	events := output.NewMultiSink(
 		base,
 		output.SinkFunc(func(event output.Event) {
 			if isRetainedDiagnosticEvent(event) {
+				mu.Lock()
 				diagnostics = append(diagnostics, event)
+				mu.Unlock()
 			}
 		}),
 	)

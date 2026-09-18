@@ -135,7 +135,15 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.PreviousPhase, p.Phase, phaseTransitionStarting, modelAlias, "")
 	emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorStarting, "phase starting")
 
-	p.Lock.Heartbeat()
+	if err := p.Lock.Heartbeat(); err != nil {
+		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+		if writeErr := p.Store.Write(*p.Manifest); writeErr != nil {
+			return writeErr
+		}
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCancelled, err.Error())
+		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, "")
+		return err
+	}
 	p.Manifest.CurrentPhase = p.Phase
 	p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusRunning
 	if err := p.Store.Write(*p.Manifest); err != nil {
@@ -194,11 +202,19 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	}
 
 	cancel()
-	p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusDone
 	// Heartbeat again here (in addition to phase start) so the lock stays fresh
 	// across the gap between finishing this phase and starting the next one,
 	// matching resumeFromManifest's original behavior before this loop was unified.
-	p.Lock.Heartbeat()
+	if err := p.Lock.Heartbeat(); err != nil {
+		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+		if writeErr := p.Store.Write(*p.Manifest); writeErr != nil {
+			return writeErr
+		}
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCancelled, err.Error())
+		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, sessionID)
+		return err
+	}
+	p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusDone
 	p.Manifest.CurrentPhase = p.Phase
 	if err := p.Store.Write(*p.Manifest); err != nil {
 		return err
