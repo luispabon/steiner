@@ -147,3 +147,35 @@ func TestModelsDevSource_GenericProviderAliasedAsRealProviderKeyUsesStrictLookup
 		t.Errorf("Confidence = %q, want %q (strict lookup, not merged)", got, "medium")
 	}
 }
+
+func TestModelsDevSourceEffortsDeepCopy(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	data := []byte(`{"openai":{"models":{"gpt-5-x":{"reasoning":{"efforts":["low","high"]}}}}}`)
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openai": {Type: config.ProviderTypeAnthropic},
+		},
+		Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+			"m": {Provider: "openai", ID: "gpt-5-x"},
+		}},
+	}
+
+	rm, err := resolveReferenceWithLoader(context.Background(), &cfg, "m", true, &http.Client{}, fixtureLoader(t, data), nil)
+	if err != nil {
+		t.Fatalf("resolveReferenceWithLoader() error = %v", err)
+	}
+	if len(rm.Facts.ReasoningEfforts.Value) != 2 {
+		t.Fatalf("efforts len = %d, want 2", len(rm.Facts.ReasoningEfforts.Value))
+	}
+
+	rm.Facts.ReasoningEfforts.Value[0] = "mutated"
+
+	rm2, err := resolveReferenceWithLoader(context.Background(), &cfg, "m", true, &http.Client{}, fixtureLoader(t, data), nil)
+	if err != nil {
+		t.Fatalf("resolveReferenceWithLoader() error = %v", err)
+	}
+	if rm2.Facts.ReasoningEfforts.Value[0] != "low" {
+		t.Errorf("models.dev index was mutated: efforts[0] = %q, want low", rm2.Facts.ReasoningEfforts.Value[0])
+	}
+}

@@ -174,3 +174,32 @@ func TestCloneMessageMetadataPreservesCodexField(t *testing.T) {
 		t.Fatalf("original.Codex.ReasoningID = %q, want %q (should not be mutated)", got, want)
 	}
 }
+
+func TestCloneMessagesDeepCopyImages(t *testing.T) {
+	t.Parallel()
+
+	original := []Message{
+		{
+			Role:    MessageRoleUser,
+			Content: "describe this",
+			Images: []ImageBlock{
+				{ID: "img-1", MediaType: "image/png", Data: "data-1"},
+				{ID: "img-2", MediaType: "image/jpeg", Data: "data-2"},
+			},
+		},
+	}
+
+	cloned := CloneMessages(original)
+	if len(cloned) != 1 {
+		t.Fatalf("len(cloned) = %d, want 1", len(cloned))
+	}
+	if len(cloned[0].Images) != 2 {
+		t.Fatalf("len(cloned[0].Images) = %d, want 2", len(cloned[0].Images))
+	}
+
+	cloned[0].Images[0].ID = "img-mutated"
+
+	if got, want := original[0].Images[0].ID, "img-1"; got != want {
+		t.Errorf("original Images[0].ID = %q, want %q (should not be mutated)", got, want)
+	}
+}

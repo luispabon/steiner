@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -168,7 +169,7 @@ func modelsDevEffortsFact(want fieldSet, info metadata.ModelInfo, confidence, no
 	if want&fieldSet(fieldEfforts) == 0 || len(info.ReasoningSupportedEfforts) == 0 {
 		return Fact[[]string]{}
 	}
-	return Fact[[]string]{Value: info.ReasoningSupportedEfforts, Known: true, Source: FactSourceModelsDev, Confidence: confidence, Note: note}
+	return Fact[[]string]{Value: slices.Clone(info.ReasoningSupportedEfforts), Known: true, Source: FactSourceModelsDev, Confidence: confidence, Note: note}
 }
 
 func modelsDevEchoBackFact(want fieldSet, info metadata.ModelInfo, confidence, note string) Fact[bool] {

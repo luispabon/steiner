@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -106,11 +107,16 @@ func (s *Session) ProjectRoot() string {
 	return s.deps.WorkDir
 }
 
-// Config returns a copy of the session's configuration.
+// Config returns a deep copy of the session's configuration with cloned provider
+// and tool configuration maps, so callers can mutate the result without affecting
+// the session's live configuration.
 func (s *Session) Config() config.Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.deps.Config
+	cfg := s.deps.Config
+	cfg.Providers = maps.Clone(s.deps.Config.Providers)
+	cfg.Tools = maps.Clone(s.deps.Config.Tools)
+	return cfg
 }
 
 // CurrentEffective returns a defensive snapshot of the session's effective model
