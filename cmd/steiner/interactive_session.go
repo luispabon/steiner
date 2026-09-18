@@ -541,6 +541,7 @@ func modelAliasNames(cfg config.Config) []string {
 	for k := range cfg.Models.Definitions {
 		names = append(names, k)
 	}
+	sort.Strings(names)
 	return names
 }
 

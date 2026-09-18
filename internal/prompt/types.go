@@ -111,7 +111,8 @@ type AssemblyOptions struct {
 	// SkillsBundledFS is the optional embedded filesystem for bundled skills
 	// (e.g. skills.FS from the go:embed in the skills package).
 	SkillsBundledFS fs.FS
-	// SkillsRoots
+	// SkillsRoots is the list of directories to search for skills; when non-empty
+	// it overrides the default skill discovery paths derived from HomeDir and ProjectRoot.
 	SkillsRoots               []string
 	SkillNames                []string
 	Tools                     []provider.ToolSpec

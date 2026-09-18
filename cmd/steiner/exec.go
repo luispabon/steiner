@@ -70,11 +70,11 @@ func readPromptFromInput(reader *bufio.Reader) (string, error) {
 	if reader == nil {
 		return "", fmt.Errorf("input is required")
 	}
-	line, err := reader.ReadString('\n')
-	if err != nil && err != io.EOF {
-		return "", err
+	contents, err := io.ReadAll(reader)
+	if err != nil {
+		return "", fmt.Errorf("read prompt: %w", err)
 	}
-	return strings.TrimSpace(line), nil
+	return strings.TrimSpace(string(contents)), nil
 }
 
 func lastAssistantReply(messages []agent.Message) string {

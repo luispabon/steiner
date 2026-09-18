@@ -125,11 +125,8 @@ func contextLenFromModelInfo(info map[string]any) int {
 func contextLenFromParameters(params string) int {
 	for _, line := range strings.Split(params, "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "num_ctx") {
-			continue
-		}
 		parts := strings.Fields(line)
-		if len(parts) < 2 {
+		if len(parts) < 2 || parts[0] != "num_ctx" {
 			continue
 		}
 		n, err := strconv.Atoi(parts[1])
