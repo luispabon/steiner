@@ -150,18 +150,24 @@ func TestModelsDevSource_GenericProviderAliasedAsRealProviderKeyUsesStrictLookup
 
 func TestModelsDevSourceEffortsDeepCopy(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	data := []byte(`{"openai":{"models":{"gpt-5-x":{"reasoning":{"efforts":["low","high"]}}}}}`)
+	data := []byte(`{"openai":{"models":{"gpt-5-x":{"reasoning_options":[{"type":"effort","values":["low","high"]}]}}}}`)
 
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
-			"openai": {Type: config.ProviderTypeAnthropic},
+			"openai": {Type: config.ProviderTypeOpenAI},
 		},
 		Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
 			"m": {Provider: "openai", ID: "gpt-5-x"},
 		}},
 	}
 
-	rm, err := resolveReferenceWithLoader(context.Background(), &cfg, "m", true, &http.Client{}, fixtureLoader(t, data), nil)
+	// Share a single loader across both resolutions, matching production
+	// usage where one Resolver's loader is reused across many resolutions in
+	// a session — this is what makes aliasing into the shared models.dev
+	// index observable.
+	loader := fixtureLoader(t, data)
+
+	rm, err := resolveReferenceWithLoader(context.Background(), &cfg, "m", true, &http.Client{}, loader, nil)
 	if err != nil {
 		t.Fatalf("resolveReferenceWithLoader() error = %v", err)
 	}
@@ -171,7 +177,7 @@ func TestModelsDevSourceEffortsDeepCopy(t *testing.T) {
 
 	rm.Facts.ReasoningEfforts.Value[0] = "mutated"
 
-	rm2, err := resolveReferenceWithLoader(context.Background(), &cfg, "m", true, &http.Client{}, fixtureLoader(t, data), nil)
+	rm2, err := resolveReferenceWithLoader(context.Background(), &cfg, "m", true, &http.Client{}, loader, nil)
 	if err != nil {
 		t.Fatalf("resolveReferenceWithLoader() error = %v", err)
 	}
