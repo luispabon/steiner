@@ -114,6 +114,13 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
 	searcher, err := builtin.NewSearchBackend(r.runtime.cfg.Search)
 	if err != nil {
+		r.runtime.events.Emit(output.NewRunFinishedEvent(
+			0,
+			string(agent.StopReasonError),
+			"",
+			"",
+			err,
+		))
 		return runResult{}, fmt.Errorf("create search backend: %w", err)
 	}
 	// The MCP exposure projection is derived at composition time from the

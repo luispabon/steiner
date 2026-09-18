@@ -22,9 +22,9 @@ func NewSearchBackend(cfg config.SearchConfig) (web.Searcher, error) {
 	case "":
 		return nil, nil
 	case "google":
-		return google.New()
+		return google.New(google.WithCredentials(cfg.GoogleCx, cfg.GoogleAPIKey))
 	case "kagi":
-		return kagi.New()
+		return kagi.New(kagi.WithKagiAPIKey(cfg.KagiAPIKey))
 	case "brave":
 		return NewBraveSearcher(cfg.BraveAPIKey)
 	case "searxng":
