@@ -422,6 +422,110 @@ func TestWorkflowHandoffGenericTargetSeam(t *testing.T) {
 	}
 }
 
+// TestNormalizeWorkflowHandoffTargetResolvesSymlinks guards F479: a target
+// under the allowed prefix that resolves (through a symlink, or a symlinked
+// ancestor) outside the resolved prefix must be rejected, even though its
+// artifacts would otherwise pass validation.
+func TestNormalizeWorkflowHandoffTargetResolvesSymlinks(t *testing.T) {
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, root string) string
+		wantErr    string
+		wantAbsFor func(root string) string
+	}{
+		{
+			name: "plain target within prefix accepted",
+			setup: func(t *testing.T, root string) string {
+				abs := filepath.Join(root, ".steiner", "plans", "step-1")
+				if err := os.MkdirAll(abs, 0o755); err != nil {
+					t.Fatalf("MkdirAll(%q) error = %v", abs, err)
+				}
+				return ".steiner/plans/step-1"
+			},
+			wantAbsFor: func(root string) string {
+				return filepath.Join(root, ".steiner", "plans", "step-1")
+			},
+		},
+		{
+			name: "symlink resolving within prefix accepted",
+			setup: func(t *testing.T, root string) string {
+				prefixDir := filepath.Join(root, ".steiner", "plans")
+				realDir := filepath.Join(prefixDir, "real-step")
+				if err := os.MkdirAll(realDir, 0o755); err != nil {
+					t.Fatalf("MkdirAll(%q) error = %v", realDir, err)
+				}
+				link := filepath.Join(prefixDir, "linked-step")
+				if err := os.Symlink(realDir, link); err != nil {
+					t.Fatalf("Symlink error = %v", err)
+				}
+				return ".steiner/plans/linked-step"
+			},
+			wantAbsFor: func(root string) string {
+				return filepath.Join(root, ".steiner", "plans", "linked-step")
+			},
+		},
+		{
+			name: "symlink resolving outside prefix rejected",
+			setup: func(t *testing.T, root string) string {
+				prefixDir := filepath.Join(root, ".steiner", "plans")
+				if err := os.MkdirAll(prefixDir, 0o755); err != nil {
+					t.Fatalf("MkdirAll(%q) error = %v", prefixDir, err)
+				}
+
+				outside := t.TempDir()
+				if err := os.WriteFile(filepath.Join(outside, "overview.md"), []byte("# overview\n"), 0o644); err != nil {
+					t.Fatalf("WriteFile(overview.md) error = %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(outside, "plan.yaml"), []byte("steps: []\n"), 0o644); err != nil {
+					t.Fatalf("WriteFile(plan.yaml) error = %v", err)
+				}
+
+				link := filepath.Join(prefixDir, "escape")
+				if err := os.Symlink(outside, link); err != nil {
+					t.Fatalf("Symlink error = %v", err)
+				}
+
+				// Prove the escape is real: without resolved containment,
+				// artifact validation through the symlink would succeed and
+				// the handoff would consume files outside the prefix.
+				if err := validateWorkflowHandoffArtifacts(link, []string{"overview.md", "plan.yaml"}); err != nil {
+					t.Fatalf("artifact validation through symlink = %v, want nil (setup must be otherwise valid)", err)
+				}
+
+				return ".steiner/plans/escape"
+			},
+			wantErr: "must stay under .steiner/plans",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			target := tc.setup(t, root)
+
+			gotTarget, absTarget, err := normalizeWorkflowHandoffTarget(root, target, ".steiner/plans")
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error = %v, want substring %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error = %v", err)
+			}
+			if gotTarget != target {
+				t.Fatalf("target = %q, want %q", gotTarget, target)
+			}
+			if want := tc.wantAbsFor(root); absTarget != want {
+				t.Fatalf("absTarget = %q, want %q", absTarget, want)
+			}
+		})
+	}
+}
+
 func TestWorkflowHandoffInputDecodeRejectsUnknownFields(t *testing.T) {
 	_, err := decodeInput[WorkflowHandoffInput](map[string]any{
 		"next":          "implement",
