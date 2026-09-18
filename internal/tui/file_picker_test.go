@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -849,5 +850,65 @@ func mustMkdir(t *testing.T, root, rel string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(root, rel), 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", rel, err)
+	}
+}
+
+// TestUpdateSearchPickerBackspaceRemovesFullRune proves Backspace removes a
+// complete rune, not just its final byte. F524: deleting the last character
+// of a query ending in a multi-byte rune (e.g. "café") used to strip one
+// byte, leaving an invalid UTF-8 suffix in the query string.
+func TestUpdateSearchPickerBackspaceRemovesFullRune(t *testing.T) {
+	t.Parallel()
+	query := "café"
+	selection := 0
+	scrollOffset := 0
+	candidates := []string{}
+	allEntries := []string{"cafe", "café", "other"}
+	filter := func(q string, entries []string) []string {
+		var out []string
+		for _, e := range entries {
+			if strings.Contains(e, q) {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+
+	msg := tea.KeyPressMsg{Code: tea.KeyBackspace}
+	result := updateSearchPicker(&query, &selection, &scrollOffset, &candidates, allEntries, msg, filter)
+
+	if result != searchPickerHandled {
+		t.Fatalf("result = %v, want searchPickerHandled", result)
+	}
+	if query != "caf" {
+		t.Fatalf("query = %q, want %q (one full rune removed, not one byte)", query, "caf")
+	}
+	if !utf8.ValidString(query) {
+		t.Fatalf("query = %q is not valid UTF-8 after backspace", query)
+	}
+}
+
+// TestUpdateSearchPickerSpaceKeyAppendsLiteralSpace proves typing the space
+// key appends an actual space character to the query, not the literal text
+// "space". Bubble Tea's KeyPressMsg.String() renders the space key as the
+// word "space", while KeyPressMsg.Text carries the real character - this
+// helper must use Text, not String(), for printable input.
+func TestUpdateSearchPickerSpaceKeyAppendsLiteralSpace(t *testing.T) {
+	t.Parallel()
+	query := "foo"
+	selection := 0
+	scrollOffset := 0
+	candidates := []string{}
+	allEntries := []string{"foo bar"}
+	filter := func(q string, entries []string) []string { return entries }
+
+	msg := tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+	result := updateSearchPicker(&query, &selection, &scrollOffset, &candidates, allEntries, msg, filter)
+
+	if result != searchPickerHandled {
+		t.Fatalf("result = %v, want searchPickerHandled", result)
+	}
+	if query != "foo " {
+		t.Fatalf("query = %q, want %q (a literal space, not the word \"space\")", query, "foo ")
 	}
 }
