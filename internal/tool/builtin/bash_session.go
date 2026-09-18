@@ -182,12 +182,7 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	for pending > 0 {
 		select {
 		case <-ctx.Done():
-			s.restartAfterCancel(ctx)
-			if !joinCaptureGoroutines(&captures, bashSessionCaptureJoinTimeout) {
-				slog.Warn("bash session: capture goroutines still running after cancellation",
-					"timeout", bashSessionCaptureJoinTimeout)
-			}
-			return "", "", -1, fmt.Errorf("bash session: %w", ctx.Err())
+			return "", "", -1, s.cancelInFlight(ctx, &captures)
 		case r := <-stdoutCh:
 			stdoutRes = r
 			pending--
@@ -228,6 +223,18 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	}
 
 	return stdoutText, stderrText, code, nil
+}
+
+// cancelInFlight restarts the session after ctx cancelled an in-flight command
+// and joins that generation's capture goroutines, returning the cancellation
+// error for the caller to surface.
+func (s *BashSession) cancelInFlight(ctx context.Context, captures *sync.WaitGroup) error {
+	s.restartAfterCancel(ctx)
+	if !joinCaptureGoroutines(captures, bashSessionCaptureJoinTimeout) {
+		slog.Warn("bash session: capture goroutines still running after cancellation",
+			"timeout", bashSessionCaptureJoinTimeout)
+	}
+	return fmt.Errorf("bash session: %w", ctx.Err())
 }
 
 // joinCaptureGoroutines waits for the capture goroutines registered with wg to
