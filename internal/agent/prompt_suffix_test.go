@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -89,6 +92,7 @@ func TestApplyPromptSuffix(t *testing.T) {
 }
 
 func TestApplyPromptSuffixUsedForTurnChatRequest(t *testing.T) {
+	// First, verify the helper function works correctly
 	req := RunRequest{
 		ResolvedModel: provider.ResolvedModel{PromptSuffix: "<|think_off|>"},
 	}
@@ -103,5 +107,50 @@ func TestApplyPromptSuffixUsedForTurnChatRequest(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.ExtraParams, chatReq.ExtraParams) {
 		t.Fatalf("ExtraParams = %#v, want unchanged %#v", got.ExtraParams, chatReq.ExtraParams)
+	}
+
+	// Now verify the suffix is actually applied through the runner path
+	var capturedReq provider.ChatRequest
+	prov := &fakeProvider{
+		chatFn: func(_ context.Context, r provider.ChatRequest) (provider.ChatResponse, error) {
+			capturedReq = r
+			return provider.ChatResponse{
+				Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"},
+				Usage:   &provider.UsageStats{PromptTokens: 10, CompletionTokens: 1},
+			}, nil
+		},
+	}
+
+	runReq := RunRequest{
+		Provider:      prov,
+		Executor:      noopExecutor{},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model", PromptSuffix: "<|think_off|>"},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+		},
+		Limits: Limits{MaxTurns: 1},
+		Events: output.NoopSink{},
+	}
+
+	runner := NewRunner()
+	if _, err := runner.Run(context.Background(), runReq); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// Verify the suffix was applied to the message sent to the provider
+	if len(capturedReq.Messages) == 0 {
+		t.Fatal("provider received empty messages")
+	}
+	lastUserMsg := ""
+	for _, msg := range capturedReq.Messages {
+		if msg.Role == provider.MessageRoleUser {
+			lastUserMsg = msg.Content
+		}
+	}
+	if lastUserMsg == "" {
+		t.Fatal("no user message found in provider request")
+	}
+	if !reflect.DeepEqual(lastUserMsg, "hello <|think_off|>") {
+		t.Fatalf("user message sent to provider = %q, want suffix appended", lastUserMsg)
 	}
 }

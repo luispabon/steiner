@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -107,6 +108,11 @@ func TestRunAuthCodeFlowContextCancellation(t *testing.T) {
 	// Verify it's a context-related error
 	if ctx.Err() == nil {
 		t.Errorf("context not cancelled as expected")
+	}
+
+	// Verify the wrapped error is specifically DeadlineExceeded
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("RunAuthCodeFlow() error = %v, want wrapped context.DeadlineExceeded", err)
 	}
 }
 

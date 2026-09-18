@@ -307,8 +307,14 @@ func TestFocusTerminal(t *testing.T) {
 		t.Setenv("WAYLAND_DISPLAY", "")
 		t.Setenv("WINDOWID", "12345")
 
+		markerFile := filepath.Join(t.TempDir(), "marker")
+		t.Setenv("MARKER_FILE", markerFile)
+
 		focusTerminal()
 
+		if _, err := os.Stat(markerFile); err != nil {
+			t.Errorf("marker file was not created, focusTerminal did not execute xdotool: %v", err)
+		}
 	})
 
 	t.Run("empty PATH does not panic", func(t *testing.T) {

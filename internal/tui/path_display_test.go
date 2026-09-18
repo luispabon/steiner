@@ -13,60 +13,67 @@ func TestShortenAttachedImagePath(t *testing.T) {
 	homeDir := testHomeDir
 
 	tests := []struct {
-		name       string
-		filePath   string
-		workingDir string
-		homeDir    string
-		maxWidth   int
-		wantPrefix string // Check that result starts with this prefix
+		name         string
+		filePath     string
+		workingDir   string
+		homeDir      string
+		maxWidth     int
+		want         string // Exact expected value
+		wantEllipsis bool   // Whether ellipsis is expected when maxWidth is enforced
 	}{
 		{
-			name:       "workspace-relative path",
-			filePath:   filepath.Join(workingDir, ".steiner", "tmp", "images", "test.png"),
-			workingDir: workingDir,
-			homeDir:    homeDir,
-			maxWidth:   100,
-			wantPrefix: ".steiner",
+			name:         "workspace-relative path",
+			filePath:     filepath.Join(workingDir, ".steiner", "tmp", "images", "test.png"),
+			workingDir:   workingDir,
+			homeDir:      homeDir,
+			maxWidth:     100,
+			want:         ".steiner/tmp/images/test.png",
+			wantEllipsis: false,
 		},
 		{
-			name:       "home-relative fallback",
-			filePath:   filepath.Join(homeDir, "other", "place", "image.png"),
-			workingDir: "",
-			homeDir:    homeDir,
-			maxWidth:   100,
-			wantPrefix: "~/",
+			name:         "home-relative fallback",
+			filePath:     filepath.Join(homeDir, "other", "place", "image.png"),
+			workingDir:   "",
+			homeDir:      homeDir,
+			maxWidth:     100,
+			want:         "~/other/place/image.png",
+			wantEllipsis: false,
 		},
 		{
-			name:       "absolute path with no shortening",
-			filePath:   "/var/tmp/image.png",
-			workingDir: workingDir,
-			homeDir:    homeDir,
-			maxWidth:   100,
-			wantPrefix: "/var/tmp",
+			name:         "absolute path with no shortening",
+			filePath:     "/var/tmp/image.png",
+			workingDir:   workingDir,
+			homeDir:      homeDir,
+			maxWidth:     100,
+			want:         "/var/tmp/image.png",
+			wantEllipsis: false,
 		},
 		{
-			name:       "long path gets ellipsis",
-			filePath:   filepath.Join(workingDir, ".steiner", "tmp", "images", "very_long_filename_that_exceeds_width.png"),
-			workingDir: workingDir,
-			homeDir:    homeDir,
-			maxWidth:   20,
-			wantPrefix: ".steiner",
+			name:         "long path gets ellipsis",
+			filePath:     filepath.Join(workingDir, ".steiner", "tmp", "images", "very_long_filename_that_exceeds_width.png"),
+			workingDir:   workingDir,
+			homeDir:      homeDir,
+			maxWidth:     20,
+			want:         "", // Don't check exact value, just ellipsis
+			wantEllipsis: true,
 		},
 		{
-			name:       "empty working dir falls back to home-relative",
-			filePath:   filepath.Join(homeDir, "photos", "image.png"),
-			workingDir: "",
-			homeDir:    homeDir,
-			maxWidth:   100,
-			wantPrefix: "~/",
+			name:         "empty working dir falls back to home-relative",
+			filePath:     filepath.Join(homeDir, "photos", "image.png"),
+			workingDir:   "",
+			homeDir:      homeDir,
+			maxWidth:     100,
+			want:         "~/photos/image.png",
+			wantEllipsis: false,
 		},
 		{
-			name:       "relative working dir returns absolute path",
-			filePath:   "/absolute/path/image.png",
-			workingDir: "relative/path",
-			homeDir:    homeDir,
-			maxWidth:   100,
-			wantPrefix: "/absolute/path",
+			name:         "relative working dir returns absolute path",
+			filePath:     "/absolute/path/image.png",
+			workingDir:   "relative/path",
+			homeDir:      homeDir,
+			maxWidth:     100,
+			want:         "/absolute/path/image.png",
+			wantEllipsis: false,
 		},
 	}
 
@@ -74,8 +81,14 @@ func TestShortenAttachedImagePath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := shortenAttachedImagePath(tc.filePath, tc.workingDir, tc.homeDir, tc.maxWidth)
-			if !strings.HasPrefix(got, tc.wantPrefix) {
-				t.Errorf("shortenAttachedImagePath = %q, want prefix %q", got, tc.wantPrefix)
+			if tc.wantEllipsis {
+				if !strings.Contains(got, "…") {
+					t.Errorf("shortenAttachedImagePath = %q, expected ellipsis for long path with maxWidth %d", got, tc.maxWidth)
+				}
+			} else {
+				if got != tc.want {
+					t.Errorf("shortenAttachedImagePath = %q, want %q", got, tc.want)
+				}
 			}
 		})
 	}

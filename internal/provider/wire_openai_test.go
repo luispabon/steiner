@@ -502,6 +502,19 @@ func TestOpenAIWirePayload_StreamNonStreamParity(t *testing.T) {
 		t.Fatalf("tools length mismatch: %d vs %d", len(nonStreamTools), len(streamTools))
 	}
 
+	// Serialize and compare complete tool arrays
+	nonStreamToolsJSON, err := json.Marshal(nonStreamTools)
+	if err != nil {
+		t.Fatalf("marshal non-stream tools: %v", err)
+	}
+	streamToolsJSON, err := json.Marshal(streamTools)
+	if err != nil {
+		t.Fatalf("marshal stream tools: %v", err)
+	}
+	if string(nonStreamToolsJSON) != string(streamToolsJSON) {
+		t.Fatalf("tools content mismatch:\nnon-stream: %s\nstream: %s", nonStreamToolsJSON, streamToolsJSON)
+	}
+
 	if nonStream["temperature"] != stream["temperature"] {
 		t.Fatalf("temperature mismatch: %v vs %v", nonStream["temperature"], stream["temperature"])
 	}

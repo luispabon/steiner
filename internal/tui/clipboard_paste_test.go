@@ -155,14 +155,20 @@ func TestPendingImagesAccumulate(t *testing.T) {
 
 func TestPendingImagesClearedOnSubmit(t *testing.T) {
 	t.Parallel()
-	m := Model{
-		imageMarkers: []imageMarker{
-			{label: "[Image 1]", image: agent.ImageBlock{MediaType: "image/png", Data: "abc"}},
-		},
+	m := newModel(Config{}, nil)
+	m.imageMarkers = []imageMarker{
+		{label: "[Image 1]", image: agent.ImageBlock{MediaType: "image/png", Data: "abc"}},
 	}
-	m.imageMarkers = nil
+	if len(m.imageMarkers) == 0 {
+		t.Fatalf("test setup failed: imageMarkers should have 1 item, got 0")
+	}
+
+	// Execute submit action, which should clear imageMarkers
+	result, _ := m.executeSubmitAction("test message", "test message")
+	m = result.(*Model)
+
 	if len(m.imageMarkers) != 0 {
-		t.Fatalf("imageMarkers not cleared, len = %d", len(m.imageMarkers))
+		t.Fatalf("imageMarkers not cleared after executeSubmitAction, len = %d", len(m.imageMarkers))
 	}
 }
 

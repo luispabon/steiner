@@ -269,6 +269,10 @@ func TestTurnProgressor_PromotesPendingHashesOnlyWhenModelCallIssued(t *testing.
 		t.Fatalf("Run() error = %v", err)
 	}
 
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1 (provider should be called once)", calls)
+	}
+
 	records := readCacheRecords(t, dir)
 	if len(records) != 1 {
 		t.Fatalf("records = %d, want 1", len(records))

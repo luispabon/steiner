@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"syscall"
@@ -88,16 +89,20 @@ func TestCloseRuntimeTerminatesLSPServers(t *testing.T) {
 
 	// After closeRuntime, poll for the process to exit. The manager's Close()
 	// should have terminated the underlying process. Signalling a dead process
-	// returns "no such process" error.
+	// returns "no such process" error (ESRCH); other errors like EPERM indicate
+	// the process is still alive.
 	const maxAttempts = 50
 	const pollInterval = 100 * time.Millisecond
+	var lastErr error
 	for i := 0; i < maxAttempts; i++ {
-		if err := syscall.Kill(pid, 0); err != nil {
+		err := syscall.Kill(pid, 0)
+		if errors.Is(err, syscall.ESRCH) {
 			return // Process is confirmed dead.
 		}
+		lastErr = err
 		time.Sleep(pollInterval)
 	}
-	t.Fatalf("server process %d still alive after closeRuntime (polled %v)", pid, maxAttempts*pollInterval)
+	t.Fatalf("server process %d still alive after closeRuntime (polled %v, last error: %v)", pid, maxAttempts*pollInterval, lastErr)
 }
 
 // TestCloseRuntimeWithoutMCPIsSafe ensures teardown tolerates a nil manager and

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestAppendLineRoutesStatusPrefixToStatusSegment(t *testing.T) {
@@ -192,22 +194,31 @@ func TestRenderStatusSegmentWhitespaceOnlyBody(t *testing.T) {
 
 func TestPhaseTransitionEventRendersAsStatusSegment(t *testing.T) {
 	b := newTestBuffer(t)
-	// Simulate what AppendEvent does with a phase transition event
-	event := mockPhaseTransitionEvent()
-	line := strings.TrimSpace(mockFormatEvent(event))
+	// Use real output.NewPhaseTransitionEvent and AppendEvent dispatch
+	event := output.NewPhaseTransitionEvent("test-run", "plan", "implement", "starting", "test-model", "test-session")
 
-	b.appendStyled(line, segmentStatus)
+	b.AppendEvent(event)
 
-	if len(b.segments) != 1 {
-		t.Fatalf("segments count = %d, want 1", len(b.segments))
+	if len(b.segments) < 1 {
+		t.Fatalf("segments count = %d, want at least 1", len(b.segments))
 	}
-	seg := b.segments[0]
-	if seg.kind != segmentStatus {
-		t.Fatalf("segment kind = %v, want segmentStatus", seg.kind)
+
+	// Find the status segment
+	var statusSeg *contentSegment
+	for i := range b.segments {
+		if b.segments[i].kind == segmentStatus {
+			statusSeg = &b.segments[i]
+			break
+		}
 	}
-	// Verify the text contains key phase information
-	if !strings.Contains(seg.text, "phase transition") || !strings.Contains(seg.text, "plan") {
-		t.Fatalf("segment text = %q, want to contain phase info", seg.text)
+
+	if statusSeg == nil {
+		t.Fatalf("no segmentStatus found in %d segments", len(b.segments))
+	}
+
+	// Verify the status text contains phase transition information
+	if !strings.Contains(statusSeg.text, "plan") || !strings.Contains(statusSeg.text, "implement") {
+		t.Errorf("status segment text = %q, want to contain phase names 'plan' and 'implement'", statusSeg.text)
 	}
 }
 
@@ -260,21 +271,4 @@ func TestNonPhaseSeparatorSpacingUnchanged(t *testing.T) {
 	if !strings.HasSuffix(out, "\n") {
 		t.Errorf("non-phase separator should end with newline: %q", out)
 	}
-}
-
-// mockPhaseTransitionEvent creates a mock phase transition event for testing
-func mockPhaseTransitionEvent() interface{} {
-	return map[string]interface{}{
-		"from":       "plan",
-		"to":         "implement",
-		"status":     "starting",
-		"model":      "test-model",
-		"session_id": "test-session",
-		"run_id":     "test-run",
-	}
-}
-
-// mockFormatEvent simulates the FormatEvent function output
-func mockFormatEvent(_ interface{}) string {
-	return "phase: phase transition plan -> implement starting model=test-model session=test-session run=test-run"
 }

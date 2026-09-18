@@ -50,8 +50,8 @@ func TestNewFileLogSinkCreatesDirectories(t *testing.T) {
 			t.Errorf("Close() error = %v", err)
 		}
 	})
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		t.Fatalf("file was not created at %s", path)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("file was not created at %s: %v", path, err)
 	}
 	info, err := os.Stat(filepath.Dir(path))
 	if err != nil {
@@ -357,6 +357,18 @@ func TestFileLogSinkAPIRequestBoundsPayload(t *testing.T) {
 
 	event := NewAPIRequestEvent("test-model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)
 	sink.Emit(event)
+
+	events := readLines(t, path)
+	found := false
+	for _, e := range events {
+		if e.Type == EventTypeAPIRequest {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("API request event not found in log")
+	}
 
 	raw, err := os.ReadFile(path)
 	if err != nil {

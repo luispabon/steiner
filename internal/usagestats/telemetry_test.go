@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestTelemetryRecordsOneLinePerObservation(t *testing.T) {
@@ -62,8 +63,8 @@ func TestTelemetryRecordsOneLinePerObservation(t *testing.T) {
 	if first.BackendModelID != "gpt-5.6-luna" {
 		t.Errorf("backend_model_id = %q, want %q", first.BackendModelID, "gpt-5.6-luna")
 	}
-	if first.Timestamp == "" {
-		t.Error("ts is empty, want an RFC3339 timestamp")
+	if _, err := time.Parse(time.RFC3339Nano, first.Timestamp); err != nil {
+		t.Errorf("ts = %q is not a valid RFC3339 timestamp: %v", first.Timestamp, err)
 	}
 
 	if lines[1].Source != "advisor" {

@@ -552,24 +552,28 @@ func TestSystemPreambleSystemSuffix(t *testing.T) {
 	cases := []struct {
 		name       string
 		suffix     string
+		caveHuman  bool
 		wantIn     string
 		wantInLast bool
 	}{
 		{
 			name:       "empty suffix produces unchanged output",
 			suffix:     "",
+			caveHuman:  false,
 			wantIn:     "You are steiner",
 			wantInLast: false,
 		},
 		{
 			name:       "suffix appended after default preamble",
 			suffix:     "Custom instruction here.",
+			caveHuman:  false,
 			wantIn:     "Custom instruction here.",
 			wantInLast: true,
 		},
 		{
 			name:       "suffix appended after cave-human mode",
 			suffix:     "Extended thinking enabled",
+			caveHuman:  true,
 			wantIn:     "Extended thinking enabled",
 			wantInLast: true,
 		},
@@ -577,7 +581,7 @@ func TestSystemPreambleSystemSuffix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			content := SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent, SystemSuffix: tc.suffix}).Content
+			content := SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent, CaveHuman: tc.caveHuman, SystemSuffix: tc.suffix}).Content
 			if !strings.Contains(content, tc.wantIn) {
 				t.Fatalf("preamble missing %q", tc.wantIn)
 			}

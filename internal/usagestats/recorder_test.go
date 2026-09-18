@@ -452,10 +452,12 @@ func TestSessionReport_independentOfBuckets(t *testing.T) {
 
 	// Window only covers recent hour; old observation should be excluded
 	report := r.Window(30 * time.Minute)
-	for _, row := range report.Rows {
-		if row.CacheReadTokens == 150 {
-			t.Error("Window should not include the old observation's tokens in a narrow window")
-		}
+	if len(report.Rows) != 1 {
+		t.Fatalf("Window rows: got %d, want 1", len(report.Rows))
+	}
+	want := Row{Requests: 1, InputTokens: 100, CacheReadTokens: 100}
+	if report.Rows[0] != want {
+		t.Errorf("Window row: got %+v, want %+v", report.Rows[0], want)
 	}
 }
 

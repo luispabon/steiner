@@ -52,7 +52,7 @@ func TestVisionCapabilities_SnapshotPreservesStateAndSessionSemantics(t *testing
 	shared.SetDerived("known", VisionCapable)
 	shared.LatchIncapable("latched")
 
-	snapshot := shared.SnapshotWithSubAgentConfigured(true)
+	snapshot := shared.SnapshotWithSubAgentConfigured(false)
 	if snapshot == shared {
 		t.Fatal("snapshot shares tracker with session")
 	}
@@ -62,8 +62,8 @@ func TestVisionCapabilities_SnapshotPreservesStateAndSessionSemantics(t *testing
 	if got := snapshot.Get("latched"); got != VisionIncapable {
 		t.Fatalf("snapshot latched state = %v, want VisionIncapable", got)
 	}
-	if !snapshot.SubAgentConfigured() {
-		t.Fatal("snapshot SubAgentConfigured = false, want true")
+	if snapshot.SubAgentConfigured() {
+		t.Fatal("snapshot SubAgentConfigured = true, want false (should be frozen at creation time)")
 	}
 
 	if !snapshot.TakeNotify("new-alias") {
@@ -81,8 +81,8 @@ func TestVisionCapabilities_SnapshotPreservesStateAndSessionSemantics(t *testing
 	}
 
 	shared.SetSubAgentConfigured(true)
-	if !snapshot.SubAgentConfigured() {
-		t.Fatal("snapshot configuration changed after shared update")
+	if snapshot.SubAgentConfigured() {
+		t.Fatal("snapshot configuration changed after shared update, should remain frozen at false")
 	}
 	later := shared.SnapshotWithSubAgentConfigured(shared.SubAgentConfigured())
 	if !later.SubAgentConfigured() {

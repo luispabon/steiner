@@ -20,14 +20,21 @@ func TestStatusSectionShowsMCPConnectedOverTotal(t *testing.T) {
 
 func TestStatusSectionMCPExcludesDisabledFromDenominator(t *testing.T) {
 	t.Parallel()
-	styles := testStyles(theme.AccentAmber)
-	// 3 servers configured, 1 disabled -> mcpTotal should already be 2
-	// (syncSidebar excludes disabled servers before assigning mcpTotal).
-	s := sidebarState{mcpConnected: 2, mcpTotal: 2, styles: styles}
-	lines := s.statusSection(32)
+	// Create a model with 3 servers: 2 connected, 1 disabled
+	m := newModel(Config{}, nil)
+	m.mcpServers = []MCPServerStatus{
+		{Name: "server1", State: "connected"},
+		{Name: "server2", State: "connected"},
+		{Name: "server3", State: "disabled"},
+	}
+	// Exercise syncSidebar to verify disabled servers are excluded from denominator
+	m.syncSidebar()
+
+	// Now render the status section
+	lines := m.sidebar.statusSection(32)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "2/2") {
-		t.Errorf("statusSection() = %q, want to contain 2/2", joined)
+		t.Errorf("statusSection() = %q, want to contain 2/2 (excluding disabled server)", joined)
 	}
 	if strings.Contains(joined, "2/3") {
 		t.Errorf("statusSection() = %q, disabled server must not inflate denominator", joined)

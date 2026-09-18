@@ -372,11 +372,15 @@ func runLSPServerHelper() {
 		close(fs.exited)
 	}
 	_, serverConn, _ := protocol.NewServer(ctx, fs, stream)
-	defer serverConn.Close()
-
-	select {
-	case <-fs.exited:
+	if serverConn == nil {
+		fmt.Fprintf(os.Stderr, "failed to create LSP server connection: connection is nil\n")
+		os.Exit(1)
 	}
+	defer func() {
+		_ = serverConn.Close()
+	}()
+
+	<-fs.exited
 }
 
 // lspReadWriteCloser adapts stdin/stdout pipes to io.ReadWriteCloser.
@@ -578,9 +582,13 @@ func TestLSPToolsRegisteredWhenEnabledWithUnavailableServer(t *testing.T) {
 		if result == nil {
 			t.Fatalf("tool %q returned nil result", name)
 		}
-		// The result should be a string message indicating unavailability.
-		if _, ok := result.(string); !ok {
+		// The result should be a string message indicating the server is unavailable.
+		resultStr, ok := result.(string)
+		if !ok {
 			t.Fatalf("tool %q returned non-string result: %T", name, result)
+		}
+		if !strings.Contains(resultStr, "failed to start") && !strings.Contains(resultStr, "unavailable") && !strings.Contains(resultStr, "not available") {
+			t.Errorf("tool %q result does not indicate server failure: %q", name, resultStr)
 		}
 	}
 }

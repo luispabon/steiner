@@ -3469,8 +3469,21 @@ func TestBuildMutateLinesRendersOperations(t *testing.T) {
 		t.Fatalf("missing replace new line: %q", got)
 	}
 
-	// delete_file should show D badge and path
-	// move should NOT have content block
+	// delete_file renders as a single "D <path>" line, badge and path together.
+	if !strings.Contains(got, "D old.go") {
+		t.Errorf("delete_file missing %q badge+path line in: %q", "D old.go", got)
+	}
+
+	// move renders as a single "R <from> → <to>" line, badge and paths together.
+	if !strings.Contains(got, "R a.go → b.go") {
+		t.Errorf("move operation missing %q badge+paths line in: %q", "R a.go → b.go", got)
+	}
+	// move is the last operation and contributes exactly one line (no rule/content
+	// block like create/write/replace produce); the rendered output must therefore
+	// end with the move's rename line, not a trailing rule or content line.
+	if lastLine := lines[len(lines)-1]; stripANSI(lastLine) != "R a.go → b.go" {
+		t.Errorf("last rendered line = %q, want move's rename line with no trailing content block", stripANSI(lastLine))
+	}
 }
 
 func TestBuildMutateLinesFallsBackToPlainWhenEmptyOperations(t *testing.T) {
@@ -4215,15 +4228,15 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 		t.Errorf("promptText = %q, want follow-up message", followUpDD.promptText)
 	}
 
-	// The follow-up segment must show the follow-up's own stats, not
+	// The follow-up segment must show the follow-up's own stats (delta), not
 	// the original child's cumulative stats. A follow-up that used zero
 	// new turns should report zero, not the original's 58.
-	if followUpDD.turnCount == originalDD.turnCount {
-		t.Errorf("follow-up turnCount = %d, matches original child's %d; want follow-up's own delta (0 for a no-op follow-up)",
+	if followUpDD.turnCount != 0 {
+		t.Errorf("follow-up turnCount = %d, want 0 (zero-new-work follow-up should show zero delta, not cumulative %d)",
 			followUpDD.turnCount, originalDD.turnCount)
 	}
-	if followUpDD.toolCallCount == originalDD.toolCallCount {
-		t.Errorf("follow-up toolCallCount = %d, matches original child's %d; want follow-up's own delta (0 for a no-op follow-up)",
+	if followUpDD.toolCallCount != 0 {
+		t.Errorf("follow-up toolCallCount = %d, want 0 (zero-new-work follow-up should show zero delta, not cumulative %d)",
 			followUpDD.toolCallCount, originalDD.toolCallCount)
 	}
 	if followUpDD.output != "follow-up output" {
@@ -4232,8 +4245,8 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 
 	// The follow-up's status must reflect the follow-up's own completion,
 	// not the original child's "partial" status.
-	if followUpDD.resultStatus == "partial" {
-		t.Errorf("follow-up resultStatus = %q, want %q (follow-up's own status, not original's)",
+	if followUpDD.resultStatus != "max_turns" {
+		t.Errorf("follow-up resultStatus = %q, want %q (follow-up's own status, not original's 'partial')",
 			followUpDD.resultStatus, "max_turns")
 	}
 

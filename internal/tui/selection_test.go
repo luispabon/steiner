@@ -302,11 +302,6 @@ func TestStripBoxChrome(t *testing.T) {
 // TestApplyHighlight
 // ---------------------------------------------------------------------------
 
-// stripANSI is a simple helper for tests: checks if a string has no ESC byte.
-func hasNoANSI(s string) bool {
-	return !strings.ContainsRune(s, '\x1b')
-}
-
 // highlightVisualRange locates the single testSelStyle-painted span in line
 // and returns its visual column range [start, end). If no visible characters
 // carry the highlight, ok is false — this distinguishes an actually-painted
@@ -362,8 +357,11 @@ func TestApplyScreenHighlight(t *testing.T) {
 			state: selectionState{start: selectionPoint{0, 0}, end: selectionPoint{0, 11}},
 			checkFn: func(t *testing.T, lines []string) {
 				t.Helper()
-				if hasNoANSI(lines[0]) {
+				start, end, ok := highlightVisualRange(lines[0])
+				if !ok {
 					t.Errorf("line 0 expected ANSI highlight, got plain: %q", lines[0])
+				} else if start != 0 || end != 11 {
+					t.Errorf("line 0 highlight range = [%d, %d); want [0, 11)", start, end)
 				}
 				if lines[1] != "foo bar baz" {
 					t.Errorf("line 1 should be unchanged, got %q", lines[1])
@@ -376,8 +374,11 @@ func TestApplyScreenHighlight(t *testing.T) {
 			state: selectionState{start: selectionPoint{1, 4}, end: selectionPoint{1, 7}},
 			checkFn: func(t *testing.T, lines []string) {
 				t.Helper()
-				if hasNoANSI(lines[1]) {
+				start, end, ok := highlightVisualRange(lines[1])
+				if !ok {
 					t.Errorf("line 1 expected ANSI highlight, got plain: %q", lines[1])
+				} else if start != 4 || end != 7 {
+					t.Errorf("line 1 highlight range = [%d, %d); want [4, 7)", start, end)
 				}
 				if lines[0] != "hello world" {
 					t.Errorf("line 0 should be unchanged, got %q", lines[0])
@@ -390,11 +391,17 @@ func TestApplyScreenHighlight(t *testing.T) {
 			state: selectionState{start: selectionPoint{0, 6}, end: selectionPoint{1, 3}},
 			checkFn: func(t *testing.T, lines []string) {
 				t.Helper()
-				if hasNoANSI(lines[0]) {
+				start0, end0, ok0 := highlightVisualRange(lines[0])
+				if !ok0 {
 					t.Errorf("line 0 expected ANSI highlight")
+				} else if start0 != 6 || end0 != 11 {
+					t.Errorf("line 0 highlight range = [%d, %d); want [6, 11)", start0, end0)
 				}
-				if hasNoANSI(lines[1]) {
+				start1, end1, ok1 := highlightVisualRange(lines[1])
+				if !ok1 {
 					t.Errorf("line 1 expected ANSI highlight")
+				} else if start1 != 0 || end1 != 3 {
+					t.Errorf("line 1 highlight range = [%d, %d); want [0, 3)", start1, end1)
 				}
 				if lines[2] != "goodbye cruel" {
 					t.Errorf("line 2 should be unchanged, got %q", lines[2])
@@ -407,11 +414,17 @@ func TestApplyScreenHighlight(t *testing.T) {
 			state: selectionState{start: selectionPoint{1, 3}, end: selectionPoint{0, 6}},
 			checkFn: func(t *testing.T, lines []string) {
 				t.Helper()
-				if hasNoANSI(lines[0]) {
+				start0, end0, ok0 := highlightVisualRange(lines[0])
+				if !ok0 {
 					t.Errorf("line 0 expected ANSI highlight")
+				} else if start0 != 6 || end0 != 11 {
+					t.Errorf("line 0 highlight range = [%d, %d); want [6, 11)", start0, end0)
 				}
-				if hasNoANSI(lines[1]) {
+				start1, end1, ok1 := highlightVisualRange(lines[1])
+				if !ok1 {
 					t.Errorf("line 1 expected ANSI highlight")
+				} else if start1 != 0 || end1 != 3 {
+					t.Errorf("line 1 highlight range = [%d, %d); want [0, 3)", start1, end1)
 				}
 			},
 		},
