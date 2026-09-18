@@ -6,6 +6,7 @@ import (
 	"maps"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -43,7 +44,7 @@ type Session struct {
 	now                 func() time.Time
 	sessionDate         prompt.SessionDate
 	done                chan struct{}
-	runs                sync.WaitGroup
+	runs                runGroup
 	exitOnce            sync.Once
 }
 
@@ -369,9 +370,37 @@ func (s *Session) SetOrchestrationLevel(l config.OrchestrationLevel) error {
 	return nil
 }
 
+// runGroup tracks in-flight session run goroutines. It wraps sync.WaitGroup
+// with an atomic active count so callers can tell synchronously whether any
+// run is in flight, which WaitGroup.Wait cannot answer without blocking.
+type runGroup struct {
+	wg     sync.WaitGroup
+	active atomic.Int64
+}
+
+func (g *runGroup) Add(n int) {
+	g.active.Add(int64(n))
+	g.wg.Add(n)
+}
+
+func (g *runGroup) Done() {
+	g.wg.Done()
+	g.active.Add(-1)
+}
+
+func (g *runGroup) Wait() { g.wg.Wait() }
+
+// idle reports whether no run goroutine is in flight.
+func (g *runGroup) idle() bool { return g.active.Load() == 0 }
+
 // WaitRuns waits for all run goroutines launched by this session to exit,
-// or for the context to be done.
+// or for the context to be done. A run set that has already finished wins
+// over an already-cancelled context: it reports completion synchronously
+// rather than racing the waiter goroutine against ctx.Done().
 func (s *Session) WaitRuns(ctx context.Context) bool {
+	if s.runs.idle() {
+		return true
+	}
 	done := make(chan struct{})
 	go func() {
 		s.runs.Wait()

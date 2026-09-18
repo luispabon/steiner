@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -601,13 +600,11 @@ func TestSessionWaitRunsPrefersFinishedRunWithCancelledContext(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
-		runtime.Gosched()
-		if s.WaitRuns(ctx) {
-			return
-		}
+	// The run has already finished, so WaitRuns must prefer it over the
+	// cancelled context in a single deterministic call.
+	if !s.WaitRuns(ctx) {
+		t.Fatal("WaitRuns did not prefer the finished run with a cancelled context")
 	}
-	t.Fatal("WaitRuns did not prefer the finished run with a cancelled context")
 }
 
 func TestRotateSession(t *testing.T) {
