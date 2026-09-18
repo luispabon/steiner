@@ -10,7 +10,7 @@ import (
 )
 
 func TestDefaultConfigProjectContextFilesDefaultToNil(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 
 	if !reflect.DeepEqual(cfg.ProjectContext.ExtraFiles, []string(nil)) {
 		t.Fatalf("project_context.extra_files = %#v, want nil", cfg.ProjectContext.ExtraFiles)
@@ -21,7 +21,7 @@ func TestDefaultConfigProjectContextFilesDefaultToNil(t *testing.T) {
 }
 
 func TestDefaultConfigProjectContextMaxBytes(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 
 	if got, want := cfg.ProjectContext.MaxBytes, 8000; got != want {
 		t.Fatalf("project_context.max_bytes = %d, want %d", got, want)
@@ -81,7 +81,7 @@ func TestProjectContextMaxBytesConversion(t *testing.T) {
 }
 
 func TestDefaultConfigRetryDefaults(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 
 	want := RetryConfig{
 		Enabled:        true,
@@ -96,35 +96,35 @@ func TestDefaultConfigRetryDefaults(t *testing.T) {
 }
 
 func TestDefaultConfigThinkingChunkDefaultsToFalse(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.Logging.ThinkingChunk {
 		t.Fatal("default logging.thinking_chunk = true, want false")
 	}
 }
 
 func TestDefaultConfigAssistantChunkDefaultsToFalse(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.Logging.AssistantChunk {
 		t.Fatal("default logging.assistant_chunk = true, want false")
 	}
 }
 
 func TestDefaultConfigReadAnnotationsDefaultsToTrue(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if !cfg.ContextManagement.ReadAnnotations {
 		t.Fatal("context_management.read_annotations = false, want true")
 	}
 }
 
 func TestDefaultConfigWorkflowHandoffDefaultsToEmpty(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if len(cfg.Models.Profiles["default"].WorkflowHandoff) != 0 {
 		t.Fatalf("workflow_handoff.models = %#v, want empty", cfg.Models.Profiles["default"].WorkflowHandoff)
 	}
 }
 
 func TestDefaultConfigDesktopNotificationsDefaultsToFalseAndZero(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.DesktopNotifications.Enabled {
 		t.Fatal("desktop_notifications.enabled = true, want false")
 	}
@@ -134,7 +134,7 @@ func TestDefaultConfigDesktopNotificationsDefaultsToFalseAndZero(t *testing.T) {
 }
 
 func TestDefaultConfigUpdateCheckDefaultsToTrueAndSixHours(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if !cfg.UpdateCheck.Enabled {
 		t.Fatal("update_check.enabled = false, want true")
 	}
@@ -144,7 +144,7 @@ func TestDefaultConfigUpdateCheckDefaultsToTrueAndSixHours(t *testing.T) {
 }
 
 func TestDefaultConfigOneShotDefaultsToEmpty(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if len(cfg.Models.Profiles["default"].OneShot) != 0 {
 		t.Fatalf("oneshot.models = %#v, want empty", cfg.Models.Profiles["default"].OneShot)
 	}
@@ -154,7 +154,7 @@ func TestDefaultConfigOneShotDefaultsToEmpty(t *testing.T) {
 }
 
 func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.Advisor.Enabled {
 		t.Fatal("advisor.enabled = true, want false")
 	}

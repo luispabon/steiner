@@ -29,6 +29,7 @@ func applyCLIOverrides(cfg *Config, cli CLIOverrides) error {
 // normalizePaths expands ~ to home directory in path fields.
 func normalizePaths(cfg *Config, homeDir string) {
 	cfg.Logging.File = expandHomePath(cfg.Logging.File, homeDir)
+	cfg.Logging.CompactionLogFile = expandHomePath(cfg.Logging.CompactionLogFile, homeDir)
 	cfg.Diagnostics.Dir = expandHomePath(cfg.Diagnostics.Dir, homeDir)
 
 	for i := range cfg.ProjectContext.ExtraFiles {
@@ -53,6 +54,7 @@ func normalizePaths(cfg *Config, homeDir string) {
 	for i := range cfg.Sandbox.HostMounts {
 		cfg.Sandbox.HostMounts[i].Path = expandHomePath(cfg.Sandbox.HostMounts[i].Path, homeDir)
 	}
+	cfg.LSP.CacheDir = expandHomePath(cfg.LSP.CacheDir, homeDir)
 }
 
 func expandHomePath(path, homeDir string) string {
