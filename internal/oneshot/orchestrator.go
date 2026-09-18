@@ -100,7 +100,7 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 		previousPhase = phase
 	}
 
-	o.finalizeRun(ctx, &manifest, planningPath)
+	o.finalizeRun(ctx, store, &manifest, planningPath)
 
 	return manifest, nil
 }
@@ -290,7 +290,7 @@ func (o *Orchestrator) tryFailureReport(ctx context.Context, manifest *Manifest,
 }
 
 // finalizeRun generates the final report and runs closeout for a successful run.
-func (o *Orchestrator) finalizeRun(ctx context.Context, manifest *Manifest, planningPath string) {
+func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, manifest *Manifest, planningPath string) {
 	if manifest == nil || strings.TrimSpace(manifest.RunID) == "" {
 		return
 	}
@@ -329,5 +329,11 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, manifest *Manifest, plan
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("closeout: %v", closeoutErr))
 		return
 	}
-	_ = result
+	manifest.CloseoutURL = result.URL
+	manifest.CloseoutProvider = result.Provider
+	manifest.CloseoutState = result.State
+	manifest.CloseoutNote = result.Note
+	if err := store.Write(*manifest); err != nil {
+		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("write manifest with closeout result: %v", err))
+	}
 }

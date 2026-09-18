@@ -48,5 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create dev release/* --prerelease --title "dev" --notes "Development build from main" || true
+          if ! gh release view dev >/dev/null 2>&1; then
+            gh release create dev release/* --prerelease --title "dev" --notes "Development build from main"
+          fi
           gh release upload dev release/* --clobber

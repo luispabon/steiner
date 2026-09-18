@@ -219,8 +219,8 @@ func DirtyPaths(ctx context.Context, projectRoot string) ([]string, error) {
 // ListCodeWorktrees lists all provisioned code worktrees owned by delegation under
 // projectRoot/.steiner/worktrees, parsing git worktree list --porcelain.
 // Only includes worktrees whose branch name starts with "delegate/" (the delegation ownership marker).
-func ListCodeWorktrees(projectRoot string) ([]CodeWorktree, error) {
-	entries, err := listWorktreeEntries(context.Background(), projectRoot)
+func ListCodeWorktrees(ctx context.Context, projectRoot string) ([]CodeWorktree, error) {
+	entries, err := listWorktreeEntries(ctx, projectRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -244,8 +244,8 @@ func ListCodeWorktrees(projectRoot string) ([]CodeWorktree, error) {
 }
 
 // ListProcessCodeWorktrees lists delegation-owned code worktrees created by this process.
-func ListProcessCodeWorktrees(_ context.Context, projectRoot string) ([]CodeWorktree, error) {
-	worktrees, err := ListCodeWorktrees(projectRoot)
+func ListProcessCodeWorktrees(ctx context.Context, projectRoot string) ([]CodeWorktree, error) {
+	worktrees, err := ListCodeWorktrees(ctx, projectRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +429,7 @@ func PruneAllCodeWorktrees(ctx context.Context, projectRoot string) (int, error)
 	worktreeMu.Lock()
 	defer worktreeMu.Unlock()
 
-	worktrees, err := ListCodeWorktrees(projectRoot)
+	worktrees, err := ListCodeWorktrees(ctx, projectRoot)
 	if err != nil {
 		return 0, err
 	}
@@ -488,7 +488,7 @@ func PruneProcessCodeWorktrees(ctx context.Context, projectRoot string) (int, er
 	worktreeMu.Lock()
 	defer worktreeMu.Unlock()
 
-	worktrees, err := ListCodeWorktrees(projectRoot)
+	worktrees, err := ListCodeWorktrees(ctx, projectRoot)
 	if err != nil {
 		return 0, err
 	}
