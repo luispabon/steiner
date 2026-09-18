@@ -900,7 +900,7 @@ func TestUpdateSearchPickerSpaceKeyAppendsLiteralSpace(t *testing.T) {
 	scrollOffset := 0
 	candidates := []string{}
 	allEntries := []string{"foo bar"}
-	filter := func(q string, entries []string) []string { return entries }
+	filter := func(_ string, entries []string) []string { return entries }
 
 	msg := tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 	result := updateSearchPicker(&query, &selection, &scrollOffset, &candidates, allEntries, msg, filter)
