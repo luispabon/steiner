@@ -6,6 +6,8 @@ import (
 	"testing"
 	"unsafe"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -221,7 +223,12 @@ func TestStatusBarTruncatesSingleLongSegment(t *testing.T) {
 		styles: styles,
 	}
 	result := stripANSI(s.view(40))
-	if len(result) > 40 {
-		t.Errorf("rendered status bar width = %d, want <= 40; content = %q", len(result), result)
+	for _, line := range strings.Split(result, "\n") {
+		if w := lipgloss.Width(line); w > 40 {
+			t.Errorf("rendered status bar line width = %d, want <= 40; line = %q", w, line)
+		}
+	}
+	if lines := strings.Split(result, "\n"); len(lines) > 1 {
+		t.Errorf("rendered status bar wrapped into %d lines, want 1; content = %q", len(lines), result)
 	}
 }

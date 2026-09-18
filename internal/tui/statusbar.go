@@ -93,7 +93,8 @@ func (s statusState) view(width int) string {
 			}
 		}
 		if lipgloss.Width(text) > width {
-			text = lipgloss.NewStyle().MaxWidth(width).Render(text)
+			innerWidth := max(1, width-s.styles.StatusBar.GetHorizontalFrameSize())
+			text = lipgloss.NewStyle().MaxWidth(innerWidth).Render(text)
 		}
 	}
 	// WithBg is required: lipgloss resets inside the status bar content would

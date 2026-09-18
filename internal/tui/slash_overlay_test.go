@@ -484,11 +484,15 @@ func TestSlashOverlayViewDoesNotOverflowOnLongSkillCommand(t *testing.T) {
 	plain := stripANSI(view)
 	lines := strings.Split(plain, "\n")
 
+	// The box (see View()'s final PaletteOverlay.Width(innerW+4).Padding(1, 1))
+	// wraps content of innerW in a 1-cell border plus 1-cell padding on each
+	// side, so the outer rendered box is innerW+4 wide, not innerW.
 	innerW := overlay.slashOverlayInnerWidth()
+	boxWidth := innerW + 4
 	for _, line := range lines {
 		lineWidth := len([]rune(line))
-		if lineWidth > innerW && lineWidth > 0 {
-			t.Errorf("line width = %d, want <= %d (overlay inner width). line = %q", lineWidth, innerW, line)
+		if lineWidth > boxWidth && lineWidth > 0 {
+			t.Errorf("line width = %d, want <= %d (overlay box width). line = %q", lineWidth, boxWidth, line)
 		}
 	}
 }
