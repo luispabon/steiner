@@ -63,7 +63,8 @@ func provisionWorktreeAt(ctx context.Context, projectRoot string, identity RunId
 	}, nil
 }
 
-// CleanupWorktree prunes worktree metadata, removes the checkout, and removes stale admin dirs.
+// CleanupWorktree prunes worktree metadata, removes the checkout and stale admin dirs,
+// then discards the run branch. Cleanup means discard, so the branch is force deleted.
 func CleanupWorktree(ctx context.Context, projectRoot string, identity RunIdentity) error {
 	worktreePath := identity.WorktreePath(projectRoot)
 	if err := runGit(ctx, projectRoot, "worktree", "prune"); err != nil {
@@ -79,6 +80,13 @@ func CleanupWorktree(ctx context.Context, projectRoot string, identity RunIdenti
 	}
 	if err := removeWorktreeAdminDir(ctx, projectRoot, identity); err != nil {
 		return err
+	}
+
+	branchName := identity.BranchName()
+	if branchExists(ctx, projectRoot, branchName) {
+		if err := runGit(ctx, projectRoot, "branch", "-D", branchName); err != nil {
+			return err
+		}
 	}
 	return nil
 }
