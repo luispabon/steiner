@@ -34,12 +34,20 @@ func NewWebSearchTool(searcher web.Searcher) tool.ToolDef {
 				return nil, fmt.Errorf("web_search: query is required")
 			}
 
+			if searcher == nil {
+				return nil, fmt.Errorf("web_search: search backend is unavailable")
+			}
+
 			result, err := searcher.Search(ctx, &web.SearchInput{
 				Query: in.Query,
 				Limit: in.Limit,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("web_search: %w", err)
+			}
+
+			if result == nil {
+				return nil, fmt.Errorf("web_search: searcher returned nil result")
 			}
 
 			items := make([]webSearchResultItem, len(result.Items))

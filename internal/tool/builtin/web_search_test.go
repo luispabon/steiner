@@ -22,6 +22,13 @@ func (m *mockSearcher) Search(_ context.Context, _ *web.SearchInput) (*web.Searc
 	return &web.SearchOutput{Items: m.results}, nil
 }
 
+// nilResultSearcher is a test mock that returns (nil, nil).
+type nilResultSearcher struct{}
+
+func (nilResultSearcher) Search(_ context.Context, _ *web.SearchInput) (*web.SearchOutput, error) {
+	return nil, nil
+}
+
 func TestNewWebSearchTool(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -97,6 +104,23 @@ func TestNewWebSearchTool(t *testing.T) {
 				results: []web.SearchItem{},
 			},
 			wantResults: []webSearchResultItem{},
+		},
+		{
+			name:        "nil searcher returns error",
+			input:       map[string]any{"query": "test", "limit": 10},
+			searcher:    nil,
+			wantErr:     true,
+			wantErrText: "web_search: search backend is unavailable",
+		},
+		{
+			name: "searcher returning nil result returns error",
+			input: map[string]any{
+				"query": "test",
+				"limit": 10,
+			},
+			searcher:    &nilResultSearcher{},
+			wantErr:     true,
+			wantErrText: "web_search: searcher returned nil result",
 		},
 	}
 
