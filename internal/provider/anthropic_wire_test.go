@@ -847,11 +847,12 @@ func TestAnthropicCacheControl_OnSecondToLastUserMessage(t *testing.T) {
 
 	// Also verify final message has a marker
 	finalMsg := wire.Messages[2]
-	if len(finalMsg.Content) > 0 {
-		finalBlock := finalMsg.Content[len(finalMsg.Content)-1]
-		if finalBlock.CacheControl == nil {
-			t.Fatal("final message last block CacheControl = nil, want cache control marker")
-		}
+	if len(finalMsg.Content) == 0 {
+		t.Fatal("final message has no content blocks")
+	}
+	finalBlock := finalMsg.Content[len(finalMsg.Content)-1]
+	if finalBlock.CacheControl == nil {
+		t.Fatal("final message last block CacheControl = nil, want cache control marker")
 	}
 }
 
@@ -960,12 +961,16 @@ func TestAnthropicCacheControl_MaxBreakpointsNotExceeded(t *testing.T) {
 	wire := anthropicRequestWire(request, "default-model", false)
 
 	countBreakpoints := 0
-	if len(wire.System) > 0 && wire.System[len(wire.System)-1].CacheControl != nil {
-		countBreakpoints++
+	for _, block := range wire.System {
+		if block.CacheControl != nil {
+			countBreakpoints++
+		}
 	}
 	for _, msg := range wire.Messages {
-		if len(msg.Content) > 0 && msg.Content[len(msg.Content)-1].CacheControl != nil {
-			countBreakpoints++
+		for _, block := range msg.Content {
+			if block.CacheControl != nil {
+				countBreakpoints++
+			}
 		}
 	}
 
