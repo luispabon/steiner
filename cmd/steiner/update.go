@@ -72,6 +72,40 @@ func resolveUpdateTarget(cmd *cobra.Command, devFlag bool, args []string) (targe
 	return targetVersion, requestedChannel, nil
 }
 
+func runUpdateCheck(cmd *cobra.Command, requestedChannel, targetVersion, token string) (bool, error) {
+	sp := NewSpinner(cmd.OutOrStdout(), "checking version")
+	sp.Start()
+	latestVer, needsUpdate, err := checkFunc(cmd.Context(), version, "luispabon", "steiner", token, requestedChannel, targetVersion)
+	sp.Clear()
+
+	if err != nil {
+		// best-effort: terminal write
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s %s\n", crossMark(), err.Error())
+		return false, err
+	}
+
+	printVersionLine(cmd.OutOrStdout(), "Current:", displayVersion(version))
+	printVersionLine(cmd.OutOrStdout(), "Latest:", displayVersion(latestVer))
+
+	if !needsUpdate {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  "+checkMark()+" Up to date")
+	}
+	return needsUpdate, nil
+}
+
+func runUpdateApply(cmd *cobra.Command, requestedChannel, targetVersion, token string) error {
+	sp := NewSpinner(cmd.OutOrStdout(), "updating...")
+	sp.Start()
+	_, err := applyFunc(cmd.Context(), version, "luispabon", "steiner", token, requestedChannel, targetVersion)
+	if err != nil {
+		sp.Stop(false, err.Error())
+		return err
+	}
+
+	sp.Stop(true, "updated")
+	return nil
+}
+
 func newUpdateCommand() *cobra.Command {
 	var devFlag bool
 
@@ -91,39 +125,11 @@ func newUpdateCommand() *cobra.Command {
 			}
 
 			token := os.Getenv("STEINER_GITHUB_TOKEN")
-
-			// Check phase.
-			sp := NewSpinner(cmd.OutOrStdout(), "checking version")
-			sp.Start()
-			latestVer, needsUpdate, err := checkFunc(cmd.Context(), version, "luispabon", "steiner", token, requestedChannel, targetVersion)
-			sp.Clear()
-
-			if err != nil {
-				// best-effort: terminal write
-				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s %s\n", crossMark(), err.Error())
+			needsUpdate, err := runUpdateCheck(cmd, requestedChannel, targetVersion, token)
+			if err != nil || !needsUpdate {
 				return err
 			}
-
-			printVersionLine(cmd.OutOrStdout(), "Current:", displayVersion(version))
-			printVersionLine(cmd.OutOrStdout(), "Latest:", displayVersion(latestVer))
-
-			if !needsUpdate {
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  "+checkMark()+" Up to date")
-				return nil
-			}
-
-			// Apply phase.
-			sp2 := NewSpinner(cmd.OutOrStdout(), "updating...")
-			sp2.Start()
-			_, err = applyFunc(cmd.Context(), version, "luispabon", "steiner", token, requestedChannel, targetVersion)
-
-			if err != nil {
-				sp2.Stop(false, err.Error())
-				return err
-			}
-
-			sp2.Stop(true, "updated")
-			return nil
+			return runUpdateApply(cmd, requestedChannel, targetVersion, token)
 		},
 	}
 
