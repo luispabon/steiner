@@ -229,6 +229,12 @@ func TestCodexWSProbe(t *testing.T) {
 	}
 	t.Logf("Request 1: received %d frames", len(responses1))
 
+	// Fail fast if baseline response didn't yield a non-empty turn state.
+	// If cachedTurnState is empty, request 2 and 3 cannot test reuse/rejection properly.
+	if cachedTurnState == "" {
+		t.Skip("baseline response did not provide a turn-state in metadata; cannot test cross-request caching")
+	}
+
 	// Request 2: reuse captured turn-state.
 	responses2, err := sendRequest(2, cachedTurnState)
 	if err != nil {

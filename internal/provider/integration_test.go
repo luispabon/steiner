@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -294,6 +295,13 @@ func TestIntegrationChatCompletionHTTPError(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error for HTTP %d", tt.statusCode)
 			}
+			var httpErr *HTTPError
+			if !errors.As(err, &httpErr) {
+				t.Fatalf("error not HTTPError: %v", err)
+			}
+			if httpErr.StatusCode != tt.statusCode {
+				t.Fatalf("StatusCode = %d, want %d", httpErr.StatusCode, tt.statusCode)
+			}
 		})
 	}
 }
@@ -480,6 +488,13 @@ func TestIntegrationStreamChatCompletionHTTPError(t *testing.T) {
 			}
 			if chunk.Error == "" {
 				t.Fatal("error chunk Error = empty, want error message")
+			}
+			var httpErr *HTTPError
+			if !errors.As(chunk.OriginalError, &httpErr) {
+				t.Fatalf("OriginalError not HTTPError: %v", chunk.OriginalError)
+			}
+			if httpErr.StatusCode != tt.statusCode {
+				t.Fatalf("StatusCode = %d, want %d", httpErr.StatusCode, tt.statusCode)
 			}
 			if _, ok := <-ch; ok {
 				t.Fatal("stream produced unexpected extra chunk after error")

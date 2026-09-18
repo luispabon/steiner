@@ -282,11 +282,29 @@ func TestStreamErrorLogger_Log(t *testing.T) {
 		if len(records) != 2 {
 			t.Fatalf("expected 2 records, got %d", len(records))
 		}
+
+		// Check first record shape
 		if records[0].Outcome != "retried" {
 			t.Errorf("records[0].Outcome = %q, want %q", records[0].Outcome, "retried")
 		}
+		if records[0].Attempts != 1 {
+			t.Errorf("records[0].Attempts = %d, want 1", records[0].Attempts)
+		}
+
+		// Check second record shape
 		if records[1].Outcome != "exhausted" {
 			t.Errorf("records[1].Outcome = %q, want %q", records[1].Outcome, "exhausted")
+		}
+		if records[1].Attempts != 3 {
+			t.Errorf("records[1].Attempts = %d, want 3", records[1].Attempts)
+		}
+
+		// Check for trailing decode errors
+		if dec.More() {
+			t.Error("unexpected extra records in stream")
+		}
+		if err := dec.Decode(&struct{}{}); err == nil {
+			t.Error("expected decode to fail at EOF, but succeeded")
 		}
 	})
 }

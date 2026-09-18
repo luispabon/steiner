@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -180,6 +181,13 @@ func TestOpenAICompatStreamChatCompletionReportsStreamErrors(t *testing.T) {
 	}
 	if chunk.Error == "" {
 		t.Fatal("error chunk Error = empty, want upstream error")
+	}
+	var httpErr *HTTPError
+	if !errors.As(chunk.OriginalError, &httpErr) {
+		t.Fatalf("OriginalError not HTTPError: %v", chunk.OriginalError)
+	}
+	if httpErr.StatusCode != http.StatusBadGateway {
+		t.Fatalf("StatusCode = %d, want %d", httpErr.StatusCode, http.StatusBadGateway)
 	}
 	if _, ok := <-ch; ok {
 		t.Fatal("stream produced unexpected extra chunk after error")
