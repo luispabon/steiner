@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -144,13 +145,17 @@ func TestExitFlowCountErrorExits(t *testing.T) {
 	controller := &testController{}
 	m := newModel(Config{Controller: controller}, nil)
 	m.exitFlowPhase = exitFlowPhaseCounting
+	errCount := errors.New("count failed")
 
-	m.handleWorktreeCountMsg(worktreeCountMsg{err: errors.New("count failed")})
+	m.handleWorktreeCountMsg(worktreeCountMsg{err: errCount})
 	if m.exitFlowPhase != exitFlowPhaseNone {
 		t.Fatalf("exit phase = %d, want none", m.exitFlowPhase)
 	}
 	if m.worktreeCleanupModal.IsOpen() {
 		t.Fatal("count error opened cleanup modal")
+	}
+	if got := m.content.String(80); !strings.Contains(got, errCount.Error()) {
+		t.Fatalf("content = %q, want count error", got)
 	}
 	if got := controller.countRequestExit(); got != 1 {
 		t.Fatalf("RequestExit count = %d, want 1", got)
