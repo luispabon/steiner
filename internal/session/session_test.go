@@ -97,11 +97,6 @@ func TestFork(t *testing.T) {
 				t.Errorf("forked UpdatedAt should be after original UpdatedAt")
 			}
 
-			// Check lineage is cloned (not same reference)
-			if &forked.Lineage == &original.Lineage {
-				t.Errorf("forked lineage should be a different object from original")
-			}
-
 			// Check lineage content is equivalent
 			if len(forked.Lineage.Generations) != len(original.Lineage.Generations) {
 				t.Errorf("forked lineage should have same number of generations, got %d want %d",
