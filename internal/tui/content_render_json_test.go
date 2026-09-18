@@ -287,3 +287,61 @@ func TestBuildJSONLinesFallsBackToPlain(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildJSONLinesErrorTextEscapesNewlines(t *testing.T) {
+	t.Parallel()
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	result := `{"ok":false,"error":{"message":"error line 1\nerror line 2"}}`
+	lines := b.buildJSONLines(&toolCallSegment{body: result})
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	rendered := stripANSI(lines[0])
+	if strings.Contains(rendered, "\n") {
+		t.Fatalf("rendered error contains unescaped newline: %q", rendered)
+	}
+	if !strings.Contains(rendered, "\\n") {
+		t.Fatalf("rendered error missing escaped newline: %q", rendered)
+	}
+}
+
+func TestBuildJSONLinesErrorTextEscapesANSI(t *testing.T) {
+	t.Parallel()
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	ansiEscape := "\x1b[31m"
+	result := `{"ok":false,"error":{"message":"error with ` + ansiEscape + `color"}}`
+	lines := b.buildJSONLines(&toolCallSegment{body: result})
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	raw := lines[0]
+	if strings.Contains(raw, ansiEscape) && !strings.HasPrefix(raw, "\x1b") {
+		t.Fatalf("rendered error contains unescaped ANSI escape from input: %q", raw)
+	}
+}
+
+func TestRenderJSONLineEscapesKeyNewlines(t *testing.T) {
+	t.Parallel()
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	line := jsonLine{indent: 0, prefix: "", key: "key\nwith\nnewlines", value: "value", hasVal: true}
+	rendered := b.renderJSONLine(line)
+	plain := stripANSI(rendered)
+	if strings.Contains(plain, "\n") {
+		t.Fatalf("rendered key contains unescaped newline: %q", plain)
+	}
+	if !strings.Contains(plain, "\\n") {
+		t.Fatalf("rendered key missing escaped newlines: %q", plain)
+	}
+}
+
+func TestRenderJSONLineEscapesKeyANSI(t *testing.T) {
+	t.Parallel()
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	ansiEscape := "\x1b[31m"
+	line := jsonLine{indent: 0, prefix: "", key: "key" + ansiEscape + "test", value: "value", hasVal: true}
+	rendered := b.renderJSONLine(line)
+	raw := rendered
+	if strings.Contains(raw, ansiEscape) && !strings.HasPrefix(raw, "\x1b") {
+		t.Fatalf("rendered key contains unescaped ANSI escape from input: %q", raw)
+	}
+}

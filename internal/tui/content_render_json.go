@@ -97,7 +97,7 @@ func (b *contentBuffer) buildJSONLines(tc *toolCallSegment) []string {
 		return b.buildPlainLines(tc)
 	}
 	if errorText != "" {
-		return []string{b.styles.Removed.Render("✗ " + errorText)}
+		return []string{b.styles.Removed.Render("✗ " + jsonScalarText(errorText))}
 	}
 
 	logical := make([]jsonLine, 0)
@@ -218,7 +218,7 @@ func jsonScalarText(value any) string {
 func (b *contentBuffer) renderJSONLine(line jsonLine) string {
 	left := strings.Repeat(" ", line.indent) + line.prefix
 	if line.key != "" {
-		key := b.styles.FgDim.Render(left + line.key + ":")
+		key := b.styles.FgDim.Render(left + jsonScalarText(line.key) + ":")
 		if line.hasVal {
 			return key + " " + line.value
 		}
