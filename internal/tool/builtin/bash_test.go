@@ -77,12 +77,13 @@ func TestBashTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want *BashResult", resultI)
 		}
-		pwdOut := strings.TrimSpace(result.Output)
-		if strings.Contains(pwdOut, "access denied") {
-			return
+		wantDir, err := filepath.EvalSymlinks(tmpDir)
+		if err != nil {
+			t.Fatalf("EvalSymlinks: %v", err)
 		}
-		if !strings.HasSuffix(pwdOut, "/") && pwdOut != tmpDir {
-			t.Fatalf("pwd output = %q, want %q or a path ending with /", pwdOut, tmpDir)
+		pwdOut := strings.TrimSpace(result.Output)
+		if pwdOut != wantDir {
+			t.Fatalf("pwd output = %q, want %q", pwdOut, wantDir)
 		}
 	})
 
@@ -111,7 +112,7 @@ func TestBashTool(t *testing.T) {
 			"timeout_seconds": 1,
 		})
 		if err != nil {
-			return // Go-level error is acceptable for timeout
+			t.Fatalf("unexpected error: %v", err)
 		}
 		result, ok := resultI.(*BashResult)
 		if !ok {

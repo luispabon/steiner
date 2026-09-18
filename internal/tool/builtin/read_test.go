@@ -412,11 +412,9 @@ func TestReadResult_JSONShape(t *testing.T) {
 			t.Fatalf("unmarshal result: %v", err)
 		}
 
-		// Verify next_offset is omitted (not present or null)
+		// Verify next_offset is omitted entirely (the key must be absent).
 		if v, ok := m["next_offset"]; ok {
-			if v != nil && v != 0.0 {
-				t.Errorf("next_offset should be omitted for non-paged read, got: %v", v)
-			}
+			t.Errorf("next_offset key should be absent for non-paged read, got: %v", v)
 		}
 
 		// Verify file_hash is still present

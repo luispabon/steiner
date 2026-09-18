@@ -119,8 +119,10 @@ func TestWorkflowHandoffToolCreatesPendingRequest(t *testing.T) {
 	if payload.Target != ".steiner/plans/step-1" {
 		t.Fatalf("event payload target = %q, want .steiner/plans/step-1", payload.Target)
 	}
-	if strings.TrimSpace(payload.Message) != payload.Message {
-		t.Fatalf("event payload message = %q, want trimmed content", payload.Message)
+	trimmed := []rune(strings.TrimSpace(msg))
+	wantMessage := string(trimmed[:workflowHandoffMessageMaxRunes])
+	if payload.Message != wantMessage {
+		t.Fatalf("event payload message = %q, want %q", payload.Message, wantMessage)
 	}
 }
 
