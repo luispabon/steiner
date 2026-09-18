@@ -660,3 +660,45 @@ func TestOpenOneshotResumePickerRejectsIncompatibleController(t *testing.T) {
 		t.Fatalf("status message = %q, want to contain controller does not support this action", lastSegment.text)
 	}
 }
+
+func TestUpdateSkillStateUnknownSkillRejectsToggle(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{}
+	m := newModel(Config{Controller: ctrl}, nil)
+	m.skillNames = []string{"known-skill"}
+
+	// Attempt to enable an unknown skill
+	m = m.updateSkillState("unknown-skill", true)
+
+	// Should have appended a "not configured" status message
+	lastSegment := m.content.segments[len(m.content.segments)-1]
+	if !strings.Contains(lastSegment.text, "not configured") {
+		t.Errorf("status message = %q, want to contain 'not configured'", lastSegment.text)
+	}
+
+	// Should NOT have sent a SetSkillEnabled action
+	if len(ctrl.actions) != 0 {
+		t.Errorf("controller.actions = %d, want 0 (no SetSkillEnabled sent)", len(ctrl.actions))
+	}
+}
+
+func TestUpdateSkillStateKnownSkillAllowsToggle(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{}
+	m := newModel(Config{Controller: ctrl}, nil)
+	m.skillNames = []string{"known-skill"}
+
+	// Enable a known skill
+	m = m.updateSkillState("known-skill", true)
+
+	// Should have appended an "enabled" status message
+	lastSegment := m.content.segments[len(m.content.segments)-1]
+	if !strings.Contains(lastSegment.text, "enabled") {
+		t.Errorf("status message = %q, want to contain 'enabled'", lastSegment.text)
+	}
+
+	// Should have sent a SetSkillEnabled action
+	if len(ctrl.actions) != 1 {
+		t.Fatalf("controller.actions = %d, want 1", len(ctrl.actions))
+	}
+}

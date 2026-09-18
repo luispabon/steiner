@@ -369,13 +369,15 @@ func projectOverlayItems(oneshotMode bool, skillNames []string, skillDescription
 			source:  sc.Source,
 		})
 	}
-	// Add skill invocation items.
-	for _, name := range skillNames {
-		out = append(out, slashOverlayItem{
-			command: "/" + name,
-			desc:    strings.TrimSpace(skillDescriptions[name]),
-			isSkill: true,
-		})
+	if !oneshotMode {
+		// Add skill invocation items.
+		for _, name := range skillNames {
+			out = append(out, slashOverlayItem{
+				command: "/" + name,
+				desc:    strings.TrimSpace(skillDescriptions[name]),
+				isSkill: true,
+			})
+		}
 	}
 	return out
 }

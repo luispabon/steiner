@@ -1988,3 +1988,60 @@ func TestDelegationFailedElapsedGuardedByStartTime(t *testing.T) {
 		t.Fatal("failed delegation not found in segments")
 	}
 }
+
+func TestAppendEventDropsScopedChildEventsForUnknownAgent(t *testing.T) {
+	t.Parallel()
+	// Test that scoped child transcript events for agents not in activeDelegations
+	// are dropped and do NOT pollute the main transcript.
+	buffer := &contentBuffer{
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
+	}
+
+	// Create a scoped AssistantChunk event for an agent not in activeDelegations
+	event := output.Event{
+		Type: output.EventTypeAssistantChunk,
+		Scope: output.EventScope{
+			AgentID:   "unknown-agent",
+			AgentType: "code",
+		},
+		Payload: output.AssistantChunkEvent{
+			Content: "This should be dropped, not in transcript",
+		},
+	}
+
+	buffer.AppendEvent(event)
+
+	// Verify that no segment was added to the main transcript
+	if len(buffer.segments) != 0 {
+		t.Errorf("scoped event for unknown agent created %d segments, want 0", len(buffer.segments))
+	}
+}
+
+func TestAppendEventAllowsDelegationLifecycleEventsToFallThrough(t *testing.T) {
+	t.Parallel()
+	// Test that delegation lifecycle events (even when scoped) can fall through
+	// to be handled by appendDelegationEvent.
+	buffer := &contentBuffer{
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
+	}
+
+	// A scoped DelegationStarted event should still create an active delegation
+	// even though the agent isn't in activeDelegations yet (first event).
+	event := output.NewDelegationStartedEvent("new-agent", "task preview")
+	buffer.AppendEvent(event)
+
+	// Verify that the delegation was created (via appendDelegationEvent path)
+	loc, ok := buffer.activeDelegations["new-agent"]
+	if !ok || loc.dd == nil {
+		t.Fatal("DelegationStarted event did not create active delegation")
+	}
+	if loc.dd.agentID != "new-agent" {
+		t.Errorf("agent ID = %q, want new-agent", loc.dd.agentID)
+	}
+}

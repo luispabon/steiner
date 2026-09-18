@@ -119,6 +119,17 @@ func (m *Model) updateSkillState(skill string, enable bool) *Model {
 	if m.enabledSkills == nil {
 		m.enabledSkills = make(map[string]bool, len(m.skillNames))
 	}
+	configured := false
+	for _, name := range m.skillNames {
+		if name == skill {
+			configured = true
+			break
+		}
+	}
+	if !configured {
+		m.content.AppendLine(fmt.Sprintf("status: skill %s is not configured", skill))
+		return m
+	}
 
 	if enable {
 		for _, name := range m.skillNames {

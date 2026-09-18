@@ -233,29 +233,32 @@ func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
 }
 
 func (b *contentBuffer) appendUserInputEvent(event output.Event) {
-	if payload, ok := event.Payload.(output.UserInputEvent); ok && strings.TrimSpace(payload.Content) != "" {
+	payload, ok := event.Payload.(output.UserInputEvent)
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(payload.Content) != "" {
 		idx := len(b.segments)
 		if b.collapseState == nil {
 			b.collapseState = make(map[int]bool)
 		}
 		b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: payload.Content, timestamp: timeNow(), renderDirty: true})
 		b.collapseState[idx] = false
-
-		if len(payload.Images) > 0 {
-			images := make([]agent.ImageBlock, len(payload.Images))
-			for i, img := range payload.Images {
-				images[i] = agent.ImageBlock{
-					ID:        img.ID,
-					FilePath:  img.FilePath,
-					MediaType: img.MediaType,
-					Data:      img.Data,
-					Width:     img.Width,
-					Height:    img.Height,
-					SizeBytes: img.SizeBytes,
-				}
+	}
+	if len(payload.Images) > 0 {
+		images := make([]agent.ImageBlock, len(payload.Images))
+		for i, img := range payload.Images {
+			images[i] = agent.ImageBlock{
+				ID:        img.ID,
+				FilePath:  img.FilePath,
+				MediaType: img.MediaType,
+				Data:      img.Data,
+				Width:     img.Width,
+				Height:    img.Height,
+				SizeBytes: img.SizeBytes,
 			}
-			b.AppendImagesAttached(images, b.workingDir, b.homeDir)
 		}
+		b.AppendImagesAttached(images, b.workingDir, b.homeDir)
 	}
 }
 
