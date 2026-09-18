@@ -3548,7 +3548,19 @@ func TestModelSlashOverlay_TabInsertsCommand(t *testing.T) {
 		t.Fatal("expected slash overlay to open")
 	}
 	if len(m.slashOverlay.candidates) == 0 {
-		t.Skip("no candidates")
+		t.Fatalf("no command candidates available (command registration broken?); expected at least /clear, /exit, or other built-in commands")
+	}
+
+	// Ensure at least a known command exists (not a registration failure)
+	hasKnownCommand := false
+	for _, cand := range m.slashOverlay.candidates {
+		if cand.command == "/clear" || cand.command == "/exit" || cand.command == "/compact" {
+			hasKnownCommand = true
+			break
+		}
+	}
+	if !hasKnownCommand {
+		t.Fatalf("no known built-in commands found in candidates; likely a registration regression")
 	}
 
 	selected := m.slashOverlay.candidates[m.slashOverlay.selection]
