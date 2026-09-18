@@ -43,10 +43,10 @@ func (s *probeSession) DidClose(ctx context.Context, _ string) error {
 	return ctx.Err()
 }
 
-func (s *probeSession) closeCall() (context.Context, error, time.Time, bool) {
+func (s *probeSession) closeCall() (context.Context, time.Time, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.ctx, s.ctxErr, s.deadline, s.hasDL
+	return s.ctx, s.deadline, s.hasDL, s.ctxErr
 }
 
 // TestWithDocumentDidCloseIsBoundedAndDetached pins that the best-effort
@@ -68,7 +68,7 @@ func TestWithDocumentDidCloseIsBoundedAndDetached(t *testing.T) {
 		t.Fatalf("withDocument: %v", err)
 	}
 
-	closeCtx, closeErr, deadline, hasDeadline := sess.closeCall()
+	closeCtx, deadline, hasDeadline, closeErr := sess.closeCall()
 	if closeCtx == nil {
 		t.Fatal("DidClose was not called")
 	}
@@ -191,8 +191,9 @@ func TestClientHandlerPublishDiagnosticsDropsOldestWhenFull(t *testing.T) {
 // TestEntryForKeyRecordsLastUsedUnderEntryLock pins that entryForKey refreshes
 // LastUsed under ent.mu, the lock that guards every other ServerState field.
 // The reader goroutine below holds only ent.mu, matching entryForKey's own state
-// machine (and doReap's state read); a LastUsed write that skipped ent.mu is a
-// data race with it and fails under -race.
+// machine, whose Status/StartedAt/Err accesses are guarded by ent.mu alone. A
+// LastUsed write that skipped ent.mu is a data race with it and fails under
+// -race.
 func TestEntryForKeyRecordsLastUsedUnderEntryLock(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.LSPConfig{
