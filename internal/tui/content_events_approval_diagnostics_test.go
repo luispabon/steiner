@@ -204,3 +204,185 @@ func TestApprovalPillAgentLabel(t *testing.T) {
 		})
 	}
 }
+
+func TestCompactionBannerElapsedMeasuresFromFirstEventEvenWithInterleaved(t *testing.T) {
+	t.Parallel()
+	b := &contentBuffer{
+		collapseState: make(map[int]bool),
+	}
+
+	// Override nanoNow to control time in the test
+	savedNanoNow := nanoNow
+	defer func() { nanoNow = savedNanoNow }()
+
+	times := []int64{1000, 3000, 5000}
+	timeIdx := 0
+	nanoNow = func() int64 {
+		defer func() { timeIdx++ }()
+		if timeIdx < len(times) {
+			return times[timeIdx]
+		}
+		return times[len(times)-1]
+	}
+
+	// First compacting event at time=1000
+	timeIdx = 0
+	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
+		Severity:        "compacting",
+		CompactionCount: 1,
+	})
+
+	if len(b.segments) != 1 {
+		t.Fatalf("after first compacting: segments len = %d, want 1", len(b.segments))
+	}
+	seg1 := b.segments[0]
+	if seg1.kind != segmentCompactionBanner || seg1.compactionData == nil || seg1.compactionData.finished {
+		t.Fatal("first segment should be unfinished compaction banner")
+	}
+	firstStartTime := seg1.compactionData.startTime
+
+	// Interleave an unrelated segment (simulating delegation or other content)
+	b.segments = append(b.segments, contentSegment{
+		kind: segmentPlain,
+	})
+
+	if len(b.segments) != 2 {
+		t.Fatalf("after interleaved: segments len = %d, want 2", len(b.segments))
+	}
+
+	// Second compacting event at time=3000
+	timeIdx = 1
+	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
+		Severity:        "compacting",
+		CompactionCount: 2,
+	})
+
+	// Should still have 2 segments (the plain one didn't get removed)
+	// The original banner should still exist and should have been updated with the new count
+	foundUpdatedBanner := false
+	for i, seg := range b.segments {
+		if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
+			if i != 0 {
+				t.Fatalf("found unfinished banner at index %d, should be at 0", i)
+			}
+			// The banner should have been updated with the new compaction count
+			if seg.compactionData.compactionCount != 2 {
+				t.Errorf("after second event, compactionCount = %d, want 2", seg.compactionData.compactionCount)
+			}
+			// Crucially, startTime should still be from the FIRST event, not the second
+			if seg.compactionData.startTime != firstStartTime {
+				t.Errorf("startTime changed: got %d, want %d (from first event)", seg.compactionData.startTime, firstStartTime)
+			}
+			foundUpdatedBanner = true
+			break
+		}
+	}
+	if !foundUpdatedBanner {
+		t.Fatal("unfinished compaction banner not found after second event")
+	}
+
+	// Completion event at time=5000
+	timeIdx = 2
+	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
+		Severity:           "compact",
+		CompactedMessages:  10,
+		CompactionCount:    2,
+		CompactedTurns:     1,
+		RetainedTurns:      5,
+		RetainedMessages:   50,
+		BeforePromptTokens: 1000,
+		AfterPromptTokens:  500,
+		BeforeUsagePercent: 80,
+		AfterUsagePercent:  40,
+	})
+
+	// Should still have 2 segments; the plain segment stays
+	if len(b.segments) != 2 {
+		t.Fatalf("after completion: segments len = %d, want 2", len(b.segments))
+	}
+
+	// First segment should be the completed banner
+	completedBanner := b.segments[0]
+	if completedBanner.kind != segmentCompactionBanner || completedBanner.compactionData == nil {
+		t.Fatal("first segment should be completed banner")
+	}
+	if !completedBanner.compactionData.finished {
+		t.Fatal("banner should be finished")
+	}
+	if completedBanner.compactionData.startTime != firstStartTime {
+		t.Errorf("completed banner startTime = %d, want %d", completedBanner.compactionData.startTime, firstStartTime)
+	}
+	// Elapsed should be measured from first event (1000) to completion (5000) = 4000 nanos
+	// which is much less than a second, so it should render as "0ms" or similar
+	if completedBanner.compactionData.elapsed == "" {
+		t.Error("elapsed should not be empty for banner with nonzero startTime")
+	}
+
+	// HasActiveCompactions should return false
+	if b.HasActiveCompactions() {
+		t.Error("HasActiveCompactions should be false after completion")
+	}
+}
+
+func TestClearApprovalStateMarksSegmentsRenderDirty(t *testing.T) {
+	t.Parallel()
+	b := &contentBuffer{
+		collapseState: make(map[int]bool),
+	}
+
+	// Create tool call segments with approval state
+	toolCall := &toolCallSegment{
+		tool:               "bash",
+		callID:             "call-1",
+		approvalPending:    true,
+		approvalResolved:   true,
+	}
+	toolCallGroup := &toolCallGroupSegment{
+		entries: []*toolCallSegment{
+			{
+				tool:               "read",
+				callID:             "call-2",
+				approvalPending:    true,
+				approvalResolved:   false,
+			},
+		},
+	}
+
+	b.segments = []contentSegment{
+		{
+			kind:        segmentToolCall,
+			toolData:    toolCall,
+			renderDirty: false,
+		},
+		{
+			kind:           segmentToolCallGroup,
+			toolGroupData:  toolCallGroup,
+			renderDirty:    false,
+		},
+	}
+
+	// Clear approval state
+	b.clearApprovalState()
+
+	// Both segments should have been marked renderDirty
+	if !b.segments[0].renderDirty {
+		t.Error("tool call segment should be marked renderDirty after clearApprovalState")
+	}
+	if !b.segments[1].renderDirty {
+		t.Error("tool call group segment should be marked renderDirty after clearApprovalState")
+	}
+
+	// Approval states should be cleared
+	if toolCall.approvalPending {
+		t.Error("toolCall.approvalPending should be false")
+	}
+	if toolCall.approvalResolved {
+		t.Error("toolCall.approvalResolved should be false")
+	}
+	if toolCallGroup.entries[0].approvalPending {
+		t.Error("toolCallGroup entry approvalPending should be false")
+	}
+	if toolCallGroup.entries[0].approvalResolved {
+		t.Error("toolCallGroup entry approvalResolved should be false")
+	}
+}

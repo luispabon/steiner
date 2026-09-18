@@ -1490,9 +1490,12 @@ func TestThinkingBlockSurvivesInterleavedContentChunk(t *testing.T) {
 	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, "visible content", output.ChunkSourceAssistant))
 	buffer.AppendEvent(output.NewThinkingChunkEventWithSource(1, " more reasoning", output.ChunkSourceAssistant))
 
-	// Should have exactly 1 thinking block segment, not 2.
-	if got := len(buffer.segments); got != 1 {
-		t.Fatalf("segments count = %d, want 1 (single thinking block)", got)
+	// With the F505 fix, the assistant buffer is flushed when transitioning from
+	// answer phase to thinking phase, creating separate segments to preserve interleave
+	// order. We should have: thinking block (first reasoning),
+	// markdown (visible content), thinking block (more reasoning).
+	if got := len(buffer.segments); got != 3 {
+		t.Fatalf("segments count = %d, want 3 (thinking, markdown, thinking)", got)
 	}
 
 	if buffer.segments[0].kind != segmentThinkingBlock {
@@ -1501,18 +1504,32 @@ func TestThinkingBlockSurvivesInterleavedContentChunk(t *testing.T) {
 
 	thinkData := buffer.segments[0].thinkData
 	if thinkData == nil {
-		t.Fatal("thinkData = nil, want thinking block")
+		t.Fatal("thinkData[0] = nil, want thinking block")
 	}
 
-	// Verify the merged thinking block contains both reasoning chunks.
-	expectedBody := "first reasoning more reasoning"
-	if got := thinkData.body; got != expectedBody {
-		t.Fatalf("thinkData.body = %q, want %q", got, expectedBody)
+	if thinkData.body != "first reasoning" {
+		t.Fatalf("thinkData[0].body = %q, want %q", thinkData.body, "first reasoning")
 	}
 
-	// Verify stream buffer contains the visible content.
-	if got := strings.TrimSpace(buffer.streamBuffer); !strings.Contains(got, "visible content") {
-		t.Fatalf("streamBuffer = %q, want to contain 'visible content'", got)
+	if buffer.segments[1].kind != segmentAssistantMarkdown {
+		t.Fatalf("segment[1].kind = %v, want segmentAssistantMarkdown", buffer.segments[1].kind)
+	}
+
+	if !strings.Contains(buffer.segments[1].text, "visible content") {
+		t.Fatalf("segment[1].text = %q, want to contain 'visible content'", buffer.segments[1].text)
+	}
+
+	if buffer.segments[2].kind != segmentThinkingBlock {
+		t.Fatalf("segment[2].kind = %v, want segmentThinkingBlock", buffer.segments[2].kind)
+	}
+
+	thinkData2 := buffer.segments[2].thinkData
+	if thinkData2 == nil {
+		t.Fatal("thinkData[2] = nil, want thinking block")
+	}
+
+	if thinkData2.body != " more reasoning" {
+		t.Fatalf("thinkData[2].body = %q, want %q", thinkData2.body, " more reasoning")
 	}
 }
 

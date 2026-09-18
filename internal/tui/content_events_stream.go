@@ -95,7 +95,10 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 	// Flush any assistant text that arrived before this thinking chunk into
 	// its own segment now, so it renders in arrival order instead of being
 	// deferred until the turn's streaming buffer is flushed at turn end.
-	if b.liveThinkingSegment() == nil && strings.TrimSpace(b.streamBuffer) != "" {
+	// Key the flush decision on the current streaming phase (was it "answer" just now?)
+	// rather than on whether a thinking segment happens to be open, to avoid
+	// corrupting interleave order when thinking and answer phases alternate.
+	if b.streamingPhase == "answer" && strings.TrimSpace(b.streamBuffer) != "" {
 		b.appendMarkdownBlock(b.streamBuffer)
 		b.streamBuffer = ""
 	}

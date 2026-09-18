@@ -434,20 +434,13 @@ func (m *Model) handlePhaseTransition(payload output.PhaseTransitionEvent) tea.C
 		// Update model display when oneshot phase transitions to a different model.
 		// PhaseTransitionEvent carries the per-phase model alias resolved by
 		// phaseModelAlias; the sidebar and statusbar must reflect it.
+		// Use applyModelSelection to ensure consistent model, provider, and alias updates.
 		if modelName := strings.TrimSpace(payload.Model); modelName != "" {
-			m.primaryModel = modelName
-			m.status.model = modelName
-			m.status.reasoning = m.reasoningLabels[modelName]
-			m.sidebar.model = modelName
-			m.sidebar.contextBudget = m.contextBudgetForModel(modelName)
-			m.sidebar.reasoning = m.reasoningLabels[modelName]
-			m.sidebar.promptUsed = 0
-			m.sidebar.budgetUsed = 0
-			if m.sidebar.contextBudget > 0 {
-				m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
-			} else {
-				m.status.context = ""
+			providerBaseURL := ""
+			if baseURL, ok := m.modelBaseURLs[modelName]; ok {
+				providerBaseURL = baseURL
 			}
+			m.applyModelSelection(modelName, providerBaseURL)
 		}
 		// Insert phase divider with phase name
 		phaseName := strings.TrimSpace(payload.To)

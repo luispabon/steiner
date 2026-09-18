@@ -740,7 +740,9 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 				dd.toolCallCount = payload.ToolCallCount
 				dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
 			}
-			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+			if dd.startTime > 0 {
+				dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+			}
 			dd.output = payload.Output
 			dd.advisorBudget = payload.AdvisorBudget
 			dd.advisorUses = payload.AdvisorUses
@@ -778,7 +780,9 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 	if loc, active := b.activeDelegations[payload.AgentID]; active {
 		if dd := loc.dd; dd != nil {
 			dd.status = "failed"
-			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+			if dd.startTime > 0 {
+				dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+			}
 			if payload.AdvisorBudget > 0 {
 				dd.advisorBudget = payload.AdvisorBudget
 				dd.advisorUses = payload.AdvisorUses
