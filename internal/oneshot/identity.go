@@ -115,7 +115,10 @@ func ensureSteinerProjectDir(workDir string) error {
 	}
 
 	gitignorePath := filepath.Join(steinerDir, ".gitignore")
-	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
+	if _, err := os.Stat(gitignorePath); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("stat .steiner/.gitignore: %w", err)
+		}
 		if err := os.WriteFile(gitignorePath, []byte("*\n"), 0o644); err != nil {
 			return fmt.Errorf("create .steiner/.gitignore: %w", err)
 		}

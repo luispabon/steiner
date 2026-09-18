@@ -2,6 +2,7 @@ package oneshot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,12 +36,14 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 		store = NewManifestStore(o.deps.Identity.ManifestPath(o.deps.ProjectRoot))
 	}
 
-	lock, err := AcquireRunLock(o.deps.ProjectRoot, o.deps.Identity)
+	lock, err := o.deps.RunLockFactory(o.deps.ProjectRoot, o.deps.Identity)
 	if err != nil {
 		return Manifest{}, err
 	}
 	defer func() {
-		_ = lock.Release()
+		if releaseErr := lock.Release(); releaseErr != nil {
+			err = errors.Join(err, releaseErr)
+		}
 	}()
 
 	interruptCtx, interruptStop := o.deps.InterruptFactory(ctx)

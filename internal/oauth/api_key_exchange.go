@@ -48,7 +48,10 @@ func ExchangeOpenAIAPIKey(ctx context.Context, tokenURL, clientID, idToken strin
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1000))
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1000))
+		if err != nil {
+			return "", fmt.Errorf("read api key exchange error response: %w", err)
+		}
 		return "", fmt.Errorf("exchange api key: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 

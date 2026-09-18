@@ -93,6 +93,11 @@ func TestApplyRemediation(t *testing.T) {
 			wantWarning: true, warningContains: "could not verify", wantError: true,
 		},
 		{
+			name: "non-complete dirty check errors", state: agent.RunState{Conversation: initialState.Conversation, TurnCount: 1, StopReason: agent.StopReasonError},
+			cfg: remediationConfigWithInitialError(errors.New("cannot inspect worktree")), wantOutcome: remediationNotAttempted,
+			wantStatus: StatusFailed, wantWarning: true, warningContains: "could not verify", wantError: false,
+		},
+		{
 			name: "pre-head check errors", state: initialState,
 			cfg:         remediationConfigWithHeadError(errors.New("cannot read HEAD")),
 			wantOutcome: remediationAttempted, wantStatus: StatusFailed, wantOutput: originalOutput,

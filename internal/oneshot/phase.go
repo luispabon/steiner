@@ -53,6 +53,7 @@ type Dependencies struct {
 	Events           output.EventSink
 	DrainSteers      func() []agent.SteerMessage
 	InterruptFactory InterruptFactory
+	RunLockFactory   func(projectRoot string, identity RunIdentity) (*RunLock, error)
 }
 
 // Orchestrator owns the outer oneshot phase loop.
@@ -82,6 +83,9 @@ func NewOrchestrator(deps Dependencies) (*Orchestrator, error) {
 	}
 	if deps.InterruptFactory == nil {
 		deps.InterruptFactory = defaultInterruptFactory
+	}
+	if deps.RunLockFactory == nil {
+		deps.RunLockFactory = AcquireRunLock
 	}
 	return &Orchestrator{deps: deps}, nil
 }
